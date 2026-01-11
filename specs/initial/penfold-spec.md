@@ -1,4 +1,4 @@
-# Context Palace - Product Specification
+# Penfold - Product Specification
 
 ## Document Information
 
@@ -16,7 +16,7 @@
 
 ### 1.1 Vision Statement
 
-Context Palace is a personal AI-powered information system that aggregates, correlates, and surfaces contextual information from disparate communication channels. It transforms fragmented organisational knowledge into a navigable, queryable institutional memory centred on the user.
+Penfold is a personal AI-powered information system that aggregates, correlates, and surfaces contextual information from disparate communication channels. It transforms fragmented organisational knowledge into a navigable, queryable institutional memory centred on the user.
 
 ### 1.2 Problem Statement
 
@@ -34,7 +34,7 @@ Additionally:
 
 ### 1.3 Solution Overview
 
-Context Palace provides:
+Penfold provides:
 
 1. **Unified ingestion** from email, Slack, documents, and meeting summaries
 2. **AI-powered extraction** of assertions (decisions, risks, commitments, context) from raw content
