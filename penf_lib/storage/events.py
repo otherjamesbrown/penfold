@@ -77,16 +77,15 @@ class EventPublisher:
             raise ValueError("Event type and data are required")
 
         # Generate event ID
-        event_id = str(uuid.uuid4())
+        event_uuid = uuid.uuid4()
         channel = channel or event_type
 
         # Create event record
         event = ProcessingEvent(
-            id=event_id,
+            event_id=event_uuid,
             event_type=event_type,
-            channel=channel,
             payload=event_data,
-            priority=priority,
+            publisher=f"event_publisher_{channel}",
             published_at=datetime.now(timezone.utc),
         )
 
@@ -94,21 +93,21 @@ class EventPublisher:
         try:
             self.session.add(event)
             await self.session.commit()
-            logger.debug(f"Stored event {event_id} in PostgreSQL")
+            logger.debug(f"Stored event {event_uuid} in PostgreSQL")
         except SQLAlchemyError as e:
             await self.session.rollback()
-            logger.error(f"Failed to store event {event_id} in PostgreSQL: {e}")
+            logger.error(f"Failed to store event {event_uuid} in PostgreSQL: {e}")
             raise RuntimeError(f"Failed to store event: {e}")
 
         # Try Redis for real-time delivery
-        redis_success = await self._publish_to_redis(channel, event_data, event_id)
+        redis_success = await self._publish_to_redis(channel, event_data, str(event_uuid))
 
         # Fallback to PostgreSQL NOTIFY if Redis fails
         if not redis_success and self.use_postgresql_fallback:
-            await self._publish_to_postgresql(channel, event_data, event_id)
+            await self._publish_to_postgresql(channel, event_data, str(event_uuid))
 
-        logger.info(f"Published event {event_id} to channel {channel}")
-        return event_id
+        logger.info(f"Published event {event_uuid} to channel {channel}")
+        return str(event_uuid)
 
     async def _publish_to_redis(
         self, channel: str, event_data: Dict[str, Any], event_id: str
