@@ -15,6 +15,7 @@ from sqlalchemy import select, and_
 
 from .client import GmailClient
 from .auth import GmailAuthenticator
+from .metadata import GmailMetadataExtractor, ExtractedMetadata
 from ...models.gmail_connection import GmailConnection
 from ...models.email_message import EmailMessage, EmailThread, EmailAttachment
 from ...events.publishers import EmailEventPublisher, SyncEventPublisher
@@ -50,6 +51,7 @@ class GmailSyncManager:
         self.sync_publisher = sync_publisher
         self.attachment_base_path = Path(attachment_base_path or "./attachments")
         self.sync_session_id = str(uuid.uuid4())
+        self.metadata_extractor = GmailMetadataExtractor()
 
     async def sync_historical_emails(
         self,
@@ -261,7 +263,10 @@ class GmailSyncManager:
                 logger.error(f"Failed to fetch message {message_id}: {e}")
                 return None
 
-            # Extract message metadata
+            # Extract comprehensive metadata using metadata extractor
+            extracted_metadata = self.metadata_extractor.extract_metadata(message_data)
+
+            # Extract message metadata (legacy method for compatibility)
             thread_id = message_data['threadId']
             headers = self._extract_headers(message_data['payload'].get('headers', []))
 
@@ -315,27 +320,12 @@ class GmailSyncManager:
             email_message.event_published_at = datetime.utcnow()
             await session.commit()
 
-            # Publish email ingested event
-            await self.email_publisher.publish_email_ingested(
-                gmail_message_id=message_id,
-                gmail_thread_id=thread_id,
-                connection_id=self.connection_id,
-                subject=email_message.subject,
-                from_email=email_message.from_email,
-                from_name=email_message.from_name,
-                to_emails=email_message.to_emails,
-                internal_date=email_message.internal_date,
-                cc_emails=email_message.cc_emails,
-                bcc_emails=email_message.bcc_emails,
-                has_body_text=bool(email_message.body_text),
-                has_body_html=bool(email_message.body_html),
-                has_attachments=email_message.has_attachments,
-                attachment_count=attachment_count,
-                gmail_labels=email_message.gmail_labels,
-                is_unread=email_message.is_unread,
-                size_estimate=email_message.size_estimate,
-                thread_message_count=email_thread.message_count,
-                is_first_message=email_thread.message_count == 1
+            # Publish enhanced email ingested event with rich metadata
+            await self._publish_enhanced_email_event(
+                email_message=email_message,
+                email_thread=email_thread,
+                extracted_metadata=extracted_metadata,
+                attachment_count=attachment_count
             )
 
             return {
@@ -906,6 +896,259 @@ class GmailSyncManager:
 
             except Exception as e:
                 logger.error(f"Error handling removed labels: {e}")
+
+    async def _publish_enhanced_email_event(
+        self,
+        email_message: EmailMessage,
+        email_thread: EmailThread,
+        extracted_metadata: ExtractedMetadata,
+        attachment_count: int
+    ) -> None:
+        """Publish enhanced email ingested event with rich metadata.
+
+        Args:
+            email_message: Email message record
+            email_thread: Email thread record
+            extracted_metadata: Extracted metadata object
+            attachment_count: Number of attachments
+        """
+        try:
+            # Create entity resolution hints
+            entity_resolution_hints = {
+                'unique_participants': extracted_metadata.participants.get('unique_participants', []),
+                'participant_count': extracted_metadata.participants.get('participant_count', 0),
+                'has_external_participants': extracted_metadata.participants.get('has_external_participants', False),
+                'domain_organizations': self._extract_domain_organizations(extracted_metadata.participants),
+                'suggested_entities': self._generate_entity_suggestions(extracted_metadata.participants)
+            }
+
+            # Publish enhanced event with all metadata
+            await self.email_publisher.publish_email_ingested(
+                # Basic identification
+                gmail_message_id=extracted_metadata.gmail_message_id,
+                gmail_thread_id=extracted_metadata.gmail_thread_id,
+                connection_id=self.connection_id,
+                message_id_header=extracted_metadata.message_id_header,
+
+                # Enhanced participant information
+                participants=extracted_metadata.participants,
+                unique_participant_count=extracted_metadata.participants.get('participant_count', 0),
+                has_external_participants=extracted_metadata.participants.get('has_external_participants', False),
+
+                # Enhanced subject and threading
+                subject=extracted_metadata.subject,
+                normalized_subject=extracted_metadata.normalized_subject,
+                subject_hash=extracted_metadata.subject_hash,
+
+                # Legacy participant fields (for backward compatibility)
+                from_email=email_message.from_email,
+                from_name=email_message.from_name,
+                to_emails=email_message.to_emails,
+                cc_emails=email_message.cc_emails,
+                bcc_emails=email_message.bcc_emails,
+
+                # Thread relationship information
+                thread_info=extracted_metadata.thread_info.to_dict(),
+                is_root_message=extracted_metadata.thread_info.is_root_message,
+                reply_depth=extracted_metadata.thread_info.reply_depth,
+                parent_message_id=extracted_metadata.thread_info.parent_message_id,
+                references=extracted_metadata.thread_info.references,
+
+                # Enhanced content information
+                content_structure=extracted_metadata.content_structure.to_dict(),
+                message_format=extracted_metadata.content_structure.message_format,
+                has_body_text=extracted_metadata.content_structure.has_plain_text,
+                has_body_html=extracted_metadata.content_structure.has_html,
+                has_attachments=extracted_metadata.content_structure.has_attachments,
+                attachment_count=attachment_count,
+                content_types=extracted_metadata.content_structure.content_types,
+
+                # Enhanced priority and importance
+                priority_info=extracted_metadata.priority.to_dict(),
+                importance_level=extracted_metadata.priority.importance_level,
+                priority_score=extracted_metadata.priority.priority_score,
+                urgency_indicators=extracted_metadata.priority.urgency_indicators,
+                is_automated=extracted_metadata.priority.is_automated,
+
+                # Enhanced Gmail metadata
+                internal_date=extracted_metadata.internal_date,
+                sent_date=extracted_metadata.sent_date,
+                received_date=extracted_metadata.received_date,
+                gmail_labels=extracted_metadata.gmail_labels,
+                is_unread=extracted_metadata.is_unread,
+                is_starred=extracted_metadata.is_starred,
+                is_important=extracted_metadata.is_important,
+                size_estimate=extracted_metadata.size_estimate,
+
+                # Security and authenticity
+                authentication_results=extracted_metadata.authentication_results,
+                spam_score=extracted_metadata.spam_score,
+
+                # Thread information
+                thread_message_count=email_thread.message_count,
+                is_first_message=email_thread.message_count == 1,
+
+                # Processing context
+                content_priority=extracted_metadata.priority.importance_level,
+                requires_ai_processing=True,
+                entity_resolution_hints=entity_resolution_hints,
+
+                # Additional metadata
+                custom_headers=extracted_metadata.custom_headers,
+                delivery_info=extracted_metadata.delivery_info
+            )
+
+            logger.debug(f"Published enhanced email event for message {extracted_metadata.gmail_message_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to publish enhanced email event: {e}")
+            # Fallback to basic event
+            await self._publish_basic_email_event(email_message, email_thread, attachment_count)
+
+    def _extract_domain_organizations(self, participants: Dict[str, Any]) -> Dict[str, str]:
+        """Extract organization hints from participant domains.
+
+        Args:
+            participants: Participants dictionary
+
+        Returns:
+            Domain to organization mapping
+        """
+        domain_orgs = {}
+        unique_participants = participants.get('unique_participants', [])
+
+        for participant in unique_participants:
+            email = participant.get('normalized_email') or participant.get('email', '')
+            if '@' in email:
+                domain = email.split('@')[1].lower()
+
+                # Simple heuristics for common organizations
+                if domain.endswith('.edu'):
+                    domain_orgs[domain] = 'Educational Institution'
+                elif domain.endswith('.gov'):
+                    domain_orgs[domain] = 'Government Organization'
+                elif domain.endswith('.org'):
+                    domain_orgs[domain] = 'Non-Profit Organization'
+                elif domain in ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com']:
+                    domain_orgs[domain] = 'Personal Email Provider'
+                else:
+                    # Extract likely organization name from domain
+                    base_domain = domain.split('.')[0]
+                    domain_orgs[domain] = base_domain.replace('-', ' ').title()
+
+        return domain_orgs
+
+    def _generate_entity_suggestions(self, participants: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate entity resolution suggestions.
+
+        Args:
+            participants: Participants dictionary
+
+        Returns:
+            List of entity suggestions
+        """
+        suggestions = []
+        unique_participants = participants.get('unique_participants', [])
+
+        for participant in unique_participants:
+            normalized_email = participant.get('normalized_email')
+            normalized_name = participant.get('normalized_name')
+            confidence = participant.get('confidence_score', 0.5)
+
+            if normalized_email:
+                suggestion = {
+                    'entity_type': 'person',
+                    'primary_identifier': normalized_email,
+                    'display_name': normalized_name,
+                    'confidence_score': confidence,
+                    'suggested_canonical_name': normalized_name,
+                    'suggested_aliases': [participant.get('email'), participant.get('display_name')],
+                    'organization_hint': self._infer_organization(normalized_email),
+                    'is_internal': self._is_internal_participant(normalized_email)
+                }
+                suggestions.append(suggestion)
+
+        return suggestions
+
+    def _infer_organization(self, email: str) -> Optional[str]:
+        """Infer organization from email domain.
+
+        Args:
+            email: Email address
+
+        Returns:
+            Inferred organization name
+        """
+        if '@' not in email:
+            return None
+
+        domain = email.split('@')[1].lower()
+
+        # Handle known personal domains
+        personal_domains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com']
+        if domain in personal_domains:
+            return None
+
+        # Extract organization name from domain
+        parts = domain.split('.')
+        if len(parts) >= 2:
+            return parts[0].replace('-', ' ').title()
+
+        return None
+
+    def _is_internal_participant(self, email: str) -> bool:
+        """Determine if participant is internal to the organization.
+
+        Args:
+            email: Email address
+
+        Returns:
+            True if participant appears to be internal
+        """
+        # This is a simple heuristic - in practice this would check against
+        # known internal domains for the organization
+        if '@' not in email:
+            return False
+
+        domain = email.split('@')[1].lower()
+
+        # Google employees as an example of "internal" for demo purposes
+        return domain in ['google.com', 'gmail.com']
+
+    async def _publish_basic_email_event(
+        self,
+        email_message: EmailMessage,
+        email_thread: EmailThread,
+        attachment_count: int
+    ) -> None:
+        """Fallback to publish basic email event.
+
+        Args:
+            email_message: Email message record
+            email_thread: Email thread record
+            attachment_count: Number of attachments
+        """
+        await self.email_publisher.publish_email_ingested(
+            gmail_message_id=email_message.gmail_message_id,
+            gmail_thread_id=email_thread.gmail_thread_id,
+            connection_id=self.connection_id,
+            subject=email_message.subject,
+            from_email=email_message.from_email,
+            from_name=email_message.from_name,
+            to_emails=email_message.to_emails,
+            internal_date=email_message.internal_date,
+            cc_emails=email_message.cc_emails,
+            bcc_emails=email_message.bcc_emails,
+            has_body_text=bool(email_message.body_text),
+            has_body_html=bool(email_message.body_html),
+            has_attachments=email_message.has_attachments,
+            attachment_count=attachment_count,
+            gmail_labels=email_message.gmail_labels,
+            is_unread=email_message.is_unread,
+            size_estimate=email_message.size_estimate,
+            thread_message_count=email_thread.message_count,
+            is_first_message=email_thread.message_count == 1
+        )
 
 
 async def create_sync_manager(connection_id: int) -> GmailSyncManager:

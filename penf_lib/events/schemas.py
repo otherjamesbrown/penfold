@@ -24,26 +24,61 @@ class EmailIngestedEvent(BaseEvent):
     gmail_message_id: str = Field(description="Gmail message ID")
     gmail_thread_id: str = Field(description="Gmail thread ID")
     connection_id: int = Field(description="Gmail connection ID")
+    message_id_header: Optional[str] = Field(default=None, description="Email Message-ID header")
 
-    # Email metadata
+    # Enhanced participant information
+    participants: Dict[str, Any] = Field(description="Normalized participant information")
+    unique_participant_count: int = Field(description="Number of unique participants")
+    has_external_participants: bool = Field(default=False, description="Whether non-organizational participants exist")
+
+    # Enhanced subject and threading
     subject: Optional[str] = Field(default=None, description="Email subject")
+    normalized_subject: Optional[str] = Field(default=None, description="Normalized subject for threading")
+    subject_hash: str = Field(description="Hash for subject-based threading")
+
+    # Legacy participant fields (for backward compatibility)
     from_email: str = Field(description="Sender email address")
     from_name: Optional[str] = Field(default=None, description="Sender display name")
     to_emails: List[str] = Field(description="Recipient email addresses")
     cc_emails: Optional[List[str]] = Field(default=None, description="CC recipients")
     bcc_emails: Optional[List[str]] = Field(default=None, description="BCC recipients")
 
-    # Content information
+    # Thread relationship information
+    thread_info: Dict[str, Any] = Field(description="Thread relationship metadata")
+    is_root_message: bool = Field(description="Whether this is the root message in thread")
+    reply_depth: int = Field(default=0, description="Depth of reply in conversation")
+    parent_message_id: Optional[str] = Field(default=None, description="Parent message ID")
+    references: List[str] = Field(default_factory=list, description="Message references for threading")
+
+    # Enhanced content information
+    content_structure: Dict[str, Any] = Field(description="Content structure metadata")
+    message_format: str = Field(description="Message format: plain, html, multipart, rich")
     has_body_text: bool = Field(description="Whether email has plain text body")
     has_body_html: bool = Field(description="Whether email has HTML body")
     has_attachments: bool = Field(description="Whether email has attachments")
     attachment_count: int = Field(default=0, description="Number of attachments")
+    content_types: List[str] = Field(default_factory=list, description="MIME content types present")
 
-    # Gmail metadata
+    # Enhanced priority and importance
+    priority_info: Dict[str, Any] = Field(description="Priority and importance metadata")
+    importance_level: str = Field(default="normal", description="Extracted importance: high, normal, low")
+    priority_score: float = Field(default=0.5, description="Priority score 0-1")
+    urgency_indicators: List[str] = Field(default_factory=list, description="Detected urgency indicators")
+    is_automated: bool = Field(default=False, description="Whether message is automated")
+
+    # Enhanced Gmail metadata
     internal_date: datetime = Field(description="Gmail internal date")
-    gmail_labels: Optional[List[str]] = Field(default=None, description="Gmail labels")
+    sent_date: Optional[datetime] = Field(default=None, description="Date from email headers")
+    received_date: Optional[datetime] = Field(default=None, description="Actual receipt date")
+    gmail_labels: List[str] = Field(default_factory=list, description="Gmail labels")
     is_unread: bool = Field(default=True, description="Whether email is unread")
-    size_estimate: Optional[int] = Field(default=None, description="Estimated size in bytes")
+    is_starred: bool = Field(default=False, description="Whether email is starred")
+    is_important: bool = Field(default=False, description="Whether Gmail marked as important")
+    size_estimate: int = Field(default=0, description="Estimated size in bytes")
+
+    # Security and authenticity
+    authentication_results: Dict[str, Any] = Field(default_factory=dict, description="Email authentication results")
+    spam_score: Optional[float] = Field(default=None, description="Spam score 0-1 if determinable")
 
     # Thread information
     thread_message_count: int = Field(description="Total messages in thread")
@@ -52,6 +87,11 @@ class EmailIngestedEvent(BaseEvent):
     # Processing context
     content_priority: str = Field(default="normal", description="Processing priority: high, normal, low")
     requires_ai_processing: bool = Field(default=True, description="Whether AI processing is needed")
+    entity_resolution_hints: Dict[str, Any] = Field(default_factory=dict, description="Hints for entity resolution")
+
+    # Additional metadata
+    custom_headers: Dict[str, str] = Field(default_factory=dict, description="Non-standard headers")
+    delivery_info: Dict[str, Any] = Field(default_factory=dict, description="Message delivery information")
 
     class Config:
         """Pydantic configuration."""
@@ -184,6 +224,35 @@ class SyncCompletedEvent(BaseEvent):
     success: bool = Field(description="Whether sync completed successfully")
     error_summary: Optional[str] = Field(description="Summary of errors if any")
     next_sync_token: Optional[str] = Field(description="Token for next incremental sync")
+
+    class Config:
+        """Pydantic configuration."""
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class ContentExtractedEvent(BaseEvent):
+    """Event published when content is extracted from an attachment."""
+
+    event_type: str = "content.extracted"
+
+    # Source identification
+    source_id: str = Field(description="Source identifier (e.g., attachment:123)")
+    source_type: str = Field(description="Source type (e.g., email_attachment)")
+
+    # Content information
+    content_type: str = Field(description="Type of content extracted")
+    extracted_text: str = Field(description="Extracted text content")
+
+    # Extraction metadata
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Extraction metadata")
+
+    # Processing information
+    extraction_method: str = Field(default="unknown", description="Method used for extraction")
+    confidence: float = Field(default=0.0, description="Confidence score 0-1")
+    word_count: int = Field(default=0, description="Word count of extracted content")
+    language: Optional[str] = Field(default=None, description="Detected language")
 
     class Config:
         """Pydantic configuration."""

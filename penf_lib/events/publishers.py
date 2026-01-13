@@ -18,7 +18,8 @@ from .schemas import (
     EmailThreadIngestedEvent,
     EmailAttachmentIngestedEvent,
     SyncProgressEvent,
-    SyncCompletedEvent
+    SyncCompletedEvent,
+    ContentExtractedEvent
 )
 
 
@@ -80,6 +81,17 @@ class EventPublisher:
         except Exception as e:
             logger.error(f"Failed to publish event {event.event_type}: {e}")
             return False
+
+    async def publish_content_extracted(self, event: ContentExtractedEvent) -> bool:
+        """Publish content extracted event.
+
+        Args:
+            event: Content extracted event
+
+        Returns:
+            True if published successfully
+        """
+        return await self.publish(event, channel="events.content.extracted")
 
     async def close(self) -> None:
         """Close Redis connection."""
