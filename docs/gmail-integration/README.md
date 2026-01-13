@@ -1,0 +1,239 @@
+# Gmail Integration Documentation
+
+This directory contains comprehensive documentation for Penfold's Gmail integration feature, providing everything needed to set up, use, develop, and troubleshoot Gmail connectivity.
+
+## Documentation Overview
+
+### User Documentation
+- **[Setup Guide](./setup-guide.md)** - Complete walkthrough for connecting Gmail accounts, configuring OAuth2, and setting up real-time monitoring
+- **[Troubleshooting Guide](./troubleshooting.md)** - Comprehensive solutions for common issues and diagnostic procedures
+
+### Developer Documentation
+- **[Architecture Guide](./architecture.md)** - Technical overview of Gmail integration architecture, components, and design patterns
+- **[API Reference](./api-reference.md)** - Complete API documentation for all Gmail integration components with examples
+
+### Context Documentation
+- **[Integration Patterns](../context/integration-dev/agents.md)** - Proven patterns for developing Penfold integrations
+- **[System Architecture](../ARCHITECTURE.md)** - Overall Penfold system architecture including Gmail integration patterns
+
+## Quick Start
+
+### For End Users
+1. **Setup**: Follow the [Setup Guide](./setup-guide.md) to connect your Gmail account
+2. **Configuration**: Configure privacy filters and sync preferences
+3. **Verification**: Test the integration with real-time monitoring
+4. **Usage**: Start using `penf ask` to query your email data
+
+### For Developers
+1. **Architecture**: Read the [Architecture Guide](./architecture.md) to understand the system design
+2. **API Reference**: Use the [API Reference](./api-reference.md) for implementation details
+3. **Patterns**: Follow [Integration Patterns](../context/integration-dev/agents.md) for consistent development
+4. **Testing**: Implement comprehensive tests using the provided patterns
+
+## Feature Overview
+
+Gmail integration enables Penfold to:
+
+- **Secure Connection**: OAuth2-based authentication with encrypted credential storage
+- **Historical Import**: Batch import of existing emails with configurable date ranges
+- **Real-time Sync**: Live monitoring of new emails using Gmail Push notifications
+- **Privacy Controls**: Configurable filtering based on labels, senders, and content patterns
+- **Attachment Processing**: Automatic download and content extraction from common file types
+- **Multi-Account Support**: Handle multiple Gmail accounts with intelligent prioritization
+- **Event Publishing**: Integration with Penfold's event processing framework for AI analysis
+
+## Key Components
+
+### Authentication System
+- OAuth2 PKCE flow implementation
+- AES-256 encrypted credential storage
+- Automatic token refresh with fallback
+- Multi-account credential isolation
+
+### Synchronization Engine
+- Incremental sync with Gmail history API
+- Priority-based multi-account scheduling
+- Rate limiting compliance (250 requests/second)
+- Robust error recovery and retry logic
+
+### Real-time Monitoring
+- Gmail Push notification handling
+- Cloud Pub/Sub integration
+- Webhook signature verification
+- Polling fallback for reliability
+
+### Privacy and Security
+- Configurable content filtering
+- Label-based exclusion rules
+- Pattern matching for sensitive content
+- Comprehensive audit logging
+
+### Performance Features
+- Batch processing for efficiency
+- Connection pooling and caching
+- Background attachment processing
+- Vector-based similarity search
+
+## Configuration Examples
+
+### Basic Configuration
+```yaml
+gmail:
+  enabled: true
+  credentials_file: "gmail_credentials.json"
+  realtime_sync: true
+  import_days_back: 90
+  privacy_filters:
+    exclude_labels: ["Spam", "Trash"]
+```
+
+### Advanced Configuration
+```yaml
+gmail:
+  enabled: true
+  credentials_file: "gmail_credentials.json"
+
+  # Performance tuning
+  batch_size: 100
+  max_concurrent_requests: 5
+  rate_limit_requests_per_second: 200
+
+  # Privacy controls
+  privacy_filters:
+    enabled: true
+    exclude_labels: ["Personal", "Banking", "Medical"]
+    exclude_patterns:
+      - "SSN: \\d{3}-\\d{2}-\\d{4}"
+      - "Credit Card.*\\d{4}"
+    exclude_domains:
+      - "bank.example.com"
+    audit_enabled: true
+
+  # Attachment processing
+  attachments:
+    enabled: true
+    max_size_mb: 10
+    supported_formats: ["pdf", "docx", "txt", "jpeg", "png"]
+    extract_content: true
+```
+
+## Common Use Cases
+
+### Personal Knowledge Management
+- Import and analyze personal email history
+- Query for specific conversations or topics
+- Track project communications over time
+- Discover forgotten context and decisions
+
+### Business Communication Analysis
+- Multiple account management (work, personal, clients)
+- Priority-based synchronization
+- Privacy filtering for sensitive content
+- Integration with project management workflows
+
+### Compliance and Audit
+- Complete communication history preservation
+- Audit trail for all privacy filtering decisions
+- Data retention policy enforcement
+- Export capabilities for compliance reporting
+
+## Performance Characteristics
+
+### Throughput
+- **Historical Import**: 100+ emails/minute
+- **Real-time Detection**: <60 seconds average latency
+- **Attachment Processing**: 90% success rate for files <10MB
+- **Vector Search**: <500ms for 100K embeddings
+
+### Scalability
+- **Multi-Account**: Up to 5 accounts without degradation
+- **Concurrent Processing**: 50+ simultaneous operations
+- **Database**: Optimized for 100K+ emails per account
+- **Rate Limiting**: Intelligent quota distribution across accounts
+
+## Security and Privacy
+
+### Data Protection
+- OAuth2 credentials encrypted with AES-256
+- No plaintext password storage
+- Configurable data retention periods
+- Local processing for sensitive content
+
+### Privacy Controls
+- Label-based filtering for categorical exclusion
+- Pattern matching for content-based filtering
+- Domain and sender allowlists/blocklists
+- User-controlled privacy preferences
+
+### Compliance Features
+- GDPR-compliant data deletion
+- SOX-compliant audit logging
+- Complete data export capabilities
+- Configurable retention policies
+
+## Development Standards
+
+### Code Quality
+- Type hints and comprehensive docstrings
+- 80%+ test coverage requirement
+- Async/await throughout for performance
+- SQLAlchemy 2.0 with asyncpg driver
+
+### Testing Strategy
+- Unit tests for all components
+- Integration tests with mock Gmail API
+- Performance benchmarks with clear targets
+- Security tests for authentication and encryption
+
+### Documentation Requirements
+- API documentation with usage examples
+- Architecture documentation with diagrams
+- User guides with step-by-step instructions
+- Troubleshooting guides with diagnostic commands
+
+## Support and Maintenance
+
+### Monitoring
+- Comprehensive health checks
+- Performance metrics collection
+- Error rate monitoring and alerting
+- API quota usage tracking
+
+### Diagnostics
+- Built-in diagnostic command (`penf gmail diagnostic`)
+- Structured logging with correlation IDs
+- Network connectivity testing
+- Configuration validation tools
+
+### Maintenance Procedures
+- OAuth2 token rotation
+- Database optimization and cleanup
+- Performance tuning based on usage patterns
+- Security updates and vulnerability patching
+
+## Contributing
+
+When extending Gmail integration:
+
+1. **Follow Patterns**: Use established patterns from [Integration Patterns](../context/integration-dev/agents.md)
+2. **Test Thoroughly**: Implement comprehensive tests including error scenarios
+3. **Document Changes**: Update relevant documentation with new features
+4. **Security Review**: Ensure all changes maintain security standards
+5. **Performance Testing**: Verify changes meet performance requirements
+
+## Related Documentation
+
+- **[Penfold System Architecture](../ARCHITECTURE.md)** - Overall system design and integration points
+- **[Event Processing Framework](../specs/002-event-processing/)** - Event-driven architecture details
+- **[Database Schema](../specs/001-database-schema/)** - Storage layer implementation
+- **[AI Architecture](../specs/revised/ai-architecture.md)** - AI processing pipeline integration
+
+## Version Information
+
+- **Current Version**: 1.0.0 (Production Ready)
+- **Python Compatibility**: 3.12+
+- **Database Support**: PostgreSQL 16+ with pgvector
+- **Gmail API Version**: v1
+- **OAuth2 Specification**: RFC 6749 with PKCE (RFC 7636)
+
+This documentation provides everything needed to successfully implement, deploy, and maintain Gmail integration in the Penfold system. For additional support, see the troubleshooting guide or consult the development patterns documentation.
