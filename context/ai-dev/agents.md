@@ -46,7 +46,225 @@
 
 ---
 
-## Core Patterns (Distilled from AI Architecture)
+## Core Patterns (From Specs 002 + 003 Production Implementation)
+
+### Multi-Model Coordination Pattern (NEW - Production Ready)
+```python
+# Central coordination for parallel multi-model processing
+class ModelCoordinator:
+    """Orchestrates multiple AI models for enhanced quality and reliability."""
+
+    def __init__(self, session: AsyncSession, event_publisher: EventPublisher,
+                 job_manager: JobManager):
+        self.session = session
+        self.event_publisher = event_publisher
+        self.job_manager = job_manager
+        self.ensemble_combiner = EnsembleCombiner()
+        self.escalation_manager = EscalationManager(session)
+        self.performance_tracker = PerformanceTracker(session)
+
+    async def coordinate_processing(self, content_id: str, content_type: str,
+                                   content_data: Dict[str, Any]) -> str:
+        # 1. Select optimal models based on content type and performance history
+        selected_models = await self._select_models_for_content(content_type, content_data)
+
+        # 2. Create coordination workflow
+        coordination_id = str(uuid.uuid4())
+
+        # 3. Publish event for parallel processing
+        event_id = await self.event_publisher.publish(
+            event_type="content.ingested",
+            event_data={
+                "content_id": content_id,
+                "content_type": content_type,
+                "coordination_id": coordination_id,
+                **content_data
+            }
+        )
+
+        # 4. Create jobs for each model
+        for model_id in selected_models:
+            await self.job_manager.create_job(
+                event_id=event_id,
+                processor_name=model_id,
+                job_type=f"{content_type}_processing",
+                input_data=content_data,
+                priority=self.registered_models[model_id].priority
+            )
+
+        return coordination_id
+```
+
+### Ensemble Learning Pattern (NEW - Production Ready)
+```python
+# Sophisticated result combination with multiple strategies
+class EnsembleCombiner:
+    """Combines multiple AI model results for improved quality."""
+
+    async def combine_results(self, individual_results: List[Dict],
+                             content_type: str, strategy: str = "weighted_average") -> EnsembleResult:
+
+        if strategy == "weighted_average":
+            return await self._weighted_average_combination(individual_results)
+        elif strategy == "confidence_voting":
+            return await self._confidence_voting_combination(individual_results)
+        elif strategy == "majority_vote":
+            return await self._majority_vote_combination(individual_results)
+
+    async def _weighted_average_combination(self, results: List[Dict]) -> EnsembleResult:
+        """Combine results weighted by confidence scores."""
+        total_weight = sum(r["confidence_score"] for r in results)
+        if total_weight == 0:
+            # Handle zero confidence case by using equal weights
+            total_weight = len(results)
+        weighted_results = {}
+
+        for result in results:
+            weight = result["confidence_score"] / total_weight if total_weight > 0 else 1.0 / len(results)
+            for key, value in result["result_data"].items():
+                if key not in weighted_results:
+                    weighted_results[key] = []
+                weighted_results[key].append((value, weight))
+
+        # Combine weighted values
+        combined_result = self._aggregate_weighted_values(weighted_results)
+
+        return EnsembleResult(
+            ensemble_id=str(uuid.uuid4()),
+            primary_result=combined_result,
+            supporting_results=results,
+            confidence_score=self._calculate_ensemble_confidence(results),
+            combination_strategy="weighted_average",
+            consensus_strength=self._calculate_consensus_strength(results)
+        )
+```
+
+### Confidence-Based Escalation Pattern (NEW - Production Ready)
+```python
+# Intelligent cloud escalation with cost management
+class EscalationManager:
+    """Manages escalation to cloud models based on confidence and cost analysis."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.escalation_config = {
+            "email": {"confidence_threshold": 0.8, "max_daily_cost": 10.0},
+            "document": {"confidence_threshold": 0.85, "max_daily_cost": 20.0},
+            "meeting": {"confidence_threshold": 0.9, "max_daily_cost": 15.0}
+        }
+
+    async def should_escalate(self, local_result: Dict, content_type: str) -> EscalationDecision:
+        """Determine if escalation to cloud model is warranted."""
+        config = self.escalation_config.get(content_type, {})
+        threshold = config.get("confidence_threshold", 0.8)
+
+        # Check confidence threshold
+        if local_result["confidence_score"] >= threshold:
+            return EscalationDecision(should_escalate=False, reason="sufficient_confidence")
+
+        # Check budget constraints
+        daily_cost = await self._get_daily_escalation_cost(content_type)
+        max_cost = config.get("max_daily_cost", 10.0)
+
+        if daily_cost >= max_cost:
+            return EscalationDecision(should_escalate=False, reason="budget_exceeded")
+
+        # Calculate escalation value
+        cost_per_improvement = await self._estimate_escalation_cost_benefit(content_type)
+
+        return EscalationDecision(
+            should_escalate=True,
+            reason="quality_improvement",
+            estimated_cost=cost_per_improvement,
+            target_models=["gpt-4", "claude-3-sonnet"]
+        )
+```
+
+### Performance Learning Pattern (NEW - Production Ready)
+```python
+# Continuous model performance optimization
+class PerformanceTracker:
+    """Tracks model performance and optimizes selection over time."""
+
+    async def optimize_model_selection(self, content_type: str,
+                                     available_models: List[str]) -> List[str]:
+        """Select optimal models based on historical performance."""
+
+        # Get performance metrics for each model
+        performance_data = {}
+        for model_id in available_models:
+            metrics = await self._get_model_performance(model_id, content_type)
+            performance_data[model_id] = {
+                "success_rate": metrics.get("success_rate", 0.0),
+                "avg_confidence": metrics.get("avg_confidence", 0.0),
+                "avg_processing_time": metrics.get("avg_processing_time", float("inf")),
+                "cost_efficiency": metrics.get("cost_efficiency", 0.0)
+            }
+
+        # Score models based on multiple criteria
+        scored_models = []
+        for model_id, metrics in performance_data.items():
+            score = (
+                metrics["success_rate"] * 0.4 +
+                metrics["avg_confidence"] * 0.3 +
+                (1.0 / max(metrics["avg_processing_time"], 1.0)) * 0.2 +
+                metrics["cost_efficiency"] * 0.1
+            )
+            scored_models.append((model_id, score))
+
+        # Return models sorted by performance score
+        scored_models.sort(key=lambda x: x[1], reverse=True)
+        return [model_id for model_id, _ in scored_models]
+```
+
+---
+
+## Event Processing Integration Patterns (From Specs 002)
+
+### EventPublisher Integration
+```python
+# Leveraging event processing for model coordination
+async def coordinate_ai_models(content_data: Dict) -> str:
+    coordination_id = str(uuid.uuid4())
+
+    # Publish coordination event
+    await event_publisher.publish(
+        event_type="ai.coordination.start",
+        event_data={
+            "coordination_id": coordination_id,
+            "content_data": content_data,
+            "target_models": ["llama-3.1-8b", "gpt-4"],
+            "require_ensemble": True
+        },
+        channel="ai.processing"
+    )
+
+    return coordination_id
+```
+
+### JobManager Integration
+```python
+# Using job management for parallel processing
+async def create_model_processing_jobs(coordination_id: str, models: List[str]) -> List[str]:
+    job_ids = []
+
+    for model_id in models:
+        job_id = await job_manager.create_job(
+            event_id=coordination_id,
+            processor_name=model_id,
+            job_type="ai_processing",
+            input_data=content_data,
+            priority=1,
+            metadata={"coordination_id": coordination_id}
+        )
+        job_ids.append(job_id)
+
+    return job_ids
+```
+
+---
+
+## Legacy Patterns (Pre-Production)
 
 ### Tiered Processing Pattern
 ```python
@@ -116,6 +334,8 @@ class ModelBenchmark:
 
         return BenchmarkResult(results)
 ```
+
+---
 
 ### Production Event Processing Patterns ✅ (From 002-event-processing Implementation)
 
