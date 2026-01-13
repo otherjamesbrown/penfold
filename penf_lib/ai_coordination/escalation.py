@@ -309,7 +309,10 @@ class EscalationManager:
                         "escalation": True,
                         "coordination_id": coordination_id,
                         "local_confidence": max(r.get("confidence_score", 0.0) for r in local_results),
-                        "estimated_cost": decision.estimated_cost / len(decision.target_cloud_models)
+                        "estimated_cost": (
+                            decision.estimated_cost / len(decision.target_cloud_models)
+                            if decision.target_cloud_models else 0.0
+                        )
                     }
                 )
                 escalation_jobs.append(job_id)

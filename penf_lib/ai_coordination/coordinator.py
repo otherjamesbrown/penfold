@@ -244,7 +244,10 @@ class ModelCoordinator:
             raise ValueError(f"Unknown coordination ID: {coordination_id}")
 
         coordination = self.active_coordinations[coordination_id]
-        timeout_at = timeout or coordination["timeout_at"]
+        if timeout is not None:
+            timeout_at = datetime.now(timezone.utc).timestamp() + timeout
+        else:
+            timeout_at = coordination["timeout_at"]
 
         while True:
             await self._update_coordination_status(coordination_id)
@@ -406,6 +409,9 @@ class ModelCoordinator:
                 "total_models": len(coordination["selected_models"]),
                 "successful_models": len(coordination["completed_jobs"]),
                 "failed_models": len(coordination["failed_jobs"]),
-                "completion_rate": len(coordination["completed_jobs"]) / len(coordination["selected_models"])
+                "completion_rate": (
+                    len(coordination["completed_jobs"]) / len(coordination["selected_models"])
+                    if coordination["selected_models"] else 0.0
+                )
             }
         }

@@ -124,13 +124,21 @@ def start_coordination(content_id: str, content_type: str, content_file: Optiona
     """Start a new AI coordination workflow."""
     async def _coordinate():
         # Parse content data
-        if content_file:
-            with open(content_file, 'r') as f:
-                content_data = json.load(f)
-        elif content_json:
-            content_data = json.loads(content_json)
-        else:
-            click.echo("Error: Must provide either --content-file or --content-json")
+        content_data = {}
+        try:
+            if content_file:
+                with open(content_file, 'r') as f:
+                    content_data = json.load(f)
+            elif content_json:
+                content_data = json.loads(content_json)
+            else:
+                click.echo("Error: Must provide either --content-file or --content-json", err=True)
+                return
+        except json.JSONDecodeError as e:
+            click.echo(f"Error: Invalid JSON in --content-json: {e}", err=True)
+            return
+        except FileNotFoundError:
+            click.echo(f"Error: File not found: {content_file}", err=True)
             return
 
         click.echo(f"Starting coordination for content: {content_id}")

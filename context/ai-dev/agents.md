@@ -114,10 +114,13 @@ class EnsembleCombiner:
     async def _weighted_average_combination(self, results: List[Dict]) -> EnsembleResult:
         """Combine results weighted by confidence scores."""
         total_weight = sum(r["confidence_score"] for r in results)
+        if total_weight == 0:
+            # Handle zero confidence case by using equal weights
+            total_weight = len(results)
         weighted_results = {}
 
         for result in results:
-            weight = result["confidence_score"] / total_weight
+            weight = result["confidence_score"] / total_weight if total_weight > 0 else 1.0 / len(results)
             for key, value in result["result_data"].items():
                 if key not in weighted_results:
                     weighted_results[key] = []
@@ -262,8 +265,6 @@ async def create_model_processing_jobs(coordination_id: str, models: List[str]) 
 ---
 
 ## Legacy Patterns (Pre-Production)
-
-### Basic Tiered Processing Pattern
 
 ### Tiered Processing Pattern
 ```python
