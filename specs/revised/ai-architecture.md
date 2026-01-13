@@ -11,7 +11,7 @@
 ## AI Processing Tiers
 
 ### Tier 1: Local Small Models (Real-time)
-**Purpose**: Fast, frequent operations
+**Purpose**: Fast, frequent operations via pub-sub event processing
 **Hardware**: Mac Mini M4, 32GB RAM
 **Models**:
 - Llama 3.1 8B (via Ollama)
@@ -25,15 +25,28 @@
 - Quick categorization confidence scoring
 - Embedding generation for vector search
 
-**Processing Pipeline**:
+**Pub-Sub Processing Architecture**:
 ```python
-# Real-time processing during ingestion
-email_summary = local_model_a.summarize(email_content)
-entities = local_model_b.extract_entities(email_content)
-category_scores = local_model_c.categorize(email_content, project_contexts)
+# Event-driven processing subscribers
+@subscribe_to('content.ingested')
+def summarize_content(event):
+    content = event.payload['content']
+    summary = local_model_a.summarize(content)
+    publish_result('content.summarized', summary, event.id)
 
-# Ensemble approach
-final_score = weighted_average([model_a_score, model_b_score, model_c_score])
+@subscribe_to('content.ingested')
+def extract_entities(event):
+    content = event.payload['content']
+    entities = local_model_b.extract_entities(content)
+    publish_result('entities.extracted', entities, event.id)
+
+@subscribe_to('content.ingested')
+def categorize_content(event):
+    content = event.payload['content']
+    scores = local_model_c.categorize(content, project_contexts)
+    publish_result('content.categorized', scores, event.id)
+
+# Results aggregated in database for comparison and ensemble scoring
 ```
 
 ### Tier 2: Local Large Models (Batch)
@@ -60,7 +73,7 @@ penfold analyze batch --last-week
 ```
 
 ### Tier 3: Foundation Models (On-Demand)
-**Purpose**: Complex reasoning, user queries
+**Purpose**: Complex reasoning, user queries, quality validation
 **Models**:
 - Gemini Pro/Ultra for complex synthesis
 - Claude for detailed analysis
@@ -71,11 +84,30 @@ penfold analyze batch --last-week
 - Complex timeline synthesis
 - Executive summary generation
 - Cross-project insight generation
+- Quality validation of local model outputs
+
+**Pub-Sub Integration**:
+```python
+# Cloud processors as quality gates
+@subscribe_to('local.processing.completed')
+def validate_with_cloud(event):
+    if event.payload['confidence'] < 0.8:  # Low confidence local result
+        cloud_result = gemini_model.process(event.payload['content'])
+        publish_result('cloud.validation.completed', cloud_result, event.id)
+
+# Cost management through selective triggering
+@subscribe_to('user.query.complex')
+def escalate_to_cloud(event):
+    if local_processing_failed(event) or user_requested_premium():
+        cloud_result = gemini_model.process_complex_query(event.payload)
+        publish_result('cloud.query.completed', cloud_result, event.id)
+```
 
 **Cost Management**:
-- Only called for user-initiated queries
+- Only called for user-initiated queries or quality validation
 - Local models pre-filter to reduce API calls
 - Cache results for similar queries
+- Pub-sub enables selective cloud escalation
 
 ## Vector Database Architecture
 

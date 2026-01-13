@@ -2,17 +2,97 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🚨 AUTONOMOUS DEVELOPMENT - READ FIRST
+
+**This is 100% AI-coding assistant driven development.**
+
+### Before Starting Any New Specification or Major Work
+
+**ALWAYS ASK:** "Do you want me to start on [specification/feature] and continue until complete (or questions arise)?"
+
+**Wait for user confirmation before beginning new major work streams.**
+
+### Autonomous Development Rules
+
+**CONTINUE AUTONOMOUSLY for:**
+- Writing code and tests within an approved specification
+- Making technical implementation decisions
+- Running commands and tests
+- Committing and pushing changes
+- Following established patterns and specifications
+- Bug fixes and improvements within current work
+
+**ONLY ASK USER when:**
+- Starting a new specification or major feature
+- Business requirements are ambiguous
+- Multiple valid approaches exist and user preference is needed
+- You need external credentials or resources
+- Technical blockers require user intervention
+- **Adding new architectural components** (observability, monitoring, logging, etc.)
+- **Modifying system architecture or infrastructure patterns**
+
+### Architecture Coordination - Critical
+
+**STOP and CHECK before adding:**
+- Observability/monitoring systems
+- Logging infrastructure
+- Message queues or event systems
+- Authentication/authorization
+- Configuration management
+- Caching layers
+- Backup/recovery systems
+- CI/CD pipelines
+
+**Search codebase first** - if similar infrastructure exists, use it or ask how to integrate.
+
+## Beads Workflow - Essential for All Sessions
+
+**NEVER start work without a bead.**
+
+### Core Commands
+```bash
+bd ready                    # Find available work
+bd create --title="..." --type=task --priority=2
+bd update <id> --status=in_progress  # Claim work
+bd close <id> --reason="commit <hash>: <summary>"
+bd sync                     # Sync with git (run at session end)
+```
+
+### Critical Rules
+- Create or find bead BEFORE writing code
+- Update bead status when starting: `bd update <id> --status=in_progress`
+- Reference bead in commits: `feat(component): description [pe-xxx]`
+- Close bead with commit hash and summary
+- Run `bd sync` before ending session
+
+## Session Close Protocol - MANDATORY
+
+**Work is NOT complete until pushed to remote.**
+
+```bash
+git status              # Check what changed
+git add <files>         # Stage changes
+bd sync                 # Sync beads
+git commit -m "..."     # Commit code
+git push                # MUST PUSH TO REMOTE
+```
+
+**NEVER:**
+- Stop before pushing to remote
+- Say "ready to push when you are" - YOU must push
+- Leave work stranded locally
+
 ## Project Overview
 
-**Penfold** is an early-stage repository for a personal AI-powered information system that aggregates, correlates, and surfaces contextual information from disparate communication channels (email, Slack, documents, meetings). The system transforms fragmented organizational knowledge into a navigable, queryable institutional memory.
+**Penfold** is a personal AI-powered information system that aggregates, correlates, and surfaces contextual information from disparate communication channels (email, Slack, documents, meetings). The system transforms fragmented organizational knowledge into a navigable, queryable institutional memory.
 
-This is currently a specification-only project with no implementation yet.
+**Current Status**: Active development - implementing foundational database layer with event-driven processing framework.
 
-## Architecture (Planned)
+## Architecture
 
 ### Core Components
-- **CLI Tool (`cxp`)**: Main interface for ingestion, review, queries, and management
-- **Core Library (`cxp_lib`)**: Contains connectors, extraction pipeline, entity resolution, project management, search/retrieval, and storage layers
+- **CLI Tool (`penf`)**: Main interface for ingestion, review, queries, and management
+- **Core Library (`penf_lib`)**: Contains connectors, extraction pipeline, entity resolution, project management, search/retrieval, and storage layers
 - **Data Layer**: PostgreSQL with pgvector extension for semantic search
 - **LLM Pipeline**: Tiered approach using local models (Ollama) for classification and cloud APIs (Gemini) for extraction
 
@@ -34,27 +114,35 @@ Key entities include:
 - **Embeddings**: nomic-embed-text (local via Ollama)
 - **Platform**: Mac Mini M4 with 32GB RAM
 
-### Planned CLI Commands
+### CLI Commands (In Development)
 ```bash
-cxp ingest                           # Run ingestion pipeline
-cxp review --daily                   # Morning review workflow
-cxp review --weekly                  # Weekly project health review
-cxp ask "<query>"                    # Natural language queries
-cxp project <name>                   # Project operations
-cxp person <name>                    # Person lookups
-cxp timeline <query>                 # Timeline visualizations
-cxp config                           # Source configuration
+penf ingest                          # Run ingestion pipeline
+penf review --daily                  # Morning review workflow
+penf review --weekly                 # Weekly project health review
+penf ask "<query>"                   # Natural language queries
+penf project <name>                  # Project operations
+penf person <name>                   # Person lookups
+penf timeline <query>                # Timeline visualizations
+penf config                          # Source configuration
 ```
 
-## Current State
+## Current Implementation Status
 
-This repository contains specifications and no implementation.
+**Current Implementation**: Database Schema and Storage Layer (001)
+- PostgreSQL 16+ with pgvector extension for hybrid storage
+- SQLAlchemy 2.0 async models for core entities (Source, Assertion, Person, Project, Team)
+- Vector storage with HNSW indexing for 768-dimensional embeddings
+- Event-driven processing framework with Redis pub-sub
+- Migration system with Alembic for schema versioning
+- Comprehensive test suite with async fixtures and performance benchmarks
 
-**Current Spec**: `specs/revised/penfold-spec-v2.md` - Revised specification based on user research
-**Original Spec**: `specs/initial/penfold-spec.md` - Original complex knowledge management approach
-**Architecture Comparison**: `specs/revised/architecture-comparison.md` - Analysis of changes from v1 to v2
-**AI Architecture**: `specs/revised/ai-architecture.md` - Multi-model local-first AI design
-**Ingestion System**: `specs/revised/ingestion-and-categorization.md` - Three-channel ingestion with learning
+**Remaining Features**: 8 additional features with complete SpecKit specifications ready for implementation
+
+### **Key Specifications**
+- **Main Spec**: `specs/revised/penfold-spec-v3.md` - Complete system architecture
+- **Database Design**: `specs/001-database-schema/` - Storage layer implementation guide
+- **AI Architecture**: `specs/revised/ai-architecture.md` - Multi-model processing design
+- **Event Processing**: `specs/revised/ingestion-and-categorization.md` - Event-driven coordination
 
 ### Key Changes in v2.0:
 - **Mental Model**: From knowledge management to "contextual time machine"
@@ -62,51 +150,98 @@ This repository contains specifications and no implementation.
 - **Use Cases**: "Rewind time" queries vs formal review workflows
 - **MVP Scope**: Much simpler - email + meetings with basic entity discovery
 
-## Current Phase: Specification Refinement
+## Current Focus
 
-**Priority: Refine specification before implementation begins**
+**Priority: Implementing foundational database layer** (specs/001-database-schema)
 
-The current focus is on getting the specification into optimal shape through product management expertise and research. This involves:
+### Development Standards
+- **Test-Driven Development**: Write tests first, ensure they fail, then implement
+- **Constitution Compliance**: Follow all principles in `project-constitution.md`
+- **Quality Standards**: Type hints, docstrings, linting with ruff/mypy, black formatting
+- **Async Architecture**: SQLAlchemy 2.0 with asyncpg driver for high-performance operations
+- **Complete Workflows**: Take features from specification to working, tested, committed code
 
-### Product Management Role
-Claude should act as an experienced product manager specializing in knowledge management AI systems with responsibilities to:
+### Current Implementation Focus
+- **Database Models**: Async SQLAlchemy entities with proper relationships and constraints
+- **Migration System**: Alembic integration with CLI commands
+- **Vector Operations**: pgvector with HNSW indexing for semantic search
+- **Event Framework**: Redis pub-sub with PostgreSQL fallback
+- **CLI Interface**: Database management, migration, and monitoring commands
+- **Test Infrastructure**: Async fixtures, unit tests, integration tests, performance benchmarks
 
-1. **Challenge Assumptions**: Question design decisions, technical choices, and architectural patterns
-2. **Research Best Practices**: Investigate current state-of-the-art approaches for:
-   - Knowledge graph construction and maintenance
-   - Information extraction from unstructured sources
-   - Entity resolution in enterprise contexts
-   - Semantic search and retrieval systems
-   - Human-in-the-loop ML workflows
-3. **Drive Optimal Design**: Push toward technical decisions that maximize success probability
-4. **Validate Requirements**: Ensure user stories and acceptance criteria are realistic and measurable
+### Success Criteria
+Each implementation must meet measurable performance targets:
+- CRUD operations: <100ms for datasets up to 10K records
+- Vector similarity search: <500ms for 100K vectors
+- Event pub/sub operations: <50ms for real-time processing
+- Concurrent operations: Support 50+ simultaneous connections
+- Test coverage: Minimum 80% for core libraries
 
-### Key Areas for Challenge and Research
-- **Entity Resolution**: Are the proposed person/team models sufficient? What about organizational changes over time?
-- **Assertion Types**: Is the 8-type taxonomy complete and non-overlapping? Should it be extensible?
-- **LLM Architecture**: Is the tiered approach cost-effective? Are there better alternatives?
-- **Data Model**: Will the schema scale? Are there missing relationships or entities?
-- **Search Strategy**: Is pgvector + embeddings the optimal approach for this use case?
-- **MVP Scope**: Is the planned MVP truly minimal while proving value?
+## Quick Reference
 
-### Outcome Goal
-Achieve a specification that represents best-in-class technical design informed by current research and proven patterns, ready for confident implementation.
+### Key Files
+- **Current Work**: `specs/001-database-schema/` (database implementation)
+- **System Architecture**: `specs/revised/penfold-spec-v3.md`
+- **Development Standards**: `project-constitution.md`
+- **Available Tasks**: Run `bd ready` to see ready work
 
-## Getting Started
-
-Since this is a specification-only project:
-
-1. **Read `specs/revised/penfold-spec-v2.md`** - The current specification based on user research
-2. **Review `specs/revised/architecture-comparison.md`** - Understand the evolution from v1 to v2
-3. **Start with MVP Phase 1A**: Email + meetings with temporal search and basic entity discovery
-4. **Focus on emergent relationships**: AI discovers connections, no rigid schemas
-5. **Time + Projects as organizing principles**: Temporal spine with project context containers
+### Development Workflow
+1. Find/create bead: `bd ready` or `bd create --title="..." --type=task`
+2. Claim work: `bd update <id> --status=in_progress`
+3. Write failing tests → Implement → Test
+4. Commit with bead reference: `feat(component): description [pe-xxx]`
+5. Close bead: `bd close <id> --reason="commit <hash>: summary"`
+6. Push to remote: `git push`
 
 ## Key Design Principles
 
 1. **Temporal First**: Time is the primary organizing axis - everything happens at [timestamp]
-2. **Emergent Structure**: Let AI discover relationships, don't force rigid schemas
-3. **Source Truth**: Always maintain links back to original documents/meetings/emails
-4. **Context Containers**: Project contexts (Atlas, People Management, General) provide thematic grouping
-5. **Human-in-Loop**: AI suggests, human confirms critical entity resolutions
-6. **ADHD-Friendly**: Structured temporal browsing for when focus shifts from high-level to detail
+2. **Event-Driven Processing**: Pub-sub framework enables flexible multi-model AI coordination
+3. **Emergent Structure**: Let AI discover relationships, don't force rigid schemas
+4. **Source Truth**: Always maintain links back to original documents/meetings/emails
+5. **Context Containers**: Project contexts (Atlas, People Management, General) provide thematic grouping
+6. **Human-in-Loop**: AI suggests, human confirms critical entity resolutions
+7. **Local-First with Cloud Quality Gates**: Process locally, validate with cloud models selectively
+8. **ADHD-Friendly**: Structured temporal browsing for when focus shifts from high-level to detail
+
+## Technology Stack (Implemented)
+
+### Core Infrastructure
+- **Language**: Python 3.12 with type hints and async/await
+- **Database**: PostgreSQL 16+ with pgvector extension
+- **ORM**: SQLAlchemy 2.0 with asyncpg driver for async operations
+- **Migrations**: Alembic for schema versioning
+- **Message Queue**: Redis for pub-sub event processing
+- **Testing**: pytest with asyncio support, async fixtures
+
+### Development Tools
+- **Linting**: ruff (replaces flake8, isort, pyupgrade)
+- **Type Checking**: mypy with strict settings
+- **Formatting**: black for consistent code style
+- **Task Tracking**: Beads for issue/feature management
+- **CLI Framework**: Click for command-line interface
+
+### Vector Operations
+- **Embeddings**: 768-dimensional vectors (nomic-embed-text compatible)
+- **Indexing**: HNSW algorithm with M=16, ef_construction=200
+- **Search**: L2 distance for similarity queries
+
+## Development Standards
+
+### Code Quality
+- All functions require type hints and docstrings
+- Minimum 80% test coverage for core libraries
+- Zero warnings from ruff and mypy
+- TDD workflow: tests first, then implementation
+
+### Performance Targets
+- CRUD operations: <100ms (10K records)
+- Vector search: <500ms (100K vectors)
+- Event processing: <50ms (pub/sub)
+- Concurrent connections: 50+ simultaneous
+
+## Recent Implementation Progress
+- ✅ Database schema specification completed with SpecKit workflow
+- ✅ All analysis issues resolved (HNSW parameters, backup tasks, async strategy)
+- 🚧 Ready for `/speckit.implement` to begin actual code development
+- 📋 87 implementation tasks organized by user story priority
