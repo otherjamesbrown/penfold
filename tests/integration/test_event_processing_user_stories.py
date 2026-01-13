@@ -287,7 +287,7 @@ class TestUserStory2AIProcessorSubscriptionAndJobManagement:
         }
 
         # Act - complete job with results
-        success = await job_manager.complete_job(
+        success = await job_manager.complete_job_with_confidence(
             job_id,
             result_data=processing_results,
             confidence_score=0.85
@@ -331,7 +331,7 @@ class TestUserStory3MultiModelResultAggregation:
 
         # Local processor results
         local_results = {
-            "processor_type": "local_entity_extractor",
+            "processor_name": "local_entity_extractor",
             "entities": ["John Smith", "Budget Review"],
             "confidence": 0.75,
             "model": "llama-3.1-8b"
@@ -339,7 +339,7 @@ class TestUserStory3MultiModelResultAggregation:
 
         # Cloud processor results
         cloud_results = {
-            "processor_type": "cloud_entity_extractor",
+            "processor_name": "cloud_entity_extractor",
             "entities": ["John Smith", "Q4 Budget Review", "Finance Team"],
             "confidence": 0.92,
             "model": "gpt-4"
@@ -347,8 +347,8 @@ class TestUserStory3MultiModelResultAggregation:
 
         # Mock multiple result retrieval
         mock_results = [
-            MagicMock(processor_type="local_entity_extractor", result_data=local_results, confidence_score=0.75),
-            MagicMock(processor_type="cloud_entity_extractor", result_data=cloud_results, confidence_score=0.92)
+            MagicMock(processor_name="local_entity_extractor", result_data=local_results, confidence_score=0.75),
+            MagicMock(processor_name="cloud_entity_extractor", result_data=cloud_results, confidence_score=0.92)
         ]
 
         mock_query_result = AsyncMock()
@@ -449,9 +449,9 @@ class TestUserStory4ProcessingMonitoringAndHealthManagement:
         """
         # Arrange - mock job status data
         mock_jobs = [
-            MagicMock(status=JobStatus.RUNNING, processor_type="entity_extractor", started_at=datetime.now(timezone.utc)),
-            MagicMock(status=JobStatus.PENDING, processor_type="sentiment_analyzer", created_at=datetime.now(timezone.utc)),
-            MagicMock(status=JobStatus.COMPLETED, processor_type="entity_extractor", completed_at=datetime.now(timezone.utc))
+            MagicMock(status=JobStatus.RUNNING, processor_name="entity_extractor", started_at=datetime.now(timezone.utc)),
+            MagicMock(status=JobStatus.PENDING, processor_name="sentiment_analyzer", created_at=datetime.now(timezone.utc)),
+            MagicMock(status=JobStatus.COMPLETED, processor_name="entity_extractor", completed_at=datetime.now(timezone.utc))
         ]
 
         mock_result = AsyncMock()
@@ -505,8 +505,8 @@ class TestUserStory4ProcessingMonitoringAndHealthManagement:
         Then: bottlenecks and scaling recommendations are provided
         """
         # Arrange - mock queue buildup
-        pending_jobs = [MagicMock(processor_type="entity_extractor") for _ in range(50)]
-        running_jobs = [MagicMock(processor_type="entity_extractor") for _ in range(5)]
+        pending_jobs = [MagicMock(processor_name="entity_extractor") for _ in range(50)]
+        running_jobs = [MagicMock(processor_name="entity_extractor") for _ in range(5)]
 
         mock_pending_result = AsyncMock()
         mock_pending_result.scalars.return_value.all.return_value = pending_jobs
@@ -554,7 +554,7 @@ class TestUserStory5CloudProcessingEscalation:
         """
         # Arrange - low confidence local result
         local_result = {
-            "processor_type": "local_entity_extractor",
+            "processor_name": "local_entity_extractor",
             "entities": ["John", "project"],  # Vague extraction
             "confidence": 0.45,  # Below escalation threshold of 0.8
             "ambiguity_flags": ["unclear_entity_boundaries", "missing_context"]
@@ -568,7 +568,7 @@ class TestUserStory5CloudProcessingEscalation:
         if escalation_needed:
             cloud_job_id = await job_manager.create_job(
                 event_id="original_event_123",
-                processor_type="cloud_entity_extractor",
+                processor_name="cloud_entity_extractor",
                 input_data={
                     "escalation": True,
                     "local_result": local_result,

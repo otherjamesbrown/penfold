@@ -305,7 +305,7 @@ class JobManager:
             # Create a new job with incremented retry count
             new_job_id = await self.create_job(
                 event_id=job.event_id,
-                processor_type=job.processor_type,
+                processor_name=job.processor_name,
                 input_data=job.input_data,
                 priority=job.priority,
                 max_retries=job.max_retries,
@@ -378,14 +378,14 @@ class JobManager:
 
     async def get_pending_jobs(
         self,
-        processor_type: Optional[str] = None,
+        processor_name: Optional[str] = None,
         priority_threshold: Optional[int] = None,
         limit: int = 100,
     ) -> List[ProcessingJob]:
         """Get pending jobs ready for processing.
 
         Args:
-            processor_type: Optional filter by processor type
+            processor_name: Optional filter by processor name
             priority_threshold: Optional minimum priority (lower numbers = higher priority)
             limit: Maximum number of jobs to return
 
@@ -406,8 +406,8 @@ class JobManager:
             .limit(limit)
         )
 
-        if processor_type:
-            query = query.where(ProcessingJob.processor_type == processor_type)
+        if processor_name:
+            query = query.where(ProcessingJob.processor_name == processor_name)
 
         if priority_threshold is not None:
             query = query.where(ProcessingJob.priority <= priority_threshold)
@@ -443,13 +443,13 @@ class JobManager:
 
     async def get_job_statistics(
         self,
-        processor_type: Optional[str] = None,
+        processor_name: Optional[str] = None,
         hours: int = 24,
     ) -> Dict[str, Any]:
         """Get job processing statistics.
 
         Args:
-            processor_type: Optional filter by processor type
+            processor_name: Optional filter by processor name
             hours: Number of hours to include in statistics
 
         Returns:
@@ -464,8 +464,8 @@ class JobManager:
             func.max(ProcessingJob.execution_time_seconds).label("max_execution_time"),
         ).where(ProcessingJob.created_at >= cutoff_time)
 
-        if processor_type:
-            query = query.where(ProcessingJob.processor_type == processor_type)
+        if processor_name:
+            query = query.where(ProcessingJob.processor_name == processor_name)
 
         query = query.group_by(ProcessingJob.status)
 
@@ -548,7 +548,7 @@ class JobManager:
 
     # Additional methods for User Story support
 
-    async def complete_job(
+    async def complete_job_with_confidence(
         self,
         job_id: str,
         result_data: Dict[str, Any],
@@ -556,7 +556,7 @@ class JobManager:
         model_name: str = "unknown",
         model_version: str = "unknown"
     ) -> bool:
-        """Complete a job with results - enhanced version for user stories.
+        """Complete a job with results and confidence score - enhanced version for user stories.
 
         Args:
             job_id: Job to complete
@@ -568,7 +568,7 @@ class JobManager:
         Returns:
             True if job was completed successfully
         """
-        return await self.complete_job_with_results(
+        return await self.complete_job(
             job_id=job_id,
             result_data=result_data,
             result_type="processing_result",
@@ -605,7 +605,7 @@ class JobManager:
 
             for res in results:
                 processors.append({
-                    "processor_type": res.job.processor_type if hasattr(res, 'job') else "unknown",
+                    "processor_name": res.job.processor_name if hasattr(res, 'job') else "unknown",
                     "confidence": res.confidence_score,
                     "result_data": res.result_data
                 })
@@ -735,10 +735,10 @@ class JobManager:
             result = await self.session.execute(status_query)
             status_counts = dict(result.all())
 
-            # Get processor health (jobs per processor type)
+            # Get processor health (jobs per processor name)
             processor_query = (
-                select(ProcessingJob.processor_type, func.count())
-                .group_by(ProcessingJob.processor_type)
+                select(ProcessingJob.processor_name, func.count())
+                .group_by(ProcessingJob.processor_name)
                 .where(ProcessingJob.deleted_at.is_(None))
             )
 
@@ -825,21 +825,21 @@ class JobManager:
             Bottleneck analysis with scaling recommendations
         """
         try:
-            # Get pending jobs by processor type
+            # Get pending jobs by processor name
             pending_query = (
-                select(ProcessingJob.processor_type, func.count())
+                select(ProcessingJob.processor_name, func.count())
                 .where(ProcessingJob.status == JobStatus.PENDING)
-                .group_by(ProcessingJob.processor_type)
+                .group_by(ProcessingJob.processor_name)
             )
 
             pending_result = await self.session.execute(pending_query)
             pending_counts = dict(pending_result.all())
 
-            # Get running jobs by processor type
+            # Get running jobs by processor name
             running_query = (
-                select(ProcessingJob.processor_type, func.count())
+                select(ProcessingJob.processor_name, func.count())
                 .where(ProcessingJob.status == JobStatus.RUNNING)
-                .group_by(ProcessingJob.processor_type)
+                .group_by(ProcessingJob.processor_name)
             )
 
             running_result = await self.session.execute(running_query)
@@ -849,11 +849,11 @@ class JobManager:
             bottleneck_processor = None
             max_queue_depth = 0
 
-            for processor_type, pending_count in pending_counts.items():
-                running_count = running_counts.get(processor_type, 0)
+            for processor_name, pending_count in pending_counts.items():
+                running_count = running_counts.get(processor_name, 0)
                 if pending_count > max_queue_depth and pending_count > 10:  # Threshold
                     max_queue_depth = pending_count
-                    bottleneck_processor = processor_type
+                    bottleneck_processor = processor_name
 
             analysis = {
                 "bottleneck_detected": bottleneck_processor is not None,
@@ -868,7 +868,7 @@ class JobManager:
                     "active_workers": running_counts.get(bottleneck_processor, 0),
                     "scaling_recommendation": {
                         "action": "scale_up",
-                        "processor_type": bottleneck_processor,
+                        "processor_name": bottleneck_processor,
                         "suggested_additional_workers": min(max_queue_depth // 10, 5)
                     }
                 })
