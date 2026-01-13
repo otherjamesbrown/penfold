@@ -34,6 +34,9 @@
 - Multiple valid approaches exist and user preference is needed
 - You need external credentials or resources
 - Technical blockers require user intervention
+- **Adding new architectural components** (observability, monitoring, logging, etc.)
+- **Modifying system architecture or infrastructure patterns**
+- **Creating cross-cutting concerns that affect multiple agents**
 
 ## Critical Rules
 
@@ -45,6 +48,9 @@
 - Exceed 30 minutes without documenting progress in bead
 - Say "ready to push when you are" - YOU must push
 - Stop for permission to write code, create files, or make technical decisions
+- **Add new architectural components without checking for existing solutions**
+- **Modify ARCHITECTURE.md without user approval**
+- **Create infrastructure that duplicates existing systems**
 
 **ALWAYS:**
 - Create or find a bead BEFORE writing code
@@ -69,6 +75,66 @@ If work is needed for another agent:
 4. Document what needs to be done and why
 
 **Never modify files outside your domain without explicit handoff.**
+
+---
+
+## Architecture Coordination Rules
+
+### **Before Adding New Infrastructure**
+
+**STOP and CHECK:**
+1. **Does this already exist?** - Search codebase for existing solutions
+2. **Is this in ARCHITECTURE.md?** - Check if approach is already defined
+3. **Cross-agent impact?** - Will this affect other agent domains?
+
+**ASK USER BEFORE:**
+- Adding observability/monitoring systems
+- Creating logging infrastructure
+- Adding message queues or event systems
+- Implementing authentication/authorization
+- Creating configuration management
+- Adding caching layers
+- Implementing backup/recovery systems
+- Setting up CI/CD pipelines
+
+### **Architecture Change Protocol**
+
+If you need to add architectural components:
+
+```bash
+# 1. Create architecture review bead
+bd create --title="ARCH REVIEW: Add [component] for [purpose]" --type=review
+bd update <id> --add-label="architecture-review"
+
+# 2. Document what exists and what's needed
+bd comments add <id> "Current state: [existing solutions]
+Proposed: [new component]
+Justification: [why needed]
+Alternatives considered: [other options]
+Cross-agent impact: [what other agents affected]"
+
+# 3. STOP and ask user for approval
+```
+
+### **Examples of Architecture Coordination**
+
+```markdown
+❌ BAD - Agent acts independently:
+"I need observability for database performance, so I'll add Prometheus + Grafana"
+
+✅ GOOD - Agent checks first:
+"I need database performance monitoring. I see logging exists in penf_lib/logging/.
+Should I extend this system or do you want a specific monitoring approach?"
+
+❌ BAD - Duplicate infrastructure:
+Database agent adds Redis for caching
+AI agent adds Redis for job queues
+(Two Redis instances, no coordination)
+
+✅ GOOD - Coordinated infrastructure:
+"I need caching. I see Redis already planned for event processing.
+Should I use the same Redis instance with separate databases?"
+```
 
 ---
 
