@@ -1181,8 +1181,8 @@ async def create_sync_manager(connection_id: int) -> GmailSyncManager:
     if not await authenticator.validate_credentials(credentials):
         raise ValueError(f"Gmail connection {connection_id} has invalid credentials")
 
-    # Create Gmail client
-    gmail_client = GmailClient(credentials)
+    # Create Gmail client with connection ID for error tracking
+    gmail_client = GmailClient(credentials, connection_id=connection_id)
 
     # Create event publishers
     email_publisher = EmailEventPublisher()

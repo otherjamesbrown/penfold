@@ -10,6 +10,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.errors import HttpError
 
 from .auth import GmailAuthenticator
+from .error_handling import with_error_handling, RetryConfig, ErrorCategory
 
 
 logger = logging.getLogger(__name__)
@@ -52,17 +53,29 @@ class GmailClient:
     def __init__(
         self,
         credentials: Credentials,
-        rate_limiter: Optional[GmailRateLimiter] = None
+        rate_limiter: Optional[GmailRateLimiter] = None,
+        connection_id: Optional[int] = None
     ) -> None:
         """Initialize Gmail client.
 
         Args:
             credentials: Authenticated OAuth2 credentials
             rate_limiter: Rate limiter instance
+            connection_id: Gmail connection ID for error tracking
         """
         self.credentials = credentials
         self.rate_limiter = rate_limiter or GmailRateLimiter()
+        self.connection_id = connection_id
         self._service = None
+
+        # Configure retry settings for different operations
+        self.api_retry_config = RetryConfig(
+            max_attempts=5,
+            base_delay=1.0,
+            max_delay=60.0,
+            backoff_multiplier=2.0,
+            exponential_backoff=True
+        )
 
     @property
     def service(self):
@@ -71,35 +84,31 @@ class GmailClient:
             self._service = build('gmail', 'v1', credentials=self.credentials)
         return self._service
 
-    async def _make_api_call(self, func, *args, **kwargs) -> Any:
-        """Make rate-limited API call with error handling.
+    async def _make_api_call(self, func, operation_name: str, *args, **kwargs) -> Any:
+        """Make rate-limited API call with comprehensive error handling.
 
         Args:
             func: Gmail API function to call
+            operation_name: Name of the operation for error tracking
             *args: Function arguments
             **kwargs: Function keyword arguments
 
         Returns:
             API response
         """
-        await self.rate_limiter.wait_if_needed()
+        @with_error_handling(
+            operation=f"gmail_api_{operation_name}",
+            connection_id=self.connection_id,
+            retry_config=self.api_retry_config
+        )
+        async def _api_call_with_rate_limit():
+            await self.rate_limiter.wait_if_needed()
 
-        try:
             # Execute in thread pool since Gmail API is synchronous
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
-        except HttpError as e:
-            if e.resp.status == 429:  # Rate limit exceeded
-                # Exponential backoff
-                await asyncio.sleep(2 ** min(5, getattr(self, '_retry_count', 0)))
-                self._retry_count = getattr(self, '_retry_count', 0) + 1
-                return await self._make_api_call(func, *args, **kwargs)
-            elif e.resp.status == 401:  # Unauthorized
-                logger.error("Gmail credentials expired or invalid")
-                raise
-            else:
-                logger.error(f"Gmail API error: {e}")
-                raise
+
+        return await _api_call_with_rate_limit()
 
     async def get_profile(self) -> Dict[str, Any]:
         """Get user's Gmail profile information.
@@ -108,7 +117,8 @@ class GmailClient:
             Gmail profile data
         """
         return await self._make_api_call(
-            self.service.users().getProfile(userId='me').execute
+            self.service.users().getProfile(userId='me').execute,
+            'get_profile'
         )
 
     async def list_messages(
@@ -133,7 +143,8 @@ class GmailClient:
                 q=query,
                 maxResults=max_results,
                 pageToken=page_token
-            ).execute
+            ).execute,
+            'list_messages'
         )
 
     async def get_message(
@@ -158,7 +169,8 @@ class GmailClient:
                 id=message_id,
                 format=format,
                 metadataHeaders=metadata_headers
-            ).execute
+            ).execute,
+            'get_message'
         )
 
     async def get_thread(self, thread_id: str) -> Dict[str, Any]:
@@ -174,7 +186,8 @@ class GmailClient:
             self.service.users().threads().get(
                 userId='me',
                 id=thread_id
-            ).execute
+            ).execute,
+            'get_thread'
         )
 
     async def download_attachment(
@@ -196,7 +209,8 @@ class GmailClient:
                 userId='me',
                 messageId=message_id,
                 id=attachment_id
-            ).execute
+            ).execute,
+            'download_attachment'
         )
 
         import base64
@@ -230,13 +244,15 @@ class GmailClient:
             self.service.users().watch(
                 userId='me',
                 body=request
-            ).execute
+            ).execute,
+            'watch_mailbox'
         )
 
     async def stop_watch(self) -> None:
         """Stop push notifications for mailbox."""
         await self._make_api_call(
-            self.service.users().stop(userId='me').execute
+            self.service.users().stop(userId='me').execute,
+            'stop_watch'
         )
 
     async def get_history(
@@ -275,5 +291,6 @@ class GmailClient:
             self.service.users().history().list(
                 userId='me',
                 **request
-            ).execute
+            ).execute,
+            'get_history'
         )
