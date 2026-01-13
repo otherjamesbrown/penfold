@@ -160,3 +160,66 @@ As a data privacy conscious user, I need granular controls over which emails are
 - Email attachments will typically be under 25MB in size as per Gmail limits
 - Privacy requirements will be manageable through label-based and pattern-based filtering
 - Multiple account scenarios will involve fewer than 10 accounts per user typically
+
+## SpecKit Clarifications
+
+### Question 1: OAuth2 Token Security Strategy (RESOLVED)
+**Answer**: Option B - Store tokens encrypted at rest with automatic refresh, fail gracefully on expiration
+
+**Rationale**: This approach balances security with usability. Encrypted storage protects against data breaches while automatic refresh maintains seamless operation. Graceful failure ensures users understand when re-authorization is needed without losing functionality permanently.
+
+**Implementation Requirements**:
+- Use AES-256 encryption for token storage in database
+- Implement automatic refresh 24-48 hours before expiration
+- Clear error messages when re-authorization is required
+- Secure key management for encryption/decryption operations
+
+### Question 2: Real-Time Synchronization Mechanism (RESOLVED)
+**Answer**: Option A - Gmail Push Notifications with Pub/Sub webhook fallback
+
+**Rationale**: Push notifications provide the most efficient real-time updates with minimal resource usage. The Pub/Sub fallback ensures reliability even if webhook delivery fails. This approach minimizes API quota usage while maintaining responsiveness.
+
+**Implementation Requirements**:
+- Configure Gmail Push notifications with Cloud Pub/Sub
+- Implement webhook endpoint for notification delivery
+- Add polling fallback for notification failures
+- Track notification delivery and processing latency
+
+### Question 3: Attachment Processing Strategy (RESOLVED)
+**Answer**: Option C - Hybrid Smart Processing
+
+**Rationale**: This provides the best balance of functionality and performance. Processing common formats immediately ensures most attachments are available for analysis, while deferring complex formats prevents blocking the main email ingestion pipeline. Users get immediate value for typical documents while specialized content is handled appropriately.
+
+**Implementation Requirements**:
+- Define supported format list: PDF, DOCX, TXT, Images (JPEG, PNG)
+- Implement size-based processing limits (e.g., < 10MB immediate, larger deferred)
+- Create background processing queue for deferred attachments
+- Add content extraction for supported formats using appropriate libraries
+- Provide clear status indicators for attachment processing state
+
+### Question 4: Privacy Filter Implementation Strategy (RESOLVED)
+**Answer**: Option C - Hybrid Configurable Filters
+
+**Rationale**: This approach provides maximum flexibility while maintaining processing efficiency. Users can choose their preferred privacy model - from simple label-based filtering for minimal overhead to comprehensive pattern matching for sensitive environments. Domain-based filtering adds another practical layer for business email separation.
+
+**Implementation Requirements**:
+- Support Gmail label-based exclusion with configurable label names
+- Implement regex pattern matching for content scanning with user-defined patterns
+- Add domain and sender-based filtering rules
+- Provide configuration interface for enabling/disabling filter types
+- Include performance monitoring to track filter processing impact
+- Add audit logging for privacy filter actions
+
+### Question 5: Multi-Account Management Architecture (RESOLVED)
+**Answer**: Option C - Intelligent Scheduling
+
+**Rationale**: This approach provides the optimal balance of performance, reliability, and user experience. By prioritizing accounts based on activity levels, the system ensures that frequently used accounts stay current while less active accounts are updated appropriately. The dynamic adjustment capability allows the system to adapt to changing usage patterns and API constraints, making it both efficient and resilient.
+
+**Implementation Requirements**:
+- Implement activity-based account prioritization using email frequency and recency metrics
+- Create dynamic scheduling algorithm that adjusts sync frequency based on account activity levels
+- Support parallel processing for high-priority accounts with sequential fallback for resource management
+- Add intelligent rate limiting that distributes API quota across accounts based on priority
+- Include user preference settings for account priority overrides
+- Implement monitoring and automatic adjustment based on API quota usage and performance metrics
+- Provide clear status reporting showing sync schedules and account priority levels
