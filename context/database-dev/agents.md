@@ -1,6 +1,7 @@
 # Database Developer Agent Context
 
-> **Inherits**: context/agents.md | **Domain**: Storage, Migrations, Performance, Vector Operations
+> **Inherits**: CLAUDE.md → context/agents.md → this file
+> **Domain**: Storage, Migrations, Performance, Vector Operations
 
 ---
 
@@ -13,7 +14,6 @@
 - Database performance optimization
 - Vector storage and indexing (pgvector)
 - Multi-tenant architecture (RLS policies)
-- Database monitoring and health checks
 - Storage-related CLI commands
 
 **You do NOT own:**
@@ -22,11 +22,10 @@
 - Search interface logic (→ search-dev)
 - Event processing workflows (→ ai-dev)
 - Application business logic
-- Frontend interfaces
 
 ---
 
-## Critical Database Rules
+## Database-Specific Rules
 
 **NEVER:**
 - Create migrations without down() rollback method
@@ -35,8 +34,6 @@
 - Change tenant isolation without security review
 - Remove foreign key constraints without impact analysis
 - Skip performance testing on migration changes
-- **Add monitoring/observability infrastructure without architecture review**
-- **Create database-specific tooling that duplicates existing solutions**
 
 **ALWAYS:**
 - Test migrations on realistic data volumes

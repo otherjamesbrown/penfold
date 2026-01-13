@@ -2,6 +2,86 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🚨 AUTONOMOUS DEVELOPMENT - READ FIRST
+
+**This is 100% AI-coding assistant driven development.**
+
+### Before Starting Any New Specification or Major Work
+
+**ALWAYS ASK:** "Do you want me to start on [specification/feature] and continue until complete (or questions arise)?"
+
+**Wait for user confirmation before beginning new major work streams.**
+
+### Autonomous Development Rules
+
+**CONTINUE AUTONOMOUSLY for:**
+- Writing code and tests within an approved specification
+- Making technical implementation decisions
+- Running commands and tests
+- Committing and pushing changes
+- Following established patterns and specifications
+- Bug fixes and improvements within current work
+
+**ONLY ASK USER when:**
+- Starting a new specification or major feature
+- Business requirements are ambiguous
+- Multiple valid approaches exist and user preference is needed
+- You need external credentials or resources
+- Technical blockers require user intervention
+- **Adding new architectural components** (observability, monitoring, logging, etc.)
+- **Modifying system architecture or infrastructure patterns**
+
+### Architecture Coordination - Critical
+
+**STOP and CHECK before adding:**
+- Observability/monitoring systems
+- Logging infrastructure
+- Message queues or event systems
+- Authentication/authorization
+- Configuration management
+- Caching layers
+- Backup/recovery systems
+- CI/CD pipelines
+
+**Search codebase first** - if similar infrastructure exists, use it or ask how to integrate.
+
+## Beads Workflow - Essential for All Sessions
+
+**NEVER start work without a bead.**
+
+### Core Commands
+```bash
+bd ready                    # Find available work
+bd create --title="..." --type=task --priority=2
+bd update <id> --status=in_progress  # Claim work
+bd close <id> --reason="commit <hash>: <summary>"
+bd sync                     # Sync with git (run at session end)
+```
+
+### Critical Rules
+- Create or find bead BEFORE writing code
+- Update bead status when starting: `bd update <id> --status=in_progress`
+- Reference bead in commits: `feat(component): description [pe-xxx]`
+- Close bead with commit hash and summary
+- Run `bd sync` before ending session
+
+## Session Close Protocol - MANDATORY
+
+**Work is NOT complete until pushed to remote.**
+
+```bash
+git status              # Check what changed
+git add <files>         # Stage changes
+bd sync                 # Sync beads
+git commit -m "..."     # Commit code
+git push                # MUST PUSH TO REMOTE
+```
+
+**NEVER:**
+- Stop before pushing to remote
+- Say "ready to push when you are" - YOU must push
+- Leave work stranded locally
+
 ## Project Overview
 
 **Penfold** is a personal AI-powered information system that aggregates, correlates, and surfaces contextual information from disparate communication channels (email, Slack, documents, meetings). The system transforms fragmented organizational knowledge into a navigable, queryable institutional memory.
@@ -70,46 +150,16 @@ penf config                          # Source configuration
 - **Use Cases**: "Rewind time" queries vs formal review workflows
 - **MVP Scope**: Much simpler - email + meetings with basic entity discovery
 
-## Current Phase: Active Development
+## Current Focus
 
-**Priority: Implementing foundational database layer**
+**Priority: Implementing foundational database layer** (specs/001-database-schema)
 
-## 🚨 CRITICAL: 100% AI-Coding Assistant Driven Development
-
-**This is a fully autonomous AI development project. Claude MUST continue implementation without asking for permission at each step.**
-
-### Autonomous Development Rules
-
-**ALWAYS:**
-- Continue implementing until you reach a natural stopping point or need user input
-- Make implementation decisions based on specifications and best practices
-- Create files, write code, run tests, and commit changes autonomously
-- Follow the complete workflow: plan → implement → test → commit → push
-- Use your judgment for technical decisions within established patterns
-
-**ONLY STOP when:**
-- You need clarification on business requirements or user preferences
-- You encounter ambiguous specifications that could be interpreted multiple ways
-- You need external resources or credentials you cannot access
-- You face technical blockers that require user intervention
-
-**NEVER STOP for:**
-- Writing code files
-- Creating tests
-- Running commands
-- Making commits
-- Technical implementation decisions
-- Following established patterns
-
-### Development Role
-Claude acts as a **fully autonomous senior software engineer** implementing the Penfold system with authority to:
-
-1. **Make Technical Decisions**: Choose implementations within specification guidelines
-2. **Test-Driven Development**: Write tests first, ensure they fail, then implement
-3. **Constitution Compliance**: Follow all principles in `project-constitution.md`
-4. **Quality Standards**: Type hints, docstrings, linting with ruff/mypy, black formatting
-5. **Async Architecture**: SQLAlchemy 2.0 with asyncpg driver for high-performance operations
-6. **Complete Workflows**: Take features from specification to working, tested, committed code
+### Development Standards
+- **Test-Driven Development**: Write tests first, ensure they fail, then implement
+- **Constitution Compliance**: Follow all principles in `project-constitution.md`
+- **Quality Standards**: Type hints, docstrings, linting with ruff/mypy, black formatting
+- **Async Architecture**: SQLAlchemy 2.0 with asyncpg driver for high-performance operations
+- **Complete Workflows**: Take features from specification to working, tested, committed code
 
 ### Current Implementation Focus
 - **Database Models**: Async SQLAlchemy entities with proper relationships and constraints
@@ -127,22 +177,21 @@ Each implementation must meet measurable performance targets:
 - Concurrent operations: Support 50+ simultaneous connections
 - Test coverage: Minimum 80% for core libraries
 
-## Getting Started
+## Quick Reference
 
-### For Development Work
+### Key Files
+- **Current Work**: `specs/001-database-schema/` (database implementation)
+- **System Architecture**: `specs/revised/penfold-spec-v3.md`
+- **Development Standards**: `project-constitution.md`
+- **Available Tasks**: Run `bd ready` to see ready work
 
-1. **Review Current Implementation**: `specs/001-database-schema/quickstart.md` - Step-by-step implementation guide
-2. **Check Task Progress**: `specs/001-database-schema/tasks.md` - 87 tasks organized by user story
-3. **Run Existing Tests**: `pytest tests/` - Verify current implementation status
-4. **Follow TDD Workflow**: Write failing tests → Implement → Refactor → Repeat
-5. **Use Beads for Tracking**: `bd ready` to see available work items
-
-### For Understanding the System
-
-1. **System Overview**: `specs/revised/penfold-spec-v3.md` - Complete architecture
-2. **Database Design**: `specs/001-database-schema/spec.md` - Storage layer specification
-3. **Data Models**: `specs/001-database-schema/data-model.md` - Entity relationships
-4. **Constitution**: `project-constitution.md` - Development principles and standards
+### Development Workflow
+1. Find/create bead: `bd ready` or `bd create --title="..." --type=task`
+2. Claim work: `bd update <id> --status=in_progress`
+3. Write failing tests → Implement → Test
+4. Commit with bead reference: `feat(component): description [pe-xxx]`
+5. Close bead: `bd close <id> --reason="commit <hash>: summary"`
+6. Push to remote: `git push`
 
 ## Key Design Principles
 

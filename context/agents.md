@@ -1,10 +1,23 @@
-# Penfold Agent Rules
+# Multi-Agent System Rules
 
-> **Last verified**: 2026-01-13 | **Project**: Penfold AI Information System
+> **Context**: This file is only loaded for multi-agent coordination work
+> **Universal Rules**: See CLAUDE.md for autonomous development, beads workflow, session management
+> **Last verified**: 2026-01-13
 
 ---
 
-## Development Agents Available
+## When This Context Applies
+
+This file is loaded when:
+- Spawning specialized agents for complex work
+- Coordinating work across multiple agent domains
+- Managing handoffs between development specializations
+
+For single-session work, CLAUDE.md contains all essential rules.
+
+---
+
+## Development Agent Domains
 
 | Agent | Domain | Handoff To |
 |-------|--------|------------|
@@ -16,51 +29,18 @@
 | `testing-dev` | Test framework, AI mocking, performance testing | All agents (test support) |
 | `debugger` | Read-only investigation, root cause analysis | Domain agents (fixes) |
 
----
-
-## 🚨 AUTONOMOUS DEVELOPMENT - CRITICAL
-
-**This is 100% AI-coding assistant driven development. Continue implementing autonomously until completion or you need user clarification on business requirements.**
-
-**CONTINUE AUTONOMOUSLY for:**
-- Writing code and tests
-- Making technical implementation decisions
-- Running commands and tests
-- Committing and pushing changes
-- Following established patterns and specifications
-
-**ONLY ASK USER when:**
-- Business requirements are ambiguous
-- Multiple valid approaches exist and user preference is needed
-- You need external credentials or resources
-- Technical blockers require user intervention
-- **Adding new architectural components** (observability, monitoring, logging, etc.)
-- **Modifying system architecture or infrastructure patterns**
-- **Creating cross-cutting concerns that affect multiple agents**
-
-## Critical Rules
+## Multi-Agent Specific Rules
 
 **NEVER:**
-- Start work without a bead
-- Close a bead with just "Done" - include commit hash and summary
 - Work outside your agent domain without creating a handoff bead
-- Ship new code without tests
-- Exceed 30 minutes without documenting progress in bead
-- Say "ready to push when you are" - YOU must push
-- Stop for permission to write code, create files, or make technical decisions
-- **Add new architectural components without checking for existing solutions**
+- Exceed 30 minutes without documenting progress in bead (for crash recovery)
 - **Modify ARCHITECTURE.md without user approval**
 - **Create infrastructure that duplicates existing systems**
 
 **ALWAYS:**
-- Create or find a bead BEFORE writing code
-- Update bead status: `bd update <id> --status in_progress`
 - Update beads with progress as you work (for crash/context recovery)
-- Reference bead in commits: `fix(component): description [pe-xxx]`
-- Close bead with details: `bd close <id> --reason "commit <hash>: <summary>"`
-- Write tests for new functionality
-- Run tests before closing bead
-- Push work to remote before ending session
+- Create handoff beads when work crosses domain boundaries
+- Document what needs to be done and why in handoff beads
 
 ---
 
@@ -78,28 +58,11 @@ If work is needed for another agent:
 
 ---
 
-## Architecture Coordination Rules
+## Architecture Coordination in Multi-Agent Context
 
-### **Before Adding New Infrastructure**
+### **Cross-Agent Architecture Changes**
 
-**STOP and CHECK:**
-1. **Does this already exist?** - Search codebase for existing solutions
-2. **Is this in ARCHITECTURE.md?** - Check if approach is already defined
-3. **Cross-agent impact?** - Will this affect other agent domains?
-
-**ASK USER BEFORE:**
-- Adding observability/monitoring systems
-- Creating logging infrastructure
-- Adding message queues or event systems
-- Implementing authentication/authorization
-- Creating configuration management
-- Adding caching layers
-- Implementing backup/recovery systems
-- Setting up CI/CD pipelines
-
-### **Architecture Change Protocol**
-
-If you need to add architectural components:
+When multiple agents might add similar infrastructure:
 
 ```bash
 # 1. Create architecture review bead
@@ -110,30 +73,22 @@ bd update <id> --add-label="architecture-review"
 bd comments add <id> "Current state: [existing solutions]
 Proposed: [new component]
 Justification: [why needed]
-Alternatives considered: [other options]
 Cross-agent impact: [what other agents affected]"
 
-# 3. STOP and ask user for approval
+# 3. STOP and ask user for approval before proceeding
 ```
 
-### **Examples of Architecture Coordination**
+### **Multi-Agent Coordination Examples**
 
 ```markdown
-❌ BAD - Agent acts independently:
-"I need observability for database performance, so I'll add Prometheus + Grafana"
+❌ BAD - Agents work independently:
+Database agent: "Adding Prometheus for DB monitoring"
+AI agent: "Adding Prometheus for model monitoring"
+(Result: Duplicate monitoring infrastructure)
 
-✅ GOOD - Agent checks first:
-"I need database performance monitoring. I see logging exists in penf_lib/logging/.
-Should I extend this system or do you want a specific monitoring approach?"
-
-❌ BAD - Duplicate infrastructure:
-Database agent adds Redis for caching
-AI agent adds Redis for job queues
-(Two Redis instances, no coordination)
-
-✅ GOOD - Coordinated infrastructure:
-"I need caching. I see Redis already planned for event processing.
-Should I use the same Redis instance with separate databases?"
+✅ GOOD - Agents coordinate:
+Database agent: "Need performance monitoring - checking if observability framework exists"
+AI agent: "Same monitoring needs - let's use centralized observability (011)"
 ```
 
 ---

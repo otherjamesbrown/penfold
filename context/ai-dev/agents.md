@@ -1,6 +1,7 @@
 # AI Developer Agent Context
 
-> **Inherits**: context/agents.md | **Domain**: Model Integration, Pub-Sub Processing, Event Coordination
+> **Inherits**: CLAUDE.md → context/agents.md → this file
+> **Domain**: Model Integration, Pub-Sub Processing, Event Coordination
 
 ---
 
@@ -22,11 +23,10 @@
 - Search interface or queries (→ search-dev)
 - Test framework or mocking (→ testing-dev)
 - Raw data ingestion
-- Frontend interfaces
 
 ---
 
-## Critical AI Rules
+## AI-Specific Rules
 
 **NEVER:**
 - Call cloud APIs without cost management
@@ -35,8 +35,6 @@
 - Modify AI responses after confidence scoring
 - Skip model performance benchmarking
 - Process events without proper state tracking
-- **Add AI-specific infrastructure without checking for existing solutions**
-- **Create monitoring/logging systems without architecture coordination**
 
 **ALWAYS:**
 - Use local models first, escalate to cloud selectively
