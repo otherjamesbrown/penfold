@@ -580,6 +580,334 @@ class GmailSyncManager:
         return self.attachment_base_path / str(self.connection_id) / date_str / f"{attachment.id}_{safe_filename}"
 
 
+    async def setup_push_notifications(
+        self,
+        topic_name: str,
+        label_ids: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Set up Gmail push notifications.
+
+        Args:
+            topic_name: Cloud Pub/Sub topic name
+            label_ids: Labels to watch (default: all labels)
+
+        Returns:
+            Watch response with expiration details
+        """
+        logger.info(f"Setting up push notifications for connection {self.connection_id}")
+
+        try:
+            # Setup push notifications
+            watch_response = await self.gmail_client.watch_mailbox(
+                topic_name=topic_name,
+                label_ids=label_ids
+            )
+
+            # Update connection with push subscription details
+            async with db_manager.get_session() as session:
+                result = await session.execute(
+                    select(GmailConnection).where(
+                        GmailConnection.id == self.connection_id
+                    )
+                )
+                connection = result.scalar_one_or_none()
+
+                if connection:
+                    connection.push_topic_name = topic_name
+                    # Convert expiration to datetime (Gmail returns milliseconds)
+                    if 'expiration' in watch_response:
+                        expiration_ms = int(watch_response['expiration'])
+                        connection.push_subscription_expiry = datetime.fromtimestamp(
+                            expiration_ms / 1000
+                        )
+                    # Update current history ID
+                    connection.current_history_id = watch_response.get('historyId')
+                    await session.commit()
+
+            logger.info(f"Push notifications setup complete: {watch_response}")
+            return watch_response
+
+        except Exception as e:
+            logger.error(f"Failed to setup push notifications: {e}")
+            raise
+
+    async def stop_push_notifications(self) -> None:
+        """Stop Gmail push notifications."""
+        try:
+            await self.gmail_client.stop_watch()
+
+            # Clear push subscription details
+            async with db_manager.get_session() as session:
+                result = await session.execute(
+                    select(GmailConnection).where(
+                        GmailConnection.id == self.connection_id
+                    )
+                )
+                connection = result.scalar_one_or_none()
+
+                if connection:
+                    connection.push_topic_name = None
+                    connection.push_subscription_expiry = None
+                    await session.commit()
+
+            logger.info(f"Push notifications stopped for connection {self.connection_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to stop push notifications: {e}")
+            raise
+
+    async def sync_incremental_emails(
+        self,
+        start_history_id: str,
+        end_history_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Perform incremental email synchronization using History API.
+
+        Args:
+            start_history_id: History ID to start from
+            end_history_id: History ID to end at (optional)
+
+        Returns:
+            Sync summary with statistics
+        """
+        start_time = datetime.utcnow()
+
+        logger.info(f"Starting incremental sync for connection {self.connection_id}")
+        logger.info(f"History range: {start_history_id} -> {end_history_id or 'latest'}")
+
+        await self.sync_publisher.publish_sync_progress(
+            sync_session_id=self.sync_session_id,
+            connection_id=self.connection_id,
+            sync_type="incremental",
+            processed_items=0,
+            current_batch=0,
+            status="starting",
+            current_operation="Fetching history changes"
+        )
+
+        try:
+            messages_processed = 0
+            threads_processed = 0
+            errors = []
+            page_token = None
+
+            # Get all history changes
+            while True:
+                try:
+                    history_data = await self.gmail_client.get_history(
+                        start_history_id=start_history_id,
+                        max_results=100,
+                        page_token=page_token
+                    )
+
+                    if 'history' not in history_data:
+                        break
+
+                    # Process each history record
+                    batch_messages = 0
+                    batch_threads = set()
+
+                    for history_record in history_data['history']:
+                        # Stop if we've reached the end history ID
+                        if end_history_id and history_record['id'] >= end_history_id:
+                            break
+
+                        # Process messages added
+                        if 'messagesAdded' in history_record:
+                            for msg_added in history_record['messagesAdded']:
+                                try:
+                                    message_id = msg_added['message']['id']
+                                    result = await self._process_single_message(message_id)
+                                    if result:
+                                        batch_messages += 1
+                                        batch_threads.add(result['thread_id'])
+
+                                except Exception as e:
+                                    logger.error(f"Failed to process added message: {e}")
+                                    errors.append(str(e))
+
+                        # Process messages deleted
+                        if 'messagesDeleted' in history_record:
+                            for msg_deleted in history_record['messagesDeleted']:
+                                try:
+                                    await self._handle_message_deleted(
+                                        msg_deleted['message']['id']
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Failed to handle deleted message: {e}")
+
+                        # Process label changes (optional)
+                        if 'labelsAdded' in history_record:
+                            await self._handle_labels_added(history_record['labelsAdded'])
+
+                        if 'labelsRemoved' in history_record:
+                            await self._handle_labels_removed(history_record['labelsRemoved'])
+
+                    messages_processed += batch_messages
+                    threads_processed += len(batch_threads)
+
+                    # Publish progress
+                    await self.sync_publisher.publish_sync_progress(
+                        sync_session_id=self.sync_session_id,
+                        connection_id=self.connection_id,
+                        sync_type="incremental",
+                        processed_items=messages_processed,
+                        current_batch=messages_processed // 50 + 1,
+                        status="in_progress",
+                        current_operation=f"Processing history changes"
+                    )
+
+                    # Check for more pages
+                    page_token = history_data.get('nextPageToken')
+                    if not page_token:
+                        break
+
+                except Exception as e:
+                    logger.error(f"Error fetching history: {e}")
+                    errors.append(str(e))
+                    break
+
+            # Calculate performance metrics
+            duration = (datetime.utcnow() - start_time).total_seconds()
+            items_per_minute = (messages_processed / duration * 60) if duration > 0 else 0
+
+            # Update connection with latest history ID
+            async with db_manager.get_session() as session:
+                result = await session.execute(
+                    select(GmailConnection).where(
+                        GmailConnection.id == self.connection_id
+                    )
+                )
+                connection = result.scalar_one_or_none()
+
+                if connection:
+                    connection.current_history_id = end_history_id or start_history_id
+                    connection.last_sync = datetime.utcnow()
+                    await session.commit()
+
+            # Publish completion event
+            await self.sync_publisher.publish_sync_completed(
+                sync_session_id=self.sync_session_id,
+                connection_id=self.connection_id,
+                sync_type="incremental",
+                total_messages=messages_processed,
+                total_threads=threads_processed,
+                duration_seconds=duration,
+                success=len(errors) == 0,
+                failed_messages=len(errors),
+                error_summary="; ".join(errors[:3]) if errors else None
+            )
+
+            logger.info(f"Incremental sync completed: {messages_processed} messages, "
+                       f"{threads_processed} threads in {duration:.2f}s")
+
+            return {
+                'success': len(errors) == 0,
+                'messages_processed': messages_processed,
+                'threads_processed': threads_processed,
+                'duration_seconds': duration,
+                'items_per_minute': items_per_minute,
+                'errors': errors
+            }
+
+        except Exception as e:
+            logger.error(f"Incremental sync failed: {e}")
+            await self.sync_publisher.publish_sync_completed(
+                sync_session_id=self.sync_session_id,
+                connection_id=self.connection_id,
+                sync_type="incremental",
+                total_messages=0,
+                total_threads=0,
+                duration_seconds=(datetime.utcnow() - start_time).total_seconds(),
+                success=False,
+                error_summary=str(e)
+            )
+            raise
+
+    async def _handle_message_deleted(self, gmail_message_id: str) -> None:
+        """Handle a message that was deleted from Gmail.
+
+        Args:
+            gmail_message_id: Gmail message ID that was deleted
+        """
+        async with db_manager.get_session() as session:
+            # Find the message in our database
+            result = await session.execute(
+                select(EmailMessage).where(
+                    EmailMessage.gmail_message_id == gmail_message_id
+                )
+            )
+            message = result.scalar_one_or_none()
+
+            if message:
+                # Mark message as deleted (soft delete)
+                message.processing_status = 'deleted'
+                await session.commit()
+                logger.info(f"Marked message {gmail_message_id} as deleted")
+            else:
+                logger.debug(f"Deleted message {gmail_message_id} not found in database")
+
+    async def _handle_labels_added(self, labels_added: List[Dict[str, Any]]) -> None:
+        """Handle label additions from history.
+
+        Args:
+            labels_added: List of label addition events
+        """
+        for label_event in labels_added:
+            try:
+                message_id = label_event['message']['id']
+                label_ids = label_event.get('labelIds', [])
+
+                # Update message labels in database
+                async with db_manager.get_session() as session:
+                    result = await session.execute(
+                        select(EmailMessage).where(
+                            EmailMessage.gmail_message_id == message_id
+                        )
+                    )
+                    message = result.scalar_one_or_none()
+
+                    if message:
+                        # Add new labels to existing labels
+                        current_labels = set(message.gmail_labels or [])
+                        current_labels.update(label_ids)
+                        message.gmail_labels = list(current_labels)
+                        await session.commit()
+
+            except Exception as e:
+                logger.error(f"Error handling added labels: {e}")
+
+    async def _handle_labels_removed(self, labels_removed: List[Dict[str, Any]]) -> None:
+        """Handle label removals from history.
+
+        Args:
+            labels_removed: List of label removal events
+        """
+        for label_event in labels_removed:
+            try:
+                message_id = label_event['message']['id']
+                label_ids = label_event.get('labelIds', [])
+
+                # Update message labels in database
+                async with db_manager.get_session() as session:
+                    result = await session.execute(
+                        select(EmailMessage).where(
+                            EmailMessage.gmail_message_id == message_id
+                        )
+                    )
+                    message = result.scalar_one_or_none()
+
+                    if message:
+                        # Remove labels from existing labels
+                        current_labels = set(message.gmail_labels or [])
+                        current_labels.difference_update(label_ids)
+                        message.gmail_labels = list(current_labels)
+                        await session.commit()
+
+            except Exception as e:
+                logger.error(f"Error handling removed labels: {e}")
+
+
 async def create_sync_manager(connection_id: int) -> GmailSyncManager:
     """Create a sync manager for a Gmail connection.
 
