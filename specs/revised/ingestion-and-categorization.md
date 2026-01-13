@@ -1,5 +1,7 @@
 # Ingestion and Categorization Design
 
+**Database Schema**: See [001-database-schema](../001-database-schema/spec.md) for storage layer supporting pub-sub processing framework.
+
 ## Three-Channel Ingestion System
 
 ### 1. Manual Tagging (High Control)
@@ -112,14 +114,20 @@ penfold review daily --queue
 
 ## Technical Implementation Notes
 
-### AI Processing Pipeline
-1. **Content Analysis**: Full semantic understanding of text
-2. **Participant Mapping**: Cross-reference with org chart
-3. **Context Understanding**: Meeting vs email vs document type
-4. **Project Scoring**: Semantic similarity to existing project content
-5. **Multi-Project Detection**: Identify overlapping themes
+### Event-Driven Processing Pipeline
+1. **Content Ingestion Event**: Published when new content arrives
+2. **Parallel AI Processing**: Multiple subscribers process simultaneously
+   - Content Analysis: Full semantic understanding of text
+   - Participant Mapping: Cross-reference with org chart
+   - Context Understanding: Meeting vs email vs document type
+   - Project Scoring: Semantic similarity to existing project content
+   - Multi-Project Detection: Identify overlapping themes
+3. **Result Aggregation**: Combine outputs from multiple processors
+4. **Quality Validation**: Optional cloud model validation for low-confidence results
 
 ### Learning Storage
+**Note**: Full database schema in [001-database-schema](../001-database-schema/spec.md) including event-driven processing tables.
+
 ```sql
 learning_rules:
   project_id: UUID
@@ -128,6 +136,20 @@ learning_rules:
   confidence_adjustment: float
   created_from_correction: boolean
   effectiveness_score: float
+
+processing_events:
+  event_id: UUID
+  event_type: text
+  payload: jsonb
+  created_at: timestamp
+
+processing_results:
+  result_id: UUID
+  event_id: UUID (references processing_events)
+  processor_id: text
+  result_data: jsonb
+  confidence_score: float
+  processing_time_ms: integer
 ```
 
 ### Feedback Loop
