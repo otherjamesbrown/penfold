@@ -656,6 +656,9 @@ class GmailMonitoringSystem:
         # Set up default alert rules
         self._setup_default_alert_rules()
 
+        # Enhanced alerting features
+        self._setup_advanced_alerting()
+
     def _setup_default_alert_rules(self) -> None:
         """Set up default monitoring alert rules."""
         # High error rate alert
@@ -692,6 +695,144 @@ class GmailMonitoringSystem:
             level=AlertLevel.CRITICAL,
             message_template="Circuit breakers open: {open_circuit_breakers} services unavailable",
             category="availability"
+        )
+
+    def _setup_advanced_alerting(self) -> None:
+        """Set up advanced alerting rules for performance monitoring."""
+        # Performance degradation alerts
+        self.alert_manager.add_alert_rule(
+            name="Performance Score Degraded",
+            condition=lambda ctx: ctx.get("performance_score", 100) < 70,
+            level=AlertLevel.WARNING,
+            message_template="Performance score dropped to {performance_score}%",
+            category="performance",
+            cooldown_minutes=15
+        )
+
+        self.alert_manager.add_alert_rule(
+            name="Critical Performance Issues",
+            condition=lambda ctx: ctx.get("performance_score", 100) < 40,
+            level=AlertLevel.CRITICAL,
+            message_template="Critical performance issues: score {performance_score}%",
+            category="performance",
+            cooldown_minutes=5
+        )
+
+        # Cache performance alerts
+        self.alert_manager.add_alert_rule(
+            name="Low Cache Hit Rate",
+            condition=lambda ctx: ctx.get("cache_hit_rate", 1.0) < 0.5,
+            level=AlertLevel.WARNING,
+            message_template="Cache hit rate dropped to {cache_hit_rate:.1%}",
+            category="cache",
+            cooldown_minutes=20
+        )
+
+        self.alert_manager.add_alert_rule(
+            name="Cache Memory Usage High",
+            condition=lambda ctx: ctx.get("cache_memory_mb", 0) > 500,
+            level=AlertLevel.WARNING,
+            message_template="Cache using {cache_memory_mb}MB memory",
+            category="cache",
+            cooldown_minutes=30
+        )
+
+        # Memory usage alerts
+        self.alert_manager.add_alert_rule(
+            name="High Memory Usage",
+            condition=lambda ctx: ctx.get("memory_usage_percent", 0) > 85,
+            level=AlertLevel.WARNING,
+            message_template="High memory usage: {memory_usage_percent}%",
+            category="memory",
+            cooldown_minutes=10
+        )
+
+        self.alert_manager.add_alert_rule(
+            name="Memory Leak Detected",
+            condition=lambda ctx: (
+                ctx.get("memory_growth_rate_mb_per_hour", 0) > 50 and
+                ctx.get("memory_usage_mb", 0) > 1000
+            ),
+            level=AlertLevel.ERROR,
+            message_template="Potential memory leak: {memory_growth_rate_mb_per_hour}MB/hour growth",
+            category="memory",
+            cooldown_minutes=60
+        )
+
+        # API performance alerts
+        self.alert_manager.add_alert_rule(
+            name="API Response Time Degraded",
+            condition=lambda ctx: ctx.get("avg_api_response_time_ms", 0) > 3000,
+            level=AlertLevel.WARNING,
+            message_template="API response time degraded: {avg_api_response_time_ms}ms average",
+            category="api",
+            cooldown_minutes=15
+        )
+
+        self.alert_manager.add_alert_rule(
+            name="High API Error Rate",
+            condition=lambda ctx: ctx.get("api_error_rate", 0) > 0.1,
+            level=AlertLevel.ERROR,
+            message_template="High API error rate: {api_error_rate:.1%}",
+            category="api",
+            cooldown_minutes=5
+        )
+
+        # Database performance alerts
+        self.alert_manager.add_alert_rule(
+            name="Database Connection Pool Exhausted",
+            condition=lambda ctx: (
+                ctx.get("db_pool_utilization", 0) > 0.95 and
+                ctx.get("db_pool_size", 0) > 0
+            ),
+            level=AlertLevel.CRITICAL,
+            message_template="Database connection pool {db_pool_utilization:.1%} utilized",
+            category="database",
+            cooldown_minutes=5
+        )
+
+        self.alert_manager.add_alert_rule(
+            name="Many Slow Database Queries",
+            condition=lambda ctx: ctx.get("slow_queries_per_minute", 0) > 5,
+            level=AlertLevel.WARNING,
+            message_template="High slow query rate: {slow_queries_per_minute} queries/minute",
+            category="database",
+            cooldown_minutes=10
+        )
+
+        # Rate limiting alerts
+        self.alert_manager.add_alert_rule(
+            name="Rate Limiter Highly Restrictive",
+            condition=lambda ctx: (
+                ctx.get("rate_limit_adaptation_factor", 1.0) < 0.3 and
+                ctx.get("recent_quota_errors", 0) > 3
+            ),
+            level=AlertLevel.WARNING,
+            message_template="Rate limiter highly restrictive: {rate_limit_adaptation_factor:.2f}x factor",
+            category="rate_limiting",
+            cooldown_minutes=30
+        )
+
+        # System health alerts
+        self.alert_manager.add_alert_rule(
+            name="Multiple Health Check Failures",
+            condition=lambda ctx: ctx.get("failed_health_checks", 0) >= 2,
+            level=AlertLevel.ERROR,
+            message_template="{failed_health_checks} health checks failing",
+            category="health",
+            cooldown_minutes=5
+        )
+
+        self.alert_manager.add_alert_rule(
+            name="System Becoming Unresponsive",
+            condition=lambda ctx: (
+                ctx.get("avg_response_time_ms", 0) > 5000 and
+                ctx.get("error_rate_per_minute", 0) > 20
+            ),
+            level=AlertLevel.CRITICAL,
+            message_template="System becoming unresponsive: {avg_response_time_ms}ms response time, {error_rate_per_minute} errors/min",
+            category="system",
+            cooldown_minutes=2
         )
 
     async def start_monitoring(self) -> None:
@@ -741,7 +882,7 @@ class GmailMonitoringSystem:
             await asyncio.sleep(self._monitoring_interval)
 
     async def _collect_monitoring_context(self, health_results: Dict[str, HealthCheckResult]) -> Dict[str, Any]:
-        """Collect monitoring context from various sources."""
+        """Collect comprehensive monitoring context from various sources."""
         context = {}
 
         # Add health check results
@@ -750,20 +891,150 @@ class GmailMonitoringSystem:
             context[f"{name}_status"] = result.status.value
             context[f"{name}_response_time_ms"] = result.response_time_ms or 0
 
-        # Add error statistics
-        error_stats = gmail_error_handler.get_error_statistics()
-        total_errors = sum(
-            sum(severity_counts.values())
-            for severity_counts in error_stats["error_stats"].values()
+        # Count failed health checks
+        context["failed_health_checks"] = sum(
+            1 for result in health_results.values()
+            if result.status != HealthStatus.HEALTHY
         )
-        context["total_errors"] = total_errors
-        context["error_rate_per_minute"] = total_errors / max(1, self._monitoring_interval / 60)
 
-        # Add circuit breaker status
-        context["open_circuit_breakers"] = sum(
-            1 for cb in error_stats["circuit_breakers"].values()
-            if cb["state"] == "OPEN"
+        # Add error statistics
+        try:
+            from .error_handling import gmail_error_handler
+            error_stats = gmail_error_handler.get_error_statistics()
+            total_errors = sum(
+                sum(severity_counts.values())
+                for severity_counts in error_stats["error_stats"].values()
+            )
+            context["total_errors"] = total_errors
+            context["error_rate_per_minute"] = total_errors / max(1, self._monitoring_interval / 60)
+
+            # Add circuit breaker status
+            context["open_circuit_breakers"] = sum(
+                1 for cb in error_stats["circuit_breakers"].values()
+                if cb["state"] == "OPEN"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to collect error statistics: {e}")
+            context["total_errors"] = 0
+            context["error_rate_per_minute"] = 0
+            context["open_circuit_breakers"] = 0
+
+        # Add cache metrics
+        try:
+            from .optimization import gmail_cache
+            cache_stats = gmail_cache.get_stats()
+            context["cache_hit_rate"] = cache_stats.hit_rate
+            context["cache_memory_mb"] = cache_stats.memory_usage_bytes / 1024 / 1024
+            context["cache_entry_count"] = cache_stats.entry_count
+        except Exception as e:
+            logger.warning(f"Failed to collect cache statistics: {e}")
+            context["cache_hit_rate"] = 0
+            context["cache_memory_mb"] = 0
+            context["cache_entry_count"] = 0
+
+        # Add memory metrics
+        try:
+            from .optimization import memory_optimizer
+            memory_snapshot = await memory_optimizer.monitor_memory_usage()
+            context["memory_usage_mb"] = memory_snapshot.get('rss_mb', 0)
+            context["memory_usage_percent"] = memory_snapshot.get('percent', 0)
+
+            # Calculate memory growth rate
+            memory_trends = memory_optimizer.get_memory_trends(hours=1)
+            context["memory_growth_rate_mb_per_hour"] = memory_trends.get('memory_growth_mb', 0)
+        except Exception as e:
+            logger.warning(f"Failed to collect memory statistics: {e}")
+            context["memory_usage_mb"] = 0
+            context["memory_usage_percent"] = 0
+            context["memory_growth_rate_mb_per_hour"] = 0
+
+        # Add rate limiting metrics
+        try:
+            from .optimization import adaptive_rate_limiter
+            context["rate_limit_adaptation_factor"] = adaptive_rate_limiter.adaptation_factor
+            context["current_rate_limit"] = adaptive_rate_limiter.calls_per_second
+            context["recent_quota_errors"] = len([
+                error_time for error_time in adaptive_rate_limiter.quota_errors
+                if (datetime.utcnow() - error_time).total_seconds() < 300  # Last 5 minutes
+            ])
+        except Exception as e:
+            logger.warning(f"Failed to collect rate limiting statistics: {e}")
+            context["rate_limit_adaptation_factor"] = 1.0
+            context["current_rate_limit"] = 10
+            context["recent_quota_errors"] = 0
+
+        # Add API performance metrics
+        api_response_times = await self.metrics_collector.get_metric_values(
+            "gmail_api_response_time",
+            since=datetime.utcnow() - timedelta(minutes=10)
         )
+        context["avg_api_response_time_ms"] = (
+            sum(api_response_times) / len(api_response_times)
+            if api_response_times else 0
+        )
+
+        # Calculate API error rate
+        api_calls = await self.metrics_collector.get_metric_values(
+            "gmail_api_calls",
+            since=datetime.utcnow() - timedelta(minutes=10)
+        )
+        api_errors = await self.metrics_collector.get_metric_values(
+            "gmail_api_calls",
+            labels={"success": "False"},
+            since=datetime.utcnow() - timedelta(minutes=10)
+        )
+        total_api_calls = len(api_calls)
+        total_api_errors = len(api_errors)
+        context["api_error_rate"] = (
+            total_api_errors / total_api_calls
+            if total_api_calls > 0 else 0
+        )
+
+        # Add database performance metrics
+        try:
+            from ...storage.database import db_manager
+            db_stats = await db_manager.get_performance_stats()
+            pool_status = db_stats.get('pool_status', {})
+
+            context["db_pool_size"] = pool_status.get('pool_size', 0)
+            context["db_pool_utilization"] = (
+                pool_status.get('checked_out', 0) / max(pool_status.get('pool_size', 1), 1)
+            )
+
+            query_stats = db_stats.get('query_stats', {})
+            context["slow_queries_per_minute"] = (
+                query_stats.get('slow_queries', 0) / max(1, self._monitoring_interval / 60)
+            )
+        except Exception as e:
+            logger.warning(f"Failed to collect database statistics: {e}")
+            context["db_pool_size"] = 0
+            context["db_pool_utilization"] = 0
+            context["slow_queries_per_minute"] = 0
+
+        # Calculate overall performance score (simplified version from dashboard)
+        performance_score = 100.0
+
+        # Cache performance impact
+        cache_hit_rate = context.get('cache_hit_rate', 0)
+        if cache_hit_rate < 0.8:
+            performance_score -= (0.8 - cache_hit_rate) * 30
+
+        # API performance impact
+        avg_response_time = context.get('avg_api_response_time_ms', 0) / 1000  # Convert to seconds
+        if avg_response_time > 1.0:
+            performance_score -= min(20, (avg_response_time - 1.0) * 20)
+
+        # Error rate impact
+        error_rate = context.get('api_error_rate', 0)
+        if error_rate > 0.05:
+            performance_score -= (error_rate - 0.05) * 200
+
+        # Memory usage impact
+        memory_percent = context.get('memory_usage_percent', 0)
+        if memory_percent > 80:
+            performance_score -= (memory_percent - 80) * 0.5
+
+        context["performance_score"] = max(0, performance_score)
 
         # Add timestamp
         context["timestamp"] = datetime.utcnow().isoformat()
