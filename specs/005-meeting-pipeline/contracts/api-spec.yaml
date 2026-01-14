@@ -1,0 +1,797 @@
+openapi: 3.0.3
+info:
+  title: Meeting Pipeline API
+  description: API for uploading, processing, and searching meeting recordings
+  version: 1.0.0
+  contact:
+    name: Penfold API Support
+    email: support@penfold.dev
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+paths:
+  /meetings/upload:
+    post:
+      summary: Initiate meeting file upload
+      description: Creates upload session for resumable file upload using TUS protocol
+      tags:
+        - File Upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - filename
+                - file_size
+                - privacy_level
+              properties:
+                filename:
+                  type: string
+                  description: Original filename
+                  example: "team-standup-2024-01-14.mp4"
+                file_size:
+                  type: integer
+                  minimum: 1
+                  maximum: 2147483648
+                  description: File size in bytes (max 2GB)
+                  example: 157286400
+                privacy_level:
+                  type: string
+                  enum: [public, organization, team_only, confidential]
+                  description: Meeting privacy level
+                  example: "team_only"
+                metadata:
+                  type: object
+                  properties:
+                    meeting_date:
+                      type: string
+                      format: date-time
+                      description: When the meeting occurred
+                    participants:
+                      type: array
+                      items:
+                        type: string
+                      description: Expected participant names
+                      example: ["Alice Johnson", "Bob Smith", "Carol Williams"]
+                    meeting_title:
+                      type: string
+                      description: Meeting title or subject
+                      example: "Weekly Team Standup"
+                    duration_minutes:
+                      type: integer
+                      description: Expected meeting duration
+                      example: 60
+      responses:
+        '201':
+          description: Upload session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_session_id:
+                    type: string
+                    format: uuid
+                    description: Session ID for resumable upload
+                  upload_url:
+                    type: string
+                    description: TUS upload endpoint URL
+                  meeting_id:
+                    type: string
+                    format: uuid
+                    description: Meeting file identifier
+                  expires_at:
+                    type: string
+                    format: date-time
+                    description: Upload session expiration
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: File size exceeds 2GB limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /meetings/{meeting_id}/status:
+    get:
+      summary: Get meeting processing status
+      description: Retrieve current processing status and progress
+      tags:
+        - Processing Status
+      parameters:
+        - name: meeting_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Meeting identifier
+      responses:
+        '200':
+          description: Processing status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessingStatus'
+        '404':
+          description: Meeting not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /meetings/{meeting_id}/stream:
+    get:
+      summary: Stream processing progress
+      description: Server-sent events for real-time processing updates
+      tags:
+        - Processing Status
+      parameters:
+        - name: meeting_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Meeting identifier
+      responses:
+        '200':
+          description: Event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-sent events with processing updates
+
+  /meetings/{meeting_id}/transcript:
+    get:
+      summary: Get meeting transcript
+      description: Retrieve complete meeting transcript with speaker identification
+      tags:
+        - Meeting Content
+      parameters:
+        - name: meeting_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Meeting identifier
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, txt, vtt, srt]
+            default: json
+          description: Response format
+      responses:
+        '200':
+          description: Transcript retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingTranscript'
+            text/plain:
+              schema:
+                type: string
+                description: Plain text transcript
+            text/vtt:
+              schema:
+                type: string
+                description: WebVTT format with timestamps
+            application/x-subrip:
+              schema:
+                type: string
+                description: SubRip (SRT) subtitle format
+        '404':
+          description: Meeting or transcript not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '402':
+          description: Processing not completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /meetings/{meeting_id}/summary:
+    get:
+      summary: Get meeting summary
+      description: Retrieve AI-generated meeting summary with key insights
+      tags:
+        - Meeting Content
+      parameters:
+        - name: meeting_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Meeting identifier
+      responses:
+        '200':
+          description: Summary retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingSummary'
+        '404':
+          description: Meeting or summary not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '402':
+          description: Processing not completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /meetings/{meeting_id}/transcript/corrections:
+    patch:
+      summary: Submit transcript corrections
+      description: Manual corrections to AI-generated transcript
+      tags:
+        - Manual Review
+      parameters:
+        - name: meeting_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Meeting identifier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                corrections:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      segment_id:
+                        type: string
+                        description: Transcript segment identifier
+                      corrected_text:
+                        type: string
+                        description: User-corrected text
+                      speaker_correction:
+                        type: string
+                        description: Corrected speaker identification
+                      timestamp_adjustment:
+                        type: object
+                        properties:
+                          start_time:
+                            type: number
+                            description: Adjusted start time in seconds
+                          end_time:
+                            type: number
+                            description: Adjusted end time in seconds
+      responses:
+        '200':
+          description: Corrections applied successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  corrections_applied:
+                    type: integer
+                    description: Number of corrections processed
+                  transcript_updated:
+                    type: boolean
+                    description: Whether transcript was updated
+        '400':
+          description: Invalid correction format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /meetings/search:
+    get:
+      summary: Search meetings
+      description: Full-text and semantic search across meeting transcripts and summaries
+      tags:
+        - Search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+          example: "budget approval Q2"
+        - name: search_type
+          in: query
+          schema:
+            type: string
+            enum: [fulltext, semantic, hybrid]
+            default: hybrid
+          description: Search method
+        - name: privacy_levels
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [public, organization, team_only, confidential]
+          description: Privacy levels to include in search
+        - name: date_range
+          in: query
+          schema:
+            type: object
+            properties:
+              start_date:
+                type: string
+                format: date
+              end_date:
+                type: string
+                format: date
+        - name: participants
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+          description: Filter by participant names
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Maximum number of results
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Result offset for pagination
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SearchResult'
+                  total_count:
+                    type: integer
+                    description: Total number of matching meetings
+                  search_time_ms:
+                    type: integer
+                    description: Search execution time
+                  pagination:
+                    type: object
+                    properties:
+                      limit:
+                        type: integer
+                      offset:
+                        type: integer
+                      has_more:
+                        type: boolean
+        '400':
+          description: Invalid search parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /meetings/batch:
+    post:
+      summary: Batch upload meetings
+      description: Upload multiple meeting files simultaneously
+      tags:
+        - File Upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                meetings:
+                  type: array
+                  maximum: 20
+                  items:
+                    type: object
+                    properties:
+                      filename:
+                        type: string
+                      file_size:
+                        type: integer
+                      privacy_level:
+                        type: string
+                        enum: [public, organization, team_only, confidential]
+                      metadata:
+                        type: object
+      responses:
+        '201':
+          description: Batch upload sessions created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_sessions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        meeting_id:
+                          type: string
+                          format: uuid
+                        upload_session_id:
+                          type: string
+                          format: uuid
+                        upload_url:
+                          type: string
+                  batch_id:
+                    type: string
+                    format: uuid
+                    description: Batch processing identifier
+
+  /review-queue:
+    get:
+      summary: Get review queue items
+      description: Retrieve pending manual review tasks
+      tags:
+        - Manual Review
+      parameters:
+        - name: review_type
+          in: query
+          schema:
+            type: string
+            enum: [speaker_identification, project_linking, transcription_quality]
+          description: Filter by review type
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, in_review, completed]
+            default: pending
+          description: Filter by review status
+        - name: assigned_to_me
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Show only items assigned to current user
+      responses:
+        '200':
+          description: Review queue items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReviewQueueItem'
+                  total_count:
+                    type: integer
+
+  /review-queue/{item_id}:
+    patch:
+      summary: Update review queue item
+      description: Submit review decisions for manual review items
+      tags:
+        - Manual Review
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [in_review, completed, escalated]
+                user_decisions:
+                  type: object
+                  description: Review-type specific decisions
+                resolution_notes:
+                  type: string
+                  description: Optional notes about the resolution
+      responses:
+        '200':
+          description: Review item updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewQueueItem'
+
+components:
+  schemas:
+    ProcessingStatus:
+      type: object
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [uploading, queued, transcribing, analyzing, completed, failed]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Progress percentage
+        current_stage:
+          type: string
+          description: Current processing stage
+        estimated_completion:
+          type: string
+          format: date-time
+          description: Estimated completion time
+        error_message:
+          type: string
+          description: Error details if status is failed
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    MeetingTranscript:
+      type: object
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+        transcript_text:
+          type: string
+          description: Complete meeting transcript
+        confidence_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Overall transcription confidence
+        transcription_method:
+          type: string
+          enum: [whisper_local, google_cloud, manual]
+        speaker_segments:
+          type: array
+          items:
+            type: object
+            properties:
+              speaker_id:
+                type: string
+                description: Speaker identifier
+              speaker_name:
+                type: string
+                description: Identified speaker name (if known)
+              start_time:
+                type: number
+                description: Segment start time in seconds
+              end_time:
+                type: number
+                description: Segment end time in seconds
+              text:
+                type: string
+                description: Spoken text
+              confidence:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: Segment confidence score
+        quality_metrics:
+          type: object
+          properties:
+            audio_quality:
+              type: string
+              enum: [excellent, good, fair, poor]
+            signal_to_noise_ratio:
+              type: number
+            processing_time_seconds:
+              type: number
+        created_at:
+          type: string
+          format: date-time
+
+    MeetingSummary:
+      type: object
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+        summary_text:
+          type: string
+          description: AI-generated meeting summary
+        key_points:
+          type: array
+          items:
+            type: object
+            properties:
+              point:
+                type: string
+              timestamp:
+                type: string
+                description: Time reference in meeting
+              speakers:
+                type: array
+                items:
+                  type: string
+              confidence:
+                type: number
+        action_items:
+          type: array
+          items:
+            type: object
+            properties:
+              item:
+                type: string
+              assignee:
+                type: string
+              deadline:
+                type: string
+                format: date
+              status:
+                type: string
+                enum: [pending, in_progress, completed]
+              confidence:
+                type: number
+        decisions:
+          type: array
+          items:
+            type: object
+            properties:
+              decision:
+                type: string
+              rationale:
+                type: string
+              timestamp:
+                type: string
+              confidence:
+                type: number
+        quality_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: AI confidence in summary accuracy
+        created_at:
+          type: string
+          format: date-time
+
+    SearchResult:
+      type: object
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+        meeting_title:
+          type: string
+        meeting_date:
+          type: string
+          format: date-time
+        participants:
+          type: array
+          items:
+            type: string
+        privacy_level:
+          type: string
+          enum: [public, organization, team_only, confidential]
+        relevance_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Search relevance score
+        matched_excerpts:
+          type: array
+          items:
+            type: object
+            properties:
+              text:
+                type: string
+                description: Text excerpt containing search terms
+              timestamp:
+                type: string
+                description: Time reference in meeting
+              speaker:
+                type: string
+              match_type:
+                type: string
+                enum: [transcript, summary, action_item]
+        summary_snippet:
+          type: string
+          description: Brief meeting summary
+
+    ReviewQueueItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        meeting_id:
+          type: string
+          format: uuid
+        review_type:
+          type: string
+          enum: [speaker_identification, project_linking, transcription_quality]
+        status:
+          type: string
+          enum: [pending, in_review, completed, escalated]
+        ai_suggestions:
+          type: object
+          description: AI recommendations for manual review
+        assigned_to:
+          type: string
+          description: User assigned to review
+        created_at:
+          type: string
+          format: date-time
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error type
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          description: Additional error context
+        request_id:
+          type: string
+          description: Request identifier for debugging
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: File Upload
+    description: Meeting file upload and batch processing
+  - name: Processing Status
+    description: Real-time processing status and progress tracking
+  - name: Meeting Content
+    description: Access to transcripts, summaries, and meeting insights
+  - name: Search
+    description: Full-text and semantic search across meeting content
+  - name: Manual Review
+    description: Manual review queue and correction workflows
