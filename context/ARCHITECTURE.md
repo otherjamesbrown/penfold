@@ -1,521 +1,241 @@
-# Penfold System Architecture
+# Penfold Architecture Patterns
 
-> **Last Updated**: 2026-01-13
-> **Purpose**: Single source of truth for architectural decisions and patterns
-> **Audience**: All development agents and system implementers
+**Extracted from implementations**: 005-meeting-pipeline
+**Last Updated**: 2026-01-14
 
----
+## Core Architectural Patterns
 
-## Architecture Overview
+### 1. Phased Pipeline Processing
 
-**Penfold** is a personal AI-powered information system that transforms fragmented organizational knowledge into a navigable, queryable institutional memory through temporal organization and AI-powered entity resolution.
+**Pattern**: Multi-phase processing pipeline with dependency management and status tracking
 
-### Core Design Principles
+**Implementation Example** (Meeting Pipeline):
+- Phase 1: Core Infrastructure & Data Model
+- Phase 2: File Upload & Storage System
+- Phase 3: Audio/Video Processing & Transcription
+- Phase 4: Content Analysis & AI Processing
+- Phase 5: Search and Discovery Implementation
+- Phase 6: Manual Review and Correction Interface
 
-1. **Temporal First**: Time is the primary organizing axis - everything happens at [timestamp]
-2. **Event-Driven Processing**: Pub-sub framework enables flexible multi-model AI coordination
-3. **Emergent Structure**: Let AI discover relationships, don't force rigid schemas
-4. **Source Truth**: Always maintain links back to original documents/meetings/emails
-5. **Context Containers**: Project contexts (Atlas, People Management, General) provide thematic grouping
-6. **Human-in-Loop**: AI suggests, human confirms critical entity resolutions
-7. **Local-First with Cloud Quality Gates**: Process locally, validate with cloud models selectively
-8. **Multi-Tenant Isolation**: Complete separation between work, personal, and family contexts
-
----
-
-## Infrastructure Stack
-
-### Database Layer (PostgreSQL + pgvector)
-**Decision**: PostgreSQL 16+ with pgvector extension for hybrid relational and vector storage
-**Rationale**: Combines ACID transactions, complex relationships, and semantic search in single system
-**Implementation**: specs/001-database-schema ✅ **IMPLEMENTED**
-
-```yaml
-database:
-  primary: PostgreSQL 16+
-  extensions: [pgvector]
-  organization: logical schemas (core, events, vector)
-  vector_dimensions: 768 (nomic-embed-text compatible)
-  indexing_algorithm: HNSW (M=16, ef_construction=200)
-  multi_tenancy: Row-Level Security (RLS) policies
-
-  # Performance characteristics (validated)
-  performance_targets:
-    crud_operations: <100ms (up to 10K records per tenant)
-    vector_similarity: <500ms (up to 100K vectors per tenant)
-    concurrent_connections: 50+ simultaneous
-    migration_time: <15 minutes with rollback
-
-  # Multi-tenant isolation patterns
-  tenant_isolation:
-    method: PostgreSQL Row-Level Security (RLS)
-    policy_pattern: "tenant_id = current_setting('app.current_tenant_id')::uuid"
-    session_management: persistent tenant context via PostgreSQL session variables
-    shared_entities: people (via CrossTenantPersonLink table)
-    isolated_entities: [sources, assertions, projects, teams, embeddings]
-
-  # Storage patterns
-  entity_patterns:
-    base_columns: [id, tenant_id, created_at, updated_at, deleted_at]
-    soft_deletes: archive tables for audit and recovery
-    indexing_strategy: tenant_id + temporal indexes on all entities
-    constraint_enforcement: database-level validation with clear error messages
-```
-
-### Event Processing Framework (Redis + PostgreSQL Fallback)
-**Decision**: Redis for pub-sub with PostgreSQL fallback for reliability
-**Rationale**: High-performance event distribution with guaranteed delivery and comprehensive job lifecycle management
-**Implementation**: specs/002-event-processing ✅ **PRODUCTION READY**
-
-```yaml
-event_processing:
-  # Core infrastructure
-  primary: Redis pub-sub (real-time distribution)
-  fallback: PostgreSQL LISTEN/NOTIFY (reliability guarantee)
-  serialization: JSON with schema validation
-  retention: 30 days for audit and debugging
-  multi_tenancy: tenant-aware routing and isolation
-
-  # Production components implemented
-  core_components:
-    - EventPublisher: Redis pub-sub with automatic PostgreSQL fallback
-    - JobManager: Complete state machine with retry logic and timeout handling
-    - SubscriptionManager: Dynamic event routing with JSONB filter criteria
-    - ResultAggregator: Multi-processor comparison with confidence scoring
-    - HealthMonitor: System monitoring and scaling recommendations
-
-  # Job lifecycle management
-  job_states: [queued, claimed, in_progress, completed, failed, retrying, cancelled]
-  state_management:
-    atomic_transitions: 100% guaranteed consistency across concurrent operations
-    claiming_mechanism: Prevents duplicate processing with Redis locks
-    retry_logic: Exponential backoff (1s, 2s, 4s, 8s, 16s) with max 5 attempts
-    timeout_detection: 30-second processor health checks with automatic failover
-    dead_letter_queue: Failed events isolated to prevent system blocking
-
-  # Multi-model result aggregation
-  result_processing:
-    confidence_scoring: Per-processor confidence with ensemble weighting
-    comparison_algorithms: Result similarity analysis with difference highlighting
-    selection_criteria: Best result selection with reasoning documentation
-    quality_metrics: Performance tracking for continuous improvement
-
-  # Performance characteristics (validated in production)
-  performance_targets:
-    event_publishing: <10ms for events up to 1MB payload ✅ TESTED
-    job_creation: <50ms from event publication to job queue ✅ TESTED
-    state_transitions: <100ms with atomic consistency ✅ TESTED
-    result_aggregation: <200ms for up to 10 concurrent processors ✅ TESTED
-    concurrent_processing: 1000+ simultaneous jobs without degradation ✅ TESTED
-    queue_latency: Sub-second under normal load conditions ✅ TESTED
-
-  # Event filtering and routing
-  subscription_patterns:
-    event_types: content.ingested, meeting.preprocessed, content.categorized
-    filter_criteria: JSONB-based content type, project context, priority levels
-    processor_preferences: Local vs cloud, confidence thresholds, cost limits
-    dynamic_routing: Runtime subscription updates without restart
-
-  # Production monitoring
-  health_monitoring:
-    processor_tracking: Real-time availability and performance metrics
-    bottleneck_analysis: Queue depth monitoring with scaling recommendations
-    failure_detection: Automatic retry and escalation on processor timeouts
-    audit_trail: Complete event and job history with performance analytics
-
-  # Cloud processing escalation
-  escalation_patterns:
-    confidence_thresholds: Local results below 0.7 confidence trigger cloud processing
-    budget_management: Cost tracking with automatic throttling at limits
-    quality_comparison: Cloud vs local result analysis with improvement metrics
-    fallback_strategy: Graceful degradation when cloud services unavailable
-```
-
-### AI Coordination Framework (Multi-Model Processing)
-**Decision**: Parallel multi-model processing with ensemble learning and confidence-based escalation
-**Rationale**: Higher quality results through model diversity and intelligent cost optimization
-**Implementation**: specs/003-ai-coordination ✅ **PRODUCTION READY**
-
-```yaml
-ai_coordination:
-  # Core infrastructure
-  primary_components:
-    - ModelCoordinator: central orchestration for multi-model parallel processing
-    - EnsembleCombiner: sophisticated result aggregation with multiple strategies
-    - EscalationManager: confidence-based cloud model escalation
-    - PerformanceTracker: historical tracking and model selection optimization
-
-  # Model management
-  model_registry:
-    local_models: [llama-3.1-8b, phi-3-mini] # Local via Ollama
-    cloud_models: [gpt-4, claude-3-sonnet, gemini-pro] # Selective escalation
-    capabilities: [text_generation, summarization, entity_extraction, classification]
-    content_types: [email, document, meeting, text, code]
-
-  # Processing strategies
-  coordination_patterns:
-    parallel_processing: async multi-model content processing
-    ensemble_methods: [weighted_average, confidence_voting, majority_vote]
-    escalation_triggers: [low_confidence, consensus_failure, quality_threshold]
-    result_combination: weighted by confidence scores and historical performance
-
-  # Performance characteristics (production validated)
-  performance_targets:
-    coordination_startup: <100ms for workflow initiation
-    parallel_processing: unlimited concurrent model coordination
-    ensemble_creation: <50ms for result aggregation
-    escalation_decision: <25ms for cloud model routing
-    model_selection: optimized based on content type and historical performance
-
-  # Quality optimization
-  learning_framework:
-    performance_tracking: per-model metrics across content types
-    optimization_algorithms: model selection based on historical success rates
-    quality_improvement: 15-25% enhancement vs best individual model
-    cost_optimization: 30-40% reduction through intelligent escalation
-    effectiveness_analysis: escalation worthiness scoring with 90%+ accuracy
-
-  # Integration with event processing
-  event_coordination:
-    event_publisher: leverages specs/002 EventPublisher for model coordination
-    job_manager: uses JobManager for parallel processing state management
-    subscription_manager: dynamic model registration via SubscriptionManager
-    result_storage: ProcessingResult entities with confidence scoring
-```
-
-### Multi-Tenant Architecture
-**Decision**: Context-based tenancy with shared entity resolution
-**Rationale**: Complete data isolation while enabling cross-context people linking
-**Implementation**: specs/001-database-schema
-
-```yaml
-multi_tenancy:
-  contexts: [work, personal, family]
-  isolation_method: PostgreSQL RLS policies
-  shared_entities: people (with CrossTenantPersonLink)
-  isolated_entities: [projects, sources, assertions, teams]
-  context_switching: persistent session-based selection
-```
-
----
-
-## System Components
-
-### Core Data Entities
-
-**Storage Pattern**: All entities include tenant_id, created_at, updated_at, and soft delete support
+**Key Components**:
+- Database entities for tracking processing jobs with status and progress
+- Idempotency keys for job reliability
+- Error handling with detailed error capture
+- Progress tracking with estimated completion times
 
 ```python
-# Base entity pattern
-class BaseEntity:
-    id: UUID
-    tenant_id: UUID  # Multi-tenant isolation
+# Processing Job Model Pattern
+class ProcessingJob(Base):
+    id: uuid.UUID = primary_key
+    meeting_file_id: uuid.UUID = foreign_key
+    job_type: str  # transcription, analysis, etc.
+    status: str    # pending, in_progress, completed, failed
+    progress: int  # 0-100 percentage
+    stage: str     # current processing stage
+    estimated_completion_time: datetime
+    error_details: dict = JSONB
+    idempotency_key: str
+```
+
+### 2. Multi-Modal AI Processing
+
+**Pattern**: Tiered AI processing with confidence scoring and manual fallbacks
+
+**Implementation Details**:
+- Local-first approach with cloud escalation
+- Confidence scoring for all AI decisions
+- Manual review queues for low-confidence results
+- Version control for AI-generated content
+
+**Key Components**:
+- Confidence thresholds with user warnings
+- Manual correction interfaces
+- AI feedback collection for continuous improvement
+- Ensemble processing for model comparison
+
+```python
+# AI Confidence Pattern
+class MeetingTranscript(Base):
+    confidence_score: float
+    transcription_method: str  # whisper_local, cloud_api, manual
+    quality_metrics: dict = JSONB
+    speaker_segments: dict = JSONB
+
+# Manual Review Queue Pattern
+class ReviewQueue(Base):
+    review_type: str           # transcription_quality, speaker_id, entity_resolution
+    ai_suggestions: dict = JSONB
+    user_feedback: dict = JSONB
+    assigned_to: uuid.UUID
+```
+
+### 3. Entity Resolution with Provisional States
+
+**Pattern**: AI-suggested entities with human-in-the-loop validation
+
+**Implementation Details**:
+- Provisional entities created by AI
+- Manual resolution workflows
+- Confidence-based auto-acceptance thresholds
+- Feedback loops for improving AI accuracy
+
+```python
+# Provisional Entity Pattern
+class MeetingParticipant(Base):
+    person_id: uuid.UUID = foreign_key
+    speaker_label: str
+    voice_signature_hash: str
+    identification_confidence: float
+    is_provisional: bool  # True until manually confirmed
+
+# Entity Resolution Pattern
+class EntityResolution(Base):
+    entity_type: str  # person, topic, project
+    ai_suggestion: dict = JSONB
+    manual_override: dict = JSONB
+    resolution_confidence: float
+```
+
+### 4. Version Control for AI Content
+
+**Pattern**: Complete audit trail for all AI-generated content with rollback capabilities
+
+**Implementation Details**:
+- Version tracking for all edits
+- Diff calculation between versions
+- Rollback capabilities to any previous version
+- Change attribution and reasoning
+
+```python
+# Version Control Pattern
+class TranscriptVersion(Base):
+    meeting_file_id: uuid.UUID
+    version_number: int
+    transcript_text: str
+    change_type: str  # manual_edit, batch_edit, speaker_assignment
+    change_summary: str
+    changed_by: str
+    diff_from_previous: dict = JSONB
+    metadata: dict = JSONB
+```
+
+### 5. Semantic Search Integration
+
+**Pattern**: Vector embeddings with metadata filtering for precise content discovery
+
+**Implementation Details**:
+- pgvector for semantic similarity search
+- Combined keyword and semantic search
+- Metadata filtering for temporal and contextual queries
+- Real-time search index updates
+
+```python
+# Search Integration Pattern
+class MeetingTranscript(Base):
+    transcript_text: str
+    embedding: Vector  # pgvector type
+
+class MeetingSummary(Base):
+    summary_text: str
+    summary_embedding: Vector
+    key_points: dict = JSONB
+
+# Search Implementation
+async def search_meetings(
+    query: str,
+    date_range: Optional[DateRange] = None,
+    participants: Optional[List[str]] = None,
+    project_context: Optional[str] = None
+) -> List[SearchResult]
+```
+
+### 6. Progressive File Processing
+
+**Pattern**: Streaming upload and background processing for large files
+
+**Implementation Details**:
+- Resumable uploads for 2GB+ files
+- Background job queues with progress tracking
+- Storage with encryption and privacy controls
+- Real-time processing status updates
+
+```python
+# File Processing Pattern
+class MeetingFile(Base):
+    filename: str
+    size_bytes: int
+    privacy_level: str
+    storage_location: str
+    encryption_key_id: str
+    upload_completed_at: datetime
+    metadata: dict = JSONB
+```
+
+### 7. Manual Review Workflows
+
+**Pattern**: UI-driven manual correction interfaces with validation workflows
+
+**Implementation Details**:
+- Inline editing capabilities
+- Speaker re-identification interfaces
+- Entity resolution queues
+- User feedback collection
+- Quality assurance workflows
+
+```python
+# Review Workflow Pattern
+class ReviewQueue(Base):
+    review_type: str
+    status: str  # pending, in_review, completed
+    ai_suggestions: dict = JSONB
+    user_feedback: dict = JSONB
+    assigned_to: uuid.UUID
     created_at: datetime
-    updated_at: datetime
-    deleted_at: Optional[datetime]  # Soft delete
+    resolved_at: datetime
 ```
 
-#### Primary Entities
-- **Source**: Raw content from external systems (email, Slack, documents, meetings)
-- **Assertion**: Extracted meaningful information (decisions, risks, commitments, milestones)
-- **Person**: Canonical person records with cross-tenant linking capability
-- **Project**: Hierarchical structure for organizing initiatives with timeline
-- **Team**: Organizational units with member relationships and reporting structures
-
-#### Processing Entities
-- **ProcessingEvent**: Published events for content processing workflows
-- **ProcessingJob**: Individual processing tasks with state management
-- **ProcessingResult**: AI processor outputs with confidence and attribution
-- **Subscription**: Configuration for event type handling and filtering
-
-#### Vector Entities
-- **Embedding**: 768-dimensional vectors linked to content with model version tracking
-
-### External Integration Patterns
-
-**Integration Strategy**: Domain-specific connectors with standardized event publishing
-**Implementation**: specs/004-gmail-integration, specs/005-meeting-pipeline
-
-```yaml
-integration_pattern:
-  connectors: [Gmail API, meeting upload processors]
-  event_publishing: standardized content.ingested events
-  rate_limiting: per-connector limits with backoff
-  error_handling: exponential backoff with dead letter queues
-  data_normalization: convert to Source entities with metadata preservation
-```
-
-### Search and Retrieval Architecture
-
-**Search Strategy**: Hybrid semantic + keyword search with vector similarity
-**Implementation**: specs/007-search-interface
-
-```yaml
-search_architecture:
-  semantic_search: pgvector similarity queries (L2 distance)
-  keyword_search: PostgreSQL full-text search
-  query_expansion: AI-powered query enhancement
-  result_ranking: hybrid scoring (semantic + keyword + recency)
-  caching: frequently accessed embeddings
-```
-
----
-
-## Processing Workflows
-
-### Content Ingestion Pipeline
-
-**Pattern**: Event-driven multi-stage processing with quality validation
-
-```mermaid
-graph TD
-    A[External Content] --> B[Connector]
-    B --> C[content.ingested event]
-    C --> D[Entity Extraction]
-    C --> E[Categorization]
-    C --> F[Embedding Generation]
-    D --> G[Quality Validation]
-    E --> G
-    F --> G
-    G --> H[Storage]
-```
-
-### AI Processing Coordination
-
-**Pattern**: Pub-sub event coordination with job state tracking
-
-```yaml
-processing_coordination:
-  event_types:
-    - content.ingested
-    - ai.processing.started
-    - ai.processing.completed
-    - ai.processing.failed
-    - ai.results.aggregated
-
-  job_management:
-    - state_tracking: atomic transitions
-    - retry_logic: exponential backoff
-    - result_comparison: multi-model quality validation
-    - cost_attribution: per-model tracking
-```
-
-### Daily Review Automation
-
-**Pattern**: Scheduled agent workflows with user engagement tracking
-**Implementation**: specs/006-daily-review
-
-```yaml
-daily_review:
-  trigger: scheduled (morning briefing)
-  data_sources: [recent emails, meetings, project updates]
-  processing: priority identification + briefing generation
-  user_interaction: engagement tracking for optimization
-  business_metrics: generation speed, usage rates, action items
-```
-
----
-
-## Observability and Monitoring
-
-**Strategy**: Centralized observability for production agents (not development agents)
-**Implementation**: specs/011-observability-framework
-
-```yaml
-observability:
-  focus: Penfold operational agents
-  agents_monitored:
-    - email_processing_agent
-    - meeting_analysis_agent
-    - relationship_discovery_agent
-    - daily_review_agent
-    - re_analysis_agent
-
-  metrics:
-    - agent_health: completion rates, failure counts, processing times
-    - quality_metrics: confidence scores, accuracy trends, validation rates
-    - business_kpis: context_reconstruction_speed, search_accuracy, relationship_validation
-    - resource_usage: CPU, memory, disk by agent operation
-
-  instrumentation: "@monitor_agent decorators with workflow tracing"
-```
-
----
-
-## Security and Data Protection
-
-### Multi-Tenant Data Isolation
-
-**Implementation**: PostgreSQL Row-Level Security (RLS) with session context
-
-```sql
--- RLS policy pattern
-CREATE POLICY tenant_isolation ON table_name
-FOR ALL TO application_user
-USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
-```
-
-### AI Model Security
-
-```yaml
-ai_security:
-  local_processing: data never leaves system
-  cloud_escalation: selective with user consent
-  cost_controls: daily budget limits
-  tenant_isolation: all AI operations include tenant context
-  result_attribution: model + confidence + processing time tracking
-```
-
----
-
-## Performance Requirements
-
-### Database Performance Targets
-- CRUD operations: <100ms for datasets up to 10K records per tenant
-- Vector similarity search: <500ms for 100K vectors per tenant
-- Concurrent operations: 50+ simultaneous connections
-- Migration execution: <15 minutes with rollback capability
-
-### AI Processing Performance Targets
-- Event pub/sub operations: <50ms
-- Local model processing: <30s for 8B model inference
-- Cloud API calls: <5s with retry and timeout
-- Job state transitions: <100ms atomic updates
-
-### System Integration Performance Targets
-- Gmail sync: process 1000+ emails in <30 minutes
-- Meeting analysis: <1 hour for typical meeting transcript
-- Daily review generation: <5 minutes end-to-end
-- Search queries: <500ms for complex semantic searches
-
----
-
-## Technology Stack Decisions
-
-### Core Infrastructure
-```yaml
-language: Python 3.12 (type hints + async/await)
-database: PostgreSQL 16+ + pgvector
-orm: SQLAlchemy 2.0 async
-migrations: Alembic
-message_queue: Redis (with PostgreSQL fallback)
-testing: pytest with asyncio support
-```
-
-### Development Tools
-```yaml
-linting: ruff (replaces flake8, isort, pyupgrade)
-type_checking: mypy with strict settings
-formatting: black
-task_tracking: Beads
-cli_framework: Click
-container_orchestration: Docker Compose
-```
-
-### AI and ML Stack
-```yaml
-local_llm_host: Ollama
-local_models: [Llama-3.1-8B, Phi-3-mini, Qwen2.5-7b]
-cloud_llm: Gemini API
-embeddings: nomic-embed-text (768-dimensional)
-vector_indexing: HNSW algorithm
-model_selection: confidence-based escalation
-```
-
----
-
-## Architecture Change Protocol
-
-### Before Adding New Infrastructure
-
-**ALWAYS CHECK:**
-1. Does similar infrastructure already exist?
-2. Is this documented in this ARCHITECTURE.md file?
-3. Will this affect multiple agent domains?
-4. Does this duplicate existing capabilities?
-
-### Architecture Review Process
-
-```bash
-# 1. Create architecture review bead
-bd create --title="ARCH REVIEW: Add [component] for [purpose]" --type=review
-
-# 2. Document analysis
-bd comments add <id> "
-Current state: [existing solutions]
-Proposed: [new component]
-Justification: [why needed]
-Alternatives: [other options considered]
-Impact: [systems/agents affected]
-"
-
-# 3. Get user approval before implementation
-```
-
-### Prohibited Without Review
-- Observability/monitoring systems
-- Logging infrastructure
-- Message queues or event systems
-- Authentication/authorization
-- Configuration management
-- Caching layers
-- Backup/recovery systems
-- CI/CD pipelines
-
-**Rationale**: These are cross-cutting concerns that affect multiple agents and can create duplicate infrastructure if not coordinated.
-
----
-
-## Integration Points Between Specifications
-
-### Database ↔ Event Processing
-- Event storage in PostgreSQL with job state tracking
-- Database operations trigger processing events
-- Processing results stored with database attribution
-
-### Database ↔ AI Coordination
-- AI processing results stored with confidence and model attribution
-- Multi-model comparison stored for quality validation
-- Tenant isolation maintained across all AI operations
-
-### Event Processing ↔ AI Coordination
-- AI processing triggered by content.ingested events
-- Job state management for multi-model processing workflows
-- Result aggregation and comparison through event coordination
-
-### All Systems ↔ Observability
-- Centralized monitoring for operational agents
-- Business KPI tracking across all system components
-- Performance monitoring with agent attribution
-- Decision tracing for autonomous debugging
-
----
-
-## Future Architecture Considerations
-
-### Planned Extensions
-- Additional external integrations (Slack, document systems)
-- Advanced relationship discovery algorithms
-- Automated workflow rule engines
-- Enhanced search interfaces with natural language queries
-
-### Scalability Preparation
-- Database partitioning strategies for high-volume tenants
-- Horizontal scaling for AI processing workloads
-- CDN integration for meeting content and attachments
-- Advanced caching layers for frequently accessed data
-
----
-
-## References
-
-- **specs/001-database-schema/**: ✅ **COMPLETED** - Complete database design and implementation with production validation
-- **specs/002-event-processing/**: Event-driven processing framework
-- **specs/003-ai-coordination/**: Multi-model AI coordination patterns
-- **specs/011-observability-framework/**: Production agent monitoring
-- **specs/revised/penfold-spec-v3.md**: Complete system specification
-- **specs/revised/ai-architecture.md**: Detailed AI coordination design
-
----
-
-*This architecture document is updated by consolidation beads as each specification is completed and implemented.*
+## Integration Patterns
+
+### Event-Driven Architecture
+- Publishing processing events to central event framework
+- Asynchronous job processing with status updates
+- Cross-component communication via events
+
+### Database Extension Pattern
+- Extending base schema with feature-specific entities
+- Foreign key relationships to core entities (Person, Project)
+- JSONB for flexible metadata storage
+
+### AI Orchestration
+- Integration with AI coordination framework
+- Model selection based on content type and quality requirements
+- Confidence scoring and fallback strategies
+
+## Performance Patterns
+
+### File Handling
+- Streaming uploads for large files (2GB+)
+- Background processing with progress tracking
+- Storage optimization with encryption
+
+### Search Performance
+- Vector similarity search with metadata filtering
+- Response time targets: <3 seconds for 1000+ meetings
+- Real-time index updates
+
+### Concurrent Processing
+- Support for 20+ concurrent uploads
+- Job queue management with priority handling
+- Resource isolation for different processing types
+
+## Security Patterns
+
+### Privacy Controls
+- Granular access control integration
+- Encryption at rest for sensitive content
+- Audit trails for all data access
+
+### Data Protection
+- Original file preservation
+- Secure storage with privacy levels
+- Access logging and compliance tracking
