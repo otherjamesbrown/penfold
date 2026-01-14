@@ -575,20 +575,92 @@ class EmbeddingGenerator:
             return []
 
         try:
+            from sqlalchemy import select, func, text
+            from app.database import MeetingTranscript, MeetingSummary, MeetingFile
+
             # Generate embedding for query
             query_embedding = await self._generate_single_embedding(query_text)
 
             if not query_embedding:
                 return []
 
-            # This would be implemented with proper vector similarity search
-            # For now, returning placeholder
-            return [{
-                "meeting_id": "placeholder",
-                "similarity_score": 0.85,
-                "content_type": "summary",
-                "matched_content": "Placeholder search result"
-            }]
+            # Convert embedding to string format for pgvector
+            query_vector = '[' + ','.join(map(str, query_embedding)) + ']'
+
+            # Search transcripts using cosine distance
+            transcript_query = select(
+                MeetingTranscript.meeting_file_id,
+                MeetingTranscript.transcript_text,
+                MeetingTranscript.confidence_score,
+                MeetingFile.filename,
+                MeetingFile.created_at,
+                MeetingFile.privacy_level,
+                func.coalesce(
+                    (1 - MeetingTranscript.embedding.cosine_distance(query_vector)), 0.0
+                ).label('similarity_score')
+            ).join(
+                MeetingFile, MeetingTranscript.meeting_file_id == MeetingFile.id
+            ).where(
+                MeetingTranscript.embedding.cosine_distance(query_vector) < (1 - similarity_threshold)
+            ).order_by(
+                MeetingTranscript.embedding.cosine_distance(query_vector)
+            ).limit(limit // 2)
+
+            # Search summaries using cosine distance
+            summary_query = select(
+                MeetingSummary.meeting_file_id,
+                MeetingSummary.summary_text,
+                MeetingSummary.quality_score,
+                MeetingFile.filename,
+                MeetingFile.created_at,
+                MeetingFile.privacy_level,
+                func.coalesce(
+                    (1 - MeetingSummary.summary_embedding.cosine_distance(query_vector)), 0.0
+                ).label('similarity_score')
+            ).join(
+                MeetingFile, MeetingSummary.meeting_file_id == MeetingFile.id
+            ).where(
+                MeetingSummary.summary_embedding.cosine_distance(query_vector) < (1 - similarity_threshold)
+            ).order_by(
+                MeetingSummary.summary_embedding.cosine_distance(query_vector)
+            ).limit(limit // 2)
+
+            # Execute both queries
+            transcript_results = await db.execute(transcript_query)
+            summary_results = await db.execute(summary_query)
+
+            # Combine and format results
+            all_results = []
+
+            # Process transcript results
+            for row in transcript_results.fetchall():
+                all_results.append({
+                    "meeting_id": str(row.meeting_file_id),
+                    "content_type": "transcript",
+                    "matched_content": row.transcript_text[:500] + "..." if len(row.transcript_text) > 500 else row.transcript_text,
+                    "similarity_score": float(row.similarity_score),
+                    "confidence_score": float(row.confidence_score),
+                    "filename": row.filename,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "privacy_level": row.privacy_level
+                })
+
+            # Process summary results
+            for row in summary_results.fetchall():
+                all_results.append({
+                    "meeting_id": str(row.meeting_file_id),
+                    "content_type": "summary",
+                    "matched_content": row.summary_text[:500] + "..." if len(row.summary_text) > 500 else row.summary_text,
+                    "similarity_score": float(row.similarity_score),
+                    "confidence_score": float(row.quality_score),
+                    "filename": row.filename,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "privacy_level": row.privacy_level
+                })
+
+            # Sort by similarity score and return top results
+            all_results.sort(key=lambda x: x['similarity_score'], reverse=True)
+            return all_results[:limit]
 
         except Exception as e:
             print(f"❌ Similarity search failed: {str(e)}")

@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     DATABASE_MAX_OVERFLOW: int = 30
 
     # File storage settings
-    UPLOAD_DIR: Path = Path.home() / "penfold-uploads"
-    PROCESSED_DIR: Path = Path.home() / "penfold-processed"
+    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "/var/lib/penfold/uploads")
+    PROCESSED_DIR: str = os.getenv("PROCESSED_DIR", "/var/lib/penfold/processed")
     MAX_UPLOAD_SIZE: int = 2147483648  # 2GB
     CHUNK_SIZE: int = 10 * 1024 * 1024  # 10MB chunks for TUS
 
@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     USE_LOCAL_STT_ONLY: bool = False
 
     # Privacy and security
-    ENCRYPTION_KEY_PATH: Path = Path.home() / ".penfold" / "encryption-keys"
-    JWT_SECRET_KEY: str = "dev-secret-key-change-in-production"
+    ENCRYPTION_KEY_PATH: str = os.getenv("ENCRYPTION_KEY_PATH", "/var/lib/penfold/encryption-keys")
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY")  # Required - no default
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 24
 
@@ -66,7 +66,7 @@ class Settings(BaseSettings):
         """Ensure required directories exist"""
         path = Path(v)
         path.mkdir(parents=True, exist_ok=True)
-        return path
+        return str(path)
 
     @validator("DATABASE_URL")
     def validate_database_url(cls, v):
@@ -89,6 +89,17 @@ class Settings(BaseSettings):
             raise ValueError("STT_CONFIDENCE_THRESHOLD must be between 0.0 and 1.0")
         return v
 
+    @validator("JWT_SECRET_KEY")
+    def validate_jwt_secret_key(cls, v):
+        """Ensure JWT secret key is provided and secure"""
+        if not v:
+            raise ValueError("JWT_SECRET_KEY is required and must be set via environment variable")
+        if len(v) < 32:
+            raise ValueError("JWT_SECRET_KEY must be at least 32 characters long for security")
+        if v in ["dev-secret-key", "dev-secret-key-change-in-production", "change-me"]:
+            raise ValueError("JWT_SECRET_KEY cannot use default development values in production")
+        return v
+
     class Config:
         env_file = ".env"
         case_sensitive = True
@@ -107,7 +118,7 @@ def get_database_url() -> str:
 
 def get_upload_path(privacy_level: str) -> Path:
     """Get appropriate upload path based on privacy level"""
-    base_path = settings.UPLOAD_DIR
+    base_path = Path(settings.UPLOAD_DIR)
     if privacy_level == "confidential":
         return base_path / "encrypted"
     elif privacy_level in ["team_only", "organization"]:
@@ -118,7 +129,7 @@ def get_upload_path(privacy_level: str) -> Path:
 
 def get_encryption_key_path(privacy_level: str) -> Path:
     """Get encryption key path for privacy level"""
-    return settings.ENCRYPTION_KEY_PATH / f"{privacy_level}.key"
+    return Path(settings.ENCRYPTION_KEY_PATH) / f"{privacy_level}.key"
 
 
 def is_production() -> bool:

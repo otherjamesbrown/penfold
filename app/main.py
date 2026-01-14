@@ -14,13 +14,15 @@ import asyncio
 from app.config import settings
 from app.database import init_database, get_db
 from app.jobs import init_job_queue
+from app.logging_config import setup_logging
 from app.api import upload_routes, search_routes, review_routes, transcription_routes
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle management"""
-    # Startup
+    # Setup logging first
+    setup_logging()
     print("🚀 Starting Meeting Pipeline API...")
 
     # Initialize database

@@ -268,24 +268,30 @@ class PrivacyFilterService:
         query: str,
         results_count: int,
         privacy_levels_accessed: List[str],
-        db: AsyncSession
+        db: AsyncSession,
+        request_id: str = None,
+        ip_address: str = None,
+        user_agent: str = None
     ) -> None:
         """Audit search access for security monitoring"""
 
-        # In production, this would log to a secure audit system
-        audit_entry = {
-            "timestamp": datetime.utcnow(),
-            "user_id": user_id,
-            "action": "search",
+        from app.logging_config import log_audit_event
+
+        audit_details = {
             "query": query,
             "results_count": results_count,
             "privacy_levels": privacy_levels_accessed,
-            "ip_address": None,  # Would be captured from request context
-            "user_agent": None   # Would be captured from request context
+            "ip_address": ip_address,
+            "user_agent": user_agent
         }
 
-        # For now, just log to console (in production: send to audit service)
-        print(f"🔍 Search audit: User {user_id} searched '{query}' -> {results_count} results")
+        # Log structured audit event
+        log_audit_event(
+            action="search_access",
+            user_id=user_id,
+            details=audit_details,
+            request_id=request_id
+        )
 
     def check_content_access(
         self,
