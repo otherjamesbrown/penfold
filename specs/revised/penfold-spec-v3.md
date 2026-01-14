@@ -47,61 +47,152 @@ As a COO processing 200 emails and 15 meetings per week, the challenge isn't rea
 
 ### 1.4 Target User & Goals
 
-**User**: COO of 250-person company, ADHD-friendly workflows, CLI power user
-**Learning Goal**: AI experimentation platform using real business problems
-**Success Metric**: Transform "3 hours catching up on escalation" → "15 minutes fully briefed with complete context"
+**Primary User**: COO of 250-person company, ADHD-friendly workflows, CLI power user
+**Multi-Context Usage**: Professional work (meetings, emails, projects) + Personal life (family projects, personal communication, planning)
+**Learning Goal**: AI experimentation platform using real business problems across all life contexts
+**Success Metrics**:
+- Professional: Transform "3 hours catching up on escalation" → "15 minutes fully briefed with complete context"
+- Personal: Transform scattered family planning across text/email/documents → "unified family project timeline with full context"
 
 ---
 
-## 2. Information Architecture
+## 2. Multi-Context Architecture
 
-### 2.1 Immutable Content Layer
+### 2.1 Tenant Separation Strategy
 
-**Raw Assets (Never Change)**:
+Penfold operates across multiple life contexts with complete data isolation:
+
+```yaml
+Context Tenants:
+  work:
+    - Company emails, Slack, meetings
+    - Professional projects and teams
+    - Business relationships and decisions
+
+  personal:
+    - Personal emails and communications
+    - Family projects and planning
+    - Personal goals and tasks
+
+  family: # Optional
+    - Shared family communications
+    - Joint projects and planning
+    - Extended family coordination
+
+Data Isolation:
+  - Complete separation: Projects, emails, meetings, teams
+  - Shared entities: People (with context links)
+  - AI learning: Cross-tenant pattern recognition with privacy boundaries
+```
+
+### 2.2 Cross-Tenant Entity Resolution
+
+**People Exist Across Contexts**:
+```yaml
+Entity Resolution:
+  "James Brown":
+    work_context: CEO identity, professional relationships
+    personal_context: Father, homeowner, personal projects
+    shared_attributes: Name, core contact info
+    isolated_data: All communications, projects, meetings remain context-specific
+
+  "Alice Smith":
+    work_context: Engineering lead, project collaborator
+    personal_context: Friend, neighbor, social connections
+    linkage: Same person, different relationship contexts
+```
+
+### 2.3 Context Switching Interface
+
+```bash
+# Tenant management
+penf tenant list                    # Show all contexts
+penf tenant switch work            # Change active context
+penf tenant create family          # Create new context
+
+# Context-aware operations (after switching)
+penf ingest gmail                  # Operates on active tenant
+penf project "Q1 Planning"         # Creates in active tenant
+penf ask "recent customer issues"  # Searches active tenant only
+
+# Cross-tenant queries (explicit)
+penf ask "Alice Smith projects" --all-contexts  # Search across tenants
+penf person "Bob Wilson" --link-contexts        # Link person across tenants
+```
+
+---
+
+## 3. Information Architecture
+
+### 3.1 Immutable Content Layer
+
+**Tenant-Aware Raw Assets (Never Change)**:
 ```
 Content Storage:
-├── emails/
-│   ├── uuid-123/ (Gmail thread)
-│   │   ├── raw-content.json
-│   │   ├── metadata.json (participants, timestamp, thread-id)
-│   │   └── attachments/
-├── meetings/
-│   ├── uuid-456/ (Atlas planning meeting)
-│   │   ├── audio-recording.mp4
-│   │   ├── video-recording.mp4
-│   │   ├── user-notes.md
-│   │   ├── ai-summary.txt
-│   │   ├── shared-documents/
-│   │   └── metadata.json (title, attendees, project contexts)
-└── manual-content/
-    ├── documents/
-    └── links/
+├── tenants/
+│   ├── work/
+│   │   ├── emails/
+│   │   │   └── uuid-123/ (Business Gmail thread)
+│   │   │       ├── raw-content.json
+│   │   │       ├── metadata.json (participants, timestamp, thread-id, tenant: work)
+│   │   │       └── attachments/
+│   │   └── meetings/
+│   │       └── uuid-456/ (Atlas planning meeting)
+│   │           ├── audio-recording.mp4
+│   │           ├── ai-summary.txt
+│   │           └── metadata.json (attendees, project contexts, tenant: work)
+│   ├── personal/
+│   │   ├── emails/
+│   │   │   └── uuid-789/ (Personal/family communication)
+│   │   │       ├── raw-content.json
+│   │   │       └── metadata.json (participants, timestamp, tenant: personal)
+│   │   └── manual-content/
+│   │       ├── documents/
+│   │       └── family-planning/
+│   └── family/ # Optional
+│       ├── communications/
+│       └── shared-documents/
+└── cross-tenant/
+    └── person-links/ # Cross-tenant entity resolution data only
 ```
 
-### 2.2 Dynamic Relationship Overlay
+### 3.2 Tenant-Aware Dynamic Relationship Overlay
 
-**Flexible Relationship System**:
+**Tenant-Aware Flexible Relationship System**:
 ```yaml
 Relationship Types:
-  Global: # Permanent business knowledge
-    - "Bob" = "Robert Smith" = "Lead Architect"
-    - "Infrastructure changes" → "Performance impacts" (95% confidence)
-    - "Customer escalations" → "Sales team coordination"
+  Cross-Tenant: # Shared entity resolution
+    - "James Brown" (work) = "James Brown" (personal) = "Dad" (family)
+    - "Alice Smith" (work: engineer) = "Alice" (personal: friend)
 
-  Project-Scoped: # Context-specific within projects
-    Project: "Atlas Deployment"
-      - "Tiger Team" = [Bob, Alice, Sarah]
-      - "Performance issues" → "Launch timeline impact"
-      - "Customer feedback" → "Feature priority adjustments"
+  Tenant-Isolated: # Context-specific knowledge
+    work:
+      Global:
+        - "Bob" = "Robert Smith" = "Lead Architect"
+        - "Infrastructure changes" → "Performance impacts" (95% confidence)
+        - "Customer escalations" → "Sales team coordination"
+      Project-Scoped:
+        Project: "Atlas Deployment"
+          - "Tiger Team" = [Bob, Alice, Sarah]
+          - "Performance issues" → "Launch timeline impact"
 
-  Strength Levels: # Evidence-based validation
+    personal:
+      Global:
+        - "Mom" = "Patricia Brown" = "Family Organizer"
+        - "School events" → "Family calendar coordination"
+      Project-Scoped:
+        Project: "Kitchen Renovation"
+          - "Contractor Team" = [Mike, Sarah, David]
+          - "Budget overruns" → "Timeline extensions"
+
+  Strength Levels: # Evidence-based validation (per tenant)
     - Strong (90%+): User-validated + data-confirmed
     - Probable (70-89%): Pattern observed + domain logic
     - Tentative (50-69%): AI suggested + timing correlation
     - Experimental (<50%): Hypothesis needing validation
 ```
 
-### 2.3 Analysis Versioning System
+### 3.3 Analysis Versioning System
 
 **Progressive AI Enhancement**:
 ```
@@ -254,11 +345,13 @@ penfold trace "atlas architecture decision" --full-context
 
 **Core Framework**:
 - Language: Python 3.12
-- Database: PostgreSQL + Qdrant vector database
+- Database: PostgreSQL + pgvector + Qdrant vector database
+- Event System: Redis Pub/Sub or PostgreSQL NOTIFY/LISTEN for processing coordination
 - AI Serving: Ollama + vLLM for performance
-- Workflow: Apache Airflow for batch orchestration
+- Workflow: Apache Airflow for batch orchestration + pub-sub for real-time processing
 - Monitoring: Prometheus + custom metrics
 - Interface: Click-based CLI
+- Storage Schema: [Database Schema Specification](../001-database-schema/spec.md)
 
 **AI Models**:
 - Local: Llama 3.1 8B, Phi-3 Mini, Qwen2.5 7B, custom fine-tuned variants
@@ -276,13 +369,15 @@ penfold trace "atlas architecture decision" --full-context
 
 **In Scope**:
 - Multi-channel ingestion system (manual, AI-suggested, pre-tagged, expandable)
+- Event-driven processing framework with pub-sub architecture
 - Gmail API integration with incremental sync
 - Manual meeting upload workflow with multi-content support
-- Local multi-model AI processing with ensemble comparison
+- Local multi-model AI processing with ensemble comparison via parallel subscribers
 - Basic relationship discovery and human validation
 - Vector search with source truth linking
 - Daily review workflow for AI suggestions
 - Progressive automation (start 100% review → confidence-based auto-assignment)
+- Database schema supporting event storage, job tracking, and result comparison
 
 **Success Criteria**:
 - Find any email/meeting mention in <15 seconds
