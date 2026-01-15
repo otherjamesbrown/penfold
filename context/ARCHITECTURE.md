@@ -1,6 +1,6 @@
 # Penfold Architecture Patterns
 
-**Extracted from implementations**: 005-meeting-pipeline, 010-testing-framework, 011-observability-framework
+**Extracted from implementations**: 004-gmail-integration, 005-meeting-pipeline, 010-testing-framework, 011-observability-framework
 **Last Updated**: 2026-01-15
 
 ## Core Architectural Patterns
@@ -723,3 +723,251 @@ GROUP BY agent_id, bucket, metric_name;
 - **False Positive Rate**: <5% through adaptive thresholds
 - **Alert Aggregation**: Intelligent grouping prevents alert storms
 - **Escalation**: Automatic escalation for unacknowledged alerts
+
+## Email Integration Patterns
+
+### 18. OAuth2 Token Management with Encryption
+
+**Pattern**: Secure storage and lifecycle management for OAuth2 credentials
+
+**Implementation Details**:
+- AES-256 encryption for token storage at rest
+- Automatic token refresh before expiration
+- Revocation detection and re-authorization flow
+- Multi-account credential isolation
+
+```python
+# OAuth2 Token Storage Pattern
+class EncryptedTokenStorage:
+    def __init__(self, encryption_key: bytes):
+        self.cipher = Fernet(encryption_key)
+
+    async def store_token(self, account_id: str, token_data: dict):
+        encrypted = self.cipher.encrypt(json.dumps(token_data).encode())
+        await self.db.execute(
+            "UPDATE gmail_accounts SET encrypted_token = :token WHERE id = :id",
+            {"token": encrypted, "id": account_id}
+        )
+
+    async def get_token(self, account_id: str) -> dict:
+        result = await self.db.fetch_one(
+            "SELECT encrypted_token FROM gmail_accounts WHERE id = :id",
+            {"id": account_id}
+        )
+        return json.loads(self.cipher.decrypt(result["encrypted_token"]))
+
+# Token Refresh Pattern
+async def ensure_valid_token(account_id: str) -> str:
+    token_data = await token_storage.get_token(account_id)
+
+    if datetime.now() >= token_data["expiry"] - timedelta(minutes=5):
+        # Refresh before expiration
+        new_token = await refresh_oauth_token(token_data["refresh_token"])
+        await token_storage.store_token(account_id, new_token)
+        return new_token["access_token"]
+
+    return token_data["access_token"]
+```
+
+### 19. Real-Time Sync with Push/Poll Fallback
+
+**Pattern**: Hybrid synchronization using push notifications with polling fallback
+
+**Implementation Details**:
+- Gmail Push notifications via Cloud Pub/Sub webhooks
+- Automatic fallback to polling if push fails
+- Configurable sync intervals for fallback mode
+- Catch-up sync after connectivity restoration
+
+```python
+# Push/Poll Hybrid Pattern
+class HybridSyncManager:
+    def __init__(self, account_id: str):
+        self.account_id = account_id
+        self.push_active = False
+        self.poll_interval = 60  # seconds
+
+    async def start_sync(self):
+        try:
+            # Attempt push notification setup
+            await self.setup_push_notifications()
+            self.push_active = True
+        except PushSetupError:
+            # Fallback to polling
+            logger.warning(f"Push setup failed for {self.account_id}, using polling")
+            await self.start_polling()
+
+    async def handle_push_notification(self, notification: dict):
+        history_id = notification["historyId"]
+        await self.process_changes_since(history_id)
+
+    async def start_polling(self):
+        while not self.push_active:
+            await self.check_for_new_messages()
+            await asyncio.sleep(self.poll_interval)
+
+# Webhook Handler Pattern
+@app.post("/webhooks/gmail/{account_id}")
+async def gmail_webhook(account_id: str, request: Request):
+    notification = await request.json()
+    await sync_manager.handle_push_notification(notification)
+    return {"status": "ok"}
+```
+
+### 20. Multi-Account Priority Scheduling
+
+**Pattern**: Intelligent scheduling across multiple accounts with priority management
+
+**Implementation Details**:
+- Priority-based account ordering (work > personal)
+- Resource allocation based on account priority
+- Concurrent sync limits to prevent overload
+- Cross-account deduplication
+
+```python
+# Multi-Account Scheduler Pattern
+class AccountScheduler:
+    def __init__(self, max_concurrent: int = 3):
+        self.max_concurrent = max_concurrent
+        self.semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def schedule_sync(self, accounts: List[GmailAccount]):
+        # Sort by priority (lower number = higher priority)
+        sorted_accounts = sorted(accounts, key=lambda a: a.priority)
+
+        tasks = []
+        for account in sorted_accounts:
+            task = asyncio.create_task(self._sync_with_limit(account))
+            tasks.append(task)
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _sync_with_limit(self, account: GmailAccount):
+        async with self.semaphore:
+            await self.sync_account(account)
+
+# Priority Configuration Pattern
+class GmailAccount(Base):
+    id: uuid.UUID
+    email: str
+    priority: int  # 1=highest (work), 2=medium, 3=lowest (newsletters)
+    sync_enabled: bool
+    last_sync_at: datetime
+    sync_interval_minutes: int  # Higher priority = shorter interval
+```
+
+### 21. Attachment Processing Pipeline
+
+**Pattern**: Background queue processing for email attachments with format handling
+
+**Implementation Details**:
+- Celery task queue for background processing
+- Format-specific extractors (PDF, DOCX, images)
+- Size limits and validation
+- Retry logic for transient failures
+
+```python
+# Attachment Queue Pattern
+@celery.task(bind=True, max_retries=3)
+def process_attachment(self, attachment_id: str):
+    try:
+        attachment = get_attachment(attachment_id)
+
+        # Select extractor based on mime type
+        extractor = get_extractor(attachment.mime_type)
+        if not extractor:
+            mark_unsupported(attachment_id)
+            return
+
+        # Extract content
+        content = extractor.extract(attachment.data)
+
+        # Store extracted content
+        store_extracted_content(attachment_id, content)
+
+    except TransientError as e:
+        # Retry with exponential backoff
+        raise self.retry(exc=e, countdown=2 ** self.request.retries)
+
+# Format Extractor Registry Pattern
+EXTRACTORS = {
+    "application/pdf": PDFExtractor(),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": DocxExtractor(),
+    "image/png": OCRExtractor(),
+    "image/jpeg": OCRExtractor(),
+}
+
+def get_extractor(mime_type: str) -> Optional[ContentExtractor]:
+    return EXTRACTORS.get(mime_type)
+```
+
+### 22. Privacy Filter Chain
+
+**Pattern**: Configurable filtering pipeline for sensitive content
+
+**Implementation Details**:
+- Chain of responsibility for filter evaluation
+- Label-based sensitivity detection
+- Configurable exclusion rules
+- Audit logging for filtered content
+
+```python
+# Privacy Filter Chain Pattern
+class PrivacyFilterChain:
+    def __init__(self):
+        self.filters: List[PrivacyFilter] = []
+
+    def add_filter(self, filter: PrivacyFilter):
+        self.filters.append(filter)
+
+    async def should_process(self, email: Email) -> Tuple[bool, Optional[str]]:
+        for filter in self.filters:
+            allowed, reason = await filter.check(email)
+            if not allowed:
+                await self.log_filtered(email, filter.name, reason)
+                return False, reason
+        return True, None
+
+# Filter Implementations
+class LabelFilter(PrivacyFilter):
+    def __init__(self, excluded_labels: List[str]):
+        self.excluded_labels = excluded_labels
+
+    async def check(self, email: Email) -> Tuple[bool, Optional[str]]:
+        for label in email.labels:
+            if label in self.excluded_labels:
+                return False, f"Excluded label: {label}"
+        return True, None
+
+class SenderFilter(PrivacyFilter):
+    def __init__(self, excluded_domains: List[str]):
+        self.excluded_domains = excluded_domains
+
+    async def check(self, email: Email) -> Tuple[bool, Optional[str]]:
+        domain = email.sender.split("@")[1]
+        if domain in self.excluded_domains:
+            return False, f"Excluded domain: {domain}"
+        return True, None
+
+# Usage
+filter_chain = PrivacyFilterChain()
+filter_chain.add_filter(LabelFilter(["confidential", "personal"]))
+filter_chain.add_filter(SenderFilter(["private.com"]))
+```
+
+## Email Integration Performance
+
+### Sync Performance
+- **Real-time Detection**: <60 seconds for new email notification
+- **Historical Import**: 100-150 emails/minute with rate limit compliance
+- **Attachment Processing**: Background queue, <5 minutes for common formats
+
+### Rate Limit Management
+- **Gmail API Quota**: 250 units/user/second, 1B units/day
+- **Token Bucket**: Smooth request distribution across quota window
+- **Backoff Strategy**: Exponential backoff on 429 responses
+
+### Multi-Account Efficiency
+- **Concurrent Syncs**: Up to 3 accounts simultaneously
+- **Priority Scheduling**: High-priority accounts sync more frequently
+- **Resource Isolation**: Failures in one account don't affect others
