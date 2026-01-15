@@ -48,6 +48,15 @@ from .progressive import (
     calculate_automation_rate,
     calculate_accuracy_rate,
 )
+from .effectiveness import (
+    RuleMetrics,
+    DegradationAlert,
+    AutomationStats,
+    calculate_rule_metrics,
+    detect_degradation,
+    calculate_automation_stats,
+    analyze_rule_impact,
+)
 
 __all__ = [
     # Engine
@@ -81,4 +90,12 @@ __all__ = [
     "AggressivenessLevel",
     "calculate_automation_rate",
     "calculate_accuracy_rate",
+    # Effectiveness
+    "RuleMetrics",
+    "DegradationAlert",
+    "AutomationStats",
+    "calculate_rule_metrics",
+    "detect_degradation",
+    "calculate_automation_stats",
+    "analyze_rule_impact",
 ]
