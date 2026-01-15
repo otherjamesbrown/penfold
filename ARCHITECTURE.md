@@ -157,6 +157,22 @@ Multi-model AI processing orchestration:
 - Model selection based on task complexity
 - Response validation and quality scoring
 
+#### Automation Engine (`penf_lib.automation`)
+Intelligent automation of content processing:
+- **Confidence-Based Processing**: Auto-process high-confidence content (>85% default)
+- **Rule Management**: User-defined rules with condition trees and versioning
+- **Pattern Detection**: Detect recurring user behaviors for rule suggestions
+- **Progressive Automation**: Self-adjusting thresholds based on accuracy
+- **Effectiveness Monitoring**: Track rule performance and degradation
+- **Conflict Resolution**: Confidence-weighted scoring for multi-rule matches
+
+Key components:
+- `AutomationEngine`: Core evaluation and decision-making
+- `AutomationRepository`: Rule CRUD and decision tracking
+- `PatternDetector`: User behavior pattern analysis
+- `ProgressiveAutomation`: Threshold auto-adjustment
+- `RuleMetrics`: Performance measurement
+
 #### Storage Layer (`penf_lib.storage`)
 Hybrid storage for structured and unstructured data:
 - PostgreSQL for metadata, relationships, and structured data
