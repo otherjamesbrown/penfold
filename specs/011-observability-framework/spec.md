@@ -93,16 +93,16 @@ As a system administrator, I need proactive monitoring and alerting for agent be
 #### Autonomous Agent Access
 - **FR-016**: System MUST provide programmatic API for agents to query observability data
 - **FR-017**: System MUST enable agents to debug their own decision history
-- **FR-018**: System MUST allow agents to analyze other agents' behavior (within security boundaries)
+- **FR-018**: System MUST allow agents to analyze other agents' behavior with full access to all observability data and comprehensive audit logging
 - **FR-019**: System MUST support agent-driven performance optimization
 - **FR-020**: System MUST provide agent-accessible error context and resolution suggestions
 
 #### System Health and Alerting
 - **FR-021**: System MUST provide real-time health monitoring for all agents
-- **FR-022**: System MUST generate alerts for performance degradation and failures
+- **FR-022**: System MUST generate alerts for performance degradation and failures via dashboard notifications
 - **FR-023**: System MUST support customizable alerting thresholds per agent type
 - **FR-024**: System MUST provide system-wide health dashboards
-- **FR-025**: System MUST correlate system health with external factors (load, time, etc.)
+- **FR-025**: System MUST correlate system health with system load, memory usage, and disk space
 
 ### Key Observability Components
 
@@ -182,264 +182,31 @@ As a system administrator, I need proactive monitoring and alerting for agent be
 - **SC-019**: System availability monitoring accuracy >99.9%
 - **SC-020**: Health dashboard load time <2 seconds with real-time data
 
-## Implementation Architecture
+### Edge Cases
 
-### Email Processing Agent Monitoring
-```python
-# Email Processing Agent with Observability
-@monitor_agent("email_processor")
-class EmailProcessingAgent:
-    async def process_nightly_emails(self):
-        with agent_workflow("email_processor", "nightly_batch"):
-            emails = await self.fetch_new_emails()
-
-            batch_metrics = {
-                'total_emails': len(emails),
-                'processed': 0,
-                'failed': 0,
-                'start_time': datetime.utcnow()
-            }
-
-            for email in emails:
-                try:
-                    # Entity extraction with decision logging
-                    entities = await self.extract_entities(email)
-                    log_agent_decision(
-                        agent="email_processor",
-                        decision="entity_extraction",
-                        confidence=entities.confidence,
-                        processing_time=entities.duration,
-                        email_id=email.id
-                    )
-
-                    # Project categorization with reasoning
-                    category = await self.categorize_email(email)
-                    log_agent_decision(
-                        agent="email_processor",
-                        decision="project_categorization",
-                        result=category.project,
-                        confidence=category.confidence,
-                        reasoning=category.reasoning
-                    )
-
-                    batch_metrics['processed'] += 1
-
-                except Exception as e:
-                    batch_metrics['failed'] += 1
-                    log_agent_error(
-                        agent="email_processor",
-                        operation="process_email",
-                        error=str(e),
-                        email_id=email.id,
-                        context={'subject': email.subject, 'sender': email.sender}
-                    )
-
-            # Report batch completion
-            batch_metrics['end_time'] = datetime.utcnow()
-            batch_metrics['duration'] = (batch_metrics['end_time'] - batch_metrics['start_time']).total_seconds()
-
-            report_agent_batch_completion("email_processor", batch_metrics)
-```
-
-### Meeting Analysis Workflow Tracing
-```python
-# Meeting Analysis with Processing Pipeline Visibility
-@monitor_agent("meeting_analyzer")
-class MeetingAnalysisAgent:
-    async def analyze_meeting(self, meeting_upload: MeetingUpload):
-        workflow_id = f"meeting_analysis_{meeting_upload.id}"
-
-        with workflow_trace(workflow_id, "meeting_analysis"):
-            try:
-                # Stage 1: Content Parsing
-                with processing_stage("content_parsing"):
-                    parsed_content = await self.parse_content(meeting_upload)
-                    log_processing_stage_completion(
-                        workflow_id=workflow_id,
-                        stage="content_parsing",
-                        duration=parsed_content.processing_time,
-                        confidence=parsed_content.quality_score
-                    )
-
-                # Stage 2: Speaker Identification
-                with processing_stage("speaker_identification"):
-                    speakers = await self.identify_speakers(parsed_content)
-                    log_agent_decision(
-                        agent="meeting_analyzer",
-                        decision="speaker_identification",
-                        confidence=speakers.confidence,
-                        speaker_count=len(speakers.identified),
-                        unidentified_segments=speakers.unidentified_count
-                    )
-
-                # Stage 3: Decision Extraction
-                with processing_stage("decision_extraction"):
-                    decisions = await self.extract_decisions(parsed_content, speakers)
-                    log_agent_decision(
-                        agent="meeting_analyzer",
-                        decision="decision_extraction",
-                        decisions_found=len(decisions),
-                        avg_confidence=decisions.avg_confidence
-                    )
-
-                # Stage 4: Project Mapping
-                with processing_stage("project_mapping"):
-                    project_mapping = await self.map_to_projects(decisions, parsed_content)
-                    log_workflow_completion(
-                        workflow_id=workflow_id,
-                        total_duration=(datetime.utcnow() - workflow_start).total_seconds(),
-                        success=True,
-                        outputs={
-                            'decisions': len(decisions),
-                            'speakers': len(speakers.identified),
-                            'projects': len(project_mapping.projects)
-                        }
-                    )
-
-                return MeetingAnalysis(
-                    decisions=decisions,
-                    speakers=speakers,
-                    project_mapping=project_mapping
-                )
-
-            except Exception as e:
-                log_workflow_failure(
-                    workflow_id=workflow_id,
-                    stage=current_stage(),
-                    error=str(e),
-                    context={'meeting_id': meeting_upload.id}
-                )
-                raise
-```
-
-### Business Value Tracking
-```python
-# Daily Review Agent with Business KPI Monitoring
-@monitor_agent("daily_review_generator")
-class DailyReviewAgent:
-    async def generate_daily_review(self):
-        start_time = datetime.utcnow()
-
-        with agent_workflow("daily_review_generator", "morning_briefing"):
-            # Collect processed content from last 24 hours
-            recent_content = await self.gather_recent_content()
-
-            # Generate priority items
-            priorities = await self.identify_priorities(recent_content)
-            log_agent_decision(
-                agent="daily_review_generator",
-                decision="priority_identification",
-                items_identified=len(priorities),
-                confidence=priorities.avg_confidence
-            )
-
-            # Generate briefing
-            briefing = await self.create_briefing(priorities, recent_content)
-
-            # Track business value metrics
-            generation_time = (datetime.utcnow() - start_time).total_seconds()
-
-            log_business_kpi(
-                metric="daily_review_generation_time",
-                value=generation_time,
-                target=300,  # 5 minutes target
-                agent="daily_review_generator"
-            )
-
-            # Track when user actually opens/uses the review
-            await self.schedule_usage_tracking(briefing.id)
-
-            return briefing
-
-    async def track_briefing_usage(self, briefing_id: str, user_action: str):
-        """Track how users interact with generated briefings"""
-        log_business_kpi(
-            metric="daily_review_engagement",
-            value=1 if user_action in ['opened', 'actioned'] else 0,
-            briefing_id=briefing_id,
-            action=user_action
-        )
-```
-
-## Integration Points
-
-### Penfold Event Processing Integration
-- **Agent Job Orchestration**: Monitor scheduled and triggered agent workflows
-- **Processing Pipeline Visibility**: Track content flow through multiple agents
-- **Event Publishing Monitoring**: Track pub-sub events between agent stages
-- **Queue Health Monitoring**: Monitor processing queues and backlogs
-
-### Penfold Database Integration
-- **Entity Storage Monitoring**: Track agent writes to core entities (Source, Assertion, Person, Project)
-- **Query Performance Attribution**: Database performance by agent and operation type
-- **Vector Search Monitoring**: Embedding generation and similarity search performance
-- **Multi-tenant Operation Tracking**: Agent operations across work/personal contexts
-
-### Penfold AI Model Integration
-- **Model Selection Logging**: Track which models agents choose for different tasks
-- **Local vs Cloud Escalation**: Monitor when and why agents escalate to cloud models
-- **Cost Attribution**: Track AI processing costs by agent and decision
-- **Model Performance Comparison**: Compare accuracy and speed across different models
-
-### Penfold CLI Integration
-- **User Command Monitoring**: Track CLI usage patterns and performance
-- **Search Query Analysis**: Monitor search accuracy and response times
-- **Daily Review Usage**: Track engagement with generated briefings
-- **Manual Override Tracking**: Monitor when users override agent decisions
+- What happens when agents fail repeatedly and generate excessive alerts?
+- How does the system handle monitoring data when storage capacity is exceeded?
+- What occurs when monitoring overhead impacts agent performance significantly?
+- How does observability handle agents that operate across multiple time zones?
+- What happens when monitored agents modify their own behavior based on observability data?
+- How does the system handle monitoring of temporary or experimental agents?
+- What occurs when network partitions prevent observability data collection?
 
 ## Dependencies
 
-### Core Infrastructure
-- Time-series database for metrics storage (InfluxDB, Prometheus, or PostgreSQL TimescaleDB extension)
-- Distributed tracing infrastructure (Jaeger or OpenTelemetry)
-- Log aggregation system with structured logging (ELK stack or similar)
-- Dashboard and visualization framework (Grafana or custom)
-- Real-time alerting system (PagerDuty, Slack, or email notifications)
+- Existing Penfold agent execution framework for standardized monitoring integration
+- Time-series data storage system for metrics and performance history
+- Real-time event streaming infrastructure for workflow coordination monitoring
+- Dashboard and visualization capabilities for user-facing monitoring interfaces
+- Notification and alerting system for proactive issue detection
 
-### Penfold System Dependencies
-- Penfold database layer (specs/001-database-schema) for agent state and result storage
-- Penfold event processing framework (specs/002-event-processing) for workflow coordination
-- Penfold AI coordination layer (specs/003-ai-coordination) for multi-model processing
-- Redis or PostgreSQL for real-time event streaming and notifications
-- Agent execution framework with standardized interfaces for instrumentation
+## Assumptions
 
-### Development and Deployment
-- Container orchestration for multi-environment deployment (Docker Compose)
-- Configuration management for environment-specific monitoring settings
-- CI/CD pipeline integration for deployment and rollback of monitoring changes
-- Backup and recovery procedures for observability data retention
+- Agents will be designed with standardized interfaces that support monitoring integration
+- Monitoring overhead will not exceed 5% of total system resources during normal operation
+- Users will primarily access monitoring data through dashboard interfaces rather than raw data
+- Agent decision data and performance metrics can be retained for at least 90 days for trend analysis
+- System administrators will configure alert thresholds based on their operational requirements
+- Monitoring data will be accessible to both human operators and autonomous agents for self-optimization
+- Network connectivity will be sufficient to support real-time monitoring data collection and dashboard updates
 
-## Next Steps
-
-### Phase 1: Foundation (Weeks 1-2)
-1. **Design observability data models** - Define schemas for agent decisions, workflow traces, performance metrics, and business KPIs
-2. **Create agent instrumentation framework** - Build `@monitor_agent` decorator and workflow tracing infrastructure
-3. **Set up time-series storage** - Configure InfluxDB or TimescaleDB for metrics and performance data
-4. **Implement structured logging** - Standardize log formats across all Penfold agents
-
-### Phase 2: Agent Integration (Weeks 3-4)
-5. **Instrument Email Processing Agent** - Add monitoring to nightly email sync and categorization workflows
-6. **Instrument Meeting Analysis Agent** - Add tracing for content parsing, speaker identification, and decision extraction
-7. **Instrument Relationship Discovery Agent** - Monitor pattern analysis and connection suggestion workflows
-8. **Instrument Daily Review Agent** - Track briefing generation and user engagement metrics
-
-### Phase 3: Advanced Monitoring (Weeks 5-6)
-9. **Build cross-agent workflow correlation** - Trace requests across multiple agent boundaries with timing
-10. **Create agent debug APIs** - Enable agents to query their own decision history and performance data
-11. **Implement business KPI tracking** - Monitor context reconstruction speed, search accuracy, relationship validation rates
-12. **Develop performance optimization recommendations** - Automated analysis and improvement suggestions
-
-### Phase 4: Production Operations (Weeks 7-8)
-13. **Create real-time dashboards** - Agent health overview, processing pipeline status, business metrics
-14. **Set up proactive alerting** - Configurable thresholds for performance degradation and failures
-15. **Implement capacity planning** - Resource usage analysis and scaling recommendations
-16. **Add historical trending analysis** - Long-term performance and quality trend monitoring
-
-### Success Validation
-- **SC-001 through SC-020 met** - All measurable success criteria from the specification
-- **Agent autonomy improved** - Agents can debug and optimize themselves using observability data
-- **System reliability increased** - Proactive issue detection and resolution reduces downtime
-- **Business value visibility** - Clear metrics on time savings and system effectiveness
-- **Production confidence** - Complete visibility enables reliable autonomous operation
-
-This observability framework transforms Penfold from a complex autonomous system into a transparent, debuggable, and continuously improving AI-powered information platform.

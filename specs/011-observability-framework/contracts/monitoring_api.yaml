@@ -1,0 +1,896 @@
+openapi: 3.0.3
+info:
+  title: Penfold Observability Framework API
+  description: API for monitoring autonomous AI agents and processing workflows
+  version: 1.0.0
+  contact:
+    name: Penfold Development Team
+
+servers:
+  - url: http://localhost:8000/api/v1/observability
+    description: Local development server
+
+paths:
+  /agents:
+    get:
+      summary: List all registered agents
+      description: Retrieve list of agents with their current status and last activity
+      tags:
+        - Agent Management
+      parameters:
+        - name: status
+          in: query
+          description: Filter agents by status
+          schema:
+            type: string
+            enum: [active, inactive, archived]
+        - name: agent_type
+          in: query
+          description: Filter agents by type
+          schema:
+            type: string
+            enum: [processing, analysis, coordination, review]
+      responses:
+        '200':
+          description: List of agents retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Agent'
+                  total_count:
+                    type: integer
+                    description: Total number of agents matching criteria
+
+    post:
+      summary: Register new agent
+      description: Register a new autonomous agent in the monitoring system
+      tags:
+        - Agent Management
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - agent_id
+                - agent_name
+                - agent_type
+              properties:
+                agent_id:
+                  type: string
+                  pattern: '^[a-z_]+$'
+                  example: "email_processor"
+                agent_name:
+                  type: string
+                  example: "Email Processing Agent"
+                agent_type:
+                  type: string
+                  enum: [processing, analysis, coordination, review]
+                configuration:
+                  type: object
+                  description: Agent-specific configuration
+      responses:
+        '201':
+          description: Agent registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '409':
+          description: Agent with this ID already exists
+
+  /agents/{agent_id}/status:
+    get:
+      summary: Get agent health status
+      description: Retrieve current health and performance status for specific agent
+      tags:
+        - Agent Health
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "email_processor"
+        - name: time_window
+          in: query
+          description: Time window for status calculation (in minutes)
+          schema:
+            type: integer
+            default: 60
+            minimum: 5
+            maximum: 1440
+      responses:
+        '200':
+          description: Agent status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentStatus'
+        '404':
+          description: Agent not found
+
+  /agents/{agent_id}/metrics:
+    get:
+      summary: Get agent metrics
+      description: Retrieve time-series metrics for agent performance monitoring
+      tags:
+        - Metrics
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: metric_names
+          in: query
+          description: Comma-separated list of metric names to retrieve
+          schema:
+            type: string
+            example: "processing_time_ms,memory_usage_mb"
+        - name: start_time
+          in: query
+          description: Start time for metrics (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          description: End time for metrics (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: aggregation
+          in: query
+          description: Aggregation function for metrics
+          schema:
+            type: string
+            enum: [avg, min, max, sum, count]
+            default: avg
+        - name: bucket_size
+          in: query
+          description: Time bucket size for aggregation (e.g., '5m', '1h', '1d')
+          schema:
+            type: string
+            default: '5m'
+      responses:
+        '200':
+          description: Metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MetricSeries'
+                  time_range:
+                    $ref: '#/components/schemas/TimeRange'
+
+    post:
+      summary: Record agent metrics
+      description: Submit performance and health metrics for an agent
+      tags:
+        - Metrics
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - metrics
+              properties:
+                metrics:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/MetricPoint'
+                batch_timestamp:
+                  type: string
+                  format: date-time
+                  description: Timestamp for entire batch (optional)
+      responses:
+        '201':
+          description: Metrics recorded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded_count:
+                    type: integer
+                  batch_id:
+                    type: string
+                    format: uuid
+
+  /agents/{agent_id}/decisions:
+    get:
+      summary: Get agent decision traces
+      description: Retrieve decision traces for debugging agent behavior
+      tags:
+        - Decision Tracing
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: workflow_id
+          in: query
+          description: Filter by specific workflow
+          schema:
+            type: string
+            format: uuid
+        - name: decision_type
+          in: query
+          description: Filter by decision type
+          schema:
+            type: string
+        - name: start_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: min_confidence
+          in: query
+          description: Minimum confidence score filter
+          schema:
+            type: number
+            minimum: 0.0
+            maximum: 1.0
+        - name: limit
+          in: query
+          description: Maximum number of decisions to return
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+      responses:
+        '200':
+          description: Decision traces retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  decisions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DecisionTrace'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+    post:
+      summary: Record agent decision
+      description: Log a decision made by an agent for debugging and analysis
+      tags:
+        - Decision Tracing
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionInput'
+      responses:
+        '201':
+          description: Decision recorded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  decision_id:
+                    type: string
+                    format: uuid
+                  recorded_at:
+                    type: string
+                    format: date-time
+
+  /workflows/{workflow_id}/events:
+    get:
+      summary: Get workflow events
+      description: Retrieve events for a specific workflow execution
+      tags:
+        - Workflow Tracking
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: include_children
+          in: query
+          description: Include child workflow events
+          schema:
+            type: boolean
+            default: false
+        - name: event_type
+          in: query
+          description: Filter by event type
+          schema:
+            type: string
+            enum: [workflow_started, stage_completed, handoff, workflow_finished, error]
+      responses:
+        '200':
+          description: Workflow events retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflow_id:
+                    type: string
+                    format: uuid
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkflowEvent'
+                  total_duration_ms:
+                    type: number
+                    description: Total workflow execution time
+                  status:
+                    type: string
+                    enum: [running, completed, failed, timeout]
+
+    post:
+      summary: Record workflow event
+      description: Log an event in a workflow execution
+      tags:
+        - Workflow Tracking
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowEventInput'
+      responses:
+        '201':
+          description: Workflow event recorded successfully
+
+  /alerts/thresholds:
+    get:
+      summary: Get alert thresholds
+      description: Retrieve configured alert thresholds for agents
+      tags:
+        - Alerting
+      parameters:
+        - name: agent_id
+          in: query
+          description: Filter by agent ID
+          schema:
+            type: string
+        - name: is_active
+          in: query
+          description: Filter by active status
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Alert thresholds retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AlertThreshold'
+
+    post:
+      summary: Create alert threshold
+      description: Configure a new alert threshold for agent monitoring
+      tags:
+        - Alerting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - agent_id
+                - metric_name
+                - threshold_value
+                - comparison_operator
+              properties:
+                agent_id:
+                  type: string
+                metric_name:
+                  type: string
+                  example: "processing_time_ms"
+                threshold_type:
+                  type: string
+                  enum: [performance, error_rate, resource_usage]
+                  default: performance
+                threshold_value:
+                  type: number
+                  example: 30000
+                comparison_operator:
+                  type: string
+                  enum: [greater_than, less_than, equals, not_equals]
+                evaluation_window_minutes:
+                  type: integer
+                  minimum: 1
+                  maximum: 1440
+                  default: 15
+      responses:
+        '201':
+          description: Alert threshold created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertThreshold'
+
+  /alerts/events:
+    get:
+      summary: Get alert events
+      description: Retrieve triggered alerts and their resolution status
+      tags:
+        - Alerting
+      parameters:
+        - name: agent_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, resolved, acknowledged, suppressed]
+        - name: start_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Alert events retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AlertEvent'
+
+  /dashboard/status:
+    get:
+      summary: Get dashboard status overview
+      description: Retrieve high-level system status for dashboard display
+      tags:
+        - Dashboard
+      responses:
+        '200':
+          description: Dashboard status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStatus'
+
+  /dashboard/stream:
+    get:
+      summary: Real-time dashboard updates
+      description: Server-sent events stream for real-time dashboard updates
+      tags:
+        - Dashboard
+      parameters:
+        - name: include_events
+          in: query
+          description: Types of events to include in stream
+          schema:
+            type: string
+            default: "metrics,alerts,workflow_events"
+      responses:
+        '200':
+          description: Event stream established
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-sent events format
+
+components:
+  schemas:
+    Agent:
+      type: object
+      properties:
+        agent_id:
+          type: string
+          example: "email_processor"
+        agent_name:
+          type: string
+          example: "Email Processing Agent"
+        agent_type:
+          type: string
+          enum: [processing, analysis, coordination, review]
+        configuration:
+          type: object
+          description: Agent-specific configuration
+        created_at:
+          type: string
+          format: date-time
+        last_active_at:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+
+    AgentStatus:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        health_score:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          description: Overall health score (0.0 = unhealthy, 1.0 = perfect health)
+        last_activity:
+          type: string
+          format: date-time
+        performance_metrics:
+          type: object
+          properties:
+            avg_processing_time_ms:
+              type: number
+            error_rate_percent:
+              type: number
+            operations_count:
+              type: integer
+        active_alerts:
+          type: integer
+          description: Number of active alerts for this agent
+        current_workflows:
+          type: integer
+          description: Number of currently running workflows
+
+    MetricPoint:
+      type: object
+      required:
+        - metric_name
+        - metric_value
+      properties:
+        metric_name:
+          type: string
+          example: "processing_time_ms"
+        metric_value:
+          type: number
+          example: 1250.5
+        metric_type:
+          type: string
+          enum: [counter, gauge, histogram]
+          default: gauge
+        timestamp:
+          type: string
+          format: date-time
+          description: Metric timestamp (defaults to current time)
+        labels:
+          type: object
+          description: Additional metric dimensions
+          example:
+            operation_type: "entity_extraction"
+            status: "success"
+
+    MetricSeries:
+      type: object
+      properties:
+        metric_name:
+          type: string
+        metric_type:
+          type: string
+          enum: [counter, gauge, histogram]
+        data_points:
+          type: array
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+              value:
+                type: number
+              labels:
+                type: object
+
+    DecisionTrace:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        decision_type:
+          type: string
+          example: "entity_extraction"
+        decision_context:
+          type: object
+          description: Input context and data
+        alternatives_considered:
+          type: array
+          items:
+            type: object
+            properties:
+              option:
+                type: string
+              score:
+                type: number
+              reasoning:
+                type: string
+        confidence_score:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+        reasoning:
+          type: string
+          description: Human-readable explanation
+        workflow_id:
+          type: string
+          format: uuid
+
+    DecisionInput:
+      type: object
+      required:
+        - decision_type
+        - confidence_score
+      properties:
+        decision_type:
+          type: string
+          example: "project_categorization"
+        decision_context:
+          type: object
+          description: Input context that influenced decision
+        alternatives_considered:
+          type: array
+          items:
+            type: object
+            properties:
+              option:
+                type: string
+              score:
+                type: number
+              reasoning:
+                type: string
+        confidence_score:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+        reasoning:
+          type: string
+        workflow_id:
+          type: string
+          format: uuid
+
+    WorkflowEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workflow_id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        event_type:
+          type: string
+          enum: [workflow_started, stage_completed, handoff, workflow_finished, error]
+        event_status:
+          type: string
+          enum: [success, failure, timeout, retry]
+        event_data:
+          type: object
+          description: Event-specific data
+        processing_time_ms:
+          type: number
+        parent_workflow_id:
+          type: string
+          format: uuid
+
+    WorkflowEventInput:
+      type: object
+      required:
+        - agent_id
+        - event_type
+        - event_status
+      properties:
+        agent_id:
+          type: string
+        event_type:
+          type: string
+          enum: [workflow_started, stage_completed, handoff, workflow_finished, error]
+        event_status:
+          type: string
+          enum: [success, failure, timeout, retry]
+        event_data:
+          type: object
+        processing_time_ms:
+          type: number
+        parent_workflow_id:
+          type: string
+          format: uuid
+
+    AlertThreshold:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+        metric_name:
+          type: string
+        threshold_type:
+          type: string
+          enum: [performance, error_rate, resource_usage]
+        threshold_value:
+          type: number
+        comparison_operator:
+          type: string
+          enum: [greater_than, less_than, equals, not_equals]
+        evaluation_window_minutes:
+          type: integer
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    AlertEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        threshold_id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+        metric_name:
+          type: string
+        triggered_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+        alert_status:
+          type: string
+          enum: [active, resolved, acknowledged, suppressed]
+        trigger_value:
+          type: number
+        alert_context:
+          type: object
+        resolution_notes:
+          type: string
+
+    DashboardStatus:
+      type: object
+      properties:
+        system_health:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          description: Overall system health score
+        active_agents:
+          type: integer
+          description: Number of currently active agents
+        total_workflows:
+          type: integer
+          description: Total workflows in last 24 hours
+        active_alerts:
+          type: integer
+          description: Number of unresolved alerts
+        performance_summary:
+          type: object
+          properties:
+            avg_processing_time_ms:
+              type: number
+            total_operations:
+              type: integer
+            error_rate_percent:
+              type: number
+        agent_statuses:
+          type: array
+          items:
+            type: object
+            properties:
+              agent_id:
+                type: string
+              health_score:
+                type: number
+              last_activity:
+                type: string
+                format: date-time
+
+    TimeRange:
+      type: object
+      properties:
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        bucket_size:
+          type: string
+          description: Time bucket size used for aggregation
+
+    Pagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+        offset:
+          type: integer
+        total_count:
+          type: integer
+        has_more:
+          type: boolean
+
+  securitySchemes:
+    TenantAuth:
+      type: apiKey
+      in: header
+      name: X-Tenant-ID
+      description: Tenant identification for multi-tenant isolation
+
+security:
+  - TenantAuth: []
+
+tags:
+  - name: Agent Management
+    description: Operations for managing agent registration and lifecycle
+  - name: Agent Health
+    description: Agent health and status monitoring
+  - name: Metrics
+    description: Time-series metrics collection and retrieval
+  - name: Decision Tracing
+    description: Agent decision logging and analysis
+  - name: Workflow Tracking
+    description: Cross-agent workflow execution monitoring
+  - name: Alerting
+    description: Alert threshold configuration and event management
+  - name: Dashboard
+    description: Real-time dashboard data and status overview

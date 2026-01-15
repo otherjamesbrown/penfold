@@ -1,0 +1,17 @@
+# Observability Framework Dependencies
+# These dependencies extend the core Penfold requirements for monitoring and observability
+
+# TimescaleDB support
+timescaledb==2.13.1
+
+# Additional observability dependencies
+sse-starlette==1.6.5
+prometheus-client==0.19.0
+
+# Note: The following are already included in requirements.txt:
+# - asyncpg==0.29.0 (database driver)
+# - sqlalchemy[asyncio]==2.0.23 (ORM with async support)
+# - structlog==23.2.0 (structured logging)
+# - psutil==5.9.6 (system resource monitoring)
+# - pydantic==2.5.0 (data validation)
+# - fastapi[all]==0.104.1 (API framework)
