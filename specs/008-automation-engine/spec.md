@@ -2,7 +2,7 @@
 
 **Feature Branch**: `008-automation-engine`
 **Created**: 2026-01-12
-**Status**: Clarified
+**Status**: Planned
 **Input**: User description: "Automation Rules Engine"
 
 ## User Scenarios & Testing *(mandatory)*
