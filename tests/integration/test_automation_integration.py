@@ -350,3 +350,283 @@ class TestEngineWithRules:
         matches = await engine.evaluate_rules(content, rules)
 
         assert len(matches) == 0
+
+
+class TestRuleManagement:
+    """Tests for User Story 2 - Rule Creation and Management."""
+
+    @pytest.mark.asyncio
+    async def test_create_rule(self):
+        """Test creating a new automation rule."""
+        from penf_lib.automation.repository import AutomationRepository
+
+        repo = AutomationRepository()
+        tenant_id = uuid4()
+        user_id = "test@example.com"
+
+        rule = await repo.create_rule(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name="Vendor Emails",
+            conditions={
+                "operator": "AND",
+                "conditions": [
+                    {"field": "sender", "operator": "contains", "value": "@vendor.com"},
+                ]
+            },
+            actions={"action_type": "categorize", "parameters": {"category": "vendors"}},
+            description="Auto-categorize vendor emails",
+            priority=3,
+        )
+
+        assert rule["name"] == "Vendor Emails"
+        assert rule["is_enabled"] is True
+        assert rule["priority"] == 3
+        assert rule["current_version_id"] == 1
+
+    @pytest.mark.asyncio
+    async def test_rule_matching(self):
+        """Test rule matching against content.
+
+        Given rule with conditions [sender contains "@vendor.com", content_type = "email"]
+        When email from "sales@vendor.com" processed
+        Then rule matches and actions execute
+        """
+        from penf_lib.automation.engine import AutomationEngine
+        from penf_lib.automation.repository import AutomationRepository
+
+        repo = AutomationRepository()
+        engine = AutomationEngine()
+        tenant_id = uuid4()
+
+        # Create rule
+        rule = await repo.create_rule(
+            tenant_id=tenant_id,
+            user_id="test@example.com",
+            name="Vendor Categorization",
+            conditions={
+                "operator": "AND",
+                "conditions": [
+                    {"field": "content_type", "operator": "equals", "value": "email"},
+                    {"field": "sender", "operator": "contains", "value": "@vendor.com"},
+                ]
+            },
+            actions={"action_type": "categorize", "parameters": {"category": "vendors"}},
+        )
+
+        # Test content that should match
+        content = {
+            "content_id": "email-vendor-001",
+            "content_type": "email",
+            "sender": "sales@vendor.com",
+            "subject": "Invoice",
+        }
+
+        # Verify rule matches
+        matches = engine.rule_matches(rule["conditions"], content)
+        assert matches is True
+
+        # Test content that should not match
+        content_no_match = {
+            "content_id": "email-other-001",
+            "content_type": "email",
+            "sender": "friend@other.com",
+            "subject": "Hello",
+        }
+
+        matches_no = engine.rule_matches(rule["conditions"], content_no_match)
+        assert matches_no is False
+
+    @pytest.mark.asyncio
+    async def test_rule_versioning(self):
+        """Test rule version history.
+
+        Given rule is updated
+        Then new version created, previous preserved
+        And rollback restores previous version
+        """
+        from penf_lib.automation.repository import AutomationRepository
+
+        repo = AutomationRepository()
+        tenant_id = uuid4()
+        user_id = "test@example.com"
+
+        # Create initial rule
+        rule = await repo.create_rule(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name="Test Rule",
+            conditions={"operator": "AND", "conditions": []},
+            actions={"action_type": "tag", "parameters": {"tag": "v1"}},
+        )
+        rule_id = rule["id"]
+
+        assert rule["current_version_id"] == 1
+
+        # Update rule
+        updated_rule = await repo.update_rule(
+            tenant_id=tenant_id,
+            rule_id=rule_id,
+            updates={
+                "actions": {"action_type": "tag", "parameters": {"tag": "v2"}},
+            },
+            change_description="Updated action tag",
+            updated_by=user_id,
+        )
+
+        assert updated_rule["current_version_id"] == 2
+
+        # Get version history
+        versions = await repo.get_rule_versions(tenant_id, rule_id)
+        assert len(versions) == 2
+        assert versions[0]["version_number"] == 2  # Newest first
+        assert versions[1]["version_number"] == 1
+
+        # Rollback to version 1
+        rolled_back = await repo.rollback_rule(
+            tenant_id=tenant_id,
+            rule_id=rule_id,
+            version_number=1,
+            user_id=user_id,
+        )
+
+        assert rolled_back is not None
+        assert rolled_back["actions"]["parameters"]["tag"] == "v1"
+        assert rolled_back["current_version_id"] == 3  # New version from rollback
+
+    @pytest.mark.asyncio
+    async def test_enable_disable_rule(self):
+        """Test enabling and disabling rules (FR-004)."""
+        from penf_lib.automation.repository import AutomationRepository
+
+        repo = AutomationRepository()
+        tenant_id = uuid4()
+        user_id = "test@example.com"
+
+        # Create rule
+        rule = await repo.create_rule(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name="Toggle Test",
+            conditions={"operator": "AND", "conditions": []},
+            actions={"action_type": "test"},
+        )
+        rule_id = rule["id"]
+
+        assert rule["is_enabled"] is True
+
+        # Disable
+        disabled = await repo.disable_rule(tenant_id, rule_id)
+        assert disabled["is_enabled"] is False
+
+        # Enable
+        enabled = await repo.enable_rule(tenant_id, rule_id)
+        assert enabled["is_enabled"] is True
+
+    @pytest.mark.asyncio
+    async def test_delete_rule(self):
+        """Test soft deleting a rule."""
+        from penf_lib.automation.repository import AutomationRepository
+
+        repo = AutomationRepository()
+        tenant_id = uuid4()
+        user_id = "test@example.com"
+
+        # Create rule
+        rule = await repo.create_rule(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name="Delete Test",
+            conditions={"operator": "AND", "conditions": []},
+            actions={"action_type": "test"},
+        )
+        rule_id = rule["id"]
+
+        # Delete
+        deleted = await repo.delete_rule(tenant_id, rule_id, reason="No longer needed")
+        assert deleted is True
+
+        # Should not be findable
+        found = await repo.get_rule_by_id(tenant_id, rule_id)
+        assert found is None
+
+    @pytest.mark.asyncio
+    async def test_get_rules_filters_correctly(self):
+        """Test that get_rules_for_user respects filters."""
+        from penf_lib.automation.repository import AutomationRepository
+
+        repo = AutomationRepository()
+        tenant_id = uuid4()
+        user_id = "test@example.com"
+
+        # Create enabled rule
+        await repo.create_rule(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name="Enabled Rule",
+            conditions={"operator": "AND", "conditions": []},
+            actions={"action_type": "test"},
+        )
+
+        # Create and disable another rule
+        rule2 = await repo.create_rule(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name="Disabled Rule",
+            conditions={"operator": "AND", "conditions": []},
+            actions={"action_type": "test"},
+        )
+        await repo.disable_rule(tenant_id, rule2["id"])
+
+        # Get only enabled
+        enabled_rules = await repo.get_rules_for_user(tenant_id, user_id, enabled_only=True)
+        assert len(enabled_rules) >= 1
+        assert all(r["is_enabled"] for r in enabled_rules)
+
+        # Get all rules
+        all_rules = await repo.get_rules_for_user(tenant_id, user_id, enabled_only=False)
+        assert len(all_rules) >= 2
+
+
+class TestRuleTestMode:
+    """Tests for rule testing/simulation (FR-012)."""
+
+    @pytest.mark.asyncio
+    async def test_rule_test_mode(self):
+        """Test rule simulation mode.
+
+        Given rule in test mode
+        When content processed
+        Then results shown but actions not executed
+        """
+        from penf_lib.automation.engine import AutomationEngine
+
+        engine = AutomationEngine()
+
+        # Create a test rule
+        rule = {
+            "id": uuid4(),
+            "name": "Test Mode Rule",
+            "conditions": {
+                "operator": "AND",
+                "conditions": [
+                    {"field": "sender", "operator": "contains", "value": "@test.com"},
+                ]
+            },
+            "actions": {"action_type": "categorize", "parameters": {"category": "test"}},
+        }
+
+        # Test content
+        content = {
+            "content_id": "test-001",
+            "content_type": "email",
+            "sender": "user@test.com",
+        }
+
+        # Simulate rule (test mode)
+        matches = engine.rule_matches(rule["conditions"], content)
+        assert matches is True
+
+        # In test mode, we just check if it would match
+        # without actually executing actions
+        # This is a simulation check only

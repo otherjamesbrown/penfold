@@ -45,6 +45,473 @@ def automation_group(ctx: click.Context):
 # =============================================================================
 
 
+# =============================================================================
+# RULES COMMANDS
+# =============================================================================
+
+
+@automation_group.group(name="rules")
+@click.pass_context
+def rules_group(ctx: click.Context):
+    """
+    Manage automation rules.
+
+    Rules define conditions and actions for automatic content processing.
+    """
+    pass
+
+
+@rules_group.command(name="list")
+@click.option("--all", "-a", "show_all", is_flag=True, help="Show all rules including disabled")
+@click.pass_context
+def rules_list(ctx: click.Context, show_all: bool):
+    """List automation rules."""
+    async def _list_rules():
+        try:
+            from penf_lib.automation.repository import AutomationRepository
+            from penf_lib.storage.tenant_manager import tenant_manager
+
+            session_info = await tenant_manager.get_current_tenant()
+            if not session_info:
+                console.print("[red]Error:[/red] No active tenant session.")
+                return 1
+
+            tenant_id = UUID(session_info["tenant_id"])
+            user_id = session_info["user_email"]
+
+            repo = AutomationRepository()
+            rules = await repo.get_rules_for_user(
+                tenant_id, user_id, enabled_only=not show_all
+            )
+
+            if not rules:
+                console.print("[yellow]No rules found.[/yellow]")
+                console.print("[dim]Create rules with 'penf automation rules create'[/dim]")
+                return 0
+
+            table = Table(title="Automation Rules")
+            table.add_column("ID", style="dim", width=8)
+            table.add_column("Name", style="cyan")
+            table.add_column("Priority", justify="center")
+            table.add_column("Status", style="green")
+            table.add_column("Version")
+
+            for rule in rules:
+                rule_id = str(rule["id"])[:8]
+                status = "[green]enabled[/green]" if rule.get("is_enabled") else "[dim]disabled[/dim]"
+                table.add_row(
+                    rule_id,
+                    rule["name"],
+                    str(rule.get("priority", 5)),
+                    status,
+                    f"v{rule.get('current_version_id', 1)}",
+                )
+
+            console.print(table)
+            return 0
+
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return 1
+        finally:
+            await cleanup_connections()
+
+    result = run_async(_list_rules())
+    sys.exit(result)
+
+
+@rules_group.command(name="show")
+@click.argument("rule_id")
+@click.pass_context
+def rules_show(ctx: click.Context, rule_id: str):
+    """Show rule details."""
+    async def _show_rule():
+        try:
+            from penf_lib.automation.repository import AutomationRepository
+            from penf_lib.storage.tenant_manager import tenant_manager
+
+            session_info = await tenant_manager.get_current_tenant()
+            if not session_info:
+                console.print("[red]Error:[/red] No active tenant session.")
+                return 1
+
+            tenant_id = UUID(session_info["tenant_id"])
+
+            repo = AutomationRepository()
+            rule = await repo.get_rule_by_id(tenant_id, UUID(rule_id))
+
+            if not rule:
+                console.print(f"[red]Error:[/red] Rule '{rule_id}' not found")
+                return 1
+
+            console.print()
+            console.print(f"[bold]Rule: {rule['name']}[/bold]")
+            console.print(f"ID: {rule['id']}")
+            console.print(f"Priority: {rule.get('priority', 5)}")
+            console.print(f"Status: {'[green]enabled[/green]' if rule.get('is_enabled') else '[dim]disabled[/dim]'}")
+            console.print(f"Version: v{rule.get('current_version_id', 1)}")
+            if rule.get("description"):
+                console.print(f"Description: {rule['description']}")
+
+            console.print()
+            console.print("[bold]Conditions:[/bold]")
+            console.print(json.dumps(rule.get("conditions", {}), indent=2))
+
+            console.print()
+            console.print("[bold]Actions:[/bold]")
+            console.print(json.dumps(rule.get("actions", {}), indent=2))
+
+            return 0
+
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return 1
+        finally:
+            await cleanup_connections()
+
+    result = run_async(_show_rule())
+    sys.exit(result)
+
+
+@rules_group.command(name="create")
+@click.option("--name", "-n", required=True, help="Rule name")
+@click.option("--conditions", "-c", required=True, help="JSON conditions")
+@click.option("--actions", "-a", required=True, help="JSON actions")
+@click.option("--description", "-d", help="Rule description")
+@click.option("--priority", "-p", type=int, default=5, help="Priority (1-10, default 5)")
+@click.pass_context
+def rules_create(ctx: click.Context, name: str, conditions: str, actions: str,
+                 description: Optional[str], priority: int):
+    """Create a new automation rule."""
+    async def _create_rule():
+        try:
+            from penf_lib.automation.repository import AutomationRepository
+            from penf_lib.storage.tenant_manager import tenant_manager
+
+            session_info = await tenant_manager.get_current_tenant()
+            if not session_info:
+                console.print("[red]Error:[/red] No active tenant session.")
+                return 1
+
+            tenant_id = UUID(session_info["tenant_id"])
+            user_id = session_info["user_email"]
+
+            # Parse JSON
+            try:
+                conditions_dict = json.loads(conditions)
+            except json.JSONDecodeError as e:
+                console.print(f"[red]Error:[/red] Invalid conditions JSON: {e}")
+                return 1
+
+            try:
+                actions_dict = json.loads(actions)
+            except json.JSONDecodeError as e:
+                console.print(f"[red]Error:[/red] Invalid actions JSON: {e}")
+                return 1
+
+            repo = AutomationRepository()
+            rule = await repo.create_rule(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                name=name,
+                conditions=conditions_dict,
+                actions=actions_dict,
+                description=description,
+                priority=priority,
+            )
+
+            console.print(f"[green]Success:[/green] Rule '{name}' created")
+            console.print(f"ID: {rule['id']}")
+
+            return 0
+
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return 1
+        finally:
+            await cleanup_connections()
+
+    result = run_async(_create_rule())
+    sys.exit(result)
+
+
+@rules_group.command(name="enable")
+@click.argument("rule_id")
+@click.pass_context
+def rules_enable(ctx: click.Context, rule_id: str):
+    """Enable a rule."""
+    async def _enable_rule():
+        try:
+            from penf_lib.automation.repository import AutomationRepository
+            from penf_lib.storage.tenant_manager import tenant_manager
+
+            session_info = await tenant_manager.get_current_tenant()
+            if not session_info:
+                console.print("[red]Error:[/red] No active tenant session.")
+                return 1
+
+            repo = AutomationRepository()
+            result = await repo.enable_rule(UUID(session_info["tenant_id"]), UUID(rule_id))
+
+            if result:
+                console.print(f"[green]Success:[/green] Rule enabled")
+            else:
+                console.print(f"[red]Error:[/red] Rule not found")
+                return 1
+
+            return 0
+
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return 1
+        finally:
+            await cleanup_connections()
+
+    result = run_async(_enable_rule())
+    sys.exit(result)
+
+
+@rules_group.command(name="disable")
+@click.argument("rule_id")
+@click.pass_context
+def rules_disable(ctx: click.Context, rule_id: str):
+    """Disable a rule."""
+    async def _disable_rule():
+        try:
+            from penf_lib.automation.repository import AutomationRepository
+            from penf_lib.storage.tenant_manager import tenant_manager
+
+            session_info = await tenant_manager.get_current_tenant()
+            if not session_info:
+                console.print("[red]Error:[/red] No active tenant session.")
+                return 1
+
+            repo = AutomationRepository()
+            result = await repo.disable_rule(UUID(session_info["tenant_id"]), UUID(rule_id))
+
+            if result:
+                console.print(f"[green]Success:[/green] Rule disabled")
+            else:
+                console.print(f"[red]Error:[/red] Rule not found")
+                return 1
+
+            return 0
+
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return 1
+        finally:
+            await cleanup_connections()
+
+    result = run_async(_disable_rule())
+    sys.exit(result)
+
+
+@rules_group.command(name="delete")
+@click.argument("rule_id")
+@click.option("--reason", "-r", help="Deletion reason")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+@click.pass_context
+def rules_delete(ctx: click.Context, rule_id: str, reason: Optional[str], yes: bool):
+    """Delete a rule."""
+    async def _delete_rule():
+        try:
+            from penf_lib.automation.repository import AutomationRepository
+            from penf_lib.storage.tenant_manager import tenant_manager
+
+            session_info = await tenant_manager.get_current_tenant()
+            if not session_info:
+                console.print("[red]Error:[/red] No active tenant session.")
+                return 1
+
+            if not yes:
+                console.print("[yellow]Warning:[/yellow] This will soft delete the rule.")
+                if not click.confirm("Continue?"):
+                    console.print("Cancelled.")
+                    return 0
+
+            repo = AutomationRepository()
+            result = await repo.delete_rule(
+                UUID(session_info["tenant_id"]),
+                UUID(rule_id),
+                reason=reason
+            )
+
+            if result:
+                console.print(f"[green]Success:[/green] Rule deleted")
+            else:
+                console.print(f"[red]Error:[/red] Rule not found")
+                return 1
+
+            return 0
+
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return 1
+        finally:
+            await cleanup_connections()
+
+    result = run_async(_delete_rule())
+    sys.exit(result)
+
+
+@rules_group.command(name="versions")
+@click.argument("rule_id")
+@click.pass_context
+def rules_versions(ctx: click.Context, rule_id: str):
+    """Show rule version history."""
+    async def _show_versions():
+        try:
+            from penf_lib.automation.repository import AutomationRepository
+            from penf_lib.storage.tenant_manager import tenant_manager
+
+            session_info = await tenant_manager.get_current_tenant()
+            if not session_info:
+                console.print("[red]Error:[/red] No active tenant session.")
+                return 1
+
+            repo = AutomationRepository()
+            versions = await repo.get_rule_versions(
+                UUID(session_info["tenant_id"]),
+                UUID(rule_id)
+            )
+
+            if not versions:
+                console.print(f"[yellow]No versions found for rule {rule_id}[/yellow]")
+                return 0
+
+            table = Table(title=f"Version History for Rule {rule_id[:8]}")
+            table.add_column("Version", style="cyan")
+            table.add_column("Status")
+            table.add_column("Change Description")
+            table.add_column("Created")
+
+            for v in versions:
+                status = "[green]active[/green]" if v.get("is_active") else "[dim]inactive[/dim]"
+                table.add_row(
+                    f"v{v['version_number']}",
+                    status,
+                    v.get("change_description", ""),
+                    str(v.get("created_at", ""))[:19],
+                )
+
+            console.print(table)
+            return 0
+
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return 1
+        finally:
+            await cleanup_connections()
+
+    result = run_async(_show_versions())
+    sys.exit(result)
+
+
+@rules_group.command(name="rollback")
+@click.argument("rule_id")
+@click.option("--version", "-v", "version_num", type=int, required=True, help="Version number to rollback to")
+@click.pass_context
+def rules_rollback(ctx: click.Context, rule_id: str, version_num: int):
+    """Rollback a rule to a previous version."""
+    async def _rollback_rule():
+        try:
+            from penf_lib.automation.repository import AutomationRepository
+            from penf_lib.storage.tenant_manager import tenant_manager
+
+            session_info = await tenant_manager.get_current_tenant()
+            if not session_info:
+                console.print("[red]Error:[/red] No active tenant session.")
+                return 1
+
+            repo = AutomationRepository()
+            result = await repo.rollback_rule(
+                UUID(session_info["tenant_id"]),
+                UUID(rule_id),
+                version_num,
+                session_info["user_email"],
+            )
+
+            if result:
+                console.print(f"[green]Success:[/green] Rule rolled back to v{version_num}")
+                console.print(f"New version: v{result['current_version_id']}")
+            else:
+                console.print(f"[red]Error:[/red] Rule or version not found")
+                return 1
+
+            return 0
+
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return 1
+        finally:
+            await cleanup_connections()
+
+    result = run_async(_rollback_rule())
+    sys.exit(result)
+
+
+@rules_group.command(name="test")
+@click.argument("rule_id")
+@click.option("--content", "-c", required=True, help="JSON content to test against")
+@click.pass_context
+def rules_test(ctx: click.Context, rule_id: str, content: str):
+    """Test a rule against sample content (FR-012)."""
+    async def _test_rule():
+        try:
+            from penf_lib.automation.engine import AutomationEngine
+            from penf_lib.automation.repository import AutomationRepository
+            from penf_lib.storage.tenant_manager import tenant_manager
+
+            session_info = await tenant_manager.get_current_tenant()
+            if not session_info:
+                console.print("[red]Error:[/red] No active tenant session.")
+                return 1
+
+            # Parse content
+            try:
+                content_dict = json.loads(content)
+            except json.JSONDecodeError as e:
+                console.print(f"[red]Error:[/red] Invalid content JSON: {e}")
+                return 1
+
+            repo = AutomationRepository()
+            rule = await repo.get_rule_by_id(
+                UUID(session_info["tenant_id"]),
+                UUID(rule_id)
+            )
+
+            if not rule:
+                console.print(f"[red]Error:[/red] Rule not found")
+                return 1
+
+            engine = AutomationEngine()
+            matches = engine.rule_matches(rule["conditions"], content_dict)
+
+            console.print()
+            console.print(f"[bold]Testing Rule: {rule['name']}[/bold]")
+            console.print()
+
+            if matches:
+                console.print("[green]MATCH[/green] - Rule would trigger")
+                console.print()
+                console.print("[bold]Actions that would execute:[/bold]")
+                console.print(json.dumps(rule["actions"], indent=2))
+            else:
+                console.print("[yellow]NO MATCH[/yellow] - Rule would not trigger")
+
+            return 0
+
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return 1
+        finally:
+            await cleanup_connections()
+
+    result = run_async(_test_rule())
+    sys.exit(result)
+
+
 @automation_group.group(name="thresholds")
 @click.pass_context
 def thresholds_group(ctx: click.Context):

@@ -10,8 +10,14 @@ All operations are user-scoped and tenant-isolated per Clarification #5.
 """
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-from uuid import UUID
+from typing import Any, Dict, List, Optional, Tuple
+from uuid import UUID, uuid4
+
+
+# In-memory storage for rules (skeleton implementation)
+# Full implementation would use database session
+_rules_store: Dict[UUID, Dict[str, Any]] = {}
+_versions_store: Dict[UUID, List[Dict[str, Any]]] = {}
 
 
 class AutomationRepository:
@@ -52,9 +58,18 @@ class AutomationRepository:
         Returns:
             List of rule dictionaries
         """
-        # Skeleton implementation - returns empty list
-        # Full implementation in database models bead
-        return []
+        rules = []
+        for rule_id, rule in _rules_store.items():
+            if rule.get("tenant_id") != tenant_id:
+                continue
+            if rule.get("user_id") != user_id:
+                continue
+            if rule.get("is_deleted", False):
+                continue
+            if enabled_only and not rule.get("is_enabled", True):
+                continue
+            rules.append(rule)
+        return sorted(rules, key=lambda r: r.get("priority", 5))
 
     async def get_rule_by_id(
         self, tenant_id: UUID, rule_id: UUID
@@ -68,6 +83,9 @@ class AutomationRepository:
         Returns:
             Rule dictionary or None if not found
         """
+        rule = _rules_store.get(rule_id)
+        if rule and rule.get("tenant_id") == tenant_id and not rule.get("is_deleted", False):
+            return rule
         return None
 
     async def create_rule(
@@ -94,11 +112,11 @@ class AutomationRepository:
         Returns:
             Created rule dictionary
         """
-        # Skeleton - returns mock data
-        from uuid import uuid4
+        rule_id = uuid4()
+        now = datetime.now(timezone.utc)
 
-        return {
-            "id": uuid4(),
+        rule = {
+            "id": rule_id,
             "tenant_id": tenant_id,
             "user_id": user_id,
             "name": name,
@@ -107,8 +125,29 @@ class AutomationRepository:
             "description": description,
             "priority": priority,
             "is_enabled": True,
-            "created_at": datetime.now(timezone.utc),
+            "is_deleted": False,
+            "current_version_id": 1,
+            "created_at": now,
+            "updated_at": now,
         }
+
+        # Create initial version
+        version = {
+            "id": 1,
+            "rule_id": rule_id,
+            "version_number": 1,
+            "is_active": True,
+            "conditions": conditions,
+            "actions": actions,
+            "change_description": "Initial rule creation",
+            "created_at": now,
+            "created_by": user_id,
+        }
+
+        _rules_store[rule_id] = rule
+        _versions_store[rule_id] = [version]
+
+        return rule
 
     async def update_rule(
         self,
@@ -116,19 +155,62 @@ class AutomationRepository:
         rule_id: UUID,
         updates: Dict[str, Any],
         change_description: Optional[str] = None,
+        updated_by: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Update an automation rule (creates new version).
+
+        Per Clarification #4: Rule versions are immutable. Updates create
+        new versions, preserving previous versions for rollback.
 
         Args:
             tenant_id: Tenant UUID
             rule_id: Rule to update
             updates: Fields to update
             change_description: Description of the change
+            updated_by: User making the update
 
         Returns:
             Updated rule dictionary or None if not found
         """
-        return None
+        rule = await self.get_rule_by_id(tenant_id, rule_id)
+        if not rule:
+            return None
+
+        now = datetime.now(timezone.utc)
+
+        # Apply updates to rule
+        for key, value in updates.items():
+            if key in ("conditions", "actions", "name", "description", "priority", "is_enabled"):
+                rule[key] = value
+
+        rule["updated_at"] = now
+
+        # Create new version if conditions or actions changed
+        if "conditions" in updates or "actions" in updates:
+            versions = _versions_store.get(rule_id, [])
+
+            # Mark all previous versions as inactive
+            for v in versions:
+                v["is_active"] = False
+
+            new_version_num = len(versions) + 1
+            new_version = {
+                "id": new_version_num,
+                "rule_id": rule_id,
+                "version_number": new_version_num,
+                "is_active": True,
+                "conditions": rule.get("conditions"),
+                "actions": rule.get("actions"),
+                "change_description": change_description or "Rule updated",
+                "created_at": now,
+                "created_by": updated_by or rule.get("user_id"),
+            }
+            versions.append(new_version)
+            _versions_store[rule_id] = versions
+            rule["current_version_id"] = new_version_num
+
+        _rules_store[rule_id] = rule
+        return rule
 
     async def delete_rule(
         self, tenant_id: UUID, rule_id: UUID, reason: Optional[str] = None
@@ -143,7 +225,102 @@ class AutomationRepository:
         Returns:
             True if deleted, False if not found
         """
-        return False
+        rule = await self.get_rule_by_id(tenant_id, rule_id)
+        if not rule:
+            return False
+
+        rule["is_deleted"] = True
+        rule["deleted_at"] = datetime.now(timezone.utc)
+        rule["deletion_reason"] = reason
+        _rules_store[rule_id] = rule
+        return True
+
+    async def enable_rule(
+        self, tenant_id: UUID, rule_id: UUID
+    ) -> Optional[Dict[str, Any]]:
+        """Enable a rule (FR-004: immediate effect).
+
+        Args:
+            tenant_id: Tenant UUID
+            rule_id: Rule to enable
+
+        Returns:
+            Updated rule dictionary or None if not found
+        """
+        return await self.update_rule(tenant_id, rule_id, {"is_enabled": True})
+
+    async def disable_rule(
+        self, tenant_id: UUID, rule_id: UUID
+    ) -> Optional[Dict[str, Any]]:
+        """Disable a rule (FR-004: immediate effect).
+
+        Args:
+            tenant_id: Tenant UUID
+            rule_id: Rule to disable
+
+        Returns:
+            Updated rule dictionary or None if not found
+        """
+        return await self.update_rule(tenant_id, rule_id, {"is_enabled": False})
+
+    async def get_rule_versions(
+        self, tenant_id: UUID, rule_id: UUID
+    ) -> List[Dict[str, Any]]:
+        """Get version history for a rule (Clarification #4).
+
+        Args:
+            tenant_id: Tenant UUID
+            rule_id: Rule UUID
+
+        Returns:
+            List of version dictionaries, newest first
+        """
+        rule = await self.get_rule_by_id(tenant_id, rule_id)
+        if not rule:
+            return []
+
+        versions = _versions_store.get(rule_id, [])
+        return sorted(versions, key=lambda v: v.get("version_number", 0), reverse=True)
+
+    async def rollback_rule(
+        self, tenant_id: UUID, rule_id: UUID, version_number: int, user_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Rollback a rule to a previous version (Clarification #4).
+
+        Args:
+            tenant_id: Tenant UUID
+            rule_id: Rule UUID
+            version_number: Version to rollback to
+            user_id: User performing the rollback
+
+        Returns:
+            Updated rule dictionary or None if not found/invalid version
+        """
+        rule = await self.get_rule_by_id(tenant_id, rule_id)
+        if not rule:
+            return None
+
+        versions = _versions_store.get(rule_id, [])
+        target_version = None
+        for v in versions:
+            if v.get("version_number") == version_number:
+                target_version = v
+                break
+
+        if not target_version:
+            return None
+
+        # Create a new version with the old conditions/actions
+        return await self.update_rule(
+            tenant_id,
+            rule_id,
+            {
+                "conditions": target_version["conditions"],
+                "actions": target_version["actions"],
+            },
+            change_description=f"Rollback to version {version_number}",
+            updated_by=user_id,
+        )
 
     # --- Thresholds ---
 
