@@ -9,7 +9,7 @@ Key components:
 - queue: Queue management and prioritization
 - session: Session lifecycle management
 - exceptions: Custom exceptions for error handling
-- feedback: User feedback capture and learning integration (future)
+- feedback: User feedback capture and learning integration
 - batch: Batch operations support (future)
 - analytics: Review analytics (P3, future)
 """
@@ -55,6 +55,8 @@ from penf_lib.review.models import (
 from penf_lib.review.queue import QueueManager
 from penf_lib.review.queue import ReviewRepositoryProtocol as QueueRepositoryProtocol
 from penf_lib.review.session import SessionManager
+from penf_lib.review.feedback import FeedbackManager
+from penf_lib.review.feedback import FeedbackRepositoryProtocol
 
 __all__ = [
     # Enums
@@ -85,6 +87,9 @@ __all__ = [
     "QueueRepositoryProtocol",
     # Session management
     "SessionManager",
+    # Feedback management
+    "FeedbackManager",
+    "FeedbackRepositoryProtocol",
     # Exceptions
     "ReviewError",
     "SessionNotFoundError",

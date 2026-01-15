@@ -1,13 +1,19 @@
 """Click command group for the daily review workflow.
 
-This module implements the `penf review` command group for User Story 1 - Queue Management.
-It provides commands for starting, resuming, and managing review sessions.
+This module implements the `penf review` command group for User Stories 1 and 2:
+- User Story 1: Queue Management (start, resume, status, queue, next)
+- User Story 2: Validation and Correction (accept, reject, modify, skip, undo)
 
 Commands:
     - penf review: Start or resume a review session
     - penf review status: Show session status
     - penf review queue: Display the review queue
     - penf review next: Show next item in queue
+    - penf review accept: Accept AI suggestion
+    - penf review reject: Reject AI suggestion
+    - penf review modify: Modify AI suggestion
+    - penf review skip: Skip item for later
+    - penf review undo: Undo recent decision
 """
 
 from __future__ import annotations
@@ -35,12 +41,15 @@ from penf_lib.review.exceptions import (
 from penf_lib.review.models import (
     AISuggestion,
     ContentType,
+    DecisionType,
     PriorityMode,
     ReviewItemDTO,
     ReviewItemStatus,
     ReviewMode,
     SessionDTO,
     SessionStatus,
+    UserCorrection,
+    UserFeedbackDTO,
 )
 from penf_lib.review.queue import QueueManager
 from penf_lib.review.session import SessionManager
@@ -272,6 +281,285 @@ def get_mock_repository() -> MockReviewRepository:
     if _mock_repository is None:
         _mock_repository = MockReviewRepository()
     return _mock_repository
+
+
+class MockSessionState:
+    """Tracks the current item and decision history for a session.
+
+    Provides state management for the validation/correction commands,
+    tracking which item is current and enabling undo functionality.
+    """
+
+    def __init__(self) -> None:
+        """Initialize mock session state."""
+        self._current_item_id: int | None = None
+        self._decision_history: list[dict[str, Any]] = []
+        self._batch_counter = 0
+
+    @property
+    def current_item_id(self) -> int | None:
+        """Get the current item ID."""
+        return self._current_item_id
+
+    @current_item_id.setter
+    def current_item_id(self, item_id: int | None) -> None:
+        """Set the current item ID."""
+        self._current_item_id = item_id
+
+    def record_decision(
+        self,
+        item: ReviewItemDTO,
+        decision: DecisionType,
+        batch_id: UUID | None = None,
+        correction: UserCorrection | None = None,
+    ) -> None:
+        """Record a decision for undo support.
+
+        Args:
+            item: The item that was decided on
+            decision: The decision type (accept, reject, modify, skip)
+            batch_id: Optional batch operation ID
+            correction: Optional user correction for modify decisions
+        """
+        self._decision_history.append({
+            "item_id": item.id,
+            "item": item,
+            "decision": decision,
+            "batch_id": batch_id,
+            "correction": correction,
+            "timestamp": datetime.now(timezone.utc),
+            "original_status": item.status,
+            "original_decision": item.user_decision,
+            "original_correction": item.user_correction,
+        })
+
+    def get_recent_decisions(self, count: int = 1) -> list[dict[str, Any]]:
+        """Get the most recent decisions for undo.
+
+        Args:
+            count: Number of recent decisions to retrieve
+
+        Returns:
+            List of decision records, most recent first
+        """
+        return list(reversed(self._decision_history[-count:]))
+
+    def pop_decisions(self, count: int = 1) -> list[dict[str, Any]]:
+        """Remove and return the most recent decisions.
+
+        Args:
+            count: Number of decisions to pop
+
+        Returns:
+            List of popped decision records
+        """
+        popped = []
+        for _ in range(min(count, len(self._decision_history))):
+            popped.append(self._decision_history.pop())
+        return popped
+
+    def get_decisions_by_batch(self, batch_id: UUID) -> list[dict[str, Any]]:
+        """Get all decisions for a specific batch.
+
+        Args:
+            batch_id: The batch ID to filter by
+
+        Returns:
+            List of decision records for the batch
+        """
+        return [d for d in self._decision_history if d.get("batch_id") == batch_id]
+
+    def generate_batch_id(self) -> UUID:
+        """Generate a new batch ID."""
+        return uuid4()
+
+
+class MockFeedbackManager:
+    """Mock feedback manager for development.
+
+    Provides in-memory storage for user feedback records during
+    the validation/correction workflow.
+    """
+
+    def __init__(self) -> None:
+        """Initialize mock feedback manager."""
+        self._feedback: list[UserFeedbackDTO] = []
+        self._counter = 0
+
+    async def record_accept(
+        self,
+        item: ReviewItemDTO,
+        session_id: int,
+        time_spent_ms: int = 0,
+        batch_id: UUID | None = None,
+    ) -> UserFeedbackDTO:
+        """Record an accept decision.
+
+        Args:
+            item: The item that was accepted
+            session_id: The session ID
+            time_spent_ms: Time spent on decision in milliseconds
+            batch_id: Optional batch operation ID
+
+        Returns:
+            The created feedback record
+        """
+        self._counter += 1
+        feedback = UserFeedbackDTO(
+            id=self._counter,
+            feedback_uuid=uuid4(),
+            tenant_id=item.tenant_id,
+            review_item_id=item.id,
+            session_id=session_id,
+            decision_type=DecisionType.ACCEPT,
+            original_suggestion=item.ai_suggestion,
+            user_correction=None,
+            time_spent_ms=time_spent_ms,
+            was_batch_decision=batch_id is not None,
+            batch_id=batch_id,
+            created_at=datetime.now(timezone.utc),
+        )
+        self._feedback.append(feedback)
+        return feedback
+
+    async def record_reject(
+        self,
+        item: ReviewItemDTO,
+        session_id: int,
+        reason: str | None = None,
+        time_spent_ms: int = 0,
+        batch_id: UUID | None = None,
+    ) -> UserFeedbackDTO:
+        """Record a reject decision.
+
+        Args:
+            item: The item that was rejected
+            session_id: The session ID
+            reason: Optional rejection reason code
+            time_spent_ms: Time spent on decision
+            batch_id: Optional batch operation ID
+
+        Returns:
+            The created feedback record
+        """
+        self._counter += 1
+        correction = UserCorrection(reason=reason) if reason else None
+        feedback = UserFeedbackDTO(
+            id=self._counter,
+            feedback_uuid=uuid4(),
+            tenant_id=item.tenant_id,
+            review_item_id=item.id,
+            session_id=session_id,
+            decision_type=DecisionType.REJECT,
+            original_suggestion=item.ai_suggestion,
+            user_correction=correction,
+            correction_reason=reason,
+            time_spent_ms=time_spent_ms,
+            was_batch_decision=batch_id is not None,
+            batch_id=batch_id,
+            created_at=datetime.now(timezone.utc),
+        )
+        self._feedback.append(feedback)
+        return feedback
+
+    async def record_modify(
+        self,
+        item: ReviewItemDTO,
+        session_id: int,
+        correction: UserCorrection,
+        time_spent_ms: int = 0,
+        batch_id: UUID | None = None,
+    ) -> UserFeedbackDTO:
+        """Record a modify decision.
+
+        Args:
+            item: The item that was modified
+            session_id: The session ID
+            correction: The user's correction
+            time_spent_ms: Time spent on decision
+            batch_id: Optional batch operation ID
+
+        Returns:
+            The created feedback record
+        """
+        self._counter += 1
+        feedback = UserFeedbackDTO(
+            id=self._counter,
+            feedback_uuid=uuid4(),
+            tenant_id=item.tenant_id,
+            review_item_id=item.id,
+            session_id=session_id,
+            decision_type=DecisionType.MODIFY,
+            original_suggestion=item.ai_suggestion,
+            user_correction=correction,
+            correction_reason=correction.reason,
+            correction_notes=correction.notes,
+            time_spent_ms=time_spent_ms,
+            was_batch_decision=batch_id is not None,
+            batch_id=batch_id,
+            created_at=datetime.now(timezone.utc),
+        )
+        self._feedback.append(feedback)
+        return feedback
+
+    async def record_skip(
+        self,
+        item: ReviewItemDTO,
+        session_id: int,
+        reason: str | None = None,
+        time_spent_ms: int = 0,
+    ) -> UserFeedbackDTO:
+        """Record a skip decision.
+
+        Args:
+            item: The item that was skipped
+            session_id: The session ID
+            reason: Optional skip reason
+            time_spent_ms: Time spent on decision
+
+        Returns:
+            The created feedback record
+        """
+        self._counter += 1
+        correction = UserCorrection(notes=reason) if reason else None
+        feedback = UserFeedbackDTO(
+            id=self._counter,
+            feedback_uuid=uuid4(),
+            tenant_id=item.tenant_id,
+            review_item_id=item.id,
+            session_id=session_id,
+            decision_type=DecisionType.SKIP,
+            original_suggestion=item.ai_suggestion,
+            user_correction=correction,
+            correction_notes=reason,
+            time_spent_ms=time_spent_ms,
+            was_batch_decision=False,
+            batch_id=None,
+            created_at=datetime.now(timezone.utc),
+        )
+        self._feedback.append(feedback)
+        return feedback
+
+
+# Global mock instances
+_mock_session_state: MockSessionState | None = None
+_mock_feedback_manager: MockFeedbackManager | None = None
+
+
+def get_mock_session_state() -> MockSessionState:
+    """Get or create the mock session state singleton."""
+    global _mock_session_state
+    if _mock_session_state is None:
+        _mock_session_state = MockSessionState()
+    return _mock_session_state
+
+
+def get_mock_feedback_manager() -> MockFeedbackManager:
+    """Get or create the mock feedback manager singleton."""
+    global _mock_feedback_manager
+    if _mock_feedback_manager is None:
+        _mock_feedback_manager = MockFeedbackManager()
+    return _mock_feedback_manager
 
 
 # =============================================================================
@@ -507,7 +795,7 @@ def _run_review_main(ctx: click.Context) -> None:
             return 0
 
         except ActiveSessionExistsError as e:
-            console.print(f"\n[yellow]Active session already exists.[/yellow]")
+            console.print("\n[yellow]Active session already exists.[/yellow]")
             console.print(f"Session ID: {e.details['existing_session_id']}")
             console.print("\n[dim]Use --new to start a fresh session, or run without --no-resume to continue.[/dim]")
             return 1
@@ -641,7 +929,6 @@ def review_queue(
 
             repository = get_mock_repository()
             session_manager = SessionManager(repository)
-            queue_manager = QueueManager(repository)
 
             session = await session_manager.get_active_session(tenant_id, user_email)
 
@@ -809,4 +1096,1032 @@ def review_next(
             await cleanup_connections()
 
     result = asyncio.run(_next_async())
+    sys.exit(result)
+
+
+# =============================================================================
+# VALIDATION AND CORRECTION COMMANDS (User Story 2)
+# =============================================================================
+
+
+async def _get_item_for_action(
+    ctx: click.Context,
+    item_id: int | None,
+) -> tuple[SessionDTO | None, ReviewItemDTO | None, str | None]:
+    """Get the item for a validation action.
+
+    Resolves item from explicit ID or current session state.
+
+    Args:
+        ctx: Click context
+        item_id: Optional explicit item ID
+
+    Returns:
+        Tuple of (session, item, error_message)
+    """
+    # Get tenant context
+    tenant_id_str = ctx.obj.get("tenant_id")
+    user_email = ctx.obj.get("user_email")
+
+    if not tenant_id_str:
+        tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+    else:
+        tenant_id = UUID(tenant_id_str)
+
+    if not user_email:
+        user_email = "developer@example.com"
+
+    repository = get_mock_repository()
+    session_manager = SessionManager(repository)
+    session_state = get_mock_session_state()
+
+    session = await session_manager.get_active_session(tenant_id, user_email)
+
+    if not session:
+        return None, None, "No active review session. Start a review with: penf review"
+
+    # Resolve item ID
+    resolved_item_id = item_id
+    if resolved_item_id is None:
+        resolved_item_id = session_state.current_item_id
+
+    if resolved_item_id is None:
+        # Try to get the current item from session position
+        queue_manager = QueueManager(repository)
+        item = await queue_manager.get_next_item(
+            session_id=session.id,
+            current_position=session.current_position,
+        )
+        if item:
+            resolved_item_id = item.id
+            session_state.current_item_id = item.id
+
+    if resolved_item_id is None:
+        return session, None, "No current item. Use 'penf review next' to get an item."
+
+    # Get the item
+    item = repository._items.get(resolved_item_id)
+    if not item or item.session_id != session.id:
+        return session, None, f"Item {resolved_item_id} not found in current session."
+
+    return session, item, None
+
+
+async def _show_next_item(
+    ctx: click.Context,
+    session: SessionDTO,
+) -> None:
+    """Display the next item after an action.
+
+    Args:
+        ctx: Click context
+        session: Current session
+    """
+    repository = get_mock_repository()
+    queue_manager = QueueManager(repository)
+    session_state = get_mock_session_state()
+
+    # Get next pending item
+    next_item = await queue_manager.get_next_item(
+        session_id=session.id,
+        current_position=session.current_position,
+    )
+
+    if next_item:
+        session_state.current_item_id = next_item.id
+        console.print()
+        render_item(
+            console,
+            next_item,
+            position=session.current_position + 1,
+            total=session.total_items,
+        )
+    else:
+        session_state.current_item_id = None
+        console.print("\n[green]Queue complete![/green]")
+        console.print("[dim]All items have been reviewed.[/dim]")
+        console.print("\n[dim]Use 'penf review complete' to finish the session.[/dim]")
+
+
+def _truncate_preview(text: str, max_length: int = 40) -> str:
+    """Truncate text for preview display."""
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3] + "..."
+
+
+@review_group.command("accept")
+@click.argument("item_id", type=int, required=False)
+@click.option(
+    "--batch",
+    type=click.Choice(["thread", "sender", "category"]),
+    help="Batch mode: accept all items matching criteria",
+)
+@click.option(
+    "--confirm",
+    is_flag=True,
+    help="Skip confirmation for batch operations",
+)
+@click.pass_context
+def review_accept(
+    ctx: click.Context,
+    item_id: int | None,
+    batch: str | None,
+    confirm: bool,
+) -> None:
+    """Accept AI suggestion for current or specified item.
+
+    Marks the AI suggestion as correct and moves to the next item.
+    Use --batch to accept multiple related items at once.
+
+    Examples:
+        penf review accept           # Accept current item
+        penf review accept 42        # Accept item 42
+        penf review accept --batch sender  # Accept all from same sender
+    """
+    async def _accept_async() -> int:
+        try:
+            from rich.prompt import Confirm
+
+            session, item, error = await _get_item_for_action(ctx, item_id)
+
+            if error:
+                console.print(f"[yellow]{error}[/yellow]")
+                return 0 if session is None else 1
+
+            assert session is not None
+            assert item is not None
+
+            repository = get_mock_repository()
+            session_state = get_mock_session_state()
+            feedback_manager = get_mock_feedback_manager()
+
+            if batch:
+                # Batch mode - find matching items
+                matching_items: list[ReviewItemDTO] = []
+
+                for repo_item in repository._items.values():
+                    if repo_item.session_id != session.id:
+                        continue
+                    if repo_item.status != ReviewItemStatus.PENDING:
+                        continue
+
+                    if batch == "sender":
+                        # Match by first participant (sender)
+                        if (item.ai_suggestion.participants and
+                            repo_item.ai_suggestion.participants and
+                            item.ai_suggestion.participants[0] == repo_item.ai_suggestion.participants[0]):
+                            matching_items.append(repo_item)
+                    elif batch == "category":
+                        # Match by category
+                        if item.ai_suggestion.category == repo_item.ai_suggestion.category:
+                            matching_items.append(repo_item)
+                    elif batch == "thread":
+                        # Match by source_id (thread grouping)
+                        if item.source_id == repo_item.source_id:
+                            matching_items.append(repo_item)
+
+                if not matching_items:
+                    console.print("[yellow]No matching items found for batch operation.[/yellow]")
+                    return 0
+
+                # Show preview
+                console.print(f"\n[bold]Batch Accept - {len(matching_items)} items[/bold]")
+                console.print(f"[dim]Matching by: {batch}[/dim]\n")
+
+                for idx, match_item in enumerate(matching_items[:5], 1):
+                    preview = _truncate_preview(match_item.content_preview)
+                    console.print(f"  {idx}. [{match_item.content_type.value}] {preview}")
+
+                if len(matching_items) > 5:
+                    console.print(f"  ... and {len(matching_items) - 5} more")
+
+                # Require confirmation
+                if not confirm:
+                    console.print()
+                    if not Confirm.ask(f"Accept all {len(matching_items)} items?", default=False):
+                        console.print("[dim]Batch operation cancelled.[/dim]")
+                        return 0
+
+                # Apply batch operation
+                batch_id = session_state.generate_batch_id()
+                for match_item in matching_items:
+                    # Update item status
+                    updated_item = match_item.model_copy(update={
+                        "status": ReviewItemStatus.ACCEPTED,
+                        "user_decision": DecisionType.ACCEPT,
+                        "reviewed_at": datetime.now(timezone.utc),
+                        "batch_id": batch_id,
+                        "undo_eligible": True,
+                        "undo_deadline": datetime.now(timezone.utc) + timedelta(minutes=5),
+                    })
+                    repository._items[match_item.id] = updated_item
+
+                    # Record decision for undo
+                    session_state.record_decision(match_item, DecisionType.ACCEPT, batch_id)
+
+                    # Record feedback
+                    await feedback_manager.record_accept(
+                        match_item, session.id, batch_id=batch_id
+                    )
+
+                # Update session stats
+                updated_session = session.model_copy(update={
+                    "items_reviewed": session.items_reviewed + len(matching_items),
+                    "items_accepted": session.items_accepted + len(matching_items),
+                    "last_activity_at": datetime.now(timezone.utc),
+                })
+                await repository.update_session(updated_session)
+
+                console.print(f"\n[green]Accepted {len(matching_items)} items.[/green]")
+                console.print(f"[dim]Batch ID: {str(batch_id)[:8]}... (undo within 5 min)[/dim]")
+
+                # Show next item
+                await _show_next_item(ctx, updated_session)
+
+            else:
+                # Single item mode
+                # Update item status
+                updated_item = item.model_copy(update={
+                    "status": ReviewItemStatus.ACCEPTED,
+                    "user_decision": DecisionType.ACCEPT,
+                    "reviewed_at": datetime.now(timezone.utc),
+                    "undo_eligible": True,
+                    "undo_deadline": datetime.now(timezone.utc) + timedelta(minutes=5),
+                })
+                repository._items[item.id] = updated_item
+
+                # Record decision for undo
+                session_state.record_decision(item, DecisionType.ACCEPT)
+
+                # Record feedback
+                await feedback_manager.record_accept(item, session.id)
+
+                # Update session stats
+                updated_session = session.model_copy(update={
+                    "items_reviewed": session.items_reviewed + 1,
+                    "items_accepted": session.items_accepted + 1,
+                    "current_position": session.current_position + 1,
+                    "last_activity_at": datetime.now(timezone.utc),
+                })
+                await repository.update_session(updated_session)
+
+                preview = _truncate_preview(item.content_preview)
+                console.print(f"[green]Accepted:[/green] {preview}")
+
+                # Show next item
+                await _show_next_item(ctx, updated_session)
+
+            return 0
+
+        except ReviewError as e:
+            display_error(e)
+            return 1
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_accept_async())
+    sys.exit(result)
+
+
+@review_group.command("reject")
+@click.argument("item_id", type=int, required=False)
+@click.option(
+    "--reason",
+    type=click.Choice([
+        "wrong_category",
+        "wrong_participants",
+        "not_relevant",
+        "spam",
+        "duplicate",
+        "other",
+    ]),
+    help="Rejection reason code",
+)
+@click.option(
+    "--batch",
+    type=click.Choice(["thread", "sender", "category"]),
+    help="Batch mode: reject all items matching criteria",
+)
+@click.option(
+    "--confirm",
+    is_flag=True,
+    help="Skip confirmation for batch operations",
+)
+@click.pass_context
+def review_reject(
+    ctx: click.Context,
+    item_id: int | None,
+    reason: str | None,
+    batch: str | None,
+    confirm: bool,
+) -> None:
+    """Reject AI suggestion for current or specified item.
+
+    Marks the AI suggestion as incorrect. Optionally provide a reason
+    code for learning system feedback.
+
+    Examples:
+        penf review reject                       # Reject current item
+        penf review reject 42 --reason spam      # Reject item 42 as spam
+        penf review reject --batch sender        # Reject all from sender
+    """
+    async def _reject_async() -> int:
+        try:
+            from rich.prompt import Confirm
+
+            session, item, error = await _get_item_for_action(ctx, item_id)
+
+            if error:
+                console.print(f"[yellow]{error}[/yellow]")
+                return 0 if session is None else 1
+
+            assert session is not None
+            assert item is not None
+
+            repository = get_mock_repository()
+            session_state = get_mock_session_state()
+            feedback_manager = get_mock_feedback_manager()
+
+            if batch:
+                # Batch mode - find matching items
+                matching_items: list[ReviewItemDTO] = []
+
+                for repo_item in repository._items.values():
+                    if repo_item.session_id != session.id:
+                        continue
+                    if repo_item.status != ReviewItemStatus.PENDING:
+                        continue
+
+                    if batch == "sender":
+                        if (item.ai_suggestion.participants and
+                            repo_item.ai_suggestion.participants and
+                            item.ai_suggestion.participants[0] == repo_item.ai_suggestion.participants[0]):
+                            matching_items.append(repo_item)
+                    elif batch == "category":
+                        if item.ai_suggestion.category == repo_item.ai_suggestion.category:
+                            matching_items.append(repo_item)
+                    elif batch == "thread":
+                        if item.source_id == repo_item.source_id:
+                            matching_items.append(repo_item)
+
+                if not matching_items:
+                    console.print("[yellow]No matching items found for batch operation.[/yellow]")
+                    return 0
+
+                # Show preview
+                console.print(f"\n[bold]Batch Reject - {len(matching_items)} items[/bold]")
+                console.print(f"[dim]Matching by: {batch}[/dim]")
+                if reason:
+                    console.print(f"[dim]Reason: {reason}[/dim]")
+                console.print()
+
+                for idx, match_item in enumerate(matching_items[:5], 1):
+                    preview = _truncate_preview(match_item.content_preview)
+                    console.print(f"  {idx}. [{match_item.content_type.value}] {preview}")
+
+                if len(matching_items) > 5:
+                    console.print(f"  ... and {len(matching_items) - 5} more")
+
+                # Require confirmation
+                if not confirm:
+                    console.print()
+                    if not Confirm.ask(f"Reject all {len(matching_items)} items?", default=False):
+                        console.print("[dim]Batch operation cancelled.[/dim]")
+                        return 0
+
+                # Apply batch operation
+                batch_id = session_state.generate_batch_id()
+                correction = UserCorrection(reason=reason) if reason else None
+
+                for match_item in matching_items:
+                    updated_item = match_item.model_copy(update={
+                        "status": ReviewItemStatus.REJECTED,
+                        "user_decision": DecisionType.REJECT,
+                        "user_correction": correction,
+                        "reviewed_at": datetime.now(timezone.utc),
+                        "batch_id": batch_id,
+                        "undo_eligible": True,
+                        "undo_deadline": datetime.now(timezone.utc) + timedelta(minutes=5),
+                    })
+                    repository._items[match_item.id] = updated_item
+
+                    session_state.record_decision(match_item, DecisionType.REJECT, batch_id, correction)
+                    await feedback_manager.record_reject(
+                        match_item, session.id, reason=reason, batch_id=batch_id
+                    )
+
+                # Update session stats
+                updated_session = session.model_copy(update={
+                    "items_reviewed": session.items_reviewed + len(matching_items),
+                    "items_rejected": session.items_rejected + len(matching_items),
+                    "last_activity_at": datetime.now(timezone.utc),
+                })
+                await repository.update_session(updated_session)
+
+                console.print(f"\n[red]Rejected {len(matching_items)} items.[/red]")
+                console.print(f"[dim]Batch ID: {str(batch_id)[:8]}... (undo within 5 min)[/dim]")
+
+                # Show next item
+                await _show_next_item(ctx, updated_session)
+
+            else:
+                # Single item mode
+                correction = UserCorrection(reason=reason) if reason else None
+
+                updated_item = item.model_copy(update={
+                    "status": ReviewItemStatus.REJECTED,
+                    "user_decision": DecisionType.REJECT,
+                    "user_correction": correction,
+                    "reviewed_at": datetime.now(timezone.utc),
+                    "undo_eligible": True,
+                    "undo_deadline": datetime.now(timezone.utc) + timedelta(minutes=5),
+                })
+                repository._items[item.id] = updated_item
+
+                session_state.record_decision(item, DecisionType.REJECT, correction=correction)
+                await feedback_manager.record_reject(item, session.id, reason=reason)
+
+                # Update session stats
+                updated_session = session.model_copy(update={
+                    "items_reviewed": session.items_reviewed + 1,
+                    "items_rejected": session.items_rejected + 1,
+                    "current_position": session.current_position + 1,
+                    "last_activity_at": datetime.now(timezone.utc),
+                })
+                await repository.update_session(updated_session)
+
+                preview = _truncate_preview(item.content_preview)
+                reason_str = f" ({reason})" if reason else ""
+                console.print(f"[red]Rejected{reason_str}:[/red] {preview}")
+
+                # Show next item
+                await _show_next_item(ctx, updated_session)
+
+            return 0
+
+        except ReviewError as e:
+            display_error(e)
+            return 1
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_reject_async())
+    sys.exit(result)
+
+
+@review_group.command("modify")
+@click.argument("item_id", type=int, required=False)
+@click.option("--category", help="Override category")
+@click.option("--add-tag", multiple=True, help="Add tag (repeatable)")
+@click.option("--remove-tag", multiple=True, help="Remove tag (repeatable)")
+@click.option("--add-participant", multiple=True, help="Add participant (repeatable)")
+@click.option("--remove-participant", multiple=True, help="Remove participant (repeatable)")
+@click.option("--notes", help="Add correction notes")
+@click.option(
+    "--interactive/--no-interactive",
+    default=True,
+    help="Interactive modification mode (default: interactive)",
+)
+@click.pass_context
+def review_modify(
+    ctx: click.Context,
+    item_id: int | None,
+    category: str | None,
+    add_tag: tuple[str, ...],
+    remove_tag: tuple[str, ...],
+    add_participant: tuple[str, ...],
+    remove_participant: tuple[str, ...],
+    notes: str | None,
+    interactive: bool,
+) -> None:
+    """Modify AI suggestion for current or specified item.
+
+    Allows correction of category, participants, or tags. Use interactive
+    mode (default) for a guided editing experience.
+
+    Examples:
+        penf review modify                           # Interactive mode
+        penf review modify --category finance/budget # Direct category change
+        penf review modify --add-tag urgent          # Add a tag
+        penf review modify --no-interactive --category ops  # Non-interactive
+    """
+    async def _modify_async() -> int:
+        try:
+            from rich.prompt import Prompt
+
+            session, item, error = await _get_item_for_action(ctx, item_id)
+
+            if error:
+                console.print(f"[yellow]{error}[/yellow]")
+                return 0 if session is None else 1
+
+            assert session is not None
+            assert item is not None
+
+            repository = get_mock_repository()
+            session_state = get_mock_session_state()
+            feedback_manager = get_mock_feedback_manager()
+
+            # Start with current suggestion values
+            new_category = item.ai_suggestion.category
+            new_tags = list(item.ai_suggestion.tags)
+            new_participants = list(item.ai_suggestion.participants)
+            correction_notes = notes
+
+            # Check if any direct options provided
+            has_direct_options = (
+                category is not None or
+                add_tag or remove_tag or
+                add_participant or remove_participant
+            )
+
+            if interactive and not has_direct_options:
+                # Interactive modification mode
+                console.print("\n[bold]Modifying Item[/bold]")
+                console.print("=" * 40)
+
+                # Show current suggestion
+                console.print("\n[bold]Current suggestion:[/bold]")
+                console.print(f"  Category: [cyan]{item.ai_suggestion.category}[/cyan]")
+                if item.ai_suggestion.participants:
+                    console.print(f"  Participants: {', '.join(item.ai_suggestion.participants)}")
+                if item.ai_suggestion.tags:
+                    console.print(f"  Tags: {', '.join(f'#{t}' for t in item.ai_suggestion.tags)}")
+
+                console.print("\n[dim]Options:[/dim]")
+                console.print("  [c] Change category")
+                console.print("  [p] Edit participants")
+                console.print("  [t] Edit tags")
+                console.print("  [n] Add notes")
+                console.print("  [Enter] Apply changes")
+                console.print("  [q] Cancel")
+
+                modified = False
+                while True:
+                    console.print()
+                    choice = Prompt.ask(
+                        "Action",
+                        choices=["c", "p", "t", "n", "", "q"],
+                        default="",
+                        show_choices=False,
+                    )
+
+                    if choice == "" or choice is None:
+                        # Apply changes
+                        break
+                    elif choice == "q":
+                        console.print("[dim]Modification cancelled.[/dim]")
+                        return 0
+                    elif choice == "c":
+                        new_cat = Prompt.ask(
+                            "New category",
+                            default=new_category,
+                        )
+                        if new_cat and new_cat != new_category:
+                            new_category = new_cat
+                            modified = True
+                            console.print(f"[green]Category set to: {new_category}[/green]")
+                    elif choice == "p":
+                        console.print(f"[dim]Current: {', '.join(new_participants) or 'none'}[/dim]")
+                        action = Prompt.ask(
+                            "[a]dd or [r]emove participant",
+                            choices=["a", "r"],
+                            default="a",
+                        )
+                        if action == "a":
+                            name = Prompt.ask("Participant name")
+                            if name and name not in new_participants:
+                                new_participants.append(name)
+                                modified = True
+                                console.print(f"[green]Added: {name}[/green]")
+                        else:
+                            if new_participants:
+                                name = Prompt.ask(
+                                    "Remove",
+                                    choices=new_participants,
+                                )
+                                if name in new_participants:
+                                    new_participants.remove(name)
+                                    modified = True
+                                    console.print(f"[red]Removed: {name}[/red]")
+                    elif choice == "t":
+                        console.print(f"[dim]Current: {', '.join(f'#{t}' for t in new_tags) or 'none'}[/dim]")
+                        action = Prompt.ask(
+                            "[a]dd or [r]emove tag",
+                            choices=["a", "r"],
+                            default="a",
+                        )
+                        if action == "a":
+                            tag = Prompt.ask("Tag name (without #)")
+                            if tag and tag not in new_tags:
+                                new_tags.append(tag)
+                                modified = True
+                                console.print(f"[green]Added: #{tag}[/green]")
+                        else:
+                            if new_tags:
+                                tag = Prompt.ask(
+                                    "Remove",
+                                    choices=new_tags,
+                                )
+                                if tag in new_tags:
+                                    new_tags.remove(tag)
+                                    modified = True
+                                    console.print(f"[red]Removed: #{tag}[/red]")
+                    elif choice == "n":
+                        correction_notes = Prompt.ask(
+                            "Notes",
+                            default=correction_notes or "",
+                        )
+                        if correction_notes:
+                            modified = True
+                            console.print("[green]Notes added[/green]")
+
+                if not modified and not correction_notes:
+                    console.print("[dim]No changes made.[/dim]")
+                    return 0
+
+            else:
+                # Direct options mode (non-interactive or options provided)
+                if category:
+                    new_category = category
+
+                for tag in add_tag:
+                    if tag not in new_tags:
+                        new_tags.append(tag)
+
+                for tag in remove_tag:
+                    if tag in new_tags:
+                        new_tags.remove(tag)
+
+                for participant in add_participant:
+                    if participant not in new_participants:
+                        new_participants.append(participant)
+
+                for participant in remove_participant:
+                    if participant in new_participants:
+                        new_participants.remove(participant)
+
+            # Build correction object
+            correction = UserCorrection(
+                category=new_category if new_category != item.ai_suggestion.category else None,
+                participants=new_participants if new_participants != item.ai_suggestion.participants else None,
+                tags=new_tags if new_tags != item.ai_suggestion.tags else None,
+                notes=correction_notes,
+            )
+
+            # Update the AI suggestion with corrected values
+            updated_suggestion = AISuggestion(
+                category=new_category,
+                participants=new_participants,
+                tags=new_tags,
+            )
+
+            # Update item
+            updated_item = item.model_copy(update={
+                "status": ReviewItemStatus.MODIFIED,
+                "user_decision": DecisionType.MODIFY,
+                "user_correction": correction,
+                "ai_suggestion": updated_suggestion,
+                "reviewed_at": datetime.now(timezone.utc),
+                "undo_eligible": True,
+                "undo_deadline": datetime.now(timezone.utc) + timedelta(minutes=5),
+            })
+            repository._items[item.id] = updated_item
+
+            # Record decision for undo
+            session_state.record_decision(item, DecisionType.MODIFY, correction=correction)
+
+            # Record feedback
+            await feedback_manager.record_modify(item, session.id, correction)
+
+            # Update session stats
+            updated_session = session.model_copy(update={
+                "items_reviewed": session.items_reviewed + 1,
+                "items_modified": session.items_modified + 1,
+                "current_position": session.current_position + 1,
+                "last_activity_at": datetime.now(timezone.utc),
+            })
+            await repository.update_session(updated_session)
+
+            preview = _truncate_preview(item.content_preview)
+            console.print(f"[cyan]Modified:[/cyan] {preview}")
+
+            # Show what changed
+            changes = []
+            if correction.category:
+                changes.append(f"category={correction.category}")
+            if correction.tags:
+                changes.append(f"tags={len(correction.tags)}")
+            if correction.participants:
+                changes.append(f"participants={len(correction.participants)}")
+            if changes:
+                console.print(f"[dim]Changes: {', '.join(changes)}[/dim]")
+
+            # Show next item
+            await _show_next_item(ctx, updated_session)
+
+            return 0
+
+        except ReviewError as e:
+            display_error(e)
+            return 1
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_modify_async())
+    sys.exit(result)
+
+
+@review_group.command("skip")
+@click.argument("item_id", type=int, required=False)
+@click.option("--reason", help="Reason for skipping")
+@click.pass_context
+def review_skip(
+    ctx: click.Context,
+    item_id: int | None,
+    reason: str | None,
+) -> None:
+    """Skip current item for later review.
+
+    Moves the item to the end of the queue for later review.
+    Optionally provide a reason for skipping.
+
+    Examples:
+        penf review skip                        # Skip current item
+        penf review skip 42                     # Skip item 42
+        penf review skip --reason "need info"   # Skip with reason
+    """
+    async def _skip_async() -> int:
+        try:
+            session, item, error = await _get_item_for_action(ctx, item_id)
+
+            if error:
+                console.print(f"[yellow]{error}[/yellow]")
+                return 0 if session is None else 1
+
+            assert session is not None
+            assert item is not None
+
+            repository = get_mock_repository()
+            session_state = get_mock_session_state()
+            feedback_manager = get_mock_feedback_manager()
+
+            # Update item status
+            correction = UserCorrection(notes=reason) if reason else None
+            updated_item = item.model_copy(update={
+                "status": ReviewItemStatus.SKIPPED,
+                "user_decision": DecisionType.SKIP,
+                "user_correction": correction,
+                "reviewed_at": datetime.now(timezone.utc),
+                "undo_eligible": True,
+                "undo_deadline": datetime.now(timezone.utc) + timedelta(minutes=5),
+                # Move to end of queue
+                "queue_position": session.total_items + 1,
+            })
+            repository._items[item.id] = updated_item
+
+            # Record decision for undo
+            session_state.record_decision(item, DecisionType.SKIP, correction=correction)
+
+            # Record feedback
+            await feedback_manager.record_skip(item, session.id, reason=reason)
+
+            # Update session stats
+            updated_session = session.model_copy(update={
+                "items_reviewed": session.items_reviewed + 1,
+                "items_skipped": session.items_skipped + 1,
+                "current_position": session.current_position + 1,
+                "last_activity_at": datetime.now(timezone.utc),
+            })
+            await repository.update_session(updated_session)
+
+            preview = _truncate_preview(item.content_preview)
+            reason_str = f" ({reason})" if reason else ""
+            console.print(f"[yellow]Skipped{reason_str}:[/yellow] {preview}")
+
+            # Show next item
+            await _show_next_item(ctx, updated_session)
+
+            return 0
+
+        except ReviewError as e:
+            display_error(e)
+            return 1
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_skip_async())
+    sys.exit(result)
+
+
+@review_group.command("undo")
+@click.option(
+    "--count",
+    type=int,
+    default=1,
+    help="Number of decisions to undo (default: 1)",
+)
+@click.option(
+    "--batch-id",
+    type=click.UUID,
+    help="Undo specific batch operation by ID",
+)
+@click.pass_context
+def review_undo(
+    ctx: click.Context,
+    count: int,
+    batch_id: UUID | None,
+) -> None:
+    """Undo recent review decision(s).
+
+    Reverses the most recent decision(s) and restores items to pending.
+    Use --batch-id to undo an entire batch operation.
+
+    Examples:
+        penf review undo             # Undo last decision
+        penf review undo --count 3   # Undo last 3 decisions
+        penf review undo --batch-id abc123...  # Undo specific batch
+    """
+    async def _undo_async() -> int:
+        try:
+            from rich.prompt import Confirm
+
+            # Get tenant context
+            tenant_id_str = ctx.obj.get("tenant_id")
+            user_email = ctx.obj.get("user_email")
+
+            if not tenant_id_str:
+                tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+            else:
+                tenant_id = UUID(tenant_id_str)
+
+            if not user_email:
+                user_email = "developer@example.com"
+
+            repository = get_mock_repository()
+            session_manager = SessionManager(repository)
+            session_state = get_mock_session_state()
+
+            session = await session_manager.get_active_session(tenant_id, user_email)
+
+            if not session:
+                console.print("[yellow]No active review session.[/yellow]")
+                console.print("\n[dim]Start a review with: penf review[/dim]")
+                return 0
+
+            # Get decisions to undo
+            if batch_id:
+                decisions = session_state.get_decisions_by_batch(batch_id)
+                if not decisions:
+                    console.print(f"[yellow]No decisions found for batch {str(batch_id)[:8]}...[/yellow]")
+                    return 0
+            else:
+                decisions = session_state.get_recent_decisions(count)
+                if not decisions:
+                    console.print("[yellow]No decisions to undo.[/yellow]")
+                    return 0
+
+            # Check undo eligibility
+            now = datetime.now(timezone.utc)
+            eligible_decisions = []
+            for decision in decisions:
+                item = repository._items.get(decision["item_id"])
+                if item and item.undo_eligible:
+                    if item.undo_deadline is None or item.undo_deadline > now:
+                        eligible_decisions.append(decision)
+                    else:
+                        console.print(f"[yellow]Item {item.id}: undo deadline passed[/yellow]")
+                else:
+                    console.print(f"[yellow]Item {decision['item_id']}: not eligible for undo[/yellow]")
+
+            if not eligible_decisions:
+                console.print("[yellow]No eligible decisions to undo.[/yellow]")
+                return 0
+
+            # Show confirmation
+            console.print(f"\n[bold]Undo {len(eligible_decisions)} decision(s)?[/bold]\n")
+
+            for decision in eligible_decisions:
+                item_id = decision["item_id"]
+                item = repository._items.get(item_id)
+                if item:
+                    preview = _truncate_preview(item.content_preview)
+                    decision_type = decision["decision"].value
+                    console.print(f"  Item {item_id}: {item.content_type.value} \"{preview}\" - {decision_type}")
+
+            console.print()
+            if not Confirm.ask("Proceed?", default=False):
+                console.print("[dim]Undo cancelled.[/dim]")
+                return 0
+
+            # Perform undo
+            accept_undone = 0
+            reject_undone = 0
+            modify_undone = 0
+            skip_undone = 0
+
+            for decision in eligible_decisions:
+                item_id = decision["item_id"]
+                original_item = decision["item"]
+
+                # Restore item to original state
+                restored_item = original_item.model_copy(update={
+                    "status": ReviewItemStatus.PENDING,
+                    "user_decision": None,
+                    "user_correction": None,
+                    "reviewed_at": None,
+                    "batch_id": None,
+                    "undo_eligible": True,
+                    "undo_deadline": None,
+                })
+                repository._items[item_id] = restored_item
+
+                # Track what was undone
+                if decision["decision"] == DecisionType.ACCEPT:
+                    accept_undone += 1
+                elif decision["decision"] == DecisionType.REJECT:
+                    reject_undone += 1
+                elif decision["decision"] == DecisionType.MODIFY:
+                    modify_undone += 1
+                elif decision["decision"] == DecisionType.SKIP:
+                    skip_undone += 1
+
+            # Remove decisions from history
+            if batch_id:
+                # Remove all decisions with this batch_id
+                session_state._decision_history = [
+                    d for d in session_state._decision_history
+                    if d.get("batch_id") != batch_id
+                ]
+            else:
+                session_state.pop_decisions(len(eligible_decisions))
+
+            # Update session stats
+            updated_session = session.model_copy(update={
+                "items_reviewed": max(0, session.items_reviewed - len(eligible_decisions)),
+                "items_accepted": max(0, session.items_accepted - accept_undone),
+                "items_rejected": max(0, session.items_rejected - reject_undone),
+                "items_modified": max(0, session.items_modified - modify_undone),
+                "items_skipped": max(0, session.items_skipped - skip_undone),
+                "current_position": max(0, session.current_position - len(eligible_decisions)),
+                "last_activity_at": datetime.now(timezone.utc),
+            })
+            await repository.update_session(updated_session)
+
+            console.print(f"\n[green]Undone {len(eligible_decisions)} decision(s).[/green]")
+
+            # Show the first undone item
+            if eligible_decisions:
+                first_item_id = eligible_decisions[0]["item_id"]
+                first_item = repository._items.get(first_item_id)
+                if first_item:
+                    session_state.current_item_id = first_item_id
+                    console.print()
+                    render_item(
+                        console,
+                        first_item,
+                        position=updated_session.current_position + 1,
+                        total=updated_session.total_items,
+                    )
+
+            return 0
+
+        except ReviewError as e:
+            display_error(e)
+            return 1
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_undo_async())
     sys.exit(result)
