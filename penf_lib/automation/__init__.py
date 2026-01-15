@@ -34,6 +34,20 @@ from .models import (
     ProgressiveSettings,
 )
 from .repository import AutomationRepository
+from .patterns import (
+    PatternDetector,
+    DetectedPattern,
+    compute_pattern_signature,
+    extract_pattern_conditions,
+    calculate_pattern_confidence,
+)
+from .progressive import (
+    ProgressiveAutomation,
+    ProgressiveAnalysis,
+    AggressivenessLevel,
+    calculate_automation_rate,
+    calculate_accuracy_rate,
+)
 
 __all__ = [
     # Engine
@@ -55,4 +69,16 @@ __all__ = [
     "ProgressiveSettings",
     # Repository
     "AutomationRepository",
+    # Patterns
+    "PatternDetector",
+    "DetectedPattern",
+    "compute_pattern_signature",
+    "extract_pattern_conditions",
+    "calculate_pattern_confidence",
+    # Progressive
+    "ProgressiveAutomation",
+    "ProgressiveAnalysis",
+    "AggressivenessLevel",
+    "calculate_automation_rate",
+    "calculate_accuracy_rate",
 ]
