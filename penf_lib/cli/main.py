@@ -12,6 +12,7 @@ from rich.logging import RichHandler
 from penf_lib.storage.connections import health_check, cleanup_connections
 from .tenant import tenant_group
 from .review_commands import review_group
+from .automation_commands import automation_group
 
 # Initialize rich console for beautiful output
 console = Console()
@@ -67,6 +68,9 @@ cli.add_command(tenant_group)
 
 # Add review workflow commands
 cli.add_command(review_group)
+
+# Add automation commands
+cli.add_command(automation_group)
 
 
 @cli.command()
