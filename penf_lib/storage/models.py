@@ -1472,3 +1472,956 @@ class Embedding(Base, TimestampMixin, TenantMixin):
         # Remove None values from table args
         *filter(None, []),
     )
+
+
+# =============================================================================
+# DAILY REVIEW WORKFLOW MODELS
+# =============================================================================
+
+
+class ReviewSessionModel(Base, TimestampMixin, TenantMixin):
+    """User review workflow sessions with state management and progress tracking.
+
+    Represents a user's active review workflow session including queue position,
+    progress counters, mode configuration, and session lifecycle.
+    """
+
+    __tablename__ = "review_sessions"
+
+    id = Column(
+        BIGINT,
+        primary_key=True,
+        autoincrement=True,
+        comment="Session identifier",
+    )
+    session_uuid = Column(
+        UUID(as_uuid=True),
+        nullable=False,
+        unique=True,
+        default=uuid.uuid4,
+        comment="External session reference",
+    )
+    user_email = Column(
+        String(254),
+        nullable=False,
+        comment="User performing review",
+    )
+    status = Column(
+        String(20),
+        nullable=False,
+        server_default="active",
+        comment="Session status (active, paused, completed, abandoned)",
+    )
+    started_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment="Session start time",
+    )
+    last_activity_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment="Last interaction time",
+    )
+    completed_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Session completion time",
+    )
+    expires_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("NOW() + INTERVAL '24 hours'"),
+        comment="Auto-expiration time",
+    )
+
+    # Progress tracking
+    current_position = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="Current queue position",
+    )
+    total_items = Column(
+        Integer,
+        nullable=False,
+        comment="Total items in queue at start",
+    )
+    items_reviewed = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="Count of reviewed items",
+    )
+    items_accepted = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="Count of accepted items",
+    )
+    items_rejected = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="Count of rejected items",
+    )
+    items_modified = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="Count of modified items",
+    )
+    items_skipped = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="Count of skipped items",
+    )
+
+    # Configuration
+    review_mode = Column(
+        String(30),
+        nullable=False,
+        server_default="standard",
+        comment="Review mode (quick, standard, detailed)",
+    )
+    priority_mode = Column(
+        String(30),
+        nullable=False,
+        server_default="mixed",
+        comment="Priority mode (confidence, importance, recency, mixed)",
+    )
+    filter_criteria = Column(
+        JSONB,
+        nullable=False,
+        server_default="{}",
+        comment="Active filters",
+    )
+    session_metadata = Column(
+        JSONB,
+        nullable=False,
+        server_default="{}",
+        comment="Additional session state",
+    )
+
+    # Relationships
+    review_items = relationship(
+        "ReviewItemModel", back_populates="session", lazy="select"
+    )
+    user_feedback = relationship(
+        "UserFeedbackModel", back_populates="session", lazy="select"
+    )
+    batch_operations = relationship(
+        "BatchOperationModel", back_populates="session", lazy="select"
+    )
+
+    __table_args__ = (
+        Index("idx_review_session_tenant_user", "tenant_id", "user_email", "status"),
+        Index(
+            "idx_review_session_active",
+            "status",
+            "expires_at",
+            postgresql_where=text("status = 'active'"),
+        ),
+        Index("idx_review_session_uuid", "session_uuid"),
+        CheckConstraint(
+            "status IN ('active', 'paused', 'completed', 'abandoned')",
+            name="ck_review_session_status",
+        ),
+        CheckConstraint(
+            "review_mode IN ('quick', 'standard', 'detailed')",
+            name="ck_review_session_mode",
+        ),
+        CheckConstraint(
+            "priority_mode IN ('confidence', 'importance', 'recency', 'mixed')",
+            name="ck_review_session_priority_mode",
+        ),
+        CheckConstraint(
+            "items_reviewed = items_accepted + items_rejected + "
+            "items_modified + items_skipped",
+            name="ck_review_session_counts",
+        ),
+    )
+
+    def __repr__(self):
+        return (
+            f"<ReviewSessionModel(id={self.id}, user='{self.user_email}', "
+            f"status='{self.status}')>"
+        )
+
+
+class ReviewItemModel(Base, TimestampMixin, TenantMixin):
+    """Individual items in the review queue.
+
+    Links AI processing results to the review workflow, tracking queue position,
+    AI suggestions, user decisions, and undo eligibility.
+    """
+
+    __tablename__ = "review_items"
+
+    id = Column(
+        BIGINT,
+        primary_key=True,
+        autoincrement=True,
+        comment="Item identifier",
+    )
+    session_id = Column(
+        BIGINT,
+        ForeignKey("review_sessions.id"),
+        nullable=True,
+        comment="Associated session (NULL if unqueued)",
+    )
+    source_id = Column(
+        BIGINT,
+        ForeignKey("sources.id"),
+        nullable=False,
+        comment="Source content reference",
+    )
+    processing_result_id = Column(
+        UUID(as_uuid=True),
+        nullable=True,
+        comment="AI processing result reference",
+    )
+
+    # Queue position and status
+    queue_position = Column(
+        Integer,
+        nullable=True,
+        comment="Position in queue",
+    )
+    status = Column(
+        String(20),
+        nullable=False,
+        server_default="pending",
+        comment="Current item status",
+    )
+
+    # Content information
+    content_type = Column(
+        String(50),
+        nullable=False,
+        comment="Type of content (email, meeting, document)",
+    )
+    content_preview = Column(
+        Text,
+        nullable=False,
+        comment="Truncated content for display",
+    )
+
+    # AI suggestion
+    ai_suggestion = Column(
+        JSONB,
+        nullable=False,
+        comment="AI's suggested categorization",
+    )
+    ai_confidence = Column(
+        DECIMAL(4, 3),
+        nullable=False,
+        comment="AI confidence score (0.000-1.000)",
+    )
+    ai_model = Column(
+        String(100),
+        nullable=False,
+        comment="Model that generated suggestion",
+    )
+
+    # Business context
+    business_importance = Column(
+        Integer,
+        nullable=False,
+        server_default="5",
+        comment="Importance score 1-10",
+    )
+    source_timestamp = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="Original content timestamp",
+    )
+
+    # Review tracking
+    reviewed_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When reviewed",
+    )
+    review_duration_ms = Column(
+        Integer,
+        nullable=True,
+        comment="Time spent on review",
+    )
+    user_decision = Column(
+        String(20),
+        nullable=True,
+        comment="User decision (accept, reject, modify, skip)",
+    )
+    user_correction = Column(
+        JSONB,
+        nullable=True,
+        comment="User's correction if modified",
+    )
+
+    # Batch and undo support
+    batch_id = Column(
+        UUID(as_uuid=True),
+        nullable=True,
+        comment="If part of batch operation",
+    )
+    undo_eligible = Column(
+        Boolean,
+        nullable=False,
+        server_default="true",
+        comment="Can be undone",
+    )
+    undo_deadline = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Deadline for undo",
+    )
+
+    # Relationships
+    session = relationship(
+        "ReviewSessionModel", back_populates="review_items", lazy="select"
+    )
+    source = relationship("Source", lazy="select")
+    feedback = relationship(
+        "UserFeedbackModel", back_populates="review_item", lazy="select"
+    )
+
+    __table_args__ = (
+        Index("idx_review_item_session", "session_id", "queue_position"),
+        Index("idx_review_item_status", "tenant_id", "status", "ai_confidence"),
+        Index("idx_review_item_source", "source_id"),
+        Index(
+            "idx_review_item_batch",
+            "batch_id",
+            postgresql_where=text("batch_id IS NOT NULL"),
+        ),
+        Index(
+            "idx_review_item_undo",
+            "undo_eligible",
+            "undo_deadline",
+            postgresql_where=text("undo_eligible = TRUE"),
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'in_review', 'accepted', 'rejected', "
+            "'modified', 'skipped')",
+            name="ck_review_item_status",
+        ),
+        CheckConstraint(
+            "content_type IN ('email', 'meeting', 'document')",
+            name="ck_review_item_content_type",
+        ),
+        CheckConstraint(
+            "ai_confidence >= 0.000 AND ai_confidence <= 1.000",
+            name="ck_review_item_confidence",
+        ),
+        CheckConstraint(
+            "business_importance >= 1 AND business_importance <= 10",
+            name="ck_review_item_importance",
+        ),
+        CheckConstraint(
+            "user_decision IS NULL OR user_decision IN "
+            "('accept', 'reject', 'modify', 'skip')",
+            name="ck_review_item_decision",
+        ),
+    )
+
+    def __repr__(self):
+        return (
+            f"<ReviewItemModel(id={self.id}, status='{self.status}', "
+            f"type='{self.content_type}')>"
+        )
+
+
+class UserFeedbackModel(Base, TenantMixin):
+    """User feedback on AI suggestions.
+
+    Captures user validation decisions for learning system integration,
+    including decision type, corrections, timing, and batch context.
+    """
+
+    __tablename__ = "user_feedback"
+
+    id = Column(
+        BIGINT,
+        primary_key=True,
+        autoincrement=True,
+        comment="Feedback identifier",
+    )
+    feedback_uuid = Column(
+        UUID(as_uuid=True),
+        nullable=False,
+        unique=True,
+        default=uuid.uuid4,
+        comment="External feedback reference",
+    )
+    review_item_id = Column(
+        BIGINT,
+        ForeignKey("review_items.id"),
+        nullable=False,
+        comment="Associated review item",
+    )
+    session_id = Column(
+        BIGINT,
+        ForeignKey("review_sessions.id"),
+        nullable=False,
+        comment="Session context",
+    )
+
+    # Decision details
+    decision_type = Column(
+        String(20),
+        nullable=False,
+        comment="Decision type (accept, reject, modify)",
+    )
+    original_suggestion = Column(
+        JSONB,
+        nullable=False,
+        comment="AI's original suggestion",
+    )
+    user_correction = Column(
+        JSONB,
+        nullable=True,
+        comment="User's correction (for modify)",
+    )
+    correction_reason = Column(
+        String(100),
+        nullable=True,
+        comment="Reason code for correction",
+    )
+    correction_notes = Column(
+        Text,
+        nullable=True,
+        comment="Free-form explanation",
+    )
+    confidence_feedback = Column(
+        String(20),
+        nullable=True,
+        comment="Confidence feedback (too_high, accurate, too_low)",
+    )
+
+    # Timing
+    time_spent_ms = Column(
+        Integer,
+        nullable=False,
+        comment="Time user spent on decision",
+    )
+
+    # Batch context
+    was_batch_decision = Column(
+        Boolean,
+        nullable=False,
+        server_default="false",
+        comment="Part of batch operation",
+    )
+    batch_id = Column(
+        UUID(as_uuid=True),
+        nullable=True,
+        comment="Batch operation reference",
+    )
+
+    # Learning integration
+    learning_rule_id = Column(
+        BIGINT,
+        ForeignKey("learning_rules.id"),
+        nullable=True,
+        comment="Generated learning rule",
+    )
+    learning_signal_quality = Column(
+        DECIMAL(3, 2),
+        nullable=True,
+        comment="Quality score (0.00-1.00)",
+    )
+
+    # Timestamp
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment="Record creation",
+    )
+
+    # Relationships
+    review_item = relationship(
+        "ReviewItemModel", back_populates="feedback", lazy="select"
+    )
+    session = relationship(
+        "ReviewSessionModel", back_populates="user_feedback", lazy="select"
+    )
+    learning_rule = relationship(
+        "LearningRuleModel", back_populates="feedback", lazy="select"
+    )
+
+    __table_args__ = (
+        Index("idx_user_feedback_session", "session_id", "created_at"),
+        Index("idx_user_feedback_item", "review_item_id"),
+        Index(
+            "idx_user_feedback_learning",
+            "tenant_id",
+            "decision_type",
+            "correction_reason",
+        ),
+        Index(
+            "idx_user_feedback_batch",
+            "batch_id",
+            postgresql_where=text("batch_id IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "decision_type IN ('accept', 'reject', 'modify')",
+            name="ck_user_feedback_decision_type",
+        ),
+        CheckConstraint(
+            "confidence_feedback IS NULL OR confidence_feedback IN "
+            "('too_high', 'accurate', 'too_low')",
+            name="ck_user_feedback_confidence",
+        ),
+        CheckConstraint(
+            "learning_signal_quality IS NULL OR "
+            "(learning_signal_quality >= 0.00 AND learning_signal_quality <= 1.00)",
+            name="ck_user_feedback_signal_quality",
+        ),
+    )
+
+    def __repr__(self):
+        return f"<UserFeedbackModel(id={self.id}, decision='{self.decision_type}')>"
+
+
+class LearningRuleModel(
+    Base, TimestampMixin, TenantMixin, SoftDeleteMixin, SoftDeleteQueryMixin
+):
+    """Automated decision patterns derived from user feedback.
+
+    Represents rules for automatic categorization based on learned patterns,
+    with effectiveness tracking and soft delete support.
+    """
+
+    __tablename__ = "learning_rules"
+
+    id = Column(
+        BIGINT,
+        primary_key=True,
+        autoincrement=True,
+        comment="Rule identifier",
+    )
+    rule_uuid = Column(
+        UUID(as_uuid=True),
+        nullable=False,
+        unique=True,
+        default=uuid.uuid4,
+        comment="External rule reference",
+    )
+
+    # Rule definition
+    name = Column(
+        String(200),
+        nullable=False,
+        comment="Human-readable rule name",
+    )
+    description = Column(
+        Text,
+        nullable=True,
+        comment="Rule description",
+    )
+    status = Column(
+        String(20),
+        nullable=False,
+        server_default="active",
+        comment="Rule status (active, disabled, expired)",
+    )
+    rule_type = Column(
+        String(50),
+        nullable=False,
+        comment="Type of rule",
+    )
+    match_criteria = Column(
+        JSONB,
+        nullable=False,
+        comment="Conditions for rule match",
+    )
+    action = Column(
+        JSONB,
+        nullable=False,
+        comment="Action to apply when matched",
+    )
+
+    # Thresholds
+    confidence_threshold = Column(
+        DECIMAL(4, 3),
+        nullable=False,
+        server_default="0.800",
+        comment="Min confidence to apply (0.000-1.000)",
+    )
+    priority = Column(
+        Integer,
+        nullable=False,
+        server_default="100",
+        comment="Lower = higher priority (1-1000)",
+    )
+
+    # Statistics
+    derived_from_count = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="Number of feedback items that created rule",
+    )
+    times_applied = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="Application count",
+    )
+    times_overridden = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="User override count",
+    )
+    effectiveness_score = Column(
+        DECIMAL(4, 3),
+        nullable=True,
+        comment="Calculated effectiveness (0.000-1.000)",
+    )
+    last_applied_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Last application time",
+    )
+
+    # Lifecycle
+    expires_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Optional expiration",
+    )
+    created_by = Column(
+        String(254),
+        nullable=False,
+        comment="User who created rule",
+    )
+
+    # Relationships
+    feedback = relationship(
+        "UserFeedbackModel", back_populates="learning_rule", lazy="select"
+    )
+
+    __table_args__ = (
+        Index("idx_learning_rule_tenant_status", "tenant_id", "status", "priority"),
+        Index("idx_learning_rule_type", "rule_type", "status"),
+        Index(
+            "idx_learning_rule_effectiveness",
+            "effectiveness_score",
+            postgresql_where=text("status = 'active'"),
+        ),
+        Index("idx_learning_rule_soft_delete", "is_deleted", "deleted_at"),
+        CheckConstraint(
+            "status IN ('active', 'disabled', 'expired')",
+            name="ck_learning_rule_status",
+        ),
+        CheckConstraint(
+            "rule_type IN ('sender_match', 'content_pattern', "
+            "'category_override', 'participant_mapping')",
+            name="ck_learning_rule_type",
+        ),
+        CheckConstraint(
+            "confidence_threshold >= 0.000 AND confidence_threshold <= 1.000",
+            name="ck_learning_rule_confidence_threshold",
+        ),
+        CheckConstraint(
+            "priority >= 1 AND priority <= 1000",
+            name="ck_learning_rule_priority",
+        ),
+        CheckConstraint(
+            "effectiveness_score IS NULL OR "
+            "(effectiveness_score >= 0.000 AND effectiveness_score <= 1.000)",
+            name="ck_learning_rule_effectiveness",
+        ),
+    )
+
+    def __repr__(self):
+        return (
+            f"<LearningRuleModel(id={self.id}, name='{self.name}', "
+            f"status='{self.status}')>"
+        )
+
+
+class BatchOperationModel(Base, TimestampMixin, TenantMixin):
+    """Batch operation records for bulk review actions.
+
+    Groups related review items for bulk actions with confirmation
+    and undo support.
+    """
+
+    __tablename__ = "batch_operations"
+
+    id = Column(
+        BIGINT,
+        primary_key=True,
+        autoincrement=True,
+        comment="Batch identifier",
+    )
+    batch_uuid = Column(
+        UUID(as_uuid=True),
+        nullable=False,
+        unique=True,
+        default=uuid.uuid4,
+        comment="External batch reference",
+    )
+    session_id = Column(
+        BIGINT,
+        ForeignKey("review_sessions.id"),
+        nullable=False,
+        comment="Parent session",
+    )
+
+    # Batch definition
+    batch_type = Column(
+        String(50),
+        nullable=False,
+        comment="Grouping type (thread, sender, category, time_window, custom)",
+    )
+    group_criteria = Column(
+        JSONB,
+        nullable=False,
+        comment="How items were grouped",
+    )
+    action_type = Column(
+        String(20),
+        nullable=False,
+        comment="Action to apply (accept_all, reject_all, apply_category, skip_all)",
+    )
+    action_details = Column(
+        JSONB,
+        nullable=False,
+        comment="Action parameters",
+    )
+    item_count = Column(
+        Integer,
+        nullable=False,
+        comment="Number of items in batch",
+    )
+
+    # Status tracking
+    status = Column(
+        String(20),
+        nullable=False,
+        server_default="pending",
+        comment="Operation status (pending, confirmed, applied, undone)",
+    )
+    confirmed_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="User confirmation time",
+    )
+    applied_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Action application time",
+    )
+    undone_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Undo time if reversed",
+    )
+
+    # Undo support
+    undo_eligible = Column(
+        Boolean,
+        nullable=False,
+        server_default="true",
+        comment="Can be undone",
+    )
+    undo_deadline = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Deadline for undo",
+    )
+
+    # Relationships
+    session = relationship(
+        "ReviewSessionModel", back_populates="batch_operations", lazy="select"
+    )
+
+    __table_args__ = (
+        Index("idx_batch_session", "session_id", "created_at"),
+        Index("idx_batch_status", "tenant_id", "status", "created_at"),
+        Index(
+            "idx_batch_undo",
+            "undo_eligible",
+            "undo_deadline",
+            postgresql_where=text("undo_eligible = TRUE"),
+        ),
+        CheckConstraint(
+            "batch_type IN ('thread', 'sender', 'category', 'time_window', 'custom')",
+            name="ck_batch_operation_type",
+        ),
+        CheckConstraint(
+            "action_type IN ('accept_all', 'reject_all', 'apply_category', 'skip_all')",
+            name="ck_batch_operation_action_type",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'confirmed', 'applied', 'undone')",
+            name="ck_batch_operation_status",
+        ),
+        CheckConstraint(
+            "item_count > 0",
+            name="ck_batch_operation_item_count",
+        ),
+    )
+
+    def __repr__(self):
+        return (
+            f"<BatchOperationModel(id={self.id}, type='{self.batch_type}', "
+            f"status='{self.status}')>"
+        )
+
+
+class ReviewAnalyticsModel(Base, TenantMixin):
+    """Aggregated metrics for review patterns and system learning progress (P3).
+
+    Stores periodic analytics snapshots for tracking review velocity,
+    AI accuracy, and learning system effectiveness.
+    """
+
+    __tablename__ = "review_analytics"
+
+    id = Column(
+        BIGINT,
+        primary_key=True,
+        autoincrement=True,
+        comment="Analytics identifier",
+    )
+
+    # Period - using Date type to match migration
+    period_start = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="Analytics period start",
+    )
+    period_end = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="Analytics period end",
+    )
+    period_type = Column(
+        String(20),
+        nullable=False,
+        comment="Period granularity (daily, weekly, monthly)",
+    )
+
+    # Session metrics
+    total_sessions = Column(
+        Integer,
+        nullable=False,
+        comment="Session count",
+    )
+    total_items_reviewed = Column(
+        Integer,
+        nullable=False,
+        comment="Items reviewed",
+    )
+    avg_session_duration_min = Column(
+        DECIMAL(6, 2),
+        nullable=False,
+        comment="Average session length in minutes",
+    )
+    avg_items_per_minute = Column(
+        DECIMAL(5, 2),
+        nullable=False,
+        comment="Review velocity",
+    )
+
+    # Decision breakdown
+    acceptance_rate = Column(
+        DECIMAL(5, 4),
+        nullable=False,
+        comment="Accept percentage",
+    )
+    modification_rate = Column(
+        DECIMAL(5, 4),
+        nullable=False,
+        comment="Modify percentage",
+    )
+    rejection_rate = Column(
+        DECIMAL(5, 4),
+        nullable=False,
+        comment="Reject percentage",
+    )
+    skip_rate = Column(
+        DECIMAL(5, 4),
+        nullable=False,
+        comment="Skip percentage",
+    )
+
+    # AI performance
+    avg_ai_confidence = Column(
+        DECIMAL(4, 3),
+        nullable=False,
+        comment="Mean confidence score",
+    )
+    ai_accuracy = Column(
+        DECIMAL(5, 4),
+        nullable=True,
+        comment="Calculated AI accuracy",
+    )
+
+    # Feature usage
+    batch_usage_rate = Column(
+        DECIMAL(5, 4),
+        nullable=False,
+        comment="Batch operation frequency",
+    )
+    learning_rules_created = Column(
+        Integer,
+        nullable=False,
+        comment="New rules count",
+    )
+    learning_rules_applied = Column(
+        Integer,
+        nullable=False,
+        comment="Rule applications",
+    )
+
+    # Breakdowns
+    content_type_breakdown = Column(
+        JSONB,
+        nullable=False,
+        comment="By content type metrics",
+    )
+    correction_type_breakdown = Column(
+        JSONB,
+        nullable=False,
+        comment="By correction type",
+    )
+
+    # Timestamp
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment="Record creation",
+    )
+
+    __table_args__ = (
+        Index(
+            "idx_analytics_tenant_period",
+            "tenant_id",
+            "period_type",
+            "period_start",
+        ),
+        CheckConstraint(
+            "period_type IN ('daily', 'weekly', 'monthly')",
+            name="ck_review_analytics_period_type",
+        ),
+        CheckConstraint(
+            "period_end >= period_start",
+            name="ck_review_analytics_period",
+        ),
+    )
+
+    def __repr__(self):
+        return (
+            f"<ReviewAnalyticsModel(id={self.id}, period='{self.period_type}', "
+            f"start='{self.period_start}')>"
+        )

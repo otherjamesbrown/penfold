@@ -6,13 +6,27 @@ meetings, and documents.
 
 Key components:
 - models: Pydantic DTOs and enums for review entities
-- queue: Queue management and prioritization (future)
-- session: Session persistence and state management (future)
+- queue: Queue management and prioritization
+- session: Session lifecycle management
+- exceptions: Custom exceptions for error handling
 - feedback: User feedback capture and learning integration (future)
 - batch: Batch operations support (future)
 - analytics: Review analytics (P3, future)
 """
 
+from penf_lib.review.exceptions import (
+    ActiveSessionExistsError,
+    BatchOperationError,
+    DatabaseOperationError,
+    InvalidFilterCriteriaError,
+    InvalidSessionStateError,
+    ItemNotFoundError,
+    PendingItemsError,
+    ReviewError,
+    SessionExpiredError,
+    SessionNotFoundError,
+    UndoNotEligibleError,
+)
 from penf_lib.review.models import (
     # Enums
     AnalyticsPeriodType,
@@ -38,6 +52,9 @@ from penf_lib.review.models import (
     SessionDTO,
     UserFeedbackDTO,
 )
+from penf_lib.review.queue import QueueManager
+from penf_lib.review.queue import ReviewRepositoryProtocol as QueueRepositoryProtocol
+from penf_lib.review.session import SessionManager
 
 __all__ = [
     # Enums
@@ -63,4 +80,21 @@ __all__ = [
     "LearningRuleDTO",
     "BatchOperationDTO",
     "ReviewAnalyticsDTO",
+    # Queue management
+    "QueueManager",
+    "QueueRepositoryProtocol",
+    # Session management
+    "SessionManager",
+    # Exceptions
+    "ReviewError",
+    "SessionNotFoundError",
+    "ActiveSessionExistsError",
+    "SessionExpiredError",
+    "InvalidSessionStateError",
+    "ItemNotFoundError",
+    "UndoNotEligibleError",
+    "PendingItemsError",
+    "BatchOperationError",
+    "InvalidFilterCriteriaError",
+    "DatabaseOperationError",
 ]
