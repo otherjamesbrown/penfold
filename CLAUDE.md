@@ -169,3 +169,10 @@ bd list --status=open   # All open work
 - **Development standards**: `project-constitution.md`
 - **When stuck**: Ask user for direction on priorities
 - **Before ending**: `git push` + `bd sync`
+
+## Active Technologies
+- Python 3.12 + SQLAlchemy 2.0+ (async), asyncpg, Click 8.1+, Pydantic 2.5+, Redis 5.0+ (008-automation-engine)
+- PostgreSQL 16+ with pgvector extension (existing database infrastructure) (008-automation-engine)
+
+## Recent Changes
+- 008-automation-engine: Added Python 3.12 + SQLAlchemy 2.0+ (async), asyncpg, Click 8.1+, Pydantic 2.5+, Redis 5.0+
