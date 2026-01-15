@@ -1,6 +1,6 @@
 # Penfold Architecture Patterns
 
-**Extracted from implementations**: 005-meeting-pipeline, 010-testing-framework
+**Extracted from implementations**: 005-meeting-pipeline, 010-testing-framework, 011-observability-framework
 **Last Updated**: 2026-01-15
 
 ## Core Architectural Patterns
@@ -505,3 +505,221 @@ def pytest_runtest_setup(item):
 - **Database Security**: Isolated test databases with limited permissions
 - **Network Isolation**: Test services cannot access production systems
 - **Secret Management**: Environment-specific configuration and credentials
+
+## Production Agent Observability Patterns
+
+### 13. Agent Health Monitoring
+
+**Pattern**: Centralized monitoring for autonomous AI agent health and processing status
+
+**Implementation Details**:
+- Real-time status tracking for all processing agents
+- Quality metrics with confidence scores and accuracy trends
+- Resource usage monitoring (CPU, memory, I/O) per agent
+- Schedule adherence tracking for processing jobs
+
+```python
+# Agent Health Model Pattern
+class AgentHealth(Base):
+    agent_id: str
+    agent_type: str  # processing, analysis, coordination, review
+    status: str  # healthy, degraded, failed
+    last_active_at: datetime
+    processing_completion_rate: float
+    average_confidence_score: float
+    resource_usage: dict = JSONB  # cpu, memory, io metrics
+    error_count_24h: int
+    tenant_id: uuid.UUID
+
+# Health Check Pattern
+async def check_agent_health(agent_id: str) -> AgentHealthStatus:
+    recent_jobs = await get_recent_jobs(agent_id, hours=24)
+    return AgentHealthStatus(
+        completion_rate=calculate_completion_rate(recent_jobs),
+        avg_confidence=calculate_avg_confidence(recent_jobs),
+        error_rate=calculate_error_rate(recent_jobs),
+        resource_usage=get_current_resource_usage(agent_id)
+    )
+```
+
+### 14. Cross-Agent Workflow Tracing
+
+**Pattern**: Distributed tracing for content flow through multiple agent boundaries
+
+**Implementation Details**:
+- Content flow tracking through extraction → categorization → storage
+- Multi-stage processing timeline visualization
+- Bottleneck identification and performance analysis
+- End-to-end success rate tracking
+
+```python
+# Workflow Event Model Pattern
+class WorkflowEvent(Base):
+    workflow_id: uuid.UUID
+    agent_id: str
+    timestamp: datetime
+    event_type: str  # workflow_started, stage_completed, handoff, error
+    event_status: str  # success, failure, timeout, retry
+    processing_time_ms: float
+    event_data: dict = JSONB
+    parent_workflow_id: uuid.UUID  # For nested workflows
+    tenant_id: uuid.UUID
+
+# Workflow Tracing Pattern
+@trace_workflow("email_processing")
+async def process_email(email_id: uuid.UUID) -> ProcessingResult:
+    with trace_stage("extraction"):
+        entities = await extract_entities(email_id)
+
+    with trace_stage("categorization"):
+        category = await categorize_content(email_id, entities)
+
+    with trace_stage("storage"):
+        await store_processed_email(email_id, entities, category)
+
+    return ProcessingResult(success=True, stages_completed=3)
+```
+
+### 15. Agent Decision Tracing
+
+**Pattern**: Logging all agent decision points for debugging and analysis
+
+**Implementation Details**:
+- Decision point capture with context and alternatives considered
+- Confidence threshold logging for human review escalation
+- Model selection decision logging
+- Quality gate decision tracking
+
+```python
+# Decision Trace Model Pattern
+class DecisionTrace(Base):
+    agent_id: str
+    timestamp: datetime
+    decision_type: str  # model_selection, categorization, confidence_threshold
+    decision_context: dict = JSONB
+    alternatives_considered: list = JSONB
+    confidence_score: float
+    reasoning: str
+    workflow_id: uuid.UUID
+    tenant_id: uuid.UUID
+
+# Decision Logging Pattern
+async def make_categorization_decision(content: str) -> CategoryDecision:
+    alternatives = await get_possible_categories(content)
+
+    decision = select_best_category(alternatives)
+
+    await log_decision(DecisionTrace(
+        decision_type="categorization",
+        decision_context={"content_hash": hash(content)},
+        alternatives_considered=alternatives,
+        confidence_score=decision.confidence,
+        reasoning=decision.reasoning
+    ))
+
+    return decision
+```
+
+### 16. Business Value KPI Tracking
+
+**Pattern**: Measuring system value delivery through business-focused metrics
+
+**Implementation Details**:
+- Context reconstruction speed measurement
+- Search accuracy and relevance scoring
+- Relationship validation acceptance rates
+- Local vs cloud processing cost analysis
+
+```python
+# Business KPI Model Pattern
+class BusinessKPI(Base):
+    kpi_type: str  # context_reconstruction, search_accuracy, relationship_validation
+    timestamp: datetime
+    metric_value: float
+    metric_target: float
+    metadata: dict = JSONB
+    tenant_id: uuid.UUID
+
+# KPI Tracking Pattern
+BUSINESS_TARGETS = {
+    'context_reconstruction_minutes': 15,
+    'search_accuracy_percent': 90,
+    'relationship_validation_rate': 80,
+    'email_processing_minutes': 30,
+    'meeting_analysis_minutes': 60
+}
+
+async def track_context_reconstruction(start_time: datetime, end_time: datetime):
+    elapsed_minutes = (end_time - start_time).total_seconds() / 60
+    await record_kpi(
+        kpi_type='context_reconstruction',
+        metric_value=elapsed_minutes,
+        metric_target=BUSINESS_TARGETS['context_reconstruction_minutes']
+    )
+```
+
+### 17. TimescaleDB Time-Series Storage
+
+**Pattern**: Efficient time-series storage using PostgreSQL with TimescaleDB extension
+
+**Implementation Details**:
+- Hypertables for automatic partitioning of metrics data
+- 1-day chunk intervals for efficient retention management
+- Automatic compression for historical data
+- Continuous aggregates for fast dashboards
+
+```sql
+-- Time-series metrics table with hypertable
+CREATE TABLE agent_metrics (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    agent_id TEXT NOT NULL REFERENCES agents(agent_id),
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    metric_name TEXT NOT NULL,
+    metric_value FLOAT NOT NULL,
+    metric_type TEXT DEFAULT 'gauge',
+    labels JSONB DEFAULT '{}',
+    tenant_id UUID NOT NULL
+);
+
+-- Convert to hypertable (1-day chunks)
+SELECT create_hypertable('agent_metrics', 'timestamp',
+                        chunk_time_interval => INTERVAL '1 day');
+
+-- Add compression policy for data >7 days
+SELECT add_compression_policy('agent_metrics', INTERVAL '7 days');
+
+-- Add retention policy (90 days)
+SELECT add_retention_policy('agent_metrics', INTERVAL '90 days');
+
+-- Continuous aggregate for hourly summaries
+CREATE MATERIALIZED VIEW agent_metrics_hourly
+WITH (timescaledb.continuous) AS
+SELECT agent_id,
+       time_bucket('1 hour', timestamp) AS bucket,
+       metric_name,
+       avg(metric_value) as avg_value,
+       max(metric_value) as max_value,
+       count(*) as sample_count
+FROM agent_metrics
+GROUP BY agent_id, bucket, metric_name;
+```
+
+## Observability Performance Patterns
+
+### Metrics Collection
+- **Collection Overhead**: <50ms per operation instrumented
+- **Storage Efficiency**: TimescaleDB compression reduces storage 90%+
+- **Query Performance**: Continuous aggregates enable <1s dashboard loads
+- **Retention**: 90 days detailed, 1 year aggregated
+
+### Workflow Tracing
+- **Trace Overhead**: <100ms per workflow traced
+- **Cross-Agent Correlation**: Sub-second trace assembly
+- **Historical Analysis**: 30-day trace retention with search
+- **Real-time Visibility**: <5s latency for live workflow status
+
+### Alerting
+- **Alert Latency**: <2 minutes from threshold breach to notification
+- **False Positive Rate**: <5% through adaptive thresholds
+- **Alert Aggregation**: Intelligent grouping prevents alert storms
+- **Escalation**: Automatic escalation for unacknowledged alerts
