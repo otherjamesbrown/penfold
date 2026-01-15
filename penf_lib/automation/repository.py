@@ -467,3 +467,82 @@ class AutomationRepository:
             **metrics,
             "updated_at": datetime.now(timezone.utc),
         }
+
+    # --- Conflicts ---
+
+    async def record_conflict(
+        self,
+        tenant_id: UUID,
+        content_id: str,
+        winning_rule_id: UUID,
+        conflicting_rule_ids: List[UUID],
+        resolution_method: str,
+        confidence_margin: float,
+        needs_notification: bool,
+        scores: Optional[Dict[str, float]] = None,
+    ) -> Dict[str, Any]:
+        """Record a rule conflict resolution.
+
+        Args:
+            tenant_id: Tenant UUID
+            content_id: Content that triggered conflict
+            winning_rule_id: Rule that won the conflict
+            conflicting_rule_ids: All rules that matched
+            resolution_method: How conflict was resolved
+            confidence_margin: Score margin between top two
+            needs_notification: Whether user notification needed
+            scores: Score breakdown per rule
+
+        Returns:
+            Conflict record dictionary
+        """
+        return {
+            "id": uuid4(),
+            "tenant_id": tenant_id,
+            "content_id": content_id,
+            "winning_rule_id": winning_rule_id,
+            "conflicting_rule_ids": conflicting_rule_ids,
+            "resolution_method": resolution_method,
+            "confidence_margin": confidence_margin,
+            "needs_notification": needs_notification,
+            "scores": scores,
+            "resolved_at": datetime.now(timezone.utc),
+        }
+
+    async def get_conflicts_for_rule(
+        self,
+        tenant_id: UUID,
+        rule_id: UUID,
+        since: Optional[datetime] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Get conflicts involving a rule.
+
+        Args:
+            tenant_id: Tenant UUID
+            rule_id: Rule UUID
+            since: Only return conflicts after this time
+            limit: Maximum number of results
+
+        Returns:
+            List of conflict records
+        """
+        # Skeleton implementation - returns empty list
+        return []
+
+    async def get_pending_notifications(
+        self,
+        tenant_id: UUID,
+        user_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Get conflicts requiring user notification.
+
+        Args:
+            tenant_id: Tenant UUID
+            user_id: User identifier
+
+        Returns:
+            List of conflict records needing attention
+        """
+        # Skeleton implementation - returns empty list
+        return []

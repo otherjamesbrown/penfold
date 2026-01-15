@@ -16,7 +16,7 @@ Integration Points:
 - Daily Review (006) for user feedback loop
 """
 
-from .engine import AutomationEngine, AutomationDecisionResult
+from .engine import AutomationEngine, AutomationDecisionResult, ConflictRecord
 from .conditions import (
     evaluate_condition,
     evaluate_conditions,
@@ -62,6 +62,7 @@ __all__ = [
     # Engine
     "AutomationEngine",
     "AutomationDecisionResult",
+    "ConflictRecord",
     # Conditions
     "evaluate_condition",
     "evaluate_conditions",

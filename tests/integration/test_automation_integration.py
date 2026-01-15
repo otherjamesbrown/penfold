@@ -630,3 +630,328 @@ class TestRuleTestMode:
         # In test mode, we just check if it would match
         # without actually executing actions
         # This is a simulation check only
+
+
+class TestConflictResolutionIntegration:
+    """Integration tests for User Story 5 - Conflict Resolution."""
+
+    @pytest.mark.asyncio
+    async def test_multiple_rules_conflict_resolution(self):
+        """Test full conflict resolution workflow.
+
+        Given multiple rules match same content
+        When automation engine processes content
+        Then highest confidence rule wins with explanation
+        """
+        from penf_lib.automation.engine import AutomationEngine
+
+        engine = AutomationEngine()
+
+        rules = [
+            {
+                "id": uuid4(),
+                "name": "General Email Rule",
+                "accuracy_rate": 0.80,
+                "confidence_score": 0.85,
+                "priority": 5,
+                "conditions": {
+                    "operator": "AND",
+                    "conditions": [
+                        {"field": "content_type", "operator": "equals", "value": "email"}
+                    ]
+                },
+                "actions": {"action_type": "archive", "parameters": {}},
+            },
+            {
+                "id": uuid4(),
+                "name": "Vendor Priority Rule",
+                "accuracy_rate": 0.95,
+                "confidence_score": 0.92,
+                "priority": 2,
+                "conditions": {
+                    "operator": "AND",
+                    "conditions": [
+                        {"field": "sender", "operator": "contains", "value": "@vendor.com"}
+                    ]
+                },
+                "actions": {"action_type": "prioritize", "parameters": {"level": "high"}},
+            },
+        ]
+
+        content = {
+            "content_id": "email-conflict-001",
+            "content_type": "email",
+            "sender": "sales@vendor.com",
+            "subject": "Invoice",
+            "confidence_score": 0.90,
+        }
+
+        result = await engine.evaluate_content_with_rules(content, rules, threshold=0.85)
+
+        assert result.decision_type == "conflict_resolved"
+        assert result.rule_id is not None
+        assert "Vendor Priority Rule" in result.reasoning
+        assert result.actions_taken["action_type"] == "prioritize"
+
+    @pytest.mark.asyncio
+    async def test_conflict_record_creation(self):
+        """Test that conflicts create proper records for tracking."""
+        from penf_lib.automation.engine import AutomationEngine
+
+        engine = AutomationEngine()
+
+        rule_a = {
+            "id": uuid4(),
+            "name": "Rule A",
+            "accuracy_rate": 0.90,
+            "confidence_score": 0.88,
+            "priority": 5,
+        }
+        rule_b = {
+            "id": uuid4(),
+            "name": "Rule B",
+            "accuracy_rate": 0.85,
+            "confidence_score": 0.85,
+            "priority": 5,
+        }
+
+        matching_rules = [(rule_a, 0.90), (rule_b, 0.85)]
+        winning_rule = engine.resolve_conflict(matching_rules)
+
+        record = engine.create_conflict_record(
+            matching_rules=matching_rules,
+            winning_rule=winning_rule,
+            content_id="test-conflict-001",
+        )
+
+        assert record.content_id == "test-conflict-001"
+        assert record.winning_rule_id == rule_a["id"]
+        assert len(record.conflicting_rule_ids) == 2
+        assert record.resolution_method == "confidence_weighted"
+        assert record.confidence_margin is not None
+
+    @pytest.mark.asyncio
+    async def test_conflict_notification_for_close_matches(self):
+        """Test that close conflicts flag for user notification.
+
+        Given two rules with very similar scores
+        When conflict resolved
+        Then needs_notification = True
+        """
+        from penf_lib.automation.engine import AutomationEngine
+
+        engine = AutomationEngine()
+
+        # Two rules with nearly identical scores
+        rule_a = {
+            "id": uuid4(),
+            "name": "Rule A",
+            "accuracy_rate": 0.88,
+            "confidence_score": 0.88,
+            "priority": 5,
+        }
+        rule_b = {
+            "id": uuid4(),
+            "name": "Rule B",
+            "accuracy_rate": 0.87,
+            "confidence_score": 0.89,
+            "priority": 5,
+        }
+
+        matching_rules = [(rule_a, 0.88), (rule_b, 0.87)]
+        winning_rule = engine.resolve_conflict(matching_rules)
+
+        record = engine.create_conflict_record(
+            matching_rules=matching_rules,
+            winning_rule=winning_rule,
+            content_id="test-close-001",
+        )
+
+        assert record.needs_notification is True
+        assert record.confidence_margin < 0.05
+
+    @pytest.mark.asyncio
+    async def test_conflict_rate_under_5_percent(self):
+        """Test that conflicts occur in less than 5% of content (SC-007).
+
+        This simulates processing 100 emails with various rules to ensure
+        the conflict rate stays under the 5% target.
+        """
+        from penf_lib.automation.engine import AutomationEngine
+
+        engine = AutomationEngine()
+
+        # Rules designed to have minimal overlap
+        rules = [
+            {
+                "id": uuid4(),
+                "name": "Vendor Rule",
+                "accuracy_rate": 0.90,
+                "conditions": {
+                    "operator": "AND",
+                    "conditions": [
+                        {"field": "sender", "operator": "contains", "value": "@vendor.com"}
+                    ]
+                },
+                "actions": {"action_type": "categorize"},
+            },
+            {
+                "id": uuid4(),
+                "name": "Newsletter Rule",
+                "accuracy_rate": 0.85,
+                "conditions": {
+                    "operator": "AND",
+                    "conditions": [
+                        {"field": "subject", "operator": "contains", "value": "newsletter"}
+                    ]
+                },
+                "actions": {"action_type": "archive"},
+            },
+        ]
+
+        # Simulate 100 emails
+        conflict_count = 0
+        for i in range(100):
+            content = {
+                "content_id": f"email-{i:03d}",
+                "content_type": "email",
+                "sender": f"user{i}@example.com",
+                "subject": f"Subject {i}",
+                "confidence_score": 0.90,
+            }
+
+            # Make some emails match rules
+            if i % 10 == 0:
+                content["sender"] = "sales@vendor.com"
+            if i % 15 == 0:
+                content["subject"] = "Weekly newsletter"
+
+            matches = await engine.evaluate_rules(content, rules)
+            if len(matches) > 1:
+                conflict_count += 1
+
+        conflict_rate = conflict_count / 100
+        assert conflict_rate < 0.05, f"Conflict rate {conflict_rate:.1%} exceeds 5% limit"
+
+    @pytest.mark.asyncio
+    async def test_conflict_prediction_at_rule_creation(self):
+        """Test predicting conflicts before activating new rule.
+
+        Given existing rules
+        When creating new rule with overlapping conditions
+        Then potential conflicts identified before activation
+        """
+        from penf_lib.automation.engine import AutomationEngine
+
+        engine = AutomationEngine()
+
+        existing_rules = [
+            {
+                "id": uuid4(),
+                "name": "Existing Vendor Rule",
+                "conditions": {
+                    "operator": "AND",
+                    "conditions": [
+                        {"field": "content_type", "operator": "equals", "value": "email"},
+                        {"field": "sender", "operator": "contains", "value": "@vendor.com"},
+                    ]
+                },
+            },
+            {
+                "id": uuid4(),
+                "name": "Newsletter Rule",
+                "conditions": {
+                    "operator": "AND",
+                    "conditions": [
+                        {"field": "subject", "operator": "contains", "value": "newsletter"},
+                    ]
+                },
+            },
+        ]
+
+        # New rule that will overlap with existing vendor rule
+        new_rule_conditions = {
+            "operator": "AND",
+            "conditions": [
+                {"field": "content_type", "operator": "equals", "value": "email"},
+                {"field": "sender", "operator": "contains", "value": "@"},
+            ]
+        }
+
+        conflicts = engine.predict_conflicts(new_rule_conditions, existing_rules)
+
+        # Should identify the vendor rule as potential conflict
+        assert len(conflicts) >= 1
+        conflict_names = [r["name"] for r in conflicts]
+        assert "Existing Vendor Rule" in conflict_names
+
+    @pytest.mark.asyncio
+    async def test_automatic_conflict_resolution_rate(self):
+        """Test that 90% of conflicts are resolved automatically.
+
+        Per spec: 90% of conflicts should be auto-resolved without
+        requiring user intervention.
+        """
+        from penf_lib.automation.engine import AutomationEngine
+
+        engine = AutomationEngine()
+
+        # Simulate 20 conflicts with varying score margins
+        # Most conflicts should have clear winners (large margin)
+        # Only a few should be close calls requiring notification
+        auto_resolved = 0
+        total_conflicts = 20
+
+        for i in range(total_conflicts):
+            # Create rules with significant score differences for most cases
+            # (clear winners = auto-resolved without notification)
+            if i < 18:  # 18/20 = 90% should auto-resolve
+                # Large accuracy gap ensures clear winner
+                rule_a = {
+                    "id": uuid4(),
+                    "name": f"Rule A-{i}",
+                    "accuracy_rate": 0.95,  # High accuracy
+                    "confidence_score": 0.90,
+                    "priority": 3,  # Better priority
+                }
+                rule_b = {
+                    "id": uuid4(),
+                    "name": f"Rule B-{i}",
+                    "accuracy_rate": 0.75,  # Lower accuracy
+                    "confidence_score": 0.80,
+                    "priority": 7,  # Worse priority
+                }
+            else:
+                # Close calls that need notification (2/20 = 10%)
+                rule_a = {
+                    "id": uuid4(),
+                    "name": f"Rule A-{i}",
+                    "accuracy_rate": 0.88,
+                    "confidence_score": 0.88,
+                    "priority": 5,
+                }
+                rule_b = {
+                    "id": uuid4(),
+                    "name": f"Rule B-{i}",
+                    "accuracy_rate": 0.87,
+                    "confidence_score": 0.89,
+                    "priority": 5,
+                }
+
+            matching_rules = [(rule_a, rule_a["accuracy_rate"]), (rule_b, rule_b["accuracy_rate"])]
+            winning_rule = engine.resolve_conflict(matching_rules)
+
+            record = engine.create_conflict_record(
+                matching_rules=matching_rules,
+                winning_rule=winning_rule,
+                content_id=f"conflict-{i}",
+            )
+
+            # Auto-resolved if no notification needed
+            if not record.needs_notification:
+                auto_resolved += 1
+
+        auto_resolution_rate = auto_resolved / total_conflicts
+        assert auto_resolution_rate >= 0.90, (
+            f"Auto-resolution rate {auto_resolution_rate:.1%} below 90% target"
+        )
