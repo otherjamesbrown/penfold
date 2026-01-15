@@ -55,6 +55,43 @@ bd sync                               # Sync with git
 - Close with commit hash: `bd close <id> --reason="commit <hash>: summary"`
 - Run `bd sync` before ending session
 
+## 🎯 EPIC-BASED BEAD MANAGEMENT - VITAL
+
+**ALL beads must be associated with an epic to prevent proliferation.**
+
+### Epic Structure
+```bash
+bd list --type=epic                   # Show all epics
+bd dep add <bead-id> <epic-id>        # Associate bead with epic
+bd dep tree <epic-id>                 # Show epic's bead tree
+```
+
+### Epic Creation Rules
+**BEFORE creating any new bead:**
+1. **Check existing epics** - Does it fit in current epic?
+2. **Epic first** - Create epic before related beads
+3. **Batch related work** - Group similar beads under same epic
+4. **Link immediately** - `bd dep add <new-bead> <epic-id>`
+
+### When to Create New Epics
+- **Major feature areas** (5+ related beads expected)
+- **Cross-cutting initiatives** (affects multiple systems)
+- **Implementation phases** (setup → implement → polish)
+- **Maintenance categories** (quarterly tasks, cleanup)
+
+### Rare Non-Epic Exceptions
+**ONLY create standalone beads for:**
+- Immediate blockers preventing all work
+- Emergency security issues
+- Quick research tasks (<30 min, inform epic planning)
+- Epic creation itself
+
+### Epic Naming Convention
+- `[EPIC] SpecKit: Complete All Feature Specifications`
+- `[EPIC] Operationalization: Dev Agents and Documentation`
+- `[EPIC] Integration: Cross-Cutting System Concerns`
+- `[EPIC] Maintenance: Cleanup and Audits`
+
 ## 🔄 SESSION CLOSE PROTOCOL
 
 **Work is NOT complete until pushed to remote.**
