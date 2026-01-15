@@ -172,7 +172,9 @@ bd list --status=open   # All open work
 
 ## Active Technologies
 - Python 3.12 + SQLAlchemy 2.0+ (async), asyncpg, Click 8.1+, Pydantic 2.5+, Redis 5.0+ (008-automation-engine)
-- PostgreSQL 16+ with pgvector extension (existing database infrastructure) (008-automation-engine)
+- Python 3.12 + SQLAlchemy 2.0+ with asyncpg driver, pgvector for vector similarity, click for CLI, rich for output formatting, pydantic for query/response validation (007-search-interface)
+- PostgreSQL 16+ with pgvector extension (hybrid relational + vector search), Redis for caching search results
 
 ## Recent Changes
 - 008-automation-engine: Added Python 3.12 + SQLAlchemy 2.0+ (async), asyncpg, Click 8.1+, Pydantic 2.5+, Redis 5.0+
+- 007-search-interface: Added Python 3.12 + SQLAlchemy 2.0+ with asyncpg driver, pgvector for vector similarity, click for CLI, rich for output formatting, pydantic for query/response validation
