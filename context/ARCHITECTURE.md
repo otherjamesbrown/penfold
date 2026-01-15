@@ -1,7 +1,7 @@
 # Penfold Architecture Patterns
 
-**Extracted from implementations**: 005-meeting-pipeline
-**Last Updated**: 2026-01-14
+**Extracted from implementations**: 005-meeting-pipeline, 010-testing-framework
+**Last Updated**: 2026-01-15
 
 ## Core Architectural Patterns
 
@@ -239,3 +239,269 @@ class ReviewQueue(Base):
 - Original file preservation
 - Secure storage with privacy levels
 - Access logging and compliance tracking
+
+## AI-First Testing Patterns
+
+### 8. Multi-Tiered AI Mocking Strategy
+
+**Pattern**: Different mocking approaches based on test type and performance requirements
+
+**Implementation Tiers**:
+- **Unit Tests**: Full mocking with deterministic responses (<100ms)
+- **Integration Tests**: Lightweight models for realistic behavior (<10s)
+- **End-to-End Tests**: Record/replay real AI responses (<30s)
+
+**Key Components**:
+- Deterministic response patterns based on prompt analysis
+- Response caching and replay infrastructure
+- Lightweight model substitution for fast testing
+- Performance validation for each tier
+
+```python
+# AI Mocking Strategy Pattern
+class AIModelMock:
+    def __init__(self, mode: str = 'deterministic'):
+        self.mode = mode  # deterministic, lightweight, recorded
+        self.response_library = ResponseLibrary()
+
+    async def process(self, content: str, model: str) -> AIResponse:
+        if self.mode == 'deterministic':
+            return self._pattern_based_response(content)
+        elif self.mode == 'lightweight':
+            return await self._fast_model_response(content)
+        else:  # recorded
+            return self._cached_response(content)
+
+# Mock Response Library Pattern
+class MockResponseLibrary:
+    def generate_response(self, task_type: str, content: str) -> dict:
+        patterns = {
+            'summarization': self._summary_patterns,
+            'entity_extraction': self._entity_patterns,
+            'categorization': self._category_patterns
+        }
+        return patterns[task_type](content)
+```
+
+### 9. Container-Based Environment Isolation
+
+**Pattern**: Isolated test environments using Docker with in-memory storage for performance
+
+**Implementation Details**:
+- PostgreSQL with pgvector in tmpfs for fast database operations
+- Redis in-memory for event processing
+- Mock AI services with response libraries
+- Parallel test execution without interference
+
+```python
+# Environment Isolation Pattern
+@pytest.fixture(scope="session")
+async def test_engine():
+    """Isolated test database with automatic cleanup"""
+    test_engine = create_async_engine(
+        config.database.test_database_url,
+        echo=False,
+        pool_pre_ping=True,
+    )
+
+    async with test_engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.run_sync(Base.metadata.create_all)
+
+    yield test_engine
+
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await test_engine.dispose()
+
+# Test Session Isolation Pattern
+@pytest.fixture
+async def test_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
+    TestSessionLocal = async_sessionmaker(test_engine, expire_on_commit=False)
+
+    async with TestSessionLocal() as session:
+        # Set tenant context for multi-tenant testing
+        test_tenant_id = str(uuid.uuid4())
+        await session.execute(
+            text("SET app.tenant_id = :tenant_id"),
+            {"tenant_id": test_tenant_id}
+        )
+
+        transaction = await session.begin()
+        try:
+            yield session
+        finally:
+            await transaction.rollback()  # Always rollback for isolation
+```
+
+### 10. Realistic Test Data Management
+
+**Pattern**: Consistent, business-representative test data with anonymization
+
+**Implementation Details**:
+- Parameterized fixtures for different business scenarios
+- Realistic email threads, meeting transcripts, and document collections
+- Consistent entity relationships across test scenarios
+- Performance-optimized data loading and generation
+
+```python
+# Test Data Strategy Pattern
+class TestDataGenerator:
+    def __init__(self):
+        self.business_scenarios = {
+            'atlas_project': self._atlas_scenarios,
+            'budget_approval': self._budget_scenarios,
+            'crisis_response': self._crisis_scenarios
+        }
+
+    def generate_email_thread(self, scenario: str, participants: List[Person]) -> List[Email]:
+        """Generate realistic email thread with proper threading and relationships"""
+        scenario_generator = self.business_scenarios[scenario]
+        return scenario_generator(participants)
+
+    def generate_meeting_transcript(self, meeting_type: str, duration_minutes: int) -> MeetingTranscript:
+        """Generate meeting with realistic dialogue, decisions, and action items"""
+        # Consistent patterns based on meeting type and participants
+
+# Parameterized Test Fixtures Pattern
+@pytest.fixture(params=['email_escalation', 'project_crisis', 'decision_workflow'])
+def business_scenario(request):
+    return load_scenario(request.param)
+
+@pytest.fixture
+def sample_source_data():
+    return {
+        "source_system": "gmail",
+        "external_id": "msg_12345",
+        "content_hash": "a" * 64,
+        "raw_content": "This is a sample email content for testing.",
+        "content_type": "text/plain",
+        "content_size": 45,
+        "ingestion_metadata": {"sender": "test@example.com"},
+    }
+```
+
+### 11. Performance Benchmarking Integration
+
+**Pattern**: Automated performance validation with timing utilities and success criteria
+
+**Implementation Details**:
+- Benchmark timing utilities for precise measurement
+- Performance targets integrated into test assertions
+- Automated regression detection for response times
+- Resource monitoring and bottleneck identification
+
+```python
+# Performance Testing Pattern
+@pytest.fixture
+def benchmark_timer():
+    """Precision timing utility for performance tests"""
+    class Timer:
+        def start(self): self.start_time = time.perf_counter()
+        def stop(self): self.end_time = time.perf_counter()
+        @property
+        def elapsed_ms(self): return (self.end_time - self.start_time) * 1000
+    return Timer
+
+@pytest.mark.performance
+async def test_database_operation_performance(benchmark_timer):
+    """Validate database operations meet performance targets"""
+    timer = benchmark_timer()
+    timer.start()
+    await database_operation()
+    timer.stop()
+
+    # Validate meets target (<100ms)
+    assert timer.elapsed_ms < 100
+
+# Performance Success Criteria Pattern
+PERFORMANCE_TARGETS = {
+    'crud_operations_ms': 100,
+    'vector_search_ms': 500,
+    'ai_processing_ms': 10000,
+    'environment_setup_s': 60
+}
+
+class PerformanceValidator:
+    @staticmethod
+    def validate_target(operation: str, actual_ms: float):
+        target_ms = PERFORMANCE_TARGETS[f'{operation}_ms']
+        assert actual_ms < target_ms, f"{operation} took {actual_ms}ms, target was {target_ms}ms"
+```
+
+### 12. Test Categorization and Environment Controls
+
+**Pattern**: Automatic test categorization with environment-specific execution controls
+
+**Implementation Details**:
+- Automatic marking based on test file location and fixtures
+- Environment variables for skipping expensive tests
+- Custom pytest markers for different test types
+- CI/CD integration with selective test execution
+
+```python
+# Test Categorization Pattern
+def pytest_collection_modifyitems(config, items):
+    """Automatically mark tests based on their location and fixtures"""
+    for item in items:
+        # Auto-mark based on test file location
+        if "unit" in str(item.fspath):
+            item.add_marker(pytest.mark.unit)
+        elif "integration" in str(item.fspath):
+            item.add_marker(pytest.mark.integration)
+            item.add_marker(pytest.mark.requires_db)
+        elif "performance" in str(item.fspath):
+            item.add_marker(pytest.mark.performance)
+            item.add_marker(pytest.mark.slow)
+
+        # Mark based on fixtures used
+        if any(fixture in item.fixturenames for fixture in ["test_session", "test_engine"]):
+            item.add_marker(pytest.mark.requires_db)
+
+# Environment Control Pattern
+def pytest_runtest_setup(item):
+    """Control test execution based on environment variables"""
+    # Skip database tests if DB_SKIP_TESTS is set
+    if "requires_db" in [marker.name for marker in item.iter_markers()]:
+        if os.environ.get("DB_SKIP_TESTS"):
+            pytest.skip("Database tests skipped (DB_SKIP_TESTS set)")
+
+    # Skip slow tests unless explicitly requested
+    if "slow" in [marker.name for marker in item.iter_markers()]:
+        if not item.config.getoption("--runslow", default=False):
+            pytest.skip("Slow test skipped (use --runslow to run)")
+```
+
+## Testing Performance Patterns
+
+### AI Mock Performance
+- **Unit Test Mocks**: <100ms response time for deterministic patterns
+- **Integration Mocks**: <10s with lightweight models (Phi-3 Mini, Qwen2.5-7B)
+- **E2E Recorded**: <30s with cached real AI responses
+- **Load Testing**: 50+ concurrent AI operations with simulated latency
+
+### Environment Performance
+- **Test Environment Setup**: <60 seconds for full containerized stack
+- **Parallel Test Execution**: 5+ concurrent test suites without interference
+- **Database Test Isolation**: 100% isolation through transaction rollback
+- **Environment Teardown**: <30 seconds for complete cleanup
+
+### Test Data Performance
+- **Fixture Loading**: <15 seconds for complete business scenario data
+- **Data Generation**: Real-time creation of consistent test entities
+- **Cross-Test Consistency**: 100% reproducible test results
+- **Memory Management**: Efficient cleanup preventing test pollution
+
+## Testing Security Patterns
+
+### AI Response Security
+- **Response Sanitization**: All recorded AI responses anonymized
+- **Test Data Privacy**: Business-representative but privacy-safe content
+- **Model Access Control**: Isolated AI services for testing environments
+- **API Key Management**: Separate credentials for test environments
+
+### Environment Security
+- **Container Isolation**: Complete separation between test environments
+- **Database Security**: Isolated test databases with limited permissions
+- **Network Isolation**: Test services cannot access production systems
+- **Secret Management**: Environment-specific configuration and credentials
