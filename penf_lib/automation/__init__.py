@@ -23,6 +23,16 @@ from .conditions import (
     InvalidConditionError,
     RuleCondition,
 )
+from .models import (
+    AutomationRule,
+    AutomationRuleVersion,
+    ConfidenceThreshold,
+    AutomationDecision,
+    RuleEffectiveness,
+    AutomationPattern,
+    RuleConflict,
+    ProgressiveSettings,
+)
 from .repository import AutomationRepository
 
 __all__ = [
@@ -34,6 +44,15 @@ __all__ = [
     "evaluate_conditions",
     "InvalidConditionError",
     "RuleCondition",
+    # Models
+    "AutomationRule",
+    "AutomationRuleVersion",
+    "ConfidenceThreshold",
+    "AutomationDecision",
+    "RuleEffectiveness",
+    "AutomationPattern",
+    "RuleConflict",
+    "ProgressiveSettings",
     # Repository
     "AutomationRepository",
 ]
