@@ -18,6 +18,14 @@ from uuid import UUID, uuid4
 from .conditions import evaluate_conditions
 
 
+# Scoring weights for conflict resolution algorithm (per research.md)
+# These weights determine how historical accuracy, AI confidence, and
+# rule priority contribute to the final score when resolving conflicts.
+ACCURACY_WEIGHT = 0.6    # Historical accuracy is most important
+CONFIDENCE_WEIGHT = 0.3  # AI confidence contributes significantly
+PRIORITY_WEIGHT = 0.1    # Priority is a tiebreaker
+
+
 @dataclass
 class ConflictRecord:
     """Record of a rule conflict resolution.
@@ -259,7 +267,7 @@ class AutomationEngine:
             priority = rule.get("priority", 5)
 
             # Weighted score per research.md algorithm
-            score = (accuracy * 0.6) + (confidence * 0.3) + ((1.0 - priority / 10) * 0.1)
+            score = (accuracy * ACCURACY_WEIGHT) + (confidence * CONFIDENCE_WEIGHT) + ((1.0 - priority / 10) * PRIORITY_WEIGHT)
             scored_rules.append((rule, score))
 
         # Return highest scoring rule
@@ -282,7 +290,7 @@ class AutomationEngine:
         confidence = rule.get("confidence_score", 0.5)
         priority = rule.get("priority", 5)
 
-        return (accuracy * 0.6) + (confidence * 0.3) + ((1.0 - priority / 10) * 0.1)
+        return (accuracy * ACCURACY_WEIGHT) + (confidence * CONFIDENCE_WEIGHT) + ((1.0 - priority / 10) * PRIORITY_WEIGHT)
 
     async def evaluate_content_with_rules(
         self,
@@ -447,7 +455,8 @@ class AutomationEngine:
         """Predict potential conflicts before rule activation.
 
         Analyzes the conditions of a new rule against existing rules
-        to identify potential overlaps.
+        to identify potential overlaps. Uses operator-aware comparison
+        to avoid false positives (e.g., value=1 vs value=10).
 
         Args:
             new_rule_conditions: Conditions for the new rule
@@ -464,11 +473,11 @@ class AutomationEngine:
             # If new rule has no conditions, it matches everything
             return existing_rules
 
-        new_fields = {c.get("field") for c in new_conditions if c.get("field")}
-        new_values = {
-            c.get("field"): c.get("value")
+        # Build lookup by field with operator info
+        new_cond_by_field = {
+            c.get("field"): c
             for c in new_conditions
-            if c.get("field") and c.get("value")
+            if c.get("field")
         }
 
         for existing in existing_rules:
@@ -479,26 +488,102 @@ class AutomationEngine:
                 potential_conflicts.append(existing)
                 continue
 
-            existing_fields = {c.get("field") for c in existing_conditions if c.get("field")}
-            existing_values = {
-                c.get("field"): c.get("value")
+            existing_cond_by_field = {
+                c.get("field"): c
                 for c in existing_conditions
-                if c.get("field") and c.get("value")
+                if c.get("field")
             }
 
             # Check for overlapping fields
-            common_fields = new_fields & existing_fields
+            common_fields = set(new_cond_by_field.keys()) & set(existing_cond_by_field.keys())
 
             if common_fields:
-                # Check if the values could potentially overlap
+                # Check if the conditions could potentially overlap
                 for field in common_fields:
-                    new_val = new_values.get(field, "")
-                    existing_val = existing_values.get(field, "")
+                    new_cond = new_cond_by_field[field]
+                    existing_cond = existing_cond_by_field[field]
 
-                    # If one value is a substring of another, potential overlap
-                    if (str(new_val) in str(existing_val) or
-                        str(existing_val) in str(new_val)):
+                    if self._conditions_may_overlap(new_cond, existing_cond):
                         potential_conflicts.append(existing)
                         break
 
         return potential_conflicts
+
+    def _conditions_may_overlap(
+        self,
+        cond1: Dict[str, Any],
+        cond2: Dict[str, Any],
+    ) -> bool:
+        """Check if two conditions on the same field may overlap.
+
+        Uses operator-aware comparison to reduce false positives.
+
+        Args:
+            cond1: First condition dict with field, operator, value
+            cond2: Second condition dict with field, operator, value
+
+        Returns:
+            True if conditions may match overlapping content
+        """
+        op1 = cond1.get("operator", "equals")
+        op2 = cond2.get("operator", "equals")
+        val1 = cond1.get("value")
+        val2 = cond2.get("value")
+
+        # Handle None values
+        if val1 is None or val2 is None:
+            return True  # Conservative: assume overlap if values missing
+
+        # equals vs equals: only conflict if values are identical
+        if op1 == "equals" and op2 == "equals":
+            return val1 == val2
+
+        # contains: conflict if either string contains the other (strings only)
+        if op1 == "contains" or op2 == "contains":
+            if isinstance(val1, str) and isinstance(val2, str):
+                return val1 in val2 or val2 in val1
+            return val1 == val2  # For non-strings, require exact match
+
+        # in (list membership): conflict if lists have any intersection
+        if op1 == "in" or op2 == "in":
+            list1 = val1 if isinstance(val1, list) else [val1]
+            list2 = val2 if isinstance(val2, list) else [val2]
+            return bool(set(list1) & set(list2))
+
+        # Numeric comparisons: check for range overlaps
+        if op1 in ("greater_than", "less_than") or op2 in ("greater_than", "less_than"):
+            try:
+                num1 = float(val1)
+                num2 = float(val2)
+            except (TypeError, ValueError):
+                return True  # Conservative if not numeric
+
+            # greater_than X and greater_than Y: always overlap
+            if op1 == "greater_than" and op2 == "greater_than":
+                return True
+            # less_than X and less_than Y: always overlap
+            if op1 == "less_than" and op2 == "less_than":
+                return True
+            # greater_than X and less_than Y: overlap if X < Y
+            if op1 == "greater_than" and op2 == "less_than":
+                return num1 < num2
+            if op1 == "less_than" and op2 == "greater_than":
+                return num2 < num1
+            # greater_than/less_than with equals: check boundary
+            if op1 == "equals":
+                if op2 == "greater_than":
+                    return num1 > num2
+                if op2 == "less_than":
+                    return num1 < num2
+            if op2 == "equals":
+                if op1 == "greater_than":
+                    return num2 > num1
+                if op1 == "less_than":
+                    return num2 < num1
+
+        # matches (regex): conservative - assume potential overlap
+        if op1 == "matches" or op2 == "matches":
+            return True
+
+        # Default: conservative - assume potential overlap
+        return True

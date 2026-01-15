@@ -29,6 +29,23 @@ def run_async(coro):
     return asyncio.run(coro)
 
 
+def parse_uuid(value: str, name: str = "ID") -> Optional[UUID]:
+    """Parse a UUID string with user-friendly error handling.
+
+    Args:
+        value: String value to parse as UUID
+        name: Name of the field for error messages
+
+    Returns:
+        UUID if valid, None if invalid (error is printed)
+    """
+    try:
+        return UUID(value)
+    except ValueError:
+        console.print(f"[red]Error:[/red] Invalid {name} format: '{value}'")
+        return None
+
+
 @click.group(name="automation")
 @click.pass_context
 def automation_group(ctx: click.Context):
@@ -137,8 +154,12 @@ def rules_show(ctx: click.Context, rule_id: str):
 
             tenant_id = UUID(session_info["tenant_id"])
 
+            rule_uuid = parse_uuid(rule_id, "rule ID")
+            if not rule_uuid:
+                return 1
+
             repo = AutomationRepository()
-            rule = await repo.get_rule_by_id(tenant_id, UUID(rule_id))
+            rule = await repo.get_rule_by_id(tenant_id, rule_uuid)
 
             if not rule:
                 console.print(f"[red]Error:[/red] Rule '{rule_id}' not found")
@@ -250,8 +271,12 @@ def rules_enable(ctx: click.Context, rule_id: str):
                 console.print("[red]Error:[/red] No active tenant session.")
                 return 1
 
+            rule_uuid = parse_uuid(rule_id, "rule ID")
+            if not rule_uuid:
+                return 1
+
             repo = AutomationRepository()
-            result = await repo.enable_rule(UUID(session_info["tenant_id"]), UUID(rule_id))
+            result = await repo.enable_rule(UUID(session_info["tenant_id"]), rule_uuid)
 
             if result:
                 console.print(f"[green]Success:[/green] Rule enabled")
@@ -286,8 +311,12 @@ def rules_disable(ctx: click.Context, rule_id: str):
                 console.print("[red]Error:[/red] No active tenant session.")
                 return 1
 
+            rule_uuid = parse_uuid(rule_id, "rule ID")
+            if not rule_uuid:
+                return 1
+
             repo = AutomationRepository()
-            result = await repo.disable_rule(UUID(session_info["tenant_id"]), UUID(rule_id))
+            result = await repo.disable_rule(UUID(session_info["tenant_id"]), rule_uuid)
 
             if result:
                 console.print(f"[green]Success:[/green] Rule disabled")
@@ -324,6 +353,10 @@ def rules_delete(ctx: click.Context, rule_id: str, reason: Optional[str], yes: b
                 console.print("[red]Error:[/red] No active tenant session.")
                 return 1
 
+            rule_uuid = parse_uuid(rule_id, "rule ID")
+            if not rule_uuid:
+                return 1
+
             if not yes:
                 console.print("[yellow]Warning:[/yellow] This will soft delete the rule.")
                 if not click.confirm("Continue?"):
@@ -333,7 +366,7 @@ def rules_delete(ctx: click.Context, rule_id: str, reason: Optional[str], yes: b
             repo = AutomationRepository()
             result = await repo.delete_rule(
                 UUID(session_info["tenant_id"]),
-                UUID(rule_id),
+                rule_uuid,
                 reason=reason
             )
 
@@ -370,10 +403,14 @@ def rules_versions(ctx: click.Context, rule_id: str):
                 console.print("[red]Error:[/red] No active tenant session.")
                 return 1
 
+            rule_uuid = parse_uuid(rule_id, "rule ID")
+            if not rule_uuid:
+                return 1
+
             repo = AutomationRepository()
             versions = await repo.get_rule_versions(
                 UUID(session_info["tenant_id"]),
-                UUID(rule_id)
+                rule_uuid
             )
 
             if not versions:
@@ -424,10 +461,14 @@ def rules_rollback(ctx: click.Context, rule_id: str, version_num: int):
                 console.print("[red]Error:[/red] No active tenant session.")
                 return 1
 
+            rule_uuid = parse_uuid(rule_id, "rule ID")
+            if not rule_uuid:
+                return 1
+
             repo = AutomationRepository()
             result = await repo.rollback_rule(
                 UUID(session_info["tenant_id"]),
-                UUID(rule_id),
+                rule_uuid,
                 version_num,
                 session_info["user_email"],
             )
@@ -475,10 +516,14 @@ def rules_test(ctx: click.Context, rule_id: str, content: str):
                 console.print(f"[red]Error:[/red] Invalid content JSON: {e}")
                 return 1
 
+            rule_uuid = parse_uuid(rule_id, "rule ID")
+            if not rule_uuid:
+                return 1
+
             repo = AutomationRepository()
             rule = await repo.get_rule_by_id(
                 UUID(session_info["tenant_id"]),
-                UUID(rule_id)
+                rule_uuid
             )
 
             if not rule:

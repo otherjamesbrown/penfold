@@ -851,7 +851,7 @@ class ProgressiveSettings(Base, TimestampMixin, TenantMixin):
     notification_preferences = Column(
         JSONB,
         nullable=False,
-        default={},
+        default=dict,
         comment="Notification settings",
     )
 

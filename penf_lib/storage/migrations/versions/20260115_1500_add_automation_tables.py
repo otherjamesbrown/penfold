@@ -86,6 +86,13 @@ def upgrade() -> None:
     op.create_index('idx_versions_rule_active', 'automation_rule_versions', ['rule_id', 'is_active'])
     op.create_index('idx_versions_rule_number', 'automation_rule_versions', ['rule_id', 'version_number'])
 
+    # Partial unique index to ensure only one active version per rule (per data-model.md spec)
+    op.execute("""
+        CREATE UNIQUE INDEX uq_active_version_per_rule
+        ON automation_rule_versions (rule_id)
+        WHERE is_active IS TRUE
+    """)
+
     # Add FK from automation_rules to automation_rule_versions (after version table created)
     op.create_foreign_key(
         'fk_rules_current_version',
