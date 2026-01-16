@@ -101,48 +101,114 @@ The beads should be immediately workable - each bead must be specific enough tha
    - Include acceptance criteria
    - Reference test requirements if applicable
 
-5. **Dependencies**: Proper dependency chains
-   - Setup beads → no dependencies
+5. **Dependencies**: Proper dependency chains with parallel work support
+   - Setup beads → no dependencies (ready immediately)
    - Foundational beads → depend on setup
-   - User story beads → depend on foundational + previous stories if needed
-   - Polish beads → depend on core user stories
+   - User story beads → depend on foundational; only depend on other stories if truly required
+   - Polish beads → depend on ALL core user stories (creates convergence point)
+   - Epic → depends on polish bead (NOT the other way around!)
+
+### Dependency Direction Rules
+
+**CRITICAL**: Dependency direction affects what shows as "ready" in `bd ready`:
+
+```
+CORRECT: Epic depends on children (children are ready to work)
+  pe-epic ──depends-on──► pe-polish ──depends-on──► pe-us1
+
+WRONG: Children depend on epic (children blocked, never ready)
+  pe-epic ◄──depends-on── pe-polish ◄──depends-on── pe-us1
+```
+
+**Epic Linking**:
+- Epic should depend on the FINAL task (polish phase)
+- This creates: Epic blocked until all work complete
+- Child tasks remain "ready" when their dependencies are met
+
+### Parallel Work Identification
+
+**CRITICAL**: Maximize parallel work by only adding dependencies where truly required.
+
+**Parallel Candidates** - beads that can run simultaneously:
+- User stories that don't share data models or APIs
+- Different priority tracks (P1, P2, P3) after shared foundation
+- Test writing and documentation (if not blocking implementation)
+
+**Dependency Diamond Pattern** for parallel work:
+```
+        ┌── pe-us2 (P1) ──┐
+pe-us1 ─┼── pe-us4 (P2) ──┼── pe-polish
+        └── pe-us5 (P3) ──┘
+```
+After pe-us1 completes, pe-us2, pe-us4, and pe-us5 all become ready simultaneously.
 
 ### Bead Creation Commands
 
 Use these bd commands in sequence:
 
 ```bash
-# Create beads
-bd create --title="Feature: Phase - Description" --type=task --priority=1 --description="Detailed description with tasks and file paths"
+# Create beads (create ALL beads first, then set dependencies)
+bd create --title="Feature: Phase - Description" --type=task --priority=1 --description="Detailed description"
 
-# Set dependencies (after all beads created)
-bd dep add [dependent-bead-id] [dependency-bead-id]
+# Create epic for the feature
+bd create --title="[EPIC] Feature Name: Implementation" --type=epic --priority=1
+
+# Set sequential dependencies (task ordering)
+bd dep add [later-bead] [earlier-bead] --type=sequence
+
+# Link epic to final task (epic blocked until polish complete)
+bd dep add [epic-id] [polish-bead-id] --type=blocks
+
+# Verify dependency tree
+bd dep tree [epic-id]
 
 # Verify ready work
 bd ready
 ```
 
+### Dependency Type Reference
+
+| Type | Meaning | Use Case |
+|------|---------|----------|
+| `--type=sequence` | Task ordering | A must complete before B can start |
+| `--type=blocks` | Blocker relationship | Epic blocked until children complete |
+
 ### Phase Organization
 
 - **Phase 1 - Setup**: Project initialization, directory structure, configuration
   - 1 bead for entire setup phase
-  - Priority: P1 (0)
-  - No dependencies
+  - Priority: P0
+  - No dependencies (ready immediately)
 
 - **Phase 2 - Foundational**: Blocking prerequisites for ALL user stories
   - 1 bead for foundational infrastructure
-  - Priority: P1 (0)
-  - Depends on: Setup phase
+  - Priority: P0
+  - Depends on: Setup phase only
 
 - **Phase 3+ - User Stories**: One phase per user story from spec.md
-  - Priority: Match spec.md (P1=1, P2=2, P3=3)
-  - Depends on: Foundational + any prerequisite stories
+  - Priority: Match spec.md (P1, P2, P3)
+  - **PARALLEL WORK**: Only depend on foundational unless story truly requires another story
+  - Analyze each story: Does it NEED data/APIs from another story? If not, it can run in parallel
   - For complex stories, consider separate test/implementation beads
 
 - **Final Phase - Polish**: Cross-cutting concerns, optimization, documentation
   - 1 bead for polish work
-  - Priority: P3-P4 (3-4)
-  - Depends on: Core user stories
+  - Priority: P3
+  - Depends on: ALL user story beads (convergence point)
+  - This is where parallel streams reunite
+
+### Example Parallel Structure
+
+```
+Phase 1 (Setup) ─► Phase 2 (Foundation) ─┬─► US1 (P1) ─► US2 (P1) ─► US3 (P1) ─┬─► Polish ─► Epic
+                                         ├─► US4 (P2) ─────────────────────────┤
+                                         └─► US5 (P3) ─────────────────────────┘
+```
+
+In this example:
+- US1 → US2 → US3: Sequential (each builds on previous)
+- US4, US5: Parallel with US1-3 (independent work streams)
+- Polish: Blocked until US3, US4, AND US5 all complete
 
 ### Integration with Existing Workflow
 
