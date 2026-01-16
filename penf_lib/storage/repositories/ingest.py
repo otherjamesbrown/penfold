@@ -14,20 +14,15 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from penf_lib.storage.models import IngestJob, IngestError as IngestErrorModel
 from .base import BaseRepository
 
-# Note: IngestJob model will be added to storage/models.py in Phase 2
 
-
-class IngestJobRepository:
+class IngestJobRepository(BaseRepository[IngestJob]):
     """Repository for IngestJob entities.
 
     Provides CRUD operations and specialized queries for
     ingest job tracking and progress management.
-
-    Note: This is a stub implementation. Full implementation
-    will be added in Phase 2 (Foundation) when SQLAlchemy
-    models are created.
     """
 
     def __init__(self, session: AsyncSession):
@@ -36,61 +31,108 @@ class IngestJobRepository:
         Args:
             session: Async SQLAlchemy session
         """
-        self.session = session
+        super().__init__(session, IngestJob)
 
     async def create_job(
         self,
         tenant_id: UUID,
         source_tag: str,
         file_manifest: list[str],
+        content_type: str = "email",
         options: Optional[dict[str, Any]] = None,
-    ) -> UUID:
+    ) -> IngestJob:
         """Create a new ingest job.
 
         Args:
             tenant_id: Tenant ID for isolation
             source_tag: User-provided source identifier
             file_manifest: List of file paths to process
+            content_type: Type of content (email, document, etc.)
             options: Job options (preserve_folders, etc.)
 
         Returns:
-            UUID of created job
+            Created IngestJob instance
         """
-        # TODO: Implement when IngestJob model is added
-        raise NotImplementedError("IngestJob model pending - see Phase 2")
+        job = IngestJob(
+            tenant_id=tenant_id,
+            source_tag=source_tag,
+            content_type=content_type,
+            total_files=len(file_manifest),
+            file_manifest=file_manifest,
+            processed_files=[],
+            options=options or {},
+            status="pending",
+        )
+        self.session.add(job)
+        await self.session.flush()
+        return job
 
-    async def get_job(self, job_id: UUID, tenant_id: UUID) -> Optional[dict]:
-        """Get job by ID.
+    async def get_job(self, job_id: UUID, tenant_id: UUID) -> Optional[IngestJob]:
+        """Get job by ID with tenant isolation.
 
         Args:
             job_id: Job identifier
             tenant_id: Tenant ID for isolation
 
         Returns:
-            Job data or None if not found
+            IngestJob or None if not found
         """
-        # TODO: Implement when IngestJob model is added
-        raise NotImplementedError("IngestJob model pending - see Phase 2")
+        stmt = select(IngestJob).where(
+            IngestJob.id == job_id,
+            IngestJob.tenant_id == tenant_id,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def start_job(self, job_id: UUID) -> None:
+        """Mark job as started.
+
+        Args:
+            job_id: Job identifier
+        """
+        stmt = (
+            update(IngestJob)
+            .where(IngestJob.id == job_id)
+            .values(
+                status="in_progress",
+                started_at=datetime.now(timezone.utc),
+            )
+        )
+        await self.session.execute(stmt)
 
     async def update_progress(
         self,
         job_id: UUID,
         processed_file: str,
-        imported: int = 0,
-        skipped: int = 0,
-        failed: int = 0,
+        status: str,  # "imported", "skipped", "failed"
     ) -> None:
         """Update job progress after processing a file.
 
         Args:
             job_id: Job identifier
             processed_file: Path to completed file
-            imported: Increment for imported count
-            skipped: Increment for skipped count
-            failed: Increment for failed count
+            status: Processing result for this file
         """
-        # TODO: Implement when IngestJob model is added
-        raise NotImplementedError("IngestJob model pending - see Phase 2")
+        # Get current job state
+        stmt = select(IngestJob).where(IngestJob.id == job_id)
+        result = await self.session.execute(stmt)
+        job = result.scalar_one()
+
+        # Update counters
+        job.processed_count += 1
+        if status == "imported":
+            job.imported_count += 1
+        elif status == "skipped":
+            job.skipped_count += 1
+        elif status == "failed":
+            job.failed_count += 1
+
+        # Add to processed files list (for resume)
+        processed_files = list(job.processed_files)
+        processed_files.append(processed_file)
+        job.processed_files = processed_files
+
+        await self.session.flush()
 
     async def complete_job(
         self,
@@ -103,27 +145,43 @@ class IngestJobRepository:
             job_id: Job identifier
             status: Final status (completed, failed, cancelled)
         """
-        # TODO: Implement when IngestJob model is added
-        raise NotImplementedError("IngestJob model pending - see Phase 2")
+        stmt = (
+            update(IngestJob)
+            .where(IngestJob.id == job_id)
+            .values(
+                status=status,
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+        await self.session.execute(stmt)
 
     async def list_jobs(
         self,
         tenant_id: UUID,
         status: Optional[str] = None,
         limit: int = 10,
-    ) -> list[dict]:
+        offset: int = 0,
+    ) -> list[IngestJob]:
         """List jobs for a tenant.
 
         Args:
             tenant_id: Tenant ID for isolation
             status: Optional status filter
             limit: Maximum results
+            offset: Skip first N results
 
         Returns:
-            List of job data dictionaries
+            List of IngestJob instances
         """
-        # TODO: Implement when IngestJob model is added
-        raise NotImplementedError("IngestJob model pending - see Phase 2")
+        stmt = select(IngestJob).where(IngestJob.tenant_id == tenant_id)
+
+        if status:
+            stmt = stmt.where(IngestJob.status == status)
+
+        stmt = stmt.order_by(IngestJob.created_at.desc()).limit(limit).offset(offset)
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_unprocessed_files(self, job_id: UUID) -> list[str]:
         """Get files not yet processed for resume capability.
@@ -134,11 +192,51 @@ class IngestJobRepository:
         Returns:
             List of unprocessed file paths
         """
-        # TODO: Implement when IngestJob model is added
-        raise NotImplementedError("IngestJob model pending - see Phase 2")
+        stmt = select(IngestJob).where(IngestJob.id == job_id)
+        result = await self.session.execute(stmt)
+        job = result.scalar_one_or_none()
+
+        if not job:
+            return []
+
+        processed_set = set(job.processed_files)
+        return [f for f in job.file_manifest if f not in processed_set]
+
+    async def get_job_summary(self, job_id: UUID) -> Optional[dict[str, Any]]:
+        """Get summary statistics for a job.
+
+        Args:
+            job_id: Job identifier
+
+        Returns:
+            Summary dictionary or None if not found
+        """
+        stmt = select(IngestJob).where(IngestJob.id == job_id)
+        result = await self.session.execute(stmt)
+        job = result.scalar_one_or_none()
+
+        if not job:
+            return None
+
+        duration = None
+        if job.started_at and job.completed_at:
+            duration = (job.completed_at - job.started_at).total_seconds()
+
+        return {
+            "job_id": str(job.id),
+            "source_tag": job.source_tag,
+            "status": job.status,
+            "total_files": job.total_files,
+            "imported_count": job.imported_count,
+            "skipped_count": job.skipped_count,
+            "failed_count": job.failed_count,
+            "started_at": job.started_at,
+            "completed_at": job.completed_at,
+            "duration_seconds": duration,
+        }
 
 
-class IngestErrorRepository:
+class IngestErrorRepository(BaseRepository[IngestErrorModel]):
     """Repository for IngestError entities.
 
     Tracks detailed error information for failed files
@@ -151,7 +249,7 @@ class IngestErrorRepository:
         Args:
             session: Async SQLAlchemy session
         """
-        self.session = session
+        super().__init__(session, IngestErrorModel)
 
     async def record_error(
         self,
@@ -160,7 +258,7 @@ class IngestErrorRepository:
         error_type: str,
         error_message: str,
         error_details: Optional[dict[str, Any]] = None,
-    ) -> UUID:
+    ) -> IngestErrorModel:
         """Record a file processing error.
 
         Args:
@@ -171,19 +269,47 @@ class IngestErrorRepository:
             error_details: Additional context
 
         Returns:
-            UUID of error record
+            Created IngestError instance
         """
-        # TODO: Implement when IngestError model is added
-        raise NotImplementedError("IngestError model pending - see Phase 2")
+        error = IngestErrorModel(
+            job_id=job_id,
+            file_path=file_path,
+            error_type=error_type,
+            error_message=error_message,
+            error_details=error_details,
+        )
+        self.session.add(error)
+        await self.session.flush()
+        return error
 
-    async def get_errors_for_job(self, job_id: UUID) -> list[dict]:
+    async def get_errors_for_job(self, job_id: UUID) -> list[IngestErrorModel]:
         """Get all errors for a job.
 
         Args:
             job_id: Job identifier
 
         Returns:
-            List of error records
+            List of IngestError instances
         """
-        # TODO: Implement when IngestError model is added
-        raise NotImplementedError("IngestError model pending - see Phase 2")
+        stmt = (
+            select(IngestErrorModel)
+            .where(IngestErrorModel.job_id == job_id)
+            .order_by(IngestErrorModel.created_at)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_error_summary(self, job_id: UUID) -> dict[str, int]:
+        """Get error counts by type for a job.
+
+        Args:
+            job_id: Job identifier
+
+        Returns:
+            Dictionary of error_type -> count
+        """
+        errors = await self.get_errors_for_job(job_id)
+        summary: dict[str, int] = {}
+        for error in errors:
+            summary[error.error_type] = summary.get(error.error_type, 0) + 1
+        return summary

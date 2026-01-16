@@ -448,3 +448,161 @@ class RelationshipArchivedEvent(BaseEvent):
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }
+
+
+# =============================================================================
+# MANUAL INGEST EVENTS (Feature 012)
+# =============================================================================
+
+
+class ManualEmailIngestedEvent(BaseEvent):
+    """Event published when an email is successfully ingested from .eml file.
+
+    Triggers the AI processing pipeline (embeddings, assertions, entity resolution).
+
+    Reference: specs/012-manual-ingest/contracts/events.md
+    """
+
+    event_type: str = "manual_email.ingested"
+
+    # Identifiers
+    source_id: int = Field(description="Database ID in sources table")
+    tenant_id: str = Field(description="Tenant ID for isolation")
+    message_id: str = Field(description="Email Message-ID (real or synthetic)")
+    job_id: str = Field(description="Parent IngestJob ID")
+
+    # Email metadata
+    from_email: str = Field(description="Sender email address")
+    from_name: Optional[str] = Field(default=None, description="Sender display name")
+    to_emails: List[str] = Field(description="To recipients")
+    cc_emails: List[str] = Field(default_factory=list, description="CC recipients")
+    subject: Optional[str] = Field(default=None, description="Email subject")
+    email_date: datetime = Field(description="Original or fallback date")
+    date_is_fallback: bool = Field(default=False, description="True if using ingestion timestamp")
+
+    # Threading
+    in_reply_to: Optional[str] = Field(default=None, description="In-Reply-To header")
+    thread_id: Optional[str] = Field(default=None, description="Linked thread ID if found")
+
+    # Content info
+    has_attachments: bool = Field(description="Whether email has attachments")
+    attachment_count: int = Field(default=0, description="Number of attachments")
+    content_hash: str = Field(description="SHA-256 of raw .eml content")
+
+    # Source tracking
+    source_tag: str = Field(description="User-provided source identifier")
+    original_file_path: str = Field(description="Path in upload batch")
+    labels: List[str] = Field(default_factory=list, description="Labels from folder structure")
+
+    class Config:
+        """Pydantic configuration."""
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class IngestJobProgressEvent(BaseEvent):
+    """Event published periodically during batch processing to track progress.
+
+    Reference: specs/012-manual-ingest/contracts/events.md
+    """
+
+    event_type: str = "ingest_job.progress"
+
+    # Identifiers
+    job_id: str = Field(description="Ingest job ID")
+    tenant_id: str = Field(description="Tenant ID for isolation")
+
+    # Progress stats
+    total_files: int = Field(description="Total files in batch")
+    processed_count: int = Field(description="Files processed so far")
+    imported_count: int = Field(description="Successfully imported")
+    skipped_count: int = Field(description="Skipped (duplicates)")
+    failed_count: int = Field(description="Failed to process")
+
+    # Current file
+    current_file: Optional[str] = Field(default=None, description="Currently processing file")
+
+    # Timing
+    elapsed_seconds: float = Field(description="Seconds since job started")
+    estimated_remaining_seconds: Optional[float] = Field(default=None, description="Estimated time remaining")
+
+    # Status
+    status: str = Field(description="Current status: in_progress, completing")
+
+    class Config:
+        """Pydantic configuration."""
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class IngestJobCompletedEvent(BaseEvent):
+    """Event published when a batch ingest job finishes.
+
+    Reference: specs/012-manual-ingest/contracts/events.md
+    """
+
+    event_type: str = "ingest_job.completed"
+
+    # Identifiers
+    job_id: str = Field(description="Ingest job ID")
+    tenant_id: str = Field(description="Tenant ID for isolation")
+    source_tag: str = Field(description="User-provided source identifier")
+
+    # Final stats
+    total_files: int = Field(description="Total files in batch")
+    imported_count: int = Field(description="Successfully imported")
+    skipped_count: int = Field(description="Skipped (duplicates)")
+    failed_count: int = Field(description="Failed to process")
+
+    # Timing
+    started_at: datetime = Field(description="When job started")
+    completed_at: datetime = Field(description="When job finished")
+    duration_seconds: float = Field(description="Total processing time")
+
+    # Status
+    success: bool = Field(description="True if failed_count == 0")
+    final_status: str = Field(description="Status: completed, completed_with_errors, failed")
+
+    # Labels and attachments
+    labels_created: List[str] = Field(default_factory=list, description="Labels from folder structure")
+    attachments_extracted: int = Field(default=0, description="Attachments successfully extracted")
+    attachments_skipped: int = Field(default=0, description="Attachments skipped (oversized, etc.)")
+
+    class Config:
+        """Pydantic configuration."""
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class ManualAttachmentExtractedEvent(BaseEvent):
+    """Event published when an attachment is extracted from a manually ingested email.
+
+    Reference: specs/012-manual-ingest/contracts/events.md
+    """
+
+    event_type: str = "manual_attachment.extracted"
+
+    # Identifiers
+    attachment_id: str = Field(description="Attachment record ID")
+    source_id: int = Field(description="Parent email source ID")
+    tenant_id: str = Field(description="Tenant ID for isolation")
+
+    # Attachment info
+    filename: str = Field(description="Original filename")
+    mime_type: str = Field(description="MIME content type")
+    size_bytes: int = Field(description="File size in bytes")
+
+    # Document reference (for future document processing)
+    document_id: Optional[str] = Field(default=None, description="Extracted document record")
+
+    # Status
+    extraction_status: str = Field(description="Status: completed, skipped_oversized, skipped_unsupported")
+
+    class Config:
+        """Pydantic configuration."""
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
