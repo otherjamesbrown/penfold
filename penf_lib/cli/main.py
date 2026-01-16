@@ -16,6 +16,7 @@ from .review_commands import review_group
 from .automation_commands import automation_group
 from .search_commands import search_group
 from .escalation_commands import escalation_group
+from .ingest_commands import ingest_group
 
 # Initialize rich console for beautiful output
 console = Console()
@@ -81,6 +82,9 @@ cli.add_command(search_group)
 
 # Add escalation workflow commands
 cli.add_command(escalation_group)
+
+# Add manual ingest commands
+cli.add_command(ingest_group)
 
 
 @cli.command()
