@@ -39,6 +39,7 @@ from penf_lib.search.correlations import (
     find_related_by_person,
     find_related_by_project,
 )
+from penf_lib.search.filters import FilterPipeline
 
 if TYPE_CHECKING:
     from penf_lib.storage.repositories.search import SearchRepository
@@ -180,14 +181,29 @@ class SearchEngine:
             preferred_types=[],  # TODO: Get from user context
         )
 
-        # Apply confidence filter if specified
-        if query.min_confidence is not None:
-            ranked = self.ranker.filter_by_confidence(ranked, query.min_confidence)
+        # 8. Apply advanced filters using FilterPipeline
+        # Build pipeline from query parameters (participants, projects, confidence, temporal)
+        filter_pipeline = FilterPipeline.from_search_query(query)
 
-        # 8. Apply pagination
+        # Extract SearchResults from RankedResults for filtering
+        search_results = [r.result for r in ranked]
+
+        # Apply filter pipeline and get statistics
+        if filter_pipeline:
+            filtered_results, filter_stats = filter_pipeline.apply(search_results)
+            # Rebuild ranked list with only filtered results
+            filtered_ids = {r.entity_id for r in filtered_results}
+            ranked = [r for r in ranked if r.result.entity_id in filtered_ids]
+
+            logger.info(
+                f"Filter pipeline applied: {filter_stats.total_before} -> {filter_stats.total_after} "
+                f"({filter_stats.reduction_percentage:.1f}% reduction)"
+            )
+
+        # 9. Apply pagination
         paginated = ranked[query.offset:query.offset + query.limit]
 
-        # 9. Build response
+        # 10. Build response
         execution_time = int((datetime.utcnow() - start_time).total_seconds() * 1000)
 
         # Build filters_applied dict
@@ -196,6 +212,17 @@ class SearchEngine:
             filters_applied["content_types"] = [ct.value for ct in query.content_types]
         if extracted_filters:
             filters_applied.update(extracted_filters)
+        if query.participants:
+            filters_applied["participants"] = query.participants
+        if query.projects:
+            filters_applied["projects"] = query.projects
+        if query.min_confidence is not None:
+            filters_applied["min_confidence"] = query.min_confidence
+        if query.temporal:
+            if query.temporal.start_date:
+                filters_applied["since"] = query.temporal.start_date.isoformat()
+            if query.temporal.end_date:
+                filters_applied["until"] = query.temporal.end_date.isoformat()
 
         response = SearchResponse(
             metadata=SearchMetadata(
@@ -213,8 +240,25 @@ class SearchEngine:
             next_offset=query.offset + query.limit if query.offset + query.limit < len(ranked) else None,
         )
 
-        # 10. Cache and return
+        # 11. Cache and return
         await self.cache_manager.cache_results(self.tenant_id, query, response)
+
+        # 12. Record analytics (fire and forget, don't block response)
+        try:
+            from penf_lib.search.analytics import AnalyticsCollector
+
+            analytics = AnalyticsCollector(self.session, self.tenant_id)
+            await analytics.record_search(
+                query_text=query.query_text,
+                result_count=len(ranked),
+                execution_time_ms=execution_time,
+                cache_hit=False,
+                search_strategy=response.metadata.search_strategy,
+                filters=filters_applied,
+            )
+        except Exception as analytics_error:
+            # Don't fail the search if analytics recording fails
+            logger.warning(f"Analytics recording failed: {analytics_error}")
 
         logger.info(
             f"Search completed: query='{query.query_text[:50]}...' "

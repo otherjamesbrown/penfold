@@ -20,6 +20,7 @@ import json
 import sys
 import uuid
 from datetime import datetime
+from typing import Optional, Tuple
 
 import click
 from rich.console import Console
@@ -155,6 +156,30 @@ def search_group(ctx: click.Context):
     help="Content types to search (can specify multiple)"
 )
 @click.option(
+    "--exclude", "-x",
+    "exclude_types",
+    multiple=True,
+    type=click.Choice(["email", "meeting", "document", "slack"]),
+    help="Content types to exclude from search (can specify multiple)"
+)
+@click.option(
+    "--participant", "-p",
+    "participants",
+    multiple=True,
+    help="Filter by participant email/name (can specify multiple, matches ANY)"
+)
+@click.option(
+    "--project",
+    "projects",
+    multiple=True,
+    help="Filter by project reference (can specify multiple, matches ANY)"
+)
+@click.option(
+    "--min-confidence",
+    type=float,
+    help="Minimum AI confidence score (0.0-1.0)"
+)
+@click.option(
     "--since",
     type=click.DateTime(),
     help="Filter results from this date/time onwards"
@@ -183,9 +208,13 @@ def search_group(ctx: click.Context):
 def search_query(
     ctx: click.Context,
     query_text: str,
-    content_types: tuple[str, ...],
-    since: datetime | None,
-    until: datetime | None,
+    content_types: Tuple[str, ...],
+    exclude_types: Tuple[str, ...],
+    participants: Tuple[str, ...],
+    projects: Tuple[str, ...],
+    min_confidence: Optional[float],
+    since: Optional[datetime],
+    until: Optional[datetime],
     limit: int,
     output_format: str,
 ):
@@ -195,7 +224,15 @@ def search_query(
         penf search query "customer deployment issues"
         penf search query "meeting about Atlas" --type meeting --limit 10
         penf search query "budget discussions" --format json
+        penf search query "project updates" --participant alice@example.com
+        penf search query "deployment" --project Atlas --min-confidence 0.8
+        penf search query "all meetings" --exclude slack --exclude document
     """
+    # Validate min_confidence if provided
+    if min_confidence is not None and not 0.0 <= min_confidence <= 1.0:
+        console.print("[red]Error: --min-confidence must be between 0.0 and 1.0[/red]")
+        raise click.Abort()
+
     async def run_search():
         tenant_id = ctx.obj.get("tenant") if ctx.obj else None
         tenant_id = tenant_id or "default"
@@ -209,6 +246,21 @@ def search_query(
             else:
                 types = [ContentTypeFilter.ALL]
 
+            # Handle exclusions by removing from the type list
+            if exclude_types:
+                exclude_set = set(exclude_types)
+                if ContentTypeFilter.ALL in types:
+                    # If ALL was requested, replace with all types except excluded
+                    all_types = [
+                        ContentTypeFilter.EMAIL,
+                        ContentTypeFilter.MEETING,
+                        ContentTypeFilter.DOCUMENT,
+                        ContentTypeFilter.SLACK,
+                    ]
+                    types = [t for t in all_types if t.value not in exclude_set]
+                else:
+                    types = [t for t in types if t.value not in exclude_set]
+
             # Build temporal constraint if provided
             temporal = None
             if since or until:
@@ -218,11 +270,14 @@ def search_query(
                     end_date=until,
                 )
 
-            # Build query
+            # Build query with all filter options
             query = SearchQuery(
                 query_text=query_text,
                 content_types=types,
                 temporal=temporal,
+                participants=list(participants) if participants else None,
+                projects=list(projects) if projects else None,
+                min_confidence=min_confidence,
                 limit=limit,
             )
 
@@ -374,6 +429,10 @@ def search_history(
 
 @search_group.command(name="suggest")
 @click.option(
+    "--prefix", "-p",
+    help="Prefix to filter suggestions (for autocomplete)"
+)
+@click.option(
     "--context", "-c",
     help="Optional context to base suggestions on"
 )
@@ -384,38 +443,363 @@ def search_history(
     show_default=True,
     help="Number of suggestions to return"
 )
+@click.option(
+    "--format", "-f",
+    "output_format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+    help="Output format"
+)
 @click.pass_context
 def search_suggest(
     ctx: click.Context,
-    context: str | None,
+    prefix: Optional[str],
+    context: Optional[str],
     limit: int,
+    output_format: str,
 ):
-    """Get AI-powered query suggestions.
+    """Get query suggestions for autocomplete.
 
-    Generate intelligent search suggestions based on your recent
-    activity, content patterns, and optional context.
+    Generate search suggestions based on popular queries, your recent
+    searches, and optional context or prefix filtering.
 
     Examples:
 
         penf search suggest
 
+        penf search suggest -p "meeting"
+
         penf search suggest -c "preparing for quarterly review"
 
-        penf search suggest -l 10
+        penf search suggest -l 10 -f json
     """
-    async def _suggest():
-        try:
-            console.print("[dim]Not yet implemented (Phase 6)[/dim]")
-            if context:
-                console.print(f"[dim]Context: {context}[/dim]")
-            console.print(f"[dim]Would return {limit} suggestions[/dim]")
-            return 0
-        except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
-            return 1
+    from penf_lib.search.suggestions import SuggestionEngine
 
-    result = run_async(_suggest())
-    sys.exit(result)
+    async def _suggest():
+        tenant_id = ctx.obj.get("tenant") if ctx.obj else None
+        tenant_id = tenant_id or "default"
+
+        async with get_session() as session:
+            engine = SuggestionEngine(session, tenant_id)
+
+            if context:
+                suggestions = await engine.get_contextual_suggestions(
+                    context=context, limit=limit
+                )
+            else:
+                suggestions = await engine.get_suggestions(
+                    prefix=prefix, limit=limit
+                )
+
+            if not suggestions:
+                console.print("[dim]No suggestions found.[/dim]")
+                return 0
+
+            if output_format == "json":
+                json_data = [
+                    {
+                        "text": s.text,
+                        "type": s.suggestion_type,
+                        "frequency": s.frequency,
+                        "success_rate": s.success_rate,
+                    }
+                    for s in suggestions
+                ]
+                console.print_json(json.dumps(json_data, indent=2))
+            else:
+                table = Table(
+                    title="Query Suggestions",
+                    show_header=True,
+                    header_style="bold",
+                )
+                table.add_column("#", width=3)
+                table.add_column("Suggestion", width=40)
+                table.add_column("Type", width=12)
+                table.add_column("Frequency", width=10, justify="right")
+                table.add_column("Success", width=10, justify="right")
+
+                for i, s in enumerate(suggestions, 1):
+                    success_display = f"{s.success_rate * 100:.0f}%" if s.success_rate else "-"
+                    table.add_row(
+                        str(i),
+                        s.text,
+                        s.suggestion_type,
+                        str(s.frequency),
+                        success_display,
+                    )
+
+                console.print(table)
+
+            return 0
+
+    try:
+        result = run_async(_suggest())
+        sys.exit(result)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    finally:
+        run_async(cleanup_connections())
+
+
+# =============================================================================
+# SEARCH POPULAR COMMAND
+# =============================================================================
+
+
+@search_group.command(name="popular")
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=10,
+    show_default=True,
+    help="Number of popular queries to show",
+)
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+    help="Output format",
+)
+@click.pass_context
+def search_popular(
+    ctx: click.Context,
+    limit: int,
+    output_format: str,
+):
+    """Show most popular search queries.
+
+    Display the most frequently used search queries, ranked by
+    frequency and success rate.
+
+    Examples:
+
+        penf search popular
+
+        penf search popular -l 20
+
+        penf search popular -f json
+    """
+    from penf_lib.search.suggestions import SuggestionEngine
+
+    async def _popular():
+        tenant_id = ctx.obj.get("tenant") if ctx.obj else None
+        tenant_id = tenant_id or "default"
+
+        async with get_session() as session:
+            engine = SuggestionEngine(session, tenant_id)
+
+            suggestions = await engine.get_popular_queries(limit=limit)
+
+            if not suggestions:
+                console.print("[dim]No popular queries found.[/dim]")
+                return 0
+
+            if output_format == "json":
+                json_data = [
+                    {
+                        "query": s.text,
+                        "frequency": s.frequency,
+                        "success_rate": s.success_rate,
+                    }
+                    for s in suggestions
+                ]
+                console.print_json(json.dumps(json_data, indent=2))
+            else:
+                table = Table(
+                    title="Popular Search Queries",
+                    show_header=True,
+                    header_style="bold",
+                )
+                table.add_column("Rank", width=5, justify="center")
+                table.add_column("Query", width=45)
+                table.add_column("Searches", width=10, justify="right")
+                table.add_column("Success Rate", width=12, justify="right")
+
+                for i, s in enumerate(suggestions, 1):
+                    success_display = (
+                        f"{s.success_rate * 100:.0f}%" if s.success_rate else "-"
+                    )
+                    table.add_row(
+                        str(i),
+                        s.text,
+                        str(s.frequency),
+                        success_display,
+                    )
+
+                console.print(table)
+
+            return 0
+
+    try:
+        result = run_async(_popular())
+        sys.exit(result)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    finally:
+        run_async(cleanup_connections())
+
+
+# =============================================================================
+# SEARCH STATS COMMAND
+# =============================================================================
+
+
+@search_group.command(name="stats")
+@click.option(
+    "--days",
+    "-d",
+    type=int,
+    default=7,
+    show_default=True,
+    help="Number of days to analyze",
+)
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["pretty", "json"]),
+    default="pretty",
+    show_default=True,
+    help="Output format",
+)
+@click.pass_context
+def search_stats(
+    ctx: click.Context,
+    days: int,
+    output_format: str,
+):
+    """Show search analytics and statistics.
+
+    Display aggregated search metrics including query counts,
+    performance percentiles, cache effectiveness, and success rates.
+
+    Examples:
+
+        penf search stats
+
+        penf search stats -d 30
+
+        penf search stats -f json
+    """
+    from penf_lib.search.analytics import AnalyticsCollector
+
+    async def _stats():
+        tenant_id = ctx.obj.get("tenant") if ctx.obj else None
+        tenant_id = tenant_id or "default"
+
+        async with get_session() as session:
+            collector = AnalyticsCollector(session, tenant_id)
+
+            metrics = await collector.get_metrics(days=days)
+            trending = await collector.get_trending_queries(limit=5, days=days)
+
+            if output_format == "json":
+                json_data = {
+                    "period_days": days,
+                    "metrics": {
+                        "total_queries": metrics.total_queries,
+                        "unique_users": metrics.unique_users,
+                        "avg_execution_time_ms": metrics.avg_execution_time_ms,
+                        "cache_hit_rate": metrics.cache_hit_rate,
+                        "zero_result_rate": metrics.zero_result_rate,
+                        "successful_search_rate": metrics.successful_search_rate,
+                        "p50_execution_time_ms": metrics.p50_execution_time_ms,
+                        "p95_execution_time_ms": metrics.p95_execution_time_ms,
+                        "p99_execution_time_ms": metrics.p99_execution_time_ms,
+                    },
+                    "strategy_distribution": metrics.content_type_distribution,
+                    "trending_queries": trending,
+                }
+                console.print_json(json.dumps(json_data, indent=2))
+            else:
+                # Header panel
+                console.print(
+                    Panel(
+                        f"Search Analytics - Last {days} Days",
+                        style="bold blue",
+                    )
+                )
+
+                # Metrics table
+                metrics_table = Table(
+                    title="Performance Metrics",
+                    show_header=True,
+                    header_style="bold",
+                )
+                metrics_table.add_column("Metric", width=25)
+                metrics_table.add_column("Value", width=20, justify="right")
+
+                metrics_table.add_row("Total Queries", str(metrics.total_queries))
+                metrics_table.add_row(
+                    "Average Response Time",
+                    f"{metrics.avg_execution_time_ms:.0f}ms",
+                )
+                metrics_table.add_row(
+                    "Cache Hit Rate", f"{metrics.cache_hit_rate * 100:.1f}%"
+                )
+                metrics_table.add_row(
+                    "Success Rate", f"{metrics.successful_search_rate * 100:.1f}%"
+                )
+                metrics_table.add_row(
+                    "Zero Result Rate", f"{metrics.zero_result_rate * 100:.1f}%"
+                )
+
+                console.print(metrics_table)
+
+                # Percentiles table
+                perf_table = Table(
+                    title="Response Time Percentiles",
+                    show_header=True,
+                    header_style="bold",
+                )
+                perf_table.add_column("Percentile", width=15)
+                perf_table.add_column("Time", width=15, justify="right")
+
+                perf_table.add_row("p50 (median)", f"{metrics.p50_execution_time_ms}ms")
+                perf_table.add_row("p95", f"{metrics.p95_execution_time_ms}ms")
+                perf_table.add_row("p99", f"{metrics.p99_execution_time_ms}ms")
+
+                console.print(perf_table)
+
+                # Trending queries
+                if trending:
+                    trend_table = Table(
+                        title="Trending Queries",
+                        show_header=True,
+                        header_style="bold",
+                    )
+                    trend_table.add_column("#", width=3)
+                    trend_table.add_column("Query", width=35)
+                    trend_table.add_column("Searches", width=10, justify="right")
+                    trend_table.add_column("Success", width=10, justify="right")
+
+                    for i, t in enumerate(trending, 1):
+                        trend_table.add_row(
+                            str(i),
+                            t["query"],
+                            str(t["frequency"]),
+                            t["success_rate"],
+                        )
+
+                    console.print(trend_table)
+
+            return 0
+
+    try:
+        result = run_async(_stats())
+        sys.exit(result)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    finally:
+        run_async(cleanup_connections())
 
 
 # =============================================================================
@@ -425,11 +809,13 @@ def search_suggest(
 
 def _print_related_pretty(response: RelatedContentResponse) -> None:
     """Print related content in rich formatted output."""
-    console.print(Panel(
-        f"Found [bold]{response.total_correlations}[/bold] related items "
-        f"in {response.execution_time_ms}ms",
-        title=f"Related to {response.entity_type}/{response.entity_id}",
-    ))
+    console.print(
+        Panel(
+            f"Found [bold]{response.total_correlations}[/bold] related items "
+            f"in {response.execution_time_ms}ms",
+            title=f"Related to {response.entity_type}/{response.entity_id}",
+        )
+    )
 
     for i, item in enumerate(response.related_content, 1):
         _print_related_card(i, item)
