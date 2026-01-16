@@ -8,11 +8,15 @@ Tests query parsing functionality for the search interface including:
 - Content type filter extraction
 - Project filter extraction
 - Quoted phrase preservation
+- Temporal expression parsing
 """
+
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
 
-from penf_lib.search.query_parser import QueryEmbedder, QueryParser
+from penf_lib.search.query_parser import QueryEmbedder, QueryParser, TemporalQueryParser
 
 
 @pytest.mark.unit
@@ -169,49 +173,55 @@ class TestQueryParserParse:
     def test_parse_simple_query(self):
         """Parse simple query without filters."""
         parser = QueryParser()
-        normalized, filters = parser.parse("Simple Query Text")
+        normalized, filters, temporal = parser.parse("Simple Query Text")
         assert normalized == "simple query text"
         assert filters == {}
+        assert temporal is None
 
     def test_parse_query_with_filters(self):
         """Parse query with filters and normalize text."""
         parser = QueryParser()
-        normalized, filters = parser.parse("from:alice@example.com MTG notes about PROJ")
+        normalized, filters, temporal = parser.parse("from:alice@example.com MTG notes about PROJ")
         assert normalized == "meeting notes about project"
         assert filters["participants"] == ["alice@example.com"]
+        assert temporal is None
 
     def test_parse_query_with_quoted_phrase(self):
         """Parse query preserving quoted phrase."""
         parser = QueryParser()
-        normalized, filters = parser.parse('type:email "Exact Subject"')
+        normalized, filters, temporal = parser.parse('type:email "Exact Subject"')
         assert normalized == '"Exact Subject"'
         assert filters["content_types"] == ["email"]
+        assert temporal is None
 
     def test_parse_complex_query(self):
         """Parse complex query with multiple components."""
         parser = QueryParser()
-        normalized, filters = parser.parse(
+        normalized, filters, temporal = parser.parse(
             'from:alice@example.com type:email project:Atlas "Critical Issue" mtg'
         )
         assert normalized == '"Critical Issue" meeting'
         assert filters["participants"] == ["alice@example.com"]
         assert filters["content_types"] == ["email"]
         assert filters["projects"] == ["Atlas"]
+        assert temporal is None
 
     def test_parse_empty_query(self):
         """Parse empty query."""
         parser = QueryParser()
-        normalized, filters = parser.parse("")
+        normalized, filters, temporal = parser.parse("")
         assert normalized == ""
         assert filters == {}
+        assert temporal is None
 
     def test_parse_only_filters(self):
         """Parse query with only filters."""
         parser = QueryParser()
-        normalized, filters = parser.parse("from:alice@example.com type:email")
+        normalized, filters, temporal = parser.parse("from:alice@example.com type:email")
         assert normalized == ""
         assert filters["participants"] == ["alice@example.com"]
         assert filters["content_types"] == ["email"]
+        assert temporal is None
 
 
 @pytest.mark.unit
@@ -269,3 +279,286 @@ class TestQueryEmbedder:
         """Embedder accepts custom model name."""
         embedder = QueryEmbedder(model_name="custom-model")
         assert embedder.model_name == "custom-model"
+
+
+@pytest.mark.unit
+class TestTemporalQueryParserRelativePatterns:
+    """Test relative temporal expression parsing."""
+
+    def test_last_week_pattern(self):
+        """Parse 'last week' temporal expression."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("emails from last week")
+        assert remaining == "emails from"
+        assert temporal is not None
+        assert temporal.start_date is not None
+        assert temporal.end_date is not None
+        # Start should be about 7 days ago
+        now = datetime.now(timezone.utc)
+        expected_start = now - timedelta(weeks=1)
+        assert abs((temporal.start_date - expected_start).total_seconds()) < 60
+
+    def test_last_month_pattern(self):
+        """Parse 'last month' temporal expression."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("meetings last month")
+        assert remaining == "meetings"
+        assert temporal is not None
+        now = datetime.now(timezone.utc)
+        expected_start = now - timedelta(days=30)
+        assert abs((temporal.start_date - expected_start).total_seconds()) < 60
+
+    def test_yesterday_pattern(self):
+        """Parse 'yesterday' temporal expression."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("what happened yesterday")
+        assert remaining == "what happened"
+        assert temporal is not None
+        assert temporal.start_date is not None
+        assert temporal.end_date is not None
+        # Both should be yesterday
+        now = datetime.now(timezone.utc)
+        yesterday_start = (now - timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        assert abs((temporal.start_date - yesterday_start).total_seconds()) < 60
+
+    def test_today_pattern(self):
+        """Parse 'today' temporal expression."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("emails today about project")
+        assert remaining == "emails about project"
+        assert temporal is not None
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        assert abs((temporal.start_date - today_start).total_seconds()) < 60
+
+    def test_this_week_pattern(self):
+        """Parse 'this week' temporal expression."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("tasks this week")
+        assert remaining == "tasks"
+        assert temporal is not None
+        # Start should be Monday of current week
+        now = datetime.now(timezone.utc)
+        monday = now - timedelta(days=now.weekday())
+        monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+        assert abs((temporal.start_date - monday).total_seconds()) < 60
+
+    def test_this_month_pattern(self):
+        """Parse 'this month' temporal expression."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("reports this month")
+        assert remaining == "reports"
+        assert temporal is not None
+        now = datetime.now(timezone.utc)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        assert abs((temporal.start_date - month_start).total_seconds()) < 60
+
+    def test_case_insensitive_relative(self):
+        """Relative patterns are case insensitive."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("emails from LAST WEEK")
+        assert remaining == "emails from"
+        assert temporal is not None
+
+
+@pytest.mark.unit
+class TestTemporalQueryParserRangePatterns:
+    """Test range temporal expression parsing."""
+
+    def test_between_and_pattern(self):
+        """Parse 'between X and Y' temporal expression."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal(
+            "emails between January 1 and January 15"
+        )
+        assert remaining == "emails"
+        assert temporal is not None
+        assert temporal.start_date is not None
+        assert temporal.end_date is not None
+        # Start should be January 1
+        assert temporal.start_date.month == 1
+        assert temporal.start_date.day == 1
+
+    def test_from_to_pattern(self):
+        """Parse 'from X to Y' temporal expression."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal(
+            "documents from December 1 to December 31"
+        )
+        assert remaining == "documents"
+        assert temporal is not None
+        assert temporal.start_date.month == 12
+        assert temporal.start_date.day == 1
+        assert temporal.end_date.month == 12
+        assert temporal.end_date.day == 31
+
+
+@pytest.mark.unit
+class TestTemporalQueryParserSinceBeforeAround:
+    """Test since/before/around temporal expression parsing."""
+
+    def test_since_pattern(self):
+        """Parse 'since X' temporal expression."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("updates since December")
+        assert remaining == "updates"
+        assert temporal is not None
+        assert temporal.start_date is not None
+        assert temporal.end_date is None
+        assert temporal.relative_expression == "since December"
+        assert temporal.start_date.month == 12
+
+    def test_since_december_25(self):
+        """Parse 'since December 25' temporal expression."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("emails since December 25")
+        assert remaining == "emails"
+        assert temporal is not None
+        assert temporal.start_date is not None
+        assert temporal.relative_expression == "since December 25"
+        # Should parse as December 25
+        assert temporal.start_date.month == 12
+        assert temporal.start_date.day == 25
+
+    def test_before_pattern(self):
+        """Parse 'before X' temporal expression."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("documents before January")
+        assert remaining == "documents"
+        assert temporal is not None
+        assert temporal.start_date is None
+        assert temporal.end_date is not None
+        assert temporal.relative_expression == "before January"
+
+    def test_around_pattern(self):
+        """Parse 'around X' temporal expression with fuzzy expansion."""
+        parser = TemporalQueryParser(fuzzy_days=3)
+        remaining, temporal = parser.extract_temporal("events around January 10")
+        assert remaining == "events"
+        assert temporal is not None
+        assert temporal.start_date is not None
+        assert temporal.end_date is not None
+        assert temporal.relative_expression == "around January 10"
+        # Should expand by +/- 3 days
+        diff = (temporal.end_date - temporal.start_date).days
+        assert diff == 6  # 3 days before + 3 days after
+
+    def test_around_custom_fuzzy_days(self):
+        """Around pattern respects custom fuzzy_days setting."""
+        parser = TemporalQueryParser(fuzzy_days=5)
+        remaining, temporal = parser.extract_temporal("around January 15")
+        assert temporal is not None
+        diff = (temporal.end_date - temporal.start_date).days
+        assert diff == 10  # 5 days before + 5 days after
+
+
+@pytest.mark.unit
+class TestTemporalQueryParserNoMatch:
+    """Test queries without temporal expressions."""
+
+    def test_no_temporal_expression(self):
+        """Query without temporal expression returns None."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("project status update")
+        assert remaining == "project status update"
+        assert temporal is None
+
+    def test_empty_query(self):
+        """Empty query returns None temporal."""
+        parser = TemporalQueryParser()
+        remaining, temporal = parser.extract_temporal("")
+        assert remaining == ""
+        assert temporal is None
+
+
+@pytest.mark.unit
+class TestTemporalQueryParserParseDate:
+    """Test the parse_date method."""
+
+    def test_parse_absolute_date(self):
+        """Parse absolute date string."""
+        parser = TemporalQueryParser()
+        result = parser.parse_date("December 15, 2025")
+        assert result is not None
+        assert result.month == 12
+        assert result.day == 15
+        assert result.year == 2025
+
+    def test_parse_iso_date(self):
+        """Parse ISO format date string."""
+        parser = TemporalQueryParser()
+        result = parser.parse_date("2025-12-15")
+        assert result is not None
+        assert result.year == 2025
+        assert result.month == 12
+        assert result.day == 15
+
+    def test_parse_relative_date(self):
+        """Parse relative date string."""
+        parser = TemporalQueryParser()
+        result = parser.parse_date("3 days ago")
+        assert result is not None
+        now = datetime.now(timezone.utc)
+        expected = now - timedelta(days=3)
+        # Allow some tolerance for test execution time
+        assert abs((result - expected).total_seconds()) < 60
+
+    def test_parse_invalid_date(self):
+        """Invalid date string returns None."""
+        parser = TemporalQueryParser()
+        result = parser.parse_date("not a date")
+        assert result is None
+
+
+@pytest.mark.unit
+class TestQueryParserWithTemporal:
+    """Test QueryParser.parse() with temporal integration."""
+
+    def test_parse_with_temporal_expression(self):
+        """Parse query with temporal expression returns constraint."""
+        parser = QueryParser()
+        normalized, filters, temporal = parser.parse("emails last week about project")
+        assert normalized == "emails about project"
+        assert filters == {}
+        assert temporal is not None
+        assert temporal.start_date is not None
+
+    def test_parse_with_temporal_and_filters(self):
+        """Parse query with both temporal and structured filters."""
+        parser = QueryParser()
+        normalized, filters, temporal = parser.parse(
+            "from:alice@example.com emails since December"
+        )
+        assert "alice@example.com" in filters.get("participants", [])
+        assert temporal is not None
+        assert temporal.start_date is not None
+        assert temporal.relative_expression == "since December"
+
+    def test_parse_without_temporal(self):
+        """Parse query without temporal returns None constraint."""
+        parser = QueryParser()
+        normalized, filters, temporal = parser.parse("project status update")
+        assert normalized == "project status update"
+        assert filters == {}
+        assert temporal is None
+
+    def test_parse_temporal_with_abbreviations(self):
+        """Parse query normalizes abbreviations after temporal extraction."""
+        parser = QueryParser()
+        normalized, filters, temporal = parser.parse("mtg notes from last week")
+        assert "meeting" in normalized
+        assert temporal is not None
+
+    def test_parse_complex_query_all_components(self):
+        """Parse complex query with temporal, filters, and abbreviations."""
+        parser = QueryParser()
+        normalized, filters, temporal = parser.parse(
+            "from:bob@example.com type:email proj updates since December"
+        )
+        assert "project" in normalized  # abbreviation expanded
+        assert filters.get("participants") == ["bob@example.com"]
+        assert filters.get("content_types") == ["email"]
+        assert temporal is not None
+        assert temporal.relative_expression == "since December"
