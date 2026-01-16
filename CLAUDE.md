@@ -171,8 +171,9 @@ bd list --status=open   # All open work
 - **Before ending**: `git push` + `bd sync`
 
 ## Active Technologies
-- Python 3.12 + SQLAlchemy 2.0+ (async), asyncpg, Click 8.1+, Pydantic 2.5+, Redis 5.0+ (008-automation-engine)
-- PostgreSQL 16+ with pgvector extension (existing database infrastructure) (008-automation-engine)
+- Python 3.12 with async/await, Click 8.1+, Rich 13.7+, SQLAlchemy 2.0 (asyncpg), Pydantic 2.5+
+- PostgreSQL 16+ with pgvector, Redis for event processing
 
 ## Recent Changes
-- 008-automation-engine: Added Python 3.12 + SQLAlchemy 2.0+ (async), asyncpg, Click 8.1+, Pydantic 2.5+, Redis 5.0+
+- 006-daily-review: Phase 3 Queue Management CLI
+- 008-automation-engine: Automation module merged from main
