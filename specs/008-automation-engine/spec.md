@@ -2,7 +2,7 @@
 
 **Feature Branch**: `008-automation-engine`
 **Created**: 2026-01-12
-**Status**: Draft
+**Status**: Planned
 **Input**: User description: "Automation Rules Engine"
 
 ## User Scenarios & Testing *(mandatory)*
@@ -160,3 +160,107 @@ As a power user with sophisticated categorization needs, I need the system to ha
 - Users will monitor and maintain automation rules rather than expecting completely hands-off operation
 - Automation rule complexity will remain manageable without requiring advanced programming knowledge
 - System performance will support real-time automation processing without impacting user experience
+
+## Clarifications *(resolved)*
+
+### Question 1: Failure Recovery Behavior
+**Question**: When automation processing fails due to system errors (FR-006 audit trail, edge case #7), what recovery behavior should the system implement?
+
+**Options**:
+- A) Fail fast and notify user immediately
+- B) Retry with exponential backoff (3 attempts, then queue for review) **[RECOMMENDED]**
+- C) Silent retry indefinitely until success
+- D) Mark as failed and skip to next item
+
+**Decision**: **B - Retry with exponential backoff (3 attempts, then queue for review)**
+
+**Rationale**: This balances reliability with user notification. Transient failures (network issues, temporary service unavailability) are handled automatically, while persistent failures surface to users for manual review. This aligns with the event processing framework's established patterns.
+
+**Impact on Spec**:
+- FR-006 clarified: Audit trail includes retry attempts and failure reasons
+- Edge case #7 resolved: System retries 3 times with exponential backoff (1s, 4s, 16s), then queues item for manual review with failure context
+
+---
+
+### Question 2: Rule Conflict Resolution Strategy
+**Question**: When multiple automation rules match the same content (User Story 5, FR-005), how should conflicts be resolved?
+
+**Options**:
+- A) Highest priority rule wins (user-assigned priorities)
+- B) Most specific rule wins (rule with most conditions matched)
+- C) Most recent rule wins (last created/modified)
+- D) Highest confidence rule wins (rule with best historical accuracy) **[RECOMMENDED]**
+- E) Prompt user for each conflict
+
+**Decision**: **D - Highest confidence rule wins (rule with best historical accuracy)**
+
+**Rationale**: This approach is self-optimizing and aligns with the progressive automation goals. Rules that perform well naturally take precedence, while poorly performing rules are deprioritized without manual intervention. Users can still override via manual priority settings if needed.
+
+**Impact on Spec**:
+- FR-005 clarified: Default resolution uses historical accuracy scores; user-assigned priorities serve as tiebreaker
+- FR-010 clarified: Conflicts resolved automatically using confidence scores; user notification only for low-confidence conflicts or ties
+- SC-007 supported: Automatic resolution reduces conflict rate impact on users
+
+---
+
+### Question 3: Default Confidence Thresholds
+**Question**: What should the default confidence threshold be for automatic processing (FR-001, User Story 1)?
+
+**Options**:
+- A) 95% - Very conservative, minimal automation initially
+- B) 85% - Conservative balance, requires strong AI confidence **[RECOMMENDED]**
+- C) 75% - Moderate, enables more automation earlier
+- D) 70% - Aggressive, prioritizes automation over accuracy
+- E) User-configurable on first setup with no default
+
+**Decision**: **B - 85% default threshold**
+
+**Rationale**: 85% provides a conservative starting point that builds user trust while still enabling meaningful automation. This aligns with SC-002 (95% accuracy target) by only automating high-confidence decisions. Users can adjust thresholds as they gain confidence in the system.
+
+**Impact on Spec**:
+- FR-001 clarified: Default threshold of 85% for all content types; users can adjust per content type (email, meetings, documents)
+- User Story 1 acceptance scenarios remain valid with 85% as example threshold
+- Progressive automation (FR-007) can suggest threshold adjustments after 30-day learning period
+
+---
+
+### Question 4: Rule Versioning and Rollback
+**Question**: How should the system handle automation rule versioning (edge case #6)?
+
+**Options**:
+- A) No versioning - changes are immediate and permanent
+- B) Simple undo - track previous version only, single-level rollback
+- C) Full version history - track all changes with point-in-time rollback **[RECOMMENDED]**
+- D) Git-style branching - allow rule variants and merging
+
+**Decision**: **C - Full version history with point-in-time rollback**
+
+**Rationale**: Full version history enables users to experiment with rule changes without fear of losing working configurations. This is essential for progressive automation where rules evolve over time. Storage cost is minimal since rules are small text configurations.
+
+**Impact on Spec**:
+- FR-004 clarified: Rule edits create new versions; previous versions retained indefinitely
+- FR-014 clarified: Export/import includes version history; backup captures full rule state
+- New implicit requirement: Each rule maintains version history with timestamps, change descriptions, and rollback capability
+- Edge case #6 resolved: Users can rollback any rule to any previous version via rule management interface
+
+---
+
+### Question 5: Multi-User Conflict Handling
+**Question**: How should the system handle automation when multiple users have conflicting preferences (edge case #5)?
+
+**Options**:
+- A) First user's rules take precedence
+- B) Most recent rules override older rules
+- C) User-scoped rules with no cross-user conflicts **[RECOMMENDED]**
+- D) Merge rules with conflict resolution prompts
+- E) Admin-designated rule hierarchy
+
+**Decision**: **C - User-scoped rules with no cross-user conflicts**
+
+**Rationale**: For a personal information management system, each user's automation rules should be independent. This simplifies implementation, prevents unexpected behavior from other users' rules, and aligns with the personal nature of categorization preferences.
+
+**Impact on Spec**:
+- FR-003, FR-004 clarified: Rules are scoped to individual users; no cross-user rule inheritance
+- Assumption added: Multi-user scenarios involve independent rule sets per user
+- Edge case #5 resolved: Users cannot have conflicting automation preferences because rules are user-scoped
+- Future consideration: Shared workspaces may need team-level rules (deferred to future feature)

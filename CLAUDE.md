@@ -171,8 +171,11 @@ bd list --status=open   # All open work
 - **Before ending**: `git push` + `bd sync`
 
 ## Active Technologies
-- Python 3.12 with async/awai + SQLAlchemy 2.0, asyncpg, Redis, Click, Pydantic 2.x, pgvector (009-relationship-discovery-and-management)
-- PostgreSQL 16+ with pgvector extension (existing infrastructure) (009-relationship-discovery-and-management)
+- Python 3.12 with async/await, Click 8.1+, Rich 13.7+, SQLAlchemy 2.0 (asyncpg), Pydantic 2.5+
+- PostgreSQL 16+ with pgvector, Redis for event processing and caching
 
 ## Recent Changes
-- 009-relationship-discovery-and-management: Added Python 3.12 with async/awai + SQLAlchemy 2.0, asyncpg, Redis, Click, Pydantic 2.x, pgvector
+- 009-relationship-discovery-and-management: Complete implementation (relationship discovery, validation, lifecycle, network analysis)
+- 007-search-interface: Complete implementation merged
+- 006-daily-review: Complete implementation merged
+- 008-automation-engine: Automation module merged

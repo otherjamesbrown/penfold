@@ -1,0 +1,664 @@
+# Automation Rules Engine - CLI API Contract
+# This defines the interface contract for the automation module
+# Implementation: penf_lib/cli/automation_commands.py
+
+openapi: "3.1.0"
+info:
+  title: Penfold Automation Rules Engine CLI
+  version: "1.0.0"
+  description: |
+    CLI commands for managing automation rules, thresholds, and patterns.
+    All commands are user-scoped and tenant-isolated.
+
+# Note: This is a CLI, not HTTP API. Paths represent command structure.
+# `penf automation <command> <subcommand> [options]`
+
+paths:
+  /automation/rules:
+    get:
+      operationId: list_rules
+      summary: List automation rules
+      description: |
+        CLI: `penf automation rules list [--status STATUS] [--content-type TYPE]`
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [enabled, disabled, all]
+            default: enabled
+        - name: content-type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: List of rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AutomationRuleSummary"
+
+    post:
+      operationId: create_rule
+      summary: Create new automation rule
+      description: |
+        CLI: `penf automation rules create --name NAME --conditions FILE --actions FILE`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRuleRequest"
+      responses:
+        "201":
+          description: Rule created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRule"
+
+  /automation/rules/{rule_id}:
+    get:
+      operationId: get_rule
+      summary: Get rule details
+      description: |
+        CLI: `penf automation rules show RULE_ID [--include-history]`
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: include-history
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Rule details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRule"
+
+    patch:
+      operationId: update_rule
+      summary: Update automation rule
+      description: |
+        CLI: `penf automation rules update RULE_ID [--name NAME] [--conditions FILE] [--actions FILE]`
+        Creates new version; use --message to describe change.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRuleRequest"
+      responses:
+        "200":
+          description: Rule updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRule"
+
+    delete:
+      operationId: delete_rule
+      summary: Delete (soft) automation rule
+      description: |
+        CLI: `penf automation rules delete RULE_ID [--reason REASON]`
+      responses:
+        "204":
+          description: Rule deleted
+
+  /automation/rules/{rule_id}/enable:
+    post:
+      operationId: enable_rule
+      summary: Enable automation rule
+      description: |
+        CLI: `penf automation rules enable RULE_ID`
+      responses:
+        "200":
+          description: Rule enabled
+
+  /automation/rules/{rule_id}/disable:
+    post:
+      operationId: disable_rule
+      summary: Disable automation rule
+      description: |
+        CLI: `penf automation rules disable RULE_ID`
+      responses:
+        "200":
+          description: Rule disabled
+
+  /automation/rules/{rule_id}/rollback:
+    post:
+      operationId: rollback_rule
+      summary: Rollback rule to previous version
+      description: |
+        CLI: `penf automation rules rollback RULE_ID [--version VERSION]`
+      parameters:
+        - name: version
+          in: query
+          schema:
+            type: integer
+          description: Version number to rollback to (default: previous)
+      responses:
+        "200":
+          description: Rule rolled back
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRule"
+
+  /automation/rules/{rule_id}/test:
+    post:
+      operationId: test_rule
+      summary: Test rule against sample content
+      description: |
+        CLI: `penf automation rules test RULE_ID --content-id CONTENT_ID`
+        Simulates rule execution without applying actions.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content_id:
+                  type: string
+      responses:
+        "200":
+          description: Test results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleTestResult"
+
+  /automation/thresholds:
+    get:
+      operationId: list_thresholds
+      summary: List confidence thresholds
+      description: |
+        CLI: `penf automation thresholds list`
+      responses:
+        "200":
+          description: List of thresholds
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConfidenceThreshold"
+
+    post:
+      operationId: set_threshold
+      summary: Set confidence threshold
+      description: |
+        CLI: `penf automation thresholds set --content-type TYPE --value VALUE`
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetThresholdRequest"
+      responses:
+        "200":
+          description: Threshold set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfidenceThreshold"
+
+  /automation/decisions:
+    get:
+      operationId: list_decisions
+      summary: List automation decisions (audit trail)
+      description: |
+        CLI: `penf automation decisions list [--since DATE] [--rule RULE_ID] [--type TYPE]`
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: rule_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: decision_type
+          in: query
+          schema:
+            type: string
+            enum: [auto_processed, queued_review, conflict_resolved]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: List of decisions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AutomationDecision"
+
+  /automation/patterns:
+    get:
+      operationId: list_patterns
+      summary: List detected patterns
+      description: |
+        CLI: `penf automation patterns list [--status STATUS]`
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, accepted, rejected, expired, all]
+            default: pending
+      responses:
+        "200":
+          description: List of patterns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AutomationPattern"
+
+  /automation/patterns/{pattern_id}/accept:
+    post:
+      operationId: accept_pattern
+      summary: Accept pattern and create rule
+      description: |
+        CLI: `penf automation patterns accept PATTERN_ID [--name NAME]`
+      responses:
+        "201":
+          description: Rule created from pattern
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRule"
+
+  /automation/patterns/{pattern_id}/reject:
+    post:
+      operationId: reject_pattern
+      summary: Reject pattern suggestion
+      description: |
+        CLI: `penf automation patterns reject PATTERN_ID`
+      responses:
+        "204":
+          description: Pattern rejected
+
+  /automation/stats:
+    get:
+      operationId: get_stats
+      summary: Get automation statistics
+      description: |
+        CLI: `penf automation stats [--period DAYS]`
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: integer
+            default: 30
+          description: Stats period in days
+      responses:
+        "200":
+          description: Automation statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationStats"
+
+  /automation/settings:
+    get:
+      operationId: get_settings
+      summary: Get progressive automation settings
+      description: |
+        CLI: `penf automation settings show`
+      responses:
+        "200":
+          description: Current settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProgressiveSettings"
+
+    patch:
+      operationId: update_settings
+      summary: Update progressive automation settings
+      description: |
+        CLI: `penf automation settings set [--aggressiveness LEVEL] [--target-rate RATE]`
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSettingsRequest"
+      responses:
+        "200":
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProgressiveSettings"
+
+components:
+  schemas:
+    AutomationRule:
+      type: object
+      required:
+        - id
+        - name
+        - conditions
+        - actions
+        - is_enabled
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        conditions:
+          $ref: "#/components/schemas/RuleConditions"
+        actions:
+          $ref: "#/components/schemas/RuleActions"
+        is_enabled:
+          type: boolean
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 10
+        current_version:
+          type: integer
+        effectiveness:
+          $ref: "#/components/schemas/RuleEffectiveness"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AutomationRuleSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        is_enabled:
+          type: boolean
+        match_count_30d:
+          type: integer
+        accuracy_rate:
+          type: number
+          format: float
+
+    RuleConditions:
+      type: object
+      required:
+        - operator
+        - conditions
+      properties:
+        operator:
+          type: string
+          enum: [AND, OR]
+        conditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Condition"
+
+    Condition:
+      type: object
+      required:
+        - field
+        - operator
+        - value
+      properties:
+        field:
+          type: string
+          enum: [content_type, sender, subject, project, keywords, confidence]
+        operator:
+          type: string
+          enum: [equals, contains, greater_than, less_than, matches, in]
+        value:
+          oneOf:
+            - type: string
+            - type: number
+            - type: array
+              items:
+                type: string
+
+    RuleActions:
+      type: object
+      required:
+        - action_type
+      properties:
+        action_type:
+          type: string
+          enum: [categorize, tag, assign_project, archive, flag]
+        parameters:
+          type: object
+          additionalProperties: true
+
+    CreateRuleRequest:
+      type: object
+      required:
+        - name
+        - conditions
+        - actions
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        conditions:
+          $ref: "#/components/schemas/RuleConditions"
+        actions:
+          $ref: "#/components/schemas/RuleActions"
+        priority:
+          type: integer
+          default: 5
+
+    UpdateRuleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        conditions:
+          $ref: "#/components/schemas/RuleConditions"
+        actions:
+          $ref: "#/components/schemas/RuleActions"
+        priority:
+          type: integer
+        change_message:
+          type: string
+          description: Description of what changed
+
+    ConfidenceThreshold:
+      type: object
+      properties:
+        content_type:
+          type: string
+        threshold_value:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        is_enabled:
+          type: boolean
+
+    SetThresholdRequest:
+      type: object
+      required:
+        - content_type
+        - threshold_value
+      properties:
+        content_type:
+          type: string
+        threshold_value:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    AutomationDecision:
+      type: object
+      properties:
+        id:
+          type: integer
+        content_id:
+          type: string
+        content_type:
+          type: string
+        rule_id:
+          type: string
+          format: uuid
+        decision_type:
+          type: string
+          enum: [auto_processed, queued_review, conflict_resolved]
+        confidence_score:
+          type: number
+        actions_taken:
+          type: object
+        reasoning:
+          type: string
+        user_override:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    AutomationPattern:
+      type: object
+      properties:
+        id:
+          type: integer
+        pattern_signature:
+          type: string
+        detected_conditions:
+          $ref: "#/components/schemas/RuleConditions"
+        suggested_actions:
+          $ref: "#/components/schemas/RuleActions"
+        occurrence_count:
+          type: integer
+        confidence_score:
+          type: number
+        status:
+          type: string
+          enum: [pending, accepted, rejected, expired]
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+
+    RuleEffectiveness:
+      type: object
+      properties:
+        total_matches:
+          type: integer
+        total_applied:
+          type: integer
+        accuracy_rate:
+          type: number
+        avg_confidence:
+          type: number
+        period_days:
+          type: integer
+
+    RuleTestResult:
+      type: object
+      properties:
+        rule_id:
+          type: string
+          format: uuid
+        content_id:
+          type: string
+        would_match:
+          type: boolean
+        matched_conditions:
+          type: array
+          items:
+            type: string
+        would_apply_actions:
+          $ref: "#/components/schemas/RuleActions"
+        conflicts_with:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    AutomationStats:
+      type: object
+      properties:
+        period_days:
+          type: integer
+        total_content_processed:
+          type: integer
+        auto_processed_count:
+          type: integer
+        auto_processed_rate:
+          type: number
+        review_queue_count:
+          type: integer
+        accuracy_rate:
+          type: number
+        active_rules:
+          type: integer
+        pending_patterns:
+          type: integer
+        conflicts_resolved:
+          type: integer
+
+    ProgressiveSettings:
+      type: object
+      properties:
+        aggressiveness_level:
+          type: string
+          enum: [conservative, moderate, aggressive]
+        auto_threshold_adjustment:
+          type: boolean
+        min_learning_period_days:
+          type: integer
+        target_automation_rate:
+          type: number
+        accuracy_floor:
+          type: number
+        pattern_suggestion_enabled:
+          type: boolean
+
+    UpdateSettingsRequest:
+      type: object
+      properties:
+        aggressiveness_level:
+          type: string
+          enum: [conservative, moderate, aggressive]
+        auto_threshold_adjustment:
+          type: boolean
+        target_automation_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+        accuracy_floor:
+          type: number
+          minimum: 0.8
+          maximum: 1

@@ -6,6 +6,17 @@ This context enables AI agents to execute the complete SpecKit workflow for feat
 
 **This agent can autonomously complete an entire feature from description to archived documentation.**
 
+### ⚠️ MANDATORY: Implementation Gate
+
+**NEVER start `/speckit.implement-beads` without explicit user approval.**
+
+After completing planning and bead generation phases:
+1. Present a summary of what will be implemented (list all beads)
+2. Ask: "Ready to begin implementation? (yes/no)"
+3. **WAIT for explicit user confirmation before proceeding**
+
+This is non-negotiable. The implementation phase modifies the codebase significantly and requires user sign-off.
+
 ### Full Autonomous Workflow
 
 ```bash
@@ -220,6 +231,11 @@ bd ready
 **Purpose**: Execute implementation following bead workflow
 
 **Command**: `/speckit.implement-beads`
+
+⚠️ **STOP**: Before running this command, you MUST:
+1. Present all beads to the user with their descriptions
+2. Ask "Ready to begin implementation? (yes/no)"
+3. Wait for explicit "yes" before proceeding
 
 **Workflow**:
 ```bash

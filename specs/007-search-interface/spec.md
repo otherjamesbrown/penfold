@@ -2,7 +2,8 @@
 
 **Feature Branch**: `007-search-interface`
 **Created**: 2026-01-12
-**Status**: Draft
+**Updated**: 2026-01-15
+**Status**: Ready
 **Input**: User description: "Search and Query Interface"
 
 ## User Scenarios & Testing *(mandatory)*
@@ -89,13 +90,15 @@ As a system administrator, I need insights into search usage patterns and perfor
 
 ### Edge Cases
 
-- What happens when search queries return no results?
-- How does the system handle very broad queries that could return thousands of results?
-- What occurs when search indices are updating while users are querying?
-- How does the system handle queries with spelling errors or typos?
-- What happens when vector embeddings are unavailable for some content?
-- How does search perform when content volume exceeds expected limits?
-- What occurs when search queries contain sensitive or private information filters?
+| Edge Case | Expected System Behavior |
+|-----------|-------------------------|
+| Search queries return no results | System displays helpful message with query suggestions and alternative search terms |
+| Very broad queries return thousands of results | System paginates results, shows top 25 most relevant, and prompts user to refine search |
+| Search indices updating during query | System returns results from stable index version; user sees consistent results without interruption |
+| Queries with spelling errors or typos | System applies fuzzy matching and suggests corrected terms while still searching original query |
+| Vector embeddings unavailable for some content | System falls back to keyword-based search for affected content; results marked as "partial match" |
+| Content volume exceeds expected limits | System gracefully degrades with longer response times; alerts user if results may be incomplete |
+| Queries with private information filters | System respects access controls; returns only content user has permission to view |
 
 ## Requirements *(mandatory)*
 
@@ -150,6 +153,26 @@ As a system administrator, I need insights into search usage patterns and perfor
 - Meeting pipeline from [005-meeting-pipeline](../005-meeting-pipeline/spec.md) for meeting content indexing
 - Vector embedding and indexing infrastructure for semantic search capabilities
 - Full-text search engine capabilities for keyword-based search
+
+## Out of Scope
+
+The following capabilities are explicitly excluded from this feature:
+
+- **Content ingestion and indexing**: Handled by individual connector features (Gmail, Meeting Pipeline, etc.)
+- **AI content processing**: Handled by AI Coordination feature; search only consumes processed results
+- **User authentication and access management**: Handled by separate authentication infrastructure
+- **Real-time content synchronization**: Search operates on indexed content; real-time sync is a separate concern
+- **Content editing or modification**: Search is read-only; any content changes happen through source systems
+- **Multi-tenant isolation**: Initial scope assumes single-user deployment; multi-tenant support deferred
+- **Mobile-specific search interface**: Initial focus on CLI and desktop interfaces; mobile UI deferred
+- **Saved search subscriptions**: Automated alerts based on saved searches deferred to future enhancement
+
+## Constraints
+
+- Search must operate within the existing Penfold architecture and database infrastructure
+- Response times must be achievable with local deployment resources (single-machine setup)
+- Search results must respect any access controls established by content source systems
+- System must operate effectively in offline mode for locally-stored content
 
 ## Assumptions
 
