@@ -13,23 +13,14 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
-from enum import Enum
 from typing import Any, Protocol
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .models import FeedbackType
+
 logger = logging.getLogger(__name__)
-
-
-class FeedbackType(str, Enum):
-    """Types of user feedback on relationships."""
-
-    CONFIRM = "confirm"  # User confirms relationship is accurate
-    REJECT = "reject"  # User rejects relationship as incorrect
-    MODIFY = "modify"  # User modifies relationship details
-    STRENGTHEN = "strengthen"  # User indicates relationship is stronger
-    WEAKEN = "weaken"  # User indicates relationship is weaker
 
 
 @dataclass

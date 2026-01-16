@@ -16,6 +16,8 @@ Features:
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -23,6 +25,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+import networkx as nx
 from pydantic import BaseModel, Field
 
 from .models import (
@@ -296,6 +299,31 @@ class NetworkAnalyzer:
 
         return graph
 
+    def _to_networkx(self, graph: NetworkGraph) -> nx.Graph:
+        """Convert our NetworkGraph to a networkx Graph.
+
+        Args:
+            graph: Our internal network graph
+
+        Returns:
+            networkx Graph instance
+        """
+        G = nx.Graph()
+
+        # Add nodes
+        for entity_id, node in graph.nodes.items():
+            G.add_node(entity_id, **node.model_dump())
+
+        # Add edges
+        for edge in graph.edges:
+            G.add_edge(
+                edge.source_entity_id,
+                edge.target_entity_id,
+                weight=float(edge.combined_strength),
+            )
+
+        return G
+
     def calculate_centrality(
         self,
         graph: NetworkGraph,
@@ -351,7 +379,7 @@ class NetworkAnalyzer:
         self,
         graph: NetworkGraph,
     ) -> dict[UUID, float]:
-        """Calculate degree centrality for each node.
+        """Calculate degree centrality for each node using networkx.
 
         Degree centrality is the fraction of nodes that a node is connected to.
 
@@ -361,24 +389,17 @@ class NetworkAnalyzer:
         Returns:
             Dictionary mapping entity IDs to degree centrality
         """
-        n = len(graph.nodes)
-        if n <= 1:
+        if len(graph.nodes) <= 1:
             return dict.fromkeys(graph.nodes, 0.0)
 
-        max_degree = n - 1  # Maximum possible degree
-        centrality = {}
-
-        for entity_id in graph.nodes:
-            degree = len(graph.get_neighbors(entity_id))
-            centrality[entity_id] = degree / max_degree if max_degree > 0 else 0.0
-
-        return centrality
+        G = self._to_networkx(graph)
+        return nx.degree_centrality(G)
 
     def _calculate_betweenness_centrality(
         self,
         graph: NetworkGraph,
     ) -> dict[UUID, float]:
-        """Calculate betweenness centrality for each node.
+        """Calculate betweenness centrality for each node using networkx.
 
         Betweenness centrality measures how often a node lies on shortest
         paths between other nodes.
@@ -389,66 +410,17 @@ class NetworkAnalyzer:
         Returns:
             Dictionary mapping entity IDs to betweenness centrality
         """
-        n = len(graph.nodes)
-        if n <= 2:
+        if len(graph.nodes) <= 2:
             return dict.fromkeys(graph.nodes, 0.0)
 
-        betweenness = dict.fromkeys(graph.nodes, 0.0)
-        nodes = list(graph.nodes.keys())
-
-        # Brandes' algorithm (simplified)
-        for source in nodes:
-            # BFS from source
-            dist: dict[UUID, int] = {source: 0}
-            paths: dict[UUID, int] = {source: 1}
-            predecessors: dict[UUID, list[UUID]] = {node: [] for node in nodes}
-            queue = [source]
-            stack: list[UUID] = []
-
-            while queue:
-                current = queue.pop(0)
-                stack.append(current)
-
-                for neighbor in graph.get_neighbors(current):
-                    # First time finding this node
-                    if neighbor not in dist:
-                        dist[neighbor] = dist[current] + 1
-                        queue.append(neighbor)
-
-                    # Found a shortest path to neighbor
-                    if dist.get(neighbor, float("inf")) == dist[current] + 1:
-                        paths[neighbor] = paths.get(neighbor, 0) + paths[current]
-                        predecessors[neighbor].append(current)
-
-            # Back-propagation of dependencies
-            dependency: dict[UUID, float] = dict.fromkeys(nodes, 0.0)
-
-            while stack:
-                node = stack.pop()
-                for pred in predecessors[node]:
-                    if paths.get(node, 0) > 0:
-                        dependency[pred] += (
-                            paths.get(pred, 0) / paths[node]
-                        ) * (1 + dependency[node])
-
-                if node != source:
-                    betweenness[node] += dependency[node]
-
-        # Normalize
-        normalizer = (n - 1) * (n - 2)
-        if normalizer > 0:
-            for entity_id in betweenness:
-                betweenness[entity_id] = min(
-                    betweenness[entity_id] / normalizer, 1.0
-                )
-
-        return betweenness
+        G = self._to_networkx(graph)
+        return nx.betweenness_centrality(G, normalized=True)
 
     def _calculate_closeness_centrality(
         self,
         graph: NetworkGraph,
     ) -> dict[UUID, float]:
-        """Calculate closeness centrality for each node.
+        """Calculate closeness centrality for each node using networkx.
 
         Closeness centrality is based on the average shortest path length
         from a node to all other nodes.
@@ -459,38 +431,12 @@ class NetworkAnalyzer:
         Returns:
             Dictionary mapping entity IDs to closeness centrality
         """
-        n = len(graph.nodes)
-        if n <= 1:
+        if len(graph.nodes) <= 1:
             return dict.fromkeys(graph.nodes, 0.0)
 
-        closeness = {}
-        nodes = list(graph.nodes.keys())
-
-        for source in nodes:
-            # BFS to find shortest paths
-            dist = {source: 0}
-            queue = [source]
-
-            while queue:
-                current = queue.pop(0)
-                for neighbor in graph.get_neighbors(current):
-                    if neighbor not in dist:
-                        dist[neighbor] = dist[current] + 1
-                        queue.append(neighbor)
-
-            # Calculate closeness (handle disconnected nodes)
-            reachable = len(dist) - 1  # Exclude source itself
-            if reachable > 0:
-                total_distance = sum(d for node, d in dist.items() if node != source)
-                if total_distance > 0:
-                    # Wasserman-Faust normalization for disconnected graphs
-                    closeness[source] = (reachable / (n - 1)) * (reachable / total_distance)
-                else:
-                    closeness[source] = 0.0
-            else:
-                closeness[source] = 0.0
-
-        return closeness
+        G = self._to_networkx(graph)
+        # Use wf_improved=True for Wasserman-Faust normalization (handles disconnected graphs)
+        return nx.closeness_centrality(G, wf_improved=True)
 
     def _calculate_eigenvector_centrality(
         self,
@@ -498,7 +444,7 @@ class NetworkAnalyzer:
         max_iterations: int = 100,
         tolerance: float = 1e-6,
     ) -> dict[UUID, float]:
-        """Calculate eigenvector centrality using power iteration.
+        """Calculate eigenvector centrality using networkx.
 
         Eigenvector centrality measures the influence of a node based on
         its connections to other influential nodes.
@@ -511,51 +457,17 @@ class NetworkAnalyzer:
         Returns:
             Dictionary mapping entity IDs to eigenvector centrality
         """
-        n = len(graph.nodes)
-        if n == 0:
+        if len(graph.nodes) == 0:
             return {}
 
-        nodes = list(graph.nodes.keys())
-
-        # Initialize with equal values
-        scores = dict.fromkeys(nodes, 1.0 / n)
-
-        for _ in range(max_iterations):
-            new_scores = {}
-            max_change = 0.0
-
-            for node in nodes:
-                # Sum of neighbor scores
-                neighbor_sum = sum(
-                    scores.get(neighbor, 0.0)
-                    for neighbor in graph.get_neighbors(node)
-                )
-                new_scores[node] = neighbor_sum
-
-            # Normalize
-            total = sum(new_scores.values())
-            if total > 0:
-                for node in nodes:
-                    new_scores[node] /= total
-
-            # Check convergence
-            for node in nodes:
-                max_change = max(
-                    max_change, abs(new_scores[node] - scores.get(node, 0.0))
-                )
-
-            scores = new_scores
-
-            if max_change < tolerance:
-                break
-
-        # Scale to [0, 1]
-        max_score = max(scores.values()) if scores else 1.0
-        if max_score > 0:
-            for node in scores:
-                scores[node] /= max_score
-
-        return scores
+        G = self._to_networkx(graph)
+        try:
+            return nx.eigenvector_centrality(
+                G, max_iter=max_iterations, tol=tolerance
+            )
+        except nx.PowerIterationFailedConvergence:
+            # Fall back to degree centrality if eigenvector doesn't converge
+            return nx.degree_centrality(G)
 
     def identify_hubs(
         self,
@@ -1025,38 +937,49 @@ class NetworkAnalyzer:
     def _export_csv(self, graph: NetworkGraph) -> str:
         """Export graph edges to CSV format.
 
+        Uses Python's csv module for proper escaping of special characters
+        in names (commas, quotes, newlines).
+
         Args:
             graph: Network graph
 
         Returns:
             CSV format string
         """
-        lines = [
-            "source_id,source_name,target_id,target_name,"
-            "relationship_types,weight,interaction_count"
-        ]
+        output = io.StringIO()
+        writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
 
+        # Write header
+        writer.writerow([
+            "source_id",
+            "source_name",
+            "target_id",
+            "target_name",
+            "relationship_types",
+            "weight",
+            "interaction_count",
+        ])
+
+        # Write edges
         for edge in graph.edges:
             source = graph.nodes.get(edge.source_entity_id)
             target = graph.nodes.get(edge.target_entity_id)
 
             source_name = source.display_name if source else "Unknown"
             target_name = target.display_name if target else "Unknown"
-
-            # Escape commas in names
-            source_name = source_name.replace(",", ";")
-            target_name = target_name.replace(",", ";")
-
             rel_types = "|".join(rt.value for rt in edge.relationship_types)
 
-            line = (
-                f"{edge.source_entity_id},{source_name},"
-                f"{edge.target_entity_id},{target_name},"
-                f"{rel_types},{edge.combined_strength:.2f},{edge.interaction_count}"
-            )
-            lines.append(line)
+            writer.writerow([
+                str(edge.source_entity_id),
+                source_name,
+                str(edge.target_entity_id),
+                target_name,
+                rel_types,
+                f"{edge.combined_strength:.2f}",
+                str(edge.interaction_count),
+            ])
 
-        return "\n".join(lines)
+        return output.getvalue().rstrip("\r\n")
 
 
 __all__ = [

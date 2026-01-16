@@ -13,7 +13,6 @@ This module provides lifecycle management for relationships, including:
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -23,7 +22,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .confidence import DECAY_HALF_LIFE_DAYS, DECAY_MINIMUM
+from .confidence import calculate_temporal_decay
 
 logger = logging.getLogger(__name__)
 
@@ -523,23 +522,18 @@ class LifecycleManager:
     def _calculate_temporal_decay(self, last_observed_at: datetime) -> Decimal:
         """Calculate temporal decay multiplier based on time since last observation.
 
+        Uses the shared calculate_temporal_decay function from confidence module
+        to ensure consistent decay calculation across the codebase.
+
         Args:
             last_observed_at: Timestamp of most recent evidence
 
         Returns:
-            Decay multiplier (DECAY_MINIMUM to 1.0)
+            Decay multiplier (DECAY_MINIMUM to 1.0) as Decimal
         """
-        now = datetime.now(timezone.utc)
-        days_since = (now - last_observed_at).total_seconds() / (24 * 3600)
-
-        if days_since <= 0:
-            return Decimal("1.0")
-
-        # Exponential decay: decay = 0.5^(days/half_life)
-        decay = math.pow(0.5, days_since / DECAY_HALF_LIFE_DAYS)
-
-        # Apply minimum floor
-        return Decimal(str(max(DECAY_MINIMUM, decay)))
+        # Delegate to shared function and convert float result to Decimal
+        decay_float = calculate_temporal_decay(last_observed_at)
+        return Decimal(str(decay_float))
 
     async def recalculate_confidence(
         self,

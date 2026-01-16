@@ -40,6 +40,9 @@ dependencies = [
 
     # Search
     "dateparser >= 1.2.0",
+
+    # Graph analysis
+    "networkx >= 3.2",
 ]
 
 [project.optional-dependencies]

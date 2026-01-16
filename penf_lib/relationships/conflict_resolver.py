@@ -92,6 +92,13 @@ class ConflictRepositoryProtocol(Protocol):
         """Update relationship confidence."""
         ...
 
+    async def find_by_relationship(
+        self,
+        relationship_id: int,
+    ) -> list[Any]:
+        """Find conflicts by relationship ID."""
+        ...
+
 
 # Auto-resolution threshold - conflicts with gap >= 30% are auto-resolvable
 AUTO_RESOLVE_THRESHOLD = Decimal("0.30")
@@ -359,13 +366,7 @@ class ConflictResolver:
         Returns:
             List of conflicts involving this relationship
         """
-        # This requires a custom query method on the repository
-        if hasattr(self.repository, "find_by_relationship"):
-            result: list[Any] = await self.repository.find_by_relationship(
-                relationship_id
-            )
-            return result
-        return []
+        return await self.repository.find_by_relationship(relationship_id)
 
 
 __all__ = [

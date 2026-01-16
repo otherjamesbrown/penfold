@@ -300,32 +300,45 @@ class ConfidenceCalculator:
         existing_confidence: float,
         new_evidence: EvidenceItem,
         existing_evidence_count: int,
+        all_evidence: list[EvidenceItem] | None = None,
+        ai_confidence: float | None = None,
     ) -> float:
         """Recalculate confidence after adding new evidence.
 
-        Simplified recalculation when adding single evidence item.
+        When all_evidence and ai_confidence are provided, performs a full
+        recalculation using calculate_relationship_confidence for consistency.
+        Otherwise, performs an incremental update (faster but may diverge
+        from full calculation over time).
 
         Args:
             existing_confidence: Current confidence score
             new_evidence: New evidence item being added
             existing_evidence_count: Current evidence count
+            all_evidence: Optional list of all evidence for full recalculation
+            ai_confidence: Optional AI confidence for full recalculation
 
         Returns:
             Updated confidence score
         """
-        # New evidence provides boost based on its type
+        # Full recalculation if all data is provided (recommended)
+        if all_evidence is not None and ai_confidence is not None:
+            evidence_with_new = all_evidence + [new_evidence]
+            return self.calculate_relationship_confidence(
+                ai_confidence=ai_confidence,
+                evidence_items=evidence_with_new,
+                last_evidence_at=new_evidence.observed_at,
+                interaction_count=existing_evidence_count + 1,
+            )
+
+        # Incremental update (used when full data unavailable)
         type_weight = EVIDENCE_TYPE_WEIGHTS.get(new_evidence.evidence_type, 0.8)
         evidence_boost = new_evidence.strength_contribution * type_weight * 0.1
 
-        # Fresh evidence resets temporal decay
-        # This is a simplified calculation; full recalc uses all factors
         updated = existing_confidence + evidence_boost
 
-        # Also factor in increased interaction count
         new_interaction_count = existing_evidence_count + 1
         interaction_boost = calculate_interaction_boost(new_interaction_count)
 
-        # Normalize with boost
         final = min(1.0, updated * (interaction_boost / 1.0))
         return max(0.0, final)
 

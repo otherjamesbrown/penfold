@@ -47,9 +47,6 @@ from .feedback import (
     FeedbackResult,
     LearnedPreference,
 )
-from .feedback import (
-    FeedbackType as FeedbackTypeEnum,
-)
 from .lifecycle import (
     INACTIVITY_THRESHOLD_DAYS,
     RETENTION_YEARS,

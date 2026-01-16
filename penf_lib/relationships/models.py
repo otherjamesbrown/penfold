@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -30,10 +30,8 @@ class EntityType(str, Enum):
     PERSON = "person"
     PROJECT = "project"
     TOPIC = "topic"
-    ORGANIZATION = "organization"
-    DOCUMENT = "document"
-    MEETING = "meeting"
-    EMAIL = "email"
+    # Note: Additional types (organization, document, meeting, email) can be
+    # added in a future migration when needed
 
 
 class RelationshipType(str, Enum):
@@ -144,7 +142,7 @@ class EntityReference(BaseModel):
     without requiring the full entity data.
     """
 
-    entity_id: UUID = Field(description="Unique identifier of the entity")
+    entity_id: int = Field(description="Unique identifier of the entity")
     entity_type: EntityType = Field(description="Type of the entity")
     display_name: str = Field(description="Human-readable name for display")
     external_ids: dict[str, str] = Field(
@@ -162,7 +160,7 @@ class RelationshipEvidence(BaseModel):
 
     evidence_id: UUID = Field(default_factory=uuid4, description="Unique evidence ID")
     source_type: str = Field(description="Type of source (email, meeting, document)")
-    source_id: UUID = Field(description="ID of the source content")
+    source_id: int = Field(description="ID of the source content")
     extracted_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="When this evidence was extracted",
@@ -196,7 +194,7 @@ class RelationshipCreate(BaseModel):
         default=RelationshipScope.TENTATIVE,
         description="Scope of the relationship",
     )
-    project_id: Optional[UUID] = Field(
+    project_id: UUID | None = Field(
         default=None,
         description="Project context if scope is PROJECT",
     )
@@ -227,7 +225,7 @@ class RelationshipResponse(BaseModel):
     target_entity: EntityReference = Field(description="Target entity of relationship")
     relationship_type: RelationshipType = Field(description="Type of relationship")
     scope: RelationshipScope = Field(description="Scope of the relationship")
-    project_id: Optional[UUID] = Field(
+    project_id: UUID | None = Field(
         default=None,
         description="Project context if scope is PROJECT",
     )
@@ -240,7 +238,7 @@ class RelationshipResponse(BaseModel):
     evidence_count: int = Field(description="Number of supporting evidence items")
     first_observed: datetime = Field(description="When relationship was first observed")
     last_observed: datetime = Field(description="When relationship was last observed")
-    last_validated: Optional[datetime] = Field(
+    last_validated: datetime | None = Field(
         default=None,
         description="When relationship was last validated by user",
     )
@@ -259,29 +257,29 @@ class RelationshipUpdate(BaseModel):
     Used when modifying relationship properties through the API.
     """
 
-    relationship_type: Optional[RelationshipType] = Field(
+    relationship_type: RelationshipType | None = Field(
         default=None,
         description="New relationship type",
     )
-    scope: Optional[RelationshipScope] = Field(
+    scope: RelationshipScope | None = Field(
         default=None,
         description="New relationship scope",
     )
-    project_id: Optional[UUID] = Field(
+    project_id: UUID | None = Field(
         default=None,
         description="New project context",
     )
-    lifecycle_state: Optional[LifecycleState] = Field(
+    lifecycle_state: LifecycleState | None = Field(
         default=None,
         description="New lifecycle state",
     )
-    confidence_adjustment: Optional[float] = Field(
+    confidence_adjustment: float | None = Field(
         default=None,
         ge=-1.0,
         le=1.0,
         description="Adjustment to confidence score",
     )
-    metadata: Optional[dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None,
         description="Updated metadata (merged with existing)",
     )
@@ -337,15 +335,15 @@ class RelationshipConflict(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc),
         description="When conflict was detected",
     )
-    resolution: Optional[ConflictResolution] = Field(
+    resolution: ConflictResolution | None = Field(
         default=None,
         description="How conflict was resolved",
     )
-    resolved_at: Optional[datetime] = Field(
+    resolved_at: datetime | None = Field(
         default=None,
         description="When conflict was resolved",
     )
-    winning_relationship_id: Optional[UUID] = Field(
+    winning_relationship_id: UUID | None = Field(
         default=None,
         description="ID of relationship chosen if resolved",
     )
@@ -369,7 +367,7 @@ class RelationshipVersion(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc),
         description="When this version was created",
     )
-    changed_by: Optional[str] = Field(
+    changed_by: str | None = Field(
         default=None,
         description="User or system that made the change",
     )
@@ -404,7 +402,7 @@ class RelationshipNetworkNode(BaseModel):
         default=False,
         description="Whether this is a communication hub",
     )
-    cluster_id: Optional[str] = Field(
+    cluster_id: str | None = Field(
         default=None,
         description="Cluster this node belongs to",
     )
