@@ -10,6 +10,7 @@ from .tenant import TenantRepository, TenantSessionRepository, CrossTenantPerson
 from .relationship import RelationshipRepository
 from .review import ReviewRepository
 from .search import SearchRepository
+from .embedding import EmbeddingRepository
 
 __all__ = [
     "BaseRepository",
@@ -25,4 +26,5 @@ __all__ = [
     "RelationshipRepository",
     "ReviewRepository",
     "SearchRepository",
+    "EmbeddingRepository",
 ]
