@@ -14,7 +14,9 @@ Signal weights (from research.md):
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
@@ -190,6 +192,8 @@ class CorrelationDiscovery:
                 print(f"  - {item.title} ({item.correlation_type}): {item.correlation_score:.2f}")
             ```
         """
+        start_time = time.perf_counter()
+
         # Get source content details
         source = await self._get_content(content_id, content_type)
         if not source:
@@ -203,31 +207,39 @@ class CorrelationDiscovery:
                 total_correlations=0,
             )
 
-        # Find related content via each signal
-        participant_matches = await self._find_by_participants(
-            source.participants,
-            content_id,
-            content_type,
-        )
-        project_matches = await self._find_by_project(
-            source.project_refs,
-            content_id,
-            content_type,
-        )
-        temporal_matches = await self._find_by_temporal_proximity(
-            source.timestamp,
-            content_id,
-            content_type,
-        )
-        semantic_matches = await self._find_by_similarity(
-            source.embedding,
-            content_id,
-            content_type,
-        )
-        thread_matches = await self._find_by_thread(
-            source.thread_id,
-            content_id,
-            content_type,
+        # Find related content via each signal - execute in parallel
+        (
+            participant_matches,
+            project_matches,
+            temporal_matches,
+            semantic_matches,
+            thread_matches,
+        ) = await asyncio.gather(
+            self._find_by_participants(
+                source.participants,
+                content_id,
+                content_type,
+            ),
+            self._find_by_project(
+                source.project_refs,
+                content_id,
+                content_type,
+            ),
+            self._find_by_temporal_proximity(
+                source.timestamp,
+                content_id,
+                content_type,
+            ),
+            self._find_by_similarity(
+                source.embedding,
+                content_id,
+                content_type,
+            ),
+            self._find_by_thread(
+                source.thread_id,
+                content_id,
+                content_type,
+            ),
         )
 
         # Combine and score all matches
@@ -247,9 +259,20 @@ class CorrelationDiscovery:
         # Sort by correlation score and limit
         sorted_results = sorted(filtered, key=lambda x: x.correlation_score, reverse=True)
 
+        # Log performance metrics
+        duration_ms = (time.perf_counter() - start_time) * 1000
         logger.info(
             f"Correlation discovery for {content_type}/{content_id}: "
-            f"found {len(sorted_results)} related items"
+            f"found {len(sorted_results)} related items in {duration_ms:.1f}ms"
+        )
+        logger.info(
+            "Correlation discovery completed",
+            extra={
+                "correlation_discovery_ms": round(duration_ms, 2),
+                "content_id": content_id,
+                "content_type": content_type,
+                "results_found": len(sorted_results),
+            }
         )
 
         return CorrelationResult(

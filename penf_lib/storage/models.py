@@ -25,6 +25,9 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB, BIGINT
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func, text
 from sqlalchemy.orm import relationship, validates, Query
+
+# Alias for compatibility with mixed naming conventions in relationship definitions
+orm_relationship = relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from .validators import (
     validate_email_list,
@@ -801,6 +804,12 @@ class Source(Base, TimestampMixin, TenantMixin, SoftDeleteMixin, SoftDeleteQuery
     ingestion_metadata = Column(
         JSONB, default={}, comment="Metadata from ingestion process"
     )
+    # Indexed participant emails for efficient searching
+    participant_emails = Column(
+        ARRAY(Text),
+        default=[],
+        comment="Extracted participant email addresses for indexed search"
+    )
     processing_status = Column(
         String(20),
         default="pending",
@@ -873,6 +882,11 @@ class Source(Base, TimestampMixin, TenantMixin, SoftDeleteMixin, SoftDeleteQuery
         Index("idx_sources_status", "processing_status"),
         Index("idx_sources_soft_delete", "is_deleted", "deleted_at"),
         Index("idx_sources_deleted_by", "deleted_by"),
+        Index(
+            "idx_sources_participant_emails",
+            "participant_emails",
+            postgresql_using="gin"
+        ),
         # Database-level constraints
         CheckConstraint("length(source_system) > 0", name="ck_sources_source_system_not_empty"),
         CheckConstraint("length(external_id) > 0", name="ck_sources_external_id_not_empty"),

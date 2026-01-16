@@ -13,6 +13,27 @@ from penf_lib.storage.validators import generate_content_hash
 from .base import BaseRepository
 
 
+def _extract_participant_emails(ingestion_metadata: Optional[Dict[str, Any]]) -> List[str]:
+    """Extract and normalize participant emails from ingestion metadata.
+
+    Args:
+        ingestion_metadata: Metadata dictionary that may contain 'participants' key
+
+    Returns:
+        List of normalized (lowercase, trimmed) email addresses
+    """
+    if not ingestion_metadata:
+        return []
+    participants = ingestion_metadata.get('participants', [])
+    if not isinstance(participants, list):
+        return []
+    return [
+        p.lower().strip()
+        for p in participants
+        if isinstance(p, str) and '@' in p
+    ]
+
+
 class SourceRepository(BaseRepository[Source]):
     """Repository for Source entities."""
 
@@ -50,6 +71,9 @@ class SourceRepository(BaseRepository[Source]):
         """
         content_hash = generate_content_hash(raw_content or "")
 
+        # Extract participant_emails from ingestion_metadata for indexed search
+        participant_emails = _extract_participant_emails(ingestion_metadata)
+
         return await self.create(
             tenant_id=tenant_id,
             source_system=source_system,
@@ -60,6 +84,7 @@ class SourceRepository(BaseRepository[Source]):
             content_size=len(raw_content or ""),
             ingestion_metadata=ingestion_metadata,
             source_timestamp=source_timestamp,
+            participant_emails=participant_emails,
         )
 
     async def find_by_external_id(
@@ -165,9 +190,12 @@ class SourceRepository(BaseRepository[Source]):
         Returns:
             Updated source instance or None if not found
         """
-        update_data = {'processing_status': status}
+        update_data: Dict[str, Any] = {'processing_status': status}
         if metadata:
             update_data['ingestion_metadata'] = metadata
+            # Sync participant_emails when metadata is updated
+            participant_emails = _extract_participant_emails(metadata)
+            update_data['participant_emails'] = participant_emails
 
         return await self.update(source_id, **update_data)
 
