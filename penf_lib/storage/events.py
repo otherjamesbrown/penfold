@@ -70,9 +70,10 @@ def validate_channel_name(channel: str) -> str:
 
     # Check against allowed prefixes for additional security
     if not any(channel.startswith(prefix) for prefix in ALLOWED_CHANNEL_PREFIXES):
-        # Allow if it's exactly one of the base types (no prefix)
-        if '.' in channel:
-            logger.warning(f"Channel '{channel}' does not match known prefixes")
+        raise ValueError(
+            f"Invalid channel name '{channel}': must start with an allowed prefix "
+            f"({', '.join(ALLOWED_CHANNEL_PREFIXES)})"
+        )
 
     return channel
 

@@ -200,11 +200,19 @@ async def cancel_upload(
 ):
     """Cancel upload session"""
     try:
-        success = await session_manager.cancel_upload_session(session_id, reason, db)
+        # Include user_id in cancellation reason for audit trail
+        user_id = current_user.get("user_id", "unknown")
+        cancel_reason = f"{reason} (by {user_id})"
+
+        success = await session_manager.cancel_upload_session(session_id, cancel_reason, db)
         if not success:
             raise HTTPException(status_code=404, detail="Upload session not found")
 
-        return {"message": "Upload session cancelled successfully", "session_id": session_id}
+        return {
+            "message": "Upload session cancelled successfully",
+            "session_id": session_id,
+            "cancelled_by": user_id
+        }
 
     except HTTPException:
         raise

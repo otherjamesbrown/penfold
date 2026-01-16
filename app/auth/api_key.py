@@ -5,6 +5,7 @@ Provides simple API key authentication using Bearer token format.
 In production, requires PENF_API_KEY environment variable to be set.
 """
 
+import hashlib
 import os
 import secrets
 
@@ -111,6 +112,7 @@ async def get_current_user(
     if expected_key is None and not penf_config.is_production:
         return {
             "authenticated": True,
+            "user_id": "dev_user",
             "role": "admin",
             "auth_method": "none",
             "message": "Development mode - authentication bypassed"
@@ -132,9 +134,14 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # All authenticated users are admin for now
+    # Generate a stable, non-sensitive user_id from the API key
+    # This allows auditing without exposing the actual key
+    key_hash = hashlib.sha256(credentials.credentials.encode()).hexdigest()[:16]
+    user_id = f"api_key_{key_hash}"
+
     return {
         "authenticated": True,
+        "user_id": user_id,
         "role": "admin",
         "auth_method": "api_key",
     }
