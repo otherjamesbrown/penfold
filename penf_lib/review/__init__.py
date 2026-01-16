@@ -10,8 +10,9 @@ Key components:
 - session: Session lifecycle management
 - exceptions: Custom exceptions for error handling
 - feedback: User feedback capture and learning integration
-- batch: Batch operations support (future)
-- analytics: Review analytics (P3, future)
+- batch: Batch operations support
+- rules: Learning rule management
+- analytics: Review analytics and insights
 """
 
 from penf_lib.review.exceptions import (
@@ -64,6 +65,15 @@ from penf_lib.review.batch import BatchPreview, BatchResult, FilterExpression
 from penf_lib.review.rules import RuleManager
 from penf_lib.review.rules import RuleRepositoryProtocol
 from penf_lib.review.rules import RuleApplicationResult, RuleSuggestion
+from penf_lib.review.analytics import AnalyticsManager
+from penf_lib.review.analytics import AnalyticsRepositoryProtocol
+from penf_lib.review.analytics import (
+    TrendData,
+    ReviewInsight,
+    ContentTypeStats,
+    CorrectionTypeStats,
+    AnalyticsSummary,
+)
 
 __all__ = [
     # Enums
@@ -110,6 +120,14 @@ __all__ = [
     "RuleRepositoryProtocol",
     "RuleApplicationResult",
     "RuleSuggestion",
+    # Analytics management
+    "AnalyticsManager",
+    "AnalyticsRepositoryProtocol",
+    "TrendData",
+    "ReviewInsight",
+    "ContentTypeStats",
+    "CorrectionTypeStats",
+    "AnalyticsSummary",
     # Exceptions
     "ReviewError",
     "SessionNotFoundError",

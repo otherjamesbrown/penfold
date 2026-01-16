@@ -5,6 +5,7 @@ This module implements the `penf review` command group for User Stories 1-4:
 - User Story 2: Validation and Correction (accept, reject, modify, skip, undo)
 - User Story 3: Batch Operations and Completion (batch, complete)
 - User Story 4: Learning Rules Management (rules subcommand group)
+- User Story 5: Analytics (analytics command)
 
 Commands:
     - penf review: Start or resume a review session
@@ -26,12 +27,14 @@ Commands:
         - penf review rules pending: View pending rule suggestions
         - penf review rules accept: Accept a pending suggestion
         - penf review rules reject: Reject a pending suggestion
+    - penf review analytics: Show review analytics
 """
 
 from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
@@ -3488,4 +3491,487 @@ def rules_reject(ctx: click.Context, suggestion_id: int) -> None:
             await cleanup_connections()
 
     result = asyncio.run(_reject_async())
+    sys.exit(result)
+
+
+# =============================================================================
+# ANALYTICS COMMAND
+# =============================================================================
+
+
+@dataclass
+class AnalyticsData:
+    """Data class for review analytics.
+
+    Contains metrics aggregated over a time period for display
+    in the analytics command output.
+    """
+
+    period: str  # day, week, month
+    period_start: datetime
+    period_end: datetime
+
+    # Session metrics
+    total_sessions: int
+    total_items_reviewed: int
+    total_duration_minutes: int
+
+    # Decision breakdown
+    accepted: int
+    modified: int
+    rejected: int
+    skipped: int
+
+    # Calculated rates
+    acceptance_rate: float
+    modification_rate: float
+    rejection_rate: float
+    skip_rate: float
+
+    # Performance metrics
+    avg_session_duration_minutes: float
+    avg_items_per_minute: float
+    avg_time_per_item_seconds: float
+
+    # AI metrics
+    avg_ai_confidence: float
+    ai_accuracy_rate: float  # Based on acceptance + modification
+
+    # Content type breakdown
+    content_type_breakdown: dict[str, int]
+
+    # Correction type breakdown (for modifications)
+    correction_type_breakdown: dict[str, int]
+
+
+class MockAnalyticsManager:
+    """Mock analytics manager for development.
+
+    Provides sample analytics data for display during development.
+    Will be replaced by actual database queries in production.
+    """
+
+    def __init__(self) -> None:
+        """Initialize mock analytics manager."""
+        pass
+
+    async def get_analytics(self, period: str) -> AnalyticsData:
+        """Get analytics for the specified period.
+
+        Args:
+            period: Time period - day, week, or month
+
+        Returns:
+            AnalyticsData with sample metrics for the period
+        """
+        now = datetime.now(timezone.utc)
+
+        # Calculate period start based on period type
+        if period == "day":
+            period_start = now - timedelta(days=1)
+            total_sessions = 2
+            total_items = 85
+            duration_minutes = 45
+        elif period == "week":
+            period_start = now - timedelta(days=7)
+            total_sessions = 12
+            total_items = 523
+            duration_minutes = 312
+        else:  # month
+            period_start = now - timedelta(days=30)
+            total_sessions = 48
+            total_items = 2156
+            duration_minutes = 1284
+
+        # Calculate decision counts based on realistic rates
+        accepted = int(total_items * 0.68)
+        modified = int(total_items * 0.18)
+        rejected = int(total_items * 0.09)
+        skipped = total_items - accepted - modified - rejected
+
+        # Calculate rates
+        acceptance_rate = accepted / total_items if total_items > 0 else 0
+        modification_rate = modified / total_items if total_items > 0 else 0
+        rejection_rate = rejected / total_items if total_items > 0 else 0
+        skip_rate = skipped / total_items if total_items > 0 else 0
+
+        # Performance metrics
+        avg_session_duration = duration_minutes / total_sessions if total_sessions > 0 else 0
+        avg_items_per_minute = total_items / duration_minutes if duration_minutes > 0 else 0
+        avg_time_per_item = (duration_minutes * 60) / total_items if total_items > 0 else 0
+
+        # AI accuracy is acceptance + modification (suggestions were usable)
+        ai_accuracy = (accepted + modified) / total_items if total_items > 0 else 0
+
+        # Content type breakdown
+        content_breakdown = {
+            "email": int(total_items * 0.55),
+            "meeting": int(total_items * 0.22),
+            "document": int(total_items * 0.15),
+            "slack": int(total_items * 0.08),
+        }
+
+        # Correction type breakdown (for modified items)
+        correction_breakdown = {
+            "category_change": int(modified * 0.45),
+            "tag_change": int(modified * 0.28),
+            "participant_change": int(modified * 0.17),
+            "other": int(modified * 0.10),
+        }
+
+        return AnalyticsData(
+            period=period,
+            period_start=period_start,
+            period_end=now,
+            total_sessions=total_sessions,
+            total_items_reviewed=total_items,
+            total_duration_minutes=duration_minutes,
+            accepted=accepted,
+            modified=modified,
+            rejected=rejected,
+            skipped=skipped,
+            acceptance_rate=acceptance_rate,
+            modification_rate=modification_rate,
+            rejection_rate=rejection_rate,
+            skip_rate=skip_rate,
+            avg_session_duration_minutes=avg_session_duration,
+            avg_items_per_minute=avg_items_per_minute,
+            avg_time_per_item_seconds=avg_time_per_item,
+            avg_ai_confidence=0.72,
+            ai_accuracy_rate=ai_accuracy,
+            content_type_breakdown=content_breakdown,
+            correction_type_breakdown=correction_breakdown,
+        )
+
+
+# Global mock analytics manager instance
+_mock_analytics_manager: MockAnalyticsManager | None = None
+
+
+def get_mock_analytics_manager() -> MockAnalyticsManager:
+    """Get or create the mock analytics manager singleton."""
+    global _mock_analytics_manager
+    if _mock_analytics_manager is None:
+        _mock_analytics_manager = MockAnalyticsManager()
+    return _mock_analytics_manager
+
+
+def _format_analytics_table(data: AnalyticsData) -> None:
+    """Format and display analytics as a Rich table.
+
+    Args:
+        data: Analytics data to display
+    """
+    from rich.panel import Panel
+    from rich.table import Table
+
+    # Period label
+    period_label = data.period.capitalize()
+    date_range = (
+        f"{data.period_start.strftime('%Y-%m-%d %H:%M')} to "
+        f"{data.period_end.strftime('%Y-%m-%d %H:%M')}"
+    )
+
+    console.print(f"\n[bold]Review Analytics - {period_label}[/bold]")
+    console.print(f"[dim]{date_range}[/dim]")
+    console.print()
+
+    # Overview panel
+    overview_lines = [
+        f"Total Sessions: [bold]{data.total_sessions}[/bold]",
+        f"Items Reviewed: [bold]{data.total_items_reviewed}[/bold]",
+        f"Total Duration: [bold]{data.total_duration_minutes}[/bold] minutes",
+    ]
+    overview_panel = Panel(
+        "\n".join(overview_lines),
+        title="Overview",
+        border_style="blue",
+    )
+    console.print(overview_panel)
+
+    # Decision rates table
+    console.print("\n[bold]Decision Breakdown[/bold]")
+    rates_table = Table(show_header=True, header_style="bold")
+    rates_table.add_column("Decision", width=12)
+    rates_table.add_column("Count", justify="right", width=8)
+    rates_table.add_column("Rate", justify="right", width=10)
+
+    # Color code rates
+    def rate_color(rate: float, good_threshold: float = 0.5) -> str:
+        if rate >= good_threshold:
+            return "green"
+        elif rate >= good_threshold * 0.5:
+            return "yellow"
+        else:
+            return "red"
+
+    rates_table.add_row(
+        "Accepted",
+        str(data.accepted),
+        f"[{rate_color(data.acceptance_rate)}]{data.acceptance_rate * 100:.1f}%[/{rate_color(data.acceptance_rate)}]",
+    )
+    rates_table.add_row(
+        "Modified",
+        str(data.modified),
+        f"[yellow]{data.modification_rate * 100:.1f}%[/yellow]",
+    )
+    # For rejection, lower is better
+    rejection_color = "green" if data.rejection_rate < 0.15 else ("yellow" if data.rejection_rate < 0.25 else "red")
+    rates_table.add_row(
+        "Rejected",
+        str(data.rejected),
+        f"[{rejection_color}]{data.rejection_rate * 100:.1f}%[/{rejection_color}]",
+    )
+    # For skip, lower is better
+    skip_color = "green" if data.skip_rate < 0.1 else ("yellow" if data.skip_rate < 0.2 else "red")
+    rates_table.add_row(
+        "Skipped",
+        str(data.skipped),
+        f"[{skip_color}]{data.skip_rate * 100:.1f}%[/{skip_color}]",
+    )
+
+    console.print(rates_table)
+
+    # Performance metrics table
+    console.print("\n[bold]Performance Metrics[/bold]")
+    perf_table = Table(show_header=True, header_style="bold")
+    perf_table.add_column("Metric", width=25)
+    perf_table.add_column("Value", justify="right", width=15)
+
+    perf_table.add_row(
+        "Avg Session Duration",
+        f"{data.avg_session_duration_minutes:.1f} minutes",
+    )
+    perf_table.add_row(
+        "Avg Items per Minute",
+        f"{data.avg_items_per_minute:.2f}",
+    )
+    perf_table.add_row(
+        "Avg Time per Item",
+        f"{data.avg_time_per_item_seconds:.1f} seconds",
+    )
+
+    console.print(perf_table)
+
+    # AI metrics table
+    console.print("\n[bold]AI Performance[/bold]")
+    ai_table = Table(show_header=True, header_style="bold")
+    ai_table.add_column("Metric", width=25)
+    ai_table.add_column("Value", justify="right", width=15)
+
+    # Color code AI confidence
+    conf_color = "green" if data.avg_ai_confidence >= 0.7 else ("yellow" if data.avg_ai_confidence >= 0.5 else "red")
+    ai_table.add_row(
+        "Avg AI Confidence",
+        f"[{conf_color}]{data.avg_ai_confidence * 100:.1f}%[/{conf_color}]",
+    )
+
+    # Color code AI accuracy
+    acc_color = "green" if data.ai_accuracy_rate >= 0.8 else ("yellow" if data.ai_accuracy_rate >= 0.6 else "red")
+    ai_table.add_row(
+        "AI Accuracy",
+        f"[{acc_color}]{data.ai_accuracy_rate * 100:.1f}%[/{acc_color}]",
+    )
+
+    console.print(ai_table)
+
+    # Content type breakdown
+    console.print("\n[bold]Content Type Breakdown[/bold]")
+    content_table = Table(show_header=True, header_style="bold")
+    content_table.add_column("Type", width=15)
+    content_table.add_column("Count", justify="right", width=10)
+    content_table.add_column("Percentage", justify="right", width=12)
+
+    total_content = sum(data.content_type_breakdown.values())
+    for content_type, count in sorted(
+        data.content_type_breakdown.items(),
+        key=lambda x: x[1],
+        reverse=True,
+    ):
+        pct = (count / total_content * 100) if total_content > 0 else 0
+        content_table.add_row(
+            content_type.title(),
+            str(count),
+            f"{pct:.1f}%",
+        )
+
+    console.print(content_table)
+
+    # Correction type breakdown
+    console.print("\n[bold]Correction Type Breakdown[/bold]")
+    correction_table = Table(show_header=True, header_style="bold")
+    correction_table.add_column("Type", width=20)
+    correction_table.add_column("Count", justify="right", width=10)
+    correction_table.add_column("Percentage", justify="right", width=12)
+
+    total_corrections = sum(data.correction_type_breakdown.values())
+    for correction_type, count in sorted(
+        data.correction_type_breakdown.items(),
+        key=lambda x: x[1],
+        reverse=True,
+    ):
+        pct = (count / total_corrections * 100) if total_corrections > 0 else 0
+        # Format the type name
+        type_label = correction_type.replace("_", " ").title()
+        correction_table.add_row(
+            type_label,
+            str(count),
+            f"{pct:.1f}%",
+        )
+
+    console.print(correction_table)
+
+
+def _format_analytics_json(data: AnalyticsData) -> str:
+    """Format analytics as JSON.
+
+    Args:
+        data: Analytics data to format
+
+    Returns:
+        JSON string representation
+    """
+    import json
+
+    output = {
+        "period": data.period,
+        "period_start": data.period_start.isoformat(),
+        "period_end": data.period_end.isoformat(),
+        "sessions": {
+            "total": data.total_sessions,
+            "items_reviewed": data.total_items_reviewed,
+            "duration_minutes": data.total_duration_minutes,
+        },
+        "decisions": {
+            "accepted": data.accepted,
+            "modified": data.modified,
+            "rejected": data.rejected,
+            "skipped": data.skipped,
+        },
+        "rates": {
+            "acceptance": round(data.acceptance_rate, 4),
+            "modification": round(data.modification_rate, 4),
+            "rejection": round(data.rejection_rate, 4),
+            "skip": round(data.skip_rate, 4),
+        },
+        "performance": {
+            "avg_session_duration_minutes": round(data.avg_session_duration_minutes, 2),
+            "avg_items_per_minute": round(data.avg_items_per_minute, 2),
+            "avg_time_per_item_seconds": round(data.avg_time_per_item_seconds, 2),
+        },
+        "ai": {
+            "avg_confidence": round(data.avg_ai_confidence, 4),
+            "accuracy_rate": round(data.ai_accuracy_rate, 4),
+        },
+        "content_type_breakdown": data.content_type_breakdown,
+        "correction_type_breakdown": data.correction_type_breakdown,
+    }
+
+    return json.dumps(output, indent=2)
+
+
+def _format_analytics_csv(data: AnalyticsData) -> str:
+    """Format analytics as CSV.
+
+    Args:
+        data: Analytics data to format
+
+    Returns:
+        CSV string representation
+    """
+    lines = []
+
+    # Header with overview
+    lines.append("metric,value")
+    lines.append(f"period,{data.period}")
+    lines.append(f"period_start,{data.period_start.isoformat()}")
+    lines.append(f"period_end,{data.period_end.isoformat()}")
+    lines.append(f"total_sessions,{data.total_sessions}")
+    lines.append(f"total_items_reviewed,{data.total_items_reviewed}")
+    lines.append(f"total_duration_minutes,{data.total_duration_minutes}")
+
+    # Decisions
+    lines.append(f"accepted,{data.accepted}")
+    lines.append(f"modified,{data.modified}")
+    lines.append(f"rejected,{data.rejected}")
+    lines.append(f"skipped,{data.skipped}")
+
+    # Rates
+    lines.append(f"acceptance_rate,{data.acceptance_rate:.4f}")
+    lines.append(f"modification_rate,{data.modification_rate:.4f}")
+    lines.append(f"rejection_rate,{data.rejection_rate:.4f}")
+    lines.append(f"skip_rate,{data.skip_rate:.4f}")
+
+    # Performance
+    lines.append(f"avg_session_duration_minutes,{data.avg_session_duration_minutes:.2f}")
+    lines.append(f"avg_items_per_minute,{data.avg_items_per_minute:.2f}")
+    lines.append(f"avg_time_per_item_seconds,{data.avg_time_per_item_seconds:.2f}")
+
+    # AI
+    lines.append(f"avg_ai_confidence,{data.avg_ai_confidence:.4f}")
+    lines.append(f"ai_accuracy_rate,{data.ai_accuracy_rate:.4f}")
+
+    # Content breakdown (prefixed)
+    for content_type, count in data.content_type_breakdown.items():
+        lines.append(f"content_{content_type},{count}")
+
+    # Correction breakdown (prefixed)
+    for correction_type, count in data.correction_type_breakdown.items():
+        lines.append(f"correction_{correction_type},{count}")
+
+    return "\n".join(lines)
+
+
+@review_group.command("analytics")
+@click.option(
+    "--period",
+    type=click.Choice(["day", "week", "month"]),
+    default="week",
+    help="Analytics period: day, week, month (default: week)",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["table", "json", "csv"]),
+    default="table",
+    help="Output format: table, json, csv (default: table)",
+)
+@click.pass_context
+def review_analytics(ctx: click.Context, period: str, output_format: str) -> None:
+    """Show review analytics for the selected period.
+
+    Displays metrics including session counts, decision rates,
+    performance statistics, AI accuracy, and breakdowns by
+    content type and correction type.
+
+    Examples:
+        penf review analytics                   # Weekly analytics (table)
+        penf review analytics --period day      # Daily analytics
+        penf review analytics --period month    # Monthly analytics
+        penf review analytics --format json     # JSON output
+        penf review analytics --format csv      # CSV output
+    """
+    async def _analytics_async() -> int:
+        try:
+            analytics_manager = get_mock_analytics_manager()
+            data = await analytics_manager.get_analytics(period)
+
+            if output_format == "json":
+                console.print(_format_analytics_json(data))
+            elif output_format == "csv":
+                console.print(_format_analytics_csv(data))
+            else:
+                _format_analytics_table(data)
+
+            return 0
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_analytics_async())
     sys.exit(result)
