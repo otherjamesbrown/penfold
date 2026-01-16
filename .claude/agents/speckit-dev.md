@@ -1,6 +1,7 @@
 ---
 name: SpecKit Development
-description: Complete feature lifecycle from specification to archived documentation using beads workflow
+description: "Complete feature lifecycle from specification to archived documentation using beads workflow"
+color: green
 ---
 
 # SpecKit Development Agent

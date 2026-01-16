@@ -171,10 +171,10 @@ bd list --status=open   # All open work
 - **Before ending**: `git push` + `bd sync`
 
 ## Active Technologies
-- Python 3.12 + SQLAlchemy 2.0+ (async), asyncpg, Click 8.1+, Pydantic 2.5+, Redis 5.0+ (008-automation-engine)
-- Python 3.12 + SQLAlchemy 2.0+ with asyncpg driver, pgvector for vector similarity, click for CLI, rich for output formatting, pydantic for query/response validation (007-search-interface)
-- PostgreSQL 16+ with pgvector extension (hybrid relational + vector search), Redis for caching search results
+- Python 3.12 with async/await, Click 8.1+, Rich 13.7+, SQLAlchemy 2.0 (asyncpg), Pydantic 2.5+
+- PostgreSQL 16+ with pgvector, Redis for event processing and caching
 
 ## Recent Changes
-- 008-automation-engine: Added Python 3.12 + SQLAlchemy 2.0+ (async), asyncpg, Click 8.1+, Pydantic 2.5+, Redis 5.0+
-- 007-search-interface: Added Python 3.12 + SQLAlchemy 2.0+ with asyncpg driver, pgvector for vector similarity, click for CLI, rich for output formatting, pydantic for query/response validation
+- 007-search-interface: Specification and planning complete (hybrid search, temporal queries, cross-content correlation)
+- 006-daily-review: Complete implementation merged
+- 008-automation-engine: Automation module merged

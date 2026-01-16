@@ -1,6 +1,7 @@
 ---
 name: Observability Development
-description: Agent health monitoring, workflow tracing, decision logging, business KPIs
+description: "Agent health monitoring, workflow tracing, decision logging, business KPIs"
+color: yellow
 ---
 
 # Observability Development Agent
