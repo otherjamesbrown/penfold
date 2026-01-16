@@ -46,6 +46,11 @@ try:
 except ImportError:
     ManualEmailIngestedEvent = None
 
+try:
+    from ..events.publishers import ManualIngestEventPublisher
+except ImportError:
+    ManualIngestEventPublisher = None
+
 console = Console()
 
 
@@ -229,6 +234,15 @@ async def _process_email_files(
     skipped_count = 0
     failed_count = 0
     errors: list[dict] = []
+    labels_collected: set[str] = set()
+
+    # Initialize event publisher (optional - may not have Redis)
+    event_publisher = None
+    if ManualIngestEventPublisher is not None:
+        try:
+            event_publisher = ManualIngestEventPublisher()
+        except Exception:
+            pass  # Event publishing is optional
 
     async with get_session() as session:
         # Initialize repositories
@@ -342,11 +356,37 @@ async def _process_email_files(
                     imported_count += 1
                     await job_repo.update_progress(job.id, str(file_path), "imported")
 
+                    # Collect labels for summary
+                    labels_collected.update(labels)
+
                     if verbose:
                         console.print(f"  [green]Imported:[/green] {file_path.name}")
 
-                    # Publish event (if event publishing is available)
-                    # Event publishing will be added in integration phase
+                    # Publish event to trigger AI pipeline
+                    if event_publisher is not None:
+                        try:
+                            await event_publisher.publish_manual_email_ingested(
+                                source_id=source.id,
+                                tenant_id=str(tenant_id),
+                                message_id=parsed.message_id,
+                                job_id=str(job.id),
+                                from_email=parsed.from_email,
+                                to_emails=parsed.to_emails,
+                                email_date=email_date,
+                                content_hash=parsed.content_hash,
+                                source_tag=source_tag,
+                                original_file_path=str(file_path),
+                                from_name=parsed.from_name,
+                                cc_emails=parsed.cc_emails,
+                                subject=parsed.subject,
+                                date_is_fallback=parsed.date_fallback_used,
+                                in_reply_to=parsed.in_reply_to,
+                                has_attachments=parsed.has_attachments,
+                                attachment_count=parsed.attachment_count,
+                                labels=labels,
+                            )
+                        except Exception:
+                            pass  # Event publishing is best-effort
 
                 except ParseError as e:
                     failed_count += 1
@@ -390,6 +430,33 @@ async def _process_email_files(
         final_status = "completed" if failed_count == 0 else "completed_with_errors"
         await job_repo.complete_job(job.id, final_status)
         await session.commit()
+
+        # Get job completion time for event
+        completed_at = datetime.now(timezone.utc)
+        duration = (completed_at - job.started_at).total_seconds() if job.started_at else 0
+
+        # Publish job completion event
+        if event_publisher is not None:
+            try:
+                await event_publisher.publish_ingest_job_completed(
+                    job_id=str(job.id),
+                    tenant_id=str(tenant_id),
+                    source_tag=source_tag,
+                    total_files=len(eml_files),
+                    imported_count=imported_count,
+                    skipped_count=skipped_count,
+                    failed_count=failed_count,
+                    started_at=job.started_at or completed_at,
+                    completed_at=completed_at,
+                    duration_seconds=duration,
+                    success=failed_count == 0,
+                    final_status=final_status,
+                    labels_created=list(labels_collected),
+                )
+            except Exception:
+                pass  # Best-effort
+            finally:
+                await event_publisher.close()
 
     # Display summary
     console.print()
