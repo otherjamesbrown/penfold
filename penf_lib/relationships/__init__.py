@@ -37,6 +37,17 @@ from .extractor import (
     ExtractionResult,
     RelationshipExtractor,
 )
+from .conflict_resolver import (
+    ConflictResolutionResult,
+    ConflictResolver,
+    ResolutionStrategy,
+)
+from .feedback import (
+    FeedbackProcessor,
+    FeedbackResult,
+    FeedbackType as FeedbackTypeEnum,
+    LearnedPreference,
+)
 from .models import (
     # Enums
     ConflictResolution,
@@ -57,6 +68,25 @@ from .models import (
     RelationshipType,
     RelationshipUpdate,
     RelationshipVersion,
+)
+from .network import (
+    BottleneckInfo,
+    CentralityMetrics,
+    CollaborationOpportunity,
+    CommunityInfo,
+    ExportFormat,
+    NetworkAnalyzer,
+    NetworkGraph,
+    NetworkInsights,
+)
+from .search import (
+    PathwayResult,
+    PathwayStep,
+    QueryExpansion,
+    RelatedEntity,
+    RelationshipContextProvider,
+    RelationshipSearchIntegration,
+    SearchContextEnhancement,
 )
 
 __all__ = [
@@ -96,4 +126,30 @@ __all__ = [
     "DiscoveredRelationship",
     "DiscoveryResult",
     "RelationshipDiscoveryService",
+    # Network Analysis
+    "NetworkAnalyzer",
+    "NetworkGraph",
+    "NetworkInsights",
+    "CentralityMetrics",
+    "CommunityInfo",
+    "BottleneckInfo",
+    "CollaborationOpportunity",
+    "ExportFormat",
+    # Search Integration
+    "RelatedEntity",
+    "PathwayStep",
+    "PathwayResult",
+    "QueryExpansion",
+    "SearchContextEnhancement",
+    "RelationshipContextProvider",
+    "RelationshipSearchIntegration",
+    # Conflict Resolution
+    "ConflictResolver",
+    "ConflictResolutionResult",
+    "ResolutionStrategy",
+    # Feedback Processing
+    "FeedbackProcessor",
+    "FeedbackResult",
+    "FeedbackTypeEnum",
+    "LearnedPreference",
 ]
