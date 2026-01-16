@@ -46,6 +46,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+async def _record_analytics_background(analytics_coro):
+    """Fire-and-forget wrapper for analytics recording.
+
+    Runs analytics coroutine in background without blocking.
+    Exceptions are logged but don't propagate.
+    """
+    try:
+        await analytics_coro
+    except Exception as e:
+        logger.warning(f"Analytics recording failed: {e}")
+
+
 # Edge case thresholds
 MAX_RESULTS_LIMIT = 100  # Maximum results to return for broad queries
 BROAD_QUERY_THRESHOLD = 1000  # Results count that triggers broad query suggestions
@@ -353,12 +366,12 @@ class SearchEngine:
         await self.cache_manager.cache_results(self.tenant_id, query, response)
         timings["cache_store_ms"] = int((datetime.utcnow() - cache_store_start).total_seconds() * 1000)
 
-        # 12. Record analytics (fire and forget, don't block response)
-        try:
-            from penf_lib.search.analytics import AnalyticsCollector
+        # 12. Record analytics (true fire-and-forget, don't block response)
+        from penf_lib.search.analytics import AnalyticsCollector
 
-            analytics = AnalyticsCollector(self.session, self.tenant_id)
-            await analytics.record_search(
+        analytics = AnalyticsCollector(self.session, self.tenant_id)
+        asyncio.create_task(_record_analytics_background(
+            analytics.record_search(
                 query_text=query.query_text,
                 result_count=len(ranked),
                 execution_time_ms=execution_time,
@@ -366,9 +379,7 @@ class SearchEngine:
                 search_strategy=response.metadata.search_strategy,
                 filters=filters_applied,
             )
-        except Exception as analytics_error:
-            # Don't fail the search if analytics recording fails
-            logger.warning(f"Analytics recording failed: {analytics_error}")
+        ))
 
         # Performance logging
         logger.info(
