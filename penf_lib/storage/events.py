@@ -7,6 +7,7 @@ for coordinating multi-model AI processing pipelines.
 import asyncio
 import json
 import logging
+import re
 from typing import Dict, Any, List, Optional, Callable, Set
 from datetime import datetime, timezone
 import uuid
@@ -22,6 +23,59 @@ from penf_lib.storage.connections import get_redis_client
 
 
 logger = logging.getLogger(__name__)
+
+# Channel name validation pattern for PostgreSQL NOTIFY
+# Allows: letters, numbers, underscores, hyphens, dots (no spaces or special chars)
+# Max length: 63 characters (PostgreSQL identifier limit)
+VALID_CHANNEL_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z0-9_.\-]{0,62}$')
+
+# Whitelist of known event channel prefixes
+ALLOWED_CHANNEL_PREFIXES = (
+    'document.',
+    'email.',
+    'event.',
+    'processing.',
+    'sync.',
+    'source.',
+    'assertion.',
+    'review.',
+    'automation.',
+    'relationship.',
+)
+
+
+def validate_channel_name(channel: str) -> str:
+    """Validate and sanitize a PostgreSQL NOTIFY channel name.
+
+    Args:
+        channel: The channel name to validate.
+
+    Returns:
+        The validated channel name.
+
+    Raises:
+        ValueError: If the channel name is invalid.
+    """
+    if not channel:
+        raise ValueError("Channel name cannot be empty")
+
+    if len(channel) > 63:
+        raise ValueError(f"Channel name too long: {len(channel)} chars (max 63)")
+
+    if not VALID_CHANNEL_PATTERN.match(channel):
+        raise ValueError(
+            f"Invalid channel name '{channel}': must start with a letter and "
+            "contain only letters, numbers, underscores, hyphens, and dots"
+        )
+
+    # Check against allowed prefixes for additional security
+    if not any(channel.startswith(prefix) for prefix in ALLOWED_CHANNEL_PREFIXES):
+        raise ValueError(
+            f"Invalid channel name '{channel}': must start with an allowed prefix "
+            f"({', '.join(ALLOWED_CHANNEL_PREFIXES)})"
+        )
+
+    return channel
 
 
 class EventPublisher:
@@ -150,10 +204,16 @@ class EventPublisher:
         """Publish event using PostgreSQL LISTEN/NOTIFY.
 
         Args:
-            channel: Notification channel
+            channel: Notification channel (validated before SQL execution)
             event_data: Event payload
             event_id: Event identifier
+
+        Raises:
+            ValueError: If channel name is invalid
         """
+        # Validate channel name to prevent SQL injection
+        validated_channel = validate_channel_name(channel)
+
         try:
             # Use PostgreSQL NOTIFY as fallback
             notification_payload = json.dumps({
@@ -161,9 +221,11 @@ class EventPublisher:
                 "payload": event_data,
             })
 
-            # NOTIFY with channel and payload
+            # NOTIFY with validated channel and payload
+            # Note: PostgreSQL identifiers cannot be parameterized, so we validate
+            # the channel name strictly before interpolation
             await self.session.execute(
-                text(f"NOTIFY {channel}, :payload"),
+                text(f"NOTIFY {validated_channel}, :payload"),
                 {"payload": notification_payload}
             )
             await self.session.commit()

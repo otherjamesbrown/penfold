@@ -14,7 +14,9 @@ Signal weights (from research.md):
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
@@ -190,6 +192,8 @@ class CorrelationDiscovery:
                 print(f"  - {item.title} ({item.correlation_type}): {item.correlation_score:.2f}")
             ```
         """
+        start_time = time.perf_counter()
+
         # Get source content details
         source = await self._get_content(content_id, content_type)
         if not source:
@@ -203,31 +207,39 @@ class CorrelationDiscovery:
                 total_correlations=0,
             )
 
-        # Find related content via each signal
-        participant_matches = await self._find_by_participants(
-            source.participants,
-            content_id,
-            content_type,
-        )
-        project_matches = await self._find_by_project(
-            source.project_refs,
-            content_id,
-            content_type,
-        )
-        temporal_matches = await self._find_by_temporal_proximity(
-            source.timestamp,
-            content_id,
-            content_type,
-        )
-        semantic_matches = await self._find_by_similarity(
-            source.embedding,
-            content_id,
-            content_type,
-        )
-        thread_matches = await self._find_by_thread(
-            source.thread_id,
-            content_id,
-            content_type,
+        # Find related content via each signal - execute in parallel
+        (
+            participant_matches,
+            project_matches,
+            temporal_matches,
+            semantic_matches,
+            thread_matches,
+        ) = await asyncio.gather(
+            self._find_by_participants(
+                source.participants,
+                content_id,
+                content_type,
+            ),
+            self._find_by_project(
+                source.project_refs,
+                content_id,
+                content_type,
+            ),
+            self._find_by_temporal_proximity(
+                source.timestamp,
+                content_id,
+                content_type,
+            ),
+            self._find_by_similarity(
+                source.embedding,
+                content_id,
+                content_type,
+            ),
+            self._find_by_thread(
+                source.thread_id,
+                content_id,
+                content_type,
+            ),
         )
 
         # Combine and score all matches
@@ -247,9 +259,20 @@ class CorrelationDiscovery:
         # Sort by correlation score and limit
         sorted_results = sorted(filtered, key=lambda x: x.correlation_score, reverse=True)
 
+        # Log performance metrics
+        duration_ms = (time.perf_counter() - start_time) * 1000
         logger.info(
             f"Correlation discovery for {content_type}/{content_id}: "
-            f"found {len(sorted_results)} related items"
+            f"found {len(sorted_results)} related items in {duration_ms:.1f}ms"
+        )
+        logger.info(
+            "Correlation discovery completed",
+            extra={
+                "correlation_discovery_ms": round(duration_ms, 2),
+                "content_id": content_id,
+                "content_type": content_type,
+                "results_found": len(sorted_results),
+            }
         )
 
         return CorrelationResult(
@@ -462,6 +485,8 @@ class CorrelationDiscovery:
         """Find content with overlapping participants.
 
         Scores based on Jaccard similarity of participant sets.
+        Uses the indexed participant_emails column with array overlap (&&)
+        for efficient GIN index lookups, with JSONB fallback for legacy data.
 
         Returns:
             List of (entity_id, entity_type, content_type, title, timestamp, overlap_score)
@@ -470,44 +495,44 @@ class CorrelationDiscovery:
             return []
 
         try:
-            # Find sources with overlapping participants
+            # Normalize participants to lowercase for matching
+            normalized_participants = [p.lower() for p in participants]
+
+            # Build ILIKE patterns for fallback on legacy data without participant_emails
+            participant_patterns = [f"%{p}%" for p in normalized_participants]
+
+            # Find sources with overlapping participants using indexed column
+            # Primary: Use participant_emails array overlap (&&) with GIN index
+            # Fallback: JSONB::text ILIKE for records where participant_emails is NULL
             query = text("""
-                WITH participant_list AS (
-                    SELECT unnest(:participants::text[]) as participant
-                ),
-                source_participants AS (
-                    SELECT
-                        s.id,
-                        'source' as entity_type,
-                        s.content_type,
-                        s.source_timestamp as timestamp,
-                        s.ingestion_metadata
-                    FROM sources s
-                    WHERE s.tenant_id = :tenant_id
-                        AND s.is_deleted = false
-                        AND NOT (s.id = :exclude_id AND :exclude_type = 'source')
-                )
-                -- NOTE: ILIKE on JSONB::text is a known performance limitation.
-                -- Future optimization: extract participants to a separate indexed column
-                -- or use PostgreSQL GIN/GIST indexes on JSONB paths.
                 SELECT DISTINCT
-                    sp.id as entity_id,
-                    sp.entity_type,
-                    sp.content_type,
-                    sp.timestamp,
-                    sp.ingestion_metadata
-                FROM source_participants sp
-                WHERE EXISTS (
-                    SELECT 1 FROM participant_list pl
-                    WHERE sp.ingestion_metadata::text ILIKE '%' || pl.participant || '%'
-                )
+                    s.id as entity_id,
+                    'source' as entity_type,
+                    s.content_type,
+                    s.source_timestamp as timestamp,
+                    s.ingestion_metadata,
+                    s.participant_emails
+                FROM sources s
+                WHERE s.tenant_id = :tenant_id
+                    AND s.is_deleted = false
+                    AND NOT (s.id = :exclude_id AND :exclude_type = 'source')
+                    AND (
+                        -- Primary: GIN-indexed array overlap for participant_emails
+                        s.participant_emails && :participants::text[]
+                        -- Fallback: JSONB text search for legacy data without participant_emails
+                        OR (
+                            s.participant_emails IS NULL
+                            AND s.ingestion_metadata::text ILIKE ANY(:participant_patterns::text[])
+                        )
+                    )
                 LIMIT 100
             """)
 
             result = await self.session.execute(
                 query,
                 {
-                    "participants": participants,
+                    "participants": normalized_participants,
+                    "participant_patterns": participant_patterns,
                     "tenant_id": str(self.tenant_id),
                     "exclude_id": exclude_id,
                     "exclude_type": exclude_type,
@@ -516,10 +541,15 @@ class CorrelationDiscovery:
 
             matches: list[tuple[int, str, str | None, str | None, datetime | None, float]] = []
             for row in result:
-                # Calculate overlap score
                 row_metadata = row.ingestion_metadata or {}
-                row_participants = set(self._extract_participants(row_metadata))
-                source_set = set(participants)
+
+                # Calculate overlap score using participant_emails if available,
+                # otherwise fall back to extracting from metadata
+                if row.participant_emails:
+                    row_participants = {p.lower() for p in row.participant_emails}
+                else:
+                    row_participants = set(self._extract_participants(row_metadata))
+                source_set = set(normalized_participants)
 
                 if not row_participants:
                     continue
@@ -968,6 +998,8 @@ async def find_related_by_person(
     """Find content related to a specific person.
 
     Convenience function to find all content involving a person.
+    Uses the indexed participant_emails column with array contains (@>)
+    for efficient GIN index lookups, with JSONB fallback for legacy data.
 
     Args:
         session: Database session
@@ -979,9 +1011,12 @@ async def find_related_by_person(
         List of RelatedItem objects
     """
     try:
-        # NOTE: ILIKE on JSONB::text is a known performance limitation.
-        # Future optimization: extract participants to a separate indexed column
-        # or use PostgreSQL full-text search on participant fields.
+        # Normalize person identifier to lowercase for matching
+        normalized_person = person_identifier.lower()
+        person_pattern = f"%{normalized_person}%"
+
+        # Primary: Use participant_emails array contains (@>) with GIN index
+        # Fallback: JSONB::text ILIKE for records where participant_emails is NULL
         query = text("""
             SELECT
                 s.id as entity_id,
@@ -992,7 +1027,15 @@ async def find_related_by_person(
             FROM sources s
             WHERE s.tenant_id = :tenant_id
                 AND s.is_deleted = false
-                AND s.ingestion_metadata::text ILIKE :person_pattern
+                AND (
+                    -- Primary: GIN-indexed array contains for participant_emails
+                    s.participant_emails @> ARRAY[:person]::text[]
+                    -- Fallback: JSONB text search for legacy data without participant_emails
+                    OR (
+                        s.participant_emails IS NULL
+                        AND s.ingestion_metadata::text ILIKE :person_pattern
+                    )
+                )
             ORDER BY s.source_timestamp DESC
             LIMIT :limit
         """)
@@ -1001,7 +1044,8 @@ async def find_related_by_person(
             query,
             {
                 "tenant_id": str(tenant_id),
-                "person_pattern": f"%{person_identifier.lower()}%",
+                "person": normalized_person,
+                "person_pattern": person_pattern,
                 "limit": limit,
             },
         )

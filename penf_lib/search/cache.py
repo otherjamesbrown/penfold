@@ -200,15 +200,29 @@ class EmbeddingCache:
     """In-memory LRU cache for frequently accessed embeddings.
 
     Provides fast access to embeddings during similarity search to avoid
-    repeated database lookups. Uses a simple LRU eviction policy.
+    repeated database lookups. Uses a simple LRU eviction policy with both
+    entry-count and memory-based limits.
 
     Attributes:
         _cache: Dictionary storing entity_id -> embedding mappings.
         _access_order: List tracking access order for LRU eviction.
         _max_size: Maximum number of entries (default: 10,000).
+        _max_memory_bytes: Maximum memory usage in bytes (default: 64MB).
+        _estimated_memory: Current estimated memory usage.
+
+    Memory Estimation:
+        Each embedding uses approximately:
+        - 768 floats × 8 bytes = 6,144 bytes per embedding
+        - Plus ~56 bytes Python list overhead
+        - Plus ~56 bytes dict entry overhead
+        Total: ~6,256 bytes per 768-dimensional embedding
 
     Example:
+        # Entry-count limited
         cache = EmbeddingCache(max_size=10000)
+
+        # Memory-limited (recommended for production)
+        cache = EmbeddingCache(max_size=10000, max_memory_mb=64)
 
         # Check cache first
         embedding = cache.get(entity_id)
@@ -217,15 +231,44 @@ class EmbeddingCache:
             cache.set(entity_id, embedding)
     """
 
-    def __init__(self, max_size: int = 10000) -> None:
+    # Estimated bytes per embedding (768 floats + overhead)
+    BYTES_PER_FLOAT = 8
+    LIST_OVERHEAD = 56
+    DICT_ENTRY_OVERHEAD = 56
+
+    def __init__(
+        self,
+        max_size: int = 10000,
+        max_memory_mb: int | None = 64,
+    ) -> None:
         """Initialize the embedding cache.
 
         Args:
             max_size: Maximum number of embeddings to cache (default: 10,000).
+            max_memory_mb: Maximum memory in megabytes (default: 64MB).
+                          Set to None to disable memory limit.
         """
         self._cache: dict[int, list[float]] = {}
         self._access_order: list[int] = []
         self._max_size = max_size
+        self._max_memory_bytes = (max_memory_mb * 1024 * 1024) if max_memory_mb else None
+        self._estimated_memory: int = 0
+        self._embedding_dim: int | None = None  # Detected from first entry
+
+    def _estimate_embedding_size(self, embedding: list[float]) -> int:
+        """Estimate memory size of an embedding in bytes.
+
+        Args:
+            embedding: The embedding vector.
+
+        Returns:
+            Estimated size in bytes.
+        """
+        return (
+            len(embedding) * self.BYTES_PER_FLOAT +
+            self.LIST_OVERHEAD +
+            self.DICT_ENTRY_OVERHEAD
+        )
 
     def get(self, entity_id: int) -> list[float] | None:
         """Get embedding from cache.
@@ -250,38 +293,109 @@ class EmbeddingCache:
     def set(self, entity_id: int, embedding: list[float]) -> None:
         """Cache embedding with LRU eviction.
 
-        If the cache is at capacity, the least recently used entry is evicted.
+        Evicts entries when either:
+        - Entry count exceeds max_size
+        - Memory usage exceeds max_memory_bytes (if configured)
 
         Args:
             entity_id: The database ID of the entity.
             embedding: The embedding vector to cache.
         """
+        embedding_size = self._estimate_embedding_size(embedding)
+
+        # Detect embedding dimension from first entry
+        if self._embedding_dim is None:
+            self._embedding_dim = len(embedding)
+
         # If already in cache, update value and move to end of access order
         if entity_id in self._cache:
+            old_embedding = self._cache[entity_id]
+            old_size = self._estimate_embedding_size(old_embedding)
+            self._estimated_memory -= old_size
+
             self._cache[entity_id] = embedding.copy()  # Copy to prevent mutation
+            self._estimated_memory += embedding_size
+
             self._access_order.remove(entity_id)
             self._access_order.append(entity_id)
             return
 
-        # Check if we need to evict
-        if len(self._cache) >= self._max_size:
-            # Evict least recently used (first in access order)
-            lru_id = self._access_order.pop(0)
-            del self._cache[lru_id]
+        # Evict entries until we have space
+        self._evict_if_needed(embedding_size)
 
         # Add new entry
         self._cache[entity_id] = embedding.copy()  # Copy to prevent mutation
         self._access_order.append(entity_id)
+        self._estimated_memory += embedding_size
+
+    def _evict_if_needed(self, new_entry_size: int) -> None:
+        """Evict LRU entries until there's space for a new entry.
+
+        Evicts based on both entry count and memory limits.
+
+        Args:
+            new_entry_size: Size in bytes of the entry to be added.
+        """
+        # Check entry count limit
+        while len(self._cache) >= self._max_size and self._access_order:
+            self._evict_lru()
+
+        # Check memory limit if configured
+        if self._max_memory_bytes is not None:
+            while (
+                self._estimated_memory + new_entry_size > self._max_memory_bytes
+                and self._access_order
+            ):
+                self._evict_lru()
+
+    def _evict_lru(self) -> None:
+        """Evict the least recently used entry."""
+        if not self._access_order:
+            return
+
+        lru_id = self._access_order.pop(0)
+        if lru_id in self._cache:
+            old_embedding = self._cache.pop(lru_id)
+            self._estimated_memory -= self._estimate_embedding_size(old_embedding)
 
     def clear(self) -> None:
         """Clear entire cache."""
         self._cache.clear()
         self._access_order.clear()
+        self._estimated_memory = 0
 
     @property
     def size(self) -> int:
-        """Current cache size."""
+        """Current cache entry count."""
         return len(self._cache)
+
+    @property
+    def memory_usage_bytes(self) -> int:
+        """Estimated current memory usage in bytes."""
+        return self._estimated_memory
+
+    @property
+    def memory_usage_mb(self) -> float:
+        """Estimated current memory usage in megabytes."""
+        return self._estimated_memory / (1024 * 1024)
+
+    def get_stats(self) -> dict:
+        """Get cache statistics.
+
+        Returns:
+            Dictionary with cache statistics.
+        """
+        return {
+            "entry_count": len(self._cache),
+            "max_size": self._max_size,
+            "memory_usage_bytes": self._estimated_memory,
+            "memory_usage_mb": round(self.memory_usage_mb, 2),
+            "max_memory_mb": (
+                self._max_memory_bytes / (1024 * 1024)
+                if self._max_memory_bytes else None
+            ),
+            "embedding_dimension": self._embedding_dim,
+        }
 
 
 # =============================================================================
@@ -319,17 +433,23 @@ class SearchCacheManager:
         self,
         redis_url: str | None = None,
         embedding_cache_size: int = 10000,
+        embedding_cache_memory_mb: int | None = 64,
     ) -> None:
         """Initialize the cache manager.
 
         Args:
             redis_url: Redis connection URL. If None, query caching is disabled.
-            embedding_cache_size: Maximum size for embedding cache (default: 10,000).
+            embedding_cache_size: Maximum entries for embedding cache (default: 10,000).
+            embedding_cache_memory_mb: Maximum memory for embedding cache in MB
+                                       (default: 64MB). Set to None to disable.
         """
         self._redis_url = redis_url
         self._redis_client: redis.Redis | None = None
         self.query_cache: QueryCache | None = None
-        self.embedding_cache = EmbeddingCache(embedding_cache_size)
+        self.embedding_cache = EmbeddingCache(
+            max_size=embedding_cache_size,
+            max_memory_mb=embedding_cache_memory_mb,
+        )
 
     async def initialize(self) -> None:
         """Initialize Redis connection.

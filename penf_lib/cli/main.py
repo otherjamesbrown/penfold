@@ -15,6 +15,7 @@ from .tenant import tenant_group
 from .review_commands import review_group
 from .automation_commands import automation_group
 from .search_commands import search_group
+from .escalation_commands import escalation_group
 
 # Initialize rich console for beautiful output
 console = Console()
@@ -77,6 +78,9 @@ cli.add_command(automation_group)
 
 # Add search commands
 cli.add_command(search_group)
+
+# Add escalation workflow commands
+cli.add_command(escalation_group)
 
 
 @cli.command()

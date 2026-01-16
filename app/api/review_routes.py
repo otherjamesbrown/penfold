@@ -13,6 +13,7 @@ from datetime import datetime
 import uuid
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.ui.transcript_editor import router as transcript_editor_router
 from app.ui.entity_resolution import router as entity_resolution_router
 from app.ui.review_queue import router as review_queue_router
@@ -160,12 +161,12 @@ async def get_review_dashboard():
 @router.post("/feedback/submit")
 async def submit_user_feedback(
     feedback: FeedbackSubmission,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """Submit user feedback on AI-generated content"""
 
-    # Mock user for demo
-    user_id = "demo_user"
+    user_id = current_user.get("user_id", "authenticated_user")
 
     try:
         result = await feedback_service.submit_feedback(feedback, user_id, db)
@@ -178,12 +179,12 @@ async def submit_user_feedback(
 @router.post("/feedback/correction")
 async def submit_correction_pattern(
     correction: CorrectionSubmission,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """Submit a correction pattern for AI training"""
 
-    # Mock user for demo
-    user_id = "demo_user"
+    user_id = current_user.get("user_id", "authenticated_user")
 
     try:
         result = await feedback_service.submit_correction(correction, user_id, db)
@@ -290,12 +291,12 @@ async def get_version_details(
 async def rollback_transcript(
     meeting_id: str,
     version_id: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """Rollback transcript to a specific version"""
 
-    # Mock user for demo
-    user_id = "demo_user"
+    user_id = current_user.get("user_id", "authenticated_user")
 
     try:
         result = await transcript_versioning.rollback_to_version(

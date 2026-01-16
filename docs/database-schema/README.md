@@ -29,10 +29,12 @@ pytest tests/unit/storage/ -v
 
 ### Basic Usage
 ```python
-from penf_lib.storage import create_async_session, TenantRepository, SourceRepository
+from penf_lib.storage.database import db_manager
+from penf_lib.storage.repositories.tenant import TenantRepository
+from penf_lib.storage.repositories.source import SourceRepository
 
 async def main():
-    async with create_async_session() as session:
+    async with db_manager.get_session() as session:
         # Create tenant
         tenant_repo = TenantRepository()
         tenant = await tenant_repo.create(session, {

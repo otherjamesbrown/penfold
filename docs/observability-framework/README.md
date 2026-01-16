@@ -127,18 +127,38 @@ summary = await tracker.get_kpi_summary(days=7)
 
 ## CLI Commands
 
+The observability framework provides two CLI tools: `monitor` for agent health monitoring and `debug` for workflow debugging.
+
 ```bash
-# View agent health dashboard
-penf monitor agents
+# View real-time agent health status
+python -m observability_lib.cli.monitor status
 
-# Debug specific workflow
-penf debug workflow <workflow-id>
+# View specific agent health
+python -m observability_lib.cli.monitor status --agent-id=email_processor
 
-# View decision trace
-penf debug decisions --agent=email_processor --hours=24
+# Get detailed health analysis for an agent
+python -m observability_lib.cli.monitor health --agent-id=email_processor --hours=24
 
-# Check business KPIs
-penf monitor kpis --days=7
+# View agent logs
+python -m observability_lib.cli.monitor logs --agent-id=email_processor --level=INFO
+
+# Show recent agent metrics
+python -m observability_lib.cli.monitor metrics --hours=1
+
+# List recent workflows
+python -m observability_lib.cli.debug list-workflows --hours=24
+
+# Show detailed workflow trace
+python -m observability_lib.cli.debug trace <workflow-id>
+
+# Analyze workflow performance
+python -m observability_lib.cli.debug analyze <workflow-id>
+
+# Identify system bottlenecks
+python -m observability_lib.cli.debug bottlenecks --hours=24
+
+# Stream live workflow events
+python -m observability_lib.cli.debug stream --follow
 ```
 
 ## Configuration
