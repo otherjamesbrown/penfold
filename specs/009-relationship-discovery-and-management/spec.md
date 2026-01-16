@@ -2,7 +2,7 @@
 
 **Feature Branch**: `009-relationship-discovery-and-management`
 **Created**: 2026-01-12
-**Status**: Draft
+**Status**: Clarified
 **Input**: User description: "Relationship Discovery and Management"
 
 ## User Scenarios & Testing *(mandatory)*
@@ -109,7 +109,7 @@ As a power user, I need relationship context to enhance my search queries and co
 - **FR-006**: System MUST track relationship lifecycle states including active, historical, archived, and user-confirmed
 - **FR-007**: System MUST provide relationship evidence and context to support user validation decisions
 - **FR-008**: System MUST update relationship confidence and status based on ongoing content analysis and user interactions
-- **FR-009**: System MUST identify and flag relationship conflicts where multiple incompatible relationship types are suggested
+- **FR-009**: System MUST resolve relationship conflicts using confidence-weighted auto-resolution when gap exceeds 30%, otherwise escalating to user validation
 - **FR-010**: System MUST support relationship versioning to track changes over time and maintain historical context
 - **FR-011**: System MUST integrate relationship context into search queries to enhance content discovery through relationship pathways
 - **FR-012**: System MUST provide relationship network analysis to identify communication patterns and collaboration insights
@@ -151,8 +151,32 @@ As a power user, I need relationship context to enhance my search queries and co
 - Search interface from [007-search-interface](../007-search-interface/spec.md) for relationship-enhanced query integration
 - Daily review workflow from [006-daily-review](../006-daily-review/spec.md) for relationship validation and feedback collection
 
+## Cross-Spec Bead Dependencies
+
+<!--
+  Format: this-phase → other-spec/other-phase
+  Phases: Setup, Foundation, US1, US2, ..., Polish
+  The bead generator will resolve these to actual bead IDs
+-->
+
+| This Phase | Depends On | Reason |
+|------------|------------|--------|
+| US5 (Search Integration) | 007-search-interface/US1 | Relationship-enhanced queries require NL search infrastructure |
+| Polish | 007-search-interface/Foundation | Integration testing requires search API to be available |
+
+## Clarifications
+
+### Session 2026-01-15
+
+- Q: How should entity identity resolution work when participants use multiple email addresses or aliases? -> A: Use existing entity resolution system from content processing (003/004/005 specs) with relationship-specific confidence overlay
+- Q: What retention policy should apply to archived relationships and evidence data? -> A: Time-based retention with configurable limits; 2-year default inactivity period before archival, user-configurable
+- Q: How should conflicting relationship types for the same entity pair be resolved? -> A: Confidence-weighted with user escalation; auto-resolve if confidence gap > 30%, otherwise flag for user validation
+
 ## Assumptions
 
+- Entity identity resolution defers to the existing content processing infrastructure with relationship-specific confidence overlays for handling multiple email addresses and aliases
+- Archived relationships and evidence data follow time-based retention with a 2-year default inactivity period; retention limits are user-configurable
+- Relationship conflicts are resolved automatically when confidence gap exceeds 30%; conflicts within 30% are escalated to user validation
 - Content will contain sufficient context clues to enable relationship discovery with reasonable accuracy
 - Users will provide relationship feedback consistently enough to enable system learning and improvement
 - Relationship types and classifications will remain stable enough to support consistent discovery algorithms

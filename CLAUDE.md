@@ -169,3 +169,10 @@ bd list --status=open   # All open work
 - **Development standards**: `project-constitution.md`
 - **When stuck**: Ask user for direction on priorities
 - **Before ending**: `git push` + `bd sync`
+
+## Active Technologies
+- Python 3.12 with async/awai + SQLAlchemy 2.0, asyncpg, Redis, Click, Pydantic 2.x, pgvector (009-relationship-discovery-and-management)
+- PostgreSQL 16+ with pgvector extension (existing infrastructure) (009-relationship-discovery-and-management)
+
+## Recent Changes
+- 009-relationship-discovery-and-management: Added Python 3.12 with async/awai + SQLAlchemy 2.0, asyncpg, Redis, Click, Pydantic 2.x, pgvector

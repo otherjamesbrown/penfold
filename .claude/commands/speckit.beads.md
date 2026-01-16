@@ -31,11 +31,13 @@ You **MUST** consider the user input before proceeding (if not empty).
 3. **Execute bead generation workflow**:
    - Load plan.md and extract tech stack, libraries, project structure
    - Load spec.md and extract user stories with their priorities (P1, P2, P3, etc.)
+   - **Parse Cross-Spec Dependencies section** from spec.md (see format below)
    - If data-model.md exists: Extract entities and map to user stories
    - If contracts/ exists: Map endpoints to user stories
    - If research.md exists: Extract decisions for setup tasks
    - Generate beads organized by user story and phase
    - Create dependency chains showing completion order
+   - **Resolve cross-spec dependencies** to actual bead IDs
    - Validate bead completeness (each user story has all needed work, independently testable)
 
 4. **Generate beads using bd commands**:
@@ -226,3 +228,75 @@ Each bead must:
 - Map to user value (except setup/foundational)
 - Be completable within reasonable timeframe (1-5 days ideal)
 - Have proper dependencies set to prevent blocking
+
+### Cross-Spec Bead Dependencies
+
+When a feature depends on work from another specification, add a `## Cross-Spec Bead Dependencies` section to spec.md to enable automatic cross-spec dependency creation.
+
+#### Spec.md Format
+
+Add this section after the Dependencies section:
+
+```markdown
+## Cross-Spec Bead Dependencies
+
+<!--
+  Format: this-phase → other-spec/other-phase
+  Phases: Setup, Foundation, US1, US2, ..., Polish
+  The bead generator will resolve these to actual bead IDs
+-->
+
+| This Phase | Depends On | Reason |
+|------------|------------|--------|
+| US5 (Search Integration) | 007-search-interface/US1 | Relationship queries need NL search infrastructure |
+| Polish | 007-search-interface/Foundation | Integration tests need search API available |
+```
+
+#### Resolution Process
+
+When generating beads:
+
+1. **Parse the table**: Extract phase mappings from spec.md
+2. **Find target beads**: Search for beads matching the other-spec pattern:
+   ```bash
+   bd list | grep -i "search-interface.*US1\|search-interface.*User Story 1"
+   ```
+3. **Create dependencies**: After creating this spec's beads:
+   ```bash
+   bd dep add [this-bead-id] [other-spec-bead-id] --type=sequence
+   ```
+4. **Verify**: Show cross-spec dependencies in the summary
+
+#### Phase Name Matching
+
+| Spec Reference | Matches Bead Titles Containing |
+|----------------|-------------------------------|
+| `Setup` | "Phase 1", "Setup" |
+| `Foundation` | "Phase 2", "Foundation", "Foundational" |
+| `US1`, `US2`, etc. | "User Story 1", "US1", "Story 1" |
+| `Polish` | "Phase 8", "Polish", "Integration Testing" |
+
+#### Example Cross-Spec Dependency Creation
+
+```bash
+# After creating 009's beads, resolve cross-spec dependencies:
+
+# Find 007's US1 bead
+TARGET=$(bd list | grep -i "search.*user story 1" | awk '{print $2}')
+
+# Find 009's US5 bead
+SOURCE=$(bd list | grep -i "relationship.*user story 5" | awk '{print $2}')
+
+# Create cross-spec dependency
+bd dep add $SOURCE $TARGET --type=sequence
+
+# Verify
+bd dep list $SOURCE
+```
+
+#### Benefits
+
+- **Autonomous agents**: `bd ready` respects cross-spec dependencies
+- **Correct ordering**: Can't start work that needs another spec's output
+- **Visibility**: Full project dependency graph across all specs
+- **Parallelism**: Independent work proceeds while waiting on cross-spec blockers
