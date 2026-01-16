@@ -45,7 +45,7 @@ Gmail integration enables Penfold to:
 ## Key Components
 
 ### Authentication System
-- OAuth2 PKCE flow implementation
+- OAuth2 authorization code flow implementation
 - AES-256 encrypted credential storage
 - Automatic token refresh with fallback
 - Multi-account credential isolation
@@ -234,6 +234,6 @@ When extending Gmail integration:
 - **Python Compatibility**: 3.12+
 - **Database Support**: PostgreSQL 16+ with pgvector
 - **Gmail API Version**: v1
-- **OAuth2 Specification**: RFC 6749 with PKCE (RFC 7636)
+- **OAuth2 Specification**: RFC 6749
 
 This documentation provides everything needed to successfully implement, deploy, and maintain Gmail integration in the Penfold system. For additional support, see the troubleshooting guide or consult the development patterns documentation.

@@ -1,6 +1,7 @@
 """Escalation briefing workflow for comprehensive entity context."""
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -8,6 +9,17 @@ from typing import Any, Dict, List, Optional
 from .base import WorkflowBase, WorkflowResult, SourceCitation
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class EntityMatch:
+    """Matched entity from resolution."""
+
+    entity_type: str  # person, project, topic, unknown
+    entity_name: str
+    entity_id: Optional[int] = None
+    identifiers: List[str] = field(default_factory=list)  # emails, aliases
+    confidence: float = 0.0
 
 
 @dataclass
@@ -150,10 +162,58 @@ class EscalationBriefing(WorkflowBase):
             )
 
     async def _resolve_entities(self, query: str) -> List[str]:
-        """Resolve entity query to canonical identifiers."""
-        # TODO: Implement entity resolution using search
-        logger.info(f"Resolving entities for: {query}")
-        return [query]  # Placeholder
+        """Resolve entity query to canonical identifiers.
+
+        Searches across Person, Source tables to find matching entities.
+        Returns list of resolved entity identifiers.
+        """
+        from penf_lib.storage.repositories import PersonRepository
+
+        resolved: List[str] = []
+        tenant_uuid = uuid.UUID(self.tenant_id)
+
+        try:
+            person_repo = PersonRepository(self.session)
+
+            # Try exact email match first
+            if "@" in query:
+                person = await person_repo.find_by_email(tenant_uuid, query.lower())
+                if person:
+                    resolved.append(person.canonical_name or query)
+                    logger.info(
+                        f"Resolved email '{query}' to person: {person.canonical_name}"
+                    )
+                    return resolved
+
+            # Search by name (returns multiple matches)
+            persons = await person_repo.search_by_name(tenant_uuid, query, limit=3)
+            if persons:
+                for person in persons:
+                    if person.canonical_name:
+                        resolved.append(person.canonical_name)
+                logger.info(
+                    f"Resolved name '{query}' to {len(resolved)} person(s): {resolved}"
+                )
+                return resolved
+
+            # Try exact name match as fallback
+            person = await person_repo.find_by_name(tenant_uuid, query)
+            if person and person.canonical_name:
+                resolved.append(person.canonical_name)
+                logger.info(
+                    f"Resolved exact name '{query}' to person: {person.canonical_name}"
+                )
+                return resolved
+
+        except Exception as e:
+            logger.warning(f"Entity resolution failed for '{query}': {e}")
+
+        # If no person found, use query as-is (topic/project search)
+        if not resolved:
+            resolved.append(query)
+            logger.info(f"No entity match for '{query}', using as-is")
+
+        return resolved
 
     async def _gather_sources(
         self,

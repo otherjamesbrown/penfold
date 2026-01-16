@@ -448,6 +448,10 @@ decrypted = await encryption.decrypt(encrypted)
 
 **Key derivation:** PBKDF2-HMAC-SHA256 with 100,000 iterations
 
+**Dynamic salt:** A unique 16-byte salt is generated on first use and stored at `~/.penfold/encryption_salt` (configurable via `PENF_SALT_PATH` environment variable). This ensures each installation has unique encryption keys even with the same master password.
+
+**Production key validation:** In production environments (`config.is_production=True`), the encryption module will raise a `ValueError` if the default development key is used. You must set the `PENF_MASTER_KEY` environment variable to a secure random string.
+
 ### Gmail Credentials Protection
 
 OAuth tokens are automatically encrypted before storage:

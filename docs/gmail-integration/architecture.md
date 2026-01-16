@@ -56,7 +56,7 @@ graph TB
 Handles secure Gmail API authentication and credential management.
 
 **Key Features:**
-- OAuth2 flow implementation with PKCE
+- OAuth2 authorization code flow implementation
 - Encrypted credential storage using AES-256
 - Automatic token refresh with fallback
 - Multi-account support with account isolation
@@ -72,7 +72,7 @@ class OAuth2Manager:
         self.credentials_store = CredentialStore()
 
     async def start_oauth_flow(self, account_id: str) -> AuthorizationURL:
-        """Initiate OAuth2 flow with PKCE for enhanced security."""
+        """Initiate OAuth2 authorization code flow."""
 
     async def complete_oauth_flow(self, account_id: str, auth_code: str) -> bool:
         """Complete OAuth2 flow and store encrypted credentials."""
