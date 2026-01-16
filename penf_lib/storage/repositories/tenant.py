@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select, and_, or_, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from penf_lib.storage.models import Tenant, TenantSession, CrossTenantPersonLink, Person
+from penf_lib.storage.models import Tenant, TenantSession, CrossTenantPersonLink, Person, UserTenantMembership
 from penf_lib.storage.connections import TenantContext, get_session, switch_tenant_context
 from .base import BaseRepository
 
@@ -445,3 +445,74 @@ class CrossTenantPersonLinkRepository(BaseRepository[CrossTenantPersonLink]):
         # This would implement fuzzy matching logic
         # For now, return empty list as placeholder
         return []
+
+
+class UserTenantMembershipRepository(BaseRepository[UserTenantMembership]):
+    """Repository for UserTenantMembership entities."""
+
+    def __init__(self, session: AsyncSession):
+        """Initialize user tenant membership repository."""
+        super().__init__(session, UserTenantMembership)
+
+    async def create_membership(
+        self,
+        user_email: str,
+        tenant_id: uuid.UUID,
+        role: str = "member",
+        granted_by: Optional[str] = None,
+    ) -> UserTenantMembership:
+        """Grant tenant access to user."""
+        return await self.create(
+            user_email=user_email.lower(),
+            tenant_id=tenant_id,
+            role=role,
+            granted_by=granted_by.lower() if granted_by else None,
+        )
+
+    async def has_access(self, user_email: str, tenant_id: uuid.UUID) -> bool:
+        """Check if user has access to tenant."""
+        membership = await self.find_one_by(
+            user_email=user_email.lower(),
+            tenant_id=tenant_id,
+            is_active=True,
+        )
+        return membership is not None
+
+    async def get_membership(
+        self, user_email: str, tenant_id: uuid.UUID
+    ) -> Optional[UserTenantMembership]:
+        """Get user's membership for tenant."""
+        return await self.find_one_by(
+            user_email=user_email.lower(),
+            tenant_id=tenant_id,
+            is_active=True,
+        )
+
+    async def get_user_tenants(self, user_email: str) -> List[UserTenantMembership]:
+        """Get all tenants user has access to."""
+        return await self.find_by(
+            user_email=user_email.lower(),
+            is_active=True,
+        )
+
+    async def get_tenant_members(self, tenant_id: uuid.UUID) -> List[UserTenantMembership]:
+        """Get all members of a tenant."""
+        return await self.find_by(tenant_id=tenant_id, is_active=True)
+
+    async def update_role(
+        self, user_email: str, tenant_id: uuid.UUID, new_role: str
+    ) -> Optional[UserTenantMembership]:
+        """Update user's role in tenant."""
+        membership = await self.get_membership(user_email, tenant_id)
+        if membership:
+            return await self.update_entity(membership, role=new_role)
+        return None
+
+    async def revoke_access(
+        self, user_email: str, tenant_id: uuid.UUID
+    ) -> Optional[UserTenantMembership]:
+        """Revoke user's access to tenant (soft delete)."""
+        membership = await self.get_membership(user_email, tenant_id)
+        if membership:
+            return await self.update_entity(membership, is_active=False)
+        return None

@@ -130,7 +130,10 @@ async def tus_options(session_id: str):
 
 
 @router.head("/uploads/{session_id}")
-async def tus_head(session_id: str):
+async def tus_head(
+    session_id: str,
+    current_user: dict = Depends(get_current_user)
+):
     """TUS HEAD request for upload status"""
     try:
         return await tus_handler.handle_head_upload(session_id)
@@ -141,7 +144,11 @@ async def tus_head(session_id: str):
 
 
 @router.patch("/uploads/{session_id}")
-async def tus_patch(session_id: str, request: Request):
+async def tus_patch(
+    session_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
     """TUS PATCH request for chunk upload"""
     try:
         return await tus_handler.handle_patch_upload(session_id, request)
@@ -154,7 +161,8 @@ async def tus_patch(session_id: str, request: Request):
 @router.get("/uploads/{session_id}/status")
 async def get_upload_status(
     session_id: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """Get detailed upload status"""
     try:
@@ -171,7 +179,11 @@ async def get_upload_status(
 
 
 @router.get("/uploads/{session_id}/progress")
-async def stream_upload_progress(session_id: str, request: Request):
+async def stream_upload_progress(
+    session_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
     """Stream upload progress via Server-Sent Events"""
     try:
         return await progress_tracker.stream_progress(session_id, request)
@@ -205,7 +217,8 @@ async def cancel_upload(
 @router.get("/meetings/{meeting_id}/status")
 async def get_meeting_status(
     meeting_id: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """Get processing status for uploaded meeting"""
     try:
@@ -280,7 +293,11 @@ async def get_meeting_status(
 
 
 @router.get("/meetings/{meeting_id}/stream")
-async def stream_meeting_progress(meeting_id: str, request: Request):
+async def stream_meeting_progress(
+    meeting_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
     """Stream meeting processing progress via Server-Sent Events"""
     try:
         # Find the upload session for this meeting
@@ -294,8 +311,14 @@ async def stream_meeting_progress(meeting_id: str, request: Request):
 # Administrative Endpoints
 
 @router.get("/uploads/active")
-async def get_active_uploads(db: AsyncSession = Depends(get_db)):
+async def get_active_uploads(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
     """Get list of active upload sessions"""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
     try:
         active_sessions = await session_manager.get_active_sessions(db)
         return {
@@ -307,8 +330,14 @@ async def get_active_uploads(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/uploads/statistics")
-async def get_upload_statistics(db: AsyncSession = Depends(get_db)):
+async def get_upload_statistics(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
     """Get upload system statistics"""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
     try:
         stats = await session_manager.get_upload_statistics(db)
         return stats

@@ -586,6 +586,184 @@ class CrossTenantPersonLink(Base, TimestampMixin):
         return validated_by
 
 
+class UserTenantMembership(Base, TimestampMixin):
+    """User membership in tenants for access control.
+
+    Tracks which users have access to which tenants with role-based permissions.
+    """
+
+    __tablename__ = "user_tenant_memberships"
+
+    id = Column(
+        BIGINT,
+        primary_key=True,
+        autoincrement=True,
+        comment="Membership record identifier",
+    )
+
+    user_email = Column(
+        String(254),
+        nullable=False,
+        index=True,
+        comment="User email address",
+    )
+
+    tenant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Tenant the user has access to",
+    )
+
+    role = Column(
+        String(50),
+        nullable=False,
+        default="member",
+        comment="User role in tenant (owner, admin, member)",
+    )
+
+    granted_by = Column(
+        String(254),
+        nullable=True,
+        comment="Email of user who granted access",
+    )
+
+    granted_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment="When access was granted",
+    )
+
+    is_active = Column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Whether membership is currently active",
+    )
+
+    # Relationships
+    tenant = relationship("Tenant", backref="memberships")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_email", "tenant_id",
+            name="uq_user_tenant_membership"
+        ),
+        Index("idx_membership_user", "user_email"),
+        Index("idx_membership_tenant", "tenant_id"),
+        CheckConstraint(
+            "role IN ('owner', 'admin', 'member')",
+            name="ck_valid_membership_role"
+        ),
+    )
+
+    @validates("user_email")
+    def validate_user_email(self, key, user_email):
+        """Validate user email address."""
+        from .validators import validate_email
+        validate_email(user_email)
+        return user_email.lower().strip()
+
+    @validates("role")
+    def validate_role(self, key, role):
+        """Validate membership role."""
+        valid_roles = {"owner", "admin", "member"}
+        if role not in valid_roles:
+            raise ValidationError(f"Invalid role: {role}. Must be one of: {valid_roles}")
+        return role
+
+    @validates("granted_by")
+    def validate_granted_by(self, key, granted_by):
+        """Validate granter email."""
+        if granted_by:
+            from .validators import validate_email
+            validate_email(granted_by)
+            return granted_by.lower().strip()
+        return granted_by
+
+
+class TenantAuditLog(Base, TimestampMixin):
+    """Audit log for tenant access events."""
+
+    __tablename__ = "tenant_audit_logs"
+
+    id = Column(
+        BIGINT,
+        primary_key=True,
+        autoincrement=True,
+        comment="Audit log record identifier",
+    )
+
+    event_type = Column(
+        String(50),
+        nullable=False,
+        comment="Event type (switch_success, switch_denied, membership_granted, membership_revoked)",
+    )
+
+    user_email = Column(
+        String(254),
+        nullable=False,
+        index=True,
+        comment="User email address",
+    )
+
+    tenant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Tenant ID (null for denied access attempts)",
+    )
+
+    tenant_name = Column(
+        String(50),
+        nullable=True,
+        comment="Tenant name at time of event",
+    )
+
+    details = Column(
+        JSONB,
+        nullable=True,
+        comment="Additional event details",
+    )
+
+    ip_address = Column(
+        String(45),
+        nullable=True,
+        comment="Client IP if available",
+    )
+
+    session_id = Column(
+        String(255),
+        nullable=True,
+        comment="Session ID for tracking",
+    )
+
+    # Relationships
+    tenant = relationship("Tenant", backref="audit_logs")
+
+    __table_args__ = (
+        Index("idx_audit_user_time", "user_email", "created_at"),
+        Index("idx_audit_tenant_time", "tenant_id", "created_at"),
+        Index("idx_audit_type_time", "event_type", "created_at"),
+    )
+
+    @validates("user_email")
+    def validate_user_email(self, key, user_email):
+        """Validate user email address."""
+        from .validators import validate_email
+        validate_email(user_email)
+        return user_email.lower().strip()
+
+    @validates("event_type")
+    def validate_event_type(self, key, event_type):
+        """Validate event type."""
+        valid_types = {"switch_success", "switch_denied", "membership_granted", "membership_revoked"}
+        if event_type not in valid_types:
+            raise ValidationError(f"Invalid event type: {event_type}. Must be one of: {valid_types}")
+        return event_type
+
+
 # =============================================================================
 # CORE BUSINESS ENTITY MODELS
 # =============================================================================

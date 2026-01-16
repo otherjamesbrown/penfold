@@ -19,8 +19,10 @@ from .connections import (
 from .repositories.tenant import (
     TenantRepository,
     TenantSessionRepository,
-    CrossTenantPersonLinkRepository
+    CrossTenantPersonLinkRepository,
+    UserTenantMembershipRepository,
 )
+from .audit import TenantAuditService
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +74,25 @@ class TenantManager:
                 settings=settings,
             )
 
-            logger.info(f"Created tenant '{name}' for owner {owner_email}")
+            # Auto-grant owner membership
+            membership_repo = UserTenantMembershipRepository(session)
+            await membership_repo.create_membership(
+                user_email=owner_email,
+                tenant_id=tenant.id,
+                role="owner",
+                granted_by=owner_email,  # Self-granted on creation
+            )
+
+            # Log membership grant
+            await TenantAuditService.log_membership_granted(
+                user_email=owner_email,
+                tenant_id=tenant.id,
+                tenant_name=tenant.name,
+                granted_by=owner_email,
+                role="owner",
+            )
+
+            logger.info(f"Created tenant '{name}' with owner membership for {owner_email}")
 
             return {
                 "id": str(tenant.id),
@@ -103,6 +123,7 @@ class TenantManager:
         """
         async with get_session() as session:  # Superuser access
             tenant_repo = TenantRepository(session)
+            membership_repo = UserTenantMembershipRepository(session)
 
             # Find tenant
             tenant = await tenant_repo.find_by_name(tenant_name)
@@ -112,13 +133,28 @@ class TenantManager:
             if not tenant.is_active:
                 raise ValueError(f"Tenant '{tenant_name}' is not active")
 
-            # Check access (for now, allow access to all tenants)
-            # TODO: Implement proper access control
+            # Check access - user must have active membership OR be owner
+            if tenant.owner_email.lower() != user_email.lower():
+                has_access = await membership_repo.has_access(user_email, tenant.id)
+                if not has_access:
+                    await TenantAuditService.log_switch_denied(
+                        user_email=user_email,
+                        tenant_name=tenant_name,
+                        reason="no_membership",
+                    )
+                    raise ValueError(f"User does not have access to tenant '{tenant_name}'")
 
             # Switch context
             success = await switch_tenant_context(tenant.id, user_email)
             if not success:
                 raise ValueError(f"Failed to switch to tenant '{tenant_name}'")
+
+            # Log successful switch
+            await TenantAuditService.log_switch_success(
+                user_email=user_email,
+                tenant_id=tenant.id,
+                tenant_name=tenant.name,
+            )
 
             # Get session info
             session_info = await get_current_session_info()
