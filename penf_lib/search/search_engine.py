@@ -25,10 +25,20 @@ from penf_lib.search.models import (
     SearchMetadata,
     ContentPreview,
     ContentTypeFilter,
+    RelatedContentResponse,
+    RelatedItemResponse,
+    CorrelationType,
 )
 from penf_lib.search.cache import SearchCacheManager
 from penf_lib.search.query_parser import QueryParser, QueryEmbedder
 from penf_lib.search.ranking import RRFFusion, SearchRanker, RankedResult
+from penf_lib.search.correlations import (
+    CorrelationDiscovery,
+    RelatedItem,
+    CorrelationResult,
+    find_related_by_person,
+    find_related_by_project,
+)
 
 if TYPE_CHECKING:
     from penf_lib.storage.repositories.search import SearchRepository
@@ -420,16 +430,173 @@ class SearchEngine:
         content_id: int,
         content_type: str,
         limit: int = 10,
-    ) -> List[SearchResult]:
+    ) -> RelatedContentResponse:
         """Find content related to a given item.
+
+        Uses correlation discovery to find related content through:
+        - Shared participants (0.30 weight)
+        - Shared project references (0.25 weight)
+        - Temporal proximity (0.20 weight)
+        - Semantic similarity (0.15 weight)
+        - Thread/conversation chains (0.10 weight)
 
         Args:
             content_id: ID of the source content
-            content_type: Type of the source content
+            content_type: Type of the source content (source, assertion)
             limit: Maximum related items to return
 
         Returns:
-            List of related search results
+            RelatedContentResponse with discovered correlations
         """
-        # TODO: Phase 5 - Implement correlation discovery
-        return []
+        start_time = datetime.utcnow()
+
+        # Create correlation discovery instance
+        discovery = CorrelationDiscovery(
+            session=self.session,
+            tenant_id=self.tenant_id,
+        )
+
+        # Find related content
+        result = await discovery.find_related_content(
+            content_id=content_id,
+            content_type=content_type,
+            limit=limit,
+        )
+
+        # Convert to response model
+        related_items: List[RelatedItemResponse] = []
+        for item in result.related_items:
+            # Map correlation type string to enum
+            try:
+                corr_type = CorrelationType(item.correlation_type)
+            except ValueError:
+                corr_type = CorrelationType.SEMANTIC
+
+            related_items.append(
+                RelatedItemResponse(
+                    entity_id=item.entity_id,
+                    entity_type=item.entity_type,
+                    content_type=item.content_type,
+                    title=item.title,
+                    snippet=None,  # Could fetch snippets if needed
+                    timestamp=item.timestamp,
+                    correlation_score=item.correlation_score,
+                    correlation_type=corr_type,
+                    score_breakdown=item.score_breakdown,
+                )
+            )
+
+        execution_time = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+
+        logger.info(
+            f"find_related: content_id={content_id} type={content_type} "
+            f"found={len(related_items)} time={execution_time}ms"
+        )
+
+        return RelatedContentResponse(
+            entity_type=content_type,
+            entity_id=content_id,
+            related_content=related_items,
+            total_correlations=result.total_correlations,
+            execution_time_ms=execution_time,
+        )
+
+    async def find_related_by_person(
+        self,
+        person_identifier: str,
+        limit: int = 20,
+    ) -> RelatedContentResponse:
+        """Find content related to a specific person.
+
+        Args:
+            person_identifier: Email or name of person
+            limit: Maximum items to return
+
+        Returns:
+            RelatedContentResponse with content involving the person
+        """
+        start_time = datetime.utcnow()
+
+        items = await find_related_by_person(
+            session=self.session,
+            tenant_id=self.tenant_id,
+            person_identifier=person_identifier,
+            limit=limit,
+        )
+
+        # Convert to response items
+        related_items: List[RelatedItemResponse] = []
+        for item in items:
+            related_items.append(
+                RelatedItemResponse(
+                    entity_id=item.entity_id,
+                    entity_type=item.entity_type,
+                    content_type=item.content_type,
+                    title=item.title,
+                    snippet=None,
+                    timestamp=item.timestamp,
+                    correlation_score=item.correlation_score,
+                    correlation_type=CorrelationType.PARTICIPANT,
+                    score_breakdown=item.score_breakdown,
+                )
+            )
+
+        execution_time = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+
+        return RelatedContentResponse(
+            entity_type="person",
+            entity_id=0,  # No entity ID for person search
+            related_content=related_items,
+            total_correlations=len(related_items),
+            execution_time_ms=execution_time,
+        )
+
+    async def find_related_by_project(
+        self,
+        project_name: str,
+        limit: int = 20,
+    ) -> RelatedContentResponse:
+        """Find content related to a specific project.
+
+        Args:
+            project_name: Name of the project
+            limit: Maximum items to return
+
+        Returns:
+            RelatedContentResponse with content mentioning the project
+        """
+        start_time = datetime.utcnow()
+
+        items = await find_related_by_project(
+            session=self.session,
+            tenant_id=self.tenant_id,
+            project_name=project_name,
+            limit=limit,
+        )
+
+        # Convert to response items
+        related_items: List[RelatedItemResponse] = []
+        for item in items:
+            related_items.append(
+                RelatedItemResponse(
+                    entity_id=item.entity_id,
+                    entity_type=item.entity_type,
+                    content_type=item.content_type,
+                    title=item.title,
+                    snippet=None,
+                    timestamp=item.timestamp,
+                    correlation_score=item.correlation_score,
+                    correlation_type=CorrelationType.PROJECT,
+                    score_breakdown=item.score_breakdown,
+                )
+            )
+
+        execution_time = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+
+        return RelatedContentResponse(
+            entity_type="project",
+            entity_id=0,  # No entity ID for project search
+            related_content=related_items,
+            total_correlations=len(related_items),
+            execution_time_ms=execution_time,
+        )

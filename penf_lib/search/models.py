@@ -428,3 +428,152 @@ class SearchResponse(BaseModel):
         ge=0,
         description="Offset for fetching next page",
     )
+
+
+# =============================================================================
+# CORRELATION RESPONSE MODELS
+# =============================================================================
+
+
+class CorrelationType(str, Enum):
+    """Type of correlation signal between content items.
+
+    Indicates the primary signal that established the relationship.
+    """
+
+    PARTICIPANT = "participant"
+    PROJECT = "project"
+    TEMPORAL = "temporal"
+    SEMANTIC = "semantic"
+    THREAD = "thread"
+
+
+class RelatedItemResponse(BaseModel):
+    """A content item related to a source item.
+
+    Represents a discovered relationship between content items,
+    including the correlation strength and signal breakdown.
+
+    Attributes:
+        entity_id: Database ID of the related entity.
+        entity_type: Type of entity (source, assertion, person, project).
+        content_type: Type of content (email, meeting, etc.).
+        title: Optional title of the content.
+        snippet: Preview snippet of content.
+        timestamp: Content timestamp.
+        correlation_score: Combined weighted score (0-1).
+        correlation_type: Primary correlation signal type.
+        score_breakdown: Individual signal scores.
+    """
+
+    model_config = ConfigDict(
+        frozen=False,
+        json_schema_extra={
+            "example": {
+                "entity_id": 12345,
+                "entity_type": "source",
+                "content_type": "email",
+                "title": "Re: Project Atlas Update",
+                "snippet": "Following up on our discussion about...",
+                "timestamp": "2026-01-10T14:30:00Z",
+                "correlation_score": 0.85,
+                "correlation_type": "participant",
+                "score_breakdown": {
+                    "participant": 0.90,
+                    "temporal": 0.75,
+                    "semantic": 0.60,
+                },
+            }
+        },
+    )
+
+    entity_id: int = Field(
+        ...,
+        description="Database ID of the related entity",
+    )
+    entity_type: str = Field(
+        ...,
+        description="Type of entity (source, assertion, person, project)",
+    )
+    content_type: ContentTypeFilter = Field(
+        ...,
+        description="Type of content",
+    )
+    title: Optional[str] = Field(
+        default=None,
+        description="Title of the content",
+    )
+    snippet: Optional[str] = Field(
+        default=None,
+        max_length=300,
+        description="Preview snippet of content",
+    )
+    timestamp: datetime = Field(
+        ...,
+        description="Content timestamp",
+    )
+    correlation_score: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Combined weighted correlation score (0-1)",
+    )
+    correlation_type: CorrelationType = Field(
+        ...,
+        description="Primary correlation signal type",
+    )
+    score_breakdown: dict[str, float] = Field(
+        default_factory=dict,
+        description="Individual signal scores contributing to correlation",
+    )
+
+
+class RelatedContentResponse(BaseModel):
+    """Response containing related content for an entity.
+
+    Returns all discovered relationships for a source content item,
+    sorted by correlation strength.
+
+    Attributes:
+        entity_type: Type of the source entity.
+        entity_id: ID of the source entity.
+        related_content: List of related items sorted by score.
+        total_correlations: Total number of correlations found.
+        execution_time_ms: Time taken to discover correlations.
+    """
+
+    model_config = ConfigDict(
+        frozen=False,
+        json_schema_extra={
+            "example": {
+                "entity_type": "source",
+                "entity_id": 12345,
+                "related_content": [],
+                "total_correlations": 15,
+                "execution_time_ms": 250,
+            }
+        },
+    )
+
+    entity_type: str = Field(
+        ...,
+        description="Type of the source entity",
+    )
+    entity_id: int = Field(
+        ...,
+        description="ID of the source entity",
+    )
+    related_content: list[RelatedItemResponse] = Field(
+        default_factory=list,
+        description="List of related content items sorted by correlation score",
+    )
+    total_correlations: int = Field(
+        ...,
+        ge=0,
+        description="Total number of correlations discovered",
+    )
+    execution_time_ms: int = Field(
+        default=0,
+        ge=0,
+        description="Time taken to discover correlations in milliseconds",
+    )

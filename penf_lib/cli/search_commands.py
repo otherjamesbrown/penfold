@@ -27,7 +27,12 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from penf_lib.search.models import ContentTypeFilter, SearchQuery, SearchResponse
+from penf_lib.search.models import (
+    ContentTypeFilter,
+    RelatedContentResponse,
+    SearchQuery,
+    SearchResponse,
+)
 from penf_lib.search.search_engine import SearchEngine
 from penf_lib.storage.connections import cleanup_connections, get_session
 from penf_lib.storage.repositories.search import SearchRepository
@@ -414,18 +419,118 @@ def search_suggest(
 
 
 # =============================================================================
-# SEARCH CORRELATE COMMAND (PLACEHOLDER)
+# RELATED CONTENT OUTPUT HELPERS
+# =============================================================================
+
+
+def _print_related_pretty(response: RelatedContentResponse) -> None:
+    """Print related content in rich formatted output."""
+    console.print(Panel(
+        f"Found [bold]{response.total_correlations}[/bold] related items "
+        f"in {response.execution_time_ms}ms",
+        title=f"Related to {response.entity_type}/{response.entity_id}",
+    ))
+
+    for i, item in enumerate(response.related_content, 1):
+        _print_related_card(i, item)
+
+    if not response.related_content:
+        console.print("[dim]No related content found.[/dim]")
+
+
+def _print_related_card(index: int, item) -> None:
+    """Print single related item as a card."""
+    # Content type badge
+    type_colors = {
+        "email": "blue",
+        "meeting": "green",
+        "document": "yellow",
+        "slack": "magenta",
+    }
+    type_color = type_colors.get(item.content_type.value, "white")
+
+    # Correlation type badge colors
+    corr_colors = {
+        "participant": "cyan",
+        "project": "yellow",
+        "temporal": "green",
+        "semantic": "magenta",
+        "thread": "blue",
+    }
+    corr_color = corr_colors.get(item.correlation_type.value, "white")
+
+    # Build header
+    header = Text()
+    header.append(f"[{index}] ", style="bold")
+    header.append(f"[{item.content_type.value}] ", style=type_color)
+    if item.title:
+        header.append(item.title, style="bold")
+    else:
+        header.append(f"Entity #{item.entity_id}", style="dim")
+
+    console.print(header)
+
+    # Show correlation info
+    console.print(
+        f"    [dim]{item.timestamp.strftime('%Y-%m-%d %H:%M')} | "
+        f"Correlation: [{corr_color}]{item.correlation_type.value}[/{corr_color}] "
+        f"({item.correlation_score:.2f})[/dim]"
+    )
+
+    # Show score breakdown if present
+    if item.score_breakdown:
+        breakdown_parts = [
+            f"{sig}: {score:.2f}"
+            for sig, score in sorted(item.score_breakdown.items(), key=lambda x: -x[1])
+            if score > 0
+        ]
+        if breakdown_parts:
+            console.print(f"    [dim italic]Signals: {', '.join(breakdown_parts)}[/dim italic]")
+
+    console.print()
+
+
+def _print_related_table(response: RelatedContentResponse) -> None:
+    """Print related content in table format."""
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("#", width=3)
+    table.add_column("Type", width=8)
+    table.add_column("Title", width=35)
+    table.add_column("Correlation", width=12)
+    table.add_column("Score", width=6)
+    table.add_column("Date", width=12)
+
+    for i, item in enumerate(response.related_content, 1):
+        title = item.title or f"Entity #{item.entity_id}"
+        table.add_row(
+            str(i),
+            item.content_type.value,
+            title[:35] if title else "",
+            item.correlation_type.value,
+            f"{item.correlation_score:.2f}",
+            item.timestamp.strftime("%Y-%m-%d"),
+        )
+
+    console.print(table)
+    console.print(
+        f"\n{response.total_correlations} related items found, "
+        f"{response.execution_time_ms}ms"
+    )
+
+
+# =============================================================================
+# SEARCH CORRELATE COMMAND
 # =============================================================================
 
 
 @search_group.command(name="correlate")
-@click.argument("content_id")
+@click.argument("content_id", type=int)
 @click.option(
-    "--type", "-t",
-    "content_types",
-    multiple=True,
-    type=click.Choice(["email", "document", "meeting", "message", "note"]),
-    help="Content types to correlate with (can specify multiple)"
+    "--entity-type", "-e",
+    type=click.Choice(["source", "assertion"]),
+    default="source",
+    show_default=True,
+    help="Type of content entity"
 )
 @click.option(
     "--limit", "-l",
@@ -437,44 +542,296 @@ def search_suggest(
 @click.option(
     "--format", "-f",
     "output_format",
-    type=click.Choice(["table", "json"]),
-    default="table",
+    type=click.Choice(["pretty", "table", "json"]),
+    default="pretty",
     show_default=True,
     help="Output format"
 )
 @click.pass_context
 def search_correlate(
     ctx: click.Context,
-    content_id: str,
-    content_types: tuple[str, ...],
+    content_id: int,
+    entity_type: str,
     limit: int,
     output_format: str,
 ):
-    """Find related content across sources.
+    """Find content related to a specific item.
 
-    Given a piece of content (email, document, etc.), find related
-    content across all sources using semantic similarity and
-    entity relationships.
+    Given a content ID, discover related content across all sources
+    using multiple correlation signals:
+
+    \b
+    - Shared participants (people involved in both)
+    - Project references (same project mentioned)
+    - Temporal proximity (content within time window)
+    - Semantic similarity (embedding distance)
+    - Thread chains (conversation relationships)
 
     Examples:
 
-        penf search correlate abc123
+        penf search correlate 12345
 
-        penf search correlate abc123 -t email -t document
+        penf search correlate 12345 --entity-type assertion
 
-        penf search correlate abc123 -l 20 -f json
+        penf search correlate 12345 -l 20 -f json
     """
     async def _correlate():
-        try:
-            console.print("[dim]Not yet implemented (Phase 5)[/dim]")
-            console.print(f"[dim]Would find content related to: {content_id}[/dim]")
-            if content_types:
-                console.print(f"[dim]Looking in: {', '.join(content_types)}[/dim]")
-            console.print(f"[dim]Limit: {limit}, Format: {output_format}[/dim]")
-            return 0
-        except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
-            return 1
+        tenant_id = ctx.obj.get("tenant") if ctx.obj else None
+        tenant_id = tenant_id or "default"
 
-    result = run_async(_correlate())
-    sys.exit(result)
+        async with get_session() as session:
+            engine = SearchEngine(session, tenant_id)
+
+            response = await engine.find_related(
+                content_id=content_id,
+                content_type=entity_type,
+                limit=limit,
+            )
+
+            if output_format == "json":
+                console.print_json(response.model_dump_json())
+            elif output_format == "table":
+                _print_related_table(response)
+            else:
+                _print_related_pretty(response)
+
+            return 0
+
+    try:
+        result = run_async(_correlate())
+        sys.exit(result)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    finally:
+        run_async(cleanup_connections())
+
+
+# =============================================================================
+# RELATED SUBCOMMAND GROUP
+# =============================================================================
+
+
+@search_group.group(name="related")
+@click.pass_context
+def related_group(ctx: click.Context):
+    """Find related content by entity type.
+
+    Discover content related to specific people, projects,
+    or other entities across all content sources.
+    """
+    pass
+
+
+@related_group.command(name="person")
+@click.argument("identifier")
+@click.option(
+    "--limit", "-l",
+    type=int,
+    default=20,
+    show_default=True,
+    help="Maximum number of items to return"
+)
+@click.option(
+    "--format", "-f",
+    "output_format",
+    type=click.Choice(["pretty", "table", "json"]),
+    default="pretty",
+    show_default=True,
+    help="Output format"
+)
+@click.pass_context
+def related_person(
+    ctx: click.Context,
+    identifier: str,
+    limit: int,
+    output_format: str,
+):
+    """Find content related to a person.
+
+    Search for content involving a specific person by email or name.
+
+    Examples:
+
+        penf search related person "john@example.com"
+
+        penf search related person "Jane Smith" -l 30
+
+        penf search related person "alice" -f json
+    """
+    async def _find_related():
+        tenant_id = ctx.obj.get("tenant") if ctx.obj else None
+        tenant_id = tenant_id or "default"
+
+        async with get_session() as session:
+            engine = SearchEngine(session, tenant_id)
+
+            response = await engine.find_related_by_person(
+                person_identifier=identifier,
+                limit=limit,
+            )
+
+            if output_format == "json":
+                console.print_json(response.model_dump_json())
+            elif output_format == "table":
+                _print_related_table(response)
+            else:
+                console.print(Panel(
+                    f"Found [bold]{response.total_correlations}[/bold] items "
+                    f"involving '{identifier}' in {response.execution_time_ms}ms",
+                    title="Related by Person",
+                ))
+                for i, item in enumerate(response.related_content, 1):
+                    _print_related_card(i, item)
+
+            return 0
+
+    try:
+        result = run_async(_find_related())
+        sys.exit(result)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    finally:
+        run_async(cleanup_connections())
+
+
+@related_group.command(name="project")
+@click.argument("project_name")
+@click.option(
+    "--limit", "-l",
+    type=int,
+    default=20,
+    show_default=True,
+    help="Maximum number of items to return"
+)
+@click.option(
+    "--format", "-f",
+    "output_format",
+    type=click.Choice(["pretty", "table", "json"]),
+    default="pretty",
+    show_default=True,
+    help="Output format"
+)
+@click.pass_context
+def related_project(
+    ctx: click.Context,
+    project_name: str,
+    limit: int,
+    output_format: str,
+):
+    """Find content related to a project.
+
+    Search for content mentioning a specific project.
+
+    Examples:
+
+        penf search related project "Atlas"
+
+        penf search related project "Q1 Planning" -l 30
+
+        penf search related project "deployment" -f json
+    """
+    async def _find_related():
+        tenant_id = ctx.obj.get("tenant") if ctx.obj else None
+        tenant_id = tenant_id or "default"
+
+        async with get_session() as session:
+            engine = SearchEngine(session, tenant_id)
+
+            response = await engine.find_related_by_project(
+                project_name=project_name,
+                limit=limit,
+            )
+
+            if output_format == "json":
+                console.print_json(response.model_dump_json())
+            elif output_format == "table":
+                _print_related_table(response)
+            else:
+                console.print(Panel(
+                    f"Found [bold]{response.total_correlations}[/bold] items "
+                    f"for project '{project_name}' in {response.execution_time_ms}ms",
+                    title="Related by Project",
+                ))
+                for i, item in enumerate(response.related_content, 1):
+                    _print_related_card(i, item)
+
+            return 0
+
+    try:
+        result = run_async(_find_related())
+        sys.exit(result)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    finally:
+        run_async(cleanup_connections())
+
+
+@related_group.command(name="source")
+@click.argument("source_id", type=int)
+@click.option(
+    "--limit", "-l",
+    type=int,
+    default=10,
+    show_default=True,
+    help="Maximum number of related items to return"
+)
+@click.option(
+    "--format", "-f",
+    "output_format",
+    type=click.Choice(["pretty", "table", "json"]),
+    default="pretty",
+    show_default=True,
+    help="Output format"
+)
+@click.pass_context
+def related_source(
+    ctx: click.Context,
+    source_id: int,
+    limit: int,
+    output_format: str,
+):
+    """Find content related to a source.
+
+    Discover content related to a specific source ID through
+    participant overlap, project references, temporal proximity,
+    semantic similarity, and thread chains.
+
+    Examples:
+
+        penf search related source 12345
+
+        penf search related source 12345 -l 20 -f json
+    """
+    async def _find_related():
+        tenant_id = ctx.obj.get("tenant") if ctx.obj else None
+        tenant_id = tenant_id or "default"
+
+        async with get_session() as session:
+            engine = SearchEngine(session, tenant_id)
+
+            response = await engine.find_related(
+                content_id=source_id,
+                content_type="source",
+                limit=limit,
+            )
+
+            if output_format == "json":
+                console.print_json(response.model_dump_json())
+            elif output_format == "table":
+                _print_related_table(response)
+            else:
+                _print_related_pretty(response)
+
+            return 0
+
+    try:
+        result = run_async(_find_related())
+        sys.exit(result)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    finally:
+        run_async(cleanup_connections())
