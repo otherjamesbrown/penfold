@@ -57,6 +57,10 @@ from penf_lib.review.queue import ReviewRepositoryProtocol as QueueRepositoryPro
 from penf_lib.review.session import SessionManager
 from penf_lib.review.feedback import FeedbackManager
 from penf_lib.review.feedback import FeedbackRepositoryProtocol
+from penf_lib.review.batch import BatchManager
+from penf_lib.review.batch import BatchRepositoryProtocol
+from penf_lib.review.batch import BatchGroupType, BatchActionType as BatchActionEnum
+from penf_lib.review.batch import BatchPreview, BatchResult, FilterExpression
 
 __all__ = [
     # Enums
@@ -90,6 +94,14 @@ __all__ = [
     # Feedback management
     "FeedbackManager",
     "FeedbackRepositoryProtocol",
+    # Batch management
+    "BatchManager",
+    "BatchRepositoryProtocol",
+    "BatchGroupType",
+    "BatchActionEnum",
+    "BatchPreview",
+    "BatchResult",
+    "FilterExpression",
     # Exceptions
     "ReviewError",
     "SessionNotFoundError",

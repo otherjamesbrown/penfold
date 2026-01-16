@@ -1,8 +1,9 @@
 """Click command group for the daily review workflow.
 
-This module implements the `penf review` command group for User Stories 1 and 2:
+This module implements the `penf review` command group for User Stories 1, 2, and 3:
 - User Story 1: Queue Management (start, resume, status, queue, next)
 - User Story 2: Validation and Correction (accept, reject, modify, skip, undo)
+- User Story 3: Batch Operations and Completion (batch, complete)
 
 Commands:
     - penf review: Start or resume a review session
@@ -14,6 +15,8 @@ Commands:
     - penf review modify: Modify AI suggestion
     - penf review skip: Skip item for later
     - penf review undo: Undo recent decision
+    - penf review batch: Apply batch operations to similar items
+    - penf review complete: Complete the current review session
 """
 
 from __future__ import annotations
@@ -2124,4 +2127,531 @@ def review_undo(
             await cleanup_connections()
 
     result = asyncio.run(_undo_async())
+    sys.exit(result)
+
+
+# =============================================================================
+# BATCH AND COMPLETION COMMANDS (User Story 3)
+# =============================================================================
+
+
+class MockBatchManager:
+    """Mock batch manager for development.
+
+    Provides batch operations for finding and processing similar items
+    during the review workflow.
+    """
+
+    def __init__(self, repository: MockReviewRepository) -> None:
+        """Initialize batch manager with repository.
+
+        Args:
+            repository: The review repository instance
+        """
+        self._repository = repository
+
+    async def find_similar_items(
+        self,
+        session_id: int,
+        reference_item: ReviewItemDTO,
+        group_by: str,
+        filter_expr: str | None = None,
+    ) -> list[ReviewItemDTO]:
+        """Find items similar to the reference item.
+
+        Args:
+            session_id: Current session ID
+            reference_item: Item to match against
+            group_by: Grouping mode (thread, sender, category, time)
+            filter_expr: Optional filter expression
+
+        Returns:
+            List of matching items
+        """
+        matching_items: list[ReviewItemDTO] = []
+
+        for item in self._repository._items.values():
+            if item.session_id != session_id:
+                continue
+            if item.status != ReviewItemStatus.PENDING:
+                continue
+
+            # Apply grouping match
+            matches = False
+            if group_by == "sender":
+                # Match by first participant (sender)
+                if (reference_item.ai_suggestion.participants and
+                    item.ai_suggestion.participants and
+                    reference_item.ai_suggestion.participants[0] == item.ai_suggestion.participants[0]):
+                    matches = True
+            elif group_by == "category":
+                # Match by category
+                if reference_item.ai_suggestion.category == item.ai_suggestion.category:
+                    matches = True
+            elif group_by == "thread":
+                # Match by source_id (thread grouping)
+                if reference_item.source_id == item.source_id:
+                    matches = True
+            elif group_by == "time":
+                # Match by source timestamp within same day
+                if (reference_item.source_timestamp and item.source_timestamp):
+                    ref_date = reference_item.source_timestamp.date()
+                    item_date = item.source_timestamp.date()
+                    if ref_date == item_date:
+                        matches = True
+
+            if matches:
+                matching_items.append(item)
+
+        # Apply filter expression if provided
+        if filter_expr:
+            matching_items = self._apply_filter(filter_expr, matching_items)
+
+        return matching_items
+
+    def _apply_filter(
+        self,
+        filter_expr: str,
+        items: list[ReviewItemDTO],
+    ) -> list[ReviewItemDTO]:
+        """Apply filter expression to items.
+
+        Supports simple expressions like:
+        - confidence>0.8
+        - confidence<0.5
+        - type=email
+        - type=meeting
+
+        Args:
+            filter_expr: Filter expression string
+            items: Items to filter
+
+        Returns:
+            Filtered items
+        """
+        if filter_expr.startswith("confidence"):
+            try:
+                if ">" in filter_expr:
+                    op_idx = filter_expr.index(">")
+                    val = float(filter_expr[op_idx + 1:])
+                    return [i for i in items if float(i.ai_confidence) > val]
+                elif "<" in filter_expr:
+                    op_idx = filter_expr.index("<")
+                    val = float(filter_expr[op_idx + 1:])
+                    return [i for i in items if float(i.ai_confidence) < val]
+                elif ">=" in filter_expr:
+                    op_idx = filter_expr.index(">=")
+                    val = float(filter_expr[op_idx + 2:])
+                    return [i for i in items if float(i.ai_confidence) >= val]
+                elif "<=" in filter_expr:
+                    op_idx = filter_expr.index("<=")
+                    val = float(filter_expr[op_idx + 2:])
+                    return [i for i in items if float(i.ai_confidence) <= val]
+            except (ValueError, IndexError):
+                pass
+        elif filter_expr.startswith("type="):
+            type_val = filter_expr[5:].strip().lower()
+            return [i for i in items if i.content_type.value.lower() == type_val]
+
+        return items
+
+    async def execute_batch(
+        self,
+        session_id: int,
+        items: list[ReviewItemDTO],
+        action: str,
+        reason: str | None = None,
+    ) -> tuple[UUID, int]:
+        """Execute batch action on items.
+
+        Args:
+            session_id: Current session ID
+            items: Items to process
+            action: Action to apply (accept, reject, skip)
+            reason: Optional reason for reject/skip
+
+        Returns:
+            Tuple of (batch_id, count_processed)
+        """
+        session_state = get_mock_session_state()
+        feedback_manager = get_mock_feedback_manager()
+        batch_id = session_state.generate_batch_id()
+        now = datetime.now(timezone.utc)
+
+        for item in items:
+            if action == "accept":
+                status = ReviewItemStatus.ACCEPTED
+                decision = DecisionType.ACCEPT
+                correction = None
+            elif action == "reject":
+                status = ReviewItemStatus.REJECTED
+                decision = DecisionType.REJECT
+                correction = UserCorrection(reason=reason) if reason else None
+            else:  # skip
+                status = ReviewItemStatus.SKIPPED
+                decision = DecisionType.SKIP
+                correction = UserCorrection(notes=reason) if reason else None
+
+            # Update item
+            updated_item = item.model_copy(update={
+                "status": status,
+                "user_decision": decision,
+                "user_correction": correction,
+                "reviewed_at": now,
+                "batch_id": batch_id,
+                "undo_eligible": True,
+                "undo_deadline": now + timedelta(minutes=5),
+            })
+            self._repository._items[item.id] = updated_item
+
+            # Record for undo
+            session_state.record_decision(item, decision, batch_id, correction)
+
+            # Record feedback
+            if action == "accept":
+                await feedback_manager.record_accept(item, session_id, batch_id=batch_id)
+            elif action == "reject":
+                await feedback_manager.record_reject(
+                    item, session_id, reason=reason, batch_id=batch_id
+                )
+            else:  # skip
+                await feedback_manager.record_skip(item, session_id, reason=reason)
+
+        return batch_id, len(items)
+
+
+def get_mock_batch_manager() -> MockBatchManager:
+    """Get a batch manager instance."""
+    return MockBatchManager(get_mock_repository())
+
+
+@review_group.command("batch")
+@click.option(
+    "--group",
+    type=click.Choice(["thread", "sender", "category", "time"]),
+    required=True,
+    help="Group items by: thread, sender, category, or time",
+)
+@click.option(
+    "--action",
+    type=click.Choice(["accept", "reject", "skip"]),
+    required=True,
+    help="Action to apply: accept, reject, or skip",
+)
+@click.option("--filter", "filter_expr", help="Filter expression (e.g., 'confidence>0.8')")
+@click.option("--preview/--no-preview", default=True, help="Show preview before applying")
+@click.option("--reason", help="Reason for reject/skip actions")
+@click.pass_context
+def review_batch(
+    ctx: click.Context,
+    group: str,
+    action: str,
+    filter_expr: str | None,
+    preview: bool,
+    reason: str | None,
+) -> None:
+    """Apply batch operations to multiple similar items.
+
+    Groups items by a specified criteria and applies the same action
+    to all matching items. Use --preview (default) to see affected
+    items before applying.
+
+    Examples:
+        penf review batch --group sender --action accept
+        penf review batch --group category --action reject --reason spam
+        penf review batch --group thread --action skip --no-preview
+        penf review batch --group time --action accept --filter "confidence>0.7"
+    """
+    async def _batch_async() -> int:
+        try:
+            from rich.prompt import Confirm
+
+            # Get tenant context
+            tenant_id_str = ctx.obj.get("tenant_id")
+            user_email = ctx.obj.get("user_email")
+
+            if not tenant_id_str:
+                tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+            else:
+                tenant_id = UUID(tenant_id_str)
+
+            if not user_email:
+                user_email = "developer@example.com"
+
+            repository = get_mock_repository()
+            session_manager = SessionManager(repository)
+            batch_manager = get_mock_batch_manager()
+            session_state = get_mock_session_state()
+
+            session = await session_manager.get_active_session(tenant_id, user_email)
+
+            if not session:
+                console.print("[yellow]No active review session.[/yellow]")
+                console.print("\n[dim]Start a review with: penf review[/dim]")
+                return 0
+
+            # Get reference item (current item or first pending)
+            reference_item: ReviewItemDTO | None = None
+
+            if session_state.current_item_id:
+                reference_item = repository._items.get(session_state.current_item_id)
+
+            if not reference_item:
+                # Find first pending item in session
+                for item in repository._items.values():
+                    if item.session_id == session.id and item.status == ReviewItemStatus.PENDING:
+                        reference_item = item
+                        break
+
+            if not reference_item:
+                console.print("[yellow]No pending items for batch operation.[/yellow]")
+                return 0
+
+            # Find matching items
+            matching_items = await batch_manager.find_similar_items(
+                session_id=session.id,
+                reference_item=reference_item,
+                group_by=group,
+                filter_expr=filter_expr,
+            )
+
+            if not matching_items:
+                console.print("[yellow]No matching items found for batch operation.[/yellow]")
+                return 0
+
+            # Determine grouping label
+            group_label = ""
+            if group == "sender" and reference_item.ai_suggestion.participants:
+                group_label = f" ({reference_item.ai_suggestion.participants[0]})"
+            elif group == "category":
+                group_label = f" ({reference_item.ai_suggestion.category})"
+            elif group == "thread":
+                group_label = f" (source {reference_item.source_id})"
+            elif group == "time" and reference_item.source_timestamp:
+                group_label = f" ({reference_item.source_timestamp.date().isoformat()})"
+
+            if preview:
+                # Show preview
+                console.print("\n[bold]Batch Operation Preview[/bold]")
+                console.print("=" * 40)
+                console.print()
+                console.print(f"[bold]Grouping:[/bold] {group}{group_label}")
+                console.print(f"[bold]Action:[/bold] {action}")
+                if filter_expr:
+                    console.print(f"[bold]Filter:[/bold] {filter_expr}")
+                if reason:
+                    console.print(f"[bold]Reason:[/bold] {reason}")
+                console.print()
+                console.print(f"[bold]Affected items ({len(matching_items)}):[/bold]")
+
+                for idx, item in enumerate(matching_items[:10], 1):
+                    preview_text = _truncate_preview(item.content_preview, 50)
+                    console.print(f"  - Item {item.id}: {preview_text}")
+
+                if len(matching_items) > 10:
+                    console.print(f"  ... and {len(matching_items) - 10} more")
+
+                console.print()
+                if not Confirm.ask(f"Apply to all {len(matching_items)} items?", default=False):
+                    console.print("[dim]Batch operation cancelled.[/dim]")
+                    return 0
+
+            # Execute batch
+            batch_id, count = await batch_manager.execute_batch(
+                session_id=session.id,
+                items=matching_items,
+                action=action,
+                reason=reason,
+            )
+
+            # Update session stats
+            if action == "accept":
+                updated_session = session.model_copy(update={
+                    "items_reviewed": session.items_reviewed + count,
+                    "items_accepted": session.items_accepted + count,
+                    "last_activity_at": datetime.now(timezone.utc),
+                })
+            elif action == "reject":
+                updated_session = session.model_copy(update={
+                    "items_reviewed": session.items_reviewed + count,
+                    "items_rejected": session.items_rejected + count,
+                    "last_activity_at": datetime.now(timezone.utc),
+                })
+            else:  # skip
+                updated_session = session.model_copy(update={
+                    "items_reviewed": session.items_reviewed + count,
+                    "items_skipped": session.items_skipped + count,
+                    "last_activity_at": datetime.now(timezone.utc),
+                })
+
+            await repository.update_session(updated_session)
+
+            # Show result
+            action_color = {"accept": "green", "reject": "red", "skip": "yellow"}[action]
+            action_past = {"accept": "Accepted", "reject": "Rejected", "skip": "Skipped"}[action]
+            console.print(f"\n[{action_color}]{action_past} {count} items.[/{action_color}]")
+            console.print(f"[dim]Batch ID: {str(batch_id)[:8]}... (undo within 5 min)[/dim]")
+
+            # Show next item
+            await _show_next_item(ctx, updated_session)
+
+            return 0
+
+        except ReviewError as e:
+            display_error(e)
+            return 1
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_batch_async())
+    sys.exit(result)
+
+
+@review_group.command("complete")
+@click.option("--force", is_flag=True, help="Complete even with pending items")
+@click.option("--summary/--no-summary", default=True, help="Show session summary")
+@click.pass_context
+def review_complete(
+    ctx: click.Context,
+    force: bool,
+    summary: bool,
+) -> None:
+    """Complete the current review session.
+
+    Marks the session as completed and optionally displays a summary
+    of the review. Use --force to complete even if items remain pending.
+
+    Examples:
+        penf review complete              # Complete with summary
+        penf review complete --no-summary # Complete without summary
+        penf review complete --force      # Complete with pending items
+    """
+    async def _complete_async() -> int:
+        try:
+            from rich.prompt import Confirm
+
+            # Get tenant context
+            tenant_id_str = ctx.obj.get("tenant_id")
+            user_email = ctx.obj.get("user_email")
+
+            if not tenant_id_str:
+                tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+            else:
+                tenant_id = UUID(tenant_id_str)
+
+            if not user_email:
+                user_email = "developer@example.com"
+
+            repository = get_mock_repository()
+            session_manager = SessionManager(repository)
+
+            session = await session_manager.get_active_session(tenant_id, user_email)
+
+            if not session:
+                console.print("[yellow]No active review session.[/yellow]")
+                console.print("\n[dim]Start a review with: penf review[/dim]")
+                return 0
+
+            # Check for pending items
+            pending_count = session.total_items - session.items_reviewed
+            if pending_count > 0 and not force:
+                console.print(f"\n[yellow]Warning: {pending_count} items still pending.[/yellow]")
+                console.print()
+                if not Confirm.ask("Complete session anyway?", default=False):
+                    console.print("[dim]Session not completed.[/dim]")
+                    console.print(f"\n[dim]Use 'penf review next' to continue reviewing, "
+                                  f"or --force to complete with pending items.[/dim]")
+                    return 0
+
+            # Mark session as completed
+            now = datetime.now(timezone.utc)
+            completed_session = session.model_copy(update={
+                "status": SessionStatus.COMPLETED,
+                "completed_at": now,
+                "last_activity_at": now,
+            })
+            await repository.update_session(completed_session)
+
+            # Clear session state
+            session_state = get_mock_session_state()
+            session_state.current_item_id = None
+
+            if summary:
+                # Calculate session statistics
+                duration_seconds = 0
+                if completed_session.started_at:
+                    duration_delta = now - completed_session.started_at
+                    duration_seconds = int(duration_delta.total_seconds())
+
+                duration_minutes = duration_seconds // 60
+
+                # Calculate percentages
+                total_reviewed = completed_session.items_reviewed
+                if total_reviewed > 0:
+                    accept_pct = (completed_session.items_accepted / total_reviewed) * 100
+                    modified_pct = (completed_session.items_modified / total_reviewed) * 100
+                    reject_pct = (completed_session.items_rejected / total_reviewed) * 100
+                    skip_pct = (completed_session.items_skipped / total_reviewed) * 100
+                else:
+                    accept_pct = modified_pct = reject_pct = skip_pct = 0.0
+
+                # Calculate average time per item
+                if total_reviewed > 0 and duration_seconds > 0:
+                    avg_seconds = duration_seconds / total_reviewed
+                else:
+                    avg_seconds = 0.0
+
+                # Calculate AI accuracy estimate
+                # Accuracy = accepted / (accepted + rejected + modified)
+                # Skipped items are not counted as they weren't evaluated
+                evaluated = (completed_session.items_accepted +
+                             completed_session.items_rejected +
+                             completed_session.items_modified)
+                if evaluated > 0:
+                    ai_accuracy = (completed_session.items_accepted / evaluated) * 100
+                else:
+                    ai_accuracy = 0.0
+
+                # Display summary
+                console.print("\n[bold]Review Session Complete[/bold]")
+                console.print("=" * 40)
+                console.print()
+                console.print(f"[bold]Session Duration:[/bold] {duration_minutes} minutes")
+                console.print(f"[bold]Items Reviewed:[/bold] {total_reviewed}")
+                if pending_count > 0:
+                    console.print(f"[bold]Items Pending:[/bold] {pending_count}")
+                console.print()
+                console.print("[bold]Summary:[/bold]")
+                console.print(f"  [green]Accepted:[/green] {completed_session.items_accepted} ({accept_pct:.1f}%)")
+                console.print(f"  [cyan]Modified:[/cyan] {completed_session.items_modified} ({modified_pct:.1f}%)")
+                console.print(f"  [red]Rejected:[/red] {completed_session.items_rejected} ({reject_pct:.1f}%)")
+                console.print(f"  [yellow]Skipped:[/yellow] {completed_session.items_skipped} ({skip_pct:.1f}%)")
+                console.print()
+                console.print(f"[bold]Average time per item:[/bold] {avg_seconds:.1f} seconds")
+                console.print(f"[bold]AI accuracy (estimated):[/bold] {ai_accuracy:.0f}%")
+
+            else:
+                console.print("\n[green]Review session completed.[/green]")
+
+            return 0
+
+        except ReviewError as e:
+            display_error(e)
+            return 1
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_complete_async())
     sys.exit(result)
