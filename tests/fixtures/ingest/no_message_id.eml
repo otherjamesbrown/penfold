@@ -1,0 +1,22 @@
+MIME-Version: 1.0
+Date: Mon, 13 Jan 2026 11:00:00 -0500
+Subject: Meeting Notes - Team Sync
+From: Dave Manager <dave@example.com>
+To: team@example.com
+Content-Type: text/plain; charset="UTF-8"
+
+Team,
+
+Notes from today's sync:
+
+- Sprint 14 is on track
+- Code freeze Friday at 5pm
+- Demo scheduled for Monday 10am
+
+Action items:
+- @alice: Finalize API docs
+- @bob: Complete security review
+- @carol: Update deployment scripts
+
+Thanks,
+Dave
