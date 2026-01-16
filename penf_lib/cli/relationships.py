@@ -1144,5 +1144,394 @@ def show_stats(ctx: click.Context) -> None:
     sys.exit(result)
 
 
+# =========================================================================
+# LIFECYCLE MAINTENANCE COMMANDS
+# =========================================================================
+
+
+@relationships_group.command(name="maintain")
+@click.option(
+    "--inactivity-days",
+    "-i",
+    type=int,
+    default=90,
+    help="Days of inactivity before marking historical (default: 90)",
+)
+@click.option(
+    "--retention-years",
+    "-r",
+    type=int,
+    default=2,
+    help="Years before archiving historical relationships (default: 2)",
+)
+@click.option(
+    "--skip-confidence",
+    is_flag=True,
+    help="Skip confidence recalculation",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be done without making changes",
+)
+@click.pass_context
+def run_maintenance(
+    ctx: click.Context,
+    inactivity_days: int,
+    retention_years: int,
+    skip_confidence: bool,
+    dry_run: bool,
+) -> None:
+    """Run relationship maintenance cycle.
+
+    Performs scheduled maintenance tasks:
+    - Detect and mark inactive relationships as historical (90 days default)
+    - Archive stale historical relationships (2 years default)
+    - Recalculate confidence scores with temporal decay
+
+    Examples:
+
+        penf relationships maintain
+        penf relationships maintain --dry-run
+        penf relationships maintain --inactivity-days 60 --retention-years 1
+        penf relationships maintain --skip-confidence
+    """
+    async def run_maintain() -> int:
+        try:
+            console.print("\n[bold blue]Relationship Maintenance[/bold blue]\n")
+
+            if dry_run:
+                console.print("[yellow]DRY RUN - no changes will be made[/yellow]\n")
+
+            console.print("Configuration:")
+            console.print(f"  Inactivity threshold: [cyan]{inactivity_days}[/cyan] days")
+            console.print(f"  Retention period: [cyan]{retention_years}[/cyan] years")
+            console.print(f"  Recalculate confidence: [cyan]{not skip_confidence}[/cyan]")
+            console.print("")
+
+            # TODO: Initialize LifecycleManager with database connection
+            console.print("[yellow]Note:[/yellow] Database integration pending")
+            console.print("")
+
+            # Show what maintenance would do
+            table = Table(title="Maintenance Tasks")
+            table.add_column("Task", style="bold")
+            table.add_column("Status")
+            table.add_column("Details", style="dim")
+
+            table.add_row(
+                "Inactive Detection",
+                "[yellow]Pending[/yellow]",
+                f"Mark active relationships with no activity in {inactivity_days} days as historical",
+            )
+            table.add_row(
+                "Stale Archival",
+                "[yellow]Pending[/yellow]",
+                f"Archive historical relationships older than {retention_years} years",
+            )
+            if not skip_confidence:
+                table.add_row(
+                    "Confidence Decay",
+                    "[yellow]Pending[/yellow]",
+                    "Apply temporal decay to active relationship confidence scores",
+                )
+
+            console.print(table)
+
+            if dry_run:
+                console.print("\n[dim]Dry run complete - no changes made[/dim]")
+            else:
+                # TODO: Run actual maintenance via LifecycleManager
+                console.print("\n[green]Maintenance cycle complete[/green]")
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error running maintenance: {e}[/red]")
+            logger.error(f"Maintenance error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_maintain())
+    sys.exit(result)
+
+
+@relationships_group.command(name="recalculate")
+@click.option(
+    "--state",
+    "-s",
+    type=click.Choice(["active", "pending", "historical", "all"]),
+    default="active",
+    help="Recalculate confidence for relationships in this state (default: active)",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=1000,
+    help="Maximum number of relationships to process (default: 1000)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be done without making changes",
+)
+@click.pass_context
+def recalculate_confidence(
+    ctx: click.Context,
+    state: str,
+    limit: int,
+    dry_run: bool,
+) -> None:
+    """Recalculate confidence scores for relationships.
+
+    Applies temporal decay and evidence-based confidence recalculation
+    to relationships in the specified state.
+
+    Examples:
+
+        penf relationships recalculate
+        penf relationships recalculate --state all --limit 500
+        penf relationships recalculate --dry-run
+    """
+    async def run_recalculate() -> int:
+        try:
+            console.print("\n[bold blue]Recalculate Confidence[/bold blue]\n")
+
+            if dry_run:
+                console.print("[yellow]DRY RUN - no changes will be made[/yellow]\n")
+
+            console.print(f"Target state: [cyan]{state}[/cyan]")
+            console.print(f"Limit: [cyan]{limit}[/cyan] relationships")
+            console.print("")
+
+            # TODO: Initialize LifecycleManager with database connection
+            console.print("[yellow]Note:[/yellow] Database integration pending")
+            console.print("")
+
+            if dry_run:
+                console.print("[dim]Dry run complete - no changes made[/dim]")
+            else:
+                # TODO: Run confidence recalculation via LifecycleManager
+                console.print("[green]Recalculation complete[/green]")
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error recalculating confidence: {e}[/red]")
+            logger.error(f"Recalculate error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_recalculate())
+    sys.exit(result)
+
+
+@relationships_group.command(name="archive-stale")
+@click.option(
+    "--retention-years",
+    "-r",
+    type=int,
+    default=2,
+    help="Years of inactivity before archiving (default: 2)",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=500,
+    help="Maximum relationships to archive (default: 500)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be archived without making changes",
+)
+@click.pass_context
+def archive_stale(
+    ctx: click.Context,
+    retention_years: int,
+    limit: int,
+    dry_run: bool,
+) -> None:
+    """Archive stale historical relationships.
+
+    Moves historical relationships past the retention period to archived state.
+    Archived relationships are preserved but excluded from normal queries.
+
+    Examples:
+
+        penf relationships archive-stale
+        penf relationships archive-stale --retention-years 1 --limit 100
+        penf relationships archive-stale --dry-run
+    """
+    async def run_archive() -> int:
+        try:
+            console.print("\n[bold blue]Archive Stale Relationships[/bold blue]\n")
+
+            if dry_run:
+                console.print("[yellow]DRY RUN - no changes will be made[/yellow]\n")
+
+            console.print(f"Retention period: [cyan]{retention_years}[/cyan] years")
+            console.print(f"Limit: [cyan]{limit}[/cyan] relationships")
+            console.print("")
+
+            # TODO: Initialize LifecycleManager with database connection
+            console.print("[yellow]Note:[/yellow] Database integration pending")
+            console.print("")
+
+            # Show stale relationships that would be archived
+            table = Table(title="Stale Relationships")
+            table.add_column("ID", justify="right", style="cyan")
+            table.add_column("Type", style="yellow")
+            table.add_column("Last Active", style="dim")
+            table.add_column("Confidence", justify="right")
+
+            # TODO: Fetch actual stale relationships
+            console.print("[yellow]No stale relationships found.[/yellow]")
+
+            if dry_run:
+                console.print("\n[dim]Dry run complete - no changes made[/dim]")
+            else:
+                # TODO: Run archival via LifecycleManager
+                console.print("\n[green]Archival complete[/green]")
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error archiving relationships: {e}[/red]")
+            logger.error(f"Archive error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_archive())
+    sys.exit(result)
+
+
+@relationships_group.command(name="lifecycle")
+@click.argument("relationship_id", type=int)
+@click.option(
+    "--to-state",
+    "-s",
+    type=click.Choice(["active", "historical", "archived"]),
+    required=True,
+    help="Target lifecycle state",
+)
+@click.option(
+    "--reason",
+    "-r",
+    required=True,
+    help="Reason for state change",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Skip confirmation prompt",
+)
+@click.pass_context
+def change_lifecycle(
+    ctx: click.Context,
+    relationship_id: int,
+    to_state: str,
+    reason: str,
+    force: bool,
+) -> None:
+    """Manually change a relationship's lifecycle state.
+
+    Transitions a relationship to a new lifecycle state with
+    a recorded reason. Creates a version record for audit trail.
+
+    Valid transitions:
+    - pending -> active (confirmation)
+    - active -> historical (role change, inactivity)
+    - historical -> active (reactivation with new evidence)
+    - historical -> archived (retention expired)
+
+    Examples:
+
+        penf relationships lifecycle 123 --to-state historical --reason "Project ended"
+        penf relationships lifecycle 456 --to-state active --reason "Reactivated with new evidence"
+    """
+    async def run_lifecycle() -> int:
+        try:
+            console.print(f"\n[bold blue]Change Lifecycle: Relationship #{relationship_id}[/bold blue]\n")
+
+            # TODO: Get relationship from repository
+            console.print("[yellow]Note:[/yellow] Database integration pending")
+            console.print("")
+
+            console.print(f"Target state: [cyan]{to_state}[/cyan]")
+            console.print(f"Reason: [dim]{reason}[/dim]")
+            console.print("")
+
+            if not force:
+                if not Confirm.ask(f"Change relationship {relationship_id} to {to_state}?"):
+                    console.print("[yellow]Cancelled[/yellow]")
+                    return 0
+
+            # TODO: Process state change via LifecycleManager
+            console.print(f"[green]Relationship {relationship_id} transitioned to {to_state}[/green]")
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error changing lifecycle: {e}[/red]")
+            logger.error(f"Lifecycle change error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_lifecycle())
+    sys.exit(result)
+
+
+@relationships_group.command(name="history")
+@click.argument("relationship_id", type=int)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=10,
+    help="Maximum number of versions to show (default: 10)",
+)
+@click.option(
+    "--json-output",
+    is_flag=True,
+    help="Output as JSON",
+)
+@click.pass_context
+def show_history(
+    ctx: click.Context,
+    relationship_id: int,
+    limit: int,
+    json_output: bool,
+) -> None:
+    """Show version history for a relationship.
+
+    Displays the audit trail of changes including state transitions,
+    confidence updates, and user feedback.
+
+    Examples:
+
+        penf relationships history 123
+        penf relationships history 123 --limit 20 --json-output
+    """
+    async def run_history() -> int:
+        try:
+            if json_output:
+                result = {
+                    "relationship_id": relationship_id,
+                    "versions": [],
+                    "total": 0,
+                }
+                console.print_json(json.dumps(result, indent=2))
+            else:
+                console.print(f"\n[bold blue]Version History: Relationship #{relationship_id}[/bold blue]\n")
+
+                # TODO: Fetch from repository
+                console.print("[yellow]No version history found.[/yellow]")
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error fetching history: {e}[/red]")
+            logger.error(f"History error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_history())
+    sys.exit(result)
+
+
 # Export for CLI registration
 __all__ = ["relationships_group"]

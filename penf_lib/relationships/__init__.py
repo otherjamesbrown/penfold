@@ -50,6 +50,15 @@ from .feedback import (
 from .feedback import (
     FeedbackType as FeedbackTypeEnum,
 )
+from .lifecycle import (
+    INACTIVITY_THRESHOLD_DAYS,
+    RETENTION_YEARS,
+    LifecycleManager,
+    LifecycleTransition,
+    MaintenanceResult,
+    StateTransitionError,
+    TransitionReason,
+)
 from .models import (
     ConflictResolution,
     EntityReference,
@@ -151,4 +160,12 @@ __all__ = [
     "FeedbackResult",
     "FeedbackTypeEnum",
     "LearnedPreference",
+    # Lifecycle Management
+    "LifecycleManager",
+    "LifecycleTransition",
+    "MaintenanceResult",
+    "StateTransitionError",
+    "TransitionReason",
+    "INACTIVITY_THRESHOLD_DAYS",
+    "RETENTION_YEARS",
 ]
