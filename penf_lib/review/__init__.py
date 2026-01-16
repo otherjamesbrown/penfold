@@ -61,6 +61,9 @@ from penf_lib.review.batch import BatchManager
 from penf_lib.review.batch import BatchRepositoryProtocol
 from penf_lib.review.batch import BatchGroupType, BatchActionType as BatchActionEnum
 from penf_lib.review.batch import BatchPreview, BatchResult, FilterExpression
+from penf_lib.review.rules import RuleManager
+from penf_lib.review.rules import RuleRepositoryProtocol
+from penf_lib.review.rules import RuleApplicationResult, RuleSuggestion
 
 __all__ = [
     # Enums
@@ -102,6 +105,11 @@ __all__ = [
     "BatchPreview",
     "BatchResult",
     "FilterExpression",
+    # Rule management
+    "RuleManager",
+    "RuleRepositoryProtocol",
+    "RuleApplicationResult",
+    "RuleSuggestion",
     # Exceptions
     "ReviewError",
     "SessionNotFoundError",

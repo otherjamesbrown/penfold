@@ -1,9 +1,10 @@
 """Click command group for the daily review workflow.
 
-This module implements the `penf review` command group for User Stories 1, 2, and 3:
+This module implements the `penf review` command group for User Stories 1-4:
 - User Story 1: Queue Management (start, resume, status, queue, next)
 - User Story 2: Validation and Correction (accept, reject, modify, skip, undo)
 - User Story 3: Batch Operations and Completion (batch, complete)
+- User Story 4: Learning Rules Management (rules subcommand group)
 
 Commands:
     - penf review: Start or resume a review session
@@ -17,6 +18,14 @@ Commands:
     - penf review undo: Undo recent decision
     - penf review batch: Apply batch operations to similar items
     - penf review complete: Complete the current review session
+    - penf review rules: Manage learning rules (subcommand group)
+        - penf review rules list: List learning rules
+        - penf review rules show: Show rule details
+        - penf review rules enable: Enable a disabled rule
+        - penf review rules disable: Disable an active rule
+        - penf review rules pending: View pending rule suggestions
+        - penf review rules accept: Accept a pending suggestion
+        - penf review rules reject: Reject a pending suggestion
 """
 
 from __future__ import annotations
@@ -45,6 +54,9 @@ from penf_lib.review.models import (
     AISuggestion,
     ContentType,
     DecisionType,
+    LearningRuleDTO,
+    LearningRuleStatus,
+    LearningRuleType,
     PriorityMode,
     ReviewItemDTO,
     ReviewItemStatus,
@@ -2654,4 +2666,826 @@ def review_complete(
             await cleanup_connections()
 
     result = asyncio.run(_complete_async())
+    sys.exit(result)
+
+
+# =============================================================================
+# LEARNING RULE COMMANDS (User Story 4)
+# =============================================================================
+
+
+class RuleSuggestionDTO:
+    """Data transfer object for pending rule suggestions.
+
+    Represents a suggested rule that hasn't been accepted yet.
+    Used during development/mock phase.
+    """
+
+    def __init__(
+        self,
+        id: int,
+        rule_type: LearningRuleType,
+        pattern: str,
+        confidence: float,
+        occurrences: int,
+        suggested_action: dict[str, Any],
+        sample_matches: list[str] | None = None,
+        created_at: datetime | None = None,
+    ) -> None:
+        """Initialize a rule suggestion.
+
+        Args:
+            id: Suggestion identifier
+            rule_type: Type of rule being suggested
+            pattern: The pattern detected
+            confidence: Confidence score (0-1)
+            occurrences: Number of times pattern was seen
+            suggested_action: Action to apply when matched
+            sample_matches: Example content that matched
+            created_at: When the suggestion was created
+        """
+        self.id = id
+        self.rule_type = rule_type
+        self.pattern = pattern
+        self.confidence = confidence
+        self.occurrences = occurrences
+        self.suggested_action = suggested_action
+        self.sample_matches = sample_matches or []
+        self.created_at = created_at or datetime.now(timezone.utc)
+
+
+class MockRuleManager:
+    """Mock rule manager for development.
+
+    Provides in-memory storage for learning rules and suggestions
+    during development. Will be replaced by actual database repository.
+    """
+
+    def __init__(self) -> None:
+        """Initialize mock rule manager with sample data."""
+        self._rules: dict[int, LearningRuleDTO] = {}
+        self._suggestions: dict[int, RuleSuggestionDTO] = {}
+        self._rule_counter = 0
+        self._suggestion_counter = 100  # Start at 100 to distinguish from rules
+        self._generate_sample_rules()
+        self._generate_sample_suggestions()
+
+    def _generate_sample_rules(self) -> None:
+        """Generate sample learning rules for testing."""
+        now = datetime.now(timezone.utc)
+        tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+
+        sample_rules = [
+            {
+                "name": "Newsletter sender categorization",
+                "description": "Automatically categorize emails from newsletter@company.com",
+                "rule_type": LearningRuleType.SENDER_MATCH,
+                "match_criteria": {"sender": "newsletter@company.com"},
+                "action": {"category": "marketing/newsletters"},
+                "status": LearningRuleStatus.ACTIVE,
+                "times_applied": 145,
+                "times_overridden": 7,
+                "effectiveness_score": Decimal("0.952"),
+                "confidence_threshold": Decimal("0.800"),
+                "priority": 1,
+            },
+            {
+                "name": "Weekly standup meeting pattern",
+                "description": "Match content containing 'Weekly Standup'",
+                "rule_type": LearningRuleType.CONTENT_PATTERN,
+                "match_criteria": {"pattern": "Weekly Standup"},
+                "action": {"category": "meetings/standup"},
+                "status": LearningRuleStatus.ACTIVE,
+                "times_applied": 52,
+                "times_overridden": 7,
+                "effectiveness_score": Decimal("0.865"),
+                "confidence_threshold": Decimal("0.750"),
+                "priority": 10,
+            },
+            {
+                "name": "System alerts sender",
+                "description": "Categorize system alerts from alerts@system.com",
+                "rule_type": LearningRuleType.SENDER_MATCH,
+                "match_criteria": {"sender": "alerts@system.com"},
+                "action": {"category": "operations/alerts"},
+                "status": LearningRuleStatus.DISABLED,
+                "times_applied": 89,
+                "times_overridden": 25,
+                "effectiveness_score": Decimal("0.719"),
+                "confidence_threshold": Decimal("0.700"),
+                "priority": 20,
+            },
+            {
+                "name": "Budget review pattern",
+                "description": "Match documents about budget reviews",
+                "rule_type": LearningRuleType.CONTENT_PATTERN,
+                "match_criteria": {"pattern": "Budget Review"},
+                "action": {"category": "finance/budget"},
+                "status": LearningRuleStatus.ACTIVE,
+                "times_applied": 23,
+                "times_overridden": 2,
+                "effectiveness_score": Decimal("0.913"),
+                "confidence_threshold": Decimal("0.850"),
+                "priority": 5,
+            },
+        ]
+
+        for data in sample_rules:
+            self._rule_counter += 1
+            rule = LearningRuleDTO(
+                id=self._rule_counter,
+                rule_uuid=uuid4(),
+                tenant_id=tenant_id,
+                created_by="developer@example.com",
+                created_at=now - timedelta(days=10 - self._rule_counter),
+                updated_at=now - timedelta(hours=self._rule_counter * 2),
+                last_applied_at=now - timedelta(hours=self._rule_counter),
+                **data,
+            )
+            self._rules[rule.id] = rule
+
+    def _generate_sample_suggestions(self) -> None:
+        """Generate sample rule suggestions for testing."""
+        now = datetime.now(timezone.utc)
+
+        sample_suggestions = [
+            {
+                "rule_type": LearningRuleType.SENDER_MATCH,
+                "pattern": "john.doe@company.com",
+                "confidence": 0.92,
+                "occurrences": 15,
+                "suggested_action": {"category": "team/john-doe"},
+                "sample_matches": [
+                    "Re: Project Update from John",
+                    "John's Weekly Summary",
+                    "Meeting notes from John",
+                ],
+            },
+            {
+                "rule_type": LearningRuleType.CONTENT_PATTERN,
+                "pattern": "Budget Review",
+                "confidence": 0.85,
+                "occurrences": 8,
+                "suggested_action": {"category": "finance/reviews"},
+                "sample_matches": [
+                    "Q1 Budget Review Meeting",
+                    "Budget Review: January 2026",
+                ],
+            },
+            {
+                "rule_type": LearningRuleType.SENDER_MATCH,
+                "pattern": "support@vendor.com",
+                "confidence": 0.78,
+                "occurrences": 6,
+                "suggested_action": {"category": "vendor/support"},
+                "sample_matches": [
+                    "Ticket #12345 Updated",
+                    "Support Case Resolution",
+                ],
+            },
+        ]
+
+        for data in sample_suggestions:
+            self._suggestion_counter += 1
+            suggestion = RuleSuggestionDTO(
+                id=self._suggestion_counter,
+                created_at=now - timedelta(hours=self._suggestion_counter - 100),
+                **data,
+            )
+            self._suggestions[suggestion.id] = suggestion
+
+    async def get_rules(
+        self,
+        status: str | None = None,
+    ) -> list[LearningRuleDTO]:
+        """Get learning rules, optionally filtered by status.
+
+        Args:
+            status: Filter by status (active, disabled, all)
+
+        Returns:
+            List of matching rules
+        """
+        rules = list(self._rules.values())
+
+        if status and status != "all":
+            status_enum = LearningRuleStatus(status)
+            rules = [r for r in rules if r.status == status_enum]
+
+        # Sort by priority (lower = higher priority)
+        rules.sort(key=lambda r: (r.priority, r.id))
+        return rules
+
+    async def get_rule_by_id(self, rule_id: int) -> LearningRuleDTO | None:
+        """Get a specific rule by ID.
+
+        Args:
+            rule_id: Rule identifier
+
+        Returns:
+            The rule or None if not found
+        """
+        return self._rules.get(rule_id)
+
+    async def enable_rule(self, rule_id: int) -> LearningRuleDTO | None:
+        """Enable a disabled rule.
+
+        Args:
+            rule_id: Rule identifier
+
+        Returns:
+            Updated rule or None if not found
+        """
+        rule = self._rules.get(rule_id)
+        if rule:
+            updated = LearningRuleDTO(
+                **{
+                    **rule.model_dump(),
+                    "status": LearningRuleStatus.ACTIVE,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            )
+            self._rules[rule_id] = updated
+            return updated
+        return None
+
+    async def disable_rule(self, rule_id: int) -> LearningRuleDTO | None:
+        """Disable an active rule.
+
+        Args:
+            rule_id: Rule identifier
+
+        Returns:
+            Updated rule or None if not found
+        """
+        rule = self._rules.get(rule_id)
+        if rule:
+            updated = LearningRuleDTO(
+                **{
+                    **rule.model_dump(),
+                    "status": LearningRuleStatus.DISABLED,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            )
+            self._rules[rule_id] = updated
+            return updated
+        return None
+
+    async def get_pending_suggestions(self) -> list[RuleSuggestionDTO]:
+        """Get all pending rule suggestions.
+
+        Returns:
+            List of pending suggestions sorted by confidence
+        """
+        suggestions = list(self._suggestions.values())
+        suggestions.sort(key=lambda s: (-s.confidence, -s.occurrences))
+        return suggestions
+
+    async def get_suggestion_by_id(
+        self, suggestion_id: int
+    ) -> RuleSuggestionDTO | None:
+        """Get a specific suggestion by ID.
+
+        Args:
+            suggestion_id: Suggestion identifier
+
+        Returns:
+            The suggestion or None if not found
+        """
+        return self._suggestions.get(suggestion_id)
+
+    async def accept_suggestion(
+        self, suggestion_id: int
+    ) -> LearningRuleDTO | None:
+        """Accept a suggestion and create a new rule from it.
+
+        Args:
+            suggestion_id: Suggestion identifier
+
+        Returns:
+            The created rule or None if suggestion not found
+        """
+        suggestion = self._suggestions.get(suggestion_id)
+        if not suggestion:
+            return None
+
+        # Remove from suggestions
+        del self._suggestions[suggestion_id]
+
+        # Create new rule
+        self._rule_counter += 1
+        now = datetime.now(timezone.utc)
+        tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+
+        rule = LearningRuleDTO(
+            id=self._rule_counter,
+            rule_uuid=uuid4(),
+            tenant_id=tenant_id,
+            name=f"Rule from suggestion: {suggestion.pattern[:30]}...",
+            description=f"Auto-generated from suggestion #{suggestion_id}",
+            status=LearningRuleStatus.ACTIVE,
+            rule_type=suggestion.rule_type,
+            match_criteria={"pattern": suggestion.pattern},
+            action=suggestion.suggested_action,
+            confidence_threshold=Decimal(str(suggestion.confidence)),
+            priority=50,
+            derived_from_count=suggestion.occurrences,
+            times_applied=0,
+            times_overridden=0,
+            effectiveness_score=None,
+            last_applied_at=None,
+            expires_at=None,
+            created_by="developer@example.com",
+            created_at=now,
+            updated_at=now,
+            is_deleted=False,
+            deleted_at=None,
+        )
+        self._rules[rule.id] = rule
+        return rule
+
+    async def reject_suggestion(self, suggestion_id: int) -> bool:
+        """Reject a suggestion.
+
+        Args:
+            suggestion_id: Suggestion identifier
+
+        Returns:
+            True if suggestion was found and rejected
+        """
+        if suggestion_id in self._suggestions:
+            del self._suggestions[suggestion_id]
+            return True
+        return False
+
+
+# Global mock rule manager instance
+_mock_rule_manager: MockRuleManager | None = None
+
+
+def get_mock_rule_manager() -> MockRuleManager:
+    """Get or create the mock rule manager singleton."""
+    global _mock_rule_manager
+    if _mock_rule_manager is None:
+        _mock_rule_manager = MockRuleManager()
+    return _mock_rule_manager
+
+
+# =============================================================================
+# RULES SUBGROUP
+# =============================================================================
+
+
+@review_group.group("rules")
+@click.pass_context
+def rules_group(ctx: click.Context) -> None:
+    """Manage learning rules for automated corrections.
+
+    Learning rules are patterns derived from your review decisions
+    that can automatically apply corrections to future content.
+
+    Examples:
+        penf review rules list              # List all rules
+        penf review rules show 1            # Show rule details
+        penf review rules enable 3          # Enable a rule
+        penf review rules disable 2         # Disable a rule
+        penf review rules pending           # View pending suggestions
+        penf review rules accept 101        # Accept a suggestion
+    """
+    ctx.ensure_object(dict)
+
+
+@rules_group.command("list")
+@click.option(
+    "--status",
+    type=click.Choice(["active", "disabled", "all"]),
+    default="all",
+    help="Filter rules by status",
+)
+@click.pass_context
+def rules_list(ctx: click.Context, status: str) -> None:
+    """List learning rules.
+
+    Shows all learning rules with their type, pattern, action,
+    status, and effectiveness score.
+
+    Examples:
+        penf review rules list                 # All rules
+        penf review rules list --status active # Only active rules
+    """
+    from rich.table import Table
+
+    async def _list_async() -> int:
+        try:
+            rule_manager = get_mock_rule_manager()
+            rules = await rule_manager.get_rules(status=status)
+
+            if not rules:
+                if status == "all":
+                    console.print("[dim]No learning rules defined.[/dim]")
+                else:
+                    console.print(f"[dim]No {status} rules found.[/dim]")
+                return 0
+
+            console.print("\n[bold]Learning Rules[/bold]")
+            console.print("=" * 60)
+            console.print()
+
+            table = Table(show_header=True, header_style="bold")
+            table.add_column("ID", justify="right", style="dim", width=4)
+            table.add_column("Type", width=16)
+            table.add_column("Match", width=22)
+            table.add_column("Action", width=19)
+            table.add_column("Status", width=8)
+            table.add_column("Effectiveness", justify="right", width=13)
+
+            for rule in rules:
+                # Format rule type
+                type_str = rule.rule_type.value.replace("_", " ").title()
+                if len(type_str) > 16:
+                    type_str = type_str[:13] + "..."
+
+                # Format match criteria
+                match_str = ""
+                if "sender" in rule.match_criteria:
+                    match_str = rule.match_criteria["sender"]
+                elif "pattern" in rule.match_criteria:
+                    match_str = f'"{rule.match_criteria["pattern"]}"'
+                else:
+                    match_str = str(rule.match_criteria)[:20]
+                if len(match_str) > 22:
+                    match_str = match_str[:19] + "..."
+
+                # Format action
+                action_str = ""
+                if "category" in rule.action:
+                    action_str = f"category: {rule.action['category']}"
+                else:
+                    action_str = str(rule.action)[:17]
+                if len(action_str) > 19:
+                    action_str = action_str[:16] + "..."
+
+                # Format status with color
+                status_color = "green" if rule.status == LearningRuleStatus.ACTIVE else "dim"
+                status_str = rule.status.value
+
+                # Format effectiveness
+                if rule.effectiveness_score:
+                    eff_pct = float(rule.effectiveness_score) * 100
+                    eff_str = f"{eff_pct:.0f}%"
+                else:
+                    eff_str = "-"
+
+                table.add_row(
+                    str(rule.id),
+                    type_str,
+                    match_str,
+                    action_str,
+                    f"[{status_color}]{status_str}[/{status_color}]",
+                    eff_str,
+                )
+
+            console.print(table)
+            return 0
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_list_async())
+    sys.exit(result)
+
+
+@rules_group.command("show")
+@click.argument("rule_id", type=int)
+@click.pass_context
+def rules_show(ctx: click.Context, rule_id: int) -> None:
+    """Show detailed information about a specific rule.
+
+    Displays match criteria, action, status, thresholds,
+    and effectiveness statistics.
+
+    Examples:
+        penf review rules show 1   # Show rule #1
+    """
+    async def _show_async() -> int:
+        try:
+            rule_manager = get_mock_rule_manager()
+            rule = await rule_manager.get_rule_by_id(rule_id)
+
+            if not rule:
+                console.print(f"[red]Rule #{rule_id} not found.[/red]")
+                return 1
+
+            # Build display
+            type_title = rule.rule_type.value.replace("_", " ").title()
+            console.print(f"\n[bold]Rule #{rule.id}: {type_title}[/bold]")
+            console.print("=" * 40)
+
+            # Match criteria section
+            console.print("\n[bold]Match Criteria:[/bold]")
+            for key, value in rule.match_criteria.items():
+                console.print(f"  {key}: {value}")
+
+            # Action section
+            console.print("\n[bold]Action:[/bold]")
+            for key, value in rule.action.items():
+                console.print(f"  {key}: {value}")
+
+            # Status and thresholds
+            status_color = "green" if rule.status == LearningRuleStatus.ACTIVE else "yellow"
+            console.print(f"\n[bold]Status:[/bold] [{status_color}]{rule.status.value}[/{status_color}]")
+            console.print(f"[bold]Priority:[/bold] {rule.priority}")
+            console.print(f"[bold]Confidence Threshold:[/bold] {rule.confidence_threshold:.2f}")
+
+            # Effectiveness section
+            console.print("\n[bold]Effectiveness:[/bold]")
+            console.print(f"  Times Applied: {rule.times_applied}")
+            console.print(f"  Times Overridden: {rule.times_overridden}")
+            if rule.effectiveness_score:
+                eff_pct = float(rule.effectiveness_score) * 100
+                console.print(f"  Score: {eff_pct:.1f}%")
+            else:
+                console.print("  Score: [dim]not enough data[/dim]")
+
+            # Timestamps
+            console.print(f"\n[bold]Created:[/bold] {rule.created_at.strftime('%Y-%m-%d %H:%M')}")
+            if rule.last_applied_at:
+                console.print(f"[bold]Last Applied:[/bold] {rule.last_applied_at.strftime('%Y-%m-%d %H:%M')}")
+
+            if rule.description:
+                console.print(f"\n[dim]{rule.description}[/dim]")
+
+            return 0
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_show_async())
+    sys.exit(result)
+
+
+@rules_group.command("enable")
+@click.argument("rule_id", type=int)
+@click.pass_context
+def rules_enable(ctx: click.Context, rule_id: int) -> None:
+    """Enable a disabled rule.
+
+    Reactivates a previously disabled learning rule so it will
+    be applied to future content processing.
+
+    Examples:
+        penf review rules enable 3   # Enable rule #3
+    """
+    async def _enable_async() -> int:
+        try:
+            rule_manager = get_mock_rule_manager()
+            rule = await rule_manager.get_rule_by_id(rule_id)
+
+            if not rule:
+                console.print(f"[red]Rule #{rule_id} not found.[/red]")
+                return 1
+
+            if rule.status == LearningRuleStatus.ACTIVE:
+                console.print(f"[yellow]Rule #{rule_id} is already active.[/yellow]")
+                return 0
+
+            updated = await rule_manager.enable_rule(rule_id)
+            if updated:
+                console.print(f"[green]Rule #{rule_id} enabled.[/green]")
+                type_str = updated.rule_type.value.replace("_", " ").title()
+                console.print(f"[dim]{type_str}: {updated.name}[/dim]")
+                return 0
+            else:
+                console.print(f"[red]Failed to enable rule #{rule_id}.[/red]")
+                return 1
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_enable_async())
+    sys.exit(result)
+
+
+@rules_group.command("disable")
+@click.argument("rule_id", type=int)
+@click.pass_context
+def rules_disable(ctx: click.Context, rule_id: int) -> None:
+    """Disable an active rule.
+
+    Deactivates a learning rule so it will no longer be applied
+    to future content processing.
+
+    Examples:
+        penf review rules disable 2   # Disable rule #2
+    """
+    async def _disable_async() -> int:
+        try:
+            rule_manager = get_mock_rule_manager()
+            rule = await rule_manager.get_rule_by_id(rule_id)
+
+            if not rule:
+                console.print(f"[red]Rule #{rule_id} not found.[/red]")
+                return 1
+
+            if rule.status == LearningRuleStatus.DISABLED:
+                console.print(f"[yellow]Rule #{rule_id} is already disabled.[/yellow]")
+                return 0
+
+            updated = await rule_manager.disable_rule(rule_id)
+            if updated:
+                console.print(f"[yellow]Rule #{rule_id} disabled.[/yellow]")
+                type_str = updated.rule_type.value.replace("_", " ").title()
+                console.print(f"[dim]{type_str}: {updated.name}[/dim]")
+                return 0
+            else:
+                console.print(f"[red]Failed to disable rule #{rule_id}.[/red]")
+                return 1
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_disable_async())
+    sys.exit(result)
+
+
+@rules_group.command("pending")
+@click.pass_context
+def rules_pending(ctx: click.Context) -> None:
+    """View pending rule suggestions.
+
+    Shows rule patterns detected from your review decisions that
+    could be converted into automated learning rules.
+
+    Examples:
+        penf review rules pending   # View pending suggestions
+    """
+    from rich.table import Table
+
+    async def _pending_async() -> int:
+        try:
+            rule_manager = get_mock_rule_manager()
+            suggestions = await rule_manager.get_pending_suggestions()
+
+            if not suggestions:
+                console.print("[dim]No pending rule suggestions.[/dim]")
+                console.print("\n[dim]Suggestions are generated as you make review decisions.[/dim]")
+                return 0
+
+            console.print("\n[bold]Pending Rule Suggestions[/bold]")
+            console.print("=" * 60)
+            console.print()
+
+            table = Table(show_header=True, header_style="bold")
+            table.add_column("ID", justify="right", style="dim", width=4)
+            table.add_column("Type", width=16)
+            table.add_column("Pattern", width=23)
+            table.add_column("Confidence", justify="right", width=10)
+            table.add_column("Occurrences", justify="right", width=11)
+
+            for suggestion in suggestions:
+                # Format type
+                type_str = suggestion.rule_type.value.replace("_", " ").title()
+                if len(type_str) > 16:
+                    type_str = type_str[:13] + "..."
+
+                # Format pattern
+                pattern_str = suggestion.pattern
+                if len(pattern_str) > 23:
+                    pattern_str = pattern_str[:20] + "..."
+
+                # Format confidence
+                conf_str = f"{suggestion.confidence:.2f}"
+
+                table.add_row(
+                    str(suggestion.id),
+                    type_str,
+                    pattern_str,
+                    conf_str,
+                    str(suggestion.occurrences),
+                )
+
+            console.print(table)
+            console.print()
+            console.print("[dim]Accept with: penf review rules accept <ID>[/dim]")
+            console.print("[dim]Reject with: penf review rules reject <ID>[/dim]")
+
+            return 0
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_pending_async())
+    sys.exit(result)
+
+
+@rules_group.command("accept")
+@click.argument("suggestion_id", type=int)
+@click.pass_context
+def rules_accept(ctx: click.Context, suggestion_id: int) -> None:
+    """Accept a pending rule suggestion.
+
+    Converts a pending suggestion into an active learning rule
+    that will be applied to future content processing.
+
+    Examples:
+        penf review rules accept 101   # Accept suggestion #101
+    """
+    async def _accept_async() -> int:
+        try:
+            rule_manager = get_mock_rule_manager()
+            suggestion = await rule_manager.get_suggestion_by_id(suggestion_id)
+
+            if not suggestion:
+                console.print(f"[red]Suggestion #{suggestion_id} not found.[/red]")
+                return 1
+
+            # Accept and create rule
+            rule = await rule_manager.accept_suggestion(suggestion_id)
+
+            if rule:
+                console.print(f"[green]Suggestion #{suggestion_id} accepted.[/green]")
+                console.print(f"[dim]Created rule #{rule.id}: {rule.name}[/dim]")
+                return 0
+            else:
+                console.print(f"[red]Failed to accept suggestion #{suggestion_id}.[/red]")
+                return 1
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_accept_async())
+    sys.exit(result)
+
+
+@rules_group.command("reject")
+@click.argument("suggestion_id", type=int)
+@click.pass_context
+def rules_reject(ctx: click.Context, suggestion_id: int) -> None:
+    """Reject a pending rule suggestion.
+
+    Removes a pending suggestion without creating a rule.
+    The pattern may be suggested again if similar patterns continue.
+
+    Examples:
+        penf review rules reject 102   # Reject suggestion #102
+    """
+    async def _reject_async() -> int:
+        try:
+            rule_manager = get_mock_rule_manager()
+            suggestion = await rule_manager.get_suggestion_by_id(suggestion_id)
+
+            if not suggestion:
+                console.print(f"[red]Suggestion #{suggestion_id} not found.[/red]")
+                return 1
+
+            # Reject suggestion
+            success = await rule_manager.reject_suggestion(suggestion_id)
+
+            if success:
+                console.print(f"[yellow]Suggestion #{suggestion_id} rejected.[/yellow]")
+                console.print(f"[dim]Pattern: {suggestion.pattern}[/dim]")
+                return 0
+            else:
+                console.print(f"[red]Failed to reject suggestion #{suggestion_id}.[/red]")
+                return 1
+
+        except Exception as e:
+            console.print(f"\n[red]Unexpected error:[/red] {e}")
+            return 1
+
+        finally:
+            from penf_lib.storage.connections import cleanup_connections
+            await cleanup_connections()
+
+    result = asyncio.run(_reject_async())
     sys.exit(result)
