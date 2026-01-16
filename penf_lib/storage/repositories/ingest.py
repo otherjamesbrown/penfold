@@ -14,7 +14,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from penf_lib.storage.models import IngestJob, IngestError as IngestErrorModel
+from penf_lib.storage.models import IngestJob, IngestError as IngestErrorModel, EmailAttachment
 from .base import BaseRepository
 
 
@@ -313,3 +313,126 @@ class IngestErrorRepository(BaseRepository[IngestErrorModel]):
         for error in errors:
             summary[error.error_type] = summary.get(error.error_type, 0) + 1
         return summary
+
+
+class EmailAttachmentRepository(BaseRepository[EmailAttachment]):
+    """Repository for EmailAttachment entities.
+
+    Tracks attachments extracted from manually ingested emails.
+    """
+
+    def __init__(self, session: AsyncSession):
+        """Initialize repository with database session.
+
+        Args:
+            session: Async SQLAlchemy session
+        """
+        super().__init__(session, EmailAttachment)
+
+    async def create_attachment(
+        self,
+        tenant_id: UUID,
+        source_id: int,
+        filename: str,
+        mime_type: str,
+        size_bytes: int,
+        extraction_status: str = "pending",
+        extraction_error: Optional[str] = None,
+    ) -> EmailAttachment:
+        """Create a new email attachment record.
+
+        Args:
+            tenant_id: Tenant ID for isolation
+            source_id: Parent email source ID
+            filename: Original filename
+            mime_type: MIME content type
+            size_bytes: File size in bytes
+            extraction_status: Status of extraction
+            extraction_error: Error message if extraction failed
+
+        Returns:
+            Created EmailAttachment instance
+        """
+        attachment = EmailAttachment(
+            tenant_id=tenant_id,
+            source_id=source_id,
+            filename=filename,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            extraction_status=extraction_status,
+            extraction_error=extraction_error,
+        )
+        self.session.add(attachment)
+        await self.session.flush()
+        return attachment
+
+    async def get_attachments_for_source(self, source_id: int) -> list[EmailAttachment]:
+        """Get all attachments for an email source.
+
+        Args:
+            source_id: Parent email source ID
+
+        Returns:
+            List of EmailAttachment instances
+        """
+        stmt = (
+            select(EmailAttachment)
+            .where(EmailAttachment.source_id == source_id)
+            .order_by(EmailAttachment.created_at)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_extraction_status(
+        self,
+        attachment_id: UUID,
+        status: str,
+        document_id: Optional[UUID] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Update attachment extraction status.
+
+        Args:
+            attachment_id: Attachment identifier
+            status: New extraction status
+            document_id: Optional document link if extraction completed
+            error: Optional error message
+        """
+        values: dict[str, Any] = {"extraction_status": status}
+        if document_id:
+            values["document_id"] = document_id
+        if error:
+            values["extraction_error"] = error
+
+        stmt = (
+            update(EmailAttachment)
+            .where(EmailAttachment.id == attachment_id)
+            .values(**values)
+        )
+        await self.session.execute(stmt)
+
+    async def get_pending_attachments(
+        self,
+        tenant_id: UUID,
+        limit: int = 100,
+    ) -> list[EmailAttachment]:
+        """Get attachments pending extraction.
+
+        Args:
+            tenant_id: Tenant ID for isolation
+            limit: Maximum results
+
+        Returns:
+            List of pending EmailAttachment instances
+        """
+        stmt = (
+            select(EmailAttachment)
+            .where(
+                EmailAttachment.tenant_id == tenant_id,
+                EmailAttachment.extraction_status == "pending",
+            )
+            .order_by(EmailAttachment.created_at)
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

@@ -11,7 +11,7 @@ from .relationship import RelationshipRepository
 from .review import ReviewRepository
 from .search import SearchRepository
 from .embedding import EmbeddingRepository
-from .ingest import IngestJobRepository, IngestErrorRepository
+from .ingest import IngestJobRepository, IngestErrorRepository, EmailAttachmentRepository
 
 __all__ = [
     "BaseRepository",
@@ -30,4 +30,5 @@ __all__ = [
     "EmbeddingRepository",
     "IngestJobRepository",
     "IngestErrorRepository",
+    "EmailAttachmentRepository",
 ]

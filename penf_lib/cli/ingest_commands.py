@@ -35,11 +35,17 @@ except ImportError:
     get_session = None
 
 try:
-    from ..storage.repositories import SourceRepository, IngestJobRepository, IngestErrorRepository
+    from ..storage.repositories import (
+        SourceRepository,
+        IngestJobRepository,
+        IngestErrorRepository,
+        EmailAttachmentRepository,
+    )
 except ImportError:
     SourceRepository = None
     IngestJobRepository = None
     IngestErrorRepository = None
+    EmailAttachmentRepository = None
 
 try:
     from ..events.schemas import ManualEmailIngestedEvent
@@ -235,6 +241,8 @@ async def _process_email_files(
     failed_count = 0
     errors: list[dict] = []
     labels_collected: set[str] = set()
+    attachments_extracted = 0
+    attachments_skipped = 0
 
     # Initialize event publisher (optional - may not have Redis)
     event_publisher = None
@@ -249,6 +257,7 @@ async def _process_email_files(
         source_repo = SourceRepository(session)
         job_repo = IngestJobRepository(session)
         error_repo = IngestErrorRepository(session)
+        attachment_repo = EmailAttachmentRepository(session) if EmailAttachmentRepository else None
 
         # Create ingest job
         job = await job_repo.create_job(
@@ -359,6 +368,29 @@ async def _process_email_files(
                     # Collect labels for summary
                     labels_collected.update(labels)
 
+                    # Store attachment records (if not skipped and repository available)
+                    if attachment_repo and parsed.has_attachments and not skip_attachments:
+                        for att in parsed.attachments:
+                            # Map attachment status
+                            if att.extraction_status.value == "skipped_oversized":
+                                att_status = "skipped_oversized"
+                                attachments_skipped += 1
+                            elif att.extraction_status.value == "pending":
+                                att_status = "pending"
+                                attachments_extracted += 1
+                            else:
+                                att_status = att.extraction_status.value
+                                attachments_extracted += 1
+
+                            await attachment_repo.create_attachment(
+                                tenant_id=tenant_id,
+                                source_id=source.id,
+                                filename=att.filename,
+                                mime_type=att.mime_type,
+                                size_bytes=att.size_bytes,
+                                extraction_status=att_status,
+                            )
+
                     if verbose:
                         console.print(f"  [green]Imported:[/green] {file_path.name}")
 
@@ -468,6 +500,8 @@ async def _process_email_files(
         skipped_count=skipped_count,
         failed_count=failed_count,
         errors=errors,
+        attachments_extracted=attachments_extracted,
+        attachments_skipped=attachments_skipped,
     )
 
 
@@ -479,6 +513,8 @@ def _display_summary(
     skipped_count: int,
     failed_count: int,
     errors: list[dict],
+    attachments_extracted: int = 0,
+    attachments_skipped: int = 0,
 ) -> None:
     """Display ingest job summary.
 
@@ -490,6 +526,8 @@ def _display_summary(
         skipped_count: Skipped (duplicates)
         failed_count: Failed files
         errors: List of error details
+        attachments_extracted: Number of attachments extracted
+        attachments_skipped: Number of oversized attachments skipped
     """
     # Build summary table
     table = Table(title="Ingest Summary", show_header=False)
@@ -502,6 +540,12 @@ def _display_summary(
     table.add_row("Imported", f"[green]{imported_count}[/green]")
     table.add_row("Skipped (duplicates)", f"[yellow]{skipped_count}[/yellow]")
     table.add_row("Failed", f"[red]{failed_count}[/red]" if failed_count > 0 else "0")
+
+    # Show attachment info if any
+    if attachments_extracted > 0 or attachments_skipped > 0:
+        table.add_row("Attachments Extracted", f"[green]{attachments_extracted}[/green]")
+        if attachments_skipped > 0:
+            table.add_row("Attachments Skipped (>25MB)", f"[yellow]{attachments_skipped}[/yellow]")
 
     console.print(table)
 
