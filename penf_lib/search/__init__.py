@@ -6,10 +6,13 @@ and Slack content.
 
 Key components:
 - models: Pydantic DTOs and enums for search entities
+- cache: Search result and embedding caching
+- search_engine: Main search orchestration
 
 Reference: spec 007-search-interface
 """
 
+from penf_lib.search.cache import SearchCacheManager
 from penf_lib.search.models import (
     # Response models
     ContentPreview,
@@ -23,6 +26,7 @@ from penf_lib.search.models import (
     # Request models
     TemporalConstraint,
 )
+from penf_lib.search.search_engine import SearchEngine
 
 __all__ = [
     # Enums
@@ -36,4 +40,7 @@ __all__ = [
     "SearchResult",
     "SearchMetadata",
     "SearchResponse",
+    # Core components
+    "SearchCacheManager",
+    "SearchEngine",
 ]
