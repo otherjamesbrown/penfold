@@ -14,7 +14,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from penf_lib.storage.models import IngestJob, IngestError as IngestErrorModel, EmailAttachment
+from penf_lib.storage.models import IngestJob, IngestError as IngestErrorModel, EmailAttachment, ArchivedFile
 from .base import BaseRepository
 
 
@@ -436,3 +436,102 @@ class EmailAttachmentRepository(BaseRepository[EmailAttachment]):
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+
+class ArchivedFileRepository(BaseRepository[ArchivedFile]):
+    """Repository for ArchivedFile entities.
+
+    Stores encrypted original .eml files for compliance retrieval.
+    """
+
+    def __init__(self, session: AsyncSession):
+        """Initialize repository with database session.
+
+        Args:
+            session: Async SQLAlchemy session
+        """
+        super().__init__(session, ArchivedFile)
+
+    async def create_archive(
+        self,
+        tenant_id: UUID,
+        source_id: int,
+        encrypted_content: str,
+        original_size: int,
+        encryption_key_id: str,
+        content_hash: str,
+    ) -> ArchivedFile:
+        """Create a new archived file record.
+
+        Args:
+            tenant_id: Tenant ID for isolation
+            source_id: Link to processed email
+            encrypted_content: Base64-encoded encrypted content
+            original_size: Original file size in bytes
+            encryption_key_id: Key identifier for rotation
+            content_hash: SHA-256 of original content
+
+        Returns:
+            Created ArchivedFile instance
+        """
+        archive = ArchivedFile(
+            tenant_id=tenant_id,
+            source_id=source_id,
+            encrypted_content=encrypted_content,
+            original_size=original_size,
+            encryption_key_id=encryption_key_id,
+            content_hash=content_hash,
+        )
+        self.session.add(archive)
+        await self.session.flush()
+        return archive
+
+    async def get_by_source_id(
+        self, source_id: int
+    ) -> Optional[ArchivedFile]:
+        """Get archived file by source ID.
+
+        Args:
+            source_id: Source ID to look up
+
+        Returns:
+            ArchivedFile or None if not found
+        """
+        stmt = select(ArchivedFile).where(ArchivedFile.source_id == source_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_content_hash(
+        self, tenant_id: UUID, content_hash: str
+    ) -> Optional[ArchivedFile]:
+        """Get archived file by content hash.
+
+        Args:
+            tenant_id: Tenant ID for isolation
+            content_hash: SHA-256 hash to look up
+
+        Returns:
+            ArchivedFile or None if not found
+        """
+        stmt = select(ArchivedFile).where(
+            ArchivedFile.tenant_id == tenant_id,
+            ArchivedFile.content_hash == content_hash,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def delete_by_source_id(self, source_id: int) -> bool:
+        """Delete archived file by source ID.
+
+        Args:
+            source_id: Source ID to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
+        archive = await self.get_by_source_id(source_id)
+        if archive:
+            await self.session.delete(archive)
+            await self.session.flush()
+            return True
+        return False

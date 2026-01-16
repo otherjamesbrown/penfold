@@ -40,12 +40,20 @@ try:
         IngestJobRepository,
         IngestErrorRepository,
         EmailAttachmentRepository,
+        ArchivedFileRepository,
     )
 except ImportError:
     SourceRepository = None
     IngestJobRepository = None
     IngestErrorRepository = None
     EmailAttachmentRepository = None
+    ArchivedFileRepository = None
+
+try:
+    from ..ingest.archiver import create_archiver_from_env, KeyDerivationError
+except ImportError:
+    create_archiver_from_env = None
+    KeyDerivationError = Exception
 
 try:
     from ..events.schemas import ManualEmailIngestedEvent
@@ -107,6 +115,12 @@ def ingest_group():
     help="Don't extract attachments",
 )
 @click.option(
+    "--no-archive",
+    is_flag=True,
+    default=False,
+    help="Don't archive original .eml files (requires PENF_ARCHIVE_MASTER_KEY)",
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -120,6 +134,7 @@ def ingest_email(
     dry_run: bool,
     no_preserve_folders: bool,
     skip_attachments: bool,
+    no_archive: bool,
     verbose: bool,
 ):
     """Upload .eml files for processing.
@@ -209,6 +224,7 @@ def ingest_email(
             project_tags=project_tags,
             preserve_folders=not no_preserve_folders,
             skip_attachments=skip_attachments,
+            archive_files=not no_archive,
             verbose=verbose,
         )
     )
@@ -220,6 +236,7 @@ async def _process_email_files(
     project_tags: list[str],
     preserve_folders: bool,
     skip_attachments: bool,
+    archive_files: bool,
     verbose: bool,
 ) -> None:
     """Process email files asynchronously.
@@ -230,6 +247,7 @@ async def _process_email_files(
         project_tags: Optional project tags
         preserve_folders: Whether to create labels from folder structure
         skip_attachments: Whether to skip attachment extraction
+        archive_files: Whether to archive original .eml files
         verbose: Show detailed progress
     """
     # Get tenant ID (use default for now)
@@ -243,6 +261,8 @@ async def _process_email_files(
     labels_collected: set[str] = set()
     attachments_extracted = 0
     attachments_skipped = 0
+    archived_count = 0
+    archive_failed_count = 0
 
     # Initialize event publisher (optional - may not have Redis)
     event_publisher = None
@@ -252,12 +272,22 @@ async def _process_email_files(
         except Exception:
             pass  # Event publishing is optional
 
+    # Initialize archiver (optional - requires PENF_ARCHIVE_MASTER_KEY)
+    archiver = None
+    if archive_files and create_archiver_from_env is not None:
+        try:
+            archiver = create_archiver_from_env(tenant_id)
+        except KeyDerivationError:
+            if verbose:
+                console.print("[yellow]Warning: PENF_ARCHIVE_MASTER_KEY not set, skipping archival[/yellow]")
+
     async with get_session() as session:
         # Initialize repositories
         source_repo = SourceRepository(session)
         job_repo = IngestJobRepository(session)
         error_repo = IngestErrorRepository(session)
         attachment_repo = EmailAttachmentRepository(session) if EmailAttachmentRepository else None
+        archive_repo = ArchivedFileRepository(session) if ArchivedFileRepository and archiver else None
 
         # Create ingest job
         job = await job_repo.create_job(
@@ -391,6 +421,30 @@ async def _process_email_files(
                                 extraction_status=att_status,
                             )
 
+                    # Archive original .eml file (if archiver available)
+                    if archive_repo and archiver:
+                        try:
+                            import base64
+                            # Encrypt the original file content
+                            archive_result = archiver.encrypt(
+                                parsed.raw_content,
+                                source_id=source.id,
+                            )
+                            # Store in database (base64 encoded)
+                            await archive_repo.create_archive(
+                                tenant_id=tenant_id,
+                                source_id=source.id,
+                                encrypted_content=base64.b64encode(archive_result.encrypted_content).decode(),
+                                original_size=archive_result.original_size,
+                                encryption_key_id=archive_result.encryption_key_id,
+                                content_hash=archive_result.content_hash,
+                            )
+                            archived_count += 1
+                        except Exception as e:
+                            archive_failed_count += 1
+                            if verbose:
+                                console.print(f"  [yellow]Archive failed:[/yellow] {file_path.name} - {e}")
+
                     if verbose:
                         console.print(f"  [green]Imported:[/green] {file_path.name}")
 
@@ -502,6 +556,8 @@ async def _process_email_files(
         errors=errors,
         attachments_extracted=attachments_extracted,
         attachments_skipped=attachments_skipped,
+        archived_count=archived_count,
+        archive_failed_count=archive_failed_count,
     )
 
 
@@ -515,6 +571,8 @@ def _display_summary(
     errors: list[dict],
     attachments_extracted: int = 0,
     attachments_skipped: int = 0,
+    archived_count: int = 0,
+    archive_failed_count: int = 0,
 ) -> None:
     """Display ingest job summary.
 
@@ -528,6 +586,8 @@ def _display_summary(
         errors: List of error details
         attachments_extracted: Number of attachments extracted
         attachments_skipped: Number of oversized attachments skipped
+        archived_count: Number of files archived
+        archive_failed_count: Number of files failed to archive
     """
     # Build summary table
     table = Table(title="Ingest Summary", show_header=False)
@@ -546,6 +606,12 @@ def _display_summary(
         table.add_row("Attachments Extracted", f"[green]{attachments_extracted}[/green]")
         if attachments_skipped > 0:
             table.add_row("Attachments Skipped (>25MB)", f"[yellow]{attachments_skipped}[/yellow]")
+
+    # Show archive info if any
+    if archived_count > 0 or archive_failed_count > 0:
+        table.add_row("Files Archived", f"[green]{archived_count}[/green]")
+        if archive_failed_count > 0:
+            table.add_row("Archive Failures", f"[yellow]{archive_failed_count}[/yellow]")
 
     console.print(table)
 
