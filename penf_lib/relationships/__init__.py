@@ -17,6 +17,26 @@ Key Features:
 - Network analysis for communication patterns and insights
 """
 
+from .confidence import (
+    ConfidenceCalculator,
+    ConfidenceFactors,
+    EvidenceItem,
+    calculate_ai_confidence_weight,
+    calculate_evidence_strength,
+    calculate_interaction_boost,
+    calculate_temporal_decay,
+    combine_confidence_factors,
+)
+from .discovery import (
+    DiscoveredRelationship,
+    DiscoveryResult,
+    RelationshipDiscoveryService,
+)
+from .extractor import (
+    ExtractedRelationship,
+    ExtractionResult,
+    RelationshipExtractor,
+)
 from .models import (
     # Enums
     ConflictResolution,
@@ -59,4 +79,21 @@ __all__ = [
     # Network models
     "RelationshipNetworkNode",
     "RelationshipNetworkEdge",
+    # Extractor
+    "ExtractedRelationship",
+    "ExtractionResult",
+    "RelationshipExtractor",
+    # Confidence
+    "ConfidenceCalculator",
+    "ConfidenceFactors",
+    "EvidenceItem",
+    "calculate_ai_confidence_weight",
+    "calculate_evidence_strength",
+    "calculate_interaction_boost",
+    "calculate_temporal_decay",
+    "combine_confidence_factors",
+    # Discovery
+    "DiscoveredRelationship",
+    "DiscoveryResult",
+    "RelationshipDiscoveryService",
 ]
