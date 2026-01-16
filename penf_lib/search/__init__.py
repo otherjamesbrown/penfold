@@ -26,6 +26,8 @@ from penf_lib.search.models import (
     # Request models
     TemporalConstraint,
 )
+from penf_lib.search.query_parser import QueryEmbedder, QueryParser
+from penf_lib.search.ranking import RankedResult, RRFFusion, SearchRanker
 from penf_lib.search.search_engine import SearchEngine
 
 __all__ = [
@@ -44,6 +46,13 @@ __all__ = [
     "QueryCache",
     "EmbeddingCache",
     "SearchCacheManager",
+    # Query processing
+    "QueryParser",
+    "QueryEmbedder",
+    # Ranking
+    "RRFFusion",
+    "SearchRanker",
+    "RankedResult",
     # Core components
     "SearchEngine",
 ]
