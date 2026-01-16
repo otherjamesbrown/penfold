@@ -257,6 +257,13 @@ class SearchRepository:
         Uses Reciprocal Rank Fusion (RRF) to combine results from both
         search methods.
 
+        Note:
+            This is a convenience method that combines full_text_search and
+            vector_similarity_search with RRF fusion. For more control over
+            the fusion process (e.g., custom RRF k parameter, different fusion
+            strategies, or additional ranking signals), use the individual
+            search methods with the RRFFusion class from penf_lib.search.ranking.
+
         Args:
             query_text: Natural language search query for full-text search
             query_vector: Query embedding vector for similarity search

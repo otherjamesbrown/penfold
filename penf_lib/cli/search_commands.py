@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 import uuid
 from datetime import datetime
 from typing import Optional, Tuple
@@ -28,13 +27,16 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from penf_lib.search.analytics import AnalyticsCollector
 from penf_lib.search.models import (
     ContentTypeFilter,
     RelatedContentResponse,
     SearchQuery,
     SearchResponse,
+    TemporalConstraint,
 )
 from penf_lib.search.search_engine import SearchEngine
+from penf_lib.search.suggestions import SuggestionEngine
 from penf_lib.storage.connections import cleanup_connections, get_session
 from penf_lib.storage.repositories.search import SearchRepository
 
@@ -264,7 +266,6 @@ def search_query(
             # Build temporal constraint if provided
             temporal = None
             if since or until:
-                from penf_lib.search.models import TemporalConstraint
                 temporal = TemporalConstraint(
                     start_date=since,
                     end_date=until,
@@ -413,11 +414,10 @@ def search_history(
             return 0
 
     try:
-        result = run_async(_history())
-        sys.exit(result)
+        run_async(_history())
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
-        sys.exit(1)
+        raise click.Abort() from e
     finally:
         run_async(cleanup_connections())
 
@@ -474,8 +474,6 @@ def search_suggest(
 
         penf search suggest -l 10 -f json
     """
-    from penf_lib.search.suggestions import SuggestionEngine
-
     async def _suggest():
         tenant_id = ctx.obj.get("tenant") if ctx.obj else None
         tenant_id = tenant_id or "default"
@@ -534,11 +532,10 @@ def search_suggest(
             return 0
 
     try:
-        result = run_async(_suggest())
-        sys.exit(result)
+        run_async(_suggest())
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
-        sys.exit(1)
+        raise click.Abort() from e
     finally:
         run_async(cleanup_connections())
 
@@ -585,8 +582,6 @@ def search_popular(
 
         penf search popular -f json
     """
-    from penf_lib.search.suggestions import SuggestionEngine
-
     async def _popular():
         tenant_id = ctx.obj.get("tenant") if ctx.obj else None
         tenant_id = tenant_id or "default"
@@ -637,11 +632,10 @@ def search_popular(
             return 0
 
     try:
-        result = run_async(_popular())
-        sys.exit(result)
+        run_async(_popular())
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
-        sys.exit(1)
+        raise click.Abort() from e
     finally:
         run_async(cleanup_connections())
 
@@ -688,8 +682,6 @@ def search_stats(
 
         penf search stats -f json
     """
-    from penf_lib.search.analytics import AnalyticsCollector
-
     async def _stats():
         tenant_id = ctx.obj.get("tenant") if ctx.obj else None
         tenant_id = tenant_id or "default"
@@ -793,11 +785,10 @@ def search_stats(
             return 0
 
     try:
-        result = run_async(_stats())
-        sys.exit(result)
+        run_async(_stats())
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
-        sys.exit(1)
+        raise click.Abort() from e
     finally:
         run_async(cleanup_connections())
 
@@ -909,7 +900,7 @@ def _print_related_table(response: RelatedContentResponse) -> None:
 # =============================================================================
 
 
-@search_group.command(name="correlate")
+@search_group.command(name="correlate", deprecated=True)
 @click.argument("content_id", type=int)
 @click.option(
     "--entity-type", "-e",
@@ -942,6 +933,9 @@ def search_correlate(
     output_format: str,
 ):
     """Find content related to a specific item.
+
+    DEPRECATED: Use 'penf search related source <id>' instead.
+    This command will be removed in a future release.
 
     Given a content ID, discover related content across all sources
     using multiple correlation signals:
@@ -984,11 +978,10 @@ def search_correlate(
             return 0
 
     try:
-        result = run_async(_correlate())
-        sys.exit(result)
+        run_async(_correlate())
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
-        sys.exit(1)
+        raise click.Abort() from e
     finally:
         run_async(cleanup_connections())
 
@@ -1073,11 +1066,10 @@ def related_person(
             return 0
 
     try:
-        result = run_async(_find_related())
-        sys.exit(result)
+        run_async(_find_related())
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
-        sys.exit(1)
+        raise click.Abort() from e
     finally:
         run_async(cleanup_connections())
 
@@ -1146,11 +1138,10 @@ def related_project(
             return 0
 
     try:
-        result = run_async(_find_related())
-        sys.exit(result)
+        run_async(_find_related())
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
-        sys.exit(1)
+        raise click.Abort() from e
     finally:
         run_async(cleanup_connections())
 
@@ -1214,10 +1205,9 @@ def related_source(
             return 0
 
     try:
-        result = run_async(_find_related())
-        sys.exit(result)
+        run_async(_find_related())
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
-        sys.exit(1)
+        raise click.Abort() from e
     finally:
         run_async(cleanup_connections())

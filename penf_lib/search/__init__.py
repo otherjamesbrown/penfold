@@ -37,20 +37,20 @@ from penf_lib.search.filters import (
     SearchFilter,
 )
 from penf_lib.search.models import (
-    # Response models
-    ContentPreview,
     # Enums
     ContentTypeFilter,
     CorrelationType,
+    SortOrder,
+    # Request models
+    SearchQuery,
+    TemporalConstraint,
+    # Response models
+    ContentPreview,
     RelatedContentResponse,
     RelatedItemResponse,
     SearchMetadata,
-    SearchQuery,
     SearchResponse,
     SearchResult,
-    SortOrder,
-    # Request models
-    TemporalConstraint,
 )
 from penf_lib.search.query_parser import QueryEmbedder, QueryParser, TemporalQueryParser
 from penf_lib.search.ranking import RankedResult, RRFFusion, SearchRanker

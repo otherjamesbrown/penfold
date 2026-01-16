@@ -385,7 +385,7 @@ class SearchRanker:
 
         # Exponential decay
         decay_rate = 0.693 / self.recency_half_life_days  # ln(2) / half_life
-        boost = pow(2.718, -decay_rate * age_days)
+        boost = math.exp(-decay_rate * age_days)
 
         return max(0.0, min(1.0, boost))
 

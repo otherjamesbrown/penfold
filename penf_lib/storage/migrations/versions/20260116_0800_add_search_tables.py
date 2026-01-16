@@ -126,7 +126,7 @@ def upgrade() -> None:
             name='ck_query_record_result_count'
         ),
         sa.CheckConstraint(
-            "search_strategy IS NULL OR search_strategy IN ('hybrid', 'full_text', 'semantic')",
+            "search_strategy IS NULL OR search_strategy IN ('hybrid', 'full_text', 'semantic', 'full_text_fallback', 'no_results')",
             name='ck_query_record_strategy'
         ),
 

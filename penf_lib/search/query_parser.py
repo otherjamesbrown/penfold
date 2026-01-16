@@ -662,8 +662,7 @@ class SpellChecker:
 
         corrected = query
         for original, suggestion in corrections:
-            # Case-insensitive replacement
-            import re
+            # Case-insensitive replacement (re is already imported at module level)
             corrected = re.sub(
                 rf"\b{re.escape(original)}\b",
                 suggestion,

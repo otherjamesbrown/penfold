@@ -487,6 +487,9 @@ class CorrelationDiscovery:
                         AND s.is_deleted = false
                         AND NOT (s.id = :exclude_id AND :exclude_type = 'source')
                 )
+                -- NOTE: ILIKE on JSONB::text is a known performance limitation.
+                -- Future optimization: extract participants to a separate indexed column
+                -- or use PostgreSQL GIN/GIST indexes on JSONB paths.
                 SELECT DISTINCT
                     sp.id as entity_id,
                     sp.entity_type,
@@ -976,6 +979,9 @@ async def find_related_by_person(
         List of RelatedItem objects
     """
     try:
+        # NOTE: ILIKE on JSONB::text is a known performance limitation.
+        # Future optimization: extract participants to a separate indexed column
+        # or use PostgreSQL full-text search on participant fields.
         query = text("""
             SELECT
                 s.id as entity_id,
@@ -1061,6 +1067,8 @@ async def find_related_by_project(
         List of RelatedItem objects
     """
     try:
+        # NOTE: ILIKE on JSONB::text and raw_content is a known performance limitation.
+        # Future optimization: use PostgreSQL full-text search with GIN indexes.
         query = text("""
             SELECT
                 s.id as entity_id,

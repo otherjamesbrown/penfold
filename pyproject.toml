@@ -87,7 +87,6 @@ ignore = [
     "E501",  # line too long (handled by black)
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex (will be addressed in refactoring)
-    "UP017",  # Use datetime.UTC alias (keep timezone.utc for 3.9 compat in dev)
 ]
 
 [tool.ruff.per-file-ignores]

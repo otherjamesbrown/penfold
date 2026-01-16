@@ -237,17 +237,19 @@ class AnalyticsCollector:
     ) -> List[Dict[str, Any]]:
         """Get trending search queries.
 
-        Identifies queries that have increased in frequency recently.
+        Returns the most popular queries ordered by frequency.
+        Currently uses suggestion frequency as a proxy for trending.
 
         Args:
             limit: Maximum number of trending queries to return.
-            days: Time window for trend analysis.
+            days: Time window for trend analysis (currently unused,
+                  reserved for future trend calculation).
 
         Returns:
             List of trending query dictionaries with:
             - query: The query text
             - frequency: Number of times executed
-            - success_rate: Success rate percentage
+            - success_rate: Formatted success rate percentage string
         """
         tenant_uuid = self._to_uuid()
 
