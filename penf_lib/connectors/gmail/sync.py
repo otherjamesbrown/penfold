@@ -118,22 +118,14 @@ class GmailSyncManager:
                     total_items=max_results
                 )
 
-                # Process messages in batch
-                batch_messages = 0
-                batch_threads = set()
-                batch_attachments = 0
+                # Process messages in batch with optimized database operations
+                message_ids = [msg['id'] for msg in batch_results.get('messages', [])]
+                batch_result = await self._process_message_batch(message_ids)
 
-                for message_ref in batch_results.get('messages', []):
-                    try:
-                        result = await self._process_single_message(message_ref['id'])
-                        if result:
-                            batch_messages += 1
-                            batch_threads.add(result['thread_id'])
-                            batch_attachments += result['attachment_count']
-
-                    except Exception as e:
-                        logger.error(f"Failed to process message {message_ref['id']}: {e}")
-                        errors.append(f"Message {message_ref['id']}: {str(e)}")
+                batch_messages = batch_result['processed_count']
+                batch_threads = batch_result['thread_ids']
+                batch_attachments = batch_result['attachment_count']
+                errors.extend(batch_result['errors'])
 
                 messages_processed += batch_messages
                 threads_processed += len(batch_threads)
@@ -238,8 +230,241 @@ class GmailSyncManager:
                 logger.error(f"Failed to fetch message batch: {e}")
                 break
 
+    async def _process_message_batch(
+        self,
+        message_ids: List[str]
+    ) -> Dict[str, Any]:
+        """Process a batch of messages with optimized database operations.
+
+        Reduces N+1 queries by:
+        1. Batch checking for existing messages
+        2. Batch fetching Gmail messages
+        3. Batch creating/finding threads
+        4. Batch inserting messages
+
+        Args:
+            message_ids: List of Gmail message IDs to process
+
+        Returns:
+            Batch processing result summary
+        """
+        result = {
+            'processed_count': 0,
+            'thread_ids': set(),
+            'attachment_count': 0,
+            'errors': []
+        }
+
+        if not message_ids:
+            return result
+
+        async with db_manager.get_session() as session:
+            try:
+                # Step 1: Batch check for existing messages (single query)
+                existing_query = select(EmailMessage.gmail_message_id).where(
+                    EmailMessage.gmail_message_id.in_(message_ids)
+                )
+                existing_result = await session.execute(existing_query)
+                existing_ids = {row[0] for row in existing_result}
+
+                # Filter to only new messages
+                new_message_ids = [mid for mid in message_ids if mid not in existing_ids]
+
+                if not new_message_ids:
+                    logger.debug(f"All {len(message_ids)} messages already exist, skipping batch")
+                    return result
+
+                logger.debug(f"Processing batch: {len(new_message_ids)} new, {len(existing_ids)} existing")
+
+                # Step 2: Fetch all new messages from Gmail in parallel
+                fetch_tasks = [
+                    self.gmail_client.get_message(mid)
+                    for mid in new_message_ids
+                ]
+                gmail_messages = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+
+                # Step 3: Collect unique thread IDs for batch lookup
+                thread_ids_needed = set()
+                valid_messages = []
+
+                for mid, gmail_msg in zip(new_message_ids, gmail_messages):
+                    if isinstance(gmail_msg, Exception):
+                        logger.error(f"Failed to fetch message {mid}: {gmail_msg}")
+                        result['errors'].append(f"Message {mid}: {str(gmail_msg)}")
+                        continue
+
+                    thread_id = gmail_msg.get('threadId')
+                    if thread_id:
+                        thread_ids_needed.add(thread_id)
+                        valid_messages.append((mid, gmail_msg))
+
+                # Step 4: Batch fetch/create threads (single query + inserts)
+                thread_map = await self._get_or_create_threads_batch(
+                    session, list(thread_ids_needed)
+                )
+
+                # Step 5: Create all email messages
+                email_messages = []
+                for mid, gmail_msg in valid_messages:
+                    try:
+                        thread_id = gmail_msg['threadId']
+                        email_thread = thread_map.get(thread_id)
+
+                        if not email_thread:
+                            logger.warning(f"Thread {thread_id} not found for message {mid}")
+                            continue
+
+                        # Extract metadata and content
+                        extracted_metadata = self.metadata_extractor.extract_metadata(gmail_msg)
+                        headers = self._extract_headers(gmail_msg['payload'].get('headers', []))
+                        content = self._extract_message_content(gmail_msg['payload'])
+
+                        # Create message record
+                        email_message = EmailMessage(
+                            gmail_message_id=mid,
+                            thread_id=email_thread.id,
+                            subject=headers.get('subject'),
+                            from_email=headers.get('from_email', ''),
+                            from_name=headers.get('from_name'),
+                            to_emails=self._parse_email_addresses(headers.get('to', '')),
+                            cc_emails=self._parse_email_addresses(headers.get('cc', '')) if headers.get('cc') else None,
+                            bcc_emails=self._parse_email_addresses(headers.get('bcc', '')) if headers.get('bcc') else None,
+                            body_text=content.get('text'),
+                            body_html=content.get('html'),
+                            snippet=gmail_msg.get('snippet'),
+                            gmail_labels=gmail_msg.get('labelIds', []),
+                            internal_date=datetime.fromtimestamp(int(gmail_msg['internalDate']) / 1000),
+                            is_unread='UNREAD' in gmail_msg.get('labelIds', []),
+                            size_estimate=gmail_msg.get('sizeEstimate'),
+                            has_attachments=content['has_attachments'],
+                            attachment_count=content['attachment_count'],
+                            processing_status='processing'
+                        )
+
+                        email_messages.append({
+                            'message': email_message,
+                            'thread': email_thread,
+                            'gmail_msg': gmail_msg,
+                            'extracted_metadata': extracted_metadata,
+                            'content': content
+                        })
+
+                    except Exception as e:
+                        logger.error(f"Failed to prepare message {mid}: {e}")
+                        result['errors'].append(f"Message {mid}: {str(e)}")
+
+                # Step 6: Batch insert all messages
+                if email_messages:
+                    session.add_all([em['message'] for em in email_messages])
+                    await session.flush()  # Get IDs without committing
+
+                    # Update thread statistics in batch
+                    for em_data in email_messages:
+                        thread = em_data['thread']
+                        msg = em_data['message']
+
+                        thread.message_count = (thread.message_count or 0) + 1
+                        if not thread.first_message_date or msg.internal_date < thread.first_message_date:
+                            thread.first_message_date = msg.internal_date
+                        if not thread.last_message_date or msg.internal_date > thread.last_message_date:
+                            thread.last_message_date = msg.internal_date
+
+                        result['thread_ids'].add(thread.gmail_thread_id)
+
+                    await session.commit()
+
+                    # Process attachments and publish events (after commit)
+                    for em_data in email_messages:
+                        msg = em_data['message']
+                        content = em_data['content']
+
+                        # Process attachments
+                        attachment_count = 0
+                        if content['attachments']:
+                            attachment_count = await self._process_attachments(
+                                session, msg, content['attachments']
+                            )
+                        result['attachment_count'] += attachment_count
+
+                        # Mark as processed
+                        msg.processing_status = 'completed'
+                        msg.event_published_at = datetime.utcnow()
+
+                        # Publish event
+                        await self._publish_enhanced_email_event(
+                            email_message=msg,
+                            email_thread=em_data['thread'],
+                            extracted_metadata=em_data['extracted_metadata'],
+                            attachment_count=attachment_count
+                        )
+
+                        result['processed_count'] += 1
+
+                    await session.commit()
+
+            except Exception as e:
+                logger.error(f"Batch processing failed: {e}")
+                result['errors'].append(f"Batch error: {str(e)}")
+                await session.rollback()
+
+        return result
+
+    async def _get_or_create_threads_batch(
+        self,
+        session: AsyncSession,
+        gmail_thread_ids: List[str]
+    ) -> Dict[str, 'EmailThread']:
+        """Get or create multiple threads efficiently.
+
+        Args:
+            session: Database session
+            gmail_thread_ids: List of Gmail thread IDs
+
+        Returns:
+            Dict mapping gmail_thread_id to EmailThread
+        """
+        if not gmail_thread_ids:
+            return {}
+
+        # Batch lookup existing threads
+        existing_query = select(EmailThread).where(
+            and_(
+                EmailThread.gmail_thread_id.in_(gmail_thread_ids),
+                EmailThread.connection_id == self.connection_id
+            )
+        )
+        existing_result = await session.execute(existing_query)
+        thread_map = {
+            thread.gmail_thread_id: thread
+            for thread in existing_result.scalars().all()
+        }
+
+        # Create missing threads
+        missing_ids = set(gmail_thread_ids) - set(thread_map.keys())
+        if missing_ids:
+            new_threads = [
+                EmailThread(
+                    gmail_thread_id=tid,
+                    connection_id=self.connection_id,
+                    message_count=0,
+                    processing_status='processing'
+                )
+                for tid in missing_ids
+            ]
+            session.add_all(new_threads)
+            await session.flush()
+
+            for thread in new_threads:
+                thread_map[thread.gmail_thread_id] = thread
+
+        return thread_map
+
     async def _process_single_message(self, message_id: str) -> Optional[Dict[str, Any]]:
         """Process a single Gmail message.
+
+        Note: For batch processing, use _process_message_batch instead.
+        This method is retained for backward compatibility and single-message
+        operations like incremental sync.
 
         Args:
             message_id: Gmail message ID
