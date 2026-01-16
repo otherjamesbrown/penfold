@@ -60,7 +60,7 @@ from penf_lib.review.feedback import FeedbackManager
 from penf_lib.review.feedback import FeedbackRepositoryProtocol
 from penf_lib.review.batch import BatchManager
 from penf_lib.review.batch import BatchRepositoryProtocol
-from penf_lib.review.batch import BatchGroupType, BatchActionType as BatchActionEnum
+from penf_lib.review.batch import BatchGroupType, BatchAction as BatchActionEnum
 from penf_lib.review.batch import BatchPreview, BatchResult, FilterExpression
 from penf_lib.review.rules import RuleManager
 from penf_lib.review.rules import RuleRepositoryProtocol

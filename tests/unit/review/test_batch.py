@@ -13,7 +13,7 @@ from uuid import uuid4
 import pytest
 
 from penf_lib.review.batch import (
-    BatchActionType,
+    BatchAction,
     BatchGroupType,
     BatchManager,
     BatchPreview,
@@ -142,7 +142,7 @@ def create_mock_batch_operation(
     tenant_id=None,
     session_id: int = 1,
     batch_type: BatchType = BatchType.THREAD,
-    action_type: BatchActionType = BatchActionType.ACCEPT,
+    action_type: BatchAction = BatchAction.ACCEPT,
     item_count: int = 5,
     status: BatchOperationStatus = BatchOperationStatus.PENDING,
     undo_eligible: bool = True,
@@ -497,7 +497,7 @@ class TestPreviewBatch:
 
         preview = await batch_manager.preview_batch(
             items=items,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         assert preview.item_count == 5
@@ -522,10 +522,10 @@ class TestPreviewBatch:
 
         preview = await batch_manager.preview_batch(
             items=items,
-            action=BatchActionType.REJECT,
+            action=BatchAction.REJECT,
         )
 
-        assert preview.action == BatchActionType.REJECT
+        assert preview.action == BatchAction.REJECT
 
     @pytest.mark.asyncio
     async def test_preview_estimates_time_saved(
@@ -546,7 +546,7 @@ class TestPreviewBatch:
 
         preview = await batch_manager.preview_batch(
             items=items,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         # 10 items at AVG_REVIEW_TIME_SECONDS (15 sec) = 150 seconds
@@ -585,7 +585,7 @@ class TestExecuteBatch:
         result = await batch_manager.execute_batch(
             session_id=session_id,
             items=items,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         assert result.success is True
@@ -615,7 +615,7 @@ class TestExecuteBatch:
         result = await batch_manager.execute_batch(
             session_id=session_id,
             items=items,
-            action=BatchActionType.REJECT,
+            action=BatchAction.REJECT,
         )
 
         assert result.success is True
@@ -645,7 +645,7 @@ class TestExecuteBatch:
         result = await batch_manager.execute_batch(
             session_id=session_id,
             items=items,
-            action=BatchActionType.SKIP,
+            action=BatchAction.SKIP,
         )
 
         assert result.success is True
@@ -674,7 +674,7 @@ class TestExecuteBatch:
         result = await batch_manager.execute_batch(
             session_id=session_id,
             items=items,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         assert result.batch_id is not None
@@ -703,7 +703,7 @@ class TestExecuteBatch:
         result = await batch_manager.execute_batch(
             session_id=session_id,
             items=items,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         assert result.undo_eligible is True
@@ -735,7 +735,7 @@ class TestExecuteBatch:
         await batch_manager.execute_batch(
             session_id=session_id,
             items=items,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         # Verify feedback recorded for each item
@@ -973,7 +973,7 @@ class TestBatchEdgeCases:
             await batch_manager.execute_batch(
                 session_id=session_id,
                 items=[],
-                action=BatchActionType.ACCEPT,
+                action=BatchAction.ACCEPT,
             )
 
         assert "no items" in exc_info.value.details["reason"].lower()
@@ -998,7 +998,7 @@ class TestBatchEdgeCases:
         result = await batch_manager.execute_batch(
             session_id=session_id,
             items=[item],
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         assert result.items_affected == 1
@@ -1028,7 +1028,7 @@ class TestBatchEdgeCases:
         result = await batch_manager.execute_batch(
             session_id=session_id,
             items=items,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         assert result.items_affected == item_count
@@ -1098,7 +1098,7 @@ class TestBatchEdgeCases:
             await batch_manager.execute_batch(
                 session_id=session_id,
                 items=items,
-                action=BatchActionType.APPLY_CATEGORY,
+                action=BatchAction.APPLY_CATEGORY,
             )
 
         assert "category_override required" in exc_info.value.details["reason"]
@@ -1131,7 +1131,7 @@ class TestBatchPreviewDataclass:
 
         preview = await batch_manager.preview_batch(
             items=items,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         # Verify all required fields exist
@@ -1167,7 +1167,7 @@ class TestBatchPreviewDataclass:
 
         preview = await batch_manager.preview_batch(
             items=items,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         assert len(preview.items) == 2
@@ -1207,7 +1207,7 @@ class TestBatchResultDataclass:
         result = await batch_manager.execute_batch(
             session_id=session_id,
             items=items,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         # Verify all required fields exist
@@ -1240,7 +1240,7 @@ class TestBatchResultDataclass:
         result = await batch_manager.execute_batch(
             session_id=session_id,
             items=items,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
         )
 
         assert result.items_affected == 5
@@ -1253,7 +1253,7 @@ class TestBatchResultDataclass:
         result_undoable = BatchResult(
             batch_id=uuid4(),
             items_affected=3,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
             success=True,
             undo_eligible=True,
             undo_deadline=future_deadline,
@@ -1261,7 +1261,7 @@ class TestBatchResultDataclass:
         result_expired = BatchResult(
             batch_id=uuid4(),
             items_affected=3,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
             success=True,
             undo_eligible=True,
             undo_deadline=past_deadline,
@@ -1269,7 +1269,7 @@ class TestBatchResultDataclass:
         result_not_eligible = BatchResult(
             batch_id=uuid4(),
             items_affected=3,
-            action=BatchActionType.ACCEPT,
+            action=BatchAction.ACCEPT,
             success=True,
             undo_eligible=False,
             undo_deadline=future_deadline,

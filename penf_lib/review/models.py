@@ -190,6 +190,9 @@ class ReviewItemDTO(BaseModel):
         default=None, description="Associated session (NULL if unqueued)"
     )
     source_id: int = Field(..., description="Source content reference")
+    source_system: Optional[str] = Field(
+        default=None, description="Source system name (e.g., gmail, slack)"
+    )
     processing_result_id: Optional[UUID] = Field(
         default=None, description="AI processing result reference"
     )

@@ -49,8 +49,12 @@ class BatchGroupType(str, Enum):
     CUSTOM = "custom"
 
 
-class BatchActionType(str, Enum):
-    """Actions that can be applied in batch."""
+class BatchAction(str, Enum):
+    """Actions that can be applied in batch.
+
+    Note: This is distinct from BatchAction in models.py which uses
+    ACCEPT_ALL, REJECT_ALL etc. for DTO serialization.
+    """
 
     ACCEPT = "accept"
     REJECT = "reject"
@@ -72,7 +76,7 @@ class BatchPreview:
     """
 
     items: list[ReviewItemDTO]
-    action: BatchActionType
+    action: BatchAction
     group_type: BatchGroupType
     group_value: str  # e.g., sender email, category name
     estimated_time_saved_seconds: int
@@ -93,7 +97,7 @@ class BatchResult:
 
     batch_id: UUID
     items_affected: int
-    action: BatchActionType
+    action: BatchAction
     success: bool
     undo_eligible: bool
     undo_deadline: datetime
@@ -448,7 +452,7 @@ class BatchManager:
     async def preview_batch(
         self,
         items: list[ReviewItemDTO],
-        action: BatchActionType,
+        action: BatchAction,
         group_type: BatchGroupType = BatchGroupType.CUSTOM,
         group_value: str = "",
     ) -> BatchPreview:
@@ -481,7 +485,7 @@ class BatchManager:
         self,
         session_id: int,
         items: list[ReviewItemDTO],
-        action: BatchActionType,
+        action: BatchAction,
         reason: str | None = None,
         category_override: str | None = None,
     ) -> BatchResult:
@@ -510,7 +514,7 @@ class BatchManager:
                 reason="Cannot execute batch with no items",
             )
 
-        if action == BatchActionType.APPLY_CATEGORY and not category_override:
+        if action == BatchAction.APPLY_CATEGORY and not category_override:
             raise BatchOperationError(
                 batch_id="N/A",
                 reason="category_override required for apply_category action",
@@ -757,7 +761,7 @@ class BatchManager:
         participants = item.ai_suggestion.participants
         return participants[0] if participants else None
 
-    def _action_to_status(self, action: BatchActionType) -> ReviewItemStatus:
+    def _action_to_status(self, action: BatchAction) -> ReviewItemStatus:
         """Convert batch action to review item status.
 
         Args:
@@ -767,14 +771,14 @@ class BatchManager:
             Corresponding ReviewItemStatus
         """
         status_map = {
-            BatchActionType.ACCEPT: ReviewItemStatus.ACCEPTED,
-            BatchActionType.REJECT: ReviewItemStatus.REJECTED,
-            BatchActionType.SKIP: ReviewItemStatus.SKIPPED,
-            BatchActionType.APPLY_CATEGORY: ReviewItemStatus.MODIFIED,
+            BatchAction.ACCEPT: ReviewItemStatus.ACCEPTED,
+            BatchAction.REJECT: ReviewItemStatus.REJECTED,
+            BatchAction.SKIP: ReviewItemStatus.SKIPPED,
+            BatchAction.APPLY_CATEGORY: ReviewItemStatus.MODIFIED,
         }
         return status_map.get(action, ReviewItemStatus.PENDING)
 
-    def _action_to_decision_type(self, action: BatchActionType) -> DecisionType:
+    def _action_to_decision_type(self, action: BatchAction) -> DecisionType:
         """Convert batch action to decision type.
 
         Args:
@@ -784,21 +788,21 @@ class BatchManager:
             Corresponding DecisionType
         """
         decision_map = {
-            BatchActionType.ACCEPT: DecisionType.ACCEPT,
-            BatchActionType.REJECT: DecisionType.REJECT,
-            BatchActionType.SKIP: DecisionType.SKIP,
-            BatchActionType.APPLY_CATEGORY: DecisionType.MODIFY,
+            BatchAction.ACCEPT: DecisionType.ACCEPT,
+            BatchAction.REJECT: DecisionType.REJECT,
+            BatchAction.SKIP: DecisionType.SKIP,
+            BatchAction.APPLY_CATEGORY: DecisionType.MODIFY,
         }
         return decision_map.get(action, DecisionType.ACCEPT)
 
     def _batch_action_to_model_action(
         self,
-        action: BatchActionType,
+        action: BatchAction,
     ) -> "BatchType":
-        """Convert BatchActionType to model BatchType for storage.
+        """Convert BatchAction to model BatchType for storage.
 
         Note: This maps to BatchType enum from models.py for action_type field.
-        The BatchOperationDTO uses BatchActionType for action semantics.
+        The BatchOperationDTO uses BatchAction for action semantics.
 
         Args:
             action: The batch action type

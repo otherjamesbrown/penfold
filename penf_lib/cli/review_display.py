@@ -245,8 +245,9 @@ class QueueDisplay:
             conf_value = f"{float(item.ai_confidence):.2f}"
             conf_text = Text(conf_value, style=conf_color)
 
-            # Source (extract from metadata or use placeholder)
-            source_text = Text("gmail", style="dim")  # Default source
+            # Source (use source_system from item if available)
+            source_name = item.source_system or "unknown"
+            source_text = Text(source_name, style="dim")
 
             table.add_row(num_text, type_text, subject_text, conf_text, source_text)
 
@@ -340,7 +341,8 @@ class ItemDisplay:
         text.append(f"{_format_datetime(self.item.source_timestamp)}\n", style="dim")
 
         text.append("Source: ", style="bold")
-        text.append("gmail\n\n", style="dim")  # Default source
+        source_name = self.item.source_system or "unknown"
+        text.append(f"{source_name}\n\n", style="dim")
 
         # AI Suggestion section
         text.append("AI Suggestion\n", style="bold underline")

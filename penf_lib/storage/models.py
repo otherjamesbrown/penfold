@@ -1968,7 +1968,7 @@ class UserFeedbackModel(Base, TenantMixin):
             postgresql_where=text("batch_id IS NOT NULL"),
         ),
         CheckConstraint(
-            "decision_type IN ('accept', 'reject', 'modify')",
+            "decision_type IN ('accept', 'reject', 'modify', 'skip')",
             name="ck_user_feedback_decision_type",
         ),
         CheckConstraint(
