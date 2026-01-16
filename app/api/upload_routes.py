@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime
 
 from app.database import get_db, MeetingFile, ProcessingJob
+from app.auth import get_current_user
 from app.upload.sessions import session_manager
 from app.upload.handlers import tus_handler
 from app.upload.progress import progress_tracker
@@ -56,7 +57,8 @@ class BatchUploadRequest(BaseModel):
 @router.post("/meetings/upload")
 async def initiate_upload(
     upload_request: UploadRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """Initiate meeting file upload session (TUS protocol)"""
     try:
@@ -82,7 +84,8 @@ async def initiate_upload(
 @router.post("/meetings/batch")
 async def batch_upload(
     batch_request: BatchUploadRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """Create multiple upload sessions for batch processing"""
     try:
@@ -180,7 +183,8 @@ async def stream_upload_progress(session_id: str, request: Request):
 async def cancel_upload(
     session_id: str,
     reason: str = "User cancelled",
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """Cancel upload session"""
     try:
@@ -313,8 +317,15 @@ async def get_upload_statistics(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/uploads/cleanup")
-async def cleanup_expired_uploads(db: AsyncSession = Depends(get_db)):
+async def cleanup_expired_uploads(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
     """Clean up expired upload sessions (admin endpoint)"""
+    # Check admin permissions
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
     try:
         cleaned_count = await session_manager.cleanup_expired_sessions(db)
         return {

@@ -5,7 +5,6 @@ Provides REST API endpoints for meeting search with privacy controls,
 hybrid search algorithms, and performance optimization.
 """
 from fastapi import APIRouter, HTTPException, Depends, Query
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
@@ -14,6 +13,7 @@ import time
 import uuid
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.search.hybrid import hybrid_search
 from app.search.semantic import semantic_search
 from app.search.fulltext import fulltext_search
@@ -22,7 +22,6 @@ from app.search.discovery import discovery_service
 from app.search.optimization import search_optimizer
 
 router = APIRouter()
-security = HTTPBearer(auto_error=False)
 
 
 class SearchRequest(BaseModel):
@@ -50,27 +49,21 @@ class SimilarMeetingsRequest(BaseModel):
     include_different_privacy: bool = False
 
 
-# Mock authentication - in production, replace with proper auth service
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-) -> Dict[str, Any]:
-    """Get current user from authentication token"""
-
-    # Mock user for demonstration - in production, decode JWT token
-    if not credentials:
-        return {
-            "user_id": "anonymous",
-            "role": UserRole.GUEST,
-            "team_ids": set()
-        }
-
-    # For demo purposes, extract user info from token
-    # In production: decode JWT, validate with auth service
-    return {
-        "user_id": "demo_user",
-        "role": UserRole.MEMBER,  # Default role
-        "team_ids": {"team1", "team2"}
+def _get_user_role(current_user: Dict[str, Any]) -> UserRole:
+    """Convert string role from auth module to UserRole enum."""
+    role_str = current_user.get("role", "guest")
+    role_mapping = {
+        "admin": UserRole.ADMIN,
+        "super_admin": UserRole.SUPER_ADMIN,
+        "member": UserRole.MEMBER,
+        "guest": UserRole.GUEST,
     }
+    return role_mapping.get(role_str, UserRole.GUEST)
+
+
+def _get_user_id(current_user: Dict[str, Any]) -> str:
+    """Get user ID from auth dict, with fallback."""
+    return current_user.get("user_id", "authenticated_user")
 
 
 @router.get("/search/meetings")
@@ -95,9 +88,11 @@ async def search_meetings(
             raise HTTPException(status_code=400, detail=f"Invalid search mode. Use: {valid_modes}")
 
         # Get user's allowed privacy levels
+        user_role = _get_user_role(current_user)
+        user_id = _get_user_id(current_user)
         user_privacy_levels = privacy_filter.get_allowed_privacy_levels(
-            current_user["user_id"],
-            current_user["role"],
+            user_id,
+            user_role,
             current_user.get("team_ids")
         )
 
@@ -135,8 +130,8 @@ async def search_meetings(
         # Apply privacy filtering to results
         filtered_results = await privacy_filter.filter_search_results(
             search_results["results"],
-            current_user["user_id"],
-            current_user["role"],
+            user_id,
+            user_role,
             current_user.get("team_ids"),
             db
         )
@@ -144,7 +139,7 @@ async def search_meetings(
         # Sanitize results based on user role
         sanitized_results = privacy_filter.sanitize_search_results(
             filtered_results,
-            current_user["role"]
+            user_role
         )
 
         # Calculate processing time
@@ -153,7 +148,7 @@ async def search_meetings(
 
         # Audit the search
         await privacy_filter.audit_search_access(
-            current_user["user_id"],
+            user_id,
             query,
             len(sanitized_results),
             allowed_levels,
@@ -167,7 +162,7 @@ async def search_meetings(
                 "user_privacy_levels": user_privacy_levels,
                 "search_privacy_levels": allowed_levels,
                 "results_filtered": len(filtered_results) != len(search_results["results"]),
-                "user_role": current_user["role"].value
+                "user_role": current_user.get("role", "guest")
             }
         }
 
@@ -187,9 +182,11 @@ async def get_search_suggestions(
 
     try:
         # Get user's allowed privacy levels
+        user_role = _get_user_role(current_user)
+        user_id = _get_user_id(current_user)
         user_privacy_levels = privacy_filter.get_allowed_privacy_levels(
-            current_user["user_id"],
-            current_user["role"],
+            user_id,
+            user_role,
             current_user.get("team_ids")
         )
 
@@ -240,9 +237,11 @@ async def find_related_meetings(
         )
 
         # Apply privacy filtering
+        user_role = _get_user_role(current_user)
+        user_id = _get_user_id(current_user)
         user_privacy_levels = privacy_filter.get_allowed_privacy_levels(
-            current_user["user_id"],
-            current_user["role"],
+            user_id,
+            user_role,
             current_user.get("team_ids")
         )
 
@@ -256,7 +255,7 @@ async def find_related_meetings(
         # Sanitize results
         sanitized_meetings = privacy_filter.sanitize_search_results(
             accessible_meetings,
-            current_user["role"]
+            user_role
         )
 
         return {
@@ -285,18 +284,21 @@ async def get_search_statistics(
     """Get search system statistics"""
 
     try:
+        user_role = _get_user_role(current_user)
+        user_id = _get_user_id(current_user)
+
         # Check if user has admin access for detailed statistics
-        if current_user["role"] not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        if user_role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
             # Return limited statistics for non-admin users
             return {
                 "searchable_content": "Available",
                 "search_types": ["semantic", "fulltext", "hybrid"],
                 "privacy_levels": privacy_filter.get_allowed_privacy_levels(
-                    current_user["user_id"],
-                    current_user["role"],
+                    user_id,
+                    user_role,
                     current_user.get("team_ids")
                 ),
-                "user_role": current_user["role"].value
+                "user_role": current_user.get("role", "guest")
             }
 
         # Get detailed statistics for admin users
@@ -314,10 +316,10 @@ async def get_search_statistics(
                 }
             },
             "user_access": {
-                "role": current_user["role"].value,
+                "role": current_user.get("role", "guest"),
                 "accessible_privacy_levels": privacy_filter.get_allowed_privacy_levels(
-                    current_user["user_id"],
-                    current_user["role"],
+                    user_id,
+                    user_role,
                     current_user.get("team_ids")
                 ),
                 "team_count": len(current_user.get("team_ids", []))
@@ -344,9 +346,11 @@ async def advanced_search(
 
     try:
         # Get user's allowed privacy levels
+        user_role = _get_user_role(current_user)
+        user_id = _get_user_id(current_user)
         user_privacy_levels = privacy_filter.get_allowed_privacy_levels(
-            current_user["user_id"],
-            current_user["role"],
+            user_id,
+            user_role,
             current_user.get("team_ids")
         )
 
@@ -402,12 +406,12 @@ async def advanced_search(
 
         # Apply privacy filtering and sanitization
         filtered_results = await privacy_filter.filter_search_results(
-            unique_results, current_user["user_id"], current_user["role"],
+            unique_results, user_id, user_role,
             current_user.get("team_ids"), db
         )
 
         sanitized_results = privacy_filter.sanitize_search_results(
-            filtered_results, current_user["role"]
+            filtered_results, user_role
         )
 
         # Sort by relevance (if available) and limit
@@ -432,7 +436,7 @@ async def advanced_search(
             "privacy_info": {
                 "user_privacy_levels": user_privacy_levels,
                 "search_privacy_levels": allowed_levels,
-                "user_role": current_user["role"].value
+                "user_role": current_user.get("role", "guest")
             }
         }
 
@@ -450,7 +454,8 @@ async def initialize_search_indexes(
 
     try:
         # Check admin permissions
-        if current_user["role"] not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        user_role = _get_user_role(current_user)
+        if user_role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
             raise HTTPException(status_code=403, detail="Admin access required")
 
         # Initialize semantic search indexes
@@ -459,7 +464,7 @@ async def initialize_search_indexes(
         return {
             "message": "Search indexes initialized successfully",
             "timestamp": datetime.utcnow().isoformat() + "Z",
-            "initialized_by": current_user["user_id"]
+            "initialized_by": _get_user_id(current_user)
         }
 
     except HTTPException:
@@ -478,7 +483,8 @@ async def update_search_configuration(
 
     try:
         # Check admin permissions
-        if current_user["role"] not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        user_role = _get_user_role(current_user)
+        if user_role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
             raise HTTPException(status_code=403, detail="Admin access required")
 
         # Validate weights
@@ -495,7 +501,7 @@ async def update_search_configuration(
         return {
             "message": "Search configuration updated successfully",
             "new_weights": weights,
-            "updated_by": current_user["user_id"],
+            "updated_by": _get_user_id(current_user),
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
 
@@ -558,9 +564,11 @@ async def get_trending_topics(
 
     try:
         # Get user's allowed privacy levels
+        user_role = _get_user_role(current_user)
+        user_id = _get_user_id(current_user)
         user_privacy_levels = privacy_filter.get_allowed_privacy_levels(
-            current_user["user_id"],
-            current_user["role"],
+            user_id,
+            user_role,
             current_user.get("team_ids")
         )
 
@@ -589,14 +597,16 @@ async def get_meeting_recommendations(
     """Get personalized meeting recommendations"""
 
     try:
+        user_role = _get_user_role(current_user)
+        user_id = _get_user_id(current_user)
         user_privacy_levels = privacy_filter.get_allowed_privacy_levels(
-            current_user["user_id"],
-            current_user["role"],
+            user_id,
+            user_role,
             current_user.get("team_ids")
         )
 
         recommendations = await discovery_service.get_meeting_recommendations(
-            current_user["user_id"],
+            user_id,
             db,
             user_privacy_levels,
             limit,
@@ -605,7 +615,7 @@ async def get_meeting_recommendations(
 
         return {
             "recommendations": recommendations,
-            "user_id": current_user["user_id"],
+            "user_id": user_id,
             "recommendation_types": recommendation_types or ["similar_content", "trending_topics", "recent_activity"],
             "privacy_levels": user_privacy_levels
         }
@@ -626,9 +636,11 @@ async def discover_meetings_by_topic(
     """Discover meetings related to a specific topic"""
 
     try:
+        user_role = _get_user_role(current_user)
+        user_id = _get_user_id(current_user)
         user_privacy_levels = privacy_filter.get_allowed_privacy_levels(
-            current_user["user_id"],
-            current_user["role"],
+            user_id,
+            user_role,
             current_user.get("team_ids")
         )
 
@@ -639,7 +651,7 @@ async def discover_meetings_by_topic(
         # Apply privacy filtering
         sanitized_meetings = privacy_filter.sanitize_search_results(
             related_meetings,
-            current_user["role"]
+            user_role
         )
 
         return {
@@ -665,9 +677,11 @@ async def discover_meetings_by_participants(
     """Find meetings that include specific participants"""
 
     try:
+        user_role = _get_user_role(current_user)
+        user_id = _get_user_id(current_user)
         user_privacy_levels = privacy_filter.get_allowed_privacy_levels(
-            current_user["user_id"],
-            current_user["role"],
+            user_id,
+            user_role,
             current_user.get("team_ids")
         )
 
@@ -678,7 +692,7 @@ async def discover_meetings_by_participants(
         # Apply privacy filtering
         sanitized_meetings = privacy_filter.sanitize_search_results(
             meetings,
-            current_user["role"]
+            user_role
         )
 
         return {
@@ -703,9 +717,11 @@ async def get_meeting_insights_summary(
     """Get aggregated insights from recent meetings"""
 
     try:
+        user_role = _get_user_role(current_user)
+        user_id = _get_user_id(current_user)
         user_privacy_levels = privacy_filter.get_allowed_privacy_levels(
-            current_user["user_id"],
-            current_user["role"],
+            user_id,
+            user_role,
             current_user.get("team_ids")
         )
 
@@ -733,9 +749,11 @@ async def get_meeting_activity_timeline(
         if granularity not in ["daily", "weekly"]:
             raise HTTPException(status_code=400, detail="Granularity must be 'daily' or 'weekly'")
 
+        user_role = _get_user_role(current_user)
+        user_id = _get_user_id(current_user)
         user_privacy_levels = privacy_filter.get_allowed_privacy_levels(
-            current_user["user_id"],
-            current_user["role"],
+            user_id,
+            user_role,
             current_user.get("team_ids")
         )
 
@@ -760,7 +778,8 @@ async def get_search_performance_metrics(
 
     try:
         # Check admin permissions for detailed metrics
-        if current_user["role"] not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        user_role = _get_user_role(current_user)
+        if user_role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
             return {
                 "message": "Limited performance data available",
                 "cache_enabled": True,
@@ -788,7 +807,8 @@ async def optimize_search_performance(
 
     try:
         # Check admin permissions
-        if current_user["role"] not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        user_role = _get_user_role(current_user)
+        if user_role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
             raise HTTPException(status_code=403, detail="Admin access required")
 
         optimization_results = {

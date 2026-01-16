@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime
 
 from app.database import get_db, MeetingFile, MeetingTranscript, ProcessingJob
+from app.auth import get_current_user
 from app.transcription.service import transcription_service
 from app.transcription.jobs import job_manager
 
@@ -61,7 +62,11 @@ async def get_transcription_job_status(job_id: str):
 
 
 @router.delete("/transcription/jobs/{job_id}")
-async def cancel_transcription_job(job_id: str, reason: str = "User cancelled"):
+async def cancel_transcription_job(
+    job_id: str,
+    reason: str = "User cancelled",
+    current_user: dict = Depends(get_current_user)
+):
     """Cancel a transcription job"""
     try:
         success = await job_manager.cancel_job(job_id, reason)
@@ -78,7 +83,8 @@ async def cancel_transcription_job(job_id: str, reason: str = "User cancelled"):
 @router.post("/transcription/queue")
 async def queue_manual_transcription(
     request: TranscriptionRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """Manually queue transcription for a meeting file"""
     try:
@@ -192,7 +198,8 @@ async def get_meeting_transcript(
 async def submit_transcript_corrections(
     meeting_id: str,
     corrections: Dict[str, Any],
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """Submit manual corrections to transcript"""
     try:
