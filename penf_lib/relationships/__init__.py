@@ -27,6 +27,11 @@ from .confidence import (
     calculate_temporal_decay,
     combine_confidence_factors,
 )
+from .conflict_resolver import (
+    ConflictResolutionResult,
+    ConflictResolver,
+    ResolutionStrategy,
+)
 from .discovery import (
     DiscoveredRelationship,
     DiscoveryResult,
@@ -37,21 +42,16 @@ from .extractor import (
     ExtractionResult,
     RelationshipExtractor,
 )
-from .conflict_resolver import (
-    ConflictResolutionResult,
-    ConflictResolver,
-    ResolutionStrategy,
-)
 from .feedback import (
     FeedbackProcessor,
     FeedbackResult,
-    FeedbackType as FeedbackTypeEnum,
     LearnedPreference,
 )
+from .feedback import (
+    FeedbackType as FeedbackTypeEnum,
+)
 from .models import (
-    # Enums
     ConflictResolution,
-    # Core models
     EntityReference,
     EntityType,
     FeedbackType,
@@ -60,7 +60,6 @@ from .models import (
     RelationshipCreate,
     RelationshipEvidence,
     RelationshipFeedback,
-    # Network models
     RelationshipNetworkEdge,
     RelationshipNetworkNode,
     RelationshipResponse,

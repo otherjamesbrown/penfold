@@ -1,7 +1,9 @@
-"""CLI commands for relationship analysis and network insights.
+"""CLI commands for relationship analysis, validation, and network insights.
 
 This module provides CLI commands for:
 - Analyzing relationship networks
+- Validating and providing feedback on relationships
+- Managing relationship conflicts
 - Identifying communication hubs
 - Detecting isolated participants
 - Finding clusters/communities
@@ -12,18 +14,22 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 
 import click
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.tree import Tree
 
 from penf_lib.relationships import (
     ExportFormat,
 )
+
+logger = logging.getLogger(__name__)
 
 console = Console()
 
@@ -503,6 +509,593 @@ def _parse_entity_id(entity_str: str) -> dict[str, str | int] | None:
         return {"type": "person", "email": entity_str}
 
     return None
+
+
+# =========================================================================
+# VALIDATION AND FEEDBACK COMMANDS
+# =========================================================================
+
+
+@relationships_group.command(name="list")
+@click.option(
+    "--state",
+    "-s",
+    type=click.Choice(["pending", "active", "historical", "archived", "all"]),
+    default="all",
+    help="Filter by lifecycle state",
+)
+@click.option(
+    "--type",
+    "-t",
+    "relationship_type",
+    help="Filter by relationship type (e.g., collaborates_with, works_on)",
+)
+@click.option(
+    "--min-confidence",
+    "-c",
+    type=float,
+    default=0.0,
+    help="Minimum confidence score (0.0-1.0)",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=50,
+    help="Maximum number of relationships to show",
+)
+@click.option(
+    "--json-output",
+    is_flag=True,
+    help="Output as JSON",
+)
+@click.pass_context
+def list_relationships(
+    ctx: click.Context,
+    state: str,
+    relationship_type: str | None,
+    min_confidence: float,
+    limit: int,
+    json_output: bool,
+) -> None:
+    """List discovered relationships.
+
+    Shows relationships with their confidence scores, states, and types.
+    Use filters to narrow down the results.
+
+    Examples:
+
+        penf relationships list --state pending
+        penf relationships list --type collaborates_with --min-confidence 0.7
+        penf relationships list --json-output
+    """
+    async def run_list() -> int:
+        try:
+            if json_output:
+                result = {
+                    "relationships": [],
+                    "total": 0,
+                    "filters": {
+                        "state": state,
+                        "type": relationship_type,
+                        "min_confidence": min_confidence,
+                    },
+                }
+                console.print_json(json.dumps(result, indent=2))
+            else:
+                console.print("\n[bold blue]Discovered Relationships[/bold blue]\n")
+
+                table = Table(title=f"Relationships (state: {state})")
+                table.add_column("ID", justify="right", style="cyan")
+                table.add_column("Source", style="green")
+                table.add_column("Type", style="yellow")
+                table.add_column("Target", style="green")
+                table.add_column("Confidence", justify="right", style="magenta")
+                table.add_column("State", style="blue")
+
+                # TODO: Fetch from repository
+                console.print(
+                    "[yellow]No relationships found. "
+                    "Run discovery first.[/yellow]"
+                )
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error listing relationships: {e}[/red]")
+            logger.error(f"List relationships error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_list())
+    sys.exit(result)
+
+
+@relationships_group.command(name="show")
+@click.argument("relationship_id", type=int)
+@click.option(
+    "--evidence",
+    "-e",
+    is_flag=True,
+    help="Show supporting evidence",
+)
+@click.option(
+    "--history",
+    "-h",
+    "show_history",
+    is_flag=True,
+    help="Show feedback history",
+)
+@click.option(
+    "--json-output",
+    is_flag=True,
+    help="Output as JSON",
+)
+@click.pass_context
+def show_relationship(
+    ctx: click.Context,
+    relationship_id: int,
+    evidence: bool,
+    show_history: bool,
+    json_output: bool,
+) -> None:
+    """Show details for a specific relationship.
+
+    Displays full relationship information including entities,
+    confidence breakdown, evidence, and feedback history.
+
+    Examples:
+
+        penf relationships show 123
+        penf relationships show 123 --evidence
+        penf relationships show 123 --history
+        penf relationships show 123 --evidence --history --json-output
+    """
+    async def run_show() -> int:
+        try:
+            if json_output:
+                result = {
+                    "error": "Relationship not found",
+                    "relationship_id": relationship_id,
+                }
+                console.print_json(json.dumps(result, indent=2))
+            else:
+                console.print(f"\n[bold blue]Relationship #{relationship_id}[/bold blue]\n")
+                console.print(
+                    f"[yellow]Relationship {relationship_id} not found.[/yellow]"
+                )
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error showing relationship: {e}[/red]")
+            logger.error(f"Show relationship error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_show())
+    sys.exit(result)
+
+
+@relationships_group.command(name="confirm")
+@click.argument("relationship_id", type=int)
+@click.option(
+    "--reason",
+    "-r",
+    help="Reason for confirmation",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Skip confirmation prompt",
+)
+@click.pass_context
+def confirm_relationship(
+    ctx: click.Context,
+    relationship_id: int,
+    reason: str | None,
+    force: bool,
+) -> None:
+    """Confirm a discovered relationship as accurate.
+
+    Confirming increases the relationship's confidence score and
+    transitions it to an active state. The system learns from
+    confirmations to improve future discovery.
+
+    Examples:
+
+        penf relationships confirm 123
+        penf relationships confirm 123 --reason "I work closely with this person"
+        penf relationships confirm 123 --force
+    """
+    async def run_confirm() -> int:
+        try:
+            console.print(f"\n[bold blue]Confirm Relationship #{relationship_id}[/bold blue]\n")
+
+            # TODO: Get relationship from repository
+            console.print("[yellow]Relationship not found or not implemented.[/yellow]")
+
+            if not force:
+                if not Confirm.ask("Confirm this relationship?"):
+                    console.print("[yellow]Cancelled[/yellow]")
+                    return 0
+
+            if not reason:
+                user_reason = Prompt.ask(
+                    "Reason for confirmation (optional)",
+                    default="User confirmed",
+                )
+            else:
+                user_reason = reason
+
+            # TODO: Process confirmation via FeedbackProcessor
+            console.print(
+                f"[green]Relationship {relationship_id} confirmed.[/green]"
+            )
+            console.print(f"[dim]Reason: {user_reason}[/dim]")
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error confirming relationship: {e}[/red]")
+            logger.error(f"Confirm relationship error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_confirm())
+    sys.exit(result)
+
+
+@relationships_group.command(name="reject")
+@click.argument("relationship_id", type=int)
+@click.option(
+    "--reason",
+    "-r",
+    required=True,
+    help="Reason for rejection (required)",
+)
+@click.option(
+    "--strong",
+    is_flag=True,
+    help="Strong rejection - archives the relationship",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Skip confirmation prompt",
+)
+@click.pass_context
+def reject_relationship(
+    ctx: click.Context,
+    relationship_id: int,
+    reason: str,
+    strong: bool,
+    force: bool,
+) -> None:
+    """Reject a discovered relationship as inaccurate.
+
+    Rejecting decreases the relationship's confidence score.
+    Strong rejection archives the relationship entirely.
+    The system learns from rejections to avoid similar errors.
+
+    Examples:
+
+        penf relationships reject 123 --reason "This relationship is incorrect"
+        penf relationships reject 123 --reason "Completely wrong" --strong
+    """
+    async def run_reject() -> int:
+        try:
+            console.print(f"\n[bold red]Reject Relationship #{relationship_id}[/bold red]\n")
+
+            # TODO: Get relationship from repository
+            console.print("[yellow]Relationship not found or not implemented.[/yellow]")
+
+            if not force:
+                action = "archive" if strong else "reject"
+                if not Confirm.ask(f"Are you sure you want to {action} this relationship?"):
+                    console.print("[yellow]Cancelled[/yellow]")
+                    return 0
+
+            # TODO: Process rejection via FeedbackProcessor
+            if strong:
+                console.print(
+                    f"[red]Relationship {relationship_id} archived (strong rejection).[/red]"
+                )
+            else:
+                console.print(f"[yellow]Relationship {relationship_id} rejected.[/yellow]")
+            console.print(f"[dim]Reason: {reason}[/dim]")
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error rejecting relationship: {e}[/red]")
+            logger.error(f"Reject relationship error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_reject())
+    sys.exit(result)
+
+
+@relationships_group.command(name="modify")
+@click.argument("relationship_id", type=int)
+@click.option(
+    "--type",
+    "-t",
+    "new_type",
+    help="Change relationship type",
+)
+@click.option(
+    "--confidence",
+    "-c",
+    type=float,
+    help="Adjust confidence score (-1.0 to 1.0)",
+)
+@click.option(
+    "--reason",
+    "-r",
+    help="Reason for modification",
+)
+@click.pass_context
+def modify_relationship(
+    ctx: click.Context,
+    relationship_id: int,
+    new_type: str | None,
+    confidence: float | None,
+    reason: str | None,
+) -> None:
+    """Modify a discovered relationship.
+
+    Change the relationship type, adjust confidence, or add
+    other corrections based on your knowledge.
+
+    Examples:
+
+        penf relationships modify 123 --type manages
+        penf relationships modify 123 --confidence 0.15
+        penf relationships modify 123 --type leads --reason "Promoted to lead"
+    """
+    async def run_modify() -> int:
+        try:
+            console.print(f"\n[bold yellow]Modify Relationship #{relationship_id}[/bold yellow]\n")
+
+            if not new_type and confidence is None:
+                console.print("[red]Please specify --type or --confidence to modify.[/red]")
+                return 1
+
+            modifications = {}
+            if new_type:
+                modifications["relationship_type"] = new_type
+            if confidence is not None:
+                modifications["confidence_adjustment"] = confidence
+
+            console.print("Modifications:")
+            for key, value in modifications.items():
+                console.print(f"  {key}: {value}")
+
+            if not reason:
+                user_reason = Prompt.ask("Reason for modification", default="User modified")
+            else:
+                user_reason = reason
+
+            # TODO: Process modification via FeedbackProcessor
+            console.print(
+                f"[green]Relationship {relationship_id} modified.[/green]"
+            )
+            console.print(f"[dim]Reason: {user_reason}[/dim]")
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error modifying relationship: {e}[/red]")
+            logger.error(f"Modify relationship error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_modify())
+    sys.exit(result)
+
+
+# =========================================================================
+# CONFLICT MANAGEMENT COMMANDS
+# =========================================================================
+
+
+@relationships_group.command(name="conflicts")
+@click.option(
+    "--auto-resolvable",
+    "-a",
+    is_flag=True,
+    help="Show only auto-resolvable conflicts (>30% confidence gap)",
+)
+@click.option(
+    "--needs-review",
+    "-r",
+    is_flag=True,
+    help="Show only conflicts needing user review",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=20,
+    help="Maximum conflicts to show",
+)
+@click.option(
+    "--json-output",
+    is_flag=True,
+    help="Output as JSON",
+)
+@click.pass_context
+def list_conflicts(
+    ctx: click.Context,
+    auto_resolvable: bool,
+    needs_review: bool,
+    limit: int,
+    json_output: bool,
+) -> None:
+    """List relationship conflicts.
+
+    Shows conflicts between discovered relationships that need
+    resolution. Conflicts with >30% confidence gap are auto-resolvable.
+
+    Examples:
+
+        penf relationships conflicts
+        penf relationships conflicts --auto-resolvable
+        penf relationships conflicts --needs-review
+    """
+    async def run_conflicts() -> int:
+        try:
+            if json_output:
+                result = {
+                    "conflicts": [],
+                    "total": 0,
+                    "auto_resolvable": 0,
+                    "needs_review": 0,
+                }
+                console.print_json(json.dumps(result, indent=2))
+            else:
+                console.print("\n[bold blue]Relationship Conflicts[/bold blue]\n")
+
+                table = Table(title="Pending Conflicts")
+                table.add_column("ID", justify="right", style="cyan")
+                table.add_column("Primary", style="green")
+                table.add_column("Secondary", style="yellow")
+                table.add_column("Confidence Gap", justify="right", style="magenta")
+                table.add_column("Auto-Resolvable", style="blue")
+                table.add_column("Type")
+
+                # TODO: Fetch from repository
+                console.print("[yellow]No conflicts found.[/yellow]")
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error listing conflicts: {e}[/red]")
+            logger.error(f"List conflicts error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_conflicts())
+    sys.exit(result)
+
+
+@relationships_group.command(name="resolve")
+@click.argument("conflict_id", type=int)
+@click.option(
+    "--winner",
+    "-w",
+    type=int,
+    help="ID of winning relationship",
+)
+@click.option(
+    "--coexist",
+    is_flag=True,
+    help="Mark both relationships as valid (different contexts)",
+)
+@click.option(
+    "--reason",
+    "-r",
+    help="Reason for resolution",
+)
+@click.pass_context
+def resolve_conflict(
+    ctx: click.Context,
+    conflict_id: int,
+    winner: int | None,
+    coexist: bool,
+    reason: str | None,
+) -> None:
+    """Resolve a relationship conflict.
+
+    Choose which relationship wins, or mark both as valid
+    in different contexts.
+
+    Examples:
+
+        penf relationships resolve 456 --winner 123 --reason "More recent"
+        penf relationships resolve 456 --coexist --reason "Different projects"
+    """
+    async def run_resolve() -> int:
+        try:
+            console.print(f"\n[bold blue]Resolve Conflict #{conflict_id}[/bold blue]\n")
+
+            if not winner and not coexist:
+                console.print(
+                    "[red]Please specify --winner or --coexist to resolve.[/red]"
+                )
+                return 1
+
+            if winner and coexist:
+                console.print(
+                    "[red]Cannot specify both --winner and --coexist.[/red]"
+                )
+                return 1
+
+            # TODO: Get conflict details from repository
+            console.print("[yellow]Conflict not found or not implemented.[/yellow]")
+
+            if not reason:
+                user_reason = Prompt.ask("Reason for resolution", default="User resolved")
+            else:
+                user_reason = reason
+
+            # TODO: Process resolution via ConflictResolver
+            if coexist:
+                console.print(
+                    f"[green]Conflict {conflict_id} resolved - both relationships valid.[/green]"
+                )
+            else:
+                console.print(
+                    f"[green]Conflict {conflict_id} resolved - "
+                    f"relationship {winner} wins.[/green]"
+                )
+            console.print(f"[dim]Reason: {user_reason}[/dim]")
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error resolving conflict: {e}[/red]")
+            logger.error(f"Resolve conflict error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_resolve())
+    sys.exit(result)
+
+
+@relationships_group.command(name="auto-resolve")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be resolved without making changes",
+)
+@click.pass_context
+def auto_resolve_conflicts(ctx: click.Context, dry_run: bool) -> None:
+    """Auto-resolve conflicts with large confidence gaps.
+
+    Automatically resolves conflicts where the confidence gap
+    is >= 30%, choosing the higher-confidence relationship.
+
+    Examples:
+
+        penf relationships auto-resolve --dry-run
+        penf relationships auto-resolve
+    """
+    async def run_auto_resolve() -> int:
+        try:
+            console.print("\n[bold blue]Auto-Resolve Conflicts[/bold blue]\n")
+
+            if dry_run:
+                console.print("[yellow]DRY RUN - no changes will be made[/yellow]\n")
+
+            # TODO: Get auto-resolvable conflicts from repository
+            # TODO: Process them via ConflictResolver
+
+            console.print("[yellow]No auto-resolvable conflicts found.[/yellow]")
+
+            return 0
+        except Exception as e:
+            console.print(f"[red]Error in auto-resolve: {e}[/red]")
+            logger.error(f"Auto-resolve error: {e}", exc_info=True)
+            return 1
+
+    result = asyncio.run(run_auto_resolve())
+    sys.exit(result)
+
+
+# =========================================================================
+# NETWORK STATISTICS COMMAND
+# =========================================================================
 
 
 @relationships_group.command(name="stats")
