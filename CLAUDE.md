@@ -172,8 +172,9 @@ bd list --status=open   # All open work
 
 ## Active Technologies
 - Python 3.12 with async/await, Click 8.1+, Rich 13.7+, SQLAlchemy 2.0 (asyncpg), Pydantic 2.5+
-- PostgreSQL 16+ with pgvector, Redis for event processing
+- PostgreSQL 16+ with pgvector, Redis for event processing and caching
 
 ## Recent Changes
-- 006-daily-review: Phase 3 Queue Management CLI
-- 008-automation-engine: Automation module merged from main
+- 007-search-interface: Specification and planning complete (hybrid search, temporal queries, cross-content correlation)
+- 006-daily-review: Complete implementation merged
+- 008-automation-engine: Automation module merged

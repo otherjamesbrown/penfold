@@ -8,6 +8,7 @@ from .project import ProjectRepository
 from .team import TeamRepository
 from .tenant import TenantRepository, TenantSessionRepository, CrossTenantPersonLinkRepository
 from .review import ReviewRepository
+from .search import SearchRepository
 
 __all__ = [
     "BaseRepository",
@@ -20,4 +21,5 @@ __all__ = [
     "TenantSessionRepository",
     "CrossTenantPersonLinkRepository",
     "ReviewRepository",
+    "SearchRepository",
 ]

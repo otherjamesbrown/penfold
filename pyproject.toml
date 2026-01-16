@@ -37,6 +37,9 @@ dependencies = [
     # Utilities
     "pydantic >= 2.5.0",
     "python-dotenv >= 1.0.0",
+
+    # Search
+    "dateparser >= 1.2.0",
 ]
 
 [project.optional-dependencies]
