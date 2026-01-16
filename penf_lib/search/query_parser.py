@@ -208,7 +208,7 @@ class QueryParser:
     """
 
     # Common English stop words to optionally filter
-    STOP_WORDS = {
+    STOP_WORDS: set[str] = {
         "a",
         "an",
         "the",
@@ -269,7 +269,7 @@ class QueryParser:
     }
 
     # Common abbreviations to expand
-    ABBREVIATIONS = {
+    ABBREVIATIONS: dict[str, str] = {
         "mtg": "meeting",
         "msg": "message",
         "msgs": "messages",
@@ -422,6 +422,29 @@ class QueryParser:
 
         return normalized, filters, temporal
 
+    def suggest_corrections(self, query: str) -> list[str]:
+        """Suggest corrections for a potentially misspelled query.
+
+        Uses edit distance-based fuzzy matching to suggest corrections
+        for misspelled words in the query.
+
+        Args:
+            query: Query string to check for misspellings
+
+        Returns:
+            List of suggestion strings (e.g., "Did you mean: corrected query")
+        """
+        # Use SpellChecker for fuzzy matching suggestions
+        # SpellChecker is defined later in this module
+        checker = SpellChecker()
+        corrected = checker.suggest_query_correction(query)
+
+        suggestions: list[str] = []
+        if corrected:
+            suggestions.append(f"Did you mean: {corrected}")
+
+        return suggestions
+
 
 class QueryEmbedder:
     """Generate embeddings for search queries.
@@ -467,3 +490,295 @@ class QueryEmbedder:
         """
         # TODO: Batch embedding for efficiency
         return [await self.embed(q) for q in queries]
+
+
+def _edit_distance(s1: str, s2: str) -> int:
+    """Calculate Levenshtein edit distance between two strings.
+
+    Uses dynamic programming for O(m*n) time complexity.
+
+    Args:
+        s1: First string
+        s2: Second string
+
+    Returns:
+        Edit distance (minimum number of insertions, deletions, substitutions)
+    """
+    m, n = len(s1), len(s2)
+
+    # Handle empty string cases
+    if m == 0:
+        return n
+    if n == 0:
+        return m
+
+    # Create distance matrix
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+
+    # Initialize base cases
+    for i in range(m + 1):
+        dp[i][0] = i
+    for j in range(n + 1):
+        dp[0][j] = j
+
+    # Fill in the matrix
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            if s1[i - 1] == s2[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1]
+            else:
+                dp[i][j] = 1 + min(
+                    dp[i - 1][j],      # deletion
+                    dp[i][j - 1],      # insertion
+                    dp[i - 1][j - 1],  # substitution
+                )
+
+    return dp[m][n]
+
+
+class SpellChecker:
+    """Simple spell-check suggestion system using edit distance.
+
+    Uses a dictionary of common search terms and abbreviations to
+    suggest corrections for misspelled query terms.
+
+    Attributes:
+        dictionary: Set of known correct words
+        max_edit_distance: Maximum edit distance for suggestions
+    """
+
+    # Common search terms in the Penfold domain
+    DEFAULT_DICTIONARY: set[str] = {
+        # Communication types
+        "email", "emails", "meeting", "meetings", "message", "messages",
+        "document", "documents", "slack", "thread", "threads",
+        # Actions
+        "discussion", "update", "updates", "decision", "decisions",
+        "report", "reports", "summary", "notes", "status",
+        # Business terms
+        "project", "projects", "deployment", "release", "production",
+        "development", "environment", "customer", "customers", "client",
+        "team", "manager", "department", "deadline", "schedule",
+        # Technical terms
+        "api", "database", "server", "configuration", "integration",
+        "testing", "review", "approval", "request", "issue", "issues",
+        "bug", "feature", "implementation", "specification",
+        # Time-related
+        "today", "yesterday", "week", "month", "recent", "since",
+        "before", "after", "between", "around",
+    }
+
+    def __init__(
+        self,
+        dictionary: Optional[set[str]] = None,
+        max_edit_distance: int = 2,
+    ):
+        """Initialize spell checker.
+
+        Args:
+            dictionary: Custom dictionary of known words (uses default if None)
+            max_edit_distance: Maximum edit distance for suggestions (default 2)
+        """
+        self.dictionary = dictionary or self.DEFAULT_DICTIONARY
+        self.max_edit_distance = max_edit_distance
+
+    def suggest_correction(self, word: str) -> Optional[str]:
+        """Suggest a correction for a potentially misspelled word.
+
+        Args:
+            word: Word to check
+
+        Returns:
+            Suggested correction or None if word is correct or no close match
+        """
+        word_lower = word.lower()
+
+        # If word is in dictionary, no correction needed
+        if word_lower in self.dictionary:
+            return None
+
+        # Skip very short words
+        if len(word_lower) < 3:
+            return None
+
+        # Find closest match
+        best_match = None
+        best_distance = self.max_edit_distance + 1
+
+        for dict_word in self.dictionary:
+            # Skip if length difference is too large
+            if abs(len(dict_word) - len(word_lower)) > self.max_edit_distance:
+                continue
+
+            distance = _edit_distance(word_lower, dict_word)
+            if distance < best_distance:
+                best_distance = distance
+                best_match = dict_word
+
+        if best_distance <= self.max_edit_distance:
+            return best_match
+
+        return None
+
+    def suggest_corrections(self, query: str) -> list[tuple[str, str]]:
+        """Suggest corrections for all misspelled words in a query.
+
+        Args:
+            query: Query string to check
+
+        Returns:
+            List of (original_word, suggested_word) tuples
+        """
+        corrections: list[tuple[str, str]] = []
+
+        # Split query into words, preserving original case for reporting
+        words = query.split()
+
+        for word in words:
+            # Remove common punctuation for checking
+            clean_word = word.strip(".,!?;:\"'")
+            if not clean_word:
+                continue
+
+            suggestion = self.suggest_correction(clean_word)
+            if suggestion:
+                corrections.append((clean_word, suggestion))
+
+        return corrections
+
+    def suggest_query_correction(self, query: str) -> Optional[str]:
+        """Suggest a corrected version of the entire query.
+
+        Args:
+            query: Query string to check
+
+        Returns:
+            Corrected query string or None if no corrections needed
+        """
+        corrections = self.suggest_corrections(query)
+
+        if not corrections:
+            return None
+
+        corrected = query
+        for original, suggestion in corrections:
+            # Case-insensitive replacement
+            import re
+            corrected = re.sub(
+                rf"\b{re.escape(original)}\b",
+                suggestion,
+                corrected,
+                flags=re.IGNORECASE,
+            )
+
+        # Only return if we actually made changes
+        if corrected.lower() != query.lower():
+            return corrected
+
+        return None
+
+
+class QueryCorrector:
+    """Query correction system combining spell-check with query analysis.
+
+    Provides comprehensive query correction and suggestion capabilities
+    including spelling fixes and query refinement suggestions.
+    """
+
+    def __init__(
+        self,
+        spell_checker: Optional[SpellChecker] = None,
+    ):
+        """Initialize query corrector.
+
+        Args:
+            spell_checker: Spell checker instance (creates default if None)
+        """
+        self.spell_checker = spell_checker or SpellChecker()
+
+    def suggest_corrections(self, query: str) -> list[str]:
+        """Generate correction suggestions for a query.
+
+        Args:
+            query: Original query string
+
+        Returns:
+            List of suggestion strings (may include corrected query or tips)
+        """
+        suggestions: list[str] = []
+
+        # Check for spelling corrections
+        corrected = self.spell_checker.suggest_query_correction(query)
+        if corrected:
+            suggestions.append(f"Did you mean: {corrected}")
+
+        # Check for very short queries
+        words = [w for w in query.split() if len(w) > 2]
+        if len(words) < 2:
+            suggestions.append("Try adding more specific terms to narrow your search")
+
+        return suggestions
+
+    def get_no_results_suggestions(self, query: str) -> list[str]:
+        """Generate suggestions when a search returns no results.
+
+        Args:
+            query: Original query that returned no results
+
+        Returns:
+            List of suggestions to help refine the search
+        """
+        suggestions: list[str] = []
+
+        # Check for spelling errors first
+        corrected = self.spell_checker.suggest_query_correction(query)
+        if corrected:
+            suggestions.append(f"Did you mean: {corrected}")
+
+        # General tips for no results
+        suggestions.append("Try using fewer or broader search terms")
+
+        # If query has filters, suggest removing them
+        if any(f in query.lower() for f in ["from:", "type:", "project:"]):
+            suggestions.append("Try removing some filters to broaden your search")
+
+        # If query is long, suggest shortening
+        if len(query.split()) > 5:
+            suggestions.append("Try using just the key terms from your query")
+
+        # Check for specific content type terms and suggest alternatives
+        if "email" in query.lower():
+            suggestions.append("Try searching for 'message' instead of 'email'")
+        if "document" in query.lower():
+            suggestions.append("Try searching for 'doc' or 'file' instead")
+
+        return suggestions
+
+    def get_broad_query_suggestions(self, query: str, result_count: int) -> list[str]:
+        """Generate suggestions when a search returns many results.
+
+        Args:
+            query: Original query that returned many results
+            result_count: Number of results returned
+
+        Returns:
+            List of suggestions to narrow the search
+        """
+        suggestions: list[str] = []
+
+        suggestions.append(
+            f"Your search returned {result_count} results. "
+            "Consider narrowing your search with filters."
+        )
+
+        # Suggest adding filters
+        if "from:" not in query.lower():
+            suggestions.append("Add 'from:email@example.com' to filter by sender")
+
+        if "type:" not in query.lower():
+            suggestions.append("Add 'type:email' or 'type:meeting' to filter by content type")
+
+        if not any(t in query.lower() for t in ["last week", "this month", "since", "before"]):
+            suggestions.append("Add a date filter like 'since December' or 'last week'")
+
+        return suggestions

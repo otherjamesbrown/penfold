@@ -30,7 +30,7 @@ from penf_lib.search.models import (
     CorrelationType,
 )
 from penf_lib.search.cache import SearchCacheManager
-from penf_lib.search.query_parser import QueryParser, QueryEmbedder
+from penf_lib.search.query_parser import QueryParser, QueryEmbedder, QueryCorrector
 from penf_lib.search.ranking import RRFFusion, SearchRanker, RankedResult
 from penf_lib.search.correlations import (
     CorrelationDiscovery,
@@ -45,6 +45,11 @@ if TYPE_CHECKING:
     from penf_lib.storage.repositories.search import SearchRepository
 
 logger = logging.getLogger(__name__)
+
+# Edge case thresholds
+MAX_RESULTS_LIMIT = 100  # Maximum results to return for broad queries
+BROAD_QUERY_THRESHOLD = 1000  # Results count that triggers broad query suggestions
+PAGINATION_WARNING_THRESHOLD = 500  # Warn about pagination at this count
 
 
 class SearchEngine:
@@ -86,6 +91,7 @@ class SearchEngine:
         # Initialize query processing components
         self.parser = QueryParser()
         self.embedder = QueryEmbedder()
+        self.corrector = QueryCorrector()  # For spell-check suggestions
         self.fusion = RRFFusion(k=60)
         self.ranker = SearchRanker(
             personalization_weight=0.1,
@@ -106,6 +112,12 @@ class SearchEngine:
 
         This is the main entry point for search operations.
 
+        Handles edge cases:
+        - No results: Provides helpful suggestions for query refinement
+        - Broad queries: Limits results and suggests narrowing filters
+        - Spelling errors: Suggests corrections via fuzzy matching
+        - Missing embeddings: Falls back to FTS-only with partial match marking
+
         Args:
             query: Validated search query parameters
 
@@ -114,31 +126,58 @@ class SearchEngine:
         """
         start_time = datetime.utcnow()
         query_id = str(uuid.uuid4())
+        suggestions: List[str] = []
+        search_strategy = "hybrid"
+        is_partial_match = False
+
+        # Performance timing dict for logging
+        timings: dict[str, int] = {}
 
         # 1. Check cache first
+        cache_start = datetime.utcnow()
         cached = await self.cache_manager.get_cached_results(self.tenant_id, query)
+        timings["cache_check_ms"] = int((datetime.utcnow() - cache_start).total_seconds() * 1000)
+
         if cached:
             cached.metadata.cache_hit = True
+            logger.info(
+                f"Cache HIT: query='{query.query_text[:50]}...' "
+                f"cache_check={timings['cache_check_ms']}ms"
+            )
             return cached
 
+        logger.debug(f"Cache MISS: query='{query.query_text[:50]}...'")
+
         # 2. Parse and normalize query
-        normalized_query, extracted_filters = self.parser.parse(query.query_text)
+        parse_start = datetime.utcnow()
+        normalized_query, extracted_filters, _temporal = self.parser.parse(query.query_text)
+        timings["parse_ms"] = int((datetime.utcnow() - parse_start).total_seconds() * 1000)
 
         # 3. Generate query embedding
+        embed_start = datetime.utcnow()
+        query_vector = None
         try:
             query_vector = await self.embedder.embed(normalized_query)
+            timings["embed_ms"] = int((datetime.utcnow() - embed_start).total_seconds() * 1000)
         except Exception as e:
-            logger.warning(f"Embedding generation failed, falling back to FTS only: {e}")
-            query_vector = None
+            timings["embed_ms"] = int((datetime.utcnow() - embed_start).total_seconds() * 1000)
+            logger.warning(
+                f"Embedding generation failed, falling back to FTS only: {e} "
+                f"(embed_time={timings['embed_ms']}ms)"
+            )
+            search_strategy = "full_text_fallback"
+            is_partial_match = True
+            suggestions.append("Search used text matching only (semantic search unavailable)")
 
         # 4. Execute hybrid search (parallel full-text + vector)
         content_type_values = None
         if query.content_types and ContentTypeFilter.ALL not in query.content_types:
             content_type_values = [ct.value for ct in query.content_types]
 
-        # Fetch more results than needed for better ranking
-        fetch_limit = query.limit * 2
+        # Fetch more results than needed for better ranking, but cap at reasonable limit
+        fetch_limit = min(query.limit * 2, MAX_RESULTS_LIMIT * 2)
 
+        search_start = datetime.utcnow()
         if query_vector is not None:
             # Execute both searches in parallel
             fts_task = self.repository.full_text_search(
@@ -155,6 +194,7 @@ class SearchEngine:
             )
 
             fts_results, vector_results = await asyncio.gather(fts_task, vector_task)
+            search_strategy = "hybrid"
         else:
             # Vector embedding failed, use FTS only
             fts_results = await self.repository.full_text_search(
@@ -164,29 +204,43 @@ class SearchEngine:
                 limit=fetch_limit,
             )
             vector_results = []
+            search_strategy = "full_text_fallback"
+
+        timings["search_ms"] = int((datetime.utcnow() - search_start).total_seconds() * 1000)
+        logger.debug(
+            f"Search executed: fts_results={len(fts_results)} "
+            f"vector_results={len(vector_results)} time={timings['search_ms']}ms"
+        )
 
         # 5. Apply RRF fusion
+        fusion_start = datetime.utcnow()
         fused = self.fusion.fuse(fts_results, vector_results)
         rrf_scores = dict(fused)
+        timings["fusion_ms"] = int((datetime.utcnow() - fusion_start).total_seconds() * 1000)
 
         # 6. Fetch full entities for top results
+        fetch_start = datetime.utcnow()
         top_ids = [entity_id for entity_id, _ in fused[:fetch_limit]]
         results = await self._fetch_results(top_ids, rrf_scores)
+        timings["fetch_ms"] = int((datetime.utcnow() - fetch_start).total_seconds() * 1000)
 
         # 7. Rank results with personalization
+        rank_start = datetime.utcnow()
         ranked = self.ranker.rank_results(
             results,
             rrf_scores,
             frequent_contacts=[],  # TODO: Get from user context
             preferred_types=[],  # TODO: Get from user context
         )
+        timings["rank_ms"] = int((datetime.utcnow() - rank_start).total_seconds() * 1000)
 
         # 8. Apply advanced filters using FilterPipeline
-        # Build pipeline from query parameters (participants, projects, confidence, temporal)
+        filter_start = datetime.utcnow()
         filter_pipeline = FilterPipeline.from_search_query(query)
 
         # Extract SearchResults from RankedResults for filtering
         search_results = [r.result for r in ranked]
+        pre_filter_count = len(ranked)
 
         # Apply filter pipeline and get statistics
         if filter_pipeline:
@@ -200,11 +254,65 @@ class SearchEngine:
                 f"({filter_stats.reduction_percentage:.1f}% reduction)"
             )
 
-        # 9. Apply pagination
-        paginated = ranked[query.offset:query.offset + query.limit]
+        timings["filter_ms"] = int((datetime.utcnow() - filter_start).total_seconds() * 1000)
+
+        # === EDGE CASE HANDLING ===
+
+        # Handle no results
+        if not ranked:
+            search_strategy = "no_results"
+            suggestions.extend(
+                self.corrector.get_no_results_suggestions(query.query_text)
+            )
+            logger.info(
+                f"No results found for query='{query.query_text[:50]}...' "
+                f"(pre_filter={pre_filter_count})"
+            )
+
+        # Handle broad queries (many results)
+        elif len(ranked) >= BROAD_QUERY_THRESHOLD:
+            broad_suggestions = self.corrector.get_broad_query_suggestions(
+                query.query_text, len(ranked)
+            )
+            suggestions.extend(broad_suggestions)
+
+            # Limit results for broad queries
+            if len(ranked) > MAX_RESULTS_LIMIT:
+                logger.info(
+                    f"Broad query detected: {len(ranked)} results, limiting to {MAX_RESULTS_LIMIT}"
+                )
+
+        # Add spelling suggestions if query might be misspelled
+        # (only if we have results, to avoid duplicate suggestions)
+        elif ranked:
+            spell_suggestions = self.parser.suggest_corrections(query.query_text)
+            if spell_suggestions:
+                suggestions.extend(spell_suggestions)
+
+        # Mark partial match results if using fallback
+        if is_partial_match:
+            for r in ranked:
+                # Add a note to results that they're partial matches
+                if r.result.tags is None:
+                    r.result.tags = []
+                if "partial_match" not in r.result.tags:
+                    r.result.tags.append("partial_match")
+
+        # 9. Apply pagination with MAX_RESULTS_LIMIT cap
+        effective_limit = min(query.limit, MAX_RESULTS_LIMIT)
+        paginated = ranked[query.offset:query.offset + effective_limit]
+
+        # Add pagination info if results exceed warning threshold
+        total_available = min(len(ranked), MAX_RESULTS_LIMIT)
+        if len(ranked) >= PAGINATION_WARNING_THRESHOLD and not any("pagination" in s.lower() for s in suggestions):
+            suggestions.append(
+                f"Showing {len(paginated)} of {total_available} results. "
+                "Use pagination (offset parameter) to see more."
+            )
 
         # 10. Build response
         execution_time = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+        timings["total_ms"] = execution_time
 
         # Build filters_applied dict
         filters_applied: dict[str, any] = {}
@@ -228,20 +336,22 @@ class SearchEngine:
             metadata=SearchMetadata(
                 query_id=query_id,
                 execution_time_ms=execution_time,
-                total_results=len(ranked),
+                total_results=total_available,
                 returned_results=len(paginated),
-                search_strategy="hybrid" if query_vector is not None else "full_text",
+                search_strategy=search_strategy,
                 cache_hit=False,
             ),
             results=[r.result for r in paginated],
-            suggestions=[],
+            suggestions=suggestions,
             filters_applied=filters_applied,
-            has_more=query.offset + query.limit < len(ranked),
-            next_offset=query.offset + query.limit if query.offset + query.limit < len(ranked) else None,
+            has_more=query.offset + effective_limit < total_available,
+            next_offset=query.offset + effective_limit if query.offset + effective_limit < total_available else None,
         )
 
         # 11. Cache and return
+        cache_store_start = datetime.utcnow()
         await self.cache_manager.cache_results(self.tenant_id, query, response)
+        timings["cache_store_ms"] = int((datetime.utcnow() - cache_store_start).total_seconds() * 1000)
 
         # 12. Record analytics (fire and forget, don't block response)
         try:
@@ -260,9 +370,20 @@ class SearchEngine:
             # Don't fail the search if analytics recording fails
             logger.warning(f"Analytics recording failed: {analytics_error}")
 
+        # Performance logging
         logger.info(
             f"Search completed: query='{query.query_text[:50]}...' "
-            f"results={len(ranked)} returned={len(paginated)} time={execution_time}ms"
+            f"results={len(ranked)} returned={len(paginated)} "
+            f"strategy={search_strategy} time={execution_time}ms | "
+            f"timings: cache_check={timings.get('cache_check_ms', 0)}ms "
+            f"parse={timings.get('parse_ms', 0)}ms "
+            f"embed={timings.get('embed_ms', 0)}ms "
+            f"search={timings.get('search_ms', 0)}ms "
+            f"fusion={timings.get('fusion_ms', 0)}ms "
+            f"fetch={timings.get('fetch_ms', 0)}ms "
+            f"rank={timings.get('rank_ms', 0)}ms "
+            f"filter={timings.get('filter_ms', 0)}ms "
+            f"cache_store={timings.get('cache_store_ms', 0)}ms"
         )
 
         return response
