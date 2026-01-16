@@ -161,8 +161,13 @@ As a power user, I need relationship context to enhance my search queries and co
 
 | This Phase | Depends On | Reason |
 |------------|------------|--------|
-| US5 (Search Integration) | 007-search-interface/US1 | Relationship-enhanced queries require NL search infrastructure |
-| Polish | 007-search-interface/Foundation | Integration testing requires search API to be available |
+| Foundation | 001-database-schema/US2 | Relationship storage requires database CRUD |
+| Foundation | 002-event-processing/Complete | Discovery jobs require event framework |
+| US1 (Automatic Discovery) | 004-gmail-integration/US3 | Needs gmail content to analyze |
+| US1 (Automatic Discovery) | 005-meeting-pipeline/Phase3 | Needs meeting content to analyze |
+| US2 (Validation) | 006-daily-review/US3 | Validation UI uses daily review workflow |
+| US5 (Search Integration) | 007-search-interface/US1 | Relationship queries require NL search |
+| Polish | 007-search-interface/Foundation | Integration testing requires search API |
 
 ## Clarifications
 
