@@ -259,3 +259,192 @@ class ContentExtractedEvent(BaseEvent):
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }
+
+
+# =============================================================================
+# RELATIONSHIP DISCOVERY EVENTS
+# =============================================================================
+
+
+class RelationshipDiscoveredEvent(BaseEvent):
+    """Event published when a new relationship is discovered.
+
+    This event is triggered when the AI extraction pipeline identifies
+    a potential relationship between entities from content analysis.
+    """
+
+    event_type: str = "relationship.discovered"
+
+    # Relationship identification
+    relationship_id: int = Field(description="Unique relationship identifier")
+    tenant_id: str = Field(description="Tenant ID for isolation")
+
+    # Entity references
+    source_entity_type: str = Field(description="Type of source entity (person, project, topic)")
+    source_entity_id: int = Field(description="ID of the source entity")
+    target_entity_type: str = Field(description="Type of target entity")
+    target_entity_id: int = Field(description="ID of the target entity")
+
+    # Relationship classification
+    relationship_type: str = Field(description="Type of relationship discovered")
+    relationship_subtype: Optional[str] = Field(default=None, description="Optional subtype")
+
+    # Confidence and evidence
+    confidence_score: float = Field(ge=0, le=1, description="Overall confidence (0.0-1.0)")
+    ai_confidence: Optional[float] = Field(default=None, ge=0, le=1, description="AI extraction confidence")
+    evidence_source_id: Optional[int] = Field(default=None, description="Source content that triggered discovery")
+    evidence_snippet: Optional[str] = Field(default=None, description="Text snippet supporting relationship")
+
+    # Discovery metadata
+    discovery_method: str = Field(default="ai_extraction", description="How relationship was discovered")
+    requires_validation: bool = Field(default=True, description="Whether user validation is recommended")
+
+    class Config:
+        """Pydantic configuration."""
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class RelationshipUpdatedEvent(BaseEvent):
+    """Event published when an existing relationship is updated.
+
+    This event is triggered when relationship properties change,
+    such as confidence score updates, lifecycle state transitions,
+    or user modifications.
+    """
+
+    event_type: str = "relationship.updated"
+
+    # Relationship identification
+    relationship_id: int = Field(description="Unique relationship identifier")
+    tenant_id: str = Field(description="Tenant ID for isolation")
+
+    # Update details
+    update_type: str = Field(description="Type of update: confidence, lifecycle, user_feedback, evidence")
+
+    # Previous and new values
+    previous_confidence: Optional[float] = Field(default=None, description="Previous confidence score")
+    new_confidence: Optional[float] = Field(default=None, description="New confidence score")
+    previous_state: Optional[str] = Field(default=None, description="Previous lifecycle state")
+    new_state: Optional[str] = Field(default=None, description="New lifecycle state")
+
+    # Attribution
+    updated_by: str = Field(default="system", description="Who triggered the update (user email or 'system')")
+    update_reason: Optional[str] = Field(default=None, description="Explanation for update")
+
+    # Related entities for downstream processing
+    source_entity_type: str = Field(description="Type of source entity")
+    source_entity_id: int = Field(description="ID of the source entity")
+    target_entity_type: str = Field(description="Type of target entity")
+    target_entity_id: int = Field(description="ID of the target entity")
+
+    class Config:
+        """Pydantic configuration."""
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class RelationshipConflictEvent(BaseEvent):
+    """Event published when a relationship conflict is detected.
+
+    This event is triggered when incompatible relationships are
+    discovered, requiring resolution either automatically or by user.
+    """
+
+    event_type: str = "relationship.conflict"
+
+    # Conflict identification
+    conflict_id: int = Field(description="Unique conflict identifier")
+    tenant_id: str = Field(description="Tenant ID for isolation")
+
+    # Conflicting relationships
+    primary_relationship_id: int = Field(description="Primary relationship in conflict")
+    conflicting_relationship_id: Optional[int] = Field(default=None, description="Competing relationship")
+
+    # Conflict details
+    conflict_type: str = Field(description="Type: type_mismatch, duplicate, contradictory, circular")
+    primary_confidence: float = Field(ge=0, le=1, description="Primary relationship confidence")
+    secondary_confidence: Optional[float] = Field(default=None, ge=0, le=1, description="Conflicting relationship confidence")
+    confidence_gap: float = Field(ge=0, le=1, description="Absolute difference in confidence")
+
+    # Resolution guidance
+    auto_resolvable: bool = Field(description="Whether gap > 30% allows auto-resolution")
+    recommended_action: str = Field(description="Suggested resolution: auto_resolve, user_review, defer")
+
+    class Config:
+        """Pydantic configuration."""
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class RelationshipValidatedEvent(BaseEvent):
+    """Event published when a user validates a relationship.
+
+    This event is triggered when a user provides feedback to
+    confirm, reject, or modify a discovered relationship.
+    """
+
+    event_type: str = "relationship.validated"
+
+    # Relationship identification
+    relationship_id: int = Field(description="Unique relationship identifier")
+    tenant_id: str = Field(description="Tenant ID for isolation")
+
+    # Validation details
+    feedback_type: str = Field(description="Type: confirm, reject, modify")
+    user_email: str = Field(description="User who provided validation")
+
+    # Changes made
+    original_type: Optional[str] = Field(default=None, description="Original relationship type")
+    corrected_type: Optional[str] = Field(default=None, description="User-corrected type if modified")
+    original_confidence: Optional[float] = Field(default=None, description="Original confidence score")
+    new_confidence: Optional[float] = Field(default=None, description="New confidence after validation")
+
+    # Resulting state
+    resulting_state: str = Field(description="Lifecycle state after validation")
+    user_reasoning: Optional[str] = Field(default=None, description="User's explanation")
+
+    class Config:
+        """Pydantic configuration."""
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class RelationshipArchivedEvent(BaseEvent):
+    """Event published when a relationship is archived.
+
+    This event is triggered when a relationship transitions to
+    archived state due to user action or inactivity.
+    """
+
+    event_type: str = "relationship.archived"
+
+    # Relationship identification
+    relationship_id: int = Field(description="Unique relationship identifier")
+    tenant_id: str = Field(description="Tenant ID for isolation")
+
+    # Archive details
+    archive_reason: str = Field(description="Reason: user_rejected, inactivity, project_completed, conflict_resolution")
+    archived_by: str = Field(default="system", description="Who triggered archival")
+
+    # Final state
+    final_confidence: float = Field(ge=0, le=1, description="Confidence at time of archival")
+    total_evidence_count: int = Field(default=0, description="Total evidence items collected")
+    total_interactions: int = Field(default=0, description="Total interactions observed")
+    lifetime_days: int = Field(description="Days from first observation to archival")
+
+    # Related entities
+    source_entity_type: str = Field(description="Type of source entity")
+    source_entity_id: int = Field(description="ID of the source entity")
+    target_entity_type: str = Field(description="Type of target entity")
+    target_entity_id: int = Field(description="ID of the target entity")
+
+    class Config:
+        """Pydantic configuration."""
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }

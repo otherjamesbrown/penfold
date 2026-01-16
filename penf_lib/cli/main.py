@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from penf_lib.storage.connections import health_check, cleanup_connections
+from .relationships import relationships_group
 from .tenant import tenant_group
 from .review_commands import review_group
 from .automation_commands import automation_group
@@ -64,8 +65,9 @@ def cli(ctx: click.Context, verbose: bool, tenant: Optional[str]):
             console.print(f"[dim]Tenant context: {tenant}[/dim]")
 
 
-# Add tenant management commands
+# Add command groups
 cli.add_command(tenant_group)
+cli.add_command(relationships_group)
 
 # Add review workflow commands
 cli.add_command(review_group)

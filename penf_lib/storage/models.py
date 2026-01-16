@@ -2425,3 +2425,634 @@ class ReviewAnalyticsModel(Base, TenantMixin):
             f"<ReviewAnalyticsModel(id={self.id}, period='{self.period_type}', "
             f"start='{self.period_start}')>"
         )
+
+
+
+# =============================================================================
+# RELATIONSHIP DISCOVERY MODELS
+# =============================================================================
+
+
+class Relationship(Base, TimestampMixin, TenantMixin):
+    """
+    Core entity representing a discovered connection between two entities.
+
+    Relationships are automatically discovered from content analysis and can be
+    validated by users. They evolve through lifecycle states from pending to
+    active, historical, and archived.
+    """
+
+    __tablename__ = "relationships"
+
+    id = Column(BIGINT, primary_key=True)
+
+    # Entity references
+    source_entity_type = Column(
+        String(50),
+        nullable=False,
+        comment="Type of source entity (person, project, topic)",
+    )
+    source_entity_id = Column(
+        BIGINT,
+        nullable=False,
+        comment="ID of the source entity",
+    )
+    target_entity_type = Column(
+        String(50),
+        nullable=False,
+        comment="Type of target entity (person, project, topic)",
+    )
+    target_entity_id = Column(
+        BIGINT,
+        nullable=False,
+        comment="ID of the target entity",
+    )
+
+    # Relationship classification
+    relationship_type = Column(
+        String(100),
+        nullable=False,
+        comment="Type of relationship (works_on, manages, collaborates_with)",
+    )
+    relationship_subtype = Column(
+        String(100),
+        nullable=True,
+        comment="Optional subtype for finer classification",
+    )
+
+    # Confidence and scoring
+    confidence_score = Column(
+        DECIMAL(4, 3),
+        nullable=False,
+        comment="Overall confidence score (0.000-1.000)",
+    )
+    ai_confidence = Column(
+        DECIMAL(4, 3),
+        nullable=True,
+        comment="AI extraction confidence",
+    )
+    evidence_strength = Column(
+        DECIMAL(4, 3),
+        nullable=True,
+        comment="Evidence-based strength score",
+    )
+
+    # Lifecycle management
+    lifecycle_state = Column(
+        String(20),
+        nullable=False,
+        default="pending",
+        comment="State: pending, active, historical, archived",
+    )
+    first_observed_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment="When relationship was first discovered",
+    )
+    last_evidence_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment="Most recent evidence timestamp",
+    )
+    archived_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When relationship was archived",
+    )
+
+    # Interaction tracking
+    interaction_count = Column(
+        Integer,
+        default=0,
+        nullable=False,
+        comment="Number of interactions supporting this relationship",
+    )
+
+    # User validation
+    user_confirmed = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Whether user has validated this relationship",
+    )
+
+    # Relationships
+    evidence = orm_relationship("RelationshipEvidence", back_populates="relationship", lazy="select")
+    feedback = orm_relationship("RelationshipFeedback", back_populates="relationship", lazy="select")
+    versions = orm_relationship("RelationshipVersion", back_populates="relationship", lazy="select")
+    conflicts = orm_relationship(
+        "RelationshipConflict",
+        foreign_keys="RelationshipConflict.relationship_id",
+        back_populates="relationship",
+        lazy="select",
+    )
+
+    # Validation methods
+    @validates('source_entity_type', 'target_entity_type')
+    def validate_entity_type(self, key, value):
+        """Validate entity type is from allowed list."""
+        valid_types = {'person', 'project', 'topic'}
+        if value not in valid_types:
+            raise ValidationError(f"Invalid {key}: {value}. Must be one of {valid_types}")
+        return value
+
+    @validates('lifecycle_state')
+    def validate_lifecycle_state(self, key, value):
+        """Validate lifecycle state is from allowed list."""
+        valid_states = {'pending', 'active', 'historical', 'archived'}
+        if value not in valid_states:
+            raise ValidationError(f"Invalid lifecycle state: {value}. Must be one of {valid_states}")
+        return value
+
+    @validates('confidence_score', 'ai_confidence', 'evidence_strength')
+    def validate_confidence_values(self, key, value):
+        """Validate confidence scores are in valid range."""
+        if value is not None:
+            validate_confidence_score(value)
+        return value
+
+    def __repr__(self):
+        return (
+            f"<Relationship(id={self.id}, "
+            f"type='{self.relationship_type}', "
+            f"source={self.source_entity_type}:{self.source_entity_id}, "
+            f"target={self.target_entity_type}:{self.target_entity_id})>"
+        )
+
+    __table_args__ = (
+        Index("idx_rel_tenant_entities", "tenant_id", "source_entity_type", "source_entity_id",
+              "target_entity_type", "target_entity_id"),
+        Index("idx_rel_source_entity", "source_entity_type", "source_entity_id"),
+        Index("idx_rel_target_entity", "target_entity_type", "target_entity_id"),
+        Index("idx_rel_type", "relationship_type", "relationship_subtype"),
+        Index("idx_rel_confidence", "confidence_score"),
+        Index("idx_rel_lifecycle", "lifecycle_state", "last_evidence_at"),
+        Index("idx_rel_temporal", "first_observed_at", "last_evidence_at"),
+        UniqueConstraint(
+            "tenant_id", "source_entity_type", "source_entity_id",
+            "target_entity_type", "target_entity_id", "relationship_type",
+            name="uq_rel_pair"
+        ),
+        CheckConstraint(
+            "confidence_score >= 0.000 AND confidence_score <= 1.000",
+            name="ck_rel_confidence_range"
+        ),
+        CheckConstraint(
+            "lifecycle_state IN ('pending', 'active', 'historical', 'archived')",
+            name="ck_rel_lifecycle_valid"
+        ),
+        CheckConstraint(
+            "source_entity_type IN ('person', 'project', 'topic')",
+            name="ck_rel_source_entity_type"
+        ),
+        CheckConstraint(
+            "target_entity_type IN ('person', 'project', 'topic')",
+            name="ck_rel_target_entity_type"
+        ),
+    )
+
+
+class RelationshipEvidence(Base, TimestampMixin, TenantMixin):
+    """
+    Supporting evidence that justifies a relationship's existence.
+
+    Evidence is collected from content analysis (emails, meetings, documents)
+    and contributes to the overall confidence score of a relationship.
+    """
+
+    __tablename__ = "relationship_evidence"
+
+    id = Column(BIGINT, primary_key=True)
+
+    # Parent relationship
+    relationship_id = Column(
+        BIGINT,
+        ForeignKey("relationships.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Parent relationship this evidence supports",
+    )
+
+    # Source content reference
+    source_id = Column(
+        BIGINT,
+        ForeignKey("sources.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Reference to source content",
+    )
+
+    # Evidence classification
+    evidence_type = Column(
+        String(50),
+        nullable=False,
+        comment="Type: email, meeting, mention, inference, user_input",
+    )
+    evidence_content = Column(
+        Text,
+        nullable=True,
+        comment="Extracted evidence text",
+    )
+    evidence_context = Column(
+        JSONB,
+        nullable=True,
+        default={},
+        comment="Additional context metadata",
+    )
+
+    # Confidence contribution
+    strength_contribution = Column(
+        DECIMAL(4, 3),
+        nullable=False,
+        comment="How much this evidence contributes to confidence (0.000-1.000)",
+    )
+
+    # Temporal tracking
+    observed_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment="When this evidence was observed",
+    )
+    expires_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("NOW() + INTERVAL '2 years'"),
+        comment="Retention expiry (2 years default)",
+    )
+
+    # Relationships
+    relationship = orm_relationship("Relationship", back_populates="evidence", lazy="select")
+    source = orm_relationship("Source", lazy="select")
+
+    # Validation
+    @validates('evidence_type')
+    def validate_evidence_type(self, key, value):
+        """Validate evidence type is from allowed list."""
+        valid_types = {'email', 'meeting', 'mention', 'inference', 'user_input'}
+        if value not in valid_types:
+            raise ValidationError(f"Invalid evidence type: {value}. Must be one of {valid_types}")
+        return value
+
+    @validates('strength_contribution')
+    def validate_strength(self, key, value):
+        """Validate strength contribution is in valid range."""
+        validate_confidence_score(value)
+        return value
+
+    def __repr__(self):
+        return f"<RelationshipEvidence(id={self.id}, type='{self.evidence_type}', rel_id={self.relationship_id})>"
+
+    __table_args__ = (
+        Index("idx_evidence_relationship", "relationship_id", "observed_at"),
+        Index("idx_evidence_source", "source_id"),
+        Index("idx_evidence_expiry", "expires_at"),
+        Index("idx_evidence_type", "evidence_type", "observed_at"),
+        CheckConstraint(
+            "strength_contribution >= 0.000 AND strength_contribution <= 1.000",
+            name="ck_evidence_strength_range"
+        ),
+        CheckConstraint(
+            "evidence_type IN ('email', 'meeting', 'mention', 'inference', 'user_input')",
+            name="ck_evidence_type_valid"
+        ),
+    )
+
+
+class RelationshipFeedback(Base, TimestampMixin, TenantMixin):
+    """
+    User validation and feedback for relationships.
+
+    Feedback is used to improve relationship discovery accuracy and
+    allows users to confirm, reject, or modify discovered relationships.
+    """
+
+    __tablename__ = "relationship_feedback"
+
+    id = Column(BIGINT, primary_key=True)
+
+    # Target relationship
+    relationship_id = Column(
+        BIGINT,
+        ForeignKey("relationships.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Relationship this feedback applies to",
+    )
+
+    # Feedback classification
+    feedback_type = Column(
+        String(20),
+        nullable=False,
+        comment="Type: confirm, reject, modify",
+    )
+
+    # Original values for learning
+    original_type = Column(
+        String(100),
+        nullable=True,
+        comment="Original relationship type",
+    )
+    corrected_type = Column(
+        String(100),
+        nullable=True,
+        comment="User-corrected relationship type",
+    )
+    original_confidence = Column(
+        DECIMAL(4, 3),
+        nullable=True,
+        comment="Original confidence score",
+    )
+
+    # User explanation
+    reasoning = Column(
+        Text,
+        nullable=True,
+        comment="User explanation for feedback",
+    )
+    feedback_metadata = Column(
+        JSONB,
+        nullable=True,
+        default={},
+        comment="Additional feedback data",
+    )
+
+    # Attribution
+    user_email = Column(
+        String(254),
+        nullable=False,
+        comment="User who provided feedback",
+    )
+
+    # Relationships
+    relationship = orm_relationship("Relationship", back_populates="feedback", lazy="select")
+
+    # Validation
+    @validates('feedback_type')
+    def validate_feedback_type(self, key, value):
+        """Validate feedback type is from allowed list."""
+        valid_types = {'confirm', 'reject', 'modify'}
+        if value not in valid_types:
+            raise ValidationError(f"Invalid feedback type: {value}. Must be one of {valid_types}")
+        return value
+
+    @validates('user_email')
+    def validate_user_email(self, key, value):
+        """Validate user email format."""
+        from .validators import validate_email
+        validate_email(value)
+        return value.lower().strip()
+
+    def __repr__(self):
+        return f"<RelationshipFeedback(id={self.id}, type='{self.feedback_type}', rel_id={self.relationship_id})>"
+
+    __table_args__ = (
+        Index("idx_feedback_relationship", "relationship_id", "created_at"),
+        Index("idx_feedback_type", "feedback_type", "created_at"),
+        Index("idx_feedback_user", "user_email", "created_at"),
+        CheckConstraint(
+            "feedback_type IN ('confirm', 'reject', 'modify')",
+            name="ck_feedback_type_valid"
+        ),
+    )
+
+
+class RelationshipVersion(Base, TimestampMixin, TenantMixin):
+    """
+    Historical tracking of relationship changes.
+
+    Maintains a complete history of changes to relationships for
+    auditing, analysis, and potential rollback.
+    """
+
+    __tablename__ = "relationship_versions"
+
+    id = Column(BIGINT, primary_key=True)
+
+    # Target relationship
+    relationship_id = Column(
+        BIGINT,
+        ForeignKey("relationships.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Relationship this version belongs to",
+    )
+
+    # Version tracking
+    version_number = Column(
+        Integer,
+        nullable=False,
+        comment="Sequential version number",
+    )
+
+    # State at this version
+    relationship_type = Column(
+        String(100),
+        nullable=False,
+        comment="Relationship type at this version",
+    )
+    relationship_subtype = Column(
+        String(100),
+        nullable=True,
+        comment="Subtype at this version",
+    )
+    confidence_score = Column(
+        DECIMAL(4, 3),
+        nullable=False,
+        comment="Confidence score at this version",
+    )
+    lifecycle_state = Column(
+        String(20),
+        nullable=False,
+        comment="Lifecycle state at this version",
+    )
+
+    # Change tracking
+    change_reason = Column(
+        String(100),
+        nullable=False,
+        comment="What triggered this change",
+    )
+    change_details = Column(
+        JSONB,
+        nullable=True,
+        default={},
+        comment="Detailed change information",
+    )
+
+    # Temporal validity
+    valid_from = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment="When this version became active",
+    )
+    valid_to = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When this version was superseded (NULL = current)",
+    )
+
+    # Relationships
+    relationship = orm_relationship("Relationship", back_populates="versions", lazy="select")
+
+    # Validation
+    @validates('change_reason')
+    def validate_change_reason(self, key, value):
+        """Validate change reason is from allowed list."""
+        valid_reasons = {
+            'discovery', 'evidence_update', 'user_feedback',
+            'confidence_recalc', 'lifecycle_transition', 'conflict_resolution'
+        }
+        if value not in valid_reasons:
+            raise ValidationError(f"Invalid change reason: {value}. Must be one of {valid_reasons}")
+        return value
+
+    def __repr__(self):
+        return f"<RelationshipVersion(id={self.id}, rel_id={self.relationship_id}, v={self.version_number})>"
+
+    __table_args__ = (
+        Index("idx_version_relationship", "relationship_id", "version_number"),
+        Index("idx_version_temporal", "relationship_id", "valid_from", "valid_to"),
+        Index("idx_version_reason", "change_reason"),
+        UniqueConstraint(
+            "relationship_id", "version_number",
+            name="uq_version_number"
+        ),
+        CheckConstraint(
+            "change_reason IN ('discovery', 'evidence_update', 'user_feedback', "
+            "'confidence_recalc', 'lifecycle_transition', 'conflict_resolution')",
+            name="ck_version_change_reason"
+        ),
+    )
+
+
+class RelationshipConflict(Base, TimestampMixin, TenantMixin):
+    """
+    Pending conflicts between discovered relationships.
+
+    Conflicts are detected when incompatible relationships are discovered
+    and require resolution, either automatically or by user intervention.
+    """
+
+    __tablename__ = "relationship_conflicts"
+
+    id = Column(BIGINT, primary_key=True)
+
+    # Primary relationship
+    relationship_id = Column(
+        BIGINT,
+        ForeignKey("relationships.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Primary relationship in conflict",
+    )
+
+    # Competing relationship
+    conflicting_relationship_id = Column(
+        BIGINT,
+        ForeignKey("relationships.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Conflicting relationship",
+    )
+
+    # Conflict classification
+    conflict_type = Column(
+        String(50),
+        nullable=False,
+        comment="Type: type_mismatch, duplicate, contradictory, circular",
+    )
+
+    # Confidence comparison
+    primary_confidence = Column(
+        DECIMAL(4, 3),
+        nullable=False,
+        comment="Primary relationship confidence",
+    )
+    secondary_confidence = Column(
+        DECIMAL(4, 3),
+        nullable=True,
+        comment="Conflicting relationship confidence",
+    )
+    confidence_gap = Column(
+        DECIMAL(4, 3),
+        nullable=False,
+        comment="Absolute difference in confidence",
+    )
+
+    # Resolution tracking
+    auto_resolvable = Column(
+        Boolean,
+        nullable=False,
+        comment="Whether gap > 30% allows auto-resolution",
+    )
+    resolution_status = Column(
+        String(20),
+        nullable=False,
+        default="pending",
+        comment="Status: pending, auto_resolved, user_resolved, deferred",
+    )
+    resolution_details = Column(
+        JSONB,
+        nullable=True,
+        default={},
+        comment="Resolution information",
+    )
+    resolved_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When conflict was resolved",
+    )
+    resolved_by = Column(
+        String(254),
+        nullable=True,
+        comment="Who resolved: user email or 'system'",
+    )
+
+    # Relationships
+    relationship = orm_relationship(
+        "Relationship",
+        foreign_keys=[relationship_id],
+        back_populates="conflicts",
+        lazy="select",
+    )
+    conflicting_relationship = orm_relationship(
+        "Relationship",
+        foreign_keys=[conflicting_relationship_id],
+        lazy="select",
+    )
+
+    # Validation
+    @validates('conflict_type')
+    def validate_conflict_type(self, key, value):
+        """Validate conflict type is from allowed list."""
+        valid_types = {'type_mismatch', 'duplicate', 'contradictory', 'circular'}
+        if value not in valid_types:
+            raise ValidationError(f"Invalid conflict type: {value}. Must be one of {valid_types}")
+        return value
+
+    @validates('resolution_status')
+    def validate_resolution_status(self, key, value):
+        """Validate resolution status is from allowed list."""
+        valid_statuses = {'pending', 'auto_resolved', 'user_resolved', 'deferred'}
+        if value not in valid_statuses:
+            raise ValidationError(f"Invalid resolution status: {value}. Must be one of {valid_statuses}")
+        return value
+
+    def __repr__(self):
+        return f"<RelationshipConflict(id={self.id}, type='{self.conflict_type}', status='{self.resolution_status}')>"
+
+    __table_args__ = (
+        Index("idx_conflict_status", "resolution_status", "created_at"),
+        Index("idx_conflict_relationship", "relationship_id"),
+        Index("idx_conflict_resolvable", "auto_resolvable", "resolution_status"),
+        CheckConstraint(
+            "conflict_type IN ('type_mismatch', 'duplicate', 'contradictory', 'circular')",
+            name="ck_conflict_type_valid"
+        ),
+        CheckConstraint(
+            "resolution_status IN ('pending', 'auto_resolved', 'user_resolved', 'deferred')",
+            name="ck_conflict_status_valid"
+        ),
+        CheckConstraint(
+            "confidence_gap >= 0.000 AND confidence_gap <= 1.000",
+            name="ck_conflict_gap_range"
+        ),
+    )

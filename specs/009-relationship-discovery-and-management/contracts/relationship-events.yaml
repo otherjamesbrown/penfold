@@ -1,0 +1,300 @@
+# Event Contracts for Relationship Discovery and Management
+# These events integrate with the existing event processing framework (002-event-processing)
+
+asyncapi: 2.6.0
+info:
+  title: Relationship Events
+  version: 1.0.0
+  description: Event contracts for relationship discovery, updates, and conflicts
+
+channels:
+  relationship.discovered:
+    description: Published when a new relationship is discovered
+    subscribe:
+      operationId: onRelationshipDiscovered
+      message:
+        $ref: '#/components/messages/RelationshipDiscovered'
+
+  relationship.updated:
+    description: Published when relationship confidence or type changes
+    subscribe:
+      operationId: onRelationshipUpdated
+      message:
+        $ref: '#/components/messages/RelationshipUpdated'
+
+  relationship.conflict:
+    description: Published when a conflict is detected requiring resolution
+    subscribe:
+      operationId: onRelationshipConflict
+      message:
+        $ref: '#/components/messages/RelationshipConflict'
+
+  relationship.validated:
+    description: Published when user provides feedback on a relationship
+    subscribe:
+      operationId: onRelationshipValidated
+      message:
+        $ref: '#/components/messages/RelationshipValidated'
+
+  relationship.archived:
+    description: Published when a relationship is archived
+    subscribe:
+      operationId: onRelationshipArchived
+      message:
+        $ref: '#/components/messages/RelationshipArchived'
+
+  relationship.lifecycle:
+    description: Published when relationship lifecycle state changes
+    subscribe:
+      operationId: onRelationshipLifecycle
+      message:
+        $ref: '#/components/messages/RelationshipLifecycle'
+
+components:
+  messages:
+    RelationshipDiscovered:
+      name: RelationshipDiscovered
+      title: Relationship Discovered Event
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - event_id
+          - tenant_id
+          - relationship_id
+          - source_entity
+          - target_entity
+          - relationship_type
+          - confidence_score
+          - discovered_at
+        properties:
+          event_id:
+            type: string
+            format: uuid
+          tenant_id:
+            type: string
+            format: uuid
+          relationship_id:
+            type: integer
+          source_entity:
+            $ref: '#/components/schemas/EntityReference'
+          target_entity:
+            $ref: '#/components/schemas/EntityReference'
+          relationship_type:
+            type: string
+          relationship_subtype:
+            type: string
+          confidence_score:
+            type: number
+            minimum: 0
+            maximum: 1
+          evidence_count:
+            type: integer
+          discovered_at:
+            type: string
+            format: date-time
+
+    RelationshipUpdated:
+      name: RelationshipUpdated
+      title: Relationship Updated Event
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - event_id
+          - tenant_id
+          - relationship_id
+          - update_type
+          - updated_at
+        properties:
+          event_id:
+            type: string
+            format: uuid
+          tenant_id:
+            type: string
+            format: uuid
+          relationship_id:
+            type: integer
+          update_type:
+            type: string
+            enum: [confidence_change, type_change, evidence_added]
+          previous_confidence:
+            type: number
+          new_confidence:
+            type: number
+          previous_type:
+            type: string
+          new_type:
+            type: string
+          change_reason:
+            type: string
+          updated_at:
+            type: string
+            format: date-time
+
+    RelationshipConflict:
+      name: RelationshipConflict
+      title: Relationship Conflict Event
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - event_id
+          - tenant_id
+          - conflict_id
+          - relationship_id
+          - conflict_type
+          - auto_resolvable
+          - detected_at
+        properties:
+          event_id:
+            type: string
+            format: uuid
+          tenant_id:
+            type: string
+            format: uuid
+          conflict_id:
+            type: integer
+          relationship_id:
+            type: integer
+          conflicting_relationship_id:
+            type: integer
+          conflict_type:
+            type: string
+            enum: [type_mismatch, duplicate, contradictory, circular]
+          primary_confidence:
+            type: number
+          secondary_confidence:
+            type: number
+          confidence_gap:
+            type: number
+          auto_resolvable:
+            type: boolean
+            description: True if confidence gap > 30%
+          detected_at:
+            type: string
+            format: date-time
+
+    RelationshipValidated:
+      name: RelationshipValidated
+      title: Relationship Validated Event
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - event_id
+          - tenant_id
+          - relationship_id
+          - feedback_type
+          - user_email
+          - validated_at
+        properties:
+          event_id:
+            type: string
+            format: uuid
+          tenant_id:
+            type: string
+            format: uuid
+          relationship_id:
+            type: integer
+          feedback_id:
+            type: integer
+          feedback_type:
+            type: string
+            enum: [confirm, reject, modify]
+          original_type:
+            type: string
+          corrected_type:
+            type: string
+          user_email:
+            type: string
+            format: email
+          validated_at:
+            type: string
+            format: date-time
+
+    RelationshipArchived:
+      name: RelationshipArchived
+      title: Relationship Archived Event
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - event_id
+          - tenant_id
+          - relationship_id
+          - archive_reason
+          - archived_at
+        properties:
+          event_id:
+            type: string
+            format: uuid
+          tenant_id:
+            type: string
+            format: uuid
+          relationship_id:
+            type: integer
+          archive_reason:
+            type: string
+            enum: [user_rejection, retention_expired, inactivity, duplicate_merged]
+          previous_state:
+            type: string
+          final_confidence:
+            type: number
+          total_evidence_count:
+            type: integer
+          archived_at:
+            type: string
+            format: date-time
+
+    RelationshipLifecycle:
+      name: RelationshipLifecycle
+      title: Relationship Lifecycle Event
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - event_id
+          - tenant_id
+          - relationship_id
+          - previous_state
+          - new_state
+          - transition_reason
+          - transitioned_at
+        properties:
+          event_id:
+            type: string
+            format: uuid
+          tenant_id:
+            type: string
+            format: uuid
+          relationship_id:
+            type: integer
+          previous_state:
+            type: string
+            enum: [pending, active, historical, archived]
+          new_state:
+            type: string
+            enum: [pending, active, historical, archived]
+          transition_reason:
+            type: string
+            enum: [high_confidence, user_confirmation, inactivity, new_evidence, retention_expiry, user_rejection]
+          transitioned_at:
+            type: string
+            format: date-time
+
+  schemas:
+    EntityReference:
+      type: object
+      required:
+        - entity_type
+        - entity_id
+      properties:
+        entity_type:
+          type: string
+          enum: [person, project, topic]
+        entity_id:
+          type: integer
+        display_name:
+          type: string
+          description: Human-readable name for the entity

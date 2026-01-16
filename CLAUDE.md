@@ -175,6 +175,7 @@ bd list --status=open   # All open work
 - PostgreSQL 16+ with pgvector, Redis for event processing and caching
 
 ## Recent Changes
-- 007-search-interface: Specification and planning complete (hybrid search, temporal queries, cross-content correlation)
+- 009-relationship-discovery-and-management: Complete implementation (relationship discovery, validation, lifecycle, network analysis)
+- 007-search-interface: Complete implementation merged
 - 006-daily-review: Complete implementation merged
 - 008-automation-engine: Automation module merged
