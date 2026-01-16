@@ -1,163 +1,438 @@
-"""Search caching for query results and embeddings.
+"""Search caching layer for the Search Interface.
 
-This module provides caching infrastructure for search operations:
-- Query result caching (avoid re-executing identical searches)
-- Embedding caching (avoid re-computing embeddings for same text)
-- Cache invalidation strategies
+This module provides a two-tier caching strategy:
+1. QueryCache: Redis-based cache for complete search results (TTL: 5 minutes)
+2. EmbeddingCache: In-memory LRU cache for frequently accessed embeddings (10k entries)
+3. SearchCacheManager: Unified interface for both caches
 
-The cache manager uses an in-memory LRU cache by default, with
-optional Redis backend for production deployments.
+Based on specs/007-search-interface/research.md caching strategy section.
+
+Cache Architecture:
+    User Query
+        |
+        v
+    +-----------------------+
+    |  Query Hash Cache     |  Redis: full query -> results
+    |  TTL: 5 minutes       |  Key: search:query:{tenant_id}:{query_hash}
+    +-----------------------+
+        | miss
+        v
+    +-----------------------+
+    |  Embedding LRU        |  In-memory: entity_id -> embedding
+    |  Size: 10,000         |  Used during similarity search
+    +-----------------------+
+        |
+        v
+    +-----------------------+
+    |  PostgreSQL           |  Full-text index + pgvector HNSW
+    +-----------------------+
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timedelta
-from typing import Optional, TYPE_CHECKING
+import logging
+from typing import TYPE_CHECKING
+
+import redis.asyncio as redis
+
+from penf_lib.search.models import SearchQuery, SearchResponse
 
 if TYPE_CHECKING:
-    from penf_lib.search.models import SearchQuery, SearchResponse
+    pass
+
+logger = logging.getLogger(__name__)
 
 
-class SearchCacheManager:
-    """Manages caching for search queries and embeddings.
+# =============================================================================
+# QUERY CACHE (Redis-based)
+# =============================================================================
 
-    Provides a simple caching layer with TTL-based expiration.
-    The default implementation uses in-memory storage; production
-    deployments should configure Redis backend.
+
+class QueryCache:
+    """Redis cache for search query results.
+
+    Caches complete search responses with a 5-minute TTL. Uses SHA-256 hashing
+    of the query parameters to generate deterministic cache keys.
 
     Attributes:
-        default_ttl: Default cache TTL in seconds (default: 300)
-        max_entries: Maximum cache entries (default: 1000)
+        redis: Async Redis client for cache operations.
+        ttl: Cache entry time-to-live in seconds (default: 300 = 5 minutes).
+
+    Key Format:
+        search:query:{tenant_id}:{query_hash}
+
+    Example:
+        cache = QueryCache(redis_client)
+        query_hash = QueryCache.compute_hash(search_query)
+
+        # Check cache
+        cached = await cache.get("tenant-123", query_hash)
+        if cached:
+            return cached
+
+        # Execute search and cache results
+        results = await execute_search(search_query)
+        await cache.set("tenant-123", query_hash, results)
     """
 
-    def __init__(
-        self,
-        default_ttl: int = 300,
-        max_entries: int = 1000,
-    ):
-        """Initialize cache manager.
+    def __init__(self, redis_client: redis.Redis) -> None:
+        """Initialize the query cache.
 
         Args:
-            default_ttl: Default TTL in seconds for cached items
-            max_entries: Maximum number of entries in cache
+            redis_client: Async Redis client instance.
         """
-        self.default_ttl = default_ttl
-        self.max_entries = max_entries
-        self._cache: dict[str, tuple[datetime, SearchResponse]] = {}
+        self.redis = redis_client
+        self.ttl = 300  # 5 minutes
 
-    def _make_cache_key(self, tenant_id: str, query: SearchQuery) -> str:
-        """Generate a unique cache key for a query.
+    @staticmethod
+    def compute_hash(query: SearchQuery) -> str:
+        """Compute a deterministic SHA-256 hash from query parameters.
+
+        The hash is computed from the JSON representation of the query,
+        ensuring that identical queries produce identical hashes.
 
         Args:
-            tenant_id: Tenant identifier
-            query: Search query parameters
+            query: The search query to hash.
 
         Returns:
-            SHA256 hash of the normalized query
+            64-character hexadecimal hash string.
         """
-        # Normalize query to JSON for consistent hashing
-        query_dict = query.model_dump(mode="json")
-        normalized = json.dumps(query_dict, sort_keys=True)
-        key_data = f"{tenant_id}:{normalized}"
-        return hashlib.sha256(key_data.encode()).hexdigest()
+        # Use model_dump_json for deterministic serialization
+        query_json = query.model_dump_json(exclude_none=True)
+        return hashlib.sha256(query_json.encode()).hexdigest()
 
-    async def get_cached_results(
-        self,
-        tenant_id: str,
-        query: SearchQuery,
-    ) -> Optional[SearchResponse]:
-        """Retrieve cached results for a query.
+    def _make_key(self, tenant_id: str, query_hash: str) -> str:
+        """Generate the Redis key for a cached query.
 
         Args:
-            tenant_id: Tenant identifier
-            query: Search query parameters
+            tenant_id: The tenant identifier.
+            query_hash: The query hash from compute_hash().
 
         Returns:
-            Cached SearchResponse if found and not expired, None otherwise
+            Redis key in format: search:query:{tenant_id}:{query_hash}
         """
-        key = self._make_cache_key(tenant_id, query)
+        return f"search:query:{tenant_id}:{query_hash}"
 
-        if key not in self._cache:
+    async def get(
+        self, tenant_id: str, query_hash: str
+    ) -> SearchResponse | None:
+        """Get cached search results.
+
+        Args:
+            tenant_id: The tenant identifier.
+            query_hash: The query hash from compute_hash().
+
+        Returns:
+            Cached SearchResponse if found and valid, None otherwise.
+        """
+        key = self._make_key(tenant_id, query_hash)
+        try:
+            data = await self.redis.get(key)
+            if data is None:
+                return None
+
+            # Handle bytes from Redis
+            if isinstance(data, bytes):
+                data = data.decode("utf-8")
+
+            return SearchResponse.model_validate_json(data)
+
+        except (json.JSONDecodeError, ValueError) as e:
+            # Corrupted cache data - log and return None
+            logger.warning(
+                "Corrupted cache data for key %s: %s", key, str(e)
+            )
+            return None
+        except (ConnectionError, redis.RedisError) as e:
+            # Redis unavailable - log and return None (graceful degradation)
+            logger.warning("Redis connection error: %s", str(e))
             return None
 
-        cached_time, response = self._cache[key]
-
-        # Check TTL expiration
-        if datetime.utcnow() - cached_time > timedelta(seconds=self.default_ttl):
-            del self._cache[key]
-            return None
-
-        return response
-
-    async def cache_results(
-        self,
-        tenant_id: str,
-        query: SearchQuery,
-        response: SearchResponse,
-        ttl: Optional[int] = None,
+    async def set(
+        self, tenant_id: str, query_hash: str, response: SearchResponse
     ) -> None:
         """Cache search results.
 
         Args:
-            tenant_id: Tenant identifier
-            query: Search query parameters
-            response: Search response to cache
-            ttl: Optional TTL override in seconds
+            tenant_id: The tenant identifier.
+            query_hash: The query hash from compute_hash().
+            response: The SearchResponse to cache.
         """
-        # Enforce max entries with simple eviction
-        if len(self._cache) >= self.max_entries:
-            # Remove oldest entry
-            oldest_key = min(self._cache.keys(), key=lambda k: self._cache[k][0])
-            del self._cache[oldest_key]
+        key = self._make_key(tenant_id, query_hash)
+        try:
+            data = response.model_dump_json()
+            await self.redis.set(key, data, ex=self.ttl)
+        except (ConnectionError, redis.RedisError) as e:
+            # Redis unavailable - log and continue (graceful degradation)
+            logger.warning("Failed to cache results: %s", str(e))
 
-        key = self._make_cache_key(tenant_id, query)
-        self._cache[key] = (datetime.utcnow(), response)
+    async def invalidate(self, tenant_id: str) -> None:
+        """Invalidate all cached queries for a tenant.
 
-    async def invalidate(
-        self,
-        tenant_id: str,
-        query: Optional[SearchQuery] = None,
-    ) -> int:
-        """Invalidate cached results.
+        Scans for all keys matching the tenant pattern and deletes them.
 
         Args:
-            tenant_id: Tenant identifier
-            query: Optional specific query to invalidate.
-                   If None, invalidates all entries for the tenant.
+            tenant_id: The tenant identifier whose cache to clear.
+        """
+        pattern = f"search:query:{tenant_id}:*"
+        try:
+            cursor = 0
+            while True:
+                cursor, keys = await self.redis.scan(
+                    cursor=cursor, match=pattern, count=100
+                )
+                if keys:
+                    await self.redis.delete(*keys)
+                if cursor == 0:
+                    break
+        except (ConnectionError, redis.RedisError) as e:
+            logger.warning("Failed to invalidate cache for tenant %s: %s", tenant_id, str(e))
+
+
+# =============================================================================
+# EMBEDDING CACHE (In-memory LRU)
+# =============================================================================
+
+
+class EmbeddingCache:
+    """In-memory LRU cache for frequently accessed embeddings.
+
+    Provides fast access to embeddings during similarity search to avoid
+    repeated database lookups. Uses a simple LRU eviction policy.
+
+    Attributes:
+        _cache: Dictionary storing entity_id -> embedding mappings.
+        _access_order: List tracking access order for LRU eviction.
+        _max_size: Maximum number of entries (default: 10,000).
+
+    Example:
+        cache = EmbeddingCache(max_size=10000)
+
+        # Check cache first
+        embedding = cache.get(entity_id)
+        if embedding is None:
+            embedding = await db.fetch_embedding(entity_id)
+            cache.set(entity_id, embedding)
+    """
+
+    def __init__(self, max_size: int = 10000) -> None:
+        """Initialize the embedding cache.
+
+        Args:
+            max_size: Maximum number of embeddings to cache (default: 10,000).
+        """
+        self._cache: dict[int, list[float]] = {}
+        self._access_order: list[int] = []
+        self._max_size = max_size
+
+    def get(self, entity_id: int) -> list[float] | None:
+        """Get embedding from cache.
+
+        Updates access order for LRU tracking if the entry exists.
+
+        Args:
+            entity_id: The database ID of the entity.
 
         Returns:
-            Number of entries invalidated
+            Embedding vector if cached, None otherwise.
         """
-        if query is not None:
-            key = self._make_cache_key(tenant_id, query)
-            if key in self._cache:
-                del self._cache[key]
-                return 1
-            return 0
+        if entity_id not in self._cache:
+            return None
 
-        # Invalidate all entries for tenant
-        # Note: In-memory cache doesn't track by tenant efficiently
-        # This would be better with Redis SCAN + DEL pattern matching
-        count = 0
-        keys_to_delete = []
-        for key in self._cache:
-            # We can't easily determine tenant from hashed key
-            # For full invalidation, clear all
-            keys_to_delete.append(key)
+        # Update access order (move to end = most recently used)
+        self._access_order.remove(entity_id)
+        self._access_order.append(entity_id)
 
-        for key in keys_to_delete:
-            del self._cache[key]
-            count += 1
+        return self._cache[entity_id]
 
-        return count
+    def set(self, entity_id: int, embedding: list[float]) -> None:
+        """Cache embedding with LRU eviction.
 
-    async def clear(self) -> None:
-        """Clear all cached entries."""
+        If the cache is at capacity, the least recently used entry is evicted.
+
+        Args:
+            entity_id: The database ID of the entity.
+            embedding: The embedding vector to cache.
+        """
+        # If already in cache, update value and move to end of access order
+        if entity_id in self._cache:
+            self._cache[entity_id] = embedding.copy()  # Copy to prevent mutation
+            self._access_order.remove(entity_id)
+            self._access_order.append(entity_id)
+            return
+
+        # Check if we need to evict
+        if len(self._cache) >= self._max_size:
+            # Evict least recently used (first in access order)
+            lru_id = self._access_order.pop(0)
+            del self._cache[lru_id]
+
+        # Add new entry
+        self._cache[entity_id] = embedding.copy()  # Copy to prevent mutation
+        self._access_order.append(entity_id)
+
+    def clear(self) -> None:
+        """Clear entire cache."""
         self._cache.clear()
+        self._access_order.clear()
 
     @property
     def size(self) -> int:
-        """Current number of cached entries."""
+        """Current cache size."""
         return len(self._cache)
+
+
+# =============================================================================
+# SEARCH CACHE MANAGER
+# =============================================================================
+
+
+class SearchCacheManager:
+    """Manages both query and embedding caches.
+
+    Provides a unified interface for search caching operations. Gracefully
+    handles cases where Redis is not configured.
+
+    Attributes:
+        query_cache: Redis-based query cache (None if Redis not configured).
+        embedding_cache: In-memory LRU cache for embeddings.
+
+    Example:
+        # With Redis
+        async with SearchCacheManager(redis_url="redis://localhost:6379") as manager:
+            cached = await manager.get_cached_results(tenant_id, query)
+            if cached:
+                return cached
+
+            results = await execute_search(query)
+            await manager.cache_results(tenant_id, query, results)
+            return results
+
+        # Without Redis (embedding cache only)
+        manager = SearchCacheManager()
+        embedding = manager.get_embedding(entity_id)
+    """
+
+    def __init__(
+        self,
+        redis_url: str | None = None,
+        embedding_cache_size: int = 10000,
+    ) -> None:
+        """Initialize the cache manager.
+
+        Args:
+            redis_url: Redis connection URL. If None, query caching is disabled.
+            embedding_cache_size: Maximum size for embedding cache (default: 10,000).
+        """
+        self._redis_url = redis_url
+        self._redis_client: redis.Redis | None = None
+        self.query_cache: QueryCache | None = None
+        self.embedding_cache = EmbeddingCache(embedding_cache_size)
+
+    async def initialize(self) -> None:
+        """Initialize Redis connection.
+
+        Creates Redis client and QueryCache if redis_url was provided.
+        Should be called before using query cache operations.
+        """
+        if self._redis_url:
+            self._redis_client = redis.from_url(self._redis_url)
+            self.query_cache = QueryCache(redis_client=self._redis_client)
+            logger.info("Search cache initialized with Redis: %s", self._redis_url)
+        else:
+            logger.info("Search cache initialized without Redis (query caching disabled)")
+
+    async def close(self) -> None:
+        """Close Redis connection.
+
+        Should be called when the cache manager is no longer needed.
+        """
+        if self._redis_client:
+            await self._redis_client.close()
+            self._redis_client = None
+            self.query_cache = None
+
+    async def __aenter__(self) -> SearchCacheManager:
+        """Async context manager entry."""
+        await self.initialize()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit."""
+        await self.close()
+
+    async def get_cached_results(
+        self, tenant_id: str, query: SearchQuery
+    ) -> SearchResponse | None:
+        """Try to get cached search results.
+
+        Args:
+            tenant_id: The tenant identifier.
+            query: The search query.
+
+        Returns:
+            Cached SearchResponse if found, None otherwise.
+        """
+        if self.query_cache is None:
+            return None
+
+        query_hash = QueryCache.compute_hash(query)
+        return await self.query_cache.get(tenant_id, query_hash)
+
+    async def cache_results(
+        self, tenant_id: str, query: SearchQuery, response: SearchResponse
+    ) -> None:
+        """Cache search results.
+
+        No-op if Redis is not configured.
+
+        Args:
+            tenant_id: The tenant identifier.
+            query: The search query.
+            response: The search response to cache.
+        """
+        if self.query_cache is None:
+            return
+
+        query_hash = QueryCache.compute_hash(query)
+        await self.query_cache.set(tenant_id, query_hash, response)
+
+    def get_embedding(self, entity_id: int) -> list[float] | None:
+        """Get cached embedding.
+
+        Args:
+            entity_id: The database ID of the entity.
+
+        Returns:
+            Embedding vector if cached, None otherwise.
+        """
+        return self.embedding_cache.get(entity_id)
+
+    def cache_embedding(self, entity_id: int, embedding: list[float]) -> None:
+        """Cache embedding.
+
+        Args:
+            entity_id: The database ID of the entity.
+            embedding: The embedding vector to cache.
+        """
+        self.embedding_cache.set(entity_id, embedding)
+
+    async def invalidate_tenant_cache(self, tenant_id: str) -> None:
+        """Invalidate all cached queries for a tenant.
+
+        Useful when content is updated and cached results may be stale.
+
+        Args:
+            tenant_id: The tenant identifier.
+        """
+        if self.query_cache:
+            await self.query_cache.invalidate(tenant_id)
+
+    def clear_embedding_cache(self) -> None:
+        """Clear the embedding cache.
+
+        Useful when embeddings are regenerated (e.g., model update).
+        """
+        self.embedding_cache.clear()

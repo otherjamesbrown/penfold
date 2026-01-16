@@ -12,7 +12,7 @@ Key components:
 Reference: spec 007-search-interface
 """
 
-from penf_lib.search.cache import SearchCacheManager
+from penf_lib.search.cache import EmbeddingCache, QueryCache, SearchCacheManager
 from penf_lib.search.models import (
     # Response models
     ContentPreview,
@@ -40,7 +40,10 @@ __all__ = [
     "SearchResult",
     "SearchMetadata",
     "SearchResponse",
-    # Core components
+    # Cache components
+    "QueryCache",
+    "EmbeddingCache",
     "SearchCacheManager",
+    # Core components
     "SearchEngine",
 ]
