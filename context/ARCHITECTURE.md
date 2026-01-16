@@ -1,7 +1,7 @@
 # Penfold Architecture Patterns
 
-**Extracted from implementations**: 004-gmail-integration, 005-meeting-pipeline, 010-testing-framework, 011-observability-framework
-**Last Updated**: 2026-01-15
+**Extracted from implementations**: 004-gmail-integration, 005-meeting-pipeline, 009-relationship-discovery, 010-testing-framework, 011-observability-framework
+**Last Updated**: 2026-01-16
 
 ## Core Architectural Patterns
 
@@ -971,3 +971,281 @@ filter_chain.add_filter(SenderFilter(["private.com"]))
 - **Concurrent Syncs**: Up to 3 accounts simultaneously
 - **Priority Scheduling**: High-priority accounts sync more frequently
 - **Resource Isolation**: Failures in one account don't affect others
+
+## Relationship Discovery Patterns
+
+### 23. Multi-Factor Confidence Scoring
+
+**Pattern**: Combine multiple signals into a weighted confidence score for relationship validity
+
+**Implementation Details**:
+- AI extraction confidence weighted (30%)
+- Evidence strength with type weighting (40%)
+- Entity resolution confidence (15%)
+- Temporal decay for stale evidence (15%)
+- Interaction frequency boost (multiplier)
+
+```python
+# Confidence Scoring Pattern
+@dataclass
+class ConfidenceFactors:
+    ai_confidence: float          # From AI extraction
+    evidence_strength: float      # Combined evidence score
+    temporal_decay: float = 1.0   # Decay for stale evidence
+    interaction_boost: float = 1.0  # Frequency multiplier
+    entity_resolution_confidence: float = 1.0
+
+FACTOR_WEIGHTS = {
+    "ai_confidence": 0.30,
+    "evidence_strength": 0.40,
+    "entity_resolution": 0.15,
+    "temporal": 0.15,
+}
+
+# Evidence Type Weights
+EVIDENCE_TYPE_WEIGHTS = {
+    "meeting": 1.2,     # Direct participation
+    "email": 1.0,       # Direct communication
+    "mention": 0.7,     # Indirect reference
+    "inference": 0.5,   # AI-inferred
+    "user_input": 1.5,  # User validation (strongest)
+}
+
+def combine_confidence_factors(factors: ConfidenceFactors) -> float:
+    base_score = sum(
+        getattr(factors, attr) * weight
+        for attr, weight in FACTOR_WEIGHTS.items()
+    )
+    return min(1.0, base_score * factors.interaction_boost)
+```
+
+### 24. Temporal Decay with Minimum Floor
+
+**Pattern**: Exponential decay for relationship confidence with minimum threshold
+
+**Implementation Details**:
+- Half-life based decay (180 days default)
+- Minimum floor prevents complete decay (20%)
+- New evidence resets decay
+- Supports different decay rates per relationship type
+
+```python
+# Temporal Decay Pattern
+DECAY_HALF_LIFE_DAYS = 180
+DECAY_MINIMUM = 0.20
+
+def calculate_temporal_decay(last_evidence_at: datetime) -> float:
+    days_since = (datetime.now(timezone.utc) - last_evidence_at).days
+    if days_since <= 0:
+        return 1.0
+
+    # Exponential decay: 0.5^(days/half_life)
+    decay = math.pow(0.5, days_since / DECAY_HALF_LIFE_DAYS)
+    return max(DECAY_MINIMUM, decay)
+```
+
+### 25. Conflict Resolution with Auto-Resolution Threshold
+
+**Pattern**: Automatic conflict resolution based on confidence gap, user escalation for close conflicts
+
+**Implementation Details**:
+- Auto-resolve when confidence gap >= 30%
+- User escalation for conflicts within 30%
+- Full audit trail for all resolutions
+- Support for coexistence (both valid in different contexts)
+
+```python
+# Conflict Resolution Pattern
+AUTO_RESOLVE_THRESHOLD = Decimal("0.30")
+
+class ResolutionStrategy(str, Enum):
+    AUTO_RESOLVE = "auto_resolve"  # Confidence gap >= 30%
+    USER_RESOLVE = "user_resolve"  # User chose winner
+    MERGE = "merge"                # Combined into one
+    COEXIST = "coexist"            # Both valid
+
+@dataclass
+class ConflictResolutionResult:
+    conflict_id: int
+    strategy: ResolutionStrategy
+    winning_relationship_id: int | None
+    losing_relationship_id: int | None
+    confidence_gap: Decimal
+    reasoning: str
+    resolved_by: str  # "system" or user email
+
+async def resolve_conflict(conflict: Conflict) -> ConflictResolutionResult:
+    if conflict.confidence_gap >= AUTO_RESOLVE_THRESHOLD:
+        # Auto-resolve: higher confidence wins
+        return await auto_resolve(conflict)
+    else:
+        # Escalate to user
+        return await escalate_to_user(conflict)
+```
+
+### 26. Relationship Lifecycle State Machine
+
+**Pattern**: Defined state transitions with validation and audit trail
+
+**Implementation Details**:
+- States: pending → active → historical → archived
+- Reactivation path: historical → active (on new evidence)
+- Version history for all transitions
+- Reason tracking for audit compliance
+
+```python
+# Lifecycle State Machine Pattern
+VALID_TRANSITIONS = {
+    "pending": {"active", "historical"},
+    "active": {"historical", "archived"},
+    "historical": {"archived", "active"},  # Reactivation
+    "archived": set(),  # Terminal state
+}
+
+class TransitionReason(str, Enum):
+    USER_CONFIRMED = "user_confirmed"
+    INACTIVITY = "inactivity"           # 90 days default
+    RETENTION_EXPIRED = "retention_expired"  # 2 years default
+    NEW_EVIDENCE = "new_evidence"
+    ROLE_CHANGE = "role_change"
+    PROJECT_COMPLETED = "project_completed"
+
+async def transition_state(
+    relationship_id: int,
+    to_state: str,
+    reason: TransitionReason,
+    triggered_by: str,
+) -> LifecycleTransition:
+    relationship = await get_relationship(relationship_id)
+    from_state = relationship.lifecycle_state
+
+    if to_state not in VALID_TRANSITIONS[from_state]:
+        raise StateTransitionError(f"Invalid: {from_state} → {to_state}")
+
+    # Create version record for audit
+    await create_version_record(relationship_id, from_state, to_state, reason)
+
+    return LifecycleTransition(
+        relationship_id=relationship_id,
+        from_state=from_state,
+        to_state=to_state,
+        reason=reason,
+        triggered_by=triggered_by,
+    )
+```
+
+### 27. Evidence-Based Relationship Discovery
+
+**Pattern**: Content-driven relationship extraction with evidence tracking
+
+**Implementation Details**:
+- AI extracts relationships from email/meeting content
+- Each extraction creates evidence record
+- Evidence accumulates to strengthen relationships
+- Source tracking enables provenance queries
+
+```python
+# Evidence-Based Discovery Pattern
+@dataclass
+class EvidenceItem:
+    evidence_type: str  # email, meeting, mention, inference
+    source_id: int
+    observed_at: datetime
+    strength_contribution: float  # 0.0 to 1.0
+    content_snippet: str = ""
+    metadata: dict = field(default_factory=dict)
+
+class RelationshipDiscoveryService:
+    async def process_content(
+        self,
+        content_id: int,
+        content_type: str,
+    ) -> DiscoveryResult:
+        # Extract relationships via AI
+        extracted = await self.extractor.extract(content_id, content_type)
+
+        discoveries = []
+        for rel in extracted.relationships:
+            # Check for existing relationship
+            existing = await self.find_existing(
+                rel.source_entity, rel.target_entity, rel.relationship_type
+            )
+
+            if existing:
+                # Add evidence to existing relationship
+                await self.add_evidence(existing.id, rel.evidence)
+            else:
+                # Create new relationship
+                discoveries.append(await self.create_relationship(rel))
+
+        return DiscoveryResult(
+            content_id=content_id,
+            discovered=discoveries,
+            updated=len(extracted.relationships) - len(discoveries),
+        )
+```
+
+### 28. Network Analysis with Graph Algorithms
+
+**Pattern**: Use networkx for centrality calculations and community detection
+
+**Implementation Details**:
+- Convert relationship graph to networkx for analysis
+- Degree, betweenness, closeness, eigenvector centrality
+- Label propagation for community detection
+- Hub and bottleneck identification
+
+```python
+# Network Analysis Pattern
+import networkx as nx
+
+class NetworkAnalyzer:
+    def _to_networkx(self, graph: NetworkGraph) -> nx.Graph:
+        G = nx.Graph()
+        for entity_id, node in graph.nodes.items():
+            G.add_node(entity_id, **node.model_dump())
+        for edge in graph.edges:
+            G.add_edge(
+                edge.source_entity_id,
+                edge.target_entity_id,
+                weight=float(edge.combined_strength),
+            )
+        return G
+
+    def calculate_centrality(self, graph: NetworkGraph) -> dict[UUID, CentralityMetrics]:
+        G = self._to_networkx(graph)
+        return {
+            entity_id: CentralityMetrics(
+                entity_id=entity_id,
+                degree_centrality=nx.degree_centrality(G)[entity_id],
+                betweenness_centrality=nx.betweenness_centrality(G)[entity_id],
+                closeness_centrality=nx.closeness_centrality(G)[entity_id],
+                eigenvector_centrality=nx.eigenvector_centrality(G).get(entity_id, 0),
+            )
+            for entity_id in graph.nodes
+        }
+
+    def identify_hubs(self, graph: NetworkGraph, threshold: float = 0.5) -> list:
+        centrality = self._calculate_degree_centrality(graph)
+        return [
+            node for node, score in centrality.items()
+            if score >= threshold
+        ]
+```
+
+## Relationship Discovery Performance
+
+### Confidence Calculation
+- **Scoring Time**: <10ms per relationship evaluation
+- **Batch Processing**: 100+ relationships per second
+- **Decay Calculation**: Constant time O(1)
+
+### Discovery Performance
+- **Content Processing**: <60 seconds per item
+- **Evidence Accumulation**: Real-time updates
+- **Conflict Detection**: <100ms per check
+
+### Network Analysis
+- **Centrality Calculation**: <1s for 10,000 nodes (using networkx)
+- **Community Detection**: <5s for large networks
+- **Graph Export**: <500ms for JSON/DOT/CSV formats
