@@ -19,7 +19,10 @@ from .schemas import (
     EmailAttachmentIngestedEvent,
     SyncProgressEvent,
     SyncCompletedEvent,
-    ContentExtractedEvent
+    ContentExtractedEvent,
+    ManualEmailIngestedEvent,
+    IngestJobProgressEvent,
+    IngestJobCompletedEvent,
 )
 
 
@@ -366,3 +369,186 @@ class BatchEventPublisher:
         """Flush remaining events and close."""
         await self.flush_batch()
         await self.event_publisher.close()
+
+
+class ManualIngestEventPublisher(EventPublisher):
+    """Specialized publisher for manual ingest events."""
+
+    async def publish_manual_email_ingested(
+        self,
+        source_id: int,
+        tenant_id: str,
+        message_id: str,
+        job_id: str,
+        from_email: str,
+        to_emails: List[str],
+        email_date: datetime,
+        content_hash: str,
+        source_tag: str,
+        original_file_path: str,
+        from_name: Optional[str] = None,
+        cc_emails: Optional[List[str]] = None,
+        subject: Optional[str] = None,
+        date_is_fallback: bool = False,
+        in_reply_to: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        has_attachments: bool = False,
+        attachment_count: int = 0,
+        labels: Optional[List[str]] = None,
+    ) -> bool:
+        """Publish manual email ingested event.
+
+        This event triggers the AI processing pipeline for the ingested email.
+
+        Args:
+            source_id: Database ID in sources table
+            tenant_id: Tenant ID for isolation
+            message_id: Email Message-ID (real or synthetic)
+            job_id: Parent IngestJob ID
+            from_email: Sender email address
+            to_emails: Recipient emails
+            email_date: Original or fallback email date
+            content_hash: SHA-256 of raw .eml content
+            source_tag: User-provided source identifier
+            original_file_path: Path in upload batch
+            from_name: Optional sender display name
+            cc_emails: Optional CC recipients
+            subject: Optional email subject
+            date_is_fallback: True if using ingestion timestamp
+            in_reply_to: Optional In-Reply-To header
+            thread_id: Optional linked thread ID
+            has_attachments: Whether email has attachments
+            attachment_count: Number of attachments
+            labels: Labels from folder structure
+
+        Returns:
+            True if published successfully
+        """
+        event = ManualEmailIngestedEvent(
+            source_id=source_id,
+            tenant_id=tenant_id,
+            message_id=message_id,
+            job_id=job_id,
+            from_email=from_email,
+            from_name=from_name,
+            to_emails=to_emails,
+            cc_emails=cc_emails or [],
+            subject=subject,
+            email_date=email_date,
+            date_is_fallback=date_is_fallback,
+            in_reply_to=in_reply_to,
+            thread_id=thread_id,
+            has_attachments=has_attachments,
+            attachment_count=attachment_count,
+            content_hash=content_hash,
+            source_tag=source_tag,
+            original_file_path=original_file_path,
+            labels=labels or [],
+        )
+
+        return await self.publish(event, channel="events.manual_email.ingested")
+
+    async def publish_ingest_job_progress(
+        self,
+        job_id: str,
+        tenant_id: str,
+        total_files: int,
+        processed_count: int,
+        imported_count: int,
+        skipped_count: int,
+        failed_count: int,
+        elapsed_seconds: float,
+        status: str,
+        current_file: Optional[str] = None,
+        estimated_remaining_seconds: Optional[float] = None,
+    ) -> bool:
+        """Publish ingest job progress event.
+
+        Args:
+            job_id: Ingest job ID
+            tenant_id: Tenant ID for isolation
+            total_files: Total files in batch
+            processed_count: Files processed so far
+            imported_count: Successfully imported
+            skipped_count: Skipped (duplicates)
+            failed_count: Failed to process
+            elapsed_seconds: Seconds since job started
+            status: Current status
+            current_file: Currently processing file
+            estimated_remaining_seconds: Estimated time remaining
+
+        Returns:
+            True if published successfully
+        """
+        event = IngestJobProgressEvent(
+            job_id=job_id,
+            tenant_id=tenant_id,
+            total_files=total_files,
+            processed_count=processed_count,
+            imported_count=imported_count,
+            skipped_count=skipped_count,
+            failed_count=failed_count,
+            elapsed_seconds=elapsed_seconds,
+            estimated_remaining_seconds=estimated_remaining_seconds,
+            status=status,
+            current_file=current_file,
+        )
+
+        return await self.publish(event, channel="events.ingest_job.progress")
+
+    async def publish_ingest_job_completed(
+        self,
+        job_id: str,
+        tenant_id: str,
+        source_tag: str,
+        total_files: int,
+        imported_count: int,
+        skipped_count: int,
+        failed_count: int,
+        started_at: datetime,
+        completed_at: datetime,
+        duration_seconds: float,
+        success: bool,
+        final_status: str,
+        labels_created: Optional[List[str]] = None,
+        attachments_extracted: int = 0,
+    ) -> bool:
+        """Publish ingest job completed event.
+
+        Args:
+            job_id: Ingest job ID
+            tenant_id: Tenant ID for isolation
+            source_tag: User-provided source identifier
+            total_files: Total files in batch
+            imported_count: Successfully imported
+            skipped_count: Skipped (duplicates)
+            failed_count: Failed to process
+            started_at: Job start time
+            completed_at: Job completion time
+            duration_seconds: Total processing time
+            success: Whether job succeeded (no failures)
+            final_status: Final job status
+            labels_created: Labels from folder structure
+            attachments_extracted: Count of extracted attachments
+
+        Returns:
+            True if published successfully
+        """
+        event = IngestJobCompletedEvent(
+            job_id=job_id,
+            tenant_id=tenant_id,
+            source_tag=source_tag,
+            total_files=total_files,
+            imported_count=imported_count,
+            skipped_count=skipped_count,
+            failed_count=failed_count,
+            started_at=started_at,
+            completed_at=completed_at,
+            duration_seconds=duration_seconds,
+            success=success,
+            final_status=final_status,
+            labels_created=labels_created or [],
+            attachments_extracted=attachments_extracted,
+        )
+
+        return await self.publish(event, channel="events.ingest_job.completed")

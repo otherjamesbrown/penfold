@@ -1,0 +1,28 @@
+MIME-Version: 1.0
+Date: Thu, 10 Jan 2026 16:45:00 -0500
+Message-ID: <test-thread-reply-001@example.com>
+Subject: Re: Project Update - Q1 Planning
+From: Alice Johnson <alice@example.com>
+To: bob@example.com
+In-Reply-To: <test-valid-simple-001@example.com>
+References: <test-valid-simple-001@example.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Hi Bob,
+
+Thanks for the update! A few questions:
+
+1. What's the timeline for the tooling evaluation?
+2. Do we have a shortlist of candidates yet?
+3. Should I coordinate with IT on infrastructure requirements?
+
+Let me know when you're free to discuss.
+
+Best,
+Alice
+
+On Thu, Jan 10, 2026 at 2:30 PM Bob Smith <bob@example.com> wrote:
+> Hi Alice,
+>
+> Just wanted to follow up on our Q1 planning discussion.
+> ...

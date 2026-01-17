@@ -3248,3 +3248,404 @@ class RelationshipConflict(Base, TimestampMixin, TenantMixin):
             name="ck_conflict_gap_range"
         ),
     )
+
+
+# =============================================================================
+# MANUAL INGEST MODELS (Feature 012)
+# =============================================================================
+
+
+class IngestJob(Base, TimestampMixin, TenantMixin):
+    """Batch upload job tracking with progress for resume capability.
+
+    Tracks manual content ingest jobs including file manifest,
+    progress counters, and status for resume capability.
+
+    Reference: specs/012-manual-ingest/data-model.md
+    """
+
+    __tablename__ = "ingest_jobs"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        nullable=False,
+        comment="Unique job identifier",
+    )
+
+    # Job configuration
+    source_tag = Column(
+        String(100),
+        nullable=False,
+        comment="User-provided source identifier",
+    )
+    content_type = Column(
+        String(50),
+        nullable=False,
+        default="email",
+        comment="Content type being ingested (email, document, etc.)",
+    )
+
+    # Status tracking
+    status = Column(
+        String(20),
+        nullable=False,
+        default="pending",
+        comment="Job status: pending, in_progress, completed, failed, cancelled",
+    )
+
+    # Progress counters
+    total_files = Column(
+        Integer,
+        nullable=False,
+        comment="Total files in batch",
+    )
+    processed_count = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Files processed so far",
+    )
+    imported_count = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Successfully imported files",
+    )
+    skipped_count = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Skipped files (duplicates)",
+    )
+    failed_count = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Failed files",
+    )
+
+    # File tracking for resume
+    file_manifest = Column(
+        JSONB,
+        nullable=False,
+        comment="List of all file paths in batch",
+    )
+    processed_files = Column(
+        JSONB,
+        nullable=False,
+        default=[],
+        comment="Completed file paths (for resume)",
+    )
+
+    # Job options
+    options = Column(
+        JSONB,
+        nullable=False,
+        default={},
+        comment="Job options (preserve_folders, skip_attachments, etc.)",
+    )
+
+    # Timing
+    started_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When processing started",
+    )
+    completed_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When processing finished",
+    )
+
+    # Relationships
+    errors = orm_relationship(
+        "IngestError",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        lazy="dynamic",
+    )
+
+    # Validation
+    @validates("status")
+    def validate_status(self, key, value):
+        """Validate job status."""
+        valid_statuses = {"pending", "in_progress", "completed", "failed", "cancelled"}
+        if value not in valid_statuses:
+            raise ValidationError(
+                f"Invalid job status: {value}. Must be one of {valid_statuses}"
+            )
+        return value
+
+    @validates("source_tag")
+    def validate_source_tag(self, key, value):
+        """Validate source tag format."""
+        import re
+
+        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+            raise ValidationError(
+                "source_tag must contain only alphanumeric characters, hyphens, and underscores"
+            )
+        return value
+
+    def __repr__(self):
+        return f"<IngestJob(id={self.id}, source_tag='{self.source_tag}', status='{self.status}')>"
+
+    __table_args__ = (
+        Index("idx_ingest_jobs_tenant_status", "tenant_id", "status"),
+        Index("idx_ingest_jobs_tenant_created", "tenant_id", "created_at"),
+        CheckConstraint(
+            "status IN ('pending', 'in_progress', 'completed', 'failed', 'cancelled')",
+            name="ck_ingest_job_status_valid",
+        ),
+    )
+
+
+class IngestError(Base, TimestampMixin):
+    """Detailed error records for failed files in an ingest job.
+
+    Tracks error information for troubleshooting and reporting.
+
+    Reference: specs/012-manual-ingest/data-model.md
+    """
+
+    __tablename__ = "ingest_errors"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        nullable=False,
+        comment="Error record identifier",
+    )
+
+    # Parent job
+    job_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("ingest_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Parent ingest job",
+    )
+
+    # Error details
+    file_path = Column(
+        String(500),
+        nullable=False,
+        comment="Path to failed file",
+    )
+    error_type = Column(
+        String(50),
+        nullable=False,
+        comment="Error category: parse_error, encoding_error, io_error, validation_error, storage_error",
+    )
+    error_message = Column(
+        Text,
+        nullable=False,
+        comment="Human-readable error message",
+    )
+    error_details = Column(
+        JSONB,
+        nullable=True,
+        comment="Stack trace and additional context",
+    )
+
+    # Relationships
+    job = orm_relationship(
+        "IngestJob",
+        back_populates="errors",
+    )
+
+    # Validation
+    @validates("error_type")
+    def validate_error_type(self, key, value):
+        """Validate error type."""
+        valid_types = {
+            "parse_error",
+            "encoding_error",
+            "io_error",
+            "validation_error",
+            "storage_error",
+            "unexpected_error",
+        }
+        if value not in valid_types:
+            raise ValidationError(
+                f"Invalid error type: {value}. Must be one of {valid_types}"
+            )
+        return value
+
+    def __repr__(self):
+        return f"<IngestError(id={self.id}, type='{self.error_type}', file='{self.file_path}')>"
+
+    __table_args__ = (Index("idx_ingest_errors_job", "job_id"),)
+
+
+class EmailAttachment(Base, TimestampMixin, TenantMixin):
+    """Links email sources to extracted document records.
+
+    Tracks attachments extracted from manually ingested emails
+    and their processing status.
+
+    Reference: specs/012-manual-ingest/data-model.md
+    """
+
+    __tablename__ = "email_attachments"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        nullable=False,
+        comment="Attachment identifier",
+    )
+
+    # Parent email
+    source_id = Column(
+        BIGINT,
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Parent email source",
+    )
+
+    # Future document link (nullable until document processing implemented)
+    document_id = Column(
+        UUID(as_uuid=True),
+        nullable=True,
+        comment="Extracted document record (future)",
+    )
+
+    # Attachment metadata
+    filename = Column(
+        String(255),
+        nullable=False,
+        comment="Original filename",
+    )
+    mime_type = Column(
+        String(100),
+        nullable=False,
+        comment="MIME content type",
+    )
+    size_bytes = Column(
+        Integer,
+        nullable=False,
+        comment="File size in bytes",
+    )
+
+    # Extraction status
+    extraction_status = Column(
+        String(20),
+        nullable=False,
+        default="pending",
+        comment="Status: pending, completed, failed, skipped_oversized, skipped_unsupported",
+    )
+    extraction_error = Column(
+        Text,
+        nullable=True,
+        comment="Error message if extraction failed",
+    )
+
+    # Relationships
+    source = orm_relationship(
+        "Source",
+        backref="attachments",
+    )
+
+    # Validation
+    @validates("extraction_status")
+    def validate_extraction_status(self, key, value):
+        """Validate extraction status."""
+        valid_statuses = {
+            "pending",
+            "completed",
+            "failed",
+            "skipped_oversized",
+            "skipped_unsupported",
+        }
+        if value not in valid_statuses:
+            raise ValidationError(
+                f"Invalid extraction status: {value}. Must be one of {valid_statuses}"
+            )
+        return value
+
+    def __repr__(self):
+        return f"<EmailAttachment(id={self.id}, filename='{self.filename}', status='{self.extraction_status}')>"
+
+    __table_args__ = (
+        Index("idx_email_attachments_source", "source_id"),
+        Index(
+            "idx_email_attachments_document",
+            "document_id",
+            postgresql_where=text("document_id IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "extraction_status IN ('pending', 'completed', 'failed', 'skipped_oversized', 'skipped_unsupported')",
+            name="ck_attachment_status_valid",
+        ),
+    )
+
+
+class ArchivedFile(Base, TimestampMixin, TenantMixin):
+    """Encrypted storage of original .eml files for compliance retrieval.
+
+    Stores original files with AES-256-GCM encryption using
+    tenant-scoped keys for secure archival.
+
+    Reference: specs/012-manual-ingest/data-model.md
+    """
+
+    __tablename__ = "archived_files"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        nullable=False,
+        comment="Archive identifier",
+    )
+
+    # Link to processed source
+    source_id = Column(
+        BIGINT,
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        comment="Link to processed email",
+    )
+
+    # Encrypted content
+    encrypted_content = Column(
+        Text,
+        nullable=False,
+        comment="Base64-encoded AES-256-GCM encrypted file",
+    )
+    original_size = Column(
+        Integer,
+        nullable=False,
+        comment="Unencrypted file size in bytes",
+    )
+
+    # Key management
+    encryption_key_id = Column(
+        String(100),
+        nullable=False,
+        comment="Key identifier for rotation (tenant-{tenant_id}-v{version})",
+    )
+
+    # Integrity
+    content_hash = Column(
+        String(64),
+        nullable=False,
+        comment="SHA-256 of original content (pre-encryption)",
+    )
+
+    # Relationships
+    source = orm_relationship(
+        "Source",
+        backref="archived_file",
+        uselist=False,
+    )
+
+    def __repr__(self):
+        return f"<ArchivedFile(id={self.id}, source_id={self.source_id}, size={self.original_size})>"
+
+    __table_args__ = (Index("idx_archived_files_source", "source_id", unique=True),)
