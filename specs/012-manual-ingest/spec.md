@@ -5,6 +5,16 @@
 **Status**: Draft
 **Input**: User requirement for uploading archived .eml files alongside Gmail integration
 
+## Clarifications
+
+### Session 2026-01-16
+
+- Q: How should the system handle .eml files with no Message-ID header? → A: Generate synthetic Message-ID from content hash (SHA-256)
+- Q: What encryption scheme should be used for archived original .eml files? → A: AES-256-GCM with tenant-scoped keys
+- Q: What occurs when upload is interrupted mid-batch? → A: Track progress in IngestJob, support `--resume` flag to continue from last checkpoint
+- Q: What occurs when email date is in the future or invalid? → A: Use ingestion timestamp as fallback, store original invalid date in metadata for audit
+- Q: How does the system handle emails with extremely large attachments (>25MB)? → A: Process email, skip extraction for oversized attachments with warning in summary
+
 ## Overview
 
 This specification defines a **type-based manual ingest framework** for uploading content files directly into Penfold. While the Gmail integration (004) handles live email sync, this feature enables ingestion of:
@@ -114,12 +124,12 @@ As a user who needs the original email for legal or compliance reasons, I need t
 ### Edge Cases
 
 - What happens when .eml file is malformed or corrupt?
-- How does the system handle .eml files with no Message-ID header?
-- What occurs when email date is in the future or invalid?
+- ~~How does the system handle .eml files with no Message-ID header?~~ → Resolved: Generate synthetic Message-ID from SHA-256 content hash (see FR-103a)
+- ~~What occurs when email date is in the future or invalid?~~ → Resolved: Use ingestion timestamp as fallback, store original in metadata (see FR-104)
 - How are non-UTF8 encodings handled in email content?
 - What happens when attachment extraction fails for one file in a batch?
-- How does the system handle emails with extremely large attachments (>25MB)?
-- What occurs when upload is interrupted mid-batch?
+- ~~How does the system handle emails with extremely large attachments (>25MB)?~~ → Resolved: Process email, skip extraction for oversized attachments with warning (see FR-107a)
+- ~~What occurs when upload is interrupted mid-batch?~~ → Resolved: Track progress in IngestJob, support `--resume` flag (see FR-009)
 
 ## Requirements *(mandatory)*
 
@@ -133,6 +143,7 @@ As a user who needs the original email for legal or compliance reasons, I need t
 - **FR-006**: System MUST skip malformed files and continue processing batch, logging errors
 - **FR-007**: System MUST respect active tenant context for all uploaded content
 - **FR-008**: System MUST support `--dry-run` flag to preview what would be imported
+- **FR-009**: System MUST track per-file progress in IngestJob and support `--resume <job-id>` flag to continue interrupted batch uploads from last checkpoint
 
 ### Functional Requirements - Email Type
 
@@ -140,11 +151,13 @@ As a user who needs the original email for legal or compliance reasons, I need t
 - **FR-101**: System MUST extract email metadata: From, To, Cc, Bcc, Subject, Date, Message-ID
 - **FR-102**: System MUST extract email body in both plain text and HTML formats when available
 - **FR-103**: System MUST detect duplicates via Message-ID header and skip silently
-- **FR-104**: System MUST use email's original Date header for timeline positioning
+- **FR-103a**: System MUST generate synthetic Message-ID from content hash (SHA-256) when .eml file lacks Message-ID header, enabling deduplication for non-conformant files
+- **FR-104**: System MUST use email's original Date header for timeline positioning; for unparseable or future dates, use ingestion timestamp as fallback and store original invalid date in metadata for audit
 - **FR-105**: System MUST reconstruct thread relationships using In-Reply-To and References headers
 - **FR-106**: System MUST preserve folder structure as labels when uploading from directories
 - **FR-107**: System MUST extract attachments and store as document type with email relationship
-- **FR-108**: System MUST archive original .eml file for retrieval
+- **FR-107a**: System MUST skip extraction for attachments exceeding 25MB, log warning in summary, and continue processing email body and smaller attachments
+- **FR-108**: System MUST archive original .eml file for retrieval, encrypted using AES-256-GCM with tenant-scoped keys
 - **FR-109**: System MUST normalize participant email addresses matching Gmail integration patterns
 - **FR-110**: System MUST use same underlying email data model as Gmail integration (source_system differentiator)
 - **FR-111**: System MUST support re-analysis when AI capabilities improve (same as Gmail emails)
@@ -155,12 +168,12 @@ As a user who needs the original email for legal or compliance reasons, I need t
 
 ### Key Entities
 
-- **IngestJob**: Batch upload job with progress tracking, source tag, and status
+- **IngestJob**: Batch upload job with per-file progress tracking (for resume capability), source tag, status, and file manifest
 - **IngestError**: Failed file record with error details for troubleshooting
 - **EmailMessage**: Extended to support `source_system = "manual_eml"` alongside `"gmail"`
 - **EmailAttachment**: Attachment record linked to both email and document entities
 - **Document**: Content type for extracted attachments (to be fully specified in future document spec)
-- **ArchivedFile**: Original .eml file storage with encryption and retrieval capability
+- **ArchivedFile**: Original .eml file storage with AES-256-GCM encryption (tenant-scoped keys) and retrieval capability
 
 ## Success Criteria *(mandatory)*
 
@@ -199,6 +212,9 @@ penf ingest email ./emails/ --source "test" --dry-run
 
 # Without folder label preservation
 penf ingest email ./emails/ --source "archive" --no-preserve-folders
+
+# Resume interrupted batch (job-id from previous run output)
+penf ingest --resume job-abc123
 ```
 
 ### Output Format
