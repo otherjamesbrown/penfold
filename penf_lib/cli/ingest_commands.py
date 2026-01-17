@@ -11,6 +11,8 @@ Reference: specs/012-manual-ingest/contracts/cli.md
 """
 
 import asyncio
+import base64
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,7 +167,6 @@ def ingest_email(
         raise SystemExit(1)
 
     # Validate source tag format
-    import re
     if not re.match(r"^[a-zA-Z0-9_-]+$", source):
         console.print(
             "[red]Error: source tag must contain only alphanumeric characters, "
@@ -269,8 +270,9 @@ async def _process_email_files(
     if ManualIngestEventPublisher is not None:
         try:
             event_publisher = ManualIngestEventPublisher()
-        except Exception:
-            pass  # Event publishing is optional
+        except Exception as e:
+            if verbose:
+                console.print(f"[yellow]Warning: Could not initialize event publisher. Events will not be sent. Error: {e}[/yellow]")
 
     # Initialize archiver (optional - requires PENF_ARCHIVE_MASTER_KEY)
     archiver = None
@@ -424,7 +426,6 @@ async def _process_email_files(
                     # Archive original .eml file (if archiver available)
                     if archive_repo and archiver:
                         try:
-                            import base64
                             # Encrypt the original file content
                             archive_result = archiver.encrypt(
                                 parsed.raw_content,
@@ -739,7 +740,6 @@ def resume_job(job_id: str, verbose: bool):
     try:
         job_uuid = uuid.UUID(job_id)
     except ValueError:
-        # Try to find job by partial ID
         console.print(f"[red]Error: Invalid job ID format: {job_id}[/red]")
         raise SystemExit(1)
 

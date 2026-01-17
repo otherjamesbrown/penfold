@@ -144,7 +144,7 @@ def upgrade() -> None:
 
         # Constraints
         sa.CheckConstraint(
-            "error_type IN ('parse_error', 'encoding_error', 'io_error', 'validation_error', 'storage_error')",
+            "error_type IN ('parse_error', 'encoding_error', 'io_error', 'validation_error', 'storage_error', 'unexpected_error')",
             name='ck_ingest_error_type_valid'
         ),
 

@@ -3466,6 +3466,7 @@ class IngestError(Base, TimestampMixin):
             "io_error",
             "validation_error",
             "storage_error",
+            "unexpected_error",
         }
         if value not in valid_types:
             raise ValidationError(

@@ -9,6 +9,7 @@ Defines data models for:
 Reference: specs/012-manual-ingest/data-model.md
 """
 
+import re
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -159,8 +160,6 @@ class IngestJobCreate(BaseModel):
     @classmethod
     def validate_source_tag(cls, v: str) -> str:
         """Validate source tag format."""
-        import re
-
         if not re.match(r"^[a-zA-Z0-9_-]+$", v):
             raise ValueError(
                 "source_tag must contain only alphanumeric characters, hyphens, and underscores"

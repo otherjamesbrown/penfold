@@ -534,8 +534,6 @@ class ManualIngestEventPublisher(EventPublisher):
         Returns:
             True if published successfully
         """
-        from .schemas import IngestJobCompletedEvent
-
         event = IngestJobCompletedEvent(
             job_id=job_id,
             tenant_id=tenant_id,
