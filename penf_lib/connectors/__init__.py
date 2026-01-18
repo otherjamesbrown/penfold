@@ -1,1 +1,0 @@
-"""Data connectors for external systems."""
