@@ -16,10 +16,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
-	"github.com/otherjamesbrown/penfold/pkg/health"
+	"github.com/otherjamesbrown/penfold/pkg/auth"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
+	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
+	"github.com/otherjamesbrown/penfold/services/gateway/middleware"
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
 )
 
@@ -55,21 +57,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize health checker.
-	healthChecker := health.NewChecker()
+	// Initialize health aggregator for backend services.
+	healthAggregator := gatewayhealth.NewAggregator(server.Version)
+	healthAggregator.SetDefaultTimeout(5 * time.Second)
 
-	// Register a self-check (always passes if we're running).
-	healthChecker.RegisterCheck("self", func(ctx context.Context) error {
-		return nil
-	}, health.Critical())
+	// Create the gateway server with health aggregator.
+	gatewayServer := server.NewGatewayServer(cfg, logger, m, healthAggregator)
 
-	// Create the gateway server.
-	gatewayServer := server.NewGatewayServer(cfg, logger, m)
+	// Build gRPC server options with interceptors.
+	grpcOpts := buildGRPCServerOptions(cfg, logger, m)
 
 	// Create gRPC server with options.
-	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(loggingInterceptor(logger, m)),
-	)
+	grpcServer := grpc.NewServer(grpcOpts...)
 
 	// Register gRPC reflection for development/debugging.
 	if cfg.Base.IsDevelopment() {
@@ -83,9 +82,9 @@ func main() {
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()
-	httpMux.Handle("/health", healthChecker.Handler())
-	httpMux.Handle("/ready", healthChecker.ReadyHandler())
-	httpMux.Handle("/live", healthChecker.LiveHandler())
+	httpMux.Handle("/health", healthAggregator.Handler())
+	httpMux.Handle("/ready", healthAggregator.ReadyHandler())
+	httpMux.Handle("/live", healthAggregator.LiveHandler())
 	httpMux.Handle("/metrics", promhttp.Handler())
 
 	httpServer := &http.Server{
@@ -212,5 +211,72 @@ func loggingInterceptor(logger logging.Logger, m *metrics.Metrics) grpc.UnarySer
 		}
 
 		return resp, err
+	}
+}
+
+// buildGRPCServerOptions constructs gRPC server options including interceptors.
+// When auth is enabled, it chains auth middleware with logging/metrics interceptors.
+func buildGRPCServerOptions(cfg *config.GatewayConfig, logger logging.Logger, m *metrics.Metrics) []grpc.ServerOption {
+	// Start with logging interceptor
+	loggingInt := loggingInterceptor(logger, m)
+
+	// If auth is not enabled, just use logging interceptor
+	if !cfg.AuthEnabled {
+		logger.Info("Authentication middleware disabled")
+		return []grpc.ServerOption{
+			grpc.UnaryInterceptor(loggingInt),
+		}
+	}
+
+	// Build auth middleware configuration
+	authCfg := &middleware.AuthConfig{
+		Logger:        logger,
+		RequireTenant: cfg.Auth.RequireTenant,
+		SkipMethods:   cfg.Auth.SkipAuthMethods,
+	}
+
+	// Add default skip methods for health checks
+	defaultSkipMethods := []string{
+		"/grpc.health.v1.Health/Check",
+		"/grpc.health.v1.Health/Watch",
+	}
+	authCfg.SkipMethods = append(authCfg.SkipMethods, defaultSkipMethods...)
+
+	// Configure JWT validator if secret key is provided
+	if cfg.Auth.JWTSecretKey != "" {
+		var jwtOpts []auth.JWTValidatorOption
+		if cfg.Auth.JWTIssuer != "" {
+			jwtOpts = append(jwtOpts, auth.WithIssuer(cfg.Auth.JWTIssuer))
+		}
+		authCfg.JWTValidator = auth.NewJWTValidator(cfg.Auth.JWTSecretKey, jwtOpts...)
+		logger.Info("JWT authentication enabled",
+			logging.F("issuer", cfg.Auth.JWTIssuer),
+		)
+	}
+
+	// Configure API key validator
+	// In production, API keys would be loaded from a secure store.
+	// For now, we create an empty validator that can be populated at runtime.
+	authCfg.APIKeyValidator = auth.NewAPIKeyValidator()
+	logger.Info("API key authentication enabled")
+
+	// Create auth middleware
+	authMiddleware := middleware.NewAuthMiddleware(authCfg)
+
+	// Chain interceptors: logging runs first, then auth
+	// This ensures all requests are logged, even failed auth attempts
+	chainedInterceptor := middleware.ChainUnaryInterceptors(
+		loggingInt,
+		authMiddleware.UnaryInterceptor(),
+	)
+
+	logger.Info("Authentication middleware enabled",
+		logging.F("require_tenant", cfg.Auth.RequireTenant),
+		logging.F("skip_methods", authCfg.SkipMethods),
+	)
+
+	return []grpc.ServerOption{
+		grpc.UnaryInterceptor(chainedInterceptor),
+		grpc.StreamInterceptor(authMiddleware.StreamInterceptor()),
 	}
 }

@@ -10,9 +10,11 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	pkghealth "github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
+	"github.com/otherjamesbrown/penfold/services/gateway/health"
 )
 
 // Version is the service version.
@@ -27,19 +29,21 @@ type GatewayServer struct {
 	// return Unimplemented for those methods.
 	// UnimplementedGatewayServiceServer
 
-	config    *config.GatewayConfig
-	logger    logging.Logger
-	metrics   *metrics.Metrics
-	startTime time.Time
+	config           *config.GatewayConfig
+	logger           logging.Logger
+	metrics          *metrics.Metrics
+	startTime        time.Time
+	healthAggregator *health.Aggregator
 }
 
 // NewGatewayServer creates a new GatewayServer instance.
-func NewGatewayServer(cfg *config.GatewayConfig, logger logging.Logger, m *metrics.Metrics) *GatewayServer {
+func NewGatewayServer(cfg *config.GatewayConfig, logger logging.Logger, m *metrics.Metrics, healthAggregator *health.Aggregator) *GatewayServer {
 	return &GatewayServer{
-		config:    cfg,
-		logger:    logger,
-		metrics:   m,
-		startTime: time.Now(),
+		config:           cfg,
+		logger:           logger,
+		metrics:          m,
+		startTime:        time.Now(),
+		healthAggregator: healthAggregator,
 	}
 }
 
@@ -190,9 +194,21 @@ func (s *GatewayServer) HealthCheck(ctx context.Context, req *HealthCheckRequest
 		logging.F("include_dependencies", req.IncludeDependencies),
 	)
 
+	// Use the health aggregator to get aggregated health from all backend services.
+	aggregatedHealth := s.healthAggregator.CheckAll(ctx)
+
+	// Determine overall health based on aggregated status.
+	healthy := aggregatedHealth.Status != pkghealth.StatusUnhealthy
+	message := "Gateway is healthy"
+	if aggregatedHealth.Status == pkghealth.StatusDegraded {
+		message = "Gateway is degraded - some non-critical services are unavailable"
+	} else if aggregatedHealth.Status == pkghealth.StatusUnhealthy {
+		message = "Gateway is unhealthy - critical services are unavailable"
+	}
+
 	resp := &HealthCheckResponse{
-		Healthy:       true,
-		Message:       "Gateway is healthy",
+		Healthy:       healthy,
+		Message:       message,
 		Version:       Version,
 		UptimeSeconds: int64(time.Since(s.startTime).Seconds()),
 		Timestamp:     timestamppb.Now(),
@@ -200,25 +216,19 @@ func (s *GatewayServer) HealthCheck(ctx context.Context, req *HealthCheckRequest
 	}
 
 	if req.IncludeDependencies {
-		// TODO: Check actual dependency health when services are available.
-		// For now, report dependencies as unknown/not checked.
-		resp.Dependencies = append(resp.Dependencies,
-			DependencyHealth{
-				Name:    "orchestrator",
-				Healthy: false,
-				Message: "Not connected (service not yet implemented)",
-			},
-			DependencyHealth{
-				Name:    "search",
-				Healthy: false,
-				Message: "Not connected (service not yet implemented)",
-			},
-			DependencyHealth{
-				Name:    "daily-review",
-				Healthy: false,
-				Message: "Not connected (service not yet implemented)",
-			},
-		)
+		// Include all backend service health status from the aggregator.
+		for _, svc := range aggregatedHealth.Services {
+			depHealth := DependencyHealth{
+				Name:      svc.Name,
+				Healthy:   svc.Status == pkghealth.StatusHealthy,
+				Message:   svc.Message,
+				LatencyMs: float64(svc.LatencyMs),
+			}
+			if svc.Error != "" {
+				depHealth.Message = svc.Error
+			}
+			resp.Dependencies = append(resp.Dependencies, depHealth)
+		}
 	}
 
 	return resp, nil

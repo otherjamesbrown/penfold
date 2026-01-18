@@ -26,6 +26,9 @@ type GatewayConfig struct {
 	// AuthEnabled enables authentication middleware when true.
 	AuthEnabled bool
 
+	// Auth contains authentication-specific configuration.
+	Auth AuthConfig
+
 	// RateLimitEnabled enables rate limiting when true.
 	RateLimitEnabled bool
 
@@ -44,6 +47,22 @@ type GatewayConfig struct {
 
 	// DailyReviewAddress is the gRPC address of the daily review service.
 	DailyReviewAddress string
+}
+
+// AuthConfig holds authentication configuration for the gateway.
+type AuthConfig struct {
+	// JWTSecretKey is the secret key used to validate JWT tokens.
+	JWTSecretKey string
+
+	// JWTIssuer is the expected issuer for JWT tokens (optional).
+	JWTIssuer string
+
+	// RequireTenant when true, requires a tenant ID to be present in requests.
+	RequireTenant bool
+
+	// SkipAuthMethods is a list of gRPC methods to skip authentication for.
+	// Format: "/package.service/method"
+	SkipAuthMethods []string
 }
 
 // RateLimitConfig holds rate limiting configuration for the gateway.
@@ -146,6 +165,28 @@ func loadGatewayEnv(cfg *GatewayConfig) {
 
 	if v := os.Getenv("GATEWAY_AUTH_ENABLED"); v != "" {
 		cfg.AuthEnabled = v == "true" || v == "1"
+	}
+
+	// Auth configuration
+	if v := os.Getenv("GATEWAY_JWT_SECRET_KEY"); v != "" {
+		cfg.Auth.JWTSecretKey = v
+	}
+
+	if v := os.Getenv("GATEWAY_JWT_ISSUER"); v != "" {
+		cfg.Auth.JWTIssuer = v
+	}
+
+	if v := os.Getenv("GATEWAY_REQUIRE_TENANT"); v != "" {
+		cfg.Auth.RequireTenant = v == "true" || v == "1"
+	}
+
+	if v := os.Getenv("GATEWAY_SKIP_AUTH_METHODS"); v != "" {
+		// Comma-separated list of methods to skip
+		methods := strings.Split(v, ",")
+		for i := range methods {
+			methods[i] = strings.TrimSpace(methods[i])
+		}
+		cfg.Auth.SkipAuthMethods = methods
 	}
 
 	if v := os.Getenv("GATEWAY_RATE_LIMIT_ENABLED"); v != "" {
