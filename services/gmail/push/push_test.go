@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -637,4 +638,495 @@ func (m *mockTokenStorage) DeleteToken(ctx context.Context, tenantID string) err
 
 func (m *mockTokenStorage) ListTokens(ctx context.Context) ([]*oauth.Token, error) {
 	return nil, nil
+}
+
+// TestPushMetrics tests the push metrics creation and registration.
+func TestPushMetrics(t *testing.T) {
+	t.Run("NewPushMetrics creates all metrics", func(t *testing.T) {
+		metrics := NewPushMetrics("test", "test_service")
+
+		if metrics.NotificationsReceived == nil {
+			t.Error("NotificationsReceived is nil")
+		}
+		if metrics.NotificationsProcessed == nil {
+			t.Error("NotificationsProcessed is nil")
+		}
+		if metrics.NotificationErrors == nil {
+			t.Error("NotificationErrors is nil")
+		}
+		if metrics.DuplicateNotifications == nil {
+			t.Error("DuplicateNotifications is nil")
+		}
+		if metrics.SubscriptionsCreated == nil {
+			t.Error("SubscriptionsCreated is nil")
+		}
+		if metrics.SubscriptionsRenewed == nil {
+			t.Error("SubscriptionsRenewed is nil")
+		}
+		if metrics.SubscriptionsDeleted == nil {
+			t.Error("SubscriptionsDeleted is nil")
+		}
+		if metrics.SubscriptionErrors == nil {
+			t.Error("SubscriptionErrors is nil")
+		}
+		if metrics.ActiveSubscriptions == nil {
+			t.Error("ActiveSubscriptions is nil")
+		}
+		if metrics.HTTPRequests == nil {
+			t.Error("HTTPRequests is nil")
+		}
+		if metrics.HTTPErrors == nil {
+			t.Error("HTTPErrors is nil")
+		}
+		if metrics.TasksSubmitted == nil {
+			t.Error("TasksSubmitted is nil")
+		}
+		if metrics.TasksProcessing == nil {
+			t.Error("TasksProcessing is nil")
+		}
+		if metrics.TasksCompleted == nil {
+			t.Error("TasksCompleted is nil")
+		}
+		if metrics.TasksFailed == nil {
+			t.Error("TasksFailed is nil")
+		}
+		if metrics.TasksRetried == nil {
+			t.Error("TasksRetried is nil")
+		}
+		if metrics.TasksDropped == nil {
+			t.Error("TasksDropped is nil")
+		}
+		if metrics.TaskLatency == nil {
+			t.Error("TaskLatency is nil")
+		}
+		if metrics.BatchesFlushed == nil {
+			t.Error("BatchesFlushed is nil")
+		}
+		if metrics.NotificationsBatched == nil {
+			t.Error("NotificationsBatched is nil")
+		}
+	})
+
+	t.Run("Register and Unregister", func(t *testing.T) {
+		metrics := NewPushMetrics("test_register", "test_service")
+
+		err := metrics.Register()
+		if err != nil {
+			t.Errorf("Register() error = %v", err)
+		}
+
+		// Unregister should not panic
+		metrics.Unregister()
+	})
+
+	t.Run("double registration handled", func(t *testing.T) {
+		metrics := NewPushMetrics("test_double", "test_service")
+
+		err := metrics.Register()
+		if err != nil {
+			t.Errorf("Register() first call error = %v", err)
+		}
+
+		// Second registration should not error
+		err = metrics.Register()
+		if err != nil {
+			t.Errorf("Register() second call error = %v", err)
+		}
+
+		metrics.Unregister()
+	})
+}
+
+// TestDefaultProcessorConfig tests the default processor configuration.
+func TestDefaultProcessorConfig(t *testing.T) {
+	cfg := DefaultProcessorConfig()
+
+	if cfg.WorkerCount != 5 {
+		t.Errorf("WorkerCount = %d, want 5", cfg.WorkerCount)
+	}
+	if cfg.QueueSize != 1000 {
+		t.Errorf("QueueSize = %d, want 1000", cfg.QueueSize)
+	}
+	if cfg.RetryDelay != 5*time.Second {
+		t.Errorf("RetryDelay = %v, want 5s", cfg.RetryDelay)
+	}
+	if cfg.MaxRetryDelay != 5*time.Minute {
+		t.Errorf("MaxRetryDelay = %v, want 5m", cfg.MaxRetryDelay)
+	}
+	if cfg.MaxRetries != 3 {
+		t.Errorf("MaxRetries = %d, want 3", cfg.MaxRetries)
+	}
+	if cfg.BatchWindow != 2*time.Second {
+		t.Errorf("BatchWindow = %v, want 2s", cfg.BatchWindow)
+	}
+}
+
+// TestDefaultServerConfig tests the default server configuration.
+func TestDefaultServerConfig(t *testing.T) {
+	cfg := DefaultServerConfig()
+
+	if cfg.Address != ":8082" {
+		t.Errorf("Address = %s, want :8082", cfg.Address)
+	}
+	if cfg.DeduplicationWindow != 10*time.Minute {
+		t.Errorf("DeduplicationWindow = %v, want 10m", cfg.DeduplicationWindow)
+	}
+	if cfg.ReadTimeout != 10*time.Second {
+		t.Errorf("ReadTimeout = %v, want 10s", cfg.ReadTimeout)
+	}
+	if cfg.WriteTimeout != 10*time.Second {
+		t.Errorf("WriteTimeout = %v, want 10s", cfg.WriteTimeout)
+	}
+}
+
+// TestSubscriptionStatusValues tests subscription status constants.
+func TestSubscriptionStatusValues(t *testing.T) {
+	tests := []struct {
+		status SubscriptionStatus
+		str    string
+	}{
+		{SubscriptionStatusActive, "active"},
+		{SubscriptionStatusExpired, "expired"},
+		{SubscriptionStatusSuspended, "suspended"},
+		{SubscriptionStatusError, "error"},
+	}
+
+	for _, tt := range tests {
+		if string(tt.status) != tt.str {
+			t.Errorf("SubscriptionStatus = %s, want %s", tt.status, tt.str)
+		}
+	}
+}
+
+// TestMemorySubscriptionStore_ListExpiringSubscriptions tests the expiring subscriptions listing.
+func TestMemorySubscriptionStore_ListExpiringSubscriptions(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemorySubscriptionStore()
+
+	// Add subscriptions with different expiry times.
+	now := time.Now()
+
+	// Expiring within 1 hour
+	expiringSoon := &Subscription{
+		ID:        "sub-expiring",
+		TenantID:  "tenant-1",
+		Email:     "expiring@example.com",
+		Status:    SubscriptionStatusActive,
+		ExpiresAt: now.Add(30 * time.Minute),
+		CreatedAt: now,
+	}
+	_ = store.SaveSubscription(ctx, expiringSoon)
+
+	// Not expiring (7 days out)
+	notExpiring := &Subscription{
+		ID:        "sub-not-expiring",
+		TenantID:  "tenant-2",
+		Email:     "notexpiring@example.com",
+		Status:    SubscriptionStatusActive,
+		ExpiresAt: now.Add(7 * 24 * time.Hour),
+		CreatedAt: now,
+	}
+	_ = store.SaveSubscription(ctx, notExpiring)
+
+	// Already expired
+	expired := &Subscription{
+		ID:        "sub-expired",
+		TenantID:  "tenant-3",
+		Email:     "expired@example.com",
+		Status:    SubscriptionStatusActive,
+		ExpiresAt: now.Add(-1 * time.Hour),
+		CreatedAt: now,
+	}
+	_ = store.SaveSubscription(ctx, expired)
+
+	// List expiring within 2 hours
+	expiring, err := store.ListExpiringSubscriptions(ctx, 2*time.Hour)
+	if err != nil {
+		t.Fatalf("ListExpiringSubscriptions() error = %v", err)
+	}
+
+	// Should include the expiring and expired subscriptions
+	if len(expiring) != 2 {
+		t.Errorf("ListExpiringSubscriptions() returned %d, want 2", len(expiring))
+	}
+}
+
+// TestMemorySubscriptionStore_UpdateLastNotification tests updating last notification time.
+func TestMemorySubscriptionStore_UpdateLastNotification(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemorySubscriptionStore()
+
+	// Add a subscription
+	sub := &Subscription{
+		ID:        "sub-update",
+		TenantID:  "tenant-1",
+		Email:     "update@example.com",
+		Status:    SubscriptionStatusActive,
+		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+		HistoryID: 1000,
+		CreatedAt: time.Now(),
+	}
+	_ = store.SaveSubscription(ctx, sub)
+
+	// Update last notification
+	notificationTime := time.Now()
+	err := store.UpdateLastNotification(ctx, "sub-update", notificationTime)
+	if err != nil {
+		t.Fatalf("UpdateLastNotification() error = %v", err)
+	}
+
+	// Verify update
+	updated, err := store.GetSubscriptionByID(ctx, "sub-update")
+	if err != nil {
+		t.Fatalf("GetSubscriptionByID() error = %v", err)
+	}
+	if updated.LastNotificationAt.IsZero() {
+		t.Error("LastNotificationAt should be set")
+	}
+}
+
+// TestMemorySubscriptionStore_UpdateLastNotification_NotFound tests updating non-existent subscription.
+func TestMemorySubscriptionStore_UpdateLastNotification_NotFound(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemorySubscriptionStore()
+
+	err := store.UpdateLastNotification(ctx, "non-existent", time.Now())
+	if err != ErrSubscriptionNotFound {
+		t.Errorf("UpdateLastNotification() error = %v, want ErrSubscriptionNotFound", err)
+	}
+}
+
+// TestMemorySubscriptionStore_GetByEmail_NotFound tests getting by email when not found.
+func TestMemorySubscriptionStore_GetByEmail_NotFound(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemorySubscriptionStore()
+
+	_, err := store.GetSubscriptionByEmail(ctx, "notfound@example.com")
+	if err != ErrSubscriptionNotFound {
+		t.Errorf("GetSubscriptionByEmail() error = %v, want ErrSubscriptionNotFound", err)
+	}
+}
+
+// TestMemorySubscriptionStore_GetByTenant_NotFound tests getting by tenant when not found.
+func TestMemorySubscriptionStore_GetByTenant_NotFound(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemorySubscriptionStore()
+
+	_, err := store.GetSubscriptionByTenant(ctx, "tenant-notfound")
+	if err != ErrSubscriptionNotFound {
+		t.Errorf("GetSubscriptionByTenant() error = %v, want ErrSubscriptionNotFound", err)
+	}
+}
+
+// TestMemorySubscriptionStore_DeleteNonExistent tests deleting non-existent subscription.
+func TestMemorySubscriptionStore_DeleteNonExistent(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemorySubscriptionStore()
+
+	err := store.DeleteSubscription(ctx, "non-existent")
+	if err != ErrSubscriptionNotFound {
+		t.Errorf("DeleteSubscription() error = %v, want ErrSubscriptionNotFound", err)
+	}
+}
+
+// TestProcessingTask_Fields tests ProcessingTask field access.
+func TestProcessingTask_Fields(t *testing.T) {
+	now := time.Now()
+	testErr := fmt.Errorf("connection timeout")
+	task := &ProcessingTask{
+		NotificationID: "notif-123",
+		TenantID:       "tenant-1",
+		EmailAddress:   "test@example.com",
+		HistoryID:      12345,
+		ReceivedAt:     now,
+		Attempt:        2,
+		LastError:      testErr,
+	}
+
+	if task.NotificationID != "notif-123" {
+		t.Errorf("NotificationID = %s, want notif-123", task.NotificationID)
+	}
+	if task.TenantID != "tenant-1" {
+		t.Errorf("TenantID = %s, want tenant-1", task.TenantID)
+	}
+	if task.EmailAddress != "test@example.com" {
+		t.Errorf("EmailAddress = %s, want test@example.com", task.EmailAddress)
+	}
+	if task.HistoryID != 12345 {
+		t.Errorf("HistoryID = %d, want 12345", task.HistoryID)
+	}
+	if task.Attempt != 2 {
+		t.Errorf("Attempt = %d, want 2", task.Attempt)
+	}
+	if task.LastError == nil || task.LastError.Error() != "connection timeout" {
+		t.Errorf("LastError = %v, want connection timeout", task.LastError)
+	}
+}
+
+// TestPushNotification_Fields tests PushNotification struct fields.
+func TestPushNotification_Fields(t *testing.T) {
+	pubTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	notif := PushNotification{
+		Message: PubSubMessage{
+			MessageID:   "msg-123",
+			Data:        "base64data",
+			PublishTime: pubTime,
+			Attributes: map[string]string{
+				"key": "value",
+			},
+		},
+		Subscription: "projects/test/subscriptions/gmail",
+	}
+
+	if notif.Message.MessageID != "msg-123" {
+		t.Errorf("MessageID = %s, want msg-123", notif.Message.MessageID)
+	}
+	if notif.Message.Data != "base64data" {
+		t.Errorf("Data = %s, want base64data", notif.Message.Data)
+	}
+	if notif.Subscription != "projects/test/subscriptions/gmail" {
+		t.Errorf("Subscription = %s", notif.Subscription)
+	}
+	if notif.Message.Attributes["key"] != "value" {
+		t.Errorf("Attributes[key] = %s, want value", notif.Message.Attributes["key"])
+	}
+	if !notif.Message.PublishTime.Equal(pubTime) {
+		t.Errorf("PublishTime = %v, want %v", notif.Message.PublishTime, pubTime)
+	}
+}
+
+// TestGmailNotificationData_Fields tests GmailNotificationData struct fields.
+func TestGmailNotificationData_Fields(t *testing.T) {
+	data := GmailNotificationData{
+		EmailAddress: "test@example.com",
+		HistoryID:    12345,
+	}
+
+	if data.EmailAddress != "test@example.com" {
+		t.Errorf("EmailAddress = %s, want test@example.com", data.EmailAddress)
+	}
+	if data.HistoryID != 12345 {
+		t.Errorf("HistoryID = %d, want 12345", data.HistoryID)
+	}
+}
+
+// TestSubscription_Fields tests Subscription struct fields.
+func TestSubscription_Fields(t *testing.T) {
+	now := time.Now()
+	sub := Subscription{
+		ID:                 "sub-123",
+		TenantID:           "tenant-1",
+		Email:              "test@example.com",
+		TopicName:          "projects/test/topics/gmail",
+		HistoryID:          12345,
+		ExpiresAt:          now.Add(7 * 24 * time.Hour),
+		Status:             SubscriptionStatusActive,
+		LastNotificationAt: now,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+
+	if sub.ID != "sub-123" {
+		t.Errorf("ID = %s, want sub-123", sub.ID)
+	}
+	if sub.TenantID != "tenant-1" {
+		t.Errorf("TenantID = %s, want tenant-1", sub.TenantID)
+	}
+	if sub.Email != "test@example.com" {
+		t.Errorf("Email = %s, want test@example.com", sub.Email)
+	}
+	if sub.Status != SubscriptionStatusActive {
+		t.Errorf("Status = %s, want %s", sub.Status, SubscriptionStatusActive)
+	}
+	if sub.TopicName != "projects/test/topics/gmail" {
+		t.Errorf("TopicName = %s, want projects/test/topics/gmail", sub.TopicName)
+	}
+	if sub.HistoryID != 12345 {
+		t.Errorf("HistoryID = %d, want 12345", sub.HistoryID)
+	}
+}
+
+// TestErrors tests error constants.
+func TestPushErrors(t *testing.T) {
+	if ErrSubscriptionNotFound == nil {
+		t.Error("ErrSubscriptionNotFound is nil")
+	}
+	// Verify the error message is as expected.
+	if ErrSubscriptionNotFound.Error() != "push: subscription not found" {
+		t.Errorf("ErrSubscriptionNotFound.Error() = %s, want 'push: subscription not found'", ErrSubscriptionNotFound.Error())
+	}
+}
+
+// TestServerConfig_Fields tests ServerConfig struct fields.
+func TestServerConfig_Fields(t *testing.T) {
+	cfg := ServerConfig{
+		Address:             ":9090",
+		AuthToken:           "secret-token",
+		DeduplicationWindow: 10 * time.Minute,
+		ReadTimeout:         30 * time.Second,
+		WriteTimeout:        60 * time.Second,
+		MaxRequestSize:      1024 * 1024,
+	}
+
+	if cfg.Address != ":9090" {
+		t.Errorf("Address = %s, want :9090", cfg.Address)
+	}
+	if cfg.AuthToken != "secret-token" {
+		t.Errorf("AuthToken = %s, want secret-token", cfg.AuthToken)
+	}
+	if cfg.DeduplicationWindow != 10*time.Minute {
+		t.Errorf("DeduplicationWindow = %v, want 10m", cfg.DeduplicationWindow)
+	}
+	if cfg.ReadTimeout != 30*time.Second {
+		t.Errorf("ReadTimeout = %v, want 30s", cfg.ReadTimeout)
+	}
+	if cfg.WriteTimeout != 60*time.Second {
+		t.Errorf("WriteTimeout = %v, want 60s", cfg.WriteTimeout)
+	}
+	if cfg.MaxRequestSize != 1024*1024 {
+		t.Errorf("MaxRequestSize = %d, want %d", cfg.MaxRequestSize, 1024*1024)
+	}
+}
+
+// TestHandlerConfig_Fields tests HandlerConfig struct fields.
+func TestHandlerConfig_Fields(t *testing.T) {
+	store := NewMemorySubscriptionStore()
+	cfg := HandlerConfig{
+		SubscriptionStore: store,
+	}
+
+	if cfg.SubscriptionStore != store {
+		t.Error("SubscriptionStore mismatch")
+	}
+}
+
+// TestProcessorConfig_Fields tests ProcessorConfig struct fields.
+func TestProcessorConfig_Fields(t *testing.T) {
+	cfg := ProcessorConfig{
+		WorkerCount:   10,
+		QueueSize:     500,
+		RetryDelay:    2 * time.Second,
+		MaxRetryDelay: 10 * time.Minute,
+		MaxRetries:    3,
+		BatchWindow:   5 * time.Second,
+	}
+
+	if cfg.WorkerCount != 10 {
+		t.Errorf("WorkerCount = %d, want 10", cfg.WorkerCount)
+	}
+	if cfg.QueueSize != 500 {
+		t.Errorf("QueueSize = %d, want 500", cfg.QueueSize)
+	}
+	if cfg.RetryDelay != 2*time.Second {
+		t.Errorf("RetryDelay = %v, want 2s", cfg.RetryDelay)
+	}
+	if cfg.MaxRetryDelay != 10*time.Minute {
+		t.Errorf("MaxRetryDelay = %v, want 10m", cfg.MaxRetryDelay)
+	}
+	if cfg.MaxRetries != 3 {
+		t.Errorf("MaxRetries = %d, want 3", cfg.MaxRetries)
+	}
+	if cfg.BatchWindow != 5*time.Second {
+		t.Errorf("BatchWindow = %v, want 5s", cfg.BatchWindow)
+	}
 }
