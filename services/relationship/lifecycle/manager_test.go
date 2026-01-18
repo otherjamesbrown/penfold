@@ -793,3 +793,379 @@ func TestState_IsTerminal(t *testing.T) {
 		})
 	}
 }
+
+// ============================================================================
+// Additional Tests for Coverage Improvement
+// ============================================================================
+
+func TestManager_CreateWithNoStore(t *testing.T) {
+	logger := newTestLogger()
+	publisher := NewInMemoryEventPublisher(logger, 100)
+
+	manager := NewManager(&ManagerConfig{
+		Logger:         logger,
+		Store:          nil,
+		EventPublisher: publisher,
+	})
+
+	ctx := context.Background()
+	rel := createTestRelationship("tenant-1", "", 0.5)
+
+	err := manager.Create(ctx, rel)
+	if err != nil {
+		t.Fatalf("Expected no error without store, got: %v", err)
+	}
+}
+
+func TestManager_UpdateWithNilUpdate(t *testing.T) {
+	store := newMockStore()
+	logger := newTestLogger()
+
+	manager := NewManager(&ManagerConfig{
+		Logger: logger,
+		Store:  store,
+	})
+
+	ctx := context.Background()
+
+	err := manager.Update(ctx, "tenant-1", "rel-1", nil)
+	if err == nil {
+		t.Error("Expected error for nil update")
+	}
+}
+
+func TestManager_UpdateNotes(t *testing.T) {
+	store := newMockStore()
+	logger := newTestLogger()
+
+	manager := NewManager(&ManagerConfig{
+		Logger: logger,
+		Store:  store,
+	})
+
+	ctx := context.Background()
+
+	rel := createTestRelationship("tenant-1", "rel-notes", 0.5)
+	store.Save(ctx, rel)
+
+	notes := "Updated notes"
+	update := &RelationshipUpdate{
+		Notes: &notes,
+	}
+
+	err := manager.Update(ctx, "tenant-1", "rel-notes", update)
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	updated, _ := store.Get(ctx, "tenant-1", "rel-notes")
+	if updated.Notes == nil || *updated.Notes != "Updated notes" {
+		t.Error("Notes not updated correctly")
+	}
+}
+
+func TestStateMachine_GetValidTransitions(t *testing.T) {
+	sm := NewStateMachine(&StateMachineConfig{Logger: newTestLogger()})
+
+	// Test valid transitions from proposed state
+	validTargets := sm.GetValidTransitions(StateProposed)
+	if len(validTargets) == 0 {
+		t.Error("Expected valid transitions from proposed state")
+	}
+
+	// Check that active is a valid target
+	hasActive := false
+	for _, target := range validTargets {
+		if target == StateActive {
+			hasActive = true
+			break
+		}
+	}
+	if !hasActive {
+		t.Error("Expected StateActive as valid target from StateProposed")
+	}
+
+	// Test merged state (terminal, no valid transitions)
+	mergedTargets := sm.GetValidTransitions(StateMerged)
+	if len(mergedTargets) != 0 {
+		t.Error("Expected no valid transitions from merged state")
+	}
+}
+
+func TestStateMachine_GetHistoryNoStore(t *testing.T) {
+	sm := NewStateMachine(&StateMachineConfig{
+		Logger:       newTestLogger(),
+		HistoryStore: nil,
+	})
+
+	ctx := context.Background()
+	_, err := sm.GetHistory(ctx, "tenant-1", "rel-1")
+	if err == nil {
+		t.Error("Expected error when history store not configured")
+	}
+}
+
+func TestTransitionHistory_Methods(t *testing.T) {
+	history := &TransitionHistory{
+		RelationshipID: "rel-1",
+		TenantID:       "tenant-1",
+		CurrentState:   StateProposed,
+	}
+
+	// Test empty history
+	if history.GetLatestTransition() != nil {
+		t.Error("Expected nil for empty history")
+	}
+
+	if history.GetTransitionCount() != 0 {
+		t.Error("Expected 0 transitions")
+	}
+
+	// Add transitions
+	t1 := StateTransition{
+		ID:   "trans-1",
+		From: StateProposed,
+		To:   StateActive,
+	}
+	history.AddTransition(t1)
+
+	t2 := StateTransition{
+		ID:   "trans-2",
+		From: StateActive,
+		To:   StateArchived,
+	}
+	history.AddTransition(t2)
+
+	if history.GetTransitionCount() != 2 {
+		t.Error("Expected 2 transitions")
+	}
+
+	latest := history.GetLatestTransition()
+	if latest == nil || latest.ID != "trans-2" {
+		t.Error("Expected latest transition to be trans-2")
+	}
+
+	// Test GetTransitionsByState
+	archivedTrans := history.GetTransitionsByState(StateArchived)
+	if len(archivedTrans) != 1 {
+		t.Errorf("Expected 1 transition to archived, got %d", len(archivedTrans))
+	}
+}
+
+func TestEventBuilder_Methods(t *testing.T) {
+	event := NewEventBuilder(EventRelationshipCreated).
+		WithRelationshipID("rel-1").
+		WithTenantID("tenant-1").
+		WithActor("test-actor").
+		WithData("key1", "value1").
+		WithMetadata("meta1", "metavalue1").
+		WithTimestamp(time.Now()).
+		Build()
+
+	if event.RelationshipID != "rel-1" {
+		t.Error("RelationshipID not set correctly")
+	}
+	if event.TenantID != "tenant-1" {
+		t.Error("TenantID not set correctly")
+	}
+	if event.Actor != "test-actor" {
+		t.Error("Actor not set correctly")
+	}
+	if event.Data["key1"] != "value1" {
+		t.Error("Data not set correctly")
+	}
+	if event.Metadata["meta1"] != "metavalue1" {
+		t.Error("Metadata not set correctly")
+	}
+}
+
+func TestEventBuilder_WithRelationship(t *testing.T) {
+	rel := createTestRelationship("tenant-1", "rel-1", 0.5)
+
+	event := NewEventBuilder(EventRelationshipCreated).
+		WithRelationship(rel).
+		Build()
+
+	if event.RelationshipID != rel.Id {
+		t.Error("RelationshipID not set from relationship")
+	}
+	if event.TenantID != rel.TenantId {
+		t.Error("TenantID not set from relationship")
+	}
+}
+
+func TestEventBuilder_WithStateChange(t *testing.T) {
+	event := NewEventBuilder(EventRelationshipStateChanged).
+		WithStateChange(StateProposed, StateActive).
+		Build()
+
+	if event.PreviousState == nil || *event.PreviousState != StateProposed {
+		t.Error("PreviousState not set correctly")
+	}
+	if event.NewState == nil || *event.NewState != StateActive {
+		t.Error("NewState not set correctly")
+	}
+}
+
+func TestEventFactory_AllEventTypes(t *testing.T) {
+	factory := NewEventFactory("test-actor")
+	rel := createTestRelationship("tenant-1", "rel-1", 0.5)
+
+	// Test event types
+	created := factory.CreatedEvent(rel, "")
+	if created.Type != EventRelationshipCreated {
+		t.Error("CreatedEvent type incorrect")
+	}
+
+	updated := factory.UpdatedEvent(rel, "", map[string]interface{}{"key": "value"})
+	if updated.Type != EventRelationshipUpdated {
+		t.Error("UpdatedEvent type incorrect")
+	}
+
+	stateChanged := factory.StateChangedEvent(rel, StateProposed, StateActive, "test", "")
+	if stateChanged.Type != EventRelationshipStateChanged {
+		t.Error("StateChangedEvent type incorrect")
+	}
+
+	archived := factory.ArchivedEvent(rel, "reason", "")
+	if archived.Type != EventRelationshipArchived {
+		t.Error("ArchivedEvent type incorrect")
+	}
+
+	restored := factory.RestoredEvent(rel, "")
+	if restored.Type != EventRelationshipRestored {
+		t.Error("RestoredEvent type incorrect")
+	}
+
+	merged := factory.MergedEvent("source-1", "target-1", "tenant-1", "duplicate", "", 5)
+	if merged.Type != EventRelationshipMerged {
+		t.Error("MergedEvent type incorrect")
+	}
+
+	confirmed := factory.ConfirmedEvent(rel, "")
+	if confirmed.Type != EventRelationshipConfirmed {
+		t.Error("ConfirmedEvent type incorrect")
+	}
+
+	rejected := factory.RejectedEvent(rel, "not valid", "")
+	if rejected.Type != EventRelationshipRejected {
+		t.Error("RejectedEvent type incorrect")
+	}
+
+	evidenceAdded := factory.EvidenceAddedEvent(rel, 3, "")
+	if evidenceAdded.Type != EventEvidenceAdded {
+		t.Error("EvidenceAddedEvent type incorrect")
+	}
+}
+
+func TestAuditLogger(t *testing.T) {
+	logger := newTestLogger()
+	auditLogger := NewAuditLogger(logger)
+
+	ctx := context.Background()
+	event := NewEventBuilder(EventRelationshipCreated).
+		WithRelationshipID("rel-1").
+		WithTenantID("tenant-1").
+		WithActor("test-actor").
+		Build()
+
+	err := auditLogger.LogEvent(ctx, event)
+	if err != nil {
+		t.Errorf("LogEvent failed: %v", err)
+	}
+
+	// Test handler
+	handler := auditLogger.CreateAuditHandler()
+	err = handler(ctx, event)
+	if err != nil {
+		t.Errorf("Audit handler failed: %v", err)
+	}
+}
+
+func TestInMemoryEventPublisher_NilEvent(t *testing.T) {
+	logger := newTestLogger()
+	publisher := NewInMemoryEventPublisher(logger, 100)
+
+	ctx := context.Background()
+	err := publisher.Publish(ctx, nil)
+	if err == nil {
+		t.Error("Expected error for nil event")
+	}
+}
+
+func TestInMemoryEventPublisher_Close(t *testing.T) {
+	logger := newTestLogger()
+	publisher := NewInMemoryEventPublisher(logger, 100)
+
+	err := publisher.Close()
+	if err != nil {
+		t.Errorf("Close failed: %v", err)
+	}
+}
+
+func TestValidation_ValidateRestoreNonArchived(t *testing.T) {
+	validator := DefaultValidator()
+	ctx := context.Background()
+
+	rel := createTestRelationship("tenant-1", "rel-1", 0.5)
+	rel.Status = relationshipv1.RelationshipStatus_RELATIONSHIP_STATUS_CONFIRMED
+
+	result := validator.ValidateRestore(ctx, rel)
+	if result.Valid {
+		t.Error("Expected invalid result for restoring non-archived relationship")
+	}
+}
+
+func TestValidation_ValidateMergeIntoArchivedTarget(t *testing.T) {
+	validator := DefaultValidator()
+	ctx := context.Background()
+
+	source := createTestRelationship("tenant-1", "source-1", 0.5)
+	target := createTestRelationship("tenant-1", "target-1", 0.5)
+	target.Status = relationshipv1.RelationshipStatus_RELATIONSHIP_STATUS_ARCHIVED
+
+	result := validator.ValidateMerge(ctx, source, target)
+	if result.Valid {
+		t.Error("Expected invalid result for merging into archived target")
+	}
+}
+
+func TestValidation_NilEntity(t *testing.T) {
+	validator := DefaultValidator()
+	ctx := context.Background()
+
+	rel := &relationshipv1.Relationship{
+		TenantId: "tenant-1",
+		SourceEntity: &relationshipv1.Entity{
+			Type: relationshipv1.EntityType_ENTITY_TYPE_PERSON,
+		},
+		TargetEntity: &relationshipv1.Entity{
+			Name: "Target",
+			Type: relationshipv1.EntityType_ENTITY_TYPE_ORGANIZATION,
+		},
+		RelationshipType: relationshipv1.RelationshipType_RELATIONSHIP_TYPE_WORKS_AT,
+		Confidence:       0.5,
+	}
+
+	result := validator.ValidateCreate(ctx, rel)
+	if result.Valid {
+		t.Error("Expected invalid result for missing entity name")
+	}
+}
+
+func TestNewManager_NilConfig(t *testing.T) {
+	manager := NewManager(nil)
+	if manager == nil {
+		t.Error("Expected non-nil manager with nil config")
+	}
+}
+
+func TestDefaultDecayDetector(t *testing.T) {
+	detector := DefaultDecayDetector()
+	if detector == nil {
+		t.Error("Expected non-nil default decay detector")
+	}
+	if detector.InactivePeriod != 180*24*time.Hour {
+		t.Error("Expected default inactive period of 180 days")
+	}
+}

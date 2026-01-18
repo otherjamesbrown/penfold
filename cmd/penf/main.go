@@ -620,6 +620,8 @@ func init() {
 	rootCmd.AddCommand(cmd.AuthCmd)
 	rootCmd.AddCommand(cmd.NewTenantCommand(nil))
 	rootCmd.AddCommand(cmd.NewSearchCommand(nil))
+	rootCmd.AddCommand(cmd.NewIngestCommand(nil))
+	rootCmd.AddCommand(cmd.NewReviewCommand(nil))
 	rootCmd.AddCommand(cmd.NewAICommand(nil))
 	rootCmd.AddCommand(cmd.NewWorkflowCommand(nil))
 	rootCmd.AddCommand(cmd.NewLogsCommand(nil))
