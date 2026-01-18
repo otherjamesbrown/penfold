@@ -1,593 +1,639 @@
-# Event Router Specification
+# Workflow Orchestrator Specification
 
 ## Overview
 
-The Event Router is the central event orchestration service. It subscribes to Redis pub-sub channels, manages event routing to appropriate handlers, and orchestrates the job processing state machine.
+The Workflow Orchestrator is the central processing coordination service built on Temporal. It manages multi-step AI processing workflows with proper backpressure, retry handling, and observability. This replaces Redis pub/sub with Temporal's durable workflow execution.
 
 ## Responsibilities
 
-1. **Event Subscription**: Subscribe to all Redis event channels
-2. **Event Routing**: Direct events to appropriate processing services
-3. **Job Orchestration**: Manage processing job lifecycle
-4. **Retry Management**: Handle failed jobs with exponential backoff
-5. **Dead Letter Queue**: Capture permanently failed events
-6. **Event Persistence**: PostgreSQL fallback for reliability
-7. **Metrics**: Event throughput, latency, failure rates
+1. **Workflow Execution**: Coordinate multi-step AI processing pipelines
+2. **Activity Management**: Execute discrete processing steps with proper timeouts
+3. **Retry Management**: Built-in retry policies with exponential backoff
+4. **Heartbeat Monitoring**: Track long-running LLM operations
+5. **Backpressure**: Task queue with persistence prevents message loss
+6. **Observability**: Full execution history visible in Temporal UI
+7. **Metrics**: Workflow throughput, latency, failure rates
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           Event Router                                   │
-│                                                                          │
-│  ┌────────────────────────────────────────────────────────────────┐    │
-│  │                    Redis Subscriber                             │    │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐          │    │
-│  │  │content.* │ │ email.*  │ │relation.*│ │  job.*   │          │    │
-│  │  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘          │    │
-│  └───────┼────────────┼────────────┼────────────┼─────────────────┘    │
-│          │            │            │            │                       │
-│          └────────────┴────────────┴────────────┘                       │
-│                              │                                          │
-│                              ▼                                          │
-│  ┌────────────────────────────────────────────────────────────────┐    │
-│  │                    Event Dispatcher                             │    │
-│  │                                                                 │    │
-│  │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐       │    │
-│  │   │  Filter &   │───▶│   Route &   │───▶│   Dispatch  │       │    │
-│  │   │  Validate   │    │   Enrich    │    │   to Service│       │    │
-│  │   └─────────────┘    └─────────────┘    └─────────────┘       │    │
-│  └────────────────────────────────────────────────────────────────┘    │
-│                              │                                          │
-│          ┌───────────────────┼───────────────────┐                     │
-│          ▼                   ▼                   ▼                      │
-│  ┌───────────────┐   ┌───────────────┐   ┌───────────────┐            │
-│  │   Job Queue   │   │  Retry Queue  │   │  Dead Letter  │            │
-│  │               │   │               │   │    Queue      │            │
-│  └───────┬───────┘   └───────┬───────┘   └───────────────┘            │
-│          │                   │                                          │
-│          └───────────────────┘                                          │
-│                    │                                                    │
-│                    ▼                                                    │
-│  ┌────────────────────────────────────────────────────────────────┐    │
-│  │                    Job Manager                                  │    │
-│  │                                                                 │    │
-│  │   State Machine: QUEUED → CLAIMED → IN_PROGRESS → COMPLETED    │    │
-│  │                           ↓              ↓                      │    │
-│  │                        FAILED ← ← ←  RETRYING                  │    │
-│  └────────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────┘
-            │                                      │
-            ▼                                      ▼
-    ┌───────────────┐                      ┌───────────────┐
-    │  PostgreSQL   │                      │    Redis      │
-    │  (jobs, logs) │                      │   (pub-sub)   │
-    └───────────────┘                      └───────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Temporal Server                                    │
+│  ┌─────────────┐    ┌──────────────────┐    ┌─────────────────────────────┐ │
+│  │ Task Queue  │───▶│ Email Processing │───▶│ Execution History           │ │
+│  │ (persisted) │    │ Workflow         │    │ (full visibility)           │ │
+│  └─────────────┘    └──────────────────┘    └─────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────┘
+         ▲                     │
+         │                     ▼
+┌────────┴───────┐    ┌───────────────────────────────────────────────────────┐
+│ Workflow       │    │                    Activities                          │
+│ Starter        │    │  ┌────────────┐  ┌────────────┐  ┌─────────────────┐  │
+│ (CLI/Gateway   │    │  │ Fetch      │  │ Generate   │  │ Generate        │  │
+│  triggers)     │    │  │ Source     │  │ Embedding  │  │ Summary         │  │
+└────────────────┘    │  └────────────┘  └────────────┘  └─────────────────┘  │
+                      │  ┌────────────┐  ┌────────────┐  ┌─────────────────┐  │
+                      │  │ Extract    │  │ Store      │  │ Update          │  │
+                      │  │ Assertions │  │ Results    │  │ Status          │  │
+                      │  └────────────┘  └────────────┘  └─────────────────┘  │
+                      └───────────────────────────────────────────────────────┘
+                                         │
+                      ┌──────────────────┼──────────────────┐
+                      ▼                  ▼                  ▼
+               MLX Sidecar          vLLM-MLX          PostgreSQL
+               (embeddings)         (LLM)             (storage)
+               :8087                :8000
 ```
 
-## Event Types
+## Why Temporal over Redis Pub/Sub
 
-### Content Events
+| Problem with Redis Pub/Sub | Temporal Solution |
+|---------------------------|-------------------|
+| Messages dropped when buffer full | Task queue with persistence |
+| No visibility into processing state | Full execution history in Web UI |
+| Manual retry/circuit breaker logic | Built-in retry policies |
+| No dead letter handling | Failed workflows visible & retryable |
+| Difficult to add preprocessing steps | Workflows as code - easy to extend |
+
+## Workflow Definitions
+
+### Email Processing Workflow
+
 ```protobuf
-// Events published by content ingestion
+// api/proto/workflow/v1/workflow.proto
 
-message ContentIngestedEvent {
-  string event_id = 1;
-  string tenant_id = 2;
-  string source_id = 3;
-  string source_type = 4;  // email, meeting, document
-  string content = 5;
-  map<string, string> metadata = 6;
-  google.protobuf.Timestamp timestamp = 7;
-}
+syntax = "proto3";
+package workflow.v1;
 
-message ContentProcessedEvent {
-  string event_id = 1;
-  string source_id = 2;
-  ProcessingResult result = 3;
-  repeated string job_ids = 4;
-}
-```
+import "google/protobuf/timestamp.proto";
 
-### Email Events
-```protobuf
-message EmailIngestedEvent {
-  string event_id = 1;
-  string tenant_id = 2;
+// Workflow input for email processing
+message EmailProcessingInput {
+  string tenant_id = 1;
+  int64 source_id = 2;
   string message_id = 3;
   string thread_id = 4;
-  string account_email = 5;
-  string subject = 6;
-  string snippet = 7;
-  repeated string labels = 8;
-  EmailParticipants participants = 9;
-  google.protobuf.Timestamp received_at = 10;
+  string from_email = 5;
+  optional string from_name = 6;
+  optional string subject = 7;
+  repeated string to_emails = 8;
+  repeated string cc_emails = 9;
+  google.protobuf.Timestamp email_date = 10;
+  string content_hash = 11;
+  string job_id = 12;
 }
 
-message EmailThreadIngestedEvent {
-  string event_id = 1;
-  string tenant_id = 2;
-  string thread_id = 3;
-  repeated string message_ids = 4;
-  int32 message_count = 5;
+// Workflow result
+message EmailProcessingResult {
+  int64 source_id = 1;
+  optional int64 embedding_id = 2;
+  optional int64 summary_id = 3;
+  int32 assertion_count = 4;
+  string status = 5;  // completed, failed
+  optional string error = 6;
+}
+
+// Content processing workflow input
+message ContentProcessingInput {
+  string tenant_id = 1;
+  string source_id = 2;
+  string source_type = 3;  // email, meeting, document
+  string content = 4;
+  map<string, string> metadata = 5;
+}
+
+// Relationship discovery workflow input
+message RelationshipDiscoveryInput {
+  string tenant_id = 1;
+  string source_id = 2;
+  repeated string entity_ids = 3;
 }
 ```
 
-### Relationship Events
+### Activity Messages
+
 ```protobuf
-message RelationshipDiscoveredEvent {
-  string event_id = 1;
-  string tenant_id = 2;
-  string relationship_id = 3;
-  string source_entity_id = 4;
-  string target_entity_id = 5;
-  string relationship_type = 6;
-  float confidence = 7;
-  repeated string evidence_ids = 8;
+// Activity inputs and outputs
+
+message FetchSourceInput {
+  string tenant_id = 1;
+  int64 source_id = 2;
 }
 
-message RelationshipValidatedEvent {
-  string event_id = 1;
-  string relationship_id = 2;
-  bool confirmed = 3;
-  string user_id = 4;
-  string feedback = 5;
-}
-```
-
-### Job Events
-```protobuf
-message JobCreatedEvent {
-  string job_id = 1;
-  string tenant_id = 2;
-  string job_type = 3;
-  string source_id = 4;
-  JobPriority priority = 5;
+message FetchSourceOutput {
+  string content_text = 1;
+  map<string, string> metadata = 2;
 }
 
-message JobCompletedEvent {
-  string job_id = 1;
-  bool success = 2;
-  string result = 3;
-  int64 duration_ms = 4;
+message GenerateEmbeddingInput {
+  string tenant_id = 1;
+  int64 source_id = 2;
+  string content = 3;
+  string content_hash = 4;
 }
 
-message JobFailedEvent {
-  string job_id = 1;
-  string error = 2;
-  int32 retry_count = 3;
-  bool will_retry = 4;
+message GenerateSummaryInput {
+  string tenant_id = 1;
+  int64 source_id = 2;
+  string job_id = 3;
+  string content = 4;
+}
+
+message ExtractAssertionsInput {
+  string tenant_id = 1;
+  int64 source_id = 2;
+  string job_id = 3;
+  string content = 4;
 }
 ```
 
-## Event Subscription
+## Workflow Implementation
 
 ```go
-// internal/subscriber/subscriber.go
+// internal/workflows/email.go
 
-type EventSubscriber struct {
-    redis      *redis.Client
-    dispatcher *Dispatcher
-    channels   []string
-}
+package workflows
 
-var eventChannels = []string{
-    "events:content.ingested",
-    "events:content.processed",
-    "events:email.ingested",
-    "events:email.thread_ingested",
-    "events:email.attachment_ingested",
-    "events:manual_email.ingested",
-    "events:relationship.discovered",
-    "events:relationship.validated",
-    "events:job.created",
-    "events:job.completed",
-    "events:job.failed",
-    "events:sync.progress",
-    "events:sync.completed",
-}
-
-func (s *EventSubscriber) Start(ctx context.Context) error {
-    pubsub := s.redis.PSubscribe(ctx, "events:*")
-    defer pubsub.Close()
-
-    ch := pubsub.Channel()
-
-    for {
-        select {
-        case <-ctx.Done():
-            return ctx.Err()
-        case msg := <-ch:
-            if err := s.handleMessage(ctx, msg); err != nil {
-                slog.Error("failed to handle message",
-                    "channel", msg.Channel,
-                    "error", err,
-                )
-            }
-        }
-    }
-}
-
-func (s *EventSubscriber) handleMessage(ctx context.Context, msg *redis.Message) error {
-    // Parse event type from channel
-    eventType := strings.TrimPrefix(msg.Channel, "events:")
-
-    // Parse event payload
-    var event BaseEvent
-    if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
-        return fmt.Errorf("failed to unmarshal event: %w", err)
-    }
-
-    // Add event type
-    event.Type = eventType
-
-    // Persist to PostgreSQL for durability
-    if err := s.persistEvent(ctx, &event); err != nil {
-        slog.Warn("failed to persist event", "event_id", event.ID, "error", err)
-    }
-
-    // Dispatch to appropriate handler
-    return s.dispatcher.Dispatch(ctx, &event)
-}
-```
-
-## Event Dispatcher
-
-```go
-// internal/dispatcher/dispatcher.go
-
-type Dispatcher struct {
-    handlers map[string][]EventHandler
-    jobMgr   *JobManager
-}
-
-type EventHandler interface {
-    Handle(ctx context.Context, event *BaseEvent) error
-}
-
-func (d *Dispatcher) RegisterHandler(eventType string, handler EventHandler) {
-    d.handlers[eventType] = append(d.handlers[eventType], handler)
-}
-
-func (d *Dispatcher) Dispatch(ctx context.Context, event *BaseEvent) error {
-    handlers, ok := d.handlers[event.Type]
-    if !ok {
-        slog.Debug("no handlers for event type", "type", event.Type)
-        return nil
-    }
-
-    // Fan-out to all registered handlers
-    var wg sync.WaitGroup
-    errors := make(chan error, len(handlers))
-
-    for _, handler := range handlers {
-        wg.Add(1)
-        go func(h EventHandler) {
-            defer wg.Done()
-            if err := h.Handle(ctx, event); err != nil {
-                errors <- fmt.Errorf("handler failed: %w", err)
-            }
-        }(handler)
-    }
-
-    wg.Wait()
-    close(errors)
-
-    // Collect errors
-    var errs []error
-    for err := range errors {
-        errs = append(errs, err)
-    }
-
-    if len(errs) > 0 {
-        return fmt.Errorf("dispatch errors: %v", errs)
-    }
-
-    return nil
-}
-```
-
-## Job Manager
-
-```go
-// internal/jobs/manager.go
-
-type JobManager struct {
-    db           *pgxpool.Pool
-    redis        *redis.Client
-    workerPools  map[string]*WorkerPool
-}
-
-type JobState string
-
-const (
-    JobQueued     JobState = "QUEUED"
-    JobClaimed    JobState = "CLAIMED"
-    JobInProgress JobState = "IN_PROGRESS"
-    JobCompleted  JobState = "COMPLETED"
-    JobFailed     JobState = "FAILED"
-    JobRetrying   JobState = "RETRYING"
-    JobCancelled  JobState = "CANCELLED"
+import (
+    "time"
+    "go.temporal.io/sdk/workflow"
+    "go.temporal.io/sdk/temporal"
 )
 
-type Job struct {
-    ID          string
-    TenantID    string
-    Type        string
-    SourceID    string
-    State       JobState
-    Priority    int
-    Payload     json.RawMessage
-    RetryCount  int
-    MaxRetries  int
-    CreatedAt   time.Time
-    UpdatedAt   time.Time
-    CompletedAt *time.Time
-    Error       *string
-}
+func EmailProcessingWorkflow(ctx workflow.Context, input EmailProcessingInput) (*EmailProcessingResult, error) {
+    logger := workflow.GetLogger(ctx)
+    logger.Info("Starting email processing", "source_id", input.SourceID)
 
-func (m *JobManager) CreateJob(ctx context.Context, job *Job) error {
-    job.ID = uuid.New().String()
-    job.State = JobQueued
-    job.CreatedAt = time.Now()
-    job.UpdatedAt = time.Now()
-    job.MaxRetries = 5
+    result := &EmailProcessingResult{SourceID: input.SourceID}
 
-    query := `
-        INSERT INTO processing_jobs (
-            id, tenant_id, job_type, source_id, state, priority,
-            payload, retry_count, max_retries, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    `
+    // Activity options for fast operations (DB queries)
+    fastOpts := workflow.ActivityOptions{
+        StartToCloseTimeout: 30 * time.Second,
+        RetryPolicy: &temporal.RetryPolicy{
+            InitialInterval:    time.Second,
+            BackoffCoefficient: 2.0,
+            MaximumAttempts:    3,
+        },
+    }
 
-    _, err := m.db.Exec(ctx, query,
-        job.ID, job.TenantID, job.Type, job.SourceID, job.State, job.Priority,
-        job.Payload, job.RetryCount, job.MaxRetries, job.CreatedAt, job.UpdatedAt,
-    )
+    // Activity options for embedding generation (1-5 seconds)
+    embeddingOpts := workflow.ActivityOptions{
+        StartToCloseTimeout: 30 * time.Second,
+        HeartbeatTimeout:    10 * time.Second,
+        RetryPolicy: &temporal.RetryPolicy{
+            InitialInterval:    2 * time.Second,
+            BackoffCoefficient: 2.0,
+            MaximumAttempts:    3,
+        },
+    }
+
+    // Activity options for LLM operations (30-60 seconds)
+    llmOpts := workflow.ActivityOptions{
+        StartToCloseTimeout:    2 * time.Minute,
+        ScheduleToCloseTimeout: 5 * time.Minute,
+        HeartbeatTimeout:       15 * time.Second,
+        RetryPolicy: &temporal.RetryPolicy{
+            InitialInterval:    5 * time.Second,
+            BackoffCoefficient: 2.0,
+            MaximumAttempts:    2, // Fewer retries for expensive ops
+        },
+    }
+
+    // Step 1: Fetch source content
+    var source SourceContent
+    ctx1 := workflow.WithActivityOptions(ctx, fastOpts)
+    err := workflow.ExecuteActivity(ctx1, "FetchSource", input.TenantID, input.SourceID).Get(ctx, &source)
     if err != nil {
-        return fmt.Errorf("failed to create job: %w", err)
+        result.Status = "failed"
+        result.Error = "fetch_source: " + err.Error()
+        return result, nil // Return result, not error (for visibility)
     }
 
-    // Publish job available event
-    event := JobCreatedEvent{
-        JobID:    job.ID,
-        TenantID: job.TenantID,
-        JobType:  job.Type,
-        SourceID: job.SourceID,
-        Priority: int32(job.Priority),
-    }
-    return m.publishEvent(ctx, "job.created", &event)
-}
+    // Build email context for AI processing
+    emailContext := buildEmailContext(input, source.ContentText)
 
-func (m *JobManager) ClaimJob(ctx context.Context, workerID string, jobTypes []string) (*Job, error) {
-    // Atomic claim using FOR UPDATE SKIP LOCKED
-    query := `
-        UPDATE processing_jobs
-        SET state = $1, updated_at = $2, claimed_by = $3
-        WHERE id = (
-            SELECT id FROM processing_jobs
-            WHERE state = $4 AND job_type = ANY($5)
-            ORDER BY priority DESC, created_at ASC
-            FOR UPDATE SKIP LOCKED
-            LIMIT 1
-        )
-        RETURNING id, tenant_id, job_type, source_id, state, priority,
-                  payload, retry_count, max_retries, created_at, updated_at
-    `
-
-    var job Job
-    err := m.db.QueryRow(ctx, query,
-        JobClaimed, time.Now(), workerID, JobQueued, jobTypes,
-    ).Scan(
-        &job.ID, &job.TenantID, &job.Type, &job.SourceID, &job.State, &job.Priority,
-        &job.Payload, &job.RetryCount, &job.MaxRetries, &job.CreatedAt, &job.UpdatedAt,
-    )
-
-    if err == pgx.ErrNoRows {
-        return nil, nil // No jobs available
-    }
+    // Step 2: Generate embedding (can run in parallel with LLM if desired)
+    var embeddingID int64
+    ctx2 := workflow.WithActivityOptions(ctx, embeddingOpts)
+    err = workflow.ExecuteActivity(ctx2, "GenerateEmbedding", GenerateEmbeddingInput{
+        TenantID:    input.TenantID,
+        SourceID:    input.SourceID,
+        Content:     emailContext,
+        ContentHash: input.ContentHash,
+    }).Get(ctx, &embeddingID)
     if err != nil {
-        return nil, fmt.Errorf("failed to claim job: %w", err)
+        logger.Warn("Embedding generation failed", "error", err)
+        // Continue - embedding failure shouldn't block other processing
+    } else {
+        result.EmbeddingID = &embeddingID
     }
 
-    return &job, nil
-}
-
-func (m *JobManager) CompleteJob(ctx context.Context, jobID string, result json.RawMessage) error {
-    now := time.Now()
-    query := `
-        UPDATE processing_jobs
-        SET state = $1, updated_at = $2, completed_at = $3, result = $4
-        WHERE id = $5
-    `
-
-    _, err := m.db.Exec(ctx, query, JobCompleted, now, now, result, jobID)
+    // Step 3: Generate summary via LLM
+    var summaryID int64
+    ctx3 := workflow.WithActivityOptions(ctx, llmOpts)
+    err = workflow.ExecuteActivity(ctx3, "GenerateSummary", GenerateSummaryInput{
+        TenantID: input.TenantID,
+        SourceID: input.SourceID,
+        JobID:    input.JobID,
+        Content:  emailContext,
+    }).Get(ctx, &summaryID)
     if err != nil {
-        return fmt.Errorf("failed to complete job: %w", err)
+        logger.Warn("Summary generation failed", "error", err)
+    } else {
+        result.SummaryID = &summaryID
     }
 
-    // Publish completion event
-    return m.publishEvent(ctx, "job.completed", &JobCompletedEvent{
-        JobID:   jobID,
-        Success: true,
-        Result:  string(result),
-    })
-}
-
-func (m *JobManager) FailJob(ctx context.Context, jobID string, err error) error {
-    // Get current retry count
-    var job Job
-    query := `SELECT retry_count, max_retries FROM processing_jobs WHERE id = $1`
-    if err := m.db.QueryRow(ctx, query, jobID).Scan(&job.RetryCount, &job.MaxRetries); err != nil {
-        return fmt.Errorf("failed to get job: %w", err)
+    // Step 4: Extract assertions via LLM
+    var assertionCount int
+    ctx4 := workflow.WithActivityOptions(ctx, llmOpts)
+    err = workflow.ExecuteActivity(ctx4, "ExtractAssertions", ExtractAssertionsInput{
+        TenantID: input.TenantID,
+        SourceID: input.SourceID,
+        JobID:    input.JobID,
+        Content:  emailContext,
+    }).Get(ctx, &assertionCount)
+    if err != nil {
+        logger.Warn("Assertion extraction failed", "error", err)
+    } else {
+        result.AssertionCount = assertionCount
     }
 
-    willRetry := job.RetryCount < job.MaxRetries
-    newState := JobFailed
-    if willRetry {
-        newState = JobRetrying
+    // Step 5: Update source status
+    ctx5 := workflow.WithActivityOptions(ctx, fastOpts)
+    err = workflow.ExecuteActivity(ctx5, "UpdateSourceStatus", input.TenantID, input.SourceID, "completed").Get(ctx, nil)
+    if err != nil {
+        logger.Warn("Status update failed", "error", err)
     }
 
-    errStr := err.Error()
-    updateQuery := `
-        UPDATE processing_jobs
-        SET state = $1, updated_at = $2, error = $3, retry_count = retry_count + 1
-        WHERE id = $4
-    `
-    if _, err := m.db.Exec(ctx, updateQuery, newState, time.Now(), errStr, jobID); err != nil {
-        return fmt.Errorf("failed to update job: %w", err)
-    }
+    result.Status = "completed"
+    logger.Info("Email processing completed", "source_id", input.SourceID, "assertions", result.AssertionCount)
 
-    // Schedule retry with exponential backoff
-    if willRetry {
-        backoff := time.Duration(math.Pow(2, float64(job.RetryCount))) * time.Second
-        m.scheduleRetry(ctx, jobID, backoff)
-    }
-
-    return m.publishEvent(ctx, "job.failed", &JobFailedEvent{
-        JobID:      jobID,
-        Error:      errStr,
-        RetryCount: int32(job.RetryCount + 1),
-        WillRetry:  willRetry,
-    })
+    return result, nil
 }
 ```
 
-## Routing Configuration
+## Activity Implementations
 
 ```go
-// internal/routing/routes.go
+// internal/activities/activities.go
 
-type Route struct {
-    EventType   string
-    ServiceAddr string
-    JobType     string
-    Priority    int
+package activities
+
+import (
+    "context"
+    "github.com/otherjamesbrown/penfold/pkg/db"
+    "github.com/rs/zerolog"
+    "go.temporal.io/sdk/activity"
+)
+
+type Activities struct {
+    sourceRepo    *storage.SourceRepository
+    embeddingRepo *storage.EmbeddingRepository
+    resultRepo    *storage.ProcessingResultRepository
+    embedClient   *clients.EmbeddingsClient
+    llmClient     *clients.LLMClient
+    logger        zerolog.Logger
+    config        *Config
 }
 
-var routes = []Route{
-    // Content processing
-    {
-        EventType:   "content.ingested",
-        ServiceAddr: "localhost:8083",  // Content Processor
-        JobType:     "content_process",
-        Priority:    100,
-    },
-    {
-        EventType:   "email.ingested",
-        ServiceAddr: "localhost:8001",  // Embedding Pipeline
-        JobType:     "embedding",
-        Priority:    90,
-    },
-    {
-        EventType:   "email.ingested",
-        ServiceAddr: "localhost:8085",  // AI Coordinator
-        JobType:     "entity_extraction",
-        Priority:    80,
-    },
-
-    // Relationship discovery
-    {
-        EventType:   "content.processed",
-        ServiceAddr: "localhost:8086",  // Relationship Discovery
-        JobType:     "relationship_discovery",
-        Priority:    70,
-    },
-
-    // Manual ingest
-    {
-        EventType:   "manual_email.ingested",
-        ServiceAddr: "localhost:8001",  // Embedding Pipeline
-        JobType:     "embedding",
-        Priority:    90,
-    },
-    {
-        EventType:   "manual_email.ingested",
-        ServiceAddr: "localhost:8085",  // AI Coordinator
-        JobType:     "entity_extraction",
-        Priority:    80,
-    },
+func NewActivities(
+    sourceRepo *storage.SourceRepository,
+    embeddingRepo *storage.EmbeddingRepository,
+    resultRepo *storage.ProcessingResultRepository,
+    embedClient *clients.EmbeddingsClient,
+    llmClient *clients.LLMClient,
+    logger zerolog.Logger,
+    config *Config,
+) *Activities {
+    return &Activities{
+        sourceRepo:    sourceRepo,
+        embeddingRepo: embeddingRepo,
+        resultRepo:    resultRepo,
+        embedClient:   embedClient,
+        llmClient:     llmClient,
+        logger:        logger,
+        config:        config,
+    }
 }
 ```
 
-## Dead Letter Queue
+### LLM Activity with Heartbeat
 
 ```go
-// internal/dlq/dlq.go
+// internal/activities/llm.go
 
-type DeadLetterQueue struct {
-    db *pgxpool.Pool
-}
+func (a *Activities) GenerateSummary(ctx context.Context, input GenerateSummaryInput) (int64, error) {
+    logger := activity.GetLogger(ctx)
+    logger.Info("Generating summary", "source_id", input.SourceID)
 
-func (d *DeadLetterQueue) Push(ctx context.Context, job *Job, err error) error {
-    query := `
-        INSERT INTO dead_letter_queue (
-            job_id, tenant_id, job_type, source_id, payload,
-            error, retry_count, created_at, failed_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-    `
+    // Record heartbeat before long operation
+    activity.RecordHeartbeat(ctx, "starting_llm_call")
 
-    _, dbErr := d.db.Exec(ctx, query,
-        job.ID, job.TenantID, job.Type, job.SourceID, job.Payload,
-        err.Error(), job.RetryCount, job.CreatedAt, time.Now(),
-    )
-    return dbErr
-}
-
-func (d *DeadLetterQueue) List(ctx context.Context, tenantID string, limit int) ([]*DeadJob, error) {
-    query := `
-        SELECT job_id, job_type, source_id, error, retry_count, failed_at
-        FROM dead_letter_queue
-        WHERE tenant_id = $1
-        ORDER BY failed_at DESC
-        LIMIT $2
-    `
-
-    rows, err := d.db.Query(ctx, query, tenantID, limit)
+    // Call LLM (30-60 seconds)
+    summary, err := a.llmClient.GenerateSummary(ctx, input.Content)
     if err != nil {
-        return nil, err
+        return 0, fmt.Errorf("llm call failed: %w", err)
     }
-    defer rows.Close()
 
-    var jobs []*DeadJob
-    for rows.Next() {
-        var job DeadJob
-        if err := rows.Scan(&job.JobID, &job.JobType, &job.SourceID, &job.Error, &job.RetryCount, &job.FailedAt); err != nil {
-            return nil, err
+    activity.RecordHeartbeat(ctx, "llm_complete_storing_result")
+
+    // Store result
+    summaryData, _ := json.Marshal(map[string]interface{}{
+        "summary":   summary,
+        "source_id": input.SourceID,
+    })
+
+    result := &storage.ProcessingResult{
+        TenantID:   input.TenantID,
+        JobID:      input.JobID,
+        ResultType: "brief_summary",
+        ResultData: summaryData,
+        ModelName:  &a.config.LLMModel,
+    }
+
+    if err := a.resultRepo.Store(ctx, result); err != nil {
+        return 0, fmt.Errorf("store result failed: %w", err)
+    }
+
+    return result.ID, nil
+}
+
+func (a *Activities) ExtractAssertions(ctx context.Context, input ExtractAssertionsInput) (int, error) {
+    logger := activity.GetLogger(ctx)
+    logger.Info("Extracting assertions", "source_id", input.SourceID)
+
+    activity.RecordHeartbeat(ctx, "starting_assertion_extraction")
+
+    assertions, err := a.llmClient.ExtractAssertions(ctx, input.Content)
+    if err != nil {
+        return 0, fmt.Errorf("assertion extraction failed: %w", err)
+    }
+
+    activity.RecordHeartbeat(ctx, "storing_assertions")
+
+    // Store each assertion
+    for _, assertion := range assertions {
+        if err := a.resultRepo.StoreAssertion(ctx, input.TenantID, input.SourceID, assertion); err != nil {
+            logger.Warn("Failed to store assertion", "error", err)
         }
-        jobs = append(jobs, &job)
     }
-    return jobs, nil
+
+    return len(assertions), nil
+}
+```
+
+## Temporal Worker
+
+```go
+// cmd/worker/main.go
+
+package main
+
+import (
+    "context"
+    "os"
+    "os/signal"
+    "syscall"
+
+    "github.com/rs/zerolog"
+    "go.temporal.io/sdk/client"
+    "go.temporal.io/sdk/worker"
+
+    "github.com/otherjamesbrown/penfold/internal/activities"
+    "github.com/otherjamesbrown/penfold/internal/clients"
+    "github.com/otherjamesbrown/penfold/internal/config"
+    "github.com/otherjamesbrown/penfold/internal/storage"
+    "github.com/otherjamesbrown/penfold/internal/workflows"
+)
+
+const TaskQueue = "penfold-ai-processing"
+
+func main() {
+    logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
+
+    // Load config
+    cfg, err := config.Load()
+    if err != nil {
+        logger.Fatal().Err(err).Msg("Failed to load config")
+    }
+
+    // Initialize Temporal client
+    c, err := client.Dial(client.Options{
+        HostPort: cfg.Temporal.HostPort, // localhost:7233
+    })
+    if err != nil {
+        logger.Fatal().Err(err).Msg("Failed to create Temporal client")
+    }
+    defer c.Close()
+
+    // Initialize dependencies
+    db, _ := storage.NewDB(context.Background(), cfg.Database, logger)
+    defer db.Close()
+
+    pool := db.Pool()
+    sourceRepo := storage.NewSourceRepository(pool, logger)
+    embeddingRepo := storage.NewEmbeddingRepository(pool, logger)
+    resultRepo := storage.NewProcessingResultRepository(pool, logger)
+    embedClient := clients.NewEmbeddingsClient(cfg.AI.Embeddings, logger)
+    llmClient := clients.NewLLMClient(cfg.AI.LLM, logger)
+
+    // Create activities instance with all dependencies
+    acts := activities.NewActivities(
+        sourceRepo, embeddingRepo, resultRepo,
+        embedClient, llmClient,
+        logger, cfg.Activities,
+    )
+
+    // Create worker with concurrency limit for LLM operations
+    w := worker.New(c, TaskQueue, worker.Options{
+        MaxConcurrentActivityExecutionSize: 4,  // Limit concurrent LLM calls
+    })
+
+    // Register workflows
+    w.RegisterWorkflow(workflows.EmailProcessingWorkflow)
+    w.RegisterWorkflow(workflows.ContentProcessingWorkflow)
+    w.RegisterWorkflow(workflows.RelationshipDiscoveryWorkflow)
+
+    // Register activities
+    w.RegisterActivity(acts.FetchSource)
+    w.RegisterActivity(acts.GenerateEmbedding)
+    w.RegisterActivity(acts.GenerateSummary)
+    w.RegisterActivity(acts.ExtractAssertions)
+    w.RegisterActivity(acts.StoreResults)
+    w.RegisterActivity(acts.UpdateSourceStatus)
+
+    // Run worker
+    logger.Info().Str("task_queue", TaskQueue).Msg("Starting Temporal worker")
+
+    go func() {
+        if err := w.Run(worker.InterruptCh()); err != nil {
+            logger.Fatal().Err(err).Msg("Worker failed")
+        }
+    }()
+
+    // Wait for shutdown
+    sigChan := make(chan os.Signal, 1)
+    signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+    <-sigChan
+
+    logger.Info().Msg("Shutting down worker")
+}
+```
+
+## Workflow Starter
+
+```go
+// internal/temporal/starter.go
+
+package temporal
+
+import (
+    "context"
+    "fmt"
+
+    "go.temporal.io/sdk/client"
+    "github.com/otherjamesbrown/penfold/internal/workflows"
+)
+
+const TaskQueue = "penfold-ai-processing"
+
+type WorkflowStarter struct {
+    client client.Client
 }
 
-func (d *DeadLetterQueue) Replay(ctx context.Context, jobID string) error {
-    // Move from DLQ back to processing_jobs with reset retry count
-    query := `
-        WITH moved AS (
-            DELETE FROM dead_letter_queue WHERE job_id = $1
-            RETURNING job_id, tenant_id, job_type, source_id, payload, created_at
-        )
-        INSERT INTO processing_jobs (id, tenant_id, job_type, source_id, payload, state, retry_count, created_at, updated_at)
-        SELECT job_id, tenant_id, job_type, source_id, payload, 'QUEUED', 0, created_at, NOW()
-        FROM moved
-    `
-    _, err := d.db.Exec(ctx, query, jobID)
-    return err
+func NewWorkflowStarter(c client.Client) *WorkflowStarter {
+    return &WorkflowStarter{client: c}
+}
+
+// StartEmailProcessing triggers the email processing workflow
+func (s *WorkflowStarter) StartEmailProcessing(ctx context.Context, input workflows.EmailProcessingInput) (string, error) {
+    workflowOptions := client.StartWorkflowOptions{
+        ID:        fmt.Sprintf("email-processing-%d", input.SourceID),
+        TaskQueue: TaskQueue,
+    }
+
+    we, err := s.client.ExecuteWorkflow(ctx, workflowOptions, workflows.EmailProcessingWorkflow, input)
+    if err != nil {
+        return "", fmt.Errorf("failed to start workflow: %w", err)
+    }
+
+    return we.GetID(), nil
+}
+
+// StartContentProcessing triggers the content processing workflow
+func (s *WorkflowStarter) StartContentProcessing(ctx context.Context, input workflows.ContentProcessingInput) (string, error) {
+    workflowOptions := client.StartWorkflowOptions{
+        ID:        fmt.Sprintf("content-processing-%s", input.SourceID),
+        TaskQueue: TaskQueue,
+    }
+
+    we, err := s.client.ExecuteWorkflow(ctx, workflowOptions, workflows.ContentProcessingWorkflow, input)
+    if err != nil {
+        return "", fmt.Errorf("failed to start workflow: %w", err)
+    }
+
+    return we.GetID(), nil
+}
+
+// StartRelationshipDiscovery triggers the relationship discovery workflow
+func (s *WorkflowStarter) StartRelationshipDiscovery(ctx context.Context, input workflows.RelationshipDiscoveryInput) (string, error) {
+    workflowOptions := client.StartWorkflowOptions{
+        ID:        fmt.Sprintf("relationship-discovery-%s", input.SourceID),
+        TaskQueue: TaskQueue,
+    }
+
+    we, err := s.client.ExecuteWorkflow(ctx, workflowOptions, workflows.RelationshipDiscoveryWorkflow, input)
+    if err != nil {
+        return "", fmt.Errorf("failed to start workflow: %w", err)
+    }
+
+    return we.GetID(), nil
+}
+```
+
+## Failure Handling
+
+Temporal provides built-in failure handling with full visibility:
+
+### Retry Policies
+
+```go
+// Activity retry policies are defined per activity type
+
+// Fast operations (DB queries): 3 retries, 1s initial, 2x backoff
+fastOpts := workflow.ActivityOptions{
+    StartToCloseTimeout: 30 * time.Second,
+    RetryPolicy: &temporal.RetryPolicy{
+        InitialInterval:    time.Second,
+        BackoffCoefficient: 2.0,
+        MaximumAttempts:    3,
+    },
+}
+
+// LLM operations: 2 retries, 5s initial, 2x backoff (expensive, limit retries)
+llmOpts := workflow.ActivityOptions{
+    StartToCloseTimeout:    2 * time.Minute,
+    ScheduleToCloseTimeout: 5 * time.Minute,
+    HeartbeatTimeout:       15 * time.Second,
+    RetryPolicy: &temporal.RetryPolicy{
+        InitialInterval:    5 * time.Second,
+        BackoffCoefficient: 2.0,
+        MaximumAttempts:    2,
+    },
+}
+```
+
+### Failed Workflow Management
+
+Failed workflows are visible in Temporal UI (http://localhost:8088):
+- **Full execution history**: See exactly where each workflow failed
+- **Retry from failure point**: Re-execute failed workflows
+- **Query failed workflows**: Filter by status, time range, workflow type
+
+```bash
+# List failed workflows using temporal CLI
+temporal workflow list --query "ExecutionStatus='Failed'"
+
+# Retry a failed workflow
+temporal workflow reset --workflow-id "email-processing-123" --reason "retry after fix"
+
+# Terminate a stuck workflow
+temporal workflow terminate --workflow-id "email-processing-123" --reason "stuck"
+```
+
+### Error Classification
+
+```go
+// Non-retryable errors (don't retry these)
+var nonRetryableErrors = []string{
+    "*NotFoundError",           // Source doesn't exist
+    "*ValidationError",         // Invalid input
+    "*AuthenticationError",     // Bad credentials
+}
+
+// Apply to activity options
+llmOpts := workflow.ActivityOptions{
+    // ...
+    RetryPolicy: &temporal.RetryPolicy{
+        // ...
+        NonRetryableErrorTypes: nonRetryableErrors,
+    },
 }
 ```
 
 ## Configuration
 
 ```yaml
-# config/event-router.yaml
+# config/workflow-orchestrator.yaml
 
 server:
   grpc_port: 8090
   metrics_port: 9091
 
-redis:
-  address: "home-01:6379"
-  pool_size: 10
+temporal:
+  host_port: "localhost:7233"
+  namespace: "default"
+  task_queue: "penfold-ai-processing"
 
 database:
   host: "home-01"
@@ -597,97 +643,168 @@ database:
   password: "${DB_PASSWORD}"
   pool_size: 20
 
-routing:
-  default_priority: 50
-  max_retries: 5
-  retry_base_delay: "1s"
-  retry_max_delay: "5m"
+worker:
+  max_concurrent_activities: 4  # Limit concurrent LLM calls
+  max_concurrent_workflows: 100
 
-workers:
+activities:
+  fast:
+    start_to_close_timeout: "30s"
+    max_attempts: 3
   embedding:
-    concurrency: 4
-    service_addr: "localhost:8001"
-  entity_extraction:
-    concurrency: 2
-    service_addr: "localhost:8085"
-  relationship:
-    concurrency: 2
-    service_addr: "localhost:8086"
+    start_to_close_timeout: "30s"
+    heartbeat_timeout: "10s"
+    max_attempts: 3
+  llm:
+    start_to_close_timeout: "2m"
+    schedule_to_close_timeout: "5m"
+    heartbeat_timeout: "15s"
+    max_attempts: 2
 
-dlq:
-  enabled: true
-  alert_threshold: 100  # Alert if DLQ size exceeds this
+ai:
+  embeddings:
+    endpoint: "http://localhost:8087"
+    model: "sentence-transformers/all-MiniLM-L6-v2"
+  llm:
+    endpoint: "http://localhost:8000"
+    model: "mlx-community/Qwen2.5-7B-Instruct-4bit"
 
 logging:
   level: "info"
   format: "json"
 ```
 
+### Temporal Server Configuration
+
+```yaml
+# docker-compose.temporal.yml
+
+version: '3.8'
+
+services:
+  temporal:
+    image: temporalio/auto-setup:1.24
+    ports:
+      - "7233:7233"   # gRPC API
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=penfold
+      - POSTGRES_PWD=${DB_PASSWORD}
+      - POSTGRES_SEEDS=10.0.10.253
+      - DYNAMIC_CONFIG_FILE_PATH=/etc/temporal/dynamic_config.yaml
+    volumes:
+      - ./temporal-config/dynamic_config.yaml:/etc/temporal/dynamic_config.yaml
+
+  temporal-ui:
+    image: temporalio/ui:2.26
+    ports:
+      - "8088:8080"   # Web UI
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    depends_on:
+      - temporal
+```
+
 ## gRPC Service (for management)
 
 ```protobuf
-// api/proto/eventrouter/v1/eventrouter.proto
+// api/proto/orchestrator/v1/orchestrator.proto
 
 syntax = "proto3";
-package eventrouter.v1;
+package orchestrator.v1;
 
-service EventRouterService {
-  // Job management
-  rpc GetJob(GetJobRequest) returns (Job);
-  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
-  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
-  rpc RetryJob(RetryJobRequest) returns (RetryJobResponse);
+import "google/protobuf/timestamp.proto";
 
-  // DLQ management
-  rpc ListDeadLetterJobs(ListDeadLetterJobsRequest) returns (ListDeadLetterJobsResponse);
-  rpc ReplayDeadLetterJob(ReplayDeadLetterJobRequest) returns (ReplayDeadLetterJobResponse);
-  rpc PurgeDeadLetterQueue(PurgeDeadLetterQueueRequest) returns (PurgeDeadLetterQueueResponse);
+service WorkflowOrchestratorService {
+  // Workflow management
+  rpc StartWorkflow(StartWorkflowRequest) returns (StartWorkflowResponse);
+  rpc GetWorkflow(GetWorkflowRequest) returns (WorkflowExecution);
+  rpc ListWorkflows(ListWorkflowsRequest) returns (ListWorkflowsResponse);
+  rpc CancelWorkflow(CancelWorkflowRequest) returns (CancelWorkflowResponse);
+  rpc RetryWorkflow(RetryWorkflowRequest) returns (RetryWorkflowResponse);
 
-  // Metrics
+  // Stats and health
   rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
-
-  // Health
   rpc Health(HealthRequest) returns (HealthResponse);
 }
 
+message StartWorkflowRequest {
+  string workflow_type = 1;  // email_processing, content_processing, relationship_discovery
+  string tenant_id = 2;
+  bytes input = 3;  // JSON-encoded workflow input
+}
+
+message StartWorkflowResponse {
+  string workflow_id = 1;
+  string run_id = 2;
+}
+
+message WorkflowExecution {
+  string workflow_id = 1;
+  string run_id = 2;
+  string workflow_type = 3;
+  string status = 4;  // Running, Completed, Failed, Canceled, Terminated
+  google.protobuf.Timestamp start_time = 5;
+  google.protobuf.Timestamp close_time = 6;
+  bytes result = 7;  // JSON-encoded result if completed
+  string error = 8;  // Error message if failed
+}
+
 message GetStatsResponse {
-  int64 jobs_queued = 1;
-  int64 jobs_in_progress = 2;
-  int64 jobs_completed_24h = 3;
-  int64 jobs_failed_24h = 4;
-  int64 dlq_size = 5;
-  map<string, int64> jobs_by_type = 6;
-  double avg_processing_time_ms = 7;
+  int64 workflows_running = 1;
+  int64 workflows_completed_24h = 2;
+  int64 workflows_failed_24h = 3;
+  int64 activities_pending = 4;
+  map<string, int64> workflows_by_type = 5;
+  double avg_workflow_duration_ms = 6;
+  double avg_activity_duration_ms = 7;
 }
 ```
 
 ## Implementation Structure
 
 ```
-services/event-router/
+services/workflow-orchestrator/
 ├── cmd/
-│   └── event-router/
-│       └── main.go
+│   ├── worker/
+│   │   └── main.go           # Temporal worker process
+│   └── orchestrator/
+│       └── main.go           # gRPC management service
 ├── internal/
-│   ├── subscriber/
-│   │   └── subscriber.go
-│   ├── dispatcher/
-│   │   └── dispatcher.go
-│   ├── jobs/
-│   │   ├── manager.go
-│   │   └── state.go
-│   ├── routing/
-│   │   └── routes.go
-│   ├── dlq/
-│   │   └── dlq.go
-│   ├── workers/
-│   │   └── pool.go
+│   ├── workflows/
+│   │   ├── email.go          # EmailProcessingWorkflow
+│   │   ├── content.go        # ContentProcessingWorkflow
+│   │   └── relationship.go   # RelationshipDiscoveryWorkflow
+│   ├── activities/
+│   │   ├── activities.go     # Activity struct with dependencies
+│   │   ├── source.go         # FetchSource activity
+│   │   ├── embedding.go      # GenerateEmbedding activity
+│   │   ├── llm.go            # LLM activities with heartbeat
+│   │   └── storage.go        # Storage activities
+│   ├── temporal/
+│   │   ├── client.go         # Temporal client factory
+│   │   ├── starter.go        # Workflow starter
+│   │   └── config.go         # Temporal configuration
+│   ├── clients/
+│   │   ├── embeddings.go     # Embedding service client
+│   │   └── llm.go            # LLM service client
+│   ├── storage/
+│   │   ├── source.go         # Source repository
+│   │   ├── embedding.go      # Embedding repository
+│   │   └── result.go         # Processing result repository
 │   └── config/
 │       └── config.go
 ├── api/
 │   └── proto/
-│       └── eventrouter/
+│       ├── workflow/
+│       │   └── v1/
+│       │       └── workflow.proto    # Workflow input/output messages
+│       └── orchestrator/
 │           └── v1/
-│               └── eventrouter.proto
+│               └── orchestrator.proto # Management gRPC service
+├── docker-compose.temporal.yml
+├── temporal-config/
+│   └── dynamic_config.yaml
 └── go.mod
 ```
