@@ -208,6 +208,142 @@ var configInitCmd = &cobra.Command{
 	},
 }
 
+// configSetCmd sets a configuration value.
+var configSetCmd = &cobra.Command{
+	Use:   "set <key> <value>",
+	Short: "Set a configuration value",
+	Long: `Set a configuration value in the config file.
+
+Available keys:
+  server_address  - API Gateway server address (host:port)
+  timeout         - Request timeout (e.g., 30s, 1m)
+  output_format   - Default output format (text, json, yaml)
+  tenant_id       - Default tenant ID
+  debug           - Enable debug mode (true/false)
+  insecure        - Disable TLS verification (true/false)
+
+Examples:
+  penf config set server_address localhost:50051
+  penf config set timeout 1m
+  penf config set output_format json
+  penf config set tenant_id my-tenant-123`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		key, value := args[0], args[1]
+
+		// Load current config.
+		currentCfg, err := config.LoadConfig()
+		if err != nil {
+			// If config doesn't exist, start with defaults.
+			currentCfg = config.DefaultConfig()
+		}
+
+		// Set the value.
+		switch key {
+		case "server_address":
+			currentCfg.ServerAddress = value
+		case "timeout":
+			duration, err := time.ParseDuration(value)
+			if err != nil {
+				return fmt.Errorf("invalid timeout value: %w", err)
+			}
+			currentCfg.Timeout = duration
+		case "output_format":
+			format := config.OutputFormat(value)
+			if !format.IsValid() {
+				return fmt.Errorf("invalid output format: %s (must be text, json, or yaml)", value)
+			}
+			currentCfg.OutputFormat = format
+		case "tenant_id":
+			currentCfg.TenantID = value
+		case "debug":
+			if value == "true" || value == "1" {
+				currentCfg.Debug = true
+			} else if value == "false" || value == "0" {
+				currentCfg.Debug = false
+			} else {
+				return fmt.Errorf("invalid debug value: %s (must be true or false)", value)
+			}
+		case "insecure":
+			if value == "true" || value == "1" {
+				currentCfg.Insecure = true
+			} else if value == "false" || value == "0" {
+				currentCfg.Insecure = false
+			} else {
+				return fmt.Errorf("invalid insecure value: %s (must be true or false)", value)
+			}
+		default:
+			return fmt.Errorf("unknown configuration key: %s", key)
+		}
+
+		// Save the config.
+		if err := config.SaveConfig(currentCfg); err != nil {
+			return fmt.Errorf("saving configuration: %w", err)
+		}
+
+		fmt.Printf("Set %s = %s\n", key, value)
+		return nil
+	},
+}
+
+// completionCmd generates shell completion scripts.
+var completionCmd = &cobra.Command{
+	Use:   "completion [bash|zsh|fish|powershell]",
+	Short: "Generate shell completion scripts",
+	Long: `Generate shell completion scripts for penf.
+
+To load completions:
+
+Bash:
+  $ source <(penf completion bash)
+
+  # To load completions for each session, execute once:
+  # Linux:
+  $ penf completion bash > /etc/bash_completion.d/penf
+  # macOS:
+  $ penf completion bash > $(brew --prefix)/etc/bash_completion.d/penf
+
+Zsh:
+  # If shell completion is not already enabled in your environment,
+  # you will need to enable it. Execute the following once:
+  $ echo "autoload -U compinit; compinit" >> ~/.zshrc
+
+  # To load completions for each session, execute once:
+  $ penf completion zsh > "${fpath[1]}/_penf"
+
+  # You will need to start a new shell for this setup to take effect.
+
+Fish:
+  $ penf completion fish | source
+
+  # To load completions for each session, execute once:
+  $ penf completion fish > ~/.config/fish/completions/penf.fish
+
+PowerShell:
+  PS> penf completion powershell | Out-String | Invoke-Expression
+
+  # To load completions for every new session, run:
+  PS> penf completion powershell > penf.ps1
+  # and source this file from your PowerShell profile.
+`,
+	DisableFlagsInUseLine: true,
+	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
+	Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		switch args[0] {
+		case "bash":
+			return rootCmd.GenBashCompletion(os.Stdout)
+		case "zsh":
+			return rootCmd.GenZshCompletion(os.Stdout)
+		case "fish":
+			return rootCmd.GenFishCompletion(os.Stdout, true)
+		case "powershell":
+			return rootCmd.GenPowerShellCompletionWithDesc(os.Stdout)
+		}
+		return nil
+	},
+}
+
 // Health command flags.
 var (
 	healthWatch         bool
@@ -480,11 +616,19 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(healthCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(completionCmd)
+	rootCmd.AddCommand(cmd.AuthCmd)
 	rootCmd.AddCommand(cmd.NewTenantCommand(nil))
+	rootCmd.AddCommand(cmd.NewSearchCommand(nil))
+	rootCmd.AddCommand(cmd.NewAICommand(nil))
+	rootCmd.AddCommand(cmd.NewWorkflowCommand(nil))
+	rootCmd.AddCommand(cmd.NewLogsCommand(nil))
+	rootCmd.AddCommand(cmd.NewDebugCommand(nil))
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configInitCmd)
+	configCmd.AddCommand(configSetCmd)
 }
 
 func main() {
