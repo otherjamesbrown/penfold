@@ -65,8 +65,9 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["penf_lib"]
 
-[project.scripts]
-penf = "penf_lib.cli:main"
+# CLI removed - now using Go CLI (cmd/penf)
+# [project.scripts]
+# penf = "penf_lib.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/otherjamesbrown/penfold"
