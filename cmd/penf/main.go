@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
@@ -205,6 +207,211 @@ var configInitCmd = &cobra.Command{
 	},
 }
 
+// Health command flags.
+var (
+	healthWatch         bool
+	healthWatchInterval time.Duration
+)
+
+// healthCmd checks system health status.
+var healthCmd = &cobra.Command{
+	Use:   "health",
+	Short: "Check system health status",
+	Long: `Check the health status of the Penfold system.
+
+Displays the status of all services, database connections, and queue depths.
+Use --json for machine-readable output or --watch for continuous monitoring.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Initialize client.
+		if err := initClient(); err != nil {
+			return err
+		}
+
+		ctx := cmd.Context()
+
+		if healthWatch {
+			return runHealthWatch(ctx)
+		}
+
+		return runHealthOnce(ctx)
+	},
+}
+
+// runHealthOnce performs a single health check and outputs results.
+func runHealthOnce(ctx context.Context) error {
+	// Create context with timeout.
+	checkCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	defer cancel()
+
+	status, err := grpcClient.GetStatus(checkCtx, false)
+	if err != nil {
+		return fmt.Errorf("failed to get status: %w", err)
+	}
+
+	return outputStatus(status)
+}
+
+// runHealthWatch performs continuous health monitoring.
+func runHealthWatch(ctx context.Context) error {
+	ticker := time.NewTicker(healthWatchInterval)
+	defer ticker.Stop()
+
+	// Initial check.
+	if err := runHealthOnce(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("\nStopped watching.")
+			return nil
+		case <-ticker.C:
+			if outputFormat != "json" && outputFormat != "yaml" {
+				// Clear screen for human-readable output.
+				fmt.Print("\033[H\033[2J")
+			}
+			if err := runHealthOnce(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			}
+		}
+	}
+}
+
+// outputStatus outputs the system status in the configured format.
+func outputStatus(status *client.SystemStatus) error {
+	format := cfg.OutputFormat
+	if outputFormat != "" {
+		format = config.OutputFormat(outputFormat)
+	}
+
+	switch format {
+	case config.OutputFormatJSON:
+		return outputJSON(status)
+	case config.OutputFormatYAML:
+		return outputYAML(status)
+	default:
+		return outputHealthHuman(status)
+	}
+}
+
+// outputJSON outputs data as JSON.
+func outputJSON(v interface{}) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+// outputYAML outputs data as YAML.
+func outputYAML(v interface{}) error {
+	enc := yaml.NewEncoder(os.Stdout)
+	return enc.Encode(v)
+}
+
+// outputHealthHuman outputs health status in human-readable format.
+func outputHealthHuman(status *client.SystemStatus) error {
+	// Overall status with color.
+	statusColor := "\033[32m" // Green
+	if !status.Healthy {
+		statusColor = "\033[31m" // Red
+	}
+	fmt.Printf("System Status: %s%s\033[0m\n", statusColor, boolToStatus(status.Healthy))
+	fmt.Printf("Message: %s\n", status.Message)
+	fmt.Printf("Timestamp: %s\n\n", status.Timestamp.Format(time.RFC3339))
+
+	// Services.
+	fmt.Println("Services:")
+	fmt.Println("  NAME             STATUS     LATENCY    VERSION")
+	fmt.Println("  ----             ------     -------    -------")
+	for _, svc := range status.Services {
+		statusStr := statusWithColor(svc.Healthy, svc.Status)
+		latencyStr := "-"
+		if svc.LatencyMs > 0 {
+			latencyStr = fmt.Sprintf("%.1fms", svc.LatencyMs)
+		}
+		fmt.Printf("  %-16s %-10s %-10s %s\n", svc.Name, statusStr, latencyStr, svc.Version)
+	}
+	fmt.Println()
+
+	// Database.
+	if status.Database != nil {
+		db := status.Database
+		dbStatus := statusWithColor(db.Healthy, db.ConnectionStatus)
+		fmt.Println("Database:")
+		fmt.Printf("  Type: %s\n", db.Type)
+		fmt.Printf("  Status: %s\n", dbStatus)
+		fmt.Printf("  Connections: %d/%d\n", db.ActiveConnections, db.MaxConnections)
+		fmt.Printf("  Vector Extension: %s\n", boolToEnabled(db.VectorExtensionEnabled))
+		fmt.Printf("  Content Items: %d\n", db.ContentCount)
+		fmt.Printf("  Entities: %d\n", db.EntityCount)
+		fmt.Printf("  Latency: %.1fms\n", db.LatencyMs)
+		fmt.Println()
+	}
+
+	// Queues.
+	if status.Queues != nil {
+		q := status.Queues
+		queueStatus := statusWithColor(q.Healthy, "healthy")
+		fmt.Println("Queues:")
+		fmt.Printf("  Type: %s\n", q.Type)
+		fmt.Printf("  Status: %s\n", queueStatus)
+		fmt.Printf("  Total Pending: %d\n", q.TotalPending)
+		fmt.Printf("  Processing Rate: %.1f/min\n", q.ProcessingRate)
+		if q.DeadLetterCount > 0 {
+			fmt.Printf("  Dead Letter: \033[33m%d\033[0m\n", q.DeadLetterCount)
+		}
+		if len(q.QueueDepths) > 0 {
+			fmt.Println("  Queue Depths:")
+			for name, depth := range q.QueueDepths {
+				fmt.Printf("    %s: %d\n", name, depth)
+			}
+		}
+		fmt.Println()
+	}
+
+	// Version info.
+	if status.Version != nil {
+		v := status.Version
+		fmt.Println("Version:")
+		fmt.Printf("  Version: %s\n", v.Version)
+		fmt.Printf("  Commit: %s\n", v.Commit)
+		fmt.Printf("  Build Time: %s\n", v.BuildTime)
+		fmt.Printf("  Go Version: %s\n", v.GoVersion)
+	}
+
+	return nil
+}
+
+// boolToStatus converts a boolean to a status string.
+func boolToStatus(healthy bool) string {
+	if healthy {
+		return "HEALTHY"
+	}
+	return "UNHEALTHY"
+}
+
+// boolToEnabled converts a boolean to an enabled/disabled string.
+func boolToEnabled(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+// statusWithColor returns a colored status string.
+func statusWithColor(healthy bool, status string) string {
+	if healthy {
+		if status == "" {
+			return "\033[32mhealthy\033[0m"
+		}
+		return fmt.Sprintf("\033[32m%s\033[0m", status)
+	}
+	if status == "" {
+		return "\033[31munhealthy\033[0m"
+	}
+	return fmt.Sprintf("\033[31m%s\033[0m", status)
+}
+
 // initClient initializes the gRPC client if not already initialized.
 func initClient() error {
 	if grpcClient != nil {
@@ -246,9 +453,14 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
 	rootCmd.PersistentFlags().BoolVar(&insecure, "insecure", false, "disable TLS verification")
 
+	// Health command flags.
+	healthCmd.Flags().BoolVarP(&healthWatch, "watch", "w", false, "Continuously monitor health status")
+	healthCmd.Flags().DurationVar(&healthWatchInterval, "interval", 5*time.Second, "Watch interval (default 5s)")
+
 	// Add commands.
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(healthCmd)
 	rootCmd.AddCommand(configCmd)
 
 	// Config subcommands.

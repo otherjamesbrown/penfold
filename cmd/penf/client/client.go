@@ -14,6 +14,59 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
+// SystemStatus represents the overall system health and status.
+type SystemStatus struct {
+	Healthy   bool            `json:"healthy"`
+	Message   string          `json:"message"`
+	Services  []ServiceHealth `json:"services"`
+	Database  *DatabaseStatus `json:"database,omitempty"`
+	Queues    *QueueStatus    `json:"queues,omitempty"`
+	Version   *VersionInfo    `json:"version,omitempty"`
+	Timestamp time.Time       `json:"timestamp"`
+}
+
+// ServiceHealth represents the health status of a single service.
+type ServiceHealth struct {
+	Name          string  `json:"name"`
+	Healthy       bool    `json:"healthy"`
+	Status        string  `json:"status"`
+	Message       string  `json:"message,omitempty"`
+	LatencyMs     float64 `json:"latency_ms,omitempty"`
+	Version       string  `json:"version,omitempty"`
+	UptimeSeconds int64   `json:"uptime_seconds,omitempty"`
+}
+
+// DatabaseStatus represents database health and statistics.
+type DatabaseStatus struct {
+	Healthy                bool    `json:"healthy"`
+	Type                   string  `json:"type"`
+	ConnectionStatus       string  `json:"connection_status"`
+	ActiveConnections      int32   `json:"active_connections"`
+	MaxConnections         int32   `json:"max_connections"`
+	VectorExtensionEnabled bool    `json:"vector_extension_enabled"`
+	ContentCount           int64   `json:"content_count"`
+	EntityCount            int64   `json:"entity_count"`
+	LatencyMs              float64 `json:"latency_ms"`
+}
+
+// QueueStatus represents message queue health and depths.
+type QueueStatus struct {
+	Healthy         bool             `json:"healthy"`
+	Type            string           `json:"type"`
+	QueueDepths     map[string]int64 `json:"queue_depths,omitempty"`
+	TotalPending    int64            `json:"total_pending"`
+	ProcessingRate  float64          `json:"processing_rate"`
+	DeadLetterCount int64            `json:"dead_letter_count"`
+}
+
+// VersionInfo contains system version information.
+type VersionInfo struct {
+	Version   string `json:"version"`
+	Commit    string `json:"commit"`
+	BuildTime string `json:"build_time"`
+	GoVersion string `json:"go_version"`
+}
+
 // Default connection settings.
 const (
 	DefaultConnectTimeout    = 10 * time.Second
@@ -352,5 +405,89 @@ func (c *GRPCClient) ConnectionState() string {
 		return "shutdown"
 	default:
 		return "unknown"
+	}
+}
+
+// GetStatus retrieves the system status from the gateway.
+// If verbose is true, additional details are included.
+// Currently returns mock data until the gateway service is implemented.
+func (c *GRPCClient) GetStatus(ctx context.Context, verbose bool) (*SystemStatus, error) {
+	// TODO: Replace with actual gRPC call once proto is generated.
+	// The actual implementation would look like:
+	//   client := cliv1.NewCLIServiceClient(c.conn)
+	//   resp, err := client.GetStatus(ctx, &cliv1.GetStatusRequest{Verbose: verbose})
+	//   if err != nil {
+	//       return nil, fmt.Errorf("GetStatus RPC failed: %w", err)
+	//   }
+	//   return convertStatus(resp.Status), nil
+
+	return getMockStatus(verbose), nil
+}
+
+// getMockStatus returns mock status data for development/testing.
+// This will be removed once the gateway service is implemented.
+func getMockStatus(verbose bool) *SystemStatus {
+	return &SystemStatus{
+		Healthy:   true,
+		Message:   "All systems operational (mock data - gateway not connected)",
+		Timestamp: time.Now(),
+		Services: []ServiceHealth{
+			{
+				Name:          "gateway",
+				Healthy:       true,
+				Status:        "running",
+				Message:       "Ready to accept connections",
+				LatencyMs:     1.2,
+				Version:       "0.1.0",
+				UptimeSeconds: 3600,
+			},
+			{
+				Name:          "orchestrator",
+				Healthy:       true,
+				Status:        "running",
+				Message:       "",
+				LatencyMs:     2.5,
+				Version:       "0.1.0",
+				UptimeSeconds: 3600,
+			},
+			{
+				Name:          "ai_service",
+				Healthy:       true,
+				Status:        "running",
+				Message:       "Ollama backend available",
+				LatencyMs:     5.0,
+				Version:       "0.1.0",
+				UptimeSeconds: 3600,
+			},
+		},
+		Database: &DatabaseStatus{
+			Healthy:                true,
+			Type:                   "postgresql",
+			ConnectionStatus:       "connected",
+			ActiveConnections:      5,
+			MaxConnections:         100,
+			VectorExtensionEnabled: true,
+			ContentCount:           1250,
+			EntityCount:            340,
+			LatencyMs:              0.8,
+		},
+		Queues: &QueueStatus{
+			Healthy:         true,
+			Type:            "redis",
+			TotalPending:    12,
+			ProcessingRate:  45.2,
+			DeadLetterCount: 0,
+			QueueDepths: map[string]int64{
+				"ingestion":  5,
+				"embedding":  3,
+				"extraction": 4,
+			},
+		},
+		Version: &VersionInfo{
+			Version:   "0.1.0",
+			Commit:    "abc123",
+			BuildTime: time.Now().Format(time.RFC3339),
+			GoVersion: "go1.24.0",
+		},
 	}
 }
