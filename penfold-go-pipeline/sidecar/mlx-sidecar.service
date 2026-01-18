@@ -1,0 +1,22 @@
+[Unit]
+Description=MLX Embeddings Sidecar Service
+After=network.target
+
+[Service]
+Type=simple
+User=james
+WorkingDirectory=/Users/james/github/otherjamesbrown/penfold/penfold-go-pipeline/sidecar
+Environment=PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/homebrew/bin/uvicorn app:app --host 0.0.0.0 --port 8001
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

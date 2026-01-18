@@ -1,0 +1,31 @@
+# Temporal Dynamic Configuration for Penfold AI Processing Pipeline
+# See: https://docs.temporal.io/references/dynamic-configuration
+
+# Increase workflow execution history size for long-running AI workflows
+frontend.historyMaxPageSize:
+  - value: 10000
+    constraints: {}
+
+# Namespace-level settings
+limit.maxIDLength:
+  - value: 255
+    constraints: {}
+
+# Allow larger payloads for AI results (summaries, assertions)
+limit.blobSize.error:
+  - value: 4194304  # 4MB
+    constraints: {}
+
+limit.blobSize.warn:
+  - value: 2097152  # 2MB
+    constraints: {}
+
+# Worker settings for AI processing
+worker.enableActivityEagerExecution:
+  - value: true
+    constraints: {}
+
+# Visibility settings
+frontend.enableReadVisibilityFromES:
+  - value: false
+    constraints: {}
