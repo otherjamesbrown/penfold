@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 )
 
 // SystemStatus represents the overall system health and status.
@@ -124,6 +125,9 @@ type ClientOptions struct {
 
 	// Debug enables verbose logging.
 	Debug bool
+
+	// TenantID is the default tenant ID to include in all requests.
+	TenantID string
 }
 
 // DefaultOptions returns ClientOptions with default values.
@@ -380,6 +384,29 @@ func (c *GRPCClient) WithRetry(ctx context.Context, fn func() error) error {
 // ServerAddress returns the configured server address.
 func (c *GRPCClient) ServerAddress() string {
 	return c.serverAddr
+}
+
+// TenantID returns the configured tenant ID.
+func (c *GRPCClient) TenantID() string {
+	return c.options.TenantID
+}
+
+// SetTenantID updates the default tenant ID for requests.
+func (c *GRPCClient) SetTenantID(tenantID string) {
+	c.options.TenantID = tenantID
+}
+
+// ContextWithTenant returns a context with the tenant ID in metadata.
+// If tenantID is empty, uses the default tenant ID from options.
+func (c *GRPCClient) ContextWithTenant(ctx context.Context, tenantID string) context.Context {
+	if tenantID == "" {
+		tenantID = c.options.TenantID
+	}
+	if tenantID == "" {
+		return ctx
+	}
+	md := metadata.Pairs("x-tenant-id", tenantID)
+	return metadata.NewOutgoingContext(ctx, md)
 }
 
 // ConnectionState returns a human-readable connection state string.

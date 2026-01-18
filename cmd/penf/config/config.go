@@ -46,6 +46,10 @@ type CLIConfig struct {
 	// TenantID is the default tenant identifier for multi-tenant operations.
 	TenantID string `yaml:"tenant_id,omitempty"`
 
+	// TenantAliases provides user-friendly names for tenant IDs.
+	// Example: {"work": "tenant-acme-123", "personal": "tenant-default-001"}
+	TenantAliases map[string]string `yaml:"tenant_aliases,omitempty"`
+
 	// Debug enables verbose debug logging.
 	Debug bool `yaml:"debug,omitempty"`
 
@@ -126,12 +130,13 @@ func loadFromFile(cfg *CLIConfig, path string) error {
 
 	// We need a temp struct for unmarshaling duration as string.
 	type configFile struct {
-		ServerAddress string       `yaml:"server_address"`
-		Timeout       string       `yaml:"timeout"`
-		OutputFormat  OutputFormat `yaml:"output_format"`
-		TenantID      string       `yaml:"tenant_id"`
-		Debug         bool         `yaml:"debug"`
-		Insecure      bool         `yaml:"insecure"`
+		ServerAddress string            `yaml:"server_address"`
+		Timeout       string            `yaml:"timeout"`
+		OutputFormat  OutputFormat      `yaml:"output_format"`
+		TenantID      string            `yaml:"tenant_id"`
+		TenantAliases map[string]string `yaml:"tenant_aliases"`
+		Debug         bool              `yaml:"debug"`
+		Insecure      bool              `yaml:"insecure"`
 	}
 
 	var fileCfg configFile
@@ -154,6 +159,9 @@ func loadFromFile(cfg *CLIConfig, path string) error {
 	}
 	if fileCfg.TenantID != "" {
 		cfg.TenantID = fileCfg.TenantID
+	}
+	if fileCfg.TenantAliases != nil {
+		cfg.TenantAliases = fileCfg.TenantAliases
 	}
 	cfg.Debug = fileCfg.Debug
 	cfg.Insecure = fileCfg.Insecure
@@ -238,12 +246,13 @@ func SaveConfig(cfg *CLIConfig) error {
 
 	// Convert to YAML-friendly format with duration as string.
 	type configFile struct {
-		ServerAddress string       `yaml:"server_address"`
-		Timeout       string       `yaml:"timeout"`
-		OutputFormat  OutputFormat `yaml:"output_format"`
-		TenantID      string       `yaml:"tenant_id,omitempty"`
-		Debug         bool         `yaml:"debug,omitempty"`
-		Insecure      bool         `yaml:"insecure,omitempty"`
+		ServerAddress string            `yaml:"server_address"`
+		Timeout       string            `yaml:"timeout"`
+		OutputFormat  OutputFormat      `yaml:"output_format"`
+		TenantID      string            `yaml:"tenant_id,omitempty"`
+		TenantAliases map[string]string `yaml:"tenant_aliases,omitempty"`
+		Debug         bool              `yaml:"debug,omitempty"`
+		Insecure      bool              `yaml:"insecure,omitempty"`
 	}
 
 	fileCfg := configFile{
@@ -251,6 +260,7 @@ func SaveConfig(cfg *CLIConfig) error {
 		Timeout:       cfg.Timeout.String(),
 		OutputFormat:  cfg.OutputFormat,
 		TenantID:      cfg.TenantID,
+		TenantAliases: cfg.TenantAliases,
 		Debug:         cfg.Debug,
 		Insecure:      cfg.Insecure,
 	}
