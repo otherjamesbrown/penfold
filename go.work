@@ -1,10 +1,18 @@
 go 1.24.0
 
 use (
+	./api/proto
 	./api/proto/content/v1
+	./api/proto/review/v1
+	./api/proto/search/v1
 	./cmd/penf
 	./penfold-go-pipeline
 	./pkg
+	./services/ai
 	./services/content
 	./services/gateway
+	./services/gmail
+	./services/relationship
+	./services/review
+	./services/search
 )
