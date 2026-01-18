@@ -65,7 +65,7 @@ AI discovers relationships rather than enforcing rigid schemas:
 ### 5. Local-First with Cloud Quality Gates
 
 Processing optimized for local development with selective cloud usage:
-- Local models (Ollama) for classification and categorization
+- Local models (vLLM-MLX) for classification and categorization
 - Cloud models (Gemini) for complex extraction and validation
 - Local vector storage and similarity search
 - Privacy-preserving architecture with user control
@@ -121,6 +121,20 @@ graph TB
 
 ### Component Descriptions
 
+#### Go Pipeline (`penfold-go-pipeline/`)
+High-performance AI processing pipeline:
+- **Pipeline Process**: Redis-to-Temporal bridge, starts workflows from events
+- **Worker Process**: Executes workflow activities (embedding, LLM, storage)
+- **Temporal Integration**: Workflow orchestration with persistence and visibility
+- **MLX Sidecar**: Local embedding generation service
+
+Key packages:
+- `cmd/pipeline/` - Event subscriber and workflow starter
+- `cmd/worker/` - Temporal worker with activity registration
+- `internal/workflows/` - Workflow definitions (EmailProcessingWorkflow)
+- `internal/activities/` - Activity implementations
+- `internal/temporal/` - Temporal client factory
+
 #### CLI Tool (`penf`)
 Main user interface providing:
 - Content ingestion commands (`penf ingest`)
@@ -152,7 +166,7 @@ Content analysis and transformation:
 
 #### AI Coordination (`penf_lib.ai`)
 Multi-model AI processing orchestration:
-- Local model coordination (Ollama + Llama 3.1)
+- Local model coordination (vLLM-MLX + Qwen2.5)
 - Cloud model integration (Gemini API)
 - Model selection based on task complexity
 - Response validation and quality scoring
@@ -451,11 +465,78 @@ CREATE TABLE event_log (
 
 ## AI Processing Pipeline
 
+### Go Pipeline with Temporal Orchestration
+
+The AI processing pipeline is implemented in Go (`penfold-go-pipeline/`) with Temporal workflow orchestration for reliable, observable multi-step processing.
+
+#### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Temporal Server                                    │
+│  ┌─────────────┐    ┌──────────────────┐    ┌─────────────────────────────┐ │
+│  │ Task Queue  │───▶│ Email Processing │───▶│ Execution History           │ │
+│  │ (persisted) │    │ Workflow         │    │ (full visibility)           │ │
+│  └─────────────┘    └──────────────────┘    └─────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────┘
+         ▲                     │
+         │                     ▼
+┌────────┴───────┐    ┌───────────────────────────────────────────────────────┐
+│ Pipeline       │    │                    Activities                          │
+│ (Redis bridge  │    │  ┌────────────┐  ┌────────────┐  ┌─────────────────┐  │
+│  → Temporal)   │    │  │ Fetch      │  │ Generate   │  │ Generate        │  │
+│                │    │  │ Source     │  │ Embedding  │  │ Summary         │  │
+└────────────────┘    │  └────────────┘  └────────────┘  └─────────────────┘  │
+                      │  ┌────────────┐  ┌─────────────────────────────────┐  │
+                      │  │ Extract    │  │ Update                          │  │
+                      │  │ Assertions │  │ Status                          │  │
+                      │  └────────────┘  └─────────────────────────────────┘  │
+                      └───────────────────────────────────────────────────────┘
+                                         │
+                      ┌──────────────────┼──────────────────┐
+                      ▼                  ▼                  ▼
+               MLX Sidecar          vLLM-MLX          PostgreSQL
+               (embeddings)         (LLM)             (storage)
+               :8001                :8000
+```
+
+#### Two-Process Architecture
+
+1. **Pipeline Process** (`cmd/pipeline/main.go`)
+   - Subscribes to Redis pub/sub events
+   - Converts events to Temporal workflows
+   - Lightweight, fast startup
+
+2. **Worker Process** (`cmd/worker/main.go`)
+   - Executes workflow activities
+   - Handles retries and heartbeats
+   - Manages concurrent LLM calls
+
+#### Why Temporal?
+
+| Problem with Redis Pub/Sub | Temporal Solution |
+|---------------------------|-------------------|
+| Messages dropped when buffer full | Task queue with persistence |
+| No visibility into processing state | Full execution history in Web UI |
+| Manual retry/circuit breaker logic | Built-in retry policies |
+| No dead letter handling | Failed workflows visible & retryable |
+| Difficult to add preprocessing steps | Workflows as code - easy to extend |
+
+#### EmailProcessingWorkflow
+
+Sequential activity execution with per-activity retry policies:
+
+1. **FetchSource** - Retrieve content from PostgreSQL (fast, 3 retries)
+2. **GenerateEmbedding** - MLX sidecar, 1-5 seconds (3 retries)
+3. **GenerateSummary** - vLLM-MLX, 30-60 seconds (2 retries, heartbeat)
+4. **ExtractAssertions** - vLLM-MLX, 30-60 seconds (2 retries, heartbeat)
+5. **UpdateSourceStatus** - Mark processing complete (3 retries)
+
 ### Multi-Model Architecture
 
 ```mermaid
 graph LR
-    subgraph "Local Models (Ollama)"
+    subgraph "Local Models (vLLM-MLX)"
         Classifier[Content Classifier]
         Categorizer[Content Categorizer]
         Embedder[Embedding Generator]
@@ -489,7 +570,7 @@ graph LR
 
 ### Processing Stages
 
-1. **Classification** (Local - Llama 3.1)
+1. **Classification** (Local - Qwen2.5)
    - Content type identification
    - Urgency scoring
    - Basic categorization
@@ -515,11 +596,11 @@ graph LR
 class ModelRouter:
     def select_model(self, task: ProcessingTask) -> ModelConfig:
         if task.complexity < 0.3:
-            return LocalModelConfig("llama3.1:8b")
+            return LocalModelConfig("qwen2.5-14b")
         elif task.requires_accuracy_validation:
             return CloudModelConfig("gemini-pro")
         else:
-            return LocalModelConfig("llama3.1:8b")
+            return LocalModelConfig("qwen2.5-14b")
 ```
 
 ## Security Architecture
@@ -590,10 +671,12 @@ CELERY_CONFIG = {
 
 ### Development Environment
 - **Platform**: Mac Mini M4 (32GB RAM)
-- **Database**: PostgreSQL 16+ with pgvector
-- **Queue**: Redis 7+
-- **Local AI**: Ollama with Llama 3.1 8B
+- **Database**: PostgreSQL 16+ with pgvector (home-01:5432)
+- **Queue**: Redis 7+ (home-01:6379)
+- **Temporal**: Temporal Server with PostgreSQL backend (localhost:7233, UI at :8088)
+- **Local AI**: vLLM-MLX with Qwen2.5-14B (:8000), MLX Sidecar (:8001)
 - **Python**: 3.12 with async/await
+- **Go**: 1.22+ for pipeline services
 
 ### Production Considerations
 
