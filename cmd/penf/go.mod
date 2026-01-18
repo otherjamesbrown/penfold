@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/spf13/cobra v1.8.1
+	golang.org/x/term v0.20.0
 	google.golang.org/grpc v1.65.0
 	gopkg.in/yaml.v3 v3.0.1
 )

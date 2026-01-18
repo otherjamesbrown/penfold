@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/otherjamesbrown/penfold/cmd/penf/client"
+	"github.com/otherjamesbrown/penfold/cmd/penf/cmd"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
 
@@ -423,6 +424,12 @@ func initClient() error {
 	opts.Debug = cfg.Debug
 	opts.ConnectTimeout = cfg.Timeout
 
+	// Add tenant ID to default metadata if configured.
+	tenantID := getTenantID()
+	if tenantID != "" {
+		opts.TenantID = tenantID
+	}
+
 	grpcClient = client.NewGRPCClient(cfg.ServerAddress, opts)
 
 	// Create context with timeout for connection.
@@ -434,6 +441,17 @@ func initClient() error {
 	}
 
 	return nil
+}
+
+// getTenantID returns the current tenant ID from environment or config.
+func getTenantID() string {
+	if envTenant := os.Getenv("PENF_TENANT_ID"); envTenant != "" {
+		return envTenant
+	}
+	if cfg != nil {
+		return cfg.TenantID
+	}
+	return ""
 }
 
 // valueOrDefault returns the value if non-empty, otherwise the default.
@@ -462,6 +480,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(healthCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(cmd.NewTenantCommand(nil))
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)
