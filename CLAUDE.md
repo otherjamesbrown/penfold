@@ -127,9 +127,9 @@ bd list --status=open   # All open work
 
 ### Code Quality
 - **TDD Required**: Tests first, ensure they fail, then implement
-- **Type hints and docstrings** for all functions
-- **Zero warnings** from ruff and mypy
-- **80% test coverage** minimum for core libraries
+- **Go conventions**: Follow standard Go formatting (`gofmt`)
+- **Zero warnings** from `go vet` and `staticcheck`
+- **80% test coverage** minimum for core packages
 
 ### Git Workflow
 - All commits must reference bead: `[pe-xxx]`
@@ -137,8 +137,8 @@ bd list --status=open   # All open work
 - Follow constitutional principles in `project-constitution.md`
 
 ### Architecture Principles
-- **Async/await** throughout (SQLAlchemy 2.0, asyncpg)
-- **Event-driven processing** for coordination
+- **gRPC + Protocol Buffers** for service communication
+- **Temporal workflows** for durable execution
 - **Test-driven development** workflow
 - **Complete workflows** - specification to working, tested, committed code
 
@@ -146,19 +146,20 @@ bd list --status=open   # All open work
 
 **Penfold** is an AI-powered personal information system that aggregates and correlates information from communication channels (email, Slack, documents, meetings) into a queryable institutional memory.
 
-### Current Architecture
-- **CLI Tool** (`penf`): Main interface
-- **Core Library** (`penf_lib`): Storage, connectors, AI coordination
-- **Database**: PostgreSQL + pgvector for hybrid relational/vector storage
-- **Events**: Redis pub-sub with PostgreSQL fallback
-- **AI Pipeline**: Local models (Ollama) + cloud APIs (Gemini)
+### Current Architecture (Go)
+- **CLI Tool** (`cmd/penf`): Cobra-based CLI with all commands
+- **Gateway** (`services/gateway`): gRPC + HTTP gateway with auth
+- **Gmail Connector** (`services/gmail`): OAuth2 PKCE, sync, push notifications
+- **Worker** (`services/worker`): Temporal activities and workflows
+- **Database** (`pkg/db`): PostgreSQL + pgvector utilities
+- **Protos** (`api/proto`): gRPC service definitions
 
 ### Technology Stack
-- **Python 3.12** with async/await
+- **Go 1.22+** with Cobra CLI, gRPC
 - **PostgreSQL 16+** with pgvector extension
-- **SQLAlchemy 2.0** with asyncpg driver
-- **Redis** for event processing
-- **pytest** with async fixtures
+- **Temporal** for workflow orchestration
+- **Protocol Buffers** for API definitions
+- **MLX** embeddings sidecar (Python, Apple Silicon)
 
 ---
 
@@ -171,13 +172,15 @@ bd list --status=open   # All open work
 - **Before ending**: `git push` + `bd sync`
 
 ## Active Technologies
-- Python 3.12 with async/await, Click 8.1+, Rich 13.7+, SQLAlchemy 2.0 (asyncpg), Pydantic 2.5+
-- PostgreSQL 16+ with pgvector, Redis for event processing and caching
-- Python 3.12 + Click 8.1+, Rich 13.7+, SQLAlchemy 2.0 (asyncpg), Pydantic 2.5+, Redis 5.0+, cryptography (012-manual-ingest)
-- PostgreSQL 16+ with pgvector extension (012-manual-ingest)
+- Go 1.22+ with Cobra, gRPC, Protocol Buffers
+- PostgreSQL 16+ with pgvector extension
+- Temporal for workflow orchestration
+- Redis for caching (optional)
+- MLX embeddings sidecar (Python) for Apple Silicon
 
 ## Recent Changes
-- 009-relationship-discovery-and-management: Complete implementation (relationship discovery, validation, lifecycle, network analysis)
-- 007-search-interface: Complete implementation merged
-- 006-daily-review: Complete implementation merged
-- 008-automation-engine: Automation module merged
+- Go Migration Phase 0-5: Complete (all services migrated to Go)
+- Python Decommissioning: Complete (penf_lib, app, observability_lib removed)
+- Gmail OAuth2 PKCE: Complete with AES-256-GCM token encryption
+- Search Service: Complete with hybrid full-text + vector search
+- Review Service: Complete with daily review workflows
