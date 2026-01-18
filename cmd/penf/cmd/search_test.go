@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/otherjamesbrown/penfold/cmd/penf/client"
@@ -1171,4 +1172,807 @@ func TestDefaultSearchDeps(t *testing.T) {
 	if deps.InitClient == nil {
 		t.Error("expected InitClient to be set")
 	}
+}
+
+// =============================================================================
+// Advanced Search Tests
+// =============================================================================
+
+func TestNewSearchAdvancedCommand(t *testing.T) {
+	deps := createSearchTestDeps(mockConfig())
+	rootCmd := NewSearchCommand(deps)
+
+	// Find the advanced subcommand.
+	var advancedCmd *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "advanced" {
+			advancedCmd = cmd
+			break
+		}
+	}
+
+	if advancedCmd == nil {
+		t.Fatal("expected 'advanced' subcommand to exist")
+	}
+
+	if advancedCmd.Use != "advanced [query]" {
+		t.Errorf("expected Use to be 'advanced [query]', got %q", advancedCmd.Use)
+	}
+
+	// Check flags exist.
+	flags := []string{"filter", "sort", "min-score", "limit", "offset", "verbose", "output", "tenant", "semantic", "exact"}
+	for _, flag := range flags {
+		if advancedCmd.Flags().Lookup(flag) == nil {
+			t.Errorf("expected flag %q to exist", flag)
+		}
+	}
+}
+
+func TestAdvancedSearchOptions_JSONSerialization(t *testing.T) {
+	opts := AdvancedSearchOptions{
+		FieldFilters: []string{"type:email", "from:test@example.com"},
+		SortField:    "created_at",
+		SortOrder:    "desc",
+		MinScore:     0.7,
+		Semantic:     true,
+		ExactMatch:   false,
+		TextWeight:   0.3,
+		VectorWeight: 0.7,
+	}
+
+	data, err := json.Marshal(opts)
+	if err != nil {
+		t.Fatalf("failed to marshal AdvancedSearchOptions: %v", err)
+	}
+
+	var decoded AdvancedSearchOptions
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal AdvancedSearchOptions: %v", err)
+	}
+
+	if len(decoded.FieldFilters) != 2 {
+		t.Errorf("expected 2 field filters, got %d", len(decoded.FieldFilters))
+	}
+	if decoded.SortField != "created_at" {
+		t.Errorf("expected SortField 'created_at', got %q", decoded.SortField)
+	}
+	if decoded.MinScore != 0.7 {
+		t.Errorf("expected MinScore 0.7, got %v", decoded.MinScore)
+	}
+	if !decoded.Semantic {
+		t.Error("expected Semantic to be true")
+	}
+}
+
+func TestExecuteAdvancedSearch_NoFilters(t *testing.T) {
+	filters := SearchFilters{}
+	results := executeAdvancedSearch("test query", SearchModeHybrid, filters, 0.0, 10, 0, false)
+
+	if len(results) == 0 {
+		t.Error("expected non-empty results")
+	}
+	if len(results) > 10 {
+		t.Errorf("expected at most 10 results, got %d", len(results))
+	}
+}
+
+func TestExecuteAdvancedSearch_WithMinScore(t *testing.T) {
+	filters := SearchFilters{}
+	results := executeAdvancedSearch("test query", SearchModeHybrid, filters, 0.8, 10, 0, false)
+
+	for _, r := range results {
+		if r.Score < 0.8 {
+			t.Errorf("expected score >= 0.8, got %v", r.Score)
+		}
+	}
+}
+
+func TestExecuteAdvancedSearch_WithTypeFilter(t *testing.T) {
+	filters := SearchFilters{
+		FieldFilters: []string{"type:email"},
+	}
+	results := executeAdvancedSearch("test query", SearchModeHybrid, filters, 0.0, 10, 0, false)
+
+	for _, r := range results {
+		if r.ContentType != "email" {
+			t.Errorf("expected content type 'email', got %q", r.ContentType)
+		}
+	}
+}
+
+func TestExecuteAdvancedSearch_WithSourceFilter(t *testing.T) {
+	filters := SearchFilters{
+		FieldFilters: []string{"source:gmail"},
+	}
+	results := executeAdvancedSearch("test query", SearchModeHybrid, filters, 0.0, 10, 0, false)
+
+	for _, r := range results {
+		if !strings.Contains(strings.ToLower(r.Source), "gmail") {
+			t.Errorf("expected source to contain 'gmail', got %q", r.Source)
+		}
+	}
+}
+
+func TestExecuteAdvancedSearch_Pagination(t *testing.T) {
+	filters := SearchFilters{}
+
+	// Get all results.
+	allResults := executeAdvancedSearch("test query", SearchModeHybrid, filters, 0.0, 100, 0, false)
+
+	if len(allResults) < 3 {
+		t.Skip("not enough mock results for pagination test")
+	}
+
+	// Get first page.
+	page1 := executeAdvancedSearch("test query", SearchModeHybrid, filters, 0.0, 2, 0, false)
+	if len(page1) > 2 {
+		t.Errorf("expected at most 2 results for page 1, got %d", len(page1))
+	}
+
+	// Get second page.
+	page2 := executeAdvancedSearch("test query", SearchModeHybrid, filters, 0.0, 2, 2, false)
+
+	// Ensure pages are different.
+	if len(page1) > 0 && len(page2) > 0 && page1[0].ID == page2[0].ID {
+		t.Error("expected different results for different offsets")
+	}
+}
+
+func TestValidateFieldFilter(t *testing.T) {
+	tests := []struct {
+		filter string
+		valid  bool
+	}{
+		{"type:email", true},
+		{"source:gmail", true},
+		{"from:alice@example.com", true},
+		{"to:bob@example.com", true},
+		{"subject:meeting", true},
+		{"tag:important", true},
+		{"invalid:field", false},
+		{"nocolon", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		result := ValidateFieldFilter(tt.filter)
+		if result != tt.valid {
+			t.Errorf("ValidateFieldFilter(%q) = %v, want %v", tt.filter, result, tt.valid)
+		}
+	}
+}
+
+// =============================================================================
+// Search History Tests
+// =============================================================================
+
+func TestNewSearchHistoryCommand(t *testing.T) {
+	deps := createSearchTestDeps(mockConfig())
+	rootCmd := NewSearchCommand(deps)
+
+	// Find the history subcommand.
+	var historyCmd *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "history" {
+			historyCmd = cmd
+			break
+		}
+	}
+
+	if historyCmd == nil {
+		t.Fatal("expected 'history' subcommand to exist")
+	}
+
+	if historyCmd.Use != "history" {
+		t.Errorf("expected Use to be 'history', got %q", historyCmd.Use)
+	}
+
+	// Check flags exist.
+	flags := []string{"limit", "output"}
+	for _, flag := range flags {
+		if historyCmd.Flags().Lookup(flag) == nil {
+			t.Errorf("expected flag %q to exist", flag)
+		}
+	}
+
+	// Check clear subcommand exists.
+	var clearCmd *cobra.Command
+	for _, cmd := range historyCmd.Commands() {
+		if cmd.Name() == "clear" {
+			clearCmd = cmd
+			break
+		}
+	}
+
+	if clearCmd == nil {
+		t.Fatal("expected 'clear' subcommand to exist under 'history'")
+	}
+}
+
+func TestSearchHistoryEntry_JSONSerialization(t *testing.T) {
+	entry := SearchHistoryEntry{
+		Query:       "test query",
+		Mode:        "hybrid",
+		ResultCount: 15,
+		QueryTimeMs: 45.2,
+		SearchedAt:  time.Now(),
+		Filters:     "type:email",
+	}
+
+	data, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("failed to marshal SearchHistoryEntry: %v", err)
+	}
+
+	var decoded SearchHistoryEntry
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal SearchHistoryEntry: %v", err)
+	}
+
+	if decoded.Query != "test query" {
+		t.Errorf("expected Query 'test query', got %q", decoded.Query)
+	}
+	if decoded.Mode != "hybrid" {
+		t.Errorf("expected Mode 'hybrid', got %q", decoded.Mode)
+	}
+	if decoded.ResultCount != 15 {
+		t.Errorf("expected ResultCount 15, got %d", decoded.ResultCount)
+	}
+	if decoded.Filters != "type:email" {
+		t.Errorf("expected Filters 'type:email', got %q", decoded.Filters)
+	}
+}
+
+func TestSearchHistoryEntry_YAMLSerialization(t *testing.T) {
+	entry := SearchHistoryEntry{
+		Query:       "yaml test",
+		Mode:        "semantic",
+		ResultCount: 10,
+		QueryTimeMs: 30.0,
+		SearchedAt:  time.Now(),
+		Filters:     "",
+	}
+
+	data, err := yaml.Marshal(entry)
+	if err != nil {
+		t.Fatalf("failed to marshal SearchHistoryEntry: %v", err)
+	}
+
+	var decoded SearchHistoryEntry
+	if err := yaml.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal SearchHistoryEntry: %v", err)
+	}
+
+	if decoded.Query != "yaml test" {
+		t.Errorf("expected Query 'yaml test', got %q", decoded.Query)
+	}
+}
+
+func TestSearchHistoryResponse_JSONSerialization(t *testing.T) {
+	response := SearchHistoryResponse{
+		Entries: []SearchHistoryEntry{
+			{Query: "query1", Mode: "hybrid", ResultCount: 5, SearchedAt: time.Now()},
+			{Query: "query2", Mode: "keyword", ResultCount: 10, SearchedAt: time.Now()},
+		},
+		TotalCount: 2,
+		FetchedAt:  time.Now(),
+	}
+
+	data, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("failed to marshal SearchHistoryResponse: %v", err)
+	}
+
+	var decoded SearchHistoryResponse
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal SearchHistoryResponse: %v", err)
+	}
+
+	if len(decoded.Entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(decoded.Entries))
+	}
+	if decoded.TotalCount != 2 {
+		t.Errorf("expected TotalCount 2, got %d", decoded.TotalCount)
+	}
+}
+
+func TestGetMockSearchHistory(t *testing.T) {
+	entries := getMockSearchHistory(5)
+
+	if len(entries) > 5 {
+		t.Errorf("expected at most 5 entries, got %d", len(entries))
+	}
+
+	// Verify sorted by most recent first.
+	for i := 0; i < len(entries)-1; i++ {
+		if entries[i].SearchedAt.Before(entries[i+1].SearchedAt) {
+			t.Error("expected entries to be sorted by most recent first")
+		}
+	}
+}
+
+func TestGetMockSearchHistory_LimitLargerThanData(t *testing.T) {
+	entries := getMockSearchHistory(100)
+
+	// Should return all available entries without panicking.
+	if len(entries) == 0 {
+		t.Error("expected non-empty entries")
+	}
+}
+
+func TestOutputSearchHistory_JSON(t *testing.T) {
+	response := SearchHistoryResponse{
+		Entries: []SearchHistoryEntry{
+			{Query: "test", Mode: "hybrid", ResultCount: 5, SearchedAt: time.Now()},
+		},
+		TotalCount: 1,
+		FetchedAt:  time.Now(),
+	}
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := outputSearchHistory(config.OutputFormatJSON, response)
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("outputSearchHistory failed: %v", err)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	// Verify it's valid JSON.
+	var decoded SearchHistoryResponse
+	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Errorf("output is not valid JSON: %v", err)
+	}
+
+	if decoded.TotalCount != 1 {
+		t.Errorf("expected TotalCount 1, got %d", decoded.TotalCount)
+	}
+}
+
+func TestOutputSearchHistory_YAML(t *testing.T) {
+	response := SearchHistoryResponse{
+		Entries: []SearchHistoryEntry{
+			{Query: "test", Mode: "semantic", ResultCount: 10, SearchedAt: time.Now()},
+		},
+		TotalCount: 1,
+		FetchedAt:  time.Now(),
+	}
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := outputSearchHistory(config.OutputFormatYAML, response)
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("outputSearchHistory failed: %v", err)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	// Verify it's valid YAML.
+	var decoded SearchHistoryResponse
+	if err := yaml.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Errorf("output is not valid YAML: %v", err)
+	}
+}
+
+func TestOutputSearchHistory_Text(t *testing.T) {
+	response := SearchHistoryResponse{
+		Entries: []SearchHistoryEntry{
+			{Query: "search query", Mode: "hybrid", ResultCount: 15, QueryTimeMs: 45.2, SearchedAt: time.Now().Add(-10 * time.Minute), Filters: "type:email"},
+		},
+		TotalCount: 1,
+		FetchedAt:  time.Now(),
+	}
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := outputSearchHistory(config.OutputFormatText, response)
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("outputSearchHistory failed: %v", err)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	// Check for expected content.
+	if !strings.Contains(output, "Search History") {
+		t.Error("output should contain 'Search History'")
+	}
+	if !strings.Contains(output, "search query") {
+		t.Error("output should contain query text")
+	}
+	if !strings.Contains(output, "hybrid") {
+		t.Error("output should contain search mode")
+	}
+}
+
+func TestOutputSearchHistory_TextEmpty(t *testing.T) {
+	response := SearchHistoryResponse{
+		Entries:    []SearchHistoryEntry{},
+		TotalCount: 0,
+		FetchedAt:  time.Now(),
+	}
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := outputSearchHistory(config.OutputFormatText, response)
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("outputSearchHistory failed: %v", err)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	if !strings.Contains(output, "No search history found") {
+		t.Error("output should indicate no history found")
+	}
+}
+
+// =============================================================================
+// New Flag Tests
+// =============================================================================
+
+func TestSearchCommand_TenantFlag(t *testing.T) {
+	deps := createSearchTestDeps(mockConfig())
+	cmd := NewSearchCommand(deps)
+
+	flag := cmd.Flags().Lookup("tenant")
+	if flag == nil {
+		t.Fatal("expected --tenant flag to exist")
+	}
+
+	if flag.Shorthand != "" {
+		// No shorthand for tenant
+	}
+}
+
+func TestSearchCommand_SemanticFlag(t *testing.T) {
+	deps := createSearchTestDeps(mockConfig())
+	cmd := NewSearchCommand(deps)
+
+	flag := cmd.Flags().Lookup("semantic")
+	if flag == nil {
+		t.Fatal("expected --semantic flag to exist")
+	}
+}
+
+func TestSearchCommand_ExactFlag(t *testing.T) {
+	deps := createSearchTestDeps(mockConfig())
+	cmd := NewSearchCommand(deps)
+
+	flag := cmd.Flags().Lookup("exact")
+	if flag == nil {
+		t.Fatal("expected --exact flag to exist")
+	}
+}
+
+func TestSearchCommand_SubcommandsExist(t *testing.T) {
+	deps := createSearchTestDeps(mockConfig())
+	cmd := NewSearchCommand(deps)
+
+	subcommands := make(map[string]bool)
+	for _, sub := range cmd.Commands() {
+		subcommands[sub.Name()] = true
+	}
+
+	if !subcommands["advanced"] {
+		t.Error("expected 'advanced' subcommand to exist")
+	}
+	if !subcommands["history"] {
+		t.Error("expected 'history' subcommand to exist")
+	}
+}
+
+func TestRunSearch_WithSemanticFlag(t *testing.T) {
+	cfg := mockConfig()
+	deps := createSearchTestDeps(cfg)
+
+	// Set semantic flag.
+	searchTypes = nil
+	searchAfter = ""
+	searchBefore = ""
+	searchMode = "hybrid"
+	searchLimit = 10
+	searchOffset = 0
+	searchSort = "relevance"
+	searchVerbose = false
+	searchOutput = ""
+	searchSemantic = true
+	searchExact = false
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := runSearch(context.Background(), deps, "semantic search test")
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("runSearch with semantic flag failed: %v", err)
+	}
+
+	// Reset.
+	searchSemantic = false
+}
+
+func TestRunSearch_WithExactFlag(t *testing.T) {
+	cfg := mockConfig()
+	deps := createSearchTestDeps(cfg)
+
+	// Set exact flag.
+	searchTypes = nil
+	searchAfter = ""
+	searchBefore = ""
+	searchMode = "hybrid"
+	searchLimit = 10
+	searchOffset = 0
+	searchSort = "relevance"
+	searchVerbose = false
+	searchOutput = ""
+	searchSemantic = false
+	searchExact = true
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := runSearch(context.Background(), deps, "exact match test")
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("runSearch with exact flag failed: %v", err)
+	}
+
+	// Reset.
+	searchExact = false
+}
+
+func TestRunSearch_WithTenantOverride(t *testing.T) {
+	cfg := mockConfig()
+	deps := createSearchTestDeps(cfg)
+
+	// Set tenant override.
+	searchTypes = nil
+	searchAfter = ""
+	searchBefore = ""
+	searchMode = "hybrid"
+	searchLimit = 10
+	searchOffset = 0
+	searchSort = "relevance"
+	searchVerbose = false
+	searchOutput = ""
+	searchTenant = "override-tenant-123"
+	searchSemantic = false
+	searchExact = false
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := runSearch(context.Background(), deps, "tenant override test")
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("runSearch with tenant override failed: %v", err)
+	}
+
+	// Reset.
+	searchTenant = ""
+}
+
+func TestSearchFilters_WithFieldFilters(t *testing.T) {
+	filters := SearchFilters{
+		ContentTypes: []string{"email"},
+		FieldFilters: []string{"from:test@example.com", "subject:meeting"},
+		ExactMatch:   true,
+	}
+
+	data, err := json.Marshal(filters)
+	if err != nil {
+		t.Fatalf("failed to marshal SearchFilters: %v", err)
+	}
+
+	var decoded SearchFilters
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal SearchFilters: %v", err)
+	}
+
+	if len(decoded.FieldFilters) != 2 {
+		t.Errorf("expected 2 field filters, got %d", len(decoded.FieldFilters))
+	}
+	if !decoded.ExactMatch {
+		t.Error("expected ExactMatch to be true")
+	}
+}
+
+func TestRunSearchHistory(t *testing.T) {
+	cfg := mockConfig()
+	deps := createSearchTestDeps(cfg)
+
+	// Reset flags.
+	historyLimit = 10
+	searchOutput = ""
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := runSearchHistory(context.Background(), deps)
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("runSearchHistory failed: %v", err)
+	}
+}
+
+func TestRunSearchHistoryClear(t *testing.T) {
+	cfg := mockConfig()
+	deps := createSearchTestDeps(cfg)
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := runSearchHistoryClear(context.Background(), deps)
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("runSearchHistoryClear failed: %v", err)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	if !strings.Contains(output, "Search history cleared") {
+		t.Error("expected output to contain 'Search history cleared'")
+	}
+}
+
+func TestRunAdvancedSearch(t *testing.T) {
+	cfg := mockConfig()
+	deps := createSearchTestDeps(cfg)
+
+	// Reset flags.
+	advancedFilters = nil
+	advancedSortSpec = ""
+	advancedMinScore = 0.0
+	searchLimit = 10
+	searchOffset = 0
+	searchVerbose = false
+	searchOutput = ""
+	searchTenant = ""
+	searchSemantic = false
+	searchExact = false
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := runAdvancedSearch(context.Background(), deps, "advanced search test")
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("runAdvancedSearch failed: %v", err)
+	}
+}
+
+func TestRunAdvancedSearch_WithFilters(t *testing.T) {
+	cfg := mockConfig()
+	deps := createSearchTestDeps(cfg)
+
+	// Set filters.
+	advancedFilters = []string{"type:email", "source:gmail"}
+	advancedSortSpec = "created_at:desc"
+	advancedMinScore = 0.5
+	searchLimit = 10
+	searchOffset = 0
+	searchVerbose = false
+	searchOutput = ""
+	searchTenant = ""
+	searchSemantic = false
+	searchExact = false
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := runAdvancedSearch(context.Background(), deps, "filtered search")
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("runAdvancedSearch with filters failed: %v", err)
+	}
+
+	// Reset.
+	advancedFilters = nil
+	advancedSortSpec = ""
+	advancedMinScore = 0.0
+}
+
+func TestRunAdvancedSearch_InvalidSortOrder(t *testing.T) {
+	cfg := mockConfig()
+	deps := createSearchTestDeps(cfg)
+
+	// Set invalid sort.
+	advancedFilters = nil
+	advancedSortSpec = "created_at:invalid"
+	advancedMinScore = 0.0
+	searchLimit = 10
+	searchOffset = 0
+	searchOutput = ""
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := runAdvancedSearch(context.Background(), deps, "test")
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err == nil {
+		t.Error("expected error for invalid sort order")
+	}
+	if !strings.Contains(err.Error(), "invalid sort order") {
+		t.Errorf("expected 'invalid sort order' error, got: %v", err)
+	}
+
+	// Reset.
+	advancedSortSpec = ""
 }

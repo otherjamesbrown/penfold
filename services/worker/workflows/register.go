@@ -38,25 +38,40 @@ func (r *Registrar) registerMainQueueWorkflows(w worker.Worker) {
 	// Register common workflows
 	r.registerCommonWorkflows(w)
 
-	// Main queue specific workflows
-	// Add as they are implemented:
-	// w.RegisterWorkflow(ContentProcessingWorkflow)
-	// w.RegisterWorkflow(RelationshipDiscoveryWorkflow)
+	// Content ingestion workflow
+	w.RegisterWorkflowWithOptions(ContentIngestionWorkflow, workflow.RegisterOptions{
+		Name: "ContentIngestionWorkflow",
+	})
+
+	// Relationship discovery workflow
+	w.RegisterWorkflowWithOptions(RelationshipDiscoveryWorkflow, workflow.RegisterOptions{
+		Name: "RelationshipDiscoveryWorkflow",
+	})
+
+	// Daily review workflow
+	w.RegisterWorkflowWithOptions(DailyReviewWorkflow, workflow.RegisterOptions{
+		Name: "DailyReviewWorkflow",
+	})
 }
 
 // registerAIQueueWorkflows registers workflows for the AI task queue.
 func (r *Registrar) registerAIQueueWorkflows(w worker.Worker) {
-	// AI-intensive workflows
-	// Add as they are implemented:
-	// w.RegisterWorkflow(EmbeddingBatchWorkflow)
-	// w.RegisterWorkflow(SummarizationWorkflow)
+	// Analysis workflow - runs AI-intensive content analysis
+	w.RegisterWorkflowWithOptions(AnalysisWorkflow, workflow.RegisterOptions{
+		Name: "AnalysisWorkflow",
+	})
 }
 
 // registerEmailQueueWorkflows registers workflows for the email task queue.
 func (r *Registrar) registerEmailQueueWorkflows(w worker.Worker) {
-	// Email processing workflows
+	// Email processing workflow
 	w.RegisterWorkflowWithOptions(EmailProcessingWorkflow, workflow.RegisterOptions{
 		Name: "EmailProcessingWorkflow",
+	})
+
+	// Gmail sync workflow
+	w.RegisterWorkflowWithOptions(GmailSyncWorkflow, workflow.RegisterOptions{
+		Name: "GmailSyncWorkflow",
 	})
 }
 
