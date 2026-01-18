@@ -1,7 +1,14 @@
 # Penfold Architecture Patterns
 
 **Extracted from implementations**: 004-gmail-integration, 005-meeting-pipeline, 009-relationship-discovery, 010-testing-framework, 011-observability-framework
-**Last Updated**: 2026-01-16
+**Last Updated**: 2026-01-18
+
+> **Note**: This document describes architectural patterns that remain valid after the Python to Go migration. Code examples shown are from the original Python implementation for reference. Current Go implementations can be found in:
+> - `cmd/penf/` - CLI application
+> - `services/gateway/` - API Gateway
+> - `services/gmail/` - Gmail Connector (OAuth2, sync, push)
+> - `services/worker/` - Temporal Worker
+> - `pkg/` - Shared packages (db, tracing, temporal)
 
 ## Core Architectural Patterns
 
