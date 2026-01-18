@@ -1,0 +1,16 @@
+version: v2
+name: buf.build/otherjamesbrown/penfold
+modules:
+  - path: .
+    name: buf.build/otherjamesbrown/penfold
+lint:
+  use:
+    - STANDARD
+  except:
+    # Allow field names without package prefix for simpler messages
+    - PACKAGE_DIRECTORY_MATCH
+breaking:
+  use:
+    - FILE
+deps:
+  - buf.build/googleapis/googleapis
