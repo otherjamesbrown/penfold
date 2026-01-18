@@ -1,5 +1,4 @@
 version: v2
-name: buf.build/otherjamesbrown/penfold
 modules:
   - path: .
     name: buf.build/otherjamesbrown/penfold

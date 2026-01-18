@@ -13,21 +13,25 @@ import "google/protobuf/timestamp.proto";
 // Service Definition
 // =============================================================================
 
-// WorkflowOrchestratorService provides gRPC endpoints for managing Temporal workflows.
+// OrchestratorService provides gRPC endpoints for managing Temporal workflows.
 // This service acts as a facade over Temporal's API, providing simplified workflow
 // management for the Penfold AI processing pipeline.
-service WorkflowOrchestratorService {
+service OrchestratorService {
   // StartWorkflow initiates a new workflow execution.
   rpc StartWorkflow(StartWorkflowRequest) returns (StartWorkflowResponse);
 
-  // GetWorkflow retrieves details about a specific workflow execution.
-  rpc GetWorkflow(GetWorkflowRequest) returns (WorkflowExecution);
+  // GetWorkflowStatus retrieves the status of a specific workflow execution.
+  rpc GetWorkflowStatus(GetWorkflowStatusRequest) returns (GetWorkflowStatusResponse);
+
+  // CancelWorkflow requests cancellation of a running workflow.
+  rpc CancelWorkflow(CancelWorkflowRequest) returns (CancelWorkflowResponse);
 
   // ListWorkflows returns a paginated list of workflow executions.
   rpc ListWorkflows(ListWorkflowsRequest) returns (ListWorkflowsResponse);
 
-  // CancelWorkflow requests cancellation of a running workflow.
-  rpc CancelWorkflow(CancelWorkflowRequest) returns (CancelWorkflowResponse);
+  // SignalWorkflow sends a signal to a running workflow execution.
+  // Signals allow external events to be delivered to a workflow.
+  rpc SignalWorkflow(SignalWorkflowRequest) returns (SignalWorkflowResponse);
 
   // RetryWorkflow resets and retries a failed workflow from its last failure point.
   rpc RetryWorkflow(RetryWorkflowRequest) returns (RetryWorkflowResponse);
@@ -67,13 +71,19 @@ message StartWorkflowResponse {
   string run_id = 2;
 }
 
-// GetWorkflowRequest retrieves a specific workflow execution.
-message GetWorkflowRequest {
+// GetWorkflowStatusRequest retrieves the status of a specific workflow execution.
+message GetWorkflowStatusRequest {
   // Unique workflow execution ID
   string workflow_id = 1;
 
   // Optional run ID for a specific execution attempt
   optional string run_id = 2;
+}
+
+// GetWorkflowStatusResponse contains the workflow execution status details.
+message GetWorkflowStatusResponse {
+  // The workflow execution details
+  WorkflowExecution execution = 1;
 }
 
 // WorkflowExecution contains detailed information about a workflow execution.
@@ -165,6 +175,30 @@ message CancelWorkflowRequest {
 message CancelWorkflowResponse {
   // Whether the cancellation request was accepted
   bool accepted = 1;
+
+  // Message providing additional details
+  string message = 2;
+}
+
+// SignalWorkflowRequest sends a signal to a running workflow execution.
+message SignalWorkflowRequest {
+  // Unique workflow execution ID to signal
+  string workflow_id = 1;
+
+  // Optional run ID for a specific execution attempt
+  optional string run_id = 2;
+
+  // Name of the signal to send
+  string signal_name = 3;
+
+  // JSON-encoded signal payload (optional)
+  optional bytes payload = 4;
+}
+
+// SignalWorkflowResponse confirms the signal was sent.
+message SignalWorkflowResponse {
+  // Whether the signal was successfully delivered
+  bool delivered = 1;
 
   // Message providing additional details
   string message = 2;
@@ -289,14 +323,17 @@ enum WorkflowType {
   // Unspecified workflow type
   WORKFLOW_TYPE_UNSPECIFIED = 0;
 
-  // Email processing workflow
+  // Email processing workflow - processes incoming emails through AI pipeline
   WORKFLOW_TYPE_EMAIL_PROCESSING = 1;
 
-  // Generic content processing workflow
-  WORKFLOW_TYPE_CONTENT_PROCESSING = 2;
+  // Content ingestion workflow - ingests and processes documents and content
+  WORKFLOW_TYPE_CONTENT_INGESTION = 2;
 
-  // Relationship discovery workflow
-  WORKFLOW_TYPE_RELATIONSHIP_DISCOVERY = 3;
+  // Daily review workflow - generates daily review items for user attention
+  WORKFLOW_TYPE_DAILY_REVIEW = 3;
+
+  // Relationship discovery workflow - discovers and analyzes entity relationships
+  WORKFLOW_TYPE_RELATIONSHIP_DISCOVERY = 4;
 }
 
 // WorkflowStatus enumerates the possible workflow execution statuses.
@@ -304,20 +341,20 @@ enum WorkflowStatus {
   // Unspecified status
   WORKFLOW_STATUS_UNSPECIFIED = 0;
 
+  // Workflow is pending execution (scheduled but not yet started)
+  WORKFLOW_STATUS_PENDING = 1;
+
   // Workflow is currently running
-  WORKFLOW_STATUS_RUNNING = 1;
+  WORKFLOW_STATUS_RUNNING = 2;
 
   // Workflow completed successfully
-  WORKFLOW_STATUS_COMPLETED = 2;
+  WORKFLOW_STATUS_COMPLETED = 3;
 
   // Workflow failed with an error
-  WORKFLOW_STATUS_FAILED = 3;
+  WORKFLOW_STATUS_FAILED = 4;
 
-  // Workflow was canceled
-  WORKFLOW_STATUS_CANCELED = 4;
-
-  // Workflow was terminated
-  WORKFLOW_STATUS_TERMINATED = 5;
+  // Workflow was cancelled
+  WORKFLOW_STATUS_CANCELLED = 5;
 
   // Workflow timed out
   WORKFLOW_STATUS_TIMED_OUT = 6;
