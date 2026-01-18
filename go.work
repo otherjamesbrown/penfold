@@ -1,6 +1,10 @@
 go 1.24.0
 
 use (
+	./api/proto/content/v1
+	./cmd/penf
 	./penfold-go-pipeline
 	./pkg
+	./services/content
+	./services/gateway
 )
