@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/otherjamesbrown/penfold/pkg/config"
 )
@@ -28,7 +30,11 @@ type GatewayConfig struct {
 	RateLimitEnabled bool
 
 	// RateLimitRPS is the maximum requests per second when rate limiting is enabled.
+	// Deprecated: Use RateLimit.DefaultRPS instead.
 	RateLimitRPS int
+
+	// RateLimit contains detailed rate limiting configuration.
+	RateLimit RateLimitConfig
 
 	// OrchestratorAddress is the gRPC address of the orchestrator service.
 	OrchestratorAddress string
@@ -38,6 +44,31 @@ type GatewayConfig struct {
 
 	// DailyReviewAddress is the gRPC address of the daily review service.
 	DailyReviewAddress string
+}
+
+// RateLimitConfig holds rate limiting configuration for the gateway.
+type RateLimitConfig struct {
+	// DefaultRPS is the default requests per second allowed per tenant.
+	DefaultRPS float64
+
+	// DefaultBurst is the default burst capacity (maximum tokens).
+	DefaultBurst int
+
+	// CleanupInterval is how often to clean up expired rate limit buckets.
+	CleanupInterval time.Duration
+
+	// BucketTTL is how long to keep inactive rate limit buckets.
+	BucketTTL time.Duration
+
+	// SkipMethods is a list of gRPC methods to skip rate limiting for.
+	// Format: "/package.service/method"
+	SkipMethods []string
+
+	// SkipPaths is a list of HTTP paths to skip rate limiting for.
+	SkipPaths []string
+
+	// IncludeHeaders when true, includes rate limit headers in HTTP responses.
+	IncludeHeaders bool
 }
 
 // Default configuration values for the gateway.
@@ -50,6 +81,12 @@ const (
 	DefaultOrchestratorAddress  = "localhost:50052"
 	DefaultSearchAddress        = "localhost:50053"
 	DefaultDailyReviewAddress   = "localhost:50054"
+
+	// Rate limit defaults.
+	DefaultRateLimitDefaultRPS   = 100.0
+	DefaultRateLimitDefaultBurst = 150
+	DefaultRateLimitCleanup      = 5 * time.Minute
+	DefaultRateLimitBucketTTL    = 10 * time.Minute
 )
 
 // Load loads the gateway configuration from environment variables.
@@ -76,6 +113,15 @@ func Load() (*GatewayConfig, error) {
 		OrchestratorAddress: DefaultOrchestratorAddress,
 		SearchAddress:       DefaultSearchAddress,
 		DailyReviewAddress:  DefaultDailyReviewAddress,
+		RateLimit: RateLimitConfig{
+			DefaultRPS:      DefaultRateLimitDefaultRPS,
+			DefaultBurst:    DefaultRateLimitDefaultBurst,
+			CleanupInterval: DefaultRateLimitCleanup,
+			BucketTTL:       DefaultRateLimitBucketTTL,
+			SkipMethods:     []string{},
+			SkipPaths:       []string{"/health", "/ready", "/live", "/metrics"},
+			IncludeHeaders:  true,
+		},
 	}
 
 	// Override from environment variables.
@@ -109,7 +155,44 @@ func loadGatewayEnv(cfg *GatewayConfig) {
 	if v := os.Getenv("GATEWAY_RATE_LIMIT_RPS"); v != "" {
 		if rps, err := strconv.Atoi(v); err == nil && rps > 0 {
 			cfg.RateLimitRPS = rps
+			// Also update new config structure for backwards compatibility
+			cfg.RateLimit.DefaultRPS = float64(rps)
 		}
+	}
+
+	// Enhanced rate limit configuration
+	if v := os.Getenv("GATEWAY_RATE_LIMIT_DEFAULT_RPS"); v != "" {
+		if rps, err := strconv.ParseFloat(v, 64); err == nil && rps > 0 {
+			cfg.RateLimit.DefaultRPS = rps
+		}
+	}
+
+	if v := os.Getenv("GATEWAY_RATE_LIMIT_DEFAULT_BURST"); v != "" {
+		if burst, err := strconv.Atoi(v); err == nil && burst > 0 {
+			cfg.RateLimit.DefaultBurst = burst
+		}
+	}
+
+	if v := os.Getenv("GATEWAY_RATE_LIMIT_SKIP_METHODS"); v != "" {
+		// Comma-separated list of gRPC methods to skip
+		methods := strings.Split(v, ",")
+		for i := range methods {
+			methods[i] = strings.TrimSpace(methods[i])
+		}
+		cfg.RateLimit.SkipMethods = methods
+	}
+
+	if v := os.Getenv("GATEWAY_RATE_LIMIT_SKIP_PATHS"); v != "" {
+		// Comma-separated list of HTTP paths to skip
+		paths := strings.Split(v, ",")
+		for i := range paths {
+			paths[i] = strings.TrimSpace(paths[i])
+		}
+		cfg.RateLimit.SkipPaths = paths
+	}
+
+	if v := os.Getenv("GATEWAY_RATE_LIMIT_INCLUDE_HEADERS"); v != "" {
+		cfg.RateLimit.IncludeHeaders = v == "true" || v == "1"
 	}
 
 	if v := os.Getenv("GATEWAY_ORCHESTRATOR_ADDRESS"); v != "" {

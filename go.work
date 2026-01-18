@@ -15,4 +15,5 @@ use (
 	./services/relationship
 	./services/review
 	./services/search
+	./services/worker
 )
