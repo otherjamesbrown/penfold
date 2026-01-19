@@ -168,6 +168,7 @@ bd list --status=open   # All open work
 - **Find work**: `bd ready`
 - **Project status**: `bd stats`
 - **Development standards**: `project-constitution.md`
+- **Infrastructure access**: `context/infrastructure-access.md` (PostgreSQL, Redis, NAS)
 - **When stuck**: Ask user for direction on priorities
 - **Before ending**: `git push` + `bd sync`
 
