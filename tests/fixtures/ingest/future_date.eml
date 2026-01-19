@@ -1,0 +1,13 @@
+MIME-Version: 1.0
+Date: Thu, 15 Dec 2099 10:00:00 -0500
+Message-ID: <test-future-date-001@example.com>
+Subject: Reminder: Annual Review
+From: HR System <hr-noreply@example.com>
+To: all-staff@example.com
+Content-Type: text/plain; charset="UTF-8"
+
+This is an automated reminder about your upcoming annual review.
+
+Please complete the self-assessment form by the deadline.
+
+- HR Team
