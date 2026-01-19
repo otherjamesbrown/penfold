@@ -626,6 +626,7 @@ func init() {
 	rootCmd.AddCommand(cmd.NewWorkflowCommand(nil))
 	rootCmd.AddCommand(cmd.NewLogsCommand(nil))
 	rootCmd.AddCommand(cmd.NewDebugCommand(nil))
+	rootCmd.AddCommand(cmd.NewPipelineCommand(nil))
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)
