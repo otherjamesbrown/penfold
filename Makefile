@@ -3,7 +3,7 @@
 .PHONY: all build test lint vet proto clean help
 
 # Go modules in the project
-GO_MODULES := pkg penfold-go-pipeline
+GO_MODULES := cmd/penf pkg api/proto services/ai services/content services/gateway services/gmail services/relationship services/review services/search services/worker
 
 # Default target
 all: lint vet build test
