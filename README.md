@@ -1,204 +1,136 @@
-# Penfold
+# Meeting Pipeline - Phase 1 Infrastructure
 
-Personal AI-powered contextual information system that aggregates and correlates information from communication channels (email, Slack, documents, meetings) into a queryable institutional memory.
+Core infrastructure setup for the Penfold meeting upload and processing pipeline.
 
-## Architecture
+## Features Implemented (Phase 1)
 
-Penfold is built with Go for high performance and reliability:
-
-```
-cmd/penf/           # CLI application
-services/
-├── gateway/        # API Gateway (gRPC + HTTP)
-├── gmail/          # Gmail Connector (OAuth2, sync, push notifications)
-└── worker/         # Temporal worker for background processing
-pkg/
-├── db/             # Database utilities (PostgreSQL + pgvector)
-├── tracing/        # Distributed tracing
-├── temporal/       # Temporal workflow SDK
-└── embeddings/     # Vector embedding generation
-api/proto/          # Protocol Buffer definitions
-```
-
-### Core Services
-
-| Service | Description | Port |
-|---------|-------------|------|
-| Gateway | API gateway with auth, routing, rate limiting | 8080 (HTTP), 9090 (gRPC) |
-| Gmail | OAuth2 PKCE, real-time sync, push notifications | - |
-| Worker | Temporal activities and workflows | - |
-
-### Technology Stack
-
-- **Language**: Go 1.22+
-- **Database**: PostgreSQL 16+ with pgvector extension
-- **Workflows**: Temporal for durable execution
-- **API**: gRPC with Protocol Buffers, HTTP gateway
-- **Embeddings**: MLX on Apple Silicon (via sidecar)
-- **Search**: Hybrid full-text + vector similarity
+✅ **Core Infrastructure**
+- FastAPI application with async support
+- PostgreSQL database with pgvector extension
+- SQLAlchemy async models for all meeting entities
+- Procrastinate job queue for background processing
+- Docker development environment
+- Configuration management with environment variables
+- Health check endpoints
 
 ## Getting Started
 
 ### Prerequisites
-
-- Go 1.22+
+- Python 3.12+
 - PostgreSQL 16+ with pgvector
-- Temporal server
-- Redis (optional, for caching)
+- Docker and Docker Compose (recommended)
 
-### Installation
+### Development Setup
 
+1. **Clone and setup environment:**
 ```bash
-# Clone the repository
-git clone https://github.com/otherjamesbrown/penfold.git
+git clone <repository>
 cd penfold
-
-# Build the CLI
-go build -o penf ./cmd/penf
-
-# Or install directly
-go install ./cmd/penf
-```
-
-### Configuration
-
-Copy the example environment file and configure:
-
-```bash
 cp .env.example .env
+# Edit .env with your settings
 ```
 
-Key configuration:
-- `DATABASE_URL`: PostgreSQL connection string
-- `TEMPORAL_ADDRESS`: Temporal server address
-- `GMAIL_CLIENT_ID`: Google OAuth2 client ID
-- `GMAIL_CLIENT_SECRET`: Google OAuth2 client secret
-
-### Running
-
+2. **Using Docker (Recommended):**
 ```bash
-# Start the gateway
-./penf gateway start
-
-# Start the worker
-./penf worker start
-
-# Or run services via docker-compose
-docker-compose up -d
+docker-compose up -d postgres redis
+docker-compose up api
 ```
 
-### CLI Usage
-
+3. **Local development:**
 ```bash
-# Check system health
-penf health
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 
-# Search content
-penf search "project status meeting"
+# Start PostgreSQL and create database
+createdb penfold_dev
+psql penfold_dev -c "CREATE EXTENSION vector;"
 
-# Manage Gmail accounts
-penf auth gmail add
-penf auth gmail list
+# Run the application
+uvicorn app.main:app --reload
+```
 
-# View relationships
-penf relationship list
-penf relationship show <entity-id>
+### Verify Installation
 
-# Daily review
-penf review pending
-penf review process
+Check health endpoint:
+```bash
+curl http://localhost:8000/health
+```
 
-# Manage tenants
-penf tenant list
-penf tenant create <name>
+Expected response:
+```json
+{
+  "status": "healthy",
+  "service": "meeting-pipeline",
+  "version": "1.0.0",
+  "components": {
+    "database": "connected",
+    "job_queue": "running",
+    "file_storage": "available"
+  }
+}
 ```
 
 ## Project Structure
 
 ```
-.
-├── api/proto/              # Protocol Buffer definitions
-│   ├── gateway/v1/         # Gateway service
-│   ├── search/v1/          # Search service
-│   ├── review/v1/          # Review service
-│   └── ...
-├── cmd/penf/               # CLI application
-│   ├── cmd/                # Command implementations
-│   ├── client/             # gRPC client
-│   └── config/             # CLI configuration
-├── pkg/                    # Shared packages
-│   ├── db/                 # Database utilities
-│   ├── temporal/           # Temporal SDK helpers
-│   └── tracing/            # Observability
-├── services/               # Backend services
-│   ├── gateway/            # API Gateway
-│   ├── gmail/              # Gmail Connector
-│   └── worker/             # Temporal Worker
-├── specs/                  # Feature specifications
-├── docs/                   # Documentation
-└── penfold-go-pipeline/    # MLX embeddings sidecar
+app/
+├── main.py              # FastAPI application
+├── config.py            # Configuration management
+├── database.py          # Database models and connection
+├── jobs.py              # Background job definitions
+├── api/                 # API routes
+│   ├── upload_routes.py # File upload endpoints (placeholder)
+│   ├── search_routes.py # Search endpoints (placeholder)
+│   └── review_routes.py # Review endpoints (placeholder)
+├── upload/              # Upload handling (Phase 2)
+├── transcription/       # Audio processing (Phase 3)
+├── analysis/            # AI analysis (Phase 4)
+├── search/              # Search implementation (Phase 5)
+├── ui/                  # User interface (Phase 6)
+└── review/              # Manual review (Phase 6)
 ```
 
-## Development
+## Database Schema
 
-### Building
+Core entities implemented:
+- `meeting_files` - Uploaded meeting recordings
+- `processing_jobs` - Background job tracking
+- `meeting_transcripts` - Transcribed content with embeddings
+- `meeting_participants` - Speaker identification
+- `meeting_summaries` - AI-generated summaries
+- `meeting_topics` - Topic extraction and project linking
+- `review_queue` - Manual review tasks
+- `meeting_insights` - Business insights
 
-```bash
-# Build all
-go build ./...
+## Next Steps
 
-# Run tests
-go test ./...
+**Phase 2** - File Upload Implementation (pe-eer)
+- TUS resumable upload protocol
+- File validation and privacy controls
+- Upload progress tracking
 
-# Run tests with coverage
-go test -cover ./...
+**Phase 3** - Audio Transcription Pipeline (pe-1le)
+- WhisperX local transcription
+- Speaker diarization with Pyannote
+- Google Cloud Speech-to-Text fallback
 
-# Generate protobuf code
-buf generate
-```
+See implementation beads for detailed task breakdown.
 
-### Workflow Management
+## Architecture
 
-Penfold uses a bead-based workflow system for task tracking:
+This implementation follows the technical decisions from `specs/005-meeting-pipeline/research.md`:
+- **Database**: PostgreSQL 16+ with pgvector for semantic search
+- **Job Queue**: Procrastinate with PostgreSQL backend
+- **API Framework**: FastAPI with async support
+- **Local-First**: Designed for Mac M4 development environment
+- **Privacy Controls**: Multi-level encryption support
 
-```bash
-# Find available work
-bd ready
+## Development Workflow
 
-# Claim a task
-bd update <bead-id> --status=in_progress
-
-# Complete a task
-bd close <bead-id> --reason="Implementation complete"
-
-# Sync with remote
-bd sync
-```
-
-### Code Style
-
-- Follow standard Go conventions
-- Use `gofmt` for formatting
-- Run `go vet` and `staticcheck` before commits
-- Reference beads in commits: `feat(component): description [pe-xxxx]`
-
-## Documentation
-
-- [Architecture Patterns](context/ARCHITECTURE.md)
-- [Gmail Integration](docs/gmail-integration/README.md)
-- [Search Interface](docs/search/README.md)
-- [Database Schema](docs/database-schema/README.md)
-- [Feature Specifications](specs/)
-
-## Contributing
-
-1. Find or create a bead for your work: `bd ready`
-2. Update status: `bd update <id> --status=in_progress`
-3. Implement with tests
-4. Reference bead in commit: `git commit -m "feat: description [pe-xxxx]"`
-5. Close bead: `bd close <id> --reason="summary"`
-6. Push changes: `git push`
-
-## License
-
-MIT
+1. Claim next ready bead: `bd ready`
+2. Update status: `bd update <bead-id> --status=in_progress`
+3. Implement features according to bead description
+4. Test implementation
+5. Complete bead: `bd close <bead-id>`
+6. Check newly available work: `bd ready`
