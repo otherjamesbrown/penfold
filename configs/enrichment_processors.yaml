@@ -1,0 +1,90 @@
+# Enrichment Pipeline Processor Configuration
+# See: specs/013-content-enrichment/classification.md
+
+stages:
+  classification:
+    processor: ContentClassifier
+    input: source
+    output: content_type, content_subtype, processing_profile
+
+  common_enrichment:
+    # These run for ALL content regardless of type
+    processors:
+      - ParticipantExtractor
+      - EntityResolver
+      - InternalExternalClassifier
+      - LinkExtractor
+      - LinkCategorizer
+      - ThreadGrouper
+      - ProjectMatcher
+      - AttachmentExtractor
+
+  type_specific:
+    # Keyed by content_subtype
+    "notification/jira":
+      processor: JiraExtractor
+      outputs: [jira_tickets, jira_ticket_changes]
+
+    "notification/google":
+      processor: GoogleNotificationExtractor
+      outputs: [link_enrichment]
+
+    "notification/slack":
+      processor: SlackExtractor
+      outputs: [slack_references]
+
+    "calendar/invite":
+      processor: CalendarExtractor
+      outputs: [meetings, meeting_attendees, meeting_events]
+
+    "calendar/cancellation":
+      processor: CalendarExtractor
+      outputs: [meetings, meeting_attendees, meeting_events]
+
+    "calendar/update":
+      processor: CalendarExtractor
+      outputs: [meetings, meeting_attendees, meeting_events]
+
+    "calendar/response":
+      processor: CalendarExtractor
+      outputs: [meetings, meeting_attendees, meeting_events]
+
+    "email/forward":
+      processor: ForwardExtractor
+      outputs: [forwarded_from_person_id]
+
+    "email/thread":
+      processor: ThreadContextBuilder
+      outputs: [thread_context]
+
+    "email/standalone":
+      processor: null  # No type-specific processing
+
+  ai_routing:
+    # Keyed by processing_profile
+    "metadata_only":
+      skip_ai: true
+      reason: "Structured extraction only"
+
+    "state_tracking":
+      skip_ai: true
+      reason: "State machine updates only"
+
+    "full_ai":
+      skip_ai: false
+      processors: [ContextBuilder, TemplateResolver, LLMExtractor, Embedder, Summarizer]
+
+    "full_ai_chunked":
+      skip_ai: false
+      preprocessor: Chunker
+      processors: [ContextBuilder, TemplateResolver, LLMExtractor, Embedder, Summarizer]
+
+    "structure_only":
+      skip_ai: true
+      processors: [SchemaExtractor]
+      reason: "Spreadsheet structure only"
+
+    "ocr_if_text":
+      skip_ai: false
+      preprocessor: OCRProcessor
+      processors: [ContextBuilder, TemplateResolver, LLMExtractor, Embedder, Summarizer]
