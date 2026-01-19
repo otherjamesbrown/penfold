@@ -172,6 +172,9 @@ Examples:
   # Ingest from a URL
   penf ingest url https://example.com/article
 
+  # Ingest .eml email files
+  penf ingest email ./emails/ --source "archive-2024"
+
   # Batch ingest from a manifest file
   penf ingest batch manifest.yaml
 
@@ -194,6 +197,7 @@ Examples:
 	cmd.AddCommand(newIngestFileCommand(deps))
 	cmd.AddCommand(newIngestURLCommand(deps))
 	cmd.AddCommand(newIngestBatchCommand(deps))
+	cmd.AddCommand(newIngestEmailCommand(deps)) // Email (.eml) ingest
 	cmd.AddCommand(newIngestGmailCommand(deps))
 	cmd.AddCommand(newIngestStatusCommand(deps))
 	cmd.AddCommand(newIngestQueueCommand(deps))
