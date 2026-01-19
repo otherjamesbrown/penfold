@@ -1,0 +1,376 @@
+// AI Coordinator Service Protobuf Definitions
+// Defines the gRPC service for AI/ML operations including embeddings,
+// summarization, assertion extraction, and content classification.
+
+syntax = "proto3";
+
+package penfold.ai.v1;
+
+option go_package = "github.com/otherjamesbrown/penfold/api/proto/ai/v1;aiv1";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// AICoordinatorService provides gRPC endpoints for AI/ML operations.
+// This service coordinates access to embedding models, LLMs, and other AI
+// capabilities used throughout the Penfold information processing pipeline.
+service AICoordinatorService {
+  // GenerateEmbedding creates a vector embedding for the given text.
+  // Used for semantic search and similarity matching.
+  rpc GenerateEmbedding(EmbeddingRequest) returns (EmbeddingResponse);
+
+  // GenerateSummary produces a concise summary of the given content.
+  // Supports different summary styles and length constraints.
+  rpc GenerateSummary(SummaryRequest) returns (SummaryResponse);
+
+  // ExtractAssertions identifies facts and claims from content.
+  // Returns structured subject-predicate-object triples with confidence scores.
+  rpc ExtractAssertions(AssertionRequest) returns (AssertionResponse);
+
+  // ClassifyContent categorizes content into predefined or dynamic categories.
+  // Returns classification labels with confidence scores.
+  rpc ClassifyContent(ClassifyContentRequest) returns (ClassifyContentResponse);
+
+  // GetModelStatus checks the availability and health of AI models.
+  // Returns information about loaded models and their capabilities.
+  rpc GetModelStatus(GetModelStatusRequest) returns (GetModelStatusResponse);
+}
+
+// =============================================================================
+// Embedding Messages
+// =============================================================================
+
+// EmbeddingRequest contains the text to generate an embedding for.
+message EmbeddingRequest {
+  // The text content to embed.
+  // Maximum length depends on the model's context window.
+  string text = 1;
+
+  // The embedding model to use.
+  // If not specified, the default model will be used.
+  // Examples: "nomic-embed-text", "text-embedding-3-small"
+  optional string model = 2;
+
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 3;
+}
+
+// EmbeddingResponse contains the generated vector embedding.
+message EmbeddingResponse {
+  // The embedding vector as a list of float values.
+  // Length varies by model (typically 768, 1024, or 1536 dimensions).
+  repeated float vector = 1;
+
+  // The number of dimensions in the embedding vector.
+  int32 dimensions = 2;
+
+  // The model that was actually used to generate the embedding.
+  // May differ from requested model if fallback occurred.
+  string model_used = 3;
+
+  // Token count of the input text.
+  // Useful for cost tracking and rate limiting.
+  optional int32 token_count = 4;
+}
+
+// =============================================================================
+// Summary Messages
+// =============================================================================
+
+// SummaryStyle defines the format and tone of the generated summary.
+enum SummaryStyle {
+  // Default style - balanced and informative.
+  SUMMARY_STYLE_UNSPECIFIED = 0;
+
+  // Brief, executive-style summary focusing on key points.
+  SUMMARY_STYLE_BRIEF = 1;
+
+  // Detailed summary preserving more context and nuance.
+  SUMMARY_STYLE_DETAILED = 2;
+
+  // Bullet-point format highlighting main topics.
+  SUMMARY_STYLE_BULLET_POINTS = 3;
+
+  // Technical summary focusing on facts and data.
+  SUMMARY_STYLE_TECHNICAL = 4;
+}
+
+// SummaryRequest contains the content to summarize.
+message SummaryRequest {
+  // The content to summarize.
+  // Can be plain text, markdown, or other text formats.
+  string content = 1;
+
+  // Maximum length of the summary in tokens or characters.
+  // Interpretation depends on the model. Default: 150 tokens.
+  optional int32 max_length = 2;
+
+  // The style of summary to generate.
+  SummaryStyle style = 3;
+
+  // The LLM model to use for summarization.
+  // If not specified, the default model will be used.
+  optional string model = 4;
+
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 5;
+}
+
+// SummaryResponse contains the generated summary and key points.
+message SummaryResponse {
+  // The generated summary text.
+  string summary = 1;
+
+  // Key points extracted from the content.
+  // Provides quick-reference highlights independent of the summary style.
+  repeated string key_points = 2;
+
+  // The model that was actually used to generate the summary.
+  string model_used = 3;
+
+  // Token count of the input content.
+  optional int32 input_tokens = 4;
+
+  // Token count of the generated summary.
+  optional int32 output_tokens = 5;
+}
+
+// =============================================================================
+// Assertion Extraction Messages
+// =============================================================================
+
+// AssertionRequest contains content from which to extract assertions.
+message AssertionRequest {
+  // The content to analyze for assertions.
+  // Can include emails, documents, meeting notes, etc.
+  string content = 1;
+
+  // Minimum confidence threshold for returned assertions (0.0 to 1.0).
+  // Assertions below this threshold will be filtered out.
+  // Default: 0.5
+  optional float min_confidence = 2;
+
+  // Maximum number of assertions to return.
+  // Default: 20
+  optional int32 max_assertions = 3;
+
+  // The LLM model to use for assertion extraction.
+  // If not specified, the default model will be used.
+  optional string model = 4;
+
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 5;
+}
+
+// Assertion represents a structured fact or claim extracted from content.
+// Modeled as a subject-predicate-object triple.
+message Assertion {
+  // The subject of the assertion (e.g., "John", "Project Alpha").
+  string subject = 1;
+
+  // The predicate or relationship (e.g., "works on", "is scheduled for").
+  string predicate = 2;
+
+  // The object of the assertion (e.g., "the marketing team", "next Tuesday").
+  string object = 3;
+
+  // Confidence score for this assertion (0.0 to 1.0).
+  // Higher values indicate higher confidence in the extraction accuracy.
+  float confidence = 4;
+
+  // The source text span that supports this assertion.
+  // Useful for verification and citation.
+  optional string source_text = 5;
+
+  // Category of the assertion (e.g., "temporal", "organizational", "factual").
+  optional string category = 6;
+}
+
+// AssertionResponse contains the extracted assertions.
+message AssertionResponse {
+  // List of extracted assertions, ordered by confidence (highest first).
+  repeated Assertion assertions = 1;
+
+  // The model that was actually used for extraction.
+  string model_used = 2;
+
+  // Total number of assertions found before filtering.
+  int32 total_found = 3;
+
+  // Number of assertions filtered out due to confidence threshold.
+  int32 filtered_count = 4;
+}
+
+// =============================================================================
+// Content Classification Messages
+// =============================================================================
+
+// ClassifyContentRequest contains content to classify.
+message ClassifyContentRequest {
+  // The content to classify.
+  string content = 1;
+
+  // Predefined categories to classify into.
+  // If empty, the model will use its default taxonomy.
+  // Examples: ["work", "personal", "finance", "health"]
+  repeated string categories = 2;
+
+  // Whether to allow multi-label classification.
+  // If false, only the top category will be returned.
+  // Default: true
+  optional bool multi_label = 3;
+
+  // Minimum confidence threshold for returned classifications (0.0 to 1.0).
+  // Default: 0.3
+  optional float min_confidence = 4;
+
+  // The model to use for classification.
+  // If not specified, the default model will be used.
+  optional string model = 5;
+
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 6;
+}
+
+// Classification represents a single category assignment.
+message Classification {
+  // The category label.
+  string label = 1;
+
+  // Confidence score for this classification (0.0 to 1.0).
+  float confidence = 2;
+
+  // Optional explanation for why this classification was assigned.
+  optional string explanation = 3;
+}
+
+// ClassifyContentResponse contains the classification results.
+message ClassifyContentResponse {
+  // List of classifications, ordered by confidence (highest first).
+  repeated Classification classifications = 1;
+
+  // The primary classification (highest confidence).
+  // Convenience field for single-label use cases.
+  Classification primary = 2;
+
+  // The model that was actually used for classification.
+  string model_used = 3;
+}
+
+// =============================================================================
+// Model Status Messages
+// =============================================================================
+
+// ModelType identifies the category of AI model.
+enum ModelType {
+  // Unknown or unspecified model type.
+  MODEL_TYPE_UNSPECIFIED = 0;
+
+  // Embedding model for vector generation.
+  MODEL_TYPE_EMBEDDING = 1;
+
+  // Large language model for text generation.
+  MODEL_TYPE_LLM = 2;
+
+  // Classification model for categorization.
+  MODEL_TYPE_CLASSIFIER = 3;
+
+  // Named entity recognition model.
+  MODEL_TYPE_NER = 4;
+}
+
+// ModelStatus indicates the operational state of a model.
+enum ModelStatus {
+  // Unknown or unspecified status.
+  MODEL_STATUS_UNSPECIFIED = 0;
+
+  // Model is loaded and ready to serve requests.
+  MODEL_STATUS_READY = 1;
+
+  // Model is currently loading or warming up.
+  MODEL_STATUS_LOADING = 2;
+
+  // Model is unavailable due to an error.
+  MODEL_STATUS_ERROR = 3;
+
+  // Model is not loaded and must be loaded before use.
+  MODEL_STATUS_UNLOADED = 4;
+
+  // Model is being updated or replaced.
+  MODEL_STATUS_UPDATING = 5;
+}
+
+// ModelInfo contains information about an available AI model.
+message ModelInfo {
+  // Unique name/identifier for the model.
+  // Examples: "nomic-embed-text", "gemini-1.5-pro", "llama3.2"
+  string name = 1;
+
+  // The type of model.
+  ModelType type = 2;
+
+  // Current operational status of the model.
+  ModelStatus status = 3;
+
+  // List of capabilities this model supports.
+  // Examples: ["embedding", "chat", "summarization", "extraction"]
+  repeated string capabilities = 4;
+
+  // Maximum context length in tokens.
+  // Relevant for LLMs and embedding models.
+  optional int32 max_context_length = 5;
+
+  // Embedding dimensions (for embedding models only).
+  optional int32 embedding_dimensions = 6;
+
+  // Whether this is a local model (e.g., Ollama) or cloud API.
+  bool is_local = 7;
+
+  // Provider name (e.g., "ollama", "openai", "google", "anthropic").
+  string provider = 8;
+
+  // Model version or variant.
+  optional string version = 9;
+
+  // Error message if status is MODEL_STATUS_ERROR.
+  optional string error_message = 10;
+
+  // Average latency in milliseconds for recent requests.
+  optional double avg_latency_ms = 11;
+
+  // Number of requests processed in the last hour.
+  optional int64 requests_last_hour = 12;
+}
+
+// GetModelStatusRequest queries the status of AI models.
+message GetModelStatusRequest {
+  // Filter by model name (optional).
+  // If not specified, returns all models.
+  optional string model_name = 1;
+
+  // Filter by model type (optional).
+  optional ModelType model_type = 2;
+
+  // Whether to include detailed metrics.
+  // Default: false
+  optional bool include_metrics = 3;
+}
+
+// GetModelStatusResponse contains information about available models.
+message GetModelStatusResponse {
+  // List of available models matching the request filters.
+  repeated ModelInfo models = 1;
+
+  // Default embedding model name.
+  string default_embedding_model = 2;
+
+  // Default LLM model name.
+  string default_llm_model = 3;
+
+  // Overall health status of the AI coordinator.
+  bool healthy = 4;
+
+  // Human-readable status message.
+  string message = 5;
+}
