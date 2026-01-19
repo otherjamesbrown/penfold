@@ -1,8 +1,0 @@
-This is not a valid email file.
-It has no proper headers.
-Just random text content.
-
-The parser should fail on this file and report
-an appropriate error.
-
-123!@#$%^&*()

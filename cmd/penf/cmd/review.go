@@ -1,0 +1,1405 @@
+// Package cmd provides CLI commands for the penf tool.
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+
+	"github.com/otherjamesbrown/penfold/cmd/penf/client"
+	"github.com/otherjamesbrown/penfold/cmd/penf/config"
+)
+
+// ReviewPriority defines the priority levels for review items.
+type ReviewPriority string
+
+const (
+	// ReviewPriorityHigh is for urgent items requiring immediate attention.
+	ReviewPriorityHigh ReviewPriority = "high"
+	// ReviewPriorityMedium is for standard priority items.
+	ReviewPriorityMedium ReviewPriority = "medium"
+	// ReviewPriorityLow is for items that can be addressed later.
+	ReviewPriorityLow ReviewPriority = "low"
+)
+
+// ReviewItemStatus defines the status of a review item.
+type ReviewItemStatus string
+
+const (
+	// ReviewItemStatusPending indicates the item is awaiting review.
+	ReviewItemStatusPending ReviewItemStatus = "pending"
+	// ReviewItemStatusAccepted indicates the item has been accepted.
+	ReviewItemStatusAccepted ReviewItemStatus = "accepted"
+	// ReviewItemStatusRejected indicates the item has been rejected.
+	ReviewItemStatusRejected ReviewItemStatus = "rejected"
+	// ReviewItemStatusDeferred indicates the item has been deferred.
+	ReviewItemStatusDeferred ReviewItemStatus = "deferred"
+)
+
+// ReviewSessionStatus defines the status of a review session.
+type ReviewSessionStatus string
+
+const (
+	// ReviewSessionStatusActive indicates an active review session.
+	ReviewSessionStatusActive ReviewSessionStatus = "active"
+	// ReviewSessionStatusPaused indicates a paused review session.
+	ReviewSessionStatusPaused ReviewSessionStatus = "paused"
+	// ReviewSessionStatusEnded indicates an ended review session.
+	ReviewSessionStatusEnded ReviewSessionStatus = "ended"
+)
+
+// ReviewItem represents a single item in the review queue.
+type ReviewItem struct {
+	ID          string           `json:"id" yaml:"id"`
+	Title       string           `json:"title" yaml:"title"`
+	ContentType string           `json:"content_type" yaml:"content_type"`
+	Source      string           `json:"source" yaml:"source"`
+	Priority    ReviewPriority   `json:"priority" yaml:"priority"`
+	Status      ReviewItemStatus `json:"status" yaml:"status"`
+	Summary     string           `json:"summary,omitempty" yaml:"summary,omitempty"`
+	CreatedAt   time.Time        `json:"created_at" yaml:"created_at"`
+	DeferredTo  *time.Time       `json:"deferred_to,omitempty" yaml:"deferred_to,omitempty"`
+	Reason      string           `json:"reason,omitempty" yaml:"reason,omitempty"`
+}
+
+// ReviewSession represents an active review session.
+type ReviewSession struct {
+	ID           string              `json:"id" yaml:"id"`
+	Status       ReviewSessionStatus `json:"status" yaml:"status"`
+	StartedAt    time.Time           `json:"started_at" yaml:"started_at"`
+	PausedAt     *time.Time          `json:"paused_at,omitempty" yaml:"paused_at,omitempty"`
+	EndedAt      *time.Time          `json:"ended_at,omitempty" yaml:"ended_at,omitempty"`
+	TotalReviewed int               `json:"total_reviewed" yaml:"total_reviewed"`
+	Accepted     int                 `json:"accepted" yaml:"accepted"`
+	Rejected     int                 `json:"rejected" yaml:"rejected"`
+	Deferred     int                 `json:"deferred" yaml:"deferred"`
+}
+
+// ReviewAction represents an action taken during a review session.
+type ReviewAction struct {
+	ID        string           `json:"id" yaml:"id"`
+	ItemID    string           `json:"item_id" yaml:"item_id"`
+	Action    string           `json:"action" yaml:"action"`
+	OldStatus ReviewItemStatus `json:"old_status" yaml:"old_status"`
+	NewStatus ReviewItemStatus `json:"new_status" yaml:"new_status"`
+	Reason    string           `json:"reason,omitempty" yaml:"reason,omitempty"`
+	Timestamp time.Time        `json:"timestamp" yaml:"timestamp"`
+	Undone    bool             `json:"undone" yaml:"undone"`
+}
+
+// ReviewAutoRule represents an automation rule for review.
+type ReviewAutoRule struct {
+	ID          string `json:"id" yaml:"id"`
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+	Enabled     bool   `json:"enabled" yaml:"enabled"`
+	Criteria    string `json:"criteria,omitempty" yaml:"criteria,omitempty"`
+	Action      string `json:"action" yaml:"action"`
+}
+
+// ReviewQueueResponse contains the review queue and metadata.
+type ReviewQueueResponse struct {
+	Items      []ReviewItem `json:"items" yaml:"items"`
+	TotalCount int          `json:"total_count" yaml:"total_count"`
+	FetchedAt  time.Time    `json:"fetched_at" yaml:"fetched_at"`
+}
+
+// ReviewCommandDeps holds the dependencies for review commands.
+type ReviewCommandDeps struct {
+	Config       *config.CLIConfig
+	GRPCClient   *client.GRPCClient
+	OutputFormat config.OutputFormat
+	LoadConfig   func() (*config.CLIConfig, error)
+	InitClient   func(*config.CLIConfig) (*client.GRPCClient, error)
+}
+
+// DefaultReviewDeps returns the default dependencies for production use.
+func DefaultReviewDeps() *ReviewCommandDeps {
+	return &ReviewCommandDeps{
+		LoadConfig: config.LoadConfig,
+		InitClient: func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
+			opts := client.DefaultOptions()
+			opts.Insecure = cfg.Insecure
+			opts.Debug = cfg.Debug
+			opts.ConnectTimeout = cfg.Timeout
+			opts.TenantID = cfg.TenantID
+
+			grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
+			ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+			defer cancel()
+
+			if err := grpcClient.Connect(ctx); err != nil {
+				return nil, fmt.Errorf("connecting to server: %w", err)
+			}
+			return grpcClient, nil
+		},
+	}
+}
+
+// Review command flags.
+var (
+	reviewPriority  string
+	reviewCountOnly bool
+	reviewReason    string
+	reviewUntil     string
+	reviewOutput    string
+)
+
+// NewReviewCommand creates the root review command with all subcommands.
+func NewReviewCommand(deps *ReviewCommandDeps) *cobra.Command {
+	if deps == nil {
+		deps = DefaultReviewDeps()
+	}
+
+	cmd := &cobra.Command{
+		Use:   "review",
+		Short: "Manage review sessions and queue",
+		Long: `Manage review sessions and the review queue in Penfold.
+
+The review system allows you to process incoming content items, make decisions
+on their relevance, and track your review progress over time.
+
+Session Commands:
+  start    Start a new review session
+  pause    Pause the current session
+  resume   Resume a paused session
+  end      End the session and show summary
+
+Queue Commands:
+  queue    List pending review items
+
+Item Commands:
+  accept   Accept a review item
+  reject   Reject a review item
+  defer    Defer a review item
+  show     Show item details
+
+History Commands:
+  undo     Undo the last action
+  redo     Redo the last undone action
+  history  Show action history
+
+Automation Commands:
+  auto     Manage automation rules`,
+	}
+
+	// Add session subcommands.
+	cmd.AddCommand(newReviewStartCommand(deps))
+	cmd.AddCommand(newReviewPauseCommand(deps))
+	cmd.AddCommand(newReviewResumeCommand(deps))
+	cmd.AddCommand(newReviewEndCommand(deps))
+
+	// Add queue subcommand.
+	cmd.AddCommand(newReviewQueueCommand(deps))
+
+	// Add item subcommands.
+	cmd.AddCommand(newReviewAcceptCommand(deps))
+	cmd.AddCommand(newReviewRejectCommand(deps))
+	cmd.AddCommand(newReviewDeferCommand(deps))
+	cmd.AddCommand(newReviewShowCommand(deps))
+
+	// Add undo/redo/history subcommands.
+	cmd.AddCommand(newReviewUndoCommand(deps))
+	cmd.AddCommand(newReviewRedoCommand(deps))
+	cmd.AddCommand(newReviewHistoryCommand(deps))
+
+	// Add auto subcommand.
+	cmd.AddCommand(newReviewAutoCommand(deps))
+
+	return cmd
+}
+
+// newReviewStartCommand creates the 'review start' subcommand.
+func newReviewStartCommand(deps *ReviewCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "start",
+		Short: "Start a new review session",
+		Long: `Start a new review session.
+
+A review session tracks your progress through the review queue and provides
+statistics when you end the session. Only one session can be active at a time.
+
+Example:
+  penf review start`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewStart(cmd.Context(), deps)
+		},
+	}
+}
+
+// newReviewPauseCommand creates the 'review pause' subcommand.
+func newReviewPauseCommand(deps *ReviewCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "pause",
+		Short: "Pause the current review session",
+		Long: `Pause the current review session.
+
+Your progress is saved and you can resume later with 'penf review resume'.
+
+Example:
+  penf review pause`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewPause(cmd.Context(), deps)
+		},
+	}
+}
+
+// newReviewResumeCommand creates the 'review resume' subcommand.
+func newReviewResumeCommand(deps *ReviewCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "resume",
+		Short: "Resume a paused review session",
+		Long: `Resume a previously paused review session.
+
+Example:
+  penf review resume`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewResume(cmd.Context(), deps)
+		},
+	}
+}
+
+// newReviewEndCommand creates the 'review end' subcommand.
+func newReviewEndCommand(deps *ReviewCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "end",
+		Short: "End the current review session",
+		Long: `End the current review session and display a summary.
+
+The summary includes the number of items reviewed, accepted, rejected, and deferred.
+
+Example:
+  penf review end`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewEnd(cmd.Context(), deps)
+		},
+	}
+}
+
+// newReviewQueueCommand creates the 'review queue' subcommand.
+func newReviewQueueCommand(deps *ReviewCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "queue",
+		Short: "List pending review items",
+		Long: `List items pending review.
+
+Use --priority to filter by priority level (high, medium, low).
+Use --count to show only the count of pending items.
+
+Examples:
+  penf review queue
+  penf review queue --priority high
+  penf review queue --count`,
+		Aliases: []string{"q", "list"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewQueue(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVarP(&reviewPriority, "priority", "p", "", "Filter by priority: high, medium, low")
+	cmd.Flags().BoolVarP(&reviewCountOnly, "count", "c", false, "Show count only")
+	cmd.Flags().StringVarP(&reviewOutput, "output", "o", "", "Output format: text, json, yaml")
+
+	return cmd
+}
+
+// newReviewAcceptCommand creates the 'review accept' subcommand.
+func newReviewAcceptCommand(deps *ReviewCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "accept <id>",
+		Short: "Accept a review item",
+		Long: `Accept a review item, marking it as relevant and processed.
+
+Example:
+  penf review accept item-123`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewAccept(cmd.Context(), deps, args[0])
+		},
+	}
+}
+
+// newReviewRejectCommand creates the 'review reject' subcommand.
+func newReviewRejectCommand(deps *ReviewCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reject <id>",
+		Short: "Reject a review item",
+		Long: `Reject a review item, marking it as not relevant.
+
+Use --reason to provide context for the rejection.
+
+Examples:
+  penf review reject item-123
+  penf review reject item-123 --reason "Duplicate content"`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewReject(cmd.Context(), deps, args[0], reviewReason)
+		},
+	}
+
+	cmd.Flags().StringVarP(&reviewReason, "reason", "r", "", "Reason for rejection")
+
+	return cmd
+}
+
+// newReviewDeferCommand creates the 'review defer' subcommand.
+func newReviewDeferCommand(deps *ReviewCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "defer <id>",
+		Short: "Defer a review item",
+		Long: `Defer a review item for later processing.
+
+Use --until to specify when the item should reappear in the queue.
+
+Examples:
+  penf review defer item-123
+  penf review defer item-123 --until "tomorrow"
+  penf review defer item-123 --until "2024-12-31"`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewDefer(cmd.Context(), deps, args[0], reviewUntil)
+		},
+	}
+
+	cmd.Flags().StringVarP(&reviewUntil, "until", "u", "", "Defer until date (YYYY-MM-DD or relative: tomorrow, nextweek)")
+
+	return cmd
+}
+
+// newReviewShowCommand creates the 'review show' subcommand.
+func newReviewShowCommand(deps *ReviewCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "show <id>",
+		Short: "Show review item details",
+		Long: `Show detailed information about a review item.
+
+Example:
+  penf review show item-123`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewShow(cmd.Context(), deps, args[0])
+		},
+	}
+
+	cmd.Flags().StringVarP(&reviewOutput, "output", "o", "", "Output format: text, json, yaml")
+
+	return cmd
+}
+
+// newReviewUndoCommand creates the 'review undo' subcommand.
+func newReviewUndoCommand(deps *ReviewCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "undo",
+		Short: "Undo the last review action",
+		Long: `Undo the last review action.
+
+Restores the item to its previous state before the last accept/reject/defer.
+
+Example:
+  penf review undo`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewUndo(cmd.Context(), deps)
+		},
+	}
+}
+
+// newReviewRedoCommand creates the 'review redo' subcommand.
+func newReviewRedoCommand(deps *ReviewCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "redo",
+		Short: "Redo the last undone action",
+		Long: `Redo the last undone review action.
+
+Reapplies an action that was previously undone.
+
+Example:
+  penf review redo`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewRedo(cmd.Context(), deps)
+		},
+	}
+}
+
+// newReviewHistoryCommand creates the 'review history' subcommand.
+func newReviewHistoryCommand(deps *ReviewCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "history",
+		Short: "Show review action history",
+		Long: `Show the history of review actions in the current session.
+
+Example:
+  penf review history`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewHistory(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVarP(&reviewOutput, "output", "o", "", "Output format: text, json, yaml")
+
+	return cmd
+}
+
+// newReviewAutoCommand creates the 'review auto' subcommand.
+func newReviewAutoCommand(deps *ReviewCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "auto",
+		Short: "Manage automation rules",
+		Long: `Manage automation rules for review processing.
+
+Automation rules can automatically accept, reject, or defer items based on
+configurable criteria.
+
+Subcommands:
+  status   Show current automation rules and their status
+  enable   Enable an automation rule
+  disable  Disable an automation rule
+
+Examples:
+  penf review auto status
+  penf review auto enable auto-archive-spam
+  penf review auto disable auto-accept-known`,
+	}
+
+	cmd.AddCommand(newReviewAutoStatusCommand(deps))
+	cmd.AddCommand(newReviewAutoEnableCommand(deps))
+	cmd.AddCommand(newReviewAutoDisableCommand(deps))
+
+	return cmd
+}
+
+// newReviewAutoStatusCommand creates the 'review auto status' subcommand.
+func newReviewAutoStatusCommand(deps *ReviewCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show automation rules status",
+		Long: `Show all automation rules and their current status.
+
+Example:
+  penf review auto status`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewAutoStatus(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVarP(&reviewOutput, "output", "o", "", "Output format: text, json, yaml")
+
+	return cmd
+}
+
+// newReviewAutoEnableCommand creates the 'review auto enable' subcommand.
+func newReviewAutoEnableCommand(deps *ReviewCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "enable <rule>",
+		Short: "Enable an automation rule",
+		Long: `Enable an automation rule by name or ID.
+
+Example:
+  penf review auto enable auto-archive-spam`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewAutoEnable(cmd.Context(), deps, args[0])
+		},
+	}
+}
+
+// newReviewAutoDisableCommand creates the 'review auto disable' subcommand.
+func newReviewAutoDisableCommand(deps *ReviewCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "disable <rule>",
+		Short: "Disable an automation rule",
+		Long: `Disable an automation rule by name or ID.
+
+Example:
+  penf review auto disable auto-accept-known`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewAutoDisable(cmd.Context(), deps, args[0])
+		},
+	}
+}
+
+// runReviewStart executes the review start command.
+func runReviewStart(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// TODO: Replace with actual gRPC call to start session.
+	session := getMockSession()
+	session.Status = ReviewSessionStatusActive
+	session.StartedAt = time.Now()
+
+	fmt.Println("Review session started.")
+	fmt.Printf("  Session ID: %s\n", session.ID)
+	fmt.Printf("  Started at: %s\n", session.StartedAt.Format(time.RFC3339))
+	fmt.Println("\nUse 'penf review queue' to see pending items.")
+
+	return nil
+}
+
+// runReviewPause executes the review pause command.
+func runReviewPause(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// TODO: Replace with actual gRPC call to pause session.
+	session := getMockSession()
+	now := time.Now()
+	session.Status = ReviewSessionStatusPaused
+	session.PausedAt = &now
+
+	fmt.Println("Review session paused.")
+	fmt.Printf("  Session ID: %s\n", session.ID)
+	fmt.Printf("  Items reviewed: %d\n", session.TotalReviewed)
+	fmt.Println("\nUse 'penf review resume' to continue.")
+
+	return nil
+}
+
+// runReviewResume executes the review resume command.
+func runReviewResume(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// TODO: Replace with actual gRPC call to resume session.
+	session := getMockSession()
+	session.Status = ReviewSessionStatusActive
+	session.PausedAt = nil
+
+	fmt.Println("Review session resumed.")
+	fmt.Printf("  Session ID: %s\n", session.ID)
+	fmt.Printf("  Items reviewed so far: %d\n", session.TotalReviewed)
+	fmt.Println("\nUse 'penf review queue' to see pending items.")
+
+	return nil
+}
+
+// runReviewEnd executes the review end command.
+func runReviewEnd(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// TODO: Replace with actual gRPC call to end session.
+	session := getMockSession()
+	now := time.Now()
+	session.Status = ReviewSessionStatusEnded
+	session.EndedAt = &now
+
+	duration := session.EndedAt.Sub(session.StartedAt)
+
+	fmt.Println("Review session ended.")
+	fmt.Println()
+	fmt.Println("Session Summary:")
+	fmt.Printf("  Session ID:     %s\n", session.ID)
+	fmt.Printf("  Duration:       %s\n", formatReviewDuration(duration))
+	fmt.Printf("  Total reviewed: %d\n", session.TotalReviewed)
+	fmt.Println()
+	fmt.Println("Decisions:")
+	fmt.Printf("  Accepted: \033[32m%d\033[0m\n", session.Accepted)
+	fmt.Printf("  Rejected: \033[31m%d\033[0m\n", session.Rejected)
+	fmt.Printf("  Deferred: \033[33m%d\033[0m\n", session.Deferred)
+
+	return nil
+}
+
+// runReviewQueue executes the review queue command.
+func runReviewQueue(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Validate priority filter if provided.
+	if reviewPriority != "" {
+		priority := ReviewPriority(reviewPriority)
+		if priority != ReviewPriorityHigh && priority != ReviewPriorityMedium && priority != ReviewPriorityLow {
+			return fmt.Errorf("invalid priority: %s (must be high, medium, or low)", reviewPriority)
+		}
+	}
+
+	// Get output format.
+	outputFormat := cfg.OutputFormat
+	if reviewOutput != "" {
+		outputFormat = config.OutputFormat(reviewOutput)
+		if !outputFormat.IsValid() {
+			return fmt.Errorf("invalid output format: %s (must be text, json, or yaml)", reviewOutput)
+		}
+	}
+
+	// TODO: Replace with actual gRPC call to get queue.
+	items := getMockReviewQueue(ReviewPriority(reviewPriority))
+
+	response := ReviewQueueResponse{
+		Items:      items,
+		TotalCount: len(items),
+		FetchedAt:  time.Now(),
+	}
+
+	if reviewCountOnly {
+		return outputReviewCount(outputFormat, response)
+	}
+
+	return outputReviewQueue(outputFormat, response)
+}
+
+// runReviewAccept executes the review accept command.
+func runReviewAccept(ctx context.Context, deps *ReviewCommandDeps, itemID string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// TODO: Replace with actual gRPC call to accept item.
+	item := getMockReviewItem(itemID)
+	item.Status = ReviewItemStatusAccepted
+
+	fmt.Printf("Item accepted: %s\n", itemID)
+	fmt.Printf("  Title: %s\n", item.Title)
+
+	return nil
+}
+
+// runReviewReject executes the review reject command.
+func runReviewReject(ctx context.Context, deps *ReviewCommandDeps, itemID string, reason string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// TODO: Replace with actual gRPC call to reject item.
+	item := getMockReviewItem(itemID)
+	item.Status = ReviewItemStatusRejected
+	item.Reason = reason
+
+	fmt.Printf("Item rejected: %s\n", itemID)
+	fmt.Printf("  Title: %s\n", item.Title)
+	if reason != "" {
+		fmt.Printf("  Reason: %s\n", reason)
+	}
+
+	return nil
+}
+
+// runReviewDefer executes the review defer command.
+func runReviewDefer(ctx context.Context, deps *ReviewCommandDeps, itemID string, until string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Parse the until date if provided.
+	var deferredTo *time.Time
+	if until != "" {
+		t, err := parseDeferDate(until)
+		if err != nil {
+			return fmt.Errorf("invalid --until date: %w", err)
+		}
+		deferredTo = &t
+	}
+
+	// TODO: Replace with actual gRPC call to defer item.
+	item := getMockReviewItem(itemID)
+	item.Status = ReviewItemStatusDeferred
+	item.DeferredTo = deferredTo
+
+	fmt.Printf("Item deferred: %s\n", itemID)
+	fmt.Printf("  Title: %s\n", item.Title)
+	if deferredTo != nil {
+		fmt.Printf("  Deferred until: %s\n", deferredTo.Format("2006-01-02"))
+	}
+
+	return nil
+}
+
+// runReviewShow executes the review show command.
+func runReviewShow(ctx context.Context, deps *ReviewCommandDeps, itemID string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Get output format.
+	outputFormat := cfg.OutputFormat
+	if reviewOutput != "" {
+		outputFormat = config.OutputFormat(reviewOutput)
+		if !outputFormat.IsValid() {
+			return fmt.Errorf("invalid output format: %s (must be text, json, or yaml)", reviewOutput)
+		}
+	}
+
+	// TODO: Replace with actual gRPC call to get item.
+	item := getMockReviewItem(itemID)
+
+	return outputReviewItem(outputFormat, item)
+}
+
+// runReviewUndo executes the review undo command.
+func runReviewUndo(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// TODO: Replace with actual gRPC call to undo.
+	action := getMockLastAction()
+	if action == nil {
+		fmt.Println("Nothing to undo.")
+		return nil
+	}
+
+	fmt.Printf("Undone: %s on item %s\n", action.Action, action.ItemID)
+	fmt.Printf("  Status reverted from %s to %s\n", action.NewStatus, action.OldStatus)
+
+	return nil
+}
+
+// runReviewRedo executes the review redo command.
+func runReviewRedo(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// TODO: Replace with actual gRPC call to redo.
+	action := getMockLastUndoneAction()
+	if action == nil {
+		fmt.Println("Nothing to redo.")
+		return nil
+	}
+
+	fmt.Printf("Redone: %s on item %s\n", action.Action, action.ItemID)
+	fmt.Printf("  Status changed from %s to %s\n", action.OldStatus, action.NewStatus)
+
+	return nil
+}
+
+// runReviewHistory executes the review history command.
+func runReviewHistory(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Get output format.
+	outputFormat := cfg.OutputFormat
+	if reviewOutput != "" {
+		outputFormat = config.OutputFormat(reviewOutput)
+		if !outputFormat.IsValid() {
+			return fmt.Errorf("invalid output format: %s (must be text, json, or yaml)", reviewOutput)
+		}
+	}
+
+	// TODO: Replace with actual gRPC call to get history.
+	actions := getMockActionHistory()
+
+	return outputReviewHistory(outputFormat, actions)
+}
+
+// runReviewAutoStatus executes the review auto status command.
+func runReviewAutoStatus(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Get output format.
+	outputFormat := cfg.OutputFormat
+	if reviewOutput != "" {
+		outputFormat = config.OutputFormat(reviewOutput)
+		if !outputFormat.IsValid() {
+			return fmt.Errorf("invalid output format: %s (must be text, json, or yaml)", reviewOutput)
+		}
+	}
+
+	// TODO: Replace with actual gRPC call to get rules.
+	rules := getMockAutoRules()
+
+	return outputReviewAutoRules(outputFormat, rules)
+}
+
+// runReviewAutoEnable executes the review auto enable command.
+func runReviewAutoEnable(ctx context.Context, deps *ReviewCommandDeps, ruleName string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// TODO: Replace with actual gRPC call to enable rule.
+	rule := getMockAutoRule(ruleName)
+	if rule == nil {
+		return fmt.Errorf("automation rule not found: %s", ruleName)
+	}
+	rule.Enabled = true
+
+	fmt.Printf("Automation rule enabled: %s\n", rule.Name)
+	fmt.Printf("  %s\n", rule.Description)
+
+	return nil
+}
+
+// runReviewAutoDisable executes the review auto disable command.
+func runReviewAutoDisable(ctx context.Context, deps *ReviewCommandDeps, ruleName string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// TODO: Replace with actual gRPC call to disable rule.
+	rule := getMockAutoRule(ruleName)
+	if rule == nil {
+		return fmt.Errorf("automation rule not found: %s", ruleName)
+	}
+	rule.Enabled = false
+
+	fmt.Printf("Automation rule disabled: %s\n", rule.Name)
+
+	return nil
+}
+
+// Mock data functions for development/testing.
+
+// getMockSession returns mock session data.
+func getMockSession() *ReviewSession {
+	started := time.Now().Add(-30 * time.Minute)
+	return &ReviewSession{
+		ID:            "session-001",
+		Status:        ReviewSessionStatusActive,
+		StartedAt:     started,
+		TotalReviewed: 15,
+		Accepted:      8,
+		Rejected:      4,
+		Deferred:      3,
+	}
+}
+
+// getMockReviewQueue returns mock review queue items.
+func getMockReviewQueue(priority ReviewPriority) []ReviewItem {
+	items := []ReviewItem{
+		{
+			ID:          "item-001",
+			Title:       "Q4 Budget Planning Email Thread",
+			ContentType: "email",
+			Source:      "gmail",
+			Priority:    ReviewPriorityHigh,
+			Status:      ReviewItemStatusPending,
+			Summary:     "Discussion about Q4 budget allocation and priorities",
+			CreatedAt:   time.Now().Add(-2 * time.Hour),
+		},
+		{
+			ID:          "item-002",
+			Title:       "Team Standup Notes - Jan 15",
+			ContentType: "meeting",
+			Source:      "calendar",
+			Priority:    ReviewPriorityMedium,
+			Status:      ReviewItemStatusPending,
+			Summary:     "Daily standup notes with action items",
+			CreatedAt:   time.Now().Add(-5 * time.Hour),
+		},
+		{
+			ID:          "item-003",
+			Title:       "Technical Design Review: API Gateway",
+			ContentType: "document",
+			Source:      "drive",
+			Priority:    ReviewPriorityHigh,
+			Status:      ReviewItemStatusPending,
+			Summary:     "Design document for new API gateway architecture",
+			CreatedAt:   time.Now().Add(-24 * time.Hour),
+		},
+		{
+			ID:          "item-004",
+			Title:       "Slack: #engineering - deployment discussion",
+			ContentType: "chat",
+			Source:      "slack",
+			Priority:    ReviewPriorityLow,
+			Status:      ReviewItemStatusPending,
+			Summary:     "Thread about deployment process improvements",
+			CreatedAt:   time.Now().Add(-3 * time.Hour),
+		},
+		{
+			ID:          "item-005",
+			Title:       "Customer Feedback Analysis",
+			ContentType: "document",
+			Source:      "drive",
+			Priority:    ReviewPriorityMedium,
+			Status:      ReviewItemStatusPending,
+			Summary:     "Analysis of recent customer feedback survey",
+			CreatedAt:   time.Now().Add(-48 * time.Hour),
+		},
+	}
+
+	// Filter by priority if specified.
+	if priority != "" {
+		var filtered []ReviewItem
+		for _, item := range items {
+			if item.Priority == priority {
+				filtered = append(filtered, item)
+			}
+		}
+		return filtered
+	}
+
+	return items
+}
+
+// getMockReviewItem returns a mock review item by ID.
+func getMockReviewItem(itemID string) *ReviewItem {
+	items := getMockReviewQueue("")
+	for _, item := range items {
+		if item.ID == itemID {
+			return &item
+		}
+	}
+
+	// Return a generic item if not found.
+	return &ReviewItem{
+		ID:          itemID,
+		Title:       "Unknown Item",
+		ContentType: "unknown",
+		Source:      "unknown",
+		Priority:    ReviewPriorityMedium,
+		Status:      ReviewItemStatusPending,
+		CreatedAt:   time.Now(),
+	}
+}
+
+// getMockLastAction returns the last review action (mock).
+func getMockLastAction() *ReviewAction {
+	return &ReviewAction{
+		ID:        "action-001",
+		ItemID:    "item-001",
+		Action:    "accept",
+		OldStatus: ReviewItemStatusPending,
+		NewStatus: ReviewItemStatusAccepted,
+		Timestamp: time.Now().Add(-5 * time.Minute),
+		Undone:    false,
+	}
+}
+
+// getMockLastUndoneAction returns the last undone action (mock).
+func getMockLastUndoneAction() *ReviewAction {
+	return &ReviewAction{
+		ID:        "action-001",
+		ItemID:    "item-001",
+		Action:    "accept",
+		OldStatus: ReviewItemStatusPending,
+		NewStatus: ReviewItemStatusAccepted,
+		Timestamp: time.Now().Add(-5 * time.Minute),
+		Undone:    true,
+	}
+}
+
+// getMockActionHistory returns mock action history.
+func getMockActionHistory() []ReviewAction {
+	return []ReviewAction{
+		{
+			ID:        "action-003",
+			ItemID:    "item-003",
+			Action:    "defer",
+			OldStatus: ReviewItemStatusPending,
+			NewStatus: ReviewItemStatusDeferred,
+			Timestamp: time.Now().Add(-2 * time.Minute),
+			Undone:    false,
+		},
+		{
+			ID:        "action-002",
+			ItemID:    "item-002",
+			Action:    "reject",
+			OldStatus: ReviewItemStatusPending,
+			NewStatus: ReviewItemStatusRejected,
+			Reason:    "Duplicate content",
+			Timestamp: time.Now().Add(-5 * time.Minute),
+			Undone:    false,
+		},
+		{
+			ID:        "action-001",
+			ItemID:    "item-001",
+			Action:    "accept",
+			OldStatus: ReviewItemStatusPending,
+			NewStatus: ReviewItemStatusAccepted,
+			Timestamp: time.Now().Add(-10 * time.Minute),
+			Undone:    false,
+		},
+	}
+}
+
+// getMockAutoRules returns mock automation rules.
+func getMockAutoRules() []ReviewAutoRule {
+	return []ReviewAutoRule{
+		{
+			ID:          "rule-001",
+			Name:        "auto-accept-known",
+			Description: "Automatically accept items from known trusted sources",
+			Enabled:     true,
+			Criteria:    "source in [trusted-contacts]",
+			Action:      "accept",
+		},
+		{
+			ID:          "rule-002",
+			Name:        "auto-archive-spam",
+			Description: "Automatically reject items detected as spam",
+			Enabled:     true,
+			Criteria:    "spam_score > 0.8",
+			Action:      "reject",
+		},
+		{
+			ID:          "rule-003",
+			Name:        "auto-defer-low-priority",
+			Description: "Defer low priority items to weekly review",
+			Enabled:     false,
+			Criteria:    "priority == low",
+			Action:      "defer",
+		},
+	}
+}
+
+// getMockAutoRule returns a mock automation rule by name.
+func getMockAutoRule(name string) *ReviewAutoRule {
+	rules := getMockAutoRules()
+	for _, rule := range rules {
+		if rule.Name == name || rule.ID == name {
+			return &rule
+		}
+	}
+	return nil
+}
+
+// Output formatting functions.
+
+// outputReviewCount outputs just the count of review items.
+func outputReviewCount(format config.OutputFormat, response ReviewQueueResponse) error {
+	switch format {
+	case config.OutputFormatJSON:
+		output := map[string]interface{}{
+			"count":      response.TotalCount,
+			"fetched_at": response.FetchedAt,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(output)
+	case config.OutputFormatYAML:
+		output := map[string]interface{}{
+			"count":      response.TotalCount,
+			"fetched_at": response.FetchedAt,
+		}
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(output)
+	default:
+		fmt.Printf("Pending review items: %d\n", response.TotalCount)
+		return nil
+	}
+}
+
+// outputReviewQueue outputs the review queue.
+func outputReviewQueue(format config.OutputFormat, response ReviewQueueResponse) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(response)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(response)
+	default:
+		return outputReviewQueueText(response)
+	}
+}
+
+// outputReviewQueueText outputs the review queue in human-readable format.
+func outputReviewQueueText(response ReviewQueueResponse) error {
+	if len(response.Items) == 0 {
+		fmt.Println("No items pending review.")
+		return nil
+	}
+
+	fmt.Printf("Review Queue (%d items):\n\n", response.TotalCount)
+	fmt.Println("  PRIORITY   ID          TITLE                                TYPE      SOURCE    AGE")
+	fmt.Println("  --------   --          -----                                ----      ------    ---")
+
+	for _, item := range response.Items {
+		priorityColor := getReviewPriorityColor(item.Priority)
+		age := formatRelativeTime(item.CreatedAt)
+
+		fmt.Printf("  %s%-8s\033[0m   %-10s  %-35s  %-8s  %-8s  %s\n",
+			priorityColor,
+			item.Priority,
+			truncateString(item.ID, 10),
+			truncateString(item.Title, 35),
+			item.ContentType,
+			item.Source,
+			age)
+	}
+
+	fmt.Println()
+	return nil
+}
+
+// outputReviewItem outputs a single review item.
+func outputReviewItem(format config.OutputFormat, item *ReviewItem) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(item)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(item)
+	default:
+		return outputReviewItemText(item)
+	}
+}
+
+// outputReviewItemText outputs a review item in human-readable format.
+func outputReviewItemText(item *ReviewItem) error {
+	priorityColor := getReviewPriorityColor(item.Priority)
+	statusColor := getReviewStatusColor(item.Status)
+
+	fmt.Println("Review Item Details:")
+	fmt.Println()
+	fmt.Printf("  ID:           %s\n", item.ID)
+	fmt.Printf("  Title:        %s\n", item.Title)
+	fmt.Printf("  Content Type: %s\n", item.ContentType)
+	fmt.Printf("  Source:       %s\n", item.Source)
+	fmt.Printf("  Priority:     %s%s\033[0m\n", priorityColor, item.Priority)
+	fmt.Printf("  Status:       %s%s\033[0m\n", statusColor, item.Status)
+	fmt.Printf("  Created:      %s (%s)\n", item.CreatedAt.Format(time.RFC3339), formatRelativeTime(item.CreatedAt))
+
+	if item.Summary != "" {
+		fmt.Printf("  Summary:      %s\n", item.Summary)
+	}
+
+	if item.DeferredTo != nil {
+		fmt.Printf("  Deferred To:  %s\n", item.DeferredTo.Format("2006-01-02"))
+	}
+
+	if item.Reason != "" {
+		fmt.Printf("  Reason:       %s\n", item.Reason)
+	}
+
+	return nil
+}
+
+// outputReviewHistory outputs the action history.
+func outputReviewHistory(format config.OutputFormat, actions []ReviewAction) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(actions)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(actions)
+	default:
+		return outputReviewHistoryText(actions)
+	}
+}
+
+// outputReviewHistoryText outputs action history in human-readable format.
+func outputReviewHistoryText(actions []ReviewAction) error {
+	if len(actions) == 0 {
+		fmt.Println("No actions in history.")
+		return nil
+	}
+
+	fmt.Printf("Review Action History (%d actions):\n\n", len(actions))
+	fmt.Println("  TIME          ACTION    ITEM        STATUS CHANGE          UNDONE")
+	fmt.Println("  ----          ------    ----        -------------          ------")
+
+	for _, action := range actions {
+		timeStr := formatRelativeTime(action.Timestamp)
+		undoneStr := " "
+		if action.Undone {
+			undoneStr = "Y"
+		}
+
+		fmt.Printf("  %-12s  %-8s  %-10s  %-8s -> %-8s  %s\n",
+			timeStr,
+			action.Action,
+			truncateString(action.ItemID, 10),
+			action.OldStatus,
+			action.NewStatus,
+			undoneStr)
+	}
+
+	fmt.Println()
+	return nil
+}
+
+// outputReviewAutoRules outputs automation rules.
+func outputReviewAutoRules(format config.OutputFormat, rules []ReviewAutoRule) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(rules)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(rules)
+	default:
+		return outputReviewAutoRulesText(rules)
+	}
+}
+
+// outputReviewAutoRulesText outputs automation rules in human-readable format.
+func outputReviewAutoRulesText(rules []ReviewAutoRule) error {
+	if len(rules) == 0 {
+		fmt.Println("No automation rules configured.")
+		return nil
+	}
+
+	fmt.Printf("Automation Rules (%d rules):\n\n", len(rules))
+	fmt.Println("  STATUS    NAME                    ACTION    DESCRIPTION")
+	fmt.Println("  ------    ----                    ------    -----------")
+
+	for _, rule := range rules {
+		statusStr := "\033[31mdisabled\033[0m"
+		if rule.Enabled {
+			statusStr = "\033[32menabled \033[0m"
+		}
+
+		fmt.Printf("  %s  %-22s  %-8s  %s\n",
+			statusStr,
+			truncateString(rule.Name, 22),
+			rule.Action,
+			truncateString(rule.Description, 40))
+	}
+
+	fmt.Println()
+	return nil
+}
+
+// Helper functions.
+
+// getReviewPriorityColor returns the ANSI color for a review priority level.
+func getReviewPriorityColor(priority ReviewPriority) string {
+	switch priority {
+	case ReviewPriorityHigh:
+		return "\033[31m" // Red
+	case ReviewPriorityMedium:
+		return "\033[33m" // Yellow
+	case ReviewPriorityLow:
+		return "\033[32m" // Green
+	default:
+		return ""
+	}
+}
+
+// getReviewStatusColor returns the ANSI color for a review item status.
+func getReviewStatusColor(status ReviewItemStatus) string {
+	switch status {
+	case ReviewItemStatusPending:
+		return "\033[33m" // Yellow
+	case ReviewItemStatusAccepted:
+		return "\033[32m" // Green
+	case ReviewItemStatusRejected:
+		return "\033[31m" // Red
+	case ReviewItemStatusDeferred:
+		return "\033[36m" // Cyan
+	default:
+		return ""
+	}
+}
+
+// parseDeferDate parses a defer date string.
+func parseDeferDate(dateStr string) (time.Time, error) {
+	lower := strings.ToLower(dateStr)
+	now := time.Now()
+
+	switch lower {
+	case "tomorrow":
+		tomorrow := now.AddDate(0, 0, 1)
+		return time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 9, 0, 0, 0, now.Location()), nil
+	case "nextweek", "next_week":
+		nextWeek := now.AddDate(0, 0, 7)
+		return time.Date(nextWeek.Year(), nextWeek.Month(), nextWeek.Day(), 9, 0, 0, 0, now.Location()), nil
+	case "nextmonth", "next_month":
+		nextMonth := now.AddDate(0, 1, 0)
+		return time.Date(nextMonth.Year(), nextMonth.Month(), nextMonth.Day(), 9, 0, 0, 0, now.Location()), nil
+	}
+
+	// Try standard date formats.
+	dateLayouts := []string{
+		"2006-01-02",
+		"2006/01/02",
+		"01-02-2006",
+		"01/02/2006",
+		"Jan 2, 2006",
+		"January 2, 2006",
+	}
+
+	for _, layout := range dateLayouts {
+		if t, err := time.Parse(layout, dateStr); err == nil {
+			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("unable to parse date: %s", dateStr)
+}
+
+// formatReviewDuration formats a duration in a human-readable way for review sessions.
+func formatReviewDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%d seconds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		mins := int(d.Minutes())
+		secs := int(d.Seconds()) % 60
+		if secs > 0 {
+			return fmt.Sprintf("%d min %d sec", mins, secs)
+		}
+		return fmt.Sprintf("%d min", mins)
+	}
+	hours := int(d.Hours())
+	mins := int(d.Minutes()) % 60
+	if mins > 0 {
+		return fmt.Sprintf("%d hr %d min", hours, mins)
+	}
+	return fmt.Sprintf("%d hr", hours)
+}
+
+// ValidateReviewPriority validates a review priority string.
+func ValidateReviewPriority(priority string) bool {
+	switch ReviewPriority(priority) {
+	case ReviewPriorityHigh, ReviewPriorityMedium, ReviewPriorityLow:
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidateReviewItemStatus validates a review item status string.
+func ValidateReviewItemStatus(status string) bool {
+	switch ReviewItemStatus(status) {
+	case ReviewItemStatusPending, ReviewItemStatusAccepted, ReviewItemStatusRejected, ReviewItemStatusDeferred:
+		return true
+	default:
+		return false
+	}
+}

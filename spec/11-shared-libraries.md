@@ -13,11 +13,12 @@ pkg/
 │   ├── tx.go           # Transaction helpers
 │   ├── vector.go       # pgvector helpers
 │   └── tenant.go       # Tenant-aware queries
-├── events/             # Event system
-│   ├── publisher.go    # Redis event publishing
-│   ├── subscriber.go   # Redis event subscription
-│   ├── schemas.go      # Event type definitions
-│   └── retry.go        # Retry logic
+├── temporal/           # Temporal workflow orchestration
+│   ├── client.go       # Temporal client factory
+│   ├── starter.go      # Workflow starter utilities
+│   ├── activities.go   # Activity base patterns
+│   ├── heartbeat.go    # Heartbeat helpers for LLM ops
+│   └── config.go       # Temporal configuration
 ├── config/             # Configuration
 │   ├── loader.go       # Config loading
 │   └── secrets.go      # Secret management
@@ -263,144 +264,232 @@ type VectorResult struct {
 }
 ```
 
-## Events Package (pkg/events)
+## Temporal Package (pkg/temporal)
 
-### Publisher
+### Client Factory
 
 ```go
-// pkg/events/publisher.go
+// pkg/temporal/client.go
 
-package events
+package temporal
+
+import (
+    "fmt"
+
+    "go.temporal.io/sdk/client"
+)
+
+type Config struct {
+    HostPort  string
+    Namespace string
+    TaskQueue string
+}
+
+func NewClient(cfg *Config) (client.Client, error) {
+    c, err := client.Dial(client.Options{
+        HostPort:  cfg.HostPort,
+        Namespace: cfg.Namespace,
+    })
+    if err != nil {
+        return nil, fmt.Errorf("failed to create temporal client: %w", err)
+    }
+    return c, nil
+}
+```
+
+### Workflow Starter
+
+```go
+// pkg/temporal/starter.go
+
+package temporal
 
 import (
     "context"
-    "encoding/json"
     "fmt"
+
+    "go.temporal.io/sdk/client"
+)
+
+type WorkflowStarter struct {
+    client    client.Client
+    taskQueue string
+}
+
+func NewWorkflowStarter(c client.Client, taskQueue string) *WorkflowStarter {
+    return &WorkflowStarter{
+        client:    c,
+        taskQueue: taskQueue,
+    }
+}
+
+// StartWorkflow starts a workflow with the given ID and input
+func (s *WorkflowStarter) StartWorkflow(
+    ctx context.Context,
+    workflowID string,
+    workflow interface{},
+    input interface{},
+) (client.WorkflowRun, error) {
+    options := client.StartWorkflowOptions{
+        ID:        workflowID,
+        TaskQueue: s.taskQueue,
+    }
+
+    we, err := s.client.ExecuteWorkflow(ctx, options, workflow, input)
+    if err != nil {
+        return nil, fmt.Errorf("failed to start workflow: %w", err)
+    }
+
+    return we, nil
+}
+
+// GetWorkflowResult waits for a workflow to complete and returns the result
+func (s *WorkflowStarter) GetWorkflowResult(ctx context.Context, workflowID, runID string, result interface{}) error {
+    we := s.client.GetWorkflow(ctx, workflowID, runID)
+    return we.Get(ctx, result)
+}
+```
+
+### Activity Helpers
+
+```go
+// pkg/temporal/activities.go
+
+package temporal
+
+import (
     "time"
 
-    "github.com/google/uuid"
-    "github.com/redis/go-redis/v9"
+    "go.temporal.io/sdk/temporal"
+    "go.temporal.io/sdk/workflow"
 )
 
-type Publisher struct {
-    redis *redis.Client
-}
+// ActivityOptions presets for different operation types
 
-func NewPublisher(redis *redis.Client) *Publisher {
-    return &Publisher{redis: redis}
-}
-
-func (p *Publisher) Publish(ctx context.Context, eventType string, payload interface{}) error {
-    event := Event{
-        ID:        uuid.New().String(),
-        Type:      eventType,
-        Timestamp: time.Now(),
-        Payload:   payload,
+// FastActivityOptions for quick operations like DB queries
+func FastActivityOptions() workflow.ActivityOptions {
+    return workflow.ActivityOptions{
+        StartToCloseTimeout: 30 * time.Second,
+        RetryPolicy: &temporal.RetryPolicy{
+            InitialInterval:    time.Second,
+            BackoffCoefficient: 2.0,
+            MaximumAttempts:    3,
+        },
     }
-
-    data, err := json.Marshal(event)
-    if err != nil {
-        return fmt.Errorf("failed to marshal event: %w", err)
-    }
-
-    channel := fmt.Sprintf("events:%s", eventType)
-    return p.redis.Publish(ctx, channel, data).Err()
 }
 
-type Event struct {
-    ID        string      `json:"id"`
-    Type      string      `json:"type"`
-    Timestamp time.Time   `json:"timestamp"`
-    Payload   interface{} `json:"payload"`
+// EmbeddingActivityOptions for embedding generation (1-5 seconds)
+func EmbeddingActivityOptions() workflow.ActivityOptions {
+    return workflow.ActivityOptions{
+        StartToCloseTimeout: 30 * time.Second,
+        HeartbeatTimeout:    10 * time.Second,
+        RetryPolicy: &temporal.RetryPolicy{
+            InitialInterval:    2 * time.Second,
+            BackoffCoefficient: 2.0,
+            MaximumAttempts:    3,
+        },
+    }
+}
+
+// LLMActivityOptions for LLM operations (30-60 seconds)
+func LLMActivityOptions() workflow.ActivityOptions {
+    return workflow.ActivityOptions{
+        StartToCloseTimeout:    2 * time.Minute,
+        ScheduleToCloseTimeout: 5 * time.Minute,
+        HeartbeatTimeout:       15 * time.Second,
+        RetryPolicy: &temporal.RetryPolicy{
+            InitialInterval:    5 * time.Second,
+            BackoffCoefficient: 2.0,
+            MaximumAttempts:    2, // Fewer retries for expensive ops
+        },
+    }
 }
 ```
 
-### Subscriber
+### Heartbeat Helpers
 
 ```go
-// pkg/events/subscriber.go
+// pkg/temporal/heartbeat.go
 
-package events
+package temporal
 
 import (
     "context"
-    "encoding/json"
-    "log/slog"
+    "time"
 
-    "github.com/redis/go-redis/v9"
+    "go.temporal.io/sdk/activity"
 )
 
-type Subscriber struct {
-    redis    *redis.Client
-    handlers map[string][]EventHandler
-}
+// HeartbeatLoop runs a heartbeat loop for long-running activities
+// Returns a cancel function to stop the loop
+func HeartbeatLoop(ctx context.Context, interval time.Duration, details func() interface{}) func() {
+    done := make(chan struct{})
 
-type EventHandler func(ctx context.Context, event *Event) error
+    go func() {
+        ticker := time.NewTicker(interval)
+        defer ticker.Stop()
 
-func NewSubscriber(redis *redis.Client) *Subscriber {
-    return &Subscriber{
-        redis:    redis,
-        handlers: make(map[string][]EventHandler),
-    }
-}
-
-func (s *Subscriber) On(eventType string, handler EventHandler) {
-    s.handlers[eventType] = append(s.handlers[eventType], handler)
-}
-
-func (s *Subscriber) Start(ctx context.Context) error {
-    // Subscribe to all event channels
-    patterns := make([]string, 0, len(s.handlers))
-    for eventType := range s.handlers {
-        patterns = append(patterns, "events:"+eventType)
-    }
-
-    pubsub := s.redis.PSubscribe(ctx, "events:*")
-    defer pubsub.Close()
-
-    ch := pubsub.Channel()
-
-    for {
-        select {
-        case <-ctx.Done():
-            return ctx.Err()
-        case msg := <-ch:
-            var event Event
-            if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
-                slog.Error("failed to unmarshal event", "error", err)
-                continue
-            }
-
-            handlers, ok := s.handlers[event.Type]
-            if !ok {
-                continue
-            }
-
-            for _, handler := range handlers {
-                if err := handler(ctx, &event); err != nil {
-                    slog.Error("handler failed",
-                        "event_type", event.Type,
-                        "event_id", event.ID,
-                        "error", err,
-                    )
-                }
+        for {
+            select {
+            case <-done:
+                return
+            case <-ctx.Done():
+                return
+            case <-ticker.C:
+                activity.RecordHeartbeat(ctx, details())
             }
         }
-    }
+    }()
+
+    return func() { close(done) }
+}
+
+// WithHeartbeat wraps a long-running operation with automatic heartbeats
+func WithHeartbeat[T any](ctx context.Context, interval time.Duration, fn func() (T, error)) (T, error) {
+    cancel := HeartbeatLoop(ctx, interval, func() interface{} { return "processing" })
+    defer cancel()
+
+    return fn()
 }
 ```
 
-### Event Schemas
+### Workflow Input Types
 
 ```go
-// pkg/events/schemas.go
+// pkg/temporal/types.go
 
-package events
+package temporal
 
 import "time"
 
-// Content events
-type ContentIngestedEvent struct {
+// EmailProcessingInput is the input for email processing workflows
+type EmailProcessingInput struct {
+    TenantID    string    `json:"tenant_id"`
+    SourceID    int64     `json:"source_id"`
+    MessageID   string    `json:"message_id"`
+    ThreadID    string    `json:"thread_id"`
+    FromEmail   string    `json:"from_email"`
+    FromName    *string   `json:"from_name,omitempty"`
+    Subject     *string   `json:"subject,omitempty"`
+    ToEmails    []string  `json:"to_emails"`
+    CcEmails    []string  `json:"cc_emails"`
+    EmailDate   time.Time `json:"email_date"`
+    ContentHash string    `json:"content_hash"`
+    JobID       string    `json:"job_id"`
+}
+
+// EmailProcessingResult is the result of email processing workflows
+type EmailProcessingResult struct {
+    SourceID       int64   `json:"source_id"`
+    EmbeddingID    *int64  `json:"embedding_id,omitempty"`
+    SummaryID      *int64  `json:"summary_id,omitempty"`
+    AssertionCount int     `json:"assertion_count"`
+    Status         string  `json:"status"` // completed, failed
+    Error          string  `json:"error,omitempty"`
+}
+
+// ContentProcessingInput is the input for content processing workflows
+type ContentProcessingInput struct {
     TenantID   string            `json:"tenant_id"`
     SourceID   string            `json:"source_id"`
     SourceType string            `json:"source_type"`
@@ -408,56 +497,11 @@ type ContentIngestedEvent struct {
     Metadata   map[string]string `json:"metadata"`
 }
 
-type ContentProcessedEvent struct {
-    SourceID string           `json:"source_id"`
-    Result   ProcessingResult `json:"result"`
-    JobIDs   []string         `json:"job_ids"`
-}
-
-type ProcessingResult struct {
-    Summary    string            `json:"summary"`
-    Entities   []Entity          `json:"entities"`
-    Categories []string          `json:"categories"`
-    Confidence float32           `json:"confidence"`
-}
-
-// Email events
-type EmailIngestedEvent struct {
-    TenantID     string    `json:"tenant_id"`
-    MessageID    string    `json:"message_id"`
-    ThreadID     string    `json:"thread_id"`
-    AccountEmail string    `json:"account_email"`
-    Subject      string    `json:"subject"`
-    Snippet      string    `json:"snippet"`
-    Labels       []string  `json:"labels"`
-    ReceivedAt   time.Time `json:"received_at"`
-}
-
-// Job events
-type JobCreatedEvent struct {
-    JobID    string `json:"job_id"`
-    TenantID string `json:"tenant_id"`
-    JobType  string `json:"job_type"`
-    SourceID string `json:"source_id"`
-    Priority int    `json:"priority"`
-}
-
-type JobCompletedEvent struct {
-    JobID      string `json:"job_id"`
-    Success    bool   `json:"success"`
-    Result     string `json:"result"`
-    DurationMs int64  `json:"duration_ms"`
-}
-
-// Relationship events
-type RelationshipDiscoveredEvent struct {
-    TenantID        string   `json:"tenant_id"`
-    RelationshipID  string   `json:"relationship_id"`
-    SourceEntityID  string   `json:"source_entity_id"`
-    TargetEntityID  string   `json:"target_entity_id"`
-    Type            string   `json:"type"`
-    Confidence      float32  `json:"confidence"`
-    EvidenceIDs     []string `json:"evidence_ids"`
+// RelationshipDiscoveryInput is the input for relationship discovery workflows
+type RelationshipDiscoveryInput struct {
+    TenantID  string   `json:"tenant_id"`
+    SourceID  string   `json:"source_id"`
+    EntityIDs []string `json:"entity_ids"`
 }
 ```
 
@@ -759,9 +803,11 @@ func PostgresCheck(pool *pgxpool.Pool) Check {
     }
 }
 
-func RedisCheck(client *redis.Client) Check {
+func TemporalCheck(client client.Client) Check {
     return func(ctx context.Context) error {
-        return client.Ping(ctx).Err()
+        // Check Temporal connection by describing the system namespace
+        _, err := client.CheckHealth(ctx, &client.CheckHealthRequest{})
+        return err
     }
 }
 ```
@@ -828,16 +874,16 @@ package main
 
 import (
     "context"
+    "encoding/json"
     "log/slog"
     "net/http"
+    "os"
 
     "github.com/otherjamesbrown/penfold/pkg/db"
-    "github.com/otherjamesbrown/penfold/pkg/events"
     "github.com/otherjamesbrown/penfold/pkg/health"
     "github.com/otherjamesbrown/penfold/pkg/logging"
-    "github.com/otherjamesbrown/penfold/pkg/metrics"
+    temporalpkg "github.com/otherjamesbrown/penfold/pkg/temporal"
     "github.com/prometheus/client_golang/prometheus/promhttp"
-    "github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -865,18 +911,25 @@ func main() {
     }
     defer pool.Close()
 
-    // Setup Redis
-    redisClient := redis.NewClient(&redis.Options{
-        Addr: "home-01:6379",
+    // Setup Temporal client
+    temporalClient, err := temporalpkg.NewClient(&temporalpkg.Config{
+        HostPort:  "localhost:7233",
+        Namespace: "default",
+        TaskQueue: "penfold-ai-processing",
     })
+    if err != nil {
+        slog.Error("failed to create temporal client", "error", err)
+        os.Exit(1)
+    }
+    defer temporalClient.Close()
 
-    // Setup event publisher
-    publisher := events.NewPublisher(redisClient)
+    // Setup workflow starter
+    starter := temporalpkg.NewWorkflowStarter(temporalClient, "penfold-ai-processing")
 
     // Setup health checker
     healthChecker := health.NewChecker()
     healthChecker.Register("postgres", health.PostgresCheck(pool))
-    healthChecker.Register("redis", health.RedisCheck(redisClient))
+    healthChecker.Register("temporal", health.TemporalCheck(temporalClient))
 
     // Metrics endpoint
     http.Handle("/metrics", promhttp.Handler())
@@ -889,6 +942,9 @@ func main() {
         }
         json.NewEncoder(w).Encode(status)
     })
+
+    // Example: Start a workflow
+    _ = starter // Use starter to trigger workflows
 
     // Start service...
 }
