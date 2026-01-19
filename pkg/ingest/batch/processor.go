@@ -162,12 +162,17 @@ func (p *Processor) Process(ctx context.Context, path string) (*ProcessResult, e
 	// Create job record
 	if p.cfg.ResumeJobID == "" {
 		job := &storage.IngestJob{
-			ID:         jobID,
-			TenantID:   p.cfg.TenantID,
-			Status:     storage.IngestJobStatusRunning,
-			SourceTag:  p.cfg.SourceTag,
-			TotalItems: len(files),
-			Labels:     p.cfg.Labels,
+			ID:           jobID,
+			TenantID:     p.cfg.TenantID,
+			Status:       storage.IngestJobStatusInProgress,
+			SourceTag:    p.cfg.SourceTag,
+			ContentType:  "email",
+			TotalFiles:   len(files),
+			FileManifest: files,
+			Options: map[string]interface{}{
+				"labels":  p.cfg.Labels,
+				"dry_run": p.cfg.DryRun,
+			},
 		}
 		if !p.cfg.DryRun {
 			if err := p.repo.CreateJob(ctx, job); err != nil {
@@ -523,7 +528,20 @@ func (p *Processor) recordOutcome(ctx context.Context, jobID, filePath string, o
 
 		// Record error in database
 		if !p.cfg.DryRun {
-			if err := p.repo.RecordError(ctx, jobID, filePath, o.err.Error()); err != nil {
+			errorType := storage.ErrorTypeUnexpected
+			errMsg := o.err.Error()
+			if strings.Contains(errMsg, "parse") || strings.Contains(errMsg, "Parse") {
+				errorType = storage.ErrorTypeParse
+			} else if strings.Contains(errMsg, "encoding") {
+				errorType = storage.ErrorTypeEncoding
+			} else if strings.Contains(errMsg, "io") || strings.Contains(errMsg, "read") || strings.Contains(errMsg, "open") {
+				errorType = storage.ErrorTypeIO
+			} else if strings.Contains(errMsg, "validation") {
+				errorType = storage.ErrorTypeValidation
+			} else if strings.Contains(errMsg, "storage") || strings.Contains(errMsg, "database") {
+				errorType = storage.ErrorTypeStorage
+			}
+			if err := p.repo.RecordError(ctx, jobID, filePath, errorType, errMsg, nil); err != nil {
 				p.logger.Warn().Err(err).Msg("Failed to record error")
 			}
 		}
@@ -531,10 +549,14 @@ func (p *Processor) recordOutcome(ctx context.Context, jobID, filePath string, o
 
 	// Update job progress
 	if !p.cfg.DryRun {
+		// Collect processed files from progress tracker
+		processedFiles := p.progress.ProcessedFiles()
 		if err := p.repo.UpdateJobProgress(ctx, jobID,
 			result.ImportedCount+result.SkippedCount+result.FailedCount,
+			result.ImportedCount,
+			result.SkippedCount,
 			result.FailedCount,
-			filePath,
+			processedFiles,
 		); err != nil {
 			p.logger.Warn().Err(err).Msg("Failed to update job progress")
 		}

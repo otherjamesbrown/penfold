@@ -18,6 +18,21 @@ const (
 	SourceSystemGmail     = "gmail"
 )
 
+// DefaultTenantID is the UUID for the default tenant (single-tenant mode).
+const DefaultTenantID = "00000001-0000-0000-0000-000000000001"
+
+// IngestErrorType identifies the type of error during ingest.
+type IngestErrorType string
+
+const (
+	ErrorTypeParse      IngestErrorType = "parse_error"
+	ErrorTypeEncoding   IngestErrorType = "encoding_error"
+	ErrorTypeIO         IngestErrorType = "io_error"
+	ErrorTypeValidation IngestErrorType = "validation_error"
+	ErrorTypeStorage    IngestErrorType = "storage_error"
+	ErrorTypeUnexpected IngestErrorType = "unexpected_error"
+)
+
 // ProcessingStatus represents the current state of source processing.
 const (
 	ProcessingStatusPending    = "pending"
@@ -30,11 +45,12 @@ const (
 type IngestJobStatus string
 
 const (
-	IngestJobStatusPending    IngestJobStatus = "pending"
-	IngestJobStatusRunning    IngestJobStatus = "running"
-	IngestJobStatusCompleted  IngestJobStatus = "completed"
-	IngestJobStatusFailed     IngestJobStatus = "failed"
-	IngestJobStatusCancelled  IngestJobStatus = "cancelled"
+	IngestJobStatusPending           IngestJobStatus = "pending"
+	IngestJobStatusInProgress        IngestJobStatus = "in_progress"
+	IngestJobStatusCompleted         IngestJobStatus = "completed"
+	IngestJobStatusCompletedErrors   IngestJobStatus = "completed_with_errors"
+	IngestJobStatusFailed            IngestJobStatus = "failed"
+	IngestJobStatusCancelled         IngestJobStatus = "cancelled"
 )
 
 // EmailSource represents the data needed to create a source record.
@@ -57,28 +73,38 @@ type CreatedSource struct {
 }
 
 // IngestJob tracks a batch ingest operation.
+// Matches the database schema: ingest_jobs table
 type IngestJob struct {
-	ID           string
-	TenantID     string
-	Status       IngestJobStatus
-	SourceTag    string
-	TotalItems   int
-	ProcessedItems int
-	FailedItems  int
-	LastFilePath string
-	Labels       []string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	CompletedAt  *time.Time
+	ID             string
+	TenantID       string // UUID format
+	Status         IngestJobStatus
+	SourceTag      string
+	ContentType    string // e.g., "email"
+	TotalFiles     int
+	ProcessedCount int
+	ImportedCount  int
+	SkippedCount   int
+	FailedCount    int
+	FileManifest   []string // JSON array of file paths
+	ProcessedFiles []string // JSON array of processed file paths
+	Options        map[string]interface{}
+	StartedAt      *time.Time
+	CompletedAt    *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // IngestError records an error for a specific file during ingest.
+// Matches the database schema: ingest_errors table
 type IngestError struct {
-	ID        int64
-	JobID     string
-	FilePath  string
-	ErrorMsg  string
-	CreatedAt time.Time
+	ID           string // UUID
+	JobID        string // UUID
+	FilePath     string
+	ErrorType    IngestErrorType
+	ErrorMsg     string
+	ErrorDetails map[string]interface{}
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // Repository provides database operations for email ingest.
@@ -97,6 +123,12 @@ func NewRepository(pool *pgxpool.Pool, logger zerolog.Logger) *Repository {
 
 // CreateSource inserts a new source record and returns the created ID.
 func (r *Repository) CreateSource(ctx context.Context, source *EmailSource) (*CreatedSource, error) {
+	// Use default tenant if not specified or not a valid UUID
+	tenantID := source.TenantID
+	if tenantID == "" || tenantID == "default" {
+		tenantID = DefaultTenantID
+	}
+
 	metadataJSON, err := json.Marshal(source.Metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
@@ -119,7 +151,7 @@ func (r *Repository) CreateSource(ctx context.Context, source *EmailSource) (*Cr
 
 	var result CreatedSource
 	err = r.pool.QueryRow(ctx, query,
-		source.TenantID,
+		tenantID,
 		source.SourceSystem,
 		source.ExternalID,
 		source.ContentHash,
@@ -134,7 +166,7 @@ func (r *Repository) CreateSource(ctx context.Context, source *EmailSource) (*Cr
 	if err != nil {
 		r.logger.Error().
 			Err(err).
-			Str("tenant_id", source.TenantID).
+			Str("tenant_id", tenantID).
 			Str("external_id", source.ExternalID).
 			Msg("Failed to create source")
 		return nil, fmt.Errorf("failed to create source: %w", err)
@@ -142,7 +174,7 @@ func (r *Repository) CreateSource(ctx context.Context, source *EmailSource) (*Cr
 
 	r.logger.Debug().
 		Int64("id", result.ID).
-		Str("tenant_id", source.TenantID).
+		Str("tenant_id", tenantID).
 		Str("external_id", source.ExternalID).
 		Msg("Source created")
 
@@ -151,6 +183,11 @@ func (r *Repository) CreateSource(ctx context.Context, source *EmailSource) (*Cr
 
 // ExistsByExternalID checks if a source with the given external ID exists.
 func (r *Repository) ExistsByExternalID(ctx context.Context, tenantID, externalID string) (bool, int64, error) {
+	// Use default tenant if not specified or not a valid UUID
+	if tenantID == "" || tenantID == "default" {
+		tenantID = DefaultTenantID
+	}
+
 	query := `
 		SELECT id FROM sources
 		WHERE tenant_id = $1 AND external_id = $2 AND deleted_at IS NULL
@@ -172,6 +209,11 @@ func (r *Repository) ExistsByExternalID(ctx context.Context, tenantID, externalI
 
 // ExistsByContentHash checks if a source with the given content hash exists.
 func (r *Repository) ExistsByContentHash(ctx context.Context, tenantID, contentHash string) (bool, int64, error) {
+	// Use default tenant if not specified or not a valid UUID
+	if tenantID == "" || tenantID == "default" {
+		tenantID = DefaultTenantID
+	}
+
 	query := `
 		SELECT id FROM sources
 		WHERE tenant_id = $1 AND content_hash = $2 AND deleted_at IS NULL
@@ -217,35 +259,60 @@ func (r *Repository) CheckDuplicate(ctx context.Context, tenantID, messageID, co
 
 // CreateJob creates a new ingest job record.
 func (r *Repository) CreateJob(ctx context.Context, job *IngestJob) error {
-	labelsJSON, err := json.Marshal(job.Labels)
+	// Use default tenant if not specified or not a valid UUID
+	tenantID := job.TenantID
+	if tenantID == "" || tenantID == "default" {
+		tenantID = DefaultTenantID
+	}
+
+	manifestJSON, err := json.Marshal(job.FileManifest)
 	if err != nil {
-		return fmt.Errorf("failed to marshal labels: %w", err)
+		return fmt.Errorf("failed to marshal file manifest: %w", err)
+	}
+
+	processedJSON, err := json.Marshal(job.ProcessedFiles)
+	if err != nil {
+		return fmt.Errorf("failed to marshal processed files: %w", err)
+	}
+
+	optionsJSON, err := json.Marshal(job.Options)
+	if err != nil {
+		return fmt.Errorf("failed to marshal options: %w", err)
+	}
+
+	contentType := job.ContentType
+	if contentType == "" {
+		contentType = "email"
 	}
 
 	query := `
 		INSERT INTO ingest_jobs (
-			id, tenant_id, status, source_tag,
-			total_items, processed_items, failed_items,
-			last_file_path, labels,
-			created_at, updated_at
+			id, tenant_id, source_tag, content_type, status,
+			total_files, processed_count, imported_count, skipped_count, failed_count,
+			file_manifest, processed_files, options,
+			started_at, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4,
-			$5, $6, $7,
-			$8, $9,
-			NOW(), NOW()
+			$1, $2, $3, $4, $5,
+			$6, $7, $8, $9, $10,
+			$11, $12, $13,
+			NOW(), NOW(), NOW()
 		)
 	`
 
 	_, err = r.pool.Exec(ctx, query,
 		job.ID,
-		job.TenantID,
-		job.Status,
+		tenantID,
 		job.SourceTag,
-		job.TotalItems,
-		job.ProcessedItems,
-		job.FailedItems,
-		job.LastFilePath,
-		labelsJSON,
+		contentType,
+		job.Status,
+		job.TotalFiles,
+		job.ProcessedCount,
+		job.ImportedCount,
+		job.SkippedCount,
+		job.FailedCount,
+		manifestJSON,
+		processedJSON,
+		optionsJSON,
 	)
 
 	if err != nil {
@@ -254,7 +321,7 @@ func (r *Repository) CreateJob(ctx context.Context, job *IngestJob) error {
 
 	r.logger.Debug().
 		Str("job_id", job.ID).
-		Str("tenant_id", job.TenantID).
+		Str("tenant_id", tenantID).
 		Msg("Ingest job created")
 
 	return nil
@@ -264,29 +331,34 @@ func (r *Repository) CreateJob(ctx context.Context, job *IngestJob) error {
 func (r *Repository) GetJob(ctx context.Context, jobID string) (*IngestJob, error) {
 	query := `
 		SELECT
-			id, tenant_id, status, source_tag,
-			total_items, processed_items, failed_items,
-			last_file_path, labels,
-			created_at, updated_at, completed_at
+			id, tenant_id, source_tag, content_type, status,
+			total_files, processed_count, imported_count, skipped_count, failed_count,
+			file_manifest, processed_files, options,
+			started_at, completed_at, created_at, updated_at
 		FROM ingest_jobs
 		WHERE id = $1
 	`
 
 	job := &IngestJob{}
-	var labelsJSON []byte
+	var manifestJSON, processedJSON, optionsJSON []byte
 	err := r.pool.QueryRow(ctx, query, jobID).Scan(
 		&job.ID,
 		&job.TenantID,
-		&job.Status,
 		&job.SourceTag,
-		&job.TotalItems,
-		&job.ProcessedItems,
-		&job.FailedItems,
-		&job.LastFilePath,
-		&labelsJSON,
+		&job.ContentType,
+		&job.Status,
+		&job.TotalFiles,
+		&job.ProcessedCount,
+		&job.ImportedCount,
+		&job.SkippedCount,
+		&job.FailedCount,
+		&manifestJSON,
+		&processedJSON,
+		&optionsJSON,
+		&job.StartedAt,
+		&job.CompletedAt,
 		&job.CreatedAt,
 		&job.UpdatedAt,
-		&job.CompletedAt,
 	)
 
 	if err == pgx.ErrNoRows {
@@ -296,22 +368,34 @@ func (r *Repository) GetJob(ctx context.Context, jobID string) (*IngestJob, erro
 		return nil, fmt.Errorf("failed to get job: %w", err)
 	}
 
-	if err := json.Unmarshal(labelsJSON, &job.Labels); err != nil {
-		job.Labels = []string{}
+	if err := json.Unmarshal(manifestJSON, &job.FileManifest); err != nil {
+		job.FileManifest = []string{}
+	}
+	if err := json.Unmarshal(processedJSON, &job.ProcessedFiles); err != nil {
+		job.ProcessedFiles = []string{}
+	}
+	if err := json.Unmarshal(optionsJSON, &job.Options); err != nil {
+		job.Options = map[string]interface{}{}
 	}
 
 	return job, nil
 }
 
 // UpdateJobProgress updates the progress of an ingest job.
-func (r *Repository) UpdateJobProgress(ctx context.Context, jobID string, processed, failed int, lastFilePath string) error {
+func (r *Repository) UpdateJobProgress(ctx context.Context, jobID string, processed, imported, skipped, failed int, processedFiles []string) error {
+	processedJSON, err := json.Marshal(processedFiles)
+	if err != nil {
+		return fmt.Errorf("failed to marshal processed files: %w", err)
+	}
+
 	query := `
 		UPDATE ingest_jobs
-		SET processed_items = $2, failed_items = $3, last_file_path = $4, updated_at = NOW()
+		SET processed_count = $2, imported_count = $3, skipped_count = $4, failed_count = $5,
+		    processed_files = $6, updated_at = NOW()
 		WHERE id = $1
 	`
 
-	result, err := r.pool.Exec(ctx, query, jobID, processed, failed, lastFilePath)
+	result, err := r.pool.Exec(ctx, query, jobID, processed, imported, skipped, failed, processedJSON)
 	if err != nil {
 		return fmt.Errorf("failed to update job progress: %w", err)
 	}
@@ -349,13 +433,18 @@ func (r *Repository) CompleteJob(ctx context.Context, jobID string, status Inges
 }
 
 // RecordError records an error that occurred during ingest.
-func (r *Repository) RecordError(ctx context.Context, jobID, filePath, errorMsg string) error {
+func (r *Repository) RecordError(ctx context.Context, jobID, filePath string, errorType IngestErrorType, errorMsg string, details map[string]interface{}) error {
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		detailsJSON = []byte("{}")
+	}
+
 	query := `
-		INSERT INTO ingest_errors (job_id, file_path, error_message, created_at)
-		VALUES ($1, $2, $3, NOW())
+		INSERT INTO ingest_errors (job_id, file_path, error_type, error_message, error_details, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 	`
 
-	_, err := r.pool.Exec(ctx, query, jobID, filePath, errorMsg)
+	_, err = r.pool.Exec(ctx, query, jobID, filePath, errorType, errorMsg, detailsJSON)
 	if err != nil {
 		return fmt.Errorf("failed to record error: %w", err)
 	}
@@ -366,7 +455,7 @@ func (r *Repository) RecordError(ctx context.Context, jobID, filePath, errorMsg 
 // GetJobErrors retrieves all errors for a job.
 func (r *Repository) GetJobErrors(ctx context.Context, jobID string) ([]*IngestError, error) {
 	query := `
-		SELECT id, job_id, file_path, error_message, created_at
+		SELECT id, job_id, file_path, error_type, error_message, error_details, created_at, updated_at
 		FROM ingest_errors
 		WHERE job_id = $1
 		ORDER BY created_at ASC
@@ -381,8 +470,12 @@ func (r *Repository) GetJobErrors(ctx context.Context, jobID string) ([]*IngestE
 	var errors []*IngestError
 	for rows.Next() {
 		e := &IngestError{}
-		if err := rows.Scan(&e.ID, &e.JobID, &e.FilePath, &e.ErrorMsg, &e.CreatedAt); err != nil {
+		var detailsJSON []byte
+		if err := rows.Scan(&e.ID, &e.JobID, &e.FilePath, &e.ErrorType, &e.ErrorMsg, &detailsJSON, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan error: %w", err)
+		}
+		if err := json.Unmarshal(detailsJSON, &e.ErrorDetails); err != nil {
+			e.ErrorDetails = map[string]interface{}{}
 		}
 		errors = append(errors, e)
 	}
@@ -406,20 +499,23 @@ func (r *Repository) GetRemainingFilesForJob(ctx context.Context, jobID string, 
 	}
 
 	// If no files have been processed, return all
-	if job.LastFilePath == "" || job.ProcessedItems == 0 {
+	if len(job.ProcessedFiles) == 0 {
 		return allFiles, nil
 	}
 
-	// Find the index of the last processed file and return everything after it
-	for i, f := range allFiles {
-		if f == job.LastFilePath {
-			if i+1 < len(allFiles) {
-				return allFiles[i+1:], nil
-			}
-			return []string{}, nil
+	// Build a set of processed files
+	processed := make(map[string]bool)
+	for _, f := range job.ProcessedFiles {
+		processed[f] = true
+	}
+
+	// Filter out already processed files
+	var remaining []string
+	for _, f := range allFiles {
+		if !processed[f] {
+			remaining = append(remaining, f)
 		}
 	}
 
-	// Last file not found in list, return all files
-	return allFiles, nil
+	return remaining, nil
 }

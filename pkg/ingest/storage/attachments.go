@@ -2,8 +2,10 @@ package storage
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -79,6 +81,12 @@ type StoredAttachment struct {
 // CreateAttachmentWithSource creates both an attachment source and the link in a transaction.
 // Use this for attachments that should be processed (auto_process, manual_process).
 func (r *Repository) CreateAttachmentWithSource(ctx context.Context, att *AttachmentSource, link *AttachmentLink) (*CreatedAttachment, error) {
+	// Use default tenant if not specified or not a valid UUID
+	tenantID := att.TenantID
+	if tenantID == "" || tenantID == "default" {
+		tenantID = DefaultTenantID
+	}
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -115,13 +123,24 @@ func (r *Repository) CreateAttachmentWithSource(ctx context.Context, att *Attach
 		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
+	// For binary content (images, PDFs, etc.), base64 encode it.
+	// Text files can be stored directly.
+	var contentToStore string
+	if att.MimeType != "" && !strings.HasPrefix(att.MimeType, "text/") {
+		// Binary content - base64 encode it
+		contentToStore = "base64:" + base64.StdEncoding.EncodeToString(att.Content)
+	} else {
+		// Text content - store directly
+		contentToStore = string(att.Content)
+	}
+
 	var sourceID int64
 	err = tx.QueryRow(ctx, sourceQuery,
-		att.TenantID,
+		tenantID,
 		SourceSystemAttachment,
 		externalID,
 		att.ContentHash,
-		att.Content,
+		contentToStore,
 		att.MimeType,
 		att.SizeBytes,
 		metadataJSON,

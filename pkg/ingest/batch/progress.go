@@ -18,8 +18,9 @@ type Progress struct {
 	FailedCount    int
 
 	// Current state
-	CurrentFile string
-	Status      string
+	CurrentFile    string
+	Status         string
+	processedFiles []string
 
 	// Timing
 	StartedAt time.Time
@@ -71,6 +72,9 @@ func (p *Progress) RecordImported() {
 	defer p.mu.Unlock()
 	p.ImportedCount++
 	p.ProcessedCount++
+	if p.CurrentFile != "" {
+		p.processedFiles = append(p.processedFiles, p.CurrentFile)
+	}
 	p.UpdatedAt = time.Now()
 	p.notifyUpdate()
 }
@@ -81,6 +85,9 @@ func (p *Progress) RecordSkipped() {
 	defer p.mu.Unlock()
 	p.SkippedCount++
 	p.ProcessedCount++
+	if p.CurrentFile != "" {
+		p.processedFiles = append(p.processedFiles, p.CurrentFile)
+	}
 	p.UpdatedAt = time.Now()
 	p.notifyUpdate()
 }
@@ -91,8 +98,20 @@ func (p *Progress) RecordFailed() {
 	defer p.mu.Unlock()
 	p.FailedCount++
 	p.ProcessedCount++
+	if p.CurrentFile != "" {
+		p.processedFiles = append(p.processedFiles, p.CurrentFile)
+	}
 	p.UpdatedAt = time.Now()
 	p.notifyUpdate()
+}
+
+// ProcessedFiles returns a copy of the list of processed file paths.
+func (p *Progress) ProcessedFiles() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	result := make([]string, len(p.processedFiles))
+	copy(result, p.processedFiles)
+	return result
 }
 
 // Complete marks the progress as completed.
