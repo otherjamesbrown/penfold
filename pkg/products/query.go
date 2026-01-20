@@ -94,8 +94,10 @@ var teamPatterns = []*regexp.Regexp{
 // timelinePatterns matches timeline query patterns.
 var timelinePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(?:show|get|display)\s+(?:me\s+)?(?:the\s+)?timeline\s+(?:for|of)\s+(?:the\s+)?(.+)$`),
+	regexp.MustCompile(`(?i)(?:show|get|display)\s+(?:me\s+)?(?:the\s+)?(.+?)\s+timeline$`),
 	regexp.MustCompile(`(?i)(?:what|show)\s+(?:has\s+)?happened\s+(?:with|on|to)\s+(?:the\s+)?(.+)$`),
 	regexp.MustCompile(`(?i)events?\s+(?:for|on)\s+(?:the\s+)?(.+)$`),
+	regexp.MustCompile(`(?i)(?:show|get|display)\s+(?:me\s+)?(?:the\s+)?(?:external\s+)?events?\s+affecting\s+(?:the\s+)?(.+)$`),
 }
 
 // hierarchyPatterns matches hierarchy query patterns.
