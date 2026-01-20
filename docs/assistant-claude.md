@@ -250,6 +250,10 @@ This returns:
 
 3. After user confirms, batch execute:
    ```bash
+   # Preview first with --dry-run
+   penf process acronyms batch-resolve --dry-run '{...}'
+
+   # Then execute
    penf process acronyms batch-resolve '{
      "resolutions": [
        {"id": 24, "expansion": "Minimum Viable Product"},

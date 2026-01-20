@@ -73,7 +73,7 @@ This is correct - noun first, then verb.
 | `rename` | `git branch -m old new` | ❌ None | Add where applicable |
 | `set` | `git config --set` | Only `config set` | Add `glossary set`, `product set` |
 | `get` | `git config --get` | ❌ None | Add for consistency |
-| `--dry-run` | `git commit --dry-run` | ❌ None | Add to batch operations |
+| `--dry-run` | `git commit --dry-run` | ✅ `process batch-resolve`, `ingest batch` | DONE (pe-dp2k) |
 | `-v, --verbose` | `git status -v` | ❌ None | Add globally |
 
 ### 5. Help Text Quality ✅ Generally Good
@@ -96,7 +96,7 @@ This is correct - noun first, then verb.
 - ✅ Has `add`, `remove`, `list`, `show`, `search`
 
 #### product
-- ❌ Uses `info` instead of `show`
+- ✅ Uses `show` (info kept as alias) - DONE (pe-7pyr)
 - ❌ No `remove`/`delete` command
 - ❌ No `update` command
 - ✅ Has `alias` subcommand (good pattern!)

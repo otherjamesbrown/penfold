@@ -19,9 +19,10 @@ import (
 
 // Process command flags.
 var (
-	processOutput       string
+	processOutput        string
 	processIncludeSource bool
 	processSourceContext int
+	processDryRun        bool
 )
 
 // ProcessCommandDeps holds the dependencies for process commands.
@@ -204,7 +205,7 @@ Examples:
 
 // newAcronymsBatchResolveCommand creates the 'process acronyms batch-resolve' subcommand.
 func newAcronymsBatchResolveCommand(deps *ProcessCommandDeps) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "batch-resolve <json>",
 		Short: "Batch resolve and dismiss acronyms",
 		Long: `Batch resolve and dismiss multiple acronyms in a single operation.
@@ -221,13 +222,20 @@ Accepts JSON with resolutions and dismissals:
   ]
 }
 
+Use --dry-run to preview changes without executing them.
+
 Example:
-  penf process acronyms batch-resolve '{"resolutions":[{"id":24,"expansion":"Minimum Viable Product"}]}'`,
+  penf process acronyms batch-resolve '{"resolutions":[{"id":24,"expansion":"Minimum Viable Product"}]}'
+  penf process acronyms batch-resolve --dry-run '{"resolutions":[...]}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAcronymsBatchResolve(cmd.Context(), deps, args[0])
 		},
 	}
+
+	cmd.Flags().BoolVar(&processDryRun, "dry-run", false, "Preview changes without executing them")
+
+	return cmd
 }
 
 // runAcronymsContext executes the context command.
@@ -374,6 +382,32 @@ func runAcronymsBatchResolve(ctx context.Context, deps *ProcessCommandDeps, json
 	var req BatchResolveRequest
 	if err := json.Unmarshal([]byte(jsonInput), &req); err != nil {
 		return fmt.Errorf("parsing JSON input: %w", err)
+	}
+
+	// Dry-run mode: preview changes without executing.
+	if processDryRun {
+		fmt.Println("\033[1m=== DRY RUN - No changes will be made ===\033[0m")
+		fmt.Println()
+
+		if len(req.Resolutions) > 0 {
+			fmt.Printf("Would resolve %d acronyms:\n", len(req.Resolutions))
+			for _, r := range req.Resolutions {
+				fmt.Printf("  \033[32m#%d:\033[0m %s\n", r.ID, r.Expansion)
+			}
+			fmt.Println()
+		}
+
+		if len(req.Dismissals) > 0 {
+			fmt.Printf("Would dismiss %d items:\n", len(req.Dismissals))
+			for _, d := range req.Dismissals {
+				fmt.Printf("  \033[33m#%d:\033[0m %s\n", d.ID, d.Reason)
+			}
+			fmt.Println()
+		}
+
+		fmt.Printf("Summary: %d resolutions, %d dismissals\n", len(req.Resolutions), len(req.Dismissals))
+		fmt.Println("\n\033[2mRun without --dry-run to apply these changes.\033[0m")
+		return nil
 	}
 
 	conn, err := connectToProcessGateway(cfg)

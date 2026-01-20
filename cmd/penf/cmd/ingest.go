@@ -148,6 +148,7 @@ var (
 	ingestTags      []string
 	ingestCategory  string
 	ingestOutput    string
+	ingestDryRun    bool
 )
 
 // NewIngestCommand creates the root ingest command with all subcommands.
@@ -252,7 +253,7 @@ Examples:
 
 // newIngestBatchCommand creates the 'ingest batch' subcommand.
 func newIngestBatchCommand(deps *IngestCommandDeps) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "batch <manifest>",
 		Short: "Batch ingest from a manifest file",
 		Long: `Batch ingest multiple items from a manifest file.
@@ -269,14 +270,21 @@ Manifest format example:
       url: https://example.com/article
       category: reference
 
+Use --dry-run to validate the manifest and preview what would be ingested.
+
 Examples:
   penf ingest batch manifest.yaml
-  penf ingest batch imports.json --async --priority=low`,
+  penf ingest batch imports.json --async --priority=low
+  penf ingest batch manifest.yaml --dry-run`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runIngestBatch(cmd.Context(), deps, args[0])
 		},
 	}
+
+	cmd.Flags().BoolVar(&ingestDryRun, "dry-run", false, "Validate manifest and preview without ingesting")
+
+	return cmd
 }
 
 // newIngestGmailCommand creates the 'ingest gmail' subcommand group.
@@ -560,8 +568,12 @@ func runIngestBatch(ctx context.Context, deps *IngestCommandDeps, manifestPath s
 	deps.Config = cfg
 
 	// Validate manifest file exists.
-	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+	info, err := os.Stat(manifestPath)
+	if os.IsNotExist(err) {
 		return fmt.Errorf("manifest file not found: %s", manifestPath)
+	}
+	if err != nil {
+		return fmt.Errorf("checking manifest file: %w", err)
 	}
 
 	// Determine output format.
@@ -575,6 +587,31 @@ func runIngestBatch(ctx context.Context, deps *IngestCommandDeps, manifestPath s
 	// Create job (mock for now).
 	job := createMockIngestJob("batch", manifestPath)
 	job.ItemsTotal = 5 // Mock batch size.
+
+	// Dry-run mode: validate manifest and preview.
+	if ingestDryRun {
+		fmt.Println("\033[1m=== DRY RUN - No ingestion will occur ===\033[0m")
+		fmt.Println()
+		fmt.Printf("Manifest file: %s\n", manifestPath)
+		fmt.Printf("File size: %d bytes\n", info.Size())
+		fmt.Println()
+		fmt.Printf("Would ingest %d items with:\n", job.ItemsTotal)
+		fmt.Printf("  Priority: %s\n", ingestPriority)
+		if ingestAsync {
+			fmt.Printf("  Mode: async (queued)\n")
+		} else {
+			fmt.Printf("  Mode: sync (immediate)\n")
+		}
+		if len(ingestTags) > 0 {
+			fmt.Printf("  Tags: %v\n", ingestTags)
+		}
+		if ingestCategory != "" {
+			fmt.Printf("  Category: %s\n", ingestCategory)
+		}
+		fmt.Println()
+		fmt.Println("\033[2mRun without --dry-run to perform the ingestion.\033[0m")
+		return nil
+	}
 
 	if ingestAsync {
 		fmt.Printf("Batch ingestion job queued: %s\n", job.ID)
