@@ -82,7 +82,7 @@ func TestNewProductCommand_Subcommands(t *testing.T) {
 	cmd := NewProductCommand(deps)
 
 	// Check subcommands exist.
-	subcommands := []string{"list", "add", "info", "hierarchy", "alias", "team", "timeline", "event", "query"}
+	subcommands := []string{"list", "add", "show", "hierarchy", "alias", "team", "timeline", "event", "query"}
 	for _, sub := range subcommands {
 		found := false
 		for _, c := range cmd.Commands() {
@@ -147,20 +147,26 @@ func TestProductAddCommand_Structure(t *testing.T) {
 	}
 }
 
-// ==================== Product Info Command Tests ====================
+// ==================== Product Show Command Tests ====================
 
-func TestProductInfoCommand_Structure(t *testing.T) {
+func TestProductShowCommand_Structure(t *testing.T) {
 	deps := createProductTestDeps(productMockConfig())
 	cmd := NewProductCommand(deps)
 
-	infoCmd, _, _ := cmd.Find([]string{"info"})
-	if infoCmd == nil {
-		t.Fatal("info subcommand not found")
+	showCmd, _, _ := cmd.Find([]string{"show"})
+	if showCmd == nil {
+		t.Fatal("show subcommand not found")
 	}
 
 	// Check requires exactly 1 argument.
-	if infoCmd.Args == nil {
-		t.Error("expected info command to have args validation")
+	if showCmd.Args == nil {
+		t.Error("expected show command to have args validation")
+	}
+
+	// Check "info" alias still works for backward compatibility.
+	infoCmd, _, _ := cmd.Find([]string{"info"})
+	if infoCmd == nil {
+		t.Fatal("info alias not found (backward compatibility)")
 	}
 }
 

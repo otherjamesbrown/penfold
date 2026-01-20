@@ -134,7 +134,7 @@ Examples:
   penf product add "My Product" --type product --description "Description"
 
   # Show product details
-  penf product info "My Product"
+  penf product show "My Product"
 
   # Show product hierarchy
   penf product hierarchy "My Product"`,
@@ -148,7 +148,7 @@ Examples:
 	// Add subcommands.
 	cmd.AddCommand(newProductListCommand(deps))
 	cmd.AddCommand(newProductAddCommand(deps))
-	cmd.AddCommand(newProductInfoCommand(deps))
+	cmd.AddCommand(newProductShowCommand(deps))
 	cmd.AddCommand(newProductHierarchyCommand(deps))
 	cmd.AddCommand(newProductAliasCommand(deps))
 
@@ -244,10 +244,10 @@ Examples:
 	return cmd
 }
 
-// newProductInfoCommand creates the 'product info' subcommand.
-func newProductInfoCommand(deps *ProductCommandDeps) *cobra.Command {
+// newProductShowCommand creates the 'product show' subcommand.
+func newProductShowCommand(deps *ProductCommandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "info <name>",
+		Use:   "show <name>",
 		Short: "Show product details",
 		Long: `Show detailed information about a specific product.
 
@@ -255,11 +255,12 @@ Displays the product's properties, aliases, and associated teams.
 The name can be either the product name or an alias.
 
 Examples:
-  penf product info "My Product"
-  penf product info "MP"  # Using an alias`,
-		Args: cobra.ExactArgs(1),
+  penf product show "My Product"
+  penf product show "MP"  # Using an alias`,
+		Aliases: []string{"info"},
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runProductInfo(cmd.Context(), deps, args[0])
+			return runProductShow(cmd.Context(), deps, args[0])
 		},
 	}
 }
@@ -529,8 +530,8 @@ func runProductAdd(ctx context.Context, deps *ProductCommandDeps, name string) e
 	return nil
 }
 
-// runProductInfo executes the product info command.
-func runProductInfo(ctx context.Context, deps *ProductCommandDeps, name string) error {
+// runProductShow executes the product info command.
+func runProductShow(ctx context.Context, deps *ProductCommandDeps, name string) error {
 	if err := initProductDeps(ctx, deps); err != nil {
 		return err
 	}
@@ -561,7 +562,7 @@ func runProductInfo(ctx context.Context, deps *ProductCommandDeps, name string) 
 		}
 	}
 
-	return outputProductInfo(deps.Config, product, aliases, parentName)
+	return outputProductDetail(deps.Config, product, aliases, parentName)
 }
 
 // runProductHierarchy executes the product hierarchy command.
@@ -718,8 +719,8 @@ func outputProductsTable(productsList []*products.Product) error {
 	return nil
 }
 
-// outputProductInfo outputs detailed product information.
-func outputProductInfo(cfg *config.CLIConfig, product *products.Product, aliases []*products.ProductAlias, parentName string) error {
+// outputProductDetail outputs detailed product information.
+func outputProductDetail(cfg *config.CLIConfig, product *products.Product, aliases []*products.ProductAlias, parentName string) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
@@ -728,12 +729,12 @@ func outputProductInfo(cfg *config.CLIConfig, product *products.Product, aliases
 	case config.OutputFormatYAML:
 		return outputProductYAML(product)
 	default:
-		return outputProductInfoText(product, aliases, parentName)
+		return outputProductDetailText(product, aliases, parentName)
 	}
 }
 
-// outputProductInfoText outputs product info in human-readable format.
-func outputProductInfoText(product *products.Product, aliases []*products.ProductAlias, parentName string) error {
+// outputProductDetailText outputs product info in human-readable format.
+func outputProductDetailText(product *products.Product, aliases []*products.ProductAlias, parentName string) error {
 	typeColor := getProductTypeColor(product.ProductType)
 	statusColor := getProductStatusColor(product.Status)
 

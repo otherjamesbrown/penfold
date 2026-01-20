@@ -93,7 +93,7 @@ by the PENF_TENANT_ID environment variable.`,
 	cmd.AddCommand(newTenantListCommand(deps))
 	cmd.AddCommand(newTenantSwitchCommand(deps))
 	cmd.AddCommand(newTenantCurrentCommand(deps))
-	cmd.AddCommand(newTenantInfoCommand(deps))
+	cmd.AddCommand(newTenantShowCommand(deps))
 
 	return cmd
 }
@@ -158,10 +158,10 @@ The environment variable PENF_TENANT_ID takes precedence over the config file.`,
 	}
 }
 
-// newTenantInfoCommand creates the 'tenant info' subcommand.
-func newTenantInfoCommand(deps *TenantCommandDeps) *cobra.Command {
+// newTenantShowCommand creates the 'tenant show' subcommand.
+func newTenantShowCommand(deps *TenantCommandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "info [tenant-id-or-alias]",
+		Use:   "show [tenant-id-or-alias]",
 		Short: "Show tenant details",
 		Long: `Show detailed information about a tenant.
 
@@ -169,16 +169,17 @@ If no tenant is specified, shows information about the current tenant.
 You can specify the tenant by its ID or alias (if configured).
 
 Example:
-  penf tenant info
-  penf tenant info acme-corp
-  penf tenant info tenant-123-456`,
-		Args: cobra.MaximumNArgs(1),
+  penf tenant show
+  penf tenant show acme-corp
+  penf tenant show tenant-123-456`,
+		Aliases: []string{"info"},
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tenantID := ""
 			if len(args) > 0 {
 				tenantID = args[0]
 			}
-			return runTenantInfo(cmd.Context(), deps, tenantID)
+			return runTenantShow(cmd.Context(), deps, tenantID)
 		},
 	}
 }
@@ -300,8 +301,8 @@ func runTenantCurrent(deps *TenantCommandDeps) error {
 	return nil
 }
 
-// runTenantInfo executes the tenant info command.
-func runTenantInfo(ctx context.Context, deps *TenantCommandDeps, tenantRef string) error {
+// runTenantShow executes the tenant info command.
+func runTenantShow(ctx context.Context, deps *TenantCommandDeps, tenantRef string) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
@@ -323,7 +324,7 @@ func runTenantInfo(ctx context.Context, deps *TenantCommandDeps, tenantRef strin
 	info := getMockTenantInfo(tenantID)
 	info.IsCurrent = tenantID == getCurrentTenantID(cfg)
 
-	return outputTenantInfo(cfg.OutputFormat, info)
+	return outputTenantDetail(cfg.OutputFormat, info)
 }
 
 // getCurrentTenantID returns the current tenant ID from env or config.
@@ -491,8 +492,8 @@ func outputTenantListText(response TenantListResponse) error {
 	return nil
 }
 
-// outputTenantInfo outputs tenant info in the configured format.
-func outputTenantInfo(format config.OutputFormat, info TenantInfo) error {
+// outputTenantDetail outputs tenant info in the configured format.
+func outputTenantDetail(format config.OutputFormat, info TenantInfo) error {
 	switch format {
 	case config.OutputFormatJSON:
 		enc := json.NewEncoder(os.Stdout)
@@ -502,12 +503,12 @@ func outputTenantInfo(format config.OutputFormat, info TenantInfo) error {
 		enc := yaml.NewEncoder(os.Stdout)
 		return enc.Encode(info)
 	default:
-		return outputTenantInfoText(info)
+		return outputTenantDetailText(info)
 	}
 }
 
-// outputTenantInfoText outputs tenant info in human-readable format.
-func outputTenantInfoText(info TenantInfo) error {
+// outputTenantDetailText outputs tenant info in human-readable format.
+func outputTenantDetailText(info TenantInfo) error {
 	statusColor := "\033[32m"
 	if info.Status != "active" {
 		statusColor = "\033[33m"

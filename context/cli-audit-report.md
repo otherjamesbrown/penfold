@@ -26,28 +26,26 @@ penf product ...
 
 This is correct - noun first, then verb.
 
-### 2. Subcommand Patterns ⚠️ Inconsistent
+### 2. Subcommand Patterns ✅ Mostly Standardized
 
 #### Current State by Command Group
 
 | Group | add | list | show | remove | update | search | Other |
 |-------|-----|------|------|--------|--------|--------|-------|
-| glossary | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | expand |
-| product | ✅ | ✅ | ❌ `info` | ❌ | ❌ | ❌ | alias, event, hierarchy |
-| tenant | ❌ | ✅ | ❌ `info` | ❌ | ❌ | ❌ | switch, current |
+| glossary | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | expand, alias |
+| product | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | alias, event, hierarchy |
+| tenant | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | switch, current |
 | workflow | ❌ | ✅ | ❌ `status` | ❌ | ❌ | ❌ | cancel |
 | relationship | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ | conflict, entity, network |
 | config | ❌ | ❌ | ✅ | ❌ | ❌ `set` | ❌ | init |
 | auth | ❌ | ❌ | ❌ `status` | ❌ | ❌ | ❌ | login, logout, refresh |
 | review | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | many session commands |
 
-#### Issues
+**COMPLETED (pe-7pyr)**: `product info` → `product show`, `tenant info` → `tenant show` (info kept as alias)
 
-1. **`show` vs `info` vs `status`**: Should standardize on `show` (Git uses `show`)
-   - `product info` → `product show`
-   - `tenant info` → `tenant show`
-   - `workflow status` → `workflow show`
-   - `auth status` → `auth show` (or keep as `status` since it's about connection)
+#### Remaining Issues
+
+1. **`status` commands**: workflow/auth use `status` for state information (appropriate)
 
 2. **Missing `update`/`edit` commands**: Can't modify existing items
    - `glossary` has no way to add aliases to existing terms

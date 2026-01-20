@@ -84,7 +84,7 @@ func TestNewTenantCommand(t *testing.T) {
 
 	// Check subcommands exist.
 	subcommands := cmd.Commands()
-	expectedSubcmds := []string{"list", "switch", "current", "info"}
+	expectedSubcmds := []string{"list", "switch", "current", "show"}
 
 	for _, expected := range expectedSubcmds {
 		found := false
@@ -479,13 +479,13 @@ func TestOutputTenantInfo_Text(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := outputTenantInfo(config.OutputFormatText, info)
+	err := outputTenantDetail(config.OutputFormatText, info)
 
 	w.Close()
 	os.Stdout = oldStdout
 
 	if err != nil {
-		t.Fatalf("outputTenantInfo failed: %v", err)
+		t.Fatalf("outputTenantDetail failed: %v", err)
 	}
 
 	var buf bytes.Buffer
@@ -736,13 +736,13 @@ func TestRunTenantInfo_CurrentTenant(t *testing.T) {
 	os.Stdout = w
 
 	// Call with empty string to use current tenant.
-	err := runTenantInfo(context.Background(), deps, "")
+	err := runTenantShow(context.Background(), deps, "")
 
 	w.Close()
 	os.Stdout = oldStdout
 
 	if err != nil {
-		t.Fatalf("runTenantInfo failed: %v", err)
+		t.Fatalf("runTenantShow failed: %v", err)
 	}
 
 	var buf bytes.Buffer
@@ -763,13 +763,13 @@ func TestRunTenantInfo_SpecificTenant(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runTenantInfo(context.Background(), deps, "tenant-acme-002")
+	err := runTenantShow(context.Background(), deps, "tenant-acme-002")
 
 	w.Close()
 	os.Stdout = oldStdout
 
 	if err != nil {
-		t.Fatalf("runTenantInfo failed: %v", err)
+		t.Fatalf("runTenantShow failed: %v", err)
 	}
 
 	var buf bytes.Buffer
@@ -788,7 +788,7 @@ func TestRunTenantInfo_NoCurrentTenant(t *testing.T) {
 
 	os.Unsetenv("PENF_TENANT_ID")
 
-	err := runTenantInfo(context.Background(), deps, "")
+	err := runTenantShow(context.Background(), deps, "")
 	if err == nil {
 		t.Error("expected error when no current tenant and no argument")
 	}
