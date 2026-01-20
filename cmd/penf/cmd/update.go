@@ -188,10 +188,15 @@ func runUpdate(currentVersion string) error {
 		fmt.Printf("  \033[32m✓\033[0m Assistant CLAUDE.md updated in %s\n", configDir)
 	}
 
-	// Update process definitions (but NOT preferences.md - that's user-owned).
+	// Update process definitions.
 	fmt.Println("Updating process definitions...")
 	if err := initProcessDefinitions(); err != nil {
 		fmt.Printf("  \033[33mWarning:\033[0m Could not update process definitions: %v\n", err)
+	}
+
+	// Create preferences.md if it doesn't exist (never overwrites user's file).
+	if err := initUserPreferences(); err != nil {
+		fmt.Printf("  \033[33mWarning:\033[0m Could not initialize preferences: %v\n", err)
 	}
 
 	fmt.Println()
