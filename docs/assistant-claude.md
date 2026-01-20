@@ -183,6 +183,70 @@ If a command fails:
 - Config: `~/.penf/config.yaml`
 - Binary: `/usr/local/bin/penf` or user's PATH
 
+## Installation Management
+
+### Moving penf to avoid sudo on updates
+
+If `penf update` requires sudo, move it to a user-writable location:
+
+```bash
+# 1. Create user bin directory if needed
+mkdir -p ~/bin
+
+# 2. Move the binary (requires sudo once)
+sudo mv /usr/local/bin/penf ~/bin/penf
+
+# 3. Ensure ~/bin is in PATH (add to ~/.zshrc if not)
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+# 4. Configure penf to use this location for future updates
+penf config set install_path ~/bin/penf
+
+# 5. Verify
+which penf  # Should show ~/bin/penf
+penf update --check  # Should work without sudo
+```
+
+### Alternative: Keep in /usr/local/bin but change ownership
+
+```bash
+# Change ownership to current user (one-time sudo)
+sudo chown $USER /usr/local/bin/penf
+
+# Future updates work without sudo
+penf update
+```
+
+### Update command options
+
+```bash
+# Check for updates (no install)
+penf update --check
+
+# Update to latest version
+penf update
+
+# Install to specific path (one-time override)
+penf update --install-path ~/bin/penf
+
+# Force reinstall current version
+penf update --force
+
+# Update to specific version
+penf update --version v0.1.4
+```
+
+### Configuration for install path
+
+```bash
+# Set permanent install path (stored in ~/.penf/config.yaml)
+penf config set install_path ~/bin/penf
+
+# Or set via environment variable
+export PENF_INSTALL_PATH=~/bin/penf
+```
+
 ## Notes
 
 - All commands support `--format json` for structured output (prefer this)
