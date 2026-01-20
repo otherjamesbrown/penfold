@@ -197,7 +197,8 @@ Examples:
 	cmd.AddCommand(newIngestFileCommand(deps))
 	cmd.AddCommand(newIngestURLCommand(deps))
 	cmd.AddCommand(newIngestBatchCommand(deps))
-	cmd.AddCommand(newIngestEmailCommand(deps)) // Email (.eml) ingest
+	cmd.AddCommand(newIngestEmailCommand(deps))   // Email (.eml) ingest
+	cmd.AddCommand(newIngestMeetingCommand(deps)) // Meeting transcripts
 	cmd.AddCommand(newIngestGmailCommand(deps))
 	cmd.AddCommand(newIngestStatusCommand(deps))
 	cmd.AddCommand(newIngestQueueCommand(deps))
