@@ -4,7 +4,7 @@ package activities
 import (
 	"context"
 
-	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 )
 
 // SourceRepository defines the interface for source data access.

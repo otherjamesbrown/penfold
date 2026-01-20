@@ -3,7 +3,10 @@ module github.com/otherjamesbrown/penfold/services/worker
 go 1.24.0
 
 require (
+	github.com/jackc/pgx/v5 v5.8.0
 	github.com/nexus-rpc/sdk-go v0.0.10
+	github.com/otherjamesbrown/penfold/api/proto/aiv1 v0.0.0
+	github.com/otherjamesbrown/penfold/api/proto/gmailv1 v0.0.0
 	github.com/otherjamesbrown/penfold/pkg v0.0.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/zerolog v1.34.0
@@ -27,6 +30,9 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -55,3 +61,9 @@ require (
 )
 
 replace github.com/otherjamesbrown/penfold/pkg => ../../pkg
+
+replace github.com/otherjamesbrown/penfold/api/proto => ../../api/proto
+
+replace github.com/otherjamesbrown/penfold/api/proto/aiv1 => ../../api/proto/ai/v1
+
+replace github.com/otherjamesbrown/penfold/api/proto/gmailv1 => ../../api/proto/gmail/v1

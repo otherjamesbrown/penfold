@@ -57,6 +57,12 @@ type Config struct {
 
 	// EnableMetrics enables Prometheus metrics collection.
 	EnableMetrics bool
+
+	// DatabaseURL is the PostgreSQL connection string.
+	DatabaseURL string
+
+	// AIServiceURL is the URL for the AI/embeddings service.
+	AIServiceURL string
 }
 
 // Default configuration values.
@@ -147,6 +153,16 @@ func Load() (*Config, error) {
 
 	if v := os.Getenv("WORKER_ENABLE_METRICS"); v != "" {
 		cfg.EnableMetrics = strings.ToLower(v) == "true" || v == "1"
+	}
+
+	if v := os.Getenv("DATABASE_URL"); v != "" {
+		cfg.DatabaseURL = v
+	}
+
+	if v := os.Getenv("AI_SERVICE_URL"); v != "" {
+		cfg.AIServiceURL = v
+	} else {
+		cfg.AIServiceURL = "http://localhost:8081"
 	}
 
 	if err := cfg.Validate(); err != nil {

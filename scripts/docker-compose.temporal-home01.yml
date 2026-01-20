@@ -1,0 +1,51 @@
+# Temporal Server for Penfold - Deployment on home-01
+# Connects to penfold-postgres container on the same host
+#
+# Deploy: scp to home-01 then:
+#   cd ~/penfold-temporal && docker compose -f docker-compose.yml up -d
+#
+# UI available at: http://home-01:8088
+
+services:
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: penfold-temporal
+    ports:
+      - "7233:7233"   # gRPC API
+    environment:
+      - DB=postgres12_pgx
+      - DB_PORT=5432
+      - POSTGRES_USER=penfold
+      - POSTGRES_PWD=penfold
+      - POSTGRES_SEEDS=penfold-postgres
+      - DYNAMIC_CONFIG_FILE_PATH=/etc/temporal/dynamic_config.yaml
+    volumes:
+      - ./temporal-config/dynamic_config.yaml:/etc/temporal/dynamic_config.yaml
+    networks:
+      - penfold_default
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    container_name: penfold-temporal-ui
+    ports:
+      - "8088:8080"   # Web UI
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8088,http://home-01:8088
+    depends_on:
+      temporal:
+        condition: service_healthy
+    networks:
+      - penfold_default
+    restart: unless-stopped
+
+networks:
+  penfold_default:
+    external: true

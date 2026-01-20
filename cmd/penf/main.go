@@ -629,6 +629,9 @@ func init() {
 	rootCmd.AddCommand(cmd.NewPipelineCommand(nil))
 	rootCmd.AddCommand(cmd.NewGlossaryCommand(nil))
 	rootCmd.AddCommand(cmd.NewRelationshipCommand(nil))
+	rootCmd.AddCommand(cmd.NewInitCommand())
+	rootCmd.AddCommand(cmd.NewUpdateCommand(version))
+	rootCmd.AddCommand(cmd.NewFeedbackCommand(version))
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)

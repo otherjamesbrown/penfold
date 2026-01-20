@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
 	"github.com/otherjamesbrown/penfold/pkg/health"
@@ -83,6 +84,27 @@ func main() {
 		Str("environment", cfg.Environment).
 		Logger()
 
+	// Initialize database pool if configured
+	var dbPool *pgxpool.Pool
+	if cfg.DatabaseURL != "" {
+		var err error
+		dbPool, err = pgxpool.New(context.Background(), cfg.DatabaseURL)
+		if err != nil {
+			logger.Error("Failed to create database pool", logging.Err(err))
+			os.Exit(1)
+		}
+		defer dbPool.Close()
+
+		// Verify connection
+		if err := dbPool.Ping(context.Background()); err != nil {
+			logger.Error("Failed to connect to database", logging.Err(err))
+			os.Exit(1)
+		}
+		logger.Info("Connected to database")
+	} else {
+		logger.Warn("DATABASE_URL not configured - activities requiring database will fail")
+	}
+
 	// Initialize metrics
 	svcMetrics := metrics.NewMetrics(cfg.ServiceName, "penfold")
 	if err := svcMetrics.RegisterMetrics(); err != nil {
@@ -125,7 +147,16 @@ func main() {
 	}
 
 	// Create activity and workflow registrars
-	activityImpl := activities.NewActivities(zerologger)
+	var activityImpl *activities.Activities
+	if dbPool != nil {
+		activityImpl = activities.NewActivitiesWithDB(zerologger, dbPool, cfg.AIServiceURL)
+		logger.Info("Activities initialized with database connection",
+			logging.F("ai_service_url", cfg.AIServiceURL),
+		)
+	} else {
+		activityImpl = activities.NewActivities(zerologger)
+		logger.Warn("Activities initialized without database - some activities will fail")
+	}
 	activityRegistrar := activities.NewRegistrar(activityImpl)
 	workflowRegistrar := workflows.NewRegistrar()
 
@@ -170,6 +201,13 @@ func main() {
 		}
 		return nil
 	}, health.Critical())
+
+	// Register database health check if database is configured
+	if dbPool != nil {
+		healthChecker.RegisterCheck("database", func(ctx context.Context) error {
+			return dbPool.Ping(ctx)
+		}, health.Critical())
+	}
 
 	// Start HTTP server for health and metrics
 	httpMux := http.NewServeMux()

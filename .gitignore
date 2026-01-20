@@ -83,3 +83,6 @@ docs/_build/
 *.temp
 tmp/
 temp/
+# Build outputs
+bin/
+cmd/penf/penf

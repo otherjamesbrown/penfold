@@ -10,11 +10,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
+	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
-	"github.com/otherjamesbrown/penfold/pkg/glossary"
-	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 )
 
 // Review questions command flags
@@ -221,6 +222,24 @@ Example:
 	}
 }
 
+// connectToQuestionsGateway creates a gRPC connection to the gateway service.
+func connectToQuestionsGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	defer cancel()
+
+	opts := []grpc.DialOption{
+		grpc.WithBlock(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+
+	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to gateway at %s: %w", cfg.ServerAddress, err)
+	}
+
+	return conn, nil
+}
+
 // Command execution functions
 
 func runQuestionsList(ctx context.Context, deps *ReviewCommandDeps) error {
@@ -229,27 +248,27 @@ func runQuestionsList(ctx context.Context, deps *ReviewCommandDeps) error {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToQuestionsGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := reviewqueue.NewRepository(pool)
+	client := questionsv1.NewQuestionsServiceClient(conn)
 
-	filter := reviewqueue.ReviewFilter{
-		Status: reviewqueue.StatusPending,
-		Limit:  questionsLimit,
+	req := &questionsv1.ListQuestionsRequest{
+		Status: questionsv1.QuestionStatus_QUESTION_STATUS_PENDING,
+		Limit:  int32(questionsLimit),
 	}
 
 	if questionsPriority != "" {
-		filter.Priority = reviewqueue.Priority(questionsPriority)
+		req.Priority = stringToPriority(questionsPriority)
 	}
 	if questionsType != "" {
-		filter.QuestionType = reviewqueue.QuestionType(questionsType)
+		req.QuestionType = stringToQuestionType(questionsType)
 	}
 
-	items, err := repo.List(ctx, filter)
+	resp, err := client.ListQuestions(ctx, req)
 	if err != nil {
 		return fmt.Errorf("listing questions: %w", err)
 	}
@@ -259,7 +278,7 @@ func runQuestionsList(ctx context.Context, deps *ReviewCommandDeps) error {
 		format = config.OutputFormat(questionsFormat)
 	}
 
-	return outputQuestionsList(format, items)
+	return outputProtoQuestionsList(format, resp.Questions)
 }
 
 func runQuestionsNext(ctx context.Context, deps *ReviewCommandDeps) error {
@@ -268,24 +287,24 @@ func runQuestionsNext(ctx context.Context, deps *ReviewCommandDeps) error {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToQuestionsGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := reviewqueue.NewRepository(pool)
+	client := questionsv1.NewQuestionsServiceClient(conn)
 
-	var qtype reviewqueue.QuestionType
+	req := &questionsv1.GetNextQuestionRequest{}
 	if questionsType != "" {
-		qtype = reviewqueue.QuestionType(questionsType)
+		req.QuestionType = stringToQuestionType(questionsType)
 	}
 
-	item, err := repo.GetNext(ctx, qtype)
+	resp, err := client.GetNextQuestion(ctx, req)
 	if err != nil {
 		return fmt.Errorf("getting next question: %w", err)
 	}
-	if item == nil {
+	if resp.Question == nil {
 		fmt.Println("No pending questions.")
 		return nil
 	}
@@ -295,7 +314,7 @@ func runQuestionsNext(ctx context.Context, deps *ReviewCommandDeps) error {
 		format = config.OutputFormat(questionsFormat)
 	}
 
-	return outputQuestionDetail(format, item)
+	return outputProtoQuestionDetail(format, resp.Question)
 }
 
 func runQuestionsShow(ctx context.Context, deps *ReviewCommandDeps, id int64) error {
@@ -304,19 +323,19 @@ func runQuestionsShow(ctx context.Context, deps *ReviewCommandDeps, id int64) er
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToQuestionsGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := reviewqueue.NewRepository(pool)
+	client := questionsv1.NewQuestionsServiceClient(conn)
 
-	item, err := repo.Get(ctx, id)
+	resp, err := client.GetQuestion(ctx, &questionsv1.GetQuestionRequest{Id: id})
 	if err != nil {
 		return fmt.Errorf("getting question: %w", err)
 	}
-	if item == nil {
+	if resp.Question == nil {
 		return fmt.Errorf("question not found: %d", id)
 	}
 
@@ -325,7 +344,7 @@ func runQuestionsShow(ctx context.Context, deps *ReviewCommandDeps, id int64) er
 		format = config.OutputFormat(questionsFormat)
 	}
 
-	return outputQuestionDetail(format, item)
+	return outputProtoQuestionDetail(format, resp.Question)
 }
 
 func runQuestionsResolve(ctx context.Context, deps *ReviewCommandDeps, id int64, answer string) error {
@@ -334,47 +353,24 @@ func runQuestionsResolve(ctx context.Context, deps *ReviewCommandDeps, id int64,
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToQuestionsGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := reviewqueue.NewRepository(pool)
+	client := questionsv1.NewQuestionsServiceClient(conn)
 
-	// Get the question first
-	item, err := repo.Get(ctx, id)
-	if err != nil {
-		return fmt.Errorf("getting question: %w", err)
-	}
-	if item == nil {
-		return fmt.Errorf("question not found: %d", id)
-	}
-
-	// If it's an acronym question, add to glossary
-	if item.QuestionType == reviewqueue.QuestionTypeAcronym && item.SuggestedTerm != nil && *item.SuggestedTerm != "" {
-		glossaryRepo := glossary.NewRepository(pool)
-
-		expandInSearch := true
-		input := glossary.TermInput{
-			Term:           *item.SuggestedTerm,
-			Expansion:      answer,
-			ExpandInSearch: &expandInSearch,
-			Source:         "review_queue",
-		}
-
-		_, err := glossaryRepo.Create(ctx, input)
-		if err != nil {
-			fmt.Printf("Warning: Could not add to glossary: %v\n", err)
-		} else {
-			fmt.Printf("Added to glossary: %s = %s\n", *item.SuggestedTerm, answer)
-		}
-	}
-
-	// Resolve the question
-	err = repo.Resolve(ctx, id, answer, "user")
+	resp, err := client.ResolveQuestion(ctx, &questionsv1.ResolveQuestionRequest{
+		Id:     id,
+		Answer: answer,
+	})
 	if err != nil {
 		return fmt.Errorf("resolving question: %w", err)
+	}
+
+	if resp.AddedToGlossary {
+		fmt.Printf("Added to glossary: %s = %s\n", resp.Question.SuggestedTerm, answer)
 	}
 
 	fmt.Printf("\033[32mResolved question #%d\033[0m\n", id)
@@ -387,15 +383,18 @@ func runQuestionsDismiss(ctx context.Context, deps *ReviewCommandDeps, id int64,
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToQuestionsGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := reviewqueue.NewRepository(pool)
+	client := questionsv1.NewQuestionsServiceClient(conn)
 
-	err = repo.Dismiss(ctx, id, reason, "user")
+	_, err = client.DismissQuestion(ctx, &questionsv1.DismissQuestionRequest{
+		Id:     id,
+		Reason: reason,
+	})
 	if err != nil {
 		return fmt.Errorf("dismissing question: %w", err)
 	}
@@ -410,15 +409,15 @@ func runQuestionsDefer(ctx context.Context, deps *ReviewCommandDeps, id int64) e
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToQuestionsGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := reviewqueue.NewRepository(pool)
+	client := questionsv1.NewQuestionsServiceClient(conn)
 
-	err = repo.Defer(ctx, id)
+	_, err = client.DeferQuestion(ctx, &questionsv1.DeferQuestionRequest{Id: id})
 	if err != nil {
 		return fmt.Errorf("deferring question: %w", err)
 	}
@@ -433,15 +432,15 @@ func runQuestionsStats(ctx context.Context, deps *ReviewCommandDeps) error {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToQuestionsGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := reviewqueue.NewRepository(pool)
+	client := questionsv1.NewQuestionsServiceClient(conn)
 
-	stats, err := repo.GetStats(ctx)
+	resp, err := client.GetQueueStats(ctx, &questionsv1.GetQueueStatsRequest{})
 	if err != nil {
 		return fmt.Errorf("getting stats: %w", err)
 	}
@@ -451,23 +450,85 @@ func runQuestionsStats(ctx context.Context, deps *ReviewCommandDeps) error {
 		format = config.OutputFormat(questionsFormat)
 	}
 
-	return outputQuestionsStats(format, stats)
+	return outputProtoQuestionsStats(format, resp.Stats)
+}
+
+// Conversion helpers
+
+func stringToPriority(s string) questionsv1.QuestionPriority {
+	switch strings.ToLower(s) {
+	case "high":
+		return questionsv1.QuestionPriority_QUESTION_PRIORITY_HIGH
+	case "medium":
+		return questionsv1.QuestionPriority_QUESTION_PRIORITY_MEDIUM
+	case "low":
+		return questionsv1.QuestionPriority_QUESTION_PRIORITY_LOW
+	default:
+		return questionsv1.QuestionPriority_QUESTION_PRIORITY_UNSPECIFIED
+	}
+}
+
+func stringToQuestionType(s string) questionsv1.QuestionType {
+	switch strings.ToLower(s) {
+	case "acronym":
+		return questionsv1.QuestionType_QUESTION_TYPE_ACRONYM
+	case "person":
+		return questionsv1.QuestionType_QUESTION_TYPE_PERSON
+	case "entity":
+		return questionsv1.QuestionType_QUESTION_TYPE_ENTITY
+	case "duplicate":
+		return questionsv1.QuestionType_QUESTION_TYPE_DUPLICATE
+	case "other":
+		return questionsv1.QuestionType_QUESTION_TYPE_OTHER
+	default:
+		return questionsv1.QuestionType_QUESTION_TYPE_UNSPECIFIED
+	}
+}
+
+func priorityToString(p questionsv1.QuestionPriority) string {
+	switch p {
+	case questionsv1.QuestionPriority_QUESTION_PRIORITY_HIGH:
+		return "high"
+	case questionsv1.QuestionPriority_QUESTION_PRIORITY_MEDIUM:
+		return "medium"
+	case questionsv1.QuestionPriority_QUESTION_PRIORITY_LOW:
+		return "low"
+	default:
+		return "unknown"
+	}
+}
+
+func questionTypeToString(t questionsv1.QuestionType) string {
+	switch t {
+	case questionsv1.QuestionType_QUESTION_TYPE_ACRONYM:
+		return "acronym"
+	case questionsv1.QuestionType_QUESTION_TYPE_PERSON:
+		return "person"
+	case questionsv1.QuestionType_QUESTION_TYPE_ENTITY:
+		return "entity"
+	case questionsv1.QuestionType_QUESTION_TYPE_DUPLICATE:
+		return "duplicate"
+	case questionsv1.QuestionType_QUESTION_TYPE_OTHER:
+		return "other"
+	default:
+		return "unknown"
+	}
 }
 
 // Output functions
 
-func outputQuestionsList(format config.OutputFormat, items []*reviewqueue.ReviewItem) error {
+func outputProtoQuestionsList(format config.OutputFormat, items []*questionsv1.Question) error {
 	switch format {
 	case config.OutputFormatJSON:
 		return outputQuestionsJSON(items)
 	case config.OutputFormatYAML:
 		return outputQuestionsYAML(items)
 	default:
-		return outputQuestionsListText(items)
+		return outputProtoQuestionsListText(items)
 	}
 }
 
-func outputQuestionsListText(items []*reviewqueue.ReviewItem) error {
+func outputProtoQuestionsListText(items []*questionsv1.Question) error {
 	if len(items) == 0 {
 		fmt.Println("No pending questions.")
 		return nil
@@ -478,13 +539,13 @@ func outputQuestionsListText(items []*reviewqueue.ReviewItem) error {
 	fmt.Println("  --     ---    ----      --------")
 
 	for _, item := range items {
-		priColor := getQuestionPriorityColor(item.Priority)
+		priColor := getProtoPriorityColor(item.Priority)
 		question := truncateQuestion(item.Question, 50)
 		fmt.Printf("  %-6d %s%-6s\033[0m %-9s %s\n",
-			item.ID,
+			item.Id,
 			priColor,
-			item.Priority,
-			item.QuestionType,
+			priorityToString(item.Priority),
+			questionTypeToString(item.QuestionType),
 			question)
 	}
 
@@ -494,68 +555,70 @@ func outputQuestionsListText(items []*reviewqueue.ReviewItem) error {
 	return nil
 }
 
-func outputQuestionDetail(format config.OutputFormat, item *reviewqueue.ReviewItem) error {
+func outputProtoQuestionDetail(format config.OutputFormat, item *questionsv1.Question) error {
 	switch format {
 	case config.OutputFormatJSON:
 		return outputQuestionsJSON(item)
 	case config.OutputFormatYAML:
 		return outputQuestionsYAML(item)
 	default:
-		return outputQuestionDetailText(item)
+		return outputProtoQuestionDetailText(item)
 	}
 }
 
-func outputQuestionDetailText(item *reviewqueue.ReviewItem) error {
-	priColor := getQuestionPriorityColor(item.Priority)
+func outputProtoQuestionDetailText(item *questionsv1.Question) error {
+	priColor := getProtoPriorityColor(item.Priority)
 
 	fmt.Println("Question Details:")
 	fmt.Println()
-	fmt.Printf("  \033[1mID:\033[0m       %d\n", item.ID)
-	fmt.Printf("  \033[1mType:\033[0m     %s\n", item.QuestionType)
-	fmt.Printf("  \033[1mPriority:\033[0m %s%s\033[0m\n", priColor, item.Priority)
-	fmt.Printf("  \033[1mStatus:\033[0m   %s\n", item.Status)
+	fmt.Printf("  \033[1mID:\033[0m       %d\n", item.Id)
+	fmt.Printf("  \033[1mType:\033[0m     %s\n", questionTypeToString(item.QuestionType))
+	fmt.Printf("  \033[1mPriority:\033[0m %s%s\033[0m\n", priColor, priorityToString(item.Priority))
+	fmt.Printf("  \033[1mStatus:\033[0m   %s\n", item.Status.String())
 	fmt.Println()
 	fmt.Printf("  \033[1mQuestion:\033[0m\n")
 	fmt.Printf("    %s\n", item.Question)
 
-	if item.Context != nil && *item.Context != "" {
+	if item.Context != "" {
 		fmt.Println()
 		fmt.Printf("  \033[1mContext:\033[0m\n")
-		fmt.Printf("    \"%s\"\n", *item.Context)
+		fmt.Printf("    \"%s\"\n", item.Context)
 	}
 
-	if item.SuggestedTerm != nil && *item.SuggestedTerm != "" {
+	if item.SuggestedTerm != "" {
 		fmt.Println()
-		fmt.Printf("  \033[1mTerm:\033[0m     %s\n", *item.SuggestedTerm)
+		fmt.Printf("  \033[1mTerm:\033[0m     %s\n", item.SuggestedTerm)
 	}
 
-	if item.SourceReference != nil && *item.SourceReference != "" {
+	if item.SourceReference != "" {
 		fmt.Println()
-		fmt.Printf("  \033[1mSource:\033[0m   %s\n", *item.SourceReference)
+		fmt.Printf("  \033[1mSource:\033[0m   %s\n", item.SourceReference)
 	}
 
 	fmt.Println()
-	fmt.Printf("  \033[1mCreated:\033[0m  %s\n", item.CreatedAt.Format("2006-01-02 15:04:05"))
+	if item.CreatedAt != nil {
+		fmt.Printf("  \033[1mCreated:\033[0m  %s\n", item.CreatedAt.AsTime().Format("2006-01-02 15:04:05"))
+	}
 
 	fmt.Println()
-	fmt.Printf("To answer: penf review questions resolve %d \"<your answer>\"\n", item.ID)
-	fmt.Printf("To dismiss: penf review questions dismiss %d\n", item.ID)
+	fmt.Printf("To answer: penf review questions resolve %d \"<your answer>\"\n", item.Id)
+	fmt.Printf("To dismiss: penf review questions dismiss %d\n", item.Id)
 
 	return nil
 }
 
-func outputQuestionsStats(format config.OutputFormat, stats *reviewqueue.QueueStats) error {
+func outputProtoQuestionsStats(format config.OutputFormat, stats *questionsv1.QueueStats) error {
 	switch format {
 	case config.OutputFormatJSON:
 		return outputQuestionsJSON(stats)
 	case config.OutputFormatYAML:
 		return outputQuestionsYAML(stats)
 	default:
-		return outputQuestionsStatsText(stats)
+		return outputProtoQuestionsStatsText(stats)
 	}
 }
 
-func outputQuestionsStatsText(stats *reviewqueue.QueueStats) error {
+func outputProtoQuestionsStatsText(stats *questionsv1.QueueStats) error {
 	fmt.Println("Questions Queue Statistics:")
 	fmt.Println()
 	fmt.Printf("  \033[1mTotal Pending:\033[0m  %d\n", stats.TotalPending)
@@ -565,7 +628,7 @@ func outputQuestionsStatsText(stats *reviewqueue.QueueStats) error {
 		fmt.Println("  By Priority:")
 		for _, p := range []string{"high", "medium", "low"} {
 			if count, ok := stats.ByPriority[p]; ok && count > 0 {
-				color := getQuestionPriorityColor(reviewqueue.Priority(p))
+				color := getProtoPriorityColor(stringToPriority(p))
 				fmt.Printf("    %s%-8s\033[0m %d\n", color, p, count)
 			}
 		}
@@ -583,7 +646,7 @@ func outputQuestionsStatsText(stats *reviewqueue.QueueStats) error {
 	fmt.Printf("  \033[1mResolved Today:\033[0m %d\n", stats.ResolvedToday)
 
 	if stats.OldestPending != nil {
-		fmt.Printf("  \033[1mOldest Pending:\033[0m %s\n", stats.OldestPending.Format("2006-01-02 15:04"))
+		fmt.Printf("  \033[1mOldest Pending:\033[0m %s\n", stats.OldestPending.AsTime().Format("2006-01-02 15:04"))
 	}
 
 	return nil
@@ -600,13 +663,13 @@ func outputQuestionsYAML(v interface{}) error {
 	return enc.Encode(v)
 }
 
-func getQuestionPriorityColor(p reviewqueue.Priority) string {
+func getProtoPriorityColor(p questionsv1.QuestionPriority) string {
 	switch p {
-	case reviewqueue.PriorityHigh:
+	case questionsv1.QuestionPriority_QUESTION_PRIORITY_HIGH:
 		return "\033[31m" // Red
-	case reviewqueue.PriorityMedium:
+	case questionsv1.QuestionPriority_QUESTION_PRIORITY_MEDIUM:
 		return "\033[33m" // Yellow
-	case reviewqueue.PriorityLow:
+	case questionsv1.QuestionPriority_QUESTION_PRIORITY_LOW:
 		return "\033[32m" // Green
 	default:
 		return ""

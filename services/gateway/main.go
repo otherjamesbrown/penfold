@@ -12,16 +12,23 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
+	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
+	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
+	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
+	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
+	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
 	"github.com/otherjamesbrown/penfold/services/gateway/middleware"
+	"github.com/otherjamesbrown/penfold/services/gateway/questionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
 )
 
@@ -50,6 +57,24 @@ func main() {
 		logging.F("http_port", cfg.HTTPPort),
 	)
 
+	// Initialize database connection pool.
+	dbPool, err := pgxpool.New(context.Background(), cfg.Base.Database.DSN())
+	if err != nil {
+		logger.Error("Failed to connect to database", logging.Err(err))
+		os.Exit(1)
+	}
+	defer dbPool.Close()
+
+	// Verify database connection.
+	if err := dbPool.Ping(context.Background()); err != nil {
+		logger.Error("Failed to ping database", logging.Err(err))
+		os.Exit(1)
+	}
+	logger.Info("Connected to database",
+		logging.F("host", cfg.Base.Database.Host),
+		logging.F("database", cfg.Base.Database.Name),
+	)
+
 	// Initialize metrics.
 	m := metrics.NewMetrics(cfg.Base.ServiceName, "penfold")
 	if err := m.RegisterMetrics(); err != nil {
@@ -76,9 +101,20 @@ func main() {
 		logger.Debug("gRPC reflection enabled")
 	}
 
-	// Note: Proto-generated service registration will be added when proto
-	// generation is set up. For now, the server is a skeleton.
-	_ = gatewayServer // Suppress unused variable warning
+	// Register gRPC services.
+	_ = gatewayServer // Gateway server for future use
+
+	// Register GlossaryService.
+	glossaryRepo := glossary.NewRepository(dbPool)
+	glossarySvc := glossaryservice.NewService(glossaryRepo, logger)
+	glossaryv1.RegisterGlossaryServiceServer(grpcServer, glossarySvc)
+	logger.Info("Registered GlossaryService")
+
+	// Register QuestionsService.
+	questionsRepo := reviewqueue.NewRepository(dbPool)
+	questionsSvc := questionsservice.NewService(questionsRepo, glossaryRepo, logger)
+	questionsv1.RegisterQuestionsServiceServer(grpcServer, questionsSvc)
+	logger.Info("Registered QuestionsService")
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()

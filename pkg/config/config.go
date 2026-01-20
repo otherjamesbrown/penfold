@@ -68,9 +68,10 @@ func (d *DatabaseConfig) ConnectionString() string {
 }
 
 // DSN returns a PostgreSQL DSN suitable for database/sql.
+// Uses keyword-value format to avoid URL encoding issues with special characters.
 func (d *DatabaseConfig) DSN() string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		d.User, d.Password, d.Host, d.Port, d.Name)
+	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		d.Host, d.Port, d.User, d.Password, d.Name)
 }
 
 // RedisConfig holds Redis connection settings.

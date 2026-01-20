@@ -487,6 +487,79 @@ func (r *Repository) GetJobErrors(ctx context.Context, jobID string) ([]*IngestE
 	return errors, nil
 }
 
+// SourceRecord represents a source retrieved from the database.
+type SourceRecord struct {
+	ID               int64
+	TenantID         string
+	RawContent       string
+	ContentType      string
+	ContentHash      string
+	ProcessingStatus string
+}
+
+// GetSource retrieves a source by ID for processing.
+func (r *Repository) GetSource(ctx context.Context, tenantID string, sourceID int64) (*SourceRecord, error) {
+	// Use default tenant if not specified or not a valid UUID
+	if tenantID == "" || tenantID == "default" {
+		tenantID = DefaultTenantID
+	}
+
+	query := `
+		SELECT id, tenant_id, raw_content, content_type, content_hash, processing_status
+		FROM sources
+		WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+	`
+
+	source := &SourceRecord{}
+	err := r.pool.QueryRow(ctx, query, sourceID, tenantID).Scan(
+		&source.ID,
+		&source.TenantID,
+		&source.RawContent,
+		&source.ContentType,
+		&source.ContentHash,
+		&source.ProcessingStatus,
+	)
+
+	if err == pgx.ErrNoRows {
+		return nil, fmt.Errorf("source not found: %d", sourceID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get source %d: %w", sourceID, err)
+	}
+
+	return source, nil
+}
+
+// UpdateSourceStatus updates the processing status of a source.
+func (r *Repository) UpdateSourceStatus(ctx context.Context, tenantID string, sourceID int64, status string) error {
+	// Use default tenant if not specified or not a valid UUID
+	if tenantID == "" || tenantID == "default" {
+		tenantID = DefaultTenantID
+	}
+
+	query := `
+		UPDATE sources
+		SET processing_status = $3, updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+	`
+
+	result, err := r.pool.Exec(ctx, query, sourceID, tenantID, status)
+	if err != nil {
+		return fmt.Errorf("failed to update source %d status: %w", sourceID, err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("source not found: %d", sourceID)
+	}
+
+	r.logger.Debug().
+		Int64("source_id", sourceID).
+		Str("status", status).
+		Msg("Source status updated")
+
+	return nil
+}
+
 // GetRemainingFilesForJob returns files that haven't been processed yet for a resumed job.
 // This requires the caller to provide the full file list and we filter out already processed files.
 func (r *Repository) GetRemainingFilesForJob(ctx context.Context, jobID string, allFiles []string) ([]string, error) {

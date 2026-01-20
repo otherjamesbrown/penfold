@@ -14,7 +14,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	gmailv1 "github.com/otherjamesbrown/penfold/api/proto/gmail/v1"
+	gmailv1 "github.com/otherjamesbrown/penfold/api/proto/gmailv1"
 )
 
 // GmailClient defines the interface for Gmail API operations.

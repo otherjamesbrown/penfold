@@ -1,6 +1,8 @@
 # Penfold Architecture
 
-**Last Updated**: 2026-01-18
+**Last Updated**: 2026-01-20
+
+> **Deployment Details:** See [infrastructure.md](infrastructure.md) for hostnames, ports, connection strings, and startup commands.
 
 ## Overview
 
@@ -145,3 +147,19 @@ Architecture patterns are documented in detail in separate files:
 | Search response time | <3 seconds |
 | Email sync latency | <60 seconds |
 | Relationship validation rate | >80% |
+
+## Deployment Topology
+
+Components are distributed across two machines based on their requirements:
+
+| Machine | Components | Rationale |
+|---------|------------|-----------|
+| **dev01** (Apple Silicon) | Worker, MLX Embeddings, CLI | GPU/Neural Engine for embeddings |
+| **home-01** (Intel) | Gateway, PostgreSQL, Redis, Temporal | Data storage, no GPU needed |
+
+**Key Principles:**
+- Co-locate services that exchange large data (Worker ↔ Embeddings)
+- Co-locate services that need fast DB access (Gateway ↔ PostgreSQL)
+- Cross-network traffic should be small payloads (gRPC calls, task dispatch)
+
+> **Configuration:** See [infrastructure.md](infrastructure.md) for specific hostnames, ports, and connection strings.

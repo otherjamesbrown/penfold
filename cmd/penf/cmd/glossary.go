@@ -7,24 +7,26 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
+	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
-	"github.com/otherjamesbrown/penfold/pkg/glossary"
 )
 
 // Glossary command flags
 var (
-	glossaryFormat    string
-	glossaryContext   []string
-	glossaryLimit     int
-	glossaryExpand    bool
-	glossaryAliases   []string
-	glossarySource    string
-	glossaryNoExpand  bool
+	glossaryFormat   string
+	glossaryContext  []string
+	glossaryLimit    int
+	glossaryExpand   bool
+	glossaryAliases  []string
+	glossarySource   string
+	glossaryNoExpand bool
 )
 
 // GlossaryCommandDeps holds the dependencies for glossary commands.
@@ -223,6 +225,30 @@ Examples:
 	}
 }
 
+// connectToGateway creates a gRPC connection to the gateway service.
+func connectToGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	defer cancel()
+
+	opts := []grpc.DialOption{
+		grpc.WithBlock(),
+	}
+
+	if cfg.Insecure {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	} else {
+		// For now, default to insecure for development
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+
+	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to gateway at %s: %w", cfg.ServerAddress, err)
+	}
+
+	return conn, nil
+}
+
 // Command execution functions
 
 func runGlossaryAdd(ctx context.Context, deps *GlossaryCommandDeps, term, expansion, definition string) error {
@@ -232,39 +258,29 @@ func runGlossaryAdd(ctx context.Context, deps *GlossaryCommandDeps, term, expans
 	}
 	deps.Config = cfg
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := glossary.NewRepository(pool)
+	client := glossaryv1.NewGlossaryServiceClient(conn)
 
-	// Check if term already exists
-	existing, err := repo.GetByTerm(ctx, term)
-	if err != nil {
-		return fmt.Errorf("checking existing term: %w", err)
-	}
-	if existing != nil {
-		return fmt.Errorf("term '%s' already exists (use 'penf glossary show %s' to view)", term, term)
-	}
-
-	expandInSearch := !glossaryNoExpand
-	input := glossary.TermInput{
+	req := &glossaryv1.AddTermRequest{
 		Term:           term,
 		Expansion:      expansion,
 		Definition:     definition,
 		Context:        glossaryContext,
 		Aliases:        glossaryAliases,
-		ExpandInSearch: &expandInSearch,
-		Source:         "manual",
+		ExpandInSearch: !glossaryNoExpand,
 	}
 
-	created, err := repo.Create(ctx, input)
+	resp, err := client.AddTerm(ctx, req)
 	if err != nil {
-		return fmt.Errorf("creating term: %w", err)
+		return fmt.Errorf("adding term: %w", err)
 	}
 
+	created := resp.Term
 	fmt.Printf("\033[32mAdded term:\033[0m %s\n", created.Term)
 	fmt.Printf("  Expansion:  %s\n", created.Expansion)
 	if created.Definition != "" {
@@ -288,21 +304,21 @@ func runGlossaryList(ctx context.Context, deps *GlossaryCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := glossary.NewRepository(pool)
+	client := glossaryv1.NewGlossaryServiceClient(conn)
 
-	filter := glossary.TermFilter{
+	req := &glossaryv1.ListTermsRequest{
 		Context:    glossaryContext,
 		ExpandOnly: glossaryExpand,
-		Limit:      glossaryLimit,
+		Limit:      int32(glossaryLimit),
 	}
 
-	terms, err := repo.List(ctx, filter)
+	resp, err := client.ListTerms(ctx, req)
 	if err != nil {
 		return fmt.Errorf("listing terms: %w", err)
 	}
@@ -312,7 +328,7 @@ func runGlossaryList(ctx context.Context, deps *GlossaryCommandDeps) error {
 		format = config.OutputFormat(glossaryFormat)
 	}
 
-	return outputGlossaryTerms(format, terms)
+	return outputGlossaryProtoTerms(format, resp.Terms)
 }
 
 func runGlossaryShow(ctx context.Context, deps *GlossaryCommandDeps, termStr string) error {
@@ -322,20 +338,26 @@ func runGlossaryShow(ctx context.Context, deps *GlossaryCommandDeps, termStr str
 	}
 	deps.Config = cfg
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := glossary.NewRepository(pool)
+	client := glossaryv1.NewGlossaryServiceClient(conn)
 
-	term, err := repo.LookupTerm(ctx, termStr)
+	resp, err := client.LookupTerm(ctx, &glossaryv1.LookupTermRequest{Term: termStr})
 	if err != nil {
 		return fmt.Errorf("looking up term: %w", err)
 	}
-	if term == nil {
+	if !resp.Found {
 		return fmt.Errorf("term not found: %s", termStr)
+	}
+
+	// For detailed view, get the full term
+	termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{Term: termStr})
+	if err != nil {
+		return fmt.Errorf("getting term details: %w", err)
 	}
 
 	format := cfg.OutputFormat
@@ -343,7 +365,7 @@ func runGlossaryShow(ctx context.Context, deps *GlossaryCommandDeps, termStr str
 		format = config.OutputFormat(glossaryFormat)
 	}
 
-	return outputGlossaryTermDetail(format, term)
+	return outputGlossaryProtoTermDetail(format, termResp.Term)
 }
 
 func runGlossarySearch(ctx context.Context, deps *GlossaryCommandDeps, query string) error {
@@ -353,20 +375,20 @@ func runGlossarySearch(ctx context.Context, deps *GlossaryCommandDeps, query str
 	}
 	deps.Config = cfg
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := glossary.NewRepository(pool)
+	client := glossaryv1.NewGlossaryServiceClient(conn)
 
-	filter := glossary.TermFilter{
+	req := &glossaryv1.ListTermsRequest{
 		Search: query,
-		Limit:  glossaryLimit,
+		Limit:  int32(glossaryLimit),
 	}
 
-	terms, err := repo.List(ctx, filter)
+	resp, err := client.ListTerms(ctx, req)
 	if err != nil {
 		return fmt.Errorf("searching terms: %w", err)
 	}
@@ -376,7 +398,7 @@ func runGlossarySearch(ctx context.Context, deps *GlossaryCommandDeps, query str
 		format = config.OutputFormat(glossaryFormat)
 	}
 
-	return outputGlossaryTerms(format, terms)
+	return outputGlossaryProtoTerms(format, resp.Terms)
 }
 
 func runGlossaryRemove(ctx context.Context, deps *GlossaryCommandDeps, termStr string) error {
@@ -386,29 +408,30 @@ func runGlossaryRemove(ctx context.Context, deps *GlossaryCommandDeps, termStr s
 	}
 	deps.Config = cfg
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := glossary.NewRepository(pool)
+	client := glossaryv1.NewGlossaryServiceClient(conn)
 
-	// First show what we're about to delete
-	term, err := repo.GetByTerm(ctx, termStr)
+	// First get the term to show what we're deleting
+	termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{Term: termStr})
 	if err != nil {
 		return fmt.Errorf("looking up term: %w", err)
 	}
-	if term == nil {
+	if termResp.Term == nil {
 		return fmt.Errorf("term not found: %s", termStr)
 	}
 
-	err = repo.DeleteByTerm(ctx, termStr)
+	// Delete by ID
+	_, err = client.DeleteTerm(ctx, &glossaryv1.DeleteTermRequest{Id: termResp.Term.Id})
 	if err != nil {
 		return fmt.Errorf("deleting term: %w", err)
 	}
 
-	fmt.Printf("\033[32mRemoved term:\033[0m %s (%s)\n", term.Term, term.Expansion)
+	fmt.Printf("\033[32mRemoved term:\033[0m %s (%s)\n", termResp.Term.Term, termResp.Term.Expansion)
 	return nil
 }
 
@@ -419,15 +442,15 @@ func runGlossaryExpand(ctx context.Context, deps *GlossaryCommandDeps, query str
 	}
 	deps.Config = cfg
 
-	pool, err := connectToDatabase(ctx, cfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := glossary.NewRepository(pool)
+	client := glossaryv1.NewGlossaryServiceClient(conn)
 
-	expansion, err := repo.ExpandQuery(ctx, query)
+	resp, err := client.ExpandQuery(ctx, &glossaryv1.ExpandQueryRequest{Query: query})
 	if err != nil {
 		return fmt.Errorf("expanding query: %w", err)
 	}
@@ -437,23 +460,23 @@ func runGlossaryExpand(ctx context.Context, deps *GlossaryCommandDeps, query str
 		format = config.OutputFormat(glossaryFormat)
 	}
 
-	return outputQueryExpansion(format, expansion)
+	return outputQueryExpansionProto(format, resp)
 }
 
-// Output functions
+// Output functions for proto types
 
-func outputGlossaryTerms(format config.OutputFormat, terms []*glossary.Term) error {
+func outputGlossaryProtoTerms(format config.OutputFormat, terms []*glossaryv1.Term) error {
 	switch format {
 	case config.OutputFormatJSON:
 		return outputGlossaryJSON(terms)
 	case config.OutputFormatYAML:
 		return outputGlossaryYAML(terms)
 	default:
-		return outputGlossaryTermsText(terms)
+		return outputGlossaryProtoTermsText(terms)
 	}
 }
 
-func outputGlossaryTermsText(terms []*glossary.Term) error {
+func outputGlossaryProtoTermsText(terms []*glossaryv1.Term) error {
 	if len(terms) == 0 {
 		fmt.Println("No terms found.")
 		return nil
@@ -478,18 +501,18 @@ func outputGlossaryTermsText(terms []*glossary.Term) error {
 	return nil
 }
 
-func outputGlossaryTermDetail(format config.OutputFormat, term *glossary.Term) error {
+func outputGlossaryProtoTermDetail(format config.OutputFormat, term *glossaryv1.Term) error {
 	switch format {
 	case config.OutputFormatJSON:
 		return outputGlossaryJSON(term)
 	case config.OutputFormatYAML:
 		return outputGlossaryYAML(term)
 	default:
-		return outputGlossaryTermDetailText(term)
+		return outputGlossaryProtoTermDetailText(term)
 	}
 }
 
-func outputGlossaryTermDetailText(term *glossary.Term) error {
+func outputGlossaryProtoTermDetailText(term *glossaryv1.Term) error {
 	fmt.Println("Term Details:")
 	fmt.Println()
 	fmt.Printf("  \033[1mTerm:\033[0m         %s\n", term.Term)
@@ -507,45 +530,49 @@ func outputGlossaryTermDetailText(term *glossary.Term) error {
 	fmt.Printf("  \033[1mExpand:\033[0m       %v\n", term.ExpandInSearch)
 	fmt.Printf("  \033[1mSource:\033[0m       %s\n", term.Source)
 	fmt.Println()
-	fmt.Printf("  \033[1mCreated:\033[0m      %s\n", term.CreatedAt.Format("2006-01-02 15:04:05"))
-	fmt.Printf("  \033[1mUpdated:\033[0m      %s\n", term.UpdatedAt.Format("2006-01-02 15:04:05"))
+	if term.CreatedAt != nil {
+		fmt.Printf("  \033[1mCreated:\033[0m      %s\n", term.CreatedAt.AsTime().Format("2006-01-02 15:04:05"))
+	}
+	if term.UpdatedAt != nil {
+		fmt.Printf("  \033[1mUpdated:\033[0m      %s\n", term.UpdatedAt.AsTime().Format("2006-01-02 15:04:05"))
+	}
 
 	return nil
 }
 
-func outputQueryExpansion(format config.OutputFormat, expansion *glossary.QueryExpansion) error {
+func outputQueryExpansionProto(format config.OutputFormat, resp *glossaryv1.ExpandQueryResponse) error {
 	switch format {
 	case config.OutputFormatJSON:
-		return outputGlossaryJSON(expansion)
+		return outputGlossaryJSON(resp)
 	case config.OutputFormatYAML:
-		return outputGlossaryYAML(expansion)
+		return outputGlossaryYAML(resp)
 	default:
-		return outputQueryExpansionText(expansion)
+		return outputQueryExpansionProtoText(resp)
 	}
 }
 
-func outputQueryExpansionText(expansion *glossary.QueryExpansion) error {
+func outputQueryExpansionProtoText(resp *glossaryv1.ExpandQueryResponse) error {
 	fmt.Println("Query Expansion:")
 	fmt.Println()
-	fmt.Printf("  \033[1mOriginal:\033[0m    %s\n", expansion.OriginalQuery)
+	fmt.Printf("  \033[1mOriginal:\033[0m    %s\n", resp.OriginalQuery)
 	fmt.Println()
 
-	if len(expansion.ExpandedTerms) == 0 {
+	if len(resp.ExpandedTerms) == 0 {
 		fmt.Println("  No terms matched for expansion.")
 		fmt.Println()
-		fmt.Printf("  \033[1mExpanded:\033[0m    %s\n", expansion.ExpandedQuery)
+		fmt.Printf("  \033[1mExpanded:\033[0m    %s\n", resp.ExpandedQuery)
 		return nil
 	}
 
 	fmt.Println("  \033[1mMatched Terms:\033[0m")
-	for _, t := range expansion.ExpandedTerms {
+	for _, t := range resp.ExpandedTerms {
 		fmt.Printf("    \033[36m%s\033[0m → %s\n", t.OriginalTerm, t.Expansion)
 		if t.Definition != "" {
 			fmt.Printf("      (%s)\n", t.Definition)
 		}
 	}
 	fmt.Println()
-	fmt.Printf("  \033[1mExpanded:\033[0m    %s\n", expansion.ExpandedQuery)
+	fmt.Printf("  \033[1mExpanded:\033[0m    %s\n", resp.ExpandedQuery)
 
 	return nil
 }
@@ -568,8 +595,5 @@ func truncateGlossary(s string, max int) string {
 	return s[:max-3] + "..."
 }
 
-// connectToGlossaryDB creates a database connection for glossary commands.
-// Uses the shared connectToDatabase function from ingest_email.go.
-func connectToGlossaryDB(ctx context.Context, cfg *config.CLIConfig) (*pgxpool.Pool, error) {
-	return connectToDatabase(ctx, cfg)
-}
+// Ensure time import is used
+var _ = time.Now

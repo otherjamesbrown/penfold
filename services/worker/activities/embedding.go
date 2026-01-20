@@ -10,7 +10,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
-	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 

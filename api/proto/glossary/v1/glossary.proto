@@ -1,0 +1,245 @@
+// Glossary Service Protobuf Definitions
+// Provides gRPC service for managing terminology and query expansion
+
+syntax = "proto3";
+
+package penfold.glossary.v1;
+
+option go_package = "github.com/otherjamesbrown/penfold/api/proto/glossary/v1;glossaryv1";
+
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// GlossaryService provides gRPC endpoints for managing glossary terms.
+// Terms are used for query expansion during search to improve recall.
+service GlossaryService {
+  // AddTerm adds a new term to the glossary.
+  rpc AddTerm(AddTermRequest) returns (AddTermResponse);
+
+  // GetTerm retrieves a term by ID or term string.
+  rpc GetTerm(GetTermRequest) returns (GetTermResponse);
+
+  // ListTerms returns a filtered list of glossary terms.
+  rpc ListTerms(ListTermsRequest) returns (ListTermsResponse);
+
+  // UpdateTerm updates an existing glossary term.
+  rpc UpdateTerm(UpdateTermRequest) returns (UpdateTermResponse);
+
+  // DeleteTerm removes a term from the glossary.
+  rpc DeleteTerm(DeleteTermRequest) returns (DeleteTermResponse);
+
+  // ExpandQuery expands a search query using glossary terms.
+  rpc ExpandQuery(ExpandQueryRequest) returns (ExpandQueryResponse);
+
+  // LookupTerm looks up a specific term and returns its expansion.
+  rpc LookupTerm(LookupTermRequest) returns (LookupTermResponse);
+}
+
+// =============================================================================
+// Core Messages
+// =============================================================================
+
+// Term represents a glossary entry.
+message Term {
+  // Unique identifier.
+  int64 id = 1;
+
+  // The term/acronym (e.g., "TER").
+  string term = 2;
+
+  // Full expansion (e.g., "Technical Execution Review").
+  string expansion = 3;
+
+  // Optional longer definition.
+  string definition = 4;
+
+  // Context tags (e.g., ["MTC", "meetings"]).
+  repeated string context = 5;
+
+  // Alternative forms/aliases.
+  repeated string aliases = 6;
+
+  // Whether to use this term for query expansion.
+  bool expand_in_search = 7;
+
+  // Source of the term (e.g., "manual", "review_queue").
+  string source = 8;
+
+  // When the term was created.
+  google.protobuf.Timestamp created_at = 9;
+
+  // When the term was last updated.
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+// ExpansionResult represents a term expansion found in a query.
+message ExpansionResult {
+  // The original term found in the query.
+  string original_term = 1;
+
+  // The expanded form.
+  string expansion = 2;
+
+  // Any aliases for this term.
+  repeated string aliases = 3;
+
+  // Definition if available.
+  string definition = 4;
+}
+
+// =============================================================================
+// Request/Response Messages
+// =============================================================================
+
+// AddTermRequest adds a new term to the glossary.
+message AddTermRequest {
+  // The term/acronym to add.
+  string term = 1;
+
+  // Full expansion of the term.
+  string expansion = 2;
+
+  // Optional definition.
+  string definition = 3;
+
+  // Context tags.
+  repeated string context = 4;
+
+  // Alternative forms/aliases.
+  repeated string aliases = 5;
+
+  // Whether to use for query expansion (default: true).
+  bool expand_in_search = 6;
+}
+
+// AddTermResponse confirms the term was added.
+message AddTermResponse {
+  // The created term.
+  Term term = 1;
+}
+
+// GetTermRequest retrieves a term by ID or name.
+message GetTermRequest {
+  // Get by ID.
+  int64 id = 1;
+
+  // Or get by term string (case-insensitive).
+  string term = 2;
+}
+
+// GetTermResponse contains the requested term.
+message GetTermResponse {
+  // The term, or null if not found.
+  Term term = 1;
+}
+
+// ListTermsRequest retrieves a filtered list of terms.
+message ListTermsRequest {
+  // Filter by term (exact match).
+  string term = 1;
+
+  // Search across term, expansion, and definition.
+  string search = 2;
+
+  // Filter by context tags.
+  repeated string context = 3;
+
+  // Filter by source.
+  string source = 4;
+
+  // Only return terms used for query expansion.
+  bool expand_only = 5;
+
+  // Maximum results (default: 50).
+  int32 limit = 6;
+
+  // Pagination offset.
+  int32 offset = 7;
+}
+
+// ListTermsResponse contains the list of terms.
+message ListTermsResponse {
+  // The matching terms.
+  repeated Term terms = 1;
+
+  // Total count of matching terms.
+  int64 total_count = 2;
+}
+
+// UpdateTermRequest updates an existing term.
+message UpdateTermRequest {
+  // ID of the term to update.
+  int64 id = 1;
+
+  // New expansion (optional).
+  optional string expansion = 2;
+
+  // New definition (optional).
+  optional string definition = 3;
+
+  // New context tags (replaces existing).
+  repeated string context = 4;
+
+  // New aliases (replaces existing).
+  repeated string aliases = 5;
+
+  // Update expand_in_search flag.
+  optional bool expand_in_search = 6;
+}
+
+// UpdateTermResponse confirms the update.
+message UpdateTermResponse {
+  // The updated term.
+  Term term = 1;
+}
+
+// DeleteTermRequest removes a term.
+message DeleteTermRequest {
+  // ID of the term to delete.
+  int64 id = 1;
+}
+
+// DeleteTermResponse confirms deletion.
+message DeleteTermResponse {
+  // Whether the term was deleted.
+  bool deleted = 1;
+}
+
+// ExpandQueryRequest expands a search query using glossary terms.
+message ExpandQueryRequest {
+  // The original query to expand.
+  string query = 1;
+
+  // Only use terms matching these context tags.
+  repeated string context = 2;
+}
+
+// ExpandQueryResponse contains the expanded query.
+message ExpandQueryResponse {
+  // The original query.
+  string original_query = 1;
+
+  // The expanded query with OR clauses.
+  string expanded_query = 2;
+
+  // Terms that were expanded.
+  repeated ExpansionResult expanded_terms = 3;
+}
+
+// LookupTermRequest looks up a specific term.
+message LookupTermRequest {
+  // The term to look up.
+  string term = 1;
+}
+
+// LookupTermResponse contains the lookup result.
+message LookupTermResponse {
+  // Whether the term was found.
+  bool found = 1;
+
+  // The expansion result if found.
+  ExpansionResult result = 2;
+}

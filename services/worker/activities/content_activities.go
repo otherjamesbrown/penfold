@@ -11,7 +11,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/activity"
 
-	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 )
 
 // ContentActivities holds dependencies for content processing activities.
