@@ -13,7 +13,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
+	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/meeting"
+	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 )
 
 // Meeting ingest specific flags
@@ -418,7 +420,93 @@ func processMeeting(ctx context.Context, pool *pgxpool.Pool, logger zerolog.Logg
 		return fmt.Errorf("committing transaction: %w", err)
 	}
 
+	// Detect acronyms in transcript and queue for review
+	if transcriptResult != nil && transcriptResult.FullText != "" {
+		detectAndQueueAcronyms(ctx, pool, logger, transcriptResult, meetingID, m.Title, resolvedTenantID)
+	}
+
 	return nil
+}
+
+// detectAndQueueAcronyms detects unknown acronyms in transcript and queues them for review.
+func detectAndQueueAcronyms(ctx context.Context, pool *pgxpool.Pool, logger zerolog.Logger, transcript *meeting.TranscriptResult, meetingID int64, meetingTitle, tenantID string) {
+	// Load known terms from glossary
+	glossaryRepo := glossary.NewRepository(pool)
+	terms, err := glossaryRepo.List(ctx, glossary.TermFilter{Limit: 1000})
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to load glossary terms for acronym detection")
+		return
+	}
+
+	// Create detector with known terms
+	detector := meeting.NewAcronymDetector()
+	knownTerms := make([]string, len(terms))
+	for i, t := range terms {
+		knownTerms[i] = t.Term
+	}
+	detector.SetKnownTerms(knownTerms)
+
+	// Detect acronyms (require at least 1 occurrence)
+	acronyms := detector.DetectInTranscript(transcript, 1)
+
+	if len(acronyms) == 0 {
+		return
+	}
+
+	// Queue acronyms for review
+	reviewRepo := reviewqueue.NewRepository(pool)
+	sourceRef := fmt.Sprintf("Meeting: %s", meetingTitle)
+
+	var queued int
+	for _, acr := range acronyms {
+		question := reviewqueue.AcronymQuestion{
+			Term:            acr.Term,
+			Context:         acr.Context,
+			SourceType:      "meeting",
+			SourceID:        meetingID,
+			SourceReference: sourceRef,
+			Confidence:      calculateAcronymConfidence(acr),
+		}
+
+		_, created, err := reviewRepo.CreateIfNotExists(ctx, question.ToInput())
+		if err != nil {
+			logger.Warn().Err(err).Str("term", acr.Term).Msg("Failed to queue acronym for review")
+			continue
+		}
+		if created {
+			queued++
+			logger.Debug().Str("term", acr.Term).Int("count", acr.Count).Msg("Queued acronym for review")
+		}
+	}
+
+	if queued > 0 {
+		logger.Info().Int("queued", queued).Int("total", len(acronyms)).Msg("Queued acronyms for review")
+	}
+}
+
+// calculateAcronymConfidence estimates confidence that a detected term is a meaningful acronym.
+func calculateAcronymConfidence(acr meeting.DetectedAcronym) float64 {
+	// Base confidence
+	confidence := 0.5
+
+	// Higher confidence for terms appearing multiple times
+	if acr.Count >= 3 {
+		confidence += 0.2
+	} else if acr.Count >= 2 {
+		confidence += 0.1
+	}
+
+	// Higher confidence for longer acronyms (less likely to be noise)
+	if len(acr.Term) >= 4 {
+		confidence += 0.1
+	}
+
+	// Cap at 0.9
+	if confidence > 0.9 {
+		confidence = 0.9
+	}
+
+	return confidence
 }
 
 // runResolveMeetingParticipants resolves meeting participants to people.
