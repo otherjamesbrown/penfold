@@ -212,6 +212,9 @@ Automation Commands:
 	// Add auto subcommand.
 	cmd.AddCommand(newReviewAutoCommand(deps))
 
+	// Add questions subcommand for AI review queue.
+	cmd.AddCommand(newReviewQuestionsCommand(deps))
+
 	return cmd
 }
 
