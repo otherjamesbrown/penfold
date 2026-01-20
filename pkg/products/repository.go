@@ -110,9 +110,21 @@ func (r *Repository) GetProductByAlias(ctx context.Context, alias string) (*Prod
 	return r.scanProduct(ctx, query, alias)
 }
 
-// ResolveProduct resolves a product by name or alias.
+// ResolveProduct resolves a product by ID, name, or alias.
 func (r *Repository) ResolveProduct(ctx context.Context, tenantID, nameOrAlias string) (*Product, error) {
-	// Try by name first
+	// Try by numeric ID first
+	var id int64
+	if _, err := fmt.Sscanf(nameOrAlias, "%d", &id); err == nil {
+		p, err := r.GetProductByID(ctx, id)
+		if err == nil {
+			return p, nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+	}
+
+	// Try by name
 	p, err := r.GetProductByName(ctx, tenantID, nameOrAlias)
 	if err == nil {
 		return p, nil

@@ -487,15 +487,25 @@ func (r *Repository) scanRoles(rows pgx.Rows) ([]*ProductTeamRole, error) {
 	var roles []*ProductTeamRole
 	for rows.Next() {
 		role := &ProductTeamRole{}
+		var scope, teamContext, personEmail *string
 		err := rows.Scan(
 			&role.ID, &role.TenantID, &role.ProductTeamID, &role.PersonID,
-			&role.Role, &role.Scope, &role.IsActive, &role.StartedAt, &role.EndedAt,
+			&role.Role, &scope, &role.IsActive, &role.StartedAt, &role.EndedAt,
 			&role.CreatedAt, &role.UpdatedAt,
-			&role.ProductName, &role.TeamName, &role.TeamContext,
-			&role.PersonName, &role.PersonEmail,
+			&role.ProductName, &role.TeamName, &teamContext,
+			&role.PersonName, &personEmail,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan role: %w", err)
+		}
+		if scope != nil {
+			role.Scope = *scope
+		}
+		if teamContext != nil {
+			role.TeamContext = *teamContext
+		}
+		if personEmail != nil {
+			role.PersonEmail = *personEmail
 		}
 		roles = append(roles, role)
 	}

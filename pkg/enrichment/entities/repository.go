@@ -31,8 +31,8 @@ func (r *Repository) CreatePerson(ctx context.Context, p *Person) error {
 	query := `
 		INSERT INTO people (
 			tenant_id, canonical_name, primary_email,
-			title, department, is_internal, account_type,
-			confidence, needs_review, auto_created,
+			job_title, department, is_internal, account_type,
+			confidence_score, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
 		) VALUES (
@@ -78,8 +78,8 @@ func (r *Repository) GetPersonByID(ctx context.Context, id int64) (*Person, erro
 	query := `
 		SELECT
 			id, tenant_id, canonical_name, primary_email,
-			title, department, is_internal, account_type,
-			confidence, needs_review, auto_created,
+			job_title as title, department, is_internal, account_type,
+			confidence_score as confidence, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
 		FROM people
@@ -93,8 +93,8 @@ func (r *Repository) GetPersonByEmail(ctx context.Context, tenantID, email strin
 	query := `
 		SELECT
 			id, tenant_id, canonical_name, primary_email,
-			title, department, is_internal, account_type,
-			confidence, needs_review, auto_created,
+			job_title as title, department, is_internal, account_type,
+			confidence_score as confidence, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
 		FROM people
@@ -126,8 +126,8 @@ func (r *Repository) SearchPeopleByName(ctx context.Context, tenantID, name stri
 	query := `
 		SELECT
 			id, tenant_id, canonical_name, primary_email,
-			title, department, is_internal, account_type,
-			confidence, needs_review, auto_created,
+			job_title as title, department, is_internal, account_type,
+			confidence_score as confidence, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
 		FROM people
@@ -149,8 +149,8 @@ func (r *Repository) GetPeopleByDomain(ctx context.Context, tenantID, domain str
 	query := `
 		SELECT
 			id, tenant_id, canonical_name, primary_email,
-			title, department, is_internal, account_type,
-			confidence, needs_review, auto_created,
+			job_title as title, department, is_internal, account_type,
+			confidence_score as confidence, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
 		FROM people
@@ -171,8 +171,8 @@ func (r *Repository) ListPeopleNeedingReview(ctx context.Context, tenantID strin
 	query := `
 		SELECT
 			id, tenant_id, canonical_name, primary_email,
-			title, department, is_internal, account_type,
-			confidence, needs_review, auto_created,
+			job_title as title, department, is_internal, account_type,
+			confidence_score as confidence, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
 		FROM people
@@ -196,11 +196,11 @@ func (r *Repository) UpdatePerson(ctx context.Context, p *Person) error {
 		UPDATE people SET
 			canonical_name = $2,
 			primary_email = $3,
-			title = $4,
+			job_title = $4,
 			department = $5,
 			is_internal = $6,
 			account_type = $7,
-			confidence = $8,
+			confidence_score = $8,
 			needs_review = $9,
 			reviewed_at = $10,
 			reviewed_by = $11,
@@ -239,7 +239,7 @@ func (r *Repository) MarkPersonReviewed(ctx context.Context, id int64, reviewedB
 			needs_review = FALSE,
 			reviewed_at = NOW(),
 			reviewed_by = $2,
-			confidence = 1.0,
+			confidence_score = 1.0,
 			updated_at = NOW()
 		WHERE id = $1
 	`

@@ -279,6 +279,9 @@ func initTeamDeps(ctx context.Context, deps *ProductCommandDeps) (*TeamDeps, err
 func resolveTeam(ctx context.Context, repo *entities.Repository, tenantID, teamName string) (*entities.Team, error) {
 	team, err := repo.GetTeamByName(ctx, tenantID, teamName)
 	if err != nil {
+		return nil, fmt.Errorf("team lookup error: %w", err)
+	}
+	if team == nil {
 		return nil, fmt.Errorf("team not found: %s", teamName)
 	}
 	return team, nil
@@ -310,6 +313,9 @@ func findProductTeam(ctx context.Context, repo *products.Repository, productID, 
 func resolvePerson(ctx context.Context, repo *entities.Repository, tenantID, email string) (*entities.Person, error) {
 	person, err := repo.GetPersonByEmail(ctx, tenantID, email)
 	if err != nil {
+		return nil, fmt.Errorf("person lookup error: %w", err)
+	}
+	if person == nil {
 		return nil, fmt.Errorf("person not found: %s", email)
 	}
 	return person, nil
