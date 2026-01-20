@@ -442,11 +442,12 @@ func (r *Repository) GetEventsLinkedToSource(ctx context.Context, entityType str
 func (r *Repository) scanEvent(ctx context.Context, query string, args ...any) (*ProductEvent, error) {
 	e := &ProductEvent{}
 	var metadataJSON []byte
+	var description, recordedBy *string
 
 	err := r.pool.QueryRow(ctx, query, args...).Scan(
 		&e.ID, &e.EventUUID, &e.TenantID, &e.ProductID,
 		&e.EventType, &e.Visibility, &e.SourceType,
-		&e.Title, &e.Description, &e.OccurredAt, &e.RecordedBy,
+		&e.Title, &description, &e.OccurredAt, &recordedBy,
 		&metadataJSON, &e.CreatedAt, &e.UpdatedAt,
 		&e.ProductName,
 	)
@@ -455,6 +456,13 @@ func (r *Repository) scanEvent(ctx context.Context, query string, args ...any) (
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("failed to scan event: %w", err)
+	}
+
+	if description != nil {
+		e.Description = *description
+	}
+	if recordedBy != nil {
+		e.RecordedBy = *recordedBy
 	}
 
 	if len(metadataJSON) > 0 {
@@ -471,16 +479,24 @@ func (r *Repository) scanEvents(rows pgx.Rows) ([]*ProductEvent, error) {
 	for rows.Next() {
 		e := &ProductEvent{}
 		var metadataJSON []byte
+		var description, recordedBy *string
 
 		err := rows.Scan(
 			&e.ID, &e.EventUUID, &e.TenantID, &e.ProductID,
 			&e.EventType, &e.Visibility, &e.SourceType,
-			&e.Title, &e.Description, &e.OccurredAt, &e.RecordedBy,
+			&e.Title, &description, &e.OccurredAt, &recordedBy,
 			&metadataJSON, &e.CreatedAt, &e.UpdatedAt,
 			&e.ProductName,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan event: %w", err)
+		}
+
+		if description != nil {
+			e.Description = *description
+		}
+		if recordedBy != nil {
+			e.RecordedBy = *recordedBy
 		}
 
 		if len(metadataJSON) > 0 {

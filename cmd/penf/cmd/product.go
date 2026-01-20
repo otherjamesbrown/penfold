@@ -155,6 +155,9 @@ Examples:
 	// Add team subcommands (defined in product_team.go).
 	addProductTeamCommands(cmd, deps)
 
+	// Add timeline and event subcommands (defined in product_timeline.go).
+	addProductTimelineCommands(cmd, deps)
+
 	return cmd
 }
 
