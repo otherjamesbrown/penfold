@@ -142,6 +142,53 @@ bd list --status=open   # All open work
 - **Test-driven development** workflow
 - **Complete workflows** - specification to working, tested, committed code
 
+## 🤖 CLAUDE-NATIVE WORKFLOWS
+
+**Use batch processing instead of one-at-a-time CLI commands.**
+
+Penfold has Claude-native workflows that provide full context for intelligent batch processing.
+Instead of executing commands one at a time, use the `penf process` commands.
+
+### Available Workflows
+
+| Workflow | Context Command | Batch Command |
+|----------|-----------------|---------------|
+| Acronym Review | `penf process acronyms context` | `penf process acronyms batch-resolve` |
+
+### Intelligent Processing Pattern
+
+1. **Get Full Context** (single command):
+   ```bash
+   penf process acronyms context --output json
+   ```
+   Returns: all pending questions, existing glossary, stats, workflow guidance
+
+2. **Analyze Intelligently**:
+   - Categorize: known tech terms, duplicates, needs user input
+   - Group: similar terms, potential typos
+   - Auto-resolve: standard acronyms (MVP, API, AWS, etc.)
+
+3. **Present Summary to User**:
+   ```
+   Found 15 acronym questions:
+   - 8 standard tech terms (auto-resolving)
+   - 3 already in glossary (dismissing)
+   - 4 need your input: [list ambiguous items]
+   ```
+
+4. **Execute Batch** (after user confirms):
+   ```bash
+   penf process acronyms batch-resolve '{"resolutions":[...],"dismissals":[...]}'
+   ```
+
+### Workflow Documentation
+See `context/workflows/` for detailed workflow guides:
+- `acronym-review.md` - Acronym processing decision criteria and patterns
+
+### When to Use Batch vs Interactive
+- **Batch**: Processing queues, bulk operations, repetitive tasks
+- **Interactive**: Single items needing detailed context, debugging
+
 ## 🏗️ PROJECT CONTEXT
 
 **Penfold** is an AI-powered personal information system that aggregates and correlates information from communication channels (email, Slack, documents, meetings) into a queryable institutional memory.
@@ -169,7 +216,9 @@ bd list --status=open   # All open work
 - **Project status**: `bd stats`
 - **Development standards**: `project-constitution.md`
 - **Infrastructure**: `context/infrastructure.md` (architecture, services, connections)
+- **Workflow guides**: `context/workflows/` (batch processing patterns)
 - **Credentials**: `source ~/github/otherjamesbrown/secrets/.env.penfold` (NEVER hardcode passwords)
+- **Batch processing**: `penf process <workflow> context` then `batch-resolve`
 - **When stuck**: Ask user for direction on priorities
 - **Before ending**: `git push` + `bd sync`
 
