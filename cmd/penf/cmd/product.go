@@ -152,6 +152,9 @@ Examples:
 	cmd.AddCommand(newProductHierarchyCommand(deps))
 	cmd.AddCommand(newProductAliasCommand(deps))
 
+	// Add team subcommands (defined in product_team.go).
+	addProductTeamCommands(cmd, deps)
+
 	return cmd
 }
 
