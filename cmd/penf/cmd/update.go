@@ -2,8 +2,6 @@
 package cmd
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -218,19 +216,11 @@ func getLatestRelease() (*GitHubRelease, error) {
 
 // getAssetName returns the expected asset filename for the current platform.
 func getAssetName() string {
-	os := runtime.GOOS
+	goos := runtime.GOOS
 	arch := runtime.GOARCH
 
-	// Map arch names to release naming convention.
-	switch arch {
-	case "amd64":
-		arch = "amd64"
-	case "arm64":
-		arch = "arm64"
-	}
-
-	// Asset naming convention: penf_<os>_<arch>.tar.gz
-	return fmt.Sprintf("penf_%s_%s.tar.gz", os, arch)
+	// Asset naming convention: penf-<os>-<arch>
+	return fmt.Sprintf("penf-%s-%s", goos, arch)
 }
 
 // downloadAsset downloads a release asset to a temporary file.
@@ -246,7 +236,7 @@ func downloadAsset(url string) (string, error) {
 		return "", fmt.Errorf("download returned %d", resp.StatusCode)
 	}
 
-	tempFile, err := os.CreateTemp("", "penf-update-*.tar.gz")
+	tempFile, err := os.CreateTemp("", "penf-update-*")
 	if err != nil {
 		return "", err
 	}
@@ -261,67 +251,20 @@ func downloadAsset(url string) (string, error) {
 	return tempFile.Name(), nil
 }
 
-// installUpdate extracts and installs the new binary.
-func installUpdate(archivePath, targetPath string) error {
-	// Open the archive.
-	f, err := os.Open(archivePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	// Create gzip reader.
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-
-	// Create tar reader.
-	tr := tar.NewReader(gz)
-
-	// Find and extract the binary.
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		// Look for the penf binary.
-		if header.Typeflag == tar.TypeReg && (header.Name == "penf" || strings.HasSuffix(header.Name, "/penf")) {
-			// Create a temporary file for the new binary.
-			newBinary, err := os.CreateTemp(filepath.Dir(targetPath), "penf-new-*")
-			if err != nil {
-				return err
-			}
-			defer os.Remove(newBinary.Name())
-
-			// Copy the binary.
-			if _, err := io.Copy(newBinary, tr); err != nil {
-				newBinary.Close()
-				return err
-			}
-			newBinary.Close()
-
-			// Make it executable.
-			if err := os.Chmod(newBinary.Name(), 0755); err != nil {
-				return err
-			}
-
-			// Replace the old binary.
-			// On Unix, we can rename over the running binary.
-			if err := os.Rename(newBinary.Name(), targetPath); err != nil {
-				return err
-			}
-
-			return nil
-		}
+// installUpdate installs the new binary.
+func installUpdate(downloadedPath, targetPath string) error {
+	// Make the downloaded file executable.
+	if err := os.Chmod(downloadedPath, 0755); err != nil {
+		return fmt.Errorf("making binary executable: %w", err)
 	}
 
-	return fmt.Errorf("penf binary not found in archive")
+	// Replace the old binary.
+	// On Unix, we can rename over the running binary.
+	if err := os.Rename(downloadedPath, targetPath); err != nil {
+		return fmt.Errorf("replacing binary: %w", err)
+	}
+
+	return nil
 }
 
 // isNewerVersion compares version strings (simple comparison).
