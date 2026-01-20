@@ -169,6 +169,7 @@ bd list --status=open   # All open work
 - **Project status**: `bd stats`
 - **Development standards**: `project-constitution.md`
 - **Infrastructure**: `context/infrastructure.md` (architecture, services, connections)
+- **Credentials**: `source ~/github/otherjamesbrown/secrets/.env.penfold` (NEVER hardcode passwords)
 - **When stuck**: Ask user for direction on priorities
 - **Before ending**: `git push` + `bd sync`
 

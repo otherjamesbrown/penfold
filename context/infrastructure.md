@@ -73,10 +73,11 @@ mixedbread-ai/mxbai-embed-large-v1 (1024 dimensions)
 
 **Worker Environment:**
 ```bash
+# See ~/github/otherjamesbrown/secrets/.env.penfold for actual credentials
 PENFOLD_DB_HOST=home-01.brown.chat
 PENFOLD_DB_PORT=5432
 PENFOLD_DB_USER=penfold
-PENFOLD_DB_PASSWORD=penfold
+PENFOLD_DB_PASSWORD=<see secrets/.env.penfold>
 PENFOLD_DB_NAME=penfold
 PENFOLD_TEMPORAL_HOST=home-01.brown.chat:7233
 AI_SERVICE_URL=http://localhost:8081  # Local to dev01
@@ -95,11 +96,12 @@ AI_SERVICE_URL=http://localhost:8081  # Local to dev01
 
 **Gateway Environment:**
 ```bash
+# See ~/github/otherjamesbrown/secrets/.env.penfold for actual credentials
 PENFOLD_SERVICE_NAME=gateway
 PENFOLD_DB_HOST=localhost  # Co-located with PostgreSQL
 PENFOLD_DB_PORT=5432
 PENFOLD_DB_USER=penfold
-PENFOLD_DB_PASSWORD=penfold
+PENFOLD_DB_PASSWORD=<see secrets/.env.penfold>
 PENFOLD_DB_NAME=penfold
 ```
 
@@ -107,18 +109,14 @@ PENFOLD_DB_NAME=penfold
 
 ### PostgreSQL (from dev01)
 ```bash
-# Environment variables
-PENFOLD_DB_HOST=home-01.brown.chat
-PENFOLD_DB_PORT=5432
-PENFOLD_DB_USER=penfold
-PENFOLD_DB_PASSWORD=penfold
-PENFOLD_DB_NAME=penfold
+# Load environment from secrets
+source ~/github/otherjamesbrown/secrets/.env.penfold
 
-# DSN (keyword-value, handles special chars)
-host=home-01.brown.chat port=5432 user=penfold password=penfold dbname=penfold sslmode=disable
+# DSN uses keyword-value format (handles special chars in password)
+host=$PENFOLD_DB_HOST port=$PENFOLD_DB_PORT user=$PENFOLD_DB_USER password=$PENFOLD_DB_PASSWORD dbname=$PENFOLD_DB_NAME sslmode=disable
 
-# psql
-psql "host=home-01.brown.chat port=5432 user=penfold password=penfold dbname=penfold"
+# psql (after sourcing .env.penfold)
+psql "host=$PENFOLD_DB_HOST port=$PENFOLD_DB_PORT user=$PENFOLD_DB_USER password=$PENFOLD_DB_PASSWORD dbname=$PENFOLD_DB_NAME"
 ```
 
 ### PostgreSQL (from Gateway on home-01)

@@ -32,7 +32,7 @@ type Product struct {
 	ID          int64         `json:"id,omitempty"`
 	TenantID    string        `json:"tenant_id"`
 	Name        string        `json:"name"`
-	Description string        `json:"description,omitempty"`
+	Description *string       `json:"description,omitempty"`
 	ParentID    *int64        `json:"parent_id,omitempty"`
 	ProductType ProductType   `json:"product_type"`
 	Status      ProductStatus `json:"status"`
