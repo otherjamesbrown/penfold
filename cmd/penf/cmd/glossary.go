@@ -78,6 +78,7 @@ Query expansion automatically expands known acronyms in search queries.`,
 	cmd.AddCommand(newGlossarySearchCommand(deps))
 	cmd.AddCommand(newGlossaryRemoveCommand(deps))
 	cmd.AddCommand(newGlossaryExpandCommand(deps))
+	cmd.AddCommand(newGlossaryAliasCommand(deps))
 
 	return cmd
 }
@@ -221,6 +222,35 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := strings.Join(args, " ")
 			return runGlossaryExpand(cmd.Context(), deps, query)
+		},
+	}
+}
+
+// newGlossaryAliasCommand creates the 'glossary alias' subcommand.
+func newGlossaryAliasCommand(deps *GlossaryCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "alias <term> <alias>",
+		Short: "Add an alias to an existing term",
+		Long: `Add an alias to an existing glossary term.
+
+This is useful for linking transcription errors or alternative spellings
+to an existing term. The alias will resolve to the same expansion.
+
+Git-like pattern: "alias points to term" (like git config alias.co checkout)
+
+Examples:
+  # Link transcription error to existing term
+  penf glossary alias OBJ OBJE
+
+  # Add alternative spelling
+  penf glossary alias TER T.E.R.
+
+  # Multiple aliases can be added by running multiple times
+  penf glossary alias MTC "Major TikTok Contract"
+  penf glossary alias MTC "TT Contract"`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runGlossaryAlias(cmd.Context(), deps, args[0], args[1])
 		},
 	}
 }
@@ -461,6 +491,59 @@ func runGlossaryExpand(ctx context.Context, deps *GlossaryCommandDeps, query str
 	}
 
 	return outputQueryExpansionProto(format, resp)
+}
+
+func runGlossaryAlias(ctx context.Context, deps *GlossaryCommandDeps, termStr, newAlias string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := glossaryv1.NewGlossaryServiceClient(conn)
+
+	// First, look up the existing term
+	termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{Term: termStr})
+	if err != nil {
+		return fmt.Errorf("looking up term: %w", err)
+	}
+	if termResp.Term == nil {
+		return fmt.Errorf("term not found: %s\n\nUse 'penf glossary add %s \"expansion\"' to create it first", termStr, termStr)
+	}
+
+	existingTerm := termResp.Term
+
+	// Check if alias already exists
+	for _, existing := range existingTerm.Aliases {
+		if strings.EqualFold(existing, newAlias) {
+			fmt.Printf("Alias '%s' already exists for term '%s'\n", newAlias, termStr)
+			return nil
+		}
+	}
+
+	// Add the new alias to existing aliases
+	updatedAliases := append(existingTerm.Aliases, newAlias)
+
+	// Update the term with new aliases
+	updateResp, err := client.UpdateTerm(ctx, &glossaryv1.UpdateTermRequest{
+		Id:      existingTerm.Id,
+		Aliases: updatedAliases,
+	})
+	if err != nil {
+		return fmt.Errorf("updating term: %w", err)
+	}
+
+	fmt.Printf("\033[32mAdded alias:\033[0m %s → %s\n", newAlias, termStr)
+	fmt.Printf("  Expansion: %s\n", updateResp.Term.Expansion)
+	fmt.Printf("  All aliases: %s\n", strings.Join(updateResp.Term.Aliases, ", "))
+
+	return nil
 }
 
 // Output functions for proto types
