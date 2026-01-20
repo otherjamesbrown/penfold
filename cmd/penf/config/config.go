@@ -50,6 +50,11 @@ type CLIConfig struct {
 	// Example: {"work": "tenant-acme-123", "personal": "tenant-default-001"}
 	TenantAliases map[string]string `yaml:"tenant_aliases,omitempty"`
 
+	// InstallPath is the path where penf should be installed during updates.
+	// If empty, uses the current executable's location.
+	// Supports ~ for home directory expansion.
+	InstallPath string `yaml:"install_path,omitempty"`
+
 	// Debug enables verbose debug logging.
 	Debug bool `yaml:"debug,omitempty"`
 
@@ -136,6 +141,7 @@ func loadFromFile(cfg *CLIConfig, path string) error {
 		OutputFormat  OutputFormat      `yaml:"output_format"`
 		TenantID      string            `yaml:"tenant_id"`
 		TenantAliases map[string]string `yaml:"tenant_aliases"`
+		InstallPath   string            `yaml:"install_path"`
 		Debug         bool              `yaml:"debug"`
 		Insecure      bool              `yaml:"insecure"`
 	}
@@ -164,6 +170,9 @@ func loadFromFile(cfg *CLIConfig, path string) error {
 	if fileCfg.TenantAliases != nil {
 		cfg.TenantAliases = fileCfg.TenantAliases
 	}
+	if fileCfg.InstallPath != "" {
+		cfg.InstallPath = fileCfg.InstallPath
+	}
 	cfg.Debug = fileCfg.Debug
 	cfg.Insecure = fileCfg.Insecure
 
@@ -188,6 +197,10 @@ func loadFromEnv(cfg *CLIConfig) {
 
 	if v := os.Getenv("PENF_TENANT_ID"); v != "" {
 		cfg.TenantID = v
+	}
+
+	if v := os.Getenv("PENF_INSTALL_PATH"); v != "" {
+		cfg.InstallPath = v
 	}
 
 	if v := os.Getenv("PENF_DEBUG"); v == "true" || v == "1" {
@@ -252,6 +265,7 @@ func SaveConfig(cfg *CLIConfig) error {
 		OutputFormat  OutputFormat      `yaml:"output_format"`
 		TenantID      string            `yaml:"tenant_id,omitempty"`
 		TenantAliases map[string]string `yaml:"tenant_aliases,omitempty"`
+		InstallPath   string            `yaml:"install_path,omitempty"`
 		Debug         bool              `yaml:"debug,omitempty"`
 		Insecure      bool              `yaml:"insecure,omitempty"`
 	}
@@ -262,6 +276,7 @@ func SaveConfig(cfg *CLIConfig) error {
 		OutputFormat:  cfg.OutputFormat,
 		TenantID:      cfg.TenantID,
 		TenantAliases: cfg.TenantAliases,
+		InstallPath:   cfg.InstallPath,
 		Debug:         cfg.Debug,
 		Insecure:      cfg.Insecure,
 	}
@@ -285,4 +300,34 @@ func EnsureConfigDir() error {
 		return err
 	}
 	return os.MkdirAll(dir, 0700)
+}
+
+// ExpandPath expands ~ to the user's home directory.
+func ExpandPath(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	if path[0] == '~' {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("getting home directory: %w", err)
+		}
+		return filepath.Join(home, path[1:]), nil
+	}
+	return path, nil
+}
+
+// GetInstallPath returns the expanded install path from config,
+// or falls back to the current executable's location.
+func (c *CLIConfig) GetInstallPath() (string, error) {
+	if c.InstallPath != "" {
+		return ExpandPath(c.InstallPath)
+	}
+
+	// Fall back to current executable location.
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("getting executable path: %w", err)
+	}
+	return filepath.EvalSymlinks(execPath)
 }

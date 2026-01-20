@@ -27,9 +27,10 @@ const (
 )
 
 var (
-	updateCheck   bool
-	updateForce   bool
-	updateVersion string
+	updateCheck       bool
+	updateForce       bool
+	updateVersion     string
+	updateInstallPath string
 )
 
 // GitHubRelease represents a GitHub release from the API.
@@ -76,6 +77,7 @@ Examples:
 	updateCmd.Flags().BoolVar(&updateCheck, "check", false, "Check for updates without installing")
 	updateCmd.Flags().BoolVar(&updateForce, "force", false, "Force update even if already at latest version")
 	updateCmd.Flags().StringVar(&updateVersion, "version", "", "Update to specific version (e.g., v1.0.0)")
+	updateCmd.Flags().StringVar(&updateInstallPath, "install-path", "", "Install to this path (default: current location or config install_path)")
 
 	return updateCmd
 }
@@ -132,6 +134,32 @@ func runUpdate(currentVersion string) error {
 		return fmt.Errorf("no release asset found for platform %s/%s (expected %s)", runtime.GOOS, runtime.GOARCH, assetName)
 	}
 
+	// Determine install path (flag > config > current executable).
+	var installPath string
+	if updateInstallPath != "" {
+		// Use flag value.
+		installPath, err = config.ExpandPath(updateInstallPath)
+		if err != nil {
+			return fmt.Errorf("expanding install path: %w", err)
+		}
+	} else {
+		// Use config or current executable.
+		cfg, _ := config.LoadConfig()
+		if cfg == nil {
+			cfg = config.DefaultConfig()
+		}
+		installPath, err = cfg.GetInstallPath()
+		if err != nil {
+			return fmt.Errorf("determining install path: %w", err)
+		}
+	}
+
+	// Check if target directory is writable.
+	installDir := filepath.Dir(installPath)
+	if err := checkDirWritable(installDir); err != nil {
+		return fmt.Errorf("cannot write to %s: %w\n\nTry one of:\n  1. sudo penf update\n  2. penf update --install-path ~/bin/penf\n  3. penf config set install_path ~/bin/penf", installDir, err)
+	}
+
 	// Download the new binary.
 	fmt.Printf("Downloading %s (%.2f MB)...\n", assetName, float64(assetSize)/(1024*1024))
 	tempFile, err := downloadAsset(downloadURL)
@@ -140,19 +168,9 @@ func runUpdate(currentVersion string) error {
 	}
 	defer os.Remove(tempFile)
 
-	// Get current executable path.
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("getting executable path: %w", err)
-	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return fmt.Errorf("resolving executable path: %w", err)
-	}
-
 	// Extract and install.
-	fmt.Println("Installing update...")
-	if err := installUpdate(tempFile, execPath); err != nil {
+	fmt.Printf("Installing to %s...\n", installPath)
+	if err := installUpdate(tempFile, installPath); err != nil {
 		return fmt.Errorf("installing update: %w", err)
 	}
 	fmt.Printf("  \033[32m✓\033[0m Updated to %s\n", latestVersion)
@@ -289,4 +307,25 @@ func formatReleaseNotes(body string) string {
 		result = append(result, "  "+line)
 	}
 	return strings.Join(result, "\n")
+}
+
+// checkDirWritable checks if a directory is writable by creating a temp file.
+func checkDirWritable(dir string) error {
+	// Check if directory exists.
+	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("directory does not exist: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("not a directory")
+	}
+
+	// Try to create a temp file to check write permission.
+	tempFile, err := os.CreateTemp(dir, ".penf-write-test-*")
+	if err != nil {
+		return fmt.Errorf("permission denied")
+	}
+	tempFile.Close()
+	os.Remove(tempFile.Name())
+	return nil
 }

@@ -219,6 +219,7 @@ Available keys:
   timeout         - Request timeout (e.g., 30s, 1m)
   output_format   - Default output format (text, json, yaml)
   tenant_id       - Default tenant ID
+  install_path    - Path for penf binary updates (supports ~)
   debug           - Enable debug mode (true/false)
   insecure        - Disable TLS verification (true/false)
 
@@ -226,7 +227,8 @@ Examples:
   penf config set server_address localhost:50051
   penf config set timeout 1m
   penf config set output_format json
-  penf config set tenant_id my-tenant-123`,
+  penf config set tenant_id my-tenant-123
+  penf config set install_path ~/bin/penf`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key, value := args[0], args[1]
@@ -256,6 +258,15 @@ Examples:
 			currentCfg.OutputFormat = format
 		case "tenant_id":
 			currentCfg.TenantID = value
+		case "install_path":
+			// Validate the path is expandable.
+			expanded, err := config.ExpandPath(value)
+			if err != nil {
+				return fmt.Errorf("invalid install path: %w", err)
+			}
+			// Store the original value (with ~) for readability.
+			currentCfg.InstallPath = value
+			fmt.Printf("  (expands to: %s)\n", expanded)
 		case "debug":
 			if value == "true" || value == "1" {
 				currentCfg.Debug = true
