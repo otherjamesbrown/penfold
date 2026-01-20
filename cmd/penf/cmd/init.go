@@ -41,14 +41,15 @@ func NewInitCommand() *cobra.Command {
 
 This command will:
 1. Prompt for the gateway server address
-2. Create ~/.penf/config.yaml
+2. Create ~/.penf/config.yaml (global config)
 3. Test the connection to the gateway
-4. Download/update the assistant CLAUDE.md
-5. Create preferences.md (user settings - never overwritten)
-6. Install process definitions for workflow guidance
+4. Create CLAUDE.md in current directory (for Claude Code)
+5. Create preferences.md in current directory (user settings - never overwritten)
+6. Install process definitions in current directory
 
-Run this command on a new machine or to reconfigure an existing setup.
-Run again to update process definitions without losing preferences.`,
+Run this from your project directory. Global config goes to ~/.penf/,
+but context files (CLAUDE.md, preferences.md, processes/) are created
+in the current directory so Claude Code can find them.`,
 		RunE: runInit,
 	}
 
@@ -119,12 +120,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Step 5: Download/update assistant CLAUDE.md.
 	fmt.Println("Updating assistant configuration...")
+	cwd, _ := os.Getwd()
 	if err := downloadAssistantClaudeMd(cfg); err != nil {
 		fmt.Printf("  \033[33mWarning:\033[0m Could not download assistant CLAUDE.md: %v\n", err)
 		fmt.Println("  You can manually create this file later or run 'penf update' to retry.")
 	} else {
-		configDir, _ := config.ConfigDir()
-		fmt.Printf("  \033[32m✓\033[0m Assistant CLAUDE.md saved to %s\n", filepath.Join(configDir, "CLAUDE.md"))
+		fmt.Printf("  \033[32m✓\033[0m Assistant CLAUDE.md saved to %s\n", filepath.Join(cwd, "CLAUDE.md"))
 	}
 	fmt.Println()
 
@@ -145,15 +146,15 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Summary.
 	fmt.Println("Initialization complete!")
 	fmt.Println()
-	configDir, _ := config.ConfigDir()
 	fmt.Println("Configuration summary:")
 	fmt.Printf("  Server address:  %s\n", cfg.ServerAddress)
 	fmt.Printf("  Config file:     %s\n", configPath)
-	fmt.Printf("  Preferences:     %s\n", filepath.Join(configDir, "preferences.md"))
-	fmt.Printf("  Processes:       %s\n", filepath.Join(configDir, "processes/"))
+	fmt.Printf("  CLAUDE.md:       %s\n", filepath.Join(cwd, "CLAUDE.md"))
+	fmt.Printf("  Preferences:     %s\n", filepath.Join(cwd, "preferences.md"))
+	fmt.Printf("  Processes:       %s\n", filepath.Join(cwd, "processes/"))
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("  • Edit ~/.penf/preferences.md to customize your settings")
+	fmt.Println("  • Edit preferences.md to customize your settings")
 	fmt.Println("  • Run 'penf status' to verify the connection")
 	fmt.Println("  • Run 'penf health' to check system health")
 	fmt.Println("  • Run 'penf search <query>' to search your content")
@@ -204,14 +205,14 @@ func testGatewayConnection(serverAddr string) error {
 	return nil
 }
 
-// downloadAssistantClaudeMd downloads or creates the assistant CLAUDE.md.
+// downloadAssistantClaudeMd creates the assistant CLAUDE.md in current directory.
 func downloadAssistantClaudeMd(cfg *config.CLIConfig) error {
-	configDir, err := config.ConfigDir()
+	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("getting config directory: %w", err)
+		return fmt.Errorf("getting current directory: %w", err)
 	}
 
-	claudeMdPath := filepath.Join(configDir, "CLAUDE.md")
+	claudeMdPath := filepath.Join(cwd, "CLAUDE.md")
 
 	// For now, create a default assistant CLAUDE.md.
 	// In the future, this could fetch from the gateway or a central repository.
@@ -227,12 +228,12 @@ func downloadAssistantClaudeMd(cfg *config.CLIConfig) error {
 // initUserPreferences creates the preferences.md file if it doesn't exist.
 // This file is NEVER overwritten - it belongs to the user.
 func initUserPreferences() error {
-	configDir, err := config.ConfigDir()
+	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("getting config directory: %w", err)
+		return fmt.Errorf("getting current directory: %w", err)
 	}
 
-	prefsPath := filepath.Join(configDir, "preferences.md")
+	prefsPath := filepath.Join(cwd, "preferences.md")
 
 	// Check if preferences already exist - never overwrite
 	if _, err := os.Stat(prefsPath); err == nil {
@@ -246,19 +247,19 @@ func initUserPreferences() error {
 	}
 
 	fmt.Printf("  \033[32m✓\033[0m Created preferences.md\n")
-	fmt.Println("    Edit ~/.penf/preferences.md to customize your settings")
+	fmt.Println("    Edit preferences.md to customize your settings")
 	return nil
 }
 
-// initProcessDefinitions creates/updates process definition files.
+// initProcessDefinitions creates/updates process definition files in the current directory.
 // These CAN be updated by penf init or penf update.
 func initProcessDefinitions() error {
-	configDir, err := config.ConfigDir()
+	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("getting config directory: %w", err)
+		return fmt.Errorf("getting current directory: %w", err)
 	}
 
-	processDir := filepath.Join(configDir, "processes")
+	processDir := filepath.Join(cwd, "processes")
 
 	// Create processes directory
 	if err := os.MkdirAll(processDir, 0755); err != nil {
@@ -266,7 +267,7 @@ func initProcessDefinitions() error {
 	}
 
 	// Write/update processes index
-	indexPath := filepath.Join(configDir, "processes.md")
+	indexPath := filepath.Join(cwd, "processes.md")
 	if err := os.WriteFile(indexPath, []byte(processesTemplate), 0644); err != nil {
 		return fmt.Errorf("writing processes.md: %w", err)
 	}

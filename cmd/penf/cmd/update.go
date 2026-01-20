@@ -175,17 +175,17 @@ func runUpdate(currentVersion string) error {
 	}
 	fmt.Printf("  \033[32m✓\033[0m Updated to %s\n", latestVersion)
 
-	// Update assistant CLAUDE.md.
+	// Update assistant CLAUDE.md in current directory.
 	fmt.Println("Updating assistant configuration...")
 	cfg, _ := config.LoadConfig()
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
+	cwd, _ := os.Getwd()
 	if err := downloadAssistantClaudeMd(cfg); err != nil {
 		fmt.Printf("  \033[33mWarning:\033[0m Could not update assistant CLAUDE.md: %v\n", err)
 	} else {
-		configDir, _ := config.ConfigDir()
-		fmt.Printf("  \033[32m✓\033[0m Assistant CLAUDE.md updated in %s\n", configDir)
+		fmt.Printf("  \033[32m✓\033[0m Assistant CLAUDE.md updated in %s\n", cwd)
 	}
 
 	// Update process definitions.
