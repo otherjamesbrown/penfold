@@ -1,140 +1,133 @@
-# Penfold Assistant Guide
+# Penfold CLI Reference for Claude
 
-This document provides instructions for AI assistants helping users interact with the Penfold personal information system through the `penf` CLI.
+This document provides the `penf` CLI command reference for Claude to execute directly when assisting users.
 
 ## Role Definition
 
-You are a helpful assistant for users of the Penfold CLI. Your role is to:
+You (Claude) are an assistant with access to the Penfold personal information system via the `penf` CLI.
 
-- **Help users find information** in their personal knowledge base
-- **Guide users through CLI commands** with clear examples
-- **Explain search results** and help refine queries
-- **Assist with daily workflows** like morning reviews
-- **Troubleshoot connection issues** and CLI problems
+**Key principle: Execute commands directly. Never suggest commands for the user to run.**
 
-You are **not** a developer working on the Penfold codebase. Focus on helping users accomplish their tasks using the existing CLI commands.
+When the user asks for information:
+1. Run the appropriate `penf` command yourself using Bash
+2. Parse the output
+3. Present the results in a helpful format
 
-## Quick Start
+The user will never run CLI commands themselves. You have full access to execute them.
 
-### First-Time Setup
+## Output Format
 
-```bash
-# Initialize penf configuration
-penf init
-
-# Check connection status
-penf status
-
-# Verify system health
-penf health
-```
-
-### Daily Workflow
+**Always use `--format json` for machine-parseable output:**
 
 ```bash
-# Check pending review questions
-penf review questions stats
-
-# Get the next question to answer
-penf review questions next
-
-# Search for relevant information
-penf search "quarterly budget planning"
-
-# Answer a question
-penf review questions resolve <id> "Answer here"
+penf glossary list --format json
+penf review questions list --format json
+penf search "query" --format json
 ```
 
-## Core Commands
+This gives structured data you can parse and present meaningfully.
+
+## Command Reference
 
 ### Search
 
-The primary way to find information in Penfold.
+Find information in the knowledge base.
 
 ```bash
 # Basic search
-penf search "project status update"
+penf search "project status" --format json
 
-# Search by content type
-penf search "meeting notes" --type=meeting
+# By content type
+penf search "meeting notes" --type=meeting --format json
 
-# Search within date range
-penf search "budget review" --after=2024-01-01 --before=2024-06-30
+# Date range
+penf search "budget" --after=2024-01-01 --before=2024-06-30 --format json
 
 # Semantic search (conceptual similarity)
-penf search "cost reduction strategies" --semantic
-
-# Exact phrase matching
-penf search "ERROR: connection refused" --exact
+penf search "cost reduction strategies" --semantic --format json
 
 # Limit results
-penf search "customer feedback" --limit=20
+penf search "customer feedback" --limit=20 --format json
 ```
 
-**Search modes:**
-- `hybrid` (default): Combines semantic + keyword matching
-- `semantic`: AI-powered conceptual similarity
-- `keyword`: Traditional full-text search
+Search modes: `hybrid` (default), `semantic`, `keyword`
 
 ### Glossary
 
-Manage domain terminology and acronyms for improved search.
+Domain terminology and acronyms.
 
 ```bash
 # List all terms
-penf glossary list
+penf glossary list --format json
 
-# Add a new term
+# Show specific term
+penf glossary show TER --format json
+
+# Search terms
+penf glossary search "database" --format json
+
+# Add a term
 penf glossary add DRI "Directly Responsible Individual"
 
-# Add term with context tags
+# Add with context
 penf glossary add MTC "Major TikTok Contract" --context TikTok,Oracle
 
-# Look up terms in text
-penf glossary lookup "The DRI for the MTC deliverables"
+# Expand query (see how acronyms would be expanded)
+penf glossary expand "DRI responsibilities" --format json
 
-# Expand a query using glossary terms
-penf glossary expand "DRI responsibilities"
+# Remove a term
+penf glossary remove TER
 ```
 
 ### Review Questions
 
-AI-generated questions that need human answers to improve understanding.
+AI-generated questions needing human answers.
 
 ```bash
-# Check queue status
-penf review questions stats
+# Queue statistics
+penf review questions stats --format json
 
 # List pending questions
-penf review questions list
+penf review questions list --format json
 
-# Show question details
-penf review questions show <id>
+# Filter by priority
+penf review questions list --priority high --format json
 
-# Get next question (prioritized)
-penf review questions next
+# Filter by type
+penf review questions list --type acronym --format json
 
-# Answer a question (adds to glossary if acronym)
-penf review questions resolve <id> "The answer"
+# Get next prioritized question
+penf review questions next --format json
 
-# Dismiss irrelevant question
-penf review questions dismiss <id>
+# Show specific question
+penf review questions show 123 --format json
+
+# Get source content for a question (to see more context)
+penf review questions source 123 --format json
+penf review questions source 123 --context 1000 --format json  # More context
+penf review questions source 123 --context -1 --format json    # Full content
+
+# Resolve a question (adds to glossary if acronym type)
+penf review questions resolve 123 "Technical Execution Review"
+
+# Dismiss a question
+penf review questions dismiss 123 "Not relevant"
 
 # Defer for later
-penf review questions defer <id>
+penf review questions defer 123
 ```
 
-### Connection & Health
+Question types: `acronym`, `person`, `entity`, `duplicate`, `other`
+Priority levels: `high`, `medium`, `low`
+
+### System Status
 
 ```bash
-# Check gateway connection
+# Connection status
 penf status
 
-# View system health
-penf health
-
-# Continuous health monitoring
-penf health --watch
+# System health
+penf health --format json
 ```
 
 ### Configuration
@@ -143,163 +136,56 @@ penf health --watch
 # Show current config
 penf config show
 
-# Set server address
-penf config set server_address 192.168.1.100:50051
-
-# Set output format
-penf config set output_format json
+# Current config is at ~/.penf/config.yaml
 ```
 
-## Workflow Guides
+## Common Workflows
 
-### Morning Review Workflow
+### When user asks about a topic
 
-Start each day by reviewing pending questions and recent content:
+1. Run search: `penf search "topic" --format json --limit=10`
+2. Parse results and summarize findings
+3. If acronyms are unclear, check glossary: `penf glossary show TERM --format json`
 
-```bash
-# 1. Check your question queue
-penf review questions stats
+### When user asks about pending questions
 
-# 2. Process a few questions
-penf review questions next
-# Answer or dismiss, repeat
+1. Get stats: `penf review questions stats --format json`
+2. List questions: `penf review questions list --format json`
+3. Present summary to user
 
-# 3. Search for anything mentioned in recent meetings
-penf search "action items" --type=meeting --after=yesterday
-```
+### When user wants to answer a question
 
-### Research Workflow
+1. Show the question details: `penf review questions show ID --format json`
+2. Get user's answer
+3. Submit: `penf review questions resolve ID "user's answer"`
 
-When researching a topic:
+### When user provides an acronym definition
 
-```bash
-# 1. Start with a broad search
-penf search "machine learning infrastructure"
+1. Add to glossary: `penf glossary add TERM "Expansion" --context relevant,tags`
+2. Confirm addition to user
 
-# 2. Narrow down by type
-penf search "ML infra" --type=document,meeting
+### When user asks about a term/acronym
 
-# 3. Use semantic search for related concepts
-penf search "neural network deployment" --semantic
+1. Check glossary: `penf glossary show TERM --format json`
+2. If not found, search for context: `penf search "TERM" --format json --limit=5`
+3. Report findings
 
-# 4. Check glossary for unfamiliar terms
-penf glossary lookup "What is MLOps?"
-```
+## Error Handling
 
-### New Term Discovery
+If a command fails:
+1. Check connection: `penf status`
+2. Report the specific error to the user
+3. Suggest what might be wrong (network, server down, etc.)
 
-When you encounter an unknown acronym:
+## Environment
 
-```bash
-# 1. Check if it's already in the glossary
-penf glossary get TLA
+- Server: `home-01.brown.chat:50051`
+- Config: `~/.penf/config.yaml`
+- Binary: `/usr/local/bin/penf` or user's PATH
 
-# 2. If not found, search for context
-penf search "TLA" --limit=5
+## Notes
 
-# 3. Add the term once you understand it
-penf glossary add TLA "Three Letter Acronym"
-```
-
-## Troubleshooting
-
-### Connection Issues
-
-```bash
-# Check connection
-penf status
-
-# If unhealthy, verify server address
-penf config show
-
-# Update server address if needed
-penf config set server_address correct-server:50051
-
-# Re-initialize if needed
-penf init --server correct-server:50051
-```
-
-### No Results Found
-
-1. Try broader search terms
-2. Use semantic search: `penf search "topic" --semantic`
-3. Check date range filters
-4. Verify content type filter
-
-### Command Not Working
-
-```bash
-# Check penf version
-penf version
-
-# Update to latest
-penf update
-
-# Report bug
-penf feedback bug "Description of the issue"
-```
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `PENF_SERVER_ADDRESS` | Override gateway server address |
-| `PENF_TIMEOUT` | Request timeout (default: 30s) |
-| `PENF_OUTPUT_FORMAT` | Default output format (text, json, yaml) |
-| `PENF_TENANT_ID` | Default tenant identifier |
-| `PENF_DEBUG` | Enable debug logging (true/false) |
-
-## Output Formats
-
-Commands support three output formats:
-
-- **text** (default): Human-readable terminal output
-- **json**: Machine-readable JSON
-- **yaml**: Machine-readable YAML
-
-```bash
-# Get search results as JSON
-penf search "query" --output=json
-
-# Get health status as YAML
-penf health --output=yaml
-```
-
-## Providing Feedback
-
-Help improve Penfold by submitting feedback:
-
-```bash
-# Report a bug
-penf feedback bug "Search crashes with special characters"
-
-# Request a feature
-penf feedback feature "Add Slack integration"
-
-# Preview before submitting
-penf feedback bug --dry-run "Issue description"
-```
-
-## Getting Help
-
-```bash
-# General help
-penf help
-
-# Command-specific help
-penf search --help
-penf review questions --help
-
-# Full documentation
-# Visit: https://github.com/otherjamesbrown/penfold
-```
-
----
-
-## Version Information
-
-This guide is for penf CLI version 0.1.x.
-
-Last updated: January 2026
-
-For the latest version and changelog, run `penf update --check`.
+- All commands support `--format json` for structured output (prefer this)
+- Text output includes ANSI color codes - JSON is cleaner for parsing
+- Questions resolved as acronym type are automatically added to glossary
+- Search uses hybrid mode by default (semantic + keyword)

@@ -64,6 +64,7 @@ Examples:
 	cmd.AddCommand(newQuestionsDismissCommand(deps))
 	cmd.AddCommand(newQuestionsDeferCommand(deps))
 	cmd.AddCommand(newQuestionsStatsCommand(deps))
+	cmd.AddCommand(newQuestionsSourceCommand(deps))
 
 	return cmd
 }
@@ -220,6 +221,37 @@ Example:
 			return runQuestionsStats(cmd.Context(), deps)
 		},
 	}
+}
+
+// Questions source command flag
+var questionsSourceContextChars int
+
+// newQuestionsSourceCommand creates the 'review questions source' subcommand.
+func newQuestionsSourceCommand(deps *ReviewCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "source <id>",
+		Short: "Show the source content for a question",
+		Long: `Show the source content (transcript, email, etc.) where a question originated.
+
+This allows you to see more context around the term or entity in question.
+
+Examples:
+  penf review questions source 123
+  penf review questions source 123 --context 1000
+  penf review questions source 123 --context -1  # Full content`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid question ID: %s", args[0])
+			}
+			return runQuestionsSource(cmd.Context(), deps, id)
+		},
+	}
+
+	cmd.Flags().IntVarP(&questionsSourceContextChars, "context", "c", 500, "Characters of context around the snippet (-1 for full content)")
+
+	return cmd
 }
 
 // connectToQuestionsGateway creates a gRPC connection to the gateway service.
@@ -453,6 +485,36 @@ func runQuestionsStats(ctx context.Context, deps *ReviewCommandDeps) error {
 	return outputProtoQuestionsStats(format, resp.Stats)
 }
 
+func runQuestionsSource(ctx context.Context, deps *ReviewCommandDeps, id int64) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+
+	conn, err := connectToQuestionsGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := questionsv1.NewQuestionsServiceClient(conn)
+
+	resp, err := client.GetQuestionSource(ctx, &questionsv1.GetQuestionSourceRequest{
+		QuestionId:   id,
+		ContextChars: int32(questionsSourceContextChars),
+	})
+	if err != nil {
+		return fmt.Errorf("getting question source: %w", err)
+	}
+
+	format := cfg.OutputFormat
+	if questionsFormat != "" {
+		format = config.OutputFormat(questionsFormat)
+	}
+
+	return outputProtoQuestionSource(format, resp)
+}
+
 // Conversion helpers
 
 func stringToPriority(s string) questionsv1.QuestionPriority {
@@ -647,6 +709,79 @@ func outputProtoQuestionsStatsText(stats *questionsv1.QueueStats) error {
 
 	if stats.OldestPending != nil {
 		fmt.Printf("  \033[1mOldest Pending:\033[0m %s\n", stats.OldestPending.AsTime().Format("2006-01-02 15:04"))
+	}
+
+	return nil
+}
+
+func outputProtoQuestionSource(format config.OutputFormat, resp *questionsv1.GetQuestionSourceResponse) error {
+	switch format {
+	case config.OutputFormatJSON:
+		return outputQuestionsJSON(resp)
+	case config.OutputFormatYAML:
+		return outputQuestionsYAML(resp)
+	default:
+		return outputProtoQuestionSourceText(resp)
+	}
+}
+
+func outputProtoQuestionSourceText(resp *questionsv1.GetQuestionSourceResponse) error {
+	source := resp.Source
+	question := resp.Question
+
+	fmt.Println("Source Content:")
+	fmt.Println()
+
+	// Show question context
+	fmt.Printf("  \033[1mQuestion #%d:\033[0m %s\n", question.Id, question.Question)
+	if question.SuggestedTerm != "" {
+		fmt.Printf("  \033[1mTerm:\033[0m        %s\n", question.SuggestedTerm)
+	}
+	fmt.Println()
+
+	// Show source metadata
+	fmt.Printf("  \033[1mSource:\033[0m      %s (%s)\n", source.Title, source.SourceType)
+	if source.SourceTimestamp != nil {
+		fmt.Printf("  \033[1mDate:\033[0m        %s\n", source.SourceTimestamp.AsTime().Format("2006-01-02 15:04"))
+	}
+
+	// Show metadata
+	if len(source.Metadata) > 0 {
+		for k, v := range source.Metadata {
+			if v != "" {
+				fmt.Printf("  \033[1m%s:\033[0m %s\n", strings.Title(strings.ReplaceAll(k, "_", " ")), v)
+			}
+		}
+	}
+	fmt.Println()
+
+	// Show content
+	fmt.Println("  \033[1mContent:\033[0m")
+	fmt.Println()
+
+	// If we have a snippet, highlight it
+	content := source.Content
+	snippet := source.Snippet
+
+	if snippet != "" && strings.Contains(content, snippet) {
+		// Highlight the snippet
+		highlighted := strings.Replace(content, snippet, "\033[43m"+snippet+"\033[0m", 1)
+		// Indent each line
+		for _, line := range strings.Split(highlighted, "\n") {
+			fmt.Printf("    %s\n", line)
+		}
+	} else {
+		// Just print content with indentation
+		for _, line := range strings.Split(content, "\n") {
+			fmt.Printf("    %s\n", line)
+		}
+	}
+
+	fmt.Println()
+
+	// Show if truncated
+	if source.TotalLength > int32(len(content)) {
+		fmt.Printf("  \033[2m(Showing %d of %d characters. Use --context -1 for full content)\033[0m\n", len(content), source.TotalLength)
 	}
 
 	return nil

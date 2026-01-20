@@ -3,6 +3,7 @@ package questionsservice
 
 import (
 	"context"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -12,6 +13,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
+	"github.com/otherjamesbrown/penfold/pkg/sources"
 )
 
 // Service implements the QuestionsService gRPC server.
@@ -19,14 +21,16 @@ type Service struct {
 	questionsv1.UnimplementedQuestionsServiceServer
 	repo         *reviewqueue.Repository
 	glossaryRepo *glossary.Repository
+	sourcesRepo  *sources.Repository
 	logger       logging.Logger
 }
 
 // NewService creates a new questions service.
-func NewService(repo *reviewqueue.Repository, glossaryRepo *glossary.Repository, logger logging.Logger) *Service {
+func NewService(repo *reviewqueue.Repository, glossaryRepo *glossary.Repository, sourcesRepo *sources.Repository, logger logging.Logger) *Service {
 	return &Service{
 		repo:         repo,
 		glossaryRepo: glossaryRepo,
+		sourcesRepo:  sourcesRepo,
 		logger:       logger,
 	}
 }
@@ -371,6 +375,172 @@ func internalPriorityToProto(p reviewqueue.Priority) questionsv1.QuestionPriorit
 	default:
 		return questionsv1.QuestionPriority_QUESTION_PRIORITY_UNSPECIFIED
 	}
+}
+
+// GetQuestionSource retrieves the source content for a question.
+func (s *Service) GetQuestionSource(ctx context.Context, req *questionsv1.GetQuestionSourceRequest) (*questionsv1.GetQuestionSourceResponse, error) {
+	s.logger.Debug("GetQuestionSource called",
+		logging.F("question_id", req.QuestionId),
+		logging.F("context_chars", req.ContextChars),
+	)
+
+	if req.QuestionId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "question_id is required")
+	}
+
+	// Get the question first
+	item, err := s.repo.Get(ctx, req.QuestionId)
+	if err != nil {
+		s.logger.Error("Error getting question", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get question: %v", err)
+	}
+	if item == nil {
+		return nil, status.Errorf(codes.NotFound, "question with id %d not found", req.QuestionId)
+	}
+
+	// Check if we have a source ID
+	if item.SourceID == nil || *item.SourceID == 0 {
+		return nil, status.Error(codes.NotFound, "question has no source reference")
+	}
+
+	// Check if sources repo is available
+	if s.sourcesRepo == nil {
+		return nil, status.Error(codes.Unavailable, "source content retrieval not configured")
+	}
+
+	// Determine how to look up the source based on source_type
+	// When source_type is 'meeting', source_id refers to meetings.id, not sources.id
+	var source *sources.Source
+	var meeting *sources.Meeting
+	sourceType := ""
+	if item.SourceType != nil {
+		sourceType = *item.SourceType
+	}
+
+	if sourceType == "meeting" {
+		// source_id is a meeting ID
+		var err error
+		meeting, err = s.sourcesRepo.GetMeetingByID(ctx, *item.SourceID)
+		if err != nil {
+			s.logger.Error("Error getting meeting", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to get meeting: %v", err)
+		}
+		if meeting == nil {
+			return nil, status.Errorf(codes.NotFound, "meeting with id %d not found", *item.SourceID)
+		}
+
+		// Get the source content via meeting ID
+		source, err = s.sourcesRepo.GetSourceByMeetingID(ctx, meeting.ID)
+		if err != nil {
+			s.logger.Error("Error getting source by meeting ID", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to get source: %v", err)
+		}
+		if source == nil {
+			return nil, status.Errorf(codes.NotFound, "source for meeting %d not found", meeting.ID)
+		}
+	} else {
+		// source_id is a sources.id
+		var err error
+		source, err = s.sourcesRepo.GetByID(ctx, *item.SourceID)
+		if err != nil {
+			s.logger.Error("Error getting source", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to get source: %v", err)
+		}
+		if source == nil {
+			return nil, status.Errorf(codes.NotFound, "source with id %d not found", *item.SourceID)
+		}
+	}
+
+	// Build the response
+	sourceContent := &questionsv1.SourceContent{
+		SourceId:    source.ID,
+		SourceType:  source.SourceSystem,
+		TotalLength: int32(len(source.RawContent)),
+	}
+
+	// Get title from meeting if available
+	if meeting != nil {
+		sourceContent.Title = meeting.Title
+		if meeting.MeetingDate != nil {
+			sourceContent.SourceTimestamp = timestamppb.New(*meeting.MeetingDate)
+		}
+		// Add meeting metadata
+		sourceContent.Metadata = map[string]string{
+			"platform":   meeting.Platform,
+			"source_tag": meeting.SourceTag,
+		}
+	} else if source.MeetingID != nil {
+		// Try to get meeting from source.MeetingID
+		m, err := s.sourcesRepo.GetMeetingByID(ctx, *source.MeetingID)
+		if err == nil && m != nil {
+			sourceContent.Title = m.Title
+			if m.MeetingDate != nil {
+				sourceContent.SourceTimestamp = timestamppb.New(*m.MeetingDate)
+			}
+			sourceContent.Metadata = map[string]string{
+				"platform":   m.Platform,
+				"source_tag": m.SourceTag,
+			}
+		}
+	} else if item.SourceReference != nil {
+		sourceContent.Title = *item.SourceReference
+	}
+
+	// Handle content based on context_chars
+	contextChars := int(req.ContextChars)
+	if contextChars == 0 {
+		contextChars = 500 // Default context
+	}
+
+	// Find the snippet in the content
+	content := source.RawContent
+	snippetContext := ""
+	if item.Context != nil {
+		snippetContext = *item.Context
+	}
+
+	// Try to find the context snippet in the content
+	if snippetContext != "" {
+		idx := strings.Index(content, snippetContext)
+		if idx >= 0 {
+			sourceContent.SnippetOffset = int32(idx)
+			// Get surrounding context
+			start := idx - contextChars
+			if start < 0 {
+				start = 0
+			}
+			end := idx + len(snippetContext) + contextChars
+			if end > len(content) {
+				end = len(content)
+			}
+			sourceContent.Content = content[start:end]
+			sourceContent.Snippet = snippetContext
+		} else {
+			// Snippet not found, return beginning of content
+			if len(content) > contextChars*2 {
+				sourceContent.Content = content[:contextChars*2]
+			} else {
+				sourceContent.Content = content
+			}
+		}
+	} else {
+		// No snippet, return beginning of content
+		if len(content) > contextChars*2 {
+			sourceContent.Content = content[:contextChars*2]
+		} else {
+			sourceContent.Content = content
+		}
+	}
+
+	// If context_chars is -1, return full content
+	if req.ContextChars < 0 {
+		sourceContent.Content = content
+	}
+
+	return &questionsv1.GetQuestionSourceResponse{
+		Source:   sourceContent,
+		Question: reviewItemToProto(item),
+	}, nil
 }
 
 func reviewItemToProto(item *reviewqueue.ReviewItem) *questionsv1.Question {

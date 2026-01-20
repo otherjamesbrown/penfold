@@ -22,13 +22,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	QuestionsService_ListQuestions_FullMethodName   = "/penfold.questions.v1.QuestionsService/ListQuestions"
-	QuestionsService_GetQuestion_FullMethodName     = "/penfold.questions.v1.QuestionsService/GetQuestion"
-	QuestionsService_GetNextQuestion_FullMethodName = "/penfold.questions.v1.QuestionsService/GetNextQuestion"
-	QuestionsService_ResolveQuestion_FullMethodName = "/penfold.questions.v1.QuestionsService/ResolveQuestion"
-	QuestionsService_DismissQuestion_FullMethodName = "/penfold.questions.v1.QuestionsService/DismissQuestion"
-	QuestionsService_DeferQuestion_FullMethodName   = "/penfold.questions.v1.QuestionsService/DeferQuestion"
-	QuestionsService_GetQueueStats_FullMethodName   = "/penfold.questions.v1.QuestionsService/GetQueueStats"
+	QuestionsService_ListQuestions_FullMethodName     = "/penfold.questions.v1.QuestionsService/ListQuestions"
+	QuestionsService_GetQuestion_FullMethodName       = "/penfold.questions.v1.QuestionsService/GetQuestion"
+	QuestionsService_GetNextQuestion_FullMethodName   = "/penfold.questions.v1.QuestionsService/GetNextQuestion"
+	QuestionsService_ResolveQuestion_FullMethodName   = "/penfold.questions.v1.QuestionsService/ResolveQuestion"
+	QuestionsService_DismissQuestion_FullMethodName   = "/penfold.questions.v1.QuestionsService/DismissQuestion"
+	QuestionsService_DeferQuestion_FullMethodName     = "/penfold.questions.v1.QuestionsService/DeferQuestion"
+	QuestionsService_GetQueueStats_FullMethodName     = "/penfold.questions.v1.QuestionsService/GetQueueStats"
+	QuestionsService_GetQuestionSource_FullMethodName = "/penfold.questions.v1.QuestionsService/GetQuestionSource"
 )
 
 // QuestionsServiceClient is the client API for QuestionsService service.
@@ -54,6 +55,9 @@ type QuestionsServiceClient interface {
 	DeferQuestion(ctx context.Context, in *DeferQuestionRequest, opts ...grpc.CallOption) (*DeferQuestionResponse, error)
 	// GetQueueStats retrieves statistics about the questions queue.
 	GetQueueStats(ctx context.Context, in *GetQueueStatsRequest, opts ...grpc.CallOption) (*GetQueueStatsResponse, error)
+	// GetQuestionSource retrieves the source content for a question.
+	// This allows tracing back from a question to see more context.
+	GetQuestionSource(ctx context.Context, in *GetQuestionSourceRequest, opts ...grpc.CallOption) (*GetQuestionSourceResponse, error)
 }
 
 type questionsServiceClient struct {
@@ -134,6 +138,16 @@ func (c *questionsServiceClient) GetQueueStats(ctx context.Context, in *GetQueue
 	return out, nil
 }
 
+func (c *questionsServiceClient) GetQuestionSource(ctx context.Context, in *GetQuestionSourceRequest, opts ...grpc.CallOption) (*GetQuestionSourceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetQuestionSourceResponse)
+	err := c.cc.Invoke(ctx, QuestionsService_GetQuestionSource_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // QuestionsServiceServer is the server API for QuestionsService service.
 // All implementations must embed UnimplementedQuestionsServiceServer
 // for forward compatibility.
@@ -157,6 +171,9 @@ type QuestionsServiceServer interface {
 	DeferQuestion(context.Context, *DeferQuestionRequest) (*DeferQuestionResponse, error)
 	// GetQueueStats retrieves statistics about the questions queue.
 	GetQueueStats(context.Context, *GetQueueStatsRequest) (*GetQueueStatsResponse, error)
+	// GetQuestionSource retrieves the source content for a question.
+	// This allows tracing back from a question to see more context.
+	GetQuestionSource(context.Context, *GetQuestionSourceRequest) (*GetQuestionSourceResponse, error)
 	mustEmbedUnimplementedQuestionsServiceServer()
 }
 
@@ -187,6 +204,9 @@ func (UnimplementedQuestionsServiceServer) DeferQuestion(context.Context, *Defer
 }
 func (UnimplementedQuestionsServiceServer) GetQueueStats(context.Context, *GetQueueStatsRequest) (*GetQueueStatsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetQueueStats not implemented")
+}
+func (UnimplementedQuestionsServiceServer) GetQuestionSource(context.Context, *GetQuestionSourceRequest) (*GetQuestionSourceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetQuestionSource not implemented")
 }
 func (UnimplementedQuestionsServiceServer) mustEmbedUnimplementedQuestionsServiceServer() {}
 func (UnimplementedQuestionsServiceServer) testEmbeddedByValue()                          {}
@@ -335,6 +355,24 @@ func _QuestionsService_GetQueueStats_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _QuestionsService_GetQuestionSource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetQuestionSourceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QuestionsServiceServer).GetQuestionSource(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QuestionsService_GetQuestionSource_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QuestionsServiceServer).GetQuestionSource(ctx, req.(*GetQuestionSourceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // QuestionsService_ServiceDesc is the grpc.ServiceDesc for QuestionsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -369,6 +407,10 @@ var QuestionsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetQueueStats",
 			Handler:    _QuestionsService_GetQueueStats_Handler,
+		},
+		{
+			MethodName: "GetQuestionSource",
+			Handler:    _QuestionsService_GetQuestionSource_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

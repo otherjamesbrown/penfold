@@ -24,6 +24,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
+	"github.com/otherjamesbrown/penfold/pkg/sources"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
 	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
@@ -112,7 +113,8 @@ func main() {
 
 	// Register QuestionsService.
 	questionsRepo := reviewqueue.NewRepository(dbPool)
-	questionsSvc := questionsservice.NewService(questionsRepo, glossaryRepo, logger)
+	sourcesRepo := sources.NewRepository(dbPool)
+	questionsSvc := questionsservice.NewService(questionsRepo, glossaryRepo, sourcesRepo, logger)
 	questionsv1.RegisterQuestionsServiceServer(grpcServer, questionsSvc)
 	logger.Info("Registered QuestionsService")
 

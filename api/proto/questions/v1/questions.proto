@@ -38,6 +38,10 @@ service QuestionsService {
 
   // GetQueueStats retrieves statistics about the questions queue.
   rpc GetQueueStats(GetQueueStatsRequest) returns (GetQueueStatsResponse);
+
+  // GetQuestionSource retrieves the source content for a question.
+  // This allows tracing back from a question to see more context.
+  rpc GetQuestionSource(GetQuestionSourceRequest) returns (GetQuestionSourceResponse);
 }
 
 // =============================================================================
@@ -289,4 +293,53 @@ message GetQueueStatsRequest {
 message GetQueueStatsResponse {
   // Queue statistics.
   QueueStats stats = 1;
+}
+
+// GetQuestionSourceRequest retrieves the source content for a question.
+message GetQuestionSourceRequest {
+  // ID of the question.
+  int64 question_id = 1;
+
+  // How many characters of context to return around the matched snippet.
+  // Default: 500. Use 0 to get full content.
+  int32 context_chars = 2;
+}
+
+// SourceContent contains the content where a question originated.
+message SourceContent {
+  // Source ID in the sources table.
+  int64 source_id = 1;
+
+  // Type of source (meeting, email, document, etc.).
+  string source_type = 2;
+
+  // Human-readable title or reference.
+  string title = 3;
+
+  // The full or partial content (depending on context_chars).
+  string content = 4;
+
+  // The snippet that contains the term/entity in question.
+  string snippet = 5;
+
+  // Position of the snippet in the content (character offset).
+  int32 snippet_offset = 6;
+
+  // Total content length (if truncated).
+  int32 total_length = 7;
+
+  // Source timestamp (when the content was created).
+  google.protobuf.Timestamp source_timestamp = 8;
+
+  // Additional metadata (platform, participants, etc.).
+  map<string, string> metadata = 9;
+}
+
+// GetQuestionSourceResponse contains the source content.
+message GetQuestionSourceResponse {
+  // The source content.
+  SourceContent source = 1;
+
+  // The original question (for reference).
+  Question question = 2;
 }
