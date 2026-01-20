@@ -24,9 +24,24 @@ Returns:
 | Action | Command | Effect |
 |--------|---------|--------|
 | Resolve | `penf review questions resolve <id> "<expansion>"` | Adds to glossary, marks resolved |
-| Dismiss | `penf review questions dismiss <id> "[reason]"` | Marks as not needing expansion |
+| Alias | `penf glossary alias <existing_term> <variant>` | Links variant to existing term (for search) |
+| Dismiss | `penf review questions dismiss <id> "[reason]"` | Removes from queue, NO glossary entry |
 | Defer | `penf review questions defer <id>` | Keeps in queue for later |
 | View Source | `penf review questions source <id> --context 1500` | Shows surrounding transcript |
+
+### When to Use Alias vs Dismiss
+
+**Use ALIAS when:**
+- Detected term is a plural/variant of existing term (DCs → DC, APIs → API)
+- Transcription error but we want to match searches (DBAS → DBA)
+- Alternative spelling or abbreviation of existing term
+
+**Use DISMISS when:**
+- Not an acronym at all (person's initials, product name like "NVIDIA")
+- Transcription garbage that won't appear in searches
+- Already an EXACT match in glossary (not a variant)
+
+**Why this matters:** Searching for "emails about DCs" should find content containing "DC". If we dismiss "DCS" instead of aliasing it to "DC", the search won't find those matches.
 
 ## Decision Guidelines
 
@@ -50,9 +65,10 @@ Watch for acronyms that might be speech-to-text errors:
 - "PLD" might be "PLM", "PLC", "PID"
 - Single letters like "C" might be "see", "sea", numbers
 
-### Already in Glossary
+### Already in Glossary or Variant
 Before resolving, check if term exists (context command includes glossary).
-If exact match exists → dismiss with "Already in glossary"
+- **Exact match exists** → dismiss with "Already in glossary"
+- **Variant/plural exists** (e.g., "DCS" when "DC" exists) → alias with `penf glossary alias DC DCS`
 
 ## Data Structures
 
@@ -104,7 +120,8 @@ When Claude receives the context, it should:
 
 1. **Categorize all questions**:
    - Known tech acronyms → batch resolve
-   - Duplicates of glossary → batch dismiss
+   - Exact duplicates in glossary → batch dismiss
+   - Variants/plurals of existing terms (DCS→DC) → batch alias
    - Uncertain/domain-specific → present to user with analysis
 
 2. **Group similar items**:
@@ -115,8 +132,9 @@ When Claude receives the context, it should:
    ```
    Found 15 acronym questions:
    - 8 standard tech terms (auto-resolving)
-   - 3 already in glossary (dismissing)
-   - 4 need your input:
+   - 2 exact duplicates (dismissing)
+   - 3 plurals/variants (aliasing: DCS→DC, APIs→API, VMS→VM)
+   - 2 need your input:
      1. "PLD" in context "...the PLD review..." - could be PLM, PLC, or domain-specific
      2. "AW" in context "...AW mentioned..." - likely person initials, dismiss?
    ```
@@ -132,7 +150,7 @@ penf process acronyms context --output json > /tmp/acronyms.json
 
 # 2. Claude analyzes and prepares batch actions
 
-# 3. Execute batch
+# 3. Execute batch resolve/dismiss
 penf process acronyms batch-resolve '{
   "resolutions": [
     {"id": 24, "expansion": "Minimum Viable Product"},
@@ -142,6 +160,11 @@ penf process acronyms batch-resolve '{
     {"id": 26, "reason": "Speaker initials (Adam W)"}
   ]
 }'
+
+# 4. Create aliases for plurals/variants (after dismissing the question)
+penf glossary alias DC DCS
+penf glossary alias API APIS
+penf glossary alias VM VMS
 ```
 
 ### Interactive Fallback
