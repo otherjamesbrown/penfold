@@ -191,6 +191,8 @@ This returns:
 - Database: SQL, NoSQL, RDBMS, ORM, ACID, ETL, CDC
 - Business: ROI, KPI, OKR, SLA, NDA, B2B, B2C, CRM, ERP
 
+**Note:** Glossary lookups are case-insensitive (NBS matches NBs).
+
 ### When user asks about a topic
 
 1. Run search: `penf search "topic" --format json --limit=10`
