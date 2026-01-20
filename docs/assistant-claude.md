@@ -17,12 +17,12 @@ The user will never run CLI commands themselves. You have full access to execute
 
 ## Output Format
 
-**Always use `--format json` for machine-parseable output:**
+**Always use `-o json` (or `--output json`) for machine-parseable output:**
 
 ```bash
-penf glossary list --format json
-penf review questions list --format json
-penf search "query" --format json
+penf glossary list -o json
+penf review questions list -o json
+penf search "query" -o json
 ```
 
 This gives structured data you can parse and present meaningfully.
@@ -35,19 +35,19 @@ Find information in the knowledge base.
 
 ```bash
 # Basic search
-penf search "project status" --format json
+penf search "project status" --output json
 
 # By content type
-penf search "meeting notes" --type=meeting --format json
+penf search "meeting notes" --type=meeting --output json
 
 # Date range
-penf search "budget" --after=2024-01-01 --before=2024-06-30 --format json
+penf search "budget" --after=2024-01-01 --before=2024-06-30 --output json
 
 # Semantic search (conceptual similarity)
-penf search "cost reduction strategies" --semantic --format json
+penf search "cost reduction strategies" --semantic --output json
 
 # Limit results
-penf search "customer feedback" --limit=20 --format json
+penf search "customer feedback" --limit=20 --output json
 ```
 
 Search modes: `hybrid` (default), `semantic`, `keyword`
@@ -58,13 +58,13 @@ Domain terminology and acronyms.
 
 ```bash
 # List all terms
-penf glossary list --format json
+penf glossary list --output json
 
 # Show specific term
-penf glossary show TER --format json
+penf glossary show TER --output json
 
 # Search terms
-penf glossary search "database" --format json
+penf glossary search "database" --output json
 
 # Add a term
 penf glossary add DRI "Directly Responsible Individual"
@@ -73,7 +73,7 @@ penf glossary add DRI "Directly Responsible Individual"
 penf glossary add MTC "Major TikTok Contract" --context TikTok,Oracle
 
 # Expand query (see how acronyms would be expanded)
-penf glossary expand "DRI responsibilities" --format json
+penf glossary expand "DRI responsibilities" --output json
 
 # Remove a term
 penf glossary remove TER
@@ -85,27 +85,27 @@ AI-generated questions needing human answers.
 
 ```bash
 # Queue statistics
-penf review questions stats --format json
+penf review questions stats --output json
 
 # List pending questions
-penf review questions list --format json
+penf review questions list --output json
 
 # Filter by priority
-penf review questions list --priority high --format json
+penf review questions list --priority high --output json
 
 # Filter by type
-penf review questions list --type acronym --format json
+penf review questions list --type acronym --output json
 
 # Get next prioritized question
-penf review questions next --format json
+penf review questions next --output json
 
 # Show specific question
-penf review questions show 123 --format json
+penf review questions show 123 --output json
 
 # Get source content for a question (to see more context)
-penf review questions source 123 --format json
-penf review questions source 123 --context 1000 --format json  # More context
-penf review questions source 123 --context -1 --format json    # Full content
+penf review questions source 123 --output json
+penf review questions source 123 --context 1000 --output json  # More context
+penf review questions source 123 --context -1 --output json    # Full content
 
 # Resolve a question (adds to glossary if acronym type)
 penf review questions resolve 123 "Technical Execution Review"
@@ -127,7 +127,7 @@ Priority levels: `high`, `medium`, `low`
 penf status
 
 # System health
-penf health --format json
+penf health --output json
 ```
 
 ### Configuration
@@ -180,13 +180,13 @@ If the snippet isn't enough to understand an acronym:
 
 ```bash
 # Get more surrounding text (default 500 chars, can request more)
-penf review questions source <id> --context 1500 --format json
+penf review questions source <id> --context 1500 --output json
 
 # Get the full source content
-penf review questions source <id> --context -1 --format json
+penf review questions source <id> --context -1 --output json
 
 # Search for other occurrences of the term
-penf search "TER" --format json --limit=5
+penf search "TER" --output json --limit=5
 ```
 
 #### Action Semantics - What Each Action Does
@@ -197,11 +197,14 @@ penf search "TER" --format json --limit=5
 | **Dismiss** | `penf review questions dismiss <id> "reason"` | Removes from queue, NO glossary entry | Not an acronym, already exists, or irrelevant |
 | **Defer** | `penf review questions defer <id>` | Keeps in queue for later | Need more info, want user to decide later |
 
-**Important**: Dismiss does NOT create aliases or links. If "OBJE" is a transcription error for "OBJ", dismissing it won't link them. For transcription errors, either:
-- Resolve with the same expansion as the existing term (creates duplicate entry)
-- Ask user to manually add alias: `penf glossary add OBJE "Linode Object Store" --aliases OBJ`
+**Important**: Dismiss does NOT create aliases or links. If "OBJE" is a transcription error for "OBJ", dismissing it won't link them. For transcription errors, use the alias command:
 
-**TODO**: We need a `penf glossary alias <existing-term> <new-alias>` command for this case.
+```bash
+# Link transcription error to existing term
+penf glossary alias OBJ OBJE
+```
+
+This adds "OBJE" as an alias to the existing "OBJ" term, so both will resolve to the same expansion.
 
 #### The Workflow
 
@@ -271,19 +274,19 @@ This returns:
 
 ### When user asks about a topic
 
-1. Run search: `penf search "topic" --format json --limit=10`
+1. Run search: `penf search "topic" --output json --limit=10`
 2. Parse results and summarize findings
-3. If acronyms are unclear, check glossary: `penf glossary show TERM --format json`
+3. If acronyms are unclear, check glossary: `penf glossary show TERM --output json`
 
 ### When user asks about pending questions
 
-1. Get stats: `penf review questions stats --format json`
-2. List questions: `penf review questions list --format json`
+1. Get stats: `penf review questions stats --output json`
+2. List questions: `penf review questions list --output json`
 3. Present summary to user
 
 ### When user wants to answer a question
 
-1. Show the question details: `penf review questions show ID --format json`
+1. Show the question details: `penf review questions show ID --output json`
 2. Get user's answer
 3. Submit: `penf review questions resolve ID "user's answer"`
 
@@ -294,8 +297,8 @@ This returns:
 
 ### When user asks about a term/acronym
 
-1. Check glossary: `penf glossary show TERM --format json`
-2. If not found, search for context: `penf search "TERM" --format json --limit=5`
+1. Check glossary: `penf glossary show TERM --output json`
+2. If not found, search for context: `penf search "TERM" --output json --limit=5`
 3. Report findings
 
 ## Error Handling
@@ -377,7 +380,7 @@ export PENF_INSTALL_PATH=~/bin/penf
 
 ## Notes
 
-- All commands support `--format json` for structured output (prefer this)
+- All commands support `--output json` (or `-o json`) for structured output (prefer this)
 - Text output includes ANSI color codes - JSON is cleaner for parsing
 - Questions resolved as acronym type are automatically added to glossary
 - Search uses hybrid mode by default (semantic + keyword)

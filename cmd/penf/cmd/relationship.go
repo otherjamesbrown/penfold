@@ -139,7 +139,7 @@ func DefaultRelationshipDeps() *RelationshipCommandDeps {
 // Relationship command flags.
 var (
 	relationshipTenant        string
-	relationshipFormat        string
+	relationshipOutput        string
 	relationshipLimit         int
 	relationshipConfidenceMin float64
 	relationshipType          string
@@ -183,7 +183,7 @@ Relationship Types:
 
 	// Add persistent flags.
 	cmd.PersistentFlags().StringVarP(&relationshipTenant, "tenant", "t", "", "Tenant ID (overrides config)")
-	cmd.PersistentFlags().StringVarP(&relationshipFormat, "format", "f", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&relationshipOutput, "output", "o", "", "Output format: table, json, yaml")
 	cmd.PersistentFlags().IntVarP(&relationshipLimit, "limit", "l", 20, "Maximum number of results")
 	cmd.PersistentFlags().Float64Var(&relationshipConfidenceMin, "confidence-min", 0.0, "Minimum confidence threshold (0.0-1.0)")
 
@@ -538,8 +538,8 @@ func runRelationshipList(ctx context.Context, deps *RelationshipCommandDeps) err
 
 	// Determine output format.
 	format := cfg.OutputFormat
-	if relationshipFormat != "" {
-		format = config.OutputFormat(relationshipFormat)
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
 	}
 
 	return outputRelationships(format, relationships)
@@ -560,8 +560,8 @@ func runRelationshipShow(ctx context.Context, deps *RelationshipCommandDeps, rel
 	}
 
 	format := cfg.OutputFormat
-	if relationshipFormat != "" {
-		format = config.OutputFormat(relationshipFormat)
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
 	}
 
 	return outputRelationshipDetail(format, *relationship)
@@ -579,8 +579,8 @@ func runRelationshipSearch(ctx context.Context, deps *RelationshipCommandDeps, q
 	relationships := searchMockRelationships(query, relationshipLimit, relationshipConfidenceMin)
 
 	format := cfg.OutputFormat
-	if relationshipFormat != "" {
-		format = config.OutputFormat(relationshipFormat)
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
 	}
 
 	return outputRelationships(format, relationships)
@@ -598,8 +598,8 @@ func runEntityList(ctx context.Context, deps *RelationshipCommandDeps) error {
 	entities := getMockEntities(relationshipLimit, relationshipConfidenceMin, relationshipEntityType)
 
 	format := cfg.OutputFormat
-	if relationshipFormat != "" {
-		format = config.OutputFormat(relationshipFormat)
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
 	}
 
 	return outputEntities(format, entities)
@@ -620,8 +620,8 @@ func runEntityShow(ctx context.Context, deps *RelationshipCommandDeps, entityID 
 	}
 
 	format := cfg.OutputFormat
-	if relationshipFormat != "" {
-		format = config.OutputFormat(relationshipFormat)
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
 	}
 
 	return outputEntityDetail(format, *entity)
@@ -694,8 +694,8 @@ func runNetworkCentral(ctx context.Context, deps *RelationshipCommandDeps) error
 	entities := getMockCentralEntities(relationshipLimit)
 
 	format := cfg.OutputFormat
-	if relationshipFormat != "" {
-		format = config.OutputFormat(relationshipFormat)
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
 	}
 
 	return outputCentralEntities(format, entities)
@@ -713,8 +713,8 @@ func runNetworkClusters(ctx context.Context, deps *RelationshipCommandDeps) erro
 	clusters := getMockClusters()
 
 	format := cfg.OutputFormat
-	if relationshipFormat != "" {
-		format = config.OutputFormat(relationshipFormat)
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
 	}
 
 	return outputClusters(format, clusters)
@@ -732,8 +732,8 @@ func runConflictList(ctx context.Context, deps *RelationshipCommandDeps) error {
 	conflicts := getMockConflicts(relationshipLimit)
 
 	format := cfg.OutputFormat
-	if relationshipFormat != "" {
-		format = config.OutputFormat(relationshipFormat)
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
 	}
 
 	return outputConflicts(format, conflicts)
@@ -754,8 +754,8 @@ func runConflictShow(ctx context.Context, deps *RelationshipCommandDeps, conflic
 	}
 
 	format := cfg.OutputFormat
-	if relationshipFormat != "" {
-		format = config.OutputFormat(relationshipFormat)
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
 	}
 
 	return outputConflictDetail(format, *conflict)

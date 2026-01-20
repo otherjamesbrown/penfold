@@ -20,7 +20,7 @@ import (
 
 // Review questions command flags
 var (
-	questionsFormat   string
+	questionsOutput   string
 	questionsType     string
 	questionsPriority string
 	questionsLimit    int
@@ -53,7 +53,7 @@ Examples:
 	}
 
 	// Add persistent flags
-	cmd.PersistentFlags().StringVarP(&questionsFormat, "format", "f", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&questionsOutput, "output", "o", "", "Output format: table, json, yaml")
 	cmd.PersistentFlags().IntVarP(&questionsLimit, "limit", "l", 20, "Maximum number of results")
 
 	// Add subcommands
@@ -306,8 +306,8 @@ func runQuestionsList(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 
 	format := cfg.OutputFormat
-	if questionsFormat != "" {
-		format = config.OutputFormat(questionsFormat)
+	if questionsOutput != "" {
+		format = config.OutputFormat(questionsOutput)
 	}
 
 	return outputProtoQuestionsList(format, resp.Questions)
@@ -342,8 +342,8 @@ func runQuestionsNext(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 
 	format := cfg.OutputFormat
-	if questionsFormat != "" {
-		format = config.OutputFormat(questionsFormat)
+	if questionsOutput != "" {
+		format = config.OutputFormat(questionsOutput)
 	}
 
 	return outputProtoQuestionDetail(format, resp.Question)
@@ -372,8 +372,8 @@ func runQuestionsShow(ctx context.Context, deps *ReviewCommandDeps, id int64) er
 	}
 
 	format := cfg.OutputFormat
-	if questionsFormat != "" {
-		format = config.OutputFormat(questionsFormat)
+	if questionsOutput != "" {
+		format = config.OutputFormat(questionsOutput)
 	}
 
 	return outputProtoQuestionDetail(format, resp.Question)
@@ -478,8 +478,8 @@ func runQuestionsStats(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 
 	format := cfg.OutputFormat
-	if questionsFormat != "" {
-		format = config.OutputFormat(questionsFormat)
+	if questionsOutput != "" {
+		format = config.OutputFormat(questionsOutput)
 	}
 
 	return outputProtoQuestionsStats(format, resp.Stats)
@@ -508,8 +508,8 @@ func runQuestionsSource(ctx context.Context, deps *ReviewCommandDeps, id int64) 
 	}
 
 	format := cfg.OutputFormat
-	if questionsFormat != "" {
-		format = config.OutputFormat(questionsFormat)
+	if questionsOutput != "" {
+		format = config.OutputFormat(questionsOutput)
 	}
 
 	return outputProtoQuestionSource(format, resp)

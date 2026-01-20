@@ -20,7 +20,7 @@ import (
 
 // Glossary command flags
 var (
-	glossaryFormat   string
+	glossaryOutput   string
 	glossaryContext  []string
 	glossaryLimit    int
 	glossaryExpand   bool
@@ -68,7 +68,7 @@ Query expansion automatically expands known acronyms in search queries.`,
 	}
 
 	// Add persistent flags
-	cmd.PersistentFlags().StringVarP(&glossaryFormat, "format", "f", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&glossaryOutput, "output", "o", "", "Output format: table, json, yaml")
 	cmd.PersistentFlags().IntVarP(&glossaryLimit, "limit", "l", 50, "Maximum number of results")
 
 	// Add subcommands
@@ -354,8 +354,8 @@ func runGlossaryList(ctx context.Context, deps *GlossaryCommandDeps) error {
 	}
 
 	format := cfg.OutputFormat
-	if glossaryFormat != "" {
-		format = config.OutputFormat(glossaryFormat)
+	if glossaryOutput != "" {
+		format = config.OutputFormat(glossaryOutput)
 	}
 
 	return outputGlossaryProtoTerms(format, resp.Terms)
@@ -391,8 +391,8 @@ func runGlossaryShow(ctx context.Context, deps *GlossaryCommandDeps, termStr str
 	}
 
 	format := cfg.OutputFormat
-	if glossaryFormat != "" {
-		format = config.OutputFormat(glossaryFormat)
+	if glossaryOutput != "" {
+		format = config.OutputFormat(glossaryOutput)
 	}
 
 	return outputGlossaryProtoTermDetail(format, termResp.Term)
@@ -424,8 +424,8 @@ func runGlossarySearch(ctx context.Context, deps *GlossaryCommandDeps, query str
 	}
 
 	format := cfg.OutputFormat
-	if glossaryFormat != "" {
-		format = config.OutputFormat(glossaryFormat)
+	if glossaryOutput != "" {
+		format = config.OutputFormat(glossaryOutput)
 	}
 
 	return outputGlossaryProtoTerms(format, resp.Terms)
@@ -486,8 +486,8 @@ func runGlossaryExpand(ctx context.Context, deps *GlossaryCommandDeps, query str
 	}
 
 	format := cfg.OutputFormat
-	if glossaryFormat != "" {
-		format = config.OutputFormat(glossaryFormat)
+	if glossaryOutput != "" {
+		format = config.OutputFormat(glossaryOutput)
 	}
 
 	return outputQueryExpansionProto(format, resp)

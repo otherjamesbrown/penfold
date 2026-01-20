@@ -618,7 +618,7 @@ func TestRunRelationshipList(t *testing.T) {
 
 	// Reset global flags.
 	relationshipTenant = ""
-	relationshipFormat = ""
+	relationshipOutput = ""
 	relationshipLimit = 20
 	relationshipConfidenceMin = 0
 	relationshipType = ""
@@ -643,7 +643,7 @@ func TestRunRelationshipShow(t *testing.T) {
 	deps := createRelationshipTestDeps(cfg)
 
 	// Reset global flags.
-	relationshipFormat = ""
+	relationshipOutput = ""
 
 	// Capture stdout.
 	oldStdout := os.Stdout
@@ -665,7 +665,7 @@ func TestRunRelationshipSearch(t *testing.T) {
 	deps := createRelationshipTestDeps(cfg)
 
 	// Reset global flags.
-	relationshipFormat = ""
+	relationshipOutput = ""
 	relationshipLimit = 20
 	relationshipConfidenceMin = 0
 
@@ -689,7 +689,7 @@ func TestRunEntityList(t *testing.T) {
 	deps := createRelationshipTestDeps(cfg)
 
 	// Reset global flags.
-	relationshipFormat = ""
+	relationshipOutput = ""
 	relationshipLimit = 20
 	relationshipConfidenceMin = 0
 	relationshipEntityType = ""
@@ -714,7 +714,7 @@ func TestRunEntityShow(t *testing.T) {
 	deps := createRelationshipTestDeps(cfg)
 
 	// Reset global flags.
-	relationshipFormat = ""
+	relationshipOutput = ""
 
 	// Capture stdout.
 	oldStdout := os.Stdout
@@ -736,7 +736,7 @@ func TestRunEntityShow_NotFound(t *testing.T) {
 	deps := createRelationshipTestDeps(cfg)
 
 	// Reset global flags.
-	relationshipFormat = ""
+	relationshipOutput = ""
 
 	err := runEntityShow(context.Background(), deps, "ent-nonexistent")
 
@@ -804,7 +804,7 @@ func TestRunNetworkCentral(t *testing.T) {
 	deps := createRelationshipTestDeps(cfg)
 
 	// Reset global flags.
-	relationshipFormat = ""
+	relationshipOutput = ""
 	relationshipLimit = 10
 
 	// Capture stdout.
@@ -827,7 +827,7 @@ func TestRunNetworkClusters(t *testing.T) {
 	deps := createRelationshipTestDeps(cfg)
 
 	// Reset global flags.
-	relationshipFormat = ""
+	relationshipOutput = ""
 
 	// Capture stdout.
 	oldStdout := os.Stdout
@@ -849,7 +849,7 @@ func TestRunConflictList(t *testing.T) {
 	deps := createRelationshipTestDeps(cfg)
 
 	// Reset global flags.
-	relationshipFormat = ""
+	relationshipOutput = ""
 	relationshipLimit = 20
 
 	// Capture stdout.
@@ -872,7 +872,7 @@ func TestRunConflictShow(t *testing.T) {
 	deps := createRelationshipTestDeps(cfg)
 
 	// Reset global flags.
-	relationshipFormat = ""
+	relationshipOutput = ""
 
 	// Capture stdout.
 	oldStdout := os.Stdout
@@ -894,7 +894,7 @@ func TestRunConflictShow_NotFound(t *testing.T) {
 	deps := createRelationshipTestDeps(cfg)
 
 	// Reset global flags.
-	relationshipFormat = ""
+	relationshipOutput = ""
 
 	err := runConflictShow(context.Background(), deps, "conf-nonexistent")
 

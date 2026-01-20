@@ -57,28 +57,21 @@ This is correct - noun first, then verb.
 3. **Missing `remove`/`delete`**: Only `glossary remove` exists
    - Other groups can't delete items
 
-### 3. Flag Naming ⚠️ Inconsistent
+### 3. Flag Naming ✅ Standardized
 
 | Flag | Global | glossary | product | relationship | search |
 |------|--------|----------|---------|--------------|--------|
-| Output format | `--output` | `-f, --format` | `-f, --format` | `-f, --format` | `-o, --output` |
+| Output format | `--output` | `-o, --output` | `-o, --output` | `-o, --output` | `-o, --output` |
 | Limit | ❌ | `-l, --limit` | ❌ | `-l, --limit` | `-l, --limit` |
 | Tenant | ❌ | ❌ | `-t, --tenant` | `-t, --tenant` | ❌ |
 
-#### Issues
+**COMPLETED (pe-14kv)**: All commands now use `-o, --output` for output format (kubectl pattern).
 
-1. **`--format` vs `--output`**: Search uses `-o, --output`, others use `-f, --format`
-   - Git uses `-o` for output file, not format
-   - kubectl uses `-o, --output` for format
-   - **Recommendation**: Standardize on `-o, --output` (kubectl pattern)
-
-2. **Short flags inconsistent**: Some have `-f`, some don't
-
-### 4. Missing Git-like Patterns ❌
+### 4. Missing Git-like Patterns (Partial)
 
 | Pattern | Git Example | penf Status | Recommendation |
 |---------|-------------|-------------|----------------|
-| `alias` | `git config alias.co checkout` | Only `product alias` | Add to glossary |
+| `alias` | `git config alias.co checkout` | ✅ `product alias`, `glossary alias` | DONE (pe-vtcs) |
 | `rename` | `git branch -m old new` | ❌ None | Add where applicable |
 | `set` | `git config --set` | Only `config set` | Add `glossary set`, `product set` |
 | `get` | `git config --get` | ❌ None | Add for consistency |

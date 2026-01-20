@@ -61,7 +61,7 @@ func TestNewProductCommand(t *testing.T) {
 	}
 
 	// Check persistent flags.
-	flags := []string{"tenant", "format"}
+	flags := []string{"tenant", "output"}
 	for _, flag := range flags {
 		if cmd.PersistentFlags().Lookup(flag) == nil {
 			t.Errorf("expected persistent flag %q to exist", flag)
@@ -466,10 +466,10 @@ func TestGetProductOutputFormat(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Save and restore global flag.
-			oldFormat := productFormat
-			defer func() { productFormat = oldFormat }()
+			oldFormat := productOutput
+			defer func() { productOutput = oldFormat }()
 
-			productFormat = tt.formatFlag
+			productOutput = tt.formatFlag
 
 			cfg := &config.CLIConfig{OutputFormat: tt.configFormat}
 			result := getProductOutputFormat(cfg)
@@ -483,10 +483,10 @@ func TestGetProductOutputFormat(t *testing.T) {
 
 func TestGetProductOutputFormat_NilConfig(t *testing.T) {
 	// Save and restore global flag.
-	oldFormat := productFormat
-	defer func() { productFormat = oldFormat }()
+	oldFormat := productOutput
+	defer func() { productOutput = oldFormat }()
 
-	productFormat = ""
+	productOutput = ""
 
 	result := getProductOutputFormat(nil)
 	if result != config.OutputFormatText {

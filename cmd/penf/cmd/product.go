@@ -21,7 +21,7 @@ import (
 // Product command flags.
 var (
 	productTenant      string
-	productFormat      string
+	productOutput      string
 	productParent      string
 	productType        string
 	productStatus      string
@@ -143,7 +143,7 @@ Examples:
 
 	// Add persistent flags.
 	cmd.PersistentFlags().StringVarP(&productTenant, "tenant", "t", "", "Tenant ID (overrides config)")
-	cmd.PersistentFlags().StringVarP(&productFormat, "format", "f", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&productOutput, "output", "o", "", "Output format: table, json, yaml")
 
 	// Add subcommands.
 	cmd.AddCommand(newProductListCommand(deps))
@@ -668,8 +668,8 @@ func runProductAliasList(ctx context.Context, deps *ProductCommandDeps, productN
 
 // getProductOutputFormat returns the output format from flag or config.
 func getProductOutputFormat(cfg *config.CLIConfig) config.OutputFormat {
-	if productFormat != "" {
-		return config.OutputFormat(productFormat)
+	if productOutput != "" {
+		return config.OutputFormat(productOutput)
 	}
 	if cfg != nil {
 		return cfg.OutputFormat
