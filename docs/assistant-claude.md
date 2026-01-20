@@ -143,10 +143,56 @@ penf config show
 
 ### Batch Acronym Review (PREFERRED)
 
-**Use batch processing instead of one-at-a-time commands.**
+#### Why Acronyms Matter
+
+Penfold ingests content from meetings, emails, and documents. During ingestion, the system identifies potential acronyms that aren't in the glossary. **Building the glossary is critical because:**
+
+1. **Search Enhancement**: When a user searches for "minimum viable product", the query expander also searches for "MVP" - but only if the glossary maps MVP → Minimum Viable Product
+2. **Context Understanding**: Future AI analysis of content can expand acronyms to understand meaning
+3. **Institutional Knowledge**: The user's domain has specific acronyms (project names, team codes, internal terms) that only they can define
+
+#### What You Receive
+
+Each acronym question contains:
+- **term**: The detected acronym (e.g., "TER")
+- **context**: The surrounding text where it appeared (e.g., "...discussed in the TER meeting yesterday...")
+- **source_reference**: Where it came from (e.g., "meeting-2024-01-15", "email-thread-123")
+- **priority**: How often it appeared or how important the source is
+
+The context is your primary clue. Read it carefully - it often reveals what the acronym means.
+
+#### Your Role
+
+**You are the intelligent layer between raw data and the user.** Don't just present questions one by one - analyze them as a batch and apply your knowledge:
+
+1. **Recognize standard terms**: You know what MVP, API, AWS mean. Resolve these automatically.
+2. **Spot duplicates**: If "API" is already in the glossary, dismiss it.
+3. **Identify patterns**: Multiple questions about the same term? Resolve once.
+4. **Detect transcription errors**: "PLD" in a meeting transcript might be "PLM", "PLC", or a mishearing. Check the context.
+5. **Recognize non-acronyms**: "AW said..." is probably person initials (Adam W), not an acronym.
+6. **Surface only what needs human input**: Domain-specific terms, ambiguous cases, or things you're uncertain about.
+
+**Goal**: Minimize user effort. They should only see items that genuinely require their knowledge.
+
+#### Getting More Context
+
+If the snippet isn't enough to understand an acronym:
 
 ```bash
-# 1. Get full context in one call
+# Get more surrounding text (default 500 chars, can request more)
+penf review questions source <id> --context 1500 --format json
+
+# Get the full source content
+penf review questions source <id> --context -1 --format json
+
+# Search for other occurrences of the term
+penf search "TER" --format json --limit=5
+```
+
+#### The Workflow
+
+```bash
+# 1. Get everything in one call
 penf process acronyms context --output json
 ```
 
@@ -154,20 +200,35 @@ This returns:
 - All pending acronym questions with context snippets
 - Current glossary (to check for duplicates)
 - Queue statistics
-- Available actions
 
-**Intelligent processing:**
+**Then analyze intelligently:**
+
 1. Categorize all questions:
-   - Standard tech terms (MVP, API, AWS, etc.) → auto-resolve
+   - Standard tech terms → auto-resolve
    - Already in glossary → dismiss
-   - Ambiguous/domain-specific → ask user
+   - Non-acronyms (initials, typos) → dismiss with reason
+   - Uncertain/domain-specific → ask user
 
-2. Present summary to user:
+2. Present a summary to the user:
    ```
-   Found 15 acronym questions:
-   - 8 standard tech terms (will auto-resolve)
-   - 3 already in glossary (will dismiss)
-   - 4 need your input: [list them with context]
+   Found 15 acronym questions. Here's my analysis:
+
+   Auto-resolving (8 standard terms):
+   - MVP → Minimum Viable Product
+   - API → Application Programming Interface
+   ...
+
+   Dismissing (4):
+   - API (already in glossary)
+   - AW (appears to be person initials "Adam W" based on context)
+   ...
+
+   Need your input (3):
+   - TER: "...the TER meeting yesterday..." - Could be Technical Execution Review? Or a project name?
+   - PLD: "...check the PLD status..." - Unclear, might be a typo
+   ...
+
+   Should I proceed with the auto-resolutions and dismissals?
    ```
 
 3. After user confirms, batch execute:
@@ -184,12 +245,13 @@ This returns:
    }'
    ```
 
-**Standard tech acronyms Claude can auto-resolve:**
-- Web/API: REST, API, HTTP, JSON, YAML, URL, DNS, CDN, SSL, TLS, WebRTC
-- Development: MVP, POC, SDK, IDE, CLI, CI/CD, TDD, OOP, DRY, CRUD, MVC
-- Cloud: AWS, GCP, Azure, K8s, VM, VPC, IAM, S3, EC2, RDS, Lambda
-- Database: SQL, NoSQL, RDBMS, ORM, ACID, ETL, CDC
-- Business: ROI, KPI, OKR, SLA, NDA, B2B, B2C, CRM, ERP
+#### Standard Tech Acronyms You Can Auto-Resolve
+
+- Web/API: REST, API, HTTP, HTTPS, JSON, YAML, XML, URL, URI, DNS, CDN, SSL, TLS, WebRTC, WebSocket
+- Development: MVP, POC, SDK, IDE, CLI, CI/CD, TDD, BDD, OOP, DRY, SOLID, CRUD, MVC, MVVM
+- Cloud: AWS, GCP, Azure, K8s, VM, VPC, IAM, S3, EC2, RDS, ECS, EKS, Lambda, SaaS, PaaS, IaaS
+- Database: SQL, NoSQL, RDBMS, ORM, ACID, CAP, ETL, CDC, OLAP, OLTP
+- Business: ROI, KPI, OKR, SLA, NDA, B2B, B2C, CRM, ERP, PO, PM, QA
 
 **Note:** Glossary lookups are case-insensitive (NBS matches NBs).
 
