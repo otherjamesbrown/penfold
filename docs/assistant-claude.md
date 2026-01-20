@@ -141,6 +141,56 @@ penf config show
 
 ## Common Workflows
 
+### Batch Acronym Review (PREFERRED)
+
+**Use batch processing instead of one-at-a-time commands.**
+
+```bash
+# 1. Get full context in one call
+penf process acronyms context --output json
+```
+
+This returns:
+- All pending acronym questions with context snippets
+- Current glossary (to check for duplicates)
+- Queue statistics
+- Available actions
+
+**Intelligent processing:**
+1. Categorize all questions:
+   - Standard tech terms (MVP, API, AWS, etc.) → auto-resolve
+   - Already in glossary → dismiss
+   - Ambiguous/domain-specific → ask user
+
+2. Present summary to user:
+   ```
+   Found 15 acronym questions:
+   - 8 standard tech terms (will auto-resolve)
+   - 3 already in glossary (will dismiss)
+   - 4 need your input: [list them with context]
+   ```
+
+3. After user confirms, batch execute:
+   ```bash
+   penf process acronyms batch-resolve '{
+     "resolutions": [
+       {"id": 24, "expansion": "Minimum Viable Product"},
+       {"id": 25, "expansion": "Web Real-Time Communication"}
+     ],
+     "dismissals": [
+       {"id": 26, "reason": "Already in glossary"},
+       {"id": 27, "reason": "Speaker initials, not acronym"}
+     ]
+   }'
+   ```
+
+**Standard tech acronyms Claude can auto-resolve:**
+- Web/API: REST, API, HTTP, JSON, YAML, URL, DNS, CDN, SSL, TLS, WebRTC
+- Development: MVP, POC, SDK, IDE, CLI, CI/CD, TDD, OOP, DRY, CRUD, MVC
+- Cloud: AWS, GCP, Azure, K8s, VM, VPC, IAM, S3, EC2, RDS, Lambda
+- Database: SQL, NoSQL, RDBMS, ORM, ACID, ETL, CDC
+- Business: ROI, KPI, OKR, SLA, NDA, B2B, B2C, CRM, ERP
+
 ### When user asks about a topic
 
 1. Run search: `penf search "topic" --format json --limit=10`
