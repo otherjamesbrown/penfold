@@ -148,7 +148,7 @@ Scoped role assignment: person has role X in context of product Y through team Z
 
 ### ProductEvent
 
-Timeline entry for product decisions, milestones, and risks.
+Timeline entry for product-related events, both internal (decisions, releases) and external (competitor moves, market shifts).
 
 | Field | Type | Constraints | Description |
 |-------|------|-------------|-------------|
@@ -156,7 +156,9 @@ Timeline entry for product decisions, milestones, and risks.
 | event_uuid | UUID | UNIQUE, NOT NULL | External reference |
 | tenant_id | VARCHAR(255) | NOT NULL | Tenant isolation |
 | product_id | BIGINT | FK(products.id), NOT NULL | Associated product |
-| event_type | VARCHAR(50) | NOT NULL | decision, milestone, risk, note |
+| event_type | VARCHAR(50) | NOT NULL | Type of event (see below) |
+| visibility | VARCHAR(20) | NOT NULL, DEFAULT 'internal' | internal or external event |
+| source_type | VARCHAR(20) | NOT NULL, DEFAULT 'manual' | How event was created |
 | title | VARCHAR(500) | NOT NULL | Event title/summary |
 | description | TEXT | NULL | Detailed description |
 | occurred_at | TIMESTAMPTZ | NOT NULL | When the event occurred |
@@ -165,14 +167,29 @@ Timeline entry for product decisions, milestones, and risks.
 | created_at | TIMESTAMPTZ | NOT NULL, DEFAULT NOW() | Record creation |
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update |
 
+**Event Types**:
+| Type | Visibility | Description |
+|------|------------|-------------|
+| decision | internal | Internal decision about the product |
+| milestone | internal | Project/product milestone reached |
+| risk | internal | Risk identified or materialized |
+| release | internal | Product release or launch |
+| competitor | external | Competitor action (release, announcement, etc.) |
+| org_change | internal | Organizational change (new leader, reorg, etc.) |
+| market | external | Market or geopolitical event affecting product |
+| note | internal | General note or observation |
+
 **Indexes**:
 - `idx_product_events_product` ON (product_id, occurred_at DESC)
 - `idx_product_events_type` ON (tenant_id, event_type)
+- `idx_product_events_visibility` ON (tenant_id, visibility)
 - `idx_product_events_occurred` ON (tenant_id, occurred_at DESC)
 - `idx_product_events_uuid` ON (event_uuid)
 
 **Constraints**:
-- CHECK: event_type IN ('decision', 'milestone', 'risk', 'note')
+- CHECK: event_type IN ('decision', 'milestone', 'risk', 'release', 'competitor', 'org_change', 'market', 'note')
+- CHECK: visibility IN ('internal', 'external')
+- CHECK: source_type IN ('manual', 'derived')
 - CHECK: length(trim(title)) > 0
 
 ---
@@ -281,10 +298,48 @@ ORDER BY prod.name, t.name;
 ### "Show me LKE Enterprise timeline"
 
 ```sql
-SELECT pe.event_type, pe.title, pe.description, pe.occurred_at, pe.recorded_by
+SELECT pe.event_type, pe.visibility, pe.title, pe.description, pe.occurred_at, pe.recorded_by
 FROM product_events pe
 JOIN products prod ON pe.product_id = prod.id
 WHERE prod.name = 'LKE Enterprise'
+ORDER BY pe.occurred_at DESC;
+```
+
+### "What was happening around the pricing decision?" (Context anchoring)
+
+```sql
+-- Find events in a window around a specific decision
+WITH target_decision AS (
+  SELECT occurred_at
+  FROM product_events pe
+  JOIN products prod ON pe.product_id = prod.id
+  WHERE prod.name = 'LKE Enterprise'
+    AND pe.event_type = 'decision'
+    AND pe.title ILIKE '%pricing%'
+  LIMIT 1
+)
+SELECT pe.event_type, pe.visibility, pe.title, pe.occurred_at,
+       CASE
+         WHEN pe.occurred_at < td.occurred_at THEN 'before'
+         WHEN pe.occurred_at > td.occurred_at THEN 'after'
+         ELSE 'same day'
+       END as relative_timing
+FROM product_events pe
+JOIN products prod ON pe.product_id = prod.id
+CROSS JOIN target_decision td
+WHERE prod.name = 'LKE Enterprise'
+  AND pe.occurred_at BETWEEN td.occurred_at - INTERVAL '30 days' AND td.occurred_at + INTERVAL '30 days'
+ORDER BY pe.occurred_at;
+```
+
+### "Show me external events affecting LKE"
+
+```sql
+SELECT pe.event_type, pe.title, pe.description, pe.occurred_at
+FROM product_events pe
+JOIN products prod ON pe.product_id = prod.id
+WHERE prod.name ILIKE '%LKE%'
+  AND pe.visibility = 'external'
 ORDER BY pe.occurred_at DESC;
 ```
 
@@ -338,9 +393,34 @@ penf product team role <product> <team> <person> <role>   # Add role
   --scope <scope>               # Optional scope (networking, database)
 
 penf product timeline <name>    # Show product timeline
+  --type <type>                 # Filter by event type
+  --visibility <vis>            # Filter: internal, external, all (default: all)
+  --since <date>                # Show events since date
+  --until <date>                # Show events until date
+
 penf product event <product>    # Add timeline event
-  --type <type>                 # decision, milestone, risk, note
-  --title <title>
-  --description <text>
-  --occurred <date>
+  --type <type>                 # decision, milestone, risk, release, competitor, org_change, market, note
+  --title <title>               # Event title (required)
+  --description <text>          # Detailed description
+  --occurred <date>             # When it happened (default: now)
+  --visibility <vis>            # internal (default) or external
+  --link <source-id>            # Link to meeting/email source
+```
+
+**Event Type Examples**:
+```bash
+# Internal decision
+penf product event LKE --type decision --title "Deprecate v1 API" --occurred 2026-01-15
+
+# Product release
+penf product event "LKE Enterprise" --type release --title "LKE Enterprise GA" --occurred 2026-01-10
+
+# Competitor move (external)
+penf product event LKE --type competitor --title "AWS announces managed K8s price cut" --visibility external
+
+# Org change
+penf product event MTC --type org_change --title "Sarah promoted to VP Engineering"
+
+# Market event (external)
+penf product event LKE --type market --title "EU AI Act passes" --visibility external
 ```

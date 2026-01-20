@@ -13,9 +13,18 @@ Products are first-class entities representing business products (LKE, LKE Enter
 This extends the existing People/Teams/Projects model with:
 - **Products** with 3-level hierarchy (Product → Sub-Product → Feature)
 - **Product-Team associations** with scoped roles
-- **Timeline/Decision log** for product events
+- **Timeline events** capturing both internal decisions and external context (competitor moves, market events, org changes)
 - **Bidirectional navigation**: Person → Teams → Products and Products → Teams → People
 - **Country field on People** for geographic queries
+
+### Timeline as Context Layer
+
+The timeline captures events that provide context for AI reasoning and historical understanding:
+- **Internal events**: decisions, milestones, risks, releases
+- **External events**: competitor actions, market shifts, geopolitical events
+- **Organizational events**: leadership changes, team restructures
+
+This enables queries like "what was the competitive landscape when we set pricing?" and helps AI anchor reasoning with "this decision was made before the AWS announcement."
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -67,23 +76,41 @@ As a project lead, I need to find team members by location so that I can coordin
 
 ---
 
-### User Story 4 - Decision Timeline (Priority: P2)
+### User Story 4 - Product Timeline and Events (Priority: P2)
 
-As a product owner, I need to track when decisions were made about my product so that I can understand historical context and revisit past choices.
+As a product owner, I need to track events related to my product - both internal decisions and external context - so that I can understand historical context and revisit past choices with full awareness of what was happening at the time.
 
-**Why this priority**: Enables institutional memory - "when did we decide on pricing" requires temporal event tracking.
+**Why this priority**: Enables institutional memory and context-aware reasoning. "When did we decide on pricing" requires knowing not just the decision, but what competitor landscape existed at that moment.
 
-**Independent Test**: Can be fully tested by recording decisions with timestamps and querying by product + date range.
+**Independent Test**: Can be fully tested by recording various event types with timestamps and querying by product + date range + event type.
 
 **Acceptance Scenarios**:
 
 1. **Given** pricing decision was made for LKE Enterprise, **When** user asks "when did we decide on LKE Enterprise pricing", **Then** decision event is returned with date and context
-2. **Given** multiple decisions over time, **When** user requests product timeline, **Then** events are displayed chronologically
+2. **Given** multiple events over time (decisions, releases, competitor actions), **When** user requests product timeline, **Then** all events are displayed chronologically with type indicators
 3. **Given** decision was discussed in a meeting, **When** viewing decision, **Then** linked meeting is accessible
+4. **Given** competitor released a feature before our decision, **When** AI explains the decision context, **Then** AI can reference "this was 2 weeks after competitor X announced Y"
 
 ---
 
-### User Story 5 - Cross-Cutting Queries (Priority: P2)
+### User Story 5 - External Context Events (Priority: P2)
+
+As a strategic thinker, I need to record external events (competitor moves, market shifts, org changes) that affect my products so that I can correlate internal decisions with external context.
+
+**Why this priority**: External events are "invisible" in meetings and emails but critical for understanding why decisions were made.
+
+**Independent Test**: Can be fully tested by recording external events and verifying they appear in timeline queries and AI context.
+
+**Acceptance Scenarios**:
+
+1. **Given** AWS announces a competing feature, **When** user records competitor event, **Then** event appears in product timeline with external visibility marker
+2. **Given** new VP of Engineering joins, **When** user records org_change event, **Then** event provides context for subsequent decisions
+3. **Given** market conditions changed (interest rates, regulations), **When** user records market event, **Then** AI can factor this into historical analysis
+4. **Given** product was released, **When** user records release event, **Then** timeline shows clear before/after demarcation
+
+---
+
+### User Story 6 - Cross-Cutting Queries (Priority: P2)
 
 As an executive, I need to correlate information across products and time so that I can identify patterns and risks.
 
@@ -99,7 +126,7 @@ As an executive, I need to correlate information across products and time so tha
 
 ---
 
-### User Story 6 - Bidirectional Navigation (Priority: P1)
+### User Story 7 - Bidirectional Navigation (Priority: P1)
 
 As a user exploring the organization, I need to navigate from people to their teams and products, and from products to their teams and people.
 
@@ -148,25 +175,30 @@ As a user exploring the organization, I need to navigate from people to their te
 - **FR-012**: System MUST support products → teams → people navigation
 
 **Timeline**
-- **FR-013**: System MUST record product events (decisions, milestones, risk creation)
-- **FR-014**: System MUST link events to meetings/emails when applicable
-- **FR-015**: System MUST support querying events by product and date range
-- **FR-016**: System MUST capture event metadata (who, what, when, context)
+- **FR-013**: System MUST record product events with types: decision, milestone, risk, release, competitor, org_change, market, note
+- **FR-014**: System MUST distinguish internal vs external events (visibility field)
+- **FR-015**: System MUST track event source (manual entry vs derived from content)
+- **FR-016**: System MUST link events to meetings/emails when applicable
+- **FR-017**: System MUST support querying events by product, date range, and event type
+- **FR-018**: System MUST capture event metadata (who, what, when, context)
+- **FR-019**: System MUST surface external events in AI context for decision reasoning
 
 **CLI Interface**
-- **FR-017**: System MUST provide `penf product` command group for product management
-- **FR-018**: System MUST provide `penf product add` for creating products with hierarchy
-- **FR-019**: System MUST provide `penf product team` for managing team associations
-- **FR-020**: System MUST provide `penf product info` for viewing product details
-- **FR-021**: System MUST provide `penf product timeline` for viewing product events
-- **FR-022**: System MUST integrate products with search and AI queries
+- **FR-020**: System MUST provide `penf product` command group for product management
+- **FR-021**: System MUST provide `penf product add` for creating products with hierarchy
+- **FR-022**: System MUST provide `penf product team` for managing team associations
+- **FR-023**: System MUST provide `penf product info` for viewing product details
+- **FR-024**: System MUST provide `penf product timeline` for viewing product events (filterable by type)
+- **FR-025**: System MUST provide `penf product event` for adding events with type and visibility
+- **FR-026**: System MUST integrate products with search and AI queries
 
 ### Key Entities
 
 - **Product**: Business product with hierarchy (parent_id), status, and metadata
 - **ProductTeam**: Association between product and team with context label
 - **ProductTeamRole**: Scoped role assignment (person + role + product + team)
-- **ProductEvent**: Timeline entry (decision, milestone, risk) with metadata
+- **ProductEvent**: Timeline entry with extended types (decision, milestone, risk, release, competitor, org_change, market, note), visibility (internal/external), and source tracking (manual/derived)
+- **ProductEventLink**: Links events to source content (meetings, emails, documents)
 - **Person.Country**: Geographic location for person (extension to existing entity)
 
 ## Success Criteria *(mandatory)*
@@ -201,8 +233,9 @@ As a user exploring the organization, I need to navigate from people to their te
 
 ## Non-Goals (v1)
 
-- Competitor entity management (use documents for now)
+- Full competitor entity management (competitor events supported, but not detailed competitor profiles)
 - Usage metrics/adoption data (future enhancement)
 - Integration with external product management tools (Jira, Productboard)
-- Automated product detection from content
+- Automated event detection from content (events are manual or user-confirmed)
 - Product financial data (revenue, costs)
+- Bi-temporal data model / full event sourcing (timestamps sufficient for v1)
