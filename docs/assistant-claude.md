@@ -189,6 +189,20 @@ penf review questions source <id> --context -1 --format json
 penf search "TER" --format json --limit=5
 ```
 
+#### Action Semantics - What Each Action Does
+
+| Action | Command | Effect | Use When |
+|--------|---------|--------|----------|
+| **Resolve** | `penf review questions resolve <id> "expansion"` | Adds term→expansion to glossary, marks question complete | You know what the acronym means |
+| **Dismiss** | `penf review questions dismiss <id> "reason"` | Removes from queue, NO glossary entry | Not an acronym, already exists, or irrelevant |
+| **Defer** | `penf review questions defer <id>` | Keeps in queue for later | Need more info, want user to decide later |
+
+**Important**: Dismiss does NOT create aliases or links. If "OBJE" is a transcription error for "OBJ", dismissing it won't link them. For transcription errors, either:
+- Resolve with the same expansion as the existing term (creates duplicate entry)
+- Ask user to manually add alias: `penf glossary add OBJE "Linode Object Store" --aliases OBJ`
+
+**TODO**: We need a `penf glossary alias <existing-term> <new-alias>` command for this case.
+
 #### The Workflow
 
 ```bash
