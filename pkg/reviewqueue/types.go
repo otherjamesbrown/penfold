@@ -42,26 +42,26 @@ type ReviewItem struct {
 	QuestionType QuestionType `json:"question_type"`
 	Priority     Priority     `json:"priority"`
 	Question     string       `json:"question"`
-	Context      string       `json:"context,omitempty"`
+	Context      *string      `json:"context,omitempty"`
 
 	// Source reference
-	SourceType      string `json:"source_type,omitempty"`
-	SourceID        int64  `json:"source_id,omitempty"`
-	SourceReference string `json:"source_reference,omitempty"`
+	SourceType      *string `json:"source_type,omitempty"`
+	SourceID        *int64  `json:"source_id,omitempty"`
+	SourceReference *string `json:"source_reference,omitempty"`
 
 	// Acronym-specific fields
-	SuggestedTerm      string `json:"suggested_term,omitempty"`
-	SuggestedExpansion string `json:"suggested_expansion,omitempty"`
+	SuggestedTerm      *string `json:"suggested_term,omitempty"`
+	SuggestedExpansion *string `json:"suggested_expansion,omitempty"`
 
 	// Person disambiguation fields
 	CandidatePersonIDs []int64 `json:"candidate_person_ids,omitempty"`
-	MatchedText        string  `json:"matched_text,omitempty"`
+	MatchedText        *string `json:"matched_text,omitempty"`
 
 	// Resolution
 	Status     Status     `json:"status"`
-	Resolution string     `json:"resolution,omitempty"`
+	Resolution *string    `json:"resolution,omitempty"`
 	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
-	ResolvedBy string     `json:"resolved_by,omitempty"`
+	ResolvedBy *string    `json:"resolved_by,omitempty"`
 
 	// AI confidence
 	Confidence float64 `json:"confidence"`

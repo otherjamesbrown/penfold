@@ -352,12 +352,12 @@ func runQuestionsResolve(ctx context.Context, deps *ReviewCommandDeps, id int64,
 	}
 
 	// If it's an acronym question, add to glossary
-	if item.QuestionType == reviewqueue.QuestionTypeAcronym && item.SuggestedTerm != "" {
+	if item.QuestionType == reviewqueue.QuestionTypeAcronym && item.SuggestedTerm != nil && *item.SuggestedTerm != "" {
 		glossaryRepo := glossary.NewRepository(pool)
 
 		expandInSearch := true
 		input := glossary.TermInput{
-			Term:           item.SuggestedTerm,
+			Term:           *item.SuggestedTerm,
 			Expansion:      answer,
 			ExpandInSearch: &expandInSearch,
 			Source:         "review_queue",
@@ -367,7 +367,7 @@ func runQuestionsResolve(ctx context.Context, deps *ReviewCommandDeps, id int64,
 		if err != nil {
 			fmt.Printf("Warning: Could not add to glossary: %v\n", err)
 		} else {
-			fmt.Printf("Added to glossary: %s = %s\n", item.SuggestedTerm, answer)
+			fmt.Printf("Added to glossary: %s = %s\n", *item.SuggestedTerm, answer)
 		}
 	}
 
@@ -518,20 +518,20 @@ func outputQuestionDetailText(item *reviewqueue.ReviewItem) error {
 	fmt.Printf("  \033[1mQuestion:\033[0m\n")
 	fmt.Printf("    %s\n", item.Question)
 
-	if item.Context != "" {
+	if item.Context != nil && *item.Context != "" {
 		fmt.Println()
 		fmt.Printf("  \033[1mContext:\033[0m\n")
-		fmt.Printf("    \"%s\"\n", item.Context)
+		fmt.Printf("    \"%s\"\n", *item.Context)
 	}
 
-	if item.SuggestedTerm != "" {
+	if item.SuggestedTerm != nil && *item.SuggestedTerm != "" {
 		fmt.Println()
-		fmt.Printf("  \033[1mTerm:\033[0m     %s\n", item.SuggestedTerm)
+		fmt.Printf("  \033[1mTerm:\033[0m     %s\n", *item.SuggestedTerm)
 	}
 
-	if item.SourceReference != "" {
+	if item.SourceReference != nil && *item.SourceReference != "" {
 		fmt.Println()
-		fmt.Printf("  \033[1mSource:\033[0m   %s\n", item.SourceReference)
+		fmt.Printf("  \033[1mSource:\033[0m   %s\n", *item.SourceReference)
 	}
 
 	fmt.Println()
