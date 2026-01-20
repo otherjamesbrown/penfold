@@ -158,6 +158,9 @@ Examples:
 	// Add timeline and event subcommands (defined in product_timeline.go).
 	addProductTimelineCommands(cmd, deps)
 
+	// Add query subcommand (defined in product_query.go).
+	addProductQueryCommands(cmd, deps)
+
 	return cmd
 }
 
