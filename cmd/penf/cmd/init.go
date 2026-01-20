@@ -4,6 +4,7 @@ package cmd
 import (
 	"bufio"
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,15 @@ import (
 
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
+
+//go:embed templates/preferences.md
+var preferencesTemplate string
+
+//go:embed templates/processes.md
+var processesTemplate string
+
+//go:embed templates/acronym-review.md
+var acronymReviewTemplate string
 
 var (
 	initServerAddr string
@@ -34,8 +44,11 @@ This command will:
 2. Create ~/.penf/config.yaml
 3. Test the connection to the gateway
 4. Download/update the assistant CLAUDE.md
+5. Create preferences.md (user settings - never overwritten)
+6. Install process definitions for workflow guidance
 
-Run this command on a new machine or to reconfigure an existing setup.`,
+Run this command on a new machine or to reconfigure an existing setup.
+Run again to update process definitions without losing preferences.`,
 		RunE: runInit,
 	}
 
@@ -115,14 +128,32 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
+	// Step 6: Create user preferences file (only if it doesn't exist).
+	fmt.Println("Setting up user preferences...")
+	if err := initUserPreferences(); err != nil {
+		fmt.Printf("  \033[33mWarning:\033[0m Could not create preferences: %v\n", err)
+	}
+	fmt.Println()
+
+	// Step 7: Create/update process definitions.
+	fmt.Println("Installing process definitions...")
+	if err := initProcessDefinitions(); err != nil {
+		fmt.Printf("  \033[33mWarning:\033[0m Could not create process files: %v\n", err)
+	}
+	fmt.Println()
+
 	// Summary.
 	fmt.Println("Initialization complete!")
 	fmt.Println()
+	configDir, _ := config.ConfigDir()
 	fmt.Println("Configuration summary:")
-	fmt.Printf("  Server address: %s\n", cfg.ServerAddress)
-	fmt.Printf("  Config file:    %s\n", configPath)
+	fmt.Printf("  Server address:  %s\n", cfg.ServerAddress)
+	fmt.Printf("  Config file:     %s\n", configPath)
+	fmt.Printf("  Preferences:     %s\n", filepath.Join(configDir, "preferences.md"))
+	fmt.Printf("  Processes:       %s\n", filepath.Join(configDir, "processes/"))
 	fmt.Println()
 	fmt.Println("Next steps:")
+	fmt.Println("  • Edit ~/.penf/preferences.md to customize your settings")
 	fmt.Println("  • Run 'penf status' to verify the connection")
 	fmt.Println("  • Run 'penf health' to check system health")
 	fmt.Println("  • Run 'penf search <query>' to search your content")
@@ -189,6 +220,64 @@ func downloadAssistantClaudeMd(cfg *config.CLIConfig) error {
 	if err := os.WriteFile(claudeMdPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("writing CLAUDE.md: %w", err)
 	}
+
+	return nil
+}
+
+// initUserPreferences creates the preferences.md file if it doesn't exist.
+// This file is NEVER overwritten - it belongs to the user.
+func initUserPreferences() error {
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		return fmt.Errorf("getting config directory: %w", err)
+	}
+
+	prefsPath := filepath.Join(configDir, "preferences.md")
+
+	// Check if preferences already exist - never overwrite
+	if _, err := os.Stat(prefsPath); err == nil {
+		fmt.Printf("  \033[32m✓\033[0m preferences.md already exists (not modified)\n")
+		return nil
+	}
+
+	// Create new preferences file
+	if err := os.WriteFile(prefsPath, []byte(preferencesTemplate), 0644); err != nil {
+		return fmt.Errorf("writing preferences.md: %w", err)
+	}
+
+	fmt.Printf("  \033[32m✓\033[0m Created preferences.md\n")
+	fmt.Println("    Edit ~/.penf/preferences.md to customize your settings")
+	return nil
+}
+
+// initProcessDefinitions creates/updates process definition files.
+// These CAN be updated by penf init or penf update.
+func initProcessDefinitions() error {
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		return fmt.Errorf("getting config directory: %w", err)
+	}
+
+	processDir := filepath.Join(configDir, "processes")
+
+	// Create processes directory
+	if err := os.MkdirAll(processDir, 0755); err != nil {
+		return fmt.Errorf("creating processes directory: %w", err)
+	}
+
+	// Write/update processes index
+	indexPath := filepath.Join(configDir, "processes.md")
+	if err := os.WriteFile(indexPath, []byte(processesTemplate), 0644); err != nil {
+		return fmt.Errorf("writing processes.md: %w", err)
+	}
+	fmt.Printf("  \033[32m✓\033[0m Updated processes.md index\n")
+
+	// Write/update acronym-review process
+	acronymPath := filepath.Join(processDir, "acronym-review.md")
+	if err := os.WriteFile(acronymPath, []byte(acronymReviewTemplate), 0644); err != nil {
+		return fmt.Errorf("writing acronym-review.md: %w", err)
+	}
+	fmt.Printf("  \033[32m✓\033[0m Updated processes/acronym-review.md\n")
 
 	return nil
 }

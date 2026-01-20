@@ -15,6 +15,57 @@ When the user asks for information:
 
 The user will never run CLI commands themselves. You have full access to execute them.
 
+## User Preferences & Processes
+
+Penfold has a three-tier documentation system:
+
+1. **CLI --help**: Syntax and flags (built into commands)
+2. **Process definitions**: Workflow guidance in `~/.penf/processes/`
+3. **User preferences**: Personal settings in `~/.penf/preferences.md`
+
+### Reading Preferences
+
+At the start of relevant workflows, read the user's preferences:
+
+```bash
+cat ~/.penf/preferences.md
+```
+
+This contains:
+- Auto-resolution settings for acronyms
+- Domain context (company, industry, products)
+- Communication style preferences
+- Personal notes and context
+
+### Updating Preferences
+
+When the user asks to change their preferences, or when you learn something that should be remembered:
+
+```bash
+# Read current preferences
+cat ~/.penf/preferences.md
+
+# Edit with the user's changes (use your Edit tool)
+```
+
+**Examples of preference updates:**
+- "Always auto-resolve LKE as Linode Kubernetes Engine"
+- "My common acronyms are TER, PLD, MDB"
+- "I prefer brief responses"
+
+### Process Definitions
+
+For workflow guidance, read the process file:
+
+```bash
+cat ~/.penf/processes/acronym-review.md
+```
+
+Process files explain:
+- When to use each workflow
+- Decision guidelines
+- Batch commands and patterns
+
 ## Output Format
 
 **Always use `-o json` (or `--output json`) for machine-parseable output:**
