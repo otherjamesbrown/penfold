@@ -56,19 +56,17 @@ jobs:
             -X main.buildTime=${{ steps.version.outputs.build_time }}" \
             -o penf .
 
-      - name: Create archive
+      - name: Prepare artifacts
         run: |
           mkdir -p dist
-          cp cmd/penf/penf dist/
-          cp docs/assistant-claude.md dist/CLAUDE.md
-          cd dist
-          tar -czvf penf_${{ matrix.os }}_${{ matrix.arch }}.tar.gz penf CLAUDE.md
+          # Raw binary for penf update (naming: penf-<os>-<arch>)
+          cp cmd/penf/penf dist/penf-${{ matrix.os }}-${{ matrix.arch }}
 
-      - name: Upload artifact
+      - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: penf_${{ matrix.os }}_${{ matrix.arch }}
-          path: dist/penf_${{ matrix.os }}_${{ matrix.arch }}.tar.gz
+          name: penf-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/penf-${{ matrix.os }}-${{ matrix.arch }}
 
   release:
     name: Create Release
@@ -87,61 +85,56 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
-          find dist -name "*.tar.gz" -exec cp {} release/ \;
+          # Copy raw binaries (for penf update)
+          find dist -name "penf-*" -type f -exec cp {} release/ \;
+          # Make binaries executable
+          chmod +x release/penf-*
           ls -la release/
 
       - name: Generate checksums
         run: |
           cd release
-          sha256sum *.tar.gz > checksums.txt
+          sha256sum penf-* > checksums.txt
           cat checksums.txt
-
-      - name: Generate changelog
-        id: changelog
-        uses: orhun/git-cliff-action@v3
-        with:
-          config: cliff.toml
-          args: --latest --strip header
-        env:
-          OUTPUT: CHANGELOG.md
-        continue-on-error: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           body: |
-            ${{ steps.changelog.outputs.content }}
-
             ## Installation
 
-            Download the appropriate archive for your platform and extract it:
-
+            ### Update existing installation (recommended)
             ```bash
-            # macOS (Apple Silicon)
-            curl -L https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf_darwin_arm64.tar.gz | tar xz
-            sudo mv penf /usr/local/bin/
-
-            # macOS (Intel)
-            curl -L https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf_darwin_amd64.tar.gz | tar xz
-            sudo mv penf /usr/local/bin/
-
-            # Linux (x86_64)
-            curl -L https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf_linux_amd64.tar.gz | tar xz
-            sudo mv penf /usr/local/bin/
-
-            # Linux (ARM64)
-            curl -L https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf_linux_arm64.tar.gz | tar xz
-            sudo mv penf /usr/local/bin/
+            penf update
             ```
 
-            Then initialize penf:
+            ### Fresh install
+            ```bash
+            # macOS (Apple Silicon)
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-darwin-arm64
+            chmod +x /usr/local/bin/penf
+
+            # macOS (Intel)
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-darwin-amd64
+            chmod +x /usr/local/bin/penf
+
+            # Linux (x86_64)
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-linux-amd64
+            chmod +x /usr/local/bin/penf
+
+            # Linux (ARM64)
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-linux-arm64
+            chmod +x /usr/local/bin/penf
+            ```
+
+            Then initialize:
             ```bash
             penf init
             ```
           draft: false
           prerelease: ${{ contains(github.ref, '-alpha') || contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
           files: |
-            release/*.tar.gz
+            release/penf-*
             release/checksums.txt
           generate_release_notes: true
         env:
