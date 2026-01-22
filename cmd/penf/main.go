@@ -645,6 +645,7 @@ func init() {
 	rootCmd.AddCommand(cmd.NewInitCommand())
 	rootCmd.AddCommand(cmd.NewUpdateCommand(version))
 	rootCmd.AddCommand(cmd.NewFeedbackCommand(version))
+	rootCmd.AddCommand(cmd.NewAuditCommand(nil))
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)

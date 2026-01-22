@@ -149,6 +149,10 @@ bd list --status=open   # All open work
 Penfold has Claude-native workflows that provide full context for intelligent batch processing.
 Instead of executing commands one at a time, use the `penf process` commands.
 
+**ALWAYS READ THESE FILES AT SESSION START:**
+- `~/.penf/processes.md` - Available workflows and how to run them
+- `~/.penf/preferences.md` - User's personal preferences (NEVER modify)
+
 ### Available Workflows
 
 | Workflow | Context Command | Batch Command |
@@ -214,6 +218,8 @@ See `context/workflows/` for detailed workflow guides:
 
 - **Find work**: `bd ready`
 - **Project status**: `bd stats`
+- **User preferences**: `~/.penf/preferences.md` (read at session start, NEVER modify)
+- **Process definitions**: `~/.penf/processes.md` (read at session start for available workflows)
 - **Development standards**: `project-constitution.md`
 - **Infrastructure**: `context/infrastructure.md` (architecture, services, connections)
 - **Workflow guides**: `context/workflows/` (batch processing patterns)
@@ -228,6 +234,8 @@ See `context/workflows/` for detailed workflow guides:
 - Temporal for workflow orchestration
 - Redis for caching (optional)
 - MLX embeddings sidecar (Python) for Apple Silicon
+- Go 1.22+ + Cobra CLI, gRPC, Protocol Buffers, pgx (PostgreSQL driver), MLX embeddings sidecar (013-content-enrichment)
+- PostgreSQL 16+ with existing schema (extending `pkg/mentions/`, `pkg/glossary/`) (013-content-enrichment)
 
 ## Recent Changes
 - Go Migration Phase 0-5: Complete (all services migrated to Go)
