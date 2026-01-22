@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
@@ -187,27 +188,115 @@ func runInitEntitiesFromJSON(ctx context.Context, cfg *config.CLIConfig, jsonPat
 		fmt.Println()
 	}
 
-	// Seed people (placeholder - needs people service)
+	// Create entity client for people, products, projects
+	entityClient := entityv1.NewEntityServiceClient(conn)
+
+	// Seed people
 	if len(seed.People) > 0 {
 		fmt.Println("Seeding people...")
-		fmt.Printf("  \033[33m⚠\033[0m People seeding requires gateway support (coming soon)\n")
-		fmt.Printf("  %d people will be skipped for now\n", len(seed.People))
+		peopleInput := make([]*entityv1.PersonInput, len(seed.People))
+		for i, p := range seed.People {
+			peopleInput[i] = &entityv1.PersonInput{
+				Name:       p.Name,
+				Email:      p.Email,
+				Company:    p.Company,
+				Title:      p.Title,
+				Department: p.Department,
+				Aliases:    p.Aliases,
+				IsInternal: p.IsInternal,
+			}
+		}
+
+		resp, err := entityClient.BulkCreatePeople(ctx, &entityv1.BulkCreatePeopleRequest{
+			TenantId:       cfg.TenantID,
+			People:         peopleInput,
+			SkipDuplicates: true,
+		})
+		if err != nil {
+			stats.errors = append(stats.errors, fmt.Sprintf("people: %v", err))
+		} else {
+			stats.people = int(resp.TotalCreated)
+			for _, p := range resp.Created {
+				fmt.Printf("  \033[32m✓\033[0m %s <%s>\n", p.Name, p.Email)
+			}
+			for _, s := range resp.Skipped {
+				fmt.Printf("  \033[33m⚠\033[0m %s (already exists)\n", s.Email)
+			}
+			for _, e := range resp.Errors {
+				stats.errors = append(stats.errors, fmt.Sprintf("person %s: %s", e.Identifier, e.Error))
+			}
+		}
 		fmt.Println()
 	}
 
-	// Seed products (placeholder - needs product service extension)
+	// Seed products
 	if len(seed.Products) > 0 {
 		fmt.Println("Seeding products...")
-		fmt.Printf("  \033[33m⚠\033[0m Product bulk seeding requires gateway support (coming soon)\n")
-		fmt.Printf("  %d products will be skipped for now\n", len(seed.Products))
+		productsInput := make([]*entityv1.ProductInput, len(seed.Products))
+		for i, p := range seed.Products {
+			productsInput[i] = &entityv1.ProductInput{
+				Name:        p.Name,
+				Description: p.Description,
+				ProductType: p.Type,
+				ParentName:  p.Parent,
+				Aliases:     p.Aliases,
+				Status:      p.Status,
+			}
+		}
+
+		resp, err := entityClient.BulkCreateProducts(ctx, &entityv1.BulkCreateProductsRequest{
+			TenantId:       cfg.TenantID,
+			Products:       productsInput,
+			SkipDuplicates: true,
+		})
+		if err != nil {
+			stats.errors = append(stats.errors, fmt.Sprintf("products: %v", err))
+		} else {
+			stats.products = int(resp.TotalCreated)
+			for _, p := range resp.Created {
+				fmt.Printf("  \033[32m✓\033[0m %s\n", p.Name)
+			}
+			for _, s := range resp.Skipped {
+				fmt.Printf("  \033[33m⚠\033[0m %s (already exists)\n", s.Name)
+			}
+			for _, e := range resp.Errors {
+				stats.errors = append(stats.errors, fmt.Sprintf("product %s: %s", e.Identifier, e.Error))
+			}
+		}
 		fmt.Println()
 	}
 
-	// Seed projects (placeholder - needs project service)
+	// Seed projects
 	if len(seed.Projects) > 0 {
 		fmt.Println("Seeding projects...")
-		fmt.Printf("  \033[33m⚠\033[0m Project seeding requires gateway support (coming soon)\n")
-		fmt.Printf("  %d projects will be skipped for now\n", len(seed.Projects))
+		projectsInput := make([]*entityv1.ProjectInput, len(seed.Projects))
+		for i, p := range seed.Projects {
+			projectsInput[i] = &entityv1.ProjectInput{
+				Name:        p.Name,
+				Description: p.Description,
+				Keywords:    p.Keywords,
+			}
+		}
+
+		resp, err := entityClient.BulkCreateProjects(ctx, &entityv1.BulkCreateProjectsRequest{
+			TenantId:       cfg.TenantID,
+			Projects:       projectsInput,
+			SkipDuplicates: true,
+		})
+		if err != nil {
+			stats.errors = append(stats.errors, fmt.Sprintf("projects: %v", err))
+		} else {
+			stats.projects = int(resp.TotalCreated)
+			for _, p := range resp.Created {
+				fmt.Printf("  \033[32m✓\033[0m %s\n", p.Name)
+			}
+			for _, s := range resp.Skipped {
+				fmt.Printf("  \033[33m⚠\033[0m %s (already exists)\n", s.Name)
+			}
+			for _, e := range resp.Errors {
+				stats.errors = append(stats.errors, fmt.Sprintf("project %s: %s", e.Identifier, e.Error))
+			}
+		}
 		fmt.Println()
 	}
 
@@ -215,9 +304,9 @@ func runInitEntitiesFromJSON(ctx context.Context, cfg *config.CLIConfig, jsonPat
 	fmt.Println("Import Summary")
 	fmt.Println("--------------")
 	fmt.Printf("  Glossary: %d added\n", stats.glossary)
-	fmt.Printf("  People:   %d (skipped - service pending)\n", len(seed.People))
-	fmt.Printf("  Products: %d (skipped - service pending)\n", len(seed.Products))
-	fmt.Printf("  Projects: %d (skipped - service pending)\n", len(seed.Projects))
+	fmt.Printf("  People:   %d added\n", stats.people)
+	fmt.Printf("  Products: %d added\n", stats.products)
+	fmt.Printf("  Projects: %d added\n", stats.projects)
 
 	if len(stats.errors) > 0 {
 		fmt.Println()
@@ -319,30 +408,184 @@ func runInitEntitiesInteractive(ctx context.Context, cfg *config.CLIConfig) erro
 	}
 	fmt.Println()
 
-	// 2. PEOPLE (placeholder)
+	entityClient := entityv1.NewEntityServiceClient(conn)
+
+	// 2. PEOPLE
 	fmt.Println("2. PEOPLE")
-	fmt.Println("   \033[33m⚠\033[0m People seeding requires gateway support (coming soon)")
-	fmt.Println("   For now, people will be auto-created from email headers during import.")
+	fmt.Println("   Add key people (colleagues, stakeholders, contacts).")
 	fmt.Println()
 
-	// 3. PRODUCTS (placeholder)
+	for {
+		fmt.Print("   Add person name (or 'done' to continue): ")
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+
+		if input == "" || strings.ToLower(input) == "done" {
+			break
+		}
+
+		// Get email
+		fmt.Print("   > Email: ")
+		email, _ := reader.ReadString('\n')
+		email = strings.TrimSpace(email)
+
+		if email == "" {
+			fmt.Println("   Email is required. Skipping.")
+			continue
+		}
+
+		// Get optional title
+		fmt.Print("   > Title (optional): ")
+		title, _ := reader.ReadString('\n')
+		title = strings.TrimSpace(title)
+
+		// Get optional department
+		fmt.Print("   > Department (optional): ")
+		department, _ := reader.ReadString('\n')
+		department = strings.TrimSpace(department)
+
+		// Add person
+		resp, err := entityClient.BulkCreatePeople(ctx, &entityv1.BulkCreatePeopleRequest{
+			TenantId: cfg.TenantID,
+			People: []*entityv1.PersonInput{{
+				Name:       input,
+				Email:      email,
+				Title:      title,
+				Department: department,
+				IsInternal: true,
+			}},
+			SkipDuplicates: true,
+		})
+		if err != nil {
+			fmt.Printf("   \033[31mError:\033[0m %v\n", err)
+		} else if len(resp.Created) > 0 {
+			fmt.Printf("   \033[32m✓\033[0m Added: %s <%s>\n", input, email)
+			stats.people++
+		} else if len(resp.Skipped) > 0 {
+			fmt.Printf("   \033[33m⚠\033[0m %s already exists\n", email)
+		} else if len(resp.Errors) > 0 {
+			fmt.Printf("   \033[31mError:\033[0m %s\n", resp.Errors[0].Error)
+		}
+		fmt.Println()
+	}
+	fmt.Println()
+
+	// 3. PRODUCTS
 	fmt.Println("3. PRODUCTS")
-	fmt.Println("   \033[33m⚠\033[0m Product seeding requires gateway support (coming soon)")
-	fmt.Println("   Use 'penf product add <name>' to add products manually.")
+	fmt.Println("   Add products, features, or services your team works on.")
 	fmt.Println()
 
-	// 4. PROJECTS (placeholder)
+	for {
+		fmt.Print("   Add product name (or 'done' to continue): ")
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+
+		if input == "" || strings.ToLower(input) == "done" {
+			break
+		}
+
+		// Get optional description
+		fmt.Print("   > Description (optional): ")
+		description, _ := reader.ReadString('\n')
+		description = strings.TrimSpace(description)
+
+		// Get optional type
+		fmt.Print("   > Type (product/sub_product/feature, default: product): ")
+		prodType, _ := reader.ReadString('\n')
+		prodType = strings.TrimSpace(prodType)
+		if prodType == "" {
+			prodType = "product"
+		}
+
+		// Add product
+		resp, err := entityClient.BulkCreateProducts(ctx, &entityv1.BulkCreateProductsRequest{
+			TenantId: cfg.TenantID,
+			Products: []*entityv1.ProductInput{{
+				Name:        input,
+				Description: description,
+				ProductType: prodType,
+			}},
+			SkipDuplicates: true,
+		})
+		if err != nil {
+			fmt.Printf("   \033[31mError:\033[0m %v\n", err)
+		} else if len(resp.Created) > 0 {
+			fmt.Printf("   \033[32m✓\033[0m Added: %s\n", input)
+			stats.products++
+		} else if len(resp.Skipped) > 0 {
+			fmt.Printf("   \033[33m⚠\033[0m %s already exists\n", input)
+		} else if len(resp.Errors) > 0 {
+			fmt.Printf("   \033[31mError:\033[0m %s\n", resp.Errors[0].Error)
+		}
+		fmt.Println()
+	}
+	fmt.Println()
+
+	// 4. PROJECTS
 	fmt.Println("4. PROJECTS")
-	fmt.Println("   \033[33m⚠\033[0m Project seeding requires gateway support (coming soon)")
+	fmt.Println("   Add projects or initiatives your team is tracking.")
+	fmt.Println()
+
+	for {
+		fmt.Print("   Add project name (or 'done' to continue): ")
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+
+		if input == "" || strings.ToLower(input) == "done" {
+			break
+		}
+
+		// Get optional description
+		fmt.Print("   > Description (optional): ")
+		description, _ := reader.ReadString('\n')
+		description = strings.TrimSpace(description)
+
+		// Get optional keywords
+		fmt.Print("   > Keywords (comma-separated, optional): ")
+		keywordsInput, _ := reader.ReadString('\n')
+		keywordsInput = strings.TrimSpace(keywordsInput)
+
+		var keywords []string
+		if keywordsInput != "" {
+			for _, k := range strings.Split(keywordsInput, ",") {
+				k = strings.TrimSpace(k)
+				if k != "" {
+					keywords = append(keywords, k)
+				}
+			}
+		}
+
+		// Add project
+		resp, err := entityClient.BulkCreateProjects(ctx, &entityv1.BulkCreateProjectsRequest{
+			TenantId: cfg.TenantID,
+			Projects: []*entityv1.ProjectInput{{
+				Name:        input,
+				Description: description,
+				Keywords:    keywords,
+			}},
+			SkipDuplicates: true,
+		})
+		if err != nil {
+			fmt.Printf("   \033[31mError:\033[0m %v\n", err)
+		} else if len(resp.Created) > 0 {
+			fmt.Printf("   \033[32m✓\033[0m Added: %s\n", input)
+			stats.projects++
+		} else if len(resp.Skipped) > 0 {
+			fmt.Printf("   \033[33m⚠\033[0m %s already exists\n", input)
+		} else if len(resp.Errors) > 0 {
+			fmt.Printf("   \033[31mError:\033[0m %s\n", resp.Errors[0].Error)
+		}
+		fmt.Println()
+	}
 	fmt.Println()
 
 	// Summary
 	fmt.Println("Summary")
 	fmt.Println("-------")
 	fmt.Printf("  Glossary: %d terms added\n", stats.glossary)
-	fmt.Printf("  People:   %d (service pending)\n", stats.people)
-	fmt.Printf("  Products: %d (service pending)\n", stats.products)
-	fmt.Printf("  Projects: %d (service pending)\n", stats.projects)
+	fmt.Printf("  People:   %d added\n", stats.people)
+	fmt.Printf("  Products: %d added\n", stats.products)
+	fmt.Printf("  Projects: %d added\n", stats.projects)
 	fmt.Println()
 	fmt.Println("Ready to import content!")
 	fmt.Println("  Run: penf ingest email <files>")
