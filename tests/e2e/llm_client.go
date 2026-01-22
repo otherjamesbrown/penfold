@@ -69,7 +69,7 @@ type Usage struct {
 // Chat sends a chat completion request to the LLM.
 func (c *LLMClient) Chat(ctx context.Context, messages []Message) (string, error) {
 	req := ChatCompletionRequest{
-		Model:       "qwen2.5-32b-instruct",
+		Model:       "mlx-community/Qwen2.5-32B-Instruct-4bit",
 		Messages:    messages,
 		Temperature: 0.0, // Deterministic for testing
 		MaxTokens:   2048,

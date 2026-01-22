@@ -63,7 +63,7 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 		DB:         pool,
 		DBName:     dbName,
 		LLMURL:     llmURL,
-		FixtureDir: filepath.Join("tests", "fixtures", "acme-corp"),
+		FixtureDir: filepath.Join("..", "fixtures", "acme-corp"),
 		t:          t,
 	}
 

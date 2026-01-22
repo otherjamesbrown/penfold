@@ -209,7 +209,7 @@ func buildPeopleContext(t *testing.T, env *E2EEnv) string {
 
 	ctx := context.Background()
 	rows, err := env.DB.Query(ctx, `
-		SELECT id, canonical_name, email, title, aliases
+		SELECT id, canonical_name, primary_email, title
 		FROM people
 		ORDER BY id
 		LIMIT 20
@@ -222,16 +222,16 @@ func buildPeopleContext(t *testing.T, env *E2EEnv) string {
 
 	for rows.Next() {
 		var id int64
-		var name, email, title string
-		var aliases []string
-		err := rows.Scan(&id, &name, &email, &title, &aliases)
+		var name, email string
+		var title *string
+		err := rows.Scan(&id, &name, &email, &title)
 		require.NoError(t, err)
 
-		sb.WriteString(fmt.Sprintf("- %s (ID: %d, Email: %s, Title: %s", name, id, email, title))
-		if len(aliases) > 0 {
-			sb.WriteString(fmt.Sprintf(", Aliases: %s", strings.Join(aliases, ", ")))
+		titleStr := ""
+		if title != nil {
+			titleStr = *title
 		}
-		sb.WriteString(")\n")
+		sb.WriteString(fmt.Sprintf("- %s (ID: %d, Email: %s, Title: %s)\n", name, id, email, titleStr))
 	}
 
 	return sb.String()
@@ -243,8 +243,8 @@ func buildGlossaryContext(t *testing.T, env *E2EEnv) string {
 	ctx := context.Background()
 	rows, err := env.DB.Query(ctx, `
 		SELECT term, expansion, definition
-		FROM glossary_terms
-		WHERE expansion IS NOT NULL
+		FROM glossary
+		WHERE expansion IS NOT NULL AND expansion != ''
 		ORDER BY term
 		LIMIT 30
 	`)

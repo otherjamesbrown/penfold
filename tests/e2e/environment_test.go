@@ -69,7 +69,7 @@ func TestE2EFixtureLoading(t *testing.T) {
 	assert.GreaterOrEqual(t, count, 20)
 
 	// Verify glossary was loaded
-	err = env.DB.QueryRow(ctx, "SELECT COUNT(*) FROM glossary_terms").Scan(&count)
+	err = env.DB.QueryRow(ctx, "SELECT COUNT(*) FROM glossary").Scan(&count)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, count, 50)
 }

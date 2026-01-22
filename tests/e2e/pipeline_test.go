@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -197,7 +196,7 @@ func TestFullPipeline_MeetingTranscript(t *testing.T) {
 	ctx := context.Background()
 
 	// Load the meeting transcript fixture
-	transcriptPath := env.FixturePath("meetings/001-weekly-standup.txt")
+	_ = env.FixturePath("meetings/001-weekly-standup.txt") // Available for future use
 
 	// Read the transcript file
 	var transcriptContent string
