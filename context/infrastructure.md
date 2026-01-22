@@ -132,6 +132,11 @@ LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
 | Redis | 6379 | penfold-redis | No password |
 | Temporal | 7233 | penfold-temporal | Workflow engine |
 | Temporal UI | 8088 | penfold-temporal-ui | Web dashboard |
+| Langfuse Web | 3000 | langfuse-web | AI Provenance UI |
+| Langfuse PostgreSQL | 5433 | langfuse-postgres | Langfuse data |
+| Langfuse Redis | 6380 | langfuse-redis | Langfuse cache |
+| Langfuse ClickHouse | 8123 | langfuse-clickhouse | Trace storage |
+| Langfuse MinIO | 9092 | langfuse-minio | Blob storage |
 
 **Gateway Environment:**
 ```bash
@@ -176,6 +181,22 @@ REDIS_PORT=6379
 PENFOLD_TEMPORAL_HOST=home-01.brown.chat:7233
 TEMPORAL_NAMESPACE=default
 ```
+
+### Langfuse (AI Provenance)
+```bash
+# Web UI
+LANGFUSE_HOST=http://home-01.brown.chat:3000
+
+# API keys for trace ingestion
+LANGFUSE_PUBLIC_KEY=pk-lf-penfold
+LANGFUSE_SECRET_KEY=sk-lf-penfold-secret
+
+# OpenTelemetry endpoint (for OTEL SDK)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://home-01.brown.chat:3000/api/public/otel
+```
+
+Deployment: `~/langfuse/docker-compose.yml` on home-01
+Credentials: See `~/github/otherjamesbrown/secrets/.env.langfuse`
 
 ### penf CLI
 ```yaml

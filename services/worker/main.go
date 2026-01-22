@@ -24,6 +24,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/mentions/resolver"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
+	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/activities"
 	"github.com/otherjamesbrown/penfold/services/worker/config"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
@@ -67,6 +68,30 @@ func main() {
 		logging.F("task_queues", cfg.TaskQueues),
 		logging.F("environment", cfg.Environment),
 	)
+
+	// Initialize tracing with Langfuse if configured
+	var tracingShutdown tracing.ShutdownFunc
+	if lfConfig := tracing.LangfuseConfigFromEnv(); lfConfig != nil && lfConfig.Host != "" {
+		tracingCfg := &tracing.Config{
+			ServiceName: cfg.ServiceName,
+			Environment: cfg.Environment,
+			SampleRate:  1.0,
+			Exporter:    tracing.ExporterLangfuse,
+			Langfuse:    lfConfig,
+		}
+		var err error
+		tracingShutdown, err = tracing.InitTracer(tracingCfg)
+		if err != nil {
+			logger.Error("Failed to initialize Langfuse tracing", logging.Err(err))
+			// Continue without tracing - not fatal
+		} else {
+			logger.Info("Langfuse tracing initialized",
+				logging.F("host", lfConfig.Host),
+			)
+		}
+	} else {
+		logger.Info("Langfuse not configured - tracing disabled (set LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY to enable)")
+	}
 
 	// Create zerolog logger for Temporal SDK and activities
 	zerologLevel := zerolog.InfoLevel
@@ -377,6 +402,15 @@ func main() {
 		logger.Error("HTTP server shutdown error", logging.Err(err))
 	} else {
 		logger.Info("HTTP server stopped")
+	}
+
+	// Shutdown tracing
+	if tracingShutdown != nil {
+		if err := tracingShutdown(shutdownCtx); err != nil {
+			logger.Error("Tracing shutdown error", logging.Err(err))
+		} else {
+			logger.Info("Tracing shutdown complete")
+		}
 	}
 
 	logger.Info("Penfold Temporal worker shutdown complete")
