@@ -106,6 +106,7 @@ func StageOrder() []Stage {
 		StageTypeSpecific,
 		StageAIRouting,
 		StageAIProcessing,
+		StagePostProcessing,
 	}
 }
 

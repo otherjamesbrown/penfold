@@ -94,6 +94,11 @@ func (p *Pipeline) Process(ctx context.Context, source *processors.Source) (*enr
 		return nil, p.handleError(ctx, e, "ai_processing", err)
 	}
 
+	// Stage 6: Post-Processing (mention extraction, etc.)
+	if err := p.runPostProcessing(ctx, source, e); err != nil {
+		return nil, p.handleError(ctx, e, "post_processing", err)
+	}
+
 	// Mark completed
 	e.Status = enrichment.StatusCompleted
 	now := time.Now()
@@ -330,6 +335,59 @@ func (p *Pipeline) runAIProcessing(ctx context.Context, source *processors.Sourc
 	now := time.Now()
 	e.AIProcessed = true
 	e.AIProcessedAt = &now
+
+	return nil
+}
+
+// runPostProcessing executes Stage 6: Post-Processing.
+// This includes mention extraction and other derived data processing.
+func (p *Pipeline) runPostProcessing(ctx context.Context, source *processors.Source, e *enrichment.Enrichment) error {
+	e.CurrentStage = "post_processing"
+
+	postProcessors := p.registry.GetByStage(processors.StagePostProcessing)
+	if len(postProcessors) == 0 {
+		// No post-processors registered, skip
+		return nil
+	}
+
+	pctx := &processors.ProcessorContext{
+		Source:     source,
+		Enrichment: e,
+		TenantID:   source.TenantID,
+		Logger:     p.logger,
+	}
+
+	for _, proc := range postProcessors {
+		// Check if this post-processor should run
+		if pp, ok := proc.(processors.PostProcessor); ok {
+			if !pp.ShouldProcess(e) {
+				p.logger.Debug().
+					Str("processor", proc.Name()).
+					Msg("Skipping post-processor - not applicable")
+				continue
+			}
+		}
+
+		startTime := time.Now()
+		err := proc.Process(ctx, pctx)
+		duration := time.Since(startTime)
+
+		p.recordStage(ctx, e, "post_processing", proc.Name(), err, duration, nil, nil)
+
+		if err != nil {
+			p.logger.Warn().
+				Err(err).
+				Str("processor", proc.Name()).
+				Msg("Post-processor failed, continuing")
+			// Don't fail the whole pipeline for post-processing errors
+			continue
+		}
+
+		p.logger.Debug().
+			Str("processor", proc.Name()).
+			Dur("duration", duration).
+			Msg("Post-processor completed")
+	}
 
 	return nil
 }

@@ -52,6 +52,7 @@ const (
 	StageTypeSpecific      Stage = "type_specific"
 	StageAIRouting         Stage = "ai_routing"
 	StageAIProcessing      Stage = "ai_processing"
+	StagePostProcessing    Stage = "post_processing"
 )
 
 // ClassificationProcessor specifically handles content classification (Stage 1).
@@ -88,6 +89,15 @@ type AIProcessor interface {
 	Processor
 
 	// ShouldProcess returns true if AI processing should run for this enrichment.
+	ShouldProcess(enrichment *enrichment.Enrichment) bool
+}
+
+// PostProcessor handles post-AI processing (Stage 6).
+// These processors run after AI processing to extract derived data like mentions.
+type PostProcessor interface {
+	Processor
+
+	// ShouldProcess returns true if post-processing should run for this enrichment.
 	ShouldProcess(enrichment *enrichment.Enrichment) bool
 }
 
