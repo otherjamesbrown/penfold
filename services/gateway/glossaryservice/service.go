@@ -293,7 +293,7 @@ func termToProto(t *glossary.Term) *glossaryv1.Term {
 	if t == nil {
 		return nil
 	}
-	return &glossaryv1.Term{
+	term := &glossaryv1.Term{
 		Id:             t.ID,
 		Term:           t.Term,
 		Expansion:      t.Expansion,
@@ -305,4 +305,135 @@ func termToProto(t *glossary.Term) *glossaryv1.Term {
 		CreatedAt:      timestamppb.New(t.CreatedAt),
 		UpdatedAt:      timestamppb.New(t.UpdatedAt),
 	}
+
+	// Add linked entity if present
+	if t.LinkedEntityType != "" && t.LinkedEntityID > 0 {
+		term.LinkedEntity = &glossaryv1.LinkedEntity{
+			EntityType: t.LinkedEntityType,
+			EntityId:   t.LinkedEntityID,
+		}
+	}
+
+	return term
+}
+
+// LinkTerm links a glossary term to an entity.
+func (s *Service) LinkTerm(ctx context.Context, req *glossaryv1.LinkTermRequest) (*glossaryv1.LinkTermResponse, error) {
+	s.logger.Debug("LinkTerm called",
+		logging.F("term_id", req.TermId),
+		logging.F("term_str", req.TermStr),
+		logging.F("entity_type", req.EntityType),
+		logging.F("entity_id", req.EntityId),
+	)
+
+	// Validate inputs
+	if req.EntityType == "" {
+		return nil, status.Error(codes.InvalidArgument, "entity_type is required")
+	}
+	if req.EntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "entity_id is required")
+	}
+
+	// Get term ID (either from request or by looking up term string)
+	var termID int64
+	if req.TermId > 0 {
+		termID = req.TermId
+	} else if req.TermStr != "" {
+		term, err := s.repo.GetByTerm(ctx, req.TermStr)
+		if err != nil {
+			s.logger.Error("Error looking up term", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to lookup term: %v", err)
+		}
+		if term == nil {
+			return nil, status.Errorf(codes.NotFound, "term '%s' not found", req.TermStr)
+		}
+		termID = term.ID
+	} else {
+		return nil, status.Error(codes.InvalidArgument, "either term_id or term_str is required")
+	}
+
+	// Link the entity
+	updated, err := s.repo.LinkEntity(ctx, termID, req.EntityType, req.EntityId)
+	if err != nil {
+		if err.Error() == "term not found" {
+			return nil, status.Errorf(codes.NotFound, "term with id %d not found", termID)
+		}
+		s.logger.Error("Error linking entity", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to link entity: %v", err)
+	}
+
+	return &glossaryv1.LinkTermResponse{
+		Term: termToProto(updated),
+	}, nil
+}
+
+// UnlinkTerm removes the entity link from a glossary term.
+func (s *Service) UnlinkTerm(ctx context.Context, req *glossaryv1.UnlinkTermRequest) (*glossaryv1.UnlinkTermResponse, error) {
+	s.logger.Debug("UnlinkTerm called",
+		logging.F("term_id", req.TermId),
+		logging.F("term_str", req.TermStr),
+	)
+
+	// Get term ID (either from request or by looking up term string)
+	var termID int64
+	if req.TermId > 0 {
+		termID = req.TermId
+	} else if req.TermStr != "" {
+		term, err := s.repo.GetByTerm(ctx, req.TermStr)
+		if err != nil {
+			s.logger.Error("Error looking up term", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to lookup term: %v", err)
+		}
+		if term == nil {
+			return nil, status.Errorf(codes.NotFound, "term '%s' not found", req.TermStr)
+		}
+		termID = term.ID
+	} else {
+		return nil, status.Error(codes.InvalidArgument, "either term_id or term_str is required")
+	}
+
+	// Unlink the entity
+	updated, err := s.repo.UnlinkEntity(ctx, termID)
+	if err != nil {
+		if err.Error() == "term not found" {
+			return nil, status.Errorf(codes.NotFound, "term with id %d not found", termID)
+		}
+		s.logger.Error("Error unlinking entity", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to unlink entity: %v", err)
+	}
+
+	return &glossaryv1.UnlinkTermResponse{
+		Term: termToProto(updated),
+	}, nil
+}
+
+// ListLinkedTerms returns all terms linked to entities.
+func (s *Service) ListLinkedTerms(ctx context.Context, req *glossaryv1.ListLinkedTermsRequest) (*glossaryv1.ListLinkedTermsResponse, error) {
+	s.logger.Debug("ListLinkedTerms called",
+		logging.F("entity_type", req.EntityType),
+		logging.F("entity_id", req.EntityId),
+	)
+
+	filter := glossary.LinkedTermFilter{
+		EntityType: req.EntityType,
+		EntityID:   req.EntityId,
+		Limit:      int(req.Limit),
+		Offset:     int(req.Offset),
+	}
+
+	terms, totalCount, err := s.repo.ListLinked(ctx, filter)
+	if err != nil {
+		s.logger.Error("Error listing linked terms", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list linked terms: %v", err)
+	}
+
+	protoTerms := make([]*glossaryv1.Term, len(terms))
+	for i, t := range terms {
+		protoTerms[i] = termToProto(t)
+	}
+
+	return &glossaryv1.ListLinkedTermsResponse{
+		Terms:      protoTerms,
+		TotalCount: totalCount,
+	}, nil
 }

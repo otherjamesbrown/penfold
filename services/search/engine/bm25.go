@@ -75,11 +75,18 @@ type SearchResponse struct {
 	QueryTimeMs float64        // Time taken to execute the query
 }
 
+// MentionExpander provides mention-based search expansion.
+type MentionExpander interface {
+	// ExpandSearchTerms returns content IDs that have mentions resolved to entities matching the search term.
+	ExpandSearchTerms(ctx context.Context, tenantID string, searchTerms []string) ([]string, error)
+}
+
 // BM25Engine implements PostgreSQL full-text search using ts_vector and ts_rank.
 type BM25Engine struct {
-	pool    *pgxpool.Pool
-	logger  logging.Logger
-	weights FieldWeights
+	pool            *pgxpool.Pool
+	logger          logging.Logger
+	weights         FieldWeights
+	mentionExpander MentionExpander
 }
 
 // BM25Config holds configuration for the BM25 engine.
@@ -505,4 +512,136 @@ func (e *BM25Engine) SetWeights(weights FieldWeights) {
 // GetWeights returns the current field weights.
 func (e *BM25Engine) GetWeights() FieldWeights {
 	return e.weights
+}
+
+// SetMentionExpander sets the mention expander for search expansion.
+func (e *BM25Engine) SetMentionExpander(expander MentionExpander) {
+	e.mentionExpander = expander
+}
+
+// SearchWithMentions performs a full-text search that also includes content
+// where mentions were resolved to entities matching the search terms.
+func (e *BM25Engine) SearchWithMentions(ctx context.Context, query string, filters SearchFilters, limit, offset int) (*SearchResponse, error) {
+	// First, get standard BM25 results
+	response, err := e.Search(ctx, query, filters, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	// If no mention expander, return standard results
+	if e.mentionExpander == nil {
+		return response, nil
+	}
+
+	// Extract search terms from query
+	words := strings.Fields(strings.ToLower(query))
+	if len(words) == 0 {
+		return response, nil
+	}
+
+	// Get content IDs from mention expansion
+	mentionContentIDs, err := e.mentionExpander.ExpandSearchTerms(ctx, filters.TenantID, words)
+	if err != nil {
+		e.logger.Warn("Failed to expand search via mentions", logging.Err(err))
+		// Continue with standard results
+		return response, nil
+	}
+
+	if len(mentionContentIDs) == 0 {
+		return response, nil
+	}
+
+	// Get documents by mention-expanded content IDs
+	mentionResults, err := e.getDocumentsBySourceIDs(ctx, filters.TenantID, mentionContentIDs, limit)
+	if err != nil {
+		e.logger.Warn("Failed to get mention-expanded documents", logging.Err(err))
+		return response, nil
+	}
+
+	// Merge results, avoiding duplicates
+	existingIDs := make(map[string]bool)
+	for _, r := range response.Results {
+		existingIDs[r.DocumentID] = true
+	}
+
+	for _, r := range mentionResults {
+		if !existingIDs[r.DocumentID] {
+			// Mark mention-expanded results with lower score
+			r.Score = r.Score * 0.8 // Slightly lower priority than direct matches
+			response.Results = append(response.Results, r)
+			existingIDs[r.DocumentID] = true
+		}
+	}
+
+	// Update total count to include mention expansions
+	response.TotalCount += int64(len(mentionResults))
+
+	return response, nil
+}
+
+// getDocumentsBySourceIDs retrieves documents by their source IDs.
+func (e *BM25Engine) getDocumentsBySourceIDs(ctx context.Context, tenantID string, sourceIDs []string, limit int) ([]SearchResult, error) {
+	if len(sourceIDs) == 0 {
+		return nil, nil
+	}
+
+	sql := `
+		SELECT
+			d.id,
+			d.content_type,
+			d.source_id,
+			d.title,
+			LEFT(d.content, 200) as snippet,
+			'' as highlights,
+			0.5 as score,
+			d.created_at,
+			d.updated_at,
+			d.metadata
+		FROM documents d
+		WHERE d.tenant_id = $1
+		AND d.source_id = ANY($2)
+		LIMIT $3
+	`
+
+	rows, err := e.pool.Query(ctx, sql, tenantID, sourceIDs, limit)
+	if err != nil {
+		return nil, fmt.Errorf("querying documents by source IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SearchResult
+	for rows.Next() {
+		var (
+			id          string
+			contentType string
+			sourceID    string
+			title       *string
+			snippet     string
+			highlights  string
+			score       float64
+			createdAt   time.Time
+			updatedAt   time.Time
+			metadata    map[string]string
+		)
+
+		err := rows.Scan(&id, &contentType, &sourceID, &title, &snippet, &highlights, &score, &createdAt, &updatedAt, &metadata)
+		if err != nil {
+			return nil, fmt.Errorf("scanning row: %w", err)
+		}
+
+		results = append(results, SearchResult{
+			DocumentID:  id,
+			ContentType: contentType,
+			SourceID:    sourceID,
+			Title:       title,
+			Snippet:     snippet + "...",
+			Score:       score,
+			RawScore:    score,
+			CreatedAt:   createdAt,
+			UpdatedAt:   updatedAt,
+			Metadata:    metadata,
+		})
+	}
+
+	return results, nil
 }

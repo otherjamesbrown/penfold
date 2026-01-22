@@ -96,6 +96,7 @@ type ContentIngestionResult struct {
 	EmbeddingID     *int64   `json:"embedding_id,omitempty"`
 	SummaryID       *int64   `json:"summary_id,omitempty"`
 	EntityCount     int      `json:"entity_count"`
+	MentionCount    int      `json:"mention_count"`
 	ExtractedTopics []string `json:"extracted_topics,omitempty"`
 }
 

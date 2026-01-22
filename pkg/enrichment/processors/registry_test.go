@@ -151,8 +151,8 @@ func TestRegistry_All(t *testing.T) {
 
 func TestStageOrder(t *testing.T) {
 	order := StageOrder()
-	if len(order) != 5 {
-		t.Fatalf("StageOrder() returned %d stages, want 5", len(order))
+	if len(order) != 6 {
+		t.Fatalf("StageOrder() returned %d stages, want 6", len(order))
 	}
 
 	expected := []Stage{
@@ -161,6 +161,7 @@ func TestStageOrder(t *testing.T) {
 		StageTypeSpecific,
 		StageAIRouting,
 		StageAIProcessing,
+		StagePostProcessing,
 	}
 
 	for i, stage := range order {

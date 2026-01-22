@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/tracing"
 )
 
 // Client defines the interface for generating text embeddings.
@@ -125,12 +126,25 @@ func (c *MLXClient) Embed(ctx context.Context, text string) ([]float32, error) {
 		return nil, ErrEmptyText
 	}
 
+	// Start embedding trace
+	start := time.Now()
+	ctx, span := tracing.StartEmbedding(ctx, "embeddings.generate", tracing.EmbeddingOptions{
+		Model:  c.config.Model,
+		System: tracing.AISystemMLX,
+	})
+	defer span.End()
+
 	// Check cache first
 	if c.cache != nil {
 		if embedding, err := c.cache.Get(ctx, text); err == nil {
 			c.logger.Debug("Cache hit for embedding",
 				logging.F("text_length", len(text)),
 			)
+			tracing.SetEmbeddingResult(span, tracing.EmbeddingResult{
+				Dimensions: len(embedding),
+				LatencyMs:  time.Since(start).Milliseconds(),
+				Cached:     true,
+			})
 			return embedding, nil
 		}
 	}
@@ -138,6 +152,10 @@ func (c *MLXClient) Embed(ctx context.Context, text string) ([]float32, error) {
 	// Generate embedding
 	embedding, err := c.embedSingle(ctx, text)
 	if err != nil {
+		tracing.SetEmbeddingResult(span, tracing.EmbeddingResult{
+			LatencyMs: time.Since(start).Milliseconds(),
+			Error:     err,
+		})
 		return nil, err
 	}
 
@@ -150,6 +168,12 @@ func (c *MLXClient) Embed(ctx context.Context, text string) ([]float32, error) {
 			)
 		}
 	}
+
+	tracing.SetEmbeddingResult(span, tracing.EmbeddingResult{
+		Dimensions: len(embedding),
+		LatencyMs:  time.Since(start).Milliseconds(),
+		Cached:     false,
+	})
 
 	return embedding, nil
 }
@@ -207,6 +231,15 @@ func (c *MLXClient) doEmbedRequest(ctx context.Context, text string) ([]float32,
 func (c *MLXClient) doOpenAIEmbedRequest(ctx context.Context, text string) ([]float32, error) {
 	url := strings.TrimSuffix(c.config.ServerURL, "/") + "/v1/embeddings"
 
+	// Trace the HTTP request
+	ctx, span := tracing.StartSpanWithTracer(ctx, "penfold.embeddings", "embeddings.http.openai")
+	defer span.End()
+	tracing.SetAttributes(span,
+		tracing.Attr("http.url", url),
+		tracing.Attr("http.method", "POST"),
+		tracing.Attr("embedding.api", "openai"),
+	)
+
 	reqBody := openaiEmbedRequest{
 		Model: c.config.Model,
 		Input: text,
@@ -214,17 +247,20 @@ func (c *MLXClient) doOpenAIEmbedRequest(ctx context.Context, text string) ([]fl
 
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
+		tracing.SetError(span, err)
 		return nil, fmt.Errorf("marshaling request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
 	if err != nil {
+		tracing.SetError(span, err)
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		tracing.SetError(span, err)
 		if ctx.Err() != nil {
 			return nil, ErrContextCanceled
 		}
@@ -232,26 +268,40 @@ func (c *MLXClient) doOpenAIEmbedRequest(ctx context.Context, text string) ([]fl
 	}
 	defer resp.Body.Close()
 
+	tracing.SetAttributes(span, tracing.AttrInt("http.status_code", resp.StatusCode))
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		tracing.SetError(span, err)
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: status %d: %s", ErrRequestFailed, resp.StatusCode, string(body))
+		err := fmt.Errorf("%w: status %d: %s", ErrRequestFailed, resp.StatusCode, string(body))
+		tracing.SetError(span, err)
+		return nil, err
 	}
 
 	var embedResp openaiEmbedResponse
 	if err := json.Unmarshal(body, &embedResp); err != nil {
+		tracing.SetError(span, err)
 		return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
 	}
 
 	if embedResp.Error != nil {
-		return nil, fmt.Errorf("%w: %s", ErrRequestFailed, embedResp.Error.Message)
+		err := fmt.Errorf("%w: %s", ErrRequestFailed, embedResp.Error.Message)
+		tracing.SetError(span, err)
+		return nil, err
 	}
 
 	if len(embedResp.Data) == 0 {
+		tracing.SetError(span, ErrInvalidResponse)
 		return nil, ErrInvalidResponse
+	}
+
+	// Record token usage if available
+	if embedResp.Usage.PromptTokens > 0 {
+		tracing.SetAttributes(span, tracing.AttrInt("embedding.input_tokens", embedResp.Usage.PromptTokens))
 	}
 
 	embedding := toFloat32(embedResp.Data[0].Embedding)
@@ -261,6 +311,9 @@ func (c *MLXClient) doOpenAIEmbedRequest(ctx context.Context, text string) ([]fl
 			logging.F("actual", len(embedding)),
 		)
 	}
+
+	tracing.SetAttributes(span, tracing.AttrInt("embedding.dimensions", len(embedding)))
+	tracing.SetOK(span)
 
 	return embedding, nil
 }
@@ -337,11 +390,23 @@ func (c *MLXClient) BatchEmbed(ctx context.Context, texts []string) ([][]float32
 		return nil, fmt.Errorf("%w: got %d, max %d", ErrBatchTooLarge, len(texts), c.config.BatchSize)
 	}
 
+	// Start batch embedding trace
+	start := time.Now()
+	ctx, span := tracing.StartEmbedding(ctx, "embeddings.batch", tracing.EmbeddingOptions{
+		Model:     c.config.Model,
+		System:    tracing.AISystemMLX,
+		BatchSize: len(texts),
+	})
+	defer span.End()
+
 	// Trim and validate texts
 	trimmedTexts := make([]string, 0, len(texts))
 	for i, text := range texts {
 		text = strings.TrimSpace(text)
 		if text == "" {
+			tracing.SetEmbeddingResult(span, tracing.EmbeddingResult{
+				Error: fmt.Errorf("%w at index %d", ErrEmptyText, i),
+			})
 			return nil, fmt.Errorf("%w at index %d", ErrEmptyText, i)
 		}
 		trimmedTexts = append(trimmedTexts, text)
@@ -351,11 +416,13 @@ func (c *MLXClient) BatchEmbed(ctx context.Context, texts []string) ([][]float32
 	embeddings := make([][]float32, len(trimmedTexts))
 	uncachedIndices := make([]int, 0)
 	uncachedTexts := make([]string, 0)
+	cacheHits := 0
 
 	if c.cache != nil {
 		for i, text := range trimmedTexts {
 			if embedding, err := c.cache.Get(ctx, text); err == nil {
 				embeddings[i] = embedding
+				cacheHits++
 			} else {
 				uncachedIndices = append(uncachedIndices, i)
 				uncachedTexts = append(uncachedTexts, text)
@@ -366,6 +433,15 @@ func (c *MLXClient) BatchEmbed(ctx context.Context, texts []string) ([][]float32
 			c.logger.Debug("All embeddings from cache",
 				logging.F("count", len(texts)),
 			)
+			tracing.SetEmbeddingResult(span, tracing.EmbeddingResult{
+				Dimensions: c.config.Dimensions,
+				LatencyMs:  time.Since(start).Milliseconds(),
+				Cached:     true,
+			})
+			tracing.RecordAIEvent(span, "batch.cache_hit",
+				tracing.AttrInt("cache_hits", cacheHits),
+				tracing.AttrInt("cache_misses", 0),
+			)
 			return embeddings, nil
 		}
 	} else {
@@ -375,9 +451,19 @@ func (c *MLXClient) BatchEmbed(ctx context.Context, texts []string) ([][]float32
 		}
 	}
 
+	// Record cache stats
+	tracing.RecordAIEvent(span, "batch.cache_check",
+		tracing.AttrInt("cache_hits", cacheHits),
+		tracing.AttrInt("cache_misses", len(uncachedTexts)),
+	)
+
 	// Generate embeddings for uncached texts
 	newEmbeddings, err := c.batchEmbedRequest(ctx, uncachedTexts)
 	if err != nil {
+		tracing.SetEmbeddingResult(span, tracing.EmbeddingResult{
+			LatencyMs: time.Since(start).Milliseconds(),
+			Error:     err,
+		})
 		return nil, err
 	}
 
@@ -393,6 +479,12 @@ func (c *MLXClient) BatchEmbed(ctx context.Context, texts []string) ([][]float32
 			}
 		}
 	}
+
+	tracing.SetEmbeddingResult(span, tracing.EmbeddingResult{
+		Dimensions: c.config.Dimensions,
+		LatencyMs:  time.Since(start).Milliseconds(),
+		Cached:     false,
+	})
 
 	return embeddings, nil
 }

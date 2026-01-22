@@ -22,13 +22,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	GlossaryService_AddTerm_FullMethodName     = "/penfold.glossary.v1.GlossaryService/AddTerm"
-	GlossaryService_GetTerm_FullMethodName     = "/penfold.glossary.v1.GlossaryService/GetTerm"
-	GlossaryService_ListTerms_FullMethodName   = "/penfold.glossary.v1.GlossaryService/ListTerms"
-	GlossaryService_UpdateTerm_FullMethodName  = "/penfold.glossary.v1.GlossaryService/UpdateTerm"
-	GlossaryService_DeleteTerm_FullMethodName  = "/penfold.glossary.v1.GlossaryService/DeleteTerm"
-	GlossaryService_ExpandQuery_FullMethodName = "/penfold.glossary.v1.GlossaryService/ExpandQuery"
-	GlossaryService_LookupTerm_FullMethodName  = "/penfold.glossary.v1.GlossaryService/LookupTerm"
+	GlossaryService_AddTerm_FullMethodName         = "/penfold.glossary.v1.GlossaryService/AddTerm"
+	GlossaryService_GetTerm_FullMethodName         = "/penfold.glossary.v1.GlossaryService/GetTerm"
+	GlossaryService_ListTerms_FullMethodName       = "/penfold.glossary.v1.GlossaryService/ListTerms"
+	GlossaryService_UpdateTerm_FullMethodName      = "/penfold.glossary.v1.GlossaryService/UpdateTerm"
+	GlossaryService_DeleteTerm_FullMethodName      = "/penfold.glossary.v1.GlossaryService/DeleteTerm"
+	GlossaryService_ExpandQuery_FullMethodName     = "/penfold.glossary.v1.GlossaryService/ExpandQuery"
+	GlossaryService_LookupTerm_FullMethodName      = "/penfold.glossary.v1.GlossaryService/LookupTerm"
+	GlossaryService_LinkTerm_FullMethodName        = "/penfold.glossary.v1.GlossaryService/LinkTerm"
+	GlossaryService_UnlinkTerm_FullMethodName      = "/penfold.glossary.v1.GlossaryService/UnlinkTerm"
+	GlossaryService_ListLinkedTerms_FullMethodName = "/penfold.glossary.v1.GlossaryService/ListLinkedTerms"
 )
 
 // GlossaryServiceClient is the client API for GlossaryService service.
@@ -52,6 +55,12 @@ type GlossaryServiceClient interface {
 	ExpandQuery(ctx context.Context, in *ExpandQueryRequest, opts ...grpc.CallOption) (*ExpandQueryResponse, error)
 	// LookupTerm looks up a specific term and returns its expansion.
 	LookupTerm(ctx context.Context, in *LookupTermRequest, opts ...grpc.CallOption) (*LookupTermResponse, error)
+	// LinkTerm links a glossary term to an entity (product, project, company).
+	LinkTerm(ctx context.Context, in *LinkTermRequest, opts ...grpc.CallOption) (*LinkTermResponse, error)
+	// UnlinkTerm removes the entity link from a glossary term.
+	UnlinkTerm(ctx context.Context, in *UnlinkTermRequest, opts ...grpc.CallOption) (*UnlinkTermResponse, error)
+	// ListLinkedTerms returns all terms linked to entities.
+	ListLinkedTerms(ctx context.Context, in *ListLinkedTermsRequest, opts ...grpc.CallOption) (*ListLinkedTermsResponse, error)
 }
 
 type glossaryServiceClient struct {
@@ -132,6 +141,36 @@ func (c *glossaryServiceClient) LookupTerm(ctx context.Context, in *LookupTermRe
 	return out, nil
 }
 
+func (c *glossaryServiceClient) LinkTerm(ctx context.Context, in *LinkTermRequest, opts ...grpc.CallOption) (*LinkTermResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LinkTermResponse)
+	err := c.cc.Invoke(ctx, GlossaryService_LinkTerm_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *glossaryServiceClient) UnlinkTerm(ctx context.Context, in *UnlinkTermRequest, opts ...grpc.CallOption) (*UnlinkTermResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UnlinkTermResponse)
+	err := c.cc.Invoke(ctx, GlossaryService_UnlinkTerm_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *glossaryServiceClient) ListLinkedTerms(ctx context.Context, in *ListLinkedTermsRequest, opts ...grpc.CallOption) (*ListLinkedTermsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListLinkedTermsResponse)
+	err := c.cc.Invoke(ctx, GlossaryService_ListLinkedTerms_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GlossaryServiceServer is the server API for GlossaryService service.
 // All implementations must embed UnimplementedGlossaryServiceServer
 // for forward compatibility.
@@ -153,6 +192,12 @@ type GlossaryServiceServer interface {
 	ExpandQuery(context.Context, *ExpandQueryRequest) (*ExpandQueryResponse, error)
 	// LookupTerm looks up a specific term and returns its expansion.
 	LookupTerm(context.Context, *LookupTermRequest) (*LookupTermResponse, error)
+	// LinkTerm links a glossary term to an entity (product, project, company).
+	LinkTerm(context.Context, *LinkTermRequest) (*LinkTermResponse, error)
+	// UnlinkTerm removes the entity link from a glossary term.
+	UnlinkTerm(context.Context, *UnlinkTermRequest) (*UnlinkTermResponse, error)
+	// ListLinkedTerms returns all terms linked to entities.
+	ListLinkedTerms(context.Context, *ListLinkedTermsRequest) (*ListLinkedTermsResponse, error)
 	mustEmbedUnimplementedGlossaryServiceServer()
 }
 
@@ -183,6 +228,15 @@ func (UnimplementedGlossaryServiceServer) ExpandQuery(context.Context, *ExpandQu
 }
 func (UnimplementedGlossaryServiceServer) LookupTerm(context.Context, *LookupTermRequest) (*LookupTermResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LookupTerm not implemented")
+}
+func (UnimplementedGlossaryServiceServer) LinkTerm(context.Context, *LinkTermRequest) (*LinkTermResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LinkTerm not implemented")
+}
+func (UnimplementedGlossaryServiceServer) UnlinkTerm(context.Context, *UnlinkTermRequest) (*UnlinkTermResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnlinkTerm not implemented")
+}
+func (UnimplementedGlossaryServiceServer) ListLinkedTerms(context.Context, *ListLinkedTermsRequest) (*ListLinkedTermsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListLinkedTerms not implemented")
 }
 func (UnimplementedGlossaryServiceServer) mustEmbedUnimplementedGlossaryServiceServer() {}
 func (UnimplementedGlossaryServiceServer) testEmbeddedByValue()                         {}
@@ -331,6 +385,60 @@ func _GlossaryService_LookupTerm_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GlossaryService_LinkTerm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LinkTermRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GlossaryServiceServer).LinkTerm(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GlossaryService_LinkTerm_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GlossaryServiceServer).LinkTerm(ctx, req.(*LinkTermRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GlossaryService_UnlinkTerm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnlinkTermRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GlossaryServiceServer).UnlinkTerm(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GlossaryService_UnlinkTerm_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GlossaryServiceServer).UnlinkTerm(ctx, req.(*UnlinkTermRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GlossaryService_ListLinkedTerms_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListLinkedTermsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GlossaryServiceServer).ListLinkedTerms(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GlossaryService_ListLinkedTerms_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GlossaryServiceServer).ListLinkedTerms(ctx, req.(*ListLinkedTermsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // GlossaryService_ServiceDesc is the grpc.ServiceDesc for GlossaryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -365,6 +473,18 @@ var GlossaryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "LookupTerm",
 			Handler:    _GlossaryService_LookupTerm_Handler,
+		},
+		{
+			MethodName: "LinkTerm",
+			Handler:    _GlossaryService_LinkTerm_Handler,
+		},
+		{
+			MethodName: "UnlinkTerm",
+			Handler:    _GlossaryService_UnlinkTerm_Handler,
+		},
+		{
+			MethodName: "ListLinkedTerms",
+			Handler:    _GlossaryService_ListLinkedTerms_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

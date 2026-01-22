@@ -12,7 +12,8 @@ import (
 type Registrar struct {
 	// Activities holds the activity implementations.
 	// This will be populated with actual implementations when they are ready.
-	activities *Activities
+	activities         *Activities
+	mentionsActivities *MentionsActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -20,6 +21,12 @@ func NewRegistrar(activities *Activities) *Registrar {
 	return &Registrar{
 		activities: activities,
 	}
+}
+
+// WithMentionsActivities adds mentions activities to the registrar.
+func (r *Registrar) WithMentionsActivities(ma *MentionsActivities) *Registrar {
+	r.mentionsActivities = ma
+	return r
 }
 
 // RegisterAll registers all activities with the given worker based on task queue.
@@ -62,6 +69,13 @@ func (r *Registrar) registerAIQueueActivities(w worker.Worker) {
 			Name: "ExtractAssertions",
 		})
 	}
+
+	// Mentions extraction activity (LLM-driven, so registered with AI queue)
+	if r.mentionsActivities != nil {
+		w.RegisterActivityWithOptions(r.mentionsActivities.ExtractMentions, activity.RegisterOptions{
+			Name: "ExtractMentions",
+		})
+	}
 }
 
 // registerEmailQueueActivities registers activities for the email task queue.
@@ -93,9 +107,17 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 	case config.MainTaskQueue:
 		return 0 // Will increase as activities are added
 	case config.AITaskQueue:
-		return 3 // GenerateEmbedding, GenerateSummary, ExtractAssertions
+		count := 3 // GenerateEmbedding, GenerateSummary, ExtractAssertions
+		if r.mentionsActivities != nil {
+			count++ // ExtractMentions
+		}
+		return count
 	case config.EmailTaskQueue:
-		return 5 // FetchSource, UpdateSourceStatus + AI activities
+		count := 5 // FetchSource, UpdateSourceStatus + AI activities
+		if r.mentionsActivities != nil {
+			count++ // ExtractMentions
+		}
+		return count
 	default:
 		return 0
 	}

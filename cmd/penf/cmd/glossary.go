@@ -79,6 +79,9 @@ Query expansion automatically expands known acronyms in search queries.`,
 	cmd.AddCommand(newGlossaryRemoveCommand(deps))
 	cmd.AddCommand(newGlossaryExpandCommand(deps))
 	cmd.AddCommand(newGlossaryAliasCommand(deps))
+	cmd.AddCommand(newGlossaryLinkCommand(deps))
+	cmd.AddCommand(newGlossaryUnlinkCommand(deps))
+	cmd.AddCommand(newGlossaryLinkedCommand(deps))
 
 	return cmd
 }
@@ -253,6 +256,107 @@ Examples:
 			return runGlossaryAlias(cmd.Context(), deps, args[0], args[1])
 		},
 	}
+}
+
+// Glossary link command flags
+var (
+	glossaryLinkType string
+)
+
+// newGlossaryLinkCommand creates the 'glossary link' subcommand.
+func newGlossaryLinkCommand(deps *GlossaryCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "link <term> <entity-id>",
+		Short: "Link a glossary term to a product, project, or company",
+		Long: `Link a glossary term to a canonical entity.
+
+This connects an acronym or term to its canonical product, project, or company
+record in the system. Linked terms enable rich entity resolution in mentions.
+
+Entity types:
+  - product:  A product or service (e.g., "DBaaS", "Exadata")
+  - project:  A project (e.g., "MTC", "TikTok Migration")
+  - company:  A company (e.g., "Oracle", "TikTok")
+
+Examples:
+  # Link a term to a product
+  penf glossary link DBaaS 123 --type product
+
+  # Link to a project
+  penf glossary link MTC 456 --type project
+
+  # Link to a company (default type)
+  penf glossary link ORCL 789`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			entityID, err := parseEntityID(args[1])
+			if err != nil {
+				return err
+			}
+			return runGlossaryLink(cmd.Context(), deps, args[0], glossaryLinkType, entityID)
+		},
+	}
+
+	cmd.Flags().StringVarP(&glossaryLinkType, "type", "t", "company", "Entity type: product, project, company")
+
+	return cmd
+}
+
+// newGlossaryUnlinkCommand creates the 'glossary unlink' subcommand.
+func newGlossaryUnlinkCommand(deps *GlossaryCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "unlink <term>",
+		Short: "Remove entity link from a glossary term",
+		Long: `Remove the entity link from a glossary term.
+
+This disconnects a term from its linked product, project, or company.
+The term itself remains in the glossary.
+
+Example:
+  penf glossary unlink DBaaS`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runGlossaryUnlink(cmd.Context(), deps, args[0])
+		},
+	}
+}
+
+// newGlossaryLinkedCommand creates the 'glossary linked' subcommand.
+func newGlossaryLinkedCommand(deps *GlossaryCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "linked",
+		Short: "List all terms linked to entities",
+		Long: `List all glossary terms that are linked to entities.
+
+Shows terms that have been connected to products, projects, or companies.
+
+Examples:
+  # List all linked terms
+  penf glossary linked
+
+  # Filter by entity type
+  penf glossary linked --type product
+
+  # Output as JSON
+  penf glossary linked --output json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runGlossaryLinked(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVarP(&glossaryLinkType, "type", "t", "", "Filter by entity type: product, project, company")
+
+	return cmd
+}
+
+// parseEntityID converts string to int64 entity ID.
+func parseEntityID(s string) (int64, error) {
+	var id int64
+	_, err := fmt.Sscanf(s, "%d", &id)
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("invalid entity ID: %s (must be a positive integer)", s)
+	}
+	return id, nil
 }
 
 // connectToGateway creates a gRPC connection to the gateway service.
@@ -546,6 +650,98 @@ func runGlossaryAlias(ctx context.Context, deps *GlossaryCommandDeps, termStr, n
 	return nil
 }
 
+func runGlossaryLink(ctx context.Context, deps *GlossaryCommandDeps, termStr, entityType string, entityID int64) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := glossaryv1.NewGlossaryServiceClient(conn)
+
+	resp, err := client.LinkTerm(ctx, &glossaryv1.LinkTermRequest{
+		TermStr:    termStr,
+		EntityType: entityType,
+		EntityId:   entityID,
+	})
+	if err != nil {
+		return fmt.Errorf("linking term: %w", err)
+	}
+
+	fmt.Printf("\033[32mLinked term:\033[0m %s\n", resp.Term.Term)
+	fmt.Printf("  Expansion: %s\n", resp.Term.Expansion)
+	if resp.Term.LinkedEntity != nil {
+		fmt.Printf("  Entity:    %s #%d\n", resp.Term.LinkedEntity.EntityType, resp.Term.LinkedEntity.EntityId)
+	}
+
+	return nil
+}
+
+func runGlossaryUnlink(ctx context.Context, deps *GlossaryCommandDeps, termStr string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := glossaryv1.NewGlossaryServiceClient(conn)
+
+	resp, err := client.UnlinkTerm(ctx, &glossaryv1.UnlinkTermRequest{
+		TermStr: termStr,
+	})
+	if err != nil {
+		return fmt.Errorf("unlinking term: %w", err)
+	}
+
+	fmt.Printf("\033[32mUnlinked term:\033[0m %s\n", resp.Term.Term)
+	fmt.Printf("  Expansion: %s\n", resp.Term.Expansion)
+
+	return nil
+}
+
+func runGlossaryLinked(ctx context.Context, deps *GlossaryCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := glossaryv1.NewGlossaryServiceClient(conn)
+
+	resp, err := client.ListLinkedTerms(ctx, &glossaryv1.ListLinkedTermsRequest{
+		EntityType: glossaryLinkType,
+		Limit:      int32(glossaryLimit),
+	})
+	if err != nil {
+		return fmt.Errorf("listing linked terms: %w", err)
+	}
+
+	format := cfg.OutputFormat
+	if glossaryOutput != "" {
+		format = config.OutputFormat(glossaryOutput)
+	}
+
+	return outputLinkedTerms(format, resp.Terms, resp.TotalCount)
+}
+
 // Output functions for proto types
 
 func outputGlossaryProtoTerms(format config.OutputFormat, terms []*glossaryv1.Term) error {
@@ -657,6 +853,51 @@ func outputQueryExpansionProtoText(resp *glossaryv1.ExpandQueryResponse) error {
 	fmt.Println()
 	fmt.Printf("  \033[1mExpanded:\033[0m    %s\n", resp.ExpandedQuery)
 
+	return nil
+}
+
+func outputLinkedTerms(format config.OutputFormat, terms []*glossaryv1.Term, totalCount int64) error {
+	switch format {
+	case config.OutputFormatJSON:
+		return outputGlossaryJSON(map[string]interface{}{
+			"terms":       terms,
+			"total_count": totalCount,
+		})
+	case config.OutputFormatYAML:
+		return outputGlossaryYAML(map[string]interface{}{
+			"terms":       terms,
+			"total_count": totalCount,
+		})
+	default:
+		return outputLinkedTermsText(terms, totalCount)
+	}
+}
+
+func outputLinkedTermsText(terms []*glossaryv1.Term, totalCount int64) error {
+	if len(terms) == 0 {
+		fmt.Println("No linked terms found.")
+		return nil
+	}
+
+	fmt.Printf("Linked Terms (%d total):\n\n", totalCount)
+	fmt.Println("  TERM          EXPANSION                         TYPE       ID")
+	fmt.Println("  ----          ---------                         ----       --")
+
+	for _, t := range terms {
+		entityType := ""
+		var entityID int64
+		if t.LinkedEntity != nil {
+			entityType = t.LinkedEntity.EntityType
+			entityID = t.LinkedEntity.EntityId
+		}
+		fmt.Printf("  %-13s %-33s %-10s %d\n",
+			truncateGlossary(t.Term, 13),
+			truncateGlossary(t.Expansion, 33),
+			entityType,
+			entityID)
+	}
+
+	fmt.Println()
 	return nil
 }
 

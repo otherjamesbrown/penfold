@@ -622,6 +622,10 @@ func init() {
 	healthCmd.Flags().BoolVarP(&healthWatch, "watch", "w", false, "Continuously monitor health status")
 	healthCmd.Flags().DurationVar(&healthWatchInterval, "interval", 5*time.Second, "Watch interval (default 5s)")
 
+	// Health subcommands.
+	healthCmd.AddCommand(cmd.NewHealthLocalCommand())
+	healthCmd.AddCommand(cmd.NewHealthGatewayCommand())
+
 	// Add commands.
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(statusCmd)
@@ -645,6 +649,7 @@ func init() {
 	rootCmd.AddCommand(cmd.NewInitCommand())
 	rootCmd.AddCommand(cmd.NewUpdateCommand(version))
 	rootCmd.AddCommand(cmd.NewFeedbackCommand(version))
+	rootCmd.AddCommand(cmd.NewAuditCommand(nil))
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)

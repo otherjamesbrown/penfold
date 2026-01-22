@@ -14,9 +14,14 @@ type Term struct {
 	Aliases        []string  `json:"aliases"`        // Alternative forms (e.g., ["T.E.R."])
 	ExpandInSearch bool      `json:"expand_in_search"`
 	Source         string    `json:"source"` // "manual", "extracted", "suggested"
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	CreatedBy      string    `json:"created_by,omitempty"`
+
+	// Linked entity - connects term to its canonical product/project/company
+	LinkedEntityType string `json:"linked_entity_type,omitempty"` // "product", "project", "company"
+	LinkedEntityID   int64  `json:"linked_entity_id,omitempty"`   // FK to the entity table
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	CreatedBy string    `json:"created_by,omitempty"`
 }
 
 // TermInput is used for creating or updating a glossary term.
@@ -29,6 +34,10 @@ type TermInput struct {
 	ExpandInSearch *bool    `json:"expand_in_search,omitempty"` // nil means default true
 	Source         string   `json:"source,omitempty"`
 	CreatedBy      string   `json:"created_by,omitempty"`
+
+	// Linked entity - connects term to its canonical product/project/company
+	LinkedEntityType string `json:"linked_entity_type,omitempty"` // "product", "project", "company"
+	LinkedEntityID   *int64 `json:"linked_entity_id,omitempty"`   // FK to the entity table
 }
 
 // TermFilter specifies criteria for listing/searching terms.
@@ -43,12 +52,22 @@ type TermFilter struct {
 	ExpandOnly bool     // Only terms with expand_in_search=true
 }
 
+// LinkedEntity represents the canonical entity a term links to.
+type LinkedEntity struct {
+	Type string `json:"type"` // "product", "project", "company"
+	ID   int64  `json:"id"`
+	Name string `json:"name,omitempty"` // Populated when fetching with entity details
+}
+
 // ExpansionResult represents a term expansion for query enhancement.
 type ExpansionResult struct {
 	OriginalTerm string   `json:"original_term"`
 	Expansion    string   `json:"expansion"`
 	Aliases      []string `json:"aliases,omitempty"`
 	Definition   string   `json:"definition,omitempty"`
+
+	// Linked entity - the canonical product/project/company this term represents
+	LinkedEntity *LinkedEntity `json:"linked_entity,omitempty"`
 }
 
 // QueryExpansion contains all expansions for a query string.

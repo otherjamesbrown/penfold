@@ -47,6 +47,15 @@ type GatewayConfig struct {
 
 	// DailyReviewAddress is the gRPC address of the daily review service.
 	DailyReviewAddress string
+
+	// WorkerHealthURL is the URL for the worker health endpoint (on dev01).
+	WorkerHealthURL string
+
+	// EmbeddingsURL is the URL for the MLX embeddings service (on dev01).
+	EmbeddingsURL string
+
+	// LLMURL is the URL for the MLX LLM server (on dev01).
+	LLMURL string
 }
 
 // AuthConfig holds authentication configuration for the gateway.
@@ -246,6 +255,19 @@ func loadGatewayEnv(cfg *GatewayConfig) {
 
 	if v := os.Getenv("GATEWAY_DAILY_REVIEW_ADDRESS"); v != "" {
 		cfg.DailyReviewAddress = v
+	}
+
+	// ML service URLs (on dev01)
+	if v := os.Getenv("GATEWAY_WORKER_HEALTH_URL"); v != "" {
+		cfg.WorkerHealthURL = v
+	}
+
+	if v := os.Getenv("GATEWAY_EMBEDDINGS_URL"); v != "" {
+		cfg.EmbeddingsURL = v
+	}
+
+	if v := os.Getenv("GATEWAY_LLM_URL"); v != "" {
+		cfg.LLMURL = v
 	}
 }
 
