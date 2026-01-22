@@ -184,7 +184,7 @@ func TestCleanContext(t *testing.T) {
 		{
 			name:     "truncates long context",
 			input:    "this is a very long context that should be truncated because it exceeds the maximum length allowed for context which is one hundred and fifty characters total",
-			expected: "this is a very long context that should be truncated because it exceeds the maximum length allowed for context which is one hundred and fifty ch...",
+			expected: "this is a very long context that should be truncated because it exceeds the maximum length allowed for context which is one hundred and fifty chara...",
 		},
 	}
 

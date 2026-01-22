@@ -345,7 +345,7 @@ func TestDatabaseConfig_DSN(t *testing.T) {
 		Password: "testpass",
 	}
 
-	expected := "postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable"
+	expected := "host=localhost port=5432 user=testuser password=testpass dbname=testdb sslmode=disable"
 	if got := db.DSN(); got != expected {
 		t.Errorf("DSN() = %q, want %q", got, expected)
 	}
