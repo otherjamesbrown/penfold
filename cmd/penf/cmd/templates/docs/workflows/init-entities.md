@@ -176,6 +176,20 @@ See [Glossary Concepts](../concepts/glossary.md) for details on multi-context te
 Seeded entities are marked as confirmed (not auto-created), giving them
 higher priority in resolution.
 
+## Batch Size Limits
+
+Each entity type (people, products, projects) has a maximum batch size of 500
+items per request. If your JSON file contains more than 500 of any entity type,
+split them into multiple files or import in stages:
+
+```bash
+# For large imports, split your JSON files
+penf init entities --from-json entities-part1.json
+penf init entities --from-json entities-part2.json
+```
+
+Glossary terms are processed individually, so there's no batch limit for them.
+
 ## After Seeding
 
 1. **Import content:**

@@ -4,6 +4,7 @@ package entityservice
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"google.golang.org/grpc/codes"
@@ -16,21 +17,36 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/products"
 )
 
+const (
+	// DefaultMaxBatchSize is the default maximum number of entities per bulk request.
+	DefaultMaxBatchSize = 500
+)
+
 // Service implements the EntityService gRPC server.
 type Service struct {
 	entityv1.UnimplementedEntityServiceServer
-	entityRepo  *entities.Repository
-	productRepo *products.Repository
-	logger      logging.Logger
+	entityRepo   *entities.Repository
+	productRepo  *products.Repository
+	logger       logging.Logger
+	maxBatchSize int
 }
 
 // NewService creates a new entity service.
 func NewService(entityRepo *entities.Repository, productRepo *products.Repository, logger logging.Logger) *Service {
 	return &Service{
-		entityRepo:  entityRepo,
-		productRepo: productRepo,
-		logger:      logger,
+		entityRepo:   entityRepo,
+		productRepo:  productRepo,
+		logger:       logger,
+		maxBatchSize: DefaultMaxBatchSize,
 	}
+}
+
+// WithMaxBatchSize sets a custom maximum batch size.
+func (s *Service) WithMaxBatchSize(size int) *Service {
+	if size > 0 {
+		s.maxBatchSize = size
+	}
+	return s
 }
 
 // BulkCreatePeople creates multiple people in a single request.
@@ -45,6 +61,10 @@ func (s *Service) BulkCreatePeople(ctx context.Context, req *entityv1.BulkCreate
 	}
 	if len(req.People) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "at least one person is required")
+	}
+	if len(req.People) > s.maxBatchSize {
+		return nil, status.Error(codes.ResourceExhausted,
+			fmt.Sprintf("batch size %d exceeds maximum of %d; split into smaller batches", len(req.People), s.maxBatchSize))
 	}
 
 	resp := &entityv1.BulkCreatePeopleResponse{
@@ -189,6 +209,10 @@ func (s *Service) BulkCreateProducts(ctx context.Context, req *entityv1.BulkCrea
 	}
 	if len(req.Products) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "at least one product is required")
+	}
+	if len(req.Products) > s.maxBatchSize {
+		return nil, status.Error(codes.ResourceExhausted,
+			fmt.Sprintf("batch size %d exceeds maximum of %d; split into smaller batches", len(req.Products), s.maxBatchSize))
 	}
 
 	resp := &entityv1.BulkCreateProductsResponse{
@@ -371,6 +395,10 @@ func (s *Service) BulkCreateProjects(ctx context.Context, req *entityv1.BulkCrea
 	}
 	if len(req.Projects) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "at least one project is required")
+	}
+	if len(req.Projects) > s.maxBatchSize {
+		return nil, status.Error(codes.ResourceExhausted,
+			fmt.Sprintf("batch size %d exceeds maximum of %d; split into smaller batches", len(req.Projects), s.maxBatchSize))
 	}
 
 	resp := &entityv1.BulkCreateProjectsResponse{

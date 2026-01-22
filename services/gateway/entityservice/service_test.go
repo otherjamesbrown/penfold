@@ -3,6 +3,7 @@ package entityservice
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -159,6 +160,116 @@ func TestNewService(t *testing.T) {
 	t.Run("creates service with nil logger", func(t *testing.T) {
 		svc := NewService(nil, nil, nil)
 		require.NotNil(t, svc)
+	})
+
+	t.Run("default max batch size", func(t *testing.T) {
+		svc := NewService(nil, nil, logger)
+		assert.Equal(t, DefaultMaxBatchSize, svc.maxBatchSize)
+	})
+
+	t.Run("WithMaxBatchSize sets custom size", func(t *testing.T) {
+		svc := NewService(nil, nil, logger).WithMaxBatchSize(100)
+		assert.Equal(t, 100, svc.maxBatchSize)
+	})
+
+	t.Run("WithMaxBatchSize ignores zero or negative", func(t *testing.T) {
+		svc := NewService(nil, nil, logger).WithMaxBatchSize(0)
+		assert.Equal(t, DefaultMaxBatchSize, svc.maxBatchSize)
+
+		svc = NewService(nil, nil, logger).WithMaxBatchSize(-1)
+		assert.Equal(t, DefaultMaxBatchSize, svc.maxBatchSize)
+	})
+}
+
+func TestBatchSizeLimits(t *testing.T) {
+	logger := testLogger()
+
+	t.Run("BulkCreatePeople exceeds batch size", func(t *testing.T) {
+		svc := NewService(nil, nil, logger).WithMaxBatchSize(2)
+
+		people := make([]*entityv1.PersonInput, 3)
+		for i := range people {
+			people[i] = &entityv1.PersonInput{Name: "Test", Email: "test@example.com"}
+		}
+
+		req := &entityv1.BulkCreatePeopleRequest{
+			TenantId: "tenant-1",
+			People:   people,
+		}
+
+		resp, err := svc.BulkCreatePeople(context.Background(), req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.ResourceExhausted, st.Code())
+		assert.Contains(t, st.Message(), "batch size 3 exceeds maximum of 2")
+	})
+
+	t.Run("BulkCreateProducts exceeds batch size", func(t *testing.T) {
+		svc := NewService(nil, nil, logger).WithMaxBatchSize(2)
+
+		products := make([]*entityv1.ProductInput, 3)
+		for i := range products {
+			products[i] = &entityv1.ProductInput{Name: "Test Product"}
+		}
+
+		req := &entityv1.BulkCreateProductsRequest{
+			TenantId: "tenant-1",
+			Products: products,
+		}
+
+		resp, err := svc.BulkCreateProducts(context.Background(), req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.ResourceExhausted, st.Code())
+		assert.Contains(t, st.Message(), "batch size 3 exceeds maximum of 2")
+	})
+
+	t.Run("BulkCreateProjects exceeds batch size", func(t *testing.T) {
+		svc := NewService(nil, nil, logger).WithMaxBatchSize(2)
+
+		projects := make([]*entityv1.ProjectInput, 3)
+		for i := range projects {
+			projects[i] = &entityv1.ProjectInput{Name: "Test Project"}
+		}
+
+		req := &entityv1.BulkCreateProjectsRequest{
+			TenantId: "tenant-1",
+			Projects: projects,
+		}
+
+		resp, err := svc.BulkCreateProjects(context.Background(), req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.ResourceExhausted, st.Code())
+		assert.Contains(t, st.Message(), "batch size 3 exceeds maximum of 2")
+	})
+
+	t.Run("batch at limit succeeds", func(t *testing.T) {
+		svc := newMockableService()
+		// Override maxBatchSize on the embedded Service
+		svc.Service.maxBatchSize = 2
+
+		req := &entityv1.BulkCreatePeopleRequest{
+			TenantId: "tenant-1",
+			People: []*entityv1.PersonInput{
+				{Name: "Person 1", Email: "p1@example.com"},
+				{Name: "Person 2", Email: "p2@example.com"},
+			},
+		}
+
+		resp, err := svc.BulkCreatePeople(context.Background(), req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Equal(t, int32(2), resp.TotalCreated)
 	})
 }
 
@@ -933,6 +1044,10 @@ func (s *mockableService) BulkCreatePeople(ctx context.Context, req *entityv1.Bu
 	}
 	if len(req.People) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "at least one person is required")
+	}
+	if s.Service.maxBatchSize > 0 && len(req.People) > s.Service.maxBatchSize {
+		return nil, status.Error(codes.ResourceExhausted,
+			fmt.Sprintf("batch size %d exceeds maximum of %d; split into smaller batches", len(req.People), s.Service.maxBatchSize))
 	}
 
 	resp := &entityv1.BulkCreatePeopleResponse{
