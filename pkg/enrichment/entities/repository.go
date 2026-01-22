@@ -501,6 +501,34 @@ func (r *Repository) GetProjectByID(ctx context.Context, id int64) (*Project, er
 	return p, nil
 }
 
+// GetProjectByName retrieves a project by name.
+func (r *Repository) GetProjectByName(ctx context.Context, tenantID, name string) (*Project, error) {
+	query := `
+		SELECT id, tenant_id, name, description, keywords, jira_projects, created_at, updated_at
+		FROM projects
+		WHERE tenant_id = $1 AND name = $2
+	`
+
+	p := &Project{}
+	var description *string
+	err := r.pool.QueryRow(ctx, query, tenantID, name).Scan(
+		&p.ID, &p.TenantID, &p.Name, &description, &p.Keywords, &p.JiraProjects, &p.CreatedAt, &p.UpdatedAt,
+	)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project: %w", err)
+	}
+
+	if description != nil {
+		p.Description = *description
+	}
+
+	return p, nil
+}
+
 // GetProjectByJiraKey retrieves a project by Jira project key.
 func (r *Repository) GetProjectByJiraKey(ctx context.Context, tenantID, jiraKey string) (*Project, error) {
 	query := `

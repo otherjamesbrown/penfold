@@ -3,9 +3,7 @@ module github.com/otherjamesbrown/penfold/services/gateway
 go 1.24.0
 
 require (
-	github.com/otherjamesbrown/penfold/api/proto/contentv1 v0.0.0
-	github.com/otherjamesbrown/penfold/api/proto/reviewv1 v0.0.0
-	github.com/otherjamesbrown/penfold/api/proto/searchv1 v0.0.0
+	github.com/otherjamesbrown/penfold/api/proto v0.0.0
 	github.com/otherjamesbrown/penfold/pkg v0.0.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
@@ -54,11 +52,5 @@ require (
 replace github.com/otherjamesbrown/penfold/pkg => ../../pkg
 
 replace github.com/otherjamesbrown/penfold/api/proto => ../../api/proto
-
-replace github.com/otherjamesbrown/penfold/api/proto/searchv1 => ../../api/proto/search/v1
-
-replace github.com/otherjamesbrown/penfold/api/proto/contentv1 => ../../api/proto/content/v1
-
-replace github.com/otherjamesbrown/penfold/api/proto/reviewv1 => ../../api/proto/review/v1
 
 replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240822170219-fc7c04adadcd

@@ -1,4 +1,4 @@
-module github.com/otherjamesbrown/penfold/api/proto/gmailv1
+module github.com/otherjamesbrown/penfold/api/proto/gmail/v1
 
 go 1.24.0
 

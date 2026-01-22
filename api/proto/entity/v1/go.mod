@@ -1,4 +1,4 @@
-module github.com/otherjamesbrown/penfold/api/proto/gateway/v1
+module github.com/otherjamesbrown/penfold/api/proto/entity/v1
 
 go 1.24.0
 

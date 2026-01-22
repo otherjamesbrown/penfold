@@ -1,4 +1,4 @@
-module github.com/otherjamesbrown/penfold/api/proto/workflowv1
+module github.com/otherjamesbrown/penfold/api/proto/workflow/v1
 
 go 1.24.0
 

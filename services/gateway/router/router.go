@@ -17,11 +17,11 @@ import (
 	"google.golang.org/grpc/status"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
-	contentv1 "github.com/otherjamesbrown/penfold/api/proto/contentv1"
+	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	gmailv1 "github.com/otherjamesbrown/penfold/api/proto/gmail/v1"
 	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
-	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/reviewv1"
-	searchv1 "github.com/otherjamesbrown/penfold/api/proto/searchv1"
+	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
+	searchv1 "github.com/otherjamesbrown/penfold/api/proto/search/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 )

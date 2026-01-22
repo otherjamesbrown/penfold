@@ -1,4 +1,4 @@
-module github.com/otherjamesbrown/penfold/api/proto/contentv1
+module github.com/otherjamesbrown/penfold/api/proto/content/v1
 
 go 1.24.0
 

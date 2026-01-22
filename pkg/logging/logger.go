@@ -79,6 +79,9 @@ type Logger interface {
 
 	// WithContext returns a new Logger that extracts trace information from the context.
 	WithContext(ctx context.Context) Logger
+
+	// Zerolog returns the underlying zerolog.Logger for use with legacy components.
+	Zerolog() zerolog.Logger
 }
 
 // Field represents a key-value pair for structured logging.
@@ -149,6 +152,12 @@ func NewLogger(cfg *Config) Logger {
 		serviceName: cfg.ServiceName,
 		environment: cfg.Environment,
 	}
+}
+
+// Zerolog returns the underlying zerolog.Logger for use with legacy components.
+// This allows interoperability with code that directly uses zerolog.
+func (l *logger) Zerolog() zerolog.Logger {
+	return l.zl
 }
 
 // parseLevel converts Level to zerolog.Level.

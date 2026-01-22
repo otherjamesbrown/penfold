@@ -1,4 +1,4 @@
-module github.com/otherjamesbrown/penfold/api/proto/orchestratorv1
+module github.com/otherjamesbrown/penfold/api/proto/orchestrator/v1
 
 go 1.24.0
 

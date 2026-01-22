@@ -1,0 +1,301 @@
+// Entity Seeding Service Protobuf Definitions
+// Provides bulk entity creation for init entities workflow
+
+syntax = "proto3";
+
+package penfold.entity.v1;
+
+option go_package = "github.com/otherjamesbrown/penfold/api/proto/entity/v1;entityv1";
+
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// EntityService provides gRPC endpoints for bulk entity seeding operations.
+// This service is used during onboarding to seed known entities before content import.
+service EntityService {
+  // BulkCreatePeople creates multiple people in a single request.
+  rpc BulkCreatePeople(BulkCreatePeopleRequest) returns (BulkCreatePeopleResponse);
+
+  // BulkCreateProducts creates multiple products in a single request.
+  rpc BulkCreateProducts(BulkCreateProductsRequest) returns (BulkCreateProductsResponse);
+
+  // BulkCreateProjects creates multiple projects in a single request.
+  rpc BulkCreateProjects(BulkCreateProjectsRequest) returns (BulkCreateProjectsResponse);
+}
+
+// =============================================================================
+// People Messages
+// =============================================================================
+
+// PersonInput represents a person to create.
+message PersonInput {
+  // Display name of the person (required)
+  string name = 1;
+
+  // Primary email address (required)
+  string email = 2;
+
+  // Company or organization name (optional)
+  string company = 3;
+
+  // Job title (optional)
+  string title = 4;
+
+  // Department (optional)
+  string department = 5;
+
+  // Alternative names/emails for this person (optional)
+  repeated string aliases = 6;
+
+  // Whether this is an internal (employee) or external contact (optional)
+  bool is_internal = 7;
+}
+
+// Person represents a created person record.
+message Person {
+  // Unique identifier
+  int64 id = 1;
+
+  // Display name
+  string name = 2;
+
+  // Primary email address
+  string email = 3;
+
+  // Company name
+  string company = 4;
+
+  // Job title
+  string title = 5;
+
+  // Department
+  string department = 6;
+
+  // Whether internal
+  bool is_internal = 7;
+
+  // When created
+  google.protobuf.Timestamp created_at = 8;
+}
+
+// BulkCreatePeopleRequest creates multiple people.
+message BulkCreatePeopleRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // People to create
+  repeated PersonInput people = 2;
+
+  // If true, skip duplicates instead of erroring (based on email)
+  bool skip_duplicates = 3;
+}
+
+// BulkCreatePeopleResponse contains the results of bulk creation.
+message BulkCreatePeopleResponse {
+  // Successfully created people
+  repeated Person created = 1;
+
+  // People that were skipped (duplicates)
+  repeated PersonSkipped skipped = 2;
+
+  // Errors encountered
+  repeated EntityError errors = 3;
+
+  // Summary statistics
+  int32 total_requested = 4;
+  int32 total_created = 5;
+  int32 total_skipped = 6;
+  int32 total_errors = 7;
+}
+
+// PersonSkipped represents a person that was skipped.
+message PersonSkipped {
+  string email = 1;
+  string reason = 2;
+  int64 existing_id = 3;
+}
+
+// =============================================================================
+// Products Messages
+// =============================================================================
+
+// ProductInput represents a product to create.
+message ProductInput {
+  // Product name (required)
+  string name = 1;
+
+  // Product description (optional)
+  string description = 2;
+
+  // Product type: product, sub_product, feature (optional, default: product)
+  string product_type = 3;
+
+  // Name of parent product for hierarchy (optional)
+  string parent_name = 4;
+
+  // Alternative names for this product (optional)
+  repeated string aliases = 5;
+
+  // Product status: active, beta, sunset, deprecated (optional, default: active)
+  string status = 6;
+
+  // Keywords for matching (optional)
+  repeated string keywords = 7;
+}
+
+// Product represents a created product record.
+message Product {
+  // Unique identifier
+  int64 id = 1;
+
+  // Product name
+  string name = 2;
+
+  // Description
+  string description = 3;
+
+  // Product type
+  string product_type = 4;
+
+  // Parent product ID if hierarchical
+  optional int64 parent_id = 5;
+
+  // Status
+  string status = 6;
+
+  // When created
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// BulkCreateProductsRequest creates multiple products.
+message BulkCreateProductsRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Products to create
+  repeated ProductInput products = 2;
+
+  // If true, skip duplicates instead of erroring (based on name)
+  bool skip_duplicates = 3;
+}
+
+// BulkCreateProductsResponse contains the results of bulk creation.
+message BulkCreateProductsResponse {
+  // Successfully created products
+  repeated Product created = 1;
+
+  // Products that were skipped (duplicates)
+  repeated ProductSkipped skipped = 2;
+
+  // Errors encountered
+  repeated EntityError errors = 3;
+
+  // Summary statistics
+  int32 total_requested = 4;
+  int32 total_created = 5;
+  int32 total_skipped = 6;
+  int32 total_errors = 7;
+}
+
+// ProductSkipped represents a product that was skipped.
+message ProductSkipped {
+  string name = 1;
+  string reason = 2;
+  int64 existing_id = 3;
+}
+
+// =============================================================================
+// Projects Messages
+// =============================================================================
+
+// ProjectInput represents a project to create.
+message ProjectInput {
+  // Project name (required)
+  string name = 1;
+
+  // Project description (optional)
+  string description = 2;
+
+  // Keywords for matching content to this project (optional)
+  repeated string keywords = 3;
+
+  // Jira project keys linked to this project (optional)
+  repeated string jira_projects = 4;
+}
+
+// Project represents a created project record.
+message Project {
+  // Unique identifier
+  int64 id = 1;
+
+  // Project name
+  string name = 2;
+
+  // Description
+  string description = 3;
+
+  // Keywords
+  repeated string keywords = 4;
+
+  // Jira project keys
+  repeated string jira_projects = 5;
+
+  // When created
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// BulkCreateProjectsRequest creates multiple projects.
+message BulkCreateProjectsRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Projects to create
+  repeated ProjectInput projects = 2;
+
+  // If true, skip duplicates instead of erroring (based on name)
+  bool skip_duplicates = 3;
+}
+
+// BulkCreateProjectsResponse contains the results of bulk creation.
+message BulkCreateProjectsResponse {
+  // Successfully created projects
+  repeated Project created = 1;
+
+  // Projects that were skipped (duplicates)
+  repeated ProjectSkipped skipped = 2;
+
+  // Errors encountered
+  repeated EntityError errors = 3;
+
+  // Summary statistics
+  int32 total_requested = 4;
+  int32 total_created = 5;
+  int32 total_skipped = 6;
+  int32 total_errors = 7;
+}
+
+// ProjectSkipped represents a project that was skipped.
+message ProjectSkipped {
+  string name = 1;
+  string reason = 2;
+  int64 existing_id = 3;
+}
+
+// =============================================================================
+// Common Messages
+// =============================================================================
+
+// EntityError represents an error during entity creation.
+message EntityError {
+  // The identifier of the entity that failed (email for people, name for products/projects)
+  string identifier = 1;
+
+  // Error message
+  string error = 2;
+
+  // Index in the input array
+  int32 index = 3;
+}

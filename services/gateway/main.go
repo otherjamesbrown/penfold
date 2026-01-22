@@ -17,17 +17,21 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
+	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
 	mentionsv1 "github.com/otherjamesbrown/penfold/api/proto/mentions/v1"
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
+	"github.com/otherjamesbrown/penfold/pkg/products"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	"github.com/otherjamesbrown/penfold/pkg/sources"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
+	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
 	"github.com/otherjamesbrown/penfold/services/gateway/mentionsservice"
@@ -165,6 +169,13 @@ func main() {
 	mentionsSvc := mentionsservice.NewService(mentionsRepo, logger)
 	mentionsv1.RegisterMentionsServiceServer(grpcServer, mentionsSvc)
 	logger.Info("Registered MentionsService")
+
+	// Register EntityService for bulk entity seeding.
+	entityRepo := entities.NewRepository(dbPool, logger.Zerolog())
+	productRepo := products.NewRepository(dbPool, logger.Zerolog())
+	entitySvc := entityservice.NewService(entityRepo, productRepo, logger)
+	entityv1.RegisterEntityServiceServer(grpcServer, entitySvc)
+	logger.Info("Registered EntityService")
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()

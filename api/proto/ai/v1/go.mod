@@ -1,4 +1,4 @@
-module github.com/otherjamesbrown/penfold/api/proto/aiv1
+module github.com/otherjamesbrown/penfold/api/proto/ai/v1
 
 go 1.24.0
 

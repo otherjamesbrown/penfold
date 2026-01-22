@@ -307,10 +307,10 @@ func termToProto(t *glossary.Term) *glossaryv1.Term {
 	}
 
 	// Add linked entity if present
-	if t.LinkedEntityType != "" && t.LinkedEntityID > 0 {
+	if t.LinkedEntityType != nil && *t.LinkedEntityType != "" && t.LinkedEntityID != nil && *t.LinkedEntityID > 0 {
 		term.LinkedEntity = &glossaryv1.LinkedEntity{
-			EntityType: t.LinkedEntityType,
-			EntityId:   t.LinkedEntityID,
+			EntityType: *t.LinkedEntityType,
+			EntityId:   *t.LinkedEntityID,
 		}
 	}
 
