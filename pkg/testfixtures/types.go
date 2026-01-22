@@ -28,7 +28,7 @@ type TeamFixture struct {
 	Name     string `yaml:"name"`
 	Slug     string `yaml:"slug"`
 	ParentID *int64 `yaml:"parent_id"`
-	LeadID   int64  `yaml:"lead_id"`
+	LeadID   *int64 `yaml:"lead_id"`
 }
 
 // ProjectsFile represents the structure of projects.yaml.

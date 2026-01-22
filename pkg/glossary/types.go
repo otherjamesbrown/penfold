@@ -16,8 +16,8 @@ type Term struct {
 	Source         string    `json:"source"` // "manual", "extracted", "suggested"
 
 	// Linked entity - connects term to its canonical product/project/company
-	LinkedEntityType string `json:"linked_entity_type,omitempty"` // "product", "project", "company"
-	LinkedEntityID   int64  `json:"linked_entity_id,omitempty"`   // FK to the entity table
+	LinkedEntityType *string `json:"linked_entity_type,omitempty"` // "product", "project", "company"
+	LinkedEntityID   *int64  `json:"linked_entity_id,omitempty"`   // FK to the entity table
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

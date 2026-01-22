@@ -11,6 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// defaultTenantID matches the hardcoded tenant ID in mentions/postgres_repository.go
+const defaultTenantID = "00000001-0000-0000-0000-000000000001"
+
 func TestMentionsRepository_CreateMention(t *testing.T) {
 	db := SetupTestDB(t)
 	db.TruncateTables(t, "content_mentions", "mention_patterns", "entity_project_affinity")
@@ -34,10 +37,10 @@ func TestMentionsRepository_CreateMention(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "create team mention",
+			name: "create company mention",
 			input: mentions.MentionInput{
 				ContentID:     1,
-				EntityType:    mentions.EntityTypeTeam,
+				EntityType:    mentions.EntityTypeCompany,
 				MentionedText: "Platform Team",
 				Position:      intPtr(100),
 			},
@@ -67,7 +70,7 @@ func TestMentionsRepository_CreateMention(t *testing.T) {
 			assert.Equal(t, tt.input.ContentID, mention.ContentID)
 			assert.Equal(t, tt.input.EntityType, mention.EntityType)
 			assert.Equal(t, tt.input.MentionedText, mention.MentionedText)
-			assert.Equal(t, mentions.StatusPending, mention.Status)
+			assert.Equal(t, mentions.MentionStatusPending, mention.Status)
 		})
 	}
 }
@@ -83,7 +86,7 @@ func TestMentionsRepository_ListMentions(t *testing.T) {
 	mentionInputs := []mentions.MentionInput{
 		{ContentID: 1, EntityType: mentions.EntityTypePerson, MentionedText: "John"},
 		{ContentID: 1, EntityType: mentions.EntityTypePerson, MentionedText: "Sarah"},
-		{ContentID: 1, EntityType: mentions.EntityTypeTeam, MentionedText: "Engineering"},
+		{ContentID: 1, EntityType: mentions.EntityTypeCompany, MentionedText: "Engineering"},
 		{ContentID: 2, EntityType: mentions.EntityTypePerson, MentionedText: "Marcus"},
 	}
 
@@ -99,27 +102,27 @@ func TestMentionsRepository_ListMentions(t *testing.T) {
 	}{
 		{
 			name:      "list all mentions",
-			filter:    mentions.MentionFilter{},
+			filter:    mentions.MentionFilter{TenantID: defaultTenantID},
 			wantCount: 4,
 		},
 		{
 			name:      "filter by content_id",
-			filter:    mentions.MentionFilter{ContentID: int64Ptr(1)},
+			filter:    mentions.MentionFilter{TenantID: defaultTenantID, ContentID: int64Ptr(1)},
 			wantCount: 3,
 		},
 		{
 			name:      "filter by entity type",
-			filter:    mentions.MentionFilter{EntityType: entityTypePtr(mentions.EntityTypePerson)},
+			filter:    mentions.MentionFilter{TenantID: defaultTenantID, EntityType: entityTypePtr(mentions.EntityTypePerson)},
 			wantCount: 3,
 		},
 		{
 			name:      "filter by status",
-			filter:    mentions.MentionFilter{Status: statusPtr(mentions.StatusPending)},
+			filter:    mentions.MentionFilter{TenantID: defaultTenantID, Status: statusPtr(mentions.MentionStatusPending)},
 			wantCount: 4,
 		},
 		{
 			name:      "limit results",
-			filter:    mentions.MentionFilter{Limit: 2},
+			filter:    mentions.MentionFilter{TenantID: defaultTenantID, Limit: 2},
 			wantCount: 2,
 		},
 	}
@@ -147,13 +150,13 @@ func TestMentionsRepository_UpdateMentionResolution(t *testing.T) {
 		MentionedText: "John Smith",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, mentions.StatusPending, mention.Status)
+	assert.Equal(t, mentions.MentionStatusPending, mention.Status)
 
 	// Resolve the mention
 	resolution := mentions.ResolutionInput{
 		MentionID:  mention.ID,
 		EntityID:   42,
-		Source:     mentions.ResolutionSourceManual,
+		Source:     mentions.ResolutionSourceUserConfirmed,
 		ResolvedBy: "test_user",
 	}
 	err = repo.UpdateMentionResolution(ctx, mention.ID, resolution)
@@ -162,9 +165,9 @@ func TestMentionsRepository_UpdateMentionResolution(t *testing.T) {
 	// Verify the resolution
 	updated, err := repo.GetMention(ctx, mention.ID)
 	require.NoError(t, err)
-	assert.Equal(t, mentions.StatusResolved, updated.Status)
-	assert.NotNil(t, updated.EntityID)
-	assert.Equal(t, int64(42), *updated.EntityID)
+	assert.Equal(t, mentions.MentionStatusUserResolved, updated.Status)
+	assert.NotNil(t, updated.ResolvedEntityID)
+	assert.Equal(t, int64(42), *updated.ResolvedEntityID)
 }
 
 func TestMentionsRepository_DismissMention(t *testing.T) {
@@ -193,7 +196,7 @@ func TestMentionsRepository_DismissMention(t *testing.T) {
 	// Verify the dismissal
 	updated, err := repo.GetMention(ctx, mention.ID)
 	require.NoError(t, err)
-	assert.Equal(t, mentions.StatusDismissed, updated.Status)
+	assert.Equal(t, mentions.MentionStatusDismissed, updated.Status)
 }
 
 func TestMentionsRepository_CreateOrUpdatePattern(t *testing.T) {
@@ -207,12 +210,12 @@ func TestMentionsRepository_CreateOrUpdatePattern(t *testing.T) {
 
 	// Create a new pattern
 	pattern := &mentions.MentionPattern{
-		TenantID:      tenantID,
-		EntityType:    mentions.EntityTypePerson,
-		MentionedText: "JS",
-		EntityID:      int64Ptr(1),
-		SeenCount:     1,
-		LinkedCount:   1,
+		TenantID:         tenantID,
+		EntityType:       mentions.EntityTypePerson,
+		PatternText:      "JS",
+		ResolvedEntityID: int64Ptr(1),
+		TimesSeen:        1,
+		TimesLinked:      1,
 	}
 
 	err := repo.CreateOrUpdatePattern(ctx, pattern)
@@ -221,12 +224,12 @@ func TestMentionsRepository_CreateOrUpdatePattern(t *testing.T) {
 
 	// Update the same pattern (should increment counts)
 	pattern2 := &mentions.MentionPattern{
-		TenantID:      tenantID,
-		EntityType:    mentions.EntityTypePerson,
-		MentionedText: "JS",
-		EntityID:      int64Ptr(1),
-		SeenCount:     1,
-		LinkedCount:   1,
+		TenantID:         tenantID,
+		EntityType:       mentions.EntityTypePerson,
+		PatternText:      "JS",
+		ResolvedEntityID: int64Ptr(1),
+		TimesSeen:        1,
+		TimesLinked:      1,
 	}
 	err = repo.CreateOrUpdatePattern(ctx, pattern2)
 	require.NoError(t, err)
@@ -235,7 +238,7 @@ func TestMentionsRepository_CreateOrUpdatePattern(t *testing.T) {
 	retrieved, err := repo.GetPattern(ctx, tenantID, mentions.EntityTypePerson, "JS", nil)
 	require.NoError(t, err)
 	assert.NotNil(t, retrieved)
-	assert.Equal(t, "JS", retrieved.MentionedText)
+	assert.Equal(t, "JS", retrieved.PatternText)
 }
 
 func TestMentionsRepository_BatchCreateMentions(t *testing.T) {
@@ -248,7 +251,7 @@ func TestMentionsRepository_BatchCreateMentions(t *testing.T) {
 	inputs := []mentions.MentionInput{
 		{ContentID: 1, EntityType: mentions.EntityTypePerson, MentionedText: "Alice"},
 		{ContentID: 1, EntityType: mentions.EntityTypePerson, MentionedText: "Bob"},
-		{ContentID: 1, EntityType: mentions.EntityTypeTeam, MentionedText: "Engineering"},
+		{ContentID: 1, EntityType: mentions.EntityTypeCompany, MentionedText: "Engineering"},
 	}
 
 	created, err := repo.BatchCreateMentions(ctx, inputs)
@@ -289,7 +292,7 @@ func TestMentionsRepository_GetMentionStats(t *testing.T) {
 	err = repo.UpdateMentionResolution(ctx, mention1.ID, mentions.ResolutionInput{
 		MentionID:  mention1.ID,
 		EntityID:   1,
-		Source:     mentions.ResolutionSourceManual,
+		Source:     mentions.ResolutionSourceUserConfirmed,
 		ResolvedBy: "test",
 	})
 	require.NoError(t, err)

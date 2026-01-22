@@ -20,12 +20,16 @@ func TestFixtureLoaderLoadPeople(t *testing.T) {
 	err := loader.TruncateAll(ctx)
 	require.NoError(t, err)
 
-	// Load teams first (people depend on teams)
-	err = loader.LoadTeams(ctx)
+	// Load teams first without leads (people haven't been loaded yet)
+	err = loader.LoadTeamsWithoutLeads(ctx)
 	require.NoError(t, err)
 
 	// Load people
 	err = loader.LoadPeople(ctx)
+	require.NoError(t, err)
+
+	// Now update team leads since people exist
+	err = loader.UpdateTeamLeads(ctx)
 	require.NoError(t, err)
 
 	// Verify people were loaded
@@ -37,7 +41,7 @@ func TestFixtureLoaderLoadPeople(t *testing.T) {
 	// Verify specific person
 	var name, email string
 	err = db.Pool.QueryRow(ctx, `
-		SELECT canonical_name, email FROM people WHERE id = 1
+		SELECT canonical_name, primary_email FROM people WHERE id = 1
 	`).Scan(&name, &email)
 	require.NoError(t, err)
 	assert.Equal(t, "John Smith", name)
@@ -54,8 +58,8 @@ func TestFixtureLoaderLoadTeams(t *testing.T) {
 	err := loader.TruncateAll(ctx)
 	require.NoError(t, err)
 
-	// Load teams
-	err = loader.LoadTeams(ctx)
+	// Load teams without leads (people don't exist yet)
+	err = loader.LoadTeamsWithoutLeads(ctx)
 	require.NoError(t, err)
 
 	// Verify teams were loaded
@@ -90,14 +94,14 @@ func TestFixtureLoaderLoadGlossary(t *testing.T) {
 
 	// Verify glossary terms were loaded
 	var count int
-	err = db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM glossary_terms").Scan(&count)
+	err = db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM glossary").Scan(&count)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, count, 50, "expected at least 50 glossary terms")
 
 	// Verify specific term
 	var expansion string
 	err = db.Pool.QueryRow(ctx, `
-		SELECT expansion FROM glossary_terms WHERE term = 'TER'
+		SELECT expansion FROM glossary WHERE term = 'TER'
 	`).Scan(&expansion)
 	require.NoError(t, err)
 	assert.Equal(t, "Technical Execution Review", expansion)
@@ -123,7 +127,7 @@ func TestFixtureLoaderLoadAcmeCorp(t *testing.T) {
 		"people":         20,
 		"projects":       10,
 		"products":       3,
-		"glossary_terms": 50,
+		"glossary": 50,
 	}
 
 	for table, minCount := range tables {

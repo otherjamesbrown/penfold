@@ -13,7 +13,7 @@ import (
 
 func TestGlossaryRepository_Create(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "glossary_terms")
+	db.TruncateTables(t, "glossary")
 
 	repo := glossary.NewRepository(db.Pool)
 	ctx := context.Background()
@@ -27,8 +27,8 @@ func TestGlossaryRepository_Create(t *testing.T) {
 			name: "create simple term",
 			input: glossary.TermInput{
 				Term:       "MVP",
-				Expansion:  strPtr("Minimum Viable Product"),
-				Definition: strPtr("A version of a product with just enough features to satisfy early customers"),
+				Expansion:  "Minimum Viable Product",
+				Definition: "A version of a product with just enough features to satisfy early customers",
 			},
 			wantErr: false,
 		},
@@ -36,7 +36,7 @@ func TestGlossaryRepository_Create(t *testing.T) {
 			name: "create term with aliases",
 			input: glossary.TermInput{
 				Term:      "API",
-				Expansion: strPtr("Application Programming Interface"),
+				Expansion: "Application Programming Interface",
 				Aliases:   []string{"apis", "interface"},
 			},
 			wantErr: false,
@@ -45,8 +45,8 @@ func TestGlossaryRepository_Create(t *testing.T) {
 			name: "create term with context",
 			input: glossary.TermInput{
 				Term:      "P0",
-				Expansion: strPtr("Priority Zero"),
-				Context:   strPtr("incident"),
+				Expansion: "Priority Zero",
+				Context:   []string{"incident"},
 				Aliases:   []string{"Sev0", "Critical"},
 			},
 			wantErr: false,
@@ -63,8 +63,8 @@ func TestGlossaryRepository_Create(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotZero(t, term.ID)
 			assert.Equal(t, tt.input.Term, term.Term)
-			if tt.input.Expansion != nil {
-				assert.Equal(t, *tt.input.Expansion, *term.Expansion)
+			if tt.input.Expansion != "" {
+				assert.Equal(t, tt.input.Expansion, term.Expansion)
 			}
 		})
 	}
@@ -72,7 +72,7 @@ func TestGlossaryRepository_Create(t *testing.T) {
 
 func TestGlossaryRepository_GetByTerm(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "glossary_terms")
+	db.TruncateTables(t, "glossary")
 
 	repo := glossary.NewRepository(db.Pool)
 	ctx := context.Background()
@@ -80,9 +80,9 @@ func TestGlossaryRepository_GetByTerm(t *testing.T) {
 	// Create a term first
 	input := glossary.TermInput{
 		Term:       "TER",
-		Expansion:  strPtr("Technical Execution Review"),
-		Definition: strPtr("Weekly engineering review meeting"),
-		Context:    strPtr("meeting"),
+		Expansion:  "Technical Execution Review",
+		Definition: "Weekly engineering review meeting",
+		Context:    []string{"meeting"},
 	}
 	created, err := repo.Create(ctx, input)
 	require.NoError(t, err)
@@ -133,18 +133,18 @@ func TestGlossaryRepository_GetByTerm(t *testing.T) {
 
 func TestGlossaryRepository_List(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "glossary_terms")
+	db.TruncateTables(t, "glossary")
 
 	repo := glossary.NewRepository(db.Pool)
 	ctx := context.Background()
 
 	// Create multiple terms
 	terms := []glossary.TermInput{
-		{Term: "MVP", Expansion: strPtr("Minimum Viable Product")},
-		{Term: "API", Expansion: strPtr("Application Programming Interface")},
-		{Term: "P0", Expansion: strPtr("Priority Zero"), Context: strPtr("incident")},
-		{Term: "P1", Expansion: strPtr("Priority One"), Context: strPtr("incident")},
-		{Term: "TER", Expansion: strPtr("Technical Execution Review"), Context: strPtr("meeting")},
+		{Term: "MVP", Expansion: "Minimum Viable Product"},
+		{Term: "API", Expansion: "Application Programming Interface"},
+		{Term: "P0", Expansion: "Priority Zero", Context: []string{"incident"}},
+		{Term: "P1", Expansion: "Priority One", Context: []string{"incident"}},
+		{Term: "TER", Expansion: "Technical Execution Review", Context: []string{"meeting"}},
 	}
 
 	for _, input := range terms {
@@ -164,12 +164,12 @@ func TestGlossaryRepository_List(t *testing.T) {
 		},
 		{
 			name:      "filter by context - incident",
-			filter:    glossary.TermFilter{Context: strPtr("incident")},
+			filter:    glossary.TermFilter{Context: []string{"incident"}},
 			wantCount: 2,
 		},
 		{
 			name:      "filter by context - meeting",
-			filter:    glossary.TermFilter{Context: strPtr("meeting")},
+			filter:    glossary.TermFilter{Context: []string{"meeting"}},
 			wantCount: 1,
 		},
 		{
@@ -190,7 +190,7 @@ func TestGlossaryRepository_List(t *testing.T) {
 
 func TestGlossaryRepository_Update(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "glossary_terms")
+	db.TruncateTables(t, "glossary")
 
 	repo := glossary.NewRepository(db.Pool)
 	ctx := context.Background()
@@ -198,28 +198,28 @@ func TestGlossaryRepository_Update(t *testing.T) {
 	// Create a term
 	created, err := repo.Create(ctx, glossary.TermInput{
 		Term:       "MVP",
-		Expansion:  strPtr("Minimum Viable Product"),
-		Definition: strPtr("Original definition"),
+		Expansion:  "Minimum Viable Product",
+		Definition: "Original definition",
 	})
 	require.NoError(t, err)
 
 	// Update the term
 	updated, err := repo.Update(ctx, created.ID, glossary.TermInput{
 		Term:       "MVP",
-		Expansion:  strPtr("Minimum Viable Product"),
-		Definition: strPtr("Updated definition with more detail"),
+		Expansion:  "Minimum Viable Product",
+		Definition: "Updated definition with more detail",
 		Aliases:    []string{"minimum viable", "mvp"},
 	})
 	require.NoError(t, err)
 
 	assert.Equal(t, created.ID, updated.ID)
-	assert.Equal(t, "Updated definition with more detail", *updated.Definition)
+	assert.Equal(t, "Updated definition with more detail", updated.Definition)
 	assert.Contains(t, updated.Aliases, "minimum viable")
 }
 
 func TestGlossaryRepository_Delete(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "glossary_terms")
+	db.TruncateTables(t, "glossary")
 
 	repo := glossary.NewRepository(db.Pool)
 	ctx := context.Background()
@@ -227,7 +227,7 @@ func TestGlossaryRepository_Delete(t *testing.T) {
 	// Create a term
 	created, err := repo.Create(ctx, glossary.TermInput{
 		Term:      "TEMP",
-		Expansion: strPtr("Temporary Term"),
+		Expansion: "Temporary Term",
 	})
 	require.NoError(t, err)
 
@@ -243,7 +243,7 @@ func TestGlossaryRepository_Delete(t *testing.T) {
 
 func TestGlossaryRepository_ExpandQuery(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "glossary_terms")
+	db.TruncateTables(t, "glossary")
 
 	repo := glossary.NewRepository(db.Pool)
 	ctx := context.Background()
@@ -251,14 +251,14 @@ func TestGlossaryRepository_ExpandQuery(t *testing.T) {
 	// Create terms with aliases
 	_, err := repo.Create(ctx, glossary.TermInput{
 		Term:      "MVP",
-		Expansion: strPtr("Minimum Viable Product"),
+		Expansion: "Minimum Viable Product",
 		Aliases:   []string{"minimum viable", "early release"},
 	})
 	require.NoError(t, err)
 
 	_, err = repo.Create(ctx, glossary.TermInput{
 		Term:      "API",
-		Expansion: strPtr("Application Programming Interface"),
+		Expansion: "Application Programming Interface",
 		Aliases:   []string{"interface", "endpoint"},
 	})
 	require.NoError(t, err)
@@ -290,15 +290,11 @@ func TestGlossaryRepository_ExpandQuery(t *testing.T) {
 
 			if tt.wantExpanded {
 				assert.NotEmpty(t, expansion.ExpandedQuery)
-				assert.Len(t, expansion.TermsFound, tt.wantTermsFound)
+				assert.Len(t, expansion.ExpandedTerms, tt.wantTermsFound)
 			} else {
-				assert.Empty(t, expansion.TermsFound)
+				assert.Empty(t, expansion.ExpandedTerms)
 			}
 		})
 	}
 }
 
-// Helper function
-func strPtr(s string) *string {
-	return &s
-}
