@@ -24,4 +24,5 @@ use (
 	./services/review
 	./services/search
 	./services/worker
+	./tests
 )

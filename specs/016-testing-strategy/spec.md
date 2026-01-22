@@ -276,22 +276,26 @@ When this email is ingested, E2E tests should verify:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     E2E Test Environment                        │
+│                   dev01.brown.chat (Test Runner)                │
 │                                                                 │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌────────────────┐  │
-│  │  PostgreSQL     │  │  Redis          │  │  MLX LLM       │  │
-│  │  + pgvector     │  │  (testcontainer)│  │  (Qwen 32B)    │  │
-│  │  (testcontainer)│  │                 │  │  localhost:8080│  │
-│  └────────┬────────┘  └────────┬────────┘  └───────┬────────┘  │
-│           │                    │                    │           │
-│           └────────────────────┼────────────────────┘           │
-│                                │                                │
-│                    ┌───────────▼───────────┐                    │
-│                    │   Test Harness        │                    │
-│                    │   - Fixture loader    │                    │
-│                    │   - Pipeline runner   │                    │
-│                    │   - Assertion helpers │                    │
-│                    └───────────────────────┘                    │
+│  ┌──────────────────────────┐    ┌──────────────────────────┐  │
+│  │  Test Harness            │    │  MLX LLM Server          │  │
+│  │  - Fixture loader        │    │  localhost:8080          │  │
+│  │  - Pipeline runner       │    │  Qwen2.5-32B-Instruct    │  │
+│  │  - Assertion helpers     │    └──────────────────────────┘  │
+│  └────────────┬─────────────┘                                  │
+│               │                                                 │
+└───────────────┼─────────────────────────────────────────────────┘
+                │ Network
+┌───────────────┼─────────────────────────────────────────────────┐
+│               │           home-01.brown.chat                    │
+│               ▼                                                 │
+│  ┌──────────────────────────┐    ┌──────────────────────────┐  │
+│  │  PostgreSQL + pgvector   │    │  Redis                   │  │
+│  │  :5432                   │    │  :6379                   │  │
+│  │  - penfold_test_integration│  │                          │  │
+│  │  - penfold_test_e2e      │    │                          │  │
+│  └──────────────────────────┘    └──────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -318,31 +322,73 @@ func setupE2EEnvironment(t *testing.T) *E2EEnv {
 }
 ```
 
-### Testcontainers for Database
+### LLM Assertion Strategy
 
+E2E tests use **semantic assertions** rather than exact string matching to handle LLM variability:
+
+**Configuration:**
+- All test LLM calls use `temperature=0` for maximum determinism
+- Tests verify structure and intent, not exact wording
+
+**Example - Good (semantic):**
 ```go
-func setupTestDB(t *testing.T) *pgxpool.Pool {
-    ctx := context.Background()
+// Verify mention was resolved to a person (not exact name match)
+assert.NotNil(t, result.ResolvedMentions[0].ResolvedTo)
+assert.Equal(t, "person", result.ResolvedMentions[0].ResolvedTo.EntityType)
+assert.True(t, result.ResolvedMentions[0].Confidence > 0.7)
+```
 
-    container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-        ContainerRequest: testcontainers.ContainerRequest{
-            Image:        "pgvector/pgvector:pg16",
-            ExposedPorts: []string{"5432/tcp"},
-            Env: map[string]string{
-                "POSTGRES_DB":       "penfold_test",
-                "POSTGRES_USER":     "test",
-                "POSTGRES_PASSWORD": "test",
-            },
-            WaitingFor: wait.ForListeningPort("5432/tcp"),
-        },
-        Started: true,
-    })
+**Example - Avoid (brittle):**
+```go
+// Too specific - will break if LLM phrasing changes
+assert.Equal(t, "John Smith (VP Engineering)", result.Summary)
+```
+
+**Assertion helpers:**
+```go
+// Helper for semantic checks
+func AssertMentionResolved(t *testing.T, mention Mention, expectedPersonID int64) {
+    assert.NotNil(t, mention.ResolvedTo, "mention should be resolved")
+    assert.Equal(t, expectedPersonID, mention.ResolvedTo.ID)
+    assert.True(t, mention.Confidence > 0.5, "confidence should be reasonable")
+}
+```
+
+### Database Isolation Strategy
+
+Tests use **separate databases on home-01 PostgreSQL server** rather than testcontainers:
+
+| Test Type | Database | Purpose |
+|-----------|----------|---------|
+| Integration | `penfold_test_integration` | Repository tests, SQL queries |
+| E2E | `penfold_test_e2e` | Full pipeline tests |
+
+**Benefits over testcontainers:**
+- Faster startup (no container provisioning)
+- Simpler configuration (reuse existing infrastructure)
+- pgvector and extensions already installed
+
+**Setup:**
+```go
+func setupTestDB(t *testing.T, dbName string) *pgxpool.Pool {
+    cfg := db.Config{
+        Host:     "home-01.brown.chat",
+        Port:     5432,
+        Database: dbName,  // e.g., "penfold_test_integration"
+        User:     "penfold",
+        Password: os.Getenv("PENFOLD_DB_PASSWORD"),
+    }
+
+    pool, err := pgxpool.New(ctx, cfg.ConnectionString())
     require.NoError(t, err)
 
-    t.Cleanup(func() { container.Terminate(ctx) })
+    // Clean and migrate
+    t.Cleanup(func() {
+        truncateAllTables(pool)
+        pool.Close()
+    })
 
-    // Run migrations and return pool
-    // ...
+    return pool
 }
 ```
 
@@ -405,7 +451,29 @@ go test ./tests/live/... -tags=live -v
 
 # All tests with coverage
 go test ./... -coverprofile=coverage.out -covermode=atomic
+
+# Include quarantined flaky tests (for debugging)
+go test ./... -tags=flaky -v
 ```
+
+### Flaky Test Policy
+
+Tests that intermittently fail are **quarantined** rather than allowed to block CI:
+
+```go
+//go:build flaky
+
+func TestSometimesFailsDueToTiming(t *testing.T) {
+    // This test is quarantined - excluded from normal CI runs
+    // TODO: Fix by 2026-01-29 - issue with race condition in cache
+}
+```
+
+**Rules:**
+- Quarantined tests must be fixed within **1 week**
+- Add `TODO` comment with target fix date and root cause
+- Run `go test -tags=flaky` locally to debug
+- Track quarantined tests in beads system
 
 ### CI Configuration
 
@@ -417,26 +485,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
       - run: go test ./... -short -race
 
   integration:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        # ...
+    env:
+      PENFOLD_DB_HOST: home-01.brown.chat
+      PENFOLD_DB_NAME: penfold_test_integration
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
       - run: go test ./... -race
 
   e2e:
-    runs-on: [self-hosted, apple-silicon]  # Requires MLX
+    runs-on: [self-hosted, dev01]  # Self-hosted on dev01.brown.chat
+    env:
+      PENFOLD_DB_HOST: home-01.brown.chat
+      PENFOLD_DB_NAME: penfold_test_e2e
+      LLM_URL: http://localhost:8080
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Verify LLM available
+        run: curl -s http://localhost:8080/v1/models || exit 1
       - run: go test ./tests/e2e/... -v
 ```
+
+### Self-Hosted Runner Setup (dev01)
+
+The E2E runner is hosted on dev01.brown.chat where MLX LLM is available:
+
+```bash
+# Install GitHub Actions runner (one-time setup)
+cd ~/actions-runner
+./config.sh --url https://github.com/otherjamesbrown/penfold --token <TOKEN>
+
+# Add labels
+# Labels: self-hosted, dev01, apple-silicon
+
+# Start as service
+sudo ./svc.sh install
+sudo ./svc.sh start
+```
+
+**Prerequisites on dev01:**
+- MLX LLM server running (`com.penfold.mlx-llm-server`)
+- Network access to home-01.brown.chat (PostgreSQL, Redis)
+- Go 1.22+ installed
 
 ---
 
@@ -459,6 +560,17 @@ jobs:
 - [ ] E2E tests run in CI on Apple Silicon runner
 - [ ] Live tests for cloud LLM APIs (manual trigger)
 - [ ] Performance benchmarks for critical paths
+
+---
+
+## Clarifications
+
+### Session 2026-01-22
+
+- Q: How should parallel test isolation be handled for database tests? → A: Separate test databases on home-01 PostgreSQL server (e.g., `penfold_test_integration`, `penfold_test_e2e`)
+- Q: How should flaky tests be handled? → A: Quarantine with build tag (`//go:build !flaky`), fix within 1 week
+- Q: How should E2E tests handle LLM response non-determinism? → A: Semantic assertions with temperature=0 (verify structure/intent, not exact text)
+- Q: How should CI run E2E tests requiring Apple Silicon? → A: Self-hosted GitHub Actions runner on dev01.brown.chat
 
 ---
 

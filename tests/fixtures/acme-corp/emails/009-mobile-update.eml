@@ -1,0 +1,26 @@
+From: ashley.white@acme.com
+To: david.park@acme.com, sarah.chen@acme.com
+Cc: kevin.wilson@acme.com
+Subject: Mobile App v2 - Design Review Request
+Date: Thu, 30 Jan 2026 11:15:00 -0800
+Message-ID: <test-009@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+David, Sarah,
+
+Mobile App v2 is ready for design review. We've implemented all the MVP features from the spec.
+
+Highlights:
+- Widget Mobile now supports offline mode
+- Push notifications for P0/P1 incidents
+- SSO integration (leveraging Mike's RBAC work)
+
+Kevin - the mockups you provided were super helpful. A few areas where we deviated:
+1. Navigation drawer instead of bottom tabs (better for enterprise users)
+2. Simplified Analytics Dashboard view (full version in tablet mode)
+
+Can we get this on the PBR agenda? Rachel might want to do some user research before we launch.
+
+ASAP would be great - we're targeting beta release by EOM.
+
+Ashley

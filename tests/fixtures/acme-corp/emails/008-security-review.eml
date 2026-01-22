@@ -1,0 +1,27 @@
+From: daniel.thompson@acme.com
+To: john.smith@acme.com, lisa.chang@acme.com
+Subject: Security Audit 2026 - Final Report
+Date: Wed, 29 Jan 2026 14:00:00 -0800
+Message-ID: <test-008@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+John, Lisa,
+
+Security Audit 2026 is complete. Here's the TL;DR:
+
+Findings:
+- 2 P1 items (both in Widget Pro auth flow)
+- 5 P2 items (mostly in API Gateway)
+- 12 informational items
+
+The P1 items need resolution before EOM. I've created ADRs for the recommended fixes.
+
+Good news: Our K8s and EKS configurations passed with flying colors. The RBAC implementation Mike shipped last week addressed several items proactively.
+
+Full report attached. Let's discuss at TER next Tuesday.
+
+Dan
+
+DRI assignments:
+- P1-001: Emily Watson (Widget Pro)
+- P1-002: Rob Taylor (CI/CD pipeline)

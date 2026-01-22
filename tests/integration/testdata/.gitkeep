@@ -1,0 +1,2 @@
+# This directory contains SQL seed scripts and test data for integration tests.
+# YAML fixtures will be loaded from tests/fixtures/acme-corp/ in US1.

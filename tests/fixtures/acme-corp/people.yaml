@@ -1,0 +1,222 @@
+# Acme Corp People Fixtures
+# Used for E2E testing of mention resolution and entity linking
+
+people:
+  # Executive Leadership
+  - id: 1
+    canonical_name: "John Smith"
+    email: "john.smith@acme.com"
+    aliases:
+      - "John"
+      - "JS"
+      - "Smith"
+    title: "VP Engineering"
+    team_id: 1
+    manager_id: null
+
+  - id: 2
+    canonical_name: "Sarah Chen"
+    email: "sarah.chen@acme.com"
+    aliases:
+      - "Sarah"
+      - "SC"
+      - "Chen"
+    title: "Product Manager"
+    team_id: 2
+    manager_id: 5
+
+  - id: 3
+    canonical_name: "Marcus Rodriguez"
+    email: "marcus.r@acme.com"
+    aliases:
+      - "Marcus"
+      - "MR"
+      - "Rodriguez"
+    title: "Sales Director"
+    team_id: 3
+    manager_id: null
+
+  - id: 4
+    canonical_name: "Emily Watson"
+    email: "emily.watson@acme.com"
+    aliases:
+      - "Emily"
+      - "EW"
+      - "Watson"
+    title: "Senior Engineer"
+    team_id: 4
+    manager_id: 6
+
+  - id: 5
+    canonical_name: "David Park"
+    email: "david.park@acme.com"
+    aliases:
+      - "David"
+      - "DP"
+      - "Park"
+    title: "VP Product"
+    team_id: 2
+    manager_id: null
+
+  - id: 6
+    canonical_name: "Lisa Chang"
+    email: "lisa.chang@acme.com"
+    aliases:
+      - "Lisa"
+      - "LC"
+      - "Chang"
+    title: "Platform Lead"
+    team_id: 4
+    manager_id: 1
+
+  # Engineering Team
+  - id: 7
+    canonical_name: "Michael Brown"
+    email: "michael.brown@acme.com"
+    aliases:
+      - "Michael"
+      - "Mike"
+      - "MB"
+    title: "Backend Engineer"
+    team_id: 4
+    manager_id: 6
+
+  - id: 8
+    canonical_name: "Jennifer Lee"
+    email: "jennifer.lee@acme.com"
+    aliases:
+      - "Jennifer"
+      - "Jen"
+      - "JL"
+    title: "Frontend Engineer"
+    team_id: 4
+    manager_id: 6
+
+  - id: 9
+    canonical_name: "Robert Taylor"
+    email: "robert.taylor@acme.com"
+    aliases:
+      - "Robert"
+      - "Rob"
+      - "RT"
+    title: "DevOps Engineer"
+    team_id: 4
+    manager_id: 6
+
+  - id: 10
+    canonical_name: "Amanda Garcia"
+    email: "amanda.garcia@acme.com"
+    aliases:
+      - "Amanda"
+      - "AG"
+    title: "QA Lead"
+    team_id: 1
+    manager_id: 1
+
+  # Product Team
+  - id: 11
+    canonical_name: "Kevin Wilson"
+    email: "kevin.wilson@acme.com"
+    aliases:
+      - "Kevin"
+      - "KW"
+    title: "Product Designer"
+    team_id: 2
+    manager_id: 5
+
+  - id: 12
+    canonical_name: "Rachel Kim"
+    email: "rachel.kim@acme.com"
+    aliases:
+      - "Rachel"
+      - "RK"
+    title: "UX Researcher"
+    team_id: 2
+    manager_id: 5
+
+  # Sales Team
+  - id: 13
+    canonical_name: "Thomas Anderson"
+    email: "thomas.anderson@acme.com"
+    aliases:
+      - "Thomas"
+      - "Tom"
+      - "TA"
+    title: "Account Executive"
+    team_id: 3
+    manager_id: 3
+
+  - id: 14
+    canonical_name: "Nicole Davis"
+    email: "nicole.davis@acme.com"
+    aliases:
+      - "Nicole"
+      - "ND"
+    title: "Sales Engineer"
+    team_id: 3
+    manager_id: 3
+
+  - id: 15
+    canonical_name: "Christopher Moore"
+    email: "chris.moore@acme.com"
+    aliases:
+      - "Christopher"
+      - "Chris"
+      - "CM"
+    title: "Customer Success Manager"
+    team_id: 3
+    manager_id: 3
+
+  # Additional Engineers
+  - id: 16
+    canonical_name: "Jessica Martinez"
+    email: "jessica.martinez@acme.com"
+    aliases:
+      - "Jessica"
+      - "Jess"
+      - "JM"
+    title: "Data Engineer"
+    team_id: 4
+    manager_id: 6
+
+  - id: 17
+    canonical_name: "Daniel Thompson"
+    email: "daniel.thompson@acme.com"
+    aliases:
+      - "Daniel"
+      - "Dan"
+      - "DT"
+    title: "Security Engineer"
+    team_id: 4
+    manager_id: 6
+
+  - id: 18
+    canonical_name: "Ashley White"
+    email: "ashley.white@acme.com"
+    aliases:
+      - "Ashley"
+      - "AW"
+    title: "Mobile Engineer"
+    team_id: 4
+    manager_id: 6
+
+  - id: 19
+    canonical_name: "Brandon Harris"
+    email: "brandon.harris@acme.com"
+    aliases:
+      - "Brandon"
+      - "BH"
+    title: "ML Engineer"
+    team_id: 4
+    manager_id: 6
+
+  - id: 20
+    canonical_name: "Stephanie Clark"
+    email: "stephanie.clark@acme.com"
+    aliases:
+      - "Stephanie"
+      - "Steph"
+      - "SC2"
+    title: "Technical Writer"
+    team_id: 1
+    manager_id: 1

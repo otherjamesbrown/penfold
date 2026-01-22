@@ -1,0 +1,103 @@
+# Acme Corp Projects Fixtures
+# Used for E2E testing of project mention resolution
+
+projects:
+  - id: 1
+    name: "Project Alpha"
+    slug: "project-alpha"
+    description: "Q1 platform migration initiative"
+    status: "active"
+    owner_id: 1  # John Smith
+    team_id: 4   # Platform Team
+    start_date: "2026-01-01"
+    target_date: "2026-03-31"
+
+  - id: 2
+    name: "Customer Portal Redesign"
+    slug: "portal-redesign"
+    description: "UX overhaul for customer dashboard"
+    status: "active"
+    owner_id: 2  # Sarah Chen
+    team_id: 2   # Product
+    start_date: "2026-01-15"
+    target_date: "2026-04-30"
+
+  - id: 3
+    name: "Mobile App v2"
+    slug: "mobile-v2"
+    description: "Native mobile app rewrite"
+    status: "active"
+    owner_id: 18  # Ashley White
+    team_id: 4    # Platform Team
+    start_date: "2026-02-01"
+    target_date: "2026-06-30"
+
+  - id: 4
+    name: "Data Pipeline Optimization"
+    slug: "data-pipeline"
+    description: "Improve ETL performance and reliability"
+    status: "active"
+    owner_id: 16  # Jessica Martinez
+    team_id: 6    # Infrastructure
+    start_date: "2026-01-10"
+    target_date: "2026-02-28"
+
+  - id: 5
+    name: "Security Audit 2026"
+    slug: "security-audit"
+    description: "Annual security compliance review"
+    status: "active"
+    owner_id: 17  # Daniel Thompson
+    team_id: 4    # Platform Team
+    start_date: "2026-01-01"
+    target_date: "2026-01-31"
+
+  - id: 6
+    name: "API v3"
+    slug: "api-v3"
+    description: "Next generation REST and GraphQL APIs"
+    status: "planning"
+    owner_id: 7   # Michael Brown
+    team_id: 4    # Platform Team
+    start_date: "2026-03-01"
+    target_date: "2026-08-31"
+
+  - id: 7
+    name: "Enterprise Dashboard"
+    slug: "enterprise-dashboard"
+    description: "Admin dashboard for enterprise customers"
+    status: "active"
+    owner_id: 8   # Jennifer Lee
+    team_id: 5    # Frontend Team
+    start_date: "2026-01-15"
+    target_date: "2026-05-15"
+
+  - id: 8
+    name: "ML Recommendations"
+    slug: "ml-recs"
+    description: "Machine learning powered product recommendations"
+    status: "planning"
+    owner_id: 19  # Brandon Harris
+    team_id: 4    # Platform Team
+    start_date: "2026-04-01"
+    target_date: "2026-09-30"
+
+  - id: 9
+    name: "Documentation Refresh"
+    slug: "docs-refresh"
+    description: "Complete rewrite of developer documentation"
+    status: "active"
+    owner_id: 20  # Stephanie Clark
+    team_id: 1    # Engineering
+    start_date: "2026-01-01"
+    target_date: "2026-02-15"
+
+  - id: 10
+    name: "Sales CRM Integration"
+    slug: "crm-integration"
+    description: "Salesforce and HubSpot bidirectional sync"
+    status: "active"
+    owner_id: 14  # Nicole Davis
+    team_id: 3    # Sales
+    start_date: "2026-01-20"
+    target_date: "2026-03-15"
