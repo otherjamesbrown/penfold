@@ -4,8 +4,9 @@ package cmd
 import (
 	"bufio"
 	"context"
-	_ "embed"
+	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,9 @@ var processesTemplate string
 //go:embed templates/acronym-review.md
 var acronymReviewTemplate string
 
+//go:embed templates/docs
+var docsFS embed.FS
+
 var (
 	initServerAddr string
 	initNonInteractive bool
@@ -46,15 +50,21 @@ This command will:
 4. Create CLAUDE.md in current directory (for Claude Code)
 5. Create preferences.md in current directory (user settings - never overwritten)
 6. Install process definitions in current directory
+7. Install documentation hierarchy for Claude agents
 
 Run this from your project directory. Global config goes to ~/.penf/,
-but context files (CLAUDE.md, preferences.md, processes/) are created
-in the current directory so Claude Code can find them.`,
+but context files (CLAUDE.md, preferences.md, processes/, docs/) are created
+in the current directory so Claude Code can find them.
+
+After init, run 'penf init entities' to seed known people, products, and glossary.`,
 		RunE: runInit,
 	}
 
 	initCmd.Flags().StringVar(&initServerAddr, "server", "", "Gateway server address (host:port)")
 	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip prompts, use defaults or flags")
+
+	// Add subcommands
+	initCmd.AddCommand(NewInitEntitiesCommand())
 
 	return initCmd
 }
@@ -143,6 +153,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
+	// Step 8: Install documentation for Claude agents.
+	fmt.Println("Installing documentation...")
+	if err := initDocs(); err != nil {
+		fmt.Printf("  \033[33mWarning:\033[0m Could not install docs: %v\n", err)
+	}
+	fmt.Println()
+
 	// Summary.
 	fmt.Println("Initialization complete!")
 	fmt.Println()
@@ -152,12 +169,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  CLAUDE.md:       %s\n", filepath.Join(cwd, "CLAUDE.md"))
 	fmt.Printf("  Preferences:     %s\n", filepath.Join(cwd, "preferences.md"))
 	fmt.Printf("  Processes:       %s\n", filepath.Join(cwd, "processes/"))
+	fmt.Printf("  Documentation:   %s\n", filepath.Join(cwd, "docs/"))
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Println("  • Edit preferences.md to customize your settings")
+	fmt.Println("  • Run 'penf init entities' to seed known people, products, glossary")
 	fmt.Println("  • Run 'penf status' to verify the connection")
 	fmt.Println("  • Run 'penf health' to check system health")
-	fmt.Println("  • Run 'penf search <query>' to search your content")
 	fmt.Println()
 
 	return nil
@@ -279,6 +297,66 @@ func initProcessDefinitions() error {
 		return fmt.Errorf("writing acronym-review.md: %w", err)
 	}
 	fmt.Printf("  \033[32m✓\033[0m Updated processes/acronym-review.md\n")
+
+	return nil
+}
+
+// initDocs installs the documentation hierarchy for Claude agents.
+// These CAN be updated by penf init or penf update.
+func initDocs() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting current directory: %w", err)
+	}
+
+	docsDir := filepath.Join(cwd, "docs")
+
+	// Walk the embedded docs filesystem and copy all files
+	err = fs.WalkDir(docsFS, "templates/docs", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Calculate the relative path (strip "templates/docs" prefix)
+		relPath, err := filepath.Rel("templates/docs", path)
+		if err != nil {
+			return err
+		}
+
+		// Skip the root
+		if relPath == "." {
+			return nil
+		}
+
+		destPath := filepath.Join(docsDir, relPath)
+
+		if d.IsDir() {
+			// Create directory
+			if err := os.MkdirAll(destPath, 0755); err != nil {
+				return fmt.Errorf("creating directory %s: %w", destPath, err)
+			}
+			return nil
+		}
+
+		// Read and write file
+		content, err := docsFS.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", path, err)
+		}
+
+		if err := os.WriteFile(destPath, content, 0644); err != nil {
+			return fmt.Errorf("writing %s: %w", destPath, err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("installing docs: %w", err)
+	}
+
+	fmt.Printf("  \033[32m✓\033[0m Installed docs/ hierarchy (concepts, workflows)\n")
+	fmt.Println("    Claude reads docs/index.md first, then follows links for details")
 
 	return nil
 }

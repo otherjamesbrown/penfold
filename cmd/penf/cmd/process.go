@@ -133,20 +133,24 @@ Instead of executing one command at a time, Claude can:
 Available workflows:
   acronyms    Process unknown acronyms from content
   mentions    Process entity mentions needing resolution
+  onboarding  Post-import guided review of all discovered entities
 
 Example workflow:
   # Get all context for intelligent processing
   penf process acronyms context --output json
   penf process mentions context --output json
+  penf process onboarding context --output json
 
   # Batch resolve multiple items
   penf process acronyms batch-resolve '{"resolutions":[...]}'
-  penf process mentions batch-resolve '{"resolutions":[...]}'`,
+  penf process mentions batch-resolve '{"resolutions":[...]}'
+  penf process onboarding batch '{"confirm_people":[...]}'`,
 	}
 
 	// Add workflow subcommands.
 	cmd.AddCommand(newProcessAcronymsCommand(deps))
 	cmd.AddCommand(newProcessMentionsCommand(deps))
+	cmd.AddCommand(newProcessOnboardingCommand(deps))
 
 	return cmd
 }
