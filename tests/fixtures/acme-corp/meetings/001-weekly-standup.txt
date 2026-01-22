@@ -1,0 +1,40 @@
+# Weekly Platform Team Standup
+Date: 2026-01-20 09:00 AM PST
+Attendees: Lisa Chang, Emily Watson, Michael Brown, Jennifer Lee, Robert Taylor, Jessica Martinez
+
+## Transcript
+
+[00:00:15] Lisa Chang: Good morning everyone. Let's get started with our weekly standup. Mike, you want to kick us off?
+
+[00:00:25] Michael Brown: Sure. So I've been working on the API v3 design doc. Got some good feedback from John at the TER yesterday. The gRPC migration is on track.
+
+[00:00:45] Lisa Chang: Great. Any blockers?
+
+[00:00:48] Michael Brown: Not really, just waiting on the ADR approval from the architecture guild. Should have that by EOD today.
+
+[00:01:02] Lisa Chang: Perfect. Emily?
+
+[00:01:05] Emily Watson: I've been heads down on Project Alpha. The backend services are mostly done. Jen and I synced on the frontend integration - we should be ready for the MVP demo next week.
+
+[00:01:22] Jennifer Lee: Yeah, the dashboard components are looking good. Just need to wire up the API endpoints Mike's team is shipping. Rob, any updates on the staging environment?
+
+[00:01:35] Robert Taylor: The K8s cluster is ready. I deployed the latest to staging yesterday. There's a minor S3 permissions issue but Dan from security is helping me sort it out - should be fixed before lunch.
+
+[00:01:55] Lisa Chang: Good stuff. Jess, how's the data pipeline work going?
+
+[00:02:02] Jessica Martinez: Making progress on the ETL optimization. We're seeing about 40% improvement in processing time. Brandon and I are collaborating on adding the ML features once the pipeline is stable.
+
+[00:02:20] Lisa Chang: Excellent. Any P0s or blockers anyone needs to escalate?
+
+[00:02:28] Robert Taylor: Nothing P0, but we should probably sync with Sarah about the Portal Redesign timeline. There might be some infrastructure overlap with what her team needs.
+
+[00:02:42] Lisa Chang: Good call. I'll set up a meeting with Sarah and David. Anything else?
+
+[00:02:50] Emily Watson: Quick FYI - I'll be OOO Friday for a doctor's appointment. Should be back online by 2pm.
+
+[00:03:00] Lisa Chang: Noted. Alright, let's get back to it. See everyone at TER tomorrow. Thanks team!
+
+## Action Items
+- Mike: Get ADR approval by EOD
+- Rob: Fix S3 permissions with Dan's help
+- Lisa: Schedule sync with Sarah and David re: Portal Redesign infrastructure

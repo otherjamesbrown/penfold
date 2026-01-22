@@ -1,0 +1,414 @@
+# Acme Corp Glossary Fixtures
+# Used for E2E testing of glossary term expansion and linking
+
+terms:
+  # Meeting/Process Terms
+  - term: "TER"
+    expansion: "Technical Execution Review"
+    definition: "Weekly engineering review meeting held every Tuesday"
+    context: "meeting"
+    aliases:
+      - "T.E.R."
+      - "Tech Exec Review"
+
+  - term: "PBR"
+    expansion: "Product Backlog Refinement"
+    definition: "Bi-weekly session to groom upcoming sprint items"
+    context: "meeting"
+    aliases:
+      - "Backlog Grooming"
+      - "Refinement"
+
+  - term: "WBR"
+    expansion: "Weekly Business Review"
+    definition: "Cross-functional business metrics review with leadership"
+    context: "meeting"
+    aliases:
+      - "Business Review"
+
+  - term: "LGTM"
+    expansion: "Looks Good To Me"
+    definition: null
+    context: "code-review"
+    aliases: []
+
+  # Standard Acronyms
+  - term: "MVP"
+    expansion: "Minimum Viable Product"
+    definition: null
+    context: null
+    aliases: []
+
+  - term: "OKR"
+    expansion: "Objectives and Key Results"
+    definition: "Goal-setting framework used for quarterly planning"
+    context: null
+    aliases:
+      - "OKRs"
+
+  - term: "KPI"
+    expansion: "Key Performance Indicator"
+    definition: null
+    context: null
+    aliases:
+      - "KPIs"
+
+  - term: "SLA"
+    expansion: "Service Level Agreement"
+    definition: "Contractual uptime and response time commitments"
+    context: null
+    aliases:
+      - "SLAs"
+
+  - term: "SLO"
+    expansion: "Service Level Objective"
+    definition: "Internal targets for service reliability"
+    context: null
+    aliases:
+      - "SLOs"
+
+  - term: "P0"
+    expansion: "Priority Zero"
+    definition: "Critical production incident requiring immediate response"
+    context: "incident"
+    aliases:
+      - "Sev0"
+      - "Critical"
+
+  - term: "P1"
+    expansion: "Priority One"
+    definition: "High priority issue affecting significant user base"
+    context: "incident"
+    aliases:
+      - "Sev1"
+
+  # Technical Terms
+  - term: "API"
+    expansion: "Application Programming Interface"
+    definition: null
+    context: null
+    aliases: []
+
+  - term: "REST"
+    expansion: "Representational State Transfer"
+    definition: null
+    context: null
+    aliases:
+      - "RESTful"
+
+  - term: "gRPC"
+    expansion: null
+    definition: "Google's Remote Procedure Call framework"
+    context: null
+    aliases: []
+
+  - term: "ETL"
+    expansion: "Extract, Transform, Load"
+    definition: "Data pipeline pattern for moving data between systems"
+    context: null
+    aliases: []
+
+  - term: "CI/CD"
+    expansion: "Continuous Integration/Continuous Deployment"
+    definition: null
+    context: null
+    aliases:
+      - "CI"
+      - "CD"
+
+  - term: "SSO"
+    expansion: "Single Sign-On"
+    definition: "Authentication mechanism for enterprise customers"
+    context: null
+    aliases: []
+
+  - term: "RBAC"
+    expansion: "Role-Based Access Control"
+    definition: "Permission system based on user roles"
+    context: null
+    aliases: []
+
+  # Project References (linked entities)
+  - term: "Project Alpha"
+    expansion: null
+    definition: "Q1 platform migration initiative"
+    context: "project"
+    aliases:
+      - "Alpha"
+    linked_entity_type: "project"
+    linked_entity_id: 1
+
+  - term: "Portal Redesign"
+    expansion: null
+    definition: "Customer portal UX overhaul project"
+    context: "project"
+    aliases:
+      - "Portal v2"
+    linked_entity_type: "project"
+    linked_entity_id: 2
+
+  # Product References
+  - term: "Widget Pro"
+    expansion: null
+    definition: "Enterprise widget management platform"
+    context: "product"
+    aliases:
+      - "WP"
+      - "Widget"
+    linked_entity_type: "product"
+    linked_entity_id: 1
+
+  - term: "Enterprise Suite"
+    expansion: null
+    definition: "Bundled enterprise solutions"
+    context: "product"
+    aliases:
+      - "ES"
+      - "Enterprise"
+    linked_entity_type: "product"
+    linked_entity_id: 2
+
+  # Company-Specific Terms
+  - term: "Tiger Team"
+    expansion: null
+    definition: "Cross-functional task force assembled for urgent initiatives"
+    context: null
+    aliases: []
+
+  - term: "War Room"
+    expansion: null
+    definition: "Dedicated incident response channel and meeting"
+    context: "incident"
+    aliases: []
+
+  - term: "Blameless"
+    expansion: null
+    definition: "Post-incident review focused on process improvement"
+    context: "incident"
+    aliases:
+      - "Blameless Postmortem"
+      - "Retrospective"
+
+  - term: "North Star"
+    expansion: null
+    definition: "Primary metric guiding product decisions"
+    context: null
+    aliases:
+      - "North Star Metric"
+
+  - term: "Dogfooding"
+    expansion: null
+    definition: "Internal use of own products before customer release"
+    context: null
+    aliases:
+      - "Eating our own dogfood"
+
+  # Infrastructure Terms
+  - term: "K8s"
+    expansion: "Kubernetes"
+    definition: null
+    context: null
+    aliases:
+      - "Kube"
+
+  - term: "EKS"
+    expansion: "Elastic Kubernetes Service"
+    definition: "AWS managed Kubernetes offering"
+    context: null
+    aliases: []
+
+  - term: "RDS"
+    expansion: "Relational Database Service"
+    definition: "AWS managed PostgreSQL instance"
+    context: null
+    aliases: []
+
+  - term: "S3"
+    expansion: "Simple Storage Service"
+    definition: "AWS object storage"
+    context: null
+    aliases: []
+
+  # Communication Terms
+  - term: "Slack"
+    expansion: null
+    definition: "Primary internal communication platform"
+    context: null
+    aliases: []
+
+  - term: "EOD"
+    expansion: "End of Day"
+    definition: null
+    context: null
+    aliases: []
+
+  - term: "EOM"
+    expansion: "End of Month"
+    definition: null
+    context: null
+    aliases: []
+
+  - term: "EOQ"
+    expansion: "End of Quarter"
+    definition: null
+    context: null
+    aliases: []
+
+  - term: "WFH"
+    expansion: "Work From Home"
+    definition: null
+    context: null
+    aliases:
+      - "Remote"
+
+  - term: "OOO"
+    expansion: "Out of Office"
+    definition: null
+    context: null
+    aliases:
+      - "PTO"
+
+  - term: "ASAP"
+    expansion: "As Soon As Possible"
+    definition: null
+    context: null
+    aliases: []
+
+  - term: "FYI"
+    expansion: "For Your Information"
+    definition: null
+    context: null
+    aliases: []
+
+  - term: "TL;DR"
+    expansion: "Too Long; Didn't Read"
+    definition: "Executive summary or key takeaway"
+    context: null
+    aliases:
+      - "TLDR"
+
+  # Additional Technical Terms
+  - term: "PR"
+    expansion: "Pull Request"
+    definition: null
+    context: "code-review"
+    aliases:
+      - "MR"
+
+  - term: "RFC"
+    expansion: "Request for Comments"
+    definition: "Design proposal document for architectural decisions"
+    context: null
+    aliases: []
+
+  - term: "ADR"
+    expansion: "Architecture Decision Record"
+    definition: "Documented technical decision with context and rationale"
+    context: null
+    aliases: []
+
+  - term: "DRI"
+    expansion: "Directly Responsible Individual"
+    definition: "Single accountable person for a deliverable"
+    context: null
+    aliases: []
+
+  - term: "CODEOWNERS"
+    expansion: null
+    definition: "GitHub file defining required reviewers per path"
+    context: "code-review"
+    aliases: []
+
+  # Additional Business Terms
+  - term: "ARR"
+    expansion: "Annual Recurring Revenue"
+    definition: "Annualized value of recurring subscription revenue"
+    context: "finance"
+    aliases: []
+
+  - term: "MRR"
+    expansion: "Monthly Recurring Revenue"
+    definition: null
+    context: "finance"
+    aliases: []
+
+  - term: "NPS"
+    expansion: "Net Promoter Score"
+    definition: "Customer satisfaction metric from -100 to 100"
+    context: null
+    aliases: []
+
+  - term: "CAC"
+    expansion: "Customer Acquisition Cost"
+    definition: null
+    context: "finance"
+    aliases: []
+
+  - term: "LTV"
+    expansion: "Lifetime Value"
+    definition: "Projected revenue from a customer relationship"
+    context: "finance"
+    aliases:
+      - "CLV"
+
+  - term: "TAM"
+    expansion: "Total Addressable Market"
+    definition: null
+    context: null
+    aliases: []
+
+  - term: "SAM"
+    expansion: "Serviceable Addressable Market"
+    definition: null
+    context: null
+    aliases: []
+
+  - term: "ICP"
+    expansion: "Ideal Customer Profile"
+    definition: "Target customer characteristics for sales focus"
+    context: null
+    aliases: []
+
+  - term: "POC"
+    expansion: "Proof of Concept"
+    definition: "Limited implementation to validate feasibility"
+    context: null
+    aliases:
+      - "Pilot"
+
+  - term: "UAT"
+    expansion: "User Acceptance Testing"
+    definition: "Final testing phase with end users before release"
+    context: null
+    aliases: []
+
+  - term: "QBR"
+    expansion: "Quarterly Business Review"
+    definition: "Quarterly strategic review meeting with stakeholders"
+    context: "meeting"
+    aliases: []
+
+  - term: "GTM"
+    expansion: "Go-to-Market"
+    definition: "Strategy for launching product to market"
+    context: null
+    aliases:
+      - "Go to Market"
+
+  - term: "SKU"
+    expansion: "Stock Keeping Unit"
+    definition: "Product identifier for inventory and billing"
+    context: null
+    aliases: []
+
+  - term: "SOW"
+    expansion: "Statement of Work"
+    definition: "Contract document defining project scope and deliverables"
+    context: null
+    aliases: []
+
+  - term: "MSA"
+    expansion: "Master Service Agreement"
+    definition: "Framework contract governing customer relationship"
+    context: null
+    aliases: []

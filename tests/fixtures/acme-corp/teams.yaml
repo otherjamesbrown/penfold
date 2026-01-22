@@ -1,0 +1,45 @@
+# Acme Corp Teams Fixtures
+# Used for E2E testing of team mention resolution and org hierarchy
+
+teams:
+  - id: 1
+    name: "Engineering"
+    slug: "engineering"
+    parent_id: null
+    lead_id: 1  # John Smith
+
+  - id: 2
+    name: "Product"
+    slug: "product"
+    parent_id: null
+    lead_id: 5  # David Park
+
+  - id: 3
+    name: "Sales"
+    slug: "sales"
+    parent_id: null
+    lead_id: 3  # Marcus Rodriguez
+
+  - id: 4
+    name: "Platform Team"
+    slug: "platform"
+    parent_id: 1  # Under Engineering
+    lead_id: 6  # Lisa Chang
+
+  - id: 5
+    name: "Frontend Team"
+    slug: "frontend"
+    parent_id: 1  # Under Engineering
+    lead_id: 8  # Jennifer Lee
+
+  - id: 6
+    name: "Infrastructure"
+    slug: "infra"
+    parent_id: 1  # Under Engineering
+    lead_id: 9  # Robert Taylor
+
+  - id: 7
+    name: "Design"
+    slug: "design"
+    parent_id: 2  # Under Product
+    lead_id: 11  # Kevin Wilson

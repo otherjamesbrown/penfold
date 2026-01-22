@@ -1,0 +1,23 @@
+From: stephanie.clark@acme.com
+To: jennifer.lee@acme.com, michael.brown@acme.com
+Cc: amanda.garcia@acme.com
+Subject: Documentation Refresh - API Examples Needed
+Date: Tue, 28 Jan 2026 10:45:00 -0800
+Message-ID: <test-007@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Hi Jen and Mike,
+
+Working on the Documentation Refresh project and I need some help with the REST and gRPC examples.
+
+Specifically:
+1. Authentication flow examples (SSO + RBAC)
+2. Widget Pro API usage patterns
+3. Error handling best practices
+
+Amanda is helping me set up a review process. Could you both be CODEOWNERS for the /docs/api/ path?
+
+The ADR for the new doc structure is in the RFC repo if you want context on the approach.
+
+Thanks!
+Steph

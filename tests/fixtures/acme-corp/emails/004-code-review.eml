@@ -1,0 +1,19 @@
+From: michael.brown@acme.com
+To: emily.watson@acme.com
+Cc: lisa.chang@acme.com
+Subject: PR #1234 - API v3 Authentication Refactor
+Date: Thu, 23 Jan 2026 11:20:00 -0800
+Message-ID: <test-004@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Hey Emily,
+
+I've opened PR #1234 for the RBAC changes in API v3. Would love your review when you get a chance.
+
+TL;DR: This PR adds role-based permission checks to all gRPC endpoints. It's a prerequisite for the SSO integration that Nicole needs for the CRM Integration project.
+
+The RFC is linked in the PR description. Dan already reviewed the security aspects - LGTM from him.
+
+Let me know if you have questions!
+
+Mike

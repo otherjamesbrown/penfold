@@ -1,0 +1,29 @@
+From: robert.taylor@acme.com
+To: engineering@acme.com
+Cc: john.smith@acme.com
+Subject: Blameless Postmortem - Jan 21 API Gateway Incident
+Date: Fri, 31 Jan 2026 15:30:00 -0800
+Message-ID: <test-010@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Team,
+
+Blameless postmortem for the P0 incident on Jan 21 is scheduled for Monday 2pm.
+
+Quick recap:
+- Duration: 2h 15m
+- Impact: 15% error rate, SLA breach for 3 enterprise customers
+- Root cause: K8s node pool autoscaling triggered during peak traffic
+
+Action items identified:
+1. Add gradual rollout for infra changes (DRI: Rob)
+2. Improve EKS monitoring dashboards (DRI: Dan)
+3. Update runbooks for API Gateway incidents (DRI: Steph)
+
+FYI the full incident timeline is in the War Room channel. Dan did a great job as incident commander.
+
+Let's make sure we learn from this and improve our CI/CD safeguards.
+
+Rob
+
+North Star reminder: Zero SLA breaches in Q1 is still achievable if we nail down these process improvements.

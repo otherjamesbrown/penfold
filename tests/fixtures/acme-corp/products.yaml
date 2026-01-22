@@ -1,0 +1,33 @@
+# Acme Corp Products Fixtures
+# Used for E2E testing of product mention resolution
+
+products:
+  - id: 1
+    name: "Widget Pro"
+    slug: "widget-pro"
+    description: "Enterprise widget management platform"
+    team_id: 1  # Engineering
+
+  - id: 2
+    name: "Enterprise Suite"
+    slug: "enterprise-suite"
+    description: "Bundled enterprise solutions including SSO and advanced analytics"
+    team_id: null  # Cross-team
+
+  - id: 3
+    name: "Widget Mobile"
+    slug: "widget-mobile"
+    description: "Mobile companion app for Widget Pro"
+    team_id: 4  # Platform Team
+
+  - id: 4
+    name: "Analytics Dashboard"
+    slug: "analytics-dashboard"
+    description: "Real-time analytics and reporting platform"
+    team_id: 2  # Product
+
+  - id: 5
+    name: "API Gateway"
+    slug: "api-gateway"
+    description: "Managed API gateway for third-party integrations"
+    team_id: 4  # Platform Team

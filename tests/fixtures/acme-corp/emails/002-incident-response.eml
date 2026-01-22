@@ -1,0 +1,23 @@
+From: daniel.thompson@acme.com
+To: engineering@acme.com
+Cc: john.smith@acme.com, lisa.chang@acme.com
+Subject: P0 Incident - API Gateway Degradation
+Date: Tue, 21 Jan 2026 14:30:00 -0800
+Message-ID: <test-002@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Team,
+
+We're seeing elevated error rates on the API Gateway. This is being treated as a P0.
+
+Current status:
+- 5xx errors spiking to 15% (SLO target: <0.1%)
+- Latency P99 at 2.5s (SLA: <500ms)
+
+War Room is open in #incident-response. DRI is Rob Taylor.
+
+Lisa and I are investigating the root cause. Looks like it might be related to the K8s node pool scaling we deployed this morning.
+
+Will send updates every 30 minutes until resolved.
+
+Dan

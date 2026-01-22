@@ -1,0 +1,22 @@
+From: brandon.harris@acme.com
+To: lisa.chang@acme.com, jessica.martinez@acme.com
+Cc: john.smith@acme.com
+Subject: ML Recommendations - Tiger Team Formation
+Date: Fri, 24 Jan 2026 09:00:00 -0800
+Message-ID: <test-005@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Lisa, Jess,
+
+John has approved forming a Tiger Team for the ML Recommendations project. We're targeting an April kickoff but need to do some preparatory work.
+
+Key milestones:
+- EOQ: Complete data pipeline requirements with Jess
+- Q2 Start: Begin model training experiments
+- EOQ Q2: MVP ready for dogfooding
+
+Jess - I'll need your help with the ETL pipeline optimization. The current Data Pipeline project should give us a good foundation.
+
+Can we schedule a kickoff meeting next week? I'm OOO Monday but available Tue-Fri.
+
+Brandon
