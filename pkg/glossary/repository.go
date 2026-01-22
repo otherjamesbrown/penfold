@@ -37,10 +37,18 @@ func (r *Repository) Create(ctx context.Context, input TermInput) (*Term, error)
 	aliasesJSON, _ := json.Marshal(input.Aliases)
 
 	var term Term
+	var linkedType, linkedID interface{}
+
+	// Handle linked entity
+	if input.LinkedEntityType != "" && input.LinkedEntityID != nil {
+		linkedType = input.LinkedEntityType
+		linkedID = *input.LinkedEntityID
+	}
+
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO glossary (term, expansion, definition, context, aliases, expand_in_search, source, created_by)
-		VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)
-		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by
+		INSERT INTO glossary (term, expansion, definition, context, aliases, expand_in_search, source, created_by, linked_entity_type, linked_entity_id)
+		VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10)
+		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
 	`,
 		input.Term,
 		input.Expansion,
@@ -50,6 +58,8 @@ func (r *Repository) Create(ctx context.Context, input TermInput) (*Term, error)
 		expandInSearch,
 		source,
 		input.CreatedBy,
+		linkedType,
+		linkedID,
 	).Scan(
 		&term.ID,
 		&term.TenantID,
@@ -63,6 +73,8 @@ func (r *Repository) Create(ctx context.Context, input TermInput) (*Term, error)
 		&term.CreatedAt,
 		&term.UpdatedAt,
 		&term.CreatedBy,
+		&term.LinkedEntityType,
+		&term.LinkedEntityID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create glossary term: %w", err)
@@ -75,7 +87,7 @@ func (r *Repository) Create(ctx context.Context, input TermInput) (*Term, error)
 func (r *Repository) Get(ctx context.Context, id int64) (*Term, error) {
 	var term Term
 	err := r.db.QueryRow(ctx, `
-		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by
+		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
 		FROM glossary
 		WHERE id = $1
 	`, id).Scan(
@@ -91,6 +103,8 @@ func (r *Repository) Get(ctx context.Context, id int64) (*Term, error) {
 		&term.CreatedAt,
 		&term.UpdatedAt,
 		&term.CreatedBy,
+		&term.LinkedEntityType,
+		&term.LinkedEntityID,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -105,7 +119,7 @@ func (r *Repository) Get(ctx context.Context, id int64) (*Term, error) {
 func (r *Repository) GetByTerm(ctx context.Context, termStr string) (*Term, error) {
 	var term Term
 	err := r.db.QueryRow(ctx, `
-		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by
+		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
 		FROM glossary
 		WHERE LOWER(term) = LOWER($1)
 	`, termStr).Scan(
@@ -121,6 +135,8 @@ func (r *Repository) GetByTerm(ctx context.Context, termStr string) (*Term, erro
 		&term.CreatedAt,
 		&term.UpdatedAt,
 		&term.CreatedBy,
+		&term.LinkedEntityType,
+		&term.LinkedEntityID,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -134,7 +150,7 @@ func (r *Repository) GetByTerm(ctx context.Context, termStr string) (*Term, erro
 // List retrieves terms matching the filter.
 func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, error) {
 	query := `
-		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by
+		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
 		FROM glossary
 		WHERE 1=1
 	`
@@ -205,6 +221,8 @@ func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, erro
 			&term.CreatedAt,
 			&term.UpdatedAt,
 			&term.CreatedBy,
+			&term.LinkedEntityType,
+			&term.LinkedEntityID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan glossary term: %w", err)
@@ -225,12 +243,18 @@ func (r *Repository) Update(ctx context.Context, id int64, input TermInput) (*Te
 		expandInSearch = *input.ExpandInSearch
 	}
 
+	var linkedType, linkedID interface{}
+	if input.LinkedEntityType != "" && input.LinkedEntityID != nil {
+		linkedType = input.LinkedEntityType
+		linkedID = *input.LinkedEntityID
+	}
+
 	var term Term
 	err := r.db.QueryRow(ctx, `
 		UPDATE glossary
-		SET term = $2, expansion = $3, definition = $4, context = $5::jsonb, aliases = $6::jsonb, expand_in_search = $7
+		SET term = $2, expansion = $3, definition = $4, context = $5::jsonb, aliases = $6::jsonb, expand_in_search = $7, linked_entity_type = $8, linked_entity_id = $9
 		WHERE id = $1
-		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by
+		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
 	`,
 		id,
 		input.Term,
@@ -239,6 +263,8 @@ func (r *Repository) Update(ctx context.Context, id int64, input TermInput) (*Te
 		string(contextJSON),
 		string(aliasesJSON),
 		expandInSearch,
+		linkedType,
+		linkedID,
 	).Scan(
 		&term.ID,
 		&term.TenantID,
@@ -252,6 +278,8 @@ func (r *Repository) Update(ctx context.Context, id int64, input TermInput) (*Te
 		&term.CreatedAt,
 		&term.UpdatedAt,
 		&term.CreatedBy,
+		&term.LinkedEntityType,
+		&term.LinkedEntityID,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -368,7 +396,7 @@ func (r *Repository) LookupTerm(ctx context.Context, termStr string) (*Term, err
 	// Try alias match
 	var result Term
 	err = r.db.QueryRow(ctx, `
-		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by
+		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
 		FROM glossary
 		WHERE aliases @> $1::jsonb
 	`, fmt.Sprintf(`["%s"]`, strings.ToLower(termStr))).Scan(
@@ -384,6 +412,8 @@ func (r *Repository) LookupTerm(ctx context.Context, termStr string) (*Term, err
 		&result.CreatedAt,
 		&result.UpdatedAt,
 		&result.CreatedBy,
+		&result.LinkedEntityType,
+		&result.LinkedEntityID,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -392,4 +422,162 @@ func (r *Repository) LookupTerm(ctx context.Context, termStr string) (*Term, err
 		return nil, fmt.Errorf("lookup glossary term by alias: %w", err)
 	}
 	return &result, nil
+}
+
+// LinkEntity links a glossary term to an entity (product, project, company).
+func (r *Repository) LinkEntity(ctx context.Context, termID int64, entityType string, entityID int64) (*Term, error) {
+	// Validate entity type
+	validTypes := map[string]bool{"product": true, "project": true, "company": true}
+	if !validTypes[entityType] {
+		return nil, fmt.Errorf("invalid entity type: %s (must be product, project, or company)", entityType)
+	}
+
+	var term Term
+	err := r.db.QueryRow(ctx, `
+		UPDATE glossary
+		SET linked_entity_type = $2, linked_entity_id = $3, updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
+	`, termID, entityType, entityID).Scan(
+		&term.ID,
+		&term.TenantID,
+		&term.Term,
+		&term.Expansion,
+		&term.Definition,
+		&term.Context,
+		&term.Aliases,
+		&term.ExpandInSearch,
+		&term.Source,
+		&term.CreatedAt,
+		&term.UpdatedAt,
+		&term.CreatedBy,
+		&term.LinkedEntityType,
+		&term.LinkedEntityID,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, fmt.Errorf("term not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("link entity: %w", err)
+	}
+	return &term, nil
+}
+
+// UnlinkEntity removes the entity link from a glossary term.
+func (r *Repository) UnlinkEntity(ctx context.Context, termID int64) (*Term, error) {
+	var term Term
+	err := r.db.QueryRow(ctx, `
+		UPDATE glossary
+		SET linked_entity_type = NULL, linked_entity_id = NULL, updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
+	`, termID).Scan(
+		&term.ID,
+		&term.TenantID,
+		&term.Term,
+		&term.Expansion,
+		&term.Definition,
+		&term.Context,
+		&term.Aliases,
+		&term.ExpandInSearch,
+		&term.Source,
+		&term.CreatedAt,
+		&term.UpdatedAt,
+		&term.CreatedBy,
+		&term.LinkedEntityType,
+		&term.LinkedEntityID,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, fmt.Errorf("term not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unlink entity: %w", err)
+	}
+	return &term, nil
+}
+
+// LinkedTermFilter specifies criteria for listing linked terms.
+type LinkedTermFilter struct {
+	EntityType string // Filter by entity type
+	EntityID   int64  // Filter by specific entity ID
+	Limit      int    // Max results (0 = default 100)
+	Offset     int    // Pagination offset
+}
+
+// ListLinked retrieves terms that are linked to entities.
+func (r *Repository) ListLinked(ctx context.Context, filter LinkedTermFilter) ([]*Term, int64, error) {
+	query := `
+		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
+		FROM glossary
+		WHERE linked_entity_type IS NOT NULL
+	`
+	countQuery := `SELECT COUNT(*) FROM glossary WHERE linked_entity_type IS NOT NULL`
+	args := []interface{}{}
+	argNum := 1
+
+	if filter.EntityType != "" {
+		query += fmt.Sprintf(" AND linked_entity_type = $%d", argNum)
+		countQuery += fmt.Sprintf(" AND linked_entity_type = $%d", argNum)
+		args = append(args, filter.EntityType)
+		argNum++
+	}
+
+	if filter.EntityID > 0 {
+		query += fmt.Sprintf(" AND linked_entity_id = $%d", argNum)
+		countQuery += fmt.Sprintf(" AND linked_entity_id = $%d", argNum)
+		args = append(args, filter.EntityID)
+		argNum++
+	}
+
+	// Get total count
+	var totalCount int64
+	err := r.db.QueryRow(ctx, countQuery, args...).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count linked terms: %w", err)
+	}
+
+	query += " ORDER BY term ASC"
+
+	limit := 100
+	if filter.Limit > 0 {
+		limit = filter.Limit
+	}
+	query += fmt.Sprintf(" LIMIT %d", limit)
+
+	if filter.Offset > 0 {
+		query += fmt.Sprintf(" OFFSET %d", filter.Offset)
+	}
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list linked terms: %w", err)
+	}
+	defer rows.Close()
+
+	var terms []*Term
+	for rows.Next() {
+		var term Term
+		err := rows.Scan(
+			&term.ID,
+			&term.TenantID,
+			&term.Term,
+			&term.Expansion,
+			&term.Definition,
+			&term.Context,
+			&term.Aliases,
+			&term.ExpandInSearch,
+			&term.Source,
+			&term.CreatedAt,
+			&term.UpdatedAt,
+			&term.CreatedBy,
+			&term.LinkedEntityType,
+			&term.LinkedEntityID,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("scan linked term: %w", err)
+		}
+		terms = append(terms, &term)
+	}
+
+	return terms, totalCount, nil
 }

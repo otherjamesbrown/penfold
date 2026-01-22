@@ -36,11 +36,32 @@ service GlossaryService {
 
   // LookupTerm looks up a specific term and returns its expansion.
   rpc LookupTerm(LookupTermRequest) returns (LookupTermResponse);
+
+  // LinkTerm links a glossary term to an entity (product, project, company).
+  rpc LinkTerm(LinkTermRequest) returns (LinkTermResponse);
+
+  // UnlinkTerm removes the entity link from a glossary term.
+  rpc UnlinkTerm(UnlinkTermRequest) returns (UnlinkTermResponse);
+
+  // ListLinkedTerms returns all terms linked to entities.
+  rpc ListLinkedTerms(ListLinkedTermsRequest) returns (ListLinkedTermsResponse);
 }
 
 // =============================================================================
 // Core Messages
 // =============================================================================
+
+// LinkedEntity represents a product, project, or company that a term links to.
+message LinkedEntity {
+  // Entity type: product, project, company.
+  string entity_type = 1;
+
+  // Entity ID.
+  int64 entity_id = 2;
+
+  // Entity name (populated on read).
+  string entity_name = 3;
+}
 
 // Term represents a glossary entry.
 message Term {
@@ -73,6 +94,9 @@ message Term {
 
   // When the term was last updated.
   google.protobuf.Timestamp updated_at = 10;
+
+  // Linked entity (if term represents a product/project/company).
+  LinkedEntity linked_entity = 11;
 }
 
 // ExpansionResult represents a term expansion found in a query.
@@ -242,4 +266,64 @@ message LookupTermResponse {
 
   // The expansion result if found.
   ExpansionResult result = 2;
+}
+
+// LinkTermRequest links a term to an entity.
+message LinkTermRequest {
+  // Term ID to link (one of term_id or term_str required).
+  int64 term_id = 1;
+
+  // Term string to link (alternative to term_id).
+  string term_str = 2;
+
+  // Entity type: product, project, company.
+  string entity_type = 3;
+
+  // Entity ID.
+  int64 entity_id = 4;
+}
+
+// LinkTermResponse confirms the link was created.
+message LinkTermResponse {
+  // The updated term with linked entity.
+  Term term = 1;
+}
+
+// UnlinkTermRequest removes an entity link from a term.
+message UnlinkTermRequest {
+  // Term ID to unlink (one of term_id or term_str required).
+  int64 term_id = 1;
+
+  // Term string to unlink (alternative to term_id).
+  string term_str = 2;
+}
+
+// UnlinkTermResponse confirms the link was removed.
+message UnlinkTermResponse {
+  // The updated term without linked entity.
+  Term term = 1;
+}
+
+// ListLinkedTermsRequest retrieves terms linked to entities.
+message ListLinkedTermsRequest {
+  // Filter by entity type (optional).
+  string entity_type = 1;
+
+  // Filter by entity ID (optional).
+  int64 entity_id = 2;
+
+  // Maximum results (default: 100).
+  int32 limit = 3;
+
+  // Pagination offset.
+  int32 offset = 4;
+}
+
+// ListLinkedTermsResponse contains linked terms.
+message ListLinkedTermsResponse {
+  // Terms with entity links.
+  repeated Term terms = 1;
+
+  // Total count of linked terms.
+  int64 total_count = 2;
 }
