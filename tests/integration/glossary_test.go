@@ -298,3 +298,219 @@ func TestGlossaryRepository_ExpandQuery(t *testing.T) {
 	}
 }
 
+func TestGlossaryRepository_DeleteByTerm(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "glossary")
+
+	repo := glossary.NewRepository(db.Pool)
+	ctx := context.Background()
+
+	// Create a term
+	_, err := repo.Create(ctx, glossary.TermInput{
+		Term:      "DELETEME",
+		Expansion: "Term To Delete",
+	})
+	require.NoError(t, err)
+
+	// Verify it exists
+	term, err := repo.GetByTerm(ctx, "DELETEME")
+	require.NoError(t, err)
+	assert.NotNil(t, term)
+
+	// Delete by term string
+	err = repo.DeleteByTerm(ctx, "DELETEME")
+	require.NoError(t, err)
+
+	// Verify it's gone
+	term, err = repo.GetByTerm(ctx, "DELETEME")
+	require.NoError(t, err)
+	assert.Nil(t, term)
+
+	// Deleting non-existent term should error
+	err = repo.DeleteByTerm(ctx, "NONEXISTENT")
+	assert.Error(t, err)
+}
+
+func TestGlossaryRepository_LookupTerm(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "glossary")
+
+	repo := glossary.NewRepository(db.Pool)
+	ctx := context.Background()
+
+	// Create a term with aliases
+	_, err := repo.Create(ctx, glossary.TermInput{
+		Term:      "MVP",
+		Expansion: "Minimum Viable Product",
+		Aliases:   []string{"minimum viable", "early release"},
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		lookup  string
+		wantNil bool
+	}{
+		{
+			name:    "find by exact term",
+			lookup:  "MVP",
+			wantNil: false,
+		},
+		{
+			name:    "find by alias",
+			lookup:  "minimum viable",
+			wantNil: false,
+		},
+		{
+			name:    "term not found",
+			lookup:  "NONEXISTENT",
+			wantNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			term, err := repo.LookupTerm(ctx, tt.lookup)
+			require.NoError(t, err)
+			if tt.wantNil {
+				assert.Nil(t, term)
+			} else {
+				assert.NotNil(t, term)
+				assert.Equal(t, "MVP", term.Term)
+			}
+		})
+	}
+}
+
+func TestGlossaryRepository_LinkEntity(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "glossary")
+
+	repo := glossary.NewRepository(db.Pool)
+	ctx := context.Background()
+
+	// Create a term
+	created, err := repo.Create(ctx, glossary.TermInput{
+		Term:      "Widget",
+		Expansion: "Widget Product",
+	})
+	require.NoError(t, err)
+	assert.Nil(t, created.LinkedEntityType)
+	assert.Nil(t, created.LinkedEntityID)
+
+	// Link to a product
+	linked, err := repo.LinkEntity(ctx, created.ID, "product", 42)
+	require.NoError(t, err)
+	assert.NotNil(t, linked.LinkedEntityType)
+	assert.Equal(t, "product", *linked.LinkedEntityType)
+	assert.NotNil(t, linked.LinkedEntityID)
+	assert.Equal(t, int64(42), *linked.LinkedEntityID)
+
+	// Try invalid entity type
+	_, err = repo.LinkEntity(ctx, created.ID, "invalid", 1)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid entity type")
+
+	// Try non-existent term
+	_, err = repo.LinkEntity(ctx, 999999, "product", 1)
+	assert.Error(t, err)
+}
+
+func TestGlossaryRepository_UnlinkEntity(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "glossary")
+
+	repo := glossary.NewRepository(db.Pool)
+	ctx := context.Background()
+
+	// Create and link a term
+	created, err := repo.Create(ctx, glossary.TermInput{
+		Term:      "Project Alpha",
+		Expansion: "Main Project",
+	})
+	require.NoError(t, err)
+
+	linked, err := repo.LinkEntity(ctx, created.ID, "project", 100)
+	require.NoError(t, err)
+	assert.NotNil(t, linked.LinkedEntityID)
+
+	// Unlink the entity
+	unlinked, err := repo.UnlinkEntity(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Nil(t, unlinked.LinkedEntityType)
+	assert.Nil(t, unlinked.LinkedEntityID)
+
+	// Try unlinking non-existent term
+	_, err = repo.UnlinkEntity(ctx, 999999)
+	assert.Error(t, err)
+}
+
+func TestGlossaryRepository_ListLinked(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "glossary")
+
+	repo := glossary.NewRepository(db.Pool)
+	ctx := context.Background()
+
+	// Create terms with various link states
+	term1, err := repo.Create(ctx, glossary.TermInput{Term: "Product1", Expansion: "Prod One"})
+	require.NoError(t, err)
+	_, err = repo.LinkEntity(ctx, term1.ID, "product", 1)
+	require.NoError(t, err)
+
+	term2, err := repo.Create(ctx, glossary.TermInput{Term: "Product2", Expansion: "Prod Two"})
+	require.NoError(t, err)
+	_, err = repo.LinkEntity(ctx, term2.ID, "product", 2)
+	require.NoError(t, err)
+
+	term3, err := repo.Create(ctx, glossary.TermInput{Term: "Project1", Expansion: "Proj One"})
+	require.NoError(t, err)
+	_, err = repo.LinkEntity(ctx, term3.ID, "project", 1)
+	require.NoError(t, err)
+
+	// Create unlinked term
+	_, err = repo.Create(ctx, glossary.TermInput{Term: "Unlinked", Expansion: "No Link"})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		filter    glossary.LinkedTermFilter
+		wantCount int
+	}{
+		{
+			name:      "list all linked",
+			filter:    glossary.LinkedTermFilter{},
+			wantCount: 3,
+		},
+		{
+			name:      "filter by product type",
+			filter:    glossary.LinkedTermFilter{EntityType: "product"},
+			wantCount: 2,
+		},
+		{
+			name:      "filter by project type",
+			filter:    glossary.LinkedTermFilter{EntityType: "project"},
+			wantCount: 1,
+		},
+		{
+			name:      "filter by specific entity",
+			filter:    glossary.LinkedTermFilter{EntityType: "product", EntityID: 1},
+			wantCount: 1,
+		},
+		{
+			name:      "limit results",
+			filter:    glossary.LinkedTermFilter{Limit: 2},
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results, total, err := repo.ListLinked(ctx, tt.filter)
+			require.NoError(t, err)
+			assert.Len(t, results, tt.wantCount)
+			assert.GreaterOrEqual(t, int(total), tt.wantCount)
+		})
+	}
+}
+

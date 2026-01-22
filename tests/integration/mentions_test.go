@@ -303,6 +303,322 @@ func TestMentionsRepository_GetMentionStats(t *testing.T) {
 	assert.NotNil(t, stats)
 }
 
+func TestMentionsRepository_GetPatternsByText(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "content_mentions", "mention_patterns", "entity_project_affinity")
+
+	repo := mentions.NewPostgresRepository(db.Pool)
+	ctx := context.Background()
+
+	tenantID := "test-tenant"
+
+	// Create patterns with same text but different scopes
+	pattern1 := &mentions.MentionPattern{
+		TenantID:         tenantID,
+		EntityType:       mentions.EntityTypePerson,
+		PatternText:      "John Smith",
+		ResolvedEntityID: int64Ptr(1),
+		TimesSeen:        5,
+		TimesLinked:      3,
+	}
+	err := repo.CreateOrUpdatePattern(ctx, pattern1)
+	require.NoError(t, err)
+
+	pattern2 := &mentions.MentionPattern{
+		TenantID:         tenantID,
+		EntityType:       mentions.EntityTypePerson,
+		PatternText:      "John Smith",
+		ResolvedEntityID: int64Ptr(1),
+		ProjectID:        int64Ptr(100),
+		TimesSeen:        2,
+		TimesLinked:      1,
+	}
+	err = repo.CreateOrUpdatePattern(ctx, pattern2)
+	require.NoError(t, err)
+
+	// Get patterns by text
+	patterns, err := repo.GetPatternsByText(ctx, tenantID, mentions.EntityTypePerson, "John Smith")
+	require.NoError(t, err)
+	assert.Len(t, patterns, 2)
+
+	// Should be ordered by times_linked desc
+	assert.GreaterOrEqual(t, patterns[0].TimesLinked, patterns[1].TimesLinked)
+}
+
+func TestMentionsRepository_ListPatterns(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "content_mentions", "mention_patterns", "entity_project_affinity")
+
+	repo := mentions.NewPostgresRepository(db.Pool)
+	ctx := context.Background()
+
+	tenantID := "test-tenant"
+
+	// Create various patterns
+	patterns := []mentions.MentionPattern{
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, PatternText: "Alice", TimesSeen: 10, TimesLinked: 5},
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, PatternText: "Bob", TimesSeen: 8, TimesLinked: 3},
+		{TenantID: tenantID, EntityType: mentions.EntityTypeCompany, PatternText: "Acme", TimesSeen: 15, TimesLinked: 10},
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, PatternText: "Charlie", ProjectID: int64Ptr(1), TimesSeen: 5, TimesLinked: 2},
+	}
+
+	for i := range patterns {
+		err := repo.CreateOrUpdatePattern(ctx, &patterns[i])
+		require.NoError(t, err)
+	}
+
+	tests := []struct {
+		name      string
+		filter    mentions.PatternFilter
+		wantCount int
+	}{
+		{
+			name:      "list all patterns",
+			filter:    mentions.PatternFilter{TenantID: tenantID},
+			wantCount: 4,
+		},
+		{
+			name:      "filter by entity type",
+			filter:    mentions.PatternFilter{TenantID: tenantID, EntityType: entityTypePtr(mentions.EntityTypePerson)},
+			wantCount: 3,
+		},
+		{
+			name:      "filter by project",
+			filter:    mentions.PatternFilter{TenantID: tenantID, ProjectID: int64Ptr(1)},
+			wantCount: 1,
+		},
+		{
+			name:      "limit results",
+			filter:    mentions.PatternFilter{TenantID: tenantID, Limit: 2},
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results, err := repo.ListPatterns(ctx, tt.filter)
+			require.NoError(t, err)
+			assert.Len(t, results, tt.wantCount)
+		})
+	}
+}
+
+func TestMentionsRepository_IncrementPatternCounters(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "content_mentions", "mention_patterns", "entity_project_affinity")
+
+	repo := mentions.NewPostgresRepository(db.Pool)
+	ctx := context.Background()
+
+	tenantID := "test-tenant"
+
+	// Create a pattern
+	pattern := &mentions.MentionPattern{
+		TenantID:    tenantID,
+		EntityType:  mentions.EntityTypePerson,
+		PatternText: "Test Person",
+		TimesSeen:   1,
+		TimesLinked: 0,
+	}
+	err := repo.CreateOrUpdatePattern(ctx, pattern)
+	require.NoError(t, err)
+
+	// Increment seen
+	err = repo.IncrementPatternSeen(ctx, pattern.ID)
+	require.NoError(t, err)
+
+	// Verify increment
+	updated, err := repo.GetPattern(ctx, tenantID, mentions.EntityTypePerson, "Test Person", nil)
+	require.NoError(t, err)
+	assert.Equal(t, 2, updated.TimesSeen) // CreateOrUpdate also increments on conflict, so 1+1=2
+
+	// Increment linked
+	err = repo.IncrementPatternLinked(ctx, pattern.ID, 42)
+	require.NoError(t, err)
+
+	updated, err = repo.GetPattern(ctx, tenantID, mentions.EntityTypePerson, "Test Person", nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, updated.TimesLinked)
+	assert.NotNil(t, updated.ResolvedEntityID)
+	assert.Equal(t, int64(42), *updated.ResolvedEntityID)
+}
+
+func TestMentionsRepository_Affinity(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "content_mentions", "mention_patterns", "entity_project_affinity")
+
+	repo := mentions.NewPostgresRepository(db.Pool)
+	ctx := context.Background()
+
+	tenantID := "test-tenant"
+
+	// Create an affinity
+	affinity := &mentions.EntityProjectAffinity{
+		TenantID:      tenantID,
+		EntityType:    mentions.EntityTypePerson,
+		EntityID:      1,
+		ProjectID:     100,
+		MentionCount:  5,
+		IsMember:      true,
+		Role:          "lead",
+		AffinityScore: 0.8,
+	}
+
+	err := repo.UpsertAffinity(ctx, affinity)
+	require.NoError(t, err)
+	assert.NotZero(t, affinity.ID)
+
+	// Get the affinity
+	retrieved, err := repo.GetAffinity(ctx, tenantID, mentions.EntityTypePerson, 1, 100)
+	require.NoError(t, err)
+	assert.NotNil(t, retrieved)
+	assert.Equal(t, 5, retrieved.MentionCount)
+	assert.Equal(t, "lead", retrieved.Role)
+
+	// Update with upsert
+	affinity.MentionCount = 10
+	affinity.AffinityScore = 0.9
+	err = repo.UpsertAffinity(ctx, affinity)
+	require.NoError(t, err)
+
+	retrieved, err = repo.GetAffinity(ctx, tenantID, mentions.EntityTypePerson, 1, 100)
+	require.NoError(t, err)
+	assert.Equal(t, 10, retrieved.MentionCount)
+}
+
+func TestMentionsRepository_GetAffinitiesForProject(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "content_mentions", "mention_patterns", "entity_project_affinity")
+
+	repo := mentions.NewPostgresRepository(db.Pool)
+	ctx := context.Background()
+
+	tenantID := "test-tenant"
+	projectID := int64(100)
+
+	// Create affinities for the project
+	affinities := []mentions.EntityProjectAffinity{
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, EntityID: 1, ProjectID: projectID, MentionCount: 10, AffinityScore: 0.9},
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, EntityID: 2, ProjectID: projectID, MentionCount: 5, AffinityScore: 0.7},
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, EntityID: 3, ProjectID: projectID, MentionCount: 2, AffinityScore: 0.5},
+		// Different project
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, EntityID: 4, ProjectID: 999, MentionCount: 1, AffinityScore: 0.3},
+	}
+
+	for i := range affinities {
+		err := repo.UpsertAffinity(ctx, &affinities[i])
+		require.NoError(t, err)
+	}
+
+	results, err := repo.GetAffinitiesForProject(ctx, tenantID, projectID, mentions.EntityTypePerson)
+	require.NoError(t, err)
+	assert.Len(t, results, 3)
+
+	// Should be ordered by affinity_score desc
+	assert.GreaterOrEqual(t, results[0].AffinityScore, results[1].AffinityScore)
+	assert.GreaterOrEqual(t, results[1].AffinityScore, results[2].AffinityScore)
+}
+
+func TestMentionsRepository_GetAffinitiesForEntity(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "content_mentions", "mention_patterns", "entity_project_affinity")
+
+	repo := mentions.NewPostgresRepository(db.Pool)
+	ctx := context.Background()
+
+	tenantID := "test-tenant"
+	entityID := int64(1)
+
+	// Create affinities for the entity across projects
+	affinities := []mentions.EntityProjectAffinity{
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, EntityID: entityID, ProjectID: 100, AffinityScore: 0.9},
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, EntityID: entityID, ProjectID: 200, AffinityScore: 0.7},
+		// Different entity
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, EntityID: 2, ProjectID: 100, AffinityScore: 0.5},
+	}
+
+	for i := range affinities {
+		err := repo.UpsertAffinity(ctx, &affinities[i])
+		require.NoError(t, err)
+	}
+
+	results, err := repo.GetAffinitiesForEntity(ctx, tenantID, mentions.EntityTypePerson, entityID)
+	require.NoError(t, err)
+	assert.Len(t, results, 2)
+}
+
+func TestMentionsRepository_IncrementAffinityMentionCount(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "content_mentions", "mention_patterns", "entity_project_affinity")
+
+	repo := mentions.NewPostgresRepository(db.Pool)
+	ctx := context.Background()
+
+	tenantID := "test-tenant"
+
+	// Increment for non-existent affinity (should create)
+	err := repo.IncrementAffinityMentionCount(ctx, tenantID, mentions.EntityTypePerson, 1, 100)
+	require.NoError(t, err)
+
+	// Verify it was created
+	affinity, err := repo.GetAffinity(ctx, tenantID, mentions.EntityTypePerson, 1, 100)
+	require.NoError(t, err)
+	assert.NotNil(t, affinity)
+	assert.Equal(t, 1, affinity.MentionCount)
+	assert.Equal(t, float32(0.5), affinity.AffinityScore) // Default score
+
+	// Increment again
+	err = repo.IncrementAffinityMentionCount(ctx, tenantID, mentions.EntityTypePerson, 1, 100)
+	require.NoError(t, err)
+
+	affinity, err = repo.GetAffinity(ctx, tenantID, mentions.EntityTypePerson, 1, 100)
+	require.NoError(t, err)
+	assert.Equal(t, 2, affinity.MentionCount)
+	assert.Greater(t, affinity.AffinityScore, float32(0.5)) // Score should increase
+}
+
+func TestMentionsRepository_GetPendingCount(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "content_mentions", "mention_patterns", "entity_project_affinity")
+
+	repo := mentions.NewPostgresRepository(db.Pool)
+	ctx := context.Background()
+
+	// Create some mentions
+	for i := 0; i < 5; i++ {
+		_, err := repo.CreateMention(ctx, mentions.MentionInput{
+			ContentID:     int64(i + 1),
+			EntityType:    mentions.EntityTypePerson,
+			MentionedText: "Person",
+		})
+		require.NoError(t, err)
+	}
+
+	// Add a company mention
+	_, err := repo.CreateMention(ctx, mentions.MentionInput{
+		ContentID:     10,
+		EntityType:    mentions.EntityTypeCompany,
+		MentionedText: "Acme Corp",
+	})
+	require.NoError(t, err)
+
+	// Get total pending count
+	count, err := repo.GetPendingCount(ctx, defaultTenantID, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 6, count)
+
+	// Get pending count by type
+	personType := mentions.EntityTypePerson
+	count, err = repo.GetPendingCount(ctx, defaultTenantID, &personType)
+	require.NoError(t, err)
+	assert.Equal(t, 5, count)
+
+	companyType := mentions.EntityTypeCompany
+	count, err = repo.GetPendingCount(ctx, defaultTenantID, &companyType)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+}
+
 // Helper functions
 func intPtr(i int) *int {
 	return &i
