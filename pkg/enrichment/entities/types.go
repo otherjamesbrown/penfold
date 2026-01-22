@@ -34,6 +34,7 @@ type Person struct {
 	PrimaryEmail  string      `json:"primary_email"`
 	Title         string      `json:"title,omitempty"`
 	Department    string      `json:"department,omitempty"`
+	Company       string      `json:"company,omitempty"`
 	IsInternal    bool        `json:"is_internal"`
 	AccountType   AccountType `json:"account_type"`
 

@@ -111,6 +111,7 @@ func (s *Service) BulkCreatePeople(ctx context.Context, req *entityv1.BulkCreate
 			PrimaryEmail:  input.Email,
 			Title:         input.Title,
 			Department:    input.Department,
+			Company:       input.Company,
 			IsInternal:    input.IsInternal,
 			AccountType:   entities.AccountTypePerson,
 			Confidence:    0.9, // High confidence for manually seeded
@@ -158,7 +159,7 @@ func (s *Service) BulkCreatePeople(ctx context.Context, req *entityv1.BulkCreate
 			Id:         person.ID,
 			Name:       person.CanonicalName,
 			Email:      person.PrimaryEmail,
-			Company:    input.Company,
+			Company:    person.Company,
 			Title:      person.Title,
 			Department: person.Department,
 			IsInternal: person.IsInternal,

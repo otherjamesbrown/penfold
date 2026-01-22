@@ -31,15 +31,15 @@ func (r *Repository) CreatePerson(ctx context.Context, p *Person) error {
 	query := `
 		INSERT INTO people (
 			tenant_id, canonical_name, primary_email,
-			job_title, department, is_internal, account_type,
+			job_title, department, company, is_internal, account_type,
 			confidence_score, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
 		) VALUES (
 			$1, $2, $3,
-			$4, $5, $6, $7,
-			$8, $9, $10,
-			$11, $12, $13,
+			$4, $5, $6, $7, $8,
+			$9, $10, $11,
+			$12, $13, $14,
 			NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at
@@ -51,6 +51,7 @@ func (r *Repository) CreatePerson(ctx context.Context, p *Person) error {
 		p.PrimaryEmail,
 		nullIfEmpty(p.Title),
 		nullIfEmpty(p.Department),
+		nullIfEmpty(p.Company),
 		p.IsInternal,
 		p.AccountType,
 		p.Confidence,
@@ -78,7 +79,7 @@ func (r *Repository) GetPersonByID(ctx context.Context, id int64) (*Person, erro
 	query := `
 		SELECT
 			id, tenant_id, canonical_name, primary_email,
-			job_title as title, department, is_internal, account_type,
+			job_title as title, department, company, is_internal, account_type,
 			confidence_score as confidence, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
@@ -93,7 +94,7 @@ func (r *Repository) GetPersonByEmail(ctx context.Context, tenantID, email strin
 	query := `
 		SELECT
 			id, tenant_id, canonical_name, primary_email,
-			job_title as title, department, is_internal, account_type,
+			job_title as title, department, company, is_internal, account_type,
 			confidence_score as confidence, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
@@ -108,8 +109,8 @@ func (r *Repository) GetPersonByAlias(ctx context.Context, tenantID, aliasValue 
 	query := `
 		SELECT
 			p.id, p.tenant_id, p.canonical_name, p.primary_email,
-			p.title, p.department, p.is_internal, p.account_type,
-			p.confidence, p.needs_review, p.auto_created,
+			p.job_title as title, p.department, p.company, p.is_internal, p.account_type,
+			p.confidence_score as confidence, p.needs_review, p.auto_created,
 			p.reviewed_at, p.reviewed_by, p.potential_duplicates,
 			p.created_at, p.updated_at
 		FROM people p
@@ -126,7 +127,7 @@ func (r *Repository) SearchPeopleByName(ctx context.Context, tenantID, name stri
 	query := `
 		SELECT
 			id, tenant_id, canonical_name, primary_email,
-			job_title as title, department, is_internal, account_type,
+			job_title as title, department, company, is_internal, account_type,
 			confidence_score as confidence, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
@@ -149,7 +150,7 @@ func (r *Repository) GetPeopleByDomain(ctx context.Context, tenantID, domain str
 	query := `
 		SELECT
 			id, tenant_id, canonical_name, primary_email,
-			job_title as title, department, is_internal, account_type,
+			job_title as title, department, company, is_internal, account_type,
 			confidence_score as confidence, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
@@ -171,7 +172,7 @@ func (r *Repository) ListPeopleNeedingReview(ctx context.Context, tenantID strin
 	query := `
 		SELECT
 			id, tenant_id, canonical_name, primary_email,
-			job_title as title, department, is_internal, account_type,
+			job_title as title, department, company, is_internal, account_type,
 			confidence_score as confidence, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
 			created_at, updated_at
@@ -648,11 +649,11 @@ func (r *Repository) GetProjectMemberIDs(ctx context.Context, projectID int64) (
 
 func (r *Repository) scanPerson(ctx context.Context, query string, args ...interface{}) (*Person, error) {
 	p := &Person{}
-	var title, department, reviewedBy *string
+	var title, department, company, reviewedBy *string
 
 	err := r.pool.QueryRow(ctx, query, args...).Scan(
 		&p.ID, &p.TenantID, &p.CanonicalName, &p.PrimaryEmail,
-		&title, &department, &p.IsInternal, &p.AccountType,
+		&title, &department, &company, &p.IsInternal, &p.AccountType,
 		&p.Confidence, &p.NeedsReview, &p.AutoCreated,
 		&p.ReviewedAt, &reviewedBy, &p.PotentialDuplicates,
 		&p.CreatedAt, &p.UpdatedAt,
@@ -671,6 +672,9 @@ func (r *Repository) scanPerson(ctx context.Context, query string, args ...inter
 	if department != nil {
 		p.Department = *department
 	}
+	if company != nil {
+		p.Company = *company
+	}
 	if reviewedBy != nil {
 		p.ReviewedBy = *reviewedBy
 	}
@@ -682,11 +686,11 @@ func (r *Repository) scanPeople(rows pgx.Rows) ([]*Person, error) {
 	var people []*Person
 	for rows.Next() {
 		p := &Person{}
-		var title, department, reviewedBy *string
+		var title, department, company, reviewedBy *string
 
 		if err := rows.Scan(
 			&p.ID, &p.TenantID, &p.CanonicalName, &p.PrimaryEmail,
-			&title, &department, &p.IsInternal, &p.AccountType,
+			&title, &department, &company, &p.IsInternal, &p.AccountType,
 			&p.Confidence, &p.NeedsReview, &p.AutoCreated,
 			&p.ReviewedAt, &reviewedBy, &p.PotentialDuplicates,
 			&p.CreatedAt, &p.UpdatedAt,
@@ -699,6 +703,9 @@ func (r *Repository) scanPeople(rows pgx.Rows) ([]*Person, error) {
 		}
 		if department != nil {
 			p.Department = *department
+		}
+		if company != nil {
+			p.Company = *company
 		}
 		if reviewedBy != nil {
 			p.ReviewedBy = *reviewedBy
