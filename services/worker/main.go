@@ -20,6 +20,8 @@ import (
 
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/mentions"
+	"github.com/otherjamesbrown/penfold/pkg/mentions/resolver"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/services/worker/activities"
@@ -158,6 +160,55 @@ func main() {
 		logger.Warn("Activities initialized without database - some activities will fail")
 	}
 	activityRegistrar := activities.NewRegistrar(activityImpl)
+
+	// LLM configuration (used for mentions resolution and health checks)
+	llmURL := os.Getenv("LLM_URL")
+	if llmURL == "" {
+		llmURL = "http://localhost:8080"
+	}
+	llmModel := os.Getenv("LLM_MODEL")
+	if llmModel == "" {
+		llmModel = "mlx-community/Qwen2.5-32B-Instruct-4bit"
+	}
+
+	// Initialize mentions activities if database is available
+	if dbPool != nil {
+		mentionsRepo := mentions.NewPostgresRepository(dbPool)
+
+		llmConfig := resolver.LLMConfig{
+			Provider:   "vllm",
+			Model:      llmModel,
+			BaseURL:    llmURL,
+			Timeout:    120 * time.Second,
+			MaxRetries: 2,
+		}
+
+		llmProvider := resolver.NewVLLMProvider(llmConfig)
+		logger.Info("LLM provider initialized",
+			logging.F("url", llmURL),
+			logging.F("model", llmModel),
+		)
+
+		// Create resolver with provider
+		resolverConfig := resolver.DefaultConfig()
+		mentionResolver := resolver.NewResolver(
+			resolverConfig,
+			llmProvider,
+			nil, // EntityLookup - can be nil, will use default matching
+			mentionsRepo,
+			nil, // Tracer - can be nil for now
+		)
+
+		mentionsActivities := activities.NewMentionsActivities(
+			zerologger,
+			dbPool,
+			mentionResolver,
+			mentionsRepo,
+		)
+		activityRegistrar.WithMentionsActivities(mentionsActivities)
+		logger.Info("Mentions activities initialized with resolver")
+	}
+
 	workflowRegistrar := workflows.NewRegistrar()
 
 	// Create workers for each configured task queue
@@ -208,6 +259,40 @@ func main() {
 			return dbPool.Ping(ctx)
 		}, health.Critical())
 	}
+
+	// Register embeddings service health check
+	healthChecker.RegisterCheck("embeddings", func(ctx context.Context) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.AIServiceURL+"/health", nil)
+		if err != nil {
+			return fmt.Errorf("create request: %w", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("embeddings service unreachable: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("embeddings service returned %d", resp.StatusCode)
+		}
+		return nil
+	}, health.Critical())
+
+	// Register LLM service health check
+	healthChecker.RegisterCheck("llm", func(ctx context.Context) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, llmURL+"/v1/models", nil)
+		if err != nil {
+			return fmt.Errorf("create request: %w", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("LLM service unreachable: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("LLM service returned %d", resp.StatusCode)
+		}
+		return nil
+	}, health.Critical())
 
 	// Start HTTP server for health and metrics
 	httpMux := http.NewServeMux()

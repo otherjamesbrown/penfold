@@ -58,6 +58,28 @@ type (
 		Content  string `json:"content"`
 	}
 
+	// ExtractMentionsInput is the input for the ExtractMentions activity.
+	ExtractMentionsInput struct {
+		TenantID    string `json:"tenant_id"`
+		SourceID    int64  `json:"source_id"`
+		ContentID   int64  `json:"content_id"`
+		ContentType string `json:"content_type"`
+		Content     string `json:"content"`
+		ProjectID   *int64 `json:"project_id,omitempty"`
+		Subject     string `json:"subject,omitempty"`
+		JobID       string `json:"job_id,omitempty"`
+	}
+
+	// ExtractMentionsOutput is the output from the ExtractMentions activity.
+	ExtractMentionsOutput struct {
+		TraceID          string `json:"trace_id"`
+		MentionsFound    int    `json:"mentions_found"`
+		AutoResolved     int    `json:"auto_resolved"`
+		QueuedForReview  int    `json:"queued_for_review"`
+		NewEntities      int    `json:"new_entities_suggested"`
+		ProcessingTimeMs int    `json:"processing_time_ms"`
+	}
+
 	// UpdateContentStatusInput is the input for the UpdateContentStatus activity.
 	UpdateContentStatusInput struct {
 		TenantID string `json:"tenant_id"`
@@ -90,7 +112,8 @@ type contentIngestionState struct {
 // 3. Generate summary via LLM (slow)
 // 4. Extract entities via LLM (slow)
 // 5. Extract topics via LLM (slow)
-// 6. Update content status
+// 6. Extract and resolve mentions via LLM (persons, terms, products, etc.)
+// 7. Update content status
 //
 // This workflow implements the saga pattern with compensation for rollback on failure.
 func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput) (*ContentIngestionResult, error) {
@@ -107,7 +130,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		status: ContentIngestionWorkflowStatus{
 			Stage:          "initializing",
 			StepsCompleted: 0,
-			TotalSteps:     6,
+			TotalSteps:     7,
 			LastActivity:   "",
 			StartedAt:      workflow.Now(ctx),
 			LastUpdated:    workflow.Now(ctx),
@@ -340,10 +363,42 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		return state.result, nil
 	}
 
-	// Step 6: Update content status
+	// Step 6: Extract and resolve mentions via LLM
+	updateStatus("extracting_mentions", "ExtractMentions")
+	var mentionsOutput ExtractMentionsOutput
+	ctx6 := workflow.WithActivityOptions(ctx, llmOpts)
+	err = workflow.ExecuteActivity(ctx6, "ExtractMentions", ExtractMentionsInput{
+		TenantID:    input.TenantID,
+		SourceID:    input.SourceID,
+		ContentID:   input.SourceID, // Use SourceID as ContentID for now
+		ContentType: input.SourceType,
+		Content:     fetchOutput.Content,
+		JobID:       input.JobID,
+	}).Get(ctx, &mentionsOutput)
+	if err != nil {
+		logger.Warn("Mention extraction failed, continuing", "error", err)
+	} else {
+		state.result.MentionCount = mentionsOutput.MentionsFound
+		logger.Debug("Mentions extracted",
+			"found", mentionsOutput.MentionsFound,
+			"auto_resolved", mentionsOutput.AutoResolved,
+			"queued", mentionsOutput.QueuedForReview,
+		)
+	}
+	state.status.StepsCompleted = 6
+
+	if checkCancellation() {
+		runCompensation(ctx)
+		state.result.Status = "cancelled"
+		state.result.Error = state.cancelReason
+		logger.Info("Workflow cancelled after mention extraction")
+		return state.result, nil
+	}
+
+	// Step 7: Update content status
 	updateStatus("updating_status", "UpdateContentStatus")
-	ctx6 := workflow.WithActivityOptions(ctx, fastOpts)
-	err = workflow.ExecuteActivity(ctx6, "UpdateContentStatus", UpdateContentStatusInput{
+	ctx7 := workflow.WithActivityOptions(ctx, fastOpts)
+	err = workflow.ExecuteActivity(ctx7, "UpdateContentStatus", UpdateContentStatusInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 		Status:   "completed",
@@ -351,7 +406,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	if err != nil {
 		logger.Warn("Status update failed", "error", err)
 	}
-	state.status.StepsCompleted = 6
+	state.status.StepsCompleted = 7
 
 	updateStatus("completed", "")
 	state.result.Status = "completed"
@@ -361,6 +416,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		"summary_id", state.result.SummaryID,
 		"entity_count", state.result.EntityCount,
 		"topic_count", len(state.result.ExtractedTopics),
+		"mention_count", state.result.MentionCount,
 	)
 
 	return state.result, nil

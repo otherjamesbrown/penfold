@@ -18,16 +18,19 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
+	mentionsv1 "github.com/otherjamesbrown/penfold/api/proto/mentions/v1"
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	"github.com/otherjamesbrown/penfold/pkg/sources"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
 	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
+	"github.com/otherjamesbrown/penfold/services/gateway/mentionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/middleware"
 	"github.com/otherjamesbrown/penfold/services/gateway/questionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
@@ -87,6 +90,45 @@ func main() {
 	healthAggregator := gatewayhealth.NewAggregator(server.Version)
 	healthAggregator.SetDefaultTimeout(5 * time.Second)
 
+	// Register database health check.
+	healthAggregator.RegisterService(gatewayhealth.ServiceConfig{
+		Name:     "database",
+		Client:   gatewayhealth.NewDatabaseHealthClient(dbPool.Ping),
+		Critical: true,
+		Timeout:  3 * time.Second,
+	})
+
+	// Register ML service health checks if URLs are configured.
+	if cfg.EmbeddingsURL != "" {
+		healthAggregator.RegisterService(gatewayhealth.ServiceConfig{
+			Name:     "embeddings",
+			Client:   gatewayhealth.NewHTTPHealthClient(cfg.EmbeddingsURL, "/health", 5*time.Second),
+			Critical: false, // ML services are not critical for gateway operation
+			Timeout:  5 * time.Second,
+		})
+		logger.Info("Registered embeddings health check", logging.F("url", cfg.EmbeddingsURL))
+	}
+
+	if cfg.LLMURL != "" {
+		healthAggregator.RegisterService(gatewayhealth.ServiceConfig{
+			Name:     "llm",
+			Client:   gatewayhealth.NewHTTPHealthClient(cfg.LLMURL, "/v1/models", 5*time.Second),
+			Critical: false,
+			Timeout:  5 * time.Second,
+		})
+		logger.Info("Registered LLM health check", logging.F("url", cfg.LLMURL))
+	}
+
+	if cfg.WorkerHealthURL != "" {
+		healthAggregator.RegisterService(gatewayhealth.ServiceConfig{
+			Name:     "worker",
+			Client:   gatewayhealth.NewHTTPHealthClient(cfg.WorkerHealthURL, "/health", 5*time.Second),
+			Critical: false,
+			Timeout:  5 * time.Second,
+		})
+		logger.Info("Registered worker health check", logging.F("url", cfg.WorkerHealthURL))
+	}
+
 	// Create the gateway server with health aggregator.
 	gatewayServer := server.NewGatewayServer(cfg, logger, m, healthAggregator)
 
@@ -117,6 +159,12 @@ func main() {
 	questionsSvc := questionsservice.NewService(questionsRepo, glossaryRepo, sourcesRepo, logger)
 	questionsv1.RegisterQuestionsServiceServer(grpcServer, questionsSvc)
 	logger.Info("Registered QuestionsService")
+
+	// Register MentionsService.
+	mentionsRepo := mentions.NewPostgresRepository(dbPool)
+	mentionsSvc := mentionsservice.NewService(mentionsRepo, logger)
+	mentionsv1.RegisterMentionsServiceServer(grpcServer, mentionsSvc)
+	logger.Info("Registered MentionsService")
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()

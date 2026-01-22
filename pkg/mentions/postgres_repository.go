@@ -3,77 +3,22 @@ package mentions
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/jmoiron/sqlx"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // PostgresRepository implements the Repository interface using PostgreSQL.
 type PostgresRepository struct {
-	db *sqlx.DB
+	db *pgxpool.Pool
 }
 
 // NewPostgresRepository creates a new PostgreSQL repository.
-func NewPostgresRepository(db *sqlx.DB) *PostgresRepository {
+func NewPostgresRepository(db *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{db: db}
-}
-
-// mentionRow represents a database row for content_mentions.
-type mentionRow struct {
-	ID                   int64          `db:"id"`
-	TenantID             string         `db:"tenant_id"`
-	ContentID            int64          `db:"content_id"`
-	EntityType           string         `db:"entity_type"`
-	MentionedText        string         `db:"mentioned_text"`
-	Position             sql.NullInt64  `db:"position"`
-	ContextSnippet       sql.NullString `db:"context_snippet"`
-	ResolvedEntityID     sql.NullInt64  `db:"resolved_entity_id"`
-	ResolutionConfidence sql.NullFloat64 `db:"resolution_confidence"`
-	ResolutionSource     sql.NullString `db:"resolution_source"`
-	ResolvedExpansion    sql.NullString `db:"resolved_expansion"`
-	Candidates           []byte         `db:"candidates"`
-	Status               string         `db:"status"`
-	ResolvedAt           sql.NullTime   `db:"resolved_at"`
-	ResolvedBy           sql.NullString `db:"resolved_by"`
-	ProjectContextID     sql.NullInt64  `db:"project_context_id"`
-	CreatedAt            time.Time      `db:"created_at"`
-}
-
-// patternRow represents a database row for mention_patterns.
-type patternRow struct {
-	ID                int64          `db:"id"`
-	TenantID          string         `db:"tenant_id"`
-	EntityType        string         `db:"entity_type"`
-	PatternText       string         `db:"pattern_text"`
-	ResolvedEntityID  sql.NullInt64  `db:"resolved_entity_id"`
-	ResolvedExpansion sql.NullString `db:"resolved_expansion"`
-	ProjectID         sql.NullInt64  `db:"project_id"`
-	IsPermanent       bool           `db:"is_permanent"`
-	TimesSeen         int            `db:"times_seen"`
-	TimesLinked       int            `db:"times_linked"`
-	LastSeenAt        time.Time      `db:"last_seen_at"`
-	LastLinkedAt      sql.NullTime   `db:"last_linked_at"`
-	FirstContentID    sql.NullInt64  `db:"first_content_id"`
-	CreatedAt         time.Time      `db:"created_at"`
-}
-
-// affinityRow represents a database row for entity_project_affinity.
-type affinityRow struct {
-	ID              int64          `db:"id"`
-	TenantID        string         `db:"tenant_id"`
-	EntityType      string         `db:"entity_type"`
-	EntityID        int64          `db:"entity_id"`
-	ProjectID       int64          `db:"project_id"`
-	MentionCount    int            `db:"mention_count"`
-	LastMentionedAt sql.NullTime   `db:"last_mentioned_at"`
-	IsMember        bool           `db:"is_member"`
-	Role            sql.NullString `db:"role"`
-	AffinityScore   float32        `db:"affinity_score"`
-	CreatedAt       time.Time      `db:"created_at"`
-	UpdatedAt       time.Time      `db:"updated_at"`
 }
 
 // CreateMention creates a new mention record.
@@ -88,20 +33,19 @@ func (r *PostgresRepository) CreateMention(ctx context.Context, input MentionInp
 		RETURNING id, created_at
 	`
 
+	tenantID := getTenantFromContext(ctx)
+
 	var id int64
 	var createdAt time.Time
 
-	// Get tenant from context or use default
-	tenantID := getTenantFromContext(ctx)
-
-	err := r.db.QueryRowContext(ctx, query,
+	err := r.db.QueryRow(ctx, query,
 		tenantID,
 		input.ContentID,
 		string(input.EntityType),
 		input.MentionedText,
-		nullIntPtr(input.Position),
-		nullString(input.ContextSnippet),
-		nullInt64Ptr(input.ProjectContextID),
+		input.Position,
+		nullableString(input.ContextSnippet),
+		input.ProjectContextID,
 	).Scan(&id, &createdAt)
 
 	if err != nil {
@@ -134,16 +78,8 @@ func (r *PostgresRepository) GetMention(ctx context.Context, id int64) (*Content
 		WHERE id = $1
 	`
 
-	var row mentionRow
-	err := r.db.GetContext(ctx, &row, query, id)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("getting mention: %w", err)
-	}
-
-	return rowToMention(&row)
+	row := r.db.QueryRow(ctx, query, id)
+	return scanMention(row)
 }
 
 // ListMentions lists mentions based on filter criteria.
@@ -192,19 +128,23 @@ func (r *PostgresRepository) ListMentions(ctx context.Context, filter MentionFil
 		query += fmt.Sprintf(" OFFSET %d", filter.Offset)
 	}
 
-	var rows []mentionRow
-	err := r.db.SelectContext(ctx, &rows, query, args...)
+	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing mentions: %w", err)
 	}
+	defer rows.Close()
 
-	mentions := make([]ContentMention, len(rows))
-	for i, row := range rows {
-		m, err := rowToMention(&row)
+	var mentions []ContentMention
+	for rows.Next() {
+		m, err := scanMentionRow(rows)
 		if err != nil {
 			return nil, err
 		}
-		mentions[i] = *m
+		mentions = append(mentions, *m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating mentions: %w", err)
 	}
 
 	return mentions, nil
@@ -231,12 +171,12 @@ func (r *PostgresRepository) UpdateMentionResolution(ctx context.Context, id int
 		status = MentionStatusAutoResolved
 	}
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.db.Exec(ctx, query,
 		id,
 		resolution.EntityID,
 		string(resolution.Source),
 		string(status),
-		nullString(resolution.ResolvedBy),
+		nullableString(resolution.ResolvedBy),
 	)
 	if err != nil {
 		return fmt.Errorf("updating mention resolution: %w", err)
@@ -255,7 +195,7 @@ func (r *PostgresRepository) DismissMention(ctx context.Context, id int64, dismi
 		WHERE id = $1
 	`
 
-	_, err := r.db.ExecContext(ctx, query, id, nullString(dismissal.DismissedBy))
+	_, err := r.db.Exec(ctx, query, id, nullableString(dismissal.DismissedBy))
 	if err != nil {
 		return fmt.Errorf("dismissing mention: %w", err)
 	}
@@ -281,16 +221,8 @@ func (r *PostgresRepository) GetPattern(ctx context.Context, tenantID string, en
 		query += " AND project_id IS NULL"
 	}
 
-	var row patternRow
-	err := r.db.GetContext(ctx, &row, query, args...)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("getting pattern: %w", err)
-	}
-
-	return rowToPattern(&row), nil
+	row := r.db.QueryRow(ctx, query, args...)
+	return scanPattern(row)
 }
 
 // GetPatternsByText retrieves all patterns matching text (any project scope).
@@ -304,15 +236,70 @@ func (r *PostgresRepository) GetPatternsByText(ctx context.Context, tenantID str
 		ORDER BY times_linked DESC, project_id NULLS LAST
 	`
 
-	var rows []patternRow
-	err := r.db.SelectContext(ctx, &rows, query, tenantID, string(entityType), text)
+	rows, err := r.db.Query(ctx, query, tenantID, string(entityType), text)
 	if err != nil {
 		return nil, fmt.Errorf("getting patterns by text: %w", err)
 	}
+	defer rows.Close()
 
-	patterns := make([]MentionPattern, len(rows))
-	for i, row := range rows {
-		patterns[i] = *rowToPattern(&row)
+	var patterns []MentionPattern
+	for rows.Next() {
+		p, err := scanPatternRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		patterns = append(patterns, *p)
+	}
+
+	return patterns, nil
+}
+
+// ListPatterns lists all patterns with optional filters.
+func (r *PostgresRepository) ListPatterns(ctx context.Context, filter PatternFilter) ([]MentionPattern, error) {
+	query := `
+		SELECT id, tenant_id, entity_type, pattern_text, resolved_entity_id,
+			resolved_expansion, project_id, is_permanent, times_seen,
+			times_linked, last_seen_at, last_linked_at, first_content_id, created_at
+		FROM mention_patterns
+		WHERE tenant_id = $1
+	`
+	args := []interface{}{filter.TenantID}
+	argNum := 2
+
+	if filter.EntityType != nil {
+		query += fmt.Sprintf(" AND entity_type = $%d", argNum)
+		args = append(args, string(*filter.EntityType))
+		argNum++
+	}
+
+	if filter.ProjectID != nil {
+		query += fmt.Sprintf(" AND project_id = $%d", argNum)
+		args = append(args, *filter.ProjectID)
+		argNum++
+	}
+
+	query += " ORDER BY times_linked DESC, times_seen DESC"
+
+	if filter.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", filter.Limit)
+	}
+	if filter.Offset > 0 {
+		query += fmt.Sprintf(" OFFSET %d", filter.Offset)
+	}
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing patterns: %w", err)
+	}
+	defer rows.Close()
+
+	var patterns []MentionPattern
+	for rows.Next() {
+		p, err := scanPatternRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		patterns = append(patterns, *p)
 	}
 
 	return patterns, nil
@@ -336,18 +323,18 @@ func (r *PostgresRepository) CreateOrUpdatePattern(ctx context.Context, pattern 
 		RETURNING id
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
+	err := r.db.QueryRow(ctx, query,
 		pattern.TenantID,
 		string(pattern.EntityType),
 		pattern.PatternText,
-		nullInt64Ptr(pattern.ResolvedEntityID),
-		nullString(pattern.ResolvedExpansion),
-		nullInt64Ptr(pattern.ProjectID),
+		pattern.ResolvedEntityID,
+		nullableString(pattern.ResolvedExpansion),
+		pattern.ProjectID,
 		pattern.IsPermanent,
 		pattern.TimesSeen,
 		pattern.TimesLinked,
 		pattern.LastSeenAt,
-		nullInt64Ptr(pattern.FirstContentID),
+		pattern.FirstContentID,
 	).Scan(&pattern.ID)
 
 	if err != nil {
@@ -365,7 +352,7 @@ func (r *PostgresRepository) IncrementPatternSeen(ctx context.Context, id int64)
 		WHERE id = $1
 	`
 
-	_, err := r.db.ExecContext(ctx, query, id)
+	_, err := r.db.Exec(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("incrementing pattern seen: %w", err)
 	}
@@ -383,7 +370,7 @@ func (r *PostgresRepository) IncrementPatternLinked(ctx context.Context, id int6
 		WHERE id = $1
 	`
 
-	_, err := r.db.ExecContext(ctx, query, id, entityID)
+	_, err := r.db.Exec(ctx, query, id, entityID)
 	if err != nil {
 		return fmt.Errorf("incrementing pattern linked: %w", err)
 	}
@@ -401,16 +388,8 @@ func (r *PostgresRepository) GetAffinity(ctx context.Context, tenantID string, e
 		WHERE tenant_id = $1 AND entity_type = $2 AND entity_id = $3 AND project_id = $4
 	`
 
-	var row affinityRow
-	err := r.db.GetContext(ctx, &row, query, tenantID, string(entityType), entityID, projectID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("getting affinity: %w", err)
-	}
-
-	return rowToAffinity(&row), nil
+	row := r.db.QueryRow(ctx, query, tenantID, string(entityType), entityID, projectID)
+	return scanAffinity(row)
 }
 
 // GetAffinitiesForProject retrieves all affinities for a project.
@@ -424,15 +403,19 @@ func (r *PostgresRepository) GetAffinitiesForProject(ctx context.Context, tenant
 		ORDER BY affinity_score DESC
 	`
 
-	var rows []affinityRow
-	err := r.db.SelectContext(ctx, &rows, query, tenantID, projectID, string(entityType))
+	rows, err := r.db.Query(ctx, query, tenantID, projectID, string(entityType))
 	if err != nil {
 		return nil, fmt.Errorf("getting affinities for project: %w", err)
 	}
+	defer rows.Close()
 
-	affinities := make([]EntityProjectAffinity, len(rows))
-	for i, row := range rows {
-		affinities[i] = *rowToAffinity(&row)
+	var affinities []EntityProjectAffinity
+	for rows.Next() {
+		a, err := scanAffinityRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		affinities = append(affinities, *a)
 	}
 
 	return affinities, nil
@@ -449,15 +432,19 @@ func (r *PostgresRepository) GetAffinitiesForEntity(ctx context.Context, tenantI
 		ORDER BY affinity_score DESC
 	`
 
-	var rows []affinityRow
-	err := r.db.SelectContext(ctx, &rows, query, tenantID, string(entityType), entityID)
+	rows, err := r.db.Query(ctx, query, tenantID, string(entityType), entityID)
 	if err != nil {
 		return nil, fmt.Errorf("getting affinities for entity: %w", err)
 	}
+	defer rows.Close()
 
-	affinities := make([]EntityProjectAffinity, len(rows))
-	for i, row := range rows {
-		affinities[i] = *rowToAffinity(&row)
+	var affinities []EntityProjectAffinity
+	for rows.Next() {
+		a, err := scanAffinityRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		affinities = append(affinities, *a)
 	}
 
 	return affinities, nil
@@ -481,15 +468,15 @@ func (r *PostgresRepository) UpsertAffinity(ctx context.Context, affinity *Entit
 		RETURNING id
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
+	err := r.db.QueryRow(ctx, query,
 		affinity.TenantID,
 		string(affinity.EntityType),
 		affinity.EntityID,
 		affinity.ProjectID,
 		affinity.MentionCount,
-		nullTime(affinity.LastMentionedAt),
+		affinity.LastMentionedAt,
 		affinity.IsMember,
-		nullString(affinity.Role),
+		nullableString(affinity.Role),
 		affinity.AffinityScore,
 	).Scan(&affinity.ID)
 
@@ -511,13 +498,12 @@ func (r *PostgresRepository) IncrementAffinityMentionCount(ctx context.Context, 
 		WHERE tenant_id = $1 AND entity_type = $2 AND entity_id = $3 AND project_id = $4
 	`
 
-	result, err := r.db.ExecContext(ctx, query, tenantID, string(entityType), entityID, projectID)
+	result, err := r.db.Exec(ctx, query, tenantID, string(entityType), entityID, projectID)
 	if err != nil {
 		return fmt.Errorf("incrementing affinity mention count: %w", err)
 	}
 
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
+	if result.RowsAffected() == 0 {
 		// Create new record
 		insertQuery := `
 			INSERT INTO entity_project_affinity (
@@ -525,7 +511,7 @@ func (r *PostgresRepository) IncrementAffinityMentionCount(ctx context.Context, 
 				mention_count, last_mentioned_at, affinity_score
 			) VALUES ($1, $2, $3, $4, 1, NOW(), 0.5)
 		`
-		_, err = r.db.ExecContext(ctx, insertQuery, tenantID, string(entityType), entityID, projectID)
+		_, err = r.db.Exec(ctx, insertQuery, tenantID, string(entityType), entityID, projectID)
 		if err != nil {
 			return fmt.Errorf("creating affinity record: %w", err)
 		}
@@ -542,7 +528,7 @@ func (r *PostgresRepository) GetMentionStats(ctx context.Context, tenantID strin
 
 	// Total pending
 	query := `SELECT COUNT(*) FROM content_mentions WHERE tenant_id = $1 AND status = 'pending'`
-	err := r.db.GetContext(ctx, &stats.TotalPending, query, tenantID)
+	err := r.db.QueryRow(ctx, query, tenantID).Scan(&stats.TotalPending)
 	if err != nil {
 		return nil, fmt.Errorf("getting total pending: %w", err)
 	}
@@ -554,7 +540,7 @@ func (r *PostgresRepository) GetMentionStats(ctx context.Context, tenantID strin
 		WHERE tenant_id = $1 AND status = 'pending'
 		GROUP BY entity_type
 	`
-	rows, err := r.db.QueryContext(ctx, typeQuery, tenantID)
+	rows, err := r.db.Query(ctx, typeQuery, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("getting counts by type: %w", err)
 	}
@@ -574,7 +560,7 @@ func (r *PostgresRepository) GetMentionStats(ctx context.Context, tenantID strin
 		SELECT COUNT(*) FROM content_mentions
 		WHERE tenant_id = $1 AND resolved_at >= CURRENT_DATE
 	`
-	err = r.db.GetContext(ctx, &stats.ResolvedToday, todayQuery, tenantID)
+	err = r.db.QueryRow(ctx, todayQuery, tenantID).Scan(&stats.ResolvedToday)
 	if err != nil {
 		return nil, fmt.Errorf("getting resolved today: %w", err)
 	}
@@ -593,7 +579,7 @@ func (r *PostgresRepository) GetPendingCount(ctx context.Context, tenantID strin
 	}
 
 	var count int
-	err := r.db.GetContext(ctx, &count, query, args...)
+	err := r.db.QueryRow(ctx, query, args...).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("getting pending count: %w", err)
 	}
@@ -607,11 +593,11 @@ func (r *PostgresRepository) BatchCreateMentions(ctx context.Context, inputs []M
 		return []ContentMention{}, nil
 	}
 
-	tx, err := r.db.BeginTxx(ctx, nil)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("starting transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
 	tenantID := getTenantFromContext(ctx)
 	mentions := make([]ContentMention, len(inputs))
@@ -628,14 +614,14 @@ func (r *PostgresRepository) BatchCreateMentions(ctx context.Context, inputs []M
 		var id int64
 		var createdAt time.Time
 
-		err := tx.QueryRowContext(ctx, query,
+		err := tx.QueryRow(ctx, query,
 			tenantID,
 			input.ContentID,
 			string(input.EntityType),
 			input.MentionedText,
-			nullIntPtr(input.Position),
-			nullString(input.ContextSnippet),
-			nullInt64Ptr(input.ProjectContextID),
+			input.Position,
+			nullableString(input.ContextSnippet),
+			input.ProjectContextID,
 		).Scan(&id, &createdAt)
 
 		if err != nil {
@@ -657,7 +643,7 @@ func (r *PostgresRepository) BatchCreateMentions(ctx context.Context, inputs []M
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("committing transaction: %w", err)
 	}
 
@@ -668,11 +654,11 @@ func (r *PostgresRepository) BatchCreateMentions(ctx context.Context, inputs []M
 func (r *PostgresRepository) BatchResolveMentions(ctx context.Context, resolutions []ResolutionInput) (*BatchResolutionResult, error) {
 	result := &BatchResolutionResult{}
 
-	tx, err := r.db.BeginTxx(ctx, nil)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("starting transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
 	for _, res := range resolutions {
 		query := `
@@ -686,11 +672,11 @@ func (r *PostgresRepository) BatchResolveMentions(ctx context.Context, resolutio
 			WHERE id = $1
 		`
 
-		_, err := tx.ExecContext(ctx, query,
+		_, err := tx.Exec(ctx, query,
 			res.MentionID,
 			res.EntityID,
 			string(res.Source),
-			nullString(res.ResolvedBy),
+			nullableString(res.ResolvedBy),
 		)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("resolve %d: %v", res.MentionID, err))
@@ -699,148 +685,311 @@ func (r *PostgresRepository) BatchResolveMentions(ctx context.Context, resolutio
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("committing transaction: %w", err)
 	}
 
 	return result, nil
 }
 
+// PatternFilter specifies criteria for listing patterns.
+type PatternFilter struct {
+	TenantID   string      `json:"tenant_id"`
+	EntityType *EntityType `json:"entity_type,omitempty"`
+	ProjectID  *int64      `json:"project_id,omitempty"`
+	Search     string      `json:"search,omitempty"`
+	Limit      int         `json:"limit,omitempty"`
+	Offset     int         `json:"offset,omitempty"`
+}
+
 // Helper functions
 
-func rowToMention(row *mentionRow) (*ContentMention, error) {
-	m := &ContentMention{
-		ID:            row.ID,
-		TenantID:      row.TenantID,
-		ContentID:     row.ContentID,
-		EntityType:    EntityType(row.EntityType),
-		MentionedText: row.MentionedText,
-		Status:        MentionStatus(row.Status),
-		CreatedAt:     row.CreatedAt,
+func scanMention(row pgx.Row) (*ContentMention, error) {
+	var m ContentMention
+	var position *int
+	var contextSnippet, resolutionSource, resolvedExpansion, resolvedBy *string
+	var resolvedEntityID, projectContextID *int64
+	var resolutionConfidence *float32
+	var resolvedAt *time.Time
+	var candidatesJSON []byte
+	var entityType, status string
+
+	err := row.Scan(
+		&m.ID,
+		&m.TenantID,
+		&m.ContentID,
+		&entityType,
+		&m.MentionedText,
+		&position,
+		&contextSnippet,
+		&resolvedEntityID,
+		&resolutionConfidence,
+		&resolutionSource,
+		&resolvedExpansion,
+		&candidatesJSON,
+		&status,
+		&resolvedAt,
+		&resolvedBy,
+		&projectContextID,
+		&m.CreatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("scanning mention: %w", err)
 	}
 
-	if row.Position.Valid {
-		pos := int(row.Position.Int64)
-		m.Position = &pos
+	m.EntityType = EntityType(entityType)
+	m.Status = MentionStatus(status)
+	m.Position = position
+	m.ResolvedEntityID = resolvedEntityID
+	m.ResolutionConfidence = resolutionConfidence
+	m.ProjectContextID = projectContextID
+	m.ResolvedAt = resolvedAt
+
+	if contextSnippet != nil {
+		m.ContextSnippet = *contextSnippet
 	}
-	if row.ContextSnippet.Valid {
-		m.ContextSnippet = row.ContextSnippet.String
+	if resolutionSource != nil {
+		m.ResolutionSource = ResolutionSource(*resolutionSource)
 	}
-	if row.ResolvedEntityID.Valid {
-		m.ResolvedEntityID = &row.ResolvedEntityID.Int64
+	if resolvedExpansion != nil {
+		m.ResolvedExpansion = *resolvedExpansion
 	}
-	if row.ResolutionConfidence.Valid {
-		conf := float32(row.ResolutionConfidence.Float64)
-		m.ResolutionConfidence = &conf
-	}
-	if row.ResolutionSource.Valid {
-		m.ResolutionSource = ResolutionSource(row.ResolutionSource.String)
-	}
-	if row.ResolvedExpansion.Valid {
-		m.ResolvedExpansion = row.ResolvedExpansion.String
-	}
-	if row.ResolvedAt.Valid {
-		m.ResolvedAt = &row.ResolvedAt.Time
-	}
-	if row.ResolvedBy.Valid {
-		m.ResolvedBy = row.ResolvedBy.String
-	}
-	if row.ProjectContextID.Valid {
-		m.ProjectContextID = &row.ProjectContextID.Int64
+	if resolvedBy != nil {
+		m.ResolvedBy = *resolvedBy
 	}
 
-	// Parse candidates
-	if len(row.Candidates) > 0 {
-		if err := json.Unmarshal(row.Candidates, &m.Candidates); err != nil {
+	if len(candidatesJSON) > 0 {
+		if err := json.Unmarshal(candidatesJSON, &m.Candidates); err != nil {
 			return nil, fmt.Errorf("parsing candidates: %w", err)
 		}
 	}
 
-	return m, nil
+	return &m, nil
 }
 
-func rowToPattern(row *patternRow) *MentionPattern {
-	p := &MentionPattern{
-		ID:          row.ID,
-		TenantID:    row.TenantID,
-		EntityType:  EntityType(row.EntityType),
-		PatternText: row.PatternText,
-		IsPermanent: row.IsPermanent,
-		TimesSeen:   row.TimesSeen,
-		TimesLinked: row.TimesLinked,
-		LastSeenAt:  row.LastSeenAt,
-		CreatedAt:   row.CreatedAt,
+func scanMentionRow(rows pgx.Rows) (*ContentMention, error) {
+	var m ContentMention
+	var position *int
+	var contextSnippet, resolutionSource, resolvedExpansion, resolvedBy *string
+	var resolvedEntityID, projectContextID *int64
+	var resolutionConfidence *float32
+	var resolvedAt *time.Time
+	var candidatesJSON []byte
+	var entityType, status string
+
+	err := rows.Scan(
+		&m.ID,
+		&m.TenantID,
+		&m.ContentID,
+		&entityType,
+		&m.MentionedText,
+		&position,
+		&contextSnippet,
+		&resolvedEntityID,
+		&resolutionConfidence,
+		&resolutionSource,
+		&resolvedExpansion,
+		&candidatesJSON,
+		&status,
+		&resolvedAt,
+		&resolvedBy,
+		&projectContextID,
+		&m.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("scanning mention row: %w", err)
 	}
 
-	if row.ResolvedEntityID.Valid {
-		p.ResolvedEntityID = &row.ResolvedEntityID.Int64
+	m.EntityType = EntityType(entityType)
+	m.Status = MentionStatus(status)
+	m.Position = position
+	m.ResolvedEntityID = resolvedEntityID
+	m.ResolutionConfidence = resolutionConfidence
+	m.ProjectContextID = projectContextID
+	m.ResolvedAt = resolvedAt
+
+	if contextSnippet != nil {
+		m.ContextSnippet = *contextSnippet
 	}
-	if row.ResolvedExpansion.Valid {
-		p.ResolvedExpansion = row.ResolvedExpansion.String
+	if resolutionSource != nil {
+		m.ResolutionSource = ResolutionSource(*resolutionSource)
 	}
-	if row.ProjectID.Valid {
-		p.ProjectID = &row.ProjectID.Int64
+	if resolvedExpansion != nil {
+		m.ResolvedExpansion = *resolvedExpansion
 	}
-	if row.LastLinkedAt.Valid {
-		p.LastLinkedAt = &row.LastLinkedAt.Time
-	}
-	if row.FirstContentID.Valid {
-		p.FirstContentID = &row.FirstContentID.Int64
+	if resolvedBy != nil {
+		m.ResolvedBy = *resolvedBy
 	}
 
-	return p
+	if len(candidatesJSON) > 0 {
+		if err := json.Unmarshal(candidatesJSON, &m.Candidates); err != nil {
+			return nil, fmt.Errorf("parsing candidates: %w", err)
+		}
+	}
+
+	return &m, nil
 }
 
-func rowToAffinity(row *affinityRow) *EntityProjectAffinity {
-	a := &EntityProjectAffinity{
-		ID:            row.ID,
-		TenantID:      row.TenantID,
-		EntityType:    EntityType(row.EntityType),
-		EntityID:      row.EntityID,
-		ProjectID:     row.ProjectID,
-		MentionCount:  row.MentionCount,
-		IsMember:      row.IsMember,
-		AffinityScore: row.AffinityScore,
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
+func scanPattern(row pgx.Row) (*MentionPattern, error) {
+	var p MentionPattern
+	var resolvedExpansion *string
+	var resolvedEntityID, projectID, firstContentID *int64
+	var lastLinkedAt *time.Time
+	var entityType string
+
+	err := row.Scan(
+		&p.ID,
+		&p.TenantID,
+		&entityType,
+		&p.PatternText,
+		&resolvedEntityID,
+		&resolvedExpansion,
+		&projectID,
+		&p.IsPermanent,
+		&p.TimesSeen,
+		&p.TimesLinked,
+		&p.LastSeenAt,
+		&lastLinkedAt,
+		&firstContentID,
+		&p.CreatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("scanning pattern: %w", err)
 	}
 
-	if row.LastMentionedAt.Valid {
-		a.LastMentionedAt = &row.LastMentionedAt.Time
-	}
-	if row.Role.Valid {
-		a.Role = row.Role.String
+	p.EntityType = EntityType(entityType)
+	p.ResolvedEntityID = resolvedEntityID
+	p.ProjectID = projectID
+	p.FirstContentID = firstContentID
+	p.LastLinkedAt = lastLinkedAt
+
+	if resolvedExpansion != nil {
+		p.ResolvedExpansion = *resolvedExpansion
 	}
 
-	return a
+	return &p, nil
 }
 
-func nullInt64Ptr(p *int64) sql.NullInt64 {
-	if p == nil {
-		return sql.NullInt64{}
+func scanPatternRow(rows pgx.Rows) (*MentionPattern, error) {
+	var p MentionPattern
+	var resolvedExpansion *string
+	var resolvedEntityID, projectID, firstContentID *int64
+	var lastLinkedAt *time.Time
+	var entityType string
+
+	err := rows.Scan(
+		&p.ID,
+		&p.TenantID,
+		&entityType,
+		&p.PatternText,
+		&resolvedEntityID,
+		&resolvedExpansion,
+		&projectID,
+		&p.IsPermanent,
+		&p.TimesSeen,
+		&p.TimesLinked,
+		&p.LastSeenAt,
+		&lastLinkedAt,
+		&firstContentID,
+		&p.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("scanning pattern row: %w", err)
 	}
-	return sql.NullInt64{Int64: *p, Valid: true}
+
+	p.EntityType = EntityType(entityType)
+	p.ResolvedEntityID = resolvedEntityID
+	p.ProjectID = projectID
+	p.FirstContentID = firstContentID
+	p.LastLinkedAt = lastLinkedAt
+
+	if resolvedExpansion != nil {
+		p.ResolvedExpansion = *resolvedExpansion
+	}
+
+	return &p, nil
 }
 
-func nullIntPtr(p *int) sql.NullInt64 {
-	if p == nil {
-		return sql.NullInt64{}
+func scanAffinity(row pgx.Row) (*EntityProjectAffinity, error) {
+	var a EntityProjectAffinity
+	var lastMentionedAt *time.Time
+	var role *string
+	var entityType string
+
+	err := row.Scan(
+		&a.ID,
+		&a.TenantID,
+		&entityType,
+		&a.EntityID,
+		&a.ProjectID,
+		&a.MentionCount,
+		&lastMentionedAt,
+		&a.IsMember,
+		&role,
+		&a.AffinityScore,
+		&a.CreatedAt,
+		&a.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("scanning affinity: %w", err)
 	}
-	return sql.NullInt64{Int64: int64(*p), Valid: true}
+
+	a.EntityType = EntityType(entityType)
+	a.LastMentionedAt = lastMentionedAt
+	if role != nil {
+		a.Role = *role
+	}
+
+	return &a, nil
 }
 
-func nullString(s string) sql.NullString {
+func scanAffinityRow(rows pgx.Rows) (*EntityProjectAffinity, error) {
+	var a EntityProjectAffinity
+	var lastMentionedAt *time.Time
+	var role *string
+	var entityType string
+
+	err := rows.Scan(
+		&a.ID,
+		&a.TenantID,
+		&entityType,
+		&a.EntityID,
+		&a.ProjectID,
+		&a.MentionCount,
+		&lastMentionedAt,
+		&a.IsMember,
+		&role,
+		&a.AffinityScore,
+		&a.CreatedAt,
+		&a.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("scanning affinity row: %w", err)
+	}
+
+	a.EntityType = EntityType(entityType)
+	a.LastMentionedAt = lastMentionedAt
+	if role != nil {
+		a.Role = *role
+	}
+
+	return &a, nil
+}
+
+func nullableString(s string) *string {
 	if s == "" {
-		return sql.NullString{}
+		return nil
 	}
-	return sql.NullString{String: s, Valid: true}
-}
-
-func nullTime(t *time.Time) sql.NullTime {
-	if t == nil {
-		return sql.NullTime{}
-	}
-	return sql.NullTime{Time: *t, Valid: true}
+	return &s
 }
 
 func getTenantFromContext(ctx context.Context) string {
