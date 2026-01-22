@@ -1,428 +1,511 @@
 # Penfold Testing Framework
 
-The Penfold Testing Framework provides comprehensive testing capabilities for AI-first applications, including environment isolation, AI model mocking, and realistic test data management.
+Go testing framework for Penfold's AI-first applications, using build tags for test categorization, testify for assertions, and YAML fixtures for test data.
 
 ## Quick Start
 
 ```bash
 # Run unit tests (fast, fully mocked)
-pytest tests/unit/ -v
+go test ./pkg/... -short
 
-# Run integration tests (with lightweight AI models)
-pytest tests/integration/ -v --runslow
+# Run integration tests (with PostgreSQL)
+source ~/github/otherjamesbrown/secrets/.env.penfold
+export PENFOLD_DB_NAME=penfold_test_integration
+go test -tags=integration ./tests/integration/...
 
-# Run performance tests
-pytest tests/performance/ -v -m performance --runslow
+# Run E2E tests (with PostgreSQL + LLM, on dev01)
+export PENFOLD_DB_NAME=penfold_test_e2e
+export LLM_URL=http://localhost:8080
+go test -tags=e2e ./tests/e2e/... -v
 
-# Run specific test category
-pytest -m "unit and not slow" -v
+# Run live tests (incurs API costs)
+export GEMINI_API_KEY=...
+go test -tags=live ./tests/live/... -v
 ```
 
 ## Testing Tiers
 
 ### 1. Unit Tests (<100ms per test)
 - **Purpose**: Fast, isolated component testing
-- **AI Strategy**: Full mocking with deterministic responses
-- **Database**: In-memory SQLite or mocked
-- **Location**: `tests/unit/`
+- **AI Strategy**: Full mocking with testify/mock
+- **Database**: None (mocked)
+- **Location**: Co-located with source (e.g., `pkg/mentions/resolver_test.go`)
 
-```python
-@pytest.mark.unit
-async def test_email_processing_mock(mock_ai_full):
-    """Test email processing with fully mocked AI"""
-    processor = EmailProcessor(ai_client=mock_ai_full['ollama'])
+```go
+// pkg/mentions/resolver_test.go
+package mentions
 
-    result = await processor.extract_entities("Test email content")
+import (
+    "context"
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/mock"
+)
 
-    assert result['people'] == ['James Brown', 'Sarah Chen']
-    assert result['projects'] == ['Atlas Integration']
+type MockLLMClient struct {
+    mock.Mock
+}
+
+func (m *MockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+    args := m.Called(ctx, prompt)
+    return args.String(0), args.Error(1)
+}
+
+func TestResolveMention_ExactMatch(t *testing.T) {
+    mockLLM := new(MockLLMClient)
+    mockLLM.On("Complete", mock.Anything, mock.Anything).
+        Return(`{"person_id": 1, "confidence": 0.95}`, nil)
+
+    resolver := NewResolver(mockLLM)
+    result, err := resolver.Resolve(context.Background(), "John Smith")
+
+    assert.NoError(t, err)
+    assert.Equal(t, int64(1), result.PersonID)
+    mockLLM.AssertExpectations(t)
+}
 ```
 
-### 2. Integration Tests (<10s per test)
-- **Purpose**: Multi-component testing with realistic AI behavior
-- **AI Strategy**: Lightweight models (Phi-3 Mini, Qwen2.5-7B)
-- **Database**: PostgreSQL with automatic rollback
+### 2. Integration Tests (<60s total)
+- **Purpose**: Database and multi-component testing
+- **AI Strategy**: Mocked (no LLM calls)
+- **Database**: PostgreSQL with automatic cleanup
 - **Location**: `tests/integration/`
 
-```python
-@pytest.mark.integration
-async def test_email_to_database_workflow(test_session, lightweight_ai):
-    """Test complete email processing workflow"""
-    email_data = load_test_email('atlas_project_concern')
+```go
+//go:build integration
 
-    result = await process_email_complete(email_data, test_session)
+package integration
 
-    # Verify database entities created
-    sources = await get_sources(test_session)
-    assert len(sources) == 1
-    assert sources[0].source_system == 'gmail'
+import (
+    "context"
+    "testing"
+    "github.com/stretchr/testify/require"
+)
+
+func TestDatabaseConnection(t *testing.T) {
+    db := SetupTestDB(t)  // Connects to penfold_test_integration
+
+    ctx := context.Background()
+    var result int
+    err := db.Pool.QueryRow(ctx, "SELECT 1").Scan(&result)
+
+    require.NoError(t, err)
+    require.Equal(t, 1, result)
+}
+
+func TestFixtureLoading(t *testing.T) {
+    db := SetupTestDB(t)
+    loader := db.FixtureLoader()
+
+    ctx := context.Background()
+    err := loader.LoadAcmeCorp(ctx)
+    require.NoError(t, err)
+
+    // Verify people loaded
+    var count int
+    err = db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM people").Scan(&count)
+    require.NoError(t, err)
+    require.GreaterOrEqual(t, count, 20)
+}
 ```
 
-### 3. End-to-End Tests (<30s per test)
-- **Purpose**: Complete workflow validation
-- **AI Strategy**: Recorded real AI responses
-- **Database**: Full PostgreSQL with test data
+### 3. E2E Tests (<5min total)
+- **Purpose**: Complete workflow validation with real LLM
+- **AI Strategy**: Real local LLM (Qwen via vLLM-MLX)
+- **Database**: PostgreSQL with test fixtures
 - **Location**: `tests/e2e/`
 
-```python
-@pytest.mark.slow
-async def test_complete_ingestion_pipeline(recorded_ai_responses):
-    """Test full pipeline with recorded AI responses"""
-    session = recorded_ai_responses['email_processing']
+```go
+//go:build e2e
 
-    result = await run_full_pipeline(test_email_corpus)
+package e2e
 
-    assert result.success_rate > 0.95
-    assert result.processing_time < 30000  # 30 seconds
+import (
+    "context"
+    "testing"
+    "github.com/stretchr/testify/require"
+    "github.com/stretchr/testify/assert"
+)
+
+func TestMentionResolutionWithLLM(t *testing.T) {
+    env := SetupE2EEnvironment(t)  // Requires DB + LLM
+
+    // Load fixtures
+    err := env.LoadFixture("acme-corp")
+    require.NoError(t, err)
+
+    client := NewLLMClient(env.LLMURL)
+    ctx := context.Background()
+
+    response, err := client.CompleteWithSystem(ctx,
+        "You are a mention resolution system...",
+        `Text: "John mentioned the timeline concerns."
+Who is mentioned?`,
+    )
+    require.NoError(t, err)
+
+    // Semantic assertion (LLM output is non-deterministic)
+    assert.Contains(t, response, "John")
+}
+```
+
+### 4. Live Tests (Varies)
+- **Purpose**: Cloud API connectivity validation
+- **AI Strategy**: Real cloud APIs (Gemini, etc.)
+- **Database**: Optional
+- **Location**: `tests/live/`
+
+```go
+//go:build live
+
+package live
+
+import (
+    "testing"
+    "github.com/stretchr/testify/require"
+)
+
+func TestGeminiAPIConnection(t *testing.T) {
+    apiKey := RequireGeminiAPIKey(t)  // Skips if not set
+
+    resp, err := callGeminiAPI(apiKey, "What is 2+2?")
+    require.NoError(t, err)
+    require.Contains(t, resp, "4")
+}
 ```
 
 ## Test Environment Setup
 
 ### Local Development
 ```bash
-# Install test dependencies
-pip install -e .[test]
+# Set up environment
+source ~/github/otherjamesbrown/secrets/.env.penfold
 
-# Set up test environment
-export PENFOLD_ENV=testing
-export DB_NAME=penfold_test
-export REDIS_DB=15
+# Run migrations on test databases (one-time)
+PENFOLD_DB_NAME=penfold_test_integration go run ./cmd/penf migrate up
+PENFOLD_DB_NAME=penfold_test_e2e go run ./cmd/penf migrate up
 
-# Run test database setup
-pytest --setup-only
+# Run unit tests
+go test ./pkg/... -short
+
+# Run with verbose output
+go test ./pkg/... -v
 ```
 
-### Docker Environment
+### Test Databases
 ```bash
-# Start test services
-docker-compose -f docker-compose.test.yml up -d
+# Integration tests use:
+export PENFOLD_DB_NAME=penfold_test_integration
 
-# Run tests against containers
-pytest --docker-env
+# E2E tests use:
+export PENFOLD_DB_NAME=penfold_test_e2e
 
-# Clean up
-docker-compose -f docker-compose.test.yml down -v
+# Both connect to home-01.brown.chat
 ```
 
-### CI/CD Environment
-```bash
-# Skip expensive tests
-export DB_SKIP_TESTS=1
-export REDIS_SKIP_TESTS=1
+### LLM Setup (E2E Tests)
+E2E tests require the local LLM server on dev01:
+- **Model**: Qwen2.5-32B-Instruct-4bit via vLLM-MLX
+- **Endpoint**: http://localhost:8080
+- **API**: OpenAI-compatible
 
-# Run only unit tests
-pytest tests/unit/ -v
+```bash
+# Check LLM availability
+curl -s http://localhost:8080/v1/models
+
+# Start if not running
+launchctl load ~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist
 ```
 
 ## AI Model Mocking
 
 ### Unit Test Mocking
-```python
-# Use deterministic AI responses
-@pytest.fixture
-def mock_ai_full():
-    with patch('penf_lib.ai.ollama_client') as mock_ollama:
-        mock_ollama.generate = AsyncMock(return_value={
-            'response': 'Mock response based on prompt patterns'
-        })
-        yield mock_ollama
-
-# Pattern-based responses
-def test_ai_summarization(mock_ai_full):
-    # Mock will return consistent summary based on content patterns
-    result = ai_client.summarize("Email about Atlas project timeline")
-    assert "Atlas project" in result
-```
-
-### Integration Test Models
-```python
-# Use fast, lightweight models
-LIGHTWEIGHT_MODELS = {
-    'summarization': 'phi-3-mini-3.8b',     # 3.8B params, fast inference
-    'entity_extraction': 'qwen2.5-7b',      # Good at structured tasks
-    'categorization': 'llama-3.2-3b',       # Fast classification
-    'embedding': 'nomic-embed-text'          # Consistent embeddings
+```go
+// Use testify/mock for deterministic AI responses
+type MockLLMClient struct {
+    mock.Mock
 }
 
-# Configure for integration tests
-@pytest.fixture
-def lightweight_ai():
-    strategy = LightweightModelStrategy()
-    yield strategy
+func (m *MockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+    args := m.Called(ctx, prompt)
+    return args.String(0), args.Error(1)
+}
+
+func TestSummarization(t *testing.T) {
+    mockLLM := new(MockLLMClient)
+    mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(p string) bool {
+        return strings.Contains(p, "summarize")
+    })).Return("Concise summary of the content", nil)
+
+    summarizer := NewSummarizer(mockLLM)
+    result, err := summarizer.Summarize(ctx, "Long content...")
+
+    assert.NoError(t, err)
+    assert.Contains(t, result, "summary")
+}
 ```
 
-### Recorded Response Replay
-```python
-# Record real AI interactions
-async def record_atlas_analysis():
-    recorder = AIResponseRecorder()
+### E2E LLM Testing
+```go
+// Use real LLM with semantic assertions
+func TestLLMIntegration(t *testing.T) {
+    env := SetupE2EEnvironment(t)
+    client := NewLLMClient(env.LLMURL)
 
-    # Record real interactions
-    summary = await real_ai.summarize(atlas_email)
-    entities = await real_ai.extract_entities(atlas_email)
+    response, err := client.CompleteWithSystem(ctx,
+        "Extract person names from the text",
+        "John Smith met with Sarah Chen yesterday",
+    )
+    require.NoError(t, err)
 
-    await recorder.save_session('atlas_analysis', [
-        AIInteraction('summarize', atlas_email, summary),
-        AIInteraction('extract_entities', atlas_email, entities)
-    ])
-
-# Replay in tests
-@pytest.fixture
-def recorded_responses():
-    return AIResponseRecorder().load_session('atlas_analysis')
+    // Semantic assertion - verify structure, not exact text
+    assert.Contains(t, response, "John")
+    assert.Contains(t, response, "Sarah")
+}
 ```
 
 ## Test Data Management
 
-### Business Scenarios
-```python
-# Realistic business email threads
-@pytest.fixture
-def atlas_project_emails():
-    return [
-        Email(
-            subject="Atlas Timeline Concern",
-            sender="marcus.rodriguez@company.com",
-            content="Engineering team is reporting potential delays...",
-            thread_id="atlas-concern-001"
-        ),
-        Email(
-            subject="Re: Atlas Timeline Concern",
-            sender="james.brown@company.com",
-            content="Let's schedule a checkpoint meeting...",
-            thread_id="atlas-concern-001"
-        )
-    ]
+### Acme Corp Fixtures
+The `tests/fixtures/acme-corp/` directory contains a complete mock organization:
 
-# Consistent test personas
-@pytest.fixture
-def test_people():
-    return [
-        Person(name="James Brown", role="COO", email="james.brown@company.com"),
-        Person(name="Sarah Chen", role="VP Engineering", email="sarah.chen@company.com"),
-        Person(name="Marcus Rodriguez", role="Head of Sales", email="marcus.rodriguez@company.com")
-    ]
+| File | Contents |
+|------|----------|
+| `people.yaml` | 20 employees with aliases, titles, teams |
+| `teams.yaml` | 7 teams (top-level and sub-teams) |
+| `projects.yaml` | 10 projects with assignments |
+| `glossary.yaml` | 50+ business terms and acronyms |
+| `emails/` | 10 sample RFC 5322 emails |
+
+### Loading Fixtures
+```go
+import "github.com/otherjamesbrown/penfold/pkg/testfixtures"
+
+func TestWithFixtures(t *testing.T) {
+    db := SetupTestDB(t)
+
+    loader := testfixtures.NewLoader(db.Pool, "tests/fixtures/acme-corp")
+
+    ctx := context.Background()
+    err := loader.LoadAcmeCorp(ctx)  // Loads all fixtures
+    require.NoError(t, err)
+
+    // Or load individually
+    err = loader.LoadPeople(ctx)
+    err = loader.LoadGlossary(ctx)
+}
 ```
 
-### Data Generation
-```python
-# Generate consistent test data
-class TestDataGenerator:
-    def generate_email_thread(self, scenario: str, participants: List[str]) -> List[Email]:
-        scenarios = {
-            'project_escalation': self._escalation_thread,
-            'budget_approval': self._budget_thread,
-            'meeting_coordination': self._meeting_thread
-        }
-        return scenarios[scenario](participants)
+### Fixture Types
+```go
+// pkg/testfixtures/types.go
+type PersonFixture struct {
+    ID            int64    `yaml:"id"`
+    CanonicalName string   `yaml:"canonical_name"`
+    Email         string   `yaml:"email"`
+    Title         string   `yaml:"title"`
+    TeamID        int64    `yaml:"team_id"`
+    Aliases       []string `yaml:"aliases"`
+}
 
-# Usage in tests
-def test_email_processing_scenarios(data_generator):
-    for scenario in ['project_escalation', 'budget_approval', 'meeting_coordination']:
-        emails = data_generator.generate_email_thread(scenario, ['james', 'sarah', 'marcus'])
-        result = process_email_thread(emails)
-        assert result.success
-```
+type TeamFixture struct {
+    ID        int64  `yaml:"id"`
+    Name      string `yaml:"name"`
+    ParentID  *int64 `yaml:"parent_id"`
+}
 
-## Performance Testing
-
-### Benchmark Utilities
-```python
-@pytest.fixture
-def benchmark_timer():
-    class Timer:
-        def start(self): self.start_time = time.perf_counter()
-        def stop(self): self.end_time = time.perf_counter()
-        @property
-        def elapsed_ms(self): return (self.end_time - self.start_time) * 1000
-    return Timer
-
-@pytest.mark.performance
-async def test_vector_search_performance(test_session, benchmark_timer):
-    # Setup test data
-    await create_test_embeddings(test_session, count=10000)
-
-    timer = benchmark_timer()
-    timer.start()
-
-    results = await vector_similarity_search(test_session, query_vector, limit=100)
-
-    timer.stop()
-
-    # Validate performance target
-    assert timer.elapsed_ms < 500  # <500ms for vector search
-    assert len(results) <= 100
-```
-
-### Load Testing
-```python
-@pytest.mark.slow
-async def test_concurrent_processing(test_session):
-    # Test concurrent AI processing
-    tasks = []
-
-    for i in range(50):  # 50 concurrent operations
-        email = generate_test_email(f"test-{i}")
-        task = process_email_async(email, test_session)
-        tasks.append(task)
-
-    results = await asyncio.gather(*tasks)
-
-    # Validate all succeeded
-    assert all(r.success for r in results)
-
-    # Validate performance under load
-    max_time = max(r.processing_time_ms for r in results)
-    assert max_time < 15000  # <15s even under load
+type GlossaryFixture struct {
+    Term       string `yaml:"term"`
+    Expansion  string `yaml:"expansion"`
+    Definition string `yaml:"definition"`
+}
 ```
 
 ## Test Configuration
 
+### Build Tags
+```go
+//go:build integration    // Database tests
+//go:build e2e            // Full system tests with LLM
+//go:build live           // Cloud API tests
+//go:build flaky          // Quarantined tests
+```
+
 ### Environment Variables
 ```bash
-# Test behavior controls
-export PENFOLD_ENV=testing          # Use test configuration
-export DB_SKIP_TESTS=1              # Skip database tests
-export REDIS_SKIP_TESTS=1           # Skip Redis tests
-export AI_MOCK_MODE=deterministic   # Use deterministic AI mocks
-export PYTEST_VERBOSE_SQL=1         # Enable SQL logging
+# Database configuration
+export PENFOLD_DB_HOST=home-01.brown.chat
+export PENFOLD_DB_PORT=5432
+export PENFOLD_DB_USER=penfold
+export PENFOLD_DB_PASSWORD=<from secrets>
+export PENFOLD_DB_NAME=penfold_test_integration
 
-# Performance test controls
-export PERFORMANCE_TARGET_MS=100    # Override performance targets
-export LOAD_TEST_CONCURRENT=20      # Concurrent operations for load tests
+# LLM configuration (E2E tests)
+export LLM_URL=http://localhost:8080
+
+# Cloud API keys (Live tests)
+export GEMINI_API_KEY=<your key>
 ```
 
-### pytest Configuration
-```ini
-# pytest.ini
-[tool:pytest]
-addopts =
-    --cov=penf_lib
-    --cov=observability_lib
-    --cov-report=html
-    --cov-report=term-missing
-    --cov-fail-under=80
-    --strict-markers
-    --disable-warnings
+### Graceful Skipping
+```go
+func SetupTestDB(t *testing.T) *TestDB {
+    password := os.Getenv("PENFOLD_DB_PASSWORD")
+    if password == "" {
+        t.Skip("PENFOLD_DB_PASSWORD not set - skipping integration test")
+    }
+    // ...
+}
 
-markers =
-    unit: marks tests as unit tests
-    integration: marks tests as integration tests
-    performance: marks tests as performance tests
-    slow: marks tests as slow running (use --runslow)
-    requires_db: marks tests as requiring database
-    requires_redis: marks tests as requiring Redis
-
-testpaths = tests
-python_files = test_*.py
-python_classes = Test*
-python_functions = test_*
+func SetupE2EEnvironment(t *testing.T) *E2EEnv {
+    env := &E2EEnv{...}
+    if !env.LLMAvailable() {
+        t.Skip("Local LLM not available - skipping E2E test")
+    }
+    return env
+}
 ```
 
-### Custom pytest Options
-```bash
-# Run slow tests
-pytest --runslow
+## Performance Targets
 
-# Skip database tests
-pytest --skip-db
-
-# Skip Redis tests
-pytest --skip-redis
-
-# Run with Docker environment
-pytest --docker-env
-
-# Verbose AI logging
-pytest --ai-debug
-```
+| Test Tier | Target Duration | Dependencies |
+|-----------|-----------------|--------------|
+| Unit (per test) | <100ms | None |
+| Unit (total) | <10s | None |
+| Integration (total) | <60s | PostgreSQL |
+| E2E (total) | <5min | PostgreSQL + LLM |
+| Live | Varies | Cloud APIs |
 
 ## Best Practices
 
 ### Test Organization
-- Place unit tests in `tests/unit/`
+- Co-locate unit tests with source (`pkg/mentions/resolver_test.go`)
 - Place integration tests in `tests/integration/`
-- Place performance tests in `tests/performance/`
-- Use descriptive test names that explain the scenario
-- Group related tests in test classes
+- Place E2E tests in `tests/e2e/`
+- Place live tests in `tests/live/`
+- Use descriptive test names: `TestMentionResolution_ExactMatch`
 
 ### AI Testing Guidelines
 - Use full mocking for unit tests (fast, deterministic)
-- Use lightweight models for integration tests (realistic but fast)
-- Use recorded responses for critical end-to-end tests
-- Test AI confidence thresholds and edge cases
-- Validate AI response format and structure
+- Use real LLM for E2E tests with semantic assertions
+- Test with `temperature=0` for more deterministic output
+- Validate AI response structure, not exact text
+- Test confidence thresholds and edge cases
 
-### Performance Guidelines
-- Set clear performance targets for each test type
-- Use benchmark timers for precise measurement
-- Test under load conditions with concurrent operations
-- Monitor memory usage and cleanup
-- Validate both happy path and error scenarios
+### Database Testing
+- Use `t.Cleanup()` for automatic resource cleanup
+- Truncate tables between tests for isolation
+- Load fixtures via `pkg/testfixtures` loader
+- Never use production database for tests
 
-### Data Management
-- Use consistent test personas across scenarios
-- Generate realistic but privacy-safe test data
-- Parameterize tests for different business scenarios
-- Clean up test data automatically
-- Avoid hard-coding test data in test files
+### Flaky Test Quarantine
+```go
+//go:build flaky
+
+func TestSometimesFails(t *testing.T) {
+    // TODO: Fix by 2026-02-15 - describe root cause
+    // This test is quarantined due to timing sensitivity
+}
+```
+
+## CI/CD Integration
+
+```yaml
+# .github/workflows/test.yml
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - run: go test -short ./pkg/...
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+    steps:
+      - run: go test -tags=integration ./tests/integration/...
+
+  e2e-tests:
+    runs-on: [self-hosted, macos, ARM64]  # dev01
+    needs: integration-tests
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - run: go test -tags=e2e ./tests/e2e/...
+```
+
+## Directory Structure
+
+```
+pkg/                           # Unit tests co-located with source
+├── mentions/
+│   ├── resolver.go
+│   └── resolver_test.go      # No build tag
+├── glossary/
+│   └── glossary_test.go
+└── testfixtures/             # Shared fixture library
+    ├── types.go
+    ├── loader.go
+    └── validate_test.go
+
+tests/                        # Special test categories
+├── go.mod                    # Separate module for tests
+├── integration/              # Build tag: integration
+│   ├── helpers.go
+│   ├── db_test.go
+│   └── fixtures_test.go
+├── e2e/                      # Build tag: e2e
+│   ├── helpers.go
+│   ├── assertions.go
+│   ├── llm_client.go
+│   └── mention_resolution_test.go
+├── live/                     # Build tag: live
+│   ├── helpers.go
+│   ├── gemini_test.go
+│   └── gmail_test.go
+└── fixtures/
+    └── acme-corp/            # Mock organization
+        ├── people.yaml
+        ├── teams.yaml
+        ├── projects.yaml
+        ├── glossary.yaml
+        └── emails/
+```
 
 ## Troubleshooting
 
-### Common Issues
-
-**Slow Test Execution**
+### Database Connection Issues
 ```bash
-# Check if AI models are being used instead of mocks
-pytest -v --tb=short tests/unit/  # Should be <100ms per test
+# Verify environment
+echo $PENFOLD_DB_PASSWORD
 
-# Enable mock debugging
-export AI_MOCK_DEBUG=1
+# Test connection
+psql -h home-01.brown.chat -U penfold -d penfold_test_integration
+
+# Check migrations
+PENFOLD_DB_NAME=penfold_test_integration go run ./cmd/penf migrate status
 ```
 
-**Database Connection Issues**
+### LLM Not Available
 ```bash
-# Verify test database setup
-export DB_DEBUG=1
-pytest --setup-only
+# Check if LLM server is running
+curl -s http://localhost:8080/v1/models
 
-# Use in-memory database for unit tests
-export DB_USE_MEMORY=1
+# Start LLM server
+launchctl load ~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist
+
+# Check logs
+tail -f /tmp/mlx-llm-server.log
 ```
 
-**Flaky Tests**
-```bash
-# Run tests multiple times to identify flaky tests
-pytest --count=10 tests/integration/test_specific.py
-
-# Use deterministic AI mocking
-export AI_MOCK_MODE=deterministic
-```
-
-**Memory Leaks**
-```bash
-# Enable memory profiling
-pip install memory-profiler
-pytest --memory-profile
-
-# Check for unclosed database connections
-export DB_POOL_DEBUG=1
-```
-
-### Performance Debugging
-```bash
-# Profile test execution time
-pytest --profile
-
-# Generate performance report
-pytest --benchmark-save=results tests/performance/
-
-# Compare performance over time
-pytest --benchmark-compare=results
-```
+### Test Skipping
+Tests skip gracefully when prerequisites are missing:
+- Integration tests skip without `PENFOLD_DB_PASSWORD`
+- E2E tests skip without LLM availability
+- Live tests skip without API keys
 
 For more detailed information, see:
 - [AI Mocking Strategies](./ai-mocking.md)
-- [Environment Setup Guide](./environment-setup.md)
-- [Performance Testing Guide](./performance-testing.md)
-- [Troubleshooting Guide](./troubleshooting.md)
+- [Testing Patterns](../../context/architecture/testing-patterns.md)
+- [Testing Agent Context](../../context/testing-dev/agents.md)

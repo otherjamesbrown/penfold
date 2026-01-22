@@ -1,458 +1,493 @@
 # AI Model Mocking Strategies
 
-This guide covers the comprehensive AI mocking framework for testing Penfold's AI-first architecture.
+Go-based AI mocking framework for testing Penfold's AI-first architecture using testify/mock.
 
 ## Mocking Strategy Overview
 
-### Three-Tiered Approach
+### Two-Tiered Approach
 
 | Test Type | AI Strategy | Performance Target | Use Case |
 |-----------|-------------|-------------------|----------|
-| Unit | Full Mocking | <100ms | Component isolation |
-| Integration | Lightweight Models | <10s | Multi-component workflows |
-| End-to-End | Record/Replay | <30s | Critical path validation |
+| Unit | Full Mocking (testify/mock) | <100ms | Component isolation |
+| E2E | Real LLM (vLLM-MLX) | <30s per test | Complete workflow validation |
 
 ## Unit Test Mocking (Full Mocking)
 
+### testify/mock Pattern
+
+```go
+// pkg/ai/llm_client.go - Define interface
+type LLMClient interface {
+    Complete(ctx context.Context, prompt string) (string, error)
+    CompleteWithSystem(ctx context.Context, system, prompt string) (string, error)
+}
+
+// Mock implementation for tests
+type MockLLMClient struct {
+    mock.Mock
+}
+
+func (m *MockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+    args := m.Called(ctx, prompt)
+    return args.String(0), args.Error(1)
+}
+
+func (m *MockLLMClient) CompleteWithSystem(ctx context.Context, system, prompt string) (string, error) {
+    args := m.Called(ctx, system, prompt)
+    return args.String(0), args.Error(1)
+}
+```
+
 ### Pattern-Based Response Generation
 
-```python
-class OllamaMockServer:
-    def _deterministic_response(self, model: str, prompt: str) -> dict:
-        """Generate consistent response based on prompt patterns"""
-        if 'summarize' in prompt.lower():
-            return {
-                'response': f'Summary: [Mock summary for {prompt[:50]}...]',
-                'model': model,
-                'done': True
-            }
-        elif 'extract entities' in prompt.lower():
-            return {
-                'response': json.dumps({
-                    'people': ['James Brown', 'Sarah Chen'],
-                    'projects': ['Atlas Integration'],
-                    'decisions': ['Delay timeline by 1 week']
-                }),
-                'model': model,
-                'done': True
-            }
+```go
+// Deterministic responses based on prompt patterns
+func TestEntityExtraction(t *testing.T) {
+    mockLLM := new(MockLLMClient)
 
-# Usage in tests
-@pytest.fixture
-def mock_ollama():
-    with patch('penf_lib.ai.ollama_client') as mock:
-        mock.generate = AsyncMock(side_effect=OllamaMockServer().generate)
-        yield mock
+    // Match prompts containing "extract" and return structured JSON
+    mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(prompt string) bool {
+        return strings.Contains(strings.ToLower(prompt), "extract")
+    })).Return(`{
+        "people": ["James Brown", "Sarah Chen"],
+        "projects": ["Atlas Integration"],
+        "decisions": ["Delay timeline by 1 week"]
+    }`, nil)
 
-async def test_entity_extraction_mock(mock_ollama):
-    processor = EmailProcessor()
+    processor := NewEntityProcessor(mockLLM)
+    result, err := processor.Extract(ctx, "Email about Atlas project timeline")
 
-    result = await processor.extract_entities("Email about Atlas project")
-
-    assert 'Atlas Integration' in result['projects']
-    assert 'James Brown' in result['people']
+    assert.NoError(t, err)
+    assert.Contains(t, result.Projects, "Atlas Integration")
+    assert.Contains(t, result.People, "James Brown")
+    mockLLM.AssertExpectations(t)
+}
 ```
 
-### Cloud API Mocking
+### Summarization Mocking
 
-```python
-class CloudAPIMock:
-    def __init__(self, provider: str):
-        self.provider = provider
-        self.responses = {
-            'gemini': self._gemini_responses,
-            'claude': self._claude_responses,
-            'gpt': self._gpt_responses
-        }
+```go
+func TestSummarization(t *testing.T) {
+    mockLLM := new(MockLLMClient)
 
-    async def generate_content(self, prompt: str) -> AIResponse:
-        generator = self.responses[self.provider]
-        return generator(prompt)
+    // Return consistent summary format
+    mockLLM.On("CompleteWithSystem", mock.Anything,
+        mock.MatchedBy(func(s string) bool { return strings.Contains(s, "summarize") }),
+        mock.Anything,
+    ).Return("Summary: Atlas project faces timeline concerns due to resource constraints.", nil)
 
-    def _gemini_responses(self, prompt: str) -> AIResponse:
-        if 'categorize' in prompt.lower():
-            return AIResponse(
-                content=json.dumps({
-                    'category': 'project_update',
-                    'confidence': 0.95,
-                    'reasoning': 'Contains project status information'
-                }),
-                usage={'input_tokens': len(prompt.split()), 'output_tokens': 20},
-                model='gemini-mock'
-            )
+    summarizer := NewSummarizer(mockLLM)
+    result, err := summarizer.Summarize(ctx, longEmailContent)
 
-# Test fixture for cloud API mocking
-@pytest.fixture
-def mock_cloud_apis():
-    with patch('penf_lib.ai.gemini_client') as mock_gemini:
-        with patch('penf_lib.ai.claude_client') as mock_claude:
-            mock_gemini.generate_content = AsyncMock(
-                side_effect=CloudAPIMock('gemini').generate_content
-            )
-            mock_claude.generate_content = AsyncMock(
-                side_effect=CloudAPIMock('claude').generate_content
-            )
-            yield {
-                'gemini': mock_gemini,
-                'claude': mock_claude
-            }
+    assert.NoError(t, err)
+    assert.Contains(t, result, "Atlas project")
+}
 ```
 
-## Integration Test Models (Lightweight Models)
+### Mention Resolution Mocking
 
-### Fast Model Configuration
+```go
+func TestMentionResolution(t *testing.T) {
+    mockLLM := new(MockLLMClient)
 
-```python
-LIGHTWEIGHT_MODELS = {
-    'summarization': 'phi-3-mini-3.8b',     # 3.8B parameters, fast inference
-    'entity_extraction': 'qwen2.5-7b',      # Excellent at structured tasks
-    'categorization': 'llama-3.2-3b',       # Fast classification model
-    'embedding': 'nomic-embed-text',         # Consistent vector embeddings
-    'general': 'phi-3-mini-3.8b'            # Default fallback
+    // JSON response for mention resolution
+    mockLLM.On("CompleteWithSystem", mock.Anything, mock.Anything, mock.Anything).
+        Return(`{
+            "person_id": 1,
+            "canonical_name": "John Smith",
+            "confidence": 0.95,
+            "reasoning": "Exact match on first name 'John'"
+        }`, nil)
+
+    resolver := NewMentionResolver(mockLLM, peopleContext)
+    result, err := resolver.Resolve(ctx, "John mentioned the deadline")
+
+    assert.NoError(t, err)
+    assert.Equal(t, int64(1), result.PersonID)
+    assert.Equal(t, 0.95, result.Confidence)
+}
+```
+
+## Error Handling Mocks
+
+### Simulating LLM Failures
+
+```go
+func TestLLMFailure(t *testing.T) {
+    mockLLM := new(MockLLMClient)
+
+    // Simulate timeout
+    mockLLM.On("Complete", mock.Anything, mock.Anything).
+        Return("", errors.New("context deadline exceeded"))
+
+    processor := NewProcessor(mockLLM)
+    _, err := processor.Process(ctx, "some input")
+
+    assert.Error(t, err)
+    assert.Contains(t, err.Error(), "deadline exceeded")
 }
 
-class LightweightModelStrategy:
-    async def process_with_fast_model(self, task: str, content: str) -> AIResponse:
-        model = LIGHTWEIGHT_MODELS.get(task, 'phi-3-mini-3.8b')
+func TestLLMRetry(t *testing.T) {
+    mockLLM := new(MockLLMClient)
 
-        return await ollama_client.generate(
-            model=model,
-            prompt=content,
-            options={
-                'temperature': 0.1,    # More deterministic
-                'top_p': 0.8,          # Faster sampling
-                'top_k': 20,           # Reduced search space
-                'num_predict': 200     # Shorter responses for speed
-            }
-        )
+    // First call fails, second succeeds
+    mockLLM.On("Complete", mock.Anything, mock.Anything).
+        Return("", errors.New("temporary error")).Once()
+    mockLLM.On("Complete", mock.Anything, mock.Anything).
+        Return("success response", nil).Once()
 
-# Integration test fixture
-@pytest.fixture
-async def lightweight_ai():
-    strategy = LightweightModelStrategy()
+    processor := NewProcessorWithRetry(mockLLM, 3)
+    result, err := processor.Process(ctx, "some input")
 
-    # Patch model selection to use lightweight models
-    with patch('penf_lib.ai.get_model_for_task') as mock_get_model:
-        mock_get_model.side_effect = lambda task: LIGHTWEIGHT_MODELS.get(task)
-        yield strategy
+    assert.NoError(t, err)
+    assert.Equal(t, "success response", result)
+}
 ```
 
-### Model Performance Validation
+### Invalid Response Handling
 
-```python
-@pytest.mark.performance
-async def test_lightweight_model_performance(lightweight_ai, benchmark_timer):
-    """Ensure lightweight models meet performance targets"""
+```go
+func TestInvalidJSON(t *testing.T) {
+    mockLLM := new(MockLLMClient)
 
-    timer = benchmark_timer()
-    timer.start()
+    // Return malformed JSON
+    mockLLM.On("CompleteWithSystem", mock.Anything, mock.Anything, mock.Anything).
+        Return("not valid json {", nil)
 
-    result = await lightweight_ai.process_with_fast_model(
-        'summarization',
-        "Long email content that needs to be summarized quickly for integration testing"
-    )
+    resolver := NewMentionResolver(mockLLM, peopleContext)
+    _, err := resolver.Resolve(ctx, "John mentioned the deadline")
 
-    timer.stop()
-
-    # Should complete in under 10 seconds
-    assert timer.elapsed_ms < 10000
-    assert result is not None
-    assert len(result.content) > 10  # Non-trivial response
+    assert.Error(t, err)
+    assert.Contains(t, err.Error(), "failed to parse")
+}
 ```
 
-## End-to-End Recording/Replay
+## E2E Testing with Real LLM
 
-### Recording Real AI Sessions
+### LLM Client for E2E Tests
 
-```python
-class AIResponseRecorder:
-    def __init__(self, storage_path: str = './test-data/ai-responses'):
-        self.storage_path = Path(storage_path)
-        self.storage_path.mkdir(exist_ok=True)
+```go
+// tests/e2e/llm_client.go
+type LLMClient struct {
+    baseURL    string
+    httpClient *http.Client
+}
 
-    async def record_business_scenario(self, scenario_name: str):
-        """Record real AI processing for a business scenario"""
-
-        # Load real business scenario data
-        scenario_data = load_business_scenario(scenario_name)
-
-        interactions = []
-        for email in scenario_data.emails:
-            # Record summarization
-            summary = await real_ollama_client.summarize(email.content)
-            interactions.append(AIInteraction(
-                model='llama-3.1-8b',
-                task='summarization',
-                input=email.content,
-                output=summary,
-                metadata={'email_id': email.id, 'scenario': scenario_name}
-            ))
-
-            # Record entity extraction
-            entities = await real_ollama_client.extract_entities(email.content)
-            interactions.append(AIInteraction(
-                model='llama-3.1-8b',
-                task='entity_extraction',
-                input=email.content,
-                output=entities,
-                metadata={'email_id': email.id, 'scenario': scenario_name}
-            ))
-
-        await self.save_session(f"{scenario_name}_complete", interactions)
-
-# Script to record test sessions
-async def record_test_sessions():
-    recorder = AIResponseRecorder()
-
-    scenarios = [
-        'atlas_project_escalation',
-        'budget_approval_workflow',
-        'meeting_coordination',
-        'crisis_response'
-    ]
-
-    for scenario in scenarios:
-        print(f"Recording {scenario}...")
-        await recorder.record_business_scenario(scenario)
-        print(f"✓ {scenario} recorded")
-
-# Run with: python -m scripts.record_ai_sessions
-```
-
-### Replaying Recorded Sessions
-
-```python
-class AISessionReplay:
-    def __init__(self, session_data: dict):
-        self.session_data = session_data
-        self.interactions = {
-            self._interaction_key(i): i
-            for i in session_data['interactions']
-        }
-
-    def _interaction_key(self, interaction: dict) -> str:
-        """Create lookup key for interaction"""
-        content_hash = hashlib.md5(interaction['input'].encode()).hexdigest()
-        return f"{interaction['model']}:{interaction['task']}:{content_hash[:8]}"
-
-    async def replay_interaction(self, model: str, task: str, input_content: str):
-        """Replay recorded interaction"""
-        content_hash = hashlib.md5(input_content.encode()).hexdigest()
-        key = f"{model}:{task}:{content_hash[:8]}"
-
-        if key in self.interactions:
-            interaction = self.interactions[key]
-            return interaction['output']
-        else:
-            # Fallback to pattern-based mock if no recording found
-            return self._generate_fallback(task, input_content)
-
-# Test fixture for recorded responses
-@pytest.fixture
-def recorded_ai_sessions():
-    recorder = AIResponseRecorder()
-
-    sessions = {
-        'atlas_project': recorder.load_session('atlas_project_escalation_complete'),
-        'budget_approval': recorder.load_session('budget_approval_workflow_complete'),
-        'meeting_coordination': recorder.load_session('meeting_coordination_complete'),
-        'crisis_response': recorder.load_session('crisis_response_complete')
-    }
-
-    return sessions
-
-@pytest.mark.slow
-async def test_atlas_project_complete_workflow(recorded_ai_sessions):
-    """Test complete Atlas project workflow with recorded AI responses"""
-
-    session = recorded_ai_sessions['atlas_project']
-
-    # Process Atlas project emails with recorded responses
-    emails = load_atlas_project_emails()
-
-    with patch('penf_lib.ai.ollama_client.generate') as mock_generate:
-        mock_generate.side_effect = session.replay_interaction
-
-        results = []
-        for email in emails:
-            result = await process_email_complete(email)
-            results.append(result)
-
-    # Validate recorded session produced expected results
-    assert len(results) == len(emails)
-    assert all(r.success for r in results)
-
-    # Validate extracted entities match recorded session
-    entities = [r.extracted_entities for r in results]
-    assert any('Atlas Integration' in e.projects for e in entities)
-    assert any('James Brown' in e.people for e in entities)
-```
-
-## Mock Response Quality Validation
-
-### Response Realism Scoring
-
-```python
-class MockQualityValidator:
-    def validate_response_quality(self, mock_response: str, expected_type: str) -> float:
-        """Score mock response quality from 0.0 to 1.0"""
-        score = 0.0
-
-        # Length appropriateness
-        if expected_type == 'summary':
-            if 50 <= len(mock_response) <= 200:
-                score += 0.2
-        elif expected_type == 'entity_extraction':
-            if len(mock_response) > 20:  # Non-trivial extraction
-                score += 0.2
-
-        # Business language appropriateness
-        business_terms = ['project', 'timeline', 'decision', 'team', 'deadline', 'status']
-        if any(term in mock_response.lower() for term in business_terms):
-            score += 0.3
-
-        # Format validation for structured responses
-        if expected_type == 'entity_extraction':
-            try:
-                parsed = json.loads(mock_response)
-                if all(key in parsed for key in ['people', 'projects']):
-                    score += 0.3
-                if all(isinstance(parsed[key], list) for key in parsed):
-                    score += 0.2
-            except json.JSONDecodeError:
-                pass  # No penalty for non-JSON responses
-
-        # Consistency check (same input should produce same output)
-        return score
-
-# Quality validation in tests
-def test_mock_response_quality():
-    validator = MockQualityValidator()
-    mock_server = OllamaMockServer()
-
-    # Test summary quality
-    summary_response = mock_server._deterministic_response(
-        'llama-3.1-8b',
-        'Summarize this email about Atlas project timeline concerns'
-    )
-
-    quality_score = validator.validate_response_quality(
-        summary_response['response'],
-        'summary'
-    )
-
-    assert quality_score > 0.7  # Minimum quality threshold
-```
-
-### Mock Performance Validation
-
-```python
-@pytest.mark.performance
-class TestMockPerformance:
-    async def test_ollama_mock_performance(self, benchmark_timer):
-        """Ensure Ollama mocks meet <100ms target"""
-        mock_server = OllamaMockServer()
-
-        timer = benchmark_timer()
-        timer.start()
-
-        response = await mock_server.generate(
-            'llama-3.1-8b',
-            'Extract entities from this business email content'
-        )
-
-        timer.stop()
-
-        assert timer.elapsed_ms < 100
-        assert response is not None
-        assert 'response' in response
-
-    async def test_cloud_api_mock_performance(self, benchmark_timer):
-        """Ensure cloud API mocks meet <100ms target"""
-        mock_api = CloudAPIMock('gemini')
-
-        timer = benchmark_timer()
-        timer.start()
-
-        response = await mock_api.generate_content(
-            'Categorize this email as project update, escalation, or meeting coordination'
-        )
-
-        timer.stop()
-
-        assert timer.elapsed_ms < 100
-        assert response.content is not None
-
-    async def test_mock_concurrent_performance(self):
-        """Test mock performance under concurrent load"""
-        mock_server = OllamaMockServer()
-
-        async def single_request():
-            return await mock_server.generate('llama-3.1-8b', 'Test prompt')
-
-        # Run 50 concurrent requests
-        tasks = [single_request() for _ in range(50)]
-
-        start_time = time.time()
-        results = await asyncio.gather(*tasks)
-        total_time = time.time() - start_time
-
-        # Should complete 50 requests in under 1 second
-        assert total_time < 1.0
-        assert len(results) == 50
-        assert all(r is not None for r in results)
-```
-
-## Configuration and Environment Setup
-
-### Test Environment Configuration
-
-```python
-# test_config.py
-TEST_AI_CONFIG = {
-    'unit': {
-        'mode': 'full_mock',
-        'response_source': 'pattern_library',
-        'performance_target_ms': 100,
-        'deterministic': True
-    },
-    'integration': {
-        'mode': 'lightweight_models',
-        'models': LIGHTWEIGHT_MODELS,
-        'performance_target_ms': 10000,
-        'ollama_options': {
-            'temperature': 0.1,
-            'top_p': 0.8,
-            'top_k': 20
-        }
-    },
-    'e2e': {
-        'mode': 'recorded_responses',
-        'response_source': 'test-data/ai-responses',
-        'fallback_mode': 'lightweight_models',
-        'performance_target_ms': 30000
+func NewLLMClient(baseURL string) *LLMClient {
+    return &LLMClient{
+        baseURL:    baseURL,
+        httpClient: &http.Client{Timeout: 60 * time.Second},
     }
 }
 
-def get_ai_config(test_type: str) -> dict:
-    return TEST_AI_CONFIG.get(test_type, TEST_AI_CONFIG['unit'])
+func (c *LLMClient) CompleteWithSystem(ctx context.Context, system, prompt string) (string, error) {
+    reqBody := map[string]any{
+        "model": "qwen2.5-32b-instruct",
+        "messages": []map[string]string{
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        },
+        "temperature": 0.0,  // More deterministic for tests
+        "max_tokens":  1000,
+    }
+
+    body, _ := json.Marshal(reqBody)
+    req, _ := http.NewRequestWithContext(ctx, "POST",
+        c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+    req.Header.Set("Content-Type", "application/json")
+
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return "", fmt.Errorf("LLM request failed: %w", err)
+    }
+    defer resp.Body.Close()
+
+    // Parse response...
+    return content, nil
+}
 ```
 
-### Environment Variables
+### Semantic Assertions for LLM Output
 
-```bash
-# AI mocking behavior
-export AI_MOCK_MODE=deterministic     # deterministic, lightweight, recorded
-export AI_MOCK_DEBUG=1                # Enable debug logging
-export AI_RESPONSE_CACHE_DIR=./test-data/ai-responses
+```go
+// tests/e2e/assertions.go
+type ResolvedMention struct {
+    PersonID      int64   `json:"person_id"`
+    CanonicalName string  `json:"canonical_name"`
+    Confidence    float64 `json:"confidence"`
+}
 
-# Performance controls
-export AI_MOCK_LATENCY_MS=0           # Add artificial latency
-export AI_MOCK_FAILURE_RATE=0.0       # Simulate failures (0.0-1.0)
+// AssertMentionResolved verifies LLM resolved a mention correctly
+func AssertMentionResolved(t *testing.T, response string, expectedName string) {
+    t.Helper()
 
-# Model configuration
-export OLLAMA_HOST=http://localhost:11434
-export LIGHTWEIGHT_MODEL_TIMEOUT=10   # Seconds
+    var result ResolvedMention
+    err := json.Unmarshal([]byte(response), &result)
+    if err != nil {
+        // Try extracting from text response
+        assert.Contains(t, response, expectedName, "response should mention the person")
+        return
+    }
+
+    assert.Contains(t, result.CanonicalName, expectedName)
+    assert.Greater(t, result.Confidence, 0.5, "confidence should be reasonable")
+}
 ```
 
-This comprehensive AI mocking strategy ensures fast, reliable tests while maintaining realistic AI behavior for thorough validation of AI-first applications.
+### E2E Test Example
+
+```go
+//go:build e2e
+
+func TestMentionResolutionWithRealLLM(t *testing.T) {
+    env := SetupE2EEnvironment(t)
+
+    // Load fixtures for context
+    err := env.LoadFixture("acme-corp")
+    require.NoError(t, err)
+
+    client := NewLLMClient(env.LLMURL)
+    ctx := context.Background()
+
+    // Build context from fixtures
+    peopleContext := buildPeopleContext(t, env)
+
+    response, err := client.CompleteWithSystem(ctx,
+        mentionResolutionSystemPrompt,
+        fmt.Sprintf(`Text: "John mentioned the timeline concerns."
+
+Available people:
+%s
+
+Identify who "John" refers to. Return JSON.`, peopleContext),
+    )
+    require.NoError(t, err)
+
+    // Semantic assertion - LLM output is non-deterministic
+    AssertMentionResolved(t, response, "John Smith")
+}
+```
+
+## Cloud API Testing (Live Tests)
+
+### Gemini API Test
+
+```go
+//go:build live
+
+func TestGeminiAPIConnection(t *testing.T) {
+    apiKey := RequireGeminiAPIKey(t)
+
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    url := fmt.Sprintf(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=%s",
+        apiKey,
+    )
+
+    reqBody := map[string]any{
+        "contents": []map[string]any{
+            {"parts": []map[string]string{{"text": "What is 2 + 2?"}}},
+        },
+        "generationConfig": map[string]any{
+            "temperature":    0.0,
+            "maxOutputTokens": 100,
+        },
+    }
+
+    body, _ := json.Marshal(reqBody)
+    req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+    req.Header.Set("Content-Type", "application/json")
+
+    resp, err := http.DefaultClient.Do(req)
+    require.NoError(t, err)
+    defer resp.Body.Close()
+
+    require.Equal(t, http.StatusOK, resp.StatusCode)
+
+    // Parse and verify response contains "4"
+    // ...
+}
+```
+
+### Embeddings API Test
+
+```go
+//go:build live
+
+func TestGeminiEmbeddings(t *testing.T) {
+    apiKey := RequireGeminiAPIKey(t)
+
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    url := fmt.Sprintf(
+        "https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=%s",
+        apiKey,
+    )
+
+    reqBody := map[string]any{
+        "model": "models/embedding-001",
+        "content": map[string]any{
+            "parts": []map[string]string{
+                {"text": "This is a test document for embedding generation."},
+            },
+        },
+    }
+
+    // ... make request ...
+
+    // Verify embedding dimensions
+    assert.Equal(t, 768, len(result.Embedding.Values), "embedding-001 returns 768 dimensions")
+}
+```
+
+## Mock Quality Best Practices
+
+### Response Realism
+
+```go
+// Good: Realistic mock response
+mockLLM.On("CompleteWithSystem", mock.Anything, mock.Anything, mock.Anything).
+    Return(`{
+        "person_id": 1,
+        "canonical_name": "John Smith",
+        "confidence": 0.92,
+        "reasoning": "First name match with high confidence"
+    }`, nil)
+
+// Bad: Oversimplified response
+mockLLM.On("Complete", mock.Anything, mock.Anything).
+    Return("John Smith", nil)  // Missing structure
+```
+
+### Test Isolation
+
+```go
+func TestFeatureA(t *testing.T) {
+    mockLLM := new(MockLLMClient)  // Fresh mock per test
+    // ...
+}
+
+func TestFeatureB(t *testing.T) {
+    mockLLM := new(MockLLMClient)  // Fresh mock per test
+    // ...
+}
+```
+
+### Verification
+
+```go
+func TestAllExpectationsMet(t *testing.T) {
+    mockLLM := new(MockLLMClient)
+    mockLLM.On("Complete", mock.Anything, mock.Anything).Return("response", nil)
+
+    // ... use mock ...
+
+    // Verify all expected calls were made
+    mockLLM.AssertExpectations(t)
+}
+
+func TestCallCount(t *testing.T) {
+    mockLLM := new(MockLLMClient)
+    mockLLM.On("Complete", mock.Anything, mock.Anything).Return("response", nil)
+
+    // ... use mock multiple times ...
+
+    // Verify exact call count
+    mockLLM.AssertNumberOfCalls(t, "Complete", 3)
+}
+```
+
+## Performance Validation
+
+```go
+func TestMockPerformance(t *testing.T) {
+    mockLLM := new(MockLLMClient)
+    mockLLM.On("Complete", mock.Anything, mock.Anything).Return("response", nil)
+
+    start := time.Now()
+
+    for i := 0; i < 1000; i++ {
+        _, _ = mockLLM.Complete(context.Background(), "test prompt")
+    }
+
+    elapsed := time.Since(start)
+
+    // 1000 mock calls should complete in under 100ms
+    assert.Less(t, elapsed.Milliseconds(), int64(100),
+        "mock performance should be fast")
+}
+```
+
+## Environment Configuration
+
+### Test Helper for LLM Availability
+
+```go
+// tests/e2e/helpers.go
+func (e *E2EEnv) LLMAvailable() bool {
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    req, _ := http.NewRequestWithContext(ctx, "GET", e.LLMURL+"/v1/models", nil)
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        return false
+    }
+    defer resp.Body.Close()
+    return resp.StatusCode == http.StatusOK
+}
+```
+
+### Graceful Skipping
+
+```go
+func SetupE2EEnvironment(t *testing.T) *E2EEnv {
+    t.Helper()
+
+    llmURL := os.Getenv("LLM_URL")
+    if llmURL == "" {
+        llmURL = "http://localhost:8080"
+    }
+
+    env := &E2EEnv{LLMURL: llmURL}
+
+    if !env.LLMAvailable() {
+        t.Skip("Local LLM not available - skipping E2E test")
+    }
+
+    return env
+}
+```
+
+### Live Test Prerequisites
+
+```go
+func RequireGeminiAPIKey(t *testing.T) string {
+    t.Helper()
+
+    key := os.Getenv("GEMINI_API_KEY")
+    if key == "" {
+        t.Skip("GEMINI_API_KEY not set - skipping live test")
+    }
+    return key
+}
+```
+
+## Summary
+
+| Test Type | Mock Strategy | When to Use |
+|-----------|--------------|-------------|
+| Unit | testify/mock | Fast, deterministic component tests |
+| Integration | testify/mock | Database + component interaction |
+| E2E | Real LLM (vLLM-MLX) | Full workflow validation |
+| Live | Real Cloud APIs | API connectivity verification |
+
+Key principles:
+- Use mocks for speed and determinism in unit tests
+- Use real LLM with semantic assertions for E2E tests
+- Skip gracefully when prerequisites are missing
+- Verify mock expectations are met
+- Keep mock responses realistic

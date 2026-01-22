@@ -1,104 +1,250 @@
 # Testing Patterns
 
-> **Note**: Code examples are from the original Python implementation for reference. Go tests use standard `testing` package patterns.
+Go testing patterns for Penfold's four-tier test architecture.
 
-## 8. Multi-Tiered AI Mocking Strategy
+## 1. Build Tag Test Categorization
 
-**Pattern**: Different mocking approaches based on test type and performance requirements
+**Pattern**: Use Go build tags to separate test tiers with different dependencies
 
-**Implementation Tiers**:
-- **Unit Tests**: Full mocking with deterministic responses (<100ms)
-- **Integration Tests**: Lightweight models for realistic behavior (<10s)
-- **End-to-End Tests**: Record/replay real AI responses (<30s)
+```go
+//go:build integration
 
-**Key Components**:
-- Deterministic response patterns based on prompt analysis
-- Response caching and replay infrastructure
-- Lightweight model substitution for fast testing
-- Performance validation for each tier
+package integration
 
-## 9. Container-Based Environment Isolation
+// This file only compiles when: go test -tags=integration
+```
 
-**Pattern**: Isolated test environments using Docker with in-memory storage for performance
+**Implementation**:
+| Tag | Purpose | Dependencies |
+|-----|---------|--------------|
+| (none) | Unit tests | Mocks only |
+| `integration` | Database tests | PostgreSQL |
+| `e2e` | End-to-end tests | PostgreSQL + LLM |
+| `live` | Cloud API tests | External APIs |
 
-**Implementation Details**:
-- PostgreSQL with pgvector in tmpfs for fast database operations
-- Redis in-memory for event processing
-- Mock AI services with response libraries
-- Parallel test execution without interference
+## 2. Test Database Isolation
 
-## 10. Realistic Test Data Management
+**Pattern**: Separate test databases with automatic cleanup
 
-**Pattern**: Consistent, business-representative test data with anonymization
+```go
+// tests/integration/helpers.go
+func SetupTestDB(t *testing.T) *TestDB {
+    t.Helper()
 
-**Implementation Details**:
-- Parameterized fixtures for different business scenarios
-- Realistic email threads, meeting transcripts, and document collections
-- Consistent entity relationships across test scenarios
-- Performance-optimized data loading and generation
+    // Connect to dedicated test database
+    dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold_test_integration")
+    pool, err := pgxpool.New(ctx, connStr)
+    require.NoError(t, err)
 
-## 11. Performance Benchmarking Integration
+    testDB := &TestDB{Pool: pool, Name: dbName}
 
-**Pattern**: Automated performance validation with timing utilities and success criteria
+    // Register cleanup
+    t.Cleanup(func() {
+        pool.Close()
+    })
 
-**Implementation Details**:
-- Benchmark timing utilities for precise measurement
-- Performance targets integrated into test assertions
-- Automated regression detection for response times
-- Resource monitoring and bottleneck identification
+    return testDB
+}
 
-**Performance Targets**:
-| Operation | Target |
-|-----------|--------|
-| CRUD operations | <100ms |
-| Vector search | <500ms |
-| AI processing | <10s |
-| Environment setup | <60s |
+// Truncate between tests for isolation
+func (db *TestDB) TruncateAllTables(t *testing.T) {
+    // Truncates all user tables, preserves schema_migrations
+}
+```
 
-## 12. Test Categorization and Environment Controls
+**Key Points**:
+- Integration tests: `penfold_test_integration` on home-01
+- E2E tests: `penfold_test_e2e` on home-01
+- Cleanup via `t.Cleanup()` for automatic resource release
 
-**Pattern**: Automatic test categorization with environment-specific execution controls
+## 3. YAML Fixture Loading
 
-**Implementation Details**:
-- Automatic marking based on test file location and fixtures
-- Environment variables for skipping expensive tests
-- Custom test markers for different test types
-- CI/CD integration with selective test execution
+**Pattern**: Type-safe YAML fixtures with database loader
 
----
+```go
+// pkg/testfixtures/types.go
+type PersonFixture struct {
+    ID            int64    `yaml:"id"`
+    CanonicalName string   `yaml:"canonical_name"`
+    Email         string   `yaml:"email"`
+    Aliases       []string `yaml:"aliases"`
+}
 
-## Testing Performance Patterns
+// pkg/testfixtures/loader.go
+func (l *Loader) LoadAcmeCorp(ctx context.Context) error {
+    // Load in dependency order
+    if err := l.LoadTeams(ctx); err != nil { return err }
+    if err := l.LoadPeople(ctx); err != nil { return err }
+    if err := l.LoadProjects(ctx); err != nil { return err }
+    if err := l.LoadGlossary(ctx); err != nil { return err }
+    return nil
+}
+```
 
-### AI Mock Performance
-- **Unit Test Mocks**: <100ms response time for deterministic patterns
-- **Integration Mocks**: <10s with lightweight models
-- **E2E Recorded**: <30s with cached real AI responses
-- **Load Testing**: 50+ concurrent AI operations with simulated latency
+**Fixture Files**:
+- `tests/fixtures/acme-corp/people.yaml` - 20 employees
+- `tests/fixtures/acme-corp/teams.yaml` - 7 teams
+- `tests/fixtures/acme-corp/glossary.yaml` - 50+ terms
 
-### Environment Performance
-- **Test Environment Setup**: <60 seconds for full containerized stack
-- **Parallel Test Execution**: 5+ concurrent test suites without interference
-- **Database Test Isolation**: 100% isolation through transaction rollback
-- **Environment Teardown**: <30 seconds for complete cleanup
+## 4. LLM Testing with Semantic Assertions
 
-### Test Data Performance
-- **Fixture Loading**: <15 seconds for complete business scenario data
-- **Data Generation**: Real-time creation of consistent test entities
-- **Cross-Test Consistency**: 100% reproducible test results
-- **Memory Management**: Efficient cleanup preventing test pollution
+**Pattern**: Test LLM behavior with structure verification, not exact text matching
 
----
+```go
+// E2E test with real LLM
+func TestMentionResolution(t *testing.T) {
+    env := SetupE2EEnvironment(t)
+    client := NewLLMClient(env.LLMURL)
 
-## Testing Security Patterns
+    response, err := client.Complete(ctx, prompt)
+    require.NoError(t, err)
 
-### AI Response Security
-- **Response Sanitization**: All recorded AI responses anonymized
-- **Test Data Privacy**: Business-representative but privacy-safe content
-- **Model Access Control**: Isolated AI services for testing environments
-- **API Key Management**: Separate credentials for test environments
+    // Semantic assertion - verify structure, not exact text
+    assert.Contains(t, response, "John Smith")  // Person resolved
+    assert.NotContains(t, response, "UNKNOWN")  // Not unresolved
+}
 
-### Environment Security
-- **Container Isolation**: Complete separation between test environments
-- **Database Security**: Isolated test databases with limited permissions
-- **Network Isolation**: Test services cannot access production systems
-- **Secret Management**: Environment-specific configuration and credentials
+// Unit test with mock
+func TestMentionResolution_Mock(t *testing.T) {
+    mockLLM := new(MockLLMClient)
+    mockLLM.On("Complete", mock.Anything, mock.Anything).
+        Return(`{"person_id": 1, "confidence": 0.95}`, nil)
+
+    // Deterministic, fast test
+}
+```
+
+**Key Points**:
+- E2E: Use `temperature=0` for more deterministic output
+- E2E: Assert on structure and key content, not exact text
+- Unit: Full mocking for speed and determinism
+
+## 5. Graceful Test Skipping
+
+**Pattern**: Skip tests when prerequisites unavailable
+
+```go
+func SetupE2EEnvironment(t *testing.T) *E2EEnv {
+    password := os.Getenv("PENFOLD_DB_PASSWORD")
+    if password == "" {
+        t.Skip("PENFOLD_DB_PASSWORD not set - skipping E2E test")
+    }
+
+    env := &E2EEnv{...}
+
+    if !env.LLMAvailable() {
+        t.Skip("Local LLM not available - skipping E2E test")
+    }
+
+    return env
+}
+
+// Live test pattern
+func RequireGeminiAPIKey(t *testing.T) string {
+    key := os.Getenv("GEMINI_API_KEY")
+    if key == "" {
+        t.Skip("GEMINI_API_KEY not set - skipping live test")
+    }
+    return key
+}
+```
+
+## 6. Test Helper Organization
+
+**Pattern**: Helpers in same package as tests, shared fixtures in `pkg/testfixtures`
+
+```
+tests/
+├── integration/
+│   ├── helpers.go          # SetupTestDB, TruncateAllTables
+│   └── *_test.go
+├── e2e/
+│   ├── helpers.go          # SetupE2EEnvironment
+│   ├── assertions.go       # AssertMentionResolved, etc.
+│   ├── llm_client.go       # OpenAI-compatible client
+│   └── *_test.go
+└── live/
+    ├── helpers.go          # RequireGeminiAPIKey, etc.
+    └── *_test.go
+
+pkg/testfixtures/           # Shared across all test tiers
+├── types.go
+├── loader.go
+└── validate_test.go
+```
+
+## 7. CI/CD Test Execution
+
+**Pattern**: Progressive test execution based on trigger
+
+```yaml
+# Unit tests: All pushes
+unit-tests:
+  runs-on: ubuntu-latest
+  run: go test -short ./pkg/...
+
+# Integration tests: PRs and main
+integration-tests:
+  needs: unit-tests
+  if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+  services:
+    postgres:
+      image: pgvector/pgvector:pg16
+  run: go test -tags=integration ./tests/integration/...
+
+# E2E tests: Main only, self-hosted runner
+e2e-tests:
+  needs: integration-tests
+  if: github.ref == 'refs/heads/main'
+  runs-on: [self-hosted, macos, ARM64]
+  run: go test -tags=e2e ./tests/e2e/...
+```
+
+## 8. Flaky Test Quarantine
+
+**Pattern**: Isolate flaky tests with dedicated build tag
+
+```go
+//go:build flaky
+
+func TestSometimesFails(t *testing.T) {
+    // TODO: Fix by 2026-02-15 - describe root cause
+    // This test is quarantined due to timing sensitivity
+}
+```
+
+```bash
+# Run quarantined tests separately
+go test -tags=flaky ./... -v
+```
+
+## Performance Targets
+
+| Test Tier | Target Duration | Dependencies |
+|-----------|-----------------|--------------|
+| Unit (per test) | <100ms | None |
+| Unit (total) | <10s | None |
+| Integration (total) | <60s | PostgreSQL |
+| E2E (total) | <5min | PostgreSQL + LLM |
+| Live | Varies | Cloud APIs |
+
+## Security Patterns
+
+### Test Data Privacy
+- Fixtures use fictional "Acme Corp" organization
+- No real PII in test data
+- Sample emails are synthetic
+
+### Credential Management
+```bash
+# Never commit credentials
+source ~/github/otherjamesbrown/secrets/.env.penfold
+
+# Environment-specific databases
+export PENFOLD_DB_NAME=penfold_test_integration
+```
+
+### API Key Isolation
+- Live tests use separate API keys
+- Tests skip gracefully when keys missing
+- No API calls in unit or integration tests
