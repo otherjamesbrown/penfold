@@ -1,40 +1,89 @@
 # AI Model Mocking Strategies
 
-Go-based AI mocking framework for testing Penfold's AI-first architecture using testify/mock.
+Go-based AI mocking framework for testing Penfold's AI-first architecture using testify/mock and interface-based patterns.
 
 ## Mocking Strategy Overview
 
-### Two-Tiered Approach
+### Three-Tiered Approach
 
 | Test Type | AI Strategy | Performance Target | Use Case |
 |-----------|-------------|-------------------|----------|
 | Unit | Full Mocking (testify/mock) | <100ms | Component isolation |
+| Integration | Function-Based Mocks | <10s | Multi-component testing |
 | E2E | Real LLM (vLLM-MLX) | <30s per test | Complete workflow validation |
+
+### Mocking Patterns in Penfold
+
+The codebase uses two primary mocking approaches:
+
+1. **testify/mock pattern** - For complex interfaces requiring expectation verification
+2. **Function-based mocks** - For simpler interfaces with configurable behavior
 
 ## Unit Test Mocking (Full Mocking)
 
-### testify/mock Pattern
+### testify/mock Pattern (LLM Provider)
+
+This pattern is used for complex interfaces that require expectation verification. From `pkg/mentions/resolver/resolver_test.go`:
 
 ```go
-// pkg/ai/llm_client.go - Define interface
-type LLMClient interface {
-    Complete(ctx context.Context, prompt string) (string, error)
-    CompleteWithSystem(ctx context.Context, system, prompt string) (string, error)
-}
+import (
+    "context"
+    "github.com/stretchr/testify/mock"
+)
 
-// Mock implementation for tests
-type MockLLMClient struct {
+// MockLLMProvider implements LLMProvider for testing.
+type MockLLMProvider struct {
     mock.Mock
 }
 
-func (m *MockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
-    args := m.Called(ctx, prompt)
-    return args.String(0), args.Error(1)
+func (m *MockLLMProvider) Name() string {
+    args := m.Called()
+    return args.String(0)
 }
 
-func (m *MockLLMClient) CompleteWithSystem(ctx context.Context, system, prompt string) (string, error) {
-    args := m.Called(ctx, system, prompt)
-    return args.String(0), args.Error(1)
+func (m *MockLLMProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
+    args := m.Called(ctx, req)
+    if args.Get(0) == nil {
+        return nil, args.Error(1)
+    }
+    return args.Get(0).(*CompletionResponse), args.Error(1)
+}
+
+func (m *MockLLMProvider) CompleteStructured(ctx context.Context, req CompletionRequest, target interface{}) error {
+    args := m.Called(ctx, req, target)
+    return args.Error(0)
+}
+
+func (m *MockLLMProvider) IsAvailable(ctx context.Context) bool {
+    args := m.Called(ctx)
+    return args.Bool(0)
+}
+
+func (m *MockLLMProvider) Close() error {
+    args := m.Called()
+    return args.Error(0)
+}
+```
+
+### Function-Based Mock Pattern (AI Client)
+
+For simpler mocking needs, use function-based mocks. From `services/content/entity/extractor_test.go`:
+
+```go
+// MockAIClient is a mock implementation of the AIClient interface.
+type MockAIClient struct {
+    CompleteFunc func(ctx context.Context, prompt string, opts *CompletionOptions) (*CompletionResponse, error)
+}
+
+func (m *MockAIClient) Complete(ctx context.Context, prompt string, opts *CompletionOptions) (*CompletionResponse, error) {
+    if m.CompleteFunc != nil {
+        return m.CompleteFunc(ctx, prompt, opts)
+    }
+    // Return empty response by default
+    return &CompletionResponse{
+        Text:  "[]",
+        Model: "mock-model",
+    }, nil
 }
 ```
 
@@ -108,6 +157,188 @@ func TestMentionResolution(t *testing.T) {
 }
 ```
 
+### Embedding Client Mocking
+
+The embedding client uses a built-in mock. From `pkg/embeddings/client.go`:
+
+```go
+// MockClient is a mock implementation of the Client interface for testing.
+type MockClient struct {
+    embedFunc      func(ctx context.Context, text string) ([]float32, error)
+    batchEmbedFunc func(ctx context.Context, texts []string) ([][]float32, error)
+    dimensions     int
+    modelInfo      *ModelInfo
+}
+
+// NewMockClient creates a new mock embedding client.
+func NewMockClient(dimensions int, embedFunc func(ctx context.Context, text string) ([]float32, error)) *MockClient {
+    return &MockClient{
+        embedFunc:  embedFunc,
+        dimensions: dimensions,
+        modelInfo: &ModelInfo{
+            Name:        "mock-model",
+            Dimensions:  dimensions,
+            MaxTokens:   512,
+            Provider:    "mock",
+            IsLocal:     true,
+            Description: "Mock embedding model for testing",
+        },
+    }
+}
+
+func (m *MockClient) Embed(ctx context.Context, text string) ([]float32, error) {
+    if m.embedFunc != nil {
+        return m.embedFunc(ctx, text)
+    }
+    // Default: return zero vector
+    return make([]float32, m.dimensions), nil
+}
+```
+
+Usage example:
+
+```go
+func TestSearchWithEmbeddings(t *testing.T) {
+    // Create mock that returns predictable embeddings
+    mockClient := embeddings.NewMockClient(1024, func(ctx context.Context, text string) ([]float32, error) {
+        // Return consistent embedding based on input
+        if strings.Contains(text, "project") {
+            return projectEmbedding, nil
+        }
+        return defaultEmbedding, nil
+    })
+
+    searcher := NewSearcher(mockClient)
+    results, err := searcher.Search(ctx, "project timeline")
+
+    require.NoError(t, err)
+    assert.NotEmpty(t, results)
+}
+```
+
+## Temporal Workflow Mocking
+
+For Temporal workflows that invoke AI activities, use the Temporal test suite with mock activities. From `services/worker/workflows/content_test.go`:
+
+### Mock Activity Struct
+
+```go
+import (
+    "github.com/stretchr/testify/mock"
+    "github.com/stretchr/testify/suite"
+    "go.temporal.io/sdk/activity"
+    "go.temporal.io/sdk/testsuite"
+)
+
+// ContentIngestionMockActivities provides mock implementations for content ingestion activities.
+type ContentIngestionMockActivities struct {
+    mock.Mock
+}
+
+func (m *ContentIngestionMockActivities) GenerateContentEmbedding(ctx context.Context, input GenerateEmbeddingInput) (int64, error) {
+    args := m.Called(ctx, input)
+    return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *ContentIngestionMockActivities) GenerateContentSummary(ctx context.Context, input GenerateSummaryInput) (int64, error) {
+    args := m.Called(ctx, input)
+    return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *ContentIngestionMockActivities) ExtractEntities(ctx context.Context, input ExtractEntitiesInput) (int, error) {
+    args := m.Called(ctx, input)
+    return args.Get(0).(int), args.Error(1)
+}
+```
+
+### Workflow Test Suite
+
+```go
+type ContentIngestionWorkflowTestSuite struct {
+    suite.Suite
+    testsuite.WorkflowTestSuite
+
+    env        *testsuite.TestWorkflowEnvironment
+    activities *ContentIngestionMockActivities
+}
+
+func (s *ContentIngestionWorkflowTestSuite) SetupTest() {
+    s.env = s.NewTestWorkflowEnvironment()
+    s.activities = &ContentIngestionMockActivities{}
+
+    // Register mock activities
+    s.env.RegisterActivityWithOptions(s.activities.GenerateContentEmbedding, activity.RegisterOptions{
+        Name: "GenerateContentEmbedding",
+    })
+    s.env.RegisterActivityWithOptions(s.activities.GenerateContentSummary, activity.RegisterOptions{
+        Name: "GenerateContentSummary",
+    })
+}
+
+func (s *ContentIngestionWorkflowTestSuite) AfterTest(suiteName, testName string) {
+    s.env.AssertExpectations(s.T())
+}
+```
+
+### Testing AI Workflow Success
+
+```go
+func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Success() {
+    // Arrange - mock AI activities
+    s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(input GenerateEmbeddingInput) bool {
+        return input.TenantID == "tenant-123" && input.SourceID == 456
+    })).Return(int64(1001), nil)
+
+    s.activities.On("GenerateContentSummary", mock.Anything, mock.MatchedBy(func(input GenerateSummaryInput) bool {
+        return input.TenantID == "tenant-123" && input.SourceID == 456
+    })).Return(int64(2001), nil)
+
+    s.activities.On("ExtractEntities", mock.Anything, mock.Anything).Return(5, nil)
+
+    // Act
+    s.env.ExecuteWorkflow(ContentIngestionWorkflow, pkgtemporal.ContentIngestionInput{
+        TenantID: "tenant-123",
+        SourceID: 456,
+    })
+
+    // Assert
+    require.True(s.T(), s.env.IsWorkflowCompleted())
+    require.NoError(s.T(), s.env.GetWorkflowError())
+
+    var result ContentIngestionResult
+    require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+    s.Equal(int64(1001), *result.EmbeddingID)
+    s.Equal(5, result.EntityCount)
+}
+```
+
+### Testing AI Activity Failures (Graceful Degradation)
+
+```go
+func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_EmbeddingFailsContinues() {
+    // Embedding fails but workflow continues with other activities
+    s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(
+        int64(0),
+        temporal.NewApplicationError("embedding service unavailable", "ServiceUnavailable"),
+    )
+
+    // Other activities succeed
+    s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
+    s.activities.On("ExtractEntities", mock.Anything, mock.Anything).Return(3, nil)
+
+    s.env.ExecuteWorkflow(ContentIngestionWorkflow, input)
+
+    // Workflow completes successfully despite embedding failure
+    require.True(s.T(), s.env.IsWorkflowCompleted())
+    require.NoError(s.T(), s.env.GetWorkflowError())
+
+    var result ContentIngestionResult
+    require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+    s.Equal("completed", result.Status)
+    s.Nil(result.EmbeddingID)  // Embedding failed but workflow continued
+}
+```
+
 ## Error Handling Mocks
 
 ### Simulating LLM Failures
@@ -162,6 +393,113 @@ func TestInvalidJSON(t *testing.T) {
 }
 ```
 
+## Service Mock Patterns
+
+### Embedding Cache Mocking
+
+For testing embedding cache behavior. From `pkg/embeddings/cache_test.go`:
+
+```go
+// MockRedisClient implements RedisClient for testing
+type MockRedisClient struct {
+    data      map[string][]byte
+    getErr    error
+    setErr    error
+    delErr    error
+    flushErr  error
+    dbSizeErr error
+}
+
+func NewMockRedisClient() *MockRedisClient {
+    return &MockRedisClient{
+        data: make(map[string][]byte),
+    }
+}
+
+func (m *MockRedisClient) Get(ctx context.Context, key string) ([]byte, error) {
+    if m.getErr != nil {
+        return nil, m.getErr
+    }
+    if data, ok := m.data[key]; ok {
+        return data, nil
+    }
+    return nil, errors.New("key not found")
+}
+
+func (m *MockRedisClient) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+    if m.setErr != nil {
+        return m.setErr
+    }
+    m.data[key] = value
+    return nil
+}
+```
+
+Usage:
+
+```go
+func TestRedisCache_GetSet(t *testing.T) {
+    client := NewMockRedisClient()
+    cache, _ := NewRedisCache(nil, client)
+    ctx := context.Background()
+
+    // Test cache miss
+    _, err := cache.Get(ctx, "nonexistent")
+    require.True(t, errors.Is(err, ErrCacheMiss))
+
+    // Test cache hit
+    embedding := []float32{1.0, 2.0, 3.0}
+    err = cache.Set(ctx, "test", embedding)
+    require.NoError(t, err)
+
+    result, err := cache.Get(ctx, "test")
+    require.NoError(t, err)
+    require.Equal(t, len(embedding), len(result))
+}
+```
+
+### LLM Service Mock (Activities)
+
+For Temporal activities that call LLM services. From `services/worker/activities/activities_test.go`:
+
+```go
+// MockLLMService is a mock implementation for testing.
+type MockLLMService struct {
+    SummarizeFunc func(ctx context.Context, content string) (int64, error)
+    ExtractFunc   func(ctx context.Context, content string) (int, error)
+}
+
+func (m *MockLLMService) Summarize(ctx context.Context, content string) (int64, error) {
+    if m.SummarizeFunc != nil {
+        return m.SummarizeFunc(ctx, content)
+    }
+    return 0, errors.New("SummarizeFunc not set")
+}
+
+func (m *MockLLMService) Extract(ctx context.Context, content string) (int, error) {
+    if m.ExtractFunc != nil {
+        return m.ExtractFunc(ctx, content)
+    }
+    return 0, errors.New("ExtractFunc not set")
+}
+```
+
+Usage:
+
+```go
+func TestGenerateSummary_WithMock_Success(t *testing.T) {
+    mockService := &MockLLMService{
+        SummarizeFunc: func(ctx context.Context, content string) (int64, error) {
+            return 100, nil
+        },
+    }
+
+    summaryID, err := mockService.Summarize(context.Background(), "test content")
+    require.NoError(t, err)
+    require.Equal(t, int64(100), summaryID)
+}
+```
+
 ## E2E Testing with Real LLM
 
 ### LLM Client for E2E Tests
@@ -169,41 +507,43 @@ func TestInvalidJSON(t *testing.T) {
 ```go
 // tests/e2e/llm_client.go
 type LLMClient struct {
-    baseURL    string
-    httpClient *http.Client
+    baseURL string
+    client  *http.Client
 }
 
 func NewLLMClient(baseURL string) *LLMClient {
     return &LLMClient{
-        baseURL:    baseURL,
-        httpClient: &http.Client{Timeout: 60 * time.Second},
+        baseURL: baseURL,
+        client: &http.Client{
+            Timeout: 300 * time.Second, // LLM calls can be slow
+        },
     }
 }
 
+// Chat sends a chat completion request to the LLM.
+func (c *LLMClient) Chat(ctx context.Context, messages []Message) (string, error) {
+    req := ChatCompletionRequest{
+        Model:       "mlx-community/Qwen2.5-32B-Instruct-4bit",
+        Messages:    messages,
+        Temperature: 0.0, // Deterministic for testing
+        MaxTokens:   2048,
+    }
+    // ... make request and parse response
+}
+
+// Complete is a simpler interface for single-turn completion.
+func (c *LLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+    return c.Chat(ctx, []Message{
+        {Role: "user", Content: prompt},
+    })
+}
+
+// CompleteWithSystem sends a prompt with a system message.
 func (c *LLMClient) CompleteWithSystem(ctx context.Context, system, prompt string) (string, error) {
-    reqBody := map[string]any{
-        "model": "qwen2.5-32b-instruct",
-        "messages": []map[string]string{
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        },
-        "temperature": 0.0,  // More deterministic for tests
-        "max_tokens":  1000,
-    }
-
-    body, _ := json.Marshal(reqBody)
-    req, _ := http.NewRequestWithContext(ctx, "POST",
-        c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
-    req.Header.Set("Content-Type", "application/json")
-
-    resp, err := c.httpClient.Do(req)
-    if err != nil {
-        return "", fmt.Errorf("LLM request failed: %w", err)
-    }
-    defer resp.Body.Close()
-
-    // Parse response...
-    return content, nil
+    return c.Chat(ctx, []Message{
+        {Role: "system", Content: system},
+        {Role: "user", Content: prompt},
+    })
 }
 ```
 
@@ -480,14 +820,39 @@ func RequireGeminiAPIKey(t *testing.T) string {
 
 | Test Type | Mock Strategy | When to Use |
 |-----------|--------------|-------------|
-| Unit | testify/mock | Fast, deterministic component tests |
-| Integration | testify/mock | Database + component interaction |
+| Unit | testify/mock or Function-based | Fast, deterministic component tests |
+| Integration | testify/mock with DB | Database + component interaction |
+| Workflow | Temporal TestSuite + Mock Activities | Temporal workflow testing |
 | E2E | Real LLM (vLLM-MLX) | Full workflow validation |
 | Live | Real Cloud APIs | API connectivity verification |
 
-Key principles:
-- Use mocks for speed and determinism in unit tests
-- Use real LLM with semantic assertions for E2E tests
-- Skip gracefully when prerequisites are missing
-- Verify mock expectations are met
-- Keep mock responses realistic
+### Mock Pattern Decision Guide
+
+| Pattern | When to Use | Example |
+|---------|-------------|---------|
+| testify/mock | Complex interfaces, expectation verification | `MockLLMProvider` |
+| Function-based | Simple interfaces, behavior injection | `MockAIClient`, `MockLLMService` |
+| Built-in mock | Library-provided mocks | `embeddings.NewMockClient()` |
+| Temporal TestSuite | Workflow testing | `testsuite.TestWorkflowEnvironment` |
+
+### Key Principles
+
+1. **Use mocks for speed and determinism** in unit tests
+2. **Use function-based mocks** for simple, configurable behavior
+3. **Use testify/mock** when you need expectation verification
+4. **Use real LLM with semantic assertions** for E2E tests
+5. **Test graceful degradation** - AI failures should not crash workflows
+6. **Skip gracefully** when prerequisites are missing
+7. **Keep mock responses realistic** - match expected JSON structures
+
+### File Locations
+
+| Component | Mock Location |
+|-----------|---------------|
+| LLM Provider | `pkg/mentions/resolver/resolver_test.go` |
+| AI Client | `services/content/entity/extractor_test.go` |
+| Embedding Client | `pkg/embeddings/client.go` (built-in) |
+| Redis Cache | `pkg/embeddings/cache_test.go` |
+| Workflow Activities | `services/worker/workflows/content_test.go` |
+| Escalation | `services/ai/escalation/escalation_test.go` |
+| E2E LLM Client | `tests/e2e/llm_client.go` |
