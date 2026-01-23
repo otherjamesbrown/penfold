@@ -682,7 +682,7 @@ func buildWorkflowGuidance() *mentionsv1.WorkflowGuidance {
 }
 
 func getTenantID(ctx context.Context) string {
-	// TODO: Extract from context when multi-tenant support is added
+	// STUB: Returns hardcoded tenant until multi-tenant context propagation is implemented.
 	return "00000001-0000-0000-0000-000000000001"
 }
 

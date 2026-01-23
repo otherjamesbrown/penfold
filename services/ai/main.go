@@ -68,8 +68,7 @@ func main() {
 
 	// Register Ollama health check (non-critical - service can work with cloud-only)
 	healthChecker.RegisterCheck("ollama", func(ctx context.Context) error {
-		// TODO: Implement actual Ollama health check
-		// For now, return nil (assume healthy)
+		// STUB: Returns healthy until Ollama integration is complete.
 		return nil
 	})
 

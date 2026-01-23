@@ -186,8 +186,9 @@ func TestProductFilterWithAllFields(t *testing.T) {
 // ==================== Error Constants Tests ====================
 
 func TestErrorConstants(t *testing.T) {
-	assert.Equal(t, "product not found", ErrNotFound.Error())
-	assert.Equal(t, "alias already exists for another product", ErrAliasConflict.Error())
+	// Error constants now use centralized domain errors from pkg/errors
+	assert.Equal(t, "not found", ErrNotFound.Error())
+	assert.Equal(t, "conflict", ErrAliasConflict.Error())
 }
 
 // ==================== Helper Function Tests ====================

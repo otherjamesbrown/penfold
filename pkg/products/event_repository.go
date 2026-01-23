@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // ==================== ProductEvent Operations ====================
@@ -58,11 +60,11 @@ func (r *Repository) CreateEvent(ctx context.Context, e *ProductEvent) error {
 		return fmt.Errorf("failed to create event: %w", err)
 	}
 
-	r.logger.Debug().
-		Int64("id", e.ID).
-		Str("type", string(e.EventType)).
-		Str("title", e.Title).
-		Msg("Event created")
+	r.logger.Debug("Event created",
+		logging.F("id", e.ID),
+		logging.F("type", string(e.EventType)),
+		logging.F("title", e.Title),
+	)
 
 	return nil
 }
@@ -467,7 +469,10 @@ func (r *Repository) scanEvent(ctx context.Context, query string, args ...any) (
 
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &e.Metadata); err != nil {
-			r.logger.Warn().Err(err).Int64("event_id", e.ID).Msg("Failed to unmarshal event metadata")
+			r.logger.Warn("Failed to unmarshal event metadata",
+				logging.Err(err),
+				logging.F("event_id", e.ID),
+			)
 		}
 	}
 
@@ -501,7 +506,10 @@ func (r *Repository) scanEvents(rows pgx.Rows) ([]*ProductEvent, error) {
 
 		if len(metadataJSON) > 0 {
 			if err := json.Unmarshal(metadataJSON, &e.Metadata); err != nil {
-				r.logger.Warn().Err(err).Int64("event_id", e.ID).Msg("Failed to unmarshal event metadata")
+				r.logger.Warn("Failed to unmarshal event metadata",
+					logging.Err(err),
+					logging.F("event_id", e.ID),
+				)
 			}
 		}
 

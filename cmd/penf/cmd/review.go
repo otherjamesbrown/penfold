@@ -70,15 +70,15 @@ type ReviewItem struct {
 
 // ReviewSession represents an active review session.
 type ReviewSession struct {
-	ID           string              `json:"id" yaml:"id"`
-	Status       ReviewSessionStatus `json:"status" yaml:"status"`
-	StartedAt    time.Time           `json:"started_at" yaml:"started_at"`
-	PausedAt     *time.Time          `json:"paused_at,omitempty" yaml:"paused_at,omitempty"`
-	EndedAt      *time.Time          `json:"ended_at,omitempty" yaml:"ended_at,omitempty"`
-	TotalReviewed int               `json:"total_reviewed" yaml:"total_reviewed"`
-	Accepted     int                 `json:"accepted" yaml:"accepted"`
-	Rejected     int                 `json:"rejected" yaml:"rejected"`
-	Deferred     int                 `json:"deferred" yaml:"deferred"`
+	ID            string              `json:"id" yaml:"id"`
+	Status        ReviewSessionStatus `json:"status" yaml:"status"`
+	StartedAt     time.Time           `json:"started_at" yaml:"started_at"`
+	PausedAt      *time.Time          `json:"paused_at,omitempty" yaml:"paused_at,omitempty"`
+	EndedAt       *time.Time          `json:"ended_at,omitempty" yaml:"ended_at,omitempty"`
+	TotalReviewed int                 `json:"total_reviewed" yaml:"total_reviewed"`
+	Accepted      int                 `json:"accepted" yaml:"accepted"`
+	Rejected      int                 `json:"rejected" yaml:"rejected"`
+	Deferred      int                 `json:"deferred" yaml:"deferred"`
 }
 
 // ReviewAction represents an action taken during a review session.
@@ -535,7 +535,7 @@ func runReviewStart(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// TODO: Replace with actual gRPC call to start session.
+	// STUB: Returns mock data until review service gRPC is connected.
 	session := getMockSession()
 	session.Status = ReviewSessionStatusActive
 	session.StartedAt = time.Now()
@@ -556,7 +556,7 @@ func runReviewPause(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// TODO: Replace with actual gRPC call to pause session.
+	// STUB: Returns mock data until review service gRPC is connected.
 	session := getMockSession()
 	now := time.Now()
 	session.Status = ReviewSessionStatusPaused
@@ -578,7 +578,7 @@ func runReviewResume(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// TODO: Replace with actual gRPC call to resume session.
+	// STUB: Returns mock data until review service gRPC is connected.
 	session := getMockSession()
 	session.Status = ReviewSessionStatusActive
 	session.PausedAt = nil
@@ -599,7 +599,7 @@ func runReviewEnd(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// TODO: Replace with actual gRPC call to end session.
+	// STUB: Returns mock data until review service gRPC is connected.
 	session := getMockSession()
 	now := time.Now()
 	session.Status = ReviewSessionStatusEnded
@@ -647,7 +647,7 @@ func runReviewQueue(ctx context.Context, deps *ReviewCommandDeps) error {
 		}
 	}
 
-	// TODO: Replace with actual gRPC call to get queue.
+	// STUB: Returns mock data until review service gRPC is connected.
 	items := getMockReviewQueue(ReviewPriority(reviewPriority))
 
 	response := ReviewQueueResponse{
@@ -671,7 +671,7 @@ func runReviewAccept(ctx context.Context, deps *ReviewCommandDeps, itemID string
 	}
 	deps.Config = cfg
 
-	// TODO: Replace with actual gRPC call to accept item.
+	// STUB: Returns mock data until review service gRPC is connected.
 	item := getMockReviewItem(itemID)
 	item.Status = ReviewItemStatusAccepted
 
@@ -689,7 +689,7 @@ func runReviewReject(ctx context.Context, deps *ReviewCommandDeps, itemID string
 	}
 	deps.Config = cfg
 
-	// TODO: Replace with actual gRPC call to reject item.
+	// STUB: Returns mock data until review service gRPC is connected.
 	item := getMockReviewItem(itemID)
 	item.Status = ReviewItemStatusRejected
 	item.Reason = reason
@@ -721,7 +721,7 @@ func runReviewDefer(ctx context.Context, deps *ReviewCommandDeps, itemID string,
 		deferredTo = &t
 	}
 
-	// TODO: Replace with actual gRPC call to defer item.
+	// STUB: Returns mock data until review service gRPC is connected.
 	item := getMockReviewItem(itemID)
 	item.Status = ReviewItemStatusDeferred
 	item.DeferredTo = deferredTo
@@ -752,7 +752,7 @@ func runReviewShow(ctx context.Context, deps *ReviewCommandDeps, itemID string) 
 		}
 	}
 
-	// TODO: Replace with actual gRPC call to get item.
+	// STUB: Returns mock data until review service gRPC is connected.
 	item := getMockReviewItem(itemID)
 
 	return outputReviewItem(outputFormat, item)
@@ -766,7 +766,7 @@ func runReviewUndo(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// TODO: Replace with actual gRPC call to undo.
+	// STUB: Returns mock data until review service gRPC is connected.
 	action := getMockLastAction()
 	if action == nil {
 		fmt.Println("Nothing to undo.")
@@ -787,7 +787,7 @@ func runReviewRedo(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// TODO: Replace with actual gRPC call to redo.
+	// STUB: Returns mock data until review service gRPC is connected.
 	action := getMockLastUndoneAction()
 	if action == nil {
 		fmt.Println("Nothing to redo.")
@@ -817,7 +817,7 @@ func runReviewHistory(ctx context.Context, deps *ReviewCommandDeps) error {
 		}
 	}
 
-	// TODO: Replace with actual gRPC call to get history.
+	// STUB: Returns mock data until review service gRPC is connected.
 	actions := getMockActionHistory()
 
 	return outputReviewHistory(outputFormat, actions)
@@ -840,7 +840,7 @@ func runReviewAutoStatus(ctx context.Context, deps *ReviewCommandDeps) error {
 		}
 	}
 
-	// TODO: Replace with actual gRPC call to get rules.
+	// STUB: Returns mock data until review service gRPC is connected.
 	rules := getMockAutoRules()
 
 	return outputReviewAutoRules(outputFormat, rules)
@@ -854,7 +854,7 @@ func runReviewAutoEnable(ctx context.Context, deps *ReviewCommandDeps, ruleName 
 	}
 	deps.Config = cfg
 
-	// TODO: Replace with actual gRPC call to enable rule.
+	// STUB: Returns mock data until review service gRPC is connected.
 	rule := getMockAutoRule(ruleName)
 	if rule == nil {
 		return fmt.Errorf("automation rule not found: %s", ruleName)
@@ -875,7 +875,7 @@ func runReviewAutoDisable(ctx context.Context, deps *ReviewCommandDeps, ruleName
 	}
 	deps.Config = cfg
 
-	// TODO: Replace with actual gRPC call to disable rule.
+	// STUB: Returns mock data until review service gRPC is connected.
 	rule := getMockAutoRule(ruleName)
 	if rule == nil {
 		return fmt.Errorf("automation rule not found: %s", ruleName)

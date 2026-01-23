@@ -32,7 +32,7 @@ func NewContentServer(cfg *config.ServiceConfig, logger logging.Logger, m *metri
 }
 
 // ProcessContent triggers the content processing pipeline for a specific item.
-// TODO: Implement content processing pipeline.
+// STUB: Returns Unimplemented until storage layer is connected.
 func (s *ContentServer) ProcessContent(ctx context.Context, req *contentv1.ProcessContentRequest) (*contentv1.ProcessContentResponse, error) {
 	s.logger.Debug("ProcessContent called",
 		logging.F("content_id", req.GetContentId()),
@@ -42,7 +42,7 @@ func (s *ContentServer) ProcessContent(ctx context.Context, req *contentv1.Proce
 }
 
 // GetProcessingStatus retrieves the current processing status of a content item.
-// TODO: Implement status retrieval from storage.
+// STUB: Returns Unimplemented until storage layer is connected.
 func (s *ContentServer) GetProcessingStatus(ctx context.Context, req *contentv1.GetProcessingStatusRequest) (*contentv1.ProcessingStatus, error) {
 	s.logger.Debug("GetProcessingStatus called",
 		logging.F("content_id", req.GetContentId()),
@@ -53,7 +53,7 @@ func (s *ContentServer) GetProcessingStatus(ctx context.Context, req *contentv1.
 }
 
 // GetContentItem retrieves a specific content item by ID.
-// TODO: Implement content item retrieval from storage.
+// STUB: Returns Unimplemented until storage layer is connected.
 func (s *ContentServer) GetContentItem(ctx context.Context, req *contentv1.GetContentItemRequest) (*contentv1.ContentItem, error) {
 	s.logger.Debug("GetContentItem called",
 		logging.F("content_id", req.GetContentId()),
@@ -64,7 +64,7 @@ func (s *ContentServer) GetContentItem(ctx context.Context, req *contentv1.GetCo
 }
 
 // ListContentItems returns a paginated list of content items.
-// TODO: Implement content listing with filtering and pagination.
+// STUB: Returns Unimplemented until storage layer is connected.
 func (s *ContentServer) ListContentItems(ctx context.Context, req *contentv1.ListContentItemsRequest) (*contentv1.ListContentItemsResponse, error) {
 	s.logger.Debug("ListContentItems called",
 		logging.F("tenant_id", req.GetTenantId()),
@@ -76,7 +76,7 @@ func (s *ContentServer) ListContentItems(ctx context.Context, req *contentv1.Lis
 }
 
 // ReprocessContent triggers reprocessing of an already-processed content item.
-// TODO: Implement reprocessing logic.
+// STUB: Returns Unimplemented until storage layer is connected.
 func (s *ContentServer) ReprocessContent(ctx context.Context, req *contentv1.ReprocessContentRequest) (*contentv1.ReprocessContentResponse, error) {
 	s.logger.Debug("ReprocessContent called",
 		logging.F("content_id", req.GetContentId()),

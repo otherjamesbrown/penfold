@@ -8,7 +8,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // QueryType represents the type of product query.
@@ -65,15 +66,15 @@ type PersonRoleInfo struct {
 type QueryService struct {
 	repo   *Repository
 	pool   *pgxpool.Pool
-	logger zerolog.Logger
+	logger logging.Logger
 }
 
 // NewQueryService creates a new product query service.
-func NewQueryService(pool *pgxpool.Pool, logger zerolog.Logger) *QueryService {
+func NewQueryService(pool *pgxpool.Pool, logger logging.Logger) *QueryService {
 	return &QueryService{
 		repo:   NewRepository(pool, logger),
 		pool:   pool,
-		logger: logger.With().Str("component", "product_query").Logger(),
+		logger: logger.With(logging.F("component", "product_query")),
 	}
 }
 

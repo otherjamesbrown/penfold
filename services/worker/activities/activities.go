@@ -229,9 +229,8 @@ func (a *Activities) GenerateSummary(ctx context.Context, input workflows.Genera
 	activity.RecordHeartbeat(ctx, "generating summary")
 	logger.Info().Msg("Generating summary via LLM")
 
-	// TODO: Implement actual summary generation using Ollama/Gemini
-	// For now, skip this step and return success
-	logger.Info().Msg("Summary generation skipped (not implemented)")
+	// STUB: Skipped until AI service integration (Ollama/Gemini).
+	logger.Info().Msg("Summary generation skipped (AI service not connected)")
 	return 0, nil
 }
 
@@ -247,9 +246,8 @@ func (a *Activities) ExtractAssertions(ctx context.Context, input workflows.Extr
 	activity.RecordHeartbeat(ctx, "extracting assertions")
 	logger.Info().Msg("Extracting assertions via LLM")
 
-	// TODO: Implement actual assertion extraction using Ollama/Gemini
-	// For now, skip this step and return success
-	logger.Info().Msg("Assertion extraction skipped (not implemented)")
+	// STUB: Skipped until AI service integration (Ollama/Gemini).
+	logger.Info().Msg("Assertion extraction skipped (AI service not connected)")
 	return 0, nil
 }
 

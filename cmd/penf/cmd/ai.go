@@ -338,7 +338,7 @@ func runAIAnalyze(ctx context.Context, deps *AICommandDeps, contentID, analysisT
 
 // executeAIQuery performs the AI query (mock implementation).
 func executeAIQuery(question, model string, maxTokens, contextDocs int) *AIResponse {
-	// TODO: Replace with actual gRPC call to AI service.
+	// STUB: Returns mock data until AI service gRPC is connected.
 	if model == "" {
 		model = "llama-3.1-8b"
 	}
@@ -393,7 +393,7 @@ Sources indicate strong alignment across teams, with the engineering team priori
 
 // executeAISummarize performs the AI summarize (mock implementation).
 func executeAISummarize(contentID, length, model string) *AIResponse {
-	// TODO: Replace with actual gRPC call to AI service.
+	// STUB: Returns mock data until AI service gRPC is connected.
 	if model == "" {
 		model = "llama-3.1-8b"
 	}
@@ -468,7 +468,7 @@ The gateway serves as the unified entry point for all external API access, conso
 
 // executeAIAnalyze performs the AI analyze (mock implementation).
 func executeAIAnalyze(contentID, analysisType, model string) *AIResponse {
-	// TODO: Replace with actual gRPC call to AI service.
+	// STUB: Returns mock data until AI service gRPC is connected.
 	if model == "" {
 		model = "llama-3.1-8b"
 	}

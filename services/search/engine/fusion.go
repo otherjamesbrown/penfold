@@ -295,8 +295,7 @@ func (e *RRFEngine) detectSearchMode(query string, providedMode SearchMode) Sear
 		return providedMode
 	}
 
-	// TODO: Integrate with query parser to detect mode hints
-	// For now, default to hybrid
+	// FUTURE: Integrate with query parser to detect mode hints (e.g., "exact:foo").
 	return e.config.DefaultSearchMode
 }
 

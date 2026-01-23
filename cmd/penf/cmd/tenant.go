@@ -363,9 +363,9 @@ func findTenantAlias(cfg *config.CLIConfig, tenantID string) string {
 }
 
 // validateTenantAccess validates that the user has access to the tenant.
+// STUB: Uses mock validation until tenant service gRPC is connected.
 func validateTenantAccess(ctx context.Context, deps *TenantCommandDeps, tenantID string) error {
-	// TODO: Replace with actual gRPC call to validate tenant access.
-	// For now, use mock validation that accepts any tenant ID.
+	// Uses mock validation that accepts any tenant ID.
 
 	// Mock validation: reject if tenant ID is empty.
 	if tenantID == "" {

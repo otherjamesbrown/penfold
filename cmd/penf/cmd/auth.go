@@ -454,11 +454,8 @@ func runRefresh(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no refresh token available - run 'penf auth login' to obtain new credentials")
 	}
 
-	// TODO: Implement actual token refresh via API call
-	// This would make a request to the auth service to exchange the refresh token
-	// for a new access token.
-	//
-	// For now, we'll simulate the flow and provide guidance.
+	// STUB: Token refresh requires API Gateway connection.
+	// When implemented, this will exchange the refresh token for a new access token.
 
 	fmt.Println("Token refresh functionality requires connection to the Penfold API.")
 	fmt.Println()

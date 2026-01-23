@@ -460,7 +460,7 @@ func outputCorrectionsTable(corrections []audit.Decision) error {
 // Helper functions
 
 func getTenantID() string {
-	// TODO: Get from context/config
+	// STUB: Returns hardcoded tenant until multi-tenant context is implemented.
 	return "00000001-0000-0000-0000-000000000001"
 }
 

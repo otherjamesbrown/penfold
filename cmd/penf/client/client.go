@@ -437,10 +437,9 @@ func (c *GRPCClient) ConnectionState() string {
 
 // GetStatus retrieves the system status from the gateway.
 // If verbose is true, additional details are included.
-// Currently returns mock data until the gateway service is implemented.
+// STUB: Returns mock data until gateway service gRPC is connected.
 func (c *GRPCClient) GetStatus(ctx context.Context, verbose bool) (*SystemStatus, error) {
-	// TODO: Replace with actual gRPC call once proto is generated.
-	// The actual implementation would look like:
+	// When connected, the implementation would look like:
 	//   client := cliv1.NewCLIServiceClient(c.conn)
 	//   resp, err := client.GetStatus(ctx, &cliv1.GetStatusRequest{Verbose: verbose})
 	//   if err != nil {

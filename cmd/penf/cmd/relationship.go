@@ -635,8 +635,7 @@ func runEntityMerge(ctx context.Context, deps *RelationshipCommandDeps, entityID
 	}
 	deps.Config = cfg
 
-	// TODO: Implement actual gRPC call for entity merge.
-	// For now, simulate the merge.
+	// STUB: Returns mock acknowledgment until relationship service gRPC is connected.
 	fmt.Printf("Merging entity %s into %s...\n", entityID2, entityID1)
 	fmt.Printf("\n\033[32mSuccess!\033[0m Entities merged.\n")
 	fmt.Printf("  Primary entity: %s\n", entityID1)
@@ -777,7 +776,7 @@ func runConflictResolve(ctx context.Context, deps *RelationshipCommandDeps, conf
 		return fmt.Errorf("invalid resolution strategy: %s (must be keep_latest, keep_first, merge, or manual)", strategy)
 	}
 
-	// TODO: Implement actual gRPC call for conflict resolution.
+	// STUB: Returns mock acknowledgment until relationship service gRPC is connected.
 	fmt.Printf("Resolving conflict %s with strategy '%s'...\n", conflictID, strategy)
 	fmt.Printf("\n\033[32mSuccess!\033[0m Conflict resolved.\n")
 	fmt.Printf("  Strategy used: %s\n", strategy)
