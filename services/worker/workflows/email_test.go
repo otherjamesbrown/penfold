@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
@@ -68,19 +69,19 @@ func (s *EmailProcessingWorkflowTestSuite) SetupTest() {
 
 	// Register mock activities with the test environment using the string names
 	// that the workflow uses to execute them
-	s.env.RegisterActivityWithOptions(s.activities.FetchSource, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.FetchSource, activity.RegisterOptions{
 		Name: "FetchSource",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.GenerateEmbedding, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.GenerateEmbedding, activity.RegisterOptions{
 		Name: "GenerateEmbedding",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.GenerateSummary, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.GenerateSummary, activity.RegisterOptions{
 		Name: "GenerateSummary",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.ExtractAssertions, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.ExtractAssertions, activity.RegisterOptions{
 		Name: "ExtractAssertions",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.UpdateSourceStatus, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.UpdateSourceStatus, activity.RegisterOptions{
 		Name: "UpdateSourceStatus",
 	})
 }

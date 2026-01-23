@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
@@ -79,22 +80,22 @@ func (s *DailyReviewWorkflowTestSuite) SetupTest() {
 	s.activities = &DailyReviewMockActivities{}
 
 	// Register mock activities
-	s.env.RegisterActivityWithOptions(s.activities.GatherEmailItems, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.GatherEmailItems, activity.RegisterOptions{
 		Name: "GatherEmailItems",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.GatherDocumentItems, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.GatherDocumentItems, activity.RegisterOptions{
 		Name: "GatherDocumentItems",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.GatherAssertionItems, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.GatherAssertionItems, activity.RegisterOptions{
 		Name: "GatherAssertionItems",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.PrioritizeReviewItems, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.PrioritizeReviewItems, activity.RegisterOptions{
 		Name: "PrioritizeReviewItems",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.GenerateReviewSummary, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.GenerateReviewSummary, activity.RegisterOptions{
 		Name: "GenerateReviewSummary",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.SaveDailyReview, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.SaveDailyReview, activity.RegisterOptions{
 		Name: "SaveDailyReview",
 	})
 }
@@ -528,9 +529,21 @@ func TestDailyReviewWorkflowTestSuite(t *testing.T) {
 
 // Standalone tests for specific scenarios
 
+// registerReviewActivities registers mock activity stubs for standalone review tests.
+func registerReviewActivities(env *testsuite.TestWorkflowEnvironment) {
+	activities := &DailyReviewMockActivities{}
+	env.RegisterActivityWithOptions(activities.GatherEmailItems, activity.RegisterOptions{Name: "GatherEmailItems"})
+	env.RegisterActivityWithOptions(activities.GatherDocumentItems, activity.RegisterOptions{Name: "GatherDocumentItems"})
+	env.RegisterActivityWithOptions(activities.GatherAssertionItems, activity.RegisterOptions{Name: "GatherAssertionItems"})
+	env.RegisterActivityWithOptions(activities.PrioritizeReviewItems, activity.RegisterOptions{Name: "PrioritizeReviewItems"})
+	env.RegisterActivityWithOptions(activities.GenerateReviewSummary, activity.RegisterOptions{Name: "GenerateReviewSummary"})
+	env.RegisterActivityWithOptions(activities.SaveDailyReview, activity.RegisterOptions{Name: "SaveDailyReview"})
+}
+
 func TestDailyReviewWorkflow_SummaryGenerationFails(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
+	registerReviewActivities(env)
 	reviewDate := time.Date(2024, 10, 15, 0, 0, 0, 0, time.UTC)
 
 	env.OnActivity("GatherEmailItems", mock.Anything, mock.Anything).Return(&GatherEmailItemsOutput{
@@ -583,6 +596,7 @@ func TestDailyReviewWorkflow_SummaryGenerationFails(t *testing.T) {
 func TestDailyReviewWorkflow_SaveFails(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
+	registerReviewActivities(env)
 	reviewDate := time.Date(2024, 10, 15, 0, 0, 0, 0, time.UTC)
 
 	env.OnActivity("GatherEmailItems", mock.Anything, mock.Anything).Return(&GatherEmailItemsOutput{
@@ -637,6 +651,7 @@ func TestDailyReviewWorkflow_SaveFails(t *testing.T) {
 func TestDailyReviewWorkflow_LargeItemCount(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
+	registerReviewActivities(env)
 	reviewDate := time.Date(2024, 10, 15, 0, 0, 0, 0, time.UTC)
 
 	// Generate many items

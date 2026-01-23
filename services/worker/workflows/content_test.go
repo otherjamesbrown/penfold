@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
@@ -79,28 +80,28 @@ func (s *ContentIngestionWorkflowTestSuite) SetupTest() {
 	s.activities = &ContentIngestionMockActivities{}
 
 	// Register mock activities
-	s.env.RegisterActivityWithOptions(s.activities.FetchContent, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.FetchContent, activity.RegisterOptions{
 		Name: "FetchContent",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.GenerateContentEmbedding, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.GenerateContentEmbedding, activity.RegisterOptions{
 		Name: "GenerateContentEmbedding",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.GenerateContentSummary, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.GenerateContentSummary, activity.RegisterOptions{
 		Name: "GenerateContentSummary",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.ExtractEntities, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.ExtractEntities, activity.RegisterOptions{
 		Name: "ExtractEntities",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.ExtractTopics, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.ExtractTopics, activity.RegisterOptions{
 		Name: "ExtractTopics",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.UpdateContentStatus, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.UpdateContentStatus, activity.RegisterOptions{
 		Name: "UpdateContentStatus",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.DeleteEmbedding, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.DeleteEmbedding, activity.RegisterOptions{
 		Name: "DeleteEmbedding",
 	})
-	s.env.RegisterActivityWithOptions(s.activities.DeleteSummary, testsuite.RegisterActivityOptions{
+	s.env.RegisterActivityWithOptions(s.activities.DeleteSummary, activity.RegisterOptions{
 		Name: "DeleteSummary",
 	})
 }
@@ -313,22 +314,21 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_QuerySt
 	var status ContentIngestionWorkflowStatus
 	require.NoError(s.T(), result.Get(&status))
 	s.Equal("completed", status.Stage)
-	s.Equal(6, status.StepsCompleted)
-	s.Equal(6, status.TotalSteps)
+	s.Equal(7, status.StepsCompleted)
+	s.Equal(7, status.TotalSteps)
 }
 
 // TestContentIngestionWorkflow_CancellationSignal tests cancellation with signal.
 func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_CancellationSignal() {
 	// Arrange
 	var fetchCalled bool
-	s.activities.On("FetchContent", mock.Anything, mock.Anything).Return(func(ctx context.Context, input FetchContentInput) (*FetchContentOutput, error) {
+	s.activities.On("FetchContent", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		fetchCalled = true
-		return &FetchContentOutput{
-			Content:     "Test content",
-			ContentType: "text/plain",
-			Size:        50,
-		}, nil
-	})
+	}).Return(&FetchContentOutput{
+		Content:     "Test content",
+		ContentType: "text/plain",
+		Size:        50,
+	}, nil)
 
 	// Set up to send cancellation signal after fetch
 	s.env.RegisterDelayedCallback(func() {
@@ -364,9 +364,23 @@ func TestContentIngestionWorkflowTestSuite(t *testing.T) {
 
 // Standalone tests for specific scenarios
 
+// registerStandaloneActivities registers mock activity stubs for standalone tests.
+func registerStandaloneActivities(env *testsuite.TestWorkflowEnvironment) {
+	activities := &ContentIngestionMockActivities{}
+	env.RegisterActivityWithOptions(activities.FetchContent, activity.RegisterOptions{Name: "FetchContent"})
+	env.RegisterActivityWithOptions(activities.GenerateContentEmbedding, activity.RegisterOptions{Name: "GenerateContentEmbedding"})
+	env.RegisterActivityWithOptions(activities.GenerateContentSummary, activity.RegisterOptions{Name: "GenerateContentSummary"})
+	env.RegisterActivityWithOptions(activities.ExtractEntities, activity.RegisterOptions{Name: "ExtractEntities"})
+	env.RegisterActivityWithOptions(activities.ExtractTopics, activity.RegisterOptions{Name: "ExtractTopics"})
+	env.RegisterActivityWithOptions(activities.UpdateContentStatus, activity.RegisterOptions{Name: "UpdateContentStatus"})
+	env.RegisterActivityWithOptions(activities.DeleteEmbedding, activity.RegisterOptions{Name: "DeleteEmbedding"})
+	env.RegisterActivityWithOptions(activities.DeleteSummary, activity.RegisterOptions{Name: "DeleteSummary"})
+}
+
 func TestContentIngestionWorkflow_EmptyContent(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
+	registerStandaloneActivities(env)
 
 	// Register activities that return empty content
 	env.OnActivity("FetchContent", mock.Anything, mock.Anything).Return(&FetchContentOutput{
@@ -400,6 +414,7 @@ func TestContentIngestionWorkflow_EmptyContent(t *testing.T) {
 func TestContentIngestionWorkflow_LargeContent(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
+	registerStandaloneActivities(env)
 
 	// Generate large content
 	largeContent := make([]byte, 1024*1024) // 1MB
@@ -440,19 +455,21 @@ func TestContentIngestionWorkflow_LargeContent(t *testing.T) {
 func TestContentIngestionWorkflow_RetryBehavior(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
+	registerStandaloneActivities(env)
 
 	var fetchAttempts int
-	env.OnActivity("FetchContent", mock.Anything, mock.Anything).Return(func(ctx context.Context, input FetchContentInput) (*FetchContentOutput, error) {
+	// Note: Using Times(1) for first call (fails), then a second call (succeeds)
+	env.OnActivity("FetchContent", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		fetchAttempts++
-		if fetchAttempts < 2 {
-			return nil, temporal.NewApplicationError("temporary error", "TemporaryError")
-		}
-		return &FetchContentOutput{
-			Content:     "Retried content",
-			ContentType: "text/plain",
-			Size:        15,
-		}, nil
-	})
+	}).Return(nil, temporal.NewApplicationError("temporary error", "TemporaryError")).Times(1)
+
+	env.OnActivity("FetchContent", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		fetchAttempts++
+	}).Return(&FetchContentOutput{
+		Content:     "Retried content",
+		ContentType: "text/plain",
+		Size:        15,
+	}, nil)
 
 	env.OnActivity("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(100), nil)
 	env.OnActivity("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
