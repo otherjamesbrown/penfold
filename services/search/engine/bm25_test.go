@@ -295,6 +295,11 @@ func TestBuildSearchQuery(t *testing.T) {
 		if !containsString(sql, "tenant_id") {
 			t.Error("SQL should contain tenant_id filter")
 		}
+
+		// Verify SQL contains window function for total count
+		if !containsString(sql, "COUNT(*) OVER()") {
+			t.Error("SQL should contain COUNT(*) OVER() window function for total count")
+		}
 	})
 
 	t.Run("with content type filter", func(t *testing.T) {

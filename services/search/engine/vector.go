@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
@@ -240,6 +239,7 @@ func (e *VectorEngine) Search(
 }
 
 // executeSearch builds and executes the vector similarity SQL query.
+// Uses window function COUNT(*) OVER() to get total count in a single query.
 func (e *VectorEngine) executeSearch(
 	ctx context.Context,
 	tenantID string,
@@ -267,11 +267,13 @@ func (e *VectorEngine) executeSearch(
 	defer rows.Close()
 
 	var results []VectorSearchResult
+	var totalCount int64
 	for rows.Next() {
 		var result VectorSearchResult
 		var title *string
 		var metadata map[string]string
 		var cosineDistance float64
+		var rowTotal int64
 
 		err := rows.Scan(
 			&result.DocumentID,
@@ -283,10 +285,14 @@ func (e *VectorEngine) executeSearch(
 			&result.CreatedAt,
 			&result.UpdatedAt,
 			&metadata,
+			&rowTotal,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scanning result row: %w", err)
 		}
+
+		// Capture total count from window function (same on all rows)
+		totalCount = rowTotal
 
 		result.Title = title
 		result.Metadata = metadata
@@ -305,19 +311,11 @@ func (e *VectorEngine) executeSearch(
 		return nil, 0, fmt.Errorf("iterating results: %w", err)
 	}
 
-	// Get total count
-	totalCount, err := e.getMatchCount(ctx, tenantID, embedding, filters)
-	if err != nil {
-		e.logger.Warn("Failed to get total count, returning result count",
-			logging.Err(err),
-		)
-		totalCount = int64(len(results))
-	}
-
 	return results, totalCount, nil
 }
 
 // buildSearchQuery constructs the SQL query for vector similarity search.
+// Uses COUNT(*) OVER() window function to get total count in a single query.
 func (e *VectorEngine) buildSearchQuery(
 	tenantID string,
 	embedding []float32,
@@ -341,7 +339,8 @@ SELECT
     %s <=> $%d::vector as cosine_distance,
     created_at,
     updated_at,
-    metadata
+    metadata,
+    COUNT(*) OVER() as total_count
 FROM %s
 WHERE tenant_id = $%d`,
 		e.config.SnippetLength,
@@ -412,98 +411,6 @@ WHERE tenant_id = $%d`,
 	args = append(args, limit, offset)
 
 	return sb.String(), args
-}
-
-// getMatchCount returns the total count of matching documents.
-func (e *VectorEngine) getMatchCount(
-	ctx context.Context,
-	tenantID string,
-	embedding []float32,
-	filters *VectorSearchFilters,
-) (int64, error) {
-	var sb strings.Builder
-	args := make([]interface{}, 0, 8)
-	argNum := 1
-
-	sb.WriteString(fmt.Sprintf(`
-SELECT COUNT(*)
-FROM %s
-WHERE tenant_id = $%d`,
-		e.config.TableName,
-		argNum,
-	))
-	args = append(args, tenantID)
-	argNum++
-
-	// Apply minimum similarity filter if configured
-	if e.config.MinSimilarity > 0 {
-		sb.WriteString(fmt.Sprintf(" AND (1.0 - (%s <=> $%d::vector)) >= $%d",
-			e.config.EmbeddingColumn, argNum, argNum+1))
-		args = append(args, pgVectorFormat(embedding), e.config.MinSimilarity)
-		argNum += 2
-	}
-
-	// Apply optional filters
-	if filters != nil {
-		if len(filters.ContentTypes) > 0 {
-			sb.WriteString(fmt.Sprintf(" AND content_type = ANY($%d)", argNum))
-			args = append(args, filters.ContentTypes)
-			argNum++
-		}
-
-		if len(filters.SourceIDs) > 0 {
-			sb.WriteString(fmt.Sprintf(" AND source_id = ANY($%d)", argNum))
-			args = append(args, filters.SourceIDs)
-			argNum++
-		}
-
-		if filters.DateFrom != nil {
-			sb.WriteString(fmt.Sprintf(" AND created_at >= $%d", argNum))
-			args = append(args, *filters.DateFrom)
-			argNum++
-		}
-
-		if filters.DateTo != nil {
-			sb.WriteString(fmt.Sprintf(" AND created_at <= $%d", argNum))
-			args = append(args, *filters.DateTo)
-			argNum++
-		}
-
-		if len(filters.Tags) > 0 {
-			sb.WriteString(fmt.Sprintf(" AND tags && $%d", argNum))
-			args = append(args, filters.Tags)
-			argNum++
-		}
-
-		if len(filters.EntityIDs) > 0 {
-			sb.WriteString(fmt.Sprintf(" AND entity_ids && $%d", argNum))
-			args = append(args, filters.EntityIDs)
-			argNum++
-		}
-
-		if len(filters.Sources) > 0 {
-			sb.WriteString(fmt.Sprintf(" AND source = ANY($%d)", argNum))
-			args = append(args, filters.Sources)
-			argNum++
-		}
-
-		if len(filters.ExcludeIDs) > 0 {
-			sb.WriteString(fmt.Sprintf(" AND document_id != ALL($%d)", argNum))
-			args = append(args, filters.ExcludeIDs)
-			argNum++
-		}
-	}
-
-	var count int64
-	err := e.db.QueryRow(ctx, sb.String(), args...).Scan(&count)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("count query failed: %w", err)
-	}
-
-	return count, nil
 }
 
 // SearchByVector performs a vector similarity search using a pre-computed embedding.

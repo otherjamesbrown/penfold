@@ -147,20 +147,13 @@ func (e *BM25Engine) Search(ctx context.Context, query string, filters SearchFil
 	}
 	defer rows.Close()
 
-	results, maxScore, err := e.scanResults(rows, processedQuery)
+	results, maxScore, totalCount, err := e.scanResults(rows, processedQuery)
 	if err != nil {
 		return nil, fmt.Errorf("scanning results: %w", err)
 	}
 
 	// Normalize scores to 0-1 range
 	e.normalizeScores(results, maxScore)
-
-	// Get total count
-	totalCount, err := e.getTotalCount(ctx, processedQuery, filters)
-	if err != nil {
-		e.logger.Warn("Failed to get total count", logging.Err(err))
-		totalCount = int64(len(results))
-	}
 
 	queryTimeMs := float64(time.Since(start).Milliseconds())
 
@@ -257,6 +250,7 @@ func (e *BM25Engine) expandQuery(words []string) []string {
 }
 
 // buildSearchQuery constructs the PostgreSQL search query with filters.
+// Uses COUNT(*) OVER() window function to get total count in a single query.
 func (e *BM25Engine) buildSearchQuery(processedQuery string, filters SearchFilters, limit, offset int) (string, []interface{}) {
 	args := make([]interface{}, 0, 10)
 	argIndex := 1
@@ -283,7 +277,8 @@ func (e *BM25Engine) buildSearchQuery(processedQuery string, filters SearchFilte
 			) as score,
 			d.created_at,
 			d.updated_at,
-			d.metadata
+			d.metadata,
+			COUNT(*) OVER() as total_count
 		FROM documents d
 		WHERE d.tenant_id = $%d
 		AND (
@@ -348,9 +343,11 @@ func (e *BM25Engine) buildSearchQuery(processedQuery string, filters SearchFilte
 }
 
 // scanResults reads the query results and extracts search results.
-func (e *BM25Engine) scanResults(rows pgx.Rows, processedQuery string) ([]SearchResult, float64, error) {
+// Returns results, max score for normalization, and total count from window function.
+func (e *BM25Engine) scanResults(rows pgx.Rows, processedQuery string) ([]SearchResult, float64, int64, error) {
 	results := make([]SearchResult, 0)
 	var maxScore float64
+	var totalCount int64
 
 	for rows.Next() {
 		var (
@@ -364,12 +361,16 @@ func (e *BM25Engine) scanResults(rows pgx.Rows, processedQuery string) ([]Search
 			createdAt   time.Time
 			updatedAt   time.Time
 			metadata    map[string]string
+			rowTotal    int64
 		)
 
-		err := rows.Scan(&id, &contentType, &sourceID, &title, &snippet, &highlights, &score, &createdAt, &updatedAt, &metadata)
+		err := rows.Scan(&id, &contentType, &sourceID, &title, &snippet, &highlights, &score, &createdAt, &updatedAt, &metadata, &rowTotal)
 		if err != nil {
-			return nil, 0, fmt.Errorf("scanning row: %w", err)
+			return nil, 0, 0, fmt.Errorf("scanning row: %w", err)
 		}
+
+		// Capture total count from window function (same on all rows)
+		totalCount = rowTotal
 
 		// Track max score for normalization
 		if score > maxScore {
@@ -394,10 +395,10 @@ func (e *BM25Engine) scanResults(rows pgx.Rows, processedQuery string) ([]Search
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("iterating rows: %w", err)
+		return nil, 0, 0, fmt.Errorf("iterating rows: %w", err)
 	}
 
-	return results, maxScore, nil
+	return results, maxScore, totalCount, nil
 }
 
 // parseHighlights splits the highlight string into individual highlighted fragments.
@@ -436,72 +437,6 @@ func (e *BM25Engine) normalizeScores(results []SearchResult, maxScore float64) {
 
 		results[i].Score = normalized
 	}
-}
-
-// getTotalCount returns the total number of documents matching the query and filters.
-func (e *BM25Engine) getTotalCount(ctx context.Context, processedQuery string, filters SearchFilters) (int64, error) {
-	args := make([]interface{}, 0, 10)
-	argIndex := 1
-
-	sql := fmt.Sprintf(`
-		SELECT COUNT(*)
-		FROM documents d
-		WHERE d.tenant_id = $%d
-		AND (
-			setweight(to_tsvector('english', COALESCE(d.title, '')), 'A') ||
-			setweight(to_tsvector('english', d.content), 'D')
-		) @@ to_tsquery('english', $%d)
-	`, argIndex, argIndex+1)
-
-	args = append(args, filters.TenantID, processedQuery)
-	argIndex += 2
-
-	// Add content type filter
-	if len(filters.ContentTypes) > 0 {
-		sql += fmt.Sprintf(" AND d.content_type = ANY($%d)", argIndex)
-		args = append(args, filters.ContentTypes)
-		argIndex++
-	}
-
-	// Add date range filters
-	if filters.DateFrom != nil {
-		sql += fmt.Sprintf(" AND d.created_at >= $%d", argIndex)
-		args = append(args, *filters.DateFrom)
-		argIndex++
-	}
-	if filters.DateTo != nil {
-		sql += fmt.Sprintf(" AND d.created_at <= $%d", argIndex)
-		args = append(args, *filters.DateTo)
-		argIndex++
-	}
-
-	// Add exclude IDs filter
-	if len(filters.ExcludeIDs) > 0 {
-		sql += fmt.Sprintf(" AND d.id != ALL($%d)", argIndex)
-		args = append(args, filters.ExcludeIDs)
-		argIndex++
-	}
-
-	// Add tags filter
-	if len(filters.Tags) > 0 {
-		sql += fmt.Sprintf(" AND d.tags && $%d)", argIndex)
-		args = append(args, filters.Tags)
-		argIndex++
-	}
-
-	// Add source IDs filter
-	if len(filters.SourceIDs) > 0 {
-		sql += fmt.Sprintf(" AND d.source_id = ANY($%d)", argIndex)
-		args = append(args, filters.SourceIDs)
-	}
-
-	var count int64
-	err := e.pool.QueryRow(ctx, sql, args...).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("counting results: %w", err)
-	}
-
-	return count, nil
 }
 
 // SetWeights updates the field weights used for scoring.
