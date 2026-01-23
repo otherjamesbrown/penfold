@@ -6,14 +6,14 @@ import (
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/processors"
-	"github.com/rs/zerolog"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // Resolver handles entity resolution for the enrichment pipeline.
 type Resolver struct {
 	repo            *Repository
 	internalDomains []string
-	logger          zerolog.Logger
+	logger          logging.Logger
 }
 
 // ResolverOption configures the resolver.
@@ -26,8 +26,8 @@ func WithInternalDomains(domains []string) ResolverOption {
 	}
 }
 
-// WithLogger sets the logger.
-func WithResolverLogger(logger zerolog.Logger) ResolverOption {
+// WithResolverLogger sets the logger.
+func WithResolverLogger(logger logging.Logger) ResolverOption {
 	return func(r *Resolver) {
 		r.logger = logger
 	}
@@ -38,12 +38,12 @@ func NewResolver(repo *Repository, opts ...ResolverOption) *Resolver {
 	r := &Resolver{
 		repo:            repo,
 		internalDomains: []string{},
-		logger:          zerolog.Nop(),
+		logger:          logging.MustGlobal(),
 	}
 	for _, opt := range opts {
 		opt(r)
 	}
-	r.logger = r.logger.With().Str("component", "entity_resolver").Logger()
+	r.logger = r.logger.With(logging.F("component", "entity_resolver"))
 	return r
 }
 
@@ -75,10 +75,9 @@ func (r *Resolver) Process(ctx context.Context, pctx *processors.ProcessorContex
 
 		result, err := r.ResolveOrCreate(ctx, pctx.TenantID, p.Email, p.Name)
 		if err != nil {
-			r.logger.Warn().
-				Err(err).
-				Str("email", p.Email).
-				Msg("Failed to resolve participant")
+			r.logger.Warn("Failed to resolve participant",
+			logging.Err(err),
+			logging.F("email", p.Email))
 			// Continue with other participants
 			resolved = append(resolved, enrichment.ResolvedParticipant{
 				Participant: p,
@@ -144,7 +143,7 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 	if displayName != "" {
 		candidates, err := r.repo.SearchPeopleByName(ctx, tenantID, displayName, 10)
 		if err != nil {
-			r.logger.Warn().Err(err).Msg("Failed to search for duplicates")
+			r.logger.Warn("Failed to search for duplicates", logging.Err(err))
 		} else {
 			for _, c := range candidates {
 				similarity := NameSimilarity(displayName, c.CanonicalName)
@@ -199,7 +198,7 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 		Source:     "auto_created",
 	}
 	if err := r.repo.CreateAlias(ctx, alias); err != nil {
-		r.logger.Warn().Err(err).Msg("Failed to create email alias")
+		r.logger.Warn("Failed to create email alias", logging.Err(err))
 	}
 
 	// 6. Add display name as alias if different from canonical
@@ -207,14 +206,13 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 		r.addDisplayNameAlias(ctx, person.ID, displayName)
 	}
 
-	r.logger.Debug().
-		Int64("person_id", person.ID).
-		Str("email", email).
-		Str("name", normalizedName).
-		Str("account_type", string(accountType)).
-		Bool("is_internal", isInternal).
-		Int("potential_duplicates", len(potentialDuplicates)).
-		Msg("Created new person")
+	r.logger.Debug("Created new person",
+		logging.F("person_id", person.ID),
+		logging.F("email", email),
+		logging.F("name", normalizedName),
+		logging.F("account_type", string(accountType)),
+		logging.F("is_internal", isInternal),
+		logging.F("potential_duplicates", len(potentialDuplicates)))
 
 	return &ResolutionResult{
 		Person:     person,
@@ -269,7 +267,7 @@ func (r *Resolver) addDisplayNameAlias(ctx context.Context, personID int64, disp
 	}
 	if err := r.repo.CreateAlias(ctx, alias); err != nil {
 		// Ignore duplicate errors
-		r.logger.Trace().Err(err).Msg("Failed to add display name alias")
+		r.logger.Debug("Failed to add display name alias", logging.Err(err))
 	}
 }
 

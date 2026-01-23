@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
 	"github.com/otherjamesbrown/penfold/pkg/ingest/types"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // SourceSystemAttachment identifies attachments stored as sources.
@@ -162,12 +164,11 @@ func (r *Repository) CreateAttachmentWithSource(ctx context.Context, att *Attach
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	r.logger.Debug().
-		Int64("source_id", sourceID).
-		Int64("link_id", linkID).
-		Int64("parent_id", link.ParentSourceID).
-		Str("filename", att.Filename).
-		Msg("Attachment source and link created")
+	r.logger.Debug("Attachment source and link created",
+		logging.F("source_id", sourceID),
+		logging.F("link_id", linkID),
+		logging.F("parent_id", link.ParentSourceID),
+		logging.F("filename", att.Filename))
 
 	return &CreatedAttachment{
 		LinkID:   linkID,
@@ -183,12 +184,11 @@ func (r *Repository) CreateAttachmentLinkOnly(ctx context.Context, link *Attachm
 		return nil, err
 	}
 
-	r.logger.Debug().
-		Int64("link_id", linkID).
-		Int64("parent_id", link.ParentSourceID).
-		Str("filename", link.Filename).
-		Str("tier", string(link.ProcessingTier)).
-		Msg("Attachment link created (skipped)")
+	r.logger.Debug("Attachment link created (skipped)",
+		logging.F("link_id", linkID),
+		logging.F("parent_id", link.ParentSourceID),
+		logging.F("filename", link.Filename),
+		logging.F("tier", string(link.ProcessingTier)))
 
 	return &CreatedAttachment{
 		LinkID:   linkID,
@@ -372,11 +372,10 @@ func (r *Repository) UpdateAttachmentTier(ctx context.Context, linkID int64, tie
 		return fmt.Errorf("attachment link not found: %d", linkID)
 	}
 
-	r.logger.Debug().
-		Int64("link_id", linkID).
-		Str("tier", string(tier)).
-		Str("reason", reason).
-		Msg("Attachment tier updated")
+	r.logger.Debug("Attachment tier updated",
+		logging.F("link_id", linkID),
+		logging.F("tier", string(tier)),
+		logging.F("reason", reason))
 
 	return nil
 }

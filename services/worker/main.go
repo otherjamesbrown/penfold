@@ -150,7 +150,7 @@ func main() {
 	// Create Temporal client
 	temporalClient, err := pkgtemporal.NewClient(
 		temporalCfg,
-		pkgtemporal.WithLogger(zerologger),
+		pkgtemporal.WithLogger(logger),
 	)
 	if err != nil {
 		logger.Error("Failed to create Temporal client", logging.Err(err))

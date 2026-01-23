@@ -51,7 +51,7 @@ const (
 // NewInMemoryReviewQueue creates a new InMemoryReviewQueue.
 func NewInMemoryReviewQueue(logger logging.Logger) *InMemoryReviewQueue {
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 	return &InMemoryReviewQueue{
 		items:  make(map[string]*QueuedConflict),

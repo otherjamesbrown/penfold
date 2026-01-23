@@ -9,7 +9,7 @@ import (
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/processors"
-	"github.com/rs/zerolog"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // Pipeline orchestrates the content enrichment process.
@@ -17,7 +17,7 @@ type Pipeline struct {
 	registry   processors.ProcessorRegistry
 	config     *processors.Config
 	repository *enrichment.Repository
-	logger     zerolog.Logger
+	logger     logging.Logger
 }
 
 // Option configures the pipeline.
@@ -31,7 +31,7 @@ func WithConfig(cfg *processors.Config) Option {
 }
 
 // WithLogger sets a custom logger.
-func WithLogger(logger zerolog.Logger) Option {
+func WithLogger(logger logging.Logger) Option {
 	return func(p *Pipeline) {
 		p.logger = logger
 	}
@@ -43,23 +43,22 @@ func New(registry processors.ProcessorRegistry, repo *enrichment.Repository, opt
 		registry:   registry,
 		config:     processors.DefaultConfig(),
 		repository: repo,
-		logger:     zerolog.Nop(),
+		logger:     logging.MustGlobal(),
 	}
 
 	for _, opt := range opts {
 		opt(p)
 	}
 
-	p.logger = p.logger.With().Str("component", "enrichment_pipeline").Logger()
+	p.logger = p.logger.With(logging.F("component", "enrichment_pipeline"))
 	return p
 }
 
 // Process runs the enrichment pipeline for a source.
 func (p *Pipeline) Process(ctx context.Context, source *processors.Source) (*enrichment.Enrichment, error) {
-	p.logger.Info().
-		Int64("source_id", source.ID).
-		Str("tenant_id", source.TenantID).
-		Msg("Starting enrichment pipeline")
+	p.logger.Info("Starting enrichment pipeline",
+		logging.F("source_id", source.ID),
+		logging.F("tenant_id", source.TenantID))
 
 	// Create initial enrichment record
 	e := &enrichment.Enrichment{
@@ -104,16 +103,15 @@ func (p *Pipeline) Process(ctx context.Context, source *processors.Source) (*enr
 	now := time.Now()
 	e.CompletedAt = &now
 	if err := p.repository.Update(ctx, e); err != nil {
-		p.logger.Error().Err(err).Int64("id", e.ID).Msg("Failed to update enrichment as completed")
+		p.logger.Error("Failed to update enrichment as completed", logging.Err(err), logging.F("id", e.ID))
 	}
 
-	p.logger.Info().
-		Int64("id", e.ID).
-		Int64("source_id", source.ID).
-		Str("content_type", string(e.Classification.ContentType)).
-		Str("subtype", string(e.Classification.Subtype)).
-		Bool("ai_processed", e.AIProcessed).
-		Msg("Enrichment pipeline completed")
+	p.logger.Info("Enrichment pipeline completed",
+		logging.F("id", e.ID),
+		logging.F("source_id", source.ID),
+		logging.F("content_type", string(e.Classification.ContentType)),
+		logging.F("subtype", string(e.Classification.Subtype)),
+		logging.F("ai_processed", e.AIProcessed))
 
 	return e, nil
 }
@@ -147,13 +145,12 @@ func (p *Pipeline) runClassification(ctx context.Context, source *processors.Sou
 
 	e.Classification = *classification
 
-	p.logger.Debug().
-		Int64("source_id", source.ID).
-		Str("content_type", string(classification.ContentType)).
-		Str("subtype", string(classification.Subtype)).
-		Str("profile", string(classification.Profile)).
-		Dur("duration", duration).
-		Msg("Classification completed")
+	p.logger.Debug("Classification completed",
+		logging.F("source_id", source.ID),
+		logging.F("content_type", string(classification.ContentType)),
+		logging.F("subtype", string(classification.Subtype)),
+		logging.F("profile", string(classification.Profile)),
+		logging.F("duration", duration))
 
 	return nil
 }
@@ -164,7 +161,7 @@ func (p *Pipeline) runCommonEnrichment(ctx context.Context, source *processors.S
 	e.CurrentStage = "common_enrichment"
 
 	if err := p.repository.UpdateStatus(ctx, e.ID, e.Status, e.CurrentStage, ""); err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to update status")
+		p.logger.Warn("Failed to update status", logging.Err(err))
 	}
 
 	procs := p.registry.GetByStage(processors.StageCommonEnrichment)
@@ -180,9 +177,8 @@ func (p *Pipeline) runCommonEnrichment(ctx context.Context, source *processors.S
 		// Check if this processor should run
 		if cep, ok := proc.(processors.CommonEnrichmentProcessor); ok {
 			if !cep.CanProcess(&e.Classification) {
-				p.logger.Debug().
-					Str("processor", proc.Name()).
-					Msg("Skipping processor - not applicable for classification")
+				p.logger.Debug("Skipping processor - not applicable for classification",
+					logging.F("processor", proc.Name()))
 				continue
 			}
 		}
@@ -194,18 +190,16 @@ func (p *Pipeline) runCommonEnrichment(ctx context.Context, source *processors.S
 		p.recordStage(ctx, e, "common_enrichment", proc.Name(), err, duration, nil, nil)
 
 		if err != nil {
-			p.logger.Warn().
-				Err(err).
-				Str("processor", proc.Name()).
-				Msg("Common enrichment processor failed, continuing")
+			p.logger.Warn("Common enrichment processor failed, continuing",
+				logging.Err(err),
+				logging.F("processor", proc.Name()))
 			// Don't fail the whole pipeline for common enrichment errors
 			continue
 		}
 
-		p.logger.Debug().
-			Str("processor", proc.Name()).
-			Dur("duration", duration).
-			Msg("Common enrichment processor completed")
+		p.logger.Debug("Common enrichment processor completed",
+			logging.F("processor", proc.Name()),
+			logging.F("duration", duration))
 	}
 
 	// Update the enrichment record with results
@@ -222,15 +216,14 @@ func (p *Pipeline) runTypeSpecificExtraction(ctx context.Context, source *proces
 	e.CurrentStage = "type_specific"
 
 	if err := p.repository.UpdateStatus(ctx, e.ID, e.Status, e.CurrentStage, ""); err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to update status")
+		p.logger.Warn("Failed to update status", logging.Err(err))
 	}
 
 	// Find the processor for this subtype
 	proc, ok := p.registry.GetTypeSpecificProcessor(e.Classification.Subtype)
 	if !ok {
-		p.logger.Debug().
-			Str("subtype", string(e.Classification.Subtype)).
-			Msg("No type-specific processor for subtype")
+		p.logger.Debug("No type-specific processor for subtype",
+			logging.F("subtype", string(e.Classification.Subtype)))
 		return nil
 	}
 
@@ -248,18 +241,16 @@ func (p *Pipeline) runTypeSpecificExtraction(ctx context.Context, source *proces
 	p.recordStage(ctx, e, "type_specific", proc.Name(), err, duration, nil, e.ExtractedData)
 
 	if err != nil {
-		p.logger.Warn().
-			Err(err).
-			Str("processor", proc.Name()).
-			Str("subtype", string(e.Classification.Subtype)).
-			Msg("Type-specific extraction failed")
+		p.logger.Warn("Type-specific extraction failed",
+			logging.Err(err),
+			logging.F("processor", proc.Name()),
+			logging.F("subtype", string(e.Classification.Subtype)))
 		// Continue - extraction failure shouldn't stop the pipeline
 	} else {
-		p.logger.Debug().
-			Str("processor", proc.Name()).
-			Str("subtype", string(e.Classification.Subtype)).
-			Dur("duration", duration).
-			Msg("Type-specific extraction completed")
+		p.logger.Debug("Type-specific extraction completed",
+			logging.F("processor", proc.Name()),
+			logging.F("subtype", string(e.Classification.Subtype)),
+			logging.F("duration", duration))
 	}
 
 	// Update the enrichment record
@@ -279,10 +270,9 @@ func (p *Pipeline) runAIProcessing(ctx context.Context, source *processors.Sourc
 			e.Classification.Profile,
 			p.config.GetAISkipReason(e.Classification.Profile))
 
-		p.logger.Debug().
-			Str("profile", string(e.Classification.Profile)).
-			Str("reason", e.AISkipReason).
-			Msg("Skipping AI processing")
+		p.logger.Debug("Skipping AI processing",
+			logging.F("profile", string(e.Classification.Profile)),
+			logging.F("reason", e.AISkipReason))
 
 		return nil
 	}
@@ -292,7 +282,7 @@ func (p *Pipeline) runAIProcessing(ctx context.Context, source *processors.Sourc
 	e.CurrentStage = "ai_processing"
 
 	if err := p.repository.UpdateStatus(ctx, e.ID, e.Status, e.CurrentStage, ""); err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to update status")
+		p.logger.Warn("Failed to update status", logging.Err(err))
 	}
 
 	aiProcessors := p.registry.GetByStage(processors.StageAIProcessing)
@@ -319,17 +309,15 @@ func (p *Pipeline) runAIProcessing(ctx context.Context, source *processors.Sourc
 		p.recordStage(ctx, e, "ai_processing", proc.Name(), err, duration, nil, nil)
 
 		if err != nil {
-			p.logger.Error().
-				Err(err).
-				Str("processor", proc.Name()).
-				Msg("AI processor failed")
+			p.logger.Error("AI processor failed",
+				logging.Err(err),
+				logging.F("processor", proc.Name()))
 			return fmt.Errorf("AI processing failed: %w", err)
 		}
 
-		p.logger.Debug().
-			Str("processor", proc.Name()).
-			Dur("duration", duration).
-			Msg("AI processor completed")
+		p.logger.Debug("AI processor completed",
+			logging.F("processor", proc.Name()),
+			logging.F("duration", duration))
 	}
 
 	now := time.Now()
@@ -361,9 +349,8 @@ func (p *Pipeline) runPostProcessing(ctx context.Context, source *processors.Sou
 		// Check if this post-processor should run
 		if pp, ok := proc.(processors.PostProcessor); ok {
 			if !pp.ShouldProcess(e) {
-				p.logger.Debug().
-					Str("processor", proc.Name()).
-					Msg("Skipping post-processor - not applicable")
+				p.logger.Debug("Skipping post-processor - not applicable",
+					logging.F("processor", proc.Name()))
 				continue
 			}
 		}
@@ -375,18 +362,16 @@ func (p *Pipeline) runPostProcessing(ctx context.Context, source *processors.Sou
 		p.recordStage(ctx, e, "post_processing", proc.Name(), err, duration, nil, nil)
 
 		if err != nil {
-			p.logger.Warn().
-				Err(err).
-				Str("processor", proc.Name()).
-				Msg("Post-processor failed, continuing")
+			p.logger.Warn("Post-processor failed, continuing",
+				logging.Err(err),
+				logging.F("processor", proc.Name()))
 			// Don't fail the whole pipeline for post-processing errors
 			continue
 		}
 
-		p.logger.Debug().
-			Str("processor", proc.Name()).
-			Dur("duration", duration).
-			Msg("Post-processor completed")
+		p.logger.Debug("Post-processor completed",
+			logging.F("processor", proc.Name()),
+			logging.F("duration", duration))
 	}
 
 	return nil
@@ -397,15 +382,14 @@ func (p *Pipeline) handleError(ctx context.Context, e *enrichment.Enrichment, st
 	e.Status = enrichment.StatusFailed
 	e.ErrorMessage = err.Error()
 
-	p.logger.Error().
-		Err(err).
-		Int64("source_id", e.SourceID).
-		Str("stage", stage).
-		Msg("Pipeline failed")
+	p.logger.Error("Pipeline failed",
+		logging.Err(err),
+		logging.F("source_id", e.SourceID),
+		logging.F("stage", stage))
 
 	if e.ID > 0 {
 		if updateErr := p.repository.MarkFailed(ctx, e.ID, err.Error()); updateErr != nil {
-			p.logger.Error().Err(updateErr).Msg("Failed to update enrichment as failed")
+			p.logger.Error("Failed to update enrichment as failed", logging.Err(updateErr))
 		}
 	}
 
@@ -455,7 +439,7 @@ func (p *Pipeline) recordStage(ctx context.Context, e *enrichment.Enrichment, st
 	}
 
 	if err := p.repository.RecordStage(ctx, stage); err != nil {
-		p.logger.Warn().Err(err).Str("stage", stageName).Msg("Failed to record stage")
+		p.logger.Warn("Failed to record stage", logging.Err(err), logging.F("stage", stageName))
 	}
 }
 
@@ -473,10 +457,9 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, sources []*processors.Sourc
 
 		result, err := p.Process(ctx, source)
 		if err != nil {
-			p.logger.Error().
-				Err(err).
-				Int64("source_id", source.ID).
-				Msg("Failed to process source")
+			p.logger.Error("Failed to process source",
+				logging.Err(err),
+				logging.F("source_id", source.ID))
 			lastErr = err
 			continue
 		}

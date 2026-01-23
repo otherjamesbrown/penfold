@@ -9,7 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // SourceSystem identifies the origin system for ingested content.
@@ -111,14 +112,14 @@ type IngestError struct {
 // Repository provides database operations for email ingest.
 type Repository struct {
 	pool   *pgxpool.Pool
-	logger zerolog.Logger
+	logger logging.Logger
 }
 
 // NewRepository creates a new ingest repository.
-func NewRepository(pool *pgxpool.Pool, logger zerolog.Logger) *Repository {
+func NewRepository(pool *pgxpool.Pool, logger logging.Logger) *Repository {
 	return &Repository{
 		pool:   pool,
-		logger: logger.With().Str("component", "ingest_repository").Logger(),
+		logger: logger.With(logging.F("component", "ingest_repository")),
 	}
 }
 
@@ -166,19 +167,17 @@ func (r *Repository) CreateSource(ctx context.Context, source *EmailSource) (*Cr
 	).Scan(&result.ID, &result.CreatedAt)
 
 	if err != nil {
-		r.logger.Error().
-			Err(err).
-			Str("tenant_id", tenantID).
-			Str("external_id", source.ExternalID).
-			Msg("Failed to create source")
+		r.logger.Error("Failed to create source",
+			logging.Err(err),
+			logging.F("tenant_id", tenantID),
+			logging.F("external_id", source.ExternalID))
 		return nil, fmt.Errorf("failed to create source: %w", err)
 	}
 
-	r.logger.Debug().
-		Int64("id", result.ID).
-		Str("tenant_id", tenantID).
-		Str("external_id", source.ExternalID).
-		Msg("Source created")
+	r.logger.Debug("Source created",
+		logging.F("id", result.ID),
+		logging.F("tenant_id", tenantID),
+		logging.F("external_id", source.ExternalID))
 
 	return &result, nil
 }
@@ -321,10 +320,9 @@ func (r *Repository) CreateJob(ctx context.Context, job *IngestJob) error {
 		return fmt.Errorf("failed to create job: %w", err)
 	}
 
-	r.logger.Debug().
-		Str("job_id", job.ID).
-		Str("tenant_id", tenantID).
-		Msg("Ingest job created")
+	r.logger.Debug("Ingest job created",
+		logging.F("job_id", job.ID),
+		logging.F("tenant_id", tenantID))
 
 	return nil
 }
@@ -426,10 +424,9 @@ func (r *Repository) CompleteJob(ctx context.Context, jobID string, status Inges
 		return fmt.Errorf("job not found: %s", jobID)
 	}
 
-	r.logger.Debug().
-		Str("job_id", jobID).
-		Str("status", string(status)).
-		Msg("Job completed")
+	r.logger.Debug("Job completed",
+		logging.F("job_id", jobID),
+		logging.F("status", string(status)))
 
 	return nil
 }
@@ -555,10 +552,9 @@ func (r *Repository) UpdateSourceStatus(ctx context.Context, tenantID string, so
 		return fmt.Errorf("source not found: %d", sourceID)
 	}
 
-	r.logger.Debug().
-		Int64("source_id", sourceID).
-		Str("status", status).
-		Msg("Source status updated")
+	r.logger.Debug("Source status updated",
+		logging.F("source_id", sourceID),
+		logging.F("status", status))
 
 	return nil
 }

@@ -134,7 +134,7 @@ func NewConfidenceScorer(cfg *ScorerConfig, logger logging.Logger) *ConfidenceSc
 		cfg = DefaultScorerConfig()
 	}
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 	return &ConfidenceScorer{
 		config: cfg,
@@ -482,15 +482,3 @@ func (s *ConfidenceScorer) GetFactorWeights() map[string]float64 {
 }
 
 // noopLogger is a no-op implementation of logging.Logger for when no logger is provided.
-type noopLogger struct{}
-
-func (l *noopLogger) Debug(msg string, fields ...logging.Field) {}
-func (l *noopLogger) Info(msg string, fields ...logging.Field)  {}
-func (l *noopLogger) Warn(msg string, fields ...logging.Field)  {}
-func (l *noopLogger) Error(msg string, fields ...logging.Field) {}
-func (l *noopLogger) With(fields ...logging.Field) logging.Logger {
-	return l
-}
-func (l *noopLogger) WithContext(ctx context.Context) logging.Logger {
-	return l
-}

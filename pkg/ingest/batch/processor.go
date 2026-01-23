@@ -12,12 +12,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"github.com/rs/zerolog"
 
 	"github.com/otherjamesbrown/penfold/pkg/ingest/attachments"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/eml"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/events"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // DefaultConcurrency is the default number of concurrent workers.
@@ -70,7 +70,7 @@ type Processor struct {
 	publisher *events.Publisher
 	parser    *eml.Parser
 	extractor *attachments.Extractor
-	logger    zerolog.Logger
+	logger    logging.Logger
 
 	progress *Progress
 	mu       sync.Mutex
@@ -80,7 +80,7 @@ type Processor struct {
 func NewProcessor(
 	pool *pgxpool.Pool,
 	redisClient *redis.Client,
-	logger zerolog.Logger,
+	logger logging.Logger,
 	cfg ProcessorConfig,
 ) *Processor {
 	if cfg.Concurrency <= 0 {
@@ -97,7 +97,7 @@ func NewProcessor(
 	extractor, err := attachments.NewExtractor(repo, logger)
 	if err != nil {
 		// Log warning but continue - attachment extraction will be disabled
-		logger.Warn().Err(err).Msg("Failed to create attachment extractor, attachment extraction disabled")
+		logger.Warn("Failed to create attachment extractor, attachment extraction disabled", logging.Err(err))
 	}
 
 	proc := &Processor{
@@ -106,7 +106,7 @@ func NewProcessor(
 		publisher: events.NewPublisher(redisClient, logger),
 		parser:    eml.NewParser(parseOpts),
 		extractor: extractor,
-		logger:    logger.With().Str("component", "batch_processor").Logger(),
+		logger:    logger.With(logging.F("component", "batch_processor")),
 	}
 
 	// Set the processor as the embedded email handler for recursive processing
@@ -148,7 +148,7 @@ func (p *Processor) Process(ctx context.Context, path string) (*ProcessResult, e
 			return nil, fmt.Errorf("failed to get remaining files: %w", err)
 		}
 		if len(files) == 0 {
-			p.logger.Info().Msg("No remaining files to process")
+			p.logger.Info("No remaining files to process")
 			return &ProcessResult{
 				JobID:       jobID,
 				TotalFiles:  0,
@@ -176,7 +176,7 @@ func (p *Processor) Process(ctx context.Context, path string) (*ProcessResult, e
 		}
 		if !p.cfg.DryRun {
 			if err := p.repo.CreateJob(ctx, job); err != nil {
-				p.logger.Warn().Err(err).Msg("Failed to create job record")
+				p.logger.Warn("Failed to create job record", logging.Err(err))
 			}
 		}
 	}
@@ -209,7 +209,7 @@ func (p *Processor) Process(ctx context.Context, path string) (*ProcessResult, e
 			status = storage.IngestJobStatusFailed
 		}
 		if err := p.repo.CompleteJob(ctx, jobID, status); err != nil {
-			p.logger.Warn().Err(err).Msg("Failed to update job status")
+			p.logger.Warn("Failed to update job status", logging.Err(err))
 		}
 
 		// Publish completion event
@@ -226,7 +226,7 @@ func (p *Processor) Process(ctx context.Context, path string) (*ProcessResult, e
 			Success:       result.Success,
 			FinalStatus:   string(status),
 		}); err != nil {
-			p.logger.Warn().Err(err).Msg("Failed to publish completion event")
+			p.logger.Warn("Failed to publish completion event", logging.Err(err))
 		}
 	}
 
@@ -357,7 +357,7 @@ func (p *Processor) processFile(ctx context.Context, jobID, filePath string) out
 	// Parse the email
 	parseResult, err := p.parser.ParseFile(filePath)
 	if err != nil {
-		p.logger.Error().Err(err).Str("file", filePath).Msg("Failed to parse email")
+		p.logger.Error("Failed to parse email", logging.Err(err), logging.F("file", filePath))
 		return outcome{status: "failed", err: err}
 	}
 
@@ -365,28 +365,27 @@ func (p *Processor) processFile(ctx context.Context, jobID, filePath string) out
 
 	// Log warnings
 	for _, w := range parseResult.Warnings {
-		p.logger.Warn().Str("file", filePath).Str("warning", w).Msg("Parse warning")
+		p.logger.Warn("Parse warning", logging.F("file", filePath), logging.F("warning", w))
 	}
 
 	// Check for duplicates
 	isDup, existingID, reason, err := p.repo.CheckDuplicate(ctx, p.cfg.TenantID, email.MessageID, email.ContentHash)
 	if err != nil {
-		p.logger.Error().Err(err).Str("file", filePath).Msg("Failed to check duplicate")
+		p.logger.Error("Failed to check duplicate", logging.Err(err), logging.F("file", filePath))
 		return outcome{status: "failed", err: err}
 	}
 
 	if isDup {
-		p.logger.Debug().
-			Str("file", filePath).
-			Str("reason", reason).
-			Int64("existing_id", existingID).
-			Msg("Duplicate email skipped")
+		p.logger.Debug("Duplicate email skipped",
+			logging.F("file", filePath),
+			logging.F("reason", reason),
+			logging.F("existing_id", existingID))
 		return outcome{status: "skipped"}
 	}
 
 	// Dry run - stop here
 	if p.cfg.DryRun {
-		p.logger.Info().Str("file", filePath).Msg("Dry run: would import")
+		p.logger.Info("Dry run: would import", logging.F("file", filePath))
 		return outcome{status: "imported"}
 	}
 
@@ -433,7 +432,7 @@ func (p *Processor) processFile(ctx context.Context, jobID, filePath string) out
 
 	created, err := p.repo.CreateSource(ctx, source)
 	if err != nil {
-		p.logger.Error().Err(err).Str("file", filePath).Msg("Failed to create source")
+		p.logger.Error("Failed to create source", logging.Err(err), logging.F("file", filePath))
 		return outcome{status: "failed", err: err}
 	}
 
@@ -447,11 +446,10 @@ func (p *Processor) processFile(ctx context.Context, jobID, filePath string) out
 			SourceTimestamp: email.Date,
 		})
 		if err != nil {
-			p.logger.Warn().
-				Err(err).
-				Str("file", filePath).
-				Int64("source_id", created.ID).
-				Msg("Failed to extract attachments, email still imported")
+			p.logger.Warn("Failed to extract attachments, email still imported",
+				logging.Err(err),
+				logging.F("file", filePath),
+				logging.F("source_id", created.ID))
 			// Don't fail the email import, just log the warning
 		}
 	}
@@ -465,7 +463,7 @@ func (p *Processor) processFile(ctx context.Context, jobID, filePath string) out
 		SourceTag: p.cfg.SourceTag,
 		Labels:    p.cfg.Labels,
 	}); err != nil {
-		p.logger.Warn().Err(err).Str("file", filePath).Msg("Failed to publish email event")
+		p.logger.Warn("Failed to publish email event", logging.Err(err), logging.F("file", filePath))
 		// Don't fail the file, the source is already created
 	}
 
@@ -482,25 +480,22 @@ func (p *Processor) processFile(ctx context.Context, jobID, filePath string) out
 					SizeBytes:      att.Attachment.SizeBytes,
 					IsEmbeddedEmail: att.Attachment.IsEmbeddedEmail,
 				}); err != nil {
-					p.logger.Warn().
-						Err(err).
-						Str("filename", att.Attachment.Filename).
-						Msg("Failed to publish attachment event")
+					p.logger.Warn("Failed to publish attachment event",
+						logging.Err(err),
+						logging.F("filename", att.Attachment.Filename))
 				}
 			}
 		}
 	}
 
-	p.logger.Debug().
-		Str("file", filePath).
-		Int64("source_id", created.ID).
-		Int("attachments_processed", func() int {
-			if extractResult != nil {
-				return extractResult.Processed
-			}
-			return 0
-		}()).
-		Msg("Email imported successfully")
+	attachmentsProcessed := 0
+	if extractResult != nil {
+		attachmentsProcessed = extractResult.Processed
+	}
+	p.logger.Debug("Email imported successfully",
+		logging.F("file", filePath),
+		logging.F("source_id", created.ID),
+		logging.F("attachments_processed", attachmentsProcessed))
 
 	return outcome{status: "imported", sourceID: created.ID}
 }
@@ -543,7 +538,7 @@ func (p *Processor) recordOutcome(ctx context.Context, jobID, filePath string, o
 				errorType = storage.ErrorTypeStorage
 			}
 			if err := p.repo.RecordError(ctx, jobID, filePath, errorType, errMsg, nil); err != nil {
-				p.logger.Warn().Err(err).Msg("Failed to record error")
+				p.logger.Warn("Failed to record error", logging.Err(err))
 			}
 		}
 	}
@@ -559,7 +554,7 @@ func (p *Processor) recordOutcome(ctx context.Context, jobID, filePath string, o
 			result.FailedCount,
 			processedFiles,
 		); err != nil {
-			p.logger.Warn().Err(err).Msg("Failed to update job progress")
+			p.logger.Warn("Failed to update job progress", logging.Err(err))
 		}
 	}
 }
@@ -575,12 +570,11 @@ func (p *Processor) HandleEmbeddedEmail(ctx context.Context, params attachments.
 	}
 
 	if isDup {
-		p.logger.Debug().
-			Str("message_id", email.MessageID).
-			Str("reason", reason).
-			Int64("existing_id", existingID).
-			Int("depth", params.Depth).
-			Msg("Duplicate embedded email skipped")
+		p.logger.Debug("Duplicate embedded email skipped",
+			logging.F("message_id", email.MessageID),
+			logging.F("reason", reason),
+			logging.F("existing_id", existingID),
+			logging.F("depth", params.Depth))
 
 		return &attachments.EmbeddedEmailResult{
 			SourceID:   existingID,
@@ -647,11 +641,10 @@ func (p *Processor) HandleEmbeddedEmail(ctx context.Context, params attachments.
 			SeenMessageIDs:  params.SeenMessageIDs,
 		})
 		if err != nil {
-			p.logger.Warn().
-				Err(err).
-				Int64("source_id", created.ID).
-				Int("depth", params.Depth).
-				Msg("Failed to extract attachments from embedded email")
+			p.logger.Warn("Failed to extract attachments from embedded email",
+				logging.Err(err),
+				logging.F("source_id", created.ID),
+				logging.F("depth", params.Depth))
 		} else {
 			attachmentCount = extractResult.TotalCount
 		}
@@ -666,18 +659,16 @@ func (p *Processor) HandleEmbeddedEmail(ctx context.Context, params attachments.
 		SourceTag: "embedded",
 		Labels:    []string{"embedded_email"},
 	}); err != nil {
-		p.logger.Warn().
-			Err(err).
-			Int64("source_id", created.ID).
-			Msg("Failed to publish embedded email event")
+		p.logger.Warn("Failed to publish embedded email event",
+			logging.Err(err),
+			logging.F("source_id", created.ID))
 	}
 
-	p.logger.Debug().
-		Int64("source_id", created.ID).
-		Str("message_id", email.MessageID).
-		Int("depth", params.Depth).
-		Int("attachments", attachmentCount).
-		Msg("Embedded email processed")
+	p.logger.Debug("Embedded email processed",
+		logging.F("source_id", created.ID),
+		logging.F("message_id", email.MessageID),
+		logging.F("depth", params.Depth),
+		logging.F("attachments", attachmentCount))
 
 	return &attachments.EmbeddedEmailResult{
 		SourceID:        created.ID,

@@ -7,10 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	"github.com/otherjamesbrown/penfold/pkg/ingest/eml"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // MaxEmbeddedEmailDepth is the maximum nesting depth for embedded emails.
@@ -48,11 +47,11 @@ type Extractor struct {
 	classifier           *Classifier
 	repo                 *storage.Repository
 	embeddedEmailHandler EmbeddedEmailHandler
-	logger               zerolog.Logger
+	logger               logging.Logger
 }
 
 // NewExtractor creates a new attachment extractor.
-func NewExtractor(repo *storage.Repository, logger zerolog.Logger) (*Extractor, error) {
+func NewExtractor(repo *storage.Repository, logger logging.Logger) (*Extractor, error) {
 	// Create classifier with default heuristics
 	heuristic, err := NewHeuristicClassifier(DefaultHeuristicRules())
 	if err != nil {
@@ -64,16 +63,16 @@ func NewExtractor(repo *storage.Repository, logger zerolog.Logger) (*Extractor, 
 	return &Extractor{
 		classifier: classifier,
 		repo:       repo,
-		logger:     logger.With().Str("component", "attachment_extractor").Logger(),
+		logger:     logger.With(logging.F("component", "attachment_extractor")),
 	}, nil
 }
 
 // NewExtractorWithClassifier creates an extractor with a custom classifier.
-func NewExtractorWithClassifier(repo *storage.Repository, classifier *Classifier, logger zerolog.Logger) *Extractor {
+func NewExtractorWithClassifier(repo *storage.Repository, classifier *Classifier, logger logging.Logger) *Extractor {
 	return &Extractor{
 		classifier: classifier,
 		repo:       repo,
-		logger:     logger.With().Str("component", "attachment_extractor").Logger(),
+		logger:     logger.With(logging.F("component", "attachment_extractor")),
 	}
 }
 
@@ -110,11 +109,10 @@ func (e *Extractor) ExtractAndStore(ctx context.Context, params ExtractParams) (
 	for i, emlAtt := range params.Email.Attachments {
 		attResult, err := e.processAttachment(ctx, params, emlAtt, i)
 		if err != nil {
-			e.logger.Warn().
-				Err(err).
-				Str("filename", emlAtt.Filename).
-				Int("position", i).
-				Msg("Failed to process attachment")
+			e.logger.Warn("Failed to process attachment",
+				logging.Err(err),
+				logging.F("filename", emlAtt.Filename),
+				logging.F("position", i))
 
 			result.Errors++
 			attResult = &AttachmentResult{
@@ -138,14 +136,13 @@ func (e *Extractor) ExtractAndStore(ctx context.Context, params ExtractParams) (
 		}
 	}
 
-	e.logger.Debug().
-		Int64("parent_source_id", params.ParentSourceID).
-		Int("total", result.TotalCount).
-		Int("processed", result.Processed).
-		Int("skipped", result.Skipped).
-		Int("pending", result.Pending).
-		Int("errors", result.Errors).
-		Msg("Attachment extraction complete")
+	e.logger.Debug("Attachment extraction complete",
+		logging.F("parent_source_id", params.ParentSourceID),
+		logging.F("total", result.TotalCount),
+		logging.F("processed", result.Processed),
+		logging.F("skipped", result.Skipped),
+		logging.F("pending", result.Pending),
+		logging.F("errors", result.Errors))
 
 	return result, nil
 }
@@ -228,10 +225,9 @@ func (e *Extractor) processAttachment(ctx context.Context, params ExtractParams,
 func (e *Extractor) processEmbeddedEmail(ctx context.Context, params ExtractParams, att *Attachment, classification *Classification, steps []ProcessingStep, position int) (*AttachmentResult, error) {
 	// Check depth limit
 	if params.Depth >= MaxEmbeddedEmailDepth {
-		e.logger.Warn().
-			Int("depth", params.Depth).
-			Str("filename", att.Filename).
-			Msg("Max embedded email depth reached, storing as attachment")
+		e.logger.Warn("Max embedded email depth reached, storing as attachment",
+			logging.F("depth", params.Depth),
+			logging.F("filename", att.Filename))
 
 		// Store as regular attachment instead
 		return e.storeAsRegularAttachment(ctx, params, att, classification, steps)
@@ -243,10 +239,9 @@ func (e *Extractor) processEmbeddedEmail(ctx context.Context, params ExtractPara
 	})
 	parseResult, err := parser.ParseBytes(att.Content)
 	if err != nil {
-		e.logger.Warn().
-			Err(err).
-			Str("filename", att.Filename).
-			Msg("Failed to parse embedded email, storing as attachment")
+		e.logger.Warn("Failed to parse embedded email, storing as attachment",
+			logging.Err(err),
+			logging.F("filename", att.Filename))
 
 		// Store as regular attachment on parse failure
 		return e.storeAsRegularAttachment(ctx, params, att, classification, steps)
@@ -257,10 +252,9 @@ func (e *Extractor) processEmbeddedEmail(ctx context.Context, params ExtractPara
 	// Check for cycles (same message-id already processed)
 	for _, seenID := range params.SeenMessageIDs {
 		if seenID == embeddedEmail.MessageID {
-			e.logger.Warn().
-				Str("message_id", embeddedEmail.MessageID).
-				Str("filename", att.Filename).
-				Msg("Cycle detected in embedded emails, skipping")
+			e.logger.Warn("Cycle detected in embedded emails, skipping",
+				logging.F("message_id", embeddedEmail.MessageID),
+				logging.F("filename", att.Filename))
 
 			// Create link only with skip reason
 			link := &storage.AttachmentLink{
@@ -296,9 +290,8 @@ func (e *Extractor) processEmbeddedEmail(ctx context.Context, params ExtractPara
 
 	// No handler - store as regular attachment
 	if e.embeddedEmailHandler == nil {
-		e.logger.Debug().
-			Str("filename", att.Filename).
-			Msg("No embedded email handler, storing as regular attachment")
+		e.logger.Debug("No embedded email handler, storing as regular attachment",
+			logging.F("filename", att.Filename))
 		return e.storeAsRegularAttachment(ctx, params, att, classification, steps)
 	}
 
@@ -313,10 +306,9 @@ func (e *Extractor) processEmbeddedEmail(ctx context.Context, params ExtractPara
 		SeenMessageIDs: append(params.SeenMessageIDs, params.Email.MessageID),
 	})
 	if err != nil {
-		e.logger.Warn().
-			Err(err).
-			Str("filename", att.Filename).
-			Msg("Failed to process embedded email, storing as attachment")
+		e.logger.Warn("Failed to process embedded email, storing as attachment",
+			logging.Err(err),
+			logging.F("filename", att.Filename))
 		return e.storeAsRegularAttachment(ctx, params, att, classification, steps)
 	}
 
@@ -340,12 +332,11 @@ func (e *Extractor) processEmbeddedEmail(ctx context.Context, params ExtractPara
 		return nil, err
 	}
 
-	e.logger.Debug().
-		Int64("parent_source_id", params.ParentSourceID).
-		Int64("embedded_source_id", result.SourceID).
-		Str("message_id", result.MessageID).
-		Int("depth", params.Depth+1).
-		Msg("Embedded email processed recursively")
+	e.logger.Debug("Embedded email processed recursively",
+		logging.F("parent_source_id", params.ParentSourceID),
+		logging.F("embedded_source_id", result.SourceID),
+		logging.F("message_id", result.MessageID),
+		logging.F("depth", params.Depth+1))
 
 	return &AttachmentResult{
 		Attachment: att,
