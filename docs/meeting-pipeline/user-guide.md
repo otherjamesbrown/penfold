@@ -1,334 +1,480 @@
 # Meeting Pipeline User Guide
 
-**Version**: 1.0.0
-**Target Audience**: Business users, knowledge workers
-**Estimated Reading Time**: 10 minutes
+**Version**: 2.0.0
+**Implementation**: Go
+**Target Audience**: Developers and system operators
 
 ## Overview
 
-This guide walks you through uploading meetings, monitoring processing, reviewing results, and searching your meeting content.
+This guide walks you through ingesting meeting transcripts, resolving participants, extracting mentions, and processing meetings through the content enrichment pipeline.
 
 ## Getting Started
 
-### Uploading Your First Meeting
+### Prerequisites
 
-1. **Access the Upload Interface**
-   - Navigate to `/meetings/upload` in your browser
-   - You'll see the meeting upload dashboard
+- Go 1.22+ installed
+- PostgreSQL 16+ running with pgvector extension
+- Penfold CLI (`penf`) built and available
+- Database connection configured in `~/.penf/config.yaml`
 
-2. **Choose Your Files**
-   - Click "Select Files" or drag and drop
-   - Supported formats: MP4, MP3, WAV, MOV, PDF, DOCX
-   - Maximum size: 2GB per file
-   - Multiple files can be uploaded at once
+### Quick Start
 
-3. **Provide Meeting Context** (Optional but Recommended)
-   - **Meeting Title**: Descriptive name for easy identification
-   - **Date & Time**: When the meeting occurred (if different from upload time)
-   - **Participants**: Known attendees (helps with speaker identification)
-   - **Project Context**: Related project or initiative
-   - **Privacy Level**: Public, Internal, Confidential, or Restricted
+```bash
+# Ingest meeting transcripts from a directory
+penf ingest meeting ~/meetings/ --source "project-x"
 
-4. **Start Upload**
-   - Click "Upload and Process"
-   - You'll receive a tracking ID for monitoring progress
-   - Large files show progress bar and estimated time remaining
+# Resolve participants to known people
+penf ingest meeting resolve
 
-### Monitoring Processing Progress
+# Extract mentions of people from transcripts
+penf ingest meeting mentions
+```
 
-**Processing Phases Overview**:
-1. **File Validation** (30 seconds) - Format and quality checks
-2. **Transcription** (15-25 minutes) - Speech-to-text conversion
-3. **Speaker Identification** (2-5 minutes) - Who said what
-4. **Content Analysis** (3-8 minutes) - Summaries and insights
-5. **Search Indexing** (1-2 minutes) - Making content searchable
-6. **Quality Review** (Manual) - Optional human verification
+## Supported File Formats
 
-**Monitoring Your Upload**:
-- **Dashboard View**: See all your meetings and their processing status
-- **Real-time Updates**: Status updates every 30 seconds
-- **Notifications**: Email alerts when processing completes or requires attention
-- **Detailed Progress**: Click any meeting to see detailed phase progress
+### WebVTT Transcripts (.vtt)
 
-**Status Indicators**:
-- 🔄 **Processing**: Currently being worked on
-- ✅ **Complete**: Ready for use
-- ⚠️ **Needs Review**: AI confidence low, manual review recommended
-- ❌ **Failed**: Processing error, support needed
-- 📊 **Analyzing**: Content analysis in progress
+Standard format from Webex, Zoom, and other platforms:
 
-## Working with Processed Meetings
+```
+WEBVTT
 
-### Viewing Meeting Results
+1 "John Smith" (123)
+00:00:05.579 --> 00:00:10.858
+Let's start with the agenda for today.
 
-1. **Access Your Meetings**
-   - Go to `/meetings` to see all processed meetings
-   - Filter by date, project, participants, or status
+2 "Jane Doe"
+00:00:11.000 --> 00:00:15.500
+I have a few items to add to the discussion.
+```
 
-2. **Meeting Overview Page**
-   - **Transcript**: Full text with timestamps and speaker labels
-   - **Summary**: AI-generated overview with key points
-   - **Action Items**: Extracted tasks and commitments
-   - **Decisions**: Key decisions and their context
-   - **Participants**: Identified speakers with contribution stats
-   - **Topics**: Main themes and discussion areas
+### Plain Text Transcripts (.txt)
 
-3. **Quality Indicators**
-   - **Transcription Confidence**: 0-100% accuracy estimate
-   - **Speaker ID Confidence**: How certain speaker identification is
-   - **Content Quality**: Overall AI confidence in analysis
+Transcript format with timestamp, speaker, and text:
 
-### Understanding AI Confidence Scores
+```
+0:11 : John Smith : Let's start with the agenda for today.
+0:15 : Jane Doe (she/her) : I have a few items to add to the discussion.
+12:30 : John Smith : Let's wrap up with action items.
+```
 
-**High Confidence (85-100%)**:
-- ✅ Green indicators throughout
-- Results likely very accurate
-- Can be used immediately
+**Filename patterns recognized**:
+- `Transcript_Meeting Name_20260123.txt`
+- `Meeting Name-20260123 1430-1.vtt`
 
-**Medium Confidence (70-84%)**:
-- 🟡 Yellow indicators in some areas
-- Generally good quality
-- Review recommended for important meetings
+### Chat Logs (.txt)
 
-**Low Confidence (Below 70%)**:
-- 🔴 Red indicators present
-- Manual review strongly recommended
-- Results may need significant correction
+Chat message format with date, time, speaker, and message:
 
-## Manual Review and Corrections
+```
+2026-01-23 09:07 : John Smith : Hello everyone
+2026-01-23 09:08 : Jane Doe : Check out <a href="https://example.com">this link</a>
+-----> 2026-01-23 09:10 : Meeting Bot : Recording started
+```
 
-### When to Review
+**Filename patterns recognized**:
+- `Chat messages_Meeting Name_20260123.txt`
+- `Chat_Meeting Name_20260123.txt`
 
-**Always Review For**:
-- Important business decisions
-- Legal or compliance matters
-- Low AI confidence scores
-- Meetings with poor audio quality
+### Video/Audio Files (metadata only)
 
-**Consider Reviewing For**:
-- Meetings with new or unfamiliar speakers
-- Technical discussions with specialized terminology
-- Meetings with background noise or interruptions
+The pipeline recognizes video and audio files but only stores metadata:
+- **Video**: MP4, WebM, MOV, AVI
+- **Audio**: M4A, MP3, WAV
 
-### Review Workflows
+## Ingesting Meetings
 
-#### 1. Transcript Review
+### Single File Ingestion
 
-**Access**: Click "Review Transcript" on meeting page
+```bash
+# Ingest a single VTT transcript
+penf ingest meeting ./meeting.vtt --source "weekly-sync"
 
-**Common Corrections**:
-- Fix misheard words or phrases
-- Correct technical terms or names
-- Adjust punctuation for clarity
-- Split or merge speaker segments
+# Ingest a single TXT transcript
+penf ingest meeting ./Transcript_Meeting_20260123.txt --source "archive"
+```
 
-**How to Edit**:
-- Click any text segment to edit inline
-- Use speaker dropdown to reassign segments
-- Add timestamps for better accuracy
-- Save changes incrementally
+### Directory Ingestion
 
-#### 2. Speaker Identification Review
+The scanner automatically groups related files:
 
-**Access**: Click "Review Speakers" on meeting page
+```
+MeetingFolder/
+  Weekly Sync-20260123 0900-1.vtt    # Transcript
+  Chat messages_Weekly Sync_20260123.txt  # Chat log
+  Weekly Sync-20260123 0900-1.mp4    # Video (metadata only)
+```
 
-**Verification Process**:
-- Confirm or correct speaker names
-- Merge duplicate speaker identities
-- Link speakers to known contacts
-- Add pronunciation guides for future meetings
+```bash
+# Ingest the directory as a single meeting
+penf ingest meeting ./MeetingFolder/ --source "weekly-sync"
+```
 
-**Speaker Confidence Indicators**:
-- **Green**: High confidence, likely correct
-- **Yellow**: Medium confidence, worth checking
-- **Red**: Low confidence, needs attention
+### Batch Ingestion
 
-#### 3. Entity Resolution Review
+Scan a parent directory with multiple meeting subdirectories:
 
-**Access**: Navigate to "Entity Resolution" queue
+```
+meetings/
+  Project Alpha - 01152026/
+    transcript.vtt
+    chat.txt
+  Project Beta - 01162026/
+    transcript.vtt
+```
 
-**Review Tasks**:
-- Confirm participant identities
-- Link mentions to known projects
-- Resolve topic categories
-- Validate action item assignments
+```bash
+# Ingest all meetings in the directory
+penf ingest meeting ~/meetings/ --source "archive-2026"
+```
 
-### Version Control
+### Dry Run Mode
 
-**Every Edit Creates a Version**:
-- Original transcript preserved
-- All changes tracked with timestamps
-- Full edit history available
-- Rollback to any previous version
+Preview what would be imported without making changes:
 
-**Version History Features**:
-- See what changed and when
-- Compare any two versions
-- View edit attribution
-- Restore previous versions
+```bash
+penf ingest meeting ~/meetings/ --source "test" --dry-run
+```
 
-## Searching and Discovery
+Output:
+```
+Meeting Ingest: /Users/james/meetings
+  Source:      test
+  Platform:    webex
+  Tenant:      default
+  Mode:        DRY RUN (no changes will be made)
+  Path type:   directory
 
-### Basic Search
+Scanning for meetings...
+Found 3 meeting(s)
 
-**Quick Search**:
-- Use the search bar at the top of any page
-- Searches across transcripts, summaries, and participants
-- Results ranked by relevance and confidence
+1. Weekly Sync (2026-01-23)
+   Transcript: /Users/james/meetings/weekly/transcript.vtt
+   Chat: /Users/james/meetings/weekly/chat.txt
+2. Project Review (2026-01-22)
+   Transcript: /Users/james/meetings/review/transcript.vtt
+3. Planning Session (2026-01-21)
+   Transcript: /Users/james/meetings/planning/transcript.txt
 
-**Search Tips**:
-- Use quotes for exact phrases: `"action items"`
-- Include participant names: `John discussed budget`
-- Try topic keywords: `marketing campaign Q4`
+Dry run complete. No changes made.
+```
 
-### Advanced Search
+### Platform Selection
 
-**Filters Available**:
-- **Date Range**: Specific time periods
-- **Participants**: Meetings with specific people
-- **Projects**: Related to particular initiatives
-- **Confidence Level**: Only high-quality results
-- **Content Type**: Decisions, action items, discussions
+Specify the meeting platform for metadata:
 
-**Semantic Search Features**:
-- Find concepts, not just keywords
-- Search example: "budget concerns" finds discussions about costs, expenses, financial worries
-- Context-aware results show related meetings
+```bash
+penf ingest meeting ./meeting.vtt --source "sync" --platform teams
+```
 
-### Search Result Types
+Supported platforms:
+- `webex` (default)
+- `teams`
+- `zoom`
+- `google_meet`
 
-**Text Matches**:
-- Exact transcript segments with timestamps
-- Click to jump directly to that moment
-- Speaker attribution included
+## Participant Resolution
 
-**Summary Matches**:
-- AI-generated insight matches
-- Key points and conclusions
-- Action items and decisions
+After ingesting meetings, resolve participant display names to known people in the database.
 
-**Contextual Matches**:
-- Related meetings and topics
-- Participant connection networks
-- Project timeline correlations
+### How Resolution Works
+
+1. **Canonical Match**: Exact match against `people.canonical_name`
+2. **Alias Match**: Match against `people.aliases` array
+3. **Name Normalization**: Strips pronouns like `(she/her)`, `(he/him)`
+
+### Running Resolution
+
+```bash
+# Resolve all meetings
+penf ingest meeting resolve
+
+# Resolve meetings from a specific source
+penf ingest meeting resolve --source "weekly-sync"
+```
+
+### Output
+
+```
+Resolving Meeting Participants
+  Tenant: 00000001-0000-0000-0000-000000000001
+
+Loading people from database...
+  Found 42 people
+
+Loading meetings...
+  [1] Weekly Sync: 5/6 matched
+  [2] Project Review: 4/4 matched
+  [3] Planning Session: 3/5 matched
+
+Resolution Complete
+==================================================
+  Meetings:     3
+  Participants: 15
+  Matched:      12
+  Unmatched:    3
+  Match Rate:   80.0%
+```
+
+### Improving Match Rates
+
+1. **Add aliases** for people with multiple name variations:
+   ```sql
+   UPDATE people
+   SET aliases = array_append(aliases, 'Johnny')
+   WHERE canonical_name = 'John Smith';
+   ```
+
+2. **Handle pronouns**: The resolver automatically strips common pronoun patterns
+
+3. **Review unmatched**: Query for unmatched participants:
+   ```sql
+   SELECT DISTINCT display_name
+   FROM meeting_participants
+   WHERE person_id IS NULL;
+   ```
+
+## Mention Extraction
+
+Extract mentions of people discussed in meetings (distinct from attendees who spoke).
+
+### How Extraction Works
+
+1. Loads all people with their canonical names and aliases
+2. Searches transcript text using word-boundary regex patterns
+3. Excludes attendees (people who spoke) to avoid false positives
+4. Records mention count and context snippet
+
+### Running Extraction
+
+```bash
+penf ingest meeting mentions
+```
+
+### Output
+
+```
+Extracting Meeting Mentions
+  Tenant: 00000001-0000-0000-0000-000000000001
+
+Loading people from database...
+  Found 42 people
+
+Processing meeting transcripts...
+  [1] Weekly Sync: 2 mentions (Alice Johnson, Bob Smith)
+  [3] Planning Session: 1 mentions (Carol Williams)
+
+Mention Extraction Complete
+==================================================
+  Meetings with mentions: 2
+  Total mentions:         3
+```
+
+### Querying Mentions
+
+Find meetings where a specific person was mentioned:
+
+```sql
+SELECT m.title, m.meeting_date, mm.mention_count, mm.context
+FROM meeting_mentions mm
+JOIN meetings m ON mm.meeting_id = m.id
+JOIN people p ON mm.person_id = p.id
+WHERE p.canonical_name = 'Alice Johnson'
+ORDER BY m.meeting_date DESC;
+```
+
+## Acronym Detection
+
+The pipeline automatically detects unknown acronyms and queues them for glossary review.
+
+### How Detection Works
+
+1. Scans transcript text for uppercase patterns (2-10 characters)
+2. Filters out common words (API, URL, CEO, etc.)
+3. Filters out terms already in the glossary
+4. Queues remaining acronyms to the review queue
+
+### Processing Detected Acronyms
+
+Use the batch processing workflow:
+
+```bash
+# Get context for acronym review
+penf process acronyms context --output json
+
+# Batch resolve acronyms
+penf process acronyms batch-resolve '{"resolutions":[...],"dismissals":[...]}'
+```
+
+Or review individually:
+
+```bash
+# List pending acronym questions
+penf review list --type acronym
+
+# Resolve an acronym
+penf review resolve <question-id> --definition "Explanation of the term"
+
+# Dismiss an acronym (not worth adding)
+penf review dismiss <question-id> --reason "Common word"
+```
+
+## Content Enrichment
+
+After ingestion, meetings are processed through the Temporal content workflow for:
+
+1. **Embedding Generation**: Vector embeddings for semantic search
+2. **Summary Generation**: AI-generated meeting summaries
+3. **Entity Extraction**: Identify organizations, products, topics
+4. **Topic Extraction**: Categorize discussion themes
+5. **Mention Resolution**: Link references to known entities
+
+### Triggering Enrichment
+
+Content is automatically queued for enrichment on ingestion. Monitor progress:
+
+```bash
+# Check workflow status
+penf workflow status
+
+# View pending content
+penf pipeline list --status pending
+```
+
+### Manual Enrichment
+
+Trigger enrichment for specific content:
+
+```bash
+# Enrich a specific source
+penf pipeline enrich --source-id 123
+
+# Re-process all meeting sources
+penf pipeline enrich --type meeting_transcript
+```
+
+## Database Tables
+
+### meetings
+
+Stores meeting metadata:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | BIGSERIAL | Primary key |
+| tenant_id | UUID | Tenant identifier |
+| title | TEXT | Meeting title |
+| meeting_date | TIMESTAMPTZ | When the meeting occurred |
+| platform | TEXT | webex, teams, zoom, google_meet |
+| duration_seconds | INTEGER | Meeting duration |
+| participants | JSONB | Array of participant names |
+| source_tag | TEXT | User-provided tag |
+| has_transcript | BOOLEAN | Transcript available |
+| has_chat | BOOLEAN | Chat log available |
+
+### sources
+
+Stores transcript and chat content:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | BIGSERIAL | Primary key |
+| meeting_id | BIGINT | FK to meetings |
+| source_system | TEXT | meeting_transcript, meeting_chat |
+| raw_content | TEXT | Full text content |
+| content_hash | TEXT | SHA256 hash |
+| processing_status | TEXT | pending, processing, completed |
+
+### meeting_participants
+
+Stores participant resolution:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| meeting_id | BIGINT | FK to meetings |
+| person_id | BIGINT | FK to people (nullable) |
+| display_name | TEXT | Original display name |
+| match_type | TEXT | exact, alias, fuzzy |
+| confidence | FLOAT | Match confidence score |
+
+### meeting_mentions
+
+Stores people mentioned in content:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| meeting_id | BIGINT | FK to meetings |
+| person_id | BIGINT | FK to people |
+| matched_text | TEXT | Text that matched |
+| context | TEXT | Surrounding text snippet |
+| mention_count | INTEGER | Number of occurrences |
+
+## Troubleshooting
+
+### No meetings found
+
+Check file naming patterns:
+- VTT files must have `.vtt` extension
+- TXT transcripts should start with `Transcript_` or match timestamp pattern
+- Chat logs should start with `Chat messages_` or `Chat_`
+
+### Low participant match rate
+
+1. Verify people exist in the database
+2. Add aliases for name variations
+3. Check for typos in canonical names
+
+### Missing acronyms in review queue
+
+Acronyms are only queued if:
+- They appear at least once (configurable)
+- They are not in the common words list
+- They are not already in the glossary
+
+### Enrichment not starting
+
+Check Temporal connection:
+```bash
+penf health --component temporal
+```
+
+Check worker status:
+```bash
+penf workflow workers
+```
 
 ## Best Practices
 
-### For Better Transcription Quality
+### Organizing Meeting Files
 
-**Before Upload**:
-- Use good quality recording equipment
-- Minimize background noise
-- Encourage clear speech
-- Record in quiet environments
+```
+meetings/
+  2026/
+    01-january/
+      weekly-sync-20260106/
+        transcript.vtt
+        chat.txt
+      project-review-20260108/
+        transcript.vtt
+```
 
-**Meeting Context**:
-- Provide participant names in advance
-- Include project context
-- Set appropriate privacy levels
-- Use descriptive meeting titles
+### Source Tags
 
-### For Effective Search
+Use consistent, descriptive source tags:
+- `weekly-sync` - Recurring meeting series
+- `project-alpha` - Project-specific meetings
+- `archive-2025` - Historical imports
 
-**Organize Meetings**:
-- Use consistent naming conventions
-- Tag meetings with project names
-- Include all relevant participants
-- Set privacy levels appropriately
+### Regular Processing
 
-**Search Strategies**:
-- Start broad, then narrow with filters
-- Use participant names for focused searches
-- Combine keywords with date ranges
-- Review confidence scores before using results
+Run resolution and mention extraction after each batch import:
 
-### Privacy and Security
-
-**Privacy Levels**:
-- **Public**: Accessible to all users
-- **Internal**: Organization members only
-- **Confidential**: Specific team/project access
-- **Restricted**: Named individuals only
-
-**Data Protection**:
-- All files encrypted at rest
-- Access logged for audit
-- Retention policies enforced
-- Deletion capabilities available
-
-**Best Practices**:
-- Set appropriate privacy levels
-- Review access permissions regularly
-- Don't upload personal conversations
-- Follow organizational data policies
-
-## Troubleshooting Common Issues
-
-### Upload Problems
-
-**Large File Upload Fails**:
-- Check internet connection stability
-- Try uploading during off-peak hours
-- Split large meetings into segments
-- Ensure file format is supported
-
-**Processing Takes Too Long**:
-- 2-hour meeting = ~30 minutes processing time
-- Poor audio quality increases processing time
-- Multiple concurrent uploads may slow processing
-- Check system status dashboard
-
-### Quality Issues
-
-**Poor Transcription Quality**:
-- Review audio quality of original recording
-- Check for background noise or multiple speakers
-- Consider manual review and correction
-- Provide feedback to improve AI accuracy
-
-**Speaker Identification Problems**:
-- Add known participant names before upload
-- Use speaker review interface to make corrections
-- Train system by confirming correct identifications
-- Consider voice signature enrollment for frequent speakers
-
-### Search Problems
-
-**Can't Find Expected Content**:
-- Try broader search terms
-- Check date range filters
-- Verify privacy level access
-- Use semantic search for concepts
-
-**Low Confidence Results**:
-- Filter by confidence level
-- Review original transcript
-- Try alternative search terms
-- Consider manual transcript review
-
-## Getting Help
-
-### Self-Service Resources
-
-- **Dashboard Help**: Tooltips and guided tours available
-- **Video Tutorials**: Step-by-step demonstrations
-- **FAQ**: Common questions and answers
-- **Community Forum**: User discussions and tips
-
-### Support Channels
-
-**In-App Support**:
-- Feedback button on every page
-- Report quality issues directly
-- Request feature improvements
-- Submit bug reports
-
-**Contact Support**:
-- Technical issues: IT help desk
-- Processing problems: Submit support ticket
-- Feature requests: Product feedback form
-- Training questions: User training resources
+```bash
+penf ingest meeting ~/new-meetings/ --source "weekly"
+penf ingest meeting resolve
+penf ingest meeting mentions
+```
 
 ---
 
-*This user guide provides comprehensive coverage of the Meeting Pipeline system for business users. For technical documentation, see the Administrator Guide and API Reference.*
+*This user guide covers the Go implementation of the meeting pipeline. For API details, see the API Reference.*

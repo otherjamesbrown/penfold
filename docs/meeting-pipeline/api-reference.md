@@ -1,565 +1,645 @@
 # Meeting Pipeline API Reference
 
-**Version**: 1.0.0
-**Base URL**: `/api/v1/meetings`
-**Authentication**: JWT Bearer Token
-**Content-Type**: `application/json`
+**Version**: 2.0.0
+**Implementation**: Go
+**Package**: `github.com/otherjamesbrown/penfold/pkg/ingest/meeting`
 
 ## Overview
 
-The Meeting Pipeline API provides programmatic access to upload meetings, monitor processing, search content, and manage review workflows. All endpoints support async operations with real-time status updates.
+The meeting pipeline provides Go packages for parsing, processing, and enriching meeting content. This reference documents the core types, functions, and CLI commands.
 
-## Authentication
+## Package: `pkg/ingest/meeting`
 
-All API requests require authentication using JWT Bearer tokens:
+### Core Types
+
+#### TranscriptSegment
+
+Represents a single segment of a transcript with speaker attribution.
+
+```go
+type TranscriptSegment struct {
+    Speaker   string `json:"speaker,omitempty"`
+    SpeakerID string `json:"speaker_id,omitempty"`
+    Text      string `json:"text"`
+    StartMs   int    `json:"start_ms"`
+    EndMs     int    `json:"end_ms"`
+}
+```
+
+#### TranscriptResult
+
+Result of parsing a transcript file.
+
+```go
+type TranscriptResult struct {
+    Segments        []TranscriptSegment `json:"segments"`
+    Speakers        []string            `json:"speakers"`
+    DurationSeconds int                 `json:"duration_seconds"`
+    FullText        string              `json:"full_text"`
+    Format          string              `json:"format"` // "vtt", "txt"
+}
+```
+
+#### ChatMessage
+
+Represents a single chat message.
+
+```go
+type ChatMessage struct {
+    Timestamp time.Time `json:"timestamp"`
+    Speaker   string    `json:"speaker"`
+    Message   string    `json:"message"`
+    URLs      []string  `json:"urls,omitempty"`
+}
+```
+
+#### ChatResult
+
+Result of parsing a chat log file.
+
+```go
+type ChatResult struct {
+    Messages  []ChatMessage `json:"messages"`
+    Speakers  []string      `json:"speakers"`
+    URLs      []string      `json:"urls"`      // All URLs mentioned in chat
+    StartTime time.Time     `json:"start_time"`
+    EndTime   time.Time     `json:"end_time"`
+}
+```
+
+#### Meeting
+
+Complete meeting representation with all components.
+
+```go
+type Meeting struct {
+    Title           string            `json:"title"`
+    Date            time.Time         `json:"date"`
+    Platform        string            `json:"platform"`
+    DurationSeconds int               `json:"duration_seconds"`
+    Participants    []string          `json:"participants"`
+    Files           MeetingFiles      `json:"files"`
+    Transcript      *TranscriptResult `json:"transcript,omitempty"`
+    Chat            *ChatResult       `json:"chat,omitempty"`
+}
+
+type MeetingFiles struct {
+    TranscriptPath string   `json:"transcript_path,omitempty"`
+    ChatPath       string   `json:"chat_path,omitempty"`
+    VideoPath      string   `json:"video_path,omitempty"`
+    AudioPath      string   `json:"audio_path,omitempty"`
+    OtherPaths     []string `json:"other_paths,omitempty"`
+}
+```
+
+### Parsing Functions
+
+#### ParseVTT
+
+Parses a WebVTT format transcript file.
+
+```go
+func ParseVTT(r io.Reader) (*TranscriptResult, error)
+```
+
+**Input Format**:
+```
+WEBVTT
+
+1 "Speaker Name" (speaker_id)
+00:00:05.579 --> 00:00:06.858
+This is the transcript text.
+
+2 "Another Speaker"
+00:00:07.000 --> 00:00:10.500
+More transcript content here.
+```
+
+**Example**:
+```go
+file, err := os.Open("meeting.vtt")
+if err != nil {
+    return err
+}
+defer file.Close()
+
+result, err := meeting.ParseVTT(file)
+if err != nil {
+    return err
+}
+
+fmt.Printf("Duration: %d seconds\n", result.DurationSeconds)
+fmt.Printf("Speakers: %v\n", result.Speakers)
+fmt.Printf("Segments: %d\n", len(result.Segments))
+```
+
+#### ParseTXTTranscript
+
+Parses a plain text transcript file.
+
+```go
+func ParseTXTTranscript(r io.Reader) (*TranscriptResult, error)
+```
+
+**Input Format**:
+```
+0:11 : Speaker Name : First thing they said
+0:45 : Another Speaker (she/her) : Response text
+12:30 : Speaker Name : Later in the meeting
+```
+
+**Example**:
+```go
+file, _ := os.Open("Transcript_Meeting_20260123.txt")
+defer file.Close()
+
+result, err := meeting.ParseTXTTranscript(file)
+```
+
+#### ParseChatLog
+
+Parses a chat log file with URL extraction.
+
+```go
+func ParseChatLog(r io.Reader) (*ChatResult, error)
+```
+
+**Input Format**:
+```
+2026-01-23 09:07 : John Smith : Hello everyone
+2026-01-23 09:08 : Jane Doe : Check out <a href="https://example.com">this link</a>
+-----> 2026-01-23 09:10 : Bot : Automated message
+```
+
+**Example**:
+```go
+file, _ := os.Open("Chat messages_Meeting_20260123.txt")
+defer file.Close()
+
+result, err := meeting.ParseChatLog(file)
+if err != nil {
+    return err
+}
+
+fmt.Printf("Messages: %d\n", len(result.Messages))
+fmt.Printf("URLs found: %v\n", result.URLs)
+fmt.Printf("Time range: %v - %v\n", result.StartTime, result.EndTime)
+```
+
+### File Scanning
+
+#### ScanMeetingFiles
+
+Scans a path (file or directory) and returns discovered meetings.
+
+```go
+func ScanMeetingFiles(path string) ([]*Meeting, error)
+```
+
+**Behavior**:
+- Single file: Returns meeting with that file
+- Directory with meeting files: Groups related files into one meeting
+- Directory with subdirectories: Recursively scans each as potential meeting
+
+**Example**:
+```go
+meetings, err := meeting.ScanMeetingFiles("/path/to/meetings")
+if err != nil {
+    return err
+}
+
+for _, m := range meetings {
+    fmt.Printf("Meeting: %s (%s)\n", m.Title, m.Date.Format("2006-01-02"))
+    if m.Files.TranscriptPath != "" {
+        fmt.Printf("  Transcript: %s\n", m.Files.TranscriptPath)
+    }
+    if m.Files.ChatPath != "" {
+        fmt.Printf("  Chat: %s\n", m.Files.ChatPath)
+    }
+}
+```
+
+#### DetectFileType
+
+Determines the type of a meeting-related file.
+
+```go
+func DetectFileType(filename string) string
+```
+
+**Returns**: `"vtt"`, `"transcript"`, `"chat"`, `"video"`, `"audio"`, or `"unknown"`
+
+#### ExtractMeetingInfo
+
+Extracts meeting title and date from filename or directory name.
+
+```go
+func ExtractMeetingInfo(name string) MeetingInfo
+
+type MeetingInfo struct {
+    Title string
+    Date  time.Time
+}
+```
+
+**Supported patterns**:
+- `Meeting Title-YYYYMMDD HHMM-1.vtt`
+- `Transcript_Owner_s meeting_YYYYMMDD.txt`
+- `Meeting Name - MMDDYYYY/` (directory)
+
+### Participant Resolution
+
+#### ParticipantResolver
+
+Matches participant display names to known people.
+
+```go
+type ParticipantResolver struct {
+    // Internal indexes
+}
+
+func NewParticipantResolver(people []Person) *ParticipantResolver
+```
+
+#### Person
+
+Represents a person from the database.
+
+```go
+type Person struct {
+    ID            int64
+    CanonicalName string
+    Aliases       []string
+}
+```
+
+#### Match
+
+Attempts to match a participant name to a person.
+
+```go
+func (r *ParticipantResolver) Match(participantName string) *PersonMatch
+
+type PersonMatch struct {
+    PersonID      int64
+    CanonicalName string
+    MatchType     MatchType  // "exact", "alias", "fuzzy"
+    Confidence    float64
+}
+```
+
+#### ResolveAll
+
+Resolves a list of participant names.
+
+```go
+func (r *ParticipantResolver) ResolveAll(participants []string) ParticipantResults
+
+type ParticipantResult struct {
+    DisplayName string
+    Match       *PersonMatch  // nil if unmatched
+}
+
+type ParticipantResults []ParticipantResult
+
+func (r ParticipantResults) Stats() ResolveStats
+
+type ResolveStats struct {
+    Total     int
+    Matched   int
+    Unmatched int
+    MatchRate float64
+}
+```
+
+**Example**:
+```go
+people := []meeting.Person{
+    {ID: 1, CanonicalName: "John Smith", Aliases: []string{"John", "JS"}},
+    {ID: 2, CanonicalName: "Jane Doe", Aliases: []string{"Jane"}},
+}
+
+resolver := meeting.NewParticipantResolver(people)
+
+// Match single name
+match := resolver.Match("John Smith (he/him)")
+// match.PersonID = 1, match.MatchType = "exact"
+
+// Resolve all speakers
+results := resolver.ResolveAll(transcript.Speakers)
+stats := results.Stats()
+fmt.Printf("Matched %d/%d (%.1f%%)\n", stats.Matched, stats.Total, stats.MatchRate*100)
+```
+
+#### NormalizeName
+
+Cleans up a participant name by stripping pronouns.
+
+```go
+func NormalizeName(name string) string
+```
+
+Strips patterns like `(she/her)`, `(he/him)`, `(they/them)`.
+
+### Mention Extraction
+
+#### MentionExtractor
+
+Extracts mentions of known people from text.
+
+```go
+type MentionExtractor struct {
+    // Internal patterns
+}
+
+func NewMentionExtractor(people []Person) *MentionExtractor
+```
+
+#### Mention
+
+Represents a person mentioned in text.
+
+```go
+type Mention struct {
+    PersonID      int64
+    CanonicalName string
+    MatchedText   string           // Actual text that matched
+    MatchType     MentionMatchType // "canonical" or "alias"
+    Count         int              // Number of occurrences
+    Context       string           // Surrounding text snippet
+}
+```
+
+#### Extract / ExtractExcluding
+
+Finds all mentions of known people in text.
+
+```go
+func (e *MentionExtractor) Extract(text string) []Mention
+
+func (e *MentionExtractor) ExtractExcluding(text string, excludeIDs map[int64]bool) []Mention
+```
+
+**Example**:
+```go
+extractor := meeting.NewMentionExtractor(people)
+
+// Extract all mentions
+mentions := extractor.Extract(transcript.FullText)
+
+// Extract mentions, excluding attendees
+attendeeIDs := map[int64]bool{1: true, 2: true}
+mentions := extractor.ExtractExcluding(transcript.FullText, attendeeIDs)
+
+for _, m := range mentions {
+    fmt.Printf("Mentioned %s (%d times): %s\n",
+        m.CanonicalName, m.Count, m.Context)
+}
+```
+
+### Acronym Detection
+
+#### AcronymDetector
+
+Detects potential acronyms in text.
+
+```go
+type AcronymDetector struct {
+    KnownTerms  map[string]bool
+    CommonWords map[string]bool
+    MinLength   int  // default: 2
+    MaxLength   int  // default: 10
+}
+
+func NewAcronymDetector() *AcronymDetector
+```
+
+#### DetectedAcronym
+
+Represents a potential acronym found in text.
+
+```go
+type DetectedAcronym struct {
+    Term    string // The acronym (uppercase)
+    Context string // Surrounding text for context
+    Count   int    // Number of occurrences
+}
+```
+
+#### SetKnownTerms / AddKnownTerm
+
+Configure terms to skip (from glossary).
+
+```go
+func (d *AcronymDetector) SetKnownTerms(terms []string)
+func (d *AcronymDetector) AddKnownTerm(term string)
+```
+
+#### Detect / DetectInTranscript
+
+Finds potential acronyms in text.
+
+```go
+func (d *AcronymDetector) Detect(text string) []DetectedAcronym
+
+func (d *AcronymDetector) DetectInTranscript(
+    transcript *TranscriptResult,
+    minOccurrences int,
+) []DetectedAcronym
+```
+
+**Example**:
+```go
+detector := meeting.NewAcronymDetector()
+
+// Load known terms from glossary
+detector.SetKnownTerms([]string{"API", "SQL", "MVP"})
+
+// Detect acronyms in transcript (min 2 occurrences)
+acronyms := detector.DetectInTranscript(transcript, 2)
+
+for _, acr := range acronyms {
+    fmt.Printf("Found %s (%d times): %s\n",
+        acr.Term, acr.Count, acr.Context)
+}
+```
+
+## CLI Reference
+
+### penf ingest meeting
+
+Ingest meeting transcripts into Penfold.
 
 ```bash
-curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  https://api.example.com/api/v1/meetings/
+penf ingest meeting <path> --source <tag> [flags]
 ```
 
-## Core Endpoints
+**Arguments**:
+- `<path>`: File or directory path
 
-### Meeting Management
+**Flags**:
+- `--source, -s`: Source tag identifier (required)
+- `--platform`: Meeting platform: webex, teams, zoom, google_meet (default: webex)
+- `--tenant-id, -t`: Tenant ID (optional)
+- `--dry-run`: Preview import without persisting
 
-#### Upload Meeting
-```http
-POST /api/v1/meetings/upload
+**Examples**:
+```bash
+# Single file
+penf ingest meeting ./meeting.vtt --source "project-x"
+
+# Directory with multiple meetings
+penf ingest meeting ./meetings/ --source "archive-2025"
+
+# Dry run to preview
+penf ingest meeting ./meetings/ --source "test" --dry-run
 ```
 
-Upload audio/video files or documents for processing.
+### penf ingest meeting resolve
 
-**Request Body** (multipart/form-data):
-```json
-{
-  "file": "<binary file data>",
-  "metadata": {
-    "title": "Q4 Planning Meeting",
-    "meeting_date": "2026-01-14T14:00:00Z",
-    "participants": ["john@example.com", "jane@example.com"],
-    "project_context": "Q4 Planning",
-    "privacy_level": "internal",
-    "description": "Quarterly planning discussion"
-  }
-}
+Resolve meeting participants to known people.
+
+```bash
+penf ingest meeting resolve [flags]
 ```
 
-**Response**:
-```json
-{
-  "meeting_id": "550e8400-e29b-41d4-a716-446655440000",
-  "upload_status": "completed",
-  "processing_status": "queued",
-  "estimated_completion_time": "2026-01-14T14:30:00Z",
-  "tracking_url": "/api/v1/meetings/550e8400-e29b-41d4-a716-446655440000/status"
-}
+**Flags**:
+- `--source, -s`: Filter by source tag (optional)
+- `--tenant-id, -t`: Tenant ID (optional)
+
+**Output**:
+```
+Resolving Meeting Participants
+  Tenant: 00000001-0000-0000-0000-000000000001
+
+Loading people from database...
+  Found 42 people
+
+Loading meetings...
+  [1] Weekly Sync: 5/6 matched
+  [2] Project Review: 4/4 matched
+  [3] Planning Session: 3/5 matched
+
+Resolution Complete
+==================================================
+  Meetings:     3
+  Participants: 15
+  Matched:      12
+  Unmatched:    3
+  Match Rate:   80.0%
 ```
 
-#### Get Meeting Status
-```http
-GET /api/v1/meetings/{meeting_id}/status
+### penf ingest meeting mentions
+
+Extract mentions of people from meeting transcripts.
+
+```bash
+penf ingest meeting mentions [flags]
 ```
 
-Monitor processing progress and current status.
+**Flags**:
+- `--tenant-id, -t`: Tenant ID (optional)
 
-**Response**:
-```json
-{
-  "meeting_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "processing",
-  "current_phase": "transcription",
-  "progress": 65,
-  "estimated_completion": "2026-01-14T14:25:00Z",
-  "phases": {
-    "file_validation": {"status": "completed", "confidence": 100},
-    "transcription": {"status": "in_progress", "confidence": null},
-    "speaker_identification": {"status": "pending", "confidence": null},
-    "content_analysis": {"status": "pending", "confidence": null},
-    "search_indexing": {"status": "pending", "confidence": null}
-  },
-  "quality_indicators": {
-    "audio_quality": 85,
-    "speech_clarity": 78,
-    "background_noise": 15
-  }
-}
+**Output**:
+```
+Extracting Meeting Mentions
+  Tenant: 00000001-0000-0000-0000-000000000001
+
+Loading people from database...
+  Found 42 people
+
+Processing meeting transcripts...
+  [1] Weekly Sync: 2 mentions (Alice Johnson, Bob Smith)
+  [3] Planning Session: 1 mentions (Carol Williams)
+
+Mention Extraction Complete
+==================================================
+  Meetings with mentions: 2
+  Total mentions:         3
 ```
 
-#### Get Meeting Details
-```http
-GET /api/v1/meetings/{meeting_id}
+## Database Schema
+
+### meetings table
+
+```sql
+CREATE TABLE meetings (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    title TEXT NOT NULL,
+    normalized_title TEXT,
+    meeting_date TIMESTAMPTZ,
+    platform TEXT,
+    duration_seconds INTEGER,
+    participant_count INTEGER,
+    participants JSONB DEFAULT '[]',
+    source_tag TEXT,
+    source_path TEXT,
+    has_transcript BOOLEAN DEFAULT FALSE,
+    has_chat BOOLEAN DEFAULT FALSE,
+    has_video BOOLEAN DEFAULT FALSE,
+    has_audio BOOLEAN DEFAULT FALSE,
+    processing_status TEXT DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 ```
 
-Retrieve complete meeting information after processing.
+### meeting_participants table
 
-**Response**:
-```json
-{
-  "meeting_id": "550e8400-e29b-41d4-a716-446655440000",
-  "metadata": {
-    "title": "Q4 Planning Meeting",
-    "meeting_date": "2026-01-14T14:00:00Z",
-    "duration_seconds": 3600,
-    "file_size_bytes": 156934144,
-    "privacy_level": "internal"
-  },
-  "transcript": {
-    "text": "Complete transcript text...",
-    "confidence_score": 92,
-    "word_count": 2847,
-    "speaker_segments": [
-      {
-        "speaker": "John Smith",
-        "start_time": 0,
-        "end_time": 45.3,
-        "text": "Let's start with our Q4 objectives...",
-        "confidence": 95
-      }
-    ]
-  },
-  "summary": {
-    "overview": "Meeting covered Q4 objectives, budget allocation, and team assignments...",
-    "key_points": [
-      "Q4 revenue target set at $2.5M",
-      "Marketing budget increased by 15%",
-      "Three new hires approved for engineering team"
-    ],
-    "action_items": [
-      {
-        "item": "Finalize marketing budget proposal",
-        "assignee": "jane@example.com",
-        "due_date": "2026-01-21",
-        "priority": "high"
-      }
-    ],
-    "decisions": [
-      {
-        "decision": "Approved 15% marketing budget increase",
-        "context": "Based on Q3 performance metrics",
-        "timestamp": 1547.2
-      }
-    ]
-  },
-  "participants": [
-    {
-      "person_id": "person-123",
-      "name": "John Smith",
-      "email": "john@example.com",
-      "speaking_time": 1240.5,
-      "contribution_percentage": 34,
-      "identification_confidence": 96
-    }
-  ],
-  "topics": [
-    {
-      "topic": "Q4 Budget Planning",
-      "relevance_score": 95,
-      "time_segments": [[120, 890], [1200, 1450]],
-      "project_context": "Q4 Planning Initiative"
-    }
-  ],
-  "quality_metrics": {
-    "overall_confidence": 92,
-    "transcription_confidence": 94,
-    "speaker_id_confidence": 89,
-    "content_analysis_confidence": 91
-  }
-}
+```sql
+CREATE TABLE meeting_participants (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    meeting_id BIGINT NOT NULL REFERENCES meetings(id),
+    person_id BIGINT REFERENCES people(id),
+    display_name TEXT NOT NULL,
+    match_type TEXT,  -- 'exact', 'alias', 'fuzzy'
+    confidence FLOAT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(meeting_id, display_name)
+);
 ```
 
-#### List Meetings
-```http
-GET /api/v1/meetings?page=1&page_size=20&status=completed&project=Q4%20Planning
+### meeting_mentions table
+
+```sql
+CREATE TABLE meeting_mentions (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    meeting_id BIGINT NOT NULL REFERENCES meetings(id),
+    source_id BIGINT NOT NULL REFERENCES sources(id),
+    person_id BIGINT NOT NULL REFERENCES people(id),
+    matched_text TEXT,
+    match_type TEXT,  -- 'canonical', 'alias'
+    context TEXT,
+    mention_count INTEGER DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(meeting_id, person_id)
+);
 ```
-
-**Query Parameters**:
-- `page` (integer): Page number (default: 1)
-- `page_size` (integer): Items per page (default: 20, max: 100)
-- `status` (string): Filter by processing status
-- `project` (string): Filter by project context
-- `participant` (string): Filter by participant email
-- `date_from` (ISO date): Filter meetings after date
-- `date_to` (ISO date): Filter meetings before date
-- `privacy_level` (string): Filter by privacy level
-- `min_confidence` (integer): Minimum quality confidence (0-100)
-
-**Response**:
-```json
-{
-  "meetings": [
-    {
-      "meeting_id": "550e8400-e29b-41d4-a716-446655440000",
-      "title": "Q4 Planning Meeting",
-      "meeting_date": "2026-01-14T14:00:00Z",
-      "status": "completed",
-      "participants_count": 5,
-      "duration_seconds": 3600,
-      "confidence_score": 92,
-      "has_action_items": true,
-      "created_at": "2026-01-14T15:30:00Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "page_size": 20,
-    "total_items": 156,
-    "total_pages": 8,
-    "has_next": true,
-    "has_previous": false
-  }
-}
-```
-
-### Search and Discovery
-
-#### Search Meetings
-```http
-POST /api/v1/meetings/search
-```
-
-Semantic and keyword search across meeting content.
-
-**Request Body**:
-```json
-{
-  "query": "budget allocation marketing",
-  "filters": {
-    "date_range": {
-      "start": "2026-01-01T00:00:00Z",
-      "end": "2026-01-31T23:59:59Z"
-    },
-    "participants": ["john@example.com"],
-    "projects": ["Q4 Planning"],
-    "content_types": ["decisions", "action_items"],
-    "min_confidence": 80,
-    "privacy_levels": ["internal", "public"]
-  },
-  "search_type": "semantic",
-  "max_results": 50
-}
-```
-
-**Response**:
-```json
-{
-  "results": [
-    {
-      "meeting_id": "550e8400-e29b-41d4-a716-446655440000",
-      "relevance_score": 94,
-      "match_type": "semantic",
-      "highlights": [
-        {
-          "type": "transcript",
-          "text": "We need to allocate the marketing budget more effectively...",
-          "timestamp": 1234.5,
-          "speaker": "John Smith",
-          "confidence": 92
-        },
-        {
-          "type": "action_item",
-          "text": "Finalize marketing budget proposal",
-          "assignee": "jane@example.com",
-          "confidence": 95
-        }
-      ],
-      "meeting_summary": {
-        "title": "Q4 Planning Meeting",
-        "date": "2026-01-14T14:00:00Z",
-        "participants_count": 5,
-        "relevance_reason": "Direct discussion of marketing budget allocation"
-      }
-    }
-  ],
-  "search_metadata": {
-    "query": "budget allocation marketing",
-    "total_results": 23,
-    "search_time_ms": 145,
-    "semantic_expansion": ["budget", "funding", "allocation", "distribution", "marketing", "advertising"]
-  }
-}
-```
-
-### Manual Review and Corrections
-
-#### Get Review Queue
-```http
-GET /api/v1/review/review-queue?page=1&page_size=20&review_type=transcription_quality&assigned_to=me
-```
-
-**Response**:
-```json
-{
-  "review_items": [
-    {
-      "review_id": "review-123",
-      "meeting_id": "550e8400-e29b-41d4-a716-446655440000",
-      "review_type": "speaker_identification",
-      "priority": "high",
-      "confidence_issues": [
-        {
-          "issue_type": "low_speaker_confidence",
-          "timestamp": 234.5,
-          "current_speaker": "Unknown Speaker 2",
-          "suggested_speakers": ["Jane Doe", "Bob Wilson"],
-          "confidence_scores": [0.65, 0.58]
-        }
-      ],
-      "estimated_effort": "5 minutes",
-      "created_at": "2026-01-14T15:35:00Z",
-      "assigned_to": "reviewer@example.com"
-    }
-  ],
-  "statistics": {
-    "total_pending": 12,
-    "total_in_review": 3,
-    "total_overdue": 1,
-    "avg_resolution_time": "8 minutes"
-  }
-}
-```
-
-#### Submit Transcript Edits
-```http
-POST /api/v1/review/transcript/{meeting_id}/edit
-```
-
-**Request Body**:
-```json
-{
-  "edits": [
-    {
-      "segment_id": "segment-456",
-      "new_text": "We need to finalize the marketing budget by Friday",
-      "new_speaker": "John Smith",
-      "start_time": 1234.5,
-      "end_time": 1239.8,
-      "confidence_override": 95
-    }
-  ],
-  "change_summary": "Corrected misheard words and speaker attribution",
-  "reviewer_notes": "Audio quality was poor at this timestamp"
-}
-```
-
-**Response**:
-```json
-{
-  "version_id": "version-789",
-  "changes_applied": 1,
-  "new_version_number": 3,
-  "confidence_improvement": 4.2,
-  "quality_score": 96
-}
-```
-
-#### Submit User Feedback
-```http
-POST /api/v1/review/feedback/submit
-```
-
-**Request Body**:
-```json
-{
-  "meeting_id": "550e8400-e29b-41d4-a716-446655440000",
-  "feedback_type": "transcription_quality",
-  "component": "speaker_identification",
-  "rating": 4,
-  "confidence_rating": 3,
-  "accuracy_rating": 4,
-  "comments": "Speaker identification was mostly accurate but confused two similar voices",
-  "specific_issues": [
-    {
-      "timestamp": 1234.5,
-      "issue_type": "wrong_speaker",
-      "expected": "Jane Doe",
-      "actual": "John Smith"
-    }
-  ],
-  "suggestions": "Consider voice training for frequent participants"
-}
-```
-
-## Version Control
-
-#### Get Version History
-```http
-GET /api/v1/meetings/{meeting_id}/versions
-```
-
-**Response**:
-```json
-{
-  "versions": [
-    {
-      "version_id": "version-789",
-      "version_number": 3,
-      "change_type": "manual_edit",
-      "changed_by": "reviewer@example.com",
-      "created_at": "2026-01-14T16:15:00Z",
-      "change_summary": "Corrected speaker identification in segments 45-67",
-      "diff_summary": "5 speaker changes, 12 text corrections"
-    }
-  ]
-}
-```
-
-#### Compare Versions
-```http
-GET /api/v1/meetings/versions/{version1_id}/compare/{version2_id}
-```
-
-#### Rollback to Version
-```http
-POST /api/v1/meetings/{meeting_id}/rollback/{version_id}
-```
-
-## Analytics and Insights
-
-#### Get Processing Analytics
-```http
-GET /api/v1/analytics/processing?period=30d
-```
-
-**Response**:
-```json
-{
-  "processing_metrics": {
-    "total_meetings_processed": 156,
-    "average_processing_time_minutes": 28.5,
-    "success_rate": 0.94,
-    "average_confidence_score": 87.3,
-    "total_processing_hours": 74.1
-  },
-  "quality_trends": {
-    "transcription_confidence": [85, 87, 89, 88, 91],
-    "speaker_identification_accuracy": [78, 81, 85, 87, 89],
-    "content_analysis_confidence": [82, 84, 87, 88, 90]
-  },
-  "usage_patterns": {
-    "peak_upload_hours": [9, 10, 14, 15],
-    "average_meeting_duration": 52.3,
-    "most_common_file_types": ["mp4", "mp3", "mov"]
-  }
-}
-```
-
-## WebSocket Real-Time Updates
-
-### Connect to Processing Updates
-```javascript
-const ws = new WebSocket('wss://api.example.com/ws/meetings/550e8400-e29b-41d4-a716-446655440000');
-
-ws.onmessage = function(event) {
-  const update = JSON.parse(event.data);
-  if (update.type === 'processing_progress') {
-    console.log(`Progress: ${update.progress}% - ${update.current_phase}`);
-  }
-};
-```
-
-**Message Types**:
-- `processing_progress`: Processing phase updates
-- `quality_alert`: Low confidence warnings
-- `completion_notification`: Processing finished
-- `error_notification`: Processing errors
 
 ## Error Handling
 
-### Standard Error Response
-```json
-{
-  "error": {
-    "code": "PROCESSING_FAILED",
-    "message": "Transcription failed due to poor audio quality",
-    "details": {
-      "phase": "transcription",
-      "error_type": "audio_quality_insufficient",
-      "suggested_actions": ["improve audio quality", "try manual upload", "contact support"]
-    },
-    "timestamp": "2026-01-14T15:45:00Z",
-    "request_id": "req-12345"
-  }
+All parsing functions return errors that can be checked:
+
+```go
+result, err := meeting.ParseVTT(file)
+if err != nil {
+    // Handle parsing error
+    log.Printf("Failed to parse VTT: %v", err)
+    return err
 }
 ```
 
-### Error Codes
-
-| Code | Description | Action |
-|------|-------------|--------|
-| `INVALID_FILE_FORMAT` | Unsupported file type | Use MP4, MP3, WAV, MOV, PDF, DOCX |
-| `FILE_SIZE_EXCEEDED` | File larger than 2GB | Split file or compress |
-| `PROCESSING_FAILED` | Processing error | Check audio quality, retry, or contact support |
-| `INSUFFICIENT_PERMISSIONS` | Access denied | Check privacy level and user permissions |
-| `QUOTA_EXCEEDED` | Processing quota reached | Wait for quota reset or upgrade plan |
-| `INVALID_CONFIDENCE_THRESHOLD` | Invalid confidence parameter | Use value between 0-100 |
-
-## Rate Limits
-
-- **Upload**: 10 files per hour per user
-- **Search**: 100 requests per minute per user
-- **Status checks**: 60 requests per minute per meeting
-- **Analytics**: 20 requests per hour per user
-
-Rate limit headers:
-```http
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 87
-X-RateLimit-Reset: 1640995200
-```
-
-## SDK and Client Libraries
-
-### Python SDK
-```python
-from penfold_meeting_pipeline import MeetingClient
-
-client = MeetingClient(
-    api_url="https://api.example.com",
-    api_token="your_jwt_token"
-)
-
-# Upload meeting
-meeting = await client.upload_meeting(
-    file_path="meeting.mp4",
-    title="Q4 Planning Meeting",
-    participants=["john@example.com", "jane@example.com"]
-)
-
-# Monitor progress
-status = await client.get_status(meeting.id)
-print(f"Progress: {status.progress}%")
-
-# Search meetings
-results = await client.search(
-    query="budget allocation",
-    min_confidence=80
-)
-```
-
-### JavaScript SDK
-```javascript
-import { MeetingClient } from '@penfold/meeting-pipeline-js';
-
-const client = new MeetingClient({
-  apiUrl: 'https://api.example.com',
-  apiToken: 'your_jwt_token'
-});
-
-// Upload with progress tracking
-const meeting = await client.uploadMeeting({
-  file: fileInput.files[0],
-  title: 'Q4 Planning Meeting',
-  onProgress: (progress) => console.log(`${progress}%`)
-});
-
-// Real-time updates
-client.subscribe(meeting.id, (update) => {
-  if (update.type === 'processing_complete') {
-    console.log('Meeting processing finished!');
-  }
-});
-```
+Common error scenarios:
+- Invalid file format
+- Malformed timestamps
+- Empty content
+- I/O errors
 
 ---
 
-*This API reference provides complete coverage of the Meeting Pipeline REST API. For implementation examples and integration patterns, see the Integration Guide.*
+*This API reference documents the Go implementation of the meeting pipeline. For usage examples and workflows, see the User Guide.*
