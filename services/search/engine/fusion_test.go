@@ -80,7 +80,7 @@ func TestParseSearchMode(t *testing.T) {
 }
 
 func TestNewRRFEngine(t *testing.T) {
-	logger := &mockLogger{}
+	logger := newMockLogger()
 	bm25 := NewBM25Engine(nil, logger, nil)
 	vector := NewVectorEngine(nil, newMockEmbeddingClient(384), nil, logger)
 
@@ -210,7 +210,7 @@ func TestCalculateRRFScore(t *testing.T) {
 }
 
 func TestRRFEngine_fuseResults(t *testing.T) {
-	logger := &mockLogger{}
+	logger := newMockLogger()
 	cfg := &RRFConfig{
 		K:            60,
 		BM25Weight:   0.5,
@@ -350,7 +350,7 @@ func TestRRFEngine_fuseResults(t *testing.T) {
 }
 
 func TestRRFEngine_normalizeScores(t *testing.T) {
-	engine := NewRRFEngine(nil, nil, nil, &mockLogger{})
+	engine := NewRRFEngine(nil, nil, nil, newMockLogger())
 
 	t.Run("normalizes non-empty results", func(t *testing.T) {
 		results := []HybridSearchResult{
@@ -396,7 +396,7 @@ func TestRRFEngine_normalizeScores(t *testing.T) {
 }
 
 func TestRRFEngine_SetWeights(t *testing.T) {
-	engine := NewRRFEngine(nil, nil, nil, &mockLogger{})
+	engine := NewRRFEngine(nil, nil, nil, newMockLogger())
 
 	t.Run("valid weights", func(t *testing.T) {
 		err := engine.SetWeights(0.7, 0.3)
@@ -447,7 +447,7 @@ func TestRRFEngine_GetConfig(t *testing.T) {
 		BM25Weight:   0.6,
 		VectorWeight: 0.4,
 	}
-	engine := NewRRFEngine(nil, nil, cfg, &mockLogger{})
+	engine := NewRRFEngine(nil, nil, cfg, newMockLogger())
 
 	got := engine.GetConfig()
 
@@ -460,7 +460,7 @@ func TestRRFEngine_GetConfig(t *testing.T) {
 }
 
 func TestRRFEngine_SetConfig(t *testing.T) {
-	engine := NewRRFEngine(nil, nil, nil, &mockLogger{})
+	engine := NewRRFEngine(nil, nil, nil, newMockLogger())
 
 	t.Run("sets new config", func(t *testing.T) {
 		newCfg := &RRFConfig{K: 100}
@@ -482,7 +482,7 @@ func TestRRFEngine_SetConfig(t *testing.T) {
 }
 
 func TestRRFEngine_toBM25Filters(t *testing.T) {
-	engine := NewRRFEngine(nil, nil, nil, &mockLogger{})
+	engine := NewRRFEngine(nil, nil, nil, newMockLogger())
 
 	t.Run("converts filters correctly", func(t *testing.T) {
 		now := time.Now()
@@ -518,7 +518,7 @@ func TestRRFEngine_toBM25Filters(t *testing.T) {
 }
 
 func TestRRFEngine_toVectorFilters(t *testing.T) {
-	engine := NewRRFEngine(nil, nil, nil, &mockLogger{})
+	engine := NewRRFEngine(nil, nil, nil, newMockLogger())
 
 	t.Run("converts filters correctly", func(t *testing.T) {
 		now := time.Now()
@@ -548,7 +548,7 @@ func TestRRFEngine_toVectorFilters(t *testing.T) {
 }
 
 func TestRRFEngine_estimateTotalCount(t *testing.T) {
-	engine := NewRRFEngine(nil, nil, nil, &mockLogger{})
+	engine := NewRRFEngine(nil, nil, nil, newMockLogger())
 
 	t.Run("returns max of both counts", func(t *testing.T) {
 		bm25Results := &SearchResponse{TotalCount: 100}
@@ -591,7 +591,7 @@ func TestRRFEngine_estimateTotalCount(t *testing.T) {
 }
 
 func TestRRFEngine_HybridSearch_Validation(t *testing.T) {
-	logger := &mockLogger{}
+	logger := newMockLogger()
 	bm25 := NewBM25Engine(nil, logger, nil)
 	vector := NewVectorEngine(nil, newMockEmbeddingClient(384), nil, logger)
 	engine := NewRRFEngine(bm25, vector, nil, logger)
@@ -688,7 +688,7 @@ func TestHybridSearchResponse(t *testing.T) {
 }
 
 func TestRRFEngine_detectSearchMode(t *testing.T) {
-	engine := NewRRFEngine(nil, nil, nil, &mockLogger{})
+	engine := NewRRFEngine(nil, nil, nil, newMockLogger())
 
 	t.Run("respects explicit mode", func(t *testing.T) {
 		mode := engine.detectSearchMode("test query", SearchModeKeyword)
@@ -713,7 +713,7 @@ func TestRRFEngine_detectSearchMode(t *testing.T) {
 func TestRRFEngine_RankOrdering(t *testing.T) {
 	// Test that RRF correctly orders results where doc appearing in both
 	// lists at high rank beats doc appearing in only one list
-	logger := &mockLogger{}
+	logger := newMockLogger()
 	cfg := &RRFConfig{
 		K:            60,
 		BM25Weight:   0.5,

@@ -4,10 +4,12 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	searchv1 "github.com/otherjamesbrown/penfold/api/proto/searchv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
@@ -26,7 +28,15 @@ import (
 // =============================================================================
 
 // mockLogger implements logging.Logger for testing.
-type mockLogger struct{}
+type mockLogger struct {
+	zl zerolog.Logger
+}
+
+func newMockLogger() *mockLogger {
+	return &mockLogger{
+		zl: zerolog.New(os.Stdout).Level(zerolog.Disabled),
+	}
+}
 
 func (m *mockLogger) Debug(msg string, fields ...logging.Field) {}
 func (m *mockLogger) Info(msg string, fields ...logging.Field)  {}
@@ -37,6 +47,9 @@ func (m *mockLogger) With(fields ...logging.Field) logging.Logger {
 }
 func (m *mockLogger) WithContext(ctx context.Context) logging.Logger {
 	return m
+}
+func (m *mockLogger) Zerolog() zerolog.Logger {
+	return m.zl
 }
 
 // mockMetrics implements metrics tracking for testing.
@@ -82,7 +95,7 @@ func testConfig() *config.Config {
 
 // testLogger returns a mock logger for testing.
 func testLogger() logging.Logger {
-	return &mockLogger{}
+	return newMockLogger()
 }
 
 // testMetrics returns mock metrics for testing.
@@ -187,10 +200,11 @@ func TestNewSearchServer_WithNilConfig(t *testing.T) {
 // Search Endpoint Tests
 // =============================================================================
 
-func TestSearch_Unimplemented(t *testing.T) {
+func TestSearch_EngineNotConfigured(t *testing.T) {
 	cfg := testConfig()
 	logger := testLogger()
 	m := testMetrics()
+	// Create server without engines configured
 	server := NewSearchServer(cfg, logger, m)
 
 	req := &searchv1.SearchRequest{
@@ -201,17 +215,70 @@ func TestSearch_Unimplemented(t *testing.T) {
 
 	_, err := server.Search(context.Background(), req)
 
-	require.Error(t, err, "Search should return error (unimplemented)")
+	require.Error(t, err, "Search should return error when engine not configured")
 
 	st, ok := status.FromError(err)
 	require.True(t, ok, "Error should be a gRPC status")
-	assert.Equal(t, codes.Unimplemented, st.Code(), "Should return Unimplemented status")
+	assert.Equal(t, codes.Unavailable, st.Code(), "Should return Unavailable status when engine not configured")
 }
 
-func TestSemanticSearch_Unimplemented(t *testing.T) {
+func TestSearch_InvalidRequest(t *testing.T) {
 	cfg := testConfig()
 	logger := testLogger()
 	m := testMetrics()
+	server := NewSearchServer(cfg, logger, m)
+
+	testCases := []struct {
+		name    string
+		req     *searchv1.SearchRequest
+		errCode codes.Code
+	}{
+		{
+			name: "empty_tenant_id",
+			req: &searchv1.SearchRequest{
+				Query:    "test query",
+				TenantId: "",
+				Limit:    10,
+			},
+			errCode: codes.InvalidArgument,
+		},
+		{
+			name: "empty_query",
+			req: &searchv1.SearchRequest{
+				Query:    "",
+				TenantId: "tenant-1",
+				Limit:    10,
+			},
+			errCode: codes.InvalidArgument,
+		},
+		{
+			name: "whitespace_only_query",
+			req: &searchv1.SearchRequest{
+				Query:    "   ",
+				TenantId: "tenant-1",
+				Limit:    10,
+			},
+			errCode: codes.InvalidArgument,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := server.Search(context.Background(), tc.req)
+			require.Error(t, err)
+
+			st, ok := status.FromError(err)
+			require.True(t, ok, "Error should be a gRPC status")
+			assert.Equal(t, tc.errCode, st.Code())
+		})
+	}
+}
+
+func TestSemanticSearch_EngineNotConfigured(t *testing.T) {
+	cfg := testConfig()
+	logger := testLogger()
+	m := testMetrics()
+	// Create server without engines configured
 	server := NewSearchServer(cfg, logger, m)
 
 	req := &searchv1.SemanticSearchRequest{
@@ -222,17 +289,18 @@ func TestSemanticSearch_Unimplemented(t *testing.T) {
 
 	_, err := server.SemanticSearch(context.Background(), req)
 
-	require.Error(t, err, "SemanticSearch should return error (unimplemented)")
+	require.Error(t, err, "SemanticSearch should return error when engine not configured")
 
 	st, ok := status.FromError(err)
 	require.True(t, ok, "Error should be a gRPC status")
-	assert.Equal(t, codes.Unimplemented, st.Code(), "Should return Unimplemented status")
+	assert.Equal(t, codes.Unavailable, st.Code(), "Should return Unavailable status when engine not configured")
 }
 
-func TestKeywordSearch_Unimplemented(t *testing.T) {
+func TestKeywordSearch_EngineNotConfigured(t *testing.T) {
 	cfg := testConfig()
 	logger := testLogger()
 	m := testMetrics()
+	// Create server without engines configured
 	server := NewSearchServer(cfg, logger, m)
 
 	req := &searchv1.KeywordSearchRequest{
@@ -243,21 +311,22 @@ func TestKeywordSearch_Unimplemented(t *testing.T) {
 
 	_, err := server.KeywordSearch(context.Background(), req)
 
-	require.Error(t, err, "KeywordSearch should return error (unimplemented)")
+	require.Error(t, err, "KeywordSearch should return error when engine not configured")
 
 	st, ok := status.FromError(err)
 	require.True(t, ok, "Error should be a gRPC status")
-	assert.Equal(t, codes.Unimplemented, st.Code(), "Should return Unimplemented status")
+	assert.Equal(t, codes.Unavailable, st.Code(), "Should return Unavailable status when engine not configured")
 }
 
 // =============================================================================
 // Document Indexing Tests
 // =============================================================================
 
-func TestIndexDocument_Unimplemented(t *testing.T) {
+func TestIndexDocument_DatabaseNotConfigured(t *testing.T) {
 	cfg := testConfig()
 	logger := testLogger()
 	m := testMetrics()
+	// Create server without database configured
 	server := NewSearchServer(cfg, logger, m)
 
 	req := &searchv1.IndexDocumentRequest{
@@ -269,17 +338,73 @@ func TestIndexDocument_Unimplemented(t *testing.T) {
 
 	_, err := server.IndexDocument(context.Background(), req)
 
-	require.Error(t, err, "IndexDocument should return error (unimplemented)")
+	require.Error(t, err, "IndexDocument should return error when database not configured")
 
 	st, ok := status.FromError(err)
 	require.True(t, ok, "Error should be a gRPC status")
-	assert.Equal(t, codes.Unimplemented, st.Code(), "Should return Unimplemented status")
+	assert.Equal(t, codes.Unavailable, st.Code(), "Should return Unavailable status when database not configured")
 }
 
-func TestDeleteDocument_Unimplemented(t *testing.T) {
+func TestIndexDocument_InvalidRequest(t *testing.T) {
 	cfg := testConfig()
 	logger := testLogger()
 	m := testMetrics()
+	server := NewSearchServer(cfg, logger, m)
+
+	testCases := []struct {
+		name    string
+		req     *searchv1.IndexDocumentRequest
+		errCode codes.Code
+	}{
+		{
+			name: "empty_document_id",
+			req: &searchv1.IndexDocumentRequest{
+				DocumentId:  "",
+				TenantId:    "tenant-1",
+				ContentType: "email",
+				Content:     "Test content",
+			},
+			errCode: codes.InvalidArgument,
+		},
+		{
+			name: "empty_tenant_id",
+			req: &searchv1.IndexDocumentRequest{
+				DocumentId:  "doc-123",
+				TenantId:    "",
+				ContentType: "email",
+				Content:     "Test content",
+			},
+			errCode: codes.InvalidArgument,
+		},
+		{
+			name: "empty_content",
+			req: &searchv1.IndexDocumentRequest{
+				DocumentId:  "doc-123",
+				TenantId:    "tenant-1",
+				ContentType: "email",
+				Content:     "",
+			},
+			errCode: codes.InvalidArgument,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := server.IndexDocument(context.Background(), tc.req)
+			require.Error(t, err)
+
+			st, ok := status.FromError(err)
+			require.True(t, ok, "Error should be a gRPC status")
+			assert.Equal(t, tc.errCode, st.Code())
+		})
+	}
+}
+
+func TestDeleteDocument_DatabaseNotConfigured(t *testing.T) {
+	cfg := testConfig()
+	logger := testLogger()
+	m := testMetrics()
+	// Create server without database configured
 	server := NewSearchServer(cfg, logger, m)
 
 	req := &searchv1.DeleteDocumentRequest{
@@ -289,21 +414,63 @@ func TestDeleteDocument_Unimplemented(t *testing.T) {
 
 	_, err := server.DeleteDocument(context.Background(), req)
 
-	require.Error(t, err, "DeleteDocument should return error (unimplemented)")
+	require.Error(t, err, "DeleteDocument should return error when database not configured")
 
 	st, ok := status.FromError(err)
 	require.True(t, ok, "Error should be a gRPC status")
-	assert.Equal(t, codes.Unimplemented, st.Code(), "Should return Unimplemented status")
+	assert.Equal(t, codes.Unavailable, st.Code(), "Should return Unavailable status when database not configured")
+}
+
+func TestDeleteDocument_InvalidRequest(t *testing.T) {
+	cfg := testConfig()
+	logger := testLogger()
+	m := testMetrics()
+	server := NewSearchServer(cfg, logger, m)
+
+	testCases := []struct {
+		name    string
+		req     *searchv1.DeleteDocumentRequest
+		errCode codes.Code
+	}{
+		{
+			name: "empty_document_id",
+			req: &searchv1.DeleteDocumentRequest{
+				DocumentId: "",
+				TenantId:   "tenant-1",
+			},
+			errCode: codes.InvalidArgument,
+		},
+		{
+			name: "empty_tenant_id",
+			req: &searchv1.DeleteDocumentRequest{
+				DocumentId: "doc-123",
+				TenantId:   "",
+			},
+			errCode: codes.InvalidArgument,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := server.DeleteDocument(context.Background(), tc.req)
+			require.Error(t, err)
+
+			st, ok := status.FromError(err)
+			require.True(t, ok, "Error should be a gRPC status")
+			assert.Equal(t, tc.errCode, st.Code())
+		})
+	}
 }
 
 // =============================================================================
 // Statistics Tests
 // =============================================================================
 
-func TestGetSearchStats_Unimplemented(t *testing.T) {
+func TestGetSearchStats_DatabaseNotConfigured(t *testing.T) {
 	cfg := testConfig()
 	logger := testLogger()
 	m := testMetrics()
+	// Create server without database configured
 	server := NewSearchServer(cfg, logger, m)
 
 	req := &searchv1.GetSearchStatsRequest{
@@ -312,11 +479,11 @@ func TestGetSearchStats_Unimplemented(t *testing.T) {
 
 	_, err := server.GetSearchStats(context.Background(), req)
 
-	require.Error(t, err, "GetSearchStats should return error (unimplemented)")
+	require.Error(t, err, "GetSearchStats should return error when database not configured")
 
 	st, ok := status.FromError(err)
 	require.True(t, ok, "Error should be a gRPC status")
-	assert.Equal(t, codes.Unimplemented, st.Code(), "Should return Unimplemented status")
+	assert.Equal(t, codes.Unavailable, st.Code(), "Should return Unavailable status when database not configured")
 }
 
 // =============================================================================
@@ -351,12 +518,12 @@ func TestTenantIsolation_SearchRequiresTenantID(t *testing.T) {
 
 			_, err := server.Search(context.Background(), req)
 
-			// For now the server returns Unimplemented, but the request structure
-			// correctly includes tenant_id which is logged
+			// Server returns Unavailable (engine not configured) but validates tenant_id first
 			require.Error(t, err)
 			st, ok := status.FromError(err)
 			require.True(t, ok)
-			assert.Equal(t, codes.Unimplemented, st.Code())
+			// Should get Unavailable (engine not configured), not InvalidArgument (bad tenant_id)
+			assert.Equal(t, codes.Unavailable, st.Code())
 		})
 	}
 }
@@ -398,8 +565,11 @@ func TestTenantIsolation_IndexDocumentRequiresTenantID(t *testing.T) {
 
 	_, err := server.IndexDocument(context.Background(), req)
 
-	// Currently returns Unimplemented but structure is correct
+	// Returns Unavailable (database not configured) but validates tenant_id first
 	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unavailable, st.Code())
 }
 
 func TestTenantIsolation_DeleteDocumentRequiresTenantID(t *testing.T) {
@@ -415,8 +585,11 @@ func TestTenantIsolation_DeleteDocumentRequiresTenantID(t *testing.T) {
 
 	_, err := server.DeleteDocument(context.Background(), req)
 
-	// Currently returns Unimplemented but structure is correct
+	// Returns Unavailable (database not configured) but validates tenant_id first
 	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unavailable, st.Code())
 }
 
 // =============================================================================
@@ -819,9 +992,9 @@ func TestConcurrentSearchRequests(t *testing.T) {
 
 			_, err := server.Search(context.Background(), req)
 			if err != nil {
-				// Expected Unimplemented error
+				// Expected Unavailable error (engine not configured)
 				st, ok := status.FromError(err)
-				if !ok || st.Code() != codes.Unimplemented {
+				if !ok || st.Code() != codes.Unavailable {
 					errChan <- err
 				}
 			}

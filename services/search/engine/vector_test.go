@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
@@ -412,7 +414,15 @@ func TestErrors(t *testing.T) {
 }
 
 // mockLogger implements logging.Logger for testing.
-type mockLogger struct{}
+type mockLogger struct {
+	zl zerolog.Logger
+}
+
+func newMockLogger() *mockLogger {
+	return &mockLogger{
+		zl: zerolog.New(os.Stdout).Level(zerolog.Disabled),
+	}
+}
 
 func (m *mockLogger) Debug(msg string, fields ...logging.Field) {}
 func (m *mockLogger) Info(msg string, fields ...logging.Field)  {}
@@ -420,6 +430,7 @@ func (m *mockLogger) Warn(msg string, fields ...logging.Field)  {}
 func (m *mockLogger) Error(msg string, fields ...logging.Field) {}
 func (m *mockLogger) With(fields ...logging.Field) logging.Logger { return m }
 func (m *mockLogger) WithContext(ctx context.Context) logging.Logger { return m }
+func (m *mockLogger) Zerolog() zerolog.Logger { return m.zl }
 
 // containsString checks if a string contains a substring.
 func containsString(s, substr string) bool {

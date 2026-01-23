@@ -11,7 +11,7 @@ import (
 // testLogger returns a mock logger for testing.
 // Note: mockLogger type is defined in vector_test.go
 func testLogger() logging.Logger {
-	return &mockLogger{}
+	return newMockLogger()
 }
 
 func TestDefaultFieldWeights(t *testing.T) {

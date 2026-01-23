@@ -12,11 +12,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	searchv1 "github.com/otherjamesbrown/penfold/api/proto/searchv1"
+	"github.com/otherjamesbrown/penfold/pkg/embeddings"
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
+	"github.com/otherjamesbrown/penfold/services/search/cache"
 	"github.com/otherjamesbrown/penfold/services/search/config"
+	"github.com/otherjamesbrown/penfold/services/search/engine"
 	"github.com/otherjamesbrown/penfold/services/search/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -67,11 +71,93 @@ func run() error {
 		return fmt.Errorf("registering metrics: %w", err)
 	}
 
+	// Initialize database connection pool
+	var dbPool *pgxpool.Pool
+	if cfg.Base.Database.Host != "" {
+		var err error
+		dbPool, err = pgxpool.New(context.Background(), cfg.Base.Database.DSN())
+		if err != nil {
+			logger.Warn("Failed to create database pool - search will be unavailable",
+				logging.Err(err),
+			)
+		} else {
+			defer dbPool.Close()
+			if err := dbPool.Ping(context.Background()); err != nil {
+				logger.Warn("Failed to connect to database - search will be unavailable",
+					logging.Err(err),
+				)
+				dbPool = nil
+			} else {
+				logger.Info("Connected to database")
+			}
+		}
+	} else {
+		logger.Warn("Database not configured - search will be unavailable")
+	}
+
+	// Initialize embedding client
+	var embeddingClient embeddings.Client
+	embeddingCfg := embeddings.LoadFromEnv()
+	// Override with search service config if set
+	if cfg.Embedding.Model != "" {
+		embeddingCfg.Model = cfg.Embedding.Model
+	}
+	if cfg.Embedding.Dimensions > 0 {
+		embeddingCfg.Dimensions = cfg.Embedding.Dimensions
+	}
+	embeddingClient, err = embeddings.NewMLXClient(embeddingCfg, logger, nil)
+	if err != nil {
+		logger.Warn("Failed to create embedding client - semantic search will be unavailable",
+			logging.Err(err),
+		)
+		embeddingClient = nil
+	} else {
+		logger.Info("Embedding client initialized",
+			logging.F("url", embeddingCfg.ServerURL),
+			logging.F("model", embeddingCfg.Model),
+			logging.F("dimensions", embeddingCfg.Dimensions),
+		)
+	}
+
+	// Initialize search cache
+	searchCache := cache.New()
+	defer searchCache.Close()
+
+	// Initialize search engines
+	var bm25Engine *engine.BM25Engine
+	var vectorEngine *engine.VectorEngine
+	var rrfEngine *engine.RRFEngine
+
+	if dbPool != nil {
+		// Initialize BM25 engine
+		bm25Engine = engine.NewBM25Engine(dbPool, logger, nil)
+		logger.Info("BM25 search engine initialized")
+
+		// Initialize vector engine if embedding client is available
+		if embeddingClient != nil {
+			// Cast embeddings.Client to engine.EmbeddingClient (they have compatible interfaces)
+			vectorEngine = engine.NewVectorEngine(dbPool, &embeddingAdapter{embeddingClient}, nil, logger)
+			logger.Info("Vector search engine initialized")
+		}
+
+		// Initialize RRF hybrid engine if both engines are available
+		if bm25Engine != nil && vectorEngine != nil {
+			rrfCfg := engine.DefaultRRFConfig()
+			rrfCfg.BM25Weight = cfg.Search.DefaultTextWeight
+			rrfCfg.VectorWeight = cfg.Search.DefaultVectorWeight
+			rrfEngine = engine.NewRRFEngine(bm25Engine, vectorEngine, rrfCfg, logger)
+			logger.Info("Hybrid search engine initialized",
+				logging.F("bm25_weight", cfg.Search.DefaultTextWeight),
+				logging.F("vector_weight", cfg.Search.DefaultVectorWeight),
+			)
+		}
+	}
+
 	// Initialize health checker
 	healthChecker := health.NewChecker()
 
 	// Register health checks
-	registerHealthChecks(healthChecker, cfg, logger)
+	registerHealthChecks(healthChecker, cfg, logger, dbPool)
 
 	// Create gRPC server
 	grpcServer := grpc.NewServer(
@@ -81,8 +167,27 @@ func run() error {
 		),
 	)
 
+	// Build server options
+	serverOpts := []server.ServerOption{}
+	if dbPool != nil {
+		serverOpts = append(serverOpts, server.WithDB(dbPool))
+	}
+	if embeddingClient != nil {
+		serverOpts = append(serverOpts, server.WithEmbeddingClient(embeddingClient))
+	}
+	if bm25Engine != nil {
+		serverOpts = append(serverOpts, server.WithBM25Engine(bm25Engine))
+	}
+	if vectorEngine != nil {
+		serverOpts = append(serverOpts, server.WithVectorEngine(vectorEngine))
+	}
+	if rrfEngine != nil {
+		serverOpts = append(serverOpts, server.WithRRFEngine(rrfEngine))
+	}
+	serverOpts = append(serverOpts, server.WithCache(searchCache))
+
 	// Register search service
-	searchServer := server.NewSearchServer(cfg, logger, m)
+	searchServer := server.NewSearchServer(cfg, logger, m, serverOpts...)
 	searchv1.RegisterSearchServiceServer(grpcServer, searchServer)
 
 	// Enable reflection for debugging
@@ -126,27 +231,34 @@ func run() error {
 }
 
 // registerHealthChecks adds health checks to the checker.
-func registerHealthChecks(checker *health.Checker, cfg *config.Config, logger logging.Logger) {
+func registerHealthChecks(checker *health.Checker, cfg *config.Config, logger logging.Logger, dbPool *pgxpool.Pool) {
 	// Basic liveness check - always passes
 	checker.RegisterCheck("liveness", func(ctx context.Context) error {
 		return nil
 	})
 
-	// Vector database connectivity check (placeholder)
-	checker.RegisterCheck("vectordb", func(ctx context.Context) error {
-		// TODO: Implement actual vector database connectivity check
-		// For now, return nil (healthy) to indicate the service is operational
-		return nil
-	}, health.Critical())
-
-	// PostgreSQL connectivity check (placeholder)
+	// PostgreSQL connectivity check
 	checker.RegisterCheck("postgres", func(ctx context.Context) error {
-		// TODO: Implement actual PostgreSQL connectivity check
-		// For now, return nil (healthy) to indicate the service is operational
-		return nil
+		if dbPool == nil {
+			return fmt.Errorf("database not configured")
+		}
+		return dbPool.Ping(ctx)
 	}, health.Critical())
 
 	logger.Debug("Health checks registered")
+}
+
+// embeddingAdapter adapts embeddings.Client to engine.EmbeddingClient.
+type embeddingAdapter struct {
+	client embeddings.Client
+}
+
+func (a *embeddingAdapter) Embed(ctx context.Context, text string) ([]float32, error) {
+	return a.client.Embed(ctx, text)
+}
+
+func (a *embeddingAdapter) Dimensions() int {
+	return a.client.Dimensions()
 }
 
 // startHTTPServer creates and starts the HTTP server for health and metrics endpoints.
