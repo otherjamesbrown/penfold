@@ -64,18 +64,28 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	cli := NewCLIRunner(t)
 
 	// Set environment variables for CLI commands
-	cli.SetEnv("PENFOLD_DB_HOST", host)
-	cli.SetEnv("PENFOLD_DB_PORT", port)
-	cli.SetEnv("PENFOLD_DB_USER", user)
-	cli.SetEnv("PENFOLD_DB_PASSWORD", password)
-	cli.SetEnv("PENFOLD_DB_NAME", dbName)
+	// CLI uses DB_* env vars (see cmd/penf/cmd/ingest_email.go)
+	cli.SetEnv("DB_HOST", host)
+	cli.SetEnv("DB_PORT", port)
+	cli.SetEnv("DB_USER", user)
+	cli.SetEnv("DB_PASSWORD", password)
+	cli.SetEnv("DB_NAME", dbName)
 	cli.SetEnv("LLM_URL", llmURL)
+
+	// Redis configuration (CLI uses REDIS_* env vars)
+	redisHost := getEnvOrDefault("PENFOLD_REDIS_HOST", "localhost")
+	redisPort := getEnvOrDefault("PENFOLD_REDIS_PORT", "6379")
+	cli.SetEnv("REDIS_HOST", redisHost)
+	cli.SetEnv("REDIS_PORT", redisPort)
+
+	// Use absolute path for fixtures (CLI runs from project root)
+	fixtureDir := filepath.Join(cli.WorkDir, "tests", "fixtures", "acme-corp")
 
 	env := &E2EEnv{
 		DB:         pool,
 		DBName:     dbName,
 		LLMURL:     llmURL,
-		FixtureDir: filepath.Join("..", "fixtures", "acme-corp"),
+		FixtureDir: fixtureDir,
 		CLI:        cli,
 		t:          t,
 	}
