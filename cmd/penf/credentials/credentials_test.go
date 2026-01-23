@@ -1,12 +1,46 @@
 package credentials
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
+
+// testEncryptionKey is a fixed 32-byte key for testing (hex-encoded to 64 chars)
+const testEncryptionKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// setupTestEnv sets up the test environment with a fixed encryption key
+func setupTestEnv(t *testing.T, tempDir string) func() {
+	t.Helper()
+
+	originalConfigDir := os.Getenv("PENF_CONFIG_DIR")
+	originalEncKey := os.Getenv("PENF_ENCRYPTION_KEY")
+
+	os.Setenv("PENF_CONFIG_DIR", tempDir)
+	os.Setenv("PENF_ENCRYPTION_KEY", testEncryptionKey)
+
+	return func() {
+		if originalConfigDir != "" {
+			os.Setenv("PENF_CONFIG_DIR", originalConfigDir)
+		} else {
+			os.Unsetenv("PENF_CONFIG_DIR")
+		}
+		if originalEncKey != "" {
+			os.Setenv("PENF_ENCRYPTION_KEY", originalEncKey)
+		} else {
+			os.Unsetenv("PENF_ENCRYPTION_KEY")
+		}
+	}
+}
 
 func TestCredentialsDir(t *testing.T) {
 	// Test with default (no env var)
@@ -66,10 +100,9 @@ func TestStore_SaveAndLoad(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Set the env var to use temp dir
-	originalEnv := os.Getenv("PENF_CONFIG_DIR")
-	defer os.Setenv("PENF_CONFIG_DIR", originalEnv)
-	os.Setenv("PENF_CONFIG_DIR", tempDir)
+	// Set up test environment with fixed encryption key
+	cleanup := setupTestEnv(t, tempDir)
+	defer cleanup()
 
 	store, err := NewStore()
 	if err != nil {
@@ -123,9 +156,8 @@ func TestStore_SaveAndLoadToken(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	originalEnv := os.Getenv("PENF_CONFIG_DIR")
-	defer os.Setenv("PENF_CONFIG_DIR", originalEnv)
-	os.Setenv("PENF_CONFIG_DIR", tempDir)
+	cleanup := setupTestEnv(t, tempDir)
+	defer cleanup()
 
 	store, err := NewStore()
 	if err != nil {
@@ -169,9 +201,8 @@ func TestStore_Delete(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	originalEnv := os.Getenv("PENF_CONFIG_DIR")
-	defer os.Setenv("PENF_CONFIG_DIR", originalEnv)
-	os.Setenv("PENF_CONFIG_DIR", tempDir)
+	cleanup := setupTestEnv(t, tempDir)
+	defer cleanup()
 
 	store, err := NewStore()
 	if err != nil {
@@ -213,9 +244,8 @@ func TestStore_LoadNoCredentials(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	originalEnv := os.Getenv("PENF_CONFIG_DIR")
-	defer os.Setenv("PENF_CONFIG_DIR", originalEnv)
-	os.Setenv("PENF_CONFIG_DIR", tempDir)
+	cleanup := setupTestEnv(t, tempDir)
+	defer cleanup()
 
 	store, err := NewStore()
 	if err != nil {
@@ -235,16 +265,24 @@ func TestStore_GetActiveCredential_EnvVar(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	originalConfigDir := os.Getenv("PENF_CONFIG_DIR")
+	cleanup := setupTestEnv(t, tempDir)
+	defer cleanup()
+
 	originalAPIKey := os.Getenv("PENF_API_KEY")
 	originalToken := os.Getenv("PENF_TOKEN")
 	defer func() {
-		os.Setenv("PENF_CONFIG_DIR", originalConfigDir)
-		os.Setenv("PENF_API_KEY", originalAPIKey)
-		os.Setenv("PENF_TOKEN", originalToken)
+		if originalAPIKey != "" {
+			os.Setenv("PENF_API_KEY", originalAPIKey)
+		} else {
+			os.Unsetenv("PENF_API_KEY")
+		}
+		if originalToken != "" {
+			os.Setenv("PENF_TOKEN", originalToken)
+		} else {
+			os.Unsetenv("PENF_TOKEN")
+		}
 	}()
 
-	os.Setenv("PENF_CONFIG_DIR", tempDir)
 	os.Unsetenv("PENF_API_KEY")
 	os.Unsetenv("PENF_TOKEN")
 
@@ -298,16 +336,24 @@ func TestStore_GetActiveCredential_Stored(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	originalConfigDir := os.Getenv("PENF_CONFIG_DIR")
+	cleanup := setupTestEnv(t, tempDir)
+	defer cleanup()
+
 	originalAPIKey := os.Getenv("PENF_API_KEY")
 	originalToken := os.Getenv("PENF_TOKEN")
 	defer func() {
-		os.Setenv("PENF_CONFIG_DIR", originalConfigDir)
-		os.Setenv("PENF_API_KEY", originalAPIKey)
-		os.Setenv("PENF_TOKEN", originalToken)
+		if originalAPIKey != "" {
+			os.Setenv("PENF_API_KEY", originalAPIKey)
+		} else {
+			os.Unsetenv("PENF_API_KEY")
+		}
+		if originalToken != "" {
+			os.Setenv("PENF_TOKEN", originalToken)
+		} else {
+			os.Unsetenv("PENF_TOKEN")
+		}
 	}()
 
-	os.Setenv("PENF_CONFIG_DIR", tempDir)
 	os.Unsetenv("PENF_API_KEY")
 	os.Unsetenv("PENF_TOKEN")
 
@@ -342,16 +388,24 @@ func TestStore_GetActiveCredential_ExpiredToken(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	originalConfigDir := os.Getenv("PENF_CONFIG_DIR")
+	cleanup := setupTestEnv(t, tempDir)
+	defer cleanup()
+
 	originalAPIKey := os.Getenv("PENF_API_KEY")
 	originalToken := os.Getenv("PENF_TOKEN")
 	defer func() {
-		os.Setenv("PENF_CONFIG_DIR", originalConfigDir)
-		os.Setenv("PENF_API_KEY", originalAPIKey)
-		os.Setenv("PENF_TOKEN", originalToken)
+		if originalAPIKey != "" {
+			os.Setenv("PENF_API_KEY", originalAPIKey)
+		} else {
+			os.Unsetenv("PENF_API_KEY")
+		}
+		if originalToken != "" {
+			os.Setenv("PENF_TOKEN", originalToken)
+		} else {
+			os.Unsetenv("PENF_TOKEN")
+		}
 	}()
 
-	os.Setenv("PENF_CONFIG_DIR", tempDir)
 	os.Unsetenv("PENF_API_KEY")
 	os.Unsetenv("PENF_TOKEN")
 
@@ -384,9 +438,8 @@ func TestEncryption(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	originalEnv := os.Getenv("PENF_CONFIG_DIR")
-	defer os.Setenv("PENF_CONFIG_DIR", originalEnv)
-	os.Setenv("PENF_CONFIG_DIR", tempDir)
+	cleanup := setupTestEnv(t, tempDir)
+	defer cleanup()
 
 	store, err := NewStore()
 	if err != nil {
@@ -545,4 +598,120 @@ func TestGenerateAPIKeyID(t *testing.T) {
 	if len(id1) != 8 {
 		t.Errorf("GenerateAPIKeyID length = %d, want 8", len(id1))
 	}
+}
+
+func TestNewStoreWithKeyProvider(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "penf-creds-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Use env key provider with test key
+	os.Setenv("PENF_CONFIG_DIR", tempDir)
+	defer os.Unsetenv("PENF_CONFIG_DIR")
+
+	testKeyHex := "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+	os.Setenv("TEST_CUSTOM_KEY", testKeyHex)
+	defer os.Unsetenv("TEST_CUSTOM_KEY")
+
+	provider := NewEnvKeyProvider("TEST_CUSTOM_KEY")
+	store, err := NewStoreWithKeyProvider(provider)
+	if err != nil {
+		t.Fatalf("NewStoreWithKeyProvider() error = %v", err)
+	}
+
+	// Save and load credentials
+	creds := &Credentials{
+		AuthType: AuthTypeAPIKey,
+		APIKey:   "test-api-key",
+	}
+	if err := store.Save(creds); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if loaded.APIKey != creds.APIKey {
+		t.Errorf("Loaded APIKey = %v, want %v", loaded.APIKey, creds.APIKey)
+	}
+}
+
+func TestMigrationFromLegacyKey(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "penf-creds-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	os.Setenv("PENF_CONFIG_DIR", tempDir)
+	defer os.Unsetenv("PENF_CONFIG_DIR")
+
+	// Step 1: Create credentials encrypted with the legacy key
+	legacyKey, err := deriveLegacyEncryptionKey()
+	if err != nil {
+		t.Fatalf("deriveLegacyEncryptionKey() error = %v", err)
+	}
+
+	// Encrypt test data with legacy key
+	plaintext := "test-api-key-12345"
+	encrypted, err := encryptWithKey(plaintext, legacyKey)
+	if err != nil {
+		t.Fatalf("encryptWithKey() error = %v", err)
+	}
+
+	// Write credentials file with legacy-encrypted data
+	legacyCreds := Credentials{
+		AuthType: AuthTypeAPIKey,
+		APIKey:   encrypted,
+	}
+	data, _ := yaml.Marshal(&legacyCreds)
+	credPath := filepath.Join(tempDir, DefaultCredentialsFile)
+	if err := os.WriteFile(credPath, data, 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	// Step 2: Create a new store with a different key (simulating new keyring-based key)
+	newKeyHex := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	os.Setenv("PENF_ENCRYPTION_KEY", newKeyHex)
+	defer os.Unsetenv("PENF_ENCRYPTION_KEY")
+
+	store, err := NewStore()
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	// Step 3: Load credentials - should have been migrated
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if loaded.APIKey != plaintext {
+		t.Errorf("Migrated APIKey = %v, want %v", loaded.APIKey, plaintext)
+	}
+}
+
+// encryptWithKey encrypts data using a specific key (helper for migration tests)
+func encryptWithKey(plaintext string, key []byte) (string, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
