@@ -24,6 +24,7 @@ type E2EEnv struct {
 	DBName     string
 	LLMURL     string
 	FixtureDir string
+	CLI        *CLIRunner
 	t          *testing.T
 }
 
@@ -59,11 +60,23 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	err = pool.Ping(ctx)
 	require.NoError(t, err, "failed to ping test database")
 
+	// Initialize CLI runner
+	cli := NewCLIRunner(t)
+
+	// Set environment variables for CLI commands
+	cli.SetEnv("PENFOLD_DB_HOST", host)
+	cli.SetEnv("PENFOLD_DB_PORT", port)
+	cli.SetEnv("PENFOLD_DB_USER", user)
+	cli.SetEnv("PENFOLD_DB_PASSWORD", password)
+	cli.SetEnv("PENFOLD_DB_NAME", dbName)
+	cli.SetEnv("LLM_URL", llmURL)
+
 	env := &E2EEnv{
 		DB:         pool,
 		DBName:     dbName,
 		LLMURL:     llmURL,
 		FixtureDir: filepath.Join("..", "fixtures", "acme-corp"),
+		CLI:        cli,
 		t:          t,
 	}
 
