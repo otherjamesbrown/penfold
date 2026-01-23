@@ -1,10 +1,10 @@
 # Penfold Production Deployment Guide
 
-**Last Updated**: 2026-01-15
-**Target Environment**: Mac Mini M4 (32GB RAM)
-**Deployment Model**: Single-node Docker Compose
+**Last Updated**: 2026-01-23
+**Target Environment**: Mac Mini M4 (dev01) + Intel NUC (home-01)
+**Deployment Model**: Distributed Go services with Temporal orchestration
 
-This guide provides step-by-step instructions for deploying Penfold to a production environment. It covers container orchestration, security hardening, monitoring, and operational procedures.
+This guide provides step-by-step instructions for deploying Penfold to a production environment. It covers the distributed architecture, service deployment, security hardening, monitoring, and operational procedures.
 
 ---
 
@@ -13,7 +13,7 @@ This guide provides step-by-step instructions for deploying Penfold to a product
 - [Prerequisites](#prerequisites)
 - [Architecture Overview](#architecture-overview)
 - [Environment Configuration](#environment-configuration)
-- [Docker Compose Production Setup](#docker-compose-production-setup)
+- [Service Deployment](#service-deployment)
 - [SSL/TLS Configuration](#ssltls-configuration)
 - [Network Security](#network-security)
 - [Health Checks and Monitoring](#health-checks-and-monitoring)
@@ -29,34 +29,40 @@ This guide provides step-by-step instructions for deploying Penfold to a product
 
 ### Hardware Requirements
 
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| CPU | Apple M1 | Apple M4 |
-| RAM | 16GB | 32GB |
-| Storage | 256GB SSD | 512GB+ SSD |
-| Network | 100Mbps | 1Gbps |
+| Component | dev01 (Mac Mini M4) | home-01 (Intel NUC) |
+|-----------|---------------------|---------------------|
+| CPU | Apple M4 | Intel Core i5+ |
+| RAM | 32GB | 16GB+ |
+| Storage | 512GB+ SSD | 256GB+ SSD |
+| Network | 1Gbps | 1Gbps |
+| Role | Worker, MLX inference | Gateway, Data services |
 
 ### Software Requirements
 
 ```bash
-# macOS Sonoma or later
-sw_vers
+# dev01 (Mac Mini M4)
+sw_vers                    # macOS Sonoma or later
+go version                 # Go 1.22+
+python3 --version          # Python 3.11+ (for MLX sidecar)
 
-# Docker Desktop 4.25+ with Apple Silicon support
-docker --version
+# home-01 (Intel NUC)
+docker --version           # Docker 24+
+docker compose version     # Compose v2
+```
 
-# Docker Compose v2
-docker compose version
+### Required Services (home-01)
 
-# Homebrew (for additional tools)
-brew --version
+```bash
+# Docker containers
+docker ps --filter 'name=penfold'
+# Expected: penfold-postgres, penfold-redis, penfold-temporal, penfold-temporal-ui
 ```
 
 ### Required Accounts and Credentials
 
-- Google Cloud project with enabled APIs (Gmail, Calendar, Speech-to-Text)
+- Google Cloud project with enabled APIs (Gmail, Calendar)
 - OAuth2 credentials for Gmail integration
-- Optional: OpenAI API key for embeddings
+- Credentials stored in `~/github/otherjamesbrown/secrets/.env.penfold`
 
 ---
 
@@ -64,50 +70,60 @@ brew --version
 
 ```
                                     +-----------------+
-                                    |   Internet      |
+                                    |   penf CLI      |
+                                    |   (any host)    |
                                     +--------+--------+
                                              |
-                                    +--------v--------+
-                                    |   Firewall      |
-                                    |   (pf rules)    |
-                                    +--------+--------+
+                                    gRPC :50051
                                              |
-                          +------------------+------------------+
-                          |                                     |
-                 +--------v--------+                   +--------v--------+
-                 |   Caddy/nginx   |                   |   Caddy/nginx   |
-                 |   (SSL Proxy)   |                   |   (SSL Proxy)   |
-                 |   :443 -> :8000 |                   |   :443 -> :8001 |
-                 +--------+--------+                   +--------+--------+
-                          |                                     |
-           +--------------+-------------+                       |
-           |                            |                       |
-  +--------v--------+        +----------v---------+   +---------v--------+
-  |   API Service   |        |   Worker Service   |   |  Observability   |
-  |   (FastAPI)     |        |   (Procrastinate)  |   |  Dashboard       |
-  |   Port 8000     |        |   Background Jobs  |   |  Port 8001       |
-  +--------+--------+        +----------+---------+   +------------------+
-           |                            |
-           +------------+---------------+
-                        |
-         +--------------+--------------+
-         |                             |
-+--------v--------+          +--------v--------+
-|   PostgreSQL    |          |     Redis       |
-|   + pgvector    |          |   (Cache/Pub)   |
-|   Port 5432     |          |   Port 6379     |
-+-----------------+          +-----------------+
++-----------------------------------------------------------------------------------------------------------------+
+|                                   home-01.brown.chat (Intel NUC)                                                 |
+|                                                                                                                  |
+|  +-----------------------+     +---------------------+     +------------------+     +------------------+         |
+|  |  Penfold Gateway      |     |  PostgreSQL         |     |  Redis           |     |  Temporal        |         |
+|  |  Go binary            |     |  + pgvector         |     |  (cache)         |     |  Server          |         |
+|  |  gRPC: :50051         |<--->|  :5432              |     |  :6379           |     |  :7233           |         |
+|  |  HTTP: :8080          |     |  penfold-postgres   |     |  penfold-redis   |     |  UI: :8088       |         |
+|  +-----------+-----------+     +---------------------+     +------------------+     +--------+---------+         |
+|              |                                                                               |                   |
++--------------+-------------------------------------------------------------------------------+-------------------+
+               |                                                                               |
+               |                                      Network (1 Gbps)                         |
+               |                                                                               |
++--------------+-------------------------------------------------------------------------------+-------------------+
+|                                   dev01.brown.chat (Mac Mini M4)                                                 |
+|                                                                                                                  |
+|  +-----------------------+     +-----------------------+     +----------------------------------------------+   |
+|  |  MLX Embeddings       |     |  MLX LLM Server       |     |  Penfold Worker                              |   |
+|  |  Python sidecar       |     |  Qwen2.5-32B          |     |  Go binary                                   |   |
+|  |  :8081                |     |  :8080                |     |  Temporal activities & workflows             |   |
+|  |  mxbai-embed-large-v1 |<----|  (mention resolution) |<----|  Health: :8085                               |   |
+|  +-----------------------+     +-----------------------+     +----------------------------------------------+   |
+|                                                                                                                  |
++-----------------------------------------------------------------------------------------------------------------+
 ```
 
 ### Service Components
 
-| Service | Purpose | Container Image |
-|---------|---------|-----------------|
-| postgres | Primary database with pgvector | pgvector/pgvector:pg16 |
-| redis | Event bus, caching | redis:7-alpine |
-| api | REST API (FastAPI) | penfold:latest |
-| worker | Background job processing | penfold:latest |
-| caddy | SSL termination, reverse proxy | caddy:2-alpine |
+| Service | Host | Type | Port | Purpose |
+|---------|------|------|------|---------|
+| Gateway | home-01 | Go binary | 50051 (gRPC), 8080 (HTTP) | API gateway, gRPC services |
+| PostgreSQL | home-01 | Docker | 5432 | Primary database with pgvector |
+| Redis | home-01 | Docker | 6379 | Caching |
+| Temporal | home-01 | Docker | 7233, 8088 (UI) | Workflow orchestration |
+| Worker | dev01 | Go binary | 8085 (health) | Temporal workflow execution |
+| MLX Embeddings | dev01 | Python (uvicorn) | 8081 | Vector embeddings |
+| MLX LLM | dev01 | Python (mlx_lm) | 8080 | LLM inference for mention resolution |
+
+### Go Service Modules
+
+| Service | Build Location | Binary |
+|---------|----------------|--------|
+| penf CLI | `cmd/penf/` | `penf` |
+| Gateway | `services/gateway/` | `penfold-gateway` |
+| Worker | `services/worker/` | `penfold-worker` |
+| Gmail | `services/gmail/` | `penfold-gmail` |
+| Search | `services/search/` | `penfold-search` |
 
 ---
 
@@ -116,143 +132,113 @@ brew --version
 ### Directory Structure
 
 ```bash
-# Create production directories
-sudo mkdir -p /opt/penfold/{config,data,logs,backups,certs}
-sudo mkdir -p /opt/penfold/data/{postgres,redis,uploads,processed}
-sudo chown -R $(whoami):staff /opt/penfold
+# dev01 - Development machine
+~/github/otherjamesbrown/penfold/     # Source code
+~/github/otherjamesbrown/secrets/     # Credentials
+~/.penf/                              # CLI configuration
+
+# home-01 - Data services
+/opt/penfold/                         # Deployment directory
+/opt/penfold/data/postgres/           # PostgreSQL data
+/opt/penfold/data/redis/              # Redis data
+/opt/penfold/logs/                    # Service logs
+/opt/penfold/backups/                 # Database backups
 ```
 
-### Production Environment File
+### Environment Variables
 
-Create `/opt/penfold/config/.env.production`:
+#### dev01 - Worker Environment
+
+Source credentials from the secrets file:
 
 ```bash
-# ===========================================
-# PENFOLD PRODUCTION CONFIGURATION
-# ===========================================
+# Load environment
+source ~/github/otherjamesbrown/secrets/.env.penfold
 
-# Application
-ENVIRONMENT=production
-DEBUG=false
-LOG_LEVEL=INFO
-HOST=0.0.0.0
-PORT=8000
-
-# Domain configuration (update for your domain)
-DOMAIN=penfold.local
-ALLOWED_ORIGINS=["https://penfold.local"]
-
-# Database (use strong, unique password)
-DATABASE_URL=postgresql://penfold:CHANGE_ME_STRONG_PASSWORD@postgres:5432/penfold_prod
-DATABASE_POOL_SIZE=20
-DATABASE_MAX_OVERFLOW=30
-DATABASE_POOL_TIMEOUT=30
-
-# Redis
-REDIS_URL=redis://redis:6379/0
-
-# File storage
-UPLOAD_DIR=/app/uploads
-PROCESSED_DIR=/app/processed
-MAX_UPLOAD_SIZE=2147483648
-
-# Security (generate unique secrets)
-# Generate with: openssl rand -hex 32
-JWT_SECRET_KEY=CHANGE_ME_GENERATE_NEW_SECRET
-JWT_ALGORITHM=HS256
-JWT_EXPIRATION_HOURS=24
-ENCRYPTION_KEY_PATH=/app/config/encryption-keys
-
-# Speech-to-Text
-WHISPER_MODEL_SIZE=large-v3
-STT_CONFIDENCE_THRESHOLD=0.8
-USE_LOCAL_STT_ONLY=true
-
-# Processing limits
-MAX_CONCURRENT_JOBS=20
-MAX_CPU_INTENSIVE_JOBS=4
-JOB_TIMEOUT_SECONDS=7200
-FIFO_QUEUE_ENABLED=true
-
-# Observability
-OBSERVABILITY_ENABLED=true
-OBSERVABILITY_DATABASE_URL=postgresql://penfold:CHANGE_ME_STRONG_PASSWORD@postgres:5432/penfold_prod
-METRICS_RETENTION_DAYS=90
+# Worker configuration (set in ~/.zshrc or launchd plist)
+export PENFOLD_SERVICE_NAME=worker
+export PENFOLD_DB_HOST=home-01.brown.chat
+export PENFOLD_DB_PORT=5432
+export PENFOLD_DB_USER=penfold
+export PENFOLD_DB_PASSWORD=<from secrets>
+export PENFOLD_DB_NAME=penfold
+export PENFOLD_TEMPORAL_HOST=home-01.brown.chat:7233
+export AI_SERVICE_URL=http://localhost:8081   # Local MLX embeddings
+export LLM_URL=http://localhost:8080          # Local MLX LLM
+export LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
 ```
 
-### Generate Security Secrets
+#### home-01 - Gateway Environment
 
 ```bash
-# Generate JWT secret
-JWT_SECRET=$(openssl rand -hex 32)
-echo "JWT_SECRET_KEY=${JWT_SECRET}"
+export PENFOLD_SERVICE_NAME=gateway
+export PENFOLD_DB_HOST=localhost              # Co-located with PostgreSQL
+export PENFOLD_DB_PORT=5432
+export PENFOLD_DB_USER=penfold
+export PENFOLD_DB_PASSWORD=<from secrets>
+export PENFOLD_DB_NAME=penfold
+export PENFOLD_GRPC_PORT=50051
+export PENFOLD_HTTP_PORT=8080
 
-# Generate encryption key
-mkdir -p /opt/penfold/config/encryption-keys
-openssl rand -base64 32 > /opt/penfold/config/encryption-keys/master.key
-chmod 600 /opt/penfold/config/encryption-keys/master.key
+# ML service URLs for health aggregation
+export GATEWAY_EMBEDDINGS_URL=http://dev01.brown.chat:8081
+export GATEWAY_LLM_URL=http://dev01.brown.chat:8080
+export GATEWAY_WORKER_HEALTH_URL=http://dev01.brown.chat:8085
+```
 
-# Generate database password
-DB_PASSWORD=$(openssl rand -base64 24)
-echo "Database password: ${DB_PASSWORD}"
+### CLI Configuration
+
+Create `~/.penf/config.yaml`:
+
+```yaml
+server_address: home-01.brown.chat:50051
+timeout: 30s
+output_format: text
+insecure: true    # Set to false with TLS
 ```
 
 ---
 
-## Docker Compose Production Setup
+## Service Deployment
 
-### Production Docker Compose File
+### Docker Compose for Data Services (home-01)
 
-Create `/opt/penfold/config/docker-compose.production.yml`:
+Create `/opt/penfold/docker-compose.yml`:
 
 ```yaml
-# Penfold Production Docker Compose Configuration
-# Deploy with: docker compose -f docker-compose.production.yml up -d
-
 version: '3.8'
 
 services:
-  # PostgreSQL with pgvector extension
   postgres:
     image: pgvector/pgvector:pg16
     container_name: penfold-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: penfold_prod
+      POSTGRES_DB: penfold
       POSTGRES_USER: penfold
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "127.0.0.1:5432:5432"  # Only bind to localhost
+      - "5432:5432"
     volumes:
       - /opt/penfold/data/postgres:/var/lib/postgresql/data
-      - ./init-db:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U penfold -d penfold_prod"]
+      test: ["CMD-SHELL", "pg_isready -U penfold -d penfold"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
     deploy:
       resources:
         limits:
           memory: 4G
-        reservations:
-          memory: 1G
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "5"
 
-  # Redis for caching and event bus
   redis:
     image: redis:7-alpine
     container_name: penfold-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     ports:
-      - "127.0.0.1:6379:6379"  # Only bind to localhost
+      - "6379:6379"
     volumes:
       - /opt/penfold/data/redis:/data
     healthcheck:
@@ -260,403 +246,195 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "3"
 
-  # Penfold API Service
-  api:
-    image: penfold:latest
-    container_name: penfold-api
-    build:
-      context: .
-      dockerfile: Dockerfile.production
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: penfold-temporal
     restart: unless-stopped
-    env_file:
-      - .env.production
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=penfold
+      - POSTGRES_PWD=${DB_PASSWORD}
+      - POSTGRES_SEEDS=postgres
     ports:
-      - "127.0.0.1:8000:8000"  # Only bind to localhost
-    volumes:
-      - /opt/penfold/data/uploads:/app/uploads
-      - /opt/penfold/data/processed:/app/processed
-      - /opt/penfold/config/encryption-keys:/app/config/encryption-keys:ro
-      - /opt/penfold/logs:/app/logs
+      - "7233:7233"
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          memory: 8G
-        reservations:
-          memory: 2G
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "10"
-    command: >
-      uvicorn app.main:app
-      --host 0.0.0.0
-      --port 8000
-      --workers 4
-      --loop uvloop
-      --http httptools
-      --access-log
-      --log-level info
 
-  # Penfold Background Worker
-  worker:
-    image: penfold:latest
-    container_name: penfold-worker
+  temporal-ui:
+    image: temporalio/ui:latest
+    container_name: penfold-temporal-ui
     restart: unless-stopped
-    env_file:
-      - .env.production
-    volumes:
-      - /opt/penfold/data/uploads:/app/uploads
-      - /opt/penfold/data/processed:/app/processed
-      - /opt/penfold/config/encryption-keys:/app/config/encryption-keys:ro
-      - /opt/penfold/logs:/app/logs
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 12G  # Higher for AI model processing
-        reservations:
-          memory: 4G
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "10"
-    command: python -m procrastinate worker --concurrency=4
-
-  # Observability Dashboard
-  observability:
-    image: penfold:latest
-    container_name: penfold-observability
-    restart: unless-stopped
-    env_file:
-      - .env.production
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
     ports:
-      - "127.0.0.1:8001:8001"
+      - "8088:8080"
     depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
-    command: >
-      uvicorn observability_lib.cli.dashboard:app
-      --host 0.0.0.0
-      --port 8001
-      --workers 1
-      --log-level info
-
-  # Caddy reverse proxy with automatic SSL
-  caddy:
-    image: caddy:2-alpine
-    container_name: penfold-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - /opt/penfold/certs:/data
-      - /opt/penfold/certs:/config
-    depends_on:
-      - api
-      - observability
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
+      - temporal
 
 networks:
   default:
     name: penfold-network
-    driver: bridge
-
-volumes:
-  postgres_data:
-  redis_data:
 ```
 
-### Production Dockerfile
+### Building Go Services
 
-Create `/opt/penfold/config/Dockerfile.production`:
+```bash
+# On dev01
+cd ~/github/otherjamesbrown/penfold
 
-```dockerfile
-# Penfold Production Docker Image
-# Multi-stage build for optimized image size
+# Build all services
+make build
 
-# Stage 1: Build dependencies
-FROM python:3.12-slim as builder
-
-WORKDIR /build
-
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
-
-# Stage 2: Production image
-FROM python:3.12-slim
-
-# Create non-root user for security
-RUN groupadd -r penfold && useradd -r -g penfold penfold
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    postgresql-client \
-    ffmpeg \
-    curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-
-# Copy installed packages from builder
-COPY --from=builder /install /usr/local
-
-# Set working directory
-WORKDIR /app
-
-# Copy application code
-COPY --chown=penfold:penfold . .
-
-# Create required directories
-RUN mkdir -p uploads processed logs config/encryption-keys \
-    && chown -R penfold:penfold /app
-
-# Switch to non-root user
-USER penfold
-
-# Environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app
-
-# Expose API port
-EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Default command
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Or build individually
+cd services/gateway && go build -o ../../bin/penfold-gateway .
+cd services/worker && go build -o ../../bin/penfold-worker .
+cd cmd/penf && go build -o ../../bin/penf .
 ```
+
+### Deploying Gateway (home-01)
+
+```bash
+# Copy binary to home-01
+scp bin/penfold-gateway home-01.brown.chat:/tmp/
+
+# SSH and start gateway
+ssh home-01.brown.chat
+
+# Set environment and run
+source /opt/penfold/.env
+nohup /tmp/penfold-gateway > /opt/penfold/logs/gateway.log 2>&1 &
+```
+
+### Deploying Worker (dev01)
+
+The worker runs on dev01 to leverage Apple Silicon for MLX inference.
+
+#### Launchd Configuration
+
+Create `~/Library/LaunchAgents/com.penfold.worker.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.penfold.worker</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/james/github/otherjamesbrown/penfold/bin/penfold-worker</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PENFOLD_DB_HOST</key>
+        <string>home-01.brown.chat</string>
+        <key>PENFOLD_TEMPORAL_HOST</key>
+        <string>home-01.brown.chat:7233</string>
+        <key>AI_SERVICE_URL</key>
+        <string>http://localhost:8081</string>
+        <key>LLM_URL</key>
+        <string>http://localhost:8080</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/Users/james/github/otherjamesbrown/penfold</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/penfold-worker.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/penfold-worker.log</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+```
+
+Load the service:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.penfold.worker.plist
+```
+
+### MLX Sidecar Services (dev01)
+
+#### Embeddings Sidecar
+
+Located in `penfold-go-pipeline/sidecar/`:
+
+```bash
+# Manual start
+cd ~/github/otherjamesbrown/penfold-go-pipeline/sidecar
+.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8081
+```
+
+Managed by launchd: `~/Library/LaunchAgents/com.penfold.mlx-embeddings.plist`
+
+#### LLM Server
+
+```bash
+# Manual start
+.venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-32B-Instruct-4bit --port 8080 --host 0.0.0.0
+```
+
+Managed by launchd: `~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist`
 
 ---
 
 ## SSL/TLS Configuration
 
-### Caddyfile for Automatic SSL
+### gRPC with TLS (Optional)
 
-Create `/opt/penfold/config/Caddyfile`:
-
-```caddyfile
-# Penfold Caddy Configuration
-# Automatic HTTPS with Let's Encrypt
-
-{
-    # Global options
-    email admin@yourdomain.com
-    acme_ca https://acme-v02.api.letsencrypt.org/directory
-
-    # For local development/testing, use internal CA
-    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
-}
-
-# Main API endpoint
-penfold.yourdomain.com {
-    # Enable compression
-    encode gzip zstd
-
-    # Security headers
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        X-Content-Type-Options "nosniff"
-        X-Frame-Options "DENY"
-        X-XSS-Protection "1; mode=block"
-        Referrer-Policy "strict-origin-when-cross-origin"
-        -Server
-    }
-
-    # Rate limiting
-    rate_limit {
-        zone api {
-            key {remote_host}
-            events 100
-            window 1m
-        }
-    }
-
-    # API routes
-    handle /api/* {
-        reverse_proxy api:8000 {
-            health_uri /health
-            health_interval 30s
-            health_timeout 10s
-        }
-    }
-
-    # Health check endpoint
-    handle /health {
-        reverse_proxy api:8000
-    }
-
-    # Default handler
-    handle {
-        respond "Penfold API" 200
-    }
-
-    # Access logging
-    log {
-        output file /var/log/caddy/access.log {
-            roll_size 100mb
-            roll_keep 5
-        }
-        format json
-    }
-}
-
-# Observability dashboard (internal only)
-observability.penfold.yourdomain.com {
-    # Require basic auth for dashboard access
-    basicauth * {
-        admin $2a$14$HASHED_PASSWORD_HERE
-    }
-
-    reverse_proxy observability:8001
-
-    log {
-        output file /var/log/caddy/observability.log {
-            roll_size 50mb
-            roll_keep 3
-        }
-    }
-}
-```
-
-### Self-Signed Certificates for Local/Internal Use
-
-For local network or development environments:
+For secure gRPC connections, generate certificates:
 
 ```bash
-# Generate self-signed certificate
+# Generate CA and server certificates
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout /opt/penfold/certs/penfold.key \
-    -out /opt/penfold/certs/penfold.crt \
-    -subj "/CN=penfold.local/O=Penfold/C=US"
+    -keyout /opt/penfold/certs/server.key \
+    -out /opt/penfold/certs/server.crt \
+    -subj "/CN=home-01.brown.chat"
+```
 
-# Create combined PEM file
-cat /opt/penfold/certs/penfold.crt /opt/penfold/certs/penfold.key > \
-    /opt/penfold/certs/penfold.pem
-chmod 600 /opt/penfold/certs/*.key /opt/penfold/certs/*.pem
+Update CLI config:
+
+```yaml
+# ~/.penf/config.yaml
+server_address: home-01.brown.chat:50051
+insecure: false
+tls_cert_path: /path/to/server.crt
 ```
 
 ---
 
 ## Network Security
 
-### macOS Firewall Rules (pf)
+### Firewall Rules
 
-Create `/etc/pf.anchors/penfold.rules`:
-
-```
-# Penfold Firewall Rules
-# Load with: sudo pfctl -f /etc/pf.conf
-
-# Define interfaces and networks
-ext_if = "en0"                    # Primary network interface
-penfold_net = "172.18.0.0/16"     # Docker network range
-
-# Default deny policy
-block in all
-pass out all keep state
-
-# Allow established connections
-pass in quick on lo0 all
-pass in quick on $ext_if proto tcp from any to any port {80, 443} keep state
-
-# Allow SSH from local network only
-pass in quick on $ext_if proto tcp from 192.168.0.0/16 to any port 22 keep state
-
-# Block direct access to internal service ports from external
-block in quick on $ext_if proto tcp from any to any port {5432, 6379, 8000, 8001}
-
-# Rate limiting for HTTP(S)
-pass in on $ext_if proto tcp from any to any port {80, 443} \
-    keep state (max-src-conn 100, max-src-conn-rate 20/10)
-```
-
-Enable firewall rules:
+Internal network only. For external exposure, use a reverse proxy:
 
 ```bash
-# Add anchor to main pf.conf
-sudo cat >> /etc/pf.conf << 'EOF'
-anchor "penfold"
-load anchor "penfold" from "/etc/pf.anchors/penfold.rules"
-EOF
+# macOS pf rules (if needed)
+# Block external access to service ports
+block in quick on en0 proto tcp from any to any port {5432, 6379, 7233, 8080, 8081, 50051}
 
-# Enable pf
-sudo pfctl -e
-sudo pfctl -f /etc/pf.conf
+# Allow from local network
+pass in quick on en0 proto tcp from 10.0.10.0/24 to any port {5432, 6379, 7233, 8080, 8081, 50051}
 ```
 
-### Docker Network Isolation
+### Service Binding
 
-```bash
-# Create isolated Docker network
-docker network create \
-    --driver bridge \
-    --subnet 172.18.0.0/16 \
-    --ip-range 172.18.1.0/24 \
-    --opt "com.docker.network.bridge.enable_ip_masquerade=true" \
-    --opt "com.docker.network.bridge.enable_icc=false" \
-    penfold-network
-```
+Services bind to specific interfaces:
+
+| Service | Host | Binding |
+|---------|------|---------|
+| PostgreSQL | home-01 | 0.0.0.0:5432 (internal network) |
+| Redis | home-01 | 0.0.0.0:6379 (internal network) |
+| Gateway | home-01 | 0.0.0.0:50051, 0.0.0.0:8080 |
+| Worker | dev01 | 0.0.0.0:8085 (health only) |
+| MLX Embeddings | dev01 | 0.0.0.0:8081 |
+| MLX LLM | dev01 | 0.0.0.0:8080 |
 
 ---
 
@@ -664,13 +442,29 @@ docker network create \
 
 ### Health Check Endpoints
 
-The API service exposes these health check endpoints:
+| Service | Endpoint | Purpose |
+|---------|----------|---------|
+| Gateway | `http://home-01.brown.chat:8080/health` | Full health with backend services |
+| Gateway | `http://home-01.brown.chat:8080/ready` | Readiness probe |
+| Gateway | `http://home-01.brown.chat:8080/live` | Liveness probe |
+| Gateway | `http://home-01.brown.chat:8080/metrics` | Prometheus metrics |
+| Worker | `http://dev01.brown.chat:8085/health` | Worker health status |
+| Worker | `http://dev01.brown.chat:8085/ready` | Readiness probe |
+| Embeddings | `http://dev01.brown.chat:8081/health` | MLX embeddings health |
+| LLM | `http://dev01.brown.chat:8080/v1/models` | MLX LLM health |
 
-| Endpoint | Purpose | Expected Response |
-|----------|---------|-------------------|
-| `/health` | Basic liveness check | `{"status": "healthy"}` |
-| `/health/ready` | Readiness probe (with dependencies) | `{"status": "ready", "components": {...}}` |
-| `/health/live` | Kubernetes-style liveness | `{"status": "ok"}` |
+### CLI Health Commands
+
+```bash
+# Check all services via gateway
+penf health gateway
+
+# Check local ML services (from dev01)
+penf health local
+
+# Quick status
+penf status
+```
 
 ### Health Check Script
 
@@ -682,35 +476,35 @@ Create `/opt/penfold/scripts/health-check.sh`:
 
 set -e
 
-API_URL="http://localhost:8000"
-OBSERVABILITY_URL="http://localhost:8001"
-
 echo "=== Penfold Health Check ==="
 echo "Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo ""
 
-# Check API health
-echo "Checking API service..."
-API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/health" || echo "000")
-if [[ "$API_STATUS" == "200" ]]; then
-    echo "  API: HEALTHY"
-    API_RESPONSE=$(curl -s "${API_URL}/health")
-    echo "  Response: ${API_RESPONSE}"
+# Check Gateway (home-01)
+echo "Checking Gateway..."
+GATEWAY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://home-01.brown.chat:8080/health" || echo "000")
+if [[ "$GATEWAY_STATUS" == "200" ]]; then
+    echo "  Gateway: HEALTHY"
+    curl -s "http://home-01.brown.chat:8080/health" | jq -r '.services | to_entries[] | "    \(.key): \(.value.status)"'
 else
-    echo "  API: UNHEALTHY (HTTP ${API_STATUS})"
+    echo "  Gateway: UNHEALTHY (HTTP ${GATEWAY_STATUS})"
 fi
 echo ""
 
-# Check database connectivity (via API readiness)
-echo "Checking database connectivity..."
-READY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/health/ready" || echo "000")
-if [[ "$READY_STATUS" == "200" ]]; then
-    READY_RESPONSE=$(curl -s "${API_URL}/health/ready")
-    DB_STATUS=$(echo "$READY_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('components',{}).get('database','unknown'))")
-    echo "  Database: ${DB_STATUS}"
+# Check Worker (dev01)
+echo "Checking Worker..."
+WORKER_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://dev01.brown.chat:8085/health" || echo "000")
+if [[ "$WORKER_STATUS" == "200" ]]; then
+    echo "  Worker: HEALTHY"
 else
-    echo "  Database: UNREACHABLE"
+    echo "  Worker: UNHEALTHY (HTTP ${WORKER_STATUS})"
 fi
+echo ""
+
+# Check PostgreSQL
+echo "Checking PostgreSQL..."
+PG_STATUS=$(docker exec penfold-postgres pg_isready -U penfold -d penfold 2>/dev/null && echo "READY" || echo "NOT READY")
+echo "  PostgreSQL: ${PG_STATUS}"
 echo ""
 
 # Check Redis
@@ -723,25 +517,13 @@ else
 fi
 echo ""
 
-# Check worker status
-echo "Checking worker processes..."
-WORKER_COUNT=$(docker exec penfold-worker pgrep -c python 2>/dev/null || echo "0")
-echo "  Active workers: ${WORKER_COUNT}"
-echo ""
-
-# Check disk space
-echo "Checking disk space..."
-DISK_USAGE=$(df -h /opt/penfold | tail -1 | awk '{print $5}')
-echo "  Disk usage: ${DISK_USAGE}"
-echo ""
-
-# Check observability dashboard
-echo "Checking observability dashboard..."
-OBS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${OBSERVABILITY_URL}/health" || echo "000")
-if [[ "$OBS_STATUS" == "200" ]]; then
-    echo "  Observability: HEALTHY"
+# Check Temporal
+echo "Checking Temporal..."
+TEMPORAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://home-01.brown.chat:7233" || echo "000")
+if [[ "$TEMPORAL_STATUS" != "000" ]]; then
+    echo "  Temporal: REACHABLE"
 else
-    echo "  Observability: UNHEALTHY (HTTP ${OBS_STATUS})"
+    echo "  Temporal: UNREACHABLE"
 fi
 echo ""
 
@@ -750,14 +532,9 @@ echo "=== Health Check Complete ==="
 
 ### Monitoring with cron
 
-Add to crontab (`crontab -e`):
-
 ```cron
-# Penfold health checks every 5 minutes
+# Health checks every 5 minutes
 */5 * * * * /opt/penfold/scripts/health-check.sh >> /opt/penfold/logs/health-check.log 2>&1
-
-# Log rotation daily
-0 0 * * * /opt/penfold/scripts/rotate-logs.sh >> /opt/penfold/logs/maintenance.log 2>&1
 
 # Database backup daily at 2 AM
 0 2 * * * /opt/penfold/scripts/backup-database.sh >> /opt/penfold/logs/backup.log 2>&1
@@ -771,71 +548,35 @@ Add to crontab (`crontab -e`):
 
 ```markdown
 - [ ] Backup current database
-- [ ] Document current container versions
-- [ ] Review changelog for breaking changes
+- [ ] Document current binary versions
 - [ ] Verify sufficient disk space (>20% free)
-- [ ] Notify stakeholders of maintenance window
+- [ ] Review changelog for breaking changes
 - [ ] Prepare rollback commands
-- [ ] Verify test environment deployment succeeded
+- [ ] Test new binaries locally
 ```
 
-### Initial Deployment
+### Full Stack Startup
 
 ```bash
-#!/bin/zsh
-# Initial Penfold Production Deployment
+# 1. Verify Docker services on home-01
+ssh home-01.brown.chat "docker ps --filter 'name=penfold'"
 
-set -e
+# 2. Start Gateway on home-01 (if not running)
+ssh home-01.brown.chat "source /opt/penfold/.env && \
+  nohup /tmp/penfold-gateway > /opt/penfold/logs/gateway.log 2>&1 &"
 
-DEPLOY_DIR="/opt/penfold"
-CONFIG_DIR="${DEPLOY_DIR}/config"
-BACKUP_DIR="${DEPLOY_DIR}/backups"
+# 3. Start MLX Embeddings on dev01
+launchctl start com.penfold.mlx-embeddings
 
-echo "=== Penfold Initial Deployment ==="
-echo "Started: $(date)"
+# 4. Start MLX LLM Server on dev01
+launchctl start com.penfold.mlx-llm-server
 
-# 1. Clone/update repository
-echo "Step 1: Setting up application code..."
-cd ${DEPLOY_DIR}
-git clone https://github.com/otherjamesbrown/penfold.git app || \
-    (cd app && git pull origin main)
+# 5. Start Worker on dev01
+launchctl start com.penfold.worker
 
-# 2. Copy production configuration
-echo "Step 2: Configuring environment..."
-cp ${CONFIG_DIR}/.env.production ${DEPLOY_DIR}/app/.env
-cp ${CONFIG_DIR}/docker-compose.production.yml ${DEPLOY_DIR}/app/docker-compose.yml
-cp ${CONFIG_DIR}/Caddyfile ${DEPLOY_DIR}/app/
-
-# 3. Build Docker images
-echo "Step 3: Building Docker images..."
-cd ${DEPLOY_DIR}/app
-docker compose build --no-cache
-
-# 4. Initialize database
-echo "Step 4: Starting database services..."
-docker compose up -d postgres redis
-sleep 30  # Wait for PostgreSQL to be ready
-
-# 5. Run database migrations
-echo "Step 5: Running database migrations..."
-docker compose run --rm api alembic upgrade head
-
-# 6. Initialize pgvector extension
-echo "Step 6: Initializing pgvector..."
-docker compose exec -T postgres psql -U penfold -d penfold_prod -c \
-    "CREATE EXTENSION IF NOT EXISTS vector;"
-
-# 7. Start all services
-echo "Step 7: Starting all services..."
-docker compose up -d
-
-# 8. Verify deployment
-echo "Step 8: Verifying deployment..."
-sleep 30
-/opt/penfold/scripts/health-check.sh
-
-echo "=== Deployment Complete ==="
-echo "Finished: $(date)"
+# 6. Verify CLI connection
+penf status
+penf health gateway
 ```
 
 ### Standard Update Procedure
@@ -846,95 +587,53 @@ echo "Finished: $(date)"
 
 set -e
 
-DEPLOY_DIR="/opt/penfold"
-BACKUP_DIR="${DEPLOY_DIR}/backups"
-APP_DIR="${DEPLOY_DIR}/app"
+PENFOLD_DIR=~/github/otherjamesbrown/penfold
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 echo "=== Penfold Update Deployment ==="
 echo "Started: $(date)"
 
-# 1. Pre-deployment backup
-echo "Step 1: Creating pre-deployment backup..."
-${DEPLOY_DIR}/scripts/backup-database.sh
-
-# Record current image versions
-docker compose -f ${APP_DIR}/docker-compose.yml images > \
-    ${BACKUP_DIR}/images_${TIMESTAMP}.txt
-
-# 2. Pull latest code
-echo "Step 2: Pulling latest code..."
-cd ${APP_DIR}
-git fetch origin
-git checkout main
+# 1. Pull latest code
+echo "Step 1: Pulling latest code..."
+cd ${PENFOLD_DIR}
 git pull origin main
 
-# 3. Build new images
-echo "Step 3: Building new Docker images..."
-docker compose build
+# 2. Run database migrations (if any)
+echo "Step 2: Running migrations..."
+penf db migrate up
 
-# 4. Run migrations (if any)
-echo "Step 4: Running database migrations..."
-docker compose run --rm api alembic upgrade head
+# 3. Build new binaries
+echo "Step 3: Building binaries..."
+make build
 
-# 5. Rolling restart of services
-echo "Step 5: Performing rolling restart..."
+# 4. Restart Worker (dev01)
+echo "Step 4: Restarting Worker..."
+launchctl stop com.penfold.worker
+sleep 5
+launchctl start com.penfold.worker
 
-# Restart workers first (drain jobs)
-docker compose stop worker
-docker compose up -d worker
-sleep 10
-
-# Restart API (zero-downtime with multiple workers)
-docker compose up -d --no-deps api
-sleep 10
-
-# Restart observability
-docker compose up -d --no-deps observability
+# 5. Deploy and restart Gateway (home-01)
+echo "Step 5: Deploying Gateway..."
+scp bin/penfold-gateway home-01.brown.chat:/tmp/
+ssh home-01.brown.chat "pkill penfold-gateway || true; sleep 2; \
+  source /opt/penfold/.env && \
+  nohup /tmp/penfold-gateway > /opt/penfold/logs/gateway.log 2>&1 &"
 
 # 6. Verify deployment
 echo "Step 6: Verifying deployment..."
-sleep 30
-/opt/penfold/scripts/health-check.sh
-
-# 7. Cleanup old images
-echo "Step 7: Cleaning up old images..."
-docker image prune -f
+sleep 10
+penf status
+penf health gateway
 
 echo "=== Update Complete ==="
 echo "Finished: $(date)"
-```
-
-### Zero-Downtime Deployment
-
-For critical updates requiring zero downtime:
-
-```bash
-#!/bin/zsh
-# Zero-Downtime Penfold Deployment
-
-set -e
-
-APP_DIR="/opt/penfold/app"
-
-# 1. Scale up API instances
-docker compose -f ${APP_DIR}/docker-compose.yml up -d --scale api=2
-
-# 2. Wait for new instance to be healthy
-echo "Waiting for new API instance..."
-sleep 60
-
-# 3. Remove old API instance
-docker compose -f ${APP_DIR}/docker-compose.yml up -d --scale api=1 --no-recreate
-
-echo "Zero-downtime deployment complete"
 ```
 
 ---
 
 ## Rollback Procedures
 
-### Quick Rollback (< 5 minutes)
+### Quick Rollback
 
 ```bash
 #!/bin/zsh
@@ -942,29 +641,35 @@ echo "Zero-downtime deployment complete"
 
 set -e
 
-DEPLOY_DIR="/opt/penfold"
-APP_DIR="${DEPLOY_DIR}/app"
-BACKUP_DIR="${DEPLOY_DIR}/backups"
+PENFOLD_DIR=~/github/otherjamesbrown/penfold
 
 echo "=== EMERGENCY ROLLBACK ==="
-echo "Started: $(date)"
 
-# Stop current services
+# 1. Stop services
 echo "Stopping services..."
-docker compose -f ${APP_DIR}/docker-compose.yml down
+launchctl stop com.penfold.worker || true
+ssh home-01.brown.chat "pkill penfold-gateway || true"
 
-# Rollback to previous git commit
+# 2. Rollback to previous commit
 echo "Rolling back code..."
-cd ${APP_DIR}
+cd ${PENFOLD_DIR}
 git checkout HEAD~1
 
-# Restart with previous version
-echo "Restarting services..."
-docker compose -f ${APP_DIR}/docker-compose.yml up -d
+# 3. Rebuild binaries
+echo "Rebuilding binaries..."
+make build
 
-# Verify
-sleep 30
-/opt/penfold/scripts/health-check.sh
+# 4. Redeploy
+echo "Redeploying..."
+scp bin/penfold-gateway home-01.brown.chat:/tmp/
+ssh home-01.brown.chat "source /opt/penfold/.env && \
+  nohup /tmp/penfold-gateway > /opt/penfold/logs/gateway.log 2>&1 &"
+launchctl start com.penfold.worker
+
+# 5. Verify
+echo "Verifying..."
+sleep 10
+penf status
 
 echo "=== Rollback Complete ==="
 ```
@@ -978,75 +683,30 @@ echo "=== Rollback Complete ==="
 set -e
 
 BACKUP_FILE=$1
-DEPLOY_DIR="/opt/penfold"
-
 if [[ -z "$BACKUP_FILE" ]]; then
     echo "Usage: rollback-database.sh <backup_file>"
     echo "Available backups:"
-    ls -la ${DEPLOY_DIR}/backups/*.sql.gz
+    ssh home-01.brown.chat "ls -la /opt/penfold/backups/*.sql.gz"
     exit 1
 fi
 
 echo "=== Database Rollback ==="
 echo "Restoring from: ${BACKUP_FILE}"
 
-# Stop application services (keep database running)
-docker compose -f ${DEPLOY_DIR}/app/docker-compose.yml stop api worker observability
+# Stop application services
+launchctl stop com.penfold.worker || true
+ssh home-01.brown.chat "pkill penfold-gateway || true"
 
 # Restore database
-gunzip -c ${BACKUP_FILE} | docker exec -i penfold-postgres \
-    psql -U penfold -d penfold_prod
-
-# Run any necessary migrations
-docker compose -f ${DEPLOY_DIR}/app/docker-compose.yml run --rm api \
-    alembic upgrade head
+ssh home-01.brown.chat "gunzip -c ${BACKUP_FILE} | \
+  docker exec -i penfold-postgres psql -U penfold -d penfold"
 
 # Restart services
-docker compose -f ${DEPLOY_DIR}/app/docker-compose.yml up -d
+ssh home-01.brown.chat "source /opt/penfold/.env && \
+  nohup /tmp/penfold-gateway > /opt/penfold/logs/gateway.log 2>&1 &"
+launchctl start com.penfold.worker
 
 echo "=== Database Rollback Complete ==="
-```
-
-### Complete System Rollback
-
-For catastrophic failures requiring full system restoration:
-
-```bash
-#!/bin/zsh
-# Full System Rollback
-
-set -e
-
-BACKUP_DATE=$1
-DEPLOY_DIR="/opt/penfold"
-
-echo "=== FULL SYSTEM ROLLBACK ==="
-echo "Restoring to: ${BACKUP_DATE}"
-
-# 1. Stop all services
-docker compose -f ${DEPLOY_DIR}/app/docker-compose.yml down
-
-# 2. Restore database
-${DEPLOY_DIR}/scripts/rollback-database.sh \
-    ${DEPLOY_DIR}/backups/penfold_${BACKUP_DATE}.sql.gz
-
-# 3. Restore uploaded files
-rsync -av ${DEPLOY_DIR}/backups/uploads_${BACKUP_DATE}/ \
-    ${DEPLOY_DIR}/data/uploads/
-
-# 4. Checkout specific git tag/commit
-cd ${DEPLOY_DIR}/app
-git checkout tags/v${BACKUP_DATE} || git checkout ${BACKUP_DATE}
-
-# 5. Rebuild and restart
-docker compose build
-docker compose up -d
-
-# 6. Verify
-sleep 60
-/opt/penfold/scripts/health-check.sh
-
-echo "=== Full System Rollback Complete ==="
 ```
 
 ---
@@ -1055,56 +715,30 @@ echo "=== Full System Rollback Complete ==="
 
 ### Configuration Comparison
 
-| Setting | Development | Staging | Production |
-|---------|-------------|---------|------------|
-| DEBUG | true | true | false |
-| LOG_LEVEL | DEBUG | INFO | INFO |
-| DATABASE_POOL_SIZE | 5 | 10 | 20 |
-| MAX_CONCURRENT_JOBS | 4 | 10 | 20 |
-| WHISPER_MODEL_SIZE | base | medium | large-v3 |
-| USE_LOCAL_STT_ONLY | true | false | true |
-| SSL/TLS | none | self-signed | Let's Encrypt |
-| Resource Limits | none | moderate | strict |
-| Backup Frequency | none | daily | daily |
-| Monitoring | basic | full | full |
+| Setting | Development | Production |
+|---------|-------------|------------|
+| LOG_LEVEL | debug | info |
+| Database Host | localhost | home-01.brown.chat |
+| Temporal Host | localhost:7233 | home-01.brown.chat:7233 |
+| TLS | disabled | optional |
+| gRPC Reflection | enabled | disabled |
+| Max Concurrent Activities | 4 | 10 |
+| Max Concurrent Workflows | 4 | 10 |
+| Graceful Shutdown Timeout | 10s | 30s |
 
-### Environment-Specific Compose Files
+### Development Setup
+
+For local development on a single machine:
 
 ```bash
-# Development
-docker compose -f docker-compose.yml up -d
+# Start all services locally
+docker compose up -d  # PostgreSQL, Redis, Temporal
 
-# Staging
-docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+# Run Gateway
+PENFOLD_DB_HOST=localhost ./bin/penfold-gateway &
 
-# Production
-docker compose -f docker-compose.production.yml up -d
-```
-
-### Staging-Specific Overrides
-
-Create `docker-compose.staging.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  api:
-    environment:
-      - DEBUG=true
-      - LOG_LEVEL=DEBUG
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-
-  worker:
-    environment:
-      - MAX_CONCURRENT_JOBS=10
-    deploy:
-      resources:
-        limits:
-          memory: 8G
+# Run Worker
+PENFOLD_DB_HOST=localhost PENFOLD_TEMPORAL_HOST=localhost:7233 ./bin/penfold-worker &
 ```
 
 ---
@@ -1128,12 +762,11 @@ RETENTION_DAYS=30
 echo "=== Database Backup ==="
 echo "Started: $(date)"
 
-# Create backup directory if not exists
 mkdir -p ${BACKUP_DIR}
 
 # Backup PostgreSQL
 echo "Backing up PostgreSQL..."
-docker exec penfold-postgres pg_dump -U penfold penfold_prod | \
+docker exec penfold-postgres pg_dump -U penfold penfold | \
     gzip > ${BACKUP_DIR}/penfold_${TIMESTAMP}.sql.gz
 
 # Backup Redis (RDB snapshot)
@@ -1142,20 +775,14 @@ docker exec penfold-redis redis-cli BGSAVE
 sleep 5
 docker cp penfold-redis:/data/dump.rdb ${BACKUP_DIR}/redis_${TIMESTAMP}.rdb
 
-# Backup uploaded files
-echo "Backing up uploads..."
-tar -czf ${BACKUP_DIR}/uploads_${TIMESTAMP}.tar.gz \
-    -C /opt/penfold/data uploads/
-
 # Record backup metadata
 cat > ${BACKUP_DIR}/backup_${TIMESTAMP}.json << EOF
 {
     "timestamp": "${TIMESTAMP}",
     "database_file": "penfold_${TIMESTAMP}.sql.gz",
     "redis_file": "redis_${TIMESTAMP}.rdb",
-    "uploads_file": "uploads_${TIMESTAMP}.tar.gz",
-    "git_commit": "$(cd /opt/penfold/app && git rev-parse HEAD)",
-    "docker_images": $(docker compose -f /opt/penfold/app/docker-compose.yml images --format json)
+    "gateway_version": "$(ssh home-01.brown.chat '/tmp/penfold-gateway --version 2>/dev/null || echo unknown')",
+    "git_commit": "$(cd ~/github/otherjamesbrown/penfold && git rev-parse HEAD)"
 }
 EOF
 
@@ -1167,137 +794,93 @@ echo "Backup complete: ${BACKUP_DIR}/penfold_${TIMESTAMP}.sql.gz"
 echo "Finished: $(date)"
 ```
 
-### Recovery Verification
-
-After any restore, run verification:
-
-```bash
-#!/bin/zsh
-# Post-Recovery Verification
-
-set -e
-
-echo "=== Post-Recovery Verification ==="
-
-# Check database connectivity
-echo "Checking database..."
-docker exec penfold-postgres psql -U penfold -d penfold_prod -c \
-    "SELECT COUNT(*) FROM sources;" || echo "Database check failed"
-
-# Check vector extension
-echo "Checking pgvector..."
-docker exec penfold-postgres psql -U penfold -d penfold_prod -c \
-    "SELECT * FROM pg_extension WHERE extname = 'vector';" || echo "pgvector check failed"
-
-# Check Redis data
-echo "Checking Redis..."
-docker exec penfold-redis redis-cli DBSIZE || echo "Redis check failed"
-
-# Run health checks
-/opt/penfold/scripts/health-check.sh
-
-echo "=== Verification Complete ==="
-```
-
 ---
 
 ## Troubleshooting
 
 ### Common Issues
 
-#### Container Won't Start
+#### Gateway Won't Start
 
 ```bash
-# Check container logs
-docker compose logs api --tail 100
+# Check logs
+ssh home-01.brown.chat "tail -100 /opt/penfold/logs/gateway.log"
 
-# Check container status
-docker compose ps
+# Check database connectivity
+ssh home-01.brown.chat "docker exec penfold-postgres pg_isready -U penfold -d penfold"
 
-# Inspect container
-docker inspect penfold-api
+# Check port availability
+ssh home-01.brown.chat "lsof -i :50051"
+```
 
-# Check resource usage
-docker stats --no-stream
+#### Worker Won't Connect to Temporal
+
+```bash
+# Check Temporal is running
+curl -s http://home-01.brown.chat:7233
+
+# Check worker logs
+tail -100 /tmp/penfold-worker.log
+
+# Verify network connectivity
+nc -zv home-01.brown.chat 7233
+```
+
+#### MLX Services Not Responding
+
+```bash
+# Check launchd status
+launchctl list | grep penfold
+
+# Check logs
+tail -100 /tmp/mlx-embeddings.log
+tail -100 /tmp/mlx-llm-server.log
+
+# Restart services
+launchctl stop com.penfold.mlx-embeddings
+launchctl start com.penfold.mlx-embeddings
 ```
 
 #### Database Connection Issues
 
 ```bash
-# Test database connectivity
-docker exec penfold-postgres pg_isready -U penfold -d penfold_prod
+# Test from dev01
+source ~/github/otherjamesbrown/secrets/.env.penfold
+psql "host=$PENFOLD_DB_HOST user=$PENFOLD_DB_USER password=$PENFOLD_DB_PASSWORD dbname=$PENFOLD_DB_NAME" -c "SELECT 1"
 
 # Check PostgreSQL logs
-docker compose logs postgres --tail 100
-
-# Test from API container
-docker exec penfold-api python -c "
-import asyncpg
-import asyncio
-async def test():
-    conn = await asyncpg.connect('postgresql://penfold:password@postgres:5432/penfold_prod')
-    print(await conn.fetchval('SELECT 1'))
-    await conn.close()
-asyncio.run(test())
-"
-```
-
-#### Memory Issues
-
-```bash
-# Check memory usage
-docker stats --format "table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}"
-
-# If worker runs out of memory, reduce concurrency
-docker exec penfold-worker kill -HUP 1  # Graceful reload
-
-# Or restart with reduced resources
-docker compose up -d --scale worker=1 worker
-```
-
-#### SSL Certificate Issues
-
-```bash
-# Check certificate expiry
-openssl s_client -connect penfold.yourdomain.com:443 -servername penfold.yourdomain.com \
-    2>/dev/null | openssl x509 -noout -dates
-
-# Force certificate renewal (Caddy)
-docker exec penfold-caddy caddy reload --config /etc/caddy/Caddyfile
-
-# Check Caddy logs
-docker compose logs caddy --tail 100
+ssh home-01.brown.chat "docker logs penfold-postgres --tail 100"
 ```
 
 ### Log Analysis
 
 ```bash
-# Search for errors across all services
-docker compose logs --since 1h 2>&1 | grep -i "error\|exception\|failed"
+# Gateway errors
+ssh home-01.brown.chat "grep -i 'error\|failed' /opt/penfold/logs/gateway.log | tail -50"
 
-# API request tracing
-docker compose logs api --since 1h | grep -E "^\d{4}-\d{2}-\d{2}.*POST|GET|PUT|DELETE"
+# Worker errors
+grep -i 'error\|failed' /tmp/penfold-worker.log | tail -50
 
-# Worker job failures
-docker compose logs worker --since 1h | grep -i "failed\|error\|timeout"
+# Temporal workflow failures
+open http://home-01.brown.chat:8088  # Temporal UI
 ```
 
 ### Performance Debugging
 
 ```bash
 # Database slow queries
-docker exec penfold-postgres psql -U penfold -d penfold_prod -c "
-SELECT query, calls, total_time, mean_time
+ssh home-01.brown.chat "docker exec penfold-postgres psql -U penfold -d penfold -c \"
+SELECT query, calls, total_exec_time/calls as avg_time
 FROM pg_stat_statements
-ORDER BY mean_time DESC
+ORDER BY avg_time DESC
 LIMIT 10;
-"
+\""
 
-# API response times
-curl -w "@curl-format.txt" -s -o /dev/null https://penfold.yourdomain.com/health
+# Container resource usage
+ssh home-01.brown.chat "docker stats --no-stream"
 
-# Container resource limits
-docker inspect penfold-api --format '{{.HostConfig.Memory}} {{.HostConfig.MemoryReservation}}'
+# Worker metrics
+curl -s http://dev01.brown.chat:8085/metrics
 ```
 
 ---
@@ -1307,57 +890,50 @@ docker inspect penfold-api --format '{{.HostConfig.Memory}} {{.HostConfig.Memory
 ### Essential Commands
 
 ```bash
-# Start all services
-docker compose -f /opt/penfold/app/docker-compose.yml up -d
+# Status check
+penf status
+penf health gateway
 
-# Stop all services
-docker compose -f /opt/penfold/app/docker-compose.yml down
+# Service management (dev01)
+launchctl list | grep penfold
+launchctl stop com.penfold.worker
+launchctl start com.penfold.worker
+
+# Service management (home-01)
+ssh home-01.brown.chat "docker ps --filter 'name=penfold'"
+ssh home-01.brown.chat "pkill penfold-gateway"
+
+# Database access
+ssh home-01.brown.chat "docker exec -it penfold-postgres psql -U penfold -d penfold"
+
+# Redis access
+ssh home-01.brown.chat "docker exec -it penfold-redis redis-cli"
+
+# Temporal UI
+open http://home-01.brown.chat:8088
 
 # View logs
-docker compose -f /opt/penfold/app/docker-compose.yml logs -f
-
-# Restart specific service
-docker compose -f /opt/penfold/app/docker-compose.yml restart api
-
-# Check status
-docker compose -f /opt/penfold/app/docker-compose.yml ps
-
-# Run database migration
-docker compose -f /opt/penfold/app/docker-compose.yml run --rm api alembic upgrade head
-
-# Access database shell
-docker exec -it penfold-postgres psql -U penfold -d penfold_prod
-
-# Access Redis CLI
-docker exec -it penfold-redis redis-cli
-
-# Run health check
-/opt/penfold/scripts/health-check.sh
-
-# Create backup
-/opt/penfold/scripts/backup-database.sh
+tail -f /tmp/penfold-worker.log
+ssh home-01.brown.chat "tail -f /opt/penfold/logs/gateway.log"
 ```
 
 ### Important File Locations
 
 | Purpose | Location |
 |---------|----------|
-| Application code | `/opt/penfold/app/` |
-| Configuration | `/opt/penfold/config/` |
-| Database data | `/opt/penfold/data/postgres/` |
-| Redis data | `/opt/penfold/data/redis/` |
-| Uploaded files | `/opt/penfold/data/uploads/` |
-| Processed files | `/opt/penfold/data/processed/` |
-| Application logs | `/opt/penfold/logs/` |
-| Backups | `/opt/penfold/backups/` |
-| SSL certificates | `/opt/penfold/certs/` |
-| Encryption keys | `/opt/penfold/config/encryption-keys/` |
+| Source code | `~/github/otherjamesbrown/penfold/` |
+| Credentials | `~/github/otherjamesbrown/secrets/.env.penfold` |
+| CLI config | `~/.penf/config.yaml` |
+| Worker logs | `/tmp/penfold-worker.log` |
+| MLX logs | `/tmp/mlx-embeddings.log`, `/tmp/mlx-llm-server.log` |
+| Gateway logs | `/opt/penfold/logs/gateway.log` (home-01) |
+| Database data | `/opt/penfold/data/postgres/` (home-01) |
+| Backups | `/opt/penfold/backups/` (home-01) |
 
 ---
 
 ## Related Documentation
 
 - [Architecture Overview](../../ARCHITECTURE.md)
-- [Observability Framework](../observability-framework/README.md)
-- [Meeting Pipeline Quickstart](../../specs/005-meeting-pipeline/quickstart.md)
+- [Infrastructure Details](../../context/infrastructure.md)
 - [Gmail Integration Setup](../gmail-integration/setup-guide.md)
