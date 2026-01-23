@@ -13,6 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// normalizeTermForComparison handles plural forms and case differences
+// when matching LLM-returned terms against expected terms.
+func normalizeTermForComparison(term string) string {
+	term = strings.ToLower(term)
+	term = strings.TrimSuffix(term, "s") // Handle simple plurals like OKRs -> OKR
+	return term
+}
+
 // TestSearch_GlossaryExpansion tests that search queries are expanded
 // using glossary terms before execution.
 func TestSearch_GlossaryExpansion(t *testing.T) {
@@ -93,11 +101,12 @@ Return a JSON object with:
 					ExpandedQuery string            `json:"expanded_query"`
 				}
 				if err := json.Unmarshal([]byte(jsonStr), &result); err == nil {
-					// Verify expected terms were found
+					// Verify expected terms were found (with plural normalization)
 					for _, term := range tc.expectedTerms {
 						found := false
+						normalizedExpected := normalizeTermForComparison(term)
 						for _, foundTerm := range result.TermsFound {
-							if strings.EqualFold(foundTerm, term) {
+							if normalizeTermForComparison(foundTerm) == normalizedExpected {
 								found = true
 								break
 							}

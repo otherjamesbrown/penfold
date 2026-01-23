@@ -39,6 +39,13 @@ terms:
     context: null
     aliases: []
 
+  - term: "PM"
+    expansion: "Product Manager"
+    definition: "Product management role responsible for product strategy and roadmap"
+    context: null
+    aliases:
+      - "Product Manager"
+
   - term: "OKR"
     expansion: "Objectives and Key Results"
     definition: "Goal-setting framework used for quarterly planning"
