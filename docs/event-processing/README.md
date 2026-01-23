@@ -1,388 +1,493 @@
 # Event Processing Framework - User Guide
 
-**Status**: ✅ Production Ready
-**Version**: 1.0
-**Implementation**: specs/002-event-processing
+**Status**: Production Ready
+**Version**: 2.0 (Go/Temporal)
+**Implementation**: services/worker/workflows/, services/worker/activities/
 
 ## Overview
 
-The Event Processing Framework provides a production-ready, scalable system for coordinating AI model processing through event-driven architecture. It enables real-time processing of content ingestion, multi-model AI coordination, and result aggregation across local and cloud processors.
+The Event Processing Framework provides a production-ready, scalable system for coordinating AI model processing through Temporal-based workflow orchestration. It enables durable execution of content ingestion, multi-model AI coordination, and result aggregation across local and cloud processors.
 
-## Key Features ✅
+## Key Features
 
-### 🚀 **Production Components**
-- **EventPublisher**: Redis pub-sub with PostgreSQL fallback for guaranteed delivery
-- **JobManager**: Complete lifecycle management with atomic state transitions
-- **SubscriptionManager**: Dynamic event routing with flexible JSONB filtering
-- **ResultAggregator**: Multi-model comparison with confidence scoring
-- **HealthMonitor**: Real-time system monitoring and scaling recommendations
+### Production Components
+- **Temporal Workflows**: Durable, fault-tolerant workflow orchestration
+- **Activity System**: Reusable, retryable units of work
+- **Task Queues**: Specialized queues for different workload types
+- **Saga Pattern**: Automatic compensation for partial failures
+- **Signal/Query Support**: Real-time workflow control and status
 
-### 📊 **Performance Characteristics**
-- **Sub-10ms event publishing** for real-time workflows
-- **1000+ concurrent jobs** without performance degradation
-- **Atomic state transitions** with 100% consistency guarantee
-- **Multi-tenant isolation** with complete data separation
-- **Automatic failover** and retry with exponential backoff
+### Performance Characteristics
+- **Durable execution** with automatic recovery from failures
+- **Parallel activity execution** where dependencies allow
+- **Configurable retry policies** per activity type
+- **Heartbeat monitoring** for long-running operations
+- **Multi-queue architecture** for workload isolation
 
 ## Architecture
 
 ```mermaid
 graph TB
-    A[Content Ingestion] --> B[EventPublisher]
-    B --> C[Redis Pub-Sub]
-    B --> D[PostgreSQL Fallback]
-    C --> E[SubscriptionManager]
-    E --> F[JobManager]
-    F --> G[AI Processors]
-    G --> H[ResultAggregator]
-    H --> I[Final Results]
+    A[Content Source] --> B[Gateway Service]
+    B --> C[Temporal Server]
+    C --> D[Worker Service]
+    D --> E[Task Queue: penfold-main]
+    D --> F[Task Queue: penfold-ai]
+    D --> G[Task Queue: penfold-email]
 
-    J[HealthMonitor] --> F
-    J --> G
+    E --> H[ContentIngestionWorkflow]
+    E --> I[DailyReviewWorkflow]
+    E --> J[RelationshipDiscoveryWorkflow]
+
+    F --> K[AnalysisWorkflow]
+
+    G --> L[EmailProcessingWorkflow]
+    G --> M[GmailSyncWorkflow]
+
+    H --> N[Activities]
+    N --> O[PostgreSQL]
+    N --> P[MLX Embeddings]
+    N --> Q[LLM Service]
 ```
 
 ## Getting Started
 
-### 1. Event Publishing
+### 1. Workflow Execution
 
-Publish events when content arrives in the system:
+Start workflows through the Temporal client:
 
-```python
-from penf_lib.processing.events import EventPublisher
+```go
+package main
 
-# Initialize publisher
-event_publisher = EventPublisher(redis_client, db_session)
+import (
+    "context"
+    "log"
+    "time"
 
-# Publish content ingestion event
-await event_publisher.publish_event(
-    event_type="content.ingested",
-    payload={
-        "content_id": "email_001",
-        "content_type": "email",
-        "source": "gmail",
-        "project_context": "atlas_project"
-    },
-    tenant_id="work_tenant"
+    "go.temporal.io/sdk/client"
+    "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
-```
 
-### 2. Processor Subscription
-
-Subscribe AI processors to relevant events:
-
-```python
-from penf_lib.processing.subscriptions import SubscriptionManager
-
-# Initialize subscription manager
-subscription_manager = SubscriptionManager(db_session, event_publisher)
-
-# Subscribe summarization processor to email events
-await subscription_manager.subscribe(
-    processor_id="local_summarizer",
-    event_types=["content.ingested"],
-    filters={
-        "content_type": ["email", "document"],
-        "project_context": ["atlas_project", "people_management"]
+func main() {
+    // Create Temporal client
+    c, err := client.Dial(client.Options{
+        HostPort:  "localhost:7233",
+        Namespace: "default",
+    })
+    if err != nil {
+        log.Fatal(err)
     }
-)
+    defer c.Close()
+
+    // Start content ingestion workflow
+    workflowOptions := client.StartWorkflowOptions{
+        ID:        "content-ingestion-123",
+        TaskQueue: "penfold-main",
+    }
+
+    input := temporal.ContentIngestionInput{
+        TenantID:    "tenant-001",
+        SourceID:    12345,
+        SourceType:  "email",
+        ContentHash: "abc123",
+        JobID:       "job-001",
+    }
+
+    we, err := c.ExecuteWorkflow(context.Background(), workflowOptions, "ContentIngestionWorkflow", input)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    log.Printf("Started workflow: %s, RunID: %s", we.GetID(), we.GetRunID())
+
+    // Wait for result
+    var result temporal.ContentIngestionResult
+    if err := we.Get(context.Background(), &result); err != nil {
+        log.Fatal(err)
+    }
+
+    log.Printf("Workflow completed: status=%s, embedding_id=%v", result.Status, result.EmbeddingID)
+}
 ```
 
-### 3. Job Processing
+### 2. Activity Implementation
 
-Process jobs with automatic state management:
+Activities are the units of work that perform actual operations:
 
-```python
-from penf_lib.processing.jobs import JobManager
+```go
+package activities
 
-# Initialize job manager
-job_manager = JobManager(db_session, event_publisher)
+import (
+    "context"
+    "fmt"
 
-# Claim and process jobs
-job = await job_manager.claim_job(job_id, "local_summarizer")
-if job:
-    try:
-        # Start processing
-        await job_manager.start_job(job.id)
-
-        # Process content
-        result = await process_content(job.input_data)
-
-        # Complete job with results
-        await job_manager.complete_job(
-            job.id,
-            result_data=result,
-            confidence=0.85
-        )
-    except Exception as e:
-        await job_manager.fail_job(job.id, str(e))
-```
-
-### 4. Result Aggregation
-
-Combine results from multiple processors:
-
-```python
-from penf_lib.processing.results import ResultAggregator
-
-# Initialize result aggregator
-result_aggregator = ResultAggregator(db_session)
-
-# Aggregate results from multiple models
-aggregated = await result_aggregator.aggregate_results([
-    "job_summarizer_001",
-    "job_classifier_001",
-    "job_extractor_001"
-])
-
-print(f"Best result confidence: {aggregated.confidence_score:.2f}")
-print(f"Selection reasoning: {aggregated.selection_reasoning}")
-```
-
-## Event Types
-
-### Core Event Types
-
-| Event Type | Description | Payload Example |
-|------------|-------------|----------------|
-| `content.ingested` | New content available for processing | `{"content_id": "email_001", "content_type": "email"}` |
-| `meeting.preprocessed` | Meeting audio/video ready for analysis | `{"meeting_id": "meet_001", "duration": 3600}` |
-| `content.categorized` | Content assigned to projects | `{"content_id": "doc_001", "projects": ["atlas"]}` |
-| `job.available` | New processing job created | `{"job_id": "job_001", "processor_type": "summarizer"}` |
-| `job.completed` | Processing job finished | `{"job_id": "job_001", "result_id": "result_001"}` |
-
-### Custom Events
-
-You can publish custom events for specialized processing:
-
-```python
-await event_publisher.publish_event(
-    event_type="custom.analysis_request",
-    payload={
-        "analysis_type": "relationship_discovery",
-        "target_entities": ["person_001", "project_atlas"],
-        "time_range": "last_30_days"
-    },
-    tenant_id="work_tenant"
-)
-```
-
-## Job Lifecycle
-
-Jobs progress through defined states with atomic transitions:
-
-```
-QUEUED → CLAIMED → IN_PROGRESS → COMPLETED
-   ↓         ↓           ↓            ↑
-CANCELLED  FAILED   RETRYING ────────┘
-```
-
-### State Descriptions
-
-- **QUEUED**: Job created and waiting for processor
-- **CLAIMED**: Processor has claimed the job
-- **IN_PROGRESS**: Active processing underway
-- **COMPLETED**: Processing finished successfully
-- **FAILED**: Processing failed (will retry if configured)
-- **RETRYING**: Failed job being retried with exponential backoff
-- **CANCELLED**: Job cancelled before completion
-
-## Multi-Tenant Configuration
-
-All events and jobs are tenant-aware for complete data isolation:
-
-```python
-# Tenant-specific event subscription
-await subscription_manager.subscribe(
-    processor_id="work_summarizer",
-    event_types=["content.ingested"],
-    filters={"tenant_id": "work_tenant"}
+    "go.temporal.io/sdk/activity"
 )
 
-# Events automatically include tenant context
-await event_publisher.publish_event(
-    event_type="content.ingested",
-    payload=content_data,
-    tenant_id="personal_tenant"  # Isolated from work_tenant
+// FetchContentInput is the input for the FetchContent activity.
+type FetchContentInput struct {
+    TenantID string `json:"tenant_id"`
+    SourceID int64  `json:"source_id"`
+}
+
+// FetchContentOutput is the output from the FetchContent activity.
+type FetchContentOutput struct {
+    Content     string `json:"content"`
+    ContentType string `json:"content_type"`
+    Size        int64  `json:"size"`
+}
+
+// FetchContent retrieves content from the database.
+func (a *Activities) FetchContent(ctx context.Context, input FetchContentInput) (*FetchContentOutput, error) {
+    logger := activity.GetLogger(ctx)
+    logger.Info("Fetching content", "source_id", input.SourceID)
+
+    // Record heartbeat for long operations
+    activity.RecordHeartbeat(ctx, "fetching content")
+
+    // Perform database query
+    query := `SELECT raw_content, content_type FROM sources WHERE id = $1 AND tenant_id = $2`
+    var content, contentType string
+    err := a.db.QueryRow(ctx, query, input.SourceID, input.TenantID).Scan(&content, &contentType)
+    if err != nil {
+        return nil, fmt.Errorf("failed to fetch source: %w", err)
+    }
+
+    return &FetchContentOutput{
+        Content:     content,
+        ContentType: contentType,
+        Size:        int64(len(content)),
+    }, nil
+}
+```
+
+### 3. Workflow Query and Signals
+
+Monitor and control running workflows:
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "go.temporal.io/sdk/client"
+    "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
-```
 
-## Performance Monitoring
+func main() {
+    c, _ := client.Dial(client.Options{HostPort: "localhost:7233"})
+    defer c.Close()
 
-Monitor system health and performance:
+    workflowID := "content-ingestion-123"
 
-```python
-from penf_lib.processing.health import HealthMonitor
+    // Query workflow status
+    resp, err := c.QueryWorkflow(context.Background(), workflowID, "", "content_ingestion_status")
+    if err != nil {
+        log.Fatal(err)
+    }
 
-# Initialize health monitor
-health_monitor = HealthMonitor(db_session, redis_client)
+    var status temporal.WorkflowStatus
+    if err := resp.Get(&status); err != nil {
+        log.Fatal(err)
+    }
 
-# Get system status
-status = await health_monitor.get_system_status()
-print(f"Active jobs: {status.active_jobs}")
-print(f"Queue depth: {status.queue_depth}")
-print(f"Failed processors: {status.failed_processors}")
+    log.Printf("Workflow status: stage=%s, steps=%d/%d",
+        status.Stage, status.StepsCompleted, status.TotalSteps)
 
-# Get scaling recommendations
-recommendations = await health_monitor.analyze_bottlenecks()
-for rec in recommendations:
-    print(f"Bottleneck: {rec.component}, Recommendation: {rec.action}")
-```
-
-## Configuration
-
-### Event Processing Settings
-
-```python
-# Configuration in penf_lib/config/event_processing.py
-EVENT_PROCESSING_CONFIG = {
-    # Redis settings
-    "redis": {
-        "host": "localhost",
-        "port": 6379,
-        "db": 0,
-        "password": None
-    },
-
-    # Job management
-    "jobs": {
-        "default_timeout": 1800,  # 30 minutes
-        "max_retries": 5,
-        "retry_backoff": [1, 2, 4, 8, 16]  # seconds
-    },
-
-    # Performance settings
-    "performance": {
-        "max_concurrent_jobs": 1000,
-        "event_retention_days": 30,
-        "health_check_interval": 30  # seconds
-    },
-
-    # Cloud escalation
-    "cloud_escalation": {
-        "confidence_threshold": 0.7,
-        "monthly_budget_limit": 100.00,  # USD
-        "escalation_enabled": True
+    // Send cancellation signal with compensation
+    signal := temporal.CancelWithCompensationSignal{
+        Reason: "User requested cancellation",
+    }
+    err = c.SignalWorkflow(context.Background(), workflowID, "", "content_ingestion_cancel", signal)
+    if err != nil {
+        log.Fatal(err)
     }
 }
 ```
 
+## Workflow Types
+
+### ContentIngestionWorkflow
+
+Orchestrates content processing through multiple AI operations:
+
+| Step | Activity | Description | Options |
+|------|----------|-------------|---------|
+| 1 | FetchContent | Retrieve content from storage | FastActivityOptions |
+| 2 | GenerateEmbedding | Generate vector embedding (MLX) | EmbeddingActivityOptions |
+| 3 | GenerateSummary | LLM-based summarization | LLMActivityOptions |
+| 4 | ExtractEntities | Extract named entities | LLMActivityOptions |
+| 5 | ExtractTopics | Extract topic keywords | LLMActivityOptions |
+| 6 | ExtractMentions | Extract and resolve mentions | LLMActivityOptions |
+| 7 | UpdateContentStatus | Mark processing complete | FastActivityOptions |
+
+**Features:**
+- Saga pattern with compensation for rollback
+- Query handler for real-time status
+- Signal handlers for priority updates and cancellation
+
+### EmailProcessingWorkflow
+
+Specialized workflow for email content:
+
+| Step | Activity | Description |
+|------|----------|-------------|
+| 1 | FetchSource | Retrieve email from database |
+| 2 | GenerateEmbedding | Generate searchable embedding |
+| 3 | GenerateSummary | Create email summary |
+| 4 | ExtractAssertions | Extract claims and facts |
+| 5 | UpdateSourceStatus | Mark email as processed |
+
+### DailyReviewWorkflow
+
+Generates daily review summaries:
+
+| Step | Activity | Description |
+|------|----------|-------------|
+| 1-3 | GatherItems | Parallel collection of emails, documents, assertions |
+| 4 | PrioritizeReviewItems | AI-based prioritization |
+| 5 | GenerateReviewSummary | LLM summary generation |
+| 6 | SaveDailyReview | Persist review to database |
+
+**Features:**
+- Parallel activity execution for gathering
+- Pause/resume signal support
+- Graceful cancellation handling
+
+### GmailSyncWorkflow
+
+Synchronizes Gmail messages:
+
+| Mode | Description |
+|------|-------------|
+| incremental | Sync only new messages since last sync |
+| full | Full mailbox synchronization |
+
+## Task Queues
+
+Penfold uses specialized task queues for workload isolation:
+
+| Queue | Name | Purpose |
+|-------|------|---------|
+| Main | `penfold-main` | General workflows, content ingestion |
+| AI | `penfold-ai` | AI-intensive operations (embeddings, LLM) |
+| Email | `penfold-email` | Email processing workflows |
+
+Configure which queues a worker polls:
+
+```bash
+# Poll specific queues
+export WORKER_TASK_QUEUES="penfold-main,penfold-ai"
+
+# Poll all queues (default)
+export WORKER_TASK_QUEUES="penfold-main,penfold-ai,penfold-email"
+```
+
+## Activity Options
+
+Pre-configured activity options ensure consistent behavior:
+
+### FastActivityOptions
+For quick database operations:
+- **Timeout**: 30 seconds
+- **Retries**: 3 (1s, 2s, 4s backoff)
+- **Heartbeat**: None
+
+### EmbeddingActivityOptions
+For local MLX embedding generation:
+- **Timeout**: 30 seconds
+- **Retries**: 3 (2s, 4s, 8s backoff)
+- **Heartbeat**: 10 seconds
+
+### LLMActivityOptions
+For cloud LLM API calls:
+- **Start-to-close timeout**: 2 minutes
+- **Schedule-to-close timeout**: 5 minutes
+- **Retries**: 2 (expensive operations)
+- **Heartbeat**: 15 seconds
+
+### BatchActivityOptions
+For batch processing operations:
+- **Timeout**: 5 minutes
+- **Retries**: 2
+- **Heartbeat**: 30 seconds
+
+```go
+import pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
+
+// Use preset options in workflows
+fastOpts := pkgtemporal.FastActivityOptions()
+llmOpts := pkgtemporal.LLMActivityOptions()
+
+// Add non-retryable errors
+llmOpts = pkgtemporal.WithNonRetryableErrors(llmOpts, pkgtemporal.NonRetryableErrors()...)
+```
+
+## Workflow Status
+
+All workflows support status queries:
+
+```go
+type WorkflowStatus struct {
+    Stage           string    `json:"stage"`
+    StepsCompleted  int       `json:"steps_completed"`
+    TotalSteps      int       `json:"total_steps"`
+    LastActivity    string    `json:"last_activity"`
+    StartedAt       time.Time `json:"started_at"`
+    LastUpdated     time.Time `json:"last_updated"`
+    ErrorMessage    string    `json:"error_message,omitempty"`
+    CompensationRan bool      `json:"compensation_ran"`
+}
+```
+
+Query names by workflow:
+- `ContentIngestionWorkflow`: `content_ingestion_status`
+- `DailyReviewWorkflow`: `daily_review_status`
+
+## Signals
+
+### Priority Update Signal
+```go
+signal := pkgtemporal.PriorityUpdateSignal{
+    NewPriority: 2,
+    Reason:      "Urgent processing required",
+}
+client.SignalWorkflow(ctx, workflowID, "", "content_ingestion_priority", signal)
+```
+
+### Pause/Resume Signal
+```go
+signal := pkgtemporal.PauseResumeSignal{
+    Paused: true,
+    Reason: "Manual review required",
+}
+client.SignalWorkflow(ctx, workflowID, "", "daily_review_pause", signal)
+```
+
+### Cancel with Compensation Signal
+```go
+signal := pkgtemporal.CancelWithCompensationSignal{
+    Reason: "User requested cancellation",
+}
+client.SignalWorkflow(ctx, workflowID, "", "content_ingestion_cancel", signal)
+```
+
+## Configuration
+
+### Worker Configuration
+
+```bash
+# Service identity
+export WORKER_SERVICE_NAME="penfold-worker"
+export WORKER_HTTP_PORT=8085
+export WORKER_ENVIRONMENT="dev"  # dev, staging, prod
+
+# Temporal connection
+export TEMPORAL_HOST_PORT="localhost:7233"
+export TEMPORAL_NAMESPACE="default"
+
+# Task queues
+export WORKER_TASK_QUEUES="penfold-main,penfold-ai,penfold-email"
+
+# Concurrency
+export WORKER_MAX_CONCURRENT_ACTIVITIES=10
+export WORKER_MAX_CONCURRENT_WORKFLOWS=10
+
+# Graceful shutdown
+export WORKER_GRACEFUL_SHUTDOWN_TIMEOUT=30
+
+# Logging
+export WORKER_LOG_LEVEL="info"  # debug, info, warn, error
+
+# Dependencies
+export DATABASE_URL="postgres://..."
+export AI_SERVICE_URL="http://localhost:8081"
+```
+
+### Non-Retryable Errors
+
+These error types are not retried:
+- `ValidationError` - Invalid input data
+- `NotFoundError` - Resource not found
+- `PermissionDeniedError` - Access denied
+- `InvalidArgumentError` - Bad argument
+
 ## Troubleshooting
 
-### Common Issues
+### Workflow Stuck in Running State
 
-#### Jobs Stuck in QUEUED State
-```python
-# Check for available processors
-active_processors = await health_monitor.get_active_processors()
-if not active_processors:
-    print("No active processors found - start AI processors")
+```bash
+# Check workflow status via tctl
+tctl workflow describe -w <workflow-id>
 
-# Check subscription configuration
-subs = await subscription_manager.get_subscriptions_for_event("content.ingested")
-if not subs:
-    print("No processors subscribed to this event type")
+# View pending activities
+tctl workflow describe -w <workflow-id> --print_raw_query
+
+# Cancel workflow if necessary
+tctl workflow cancel -w <workflow-id>
 ```
 
-#### High Event Publishing Latency
-```python
-# Check Redis connection
-try:
-    await redis_client.ping()
-except RedisError:
-    print("Redis connection failed - using PostgreSQL fallback")
+### Activity Timeouts
 
-# Monitor queue depth
-status = await health_monitor.get_system_status()
-if status.queue_depth > 1000:
-    print("Queue depth high - consider scaling processors")
+If activities consistently timeout:
+1. Check heartbeat recording in activity code
+2. Increase timeout in activity options
+3. Verify external service availability (MLX, LLM)
+
+```go
+// Ensure heartbeats are recorded for long operations
+func (a *Activities) LongOperation(ctx context.Context, input Input) error {
+    for i := 0; i < 100; i++ {
+        activity.RecordHeartbeat(ctx, fmt.Sprintf("processing %d/100", i))
+        // ... do work ...
+    }
+    return nil
+}
 ```
 
-#### Failed Job Recovery
-```python
-# Get failed jobs for investigation
-failed_jobs = await job_manager.get_failed_jobs(tenant_id="work_tenant")
-for job in failed_jobs:
-    print(f"Job {job.id} failed: {job.error_message}")
+### Compensation Failures
 
-    # Retry specific job
-    await job_manager.retry_job(job.id)
-```
-
-### Performance Tuning
-
-1. **Redis Configuration**: Ensure Redis memory is sufficient for event volume
-2. **Database Connections**: Configure connection pool size for concurrent jobs
-3. **Processor Scaling**: Add more processor instances for high-volume processing
-4. **Event Filtering**: Use specific filters to reduce unnecessary job creation
-
-## Integration Examples
-
-### Email Processing Pipeline
-```python
-# 1. Email ingested
-await event_publisher.publish_event(
-    "content.ingested",
-    {"content_type": "email", "sender": "user@company.com"},
-    "work_tenant"
-)
-
-# 2. Multiple processors work on the email
-# - Summarization processor creates summary
-# - Entity extraction finds people/projects
-# - Classification assigns to projects
-
-# 3. Results aggregated
-results = await result_aggregator.aggregate_results(job_ids)
-final_summary = results.primary_result
-```
-
-### Meeting Processing Pipeline
-```python
-# 1. Meeting uploaded
-await event_publisher.publish_event(
-    "meeting.preprocessed",
-    {"duration": 3600, "participants": ["alice", "bob"]},
-    "work_tenant"
-)
-
-# 2. Multiple analysis processors
-# - Transcription processor converts audio
-# - Action item extractor finds tasks
-# - Relationship processor maps participant interactions
-
-# 3. Meeting insights generated
-insights = await result_aggregator.aggregate_results(meeting_job_ids)
-```
+If compensation activities fail:
+1. Check worker logs for compensation errors
+2. Manually clean up partial state if needed
+3. Compensation failures are logged but don't fail the workflow
 
 ## Production Deployment
 
 ### Infrastructure Requirements
-- **PostgreSQL 16+** with pgvector extension
-- **Redis 7.0+** for pub-sub messaging
-- **Python 3.12+** with async/await support
-- **Minimum 8GB RAM** for local AI models
+- **Temporal Server**: Self-hosted or Temporal Cloud
+- **PostgreSQL 16+**: With pgvector extension
+- **MLX Embeddings**: Local service on port 8081 (Apple Silicon)
+- **Go 1.22+**: Runtime environment
 
 ### Scaling Recommendations
-- **Database**: Use connection pooling with 50+ connections
-- **Redis**: Configure persistence for event reliability
-- **Processors**: Deploy multiple instances per processor type
-- **Monitoring**: Enable health monitoring and alerting
+- **Horizontal scaling**: Deploy multiple worker instances
+- **Queue isolation**: Separate workers for AI vs general workloads
+- **Activity concurrency**: Tune based on available resources
+- **Workflow history**: Configure Temporal retention policy
 
 ### Security Considerations
-- **Tenant Isolation**: All data includes tenant_id for RLS
-- **Event Validation**: JSON schema validation for all events
-- **API Security**: Secure Redis/PostgreSQL connections
-- **Audit Trail**: Complete event and job history retention
+- **Tenant isolation**: All data includes tenant_id
+- **Input validation**: Activities validate inputs
+- **Connection security**: Use TLS for Temporal and database
+- **Secrets management**: Use environment variables for credentials
 
 ---
 
 ## Next Steps
 
-1. **Set up your first processor** using the subscription examples
-2. **Configure event types** for your specific content sources
-3. **Monitor performance** using the health monitoring tools
-4. **Scale horizontally** by adding more processor instances
+1. **Deploy worker service** with appropriate task queue configuration
+2. **Configure Temporal** connection and namespace
+3. **Start workflows** through the Gateway service
+4. **Monitor execution** via Temporal Web UI or tctl
+5. **Scale horizontally** by adding more worker instances
 
-The Event Processing Framework is production-ready and handles all the complexity of event-driven AI coordination, letting you focus on building great AI processors and user experiences.
+The Event Processing Framework handles workflow orchestration, retry logic, and failure recovery automatically, allowing you to focus on building AI processing activities.
 
-For technical implementation details, see `specs/002-event-processing/` and `context/ARCHITECTURE.md`.
+For implementation details, see:
+- `services/worker/workflows/` - Workflow definitions
+- `services/worker/activities/` - Activity implementations
+- `pkg/temporal/` - Shared types and options
+- `context/ARCHITECTURE.md` - System architecture overview
