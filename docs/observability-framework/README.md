@@ -1,194 +1,464 @@
 # Penfold Observability Framework
 
-The Observability Framework provides comprehensive monitoring, tracing, and debugging capabilities for Penfold's autonomous AI agents.
+The Observability Framework provides comprehensive monitoring, tracing, and debugging capabilities for Penfold's Go microservices.
 
 ## Overview
 
 Penfold's observability system enables:
-- **Agent Health Monitoring**: Real-time status tracking for all processing agents
-- **Workflow Tracing**: Cross-agent content flow visualization
-- **Decision Debugging**: Complete audit trail of AI agent decisions
-- **Business KPIs**: Value delivery measurement and tracking
-- **Alerting**: Proactive notification of performance degradation
+- **Structured Logging**: Consistent JSON/human-readable logging with context propagation
+- **Distributed Tracing**: OpenTelemetry-based tracing with Langfuse integration for AI operations
+- **Prometheus Metrics**: Standard request/error/duration metrics with HTTP and gRPC middleware
+- **Health Checks**: Composable health checks with Kubernetes probe support
 
 ## Quick Start
 
 ### Prerequisites
-- Python 3.12+
-- PostgreSQL 16+ with TimescaleDB extension
-- Existing Penfold development environment
+- Go 1.22+
+- PostgreSQL 16+ (for application data)
+- Langfuse (optional, for AI tracing)
 
 ### Installation
 
-```bash
-# Install observability dependencies
-pip install -r requirements-observability.txt
+The observability packages are part of the Penfold codebase:
 
-# Initialize database schema
-psql -d penfold_dev -f observability_schema.sql
+```go
+import (
+    "github.com/penfold/pkg/logging"
+    "github.com/penfold/pkg/metrics"
+    "github.com/penfold/pkg/tracing"
+    "github.com/penfold/pkg/health"
+)
 ```
 
 ### Basic Usage
 
-```python
-from observability_lib import AgentHealthMonitor, WorkflowTracer
+```go
+package main
 
-# Check agent health
-monitor = AgentHealthMonitor()
-status = await monitor.check_agent("email_processor")
-print(f"Agent status: {status.health_status}")
+import (
+    "context"
+    "net/http"
 
-# Trace a workflow
-tracer = WorkflowTracer()
-with tracer.trace("email_processing") as workflow:
-    with workflow.stage("extraction"):
-        entities = await extract_entities(email)
-    with workflow.stage("categorization"):
-        category = await categorize(email, entities)
+    "github.com/penfold/pkg/logging"
+    "github.com/penfold/pkg/metrics"
+    "github.com/penfold/pkg/tracing"
+    "github.com/penfold/pkg/health"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // Initialize logging
+    logger := logging.NewLogger(&logging.Config{
+        Level:       logging.LevelInfo,
+        ServiceName: "my-service",
+        Environment: "development",
+        JSONFormat:  false,
+    })
+    logging.SetGlobal(logger)
+
+    // Initialize tracing
+    shutdown, err := tracing.InitTracer(&tracing.Config{
+        ServiceName: "my-service",
+        Environment: "development",
+        Exporter:    tracing.ExporterStdout,
+    })
+    if err != nil {
+        logger.Error("failed to init tracer", logging.Err(err))
+    }
+    defer shutdown(ctx)
+
+    // Initialize metrics
+    m := metrics.NewMetrics("my-service", "penfold")
+    m.RegisterMetrics()
+
+    // Initialize health checker
+    checker := health.NewChecker()
+    checker.RegisterCheck("database", health.DatabaseCheck(dbPool))
+
+    // Log with context
+    logger.Info("service started",
+        logging.F("port", 8080),
+        logging.F("version", "1.0.0"),
+    )
+}
 ```
 
 ## Components
 
-### Agent Health Monitor
-Tracks processing completion rates, confidence scores, resource usage, and error rates for all agents.
+### Structured Logging (`pkg/logging`)
 
-```python
-from observability_lib.services import AgentHealthMonitor
+Provides consistent structured logging using zerolog with support for JSON and human-readable formats.
 
-monitor = AgentHealthMonitor()
+```go
+import "github.com/penfold/pkg/logging"
 
-# Get health summary for all agents
-summary = await monitor.get_all_agents_health()
+// Create a logger
+logger := logging.NewLogger(&logging.Config{
+    Level:       logging.LevelInfo,
+    ServiceName: "gateway",
+    Environment: "production",
+    JSONFormat:  true,
+})
 
-# Get detailed metrics for specific agent
-metrics = await monitor.get_agent_metrics("email_processor", hours=24)
-```
+// Log with fields
+logger.Info("processing request",
+    logging.F("request_id", requestID),
+    logging.F("user_id", userID),
+)
 
-### Workflow Tracer
-Provides distributed tracing for content flowing through multiple agents.
+// Log errors
+logger.Error("failed to process",
+    logging.Err(err),
+    logging.F("content_id", contentID),
+)
 
-```python
-from observability_lib.services import WorkflowTracer
+// Add context (trace IDs, etc.)
+ctxLogger := logger.WithContext(ctx)
+ctxLogger.Info("traced operation complete")
 
-tracer = WorkflowTracer()
-
-# Trace a multi-stage workflow
-async with tracer.trace("meeting_analysis") as workflow:
-    async with workflow.stage("transcription"):
-        transcript = await transcribe(audio)
-
-    async with workflow.stage("speaker_id"):
-        speakers = await identify_speakers(transcript)
-
-    async with workflow.stage("summary"):
-        summary = await summarize(transcript, speakers)
-```
-
-### Decision Logger
-Records all AI agent decisions for debugging and analysis.
-
-```python
-from observability_lib.services import DecisionLogger
-
-logger = DecisionLogger()
-
-# Log a categorization decision
-await logger.log_decision(
-    agent_id="content_categorizer",
-    decision_type="categorization",
-    alternatives=[
-        {"category": "urgent", "confidence": 0.85},
-        {"category": "normal", "confidence": 0.15}
-    ],
-    selected="urgent",
-    confidence=0.85,
-    reasoning="High priority keywords detected"
+// Create child logger with persistent fields
+serviceLogger := logger.With(
+    logging.F("component", "email-processor"),
 )
 ```
 
-### Business KPI Tracker
-Measures system value delivery against business targets.
+**Source**: `pkg/logging/logger.go`
 
-```python
-from observability_lib.services import BusinessKPITracker
+### Distributed Tracing (`pkg/tracing`)
 
-tracker = BusinessKPITracker()
+OpenTelemetry-based distributed tracing with multiple exporter options.
 
-# Record context reconstruction time
-await tracker.record_kpi(
-    kpi_type="context_reconstruction",
-    value_minutes=12.5,
-    target_minutes=15.0
+```go
+import "github.com/penfold/pkg/tracing"
+
+// Initialize tracer with OTLP exporter
+shutdown, err := tracing.InitTracer(&tracing.Config{
+    ServiceName: "worker",
+    Environment: "production",
+    Endpoint:    "localhost:4317",
+    Exporter:    tracing.ExporterOTLP,
+    SampleRate:  1.0,
+    Insecure:    true,
+})
+defer shutdown(ctx)
+
+// Start a span
+ctx, span := tracing.StartSpan(ctx, "process-email")
+defer span.End()
+
+// Add attributes
+tracing.SetAttributes(span,
+    tracing.Attr("email_id", emailID),
+    tracing.AttrInt("attachment_count", len(attachments)),
 )
 
-# Get KPI summary
-summary = await tracker.get_kpi_summary(days=7)
+// Record errors
+if err != nil {
+    tracing.SetError(span, err)
+}
+
+// Add events
+tracing.AddEvent(span, "validation-complete",
+    tracing.Attr("status", "success"),
+)
 ```
 
-## CLI Commands
+**AI-Specific Tracing** with Langfuse integration:
 
-The observability framework provides two CLI tools: `monitor` for agent health monitoring and `debug` for workflow debugging.
+```go
+import "github.com/penfold/pkg/tracing"
 
-```bash
-# View real-time agent health status
-python -m observability_lib.cli.monitor status
+// Configure Langfuse exporter
+shutdown, err := tracing.InitTracer(&tracing.Config{
+    ServiceName: "worker",
+    Environment: "production",
+    Exporter:    tracing.ExporterLangfuse,
+    Langfuse: &tracing.LangfuseConfig{
+        Host:      "http://langfuse:3000",
+        PublicKey: os.Getenv("LANGFUSE_PUBLIC_KEY"),
+        SecretKey: os.Getenv("LANGFUSE_SECRET_KEY"),
+    },
+})
 
-# View specific agent health
-python -m observability_lib.cli.monitor status --agent-id=email_processor
+// Trace an LLM call
+ctx, span := tracing.StartLLMCall(ctx, "mention-resolution", tracing.LLMCallOptions{
+    Model:    "llama3.2",
+    System:   tracing.AISystemOllama,
+    TaskType: "extraction",
+    TenantID: tenantID,
+})
+defer span.End()
 
-# Get detailed health analysis for an agent
-python -m observability_lib.cli.monitor health --agent-id=email_processor --hours=24
+// Record the result
+tracing.SetLLMResult(span, tracing.LLMResult{
+    InputTokens:  150,
+    OutputTokens: 42,
+    Model:        "llama3.2:8b",
+    LatencyMs:    234,
+})
 
-# View agent logs
-python -m observability_lib.cli.monitor logs --agent-id=email_processor --level=INFO
+// Trace embedding operations
+ctx, span := tracing.StartEmbedding(ctx, "generate-embedding", tracing.EmbeddingOptions{
+    Model:  "mxbai-embed-large-v1",
+    System: tracing.AISystemMLX,
+})
+defer span.End()
+```
 
-# Show recent agent metrics
-python -m observability_lib.cli.monitor metrics --hours=1
+**Source**: `pkg/tracing/tracing.go`, `pkg/tracing/ai.go`, `pkg/tracing/helpers.go`
 
-# List recent workflows
-python -m observability_lib.cli.debug list-workflows --hours=24
+### Prometheus Metrics (`pkg/metrics`)
 
-# Show detailed workflow trace
-python -m observability_lib.cli.debug trace <workflow-id>
+Standard Prometheus metrics with automatic HTTP and gRPC instrumentation.
 
-# Analyze workflow performance
-python -m observability_lib.cli.debug analyze <workflow-id>
+```go
+import "github.com/penfold/pkg/metrics"
 
-# Identify system bottlenecks
-python -m observability_lib.cli.debug bottlenecks --hours=24
+// Create metrics
+m := metrics.NewMetrics("gateway", "penfold")
+m.RegisterMetrics()
 
-# Stream live workflow events
-python -m observability_lib.cli.debug stream --follow
+// Use HTTP middleware for automatic instrumentation
+mux := http.NewServeMux()
+handler := metrics.HTTPMiddleware(m)(mux)
+
+// Or with configuration
+handler := metrics.HTTPMiddlewareWithConfig(&metrics.MiddlewareConfig{
+    Metrics:   m,
+    SkipPaths: []string{"/healthz", "/metrics"},
+})(mux)
+
+// Expose metrics endpoint
+mux.Handle("/metrics", metrics.Handler())
+
+// Manual metric recording
+m.RecordRequest("POST", "/api/v1/ingest", "200", 0.150)
+m.RecordError("database_connection")
+m.IncrementConnections()
+m.DecrementConnections()
+
+// gRPC interceptors
+grpcServer := grpc.NewServer(
+    grpc.UnaryInterceptor(metrics.UnaryServerInterceptor(m)),
+    grpc.StreamInterceptor(metrics.StreamServerInterceptor(m)),
+)
+```
+
+**Available Metrics**:
+- `penfold_requests_total` - Counter by method, path, status
+- `penfold_request_duration_seconds` - Histogram by method, path
+- `penfold_active_connections` - Gauge of active connections
+- `penfold_errors_total` - Counter by error type
+
+**Source**: `pkg/metrics/metrics.go`, `pkg/metrics/middleware.go`
+
+### Health Checks (`pkg/health`)
+
+Composable health checks with Kubernetes probe support.
+
+```go
+import "github.com/penfold/pkg/health"
+
+// Create health checker
+checker := health.NewChecker()
+
+// Register checks
+checker.RegisterCheck("database", health.DatabaseCheck(dbPool), health.Critical())
+checker.RegisterCheck("redis", health.RedisCheck(redisClient))
+checker.RegisterCheck("temporal", health.TemporalCheck(temporalClient))
+
+// Custom check
+checker.RegisterCheck("external-api", health.CustomCheck(func() error {
+    resp, err := http.Get("https://api.example.com/health")
+    if err != nil {
+        return err
+    }
+    if resp.StatusCode != 200 {
+        return fmt.Errorf("unhealthy: status %d", resp.StatusCode)
+    }
+    return nil
+}))
+
+// Register HTTP handlers
+mux.Handle("/healthz", checker.Handler())      // Full health status
+mux.Handle("/readyz", checker.ReadyHandler())  // Readiness probe
+mux.Handle("/livez", checker.LiveHandler())    // Liveness probe
+```
+
+**Health Status Levels**:
+- `healthy` - All checks passed
+- `degraded` - Non-critical checks failed
+- `unhealthy` - Critical checks failed
+
+**Source**: `pkg/health/health.go`, `pkg/health/checks.go`
+
+## Middleware Integration
+
+### HTTP Server with Full Observability
+
+```go
+import (
+    "github.com/penfold/pkg/logging"
+    "github.com/penfold/pkg/metrics"
+    "github.com/penfold/pkg/tracing"
+    "github.com/penfold/pkg/health"
+)
+
+func setupServer() http.Handler {
+    m := metrics.NewMetrics("gateway", "penfold")
+    m.RegisterMetrics()
+
+    checker := health.NewChecker()
+    checker.RegisterCheck("database", health.DatabaseCheck(dbPool))
+
+    mux := http.NewServeMux()
+
+    // Health and metrics endpoints
+    mux.Handle("/healthz", checker.Handler())
+    mux.Handle("/readyz", checker.ReadyHandler())
+    mux.Handle("/livez", checker.LiveHandler())
+    mux.Handle("/metrics", metrics.Handler())
+
+    // Application routes
+    mux.HandleFunc("/api/v1/search", handleSearch)
+
+    // Apply middleware (order matters: tracing first, then metrics)
+    handler := tracing.HTTPMiddlewareWithConfig(&tracing.HTTPMiddlewareConfig{
+        TracerName: "gateway",
+        SkipPaths:  []string{"/healthz", "/readyz", "/livez", "/metrics"},
+    })(mux)
+
+    handler = metrics.HTTPMiddlewareWithConfig(&metrics.MiddlewareConfig{
+        Metrics:   m,
+        SkipPaths: []string{"/healthz", "/readyz", "/livez", "/metrics"},
+    })(handler)
+
+    return handler
+}
+```
+
+### gRPC Server with Full Observability
+
+```go
+import (
+    "github.com/penfold/pkg/metrics"
+    "github.com/penfold/pkg/tracing"
+)
+
+func setupGRPCServer() *grpc.Server {
+    m := metrics.NewMetrics("worker", "penfold")
+    m.RegisterMetrics()
+
+    server := grpc.NewServer(
+        grpc.ChainUnaryInterceptor(
+            tracing.UnaryServerInterceptor(),
+            metrics.UnaryServerInterceptor(m),
+        ),
+        grpc.ChainStreamInterceptor(
+            tracing.StreamServerInterceptor(),
+            metrics.StreamServerInterceptor(m),
+        ),
+    )
+
+    return server
+}
 ```
 
 ## Configuration
 
-Configuration is managed through `observability_lib/config.py`:
+### Environment Variables
 
-```python
-# Key configuration options
-OBSERVABILITY_CONFIG = {
-    "metrics_retention_days": 90,
-    "trace_retention_days": 30,
-    "alert_thresholds": {
-        "agent_error_rate": 0.05,  # 5%
-        "processing_time_multiplier": 2.0,  # 2x normal
-        "confidence_minimum": 0.7
-    },
-    "dashboard_refresh_seconds": 30
+```bash
+# Logging
+LOG_LEVEL=info              # debug, info, warn, error
+LOG_FORMAT=json             # json or console
+
+# Tracing
+OTEL_EXPORTER_ENDPOINT=localhost:4317
+OTEL_SAMPLE_RATE=1.0
+OTEL_INSECURE=true
+
+# Langfuse (AI tracing)
+LANGFUSE_HOST=http://langfuse:3000
+LANGFUSE_PUBLIC_KEY=pk-lf-xxx
+LANGFUSE_SECRET_KEY=sk-lf-xxx
+```
+
+### Service Configuration
+
+```go
+type ServiceConfig struct {
+    // Logging
+    LogLevel  string `env:"LOG_LEVEL" default:"info"`
+    LogFormat string `env:"LOG_FORMAT" default:"json"`
+
+    // Tracing
+    TracingEndpoint   string  `env:"OTEL_EXPORTER_ENDPOINT" default:"localhost:4317"`
+    TracingSampleRate float64 `env:"OTEL_SAMPLE_RATE" default:"1.0"`
+    TracingInsecure   bool    `env:"OTEL_INSECURE" default:"true"`
+
+    // Langfuse
+    LangfuseHost      string `env:"LANGFUSE_HOST"`
+    LangfusePublicKey string `env:"LANGFUSE_PUBLIC_KEY"`
+    LangfuseSecretKey string `env:"LANGFUSE_SECRET_KEY"`
 }
 ```
 
 ## Architecture
 
 The observability framework uses:
-- **TimescaleDB**: Time-series storage with hypertables for metrics
-- **Structured Logging**: Consistent log format across all agents
-- **Event-Driven Updates**: Real-time dashboard updates via SSE
-- **Prometheus Format**: Metrics exportable for external monitoring
+- **zerolog**: High-performance structured logging
+- **OpenTelemetry**: Distributed tracing with W3C Trace Context propagation
+- **Prometheus**: Metrics collection and exposition
+- **Langfuse**: AI/LLM operation tracing (optional)
+
+```
++----------------+     +------------------+     +------------------+
+| HTTP Request   | --> | Tracing          | --> | Metrics          |
+|                |     | Middleware       |     | Middleware       |
++----------------+     +------------------+     +------------------+
+                              |                        |
+                              v                        v
+                       +-------------+          +--------------+
+                       | OTLP/       |          | Prometheus   |
+                       | Langfuse    |          | /metrics     |
+                       +-------------+          +--------------+
+                              |
+                              v
+                       +-------------+
+                       | Jaeger/     |
+                       | Langfuse UI |
+                       +-------------+
+```
+
+## Package Structure
+
+```
+pkg/
+  logging/
+    logger.go          # Logger interface and implementation
+    logger_test.go     # Tests
+  metrics/
+    metrics.go         # Prometheus metrics definitions
+    middleware.go      # HTTP and gRPC middleware
+    metrics_test.go
+    middleware_test.go
+  tracing/
+    tracing.go         # OpenTelemetry tracer initialization
+    middleware.go      # HTTP and gRPC middleware
+    helpers.go         # Span helper functions
+    ai.go              # AI/LLM-specific tracing for Langfuse
+    tracing_test.go
+    langfuse_test.go
+  health/
+    health.go          # Health checker and HTTP handlers
+    checks.go          # Built-in check implementations
+    health_test.go
+```
 
 ## Related Documentation
 
 - [Quickstart Guide](quickstart.md) - Detailed setup instructions
 - [Architecture Patterns](../../context/ARCHITECTURE.md) - Implementation patterns
-- [Agent Context](../../context/observability-dev/agents.md) - Development guidance
+- [Infrastructure](../../context/infrastructure.md) - Service deployment details
