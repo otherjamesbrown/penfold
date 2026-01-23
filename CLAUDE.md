@@ -55,6 +55,13 @@ bd sync                               # Sync with git
 - Close with commit hash: `bd close <id> --reason="commit <hash>: summary"`
 - Run `bd sync` before ending session
 
+### After Closing a Bead
+When closing a bead that belongs to an epic, check if all sibling beads are also closed:
+```bash
+bd dep tree <epic-id>                 # Check if all children are closed
+```
+If all child beads are closed, suggest closing the parent epic to the user.
+
 ## 🎯 EPIC-BASED BEAD MANAGEMENT - VITAL
 
 **ALL beads must be associated with an epic to prevent proliferation.**
