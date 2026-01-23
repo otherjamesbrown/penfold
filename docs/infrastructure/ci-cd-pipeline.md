@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines the continuous integration and continuous deployment (CI/CD) pipeline for Penfold. The pipeline ensures code quality through automated testing, linting, type checking, and enforces quality gates before any code reaches production.
+This document defines the continuous integration and continuous deployment (CI/CD) pipeline for Penfold. The pipeline ensures code quality through automated testing, linting, and enforces quality gates before any code reaches production.
 
 ## Pipeline Architecture
 
@@ -13,20 +13,20 @@ This document defines the continuous integration and continuous deployment (CI/C
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
                          │                   │                   │
                          ▼                   ▼                   ▼
-                   • Install deps      • Unit tests       • Staging deploy
-                   • Ruff lint         • Integration      • Production deploy
-                   • Mypy check        • Coverage 80%+    • Docker publish
-                   • Build package     • Contract tests   • Release tags
+                   • go build          • Unit tests       • Staging deploy
+                   • golangci-lint     • Integration      • Production deploy
+                   • go vet            • E2E tests        • Docker publish
+                   • buf lint          • Coverage         • Release tags
 ```
 
 ## GitHub Actions Workflows
 
-### 1. Main CI Workflow
+### 1. Test Suite Workflow (`.github/workflows/test.yml`)
 
-Create `.github/workflows/ci.yml`:
+The primary test workflow that runs unit, integration, and E2E tests:
 
 ```yaml
-name: CI
+name: Test Suite
 
 on:
   push:
@@ -34,170 +34,283 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  PYTHON_VERSION: "3.12"
-  POSTGRES_USER: postgres
-  POSTGRES_PASSWORD: postgres
-  POSTGRES_DB: penfold_test
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint & Type Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-
-      - name: Run ruff linting
-        run: ruff check . --output-format=github
-
-      - name: Run ruff formatting check
-        run: ruff format --check .
-
-      - name: Run mypy type checking
-        run: mypy penf_lib --strict
-
-  test-unit:
+  # Unit tests run on all pushes and PRs
+  unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module:
+          - pkg
+          - cmd/penf
+          - services/gateway
+          - services/gmail
+          - services/search
+          - services/worker
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
+          go-version: "1.24"
+          cache: true
+          cache-dependency-path: "**/go.sum"
 
-      - name: Install dependencies
+      - name: Run unit tests
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          if [ -f "${{ matrix.module }}/go.mod" ]; then
+            cd ${{ matrix.module }}
+            go test -v -race -short -coverprofile=coverage.out ./...
+          else
+            echo "No go.mod found in ${{ matrix.module }}, skipping"
+          fi
 
-      - name: Run unit tests with coverage
-        run: |
-          pytest tests/unit -v \
-            --cov=penf_lib \
-            --cov-report=xml \
-            --cov-report=term-missing \
-            --cov-fail-under=80
-
-      - name: Upload coverage to Codecov
+      - name: Upload coverage
         uses: codecov/codecov-action@v4
+        if: hashFiles(format('{0}/coverage.out', matrix.module)) != ''
         with:
-          file: ./coverage.xml
-          flags: unit
+          files: ${{ matrix.module }}/coverage.out
+          flags: unit-${{ matrix.module }}
           fail_ci_if_error: false
 
-  test-integration:
+  # Integration tests require database but no LLM
+  integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
+    needs: unit-tests
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+
     services:
       postgres:
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_USER: ${{ env.POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
-          POSTGRES_DB: ${{ env.POSTGRES_DB }}
-        ports:
-          - 5432:5432
+          POSTGRES_USER: penfold
+          POSTGRES_PASSWORD: penfold_test_password
+          POSTGRES_DB: penfold_test_integration
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
-      redis:
-        image: redis:7-alpine
         ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          - 5432:5432
+
+    env:
+      PENFOLD_DB_HOST: localhost
+      PENFOLD_DB_PORT: 5432
+      PENFOLD_DB_USER: penfold
+      PENFOLD_DB_PASSWORD: penfold_test_password
+      PENFOLD_DB_NAME: penfold_test_integration
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
+          go-version: "1.24"
+          cache: true
+          cache-dependency-path: "**/go.sum"
 
-      - name: Install dependencies
+      - name: Wait for PostgreSQL
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          until pg_isready -h localhost -p 5432 -U penfold; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+
+      - name: Create pgvector extension
+        run: |
+          PGPASSWORD=penfold_test_password psql -h localhost -U penfold -d penfold_test_integration -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+      - name: Run database migrations
+        run: |
+          cd cmd/penf
+          go run . migrate up
 
       - name: Run integration tests
-        env:
-          DATABASE_URL: postgresql://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@localhost:5432/${{ env.POSTGRES_DB }}
-          REDIS_URL: redis://localhost:6379/0
         run: |
-          pytest tests/integration -v \
-            --cov=penf_lib \
-            --cov-report=xml \
-            --cov-append
+          cd tests
+          go test -tags=integration -v -race ./integration/...
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.xml
-          flags: integration
-          fail_ci_if_error: false
+  # E2E tests run only on main branch (requires self-hosted runner with LLM)
+  e2e-tests:
+    name: E2E Tests
+    runs-on: [self-hosted, macos, ARM64]
+    needs: integration-tests
+    if: github.ref == 'refs/heads/main'
 
-  test-contract:
-    name: Contract Tests
-    runs-on: ubuntu-latest
+    env:
+      PENFOLD_DB_HOST: home-01.brown.chat
+      PENFOLD_DB_PORT: 5432
+      PENFOLD_DB_USER: penfold
+      PENFOLD_DB_PASSWORD: ${{ secrets.PENFOLD_DB_PASSWORD }}
+      PENFOLD_DB_NAME: penfold_test_e2e
+      LLM_URL: http://localhost:8080
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
+          go-version: "1.24"
+          cache: true
+          cache-dependency-path: "**/go.sum"
 
-      - name: Install dependencies
+      - name: Check LLM availability
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          curl -sf http://localhost:8080/v1/models || {
+            echo "LLM not available, skipping E2E tests"
+            exit 0
+          }
 
-      - name: Run contract tests
-        run: pytest tests/contract -v
+      - name: Run database migrations
+        run: |
+          cd cmd/penf
+          go run . migrate up
 
-  quality-gate:
-    name: Quality Gate
-    needs: [lint, test-unit, test-integration, test-contract]
+      - name: Run E2E tests
+        run: |
+          cd tests
+          go test -tags=e2e -v -timeout 10m ./e2e/...
+
+  # Validate test fixtures
+  validate-fixtures:
+    name: Validate Test Fixtures
     runs-on: ubuntu-latest
+
     steps:
-      - name: All checks passed
-        run: echo "All quality checks passed successfully"
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+          cache-dependency-path: "**/go.sum"
+
+      - name: Validate fixture YAML files
+        run: |
+          cd pkg
+          go test -v ./testfixtures/... -run TestYAML
 ```
 
-### 2. Docker Build and Publish Workflow
+### 2. Lint Workflow (`.github/workflows/lint.yml`)
 
-Create `.github/workflows/docker.yml`:
+Go linting with golangci-lint:
 
 ```yaml
-name: Docker Build & Publish
+name: Lint
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  golangci-lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [pkg, penfold-go-pipeline]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          working-directory: ${{ matrix.module }}
+          args: --timeout=5m
+```
+
+### 3. Proto Workflow (`.github/workflows/proto.yml`)
+
+Protocol Buffer validation with Buf:
+
+```yaml
+name: Proto
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "api/proto/**"
+      - "buf.yaml"
+      - "buf.gen.yaml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "api/proto/**"
+      - "buf.yaml"
+      - "buf.gen.yaml"
+
+jobs:
+  buf-lint:
+    name: Buf Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: latest
+
+      - name: Buf lint
+        working-directory: api/proto
+        run: buf lint
+
+  buf-breaking:
+    name: Buf Breaking Change Detection
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: latest
+
+      - name: Buf breaking
+        working-directory: api/proto
+        run: buf breaking --against ".git#branch=main,subdir=api/proto"
+```
+
+### 4. Docker Build Workflow (`.github/workflows/docker.yml`)
+
+```yaml
+name: Docker
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -207,7 +320,7 @@ env:
 
 jobs:
   build:
-    name: Build Docker Image
+    name: Build and Push
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -249,162 +362,213 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Run Trivy vulnerability scanner
-        if: github.event_name != 'pull_request'
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH"
 
       - name: Upload Trivy scan results
-        if: github.event_name != 'pull_request'
         uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: "trivy-results.sarif"
 ```
 
-### 3. Release Workflow
+### 5. Release Workflow (`.github/workflows/release.yml`)
 
-Create `.github/workflows/release.yml`:
+Cross-platform Go binary releases:
 
 ```yaml
 name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
 
 permissions:
   contents: write
-  packages: write
+
+env:
+  GO_VERSION: '1.22'
 
 jobs:
+  build-cli:
+    name: Build CLI (${{ matrix.os }}/${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: darwin
+            arch: arm64
+          - os: darwin
+            arch: amd64
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Get version info
+        id: version
+        run: |
+          echo "version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          echo "commit=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+          echo "build_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
+      - name: Build CLI binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          cd cmd/penf
+          go build -ldflags "\
+            -X main.version=${{ steps.version.outputs.version }} \
+            -X main.commit=${{ steps.version.outputs.commit }} \
+            -X main.buildTime=${{ steps.version.outputs.build_time }}" \
+            -o penf .
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p dist
+          cp cmd/penf/penf dist/penf-${{ matrix.os }}-${{ matrix.arch }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: penf-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/penf-${{ matrix.os }}-${{ matrix.arch }}
+
   release:
     name: Create Release
+    needs: build-cli
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          python-version: "3.12"
+          path: dist
 
-      - name: Install build tools
-        run: pip install build
-
-      - name: Build package
-        run: python -m build
-
-      - name: Generate changelog
-        id: changelog
+      - name: Prepare release assets
         run: |
-          # Get the previous tag
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          mkdir -p release
+          find dist -name "penf-*" -type f -exec cp {} release/ \;
+          chmod +x release/penf-*
+          ls -la release/
 
-          if [ -n "$PREV_TAG" ]; then
-            echo "## Changes since $PREV_TAG" > CHANGELOG.md
-            git log $PREV_TAG..HEAD --pretty=format:"- %s" >> CHANGELOG.md
-          else
-            echo "## Initial Release" > CHANGELOG.md
-            git log --pretty=format:"- %s" >> CHANGELOG.md
-          fi
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum penf-* > checksums.txt
+          cat checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          body_path: CHANGELOG.md
-          files: |
-            dist/*.whl
-            dist/*.tar.gz
+          body: |
+            ## Installation
+
+            ### Update existing installation (recommended)
+            ```bash
+            penf update
+            ```
+
+            ### Fresh install
+            ```bash
+            # macOS (Apple Silicon)
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-darwin-arm64
+            chmod +x /usr/local/bin/penf
+
+            # macOS (Intel)
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-darwin-amd64
+            chmod +x /usr/local/bin/penf
+
+            # Linux (x86_64)
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-linux-amd64
+            chmod +x /usr/local/bin/penf
+
+            # Linux (ARM64)
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-linux-arm64
+            chmod +x /usr/local/bin/penf
+            ```
+
+            Then initialize:
+            ```bash
+            penf init
+            ```
           draft: false
-          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          prerelease: ${{ contains(github.ref, '-alpha') || contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
+          files: |
+            release/penf-*
+            release/checksums.txt
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ## Linting Configuration
 
-### Ruff Configuration
+### golangci-lint
 
-The ruff linter is configured in `pyproject.toml`:
+The project uses `golangci-lint` for comprehensive Go linting. Run locally with:
 
-```toml
-[tool.ruff]
-target-version = "py312"
-line-length = 88
-select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "B",   # flake8-bugbear
-    "C4",  # flake8-comprehensions
-    "UP",  # pyupgrade
-]
-ignore = [
-    "E501",  # line too long (handled by formatter)
-    "B008",  # do not perform function calls in argument defaults
-    "C901",  # too complex
-]
+```bash
+# Run on all modules
+make lint
 
-[tool.ruff.per-file-ignores]
-"tests/**/*" = ["S101"]  # Allow assert in tests
+# Run on specific module
+cd pkg && golangci-lint run --timeout=5m ./...
+```
+
+### go vet
+
+Static analysis with `go vet`:
+
+```bash
+# Run on all modules
+make vet
+
+# Run on specific module
+cd pkg && go vet ./...
 ```
 
 ### Running Locally
 
 ```bash
-# Check for linting issues
-ruff check .
+# Full linting suite
+make lint vet
 
-# Auto-fix linting issues
-ruff check --fix .
-
-# Check formatting
-ruff format --check .
-
-# Apply formatting
-ruff format .
-```
-
-## Type Checking Configuration
-
-### Mypy Configuration
-
-The mypy type checker is configured in `pyproject.toml`:
-
-```toml
-[tool.mypy]
-python_version = "3.12"
-check_untyped_defs = true
-disallow_any_generics = true
-disallow_incomplete_defs = true
-disallow_untyped_defs = true
-no_implicit_optional = true
-strict_equality = true
-warn_redundant_casts = true
-warn_return_any = true
-warn_unreachable = true
-warn_unused_configs = true
-
-[[tool.mypy.overrides]]
-module = [
-    "pgvector.*",
-    "msgpack.*",
-]
-ignore_missing_imports = true
-```
-
-### Running Locally
-
-```bash
-# Run type checking
-mypy penf_lib --strict
-
-# Run with detailed output
-mypy penf_lib --strict --show-error-codes
+# Check a specific module
+cd services/gateway && golangci-lint run ./... && go vet ./...
 ```
 
 ## Test Execution
@@ -413,59 +577,41 @@ mypy penf_lib --strict --show-error-codes
 
 The test suite is organized into categories:
 
-| Category | Directory | Purpose | CI Stage |
-|----------|-----------|---------|----------|
-| Unit | `tests/unit/` | Fast, isolated tests | Parallel |
-| Integration | `tests/integration/` | Database/service tests | With services |
-| Contract | `tests/contract/` | API schema validation | Parallel |
-| Performance | `tests/performance/` | Load/stress tests | Manual |
+| Category | Location | Purpose | CI Stage |
+|----------|----------|---------|----------|
+| Unit | `<module>/*_test.go` | Fast, isolated tests | All PRs |
+| Integration | `tests/integration/` | Database/service tests | PRs + main |
+| E2E | `tests/e2e/` | Full pipeline with LLM | main only |
+| Fixtures | `pkg/testfixtures/` | YAML validation | All PRs |
 
 ### Running Tests Locally
 
 ```bash
-# Run all tests
-pytest
+# Run all tests via Makefile
+make test
 
-# Run by category
-pytest tests/unit -v
-pytest tests/integration -v
-pytest tests/contract -v
+# Run tests for specific module
+cd pkg && go test -v -race ./...
+
+# Run unit tests only (short mode)
+go test -v -race -short ./...
 
 # Run with coverage
-pytest --cov=penf_lib --cov-report=term-missing --cov-fail-under=80
+go test -v -race -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out  # View in browser
 
-# Run specific markers
-pytest -m "unit and not slow"
-pytest -m "integration"
+# Run integration tests (requires database)
+cd tests && go test -tags=integration -v ./integration/...
 
-# Run with verbose output
-pytest -v --tb=short
+# Run E2E tests (requires LLM)
+cd tests && go test -tags=e2e -v -timeout 10m ./e2e/...
 ```
 
 ### Coverage Requirements
 
-```toml
-[tool.coverage.run]
-source = ["penf_lib"]
-omit = [
-    "*/tests/*",
-    "*/migrations/*",
-]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if self.debug:",
-    "if settings.DEBUG",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if 0:",
-    "if __name__ == .__main__.:",
-    "class .*\\bProtocol\\):",
-    "@(abc\\.)?abstractmethod",
-]
-```
+Coverage is tracked per module and uploaded to Codecov. Target coverage:
+- Core packages (`pkg/`): >= 80%
+- Services: >= 70%
 
 ## Quality Gates
 
@@ -473,18 +619,18 @@ exclude_lines = [
 
 | Gate | Tool | Threshold | Failure Action |
 |------|------|-----------|----------------|
-| Linting | Ruff | Zero errors | Block merge |
-| Formatting | Ruff | Zero diffs | Block merge |
-| Type Checking | Mypy | Zero errors | Block merge |
-| Unit Tests | Pytest | All pass | Block merge |
-| Coverage | Coverage.py | >= 80% | Block merge |
-| Contract Tests | Pytest | All pass | Block merge |
+| Linting | golangci-lint | Zero errors | Block merge |
+| Static Analysis | go vet | Zero warnings | Block merge |
+| Unit Tests | go test | All pass | Block merge |
+| Proto Lint | buf lint | Zero errors | Block merge (if protos changed) |
+| Breaking Changes | buf breaking | None | Block merge (if protos changed) |
 
 ### Integration Requirements (Main Branch)
 
 | Gate | Tool | Threshold | Failure Action |
 |------|------|-----------|----------------|
-| Integration Tests | Pytest | All pass | Block merge |
+| Integration Tests | go test | All pass | Block merge |
+| E2E Tests | go test | All pass | Warning |
 | Security Scan | Trivy | No critical/high | Warning |
 | Docker Build | Docker | Successful | Block merge |
 
@@ -493,8 +639,8 @@ exclude_lines = [
 | Gate | Tool | Threshold | Failure Action |
 |------|------|-----------|----------------|
 | All CI Passes | GitHub Actions | Green | Block release |
-| Version Bump | pyproject.toml | Valid semver | Block release |
-| Changelog | Generated | Present | Block release |
+| Cross-compile | go build | All platforms | Block release |
+| Checksums | sha256sum | Generated | Block release |
 
 ## Deployment Strategy
 
@@ -511,97 +657,20 @@ exclude_lines = [
 │  └─────────────┘    └─────────────┘    └─────────────┘              │
 │        │                  │                  │                       │
 │        ▼                  ▼                  ▼                       │
-│  • Local Docker     • Auto deploy      • Manual approval             │
-│  • Mock services    • Real services    • Full monitoring             │
-│  • Hot reload       • Smoke tests      • Rollback ready              │
+│  • Local binaries    • Auto deploy      • Manual approval             │
+│  • Local services    • Real services    • Full monitoring             │
+│  • Hot rebuild       • Smoke tests      • Rollback ready              │
 │                                                                       │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Staging Deployment
 
-Automatic deployment to staging on merge to main:
-
-```yaml
-# .github/workflows/deploy-staging.yml
-name: Deploy to Staging
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    name: Deploy to Staging
-    runs-on: ubuntu-latest
-    environment: staging
-    needs: [ci]  # Reference the CI workflow
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Deploy to staging
-        run: |
-          # Deploy using docker-compose or your deployment tool
-          # Example with SSH deployment:
-          # ssh $STAGING_HOST "cd /app && docker-compose pull && docker-compose up -d"
-          echo "Deploying to staging environment"
-
-      - name: Run smoke tests
-        run: |
-          # Verify deployment health
-          curl -f https://staging.penfold.example.com/health || exit 1
-
-      - name: Notify deployment
-        if: always()
-        run: |
-          echo "Staging deployment completed with status: ${{ job.status }}"
-```
+Automatic deployment to staging on merge to main via Docker workflow.
 
 ### Production Deployment
 
-Manual deployment to production for tagged releases:
-
-```yaml
-# .github/workflows/deploy-production.yml
-name: Deploy to Production
-
-on:
-  release:
-    types: [published]
-
-jobs:
-  deploy:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Verify release
-        run: |
-          # Ensure all CI checks passed
-          gh pr checks ${{ github.sha }} --required
-
-      - name: Create deployment record
-        run: |
-          echo "Deploying ${{ github.ref_name }} to production"
-
-      - name: Deploy to production
-        run: |
-          # Production deployment steps
-          echo "Production deployment in progress"
-
-      - name: Health check
-        run: |
-          curl -f https://penfold.example.com/health || exit 1
-
-      - name: Update deployment status
-        if: always()
-        run: |
-          echo "Production deployment: ${{ job.status }}"
-```
+Manual deployment to production for tagged releases via release workflow.
 
 ## Version Tagging and Release Management
 
@@ -622,8 +691,8 @@ Follow [Semantic Versioning 2.0.0](https://semver.org/):
 ### Creating a Release
 
 ```bash
-# Update version in pyproject.toml
-# Update CHANGELOG.md
+# Ensure all tests pass
+make all
 
 # Create and push tag
 git tag -a v1.0.0 -m "Release v1.0.0: Description"
@@ -633,80 +702,61 @@ git push origin v1.0.0
 ### Release Checklist
 
 1. [ ] All CI checks passing on main
-2. [ ] Version bumped in `pyproject.toml`
-3. [ ] CHANGELOG.md updated
-4. [ ] Documentation updated
-5. [ ] Tag created with descriptive message
-6. [ ] GitHub Release created
-7. [ ] Docker image published
-8. [ ] Staging deployment verified
-9. [ ] Production deployment approved and executed
+2. [ ] Documentation updated
+3. [ ] Tag created with descriptive message
+4. [ ] GitHub Release created with cross-platform binaries
+5. [ ] Docker image published
+6. [ ] Staging deployment verified
+7. [ ] Production deployment approved and executed
 
 ## Local Development Setup
 
 ### Prerequisites
 
 ```bash
-# Install Python 3.12
-# Install Docker and Docker Compose
+# Install Go 1.22+
+# Install Docker (for integration tests)
+# Install golangci-lint
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 # Clone repository
 git clone https://github.com/otherjamesbrown/penfold.git
 cd penfold
-
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-
-# Install dependencies with dev extras
-pip install -e ".[dev]"
 ```
 
 ### Running CI Checks Locally
 
 ```bash
 # Run full CI suite locally
-make ci  # If Makefile exists
+make all
 
-# Or run manually:
-ruff check .
-ruff format --check .
-mypy penf_lib --strict
-pytest --cov=penf_lib --cov-fail-under=80
+# Individual targets:
+make lint     # Run golangci-lint on all modules
+make vet      # Run go vet on all modules
+make build    # Build all Go services
+make test     # Run all tests
+
+# Run tests with coverage
+make test-coverage
 ```
 
-### Pre-commit Hooks
+### Makefile Reference
 
-Install pre-commit hooks to catch issues before push:
-
-```bash
-# Install pre-commit
-pip install pre-commit
-
-# Install hooks
-pre-commit install
-
-# Run manually
-pre-commit run --all-files
-```
-
-Example `.pre-commit-config.yaml`:
-
-```yaml
-repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.6
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.7.0
-    hooks:
-      - id: mypy
-        additional_dependencies: [types-all]
-        args: [--strict]
+```makefile
+# Available targets:
+make all            # lint, vet, build, test
+make build          # Build all Go services
+make test           # Run all tests
+make test-coverage  # Run tests with coverage
+make lint           # Run golangci-lint on all modules
+make vet            # Run go vet on all modules
+make proto          # Generate protobuf code
+make proto-lint     # Lint protobuf files
+make proto-breaking # Check for breaking proto changes
+make deps           # Download dependencies for all modules
+make tidy           # Run go mod tidy for all modules
+make clean          # Clean build artifacts
+make help           # Show available targets
 ```
 
 ## Troubleshooting
@@ -715,11 +765,12 @@ repos:
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| Ruff check failed | Linting violations | Run `ruff check --fix .` |
-| Mypy errors | Type annotation issues | Fix type hints in code |
-| Coverage < 80% | Insufficient tests | Add tests for uncovered code |
-| Integration test timeout | Service not ready | Increase health check retries |
-| Docker build failed | Missing dependencies | Check Dockerfile and requirements |
+| golangci-lint failed | Linting violations | Run `golangci-lint run --fix ./...` |
+| go vet errors | Static analysis issues | Fix the reported issues |
+| Test timeout | Slow tests or deadlock | Add `-timeout` flag, check for blocking code |
+| Integration test failure | Database not ready | Check service health, increase wait time |
+| Docker build failed | Missing dependencies | Check Dockerfile and go.mod |
+| Proto lint failed | Schema violations | Run `buf lint` locally and fix |
 
 ### Debugging CI
 
@@ -731,7 +782,7 @@ gh run view <run-id> --log
 gh run rerun <run-id> --failed
 
 # List recent workflow runs
-gh run list --workflow=ci.yml
+gh run list --workflow=test.yml
 ```
 
 ## Security Considerations
@@ -747,17 +798,16 @@ gh run list --workflow=ci.yml
 
 | Secret | Purpose | Scope |
 |--------|---------|-------|
-| `GITHUB_TOKEN` | Container registry | Automatic |
+| `GITHUB_TOKEN` | Container registry, releases | Automatic |
 | `CODECOV_TOKEN` | Coverage upload | Optional |
-| `STAGING_SSH_KEY` | Staging deployment | Environment |
-| `PRODUCTION_SSH_KEY` | Production deployment | Environment |
+| `PENFOLD_DB_PASSWORD` | E2E test database | E2E tests |
 
 ## Monitoring CI Health
 
 ### Metrics to Track
 
 - Build success rate (target: >95%)
-- Average CI duration (target: <10 minutes)
+- Average CI duration (target: <10 minutes for unit tests)
 - Flaky test rate (target: <1%)
 - Time to merge after PR approval
 
