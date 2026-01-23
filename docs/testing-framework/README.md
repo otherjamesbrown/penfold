@@ -271,11 +271,13 @@ The `tests/fixtures/acme-corp/` directory contains a complete mock organization:
 
 | File | Contents |
 |------|----------|
-| `people.yaml` | 20 employees with aliases, titles, teams |
-| `teams.yaml` | 7 teams (top-level and sub-teams) |
-| `projects.yaml` | 10 projects with assignments |
-| `glossary.yaml` | 50+ business terms and acronyms |
-| `emails/` | 10 sample RFC 5322 emails |
+| `people.yaml` | 20 employees with aliases, titles, teams, managers |
+| `teams.yaml` | 7 teams with descriptions |
+| `projects.yaml` | 10 projects with assignments and status |
+| `products.yaml` | Product definitions with team ownership |
+| `glossary.yaml` | 50+ business terms, acronyms, and linked entities |
+| `emails/` | Sample RFC 5322 emails |
+| `meetings/` | Sample meeting transcripts |
 
 ### Loading Fixtures
 ```go
@@ -287,12 +289,30 @@ func TestWithFixtures(t *testing.T) {
     loader := testfixtures.NewLoader(db.Pool, "tests/fixtures/acme-corp")
 
     ctx := context.Background()
-    err := loader.LoadAcmeCorp(ctx)  // Loads all fixtures
+    err := loader.LoadAcmeCorp(ctx)  // Loads all fixtures in dependency order
     require.NoError(t, err)
 
     // Or load individually
-    err = loader.LoadPeople(ctx)
+    err = loader.LoadTeams(ctx)     // Teams first
+    err = loader.LoadPeople(ctx)    // People depend on teams
+    err = loader.LoadProjects(ctx)  // Projects depend on teams and people
+    err = loader.LoadProducts(ctx)
     err = loader.LoadGlossary(ctx)
+
+    // Cleanup
+    err = loader.TruncateAll(ctx)
+}
+
+// For custom tenant isolation
+func TestWithTenant(t *testing.T) {
+    db := SetupTestDB(t)
+
+    tenantID := "custom-tenant-uuid"
+    loader := testfixtures.NewLoaderWithTenant(db.Pool, "tests/fixtures/acme-corp", tenantID)
+
+    ctx := context.Background()
+    err := loader.LoadAcmeCorp(ctx)
+    require.NoError(t, err)
 }
 ```
 
@@ -303,21 +323,44 @@ type PersonFixture struct {
     ID            int64    `yaml:"id"`
     CanonicalName string   `yaml:"canonical_name"`
     Email         string   `yaml:"email"`
+    Aliases       []string `yaml:"aliases"`
     Title         string   `yaml:"title"`
     TeamID        int64    `yaml:"team_id"`
-    Aliases       []string `yaml:"aliases"`
+    ManagerID     *int64   `yaml:"manager_id"`
 }
 
 type TeamFixture struct {
-    ID        int64  `yaml:"id"`
-    Name      string `yaml:"name"`
-    ParentID  *int64 `yaml:"parent_id"`
+    ID          int64  `yaml:"id"`
+    Name        string `yaml:"name"`
+    Description string `yaml:"description"`
 }
 
-type GlossaryFixture struct {
-    Term       string `yaml:"term"`
-    Expansion  string `yaml:"expansion"`
-    Definition string `yaml:"definition"`
+type ProjectFixture struct {
+    ID          int64  `yaml:"id"`
+    Name        string `yaml:"name"`
+    Slug        string `yaml:"slug"`
+    Description string `yaml:"description"`
+    Status      string `yaml:"status"`
+    OwnerID     int64  `yaml:"owner_id"`
+    TeamID      int64  `yaml:"team_id"`
+}
+
+type ProductFixture struct {
+    ID          int64  `yaml:"id"`
+    Name        string `yaml:"name"`
+    Slug        string `yaml:"slug"`
+    Description string `yaml:"description"`
+    TeamID      *int64 `yaml:"team_id"`
+}
+
+type GlossaryTermFixture struct {
+    Term             string   `yaml:"term"`
+    Expansion        *string  `yaml:"expansion"`
+    Definition       *string  `yaml:"definition"`
+    Context          *string  `yaml:"context"`
+    Aliases          []string `yaml:"aliases"`
+    LinkedEntityType *string  `yaml:"linked_entity_type"`
+    LinkedEntityID   *int64   `yaml:"linked_entity_id"`
 }
 ```
 
@@ -445,32 +488,42 @@ pkg/                           # Unit tests co-located with source
 ├── glossary/
 │   └── glossary_test.go
 └── testfixtures/             # Shared fixture library
-    ├── types.go
-    ├── loader.go
+    ├── types.go              # PersonFixture, TeamFixture, etc.
+    ├── loader.go             # NewLoader, LoadAcmeCorp, etc.
     └── validate_test.go
 
 tests/                        # Special test categories
-├── go.mod                    # Separate module for tests
 ├── integration/              # Build tag: integration
-│   ├── helpers.go
+│   ├── helpers.go            # SetupTestDB, TruncateAllTables
 │   ├── db_test.go
-│   └── fixtures_test.go
+│   ├── fixtures_test.go
+│   ├── glossary_test.go
+│   ├── mentions_test.go
+│   ├── search_test.go
+│   └── testdata/
 ├── e2e/                      # Build tag: e2e
-│   ├── helpers.go
-│   ├── assertions.go
-│   ├── llm_client.go
-│   └── mention_resolution_test.go
+│   ├── helpers.go            # SetupE2EEnvironment, LoadFixture
+│   ├── assertions.go         # AssertMentionResolved, semantic helpers
+│   ├── llm_client.go         # OpenAI-compatible client
+│   ├── resolver_adapters.go  # Test adapters for resolver
+│   ├── mention_resolution_test.go
+│   ├── pipeline_test.go
+│   ├── ingest_test.go
+│   ├── search_test.go
+│   └── environment_test.go
 ├── live/                     # Build tag: live
-│   ├── helpers.go
+│   ├── helpers.go            # RequireGeminiAPIKey, RequireGmailCredentials
 │   ├── gemini_test.go
 │   └── gmail_test.go
 └── fixtures/
     └── acme-corp/            # Mock organization
-        ├── people.yaml
-        ├── teams.yaml
-        ├── projects.yaml
-        ├── glossary.yaml
-        └── emails/
+        ├── people.yaml       # 20 employees
+        ├── teams.yaml        # 7 teams
+        ├── projects.yaml     # 10 projects
+        ├── products.yaml     # Products
+        ├── glossary.yaml     # 50+ terms
+        ├── emails/           # Sample emails
+        └── meetings/         # Sample meetings
 ```
 
 ## Troubleshooting
