@@ -346,6 +346,67 @@ func TestAddressHelpers(t *testing.T) {
 	}
 }
 
+func TestAllParticipantEmails(t *testing.T) {
+	email := &ParsedEmail{
+		From: Address{Email: "sender@example.com", Name: "Sender"},
+		To: []Address{
+			{Email: "to1@example.com", Name: "To One"},
+			{Email: "to2@example.com", Name: "To Two"},
+		},
+		Cc: []Address{
+			{Email: "cc1@example.com", Name: "Cc One"},
+		},
+		Bcc: []Address{
+			{Email: "bcc1@example.com", Name: "Bcc One"},
+			{Email: "bcc2@example.com", Name: "Bcc Two"},
+		},
+	}
+
+	participants := email.AllParticipantEmails()
+
+	// Should have 6 participants: 1 from + 2 to + 1 cc + 2 bcc
+	if len(participants) != 6 {
+		t.Errorf("expected 6 participants, got %d: %v", len(participants), participants)
+	}
+
+	// Check order: From, To, Cc, Bcc
+	expected := []string{
+		"sender@example.com",
+		"to1@example.com",
+		"to2@example.com",
+		"cc1@example.com",
+		"bcc1@example.com",
+		"bcc2@example.com",
+	}
+	for i, exp := range expected {
+		if participants[i] != exp {
+			t.Errorf("participant[%d]: expected %q, got %q", i, exp, participants[i])
+		}
+	}
+}
+
+func TestAllParticipantEmailsEmpty(t *testing.T) {
+	email := &ParsedEmail{}
+	participants := email.AllParticipantEmails()
+	if len(participants) != 0 {
+		t.Errorf("expected empty participants for empty email, got %v", participants)
+	}
+}
+
+func TestBccAddresses(t *testing.T) {
+	email := &ParsedEmail{
+		Bcc: []Address{
+			{Email: "bcc1@example.com", Name: "Bcc One"},
+			{Email: "bcc2@example.com", Name: "Bcc Two"},
+		},
+	}
+
+	bccAddrs := email.BccAddresses()
+	if len(bccAddrs) != 2 || bccAddrs[0] != "bcc1@example.com" || bccAddrs[1] != "bcc2@example.com" {
+		t.Errorf("unexpected BccAddresses: %v", bccAddrs)
+	}
+}
+
 func TestFilePath(t *testing.T) {
 	parser := NewParser(DefaultParseOptions())
 	result, err := parser.ParseFile(filepath.Join(getTestdataDir(), "simple.eml"))

@@ -55,15 +55,16 @@ const (
 
 // EmailSource represents the data needed to create a source record.
 type EmailSource struct {
-	TenantID      string
-	SourceSystem  string
-	ExternalID    string // Message-ID
-	ContentHash   string
-	RawContent    string
-	ContentType   string
-	ContentSize   int32
-	Metadata      map[string]interface{}
-	SourceTimestamp time.Time
+	TenantID          string
+	SourceSystem      string
+	ExternalID        string // Message-ID
+	ContentHash       string
+	RawContent        string
+	ContentType       string
+	ContentSize       int32
+	Metadata          map[string]interface{}
+	SourceTimestamp   time.Time
+	ParticipantEmails []string // From, To, Cc, Bcc email addresses
 }
 
 // CreatedSource contains the result of creating a source.
@@ -139,12 +140,12 @@ func (r *Repository) CreateSource(ctx context.Context, source *EmailSource) (*Cr
 			tenant_id, source_system, external_id, content_hash,
 			raw_content, content_type, content_size,
 			ingestion_metadata, processing_status, source_timestamp,
-			created_at, updated_at
+			participant_emails, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7,
 			$8, $9, $10,
-			NOW(), NOW()
+			$11, NOW(), NOW()
 		)
 		RETURNING id, created_at
 	`
@@ -161,6 +162,7 @@ func (r *Repository) CreateSource(ctx context.Context, source *EmailSource) (*Cr
 		metadataJSON,
 		ProcessingStatusPending,
 		source.SourceTimestamp,
+		source.ParticipantEmails,
 	).Scan(&result.ID, &result.CreatedAt)
 
 	if err != nil {

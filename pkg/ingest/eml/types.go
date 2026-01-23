@@ -96,6 +96,51 @@ func (p *ParsedEmail) CcAddresses() []string {
 	return result
 }
 
+// BccAddresses returns all Bcc recipient email addresses as a slice.
+func (p *ParsedEmail) BccAddresses() []string {
+	result := make([]string, len(p.Bcc))
+	for i, addr := range p.Bcc {
+		result[i] = addr.Email
+	}
+	return result
+}
+
+// AllParticipantEmails returns all participant email addresses (From, To, Cc, Bcc).
+// Duplicates are not removed to preserve the full participant list.
+func (p *ParsedEmail) AllParticipantEmails() []string {
+	// Pre-allocate capacity for all participants
+	capacity := 1 + len(p.To) + len(p.Cc) + len(p.Bcc)
+	result := make([]string, 0, capacity)
+
+	// Add From
+	if p.From.Email != "" {
+		result = append(result, p.From.Email)
+	}
+
+	// Add To
+	for _, addr := range p.To {
+		if addr.Email != "" {
+			result = append(result, addr.Email)
+		}
+	}
+
+	// Add Cc
+	for _, addr := range p.Cc {
+		if addr.Email != "" {
+			result = append(result, addr.Email)
+		}
+	}
+
+	// Add Bcc
+	for _, addr := range p.Bcc {
+		if addr.Email != "" {
+			result = append(result, addr.Email)
+		}
+	}
+
+	return result
+}
+
 // ParseOptions configures email parsing behavior.
 type ParseOptions struct {
 	// IncludeAttachmentContent controls whether attachment data is loaded.

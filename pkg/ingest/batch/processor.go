@@ -419,15 +419,16 @@ func (p *Processor) processFile(ctx context.Context, jobID, filePath string) out
 	}
 
 	source := &storage.EmailSource{
-		TenantID:        p.cfg.TenantID,
-		SourceSystem:    storage.SourceSystemManualEML,
-		ExternalID:      email.MessageID,
-		ContentHash:     email.ContentHash,
-		RawContent:      bodyContent,
-		ContentType:     "message/rfc822",
-		ContentSize:     int32(len(bodyContent)),
-		Metadata:        metadata,
-		SourceTimestamp: email.Date,
+		TenantID:          p.cfg.TenantID,
+		SourceSystem:      storage.SourceSystemManualEML,
+		ExternalID:        email.MessageID,
+		ContentHash:       email.ContentHash,
+		RawContent:        bodyContent,
+		ContentType:       "message/rfc822",
+		ContentSize:       int32(len(bodyContent)),
+		Metadata:          metadata,
+		SourceTimestamp:   email.Date,
+		ParticipantEmails: email.AllParticipantEmails(),
 	}
 
 	created, err := p.repo.CreateSource(ctx, source)
@@ -617,15 +618,16 @@ func (p *Processor) HandleEmbeddedEmail(ctx context.Context, params attachments.
 	}
 
 	source := &storage.EmailSource{
-		TenantID:        params.TenantID,
-		SourceSystem:    "embedded_email",
-		ExternalID:      email.MessageID,
-		ContentHash:     email.ContentHash,
-		RawContent:      bodyContent,
-		ContentType:     "message/rfc822",
-		ContentSize:     int32(len(bodyContent)),
-		Metadata:        metadata,
-		SourceTimestamp: email.Date,
+		TenantID:          params.TenantID,
+		SourceSystem:      "embedded_email",
+		ExternalID:        email.MessageID,
+		ContentHash:       email.ContentHash,
+		RawContent:        bodyContent,
+		ContentType:       "message/rfc822",
+		ContentSize:       int32(len(bodyContent)),
+		Metadata:          metadata,
+		SourceTimestamp:   email.Date,
+		ParticipantEmails: email.AllParticipantEmails(),
 	}
 
 	created, err := p.repo.CreateSource(ctx, source)
