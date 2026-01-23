@@ -300,6 +300,10 @@ func (r *Repository) MarkFailed(ctx context.Context, id int64, errMsg string) er
 
 // ListPending returns pending enrichments for processing.
 func (r *Repository) ListPending(ctx context.Context, tenantID string, limit int) ([]*Enrichment, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
 	query := `
 		SELECT
 			id, source_id, tenant_id,
@@ -336,6 +340,10 @@ func (r *Repository) ListPending(ctx context.Context, tenantID string, limit int
 
 // ListFailed returns failed enrichments eligible for retry.
 func (r *Repository) ListFailed(ctx context.Context, tenantID string, maxRetries int, limit int) ([]*Enrichment, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
 	query := `
 		SELECT
 			id, source_id, tenant_id,
@@ -411,6 +419,7 @@ func (r *Repository) GetStages(ctx context.Context, enrichmentID int64) ([]*Stag
 		FROM enrichment_stages
 		WHERE enrichment_id = $1
 		ORDER BY created_at ASC
+		LIMIT 1000
 	`
 
 	rows, err := r.pool.Query(ctx, query, enrichmentID)

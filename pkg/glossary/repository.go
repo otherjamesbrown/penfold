@@ -190,8 +190,10 @@ func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, erro
 	query += " ORDER BY term ASC"
 
 	limit := 100
-	if filter.Limit > 0 {
+	if filter.Limit > 0 && filter.Limit <= 1000 {
 		limit = filter.Limit
+	} else if filter.Limit > 1000 {
+		limit = 1000
 	}
 	query += fmt.Sprintf(" LIMIT %d", limit)
 
@@ -539,8 +541,10 @@ func (r *Repository) ListLinked(ctx context.Context, filter LinkedTermFilter) ([
 	query += " ORDER BY term ASC"
 
 	limit := 100
-	if filter.Limit > 0 {
+	if filter.Limit > 0 && filter.Limit <= 1000 {
 		limit = filter.Limit
+	} else if filter.Limit > 1000 {
+		limit = 1000
 	}
 	query += fmt.Sprintf(" LIMIT %d", limit)
 
@@ -580,4 +584,44 @@ func (r *Repository) ListLinked(ctx context.Context, filter LinkedTermFilter) ([
 	}
 
 	return terms, totalCount, nil
+}
+
+// ListForContext returns glossary terms formatted for LLM prompt context.
+// This is the production function that E2E tests should use.
+// Note: For semantic (embedding-based) context, use the Matcher.BuildContext() method instead.
+func (r *Repository) ListForContext(ctx context.Context, limit int) (string, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 50
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT term, expansion, definition
+		FROM glossary
+		WHERE expansion IS NOT NULL AND expansion != ''
+		ORDER BY term
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return "", fmt.Errorf("list glossary: %w", err)
+	}
+	defer rows.Close()
+
+	var sb strings.Builder
+	sb.WriteString("Glossary terms:\n")
+
+	for rows.Next() {
+		var term, expansion string
+		var definition *string
+		if err := rows.Scan(&term, &expansion, &definition); err != nil {
+			return "", fmt.Errorf("scan glossary term: %w", err)
+		}
+
+		sb.WriteString(fmt.Sprintf("- %s: %s", term, expansion))
+		if definition != nil && *definition != "" {
+			sb.WriteString(fmt.Sprintf(" (%s)", *definition))
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String(), rows.Err()
 }

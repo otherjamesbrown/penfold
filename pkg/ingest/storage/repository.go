@@ -461,6 +461,7 @@ func (r *Repository) GetJobErrors(ctx context.Context, jobID string) ([]*IngestE
 		FROM ingest_errors
 		WHERE job_id = $1
 		ORDER BY created_at ASC
+		LIMIT 1000
 	`
 
 	rows, err := r.pool.Query(ctx, query, jobID)

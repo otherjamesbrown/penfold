@@ -3,6 +3,7 @@ package entities
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -123,6 +124,10 @@ func (r *Repository) GetPersonByAlias(ctx context.Context, tenantID, aliasValue 
 
 // SearchPeopleByName searches for people by name similarity.
 func (r *Repository) SearchPeopleByName(ctx context.Context, tenantID, name string, limit int) ([]*Person, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
 	// Use ILIKE for basic search - could be enhanced with trigram similarity
 	query := `
 		SELECT
@@ -156,6 +161,7 @@ func (r *Repository) GetPeopleByDomain(ctx context.Context, tenantID, domain str
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND primary_email LIKE '%@' || $2
+		LIMIT 1000
 	`
 
 	rows, err := r.pool.Query(ctx, query, tenantID, domain)
@@ -169,6 +175,10 @@ func (r *Repository) GetPeopleByDomain(ctx context.Context, tenantID, domain str
 
 // ListPeopleNeedingReview lists people that need review.
 func (r *Repository) ListPeopleNeedingReview(ctx context.Context, tenantID string, limit int) ([]*Person, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
 	query := `
 		SELECT
 			id, tenant_id, canonical_name, primary_email,
@@ -291,6 +301,7 @@ func (r *Repository) GetAliasesForPerson(ctx context.Context, personID int64) ([
 		FROM person_aliases
 		WHERE person_id = $1
 		ORDER BY confidence DESC, discovered_at DESC
+		LIMIT 1000
 	`
 
 	rows, err := r.pool.Query(ctx, query, personID)
@@ -424,6 +435,7 @@ func (r *Repository) GetTeamMembers(ctx context.Context, teamID int64) ([]TeamMe
 		JOIN people p ON p.id = tm.person_id
 		WHERE tm.team_id = $1
 		ORDER BY tm.joined_at ASC
+		LIMIT 1000
 	`
 
 	rows, err := r.pool.Query(ctx, query, teamID)
@@ -564,6 +576,7 @@ func (r *Repository) GetProjectsWithKeywords(ctx context.Context, tenantID strin
 		SELECT id, tenant_id, name, description, keywords, jira_projects, created_at, updated_at
 		FROM projects
 		WHERE tenant_id = $1 AND array_length(keywords, 1) > 0
+		LIMIT 1000
 	`
 
 	rows, err := r.pool.Query(ctx, query, tenantID)
@@ -722,6 +735,124 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ==================== Context Formatting Functions ====================
+
+// ListPeopleForContext returns people formatted for LLM prompt context.
+// This is the production function that E2E tests should use.
+func (r *Repository) ListPeopleForContext(ctx context.Context, tenantID string, limit int) (string, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 20
+	}
+
+	query := `
+		SELECT id, canonical_name, COALESCE(primary_email, ''), COALESCE(job_title, '')
+		FROM people
+		WHERE ($1 = '' OR tenant_id = $1::uuid)
+		ORDER BY id
+		LIMIT $2
+	`
+
+	rows, err := r.pool.Query(ctx, query, tenantID, limit)
+	if err != nil {
+		return "", fmt.Errorf("failed to list people: %w", err)
+	}
+	defer rows.Close()
+
+	var sb strings.Builder
+	sb.WriteString("People in the organization:\n")
+
+	for rows.Next() {
+		var id int64
+		var name, email, title string
+		if err := rows.Scan(&id, &name, &email, &title); err != nil {
+			return "", fmt.Errorf("failed to scan person: %w", err)
+		}
+		sb.WriteString(fmt.Sprintf("- %s (ID: %d, Email: %s, Title: %s)\n", name, id, email, title))
+	}
+
+	return sb.String(), rows.Err()
+}
+
+// ListTeamsForContext returns teams formatted for LLM prompt context.
+// This is the production function that E2E tests should use.
+func (r *Repository) ListTeamsForContext(ctx context.Context, tenantID string, limit int) (string, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 10
+	}
+
+	query := `
+		SELECT id, name, COALESCE(description, '')
+		FROM teams
+		WHERE ($1 = '' OR tenant_id = $1::uuid)
+		ORDER BY id
+		LIMIT $2
+	`
+
+	rows, err := r.pool.Query(ctx, query, tenantID, limit)
+	if err != nil {
+		return "", fmt.Errorf("failed to list teams: %w", err)
+	}
+	defer rows.Close()
+
+	var sb strings.Builder
+	sb.WriteString("Teams in the organization:\n")
+
+	for rows.Next() {
+		var id int64
+		var name, description string
+		if err := rows.Scan(&id, &name, &description); err != nil {
+			return "", fmt.Errorf("failed to scan team: %w", err)
+		}
+		sb.WriteString("- " + name)
+		if description != "" {
+			sb.WriteString(" (" + description + ")")
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String(), rows.Err()
+}
+
+// ListProjectsForContext returns projects formatted for LLM prompt context.
+// This is the production function that E2E tests should use.
+func (r *Repository) ListProjectsForContext(ctx context.Context, tenantID string, limit int) (string, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 15
+	}
+
+	query := `
+		SELECT id, name, COALESCE(description, '')
+		FROM projects
+		WHERE ($1 = '' OR tenant_id = $1::uuid)
+		ORDER BY id
+		LIMIT $2
+	`
+
+	rows, err := r.pool.Query(ctx, query, tenantID, limit)
+	if err != nil {
+		return "", fmt.Errorf("failed to list projects: %w", err)
+	}
+	defer rows.Close()
+
+	var sb strings.Builder
+	sb.WriteString("Projects in the organization:\n")
+
+	for rows.Next() {
+		var id int64
+		var name, description string
+		if err := rows.Scan(&id, &name, &description); err != nil {
+			return "", fmt.Errorf("failed to scan project: %w", err)
+		}
+		sb.WriteString("- " + name)
+		if description != "" {
+			sb.WriteString(" (" + description + ")")
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String(), rows.Err()
 }
 
 // Ensure time is imported

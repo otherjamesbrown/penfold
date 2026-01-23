@@ -228,9 +228,13 @@ func (r *Repository) ListProducts(ctx context.Context, filter ProductFilter) ([]
 		ORDER BY name
 	`, strings.Join(conditions, " AND "))
 
-	if filter.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT %d", filter.Limit)
+	limit := 100
+	if filter.Limit > 0 && filter.Limit <= 1000 {
+		limit = filter.Limit
+	} else if filter.Limit > 1000 {
+		limit = 1000
 	}
+	query += fmt.Sprintf(" LIMIT %d", limit)
 	if filter.Offset > 0 {
 		query += fmt.Sprintf(" OFFSET %d", filter.Offset)
 	}
@@ -254,6 +258,7 @@ func (r *Repository) ListTopLevelProducts(ctx context.Context, tenantID string) 
 		FROM products
 		WHERE tenant_id = $1 AND parent_id IS NULL
 		ORDER BY name
+		LIMIT 1000
 	`
 
 	rows, err := r.pool.Query(ctx, query, tenantID)
@@ -275,6 +280,7 @@ func (r *Repository) ListChildren(ctx context.Context, parentID int64) ([]*Produ
 		FROM products
 		WHERE parent_id = $1
 		ORDER BY name
+		LIMIT 1000
 	`
 
 	rows, err := r.pool.Query(ctx, query, parentID)
@@ -423,6 +429,7 @@ func (r *Repository) GetAliases(ctx context.Context, productID int64) ([]*Produc
 		FROM product_aliases
 		WHERE product_id = $1
 		ORDER BY alias
+		LIMIT 1000
 	`
 
 	rows, err := r.pool.Query(ctx, query, productID)

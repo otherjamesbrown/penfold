@@ -152,8 +152,10 @@ func (r *Repository) List(ctx context.Context, filter ReviewFilter) ([]*ReviewIt
 		created_at ASC`
 
 	limit := 50
-	if filter.Limit > 0 {
+	if filter.Limit > 0 && filter.Limit <= 1000 {
 		limit = filter.Limit
+	} else if filter.Limit > 1000 {
+		limit = 1000
 	}
 	query += fmt.Sprintf(" LIMIT %d", limit)
 
