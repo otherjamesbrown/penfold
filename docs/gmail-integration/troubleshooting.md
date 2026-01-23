@@ -37,6 +37,11 @@ penf gmail diagnostic --export /tmp/gmail-diagnostic.zip
 
 # Check recent errors
 penf gmail logs --level error --tail 50
+
+# Check service health endpoints
+curl http://localhost:8081/health
+curl http://localhost:8081/ready
+curl http://localhost:8081/metrics
 ```
 
 ## Authentication Issues
@@ -51,7 +56,7 @@ penf gmail logs --level error --tail 50
 **Diagnostic Commands:**
 ```bash
 penf gmail status --account user@gmail.com
-penf gmail logs --grep "OAuth2" --level debug
+penf gmail logs --level debug | grep -i oauth
 ```
 
 **Common Causes & Solutions:**
@@ -122,7 +127,7 @@ penf gmail connect --account user@gmail.com
 **Diagnostic Commands:**
 ```bash
 penf gmail config --check-encryption
-penf gmail logs --grep "encryption" --level error
+penf gmail logs --level error | grep -i encryption
 ```
 
 **Solution:**
@@ -145,7 +150,7 @@ penf gmail connect --account user@gmail.com
 ```bash
 penf gmail import --status
 penf gmail sync --dry-run --account user@gmail.com
-penf gmail logs --grep "import" --level info
+penf gmail logs --level info | grep -i import
 ```
 
 **Common Causes & Solutions:**
@@ -215,7 +220,7 @@ penf gmail test-connection --verbose
 ```bash
 penf gmail sync-status --account user@gmail.com
 penf gmail test-email --account user@gmail.com  # Send test email
-penf gmail logs --grep "incremental" --level debug
+penf gmail logs --level debug | grep -i incremental
 ```
 
 **Solutions:**
@@ -250,7 +255,7 @@ penf gmail reset-history --account user@gmail.com
 **Diagnostic Commands:**
 ```bash
 penf gmail quota-status
-penf gmail logs --grep "quota\|429" --level warn
+penf gmail logs --level warn | grep -E "quota|429"
 ```
 
 **Solutions:**
@@ -332,7 +337,7 @@ penf gmail config --account user@gmail.com --backoff-multiplier 2.0
 ```bash
 penf gmail monitor-status
 penf gmail test-webhook
-penf gmail logs --grep "webhook\|push" --level debug
+penf gmail logs --level debug | grep -E "webhook|push"
 ```
 
 **Common Causes & Solutions:**
@@ -421,7 +426,7 @@ penf gmail monitor-status --polling
 **Diagnostic Commands:**
 ```bash
 penf gmail attachment-status
-penf gmail logs --grep "attachment" --level warn
+penf gmail logs --level warn | grep -i attachment
 penf gmail queue-status  # Background processing queue
 ```
 
@@ -434,7 +439,7 @@ penf gmail queue-status  # Background processing queue
 penf gmail config --list-attachment-limits
 
 # Default limits:
-# max_size_mb: 10
+# max_size_mb: 25
 # supported_formats: pdf,docx,txt,jpeg,png
 ```
 
@@ -449,20 +454,9 @@ penf gmail config --supported-formats "pdf,docx,txt,jpeg,png,xlsx,pptx"
 
 #### 2. Content Extraction Failures
 
-**Check Extraction Libraries:**
-```bash
-# Verify required libraries are installed
-pip list | grep -E "PyPDF2|python-docx|Pillow|tesseract"
-```
+**Check Extractor Availability:**
 
-**Install Missing Dependencies:**
-```bash
-# Install optional dependencies for attachment processing
-pip install penfold[attachments]
-
-# Or install individually
-pip install PyPDF2 python-docx Pillow pytesseract
-```
+The Go Gmail service uses built-in text extractors for supported formats. For additional format support, ensure the necessary libraries are available.
 
 #### 3. Background Queue Issues
 
@@ -489,15 +483,17 @@ penf gmail clear-failed-tasks
 penf gmail config --attachment-workers 4
 ```
 
-### Problem: OCR (Image Text Extraction) Failing
+### Problem: OCR (Image Text Extraction) Not Working
 
 **Symptoms:**
 - Image attachments processed but no text extracted
-- "Tesseract not found" errors
+- OCR feature not available
 
-**Solution:**
+**Note:**
+OCR support requires external integration. The Go service provides a placeholder for tesseract integration. Ensure tesseract-ocr is installed and configured if image text extraction is needed.
+
 ```bash
-# Install Tesseract OCR engine
+# Install Tesseract OCR engine (if needed)
 # macOS:
 brew install tesseract
 
@@ -506,9 +502,6 @@ sudo apt-get install tesseract-ocr
 
 # Verify installation
 tesseract --version
-
-# Configure Tesseract path if needed
-penf gmail config --tesseract-path /usr/local/bin/tesseract
 ```
 
 ## Privacy Filter Issues
@@ -522,7 +515,7 @@ penf gmail config --tesseract-path /usr/local/bin/tesseract
 **Diagnostic Commands:**
 ```bash
 penf gmail privacy-audit --account user@gmail.com
-penf gmail logs --grep "privacy\|filtered" --level info
+penf gmail logs --level info | grep -E "privacy|filtered"
 ```
 
 **Solutions:**
@@ -540,15 +533,15 @@ penf gmail privacy-audit --show-filtered --last 7d
 #### 2. Adjust Filter Sensitivity
 
 ```bash
-# Disable specific filter types temporarily
-penf gmail config --disable-pattern-filters
+# Reduce sensitivity level
+penf gmail config --privacy-level low
 
 # Add exceptions for specific senders/domains
-penf gmail config --add-trusted-sender important@company.com
-penf gmail config --add-trusted-domain company.com
+penf gmail config --allow-sender important@company.com
+penf gmail config --allow-domain company.com
 
-# Adjust regex patterns
-penf gmail config --exclude-patterns "password\\s+reset,unsubscribe"
+# Remove patterns from blocklist
+penf gmail config --remove-blocked-sender spam@example.com
 ```
 
 #### 3. Test Filter Rules
@@ -591,8 +584,10 @@ penf gmail test-privacy-filters --verbose
 **Diagnostic Commands:**
 ```bash
 penf gmail performance-stats
-penf gmail logs --grep "performance\|slow" --level warn
-top -p $(pgrep -f "penf gmail")  # Monitor resource usage
+penf gmail logs --level warn | grep -E "performance|slow"
+
+# Monitor service resource usage
+ps aux | grep gmail-connector
 ```
 
 **Solutions:**
@@ -606,9 +601,8 @@ penf gmail config --batch-size 25
 # Increase for high-memory environments
 penf gmail config --batch-size 200
 
-# Enable parallel processing
-penf gmail config --parallel-processing true
-penf gmail config --max-workers 4
+# Adjust concurrent limit
+penf gmail config --concurrent-limit 10
 ```
 
 #### 2. Database Performance
@@ -640,7 +634,7 @@ penf gmail config --max-concurrent-requests 8
 ### Problem: High Memory Usage
 
 **Symptoms:**
-- Python process consuming excessive RAM
+- Service consuming excessive RAM
 - Out of memory errors during processing
 - System becoming unresponsive
 
@@ -648,8 +642,7 @@ penf gmail config --max-concurrent-requests 8
 ```bash
 # Reduce memory footprint
 penf gmail config --batch-size 10          # Smaller batches
-penf gmail config --disable-content-cache  # Don't cache email content
-penf gmail config --stream-attachments true # Stream large attachments
+penf gmail config --concurrent-limit 5     # Fewer concurrent operations
 
 # Monitor memory usage
 penf gmail memory-stats --monitor
@@ -713,7 +706,7 @@ penf gmail quota-usage --by-account
 ```bash
 penf gmail db-status
 penf gmail test-db-connection
-penf gmail logs --grep "database\|postgresql" --level error
+penf gmail logs --level error | grep -E "database|postgresql"
 ```
 
 **Solutions:**
@@ -782,7 +775,7 @@ penf gmail config --attachment-storage-path /path/to/larger/disk
 **Diagnostic Commands:**
 ```bash
 penf gmail network-test --continuous
-penf gmail logs --grep "connection\|timeout\|network" --level warn
+penf gmail logs --level warn | grep -E "connection|timeout|network"
 ```
 
 **Solutions:**
@@ -855,6 +848,21 @@ penf gmail logs --component privacy --level debug
 penf gmail logs --tail --follow
 ```
 
+### Service Health Monitoring
+
+```bash
+# Check gRPC service health
+grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check
+
+# Check HTTP health endpoints
+curl http://localhost:8081/health
+curl http://localhost:8081/ready
+curl http://localhost:8081/live
+
+# View Prometheus metrics
+curl http://localhost:8081/metrics
+```
+
 ### Custom Diagnostic Scripts
 
 ```bash
@@ -867,6 +875,7 @@ penf gmail test-connection
 penf gmail quota-status
 penf gmail db-status
 penf gmail monitor-status
+curl -s http://localhost:8081/health | jq .
 echo "=== Health Check Complete ==="
 EOF
 
@@ -883,8 +892,8 @@ If all else fails, reset the entire Gmail integration:
 ```bash
 # WARNING: This will require re-authentication and full re-sync
 
-# 1. Stop all Gmail services
-penf gmail stop-all
+# 1. Stop the Gmail connector service
+pkill -f gmail-connector
 
 # 2. Backup current configuration
 cp ~/.penfold/config.yaml ~/.penfold/config.yaml.backup
@@ -899,6 +908,7 @@ penf gmail disconnect --all-accounts
 penf gmail reset-db --tables gmail_connections,sync_operations,sync_state
 
 # 6. Restart with fresh configuration
+./bin/gmail-connector &
 penf gmail setup --interactive
 ```
 
@@ -926,11 +936,11 @@ penf gmail sync --account user@gmail.com --full
 #### Stop All Processing Immediately
 
 ```bash
-# Emergency stop - kills all Gmail processes
-penf gmail emergency-stop
+# Emergency stop - kills Gmail connector service
+pkill -f gmail-connector
 
 # Check if all processes stopped
-ps aux | grep -E "penf.*gmail|gmail.*penf"
+ps aux | grep -E "gmail-connector|penf.*gmail"
 ```
 
 #### Prevent Data Loss During Issues
@@ -959,8 +969,8 @@ penf gmail export --all-accounts --output /backup/gmail-export-$(date +%Y%m%d).j
 
 # 1. System information
 uname -a
-python --version
-pip list | grep -E "penfold|google|oauth"
+go version
+cat /etc/os-release
 
 # 2. Gmail integration status
 penf gmail status --verbose
@@ -971,7 +981,10 @@ penf gmail config --export --redact-credentials
 # 4. Recent error logs
 penf gmail logs --level error --last 24h
 
-# 5. Diagnostic report
+# 5. Service health
+curl http://localhost:8081/health
+
+# 6. Diagnostic report
 penf gmail diagnostic --export /tmp/bug-report.zip
 ```
 

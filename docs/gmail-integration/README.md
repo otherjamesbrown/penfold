@@ -34,87 +34,83 @@ This directory contains comprehensive documentation for Penfold's Gmail integrat
 
 Gmail integration enables Penfold to:
 
-- **Secure Connection**: OAuth2-based authentication with encrypted credential storage
+- **Secure Connection**: OAuth2 PKCE authentication with AES-256-GCM encrypted credential storage
 - **Historical Import**: Batch import of existing emails with configurable date ranges
-- **Real-time Sync**: Live monitoring of new emails using Gmail Push notifications
-- **Privacy Controls**: Configurable filtering based on labels, senders, and content patterns
+- **Real-time Sync**: Live monitoring of new emails using Gmail Push notifications via Cloud Pub/Sub
+- **Privacy Controls**: Configurable filtering based on labels, senders, domains, and PII detection
 - **Attachment Processing**: Automatic download and content extraction from common file types
 - **Multi-Account Support**: Handle multiple Gmail accounts with intelligent prioritization
-- **Event Publishing**: Integration with Penfold's event processing framework for AI analysis
+- **gRPC Service**: Integration with Penfold's microservice architecture
 
 ## Key Components
 
+### Go Service Architecture
+
+| Component | Location | Description |
+|-----------|----------|-------------|
+| Main Entry | `services/gmail/main.go` | gRPC service entry point |
+| OAuth2 PKCE | `services/gmail/oauth/` | Authentication with encrypted token storage |
+| Sync Engine | `services/gmail/sync/` | Full and incremental sync with History API |
+| Push Handler | `services/gmail/push/` | Cloud Pub/Sub notification processing |
+| Attachments | `services/gmail/attachment/` | Processing and text extraction |
+| Privacy Filter | `services/gmail/privacy/` | PII detection and content filtering |
+| Scheduler | `services/gmail/scheduler/` | Multi-account priority scheduling |
+| Config | `services/gmail/config/` | Service configuration |
+| Server | `services/gmail/server/` | gRPC service implementation |
+
 ### Authentication System
-- OAuth2 authorization code flow implementation
-- AES-256 encrypted credential storage
-- Automatic token refresh with fallback
-- Multi-account credential isolation
+- OAuth2 PKCE authorization code flow
+- AES-256-GCM encrypted credential storage
+- Automatic token refresh with configurable margin
+- Multi-tenant credential isolation
 
 ### Synchronization Engine
-- Incremental sync with Gmail history API
+- Incremental sync with Gmail History API
+- Full sync with resumable state
 - Priority-based multi-account scheduling
-- Rate limiting compliance (250 requests/second)
-- Robust error recovery and retry logic
+- Rate limiting compliance (250 quota units/second)
+- Robust error recovery and exponential backoff
 
 ### Real-time Monitoring
-- Gmail Push notification handling
-- Cloud Pub/Sub integration
+- Gmail Push notification handling via Cloud Pub/Sub
 - Webhook signature verification
 - Polling fallback for reliability
+- Notification deduplication
 
 ### Privacy and Security
-- Configurable content filtering
-- Label-based exclusion rules
-- Pattern matching for sensitive content
-- Comprehensive audit logging
+- Configurable sensitivity levels (Low/Medium/High)
+- PII detection with regex-based rules
+- Sender/domain blocklists and allowlists
+- Content redaction with audit logging
 
 ### Performance Features
-- Batch processing for efficiency
-- Connection pooling and caching
+- Concurrent batch processing
+- Connection pooling
+- Token bucket rate limiting
 - Background attachment processing
-- Vector-based similarity search
 
 ## Configuration Examples
 
-### Basic Configuration
-```yaml
-gmail:
-  enabled: true
-  credentials_file: "gmail_credentials.json"
-  realtime_sync: true
-  import_days_back: 90
-  privacy_filters:
-    exclude_labels: ["Spam", "Trash"]
+### Environment Variables
+```bash
+# Service configuration
+export GMAIL_GRPC_PORT=50051
+export GMAIL_HTTP_PORT=8081
+export GMAIL_OAUTH_CREDENTIALS_PATH=/path/to/credentials.json
+export GMAIL_TOKEN_STORE_PATH=/path/to/tokens
+export GMAIL_MAX_SYNC_BATCH_SIZE=500
+export GMAIL_SYNC_TIMEOUT_SECONDS=300
 ```
 
-### Advanced Configuration
-```yaml
-gmail:
-  enabled: true
-  credentials_file: "gmail_credentials.json"
-
-  # Performance tuning
-  batch_size: 100
-  max_concurrent_requests: 5
-  rate_limit_requests_per_second: 200
-
-  # Privacy controls
-  privacy_filters:
-    enabled: true
-    exclude_labels: ["Personal", "Banking", "Medical"]
-    exclude_patterns:
-      - "SSN: \\d{3}-\\d{2}-\\d{4}"
-      - "Credit Card.*\\d{4}"
-    exclude_domains:
-      - "bank.example.com"
-    audit_enabled: true
-
-  # Attachment processing
-  attachments:
-    enabled: true
-    max_size_mb: 10
-    supported_formats: ["pdf", "docx", "txt", "jpeg", "png"]
-    extract_content: true
+### Privacy Configuration
+```go
+config := &privacy.FilterConfig{
+    SensitivityLevel:     privacy.SensitivityMedium,
+    RedactionPlaceholder: "[REDACTED]",
+    BlockedSenders:       []string{"spam@example.com"},
+    BlockedDomains:       []string{"spam.example.com"},
+    AllowedDomains:       []string{"company.com"},
+}
 ```
 
 ## Common Use Cases
@@ -142,28 +138,28 @@ gmail:
 ### Throughput
 - **Historical Import**: 100+ emails/minute
 - **Real-time Detection**: <60 seconds average latency
-- **Attachment Processing**: 90% success rate for files <10MB
+- **Attachment Processing**: 90% success rate for files <25MB
 - **Vector Search**: <500ms for 100K embeddings
 
 ### Scalability
 - **Multi-Account**: Up to 5 accounts without degradation
-- **Concurrent Processing**: 50+ simultaneous operations
+- **Concurrent Processing**: 10+ simultaneous batch operations
 - **Database**: Optimized for 100K+ emails per account
 - **Rate Limiting**: Intelligent quota distribution across accounts
 
 ## Security and Privacy
 
 ### Data Protection
-- OAuth2 credentials encrypted with AES-256
+- OAuth2 tokens encrypted with AES-256-GCM
 - No plaintext password storage
 - Configurable data retention periods
 - Local processing for sensitive content
 
 ### Privacy Controls
-- Label-based filtering for categorical exclusion
-- Pattern matching for content-based filtering
-- Domain and sender allowlists/blocklists
-- User-controlled privacy preferences
+- Three sensitivity levels for PII detection
+- Sender/domain blocklists and allowlists
+- Content redaction with configurable placeholder
+- Comprehensive audit logging
 
 ### Compliance Features
 - GDPR-compliant data deletion
@@ -174,10 +170,10 @@ gmail:
 ## Development Standards
 
 ### Code Quality
-- Type hints and comprehensive docstrings
+- Go 1.22+ with standard formatting (`gofmt`)
 - 80%+ test coverage requirement
-- Async/await throughout for performance
-- SQLAlchemy 2.0 with asyncpg driver
+- Zero warnings from `go vet` and `staticcheck`
+- Comprehensive error handling
 
 ### Testing Strategy
 - Unit tests for all components
@@ -194,9 +190,9 @@ gmail:
 ## Support and Maintenance
 
 ### Monitoring
-- Comprehensive health checks
+- Prometheus metrics for all operations
+- Health check endpoints (`/health`, `/ready`, `/live`)
 - Performance metrics collection
-- Error rate monitoring and alerting
 - API quota usage tracking
 
 ### Diagnostics
@@ -230,10 +226,10 @@ When extending Gmail integration:
 
 ## Version Information
 
-- **Current Version**: 1.0.0 (Production Ready)
-- **Python Compatibility**: 3.12+
+- **Current Version**: 2.0.0 (Go Migration Complete)
+- **Go Compatibility**: 1.22+
 - **Database Support**: PostgreSQL 16+ with pgvector
 - **Gmail API Version**: v1
-- **OAuth2 Specification**: RFC 6749
+- **OAuth2 Specification**: RFC 6749 with PKCE (RFC 7636)
 
 This documentation provides everything needed to successfully implement, deploy, and maintain Gmail integration in the Penfold system. For additional support, see the troubleshooting guide or consult the development patterns documentation.

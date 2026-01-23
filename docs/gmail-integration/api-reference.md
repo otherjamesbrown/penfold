@@ -1,943 +1,1215 @@
 # Gmail Integration API Reference
 
-This document provides comprehensive API reference for the Gmail integration components, including all public interfaces, data models, and usage examples.
+This document provides detailed API documentation for all Gmail integration components in Penfold. The Go implementation follows idiomatic patterns with comprehensive interfaces, error handling, and extensibility.
 
-## Table of Contents
+## Service Architecture
 
-- [Authentication API](#authentication-api)
-- [Gmail Client API](#gmail-client-api)
-- [Sync Coordinator API](#sync-coordinator-api)
-- [Real-time Monitor API](#real-time-monitor-api)
-- [Privacy Filter API](#privacy-filter-api)
-- [Attachment Processor API](#attachment-processor-api)
-- [Data Models](#data-models)
-- [Event Schemas](#event-schemas)
-- [Configuration API](#configuration-api)
-- [CLI Commands](#cli-commands)
+The Gmail service is located at `services/gmail/` and consists of these packages:
 
-## Authentication API
+| Package | Path | Description |
+|---------|------|-------------|
+| `oauth` | `services/gmail/oauth/` | OAuth2 PKCE authentication |
+| `sync` | `services/gmail/sync/` | Email synchronization engine |
+| `push` | `services/gmail/push/` | Push notification handling |
+| `attachment` | `services/gmail/attachment/` | Attachment processing |
+| `privacy` | `services/gmail/privacy/` | Privacy filtering and PII detection |
+| `config` | `services/gmail/config/` | Service configuration |
+| `server` | `services/gmail/server/` | gRPC service implementation |
+
+---
+
+## OAuth2 Package (`services/gmail/oauth/`)
+
+### Token Type
+
+Represents OAuth2 tokens with metadata for secure storage and management.
+
+```go
+// Token represents OAuth2 tokens with metadata.
+type Token struct {
+    // AccessToken is the token that authorizes API requests.
+    AccessToken string `json:"access_token"`
+
+    // RefreshToken allows obtaining new access tokens.
+    RefreshToken string `json:"refresh_token"`
+
+    // TokenType is typically "Bearer".
+    TokenType string `json:"token_type"`
+
+    // ExpiresAt is when the access token expires.
+    ExpiresAt time.Time `json:"expires_at"`
+
+    // Scopes are the granted OAuth scopes.
+    Scopes []string `json:"scopes"`
+
+    // TenantID identifies the account/tenant.
+    TenantID string `json:"tenant_id"`
+
+    // CreatedAt is when the token was created.
+    CreatedAt time.Time `json:"created_at"`
+
+    // UpdatedAt is when the token was last updated.
+    UpdatedAt time.Time `json:"updated_at"`
+}
+```
 
 ### OAuth2Manager
 
-Handles Gmail OAuth2 authentication and credential management.
+Manages OAuth2 authentication flows with PKCE support.
 
-```python
-from penf_lib.connectors.gmail.auth import OAuth2Manager
+```go
+// OAuth2Manager manages OAuth2 authentication flows for Gmail.
+type OAuth2Manager struct {
+    config       *Config
+    tokenStorage TokenStorage
+    pendingFlows map[string]*AuthFlowState
+    metrics      *OAuthMetrics
+    mu           sync.RWMutex
+}
 
-class OAuth2Manager:
-    """Secure OAuth2 credential management for Gmail API access."""
+// Config holds OAuth2 configuration.
+type Config struct {
+    // ClientID is the OAuth2 client ID from Google Cloud Console.
+    ClientID string
+
+    // ClientSecret is the OAuth2 client secret.
+    ClientSecret string
+
+    // RedirectURL is the callback URL for the OAuth flow.
+    RedirectURL string
+
+    // Scopes are the Gmail API scopes to request.
+    Scopes []string
+
+    // TokenStorage is the storage backend for tokens.
+    TokenStorage TokenStorage
+
+    // RefreshMargin is how early to refresh tokens before expiry.
+    RefreshMargin time.Duration
+}
 ```
 
 #### Methods
 
-##### `start_oauth_flow(account_id: str) -> AuthorizationURL`
+```go
+// NewOAuth2Manager creates a new OAuth2 manager.
+func NewOAuth2Manager(config *Config) (*OAuth2Manager, error)
 
-Initiates OAuth2 authorization flow for a Gmail account.
+// StartAuthFlow initiates OAuth2 authorization with PKCE.
+// Returns the authorization URL and state parameter.
+func (m *OAuth2Manager) StartAuthFlow(ctx context.Context, tenantID string) (authURL, state string, err error)
 
-**Parameters:**
-- `account_id` (str): Unique identifier for the Gmail account
+// CompleteAuthFlow exchanges the authorization code for tokens.
+func (m *OAuth2Manager) CompleteAuthFlow(ctx context.Context, state, code string) (*Token, error)
 
-**Returns:**
-- `AuthorizationURL`: Object containing the authorization URL and flow state
+// GetValidToken returns a valid access token, refreshing if needed.
+func (m *OAuth2Manager) GetValidToken(ctx context.Context, tenantID string) (string, error)
 
-**Example:**
-```python
-auth_manager = OAuth2Manager(encryption_key="your-key")
-auth_url = await auth_manager.start_oauth_flow("user@gmail.com")
-print(f"Visit: {auth_url.url}")
+// RefreshToken explicitly refreshes the access token.
+func (m *OAuth2Manager) RefreshToken(ctx context.Context, tenantID string) (*Token, error)
+
+// RevokeToken revokes all tokens for a tenant.
+func (m *OAuth2Manager) RevokeToken(ctx context.Context, tenantID string) error
+
+// IsTokenValid checks if the current token is valid.
+func (m *OAuth2Manager) IsTokenValid(ctx context.Context, tenantID string) (bool, error)
 ```
 
-**Raises:**
-- `AuthenticationError`: If OAuth2 configuration is invalid
-- `DuplicateAccountError`: If account is already authenticated
+#### Example Usage
 
-##### `complete_oauth_flow(account_id: str, auth_code: str) -> bool`
+```go
+config := &oauth.Config{
+    ClientID:      "your-client-id.apps.googleusercontent.com",
+    ClientSecret:  "your-client-secret",
+    RedirectURL:   "http://localhost:8080/callback",
+    Scopes:        []string{"https://www.googleapis.com/auth/gmail.readonly"},
+    TokenStorage:  storage,
+    RefreshMargin: 5 * time.Minute,
+}
 
-Completes OAuth2 authorization flow and stores encrypted credentials.
+manager, err := oauth.NewOAuth2Manager(config)
+if err != nil {
+    return err
+}
 
-**Parameters:**
-- `account_id` (str): Gmail account identifier
-- `auth_code` (str): Authorization code from OAuth2 callback
+// Start the authorization flow
+authURL, state, err := manager.StartAuthFlow(ctx, tenantID)
+if err != nil {
+    return err
+}
 
-**Returns:**
-- `bool`: True if authentication successful
+// User visits authURL and authorizes...
+// Then redirect brings back the code
 
-**Example:**
-```python
-success = await auth_manager.complete_oauth_flow(
-    account_id="user@gmail.com",
-    auth_code="4/0AX4XfWh..."
-)
+token, err := manager.CompleteAuthFlow(ctx, state, authCode)
+if err != nil {
+    return err
+}
+
+// Later, get a valid token for API requests
+accessToken, err := manager.GetValidToken(ctx, tenantID)
+if err != nil {
+    return err
+}
 ```
 
-**Raises:**
-- `AuthenticationError`: If authorization code is invalid or expired
-- `EncryptionError`: If credential encryption fails
+### TokenEncryptor
 
-##### `refresh_token(account_id: str) -> Optional[AccessToken]`
+Provides AES-256-GCM encryption for secure token storage.
 
-Refreshes OAuth2 access token for continued API access.
+```go
+// TokenEncryptor provides AES-256-GCM encryption for OAuth tokens.
+type TokenEncryptor struct {
+    gcm cipher.AEAD
+}
 
-**Parameters:**
-- `account_id` (str): Gmail account identifier
+// NewTokenEncryptor creates a new encryptor with a 32-byte key.
+// The key must be exactly 32 bytes for AES-256.
+func NewTokenEncryptor(key []byte) (*TokenEncryptor, error)
 
-**Returns:**
-- `Optional[AccessToken]`: New access token, or None if refresh failed
+// Encrypt encrypts plaintext using AES-256-GCM.
+// The nonce is prepended to the ciphertext.
+func (e *TokenEncryptor) Encrypt(plaintext []byte) ([]byte, error)
 
-**Example:**
-```python
-token = await auth_manager.refresh_token("user@gmail.com")
-if token is None:
-    # Re-authentication required
-    await auth_manager.start_oauth_flow("user@gmail.com")
+// Decrypt decrypts ciphertext encrypted with Encrypt.
+func (e *TokenEncryptor) Decrypt(ciphertext []byte) ([]byte, error)
 ```
 
-##### `revoke_access(account_id: str) -> bool`
+#### Example Usage
 
-Revokes OAuth2 access and removes stored credentials.
+```go
+// Generate a 32-byte key (in production, use a secure key derivation)
+key := make([]byte, 32)
+if _, err := rand.Read(key); err != nil {
+    return err
+}
 
-**Parameters:**
-- `account_id` (str): Gmail account identifier
+encryptor, err := oauth.NewTokenEncryptor(key)
+if err != nil {
+    return err
+}
 
-**Returns:**
-- `bool`: True if revocation successful
+// Encrypt token data
+tokenJSON, _ := json.Marshal(token)
+encrypted, err := encryptor.Encrypt(tokenJSON)
+if err != nil {
+    return err
+}
 
-**Example:**
-```python
-await auth_manager.revoke_access("user@gmail.com")
+// Decrypt token data
+decrypted, err := encryptor.Decrypt(encrypted)
+if err != nil {
+    return err
+}
 ```
 
-##### `get_accounts() -> List[str]`
+### TokenStorage Interface
 
-Returns list of authenticated Gmail accounts.
+Interface for token persistence backends.
 
-**Returns:**
-- `List[str]`: List of account identifiers
+```go
+// TokenStorage defines the interface for token persistence.
+type TokenStorage interface {
+    // StoreToken persists an OAuth2 token.
+    StoreToken(ctx context.Context, token *Token) error
 
-**Example:**
-```python
-accounts = await auth_manager.get_accounts()
-print(f"Authenticated accounts: {accounts}")
+    // GetToken retrieves a token by tenant ID.
+    GetToken(ctx context.Context, tenantID string) (*Token, error)
+
+    // DeleteToken removes a token.
+    DeleteToken(ctx context.Context, tenantID string) error
+
+    // ListTokens returns all stored tokens.
+    ListTokens(ctx context.Context) ([]*Token, error)
+}
 ```
 
-## Gmail Client API
+---
 
-### GmailAPIClient
+## Sync Package (`services/gmail/sync/`)
 
-High-level Gmail API client with rate limiting and error handling.
+### Engine
 
-```python
-from penf_lib.connectors.gmail.client import GmailAPIClient
+Orchestrates email synchronization with full and incremental modes.
 
-class GmailAPIClient:
-    """High-level Gmail API client with rate limiting and error handling."""
-```
+```go
+// Engine manages Gmail synchronization operations.
+type Engine struct {
+    config      *EngineConfig
+    rateLimiter *RateLimiter
+    metrics     *SyncMetrics
+}
 
-#### Methods
+// EngineConfig holds configuration for the sync engine.
+type EngineConfig struct {
+    // OAuth2Manager for token management.
+    OAuth2Manager *oauth.OAuth2Manager
 
-##### `list_messages(account_id: str, query: Optional[str] = None, max_results: int = 100) -> List[MessageMetadata]`
+    // StateStorage for persisting sync state.
+    StateStorage StateStorage
 
-Lists Gmail messages matching specified criteria.
+    // HTTPClient for API requests (optional, uses default if nil).
+    HTTPClient *http.Client
 
-**Parameters:**
-- `account_id` (str): Gmail account identifier
-- `query` (Optional[str]): Gmail search query (e.g., "from:example.com")
-- `max_results` (int): Maximum number of results to return
+    // BatchSize is the number of messages to fetch per batch.
+    BatchSize int
 
-**Returns:**
-- `List[MessageMetadata]`: List of message metadata objects
+    // RateLimit is the max requests per second.
+    RateLimit int
 
-**Example:**
-```python
-client = GmailAPIClient(auth_manager)
+    // MaxRetries for transient failures.
+    MaxRetries int
 
-# List recent messages
-messages = await client.list_messages("user@gmail.com", max_results=50)
+    // InitialBackoff for retry delays.
+    InitialBackoff time.Duration
 
-# Search messages
-project_emails = await client.list_messages(
-    account_id="user@gmail.com",
-    query="subject:Atlas project",
-    max_results=100
-)
-```
+    // MaxBackoff caps exponential backoff.
+    MaxBackoff time.Duration
 
-##### `get_message(account_id: str, message_id: str, include_attachments: bool = True) -> EmailMessage`
-
-Retrieves full Gmail message content including attachments.
-
-**Parameters:**
-- `account_id` (str): Gmail account identifier
-- `message_id` (str): Gmail message ID
-- `include_attachments` (bool): Whether to download attachments
-
-**Returns:**
-- `EmailMessage`: Complete message object with content and metadata
-
-**Example:**
-```python
-message = await client.get_message(
-    account_id="user@gmail.com",
-    message_id="1234567890abcdef",
-    include_attachments=True
-)
-
-print(f"Subject: {message.subject}")
-print(f"Sender: {message.sender.email}")
-print(f"Attachments: {len(message.attachments)}")
-```
-
-##### `get_thread(account_id: str, thread_id: str) -> EmailThread`
-
-Retrieves complete Gmail thread with all messages.
-
-**Parameters:**
-- `account_id` (str): Gmail account identifier
-- `thread_id` (str): Gmail thread ID
-
-**Returns:**
-- `EmailThread`: Thread object containing all messages
-
-**Example:**
-```python
-thread = await client.get_thread("user@gmail.com", "thread_abc123")
-print(f"Thread has {len(thread.messages)} messages")
-```
-
-##### `get_labels(account_id: str) -> List[GmailLabel]`
-
-Retrieves Gmail labels for an account.
-
-**Parameters:**
-- `account_id` (str): Gmail account identifier
-
-**Returns:**
-- `List[GmailLabel]`: List of Gmail labels
-
-**Example:**
-```python
-labels = await client.get_labels("user@gmail.com")
-for label in labels:
-    print(f"Label: {label.name} ({label.message_count} messages)")
-```
-
-## Sync Coordinator API
-
-### SyncCoordinator
-
-Orchestrates email synchronization across multiple accounts.
-
-```python
-from penf_lib.connectors.gmail.sync import SyncCoordinator
-
-class SyncCoordinator:
-    """Orchestrates Gmail synchronization across multiple accounts."""
+    // BackoffMultiplier for exponential increase.
+    BackoffMultiplier float64
+}
 ```
 
 #### Methods
 
-##### `start_historical_import(account_id: str, date_range: DateRange, filters: PrivacyFilters) -> SyncOperation`
+```go
+// NewEngine creates a new sync engine.
+func NewEngine(config *EngineConfig) (*Engine, error)
 
-Starts historical email import with progress tracking.
+// FullSync performs a complete mailbox synchronization.
+func (e *Engine) FullSync(ctx context.Context, tenantID string, opts *SyncOptions) (*SyncResult, error)
 
-**Parameters:**
-- `account_id` (str): Gmail account identifier
-- `date_range` (DateRange): Date range for import
-- `filters` (PrivacyFilters): Privacy filtering configuration
+// IncrementalSync performs sync using the Gmail History API.
+func (e *Engine) IncrementalSync(ctx context.Context, tenantID string, opts *SyncOptions) (*SyncResult, error)
 
-**Returns:**
-- `SyncOperation`: Operation object for tracking progress
+// ResumeSync resumes an interrupted sync operation.
+func (e *Engine) ResumeSync(ctx context.Context, tenantID string, opts *SyncOptions) (*SyncResult, error)
 
-**Example:**
-```python
-sync = SyncCoordinator(client, event_publisher)
+// CancelSync cancels an in-progress sync operation.
+func (e *Engine) CancelSync(ctx context.Context, tenantID string) error
 
-operation = await sync.start_historical_import(
-    account_id="user@gmail.com",
-    date_range=DateRange(days_back=30),
-    filters=PrivacyFilters(exclude_labels=["Personal"])
-)
-
-# Monitor progress
-while not operation.is_complete():
-    status = await operation.get_status()
-    print(f"Progress: {status.progress.percent:.1f}%")
-    await asyncio.sleep(5)
+// GetSyncState returns the current sync state for a tenant.
+func (e *Engine) GetSyncState(ctx context.Context, tenantID string) (*SyncState, error)
 ```
 
-##### `incremental_sync(account_id: str) -> SyncResult`
+### SyncOptions
 
-Performs incremental sync for new or modified messages.
+Configuration for sync operations.
 
-**Parameters:**
-- `account_id` (str): Gmail account identifier
+```go
+// SyncOptions configures sync behavior.
+type SyncOptions struct {
+    // LabelIDs filters messages to specific labels.
+    LabelIDs []string
 
-**Returns:**
-- `SyncResult`: Result object with sync statistics
+    // Query is a Gmail search query to filter messages.
+    Query string
 
-**Example:**
-```python
-result = await sync.incremental_sync("user@gmail.com")
-print(f"Processed {result.new_messages} new messages")
-print(f"Updated {result.updated_messages} existing messages")
+    // After limits sync to messages after this time.
+    After time.Time
+
+    // Before limits sync to messages before this time.
+    Before time.Time
+
+    // IncludeAttachments controls attachment processing.
+    IncludeAttachments bool
+
+    // MaxMessages limits total messages processed.
+    MaxMessages int64
+
+    // PrivacyFilter is the filter to apply to messages.
+    PrivacyFilter *privacy.PrivacyFilter
+
+    // OnProgress is called with progress updates.
+    OnProgress func(*SyncProgress)
+}
 ```
 
-##### `get_sync_status(account_id: str) -> SyncStatus`
+### SyncResult
 
-Gets current sync status and metrics for an account.
+Result of a sync operation.
 
-**Parameters:**
-- `account_id` (str): Gmail account identifier
+```go
+// SyncResult contains the outcome of a sync operation.
+type SyncResult struct {
+    // SyncID is the unique identifier for this sync.
+    SyncID string
 
-**Returns:**
-- `SyncStatus`: Current sync status and statistics
+    // TenantID identifies the synced account.
+    TenantID string
 
-**Example:**
-```python
-status = await sync.get_sync_status("user@gmail.com")
-print(f"Last sync: {status.last_sync_at}")
-print(f"Total messages: {status.total_messages_processed}")
+    // SyncType is the type of sync performed.
+    SyncType SyncType
+
+    // Status is the final status.
+    Status SyncStatus
+
+    // ProcessedCount is total messages processed.
+    ProcessedCount int64
+
+    // SuccessCount is messages successfully synced.
+    SuccessCount int64
+
+    // ErrorCount is messages that failed.
+    ErrorCount int64
+
+    // SkippedCount is messages filtered out.
+    SkippedCount int64
+
+    // NewHistoryID is the latest history ID after sync.
+    NewHistoryID uint64
+
+    // Duration is how long the sync took.
+    Duration time.Duration
+
+    // Errors contains error details if any.
+    Errors []SyncErrorRecord
+
+    // CompletedAt is when the sync finished.
+    CompletedAt time.Time
+}
 ```
 
-## Real-time Monitor API
+#### Example Usage
 
-### RealtimeMonitor
+```go
+config := &sync.EngineConfig{
+    OAuth2Manager:     oauthManager,
+    StateStorage:      stateStorage,
+    BatchSize:         100,
+    RateLimit:         250,
+    MaxRetries:        5,
+    InitialBackoff:    time.Second,
+    MaxBackoff:        60 * time.Second,
+    BackoffMultiplier: 2.0,
+}
 
-Handles real-time Gmail change notifications.
+engine, err := sync.NewEngine(config)
+if err != nil {
+    return err
+}
 
-```python
-from penf_lib.connectors.gmail.webhook import RealtimeMonitor
+opts := &sync.SyncOptions{
+    LabelIDs:           []string{"INBOX"},
+    After:              time.Now().AddDate(0, -1, 0), // Last month
+    IncludeAttachments: true,
+    PrivacyFilter:      privacyFilter,
+    OnProgress: func(p *sync.SyncProgress) {
+        log.Printf("Progress: %d/%d", p.Processed, p.Total)
+    },
+}
 
-class RealtimeMonitor:
-    """Handles real-time Gmail change notifications."""
+result, err := engine.FullSync(ctx, tenantID, opts)
+if err != nil {
+    return err
+}
+
+log.Printf("Synced %d messages in %v", result.SuccessCount, result.Duration)
+```
+
+---
+
+## Push Package (`services/gmail/push/`)
+
+### Handler
+
+Processes incoming Gmail push notifications from Cloud Pub/Sub.
+
+```go
+// Handler processes Gmail push notifications.
+type Handler struct {
+    config *HandlerConfig
+}
+
+// HandlerConfig holds configuration for the handler.
+type HandlerConfig struct {
+    // SubscriptionStore for subscription lookups.
+    SubscriptionStore SubscriptionStore
+
+    // NotificationProcessor for processing notifications.
+    NotificationProcessor *NotificationProcessor
+
+    // Logger for logging.
+    Logger logging.Logger
+
+    // Metrics for monitoring.
+    Metrics *PushMetrics
+}
+```
+
+#### Types
+
+```go
+// PushNotification represents a Gmail push notification from Pub/Sub.
+type PushNotification struct {
+    // Message is the Pub/Sub message.
+    Message PubSubMessage `json:"message"`
+
+    // Subscription is the Pub/Sub subscription name.
+    Subscription string `json:"subscription"`
+}
+
+// PubSubMessage represents a Cloud Pub/Sub message.
+type PubSubMessage struct {
+    // Data is the base64-encoded message data.
+    Data string `json:"data"`
+
+    // MessageID is the unique message identifier.
+    MessageID string `json:"messageId"`
+
+    // PublishTime is when the message was published.
+    PublishTime time.Time `json:"publishTime"`
+
+    // Attributes contains message attributes.
+    Attributes map[string]string `json:"attributes,omitempty"`
+}
+
+// GmailNotificationData represents the decoded notification payload.
+type GmailNotificationData struct {
+    // EmailAddress is the Gmail account that received the notification.
+    EmailAddress string `json:"emailAddress"`
+
+    // HistoryID is the Gmail history ID for incremental sync.
+    HistoryID uint64 `json:"historyId"`
+}
 ```
 
 #### Methods
 
-##### `setup_push_notifications(account_id: str) -> bool`
+```go
+// NewHandler creates a new push notification handler.
+func NewHandler(config *HandlerConfig) (*Handler, error)
 
-Configures Gmail Push notifications for real-time sync.
+// HandlePush processes an incoming push notification.
+func (h *Handler) HandlePush(ctx context.Context, notification *PushNotification) error
 
-**Parameters:**
-- `account_id` (str): Gmail account identifier
+// ValidateNotification validates and parses raw notification data.
+func (h *Handler) ValidateNotification(data []byte) (*PushNotification, error)
 
-**Returns:**
-- `bool`: True if setup successful
-
-**Example:**
-```python
-monitor = RealtimeMonitor(sync_coordinator)
-success = await monitor.setup_push_notifications("user@gmail.com")
-if success:
-    print("Real-time monitoring enabled")
+// ProcessHistoryChange processes a history change for a specific account.
+func (h *Handler) ProcessHistoryChange(ctx context.Context, tenantID string, historyID uint64) error
 ```
 
-##### `start_monitoring() -> None`
+#### Example Usage
 
-Starts the real-time monitoring service.
+```go
+config := &push.HandlerConfig{
+    SubscriptionStore:     subscriptionStore,
+    NotificationProcessor: processor,
+    Logger:                logger,
+    Metrics:               metrics,
+}
 
-**Example:**
-```python
-await monitor.start_monitoring()
-# Service runs until stopped
+handler, err := push.NewHandler(config)
+if err != nil {
+    return err
+}
+
+// HTTP handler for webhook endpoint
+http.HandleFunc("/webhooks/gmail", func(w http.ResponseWriter, r *http.Request) {
+    body, err := io.ReadAll(r.Body)
+    if err != nil {
+        http.Error(w, "Bad request", http.StatusBadRequest)
+        return
+    }
+
+    notification, err := handler.ValidateNotification(body)
+    if err != nil {
+        http.Error(w, "Invalid notification", http.StatusBadRequest)
+        return
+    }
+
+    if err := handler.HandlePush(r.Context(), notification); err != nil {
+        http.Error(w, "Processing failed", http.StatusInternalServerError)
+        return
+    }
+
+    w.WriteHeader(http.StatusOK)
+})
 ```
 
-##### `stop_monitoring() -> None`
+---
 
-Stops the real-time monitoring service.
-
-**Example:**
-```python
-await monitor.stop_monitoring()
-```
-
-## Privacy Filter API
-
-### PrivacyFilterEngine
-
-Implements configurable privacy controls for email processing.
-
-```python
-from penf_lib.connectors.gmail.privacy import PrivacyFilterEngine
-
-class PrivacyFilterEngine:
-    """Configurable privacy filtering for email content."""
-```
-
-#### Methods
-
-##### `should_process_email(email: EmailMessage, account_id: str) -> FilterDecision`
-
-Determines if email should be processed based on privacy rules.
-
-**Parameters:**
-- `email` (EmailMessage): Email to evaluate
-- `account_id` (str): Gmail account identifier
-
-**Returns:**
-- `FilterDecision`: Decision with reasoning
-
-**Example:**
-```python
-filter_engine = PrivacyFilterEngine(privacy_config)
-decision = await filter_engine.should_process_email(email, "user@gmail.com")
-
-if decision.should_exclude:
-    print(f"Email excluded: {decision.reason}")
-else:
-    print("Email approved for processing")
-```
-
-##### `filter_email_content(email: EmailMessage) -> EmailMessage`
-
-Applies content filtering to email body and metadata.
-
-**Parameters:**
-- `email` (EmailMessage): Original email message
-
-**Returns:**
-- `EmailMessage`: Filtered email message
-
-**Example:**
-```python
-filtered_email = await filter_engine.filter_email_content(email)
-# Sensitive content has been redacted or removed
-```
-
-## Attachment Processor API
+## Attachment Package (`services/gmail/attachment/`)
 
 ### AttachmentProcessor
 
-Handles email attachment processing and content extraction.
+Processes email attachments for content extraction.
 
-```python
-from penf_lib.connectors.gmail.attachments import AttachmentProcessor
+```go
+// AttachmentProcessor processes email attachments.
+type AttachmentProcessor struct {
+    config    *ProcessorConfig
+    semaphore chan struct{}
+    metrics   *ProcessorMetrics
+}
 
-class AttachmentProcessor:
-    """Handles email attachment processing and content extraction."""
+// ProcessorConfig holds configuration.
+type ProcessorConfig struct {
+    // MaxAttachmentSize is the maximum size to process (bytes).
+    MaxAttachmentSize int64
+
+    // ProcessTimeout is the timeout for processing a single attachment.
+    ProcessTimeout time.Duration
+
+    // ConcurrentLimit is the max concurrent processing operations.
+    ConcurrentLimit int
+
+    // ExtractorRegistry maps MIME types to extractors.
+    ExtractorRegistry map[string]TextExtractor
+
+    // AttachmentDownloader downloads attachment content.
+    AttachmentDownloader AttachmentDownloader
+}
+
+// Attachment represents an email attachment.
+type Attachment struct {
+    // ID is the Gmail attachment ID.
+    ID string `json:"id"`
+
+    // MessageID is the parent message ID.
+    MessageID string `json:"message_id"`
+
+    // Filename is the original filename.
+    Filename string `json:"filename"`
+
+    // MimeType is the MIME type.
+    MimeType string `json:"mime_type"`
+
+    // Size is the attachment size in bytes.
+    Size int64 `json:"size"`
+
+    // ContentHash is the SHA-256 hash (set after processing).
+    ContentHash string `json:"content_hash,omitempty"`
+}
+
+// ProcessedAttachment represents a processed attachment.
+type ProcessedAttachment struct {
+    // Attachment is the original attachment.
+    Attachment *Attachment `json:"attachment"`
+
+    // ExtractedText is the text extracted from the attachment.
+    ExtractedText string `json:"extracted_text,omitempty"`
+
+    // Classification is the type classification.
+    Classification AttachmentClassification `json:"classification"`
+
+    // ProcessedAt is when the attachment was processed.
+    ProcessedAt time.Time `json:"processed_at"`
+
+    // ProcessingDuration is how long processing took.
+    ProcessingDuration time.Duration `json:"processing_duration_ns"`
+
+    // Error is set if processing failed.
+    Error string `json:"error,omitempty"`
+
+    // Metadata contains additional extracted metadata.
+    Metadata map[string]string `json:"metadata,omitempty"`
+}
 ```
 
 #### Methods
 
-##### `process_attachments(email: EmailMessage) -> List[ProcessedAttachment]`
+```go
+// NewAttachmentProcessor creates a new processor.
+func NewAttachmentProcessor(config *ProcessorConfig) (*AttachmentProcessor, error)
 
-Processes all attachments in an email message.
+// ProcessAttachment processes a single attachment.
+func (p *AttachmentProcessor) ProcessAttachment(ctx context.Context, attachment *Attachment) (*ProcessedAttachment, error)
 
-**Parameters:**
-- `email` (EmailMessage): Email containing attachments
+// ProcessAttachments processes multiple attachments concurrently.
+func (p *AttachmentProcessor) ProcessAttachments(ctx context.Context, attachments []*Attachment) ([]*ProcessedAttachment, error)
 
-**Returns:**
-- `List[ProcessedAttachment]`: List of processed attachments
+// RegisterExtractor registers a text extractor for a MIME type.
+func (p *AttachmentProcessor) RegisterExtractor(mimeType string, extractor TextExtractor)
 
-**Example:**
-```python
-processor = AttachmentProcessor(storage, queue)
-attachments = await processor.process_attachments(email)
+// SetDownloader sets the attachment downloader.
+func (p *AttachmentProcessor) SetDownloader(downloader AttachmentDownloader)
 
-for attachment in attachments:
-    print(f"Processed: {attachment.filename}")
-    if attachment.content_extracted:
-        print(f"Content: {attachment.extracted_text[:100]}...")
+// DownloadAttachment downloads an attachment from Gmail.
+func (p *AttachmentProcessor) DownloadAttachment(ctx context.Context, messageID, attachmentID string) ([]byte, error)
+
+// ExtractText extracts text content based on MIME type.
+func (p *AttachmentProcessor) ExtractText(content []byte, mimeType string) (string, error)
 ```
 
-##### `extract_content(attachment: Attachment) -> Optional[str]`
+### TextExtractor Interface
 
-Extracts text content from a single attachment.
+Interface for implementing content extractors.
 
-**Parameters:**
-- `attachment` (Attachment): Attachment to process
+```go
+// TextExtractor extracts text from attachment content.
+type TextExtractor interface {
+    Extract(content []byte) (string, error)
+}
 
-**Returns:**
-- `Optional[str]`: Extracted text content, or None if extraction failed
-
-**Example:**
-```python
-content = await processor.extract_content(attachment)
-if content:
-    print(f"Extracted {len(content)} characters")
+// AttachmentDownloader downloads attachment content.
+type AttachmentDownloader interface {
+    Download(ctx context.Context, messageID, attachmentID string) ([]byte, error)
+}
 ```
 
-## Data Models
+#### Example Usage
 
-### Core Models
+```go
+config := &attachment.ProcessorConfig{
+    MaxAttachmentSize: 25 * 1024 * 1024, // 25MB
+    ProcessTimeout:    5 * time.Minute,
+    ConcurrentLimit:   10,
+    ExtractorRegistry: make(map[string]attachment.TextExtractor),
+}
 
-#### EmailMessage
+processor, err := attachment.NewAttachmentProcessor(config)
+if err != nil {
+    return err
+}
 
-```python
-@dataclass
-class EmailMessage:
-    """Represents a complete Gmail message with metadata and content."""
+processor.SetDownloader(gmailDownloader)
 
-    # Message identifiers
-    id: str                           # Gmail message ID
-    thread_id: str                    # Gmail thread ID
-    account_id: str                   # Associated Gmail account
+attachments := []*attachment.Attachment{
+    {
+        ID:        "att123",
+        MessageID: "msg456",
+        Filename:  "document.pdf",
+        MimeType:  "application/pdf",
+        Size:      1024000,
+    },
+}
 
-    # Message metadata
-    subject: str
-    sender: EmailParticipant
-    recipients: List[EmailParticipant]
-    cc_recipients: List[EmailParticipant] = field(default_factory=list)
-    bcc_recipients: List[EmailParticipant] = field(default_factory=list)
-    timestamp: datetime
-    labels: List[str] = field(default_factory=list)
+results, err := processor.ProcessAttachments(ctx, attachments)
+if err != nil {
+    return err
+}
 
-    # Message content
-    body_text: str
-    body_html: Optional[str] = None
-    attachments: List[Attachment] = field(default_factory=list)
-
-    # Processing metadata
-    is_read: bool = False
-    is_starred: bool = False
-    priority: str = "normal"
-    privacy_filtered: bool = False
-    processing_status: str = "pending"
+for _, result := range results {
+    if result.Error == "" {
+        log.Printf("Extracted %d chars from %s",
+            len(result.ExtractedText), result.Attachment.Filename)
+    }
+}
 ```
 
-#### EmailParticipant
+---
 
-```python
-@dataclass
-class EmailParticipant:
-    """Represents an email participant (sender or recipient)."""
+## Privacy Package (`services/gmail/privacy/`)
 
-    email: str
-    name: Optional[str] = None
-    display_name: Optional[str] = None
+### PrivacyFilter
 
-    @property
-    def formatted_address(self) -> str:
-        """Returns formatted email address with name."""
-        if self.name:
-            return f"{self.name} <{self.email}>"
-        return self.email
+Implements configurable privacy controls with PII detection.
+
+```go
+// PrivacyFilter processes messages for PII detection and redaction.
+type PrivacyFilter struct {
+    config            *FilterConfig
+    rules             []Rule
+    blockedSendersMap map[string]bool
+    blockedDomainsMap map[string]bool
+    allowedSendersMap map[string]bool
+    allowedDomainsMap map[string]bool
+    metrics           *FilterMetrics
+}
+
+// FilterConfig holds configuration.
+type FilterConfig struct {
+    // SensitivityLevel controls filtering aggressiveness.
+    SensitivityLevel SensitivityLevel
+
+    // RedactionPlaceholder replaces detected PII.
+    RedactionPlaceholder string
+
+    // BlockedSenders is a list of email addresses to exclude.
+    BlockedSenders []string
+
+    // BlockedDomains is a list of domains to exclude.
+    BlockedDomains []string
+
+    // AllowedSenders bypasses filtering.
+    AllowedSenders []string
+
+    // AllowedDomains bypasses filtering.
+    AllowedDomains []string
+
+    // CustomRules adds rules beyond defaults.
+    CustomRules []Rule
+
+    // AuditLogger records filtering actions.
+    AuditLogger AuditLogger
+}
+
+// SensitivityLevel defines filtering aggressiveness.
+type SensitivityLevel int
+
+const (
+    SensitivityLow    SensitivityLevel = iota  // Blocklist only
+    SensitivityMedium                           // PII detection + redaction
+    SensitivityHigh                             // Full content filtering
+)
 ```
 
-#### Attachment
+#### Types
 
-```python
-@dataclass
-class Attachment:
-    """Represents an email attachment."""
+```go
+// Message represents an email message to be filtered.
+type Message struct {
+    ID          string            `json:"id"`
+    ThreadID    string            `json:"thread_id,omitempty"`
+    From        string            `json:"from"`
+    To          []string          `json:"to"`
+    Cc          []string          `json:"cc,omitempty"`
+    Subject     string            `json:"subject"`
+    Body        string            `json:"body"`
+    Labels      []string          `json:"labels,omitempty"`
+    ReceivedAt  time.Time         `json:"received_at"`
+    Attachments []AttachmentInfo  `json:"attachments,omitempty"`
+}
 
-    # Attachment metadata
-    id: str                           # Gmail attachment ID
-    filename: str
-    mime_type: str
-    size_bytes: int
+// FilterResult contains the filtering outcome.
+type FilterResult struct {
+    // Message is the filtered message (may have redacted content).
+    Message *Message `json:"message"`
 
-    # Content and processing
-    content: Optional[bytes] = None
-    storage_path: Optional[str] = None
-    extracted_text: Optional[str] = None
-    processing_status: str = "pending"
-    processing_error: Optional[str] = None
+    // Excluded indicates the message should not be stored.
+    Excluded bool `json:"excluded"`
 
-    @property
-    def is_text_extractable(self) -> bool:
-        """Returns True if text extraction is supported."""
-        extractable_types = {
-            "application/pdf",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "text/plain",
-            "image/jpeg",
-            "image/png"
-        }
-        return self.mime_type in extractable_types
+    // ExclusionReason explains why excluded.
+    ExclusionReason string `json:"exclusion_reason,omitempty"`
+
+    // PIIDetected contains all PII locations found.
+    PIIDetected []PIILocation `json:"pii_detected,omitempty"`
+
+    // RedactionCount is the number of redactions applied.
+    RedactionCount int `json:"redaction_count"`
+
+    // ProcessingTime is how long filtering took.
+    ProcessingTime time.Duration `json:"processing_time"`
+}
+
+// PIILocation identifies detected PII in text.
+type PIILocation struct {
+    Start      int     `json:"start"`
+    End        int     `json:"end"`
+    Type       string  `json:"type"`
+    Value      string  `json:"value"`
+    Confidence float64 `json:"confidence"`
+}
 ```
 
-#### EmailThread
+#### Methods
 
-```python
-@dataclass
-class EmailThread:
-    """Represents a Gmail conversation thread."""
+```go
+// NewPrivacyFilter creates a new privacy filter.
+func NewPrivacyFilter(config *FilterConfig) (*PrivacyFilter, error)
 
-    # Thread metadata
-    id: str                           # Gmail thread ID
-    account_id: str                   # Associated Gmail account
-    subject: str                      # Thread subject
-    participants: List[EmailParticipant]
-    labels: List[str] = field(default_factory=list)
+// FilterMessage processes a message according to sensitivity level.
+func (f *PrivacyFilter) FilterMessage(ctx context.Context, msg *Message, tenantID string) (*FilterResult, error)
 
-    # Thread content
-    messages: List[EmailMessage] = field(default_factory=list)
-    message_count: int = 0
+// ShouldExclude checks if a message should be excluded.
+func (f *PrivacyFilter) ShouldExclude(msg *Message) (bool, string)
 
-    # Thread timeline
-    first_message_at: Optional[datetime] = None
-    last_message_at: Optional[datetime] = None
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+// DetectPII runs all enabled rules against the text.
+func (f *PrivacyFilter) DetectPII(text string) []PIILocation
 
-    def get_chronological_messages(self) -> List[EmailMessage]:
-        """Returns messages sorted chronologically."""
-        return sorted(self.messages, key=lambda m: m.timestamp)
+// RedactPII replaces PII at specified locations.
+func (f *PrivacyFilter) RedactPII(text string, locations []PIILocation) string
+
+// AddRule adds a custom rule to the filter.
+func (f *PrivacyFilter) AddRule(rule Rule)
+
+// RemoveRule removes a rule by name.
+func (f *PrivacyFilter) RemoveRule(name string) bool
+
+// UpdateBlocklist updates the sender and domain blocklists.
+func (f *PrivacyFilter) UpdateBlocklist(senders, domains []string)
+
+// UpdateAllowlist updates the sender and domain allowlists.
+func (f *PrivacyFilter) UpdateAllowlist(senders, domains []string)
+
+// SetSensitivityLevel updates the sensitivity level.
+func (f *PrivacyFilter) SetSensitivityLevel(level SensitivityLevel)
 ```
 
-### Configuration Models
+### Rule Interface
 
-#### PrivacyConfig
+Interface for implementing custom PII detection rules.
 
-```python
-@dataclass
-class PrivacyConfig:
-    """Privacy filtering configuration for Gmail integration."""
+```go
+// Rule defines the interface for PII detection rules.
+type Rule interface {
+    // Name returns the rule identifier.
+    Name() string
 
-    # Label-based filtering
-    exclude_labels: List[str] = field(default_factory=list)
-    include_only_labels: List[str] = field(default_factory=list)
+    // Enabled returns whether the rule is active.
+    Enabled() bool
 
-    # Content-based filtering
-    exclude_patterns: List[str] = field(default_factory=list)
-    content_redaction: Dict[str, str] = field(default_factory=dict)
+    // Detect finds PII locations in text.
+    Detect(text string) []PIILocation
 
-    # Sender/domain filtering
-    exclude_domains: List[str] = field(default_factory=list)
-    exclude_senders: List[str] = field(default_factory=list)
-    trusted_domains: List[str] = field(default_factory=list)
-
-    # Audit and compliance
-    audit_enabled: bool = True
-    retention_days: Optional[int] = None
-
-    def is_exclude_mode(self) -> bool:
-        """Returns True if operating in exclude mode (default)."""
-        return len(self.include_only_labels) == 0
-
-    def is_allowlist_mode(self) -> bool:
-        """Returns True if operating in allowlist mode."""
-        return len(self.include_only_labels) > 0
+    // Redact replaces PII at specified locations.
+    Redact(text string, locations []PIILocation, placeholder string) string
+}
 ```
 
-#### GmailConfig
+#### Example Usage
 
-```python
-@dataclass
-class GmailConfig:
-    """Gmail integration configuration."""
+```go
+config := &privacy.FilterConfig{
+    SensitivityLevel:     privacy.SensitivityMedium,
+    RedactionPlaceholder: "[REDACTED]",
+    BlockedSenders:       []string{"spam@example.com"},
+    BlockedDomains:       []string{"malware.com"},
+    AllowedDomains:       []string{"company.com"},
+}
 
-    # Authentication
-    credentials_file: str
-    encryption_key: str
+filter, err := privacy.NewPrivacyFilter(config)
+if err != nil {
+    return err
+}
 
-    # Sync configuration
-    realtime_sync: bool = True
-    sync_interval: int = 60           # seconds
-    batch_size: int = 100
-    import_days_back: int = 90
+msg := &privacy.Message{
+    ID:         "msg123",
+    From:       "sender@example.com",
+    Subject:    "Regarding account 123-45-6789",
+    Body:       "Please call me at 555-123-4567 about your SSN 123-45-6789.",
+    ReceivedAt: time.Now(),
+}
 
-    # Performance settings
-    max_concurrent_requests: int = 5
-    rate_limit_requests_per_second: int = 250
-    retry_attempts: int = 3
-    request_timeout: int = 30
+result, err := filter.FilterMessage(ctx, msg, tenantID)
+if err != nil {
+    return err
+}
 
-    # Privacy and filtering
-    privacy_filters: PrivacyConfig = field(default_factory=PrivacyConfig)
-
-    # Attachment processing
-    attachments_enabled: bool = True
-    max_attachment_size_mb: int = 10
-    extract_content: bool = True
-    supported_formats: List[str] = field(
-        default_factory=lambda: ["pdf", "docx", "txt", "jpeg", "png"]
-    )
+if result.Excluded {
+    log.Printf("Message excluded: %s", result.ExclusionReason)
+} else {
+    log.Printf("Filtered message, %d redactions applied", result.RedactionCount)
+    // result.Message.Body: "Please call me at [REDACTED] about your SSN [REDACTED]."
+}
 ```
 
-## Event Schemas
+---
 
-### GmailContentEvent
+## Config Package (`services/gmail/config/`)
 
-```python
-@dataclass
-class GmailContentEvent:
-    """Event schema for Gmail content ingestion."""
+### Config
 
-    # Standard event fields
-    event_type: str = "content.ingested"
-    source_type: str = "gmail"
-    source_id: str                    # Gmail message ID
-    account_id: str                   # Gmail account identifier
-    timestamp: datetime = field(default_factory=datetime.now)
-    event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+Service-specific configuration.
 
-    # Gmail-specific metadata
-    message_id: str
-    thread_id: str
-    subject: str
-    sender: EmailParticipant
-    recipients: List[EmailParticipant]
-    message_timestamp: datetime
-    labels: List[str]
+```go
+// Config holds Gmail Connector service configuration.
+type Config struct {
+    // Base embeds the shared Penfold configuration.
+    Base *pkgconfig.Config
 
-    # Content
-    body_text: str
-    body_html: Optional[str] = None
-    attachments: List[AttachmentReference] = field(default_factory=list)
+    // GRPCPort is the port for gRPC connections.
+    GRPCPort int
 
-    # Processing context
-    privacy_filtered: bool = False
-    thread_context: Optional[ThreadContext] = None
-    extraction_metadata: Dict[str, Any] = field(default_factory=dict)
+    // HTTPPort is the port for health checks and metrics.
+    HTTPPort int
 
-    def to_dict(self) -> dict:
-        """Serialize event to dictionary for publishing."""
-        return asdict(self)
+    // OAuthCredentialsPath is the path to OAuth credentials JSON.
+    OAuthCredentialsPath string
 
-    @classmethod
-    def from_dict(cls, data: dict) -> "GmailContentEvent":
-        """Deserialize event from dictionary."""
-        return cls(**data)
+    // TokenStorePath is the path for OAuth token storage.
+    TokenStorePath string
+
+    // MaxSyncBatchSize is the max emails per batch.
+    MaxSyncBatchSize int
+
+    // SyncTimeoutSeconds is the sync operation timeout.
+    SyncTimeoutSeconds int
+}
+
+// Default values.
+const (
+    DefaultGRPCPort           = 50051
+    DefaultHTTPPort           = 8081
+    DefaultMaxSyncBatchSize   = 500
+    DefaultSyncTimeoutSeconds = 300
+)
 ```
 
-## Configuration API
+#### Methods
 
-### GmailConfigManager
+```go
+// LoadConfig loads the Gmail Connector service configuration.
+func LoadConfig() (*Config, error)
 
-```python
-from penf_lib.connectors.gmail.config import GmailConfigManager
+// Validate checks that the configuration is valid.
+func (c *Config) Validate() error
 
-class GmailConfigManager:
-    """Manages Gmail integration configuration."""
+// GRPCAddress returns the gRPC server listen address.
+func (c *Config) GRPCAddress() string
 
-    def load_config(self, config_path: str) -> GmailConfig:
-        """Load configuration from file."""
-
-    def save_config(self, config: GmailConfig, config_path: str) -> None:
-        """Save configuration to file."""
-
-    def update_privacy_filters(
-        self,
-        account_id: str,
-        filters: PrivacyConfig
-    ) -> None:
-        """Update privacy filters for specific account."""
-
-    def get_account_config(self, account_id: str) -> AccountConfig:
-        """Get account-specific configuration."""
+// HTTPAddress returns the HTTP server listen address.
+func (c *Config) HTTPAddress() string
 ```
+
+#### Example Usage
+
+```go
+cfg, err := config.LoadConfig()
+if err != nil {
+    log.Fatalf("Failed to load config: %v", err)
+}
+
+log.Printf("Starting gRPC server on %s", cfg.GRPCAddress())
+log.Printf("Starting HTTP server on %s", cfg.HTTPAddress())
+```
+
+---
 
 ## CLI Commands
 
-### Gmail Integration Commands
+The `penf` CLI provides Gmail management commands.
 
-#### `penf gmail connect`
-
-Connect a Gmail account using OAuth2 authentication.
+### Connection Commands
 
 ```bash
-# Connect primary account
+# Connect a Gmail account (starts OAuth2 flow)
 penf gmail connect
 
 # Connect specific account
-penf gmail connect --account work@company.com
+penf gmail connect --account user@gmail.com
 
-# Connect with custom scopes
-penf gmail connect --scopes readonly,labels
+# Disconnect account
+penf gmail disconnect --account user@gmail.com
+
+# Refresh authentication
+penf gmail refresh-auth --account user@gmail.com
 ```
 
-#### `penf gmail import`
-
-Import historical emails from connected accounts.
+### Sync Commands
 
 ```bash
-# Import with default settings
+# Start historical import
 penf gmail import
 
-# Import specific date range
+# Import with date range
 penf gmail import --from-date 2025-01-01 --to-date 2025-12-31
-
-# Import with privacy filters
-penf gmail import --exclude-labels "Personal,Banking"
 
 # Dry run to preview import
 penf gmail import --dry-run
-```
 
-#### `penf gmail sync`
-
-Perform manual synchronization of Gmail accounts.
-
-```bash
-# Sync all accounts
+# Manual sync
 penf gmail sync
 
 # Sync specific account
 penf gmail sync --account user@gmail.com
 
-# Force full sync (ignore incremental state)
+# Force full sync
 penf gmail sync --full
 ```
 
-#### `penf gmail status`
-
-Display Gmail integration status and statistics.
+### Status Commands
 
 ```bash
-# Show status for all accounts
+# Show connection status
 penf gmail status
 
-# Show detailed status for specific account
-penf gmail status --account user@gmail.com --verbose
+# Verbose status with details
+penf gmail status --verbose
+
+# List all accounts
+penf gmail accounts
 
 # Show sync history
 penf gmail status --history
 ```
 
-#### `penf gmail config`
-
-Manage Gmail integration configuration.
+### Configuration Commands
 
 ```bash
 # List current configuration
 penf gmail config --list
 
-# Update sync interval
-penf gmail config --sync-interval 300
+# Update batch size
+penf gmail config --batch-size 100
 
-# Update privacy filters
-penf gmail config --exclude-labels "Spam,Trash,Personal"
+# Update privacy level
+penf gmail config --privacy-level medium
 
-# Enable/disable attachments
-penf gmail config --attachments-enabled true
+# Block sender
+penf gmail config --block-sender spam@example.com
+
+# Block domain
+penf gmail config --block-domain spam.example.com
+
+# Allow domain
+penf gmail config --allow-domain company.com
+
+# Configure polling fallback
+penf gmail config --polling-fallback true --polling-interval 300
 ```
 
-## Error Handling
+### Monitoring Commands
 
-### Exception Hierarchy
+```bash
+# Watch real-time status
+penf gmail monitor
 
-```python
-class GmailIntegrationError(Exception):
-    """Base exception for Gmail integration errors."""
+# Test real-time notification
+penf gmail monitor --test-email
 
-class AuthenticationError(GmailIntegrationError):
-    """OAuth2 authentication failures."""
+# View logs
+penf gmail logs --tail
+penf gmail logs --level debug
 
-class APIQuotaExceededError(GmailIntegrationError):
-    """Gmail API quota limit exceeded."""
-
-class RateLimitError(GmailIntegrationError):
-    """Rate limiting temporarily blocking requests."""
-
-class PrivacyViolationError(GmailIntegrationError):
-    """Content violates privacy filtering rules."""
-
-class AttachmentProcessingError(GmailIntegrationError):
-    """Attachment download or extraction failed."""
-
-class SyncOperationError(GmailIntegrationError):
-    """Email synchronization operation failed."""
+# Export diagnostic report
+penf gmail diagnostic --export /tmp/gmail-diagnostic.zip
 ```
 
-### Error Response Format
+---
 
-```python
-@dataclass
-class ErrorResponse:
-    """Standardized error response format."""
+## Error Types
 
-    error_type: str
-    error_code: str
-    message: str
-    details: Dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now)
-    retry_after: Optional[int] = None  # seconds
+Common errors returned by the Gmail integration packages.
 
-    def is_retryable(self) -> bool:
-        """Returns True if error condition is temporary."""
-        retryable_codes = {
-            "rate_limited",
-            "temporary_failure",
-            "network_error",
-            "service_unavailable"
-        }
-        return self.error_code in retryable_codes
-```
-
-## Usage Examples
-
-### Complete Integration Example
-
-```python
-import asyncio
-from penf_lib.connectors.gmail import (
-    OAuth2Manager,
-    GmailAPIClient,
-    SyncCoordinator,
-    RealtimeMonitor,
-    PrivacyFilterEngine,
-    AttachmentProcessor
+```go
+// OAuth errors
+var (
+    ErrInvalidState       = errors.New("oauth: invalid state parameter")
+    ErrFlowExpired        = errors.New("oauth: authorization flow expired")
+    ErrTokenExpired       = errors.New("oauth: token expired")
+    ErrTokenNotFound      = errors.New("oauth: token not found")
+    ErrRefreshFailed      = errors.New("oauth: token refresh failed")
 )
 
-async def setup_gmail_integration():
-    """Complete Gmail integration setup example."""
+// Sync errors
+var (
+    ErrSyncInProgress     = errors.New("sync: sync already in progress")
+    ErrSyncNotFound       = errors.New("sync: sync operation not found")
+    ErrRateLimitExceeded  = errors.New("sync: rate limit exceeded")
+    ErrHistoryExpired     = errors.New("sync: history ID expired, full sync required")
+)
 
-    # Initialize authentication
-    auth_manager = OAuth2Manager(encryption_key="your-encryption-key")
+// Attachment errors
+var (
+    ErrAttachmentTooLarge  = errors.New("attachment: exceeds maximum size limit")
+    ErrUnsupportedMimeType = errors.New("attachment: unsupported MIME type")
+    ErrDownloadFailed      = errors.New("attachment: download failed")
+    ErrExtractionFailed    = errors.New("attachment: text extraction failed")
+    ErrProcessingTimeout   = errors.New("attachment: processing timeout")
+    ErrNoDownloader        = errors.New("attachment: no downloader configured")
+)
 
-    # Connect Gmail account
-    auth_url = await auth_manager.start_oauth_flow("user@gmail.com")
-    print(f"Visit: {auth_url.url}")
-
-    # Simulate OAuth2 callback (in real app, this comes from web server)
-    auth_code = input("Enter authorization code: ")
-    success = await auth_manager.complete_oauth_flow("user@gmail.com", auth_code)
-
-    if not success:
-        raise Exception("Authentication failed")
-
-    # Initialize Gmail client
-    client = GmailAPIClient(auth_manager)
-
-    # Setup privacy filtering
-    privacy_config = PrivacyConfig(
-        exclude_labels=["Personal", "Spam"],
-        exclude_patterns=[r"\b\d{3}-\d{2}-\d{4}\b"],  # SSN pattern
-        audit_enabled=True
-    )
-    privacy_engine = PrivacyFilterEngine(privacy_config)
-
-    # Setup attachment processing
-    attachment_processor = AttachmentProcessor(
-        storage=FileStorage("/tmp/attachments"),
-        queue=BackgroundQueue()
-    )
-
-    # Initialize sync coordinator
-    sync_coordinator = SyncCoordinator(
-        client=client,
-        privacy_engine=privacy_engine,
-        attachment_processor=attachment_processor,
-        event_publisher=event_publisher
-    )
-
-    # Start historical import
-    import_operation = await sync_coordinator.start_historical_import(
-        account_id="user@gmail.com",
-        date_range=DateRange(days_back=30),
-        filters=privacy_config
-    )
-
-    # Monitor import progress
-    while not import_operation.is_complete():
-        status = await import_operation.get_status()
-        print(f"Import progress: {status.progress.percent:.1f}%")
-        await asyncio.sleep(5)
-
-    print("Historical import completed")
-
-    # Setup real-time monitoring
-    monitor = RealtimeMonitor(sync_coordinator)
-    await monitor.setup_push_notifications("user@gmail.com")
-    await monitor.start_monitoring()
-
-    print("Gmail integration fully configured and running")
-
-# Run the setup
-if __name__ == "__main__":
-    asyncio.run(setup_gmail_integration())
+// Privacy errors
+var (
+    ErrFilterConfigInvalid = errors.New("privacy: invalid filter configuration")
+)
 ```
 
-This API reference provides comprehensive documentation for all Gmail integration components. Each API includes detailed method signatures, parameters, return values, usage examples, and error handling information to enable effective development and integration.
+---
+
+## Metrics
+
+Prometheus metrics exported by each package.
+
+### OAuth Metrics
+
+```go
+type OAuthMetrics struct {
+    AuthFlowsStarted   prometheus.Counter   // Total auth flows initiated
+    AuthFlowsCompleted prometheus.Counter   // Successfully completed flows
+    AuthFlowsFailed    prometheus.Counter   // Failed auth flows
+    TokenRefreshes     prometheus.Counter   // Token refresh operations
+    TokenRefreshErrors prometheus.Counter   // Failed refreshes
+    TokenValidations   prometheus.Counter   // Token validation checks
+}
+```
+
+### Sync Metrics
+
+```go
+type SyncMetrics struct {
+    SyncsStarted      prometheus.Counter   // Sync operations started
+    SyncsCompleted    prometheus.Counter   // Successfully completed syncs
+    SyncsFailed       prometheus.Counter   // Failed syncs
+    MessagesProcessed prometheus.Counter   // Total messages processed
+    MessagesFailed    prometheus.Counter   // Messages that failed processing
+    APIRequests       prometheus.Counter   // Gmail API requests
+    APIErrors         prometheus.Counter   // API errors
+    APILatency        prometheus.Histogram // API request latency
+    RateLimitHits     prometheus.Counter   // Rate limit encounters
+    RetryAttempts     prometheus.Counter   // Retry attempts
+}
+```
+
+### Attachment Metrics
+
+```go
+type ProcessorMetrics struct {
+    AttachmentsProcessed prometheus.Counter    // Successfully processed
+    AttachmentsFailed    prometheus.Counter    // Failed processing
+    AttachmentsSkipped   prometheus.Counter    // Skipped (too large, unsupported)
+    ProcessingDuration   prometheus.Histogram  // Processing time
+    BytesProcessed       prometheus.Counter    // Total bytes processed
+    TextBytesExtracted   prometheus.Counter    // Text bytes extracted
+    ClassificationCounts *prometheus.CounterVec // By classification type
+}
+```
+
+### Privacy Metrics
+
+```go
+type FilterMetrics struct {
+    MessagesProcessed prometheus.Counter    // Messages processed
+    MessagesExcluded  prometheus.Counter    // Messages excluded
+    PIIDetections     *prometheus.CounterVec // By PII type
+    RedactionsApplied prometheus.Counter    // Redactions applied
+    ProcessingTime    prometheus.Histogram  // Processing time
+    FilterErrors      prometheus.Counter    // Filter errors
+}
+```
+
+---
+
+## Testing Utilities
+
+Mock implementations for testing.
+
+```go
+// MockDownloader for attachment processing tests.
+type MockDownloader struct {
+    Content map[string][]byte
+    Err     error
+}
+
+func (m *MockDownloader) Download(ctx context.Context, messageID, attachmentID string) ([]byte, error) {
+    if m.Err != nil {
+        return nil, m.Err
+    }
+    key := messageID + ":" + attachmentID
+    if content, exists := m.Content[key]; exists {
+        return content, nil
+    }
+    return nil, fmt.Errorf("attachment not found: %s", key)
+}
+
+// MemoryAuditLogger for privacy filter tests.
+type MemoryAuditLogger struct {
+    entries []AuditEntry
+    mu      sync.Mutex
+}
+
+func NewMemoryAuditLogger() *MemoryAuditLogger {
+    return &MemoryAuditLogger{entries: make([]AuditEntry, 0)}
+}
+
+func (l *MemoryAuditLogger) Log(ctx context.Context, entry *AuditEntry) error {
+    l.mu.Lock()
+    defer l.mu.Unlock()
+    l.entries = append(l.entries, *entry)
+    return nil
+}
+
+func (l *MemoryAuditLogger) GetEntries() []AuditEntry {
+    l.mu.Lock()
+    defer l.mu.Unlock()
+    entries := make([]AuditEntry, len(l.entries))
+    copy(entries, l.entries)
+    return entries
+}
+```
+
+This API reference provides comprehensive documentation for all Gmail integration components. For usage examples and integration patterns, see the [Architecture Guide](./architecture.md) and [Setup Guide](./setup-guide.md).
