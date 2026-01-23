@@ -28,18 +28,23 @@ type CLIRunner struct {
 func NewCLIRunner(t *testing.T) *CLIRunner {
 	t.Helper()
 
-	// Find project root
+	// Find project root by looking for cmd/penf directory
 	workDir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get working directory: %v", err)
 	}
 
-	// Walk up to find go.mod
+	// Walk up to find cmd/penf (the actual project root, not tests/go.mod)
 	for workDir != "/" {
-		if _, err := os.Stat(filepath.Join(workDir, "go.mod")); err == nil {
+		cmdPath := filepath.Join(workDir, "cmd", "penf")
+		if _, err := os.Stat(cmdPath); err == nil {
 			break
 		}
 		workDir = filepath.Dir(workDir)
+	}
+
+	if workDir == "/" {
+		t.Fatalf("could not find project root (looking for cmd/penf)")
 	}
 
 	binaryPath := filepath.Join(workDir, "penf")
