@@ -1,25 +1,38 @@
 go 1.24.0
 
 use (
+	// Proto modules - original (to be deprecated)
 	./api/proto
 	./api/proto/ai/v1
 	./api/proto/cli/v1
 	./api/proto/common/v1
+	./api/proto/connectors/v1
 	./api/proto/content/v1
+
+	// Proto modules - consolidated (new)
+	./api/proto/core/v1
 	./api/proto/entity/v1
 	./api/proto/gateway/v1
 	./api/proto/glossary/v1
 	./api/proto/gmail/v1
+	./api/proto/intelligence/v1
 	./api/proto/mentions/v1
 	./api/proto/orchestrator/v1
+	./api/proto/processing/v1
 	./api/proto/questions/v1
 	./api/proto/relationship/v1
 	./api/proto/review/v1
 	./api/proto/search/v1
 	./api/proto/workflow/v1
+
+	// CLI and pipeline
 	./cmd/penf
 	./penfold-go-pipeline
+
+	// Core packages
 	./pkg
+
+	// Services
 	./services/ai
 	./services/content
 	./services/gateway
@@ -28,5 +41,7 @@ use (
 	./services/review
 	./services/search
 	./services/worker
+
+	// Tests
 	./tests
 )
