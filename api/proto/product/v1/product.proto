@@ -89,6 +89,9 @@ service ProductService {
 
   // ListProductPeople lists all people associated with a product through teams.
   rpc ListProductPeople(ListProductPeopleRequest) returns (ListProductPeopleResponse);
+
+  // Natural language query for products.
+  rpc QueryProducts(QueryProductsRequest) returns (QueryProductsResponse);
 }
 
 // =============================================================================
@@ -149,9 +152,32 @@ enum LinkType {
   LINK_TYPE_FOLLOW_UP = 3;
 }
 
+// QueryType indicates the type of query being executed.
+enum QueryType {
+  QUERY_TYPE_UNSPECIFIED = 0;
+  QUERY_TYPE_SEARCH = 1;
+  QUERY_TYPE_ROLE = 2;
+  QUERY_TYPE_TEAM = 3;
+  QUERY_TYPE_TIMELINE = 4;
+  QUERY_TYPE_HIERARCHY = 5;
+}
+
 // =============================================================================
 // Core Messages
 // =============================================================================
+
+// PersonRoleInfo represents a person's role information for query results.
+// This is different from ProductTeamRole - it's a flattened view for query responses.
+message PersonRoleInfo {
+  int64 person_id = 1;
+  string person_name = 2;
+  string person_email = 3;
+  string role = 4;
+  string scope = 5;
+  string team_name = 6;
+  string team_context = 7;
+  string product_name = 8;
+}
 
 // Product represents a business product with hierarchy support.
 message Product {
@@ -1007,4 +1033,41 @@ message ProductPersonSummary {
 message ListProductPeopleResponse {
   // People with their team and role information.
   repeated ProductPersonSummary people = 1;
+}
+
+// =============================================================================
+// Query Messages
+// =============================================================================
+
+// QueryProductsRequest is a natural language query for products.
+message QueryProductsRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Natural language query.
+  string query = 2;
+}
+
+// QueryProductsResponse returns results based on query type.
+message QueryProductsResponse {
+  // Type of query that was executed.
+  QueryType type = 1;
+
+  // Human-readable summary of the results.
+  string message = 2;
+
+  // Results based on query type - for search results.
+  repeated Product products = 3;
+
+  // Results based on query type - for role queries.
+  repeated PersonRoleInfo persons = 4;
+
+  // Results based on query type - for team queries.
+  repeated ProductTeam teams = 5;
+
+  // Results based on query type - for timeline queries.
+  repeated ProductEvent events = 6;
+
+  // Results based on query type - for hierarchy queries.
+  repeated ProductWithHierarchy hierarchy = 7;
 }

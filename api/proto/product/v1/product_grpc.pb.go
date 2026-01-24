@@ -46,6 +46,7 @@ const (
 	ProductService_GetProductTeamRole_FullMethodName   = "/penfold.product.v1.ProductService/GetProductTeamRole"
 	ProductService_FindByRole_FullMethodName           = "/penfold.product.v1.ProductService/FindByRole"
 	ProductService_ListProductPeople_FullMethodName    = "/penfold.product.v1.ProductService/ListProductPeople"
+	ProductService_QueryProducts_FullMethodName        = "/penfold.product.v1.ProductService/QueryProducts"
 )
 
 // ProductServiceClient is the client API for ProductService service.
@@ -105,6 +106,8 @@ type ProductServiceClient interface {
 	FindByRole(ctx context.Context, in *FindByRoleRequest, opts ...grpc.CallOption) (*FindByRoleResponse, error)
 	// ListProductPeople lists all people associated with a product through teams.
 	ListProductPeople(ctx context.Context, in *ListProductPeopleRequest, opts ...grpc.CallOption) (*ListProductPeopleResponse, error)
+	// Natural language query for products.
+	QueryProducts(ctx context.Context, in *QueryProductsRequest, opts ...grpc.CallOption) (*QueryProductsResponse, error)
 }
 
 type productServiceClient struct {
@@ -355,6 +358,16 @@ func (c *productServiceClient) ListProductPeople(ctx context.Context, in *ListPr
 	return out, nil
 }
 
+func (c *productServiceClient) QueryProducts(ctx context.Context, in *QueryProductsRequest, opts ...grpc.CallOption) (*QueryProductsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QueryProductsResponse)
+	err := c.cc.Invoke(ctx, ProductService_QueryProducts_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProductServiceServer is the server API for ProductService service.
 // All implementations must embed UnimplementedProductServiceServer
 // for forward compatibility.
@@ -412,6 +425,8 @@ type ProductServiceServer interface {
 	FindByRole(context.Context, *FindByRoleRequest) (*FindByRoleResponse, error)
 	// ListProductPeople lists all people associated with a product through teams.
 	ListProductPeople(context.Context, *ListProductPeopleRequest) (*ListProductPeopleResponse, error)
+	// Natural language query for products.
+	QueryProducts(context.Context, *QueryProductsRequest) (*QueryProductsResponse, error)
 	mustEmbedUnimplementedProductServiceServer()
 }
 
@@ -493,6 +508,9 @@ func (UnimplementedProductServiceServer) FindByRole(context.Context, *FindByRole
 }
 func (UnimplementedProductServiceServer) ListProductPeople(context.Context, *ListProductPeopleRequest) (*ListProductPeopleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListProductPeople not implemented")
+}
+func (UnimplementedProductServiceServer) QueryProducts(context.Context, *QueryProductsRequest) (*QueryProductsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryProducts not implemented")
 }
 func (UnimplementedProductServiceServer) mustEmbedUnimplementedProductServiceServer() {}
 func (UnimplementedProductServiceServer) testEmbeddedByValue()                        {}
@@ -947,6 +965,24 @@ func _ProductService_ListProductPeople_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProductService_QueryProducts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryProductsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).QueryProducts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_QueryProducts_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).QueryProducts(ctx, req.(*QueryProductsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProductService_ServiceDesc is the grpc.ServiceDesc for ProductService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1049,6 +1085,10 @@ var ProductService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListProductPeople",
 			Handler:    _ProductService_ListProductPeople_Handler,
+		},
+		{
+			MethodName: "QueryProducts",
+			Handler:    _ProductService_QueryProducts_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

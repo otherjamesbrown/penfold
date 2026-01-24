@@ -1513,3 +1513,106 @@ func productTeamRoleToProto(r *products.ProductTeamRole) *productv1.ProductTeamR
 
 	return proto
 }
+
+// ==================== Query Methods ====================
+
+// QueryProducts executes a natural language query about products.
+func (s *Service) QueryProducts(ctx context.Context, req *productv1.QueryProductsRequest) (*productv1.QueryProductsResponse, error) {
+	s.logger.Debug("QueryProducts called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("query", req.Query),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.Query == "" {
+		return nil, status.Error(codes.InvalidArgument, "query is required")
+	}
+
+	// Create a query service using the repository's pool
+	querySvc := products.NewQueryService(s.repo.Pool(), s.logger)
+
+	// Execute the query
+	result, err := querySvc.Query(ctx, req.TenantId, req.Query)
+	if err != nil {
+		s.logger.Error("Error executing query", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "query failed: %v", err)
+	}
+
+	// Build response
+	response := &productv1.QueryProductsResponse{
+		Type:    queryTypeToProto(result.Type),
+		Message: result.Message,
+	}
+
+	// Add type-specific results
+	if len(result.Products) > 0 {
+		for _, p := range result.Products {
+			response.Products = append(response.Products, productToProto(p))
+		}
+	}
+
+	if len(result.Persons) > 0 {
+		for _, p := range result.Persons {
+			response.Persons = append(response.Persons, personRoleInfoToProto(p))
+		}
+	}
+
+	if len(result.Teams) > 0 {
+		for _, t := range result.Teams {
+			response.Teams = append(response.Teams, productTeamToProto(t))
+		}
+	}
+
+	if len(result.Events) > 0 {
+		for _, e := range result.Events {
+			response.Events = append(response.Events, eventToProto(e))
+		}
+	}
+
+	if result.Hierarchy != nil {
+		response.Hierarchy = append(response.Hierarchy, &productv1.ProductWithHierarchy{
+			Product: productToProto(result.Hierarchy.Product),
+			Depth:   int32(result.Hierarchy.Depth),
+			Path:    result.Hierarchy.Path,
+		})
+	}
+
+	return response, nil
+}
+
+// ==================== Query Conversion Helpers ====================
+
+func queryTypeToProto(qt products.QueryType) productv1.QueryType {
+	switch qt {
+	case products.QueryTypeSearch:
+		return productv1.QueryType_QUERY_TYPE_SEARCH
+	case products.QueryTypeRole:
+		return productv1.QueryType_QUERY_TYPE_ROLE
+	case products.QueryTypeTeam:
+		return productv1.QueryType_QUERY_TYPE_TEAM
+	case products.QueryTypeTimeline:
+		return productv1.QueryType_QUERY_TYPE_TIMELINE
+	case products.QueryTypeHierarchy:
+		return productv1.QueryType_QUERY_TYPE_HIERARCHY
+	default:
+		return productv1.QueryType_QUERY_TYPE_UNSPECIFIED
+	}
+}
+
+func personRoleInfoToProto(p *products.PersonRoleInfo) *productv1.PersonRoleInfo {
+	if p == nil {
+		return nil
+	}
+	return &productv1.PersonRoleInfo{
+		PersonId:    p.PersonID,
+		PersonName:  p.PersonName,
+		PersonEmail: p.PersonEmail,
+		Role:        p.Role,
+		Scope:       p.Scope,
+		TeamName:    p.TeamName,
+		TeamContext: p.TeamContext,
+		ProductName: p.ProductName,
+	}
+}
