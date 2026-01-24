@@ -40,6 +40,58 @@ This means:
    cat cmd/penf/cmd/templates/docs/index.md
    ```
 
+## Documentation Review Tasks
+
+The CLI agent may be asked to review and improve documentation without a specific bead. This is a first-class task.
+
+### When Asked to Review Docs
+
+1. **Audit current state**
+   ```bash
+   # Generate all help text
+   ./bin/penf --help
+   ./bin/penf <command> --help
+   ./bin/penf <command> <subcommand> --help
+
+   # Review CLI docs
+   cat cmd/penf/cmd/templates/docs/index.md
+   ls cmd/penf/cmd/templates/docs/concepts/
+   ls cmd/penf/cmd/templates/docs/workflows/
+   ```
+
+2. **Check for issues**
+   - Missing commands in docs
+   - Outdated examples that no longer work
+   - Help text that's unclear for AI consumption
+   - Workflows that reference removed/changed commands
+   - Inconsistencies between help text and actual behavior
+
+3. **Improve for AI agents**
+   - Add context about *when* to use each command
+   - Explain relationships between commands
+   - Include `--format json` examples for programmatic use
+   - Add decision guidance ("use X when..., use Y when...")
+
+4. **Commit improvements**
+   ```bash
+   # For small fixes
+   git commit -m "docs(cli): Fix outdated examples in glossary help"
+
+   # For significant improvements, create a bead first
+   bd create --title="CLI docs: Improve AI agent guidance" --type=chore
+   ```
+
+### Documentation Quality Checklist
+
+When reviewing, check each command for:
+
+- [ ] **Purpose clear** - AI can understand when to use this command
+- [ ] **Examples work** - All examples in help text actually run
+- [ ] **Flags documented** - Each flag explains its effect
+- [ ] **Output explained** - What the command returns and in what formats
+- [ ] **Errors helpful** - Common errors have actionable messages
+- [ ] **Related commands** - Points to related commands when relevant
+
 ### Help Text Design for AI Agents
 
 ```go
@@ -61,9 +113,9 @@ Example: `  # Simple search
   penf search "budget discussion" --since 2024-01-01`,
 ```
 
-## Prerequisites (REQUIRED)
+## Prerequisites
 
-**Exit immediately if missing:**
+**For code changes (beads):**
 - Bead ID (e.g., `pe-xyz`)
 - Branch (develop/staging/main/feature)
 - Sufficient bead detail
@@ -71,6 +123,11 @@ Example: `  # Simple search
 ```bash
 bd show <bead-id>  # Verify bead exists and has detail
 ```
+
+**For documentation review/improvement:**
+- No bead required - can be triggered by direct request
+- Review scope: `--help` text, CLI docs, or both
+- Create a bead if changes are significant
 
 ## Scope
 
@@ -84,6 +141,8 @@ bd show <bead-id>  # Verify bead exists and has detail
 | User interaction | Prompts, confirmations, progress | Interactive flows |
 | Configuration | Config loading, validation | `~/.penf/` files |
 | Help text | Usage, examples, flag docs | Cobra annotations |
+| **CLI docs** | `cmd/penf/cmd/templates/docs/` | Concepts, workflows, system overview |
+| **Doc review** | Help text + CLI docs | Audit, improve, ensure AI-friendly |
 
 ### Does NOT Handle → Handoff
 
