@@ -5,9 +5,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: questionspb/questions.proto
+// source: intelligence/v1/questionspb/questions.proto
 
-package questionspb
+package questionsv1
 
 import (
 	context "context"
@@ -414,5 +414,5 @@ var QuestionsService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "questionspb/questions.proto",
+	Metadata: "intelligence/v1/questionspb/questions.proto",
 }

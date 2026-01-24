@@ -5,9 +5,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: mentionspb/mentions.proto
+// source: intelligence/v1/mentionspb/mentions.proto
 
-package mentionspb
+package mentionsv1
 
 import (
 	context "context"
@@ -452,5 +452,5 @@ var MentionsService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "mentionspb/mentions.proto",
+	Metadata: "intelligence/v1/mentionspb/mentions.proto",
 }

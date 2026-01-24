@@ -5,9 +5,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: contentpb/content.proto
+// source: processing/v1/contentpb/content.proto
 
-package contentpb
+package contentv1
 
 import (
 	context "context"
@@ -301,5 +301,5 @@ var ContentProcessorService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "contentpb/content.proto",
+	Metadata: "processing/v1/contentpb/content.proto",
 }

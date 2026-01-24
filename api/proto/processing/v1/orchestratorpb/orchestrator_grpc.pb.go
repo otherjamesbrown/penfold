@@ -5,9 +5,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: orchestratorpb/orchestrator.proto
+// source: processing/v1/orchestratorpb/orchestrator.proto
 
-package orchestratorpb
+package orchestratorv1
 
 import (
 	context "context"
@@ -412,5 +412,5 @@ var OrchestratorService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "orchestratorpb/orchestrator.proto",
+	Metadata: "processing/v1/orchestratorpb/orchestrator.proto",
 }

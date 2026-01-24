@@ -7,9 +7,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: clipb/cli.proto
+// source: core/v1/clipb/cli.proto
 
-package clipb
+package cliv1
 
 import (
 	context "context"
@@ -386,5 +386,5 @@ var CLIService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "clipb/cli.proto",
+	Metadata: "core/v1/clipb/cli.proto",
 }
