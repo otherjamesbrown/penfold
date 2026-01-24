@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 
 	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
+	"github.com/otherjamesbrown/penfold/pkg/contentid"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/eml"
 )
 
@@ -40,6 +42,7 @@ type emailIngestResult struct {
 	CompletedAt   time.Time
 	Success       bool
 	Errors        []emailFileError
+	ContentIDs    []string // Content IDs of successfully ingested emails
 }
 
 // emailFileError records an error for a specific file.
@@ -528,9 +531,10 @@ type emailFileOutcome struct {
 }
 
 type emailOutcome struct {
-	status   string // "imported", "skipped", "failed"
-	sourceID string
-	err      error
+	status    string // "imported", "skipped", "failed"
+	contentID string
+	sourceID  string
+	err       error
 }
 
 // processEmailFile processes a single file and returns the outcome.
@@ -548,8 +552,11 @@ func processEmailFile(
 
 	email := parseResult.Email
 
+	// Generate content_id before sending to gateway
+	cid := contentid.New(contentid.TypeEmail)
+
 	// Convert to proto request and send via gRPC
-	req := emailToProtoRequest(email, tenantID, emailSource, emailLabels, jobID)
+	req := emailToProtoRequest(email, tenantID, emailSource, emailLabels, jobID, cid)
 
 	resp, err := client.IngestEmail(ctx, req)
 	if err != nil {
@@ -557,14 +564,14 @@ func processEmailFile(
 	}
 
 	if resp.WasDuplicate {
-		return emailOutcome{status: "skipped", sourceID: resp.ExistingSourceId}
+		return emailOutcome{status: "skipped", contentID: resp.ContentId, sourceID: resp.ExistingSourceId}
 	}
 
-	return emailOutcome{status: "imported", sourceID: resp.SourceId}
+	return emailOutcome{status: "imported", contentID: resp.ContentId, sourceID: resp.SourceId}
 }
 
 // emailToProtoRequest converts a parsed email to a gRPC request.
-func emailToProtoRequest(email *eml.ParsedEmail, tenantID, sourceTag string, labels []string, jobID string) *ingestv1.IngestEmailRequest {
+func emailToProtoRequest(email *eml.ParsedEmail, tenantID, sourceTag string, labels []string, jobID string, contentID string) *ingestv1.IngestEmailRequest {
 	req := &ingestv1.IngestEmailRequest{
 		TenantId:     tenantID,
 		MessageId:    email.MessageID,
@@ -578,6 +585,7 @@ func emailToProtoRequest(email *eml.ParsedEmail, tenantID, sourceTag string, lab
 		InReplyTo:    email.InReplyTo,
 		References:   email.References,
 		JobId:        jobID,
+		ContentId:    contentID,
 	}
 
 	// From address
@@ -645,6 +653,9 @@ func recordEmailOutcome(
 	switch o.status {
 	case "imported":
 		progress.recordImported()
+		if o.contentID != "" {
+			result.ContentIDs = append(result.ContentIDs, o.contentID)
+		}
 
 	case "skipped":
 		progress.recordSkipped()
@@ -753,6 +764,21 @@ func outputEmailResultsText(result *emailIngestResult, duration time.Duration) {
 		fmt.Printf("\n  Status:        \033[31mFAILED\033[0m\n")
 	}
 
+	// Display content IDs if any
+	if len(result.ContentIDs) > 0 {
+		fmt.Println("\nContent IDs:")
+		displayCount := len(result.ContentIDs)
+		if displayCount > 10 {
+			displayCount = 10
+		}
+		for i := 0; i < displayCount; i++ {
+			fmt.Printf("  - %s\n", result.ContentIDs[i])
+		}
+		if len(result.ContentIDs) > 10 {
+			fmt.Printf("  ... and %d more\n", len(result.ContentIDs)-10)
+		}
+	}
+
 	// Display errors if any
 	if len(result.Errors) > 0 {
 		fmt.Println("\nErrors:")
@@ -766,44 +792,51 @@ func outputEmailResultsText(result *emailIngestResult, duration time.Duration) {
 	}
 }
 
+// emailJSONResult is the JSON output structure for email ingest results.
+type emailJSONResult struct {
+	JobID       string   `json:"job_id"`
+	TotalFiles  int      `json:"total_files"`
+	Imported    int      `json:"imported"`
+	Skipped     int      `json:"skipped"`
+	Failed      int      `json:"failed"`
+	Success     bool     `json:"success"`
+	StartedAt   string   `json:"started_at"`
+	CompletedAt string   `json:"completed_at"`
+	ContentIDs  []string `json:"content_ids,omitempty"`
+}
+
 // outputEmailJSON outputs result as JSON.
 func outputEmailJSON(result *emailIngestResult) {
-	fmt.Printf(`{
-  "job_id": "%s",
-  "total_files": %d,
-  "imported": %d,
-  "skipped": %d,
-  "failed": %d,
-  "success": %t,
-  "started_at": "%s",
-  "completed_at": "%s"
-}
-`, result.JobID,
-		result.TotalFiles,
-		result.ImportedCount,
-		result.SkippedCount,
-		result.FailedCount,
-		result.Success,
-		result.StartedAt.Format(time.RFC3339),
-		result.CompletedAt.Format(time.RFC3339))
+	output := emailJSONResult{
+		JobID:       result.JobID,
+		TotalFiles:  result.TotalFiles,
+		Imported:    result.ImportedCount,
+		Skipped:     result.SkippedCount,
+		Failed:      result.FailedCount,
+		Success:     result.Success,
+		StartedAt:   result.StartedAt.Format(time.RFC3339),
+		CompletedAt: result.CompletedAt.Format(time.RFC3339),
+		ContentIDs:  result.ContentIDs,
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(output)
 }
 
 // outputEmailYAML outputs result as YAML.
 func outputEmailYAML(result *emailIngestResult) {
-	fmt.Printf(`job_id: %s
-total_files: %d
-imported: %d
-skipped: %d
-failed: %d
-success: %t
-started_at: %s
-completed_at: %s
-`, result.JobID,
-		result.TotalFiles,
-		result.ImportedCount,
-		result.SkippedCount,
-		result.FailedCount,
-		result.Success,
-		result.StartedAt.Format(time.RFC3339),
-		result.CompletedAt.Format(time.RFC3339))
+	fmt.Printf("job_id: %s\n", result.JobID)
+	fmt.Printf("total_files: %d\n", result.TotalFiles)
+	fmt.Printf("imported: %d\n", result.ImportedCount)
+	fmt.Printf("skipped: %d\n", result.SkippedCount)
+	fmt.Printf("failed: %d\n", result.FailedCount)
+	fmt.Printf("success: %t\n", result.Success)
+	fmt.Printf("started_at: %s\n", result.StartedAt.Format(time.RFC3339))
+	fmt.Printf("completed_at: %s\n", result.CompletedAt.Format(time.RFC3339))
+	if len(result.ContentIDs) > 0 {
+		fmt.Println("content_ids:")
+		for _, cid := range result.ContentIDs {
+			fmt.Printf("  - %s\n", cid)
+		}
+	}
 }
