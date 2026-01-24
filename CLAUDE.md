@@ -149,6 +149,20 @@ bd list --status=open   # All open work
 - **Test-driven development** workflow
 - **Complete workflows** - specification to working, tested, committed code
 
+### CLI Architecture (MANDATORY)
+**The CLI must use the Gateway service via gRPC. Never call the database directly.**
+
+```
+CLI (penf) → Gateway (gRPC) → Database
+```
+
+- All CLI commands that need data must go through `services/gateway`
+- Use gRPC clients to call Gateway services (see `cmd/penf/cmd/product.go` for pattern)
+- File parsing and user interaction stay in CLI (hybrid approach)
+- Database operations, duplicate detection, and business logic live in Gateway
+- Proto definitions in `api/proto/<service>/v1/`
+- Gateway services in `services/gateway/<service>service/`
+
 ## 🤖 CLAUDE-NATIVE WORKFLOWS
 
 **Use batch processing instead of one-at-a-time CLI commands.**
@@ -245,6 +259,7 @@ See `context/workflows/` for detailed workflow guides:
 - PostgreSQL 16+ with existing schema (extending `pkg/mentions/`, `pkg/glossary/`) (013-content-enrichment)
 
 ## Recent Changes
+- CLI gRPC Refactoring: Complete (pipeline, product, ingest commands use Gateway)
 - Go Migration Phase 0-5: Complete (all services migrated to Go)
 - Python Decommissioning: Complete (penf_lib, app, observability_lib removed)
 - Gmail OAuth2 PKCE: Complete with AES-256-GCM token encryption
