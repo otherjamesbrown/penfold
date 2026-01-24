@@ -7,6 +7,60 @@ description: Command-line interface - Cobra commands, user interaction, output f
 
 Owns the `penf` CLI: user-facing commands, output formatting, and interaction patterns.
 
+## Critical Context: AI-First CLI Design
+
+**The primary user of Penfold is a human using Claude Code + the penf CLI together.**
+
+This means:
+- **`--help` text is designed for AI agents**, not humans. Help text should be clear, structured, and provide enough context for Claude to understand when and how to use each command.
+- **CLI docs (`cmd/penf/cmd/templates/docs/`)** provide system-level context so Claude understands Penfold's architecture, entity types, and processing flows.
+- **Workflow docs** (`cmd/penf/cmd/templates/docs/workflows/`) describe common user tasks where Claude acts as a "super-assistant" - adding value beyond just running commands.
+
+### Documentation Requirements (MANDATORY)
+
+**After ANY CLI change, you MUST:**
+
+1. **Review and update `--help` text** for affected commands
+   - Is it clear enough for an AI agent to understand?
+   - Does it include examples that show common usage?
+   - Does it explain when to use this command vs alternatives?
+
+2. **Review and update CLI docs** (`cmd/penf/cmd/templates/docs/`)
+   - `index.md` - Is the command listed? Is navigation current?
+   - `concepts/*.md` - Do concept docs reflect any schema/behavior changes?
+   - `workflows/*.md` - Do workflow guides still work with the updated CLI?
+
+3. **Verify accuracy**
+   ```bash
+   # Generate and review help text
+   ./bin/penf --help
+   ./bin/penf <changed-command> --help
+
+   # Check docs are consistent with implementation
+   cat cmd/penf/cmd/templates/docs/index.md
+   ```
+
+### Help Text Design for AI Agents
+
+```go
+// Good: Clear structure, explains purpose, shows examples
+Long: `Search the knowledge base for content matching your query.
+
+Use this command when you need to find specific information, people mentions,
+or content related to a topic. Results include relevance scores and source metadata.
+
+The --context flag adds surrounding content for better understanding.
+The --format json flag is recommended when processing results programmatically.`,
+Example: `  # Simple search
+  penf search "project timeline"
+
+  # Search with context for AI processing
+  penf search "who owns the API gateway" --context --format json
+
+  # Search within a date range
+  penf search "budget discussion" --since 2024-01-01`,
+```
+
 ## Prerequisites (REQUIRED)
 
 **Exit immediately if missing:**
@@ -152,10 +206,31 @@ go test ./cmd/penf/... -race
 | Path | Contents |
 |------|----------|
 | `cmd/penf/cmd/` | All command implementations |
+| `cmd/penf/cmd/templates/docs/` | **AI context docs** - system overview, concepts, workflows |
 | `cmd/penf/main.go` | Entry point |
 | `~/.penf/config.yaml` | User configuration |
 | `~/.penf/preferences.md` | User preferences (read-only) |
 | `~/.penf/processes.md` | Workflow definitions |
+
+### CLI Documentation Structure
+
+```
+cmd/penf/cmd/templates/docs/
+├── index.md                    # Entry point - system overview, quick nav
+├── concepts/
+│   ├── entities.md             # Entity types and resolution
+│   ├── glossary.md             # Acronyms and terminology
+│   ├── mentions.md             # How mentions become entities
+│   ├── people.md               # Person resolution logic
+│   └── products.md             # Product hierarchy
+└── workflows/
+    ├── acronym-review.md       # Process unknown acronyms
+    ├── init-entities.md        # Seed entities before import
+    ├── mention-review.md       # Resolve person mentions
+    └── onboarding.md           # Post-import review workflow
+```
+
+**These docs are deployed with the CLI** so Claude Code has full system context when helping the user.
 
 ## UX Guidelines
 
@@ -171,10 +246,12 @@ Before closing bead:
 
 - [ ] Code compiles without warnings
 - [ ] Command tests pass
-- [ ] Help text is accurate and has examples
+- [ ] **Help text reviewed** - Clear for AI agent consumption, includes examples
+- [ ] **CLI docs updated** - `cmd/penf/cmd/templates/docs/` reflects changes
 - [ ] Output formats work (table, json, yaml)
 - [ ] Error messages are user-friendly
 - [ ] Manual testing of happy path
+- [ ] **Docs verification**: `./bin/penf <command> --help` matches behavior
 
 ## Completion Report Format
 
