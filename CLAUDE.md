@@ -50,10 +50,33 @@ bd sync                               # Sync with git
 
 ### Critical Rules
 - Find or create bead BEFORE writing code
+- **Assign agent when creating**: `bd update <id> --assignee="CLI Development"` (or appropriate agent)
 - Update status when starting: `bd update <id> --status=in_progress`
 - Reference bead in commits: `feat(component): description [pe-xxx]`
 - Close with commit hash: `bd close <id> --reason="commit <hash>: summary"`
 - Run `bd sync` before ending session
+
+### Agent Assignment
+When creating beads, always specify which agent should do the work:
+
+```bash
+# Create bead with agent assignment
+bd create --title="Fix search help text" --type=task
+bd update <id> --assignee="CLI Development"
+
+# Or for investigation work
+bd create --title="Investigate flaky test" --type=bug
+bd update <id> --assignee="Debugger"
+```
+
+| Work Type | Assign To |
+|-----------|-----------|
+| CLI commands, help text, CLI docs | `CLI Development` |
+| Database, migrations, repositories | `Data Development` |
+| AI/ML features, embeddings | `AI Development` |
+| Temporal workflows, activities | `Worker Development` |
+| Bug investigation, root cause | `Debugger` |
+| Test framework, fixtures | `Testing Development` |
 
 ### After Closing a Bead
 When closing a bead that belongs to an epic, check if all sibling beads are also closed:
