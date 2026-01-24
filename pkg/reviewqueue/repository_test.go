@@ -229,22 +229,30 @@ func TestJoinStrings(t *testing.T) {
 }
 
 func TestReviewItem_Fields(t *testing.T) {
+	context := "Context here"
+	sourceType := "meeting"
+	sourceID := int64(100)
+	sourceRef := "TER meeting"
+	term := "TER"
+	expansion := "Technical Execution Review"
+	matchedText := "text"
+
 	item := ReviewItem{
 		ID:                 1,
 		TenantID:           "tenant-123",
 		QuestionType:       QuestionTypeAcronym,
 		Priority:           PriorityHigh,
 		Question:           "What does TER mean?",
-		Context:            "Context here",
-		SourceType:         "meeting",
-		SourceID:           100,
-		SourceReference:    "TER meeting",
-		SuggestedTerm:      "TER",
-		SuggestedExpansion: "Technical Execution Review",
+		Context:            &context,
+		SourceType:         &sourceType,
+		SourceID:           &sourceID,
+		SourceReference:    &sourceRef,
+		SuggestedTerm:      &term,
+		SuggestedExpansion: &expansion,
 		CandidatePersonIDs: []int64{1, 2},
-		MatchedText:        "text",
+		MatchedText:        &matchedText,
 		Status:             StatusPending,
-		Resolution:         "",
+		Resolution:         nil,
 		Confidence:         0.85,
 		Metadata:           map[string]interface{}{"key": "value"},
 	}
@@ -254,18 +262,18 @@ func TestReviewItem_Fields(t *testing.T) {
 	assert.Equal(t, QuestionTypeAcronym, item.QuestionType)
 	assert.Equal(t, PriorityHigh, item.Priority)
 	assert.Equal(t, "What does TER mean?", item.Question)
-	assert.Equal(t, "Context here", item.Context)
-	assert.Equal(t, "meeting", item.SourceType)
-	assert.Equal(t, int64(100), item.SourceID)
-	assert.Equal(t, "TER meeting", item.SourceReference)
-	assert.Equal(t, "TER", item.SuggestedTerm)
-	assert.Equal(t, "Technical Execution Review", item.SuggestedExpansion)
+	assert.Equal(t, "Context here", *item.Context)
+	assert.Equal(t, "meeting", *item.SourceType)
+	assert.Equal(t, int64(100), *item.SourceID)
+	assert.Equal(t, "TER meeting", *item.SourceReference)
+	assert.Equal(t, "TER", *item.SuggestedTerm)
+	assert.Equal(t, "Technical Execution Review", *item.SuggestedExpansion)
 	assert.Equal(t, []int64{1, 2}, item.CandidatePersonIDs)
-	assert.Equal(t, "text", item.MatchedText)
+	assert.Equal(t, "text", *item.MatchedText)
 	assert.Equal(t, StatusPending, item.Status)
-	assert.Empty(t, item.Resolution)
+	assert.Nil(t, item.Resolution)
 	assert.Nil(t, item.ResolvedAt)
-	assert.Empty(t, item.ResolvedBy)
+	assert.Nil(t, item.ResolvedBy)
 	assert.Equal(t, float64(0.85), item.Confidence)
 	assert.Equal(t, "value", item.Metadata["key"])
 }
