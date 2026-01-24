@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"go.temporal.io/sdk/activity"
-
 	"github.com/otherjamesbrown/penfold-go-pipeline/internal/storage"
+	"go.temporal.io/sdk/activity"
 )
 
 // GenerateSummaryInput contains the input for the GenerateSummary activity.
