@@ -283,7 +283,7 @@ func (a *GmailActivities) ProcessEmailActivity(ctx context.Context, input Proces
 	getReq := &gmailv1.GetEmailRequest{
 		TenantId: input.TenantID,
 		EmailId:  input.MessageID,
-		Format:   "full",
+		Format:   gmailv1.EmailFormat_EMAIL_FORMAT_FULL,
 	}
 	email, err := a.gmailClient.GetEmail(ctx, getReq)
 	if err != nil {

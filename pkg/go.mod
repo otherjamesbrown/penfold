@@ -6,6 +6,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.8.0
+	github.com/otherjamesbrown/penfold/api/proto/aiv1 v0.0.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/rs/zerolog v1.34.0
@@ -67,3 +68,5 @@ require (
 )
 
 replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240822170219-fc7c04adadcd
+
+replace github.com/otherjamesbrown/penfold/api/proto/aiv1 => ../api/proto/ai/v1

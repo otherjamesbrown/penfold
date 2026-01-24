@@ -1,17 +1,16 @@
-// Package embeddings provides MLX embedding generation for semantic search.
+// Package embeddings provides embedding generation for semantic search.
+// This package uses the centralized AI service via AIClient for embedding generation.
 package embeddings
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 )
@@ -40,19 +39,36 @@ type Client interface {
 	Close() error
 }
 
-// MLXClient connects to an MLX server via an Ollama-compatible API.
-// It supports the mxbai-embed-large-v1 model running locally on Apple Silicon.
-type MLXClient struct {
-	config     *Config
-	httpClient *http.Client
-	logger     logging.Logger
-	cache      Cache
+// AIClient defines the interface for AI service operations.
+// This is a subset of the full AIClient interface from services/worker/activities,
+// containing only the methods needed for embedding generation.
+type AIClient interface {
+	// GenerateEmbedding generates a vector embedding for text.
+	GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error)
 }
 
-// NewMLXClient creates a new MLX embedding client with the given configuration.
+// AIBackedClient generates embeddings using the centralized AI service via gRPC.
+// It supports caching and batch processing.
+type AIBackedClient struct {
+	aiClient AIClient
+	config   *Config
+	logger   logging.Logger
+	cache    Cache
+
+	// mu protects concurrent access to stats
+	mu          sync.RWMutex
+	requestsTotal int64
+	errorsTotal   int64
+}
+
+// NewAIBackedClient creates a new embedding client that uses the AI service.
 // If config is nil, DefaultConfig() is used.
 // The cache parameter is optional; if nil, no caching is performed.
-func NewMLXClient(config *Config, logger logging.Logger, cache Cache) (*MLXClient, error) {
+func NewAIBackedClient(aiClient AIClient, config *Config, logger logging.Logger, cache Cache) (*AIBackedClient, error) {
+	if aiClient == nil {
+		return nil, errors.New("embeddings: AIClient is required")
+	}
+
 	if config == nil {
 		config = DefaultConfig()
 	}
@@ -61,66 +77,18 @@ func NewMLXClient(config *Config, logger logging.Logger, cache Cache) (*MLXClien
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	client := &MLXClient{
-		config: config,
-		httpClient: &http.Client{
-			Timeout: config.Timeout,
-		},
-		logger: logger.With(logging.F("component", "mlx_embedding_client")),
-		cache:  cache,
+	client := &AIBackedClient{
+		aiClient: aiClient,
+		config:   config,
+		logger:   logger.With(logging.F("component", "ai_embedding_client")),
+		cache:    cache,
 	}
 
 	return client, nil
 }
 
-// ollamaEmbedRequest is the request format for Ollama's embedding endpoint.
-type ollamaEmbedRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-}
-
-// ollamaEmbedBatchRequest is the request format for batch embedding.
-type ollamaEmbedBatchRequest struct {
-	Model   string   `json:"model"`
-	Prompts []string `json:"prompts,omitempty"`
-	Input   []string `json:"input,omitempty"` // OpenAI-compatible format
-}
-
-// ollamaEmbedResponse is the response format from Ollama's embedding endpoint.
-type ollamaEmbedResponse struct {
-	Embedding  []float64   `json:"embedding,omitempty"`
-	Embeddings [][]float64 `json:"embeddings,omitempty"` // For batch requests
-	Model      string      `json:"model,omitempty"`
-	Error      string      `json:"error,omitempty"`
-}
-
-// openaiEmbedRequest is the OpenAI-compatible request format.
-type openaiEmbedRequest struct {
-	Model string      `json:"model"`
-	Input interface{} `json:"input"` // Can be string or []string
-}
-
-// openaiEmbedResponse is the OpenAI-compatible response format.
-type openaiEmbedResponse struct {
-	Object string `json:"object"`
-	Data   []struct {
-		Object    string    `json:"object"`
-		Embedding []float64 `json:"embedding"`
-		Index     int       `json:"index"`
-	} `json:"data"`
-	Model string `json:"model"`
-	Usage struct {
-		PromptTokens int `json:"prompt_tokens"`
-		TotalTokens  int `json:"total_tokens"`
-	} `json:"usage"`
-	Error *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-	} `json:"error,omitempty"`
-}
-
 // Embed generates a vector embedding for the given text.
-func (c *MLXClient) Embed(ctx context.Context, text string) ([]float32, error) {
+func (c *AIBackedClient) Embed(ctx context.Context, text string) ([]float32, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil, ErrEmptyText
@@ -149,15 +117,23 @@ func (c *MLXClient) Embed(ctx context.Context, text string) ([]float32, error) {
 		}
 	}
 
-	// Generate embedding
+	// Generate embedding via AI service
 	embedding, err := c.embedSingle(ctx, text)
 	if err != nil {
+		c.mu.Lock()
+		c.errorsTotal++
+		c.mu.Unlock()
+
 		tracing.SetEmbeddingResult(span, tracing.EmbeddingResult{
 			LatencyMs: time.Since(start).Milliseconds(),
 			Error:     err,
 		})
 		return nil, err
 	}
+
+	c.mu.Lock()
+	c.requestsTotal++
+	c.mu.Unlock()
 
 	// Store in cache
 	if c.cache != nil {
@@ -178,8 +154,8 @@ func (c *MLXClient) Embed(ctx context.Context, text string) ([]float32, error) {
 	return embedding, nil
 }
 
-// embedSingle makes a single embedding request to the server.
-func (c *MLXClient) embedSingle(ctx context.Context, text string) ([]float32, error) {
+// embedSingle generates a single embedding via the AI service.
+func (c *AIBackedClient) embedSingle(ctx context.Context, text string) ([]float32, error) {
 	var lastErr error
 
 	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
@@ -215,173 +191,48 @@ func (c *MLXClient) embedSingle(ctx context.Context, text string) ([]float32, er
 	return nil, fmt.Errorf("embedding failed after %d attempts: %w", c.config.MaxRetries+1, lastErr)
 }
 
-// doEmbedRequest performs a single embedding request.
-func (c *MLXClient) doEmbedRequest(ctx context.Context, text string) ([]float32, error) {
-	// Try OpenAI-compatible endpoint first, fall back to Ollama native
-	embedding, err := c.doOpenAIEmbedRequest(ctx, text)
-	if err == nil {
-		return embedding, nil
+// doEmbedRequest performs a single embedding request via gRPC.
+func (c *AIBackedClient) doEmbedRequest(ctx context.Context, text string) ([]float32, error) {
+	// Create the gRPC request
+	req := &aiv1.EmbeddingRequest{
+		Text: text,
 	}
 
-	// Fall back to Ollama native endpoint
-	return c.doOllamaEmbedRequest(ctx, text)
-}
-
-// doOpenAIEmbedRequest uses the OpenAI-compatible /v1/embeddings endpoint.
-func (c *MLXClient) doOpenAIEmbedRequest(ctx context.Context, text string) ([]float32, error) {
-	url := strings.TrimSuffix(c.config.ServerURL, "/") + "/v1/embeddings"
-
-	// Trace the HTTP request
-	ctx, span := tracing.StartSpanWithTracer(ctx, "penfold.embeddings", "embeddings.http.openai")
-	defer span.End()
-	tracing.SetAttributes(span,
-		tracing.Attr("http.url", url),
-		tracing.Attr("http.method", "POST"),
-		tracing.Attr("embedding.api", "openai"),
-	)
-
-	reqBody := openaiEmbedRequest{
-		Model: c.config.Model,
-		Input: text,
+	// Set model if configured (optional field)
+	if c.config.Model != "" {
+		model := c.config.Model
+		req.Model = &model
 	}
 
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		tracing.SetError(span, err)
-		return nil, fmt.Errorf("marshaling request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
-	if err != nil {
-		tracing.SetError(span, err)
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		tracing.SetError(span, err)
-		if ctx.Err() != nil {
-			return nil, ErrContextCanceled
-		}
-		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
-	}
-	defer resp.Body.Close()
-
-	tracing.SetAttributes(span, tracing.AttrInt("http.status_code", resp.StatusCode))
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		tracing.SetError(span, err)
-		return nil, fmt.Errorf("reading response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("%w: status %d: %s", ErrRequestFailed, resp.StatusCode, string(body))
-		tracing.SetError(span, err)
-		return nil, err
-	}
-
-	var embedResp openaiEmbedResponse
-	if err := json.Unmarshal(body, &embedResp); err != nil {
-		tracing.SetError(span, err)
-		return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
-	}
-
-	if embedResp.Error != nil {
-		err := fmt.Errorf("%w: %s", ErrRequestFailed, embedResp.Error.Message)
-		tracing.SetError(span, err)
-		return nil, err
-	}
-
-	if len(embedResp.Data) == 0 {
-		tracing.SetError(span, ErrInvalidResponse)
-		return nil, ErrInvalidResponse
-	}
-
-	// Record token usage if available
-	if embedResp.Usage.PromptTokens > 0 {
-		tracing.SetAttributes(span, tracing.AttrInt("embedding.input_tokens", embedResp.Usage.PromptTokens))
-	}
-
-	embedding := toFloat32(embedResp.Data[0].Embedding)
-	if len(embedding) != c.config.Dimensions {
-		c.logger.Warn("Embedding dimension mismatch",
-			logging.F("expected", c.config.Dimensions),
-			logging.F("actual", len(embedding)),
-		)
-	}
-
-	tracing.SetAttributes(span, tracing.AttrInt("embedding.dimensions", len(embedding)))
-	tracing.SetOK(span)
-
-	return embedding, nil
-}
-
-// doOllamaEmbedRequest uses the Ollama native /api/embeddings endpoint.
-func (c *MLXClient) doOllamaEmbedRequest(ctx context.Context, text string) ([]float32, error) {
-	url := strings.TrimSuffix(c.config.ServerURL, "/") + "/api/embeddings"
-
-	reqBody := ollamaEmbedRequest{
-		Model:  c.config.Model,
-		Prompt: text,
-	}
-
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
+	// Call the AI service
+	resp, err := c.aiClient.GenerateEmbedding(ctx, req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ErrContextCanceled
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: status %d: %s", ErrRequestFailed, resp.StatusCode, string(body))
-	}
-
-	var embedResp ollamaEmbedResponse
-	if err := json.Unmarshal(body, &embedResp); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
-	}
-
-	if embedResp.Error != "" {
-		return nil, fmt.Errorf("%w: %s", ErrRequestFailed, embedResp.Error)
-	}
-
-	if len(embedResp.Embedding) == 0 {
+	// Validate response
+	if resp == nil || len(resp.Vector) == 0 {
 		return nil, ErrInvalidResponse
 	}
 
-	embedding := toFloat32(embedResp.Embedding)
-	if len(embedding) != c.config.Dimensions {
+	// Check dimensions
+	if c.config.Dimensions > 0 && len(resp.Vector) != c.config.Dimensions {
 		c.logger.Warn("Embedding dimension mismatch",
 			logging.F("expected", c.config.Dimensions),
-			logging.F("actual", len(embedding)),
+			logging.F("actual", len(resp.Vector)),
 		)
 	}
 
-	return embedding, nil
+	return resp.Vector, nil
 }
 
-// BatchEmbed generates embeddings for multiple texts in a single request.
-func (c *MLXClient) BatchEmbed(ctx context.Context, texts []string) ([][]float32, error) {
+// BatchEmbed generates embeddings for multiple texts.
+// Since the AI service doesn't have a batch endpoint, this makes concurrent
+// gRPC calls with bounded concurrency for efficiency.
+func (c *AIBackedClient) BatchEmbed(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, ErrEmptyBatch
 	}
@@ -457,8 +308,8 @@ func (c *MLXClient) BatchEmbed(ctx context.Context, texts []string) ([][]float32
 		tracing.AttrInt("cache_misses", len(uncachedTexts)),
 	)
 
-	// Generate embeddings for uncached texts
-	newEmbeddings, err := c.batchEmbedRequest(ctx, uncachedTexts)
+	// Generate embeddings for uncached texts with bounded concurrency
+	newEmbeddings, err := c.batchEmbedConcurrent(ctx, uncachedTexts)
 	if err != nil {
 		tracing.SetEmbeddingResult(span, tracing.EmbeddingResult{
 			LatencyMs: time.Since(start).Milliseconds(),
@@ -489,145 +340,100 @@ func (c *MLXClient) BatchEmbed(ctx context.Context, texts []string) ([][]float32
 	return embeddings, nil
 }
 
-// batchEmbedRequest makes a batch embedding request to the server.
-func (c *MLXClient) batchEmbedRequest(ctx context.Context, texts []string) ([][]float32, error) {
-	var lastErr error
+// batchEmbedConcurrent generates embeddings concurrently with bounded parallelism.
+func (c *AIBackedClient) batchEmbedConcurrent(ctx context.Context, texts []string) ([][]float32, error) {
+	// Use a worker pool with bounded concurrency (configurable via Config.MaxConcurrency)
+	maxConcurrency := c.config.MaxConcurrency
+	if maxConcurrency <= 0 {
+		maxConcurrency = DefaultMaxConcurrency
+	}
 
-	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
-		if attempt > 0 {
-			delay := c.config.RetryDelay * time.Duration(1<<(attempt-1))
+	type result struct {
+		index     int
+		embedding []float32
+		err       error
+	}
+
+	results := make(chan result, len(texts))
+	semaphore := make(chan struct{}, maxConcurrency)
+
+	var wg sync.WaitGroup
+	for i, text := range texts {
+		wg.Add(1)
+		go func(idx int, txt string) {
+			defer wg.Done()
+
+			// Acquire semaphore
 			select {
 			case <-ctx.Done():
-				return nil, ErrContextCanceled
-			case <-time.After(delay):
+				results <- result{index: idx, err: ErrContextCanceled}
+				return
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
 			}
-		}
 
-		// Try batch endpoint first
-		embeddings, err := c.doBatchEmbedRequest(ctx, texts)
-		if err == nil {
-			return embeddings, nil
-		}
-
-		lastErr = err
-
-		if errors.Is(err, ErrContextCanceled) {
-			return nil, err
-		}
-
-		c.logger.Warn("Batch embedding request failed, retrying",
-			logging.F("attempt", attempt+1),
-			logging.F("batch_size", len(texts)),
-			logging.Err(err),
-		)
+			// Generate embedding
+			embedding, err := c.embedSingle(ctx, txt)
+			results <- result{index: idx, embedding: embedding, err: err}
+		}(i, text)
 	}
 
-	// Fall back to individual requests
-	c.logger.Warn("Batch embedding failed, falling back to individual requests",
-		logging.F("batch_size", len(texts)),
-		logging.Err(lastErr),
-	)
+	// Wait for all goroutines to complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
 
+	// Collect results
 	embeddings := make([][]float32, len(texts))
-	for i, text := range texts {
-		embedding, err := c.embedSingle(ctx, text)
-		if err != nil {
-			return nil, fmt.Errorf("embedding text %d: %w", i, err)
+	var firstErr error
+
+	for r := range results {
+		if r.err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("embedding text %d: %w", r.index, r.err)
 		}
-		embeddings[i] = embedding
-	}
-
-	return embeddings, nil
-}
-
-// doBatchEmbedRequest attempts a batch embedding request.
-func (c *MLXClient) doBatchEmbedRequest(ctx context.Context, texts []string) ([][]float32, error) {
-	// Try OpenAI-compatible batch endpoint
-	url := strings.TrimSuffix(c.config.ServerURL, "/") + "/v1/embeddings"
-
-	reqBody := openaiEmbedRequest{
-		Model: c.config.Model,
-		Input: texts,
-	}
-
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ErrContextCanceled
+		if r.embedding != nil {
+			embeddings[r.index] = r.embedding
 		}
-		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: status %d: %s", ErrRequestFailed, resp.StatusCode, string(body))
-	}
-
-	var embedResp openaiEmbedResponse
-	if err := json.Unmarshal(body, &embedResp); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
-	}
-
-	if embedResp.Error != nil {
-		return nil, fmt.Errorf("%w: %s", ErrRequestFailed, embedResp.Error.Message)
-	}
-
-	if len(embedResp.Data) != len(texts) {
-		return nil, fmt.Errorf("%w: expected %d embeddings, got %d",
-			ErrInvalidResponse, len(texts), len(embedResp.Data))
-	}
-
-	// Sort by index to ensure correct order
-	embeddings := make([][]float32, len(texts))
-	for _, data := range embedResp.Data {
-		if data.Index < 0 || data.Index >= len(texts) {
-			return nil, fmt.Errorf("%w: invalid index %d", ErrInvalidResponse, data.Index)
-		}
-		embeddings[data.Index] = toFloat32(data.Embedding)
+	if firstErr != nil {
+		return nil, firstErr
 	}
 
 	return embeddings, nil
 }
 
 // Dimensions returns the number of dimensions in the embedding vectors.
-func (c *MLXClient) Dimensions() int {
+func (c *AIBackedClient) Dimensions() int {
 	return c.config.Dimensions
 }
 
 // ModelInfo returns information about the embedding model.
-func (c *MLXClient) ModelInfo() *ModelInfo {
+func (c *AIBackedClient) ModelInfo() *ModelInfo {
 	return c.config.GetModelInfo()
 }
 
 // Close releases any resources held by the client.
-func (c *MLXClient) Close() error {
-	c.httpClient.CloseIdleConnections()
+func (c *AIBackedClient) Close() error {
+	// No resources to release (AIClient lifecycle managed externally)
 	return nil
 }
 
-// toFloat32 converts a float64 slice to float32.
-func toFloat32(f64 []float64) []float32 {
-	f32 := make([]float32, len(f64))
-	for i, v := range f64 {
-		f32[i] = float32(v)
+// Stats returns client statistics.
+func (c *AIBackedClient) Stats() ClientStats {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return ClientStats{
+		RequestsTotal: c.requestsTotal,
+		ErrorsTotal:   c.errorsTotal,
 	}
-	return f32
+}
+
+// ClientStats contains client statistics.
+type ClientStats struct {
+	RequestsTotal int64
+	ErrorsTotal   int64
 }
 
 // MockClient is a mock implementation of the Client interface for testing.
@@ -695,4 +501,22 @@ func (m *MockClient) ModelInfo() *ModelInfo {
 // Close is a no-op for the mock client.
 func (m *MockClient) Close() error {
 	return nil
+}
+
+// MockAIClient is a mock implementation of the AIClient interface for testing.
+type MockAIClient struct {
+	EmbeddingFunc func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error)
+}
+
+// GenerateEmbedding implements AIClient.
+func (m *MockAIClient) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+	if m.EmbeddingFunc != nil {
+		return m.EmbeddingFunc(ctx, req)
+	}
+	// Default: return a 1024-dimension zero vector
+	return &aiv1.EmbeddingResponse{
+		Vector:     make([]float32, 1024),
+		Dimensions: 1024,
+		ModelUsed:  "mock-model",
+	}, nil
 }

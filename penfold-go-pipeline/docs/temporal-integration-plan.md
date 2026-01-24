@@ -76,9 +76,8 @@ penfold-go-pipeline/
 │   ├── temporal/                 # NEW: Temporal client/config
 │   │   ├── client.go             # Client factory
 │   │   └── config.go             # Temporal configuration
-│   ├── clients/                  # KEEP: AI service clients
-│   │   ├── embeddings.go
-│   │   └── llm.go
+│   ├── clients/                  # UPDATED: AI service adapters (using pkg/ai)
+│   │   └── ai_adapter.go         # Adapters wrapping centralized AI Coordinator
 │   ├── storage/                  # KEEP: Database repositories
 │   │   ├── postgres.go
 │   │   ├── embeddings.go

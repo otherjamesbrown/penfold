@@ -6,6 +6,8 @@ require (
 	github.com/caarlos0/env/v10 v10.0.0
 	github.com/hashicorp/go-retryablehttp v0.7.5
 	github.com/jackc/pgx/v5 v5.8.0
+	github.com/otherjamesbrown/penfold/api/proto/aiv1 v0.0.0
+	github.com/otherjamesbrown/penfold/pkg v0.0.0
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/rs/zerolog v1.34.0
 	github.com/sony/gobreaker v0.5.0
@@ -35,8 +37,6 @@ require (
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
-	go.opentelemetry.io/otel v1.39.0 // indirect
-	go.opentelemetry.io/otel/sdk/metric v1.39.0 // indirect
 	go.temporal.io/api v1.38.0 // indirect
 	golang.org/x/exp v0.0.0-20231127185646-65229373498e // indirect
 	golang.org/x/net v0.48.0 // indirect
@@ -50,3 +50,7 @@ require (
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/otherjamesbrown/penfold/api/proto/aiv1 => ../api/proto/ai/v1
+
+replace github.com/otherjamesbrown/penfold/pkg => ../pkg

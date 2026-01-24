@@ -31,29 +31,34 @@ const (
 
 	// DefaultRetryDelay is the default delay between retries.
 	DefaultRetryDelay = 100 * time.Millisecond
+
+	// DefaultMaxConcurrency is the default max concurrent embedding requests.
+	DefaultMaxConcurrency = 10
 )
 
 // Environment variable names for embedding configuration.
 const (
-	EnvServerURL  = "PENFOLD_EMBEDDING_SERVER_URL"
-	EnvModel      = "PENFOLD_EMBEDDING_MODEL"
-	EnvBatchSize  = "PENFOLD_EMBEDDING_BATCH_SIZE"
-	EnvTimeout    = "PENFOLD_EMBEDDING_TIMEOUT_SECONDS"
-	EnvDimensions = "PENFOLD_EMBEDDING_DIMENSIONS"
-	EnvMaxRetries = "PENFOLD_EMBEDDING_MAX_RETRIES"
+	EnvServerURL      = "PENFOLD_EMBEDDING_SERVER_URL"
+	EnvModel          = "PENFOLD_EMBEDDING_MODEL"
+	EnvBatchSize      = "PENFOLD_EMBEDDING_BATCH_SIZE"
+	EnvTimeout        = "PENFOLD_EMBEDDING_TIMEOUT_SECONDS"
+	EnvDimensions     = "PENFOLD_EMBEDDING_DIMENSIONS"
+	EnvMaxRetries     = "PENFOLD_EMBEDDING_MAX_RETRIES"
+	EnvMaxConcurrency = "PENFOLD_EMBEDDING_MAX_CONCURRENCY"
 )
 
-// Config holds configuration for the MLX embedding client.
+// Config holds configuration for the embedding client.
 type Config struct {
-	// ServerURL is the URL of the MLX/Ollama-compatible embedding server.
-	// The server should expose an OpenAI-compatible /api/embeddings endpoint.
+	// ServerURL is the URL of the embedding server (optional for gRPC-backed clients).
+	// For direct HTTP clients, this should be the MLX/Ollama-compatible server URL.
+	// Deprecated: Use AIClient-backed client instead.
 	ServerURL string
 
 	// Model is the name of the embedding model to use.
 	// Default is mxbai-embed-large-v1 which provides 1024-dimension vectors.
 	Model string
 
-	// BatchSize is the maximum number of texts to embed in a single request.
+	// BatchSize is the maximum number of texts to embed in a single batch request.
 	// Larger batch sizes are more efficient but use more memory.
 	BatchSize int
 
@@ -69,18 +74,23 @@ type Config struct {
 
 	// RetryDelay is the initial delay between retries (uses exponential backoff).
 	RetryDelay time.Duration
+
+	// MaxConcurrency is the maximum number of concurrent embedding requests in batch mode.
+	// This limits parallel requests to avoid overwhelming the backend service.
+	MaxConcurrency int
 }
 
 // DefaultConfig returns a Config with sensible defaults for local MLX deployment.
 func DefaultConfig() *Config {
 	return &Config{
-		ServerURL:  DefaultServerURL,
-		Model:      DefaultModel,
-		BatchSize:  DefaultBatchSize,
-		Timeout:    DefaultTimeout,
-		Dimensions: DefaultDimensions,
-		MaxRetries: DefaultMaxRetries,
-		RetryDelay: DefaultRetryDelay,
+		ServerURL:      DefaultServerURL,
+		Model:          DefaultModel,
+		BatchSize:      DefaultBatchSize,
+		Timeout:        DefaultTimeout,
+		Dimensions:     DefaultDimensions,
+		MaxRetries:     DefaultMaxRetries,
+		RetryDelay:     DefaultRetryDelay,
+		MaxConcurrency: DefaultMaxConcurrency,
 	}
 }
 
@@ -121,14 +131,18 @@ func LoadFromEnv() *Config {
 		}
 	}
 
+	if v := os.Getenv(EnvMaxConcurrency); v != "" {
+		if concurrency, err := strconv.Atoi(v); err == nil && concurrency > 0 {
+			cfg.MaxConcurrency = concurrency
+		}
+	}
+
 	return cfg
 }
 
 // Validate checks if the configuration is valid.
+// Note: ServerURL is no longer required for AIClient-backed clients.
 func (c *Config) Validate() error {
-	if c.ServerURL == "" {
-		return ErrInvalidServerURL
-	}
 	if c.Model == "" {
 		return ErrInvalidModel
 	}

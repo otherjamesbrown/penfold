@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/sony/gobreaker"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/otherjamesbrown/penfold-go-pipeline/internal/activities"
@@ -18,9 +17,10 @@ import (
 	"github.com/otherjamesbrown/penfold-go-pipeline/internal/storage"
 	"github.com/otherjamesbrown/penfold-go-pipeline/internal/temporal"
 	"github.com/otherjamesbrown/penfold-go-pipeline/internal/workflows"
+	"github.com/otherjamesbrown/penfold/pkg/ai"
 )
 
-const version = "1.0.0"
+const version = "1.1.0"
 
 func main() {
 	// Initialize zerolog
@@ -91,36 +91,30 @@ func main() {
 	embeddingRepo := storage.NewEmbeddingRepository(pool, logger)
 	resultRepo := storage.NewProcessingResultRepository(pool, logger)
 
-	// Initialize AI clients
-	embeddingsConfig := clients.EmbeddingsConfig{
-		BaseURL:    cfg.AI.EmbeddingsURL,
-		Model:      cfg.AI.EmbeddingsModel,
-		Timeout:    cfg.AI.EmbeddingsTimeout,
-		MaxRetries: cfg.Processing.MaxRetries,
-		CircuitBreakerSettings: gobreaker.Settings{
-			Name:        "embeddings-client",
-			MaxRequests: cfg.Processing.CircuitBreakerMaxRequests,
-			Interval:    10 * time.Second,
-			Timeout:     cfg.Processing.CircuitBreakerTimeout,
-		},
+	// Initialize AI clients using the centralized AI Coordinator service
+	// This replaces the old direct HTTP clients with gRPC-based adapters
+	aiServiceAddr := os.Getenv("AI_SERVICE_ADDR")
+	if aiServiceAddr == "" {
+		aiServiceAddr = "localhost:50055" // Default AI Coordinator address
 	}
-	embeddingsClient := clients.NewEmbeddingsClient(embeddingsConfig, logger)
 
-	llmConfig := clients.LLMConfig{
-		BaseURL:            cfg.AI.LLMURL,
-		Model:              cfg.AI.LLMModel,
-		DefaultTemperature: 0.7,
-		DefaultMaxTokens:   1024,
-		Timeout:            cfg.AI.LLMTimeout,
-		MaxRetries:         cfg.Processing.MaxRetries,
-		CircuitBreakerSettings: gobreaker.Settings{
-			Name:        "llm-client",
-			MaxRequests: cfg.Processing.CircuitBreakerMaxRequests,
-			Interval:    10 * time.Second,
-			Timeout:     cfg.Processing.CircuitBreakerTimeout,
-		},
+	logger.Info().
+		Str("ai_service_addr", aiServiceAddr).
+		Msg("Connecting to AI Coordinator service")
+
+	aiClient, err := ai.NewClient(
+		aiServiceAddr,
+		ai.WithRequestTimeout(cfg.AI.LLMTimeout),
+		ai.WithMaxRetries(cfg.Processing.MaxRetries),
+	)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to create AI service client")
 	}
-	llmClient := clients.NewLLMClient(llmConfig, logger)
+	defer aiClient.Close()
+
+	// Create adapters that implement the expected interfaces
+	embeddingsClient := clients.NewEmbeddingsAdapter(aiClient, cfg.AI.EmbeddingsModel, logger)
+	llmClient := clients.NewLLMAdapter(aiClient, cfg.AI.LLMModel, logger)
 
 	// Check AI service health
 	checkAIServices(context.Background(), embeddingsClient, llmClient, logger)
@@ -172,22 +166,27 @@ func main() {
 	logger.Info().Msg("Penfold Temporal Worker shutdown complete")
 }
 
+// HealthChecker defines the interface for services that support health checks.
+type HealthChecker interface {
+	HealthCheck(ctx context.Context) error
+}
+
 // checkAIServices verifies that AI services are available.
-func checkAIServices(ctx context.Context, embeddings *clients.EmbeddingsClient, llm *clients.LLMClient, logger zerolog.Logger) {
+func checkAIServices(ctx context.Context, embeddings HealthChecker, llm HealthChecker, logger zerolog.Logger) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// Check embeddings service
+	// Check embeddings service (via AI Coordinator)
 	if err := embeddings.HealthCheck(ctx); err != nil {
-		logger.Warn().Err(err).Msg("Embeddings service not available")
+		logger.Warn().Err(err).Msg("AI Coordinator embeddings service not available")
 	} else {
-		logger.Info().Msg("Embeddings service available")
+		logger.Info().Msg("AI Coordinator embeddings service available")
 	}
 
-	// Check LLM service
+	// Check LLM service (via AI Coordinator)
 	if err := llm.HealthCheck(ctx); err != nil {
-		logger.Warn().Err(err).Msg("LLM service not available")
+		logger.Warn().Err(err).Msg("AI Coordinator LLM service not available")
 	} else {
-		logger.Info().Msg("LLM service available")
+		logger.Info().Msg("AI Coordinator LLM service available")
 	}
 }

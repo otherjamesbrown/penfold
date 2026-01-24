@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
+	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
@@ -173,6 +174,30 @@ func main() {
 		logger:  logger,
 	}
 
+	// Create AI client for gRPC communication with AI Coordinator service
+	var aiClient *ai.Client
+	if cfg.AIServiceAddr != "" {
+		var err error
+		aiClient, err = ai.NewClient(cfg.AIServiceAddr,
+			ai.WithInsecure(),
+			ai.WithRequestTimeout(60*time.Second),
+			ai.WithMaxRetries(3),
+		)
+		if err != nil {
+			logger.Error("Failed to create AI client", logging.Err(err))
+			// Continue without AI client - activities will fail gracefully
+		} else {
+			defer func() {
+				if err := aiClient.Close(); err != nil {
+					logger.Error("Failed to close AI client", logging.Err(err))
+				}
+			}()
+			logger.Info("AI client created",
+				logging.F("ai_service_addr", cfg.AIServiceAddr),
+			)
+		}
+	}
+
 	// Create activity and workflow registrars
 	var activityImpl *activities.Activities
 	if dbPool != nil {
@@ -185,6 +210,24 @@ func main() {
 		logger.Warn("Activities initialized without database - some activities will fail")
 	}
 	activityRegistrar := activities.NewRegistrar(activityImpl)
+
+	// Initialize AIClient-based activities if AI client is available
+	if aiClient != nil {
+		// Create embedding activities
+		embeddingActivities := activities.NewEmbeddingActivities(zerologger, aiClient, nil)
+		activityRegistrar.WithEmbeddingActivities(embeddingActivities)
+		logger.Info("Embedding activities initialized with AI client")
+
+		// Create summarization activities
+		summarizationActivities := activities.NewSummarizationActivities(zerologger, aiClient, nil)
+		activityRegistrar.WithSummarizationActivities(summarizationActivities)
+		logger.Info("Summarization activities initialized with AI client")
+
+		// Create extraction activities
+		extractionActivities := activities.NewExtractionActivities(zerologger, aiClient, nil, nil)
+		activityRegistrar.WithExtractionActivities(extractionActivities)
+		logger.Info("Extraction activities initialized with AI client")
+	}
 
 	// LLM configuration (used for mentions resolution and health checks)
 	llmURL := os.Getenv("LLM_URL")
@@ -285,7 +328,14 @@ func main() {
 		}, health.Critical())
 	}
 
-	// Register embeddings service health check
+	// Register AI service health check (gRPC-based)
+	if aiClient != nil {
+		healthChecker.RegisterCheck("ai_service", func(ctx context.Context) error {
+			return aiClient.HealthCheck(ctx)
+		}, health.Critical())
+	}
+
+	// Register legacy embeddings service health check (HTTP-based, will be deprecated)
 	healthChecker.RegisterCheck("embeddings", func(ctx context.Context) error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.AIServiceURL+"/health", nil)
 		if err != nil {

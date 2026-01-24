@@ -66,3 +66,19 @@ func NewDatabaseHealthClient(pingFunc func(ctx context.Context) error) *Database
 func (c *DatabaseHealthClient) HealthCheck(ctx context.Context) error {
 	return c.pingFunc(ctx)
 }
+
+// AIHealthClient checks AI service health via the AI client's HealthCheck method.
+type AIHealthClient struct {
+	healthCheckFunc func(ctx context.Context) error
+}
+
+// NewAIHealthClient creates an AI service health client.
+// The healthCheckFunc should be the HealthCheck method from pkg/ai.Client.
+func NewAIHealthClient(healthCheckFunc func(ctx context.Context) error) *AIHealthClient {
+	return &AIHealthClient{healthCheckFunc: healthCheckFunc}
+}
+
+// HealthCheck performs a health check on the AI service.
+func (c *AIHealthClient) HealthCheck(ctx context.Context) error {
+	return c.healthCheckFunc(ctx)
+}

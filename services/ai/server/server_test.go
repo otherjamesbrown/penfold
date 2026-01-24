@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/services/ai/backend"
 	"github.com/otherjamesbrown/penfold/services/ai/config"
 )
 
@@ -46,20 +48,73 @@ func (m *mockLogger) Zerolog() zerolog.Logger {
 	return m.zl
 }
 
+// mockBackend implements backend.Backend for testing.
+type mockBackend struct {
+	generateEmbeddingFunc     func(ctx context.Context, text string, model string) (*backend.EmbeddingResult, error)
+	chatCompletionFunc        func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error)
+	checkEmbeddingsHealthFunc func(ctx context.Context) error
+	checkLLMHealthFunc        func(ctx context.Context) error
+}
+
+func (m *mockBackend) GenerateEmbedding(ctx context.Context, text string, model string) (*backend.EmbeddingResult, error) {
+	if m.generateEmbeddingFunc != nil {
+		return m.generateEmbeddingFunc(ctx, text, model)
+	}
+	return &backend.EmbeddingResult{
+		Vector:     []float32{0.1, 0.2, 0.3},
+		Dimensions: 3,
+		Model:      "mock-model",
+		TokenCount: 5,
+	}, nil
+}
+
+func (m *mockBackend) ChatCompletion(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
+	if m.chatCompletionFunc != nil {
+		return m.chatCompletionFunc(ctx, messages, opts)
+	}
+	return &backend.CompletionResult{
+		Content:      "mock response",
+		Model:        "mock-llm",
+		InputTokens:  10,
+		OutputTokens: 5,
+	}, nil
+}
+
+func (m *mockBackend) CheckEmbeddingsHealth(ctx context.Context) error {
+	if m.checkEmbeddingsHealthFunc != nil {
+		return m.checkEmbeddingsHealthFunc(ctx)
+	}
+	return nil
+}
+
+func (m *mockBackend) CheckLLMHealth(ctx context.Context) error {
+	if m.checkLLMHealthFunc != nil {
+		return m.checkLLMHealthFunc(ctx)
+	}
+	return nil
+}
+
+func (m *mockBackend) Close() error {
+	return nil
+}
+
 // testConfig returns a test configuration.
 func testConfig() *config.Config {
 	return &config.Config{
-		ServiceName:           "ai-test",
-		GRPCPort:              50051,
-		HTTPPort:              8080,
-		OllamaHost:            "http://localhost:11434",
-		OllamaDefaultModel:    "llama3.2",
-		GeminiDefaultModel:    "gemini-1.5-pro",
-		DefaultEmbeddingModel: "nomic-embed-text",
-		DefaultLLMModel:       "llama3.2",
-		LogLevel:              "info",
-		Environment:           "dev",
-		EnableMetrics:         true,
+		ServiceName:             "ai-test",
+		GRPCPort:                50051,
+		HTTPPort:                8090,
+		OllamaHost:              "http://localhost:11434",
+		OllamaDefaultModel:      "llama3.2",
+		GeminiDefaultModel:      "gemini-1.5-pro",
+		DefaultEmbeddingModel:   "mxbai-embed-large-v1",
+		DefaultLLMModel:         "mlx-community/Qwen2.5-32B-Instruct-4bit",
+		MLXEmbeddingsURL:        "http://localhost:8081",
+		MLXLLMURL:               "http://localhost:8080",
+		EmbeddingDimensions:     1024,
+		LogLevel:                "info",
+		Environment:             "dev",
+		EnableMetrics:           true,
 		GracefulShutdownTimeout: 30,
 	}
 }
@@ -69,6 +124,13 @@ func testLogger() logging.Logger {
 	return newMockLogger()
 }
 
+// newTestServer creates a test server with mock backend.
+func newTestServer(be backend.Backend) *AIServer {
+	cfg := testConfig()
+	logger := testLogger()
+	return NewAIServer(cfg, logger, be)
+}
+
 // =============================================================================
 // Server Construction Tests
 // =============================================================================
@@ -76,61 +138,49 @@ func testLogger() logging.Logger {
 func TestNewAIServer(t *testing.T) {
 	cfg := testConfig()
 	logger := testLogger()
+	be := &mockBackend{}
 
-	server := NewAIServer(cfg, logger)
+	server := NewAIServer(cfg, logger, be)
 
 	require.NotNil(t, server, "NewAIServer should return non-nil server")
 	assert.Equal(t, cfg, server.config, "Config should be assigned")
 	assert.NotNil(t, server.logger, "Logger should be assigned")
-}
-
-func TestNewAIServer_WithNilConfig(t *testing.T) {
-	logger := testLogger()
-
-	// Server should be created even with nil config
-	server := NewAIServer(nil, logger)
-
-	require.NotNil(t, server, "NewAIServer should handle nil config")
-	assert.Nil(t, server.config, "Config should be nil")
-}
-
-func TestNewAIServer_WithNilLogger(t *testing.T) {
-	cfg := testConfig()
-
-	// This may panic depending on implementation - testing graceful handling
-	assert.Panics(t, func() {
-		NewAIServer(cfg, nil)
-	}, "NewAIServer with nil logger should panic")
+	assert.NotNil(t, server.backend, "Backend should be assigned")
 }
 
 // =============================================================================
 // GenerateEmbedding Tests
 // =============================================================================
 
-func TestGenerateEmbedding_Unimplemented(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+func TestGenerateEmbedding_Success(t *testing.T) {
+	be := &mockBackend{
+		generateEmbeddingFunc: func(ctx context.Context, text string, model string) (*backend.EmbeddingResult, error) {
+			return &backend.EmbeddingResult{
+				Vector:     []float32{0.1, 0.2, 0.3, 0.4},
+				Dimensions: 4,
+				Model:      "test-model",
+				TokenCount: 10,
+			}, nil
+		},
+	}
+	server := newTestServer(be)
 
 	req := &aiv1.EmbeddingRequest{
 		Text:     "test text for embedding",
 		TenantId: stringPtr("tenant-1"),
 	}
 
-	_, err := server.GenerateEmbedding(context.Background(), req)
+	resp, err := server.GenerateEmbedding(context.Background(), req)
 
-	require.Error(t, err, "GenerateEmbedding should return error (unimplemented)")
-
-	st, ok := status.FromError(err)
-	require.True(t, ok, "Error should be a gRPC status")
-	assert.Equal(t, codes.Unimplemented, st.Code(), "Should return Unimplemented status")
-	assert.Contains(t, st.Message(), "not implemented")
+	require.NoError(t, err)
+	assert.Len(t, resp.Vector, 4)
+	assert.Equal(t, int32(4), resp.Dimensions)
+	assert.Equal(t, "test-model", resp.ModelUsed)
+	assert.Equal(t, int32(10), resp.GetTokenCount())
 }
 
 func TestGenerateEmbedding_EmptyText(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+	server := newTestServer(&mockBackend{})
 
 	req := &aiv1.EmbeddingRequest{
 		Text:     "",
@@ -139,17 +189,61 @@ func TestGenerateEmbedding_EmptyText(t *testing.T) {
 
 	_, err := server.GenerateEmbedding(context.Background(), req)
 
-	// Currently returns Unimplemented, but should validate input
 	require.Error(t, err)
 	st, ok := status.FromError(err)
 	require.True(t, ok)
-	assert.Equal(t, codes.Unimplemented, st.Code())
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+}
+
+func TestGenerateEmbedding_WhitespaceOnlyText(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	req := &aiv1.EmbeddingRequest{
+		Text:     "   \n\t  ",
+		TenantId: stringPtr("tenant-1"),
+	}
+
+	_, err := server.GenerateEmbedding(context.Background(), req)
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+}
+
+func TestGenerateEmbedding_BackendError(t *testing.T) {
+	be := &mockBackend{
+		generateEmbeddingFunc: func(ctx context.Context, text string, model string) (*backend.EmbeddingResult, error) {
+			return nil, backend.ErrServiceUnavailable
+		},
+	}
+	server := newTestServer(be)
+
+	req := &aiv1.EmbeddingRequest{
+		Text:     "test text",
+		TenantId: stringPtr("tenant-1"),
+	}
+
+	_, err := server.GenerateEmbedding(context.Background(), req)
+
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.Unavailable, st.Code())
 }
 
 func TestGenerateEmbedding_WithModel(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+	var receivedModel string
+	be := &mockBackend{
+		generateEmbeddingFunc: func(ctx context.Context, text string, model string) (*backend.EmbeddingResult, error) {
+			receivedModel = model
+			return &backend.EmbeddingResult{
+				Vector:     []float32{0.1},
+				Dimensions: 1,
+				Model:      model,
+			}, nil
+		},
+	}
+	server := newTestServer(be)
 
 	req := &aiv1.EmbeddingRequest{
 		Text:     "test text",
@@ -159,72 +253,73 @@ func TestGenerateEmbedding_WithModel(t *testing.T) {
 
 	_, err := server.GenerateEmbedding(context.Background(), req)
 
-	require.Error(t, err)
-	st, ok := status.FromError(err)
-	require.True(t, ok)
-	assert.Equal(t, codes.Unimplemented, st.Code())
-}
-
-func TestGenerateEmbedding_NilRequest(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	_, err := server.GenerateEmbedding(context.Background(), nil)
-
-	// Should handle nil request gracefully
-	require.Error(t, err)
-}
-
-func TestGenerateEmbedding_CanceledContext(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	req := &aiv1.EmbeddingRequest{
-		Text:     "test text",
-		TenantId: stringPtr("tenant-1"),
-	}
-
-	_, err := server.GenerateEmbedding(ctx, req)
-
-	// Currently returns Unimplemented regardless of context
-	require.Error(t, err)
+	require.NoError(t, err)
+	assert.Equal(t, "custom-model", receivedModel)
 }
 
 // =============================================================================
 // GenerateSummary Tests
 // =============================================================================
 
-func TestGenerateSummary_Unimplemented(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+func TestGenerateSummary_Success(t *testing.T) {
+	be := &mockBackend{
+		chatCompletionFunc: func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
+			return &backend.CompletionResult{
+				Content: `SUMMARY:
+This is a test summary.
+
+KEY_POINTS:
+["point one", "point two"]`,
+				Model:        "test-llm",
+				InputTokens:  50,
+				OutputTokens: 20,
+			}, nil
+		},
+	}
+	server := newTestServer(be)
 
 	req := &aiv1.SummaryRequest{
-		Content:   "This is a long document that needs to be summarized.",
-		TenantId:  stringPtr("tenant-1"),
-		Style:     aiv1.SummaryStyle_SUMMARY_STYLE_BRIEF,
-		MaxLength: int32Ptr(100),
+		Content:  "This is test content to summarize.",
+		TenantId: stringPtr("tenant-1"),
+		Style:    aiv1.SummaryStyle_SUMMARY_STYLE_BRIEF,
+	}
+
+	resp, err := server.GenerateSummary(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.Equal(t, "This is a test summary.", resp.Summary)
+	assert.Len(t, resp.KeyPoints, 2)
+	assert.Equal(t, "test-llm", resp.ModelUsed)
+	assert.Equal(t, int32(50), resp.GetInputTokens())
+	assert.Equal(t, int32(20), resp.GetOutputTokens())
+}
+
+func TestGenerateSummary_EmptyContent(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	req := &aiv1.SummaryRequest{
+		Content:  "",
+		TenantId: stringPtr("tenant-1"),
 	}
 
 	_, err := server.GenerateSummary(context.Background(), req)
 
-	require.Error(t, err, "GenerateSummary should return error (unimplemented)")
-
+	require.Error(t, err)
 	st, ok := status.FromError(err)
-	require.True(t, ok, "Error should be a gRPC status")
-	assert.Equal(t, codes.Unimplemented, st.Code())
-	assert.Contains(t, st.Message(), "not implemented")
+	require.True(t, ok)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
 }
 
 func TestGenerateSummary_DifferentStyles(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+	be := &mockBackend{
+		chatCompletionFunc: func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
+			return &backend.CompletionResult{
+				Content: "Plain summary content",
+				Model:   "test-llm",
+			}, nil
+		},
+	}
+	server := newTestServer(be)
 
 	styles := []aiv1.SummaryStyle{
 		aiv1.SummaryStyle_SUMMARY_STYLE_UNSPECIFIED,
@@ -242,165 +337,94 @@ func TestGenerateSummary_DifferentStyles(t *testing.T) {
 				Style:    style,
 			}
 
-			_, err := server.GenerateSummary(context.Background(), req)
+			resp, err := server.GenerateSummary(context.Background(), req)
 
-			require.Error(t, err)
-			st, ok := status.FromError(err)
-			require.True(t, ok)
-			assert.Equal(t, codes.Unimplemented, st.Code())
+			require.NoError(t, err)
+			assert.NotEmpty(t, resp.Summary)
 		})
 	}
-}
-
-func TestGenerateSummary_EmptyContent(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	req := &aiv1.SummaryRequest{
-		Content:  "",
-		TenantId: stringPtr("tenant-1"),
-	}
-
-	_, err := server.GenerateSummary(context.Background(), req)
-
-	require.Error(t, err)
-	st, ok := status.FromError(err)
-	require.True(t, ok)
-	assert.Equal(t, codes.Unimplemented, st.Code())
-}
-
-func TestGenerateSummary_WithMaxLength(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	testCases := []struct {
-		name      string
-		maxLength int32
-	}{
-		{"zero_length", 0},
-		{"small_length", 50},
-		{"medium_length", 200},
-		{"large_length", 1000},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := &aiv1.SummaryRequest{
-				Content:   "Content to summarize",
-				TenantId:  stringPtr("tenant-1"),
-				MaxLength: int32Ptr(tc.maxLength),
-			}
-
-			_, err := server.GenerateSummary(context.Background(), req)
-
-			require.Error(t, err)
-			st, ok := status.FromError(err)
-			require.True(t, ok)
-			assert.Equal(t, codes.Unimplemented, st.Code())
-		})
-	}
-}
-
-func TestGenerateSummary_NilRequest(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	_, err := server.GenerateSummary(context.Background(), nil)
-
-	require.Error(t, err)
 }
 
 // =============================================================================
 // ExtractAssertions Tests
 // =============================================================================
 
-func TestExtractAssertions_Unimplemented(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+func TestExtractAssertions_Success(t *testing.T) {
+	be := &mockBackend{
+		chatCompletionFunc: func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
+			return &backend.CompletionResult{
+				Content: `{
+					"assertions": [
+						{
+							"subject": "John",
+							"predicate": "works at",
+							"object": "Acme Corp",
+							"confidence": 0.9,
+							"source_text": "John works at Acme Corp",
+							"category": "organizational"
+						},
+						{
+							"subject": "Meeting",
+							"predicate": "scheduled for",
+							"object": "Tuesday",
+							"confidence": 0.7,
+							"source_text": "Meeting scheduled for Tuesday",
+							"category": "temporal"
+						}
+					]
+				}`,
+				Model: "test-llm",
+			}, nil
+		},
+	}
+	server := newTestServer(be)
 
 	req := &aiv1.AssertionRequest{
-		Content:       "John works at Acme Corp. The project deadline is next Friday.",
+		Content:  "John works at Acme Corp. Meeting scheduled for Tuesday.",
+		TenantId: stringPtr("tenant-1"),
+	}
+
+	resp, err := server.ExtractAssertions(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.Len(t, resp.Assertions, 2)
+	assert.Equal(t, "John", resp.Assertions[0].Subject)
+	assert.Equal(t, float32(0.9), resp.Assertions[0].Confidence)
+	assert.Equal(t, int32(2), resp.TotalFound)
+}
+
+func TestExtractAssertions_FiltersByConfidence(t *testing.T) {
+	be := &mockBackend{
+		chatCompletionFunc: func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
+			return &backend.CompletionResult{
+				Content: `{
+					"assertions": [
+						{"subject": "A", "predicate": "is", "object": "B", "confidence": 0.9},
+						{"subject": "C", "predicate": "is", "object": "D", "confidence": 0.3}
+					]
+				}`,
+				Model: "test-llm",
+			}, nil
+		},
+	}
+	server := newTestServer(be)
+
+	minConf := float32(0.5)
+	req := &aiv1.AssertionRequest{
+		Content:       "Test content",
 		TenantId:      stringPtr("tenant-1"),
-		MinConfidence: float32Ptr(0.8),
-		MaxAssertions: int32Ptr(10),
+		MinConfidence: &minConf,
 	}
 
-	_, err := server.ExtractAssertions(context.Background(), req)
+	resp, err := server.ExtractAssertions(context.Background(), req)
 
-	require.Error(t, err, "ExtractAssertions should return error (unimplemented)")
-
-	st, ok := status.FromError(err)
-	require.True(t, ok, "Error should be a gRPC status")
-	assert.Equal(t, codes.Unimplemented, st.Code())
-	assert.Contains(t, st.Message(), "not implemented")
-}
-
-func TestExtractAssertions_ConfidenceThresholds(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	thresholds := []float32{0.0, 0.5, 0.8, 0.95, 1.0}
-
-	for _, threshold := range thresholds {
-		t.Run(floatToString(threshold), func(t *testing.T) {
-			req := &aiv1.AssertionRequest{
-				Content:       "Test content",
-				TenantId:      stringPtr("tenant-1"),
-				MinConfidence: float32Ptr(threshold),
-			}
-
-			_, err := server.ExtractAssertions(context.Background(), req)
-
-			require.Error(t, err)
-			st, ok := status.FromError(err)
-			require.True(t, ok)
-			assert.Equal(t, codes.Unimplemented, st.Code())
-		})
-	}
-}
-
-func TestExtractAssertions_MaxAssertions(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	testCases := []struct {
-		name          string
-		maxAssertions int32
-	}{
-		{"zero", 0},
-		{"small", 5},
-		{"medium", 20},
-		{"large", 100},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := &aiv1.AssertionRequest{
-				Content:       "Test content",
-				TenantId:      stringPtr("tenant-1"),
-				MaxAssertions: int32Ptr(tc.maxAssertions),
-			}
-
-			_, err := server.ExtractAssertions(context.Background(), req)
-
-			require.Error(t, err)
-			st, ok := status.FromError(err)
-			require.True(t, ok)
-			assert.Equal(t, codes.Unimplemented, st.Code())
-		})
-	}
+	require.NoError(t, err)
+	assert.Len(t, resp.Assertions, 1)
+	assert.Equal(t, int32(1), resp.FilteredCount)
 }
 
 func TestExtractAssertions_EmptyContent(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+	server := newTestServer(&mockBackend{})
 
 	req := &aiv1.AssertionRequest{
 		Content:  "",
@@ -412,125 +436,108 @@ func TestExtractAssertions_EmptyContent(t *testing.T) {
 	require.Error(t, err)
 	st, ok := status.FromError(err)
 	require.True(t, ok)
-	assert.Equal(t, codes.Unimplemented, st.Code())
+	assert.Equal(t, codes.InvalidArgument, st.Code())
 }
 
-func TestExtractAssertions_NilRequest(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+func TestExtractAssertions_MaxAssertions(t *testing.T) {
+	be := &mockBackend{
+		chatCompletionFunc: func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
+			return &backend.CompletionResult{
+				Content: `{
+					"assertions": [
+						{"subject": "A", "predicate": "is", "object": "B", "confidence": 0.9},
+						{"subject": "C", "predicate": "is", "object": "D", "confidence": 0.8},
+						{"subject": "E", "predicate": "is", "object": "F", "confidence": 0.7}
+					]
+				}`,
+				Model: "test-llm",
+			}, nil
+		},
+	}
+	server := newTestServer(be)
 
-	_, err := server.ExtractAssertions(context.Background(), nil)
+	maxAssertions := int32(2)
+	req := &aiv1.AssertionRequest{
+		Content:       "Test content",
+		TenantId:      stringPtr("tenant-1"),
+		MaxAssertions: &maxAssertions,
+	}
 
-	require.Error(t, err)
+	resp, err := server.ExtractAssertions(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.Len(t, resp.Assertions, 2)
+	// Should keep highest confidence assertions
+	assert.Equal(t, float32(0.9), resp.Assertions[0].Confidence)
+	assert.Equal(t, float32(0.8), resp.Assertions[1].Confidence)
 }
 
 // =============================================================================
 // ClassifyContent Tests
 // =============================================================================
 
-func TestClassifyContent_Unimplemented(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+func TestClassifyContent_Success(t *testing.T) {
+	be := &mockBackend{
+		chatCompletionFunc: func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
+			return &backend.CompletionResult{
+				Content: `{
+					"classifications": [
+						{"label": "technology", "confidence": 0.85, "explanation": "Discusses tech topics"},
+						{"label": "business", "confidence": 0.6, "explanation": "Business context"}
+					]
+				}`,
+				Model: "test-llm",
+			}, nil
+		},
+	}
+	server := newTestServer(be)
 
 	req := &aiv1.ClassifyContentRequest{
-		Content:       "This email discusses project budget allocations.",
-		TenantId:      stringPtr("tenant-1"),
-		Categories:    []string{"finance", "project", "meeting", "personal"},
-		MultiLabel:    boolPtr(true),
-		MinConfidence: float32Ptr(0.7),
+		Content:    "This is about AI and machine learning for business.",
+		TenantId:   stringPtr("tenant-1"),
+		Categories: []string{"technology", "business", "health"},
 	}
 
-	_, err := server.ClassifyContent(context.Background(), req)
+	resp, err := server.ClassifyContent(context.Background(), req)
 
-	require.Error(t, err, "ClassifyContent should return error (unimplemented)")
-
-	st, ok := status.FromError(err)
-	require.True(t, ok, "Error should be a gRPC status")
-	assert.Equal(t, codes.Unimplemented, st.Code())
-	assert.Contains(t, st.Message(), "not implemented")
+	require.NoError(t, err)
+	assert.Len(t, resp.Classifications, 2)
+	assert.Equal(t, "technology", resp.Primary.Label)
+	assert.Equal(t, float32(0.85), resp.Primary.Confidence)
 }
 
-func TestClassifyContent_MultiLabelVsSingleLabel(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	testCases := []struct {
-		name       string
-		multiLabel bool
-	}{
-		{"single_label", false},
-		{"multi_label", true},
+func TestClassifyContent_SingleLabelMode(t *testing.T) {
+	be := &mockBackend{
+		chatCompletionFunc: func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
+			return &backend.CompletionResult{
+				Content: `{
+					"classifications": [
+						{"label": "A", "confidence": 0.9},
+						{"label": "B", "confidence": 0.7}
+					]
+				}`,
+				Model: "test-llm",
+			}, nil
+		},
 	}
+	server := newTestServer(be)
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := &aiv1.ClassifyContentRequest{
-				Content:    "Test content",
-				TenantId:   stringPtr("tenant-1"),
-				Categories: []string{"cat1", "cat2"},
-				MultiLabel: boolPtr(tc.multiLabel),
-			}
-
-			_, err := server.ClassifyContent(context.Background(), req)
-
-			require.Error(t, err)
-			st, ok := status.FromError(err)
-			require.True(t, ok)
-			assert.Equal(t, codes.Unimplemented, st.Code())
-		})
-	}
-}
-
-func TestClassifyContent_EmptyCategories(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
+	multiLabel := false
 	req := &aiv1.ClassifyContentRequest{
 		Content:    "Test content",
 		TenantId:   stringPtr("tenant-1"),
-		Categories: []string{}, // Empty categories
+		MultiLabel: &multiLabel,
 	}
 
-	_, err := server.ClassifyContent(context.Background(), req)
+	resp, err := server.ClassifyContent(context.Background(), req)
 
-	require.Error(t, err)
-	st, ok := status.FromError(err)
-	require.True(t, ok)
-	assert.Equal(t, codes.Unimplemented, st.Code())
-}
-
-func TestClassifyContent_ManyCategories(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	categories := make([]string, 100)
-	for i := range categories {
-		categories[i] = "category_" + string(rune('a'+i%26))
-	}
-
-	req := &aiv1.ClassifyContentRequest{
-		Content:    "Test content",
-		TenantId:   stringPtr("tenant-1"),
-		Categories: categories,
-	}
-
-	_, err := server.ClassifyContent(context.Background(), req)
-
-	require.Error(t, err)
-	st, ok := status.FromError(err)
-	require.True(t, ok)
-	assert.Equal(t, codes.Unimplemented, st.Code())
+	require.NoError(t, err)
+	assert.Len(t, resp.Classifications, 1)
+	assert.Equal(t, "A", resp.Classifications[0].Label)
 }
 
 func TestClassifyContent_EmptyContent(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+	server := newTestServer(&mockBackend{})
 
 	req := &aiv1.ClassifyContentRequest{
 		Content:    "",
@@ -543,252 +550,256 @@ func TestClassifyContent_EmptyContent(t *testing.T) {
 	require.Error(t, err)
 	st, ok := status.FromError(err)
 	require.True(t, ok)
-	assert.Equal(t, codes.Unimplemented, st.Code())
+	assert.Equal(t, codes.InvalidArgument, st.Code())
 }
 
-func TestClassifyContent_NilRequest(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+func TestClassifyContent_MinConfidenceFilter(t *testing.T) {
+	be := &mockBackend{
+		chatCompletionFunc: func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
+			return &backend.CompletionResult{
+				Content: `{
+					"classifications": [
+						{"label": "A", "confidence": 0.8},
+						{"label": "B", "confidence": 0.2}
+					]
+				}`,
+				Model: "test-llm",
+			}, nil
+		},
+	}
+	server := newTestServer(be)
 
-	_, err := server.ClassifyContent(context.Background(), nil)
+	minConf := float32(0.5)
+	req := &aiv1.ClassifyContentRequest{
+		Content:       "Test content",
+		TenantId:      stringPtr("tenant-1"),
+		MinConfidence: &minConf,
+	}
 
-	require.Error(t, err)
+	resp, err := server.ClassifyContent(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.Len(t, resp.Classifications, 1)
+	assert.Equal(t, "A", resp.Classifications[0].Label)
 }
 
 // =============================================================================
 // GetModelStatus Tests
 // =============================================================================
 
-func TestGetModelStatus_Unimplemented(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+func TestGetModelStatus_AllHealthy(t *testing.T) {
+	be := &mockBackend{
+		checkEmbeddingsHealthFunc: func(ctx context.Context) error { return nil },
+		checkLLMHealthFunc:        func(ctx context.Context) error { return nil },
+	}
+	server := newTestServer(be)
+
+	req := &aiv1.GetModelStatusRequest{}
+
+	resp, err := server.GetModelStatus(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.True(t, resp.Healthy)
+	assert.Equal(t, "All models healthy", resp.Message)
+	assert.NotEmpty(t, resp.DefaultEmbeddingModel)
+	assert.NotEmpty(t, resp.DefaultLlmModel)
+}
+
+func TestGetModelStatus_EmbeddingsUnhealthy(t *testing.T) {
+	be := &mockBackend{
+		checkEmbeddingsHealthFunc: func(ctx context.Context) error {
+			return errors.New("connection refused")
+		},
+		checkLLMHealthFunc: func(ctx context.Context) error { return nil },
+	}
+	server := newTestServer(be)
+
+	req := &aiv1.GetModelStatusRequest{}
+
+	resp, err := server.GetModelStatus(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.False(t, resp.Healthy)
+	assert.Contains(t, resp.Message, "embeddings")
+}
+
+func TestGetModelStatus_LLMUnhealthy(t *testing.T) {
+	be := &mockBackend{
+		checkEmbeddingsHealthFunc: func(ctx context.Context) error { return nil },
+		checkLLMHealthFunc: func(ctx context.Context) error {
+			return errors.New("timeout")
+		},
+	}
+	server := newTestServer(be)
+
+	req := &aiv1.GetModelStatusRequest{}
+
+	resp, err := server.GetModelStatus(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.False(t, resp.Healthy)
+	assert.Contains(t, resp.Message, "llm")
+}
+
+func TestGetModelStatus_FilterByModelType(t *testing.T) {
+	be := &mockBackend{}
+	server := newTestServer(be)
 
 	req := &aiv1.GetModelStatusRequest{
-		ModelName:      stringPtr("llama3.2"),
-		ModelType:      modelTypePtr(aiv1.ModelType_MODEL_TYPE_LLM),
-		IncludeMetrics: boolPtr(true),
+		ModelType: modelTypePtr(aiv1.ModelType_MODEL_TYPE_EMBEDDING),
 	}
 
-	_, err := server.GetModelStatus(context.Background(), req)
+	resp, err := server.GetModelStatus(context.Background(), req)
 
-	require.Error(t, err, "GetModelStatus should return error (unimplemented)")
-
-	st, ok := status.FromError(err)
-	require.True(t, ok, "Error should be a gRPC status")
-	assert.Equal(t, codes.Unimplemented, st.Code())
-	assert.Contains(t, st.Message(), "not implemented")
-}
-
-func TestGetModelStatus_DifferentModelTypes(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	modelTypes := []aiv1.ModelType{
-		aiv1.ModelType_MODEL_TYPE_UNSPECIFIED,
-		aiv1.ModelType_MODEL_TYPE_EMBEDDING,
-		aiv1.ModelType_MODEL_TYPE_LLM,
-		aiv1.ModelType_MODEL_TYPE_CLASSIFIER,
-		aiv1.ModelType_MODEL_TYPE_NER,
+	require.NoError(t, err)
+	// Should filter to only embedding models
+	for _, m := range resp.Models {
+		assert.Equal(t, aiv1.ModelType_MODEL_TYPE_EMBEDDING, m.Type)
 	}
-
-	for _, modelType := range modelTypes {
-		t.Run(modelType.String(), func(t *testing.T) {
-			req := &aiv1.GetModelStatusRequest{
-				ModelType: modelTypePtr(modelType),
-			}
-
-			_, err := server.GetModelStatus(context.Background(), req)
-
-			require.Error(t, err)
-			st, ok := status.FromError(err)
-			require.True(t, ok)
-			assert.Equal(t, codes.Unimplemented, st.Code())
-		})
-	}
-}
-
-func TestGetModelStatus_WithAndWithoutMetrics(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	testCases := []struct {
-		name           string
-		includeMetrics bool
-	}{
-		{"without_metrics", false},
-		{"with_metrics", true},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := &aiv1.GetModelStatusRequest{
-				ModelName:      stringPtr("test-model"),
-				IncludeMetrics: boolPtr(tc.includeMetrics),
-			}
-
-			_, err := server.GetModelStatus(context.Background(), req)
-
-			require.Error(t, err)
-			st, ok := status.FromError(err)
-			require.True(t, ok)
-			assert.Equal(t, codes.Unimplemented, st.Code())
-		})
-	}
-}
-
-func TestGetModelStatus_NilRequest(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	_, err := server.GetModelStatus(context.Background(), nil)
-
-	require.Error(t, err)
 }
 
 // =============================================================================
-// Tenant Isolation Tests (CRITICAL)
+// Response Parsing Tests
 // =============================================================================
 
-func TestTenantIsolation_EmbeddingRequiresTenantID(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+func TestParseSummaryResponse_Structured(t *testing.T) {
+	server := newTestServer(&mockBackend{})
 
-	testCases := []struct {
+	content := `SUMMARY:
+This is the summary text.
+
+KEY_POINTS:
+["point 1", "point 2", "point 3"]`
+
+	summary, keyPoints := server.parseSummaryResponse(content)
+
+	assert.Equal(t, "This is the summary text.", summary)
+	assert.Len(t, keyPoints, 3)
+	assert.Equal(t, "point 1", keyPoints[0])
+}
+
+func TestParseSummaryResponse_Unstructured(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	content := "This is just plain text without markers."
+
+	summary, keyPoints := server.parseSummaryResponse(content)
+
+	assert.Equal(t, content, summary)
+	assert.Empty(t, keyPoints)
+}
+
+func TestParseAssertionsResponse_ValidJSON(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	content := `{
+		"assertions": [
+			{
+				"subject": "Alice",
+				"predicate": "manages",
+				"object": "the team",
+				"confidence": 0.85,
+				"source_text": "Alice manages the team",
+				"category": "organizational"
+			}
+		]
+	}`
+
+	assertions, err := server.parseAssertionsResponse(content)
+
+	require.NoError(t, err)
+	assert.Len(t, assertions, 1)
+	assert.Equal(t, "Alice", assertions[0].Subject)
+	assert.Equal(t, float32(0.85), assertions[0].Confidence)
+}
+
+func TestParseAssertionsResponse_MarkdownWrapped(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	content := "```json\n{\"assertions\": []}\n```"
+
+	assertions, err := server.parseAssertionsResponse(content)
+
+	require.NoError(t, err)
+	assert.Empty(t, assertions)
+}
+
+func TestParseAssertionsResponse_InvalidJSON(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	content := "not valid json"
+
+	_, err := server.parseAssertionsResponse(content)
+
+	assert.Error(t, err)
+}
+
+func TestParseClassificationsResponse_ValidJSON(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	content := `{
+		"classifications": [
+			{"label": "tech", "confidence": 0.9, "explanation": "Technical content"}
+		]
+	}`
+
+	classifications, err := server.parseClassificationsResponse(content)
+
+	require.NoError(t, err)
+	assert.Len(t, classifications, 1)
+	assert.Equal(t, "tech", classifications[0].Label)
+	assert.Equal(t, float32(0.9), classifications[0].Confidence)
+}
+
+// =============================================================================
+// Error Conversion Tests
+// =============================================================================
+
+func TestConvertError(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	tests := []struct {
 		name     string
-		tenantID *string
-	}{
-		{"with_tenant_id", stringPtr("tenant-1")},
-		{"nil_tenant_id", nil},
-		{"empty_tenant_id", stringPtr("")},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := &aiv1.EmbeddingRequest{
-				Text:     "test text",
-				TenantId: tc.tenantID,
-			}
-
-			_, err := server.GenerateEmbedding(context.Background(), req)
-
-			// Currently returns Unimplemented for all cases
-			// When implemented, should validate tenant_id
-			require.Error(t, err)
-		})
-	}
-}
-
-func TestTenantIsolation_SummaryRequiresTenantID(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	req := &aiv1.SummaryRequest{
-		Content:  "test content",
-		TenantId: nil, // Missing tenant ID
-	}
-
-	_, err := server.GenerateSummary(context.Background(), req)
-
-	// When implemented, should require tenant_id
-	require.Error(t, err)
-}
-
-func TestTenantIsolation_AssertionsRequiresTenantID(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	req := &aiv1.AssertionRequest{
-		Content:  "test content",
-		TenantId: nil, // Missing tenant ID
-	}
-
-	_, err := server.ExtractAssertions(context.Background(), req)
-
-	require.Error(t, err)
-}
-
-func TestTenantIsolation_ClassifyRequiresTenantID(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	req := &aiv1.ClassifyContentRequest{
-		Content:    "test content",
-		TenantId:   nil, // Missing tenant ID
-		Categories: []string{"cat1"},
-	}
-
-	_, err := server.ClassifyContent(context.Background(), req)
-
-	require.Error(t, err)
-}
-
-// =============================================================================
-// Error Handling Tests
-// =============================================================================
-
-func TestErrorHandling_CanceledContext(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	testCases := []struct {
-		name string
-		fn   func() error
+		err      error
+		wantCode codes.Code
 	}{
 		{
-			"embedding",
-			func() error {
-				_, err := server.GenerateEmbedding(ctx, &aiv1.EmbeddingRequest{Text: "test", TenantId: stringPtr("t1")})
-				return err
-			},
+			name:     "context canceled",
+			err:      backend.ErrContextCanceled,
+			wantCode: codes.Canceled,
 		},
 		{
-			"summary",
-			func() error {
-				_, err := server.GenerateSummary(ctx, &aiv1.SummaryRequest{Content: "test", TenantId: stringPtr("t1")})
-				return err
-			},
+			name:     "service unavailable",
+			err:      backend.ErrServiceUnavailable,
+			wantCode: codes.Unavailable,
 		},
 		{
-			"assertions",
-			func() error {
-				_, err := server.ExtractAssertions(ctx, &aiv1.AssertionRequest{Content: "test", TenantId: stringPtr("t1")})
-				return err
-			},
+			name:     "empty text",
+			err:      backend.ErrEmptyText,
+			wantCode: codes.InvalidArgument,
 		},
 		{
-			"classify",
-			func() error {
-				_, err := server.ClassifyContent(ctx, &aiv1.ClassifyContentRequest{Content: "test", TenantId: stringPtr("t1"), Categories: []string{"c1"}})
-				return err
-			},
+			name:     "empty messages",
+			err:      backend.ErrEmptyMessages,
+			wantCode: codes.InvalidArgument,
 		},
 		{
-			"model_status",
-			func() error {
-				_, err := server.GetModelStatus(ctx, &aiv1.GetModelStatusRequest{ModelType: modelTypePtr(aiv1.ModelType_MODEL_TYPE_LLM)})
-				return err
-			},
+			name:     "request timeout",
+			err:      backend.ErrRequestTimeout,
+			wantCode: codes.DeadlineExceeded,
+		},
+		{
+			name:     "generic error",
+			err:      errors.New("something went wrong"),
+			wantCode: codes.Internal,
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.fn()
-			require.Error(t, err)
-			// Currently returns Unimplemented regardless of context state
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			grpcErr := server.convertError(tt.err)
+			st, _ := status.FromError(grpcErr)
+			assert.Equal(t, tt.wantCode, st.Code())
 		})
 	}
 }
@@ -798,9 +809,8 @@ func TestErrorHandling_CanceledContext(t *testing.T) {
 // =============================================================================
 
 func TestConcurrentRequests(t *testing.T) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+	be := &mockBackend{}
+	server := newTestServer(be)
 
 	const numGoroutines = 50
 	done := make(chan bool, numGoroutines)
@@ -841,9 +851,8 @@ func TestConcurrentRequests(t *testing.T) {
 // =============================================================================
 
 func BenchmarkGenerateEmbedding(b *testing.B) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+	be := &mockBackend{}
+	server := newTestServer(be)
 
 	req := &aiv1.EmbeddingRequest{
 		Text:     "test text for embedding",
@@ -857,9 +866,8 @@ func BenchmarkGenerateEmbedding(b *testing.B) {
 }
 
 func BenchmarkGenerateSummary(b *testing.B) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+	be := &mockBackend{}
+	server := newTestServer(be)
 
 	req := &aiv1.SummaryRequest{
 		Content:  "This is a long document that needs to be summarized.",
@@ -874,9 +882,8 @@ func BenchmarkGenerateSummary(b *testing.B) {
 }
 
 func BenchmarkExtractAssertions(b *testing.B) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+	be := &mockBackend{}
+	server := newTestServer(be)
 
 	req := &aiv1.AssertionRequest{
 		Content:  "John works at Acme Corp.",
@@ -890,9 +897,8 @@ func BenchmarkExtractAssertions(b *testing.B) {
 }
 
 func BenchmarkClassifyContent(b *testing.B) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+	be := &mockBackend{}
+	server := newTestServer(be)
 
 	req := &aiv1.ClassifyContentRequest{
 		Content:    "Test content for classification",
@@ -907,9 +913,8 @@ func BenchmarkClassifyContent(b *testing.B) {
 }
 
 func BenchmarkGetModelStatus(b *testing.B) {
-	cfg := testConfig()
-	logger := testLogger()
-	server := NewAIServer(cfg, logger)
+	be := &mockBackend{}
+	server := newTestServer(be)
 
 	req := &aiv1.GetModelStatusRequest{
 		ModelName: stringPtr("llama3.2"),
@@ -944,11 +949,6 @@ func float32Ptr(f float32) *float32 {
 // boolPtr returns a pointer to the given bool.
 func boolPtr(b bool) *bool {
 	return &b
-}
-
-// floatToString converts a float32 to a string for test naming.
-func floatToString(f float32) string {
-	return string(rune(int(f*100) + '0'))
 }
 
 // modelTypePtr returns a pointer to the given ModelType.

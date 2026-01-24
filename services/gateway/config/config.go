@@ -62,6 +62,9 @@ type GatewayConfig struct {
 
 	// LLMURL is the URL for the MLX LLM server (on dev01).
 	LLMURL string
+
+	// AIServiceAddr is the gRPC address of the AI Coordinator service.
+	AIServiceAddr string
 }
 
 // AuthConfig holds authentication configuration for the gateway.
@@ -139,6 +142,7 @@ const (
 	DefaultOrchestratorAddress  = "localhost:50052"
 	DefaultSearchAddress        = "localhost:50053"
 	DefaultDailyReviewAddress   = "localhost:50054"
+	DefaultAIServiceAddr        = "localhost:50055"
 
 	// Rate limit defaults.
 	DefaultRateLimitDefaultRPS   = 100.0
@@ -172,6 +176,7 @@ func Load() (*GatewayConfig, error) {
 		OrchestratorAddress: DefaultOrchestratorAddress,
 		SearchAddress:       DefaultSearchAddress,
 		DailyReviewAddress:  DefaultDailyReviewAddress,
+		AIServiceAddr:       DefaultAIServiceAddr,
 		CSRF: CSRFConfig{
 			Enabled:     DefaultCSRFEnabled,
 			Secure:      true,
@@ -341,6 +346,11 @@ func loadGatewayEnv(cfg *GatewayConfig) {
 
 	if v := os.Getenv("GATEWAY_LLM_URL"); v != "" {
 		cfg.LLMURL = v
+	}
+
+	// AI service address
+	if v := os.Getenv("GATEWAY_AI_SERVICE_ADDR"); v != "" {
+		cfg.AIServiceAddr = v
 	}
 }
 

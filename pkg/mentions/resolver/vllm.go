@@ -12,6 +12,11 @@ import (
 )
 
 // VLLMProvider implements LLMProvider for vLLM-MLX servers using the OpenAI-compatible API.
+//
+// Deprecated: VLLMProvider makes direct HTTP calls to the LLM service.
+// Use NewAIProvider with an AIClient instead, which routes through the
+// centralized AI Coordinator service for better observability, model
+// routing, and retry handling.
 type VLLMProvider struct {
 	config     LLMConfig
 	httpClient *http.Client
@@ -19,6 +24,10 @@ type VLLMProvider struct {
 }
 
 // NewVLLMProvider creates a new vLLM provider.
+//
+// Deprecated: Use NewAIProvider instead. NewVLLMProvider makes direct HTTP
+// calls to the LLM service. NewAIProvider routes through the AI Coordinator
+// service for better observability and retry handling.
 func NewVLLMProvider(config LLMConfig) *VLLMProvider {
 	return &VLLMProvider{
 		config: config,
