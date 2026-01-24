@@ -1,6 +1,7 @@
 package batch
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -105,9 +106,9 @@ func TestProgressCancel(t *testing.T) {
 func TestProgressCallback(t *testing.T) {
 	p := NewProgress(10)
 
-	callbackCount := 0
+	var callbackCount int32
 	p.SetOnUpdate(func(*Progress) {
-		callbackCount++
+		atomic.AddInt32(&callbackCount, 1)
 	})
 
 	p.Start()
@@ -116,8 +117,8 @@ func TestProgressCallback(t *testing.T) {
 	p.RecordImported()
 	time.Sleep(10 * time.Millisecond)
 
-	if callbackCount < 2 {
-		t.Errorf("expected at least 2 callbacks, got: %d", callbackCount)
+	if atomic.LoadInt32(&callbackCount) < 2 {
+		t.Errorf("expected at least 2 callbacks, got: %d", atomic.LoadInt32(&callbackCount))
 	}
 }
 

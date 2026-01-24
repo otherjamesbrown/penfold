@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -374,7 +375,8 @@ func TestGetMockLogs_ContainsFilter(t *testing.T) {
 	entries := getMockLogs(query)
 
 	for _, entry := range entries {
-		assert.Contains(t, entry.Message, "connection")
+		// Filter is case-insensitive, so verify lowercase match
+		assert.Contains(t, strings.ToLower(entry.Message), "connection")
 	}
 }
 
