@@ -31,16 +31,20 @@ const (
 
 	// DefaultRetryDelay is the default delay between retries.
 	DefaultRetryDelay = 100 * time.Millisecond
+
+	// DefaultMaxConcurrency is the default max concurrent embedding requests.
+	DefaultMaxConcurrency = 10
 )
 
 // Environment variable names for embedding configuration.
 const (
-	EnvServerURL  = "PENFOLD_EMBEDDING_SERVER_URL"
-	EnvModel      = "PENFOLD_EMBEDDING_MODEL"
-	EnvBatchSize  = "PENFOLD_EMBEDDING_BATCH_SIZE"
-	EnvTimeout    = "PENFOLD_EMBEDDING_TIMEOUT_SECONDS"
-	EnvDimensions = "PENFOLD_EMBEDDING_DIMENSIONS"
-	EnvMaxRetries = "PENFOLD_EMBEDDING_MAX_RETRIES"
+	EnvServerURL      = "PENFOLD_EMBEDDING_SERVER_URL"
+	EnvModel          = "PENFOLD_EMBEDDING_MODEL"
+	EnvBatchSize      = "PENFOLD_EMBEDDING_BATCH_SIZE"
+	EnvTimeout        = "PENFOLD_EMBEDDING_TIMEOUT_SECONDS"
+	EnvDimensions     = "PENFOLD_EMBEDDING_DIMENSIONS"
+	EnvMaxRetries     = "PENFOLD_EMBEDDING_MAX_RETRIES"
+	EnvMaxConcurrency = "PENFOLD_EMBEDDING_MAX_CONCURRENCY"
 )
 
 // Config holds configuration for the embedding client.
@@ -70,18 +74,23 @@ type Config struct {
 
 	// RetryDelay is the initial delay between retries (uses exponential backoff).
 	RetryDelay time.Duration
+
+	// MaxConcurrency is the maximum number of concurrent embedding requests in batch mode.
+	// This limits parallel requests to avoid overwhelming the backend service.
+	MaxConcurrency int
 }
 
 // DefaultConfig returns a Config with sensible defaults for local MLX deployment.
 func DefaultConfig() *Config {
 	return &Config{
-		ServerURL:  DefaultServerURL,
-		Model:      DefaultModel,
-		BatchSize:  DefaultBatchSize,
-		Timeout:    DefaultTimeout,
-		Dimensions: DefaultDimensions,
-		MaxRetries: DefaultMaxRetries,
-		RetryDelay: DefaultRetryDelay,
+		ServerURL:      DefaultServerURL,
+		Model:          DefaultModel,
+		BatchSize:      DefaultBatchSize,
+		Timeout:        DefaultTimeout,
+		Dimensions:     DefaultDimensions,
+		MaxRetries:     DefaultMaxRetries,
+		RetryDelay:     DefaultRetryDelay,
+		MaxConcurrency: DefaultMaxConcurrency,
 	}
 }
 
@@ -119,6 +128,12 @@ func LoadFromEnv() *Config {
 	if v := os.Getenv(EnvMaxRetries); v != "" {
 		if retries, err := strconv.Atoi(v); err == nil && retries >= 0 {
 			cfg.MaxRetries = retries
+		}
+	}
+
+	if v := os.Getenv(EnvMaxConcurrency); v != "" {
+		if concurrency, err := strconv.Atoi(v); err == nil && concurrency > 0 {
+			cfg.MaxConcurrency = concurrency
 		}
 	}
 

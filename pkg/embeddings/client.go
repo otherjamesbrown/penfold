@@ -342,8 +342,11 @@ func (c *AIBackedClient) BatchEmbed(ctx context.Context, texts []string) ([][]fl
 
 // batchEmbedConcurrent generates embeddings concurrently with bounded parallelism.
 func (c *AIBackedClient) batchEmbedConcurrent(ctx context.Context, texts []string) ([][]float32, error) {
-	// Use a worker pool with bounded concurrency
-	const maxConcurrency = 10
+	// Use a worker pool with bounded concurrency (configurable via Config.MaxConcurrency)
+	maxConcurrency := c.config.MaxConcurrency
+	if maxConcurrency <= 0 {
+		maxConcurrency = DefaultMaxConcurrency
+	}
 
 	type result struct {
 		index     int

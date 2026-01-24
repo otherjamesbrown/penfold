@@ -95,7 +95,7 @@ func main() {
 	// This replaces the old direct HTTP clients with gRPC-based adapters
 	aiServiceAddr := os.Getenv("AI_SERVICE_ADDR")
 	if aiServiceAddr == "" {
-		aiServiceAddr = "localhost:50051" // Default AI Coordinator address
+		aiServiceAddr = "localhost:50055" // Default AI Coordinator address
 	}
 
 	logger.Info().

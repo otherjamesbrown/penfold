@@ -4,6 +4,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -789,13 +790,14 @@ func (s *AIServer) parseClassificationsResponse(content string) ([]*aiv1.Classif
 
 func (s *AIServer) convertError(err error) error {
 	switch {
-	case strings.Contains(err.Error(), "context canceled"):
+	case errors.Is(err, context.Canceled), errors.Is(err, backend.ErrContextCanceled):
 		return status.Error(codes.Canceled, err.Error())
-	case strings.Contains(err.Error(), "service unavailable"):
+	case errors.Is(err, backend.ErrServiceUnavailable):
 		return status.Error(codes.Unavailable, err.Error())
-	case strings.Contains(err.Error(), "text cannot be empty"),
-		strings.Contains(err.Error(), "messages cannot be empty"):
+	case errors.Is(err, backend.ErrEmptyText), errors.Is(err, backend.ErrEmptyMessages):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, backend.ErrRequestTimeout):
+		return status.Error(codes.DeadlineExceeded, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
 	}
