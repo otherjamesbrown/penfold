@@ -38,8 +38,9 @@ func TestIngestJobStructure(t *testing.T) {
 		ImportedCount:  0,
 		SkippedCount:   0,
 		FailedCount:    0,
-		FileManifest:   []string{"file1.eml", "file2.eml"},
+		FileManifest:   []string{"/path/file1.eml", "/path/file2.eml"},
 		ProcessedFiles: []string{},
+		Options:        map[string]interface{}{"label": "test"},
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 	}
@@ -98,12 +99,14 @@ func TestProcessingStatusConstants(t *testing.T) {
 
 func TestIngestErrorStructure(t *testing.T) {
 	ingestErr := &IngestError{
-		ID:        "error-uuid-123",
-		JobID:     "job-123",
-		FilePath:  "/path/to/file.eml",
-		ErrorType: ErrorTypeParse,
-		ErrorMsg:  "parsing failed",
-		CreatedAt: time.Now(),
+		ID:           "error-uuid-123",
+		JobID:        "job-123",
+		FilePath:     "/path/to/file.eml",
+		ErrorType:    ErrorTypeParse,
+		ErrorMsg:     "parsing failed",
+		ErrorDetails: map[string]interface{}{"line": 42},
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
 
 	if ingestErr.JobID != "job-123" {

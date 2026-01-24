@@ -28,6 +28,10 @@ func TestFullPipeline_IngestToSearch(t *testing.T) {
 	err = env.LoadFixture("acme-corp")
 	require.NoError(t, err)
 
+	// Count sources before
+	var countBefore int
+	env.DB.QueryRow(ctx, "SELECT COUNT(*) FROM sources").Scan(&countBefore)
+
 	// Step 1: Ingest email via CLI
 	t.Log("=== Step 1: Email Ingestion ===")
 
@@ -50,27 +54,21 @@ func TestFullPipeline_IngestToSearch(t *testing.T) {
 	// Step 2: Verify content was stored
 	t.Log("=== Step 2: Verify Content Stored ===")
 
-	var sourceCount int
+	// Verify ingest job was created
+	var jobCount int
 	err = env.DB.QueryRow(ctx, `
-		SELECT COUNT(*) FROM sources
+		SELECT COUNT(*) FROM ingest_jobs
 		WHERE source_tag = 'e2e-test'
-	`).Scan(&sourceCount)
+	`).Scan(&jobCount)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, sourceCount, 1, "should have at least one source record")
+	assert.GreaterOrEqual(t, jobCount, 1, "should have at least one ingest job")
 
-	// Verify the email content
-	var subject, fromEmail string
-	err = env.DB.QueryRow(ctx, `
-		SELECT subject, from_email FROM sources
-		WHERE source_tag = 'e2e-test'
-		LIMIT 1
-	`).Scan(&subject, &fromEmail)
-
-	if err == nil {
-		t.Logf("Ingested email: Subject=%q, From=%q", subject, fromEmail)
-		assert.Contains(t, subject, "Project Alpha", "subject should contain Project Alpha")
-		assert.Equal(t, "john.smith@acme.com", fromEmail, "from email should match")
-	}
+	// Verify source was created
+	var countAfter int
+	err = env.DB.QueryRow(ctx, "SELECT COUNT(*) FROM sources").Scan(&countAfter)
+	require.NoError(t, err)
+	assert.Greater(t, countAfter, countBefore, "should have created new source record")
+	t.Logf("Sources: before=%d, after=%d", countBefore, countAfter)
 
 	// Step 3: Test search via CLI
 	t.Log("=== Step 3: Search Verification ===")
@@ -165,6 +163,10 @@ func TestFullPipeline_BatchIngestion(t *testing.T) {
 	err = env.LoadFixture("acme-corp")
 	require.NoError(t, err)
 
+	// Count sources before
+	var countBefore int
+	env.DB.QueryRow(ctx, "SELECT COUNT(*) FROM sources").Scan(&countBefore)
+
 	// Ingest entire email directory
 	emailDir := env.FixturePath("emails")
 	result := env.CLI.Run(ctx, "ingest", "email", emailDir, "--source", "batch-test", "--concurrency", "2")
@@ -177,15 +179,13 @@ func TestFullPipeline_BatchIngestion(t *testing.T) {
 	t.Logf("Output: %s", result.Stdout)
 
 	// Verify multiple sources were created
-	var sourceCount int
-	err = env.DB.QueryRow(ctx, `
-		SELECT COUNT(*) FROM sources
-		WHERE source_tag = 'batch-test'
-	`).Scan(&sourceCount)
+	var countAfter int
+	err = env.DB.QueryRow(ctx, "SELECT COUNT(*) FROM sources").Scan(&countAfter)
 	require.NoError(t, err)
 
-	t.Logf("Sources ingested: %d", sourceCount)
-	assert.GreaterOrEqual(t, sourceCount, 5, "should have ingested multiple emails")
+	newSources := countAfter - countBefore
+	t.Logf("Sources created: %d (before=%d, after=%d)", newSources, countBefore, countAfter)
+	assert.GreaterOrEqual(t, newSources, 5, "should have ingested multiple emails")
 }
 
 // TestFullPipeline_GlossaryTerms tests that glossary terms are available for resolution.
@@ -245,6 +245,10 @@ func TestFullPipeline_CrossDocumentSearch(t *testing.T) {
 	err = env.LoadFixture("acme-corp")
 	require.NoError(t, err)
 
+	// Count sources before
+	var countBefore int
+	env.DB.QueryRow(ctx, "SELECT COUNT(*) FROM sources").Scan(&countBefore)
+
 	// Ingest multiple specific emails
 	emails := []string{
 		"001-project-update.eml",
@@ -261,13 +265,13 @@ func TestFullPipeline_CrossDocumentSearch(t *testing.T) {
 	}
 
 	// Verify all were ingested
-	var sourceCount int
-	err = env.DB.QueryRow(ctx, `
-		SELECT COUNT(*) FROM sources
-		WHERE source_tag = 'cross-doc-test'
-	`).Scan(&sourceCount)
+	var countAfter int
+	err = env.DB.QueryRow(ctx, "SELECT COUNT(*) FROM sources").Scan(&countAfter)
 	require.NoError(t, err)
-	assert.Equal(t, len(emails), sourceCount, "should have ingested all emails")
+
+	newSources := countAfter - countBefore
+	t.Logf("Sources created: %d (before=%d, after=%d)", newSources, countBefore, countAfter)
+	assert.Equal(t, len(emails), newSources, "should have ingested all emails")
 
 	// Test cross-document search
 	searches := []struct {

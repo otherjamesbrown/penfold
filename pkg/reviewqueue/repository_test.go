@@ -228,29 +228,30 @@ func TestJoinStrings(t *testing.T) {
 	}
 }
 
-func TestReviewItem_Fields(t *testing.T) {
-	context := "Context here"
-	sourceType := "meeting"
-	sourceID := int64(100)
-	sourceRef := "TER meeting"
-	term := "TER"
-	expansion := "Technical Execution Review"
-	matchedText := "text"
+// Helper functions for creating pointers in tests
+func strPtr(s string) *string {
+	return &s
+}
 
+func int64Ptr(i int64) *int64 {
+	return &i
+}
+
+func TestReviewItem_Fields(t *testing.T) {
 	item := ReviewItem{
 		ID:                 1,
 		TenantID:           "tenant-123",
 		QuestionType:       QuestionTypeAcronym,
 		Priority:           PriorityHigh,
 		Question:           "What does TER mean?",
-		Context:            &context,
-		SourceType:         &sourceType,
-		SourceID:           &sourceID,
-		SourceReference:    &sourceRef,
-		SuggestedTerm:      &term,
-		SuggestedExpansion: &expansion,
+		Context:            strPtr("Context here"),
+		SourceType:         strPtr("meeting"),
+		SourceID:           int64Ptr(100),
+		SourceReference:    strPtr("TER meeting"),
+		SuggestedTerm:      strPtr("TER"),
+		SuggestedExpansion: strPtr("Technical Execution Review"),
 		CandidatePersonIDs: []int64{1, 2},
-		MatchedText:        &matchedText,
+		MatchedText:        strPtr("text"),
 		Status:             StatusPending,
 		Resolution:         nil,
 		Confidence:         0.85,

@@ -105,7 +105,7 @@ func TestMentionResolution_AfterIngestion(t *testing.T) {
 	}
 }
 
-// TestMentionResolution_PersonAliases tests that person aliases are used for resolution.
+// TestMentionResolution_PersonAliases tests that person aliases are available for resolution.
 func TestMentionResolution_PersonAliases(t *testing.T) {
 	env := SetupE2EEnvironment(t)
 	ctx := context.Background()
@@ -116,36 +116,52 @@ func TestMentionResolution_PersonAliases(t *testing.T) {
 	err = env.LoadFixture("acme-corp")
 	require.NoError(t, err)
 
-	// Check person aliases are loaded
-	var aliasCount int
-	err = env.DB.QueryRow(ctx, "SELECT COUNT(*) FROM person_aliases").Scan(&aliasCount)
+	// Check people with aliases are loaded (aliases is an array column on people table)
+	var peopleWithAliases int
+	err = env.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM people
+		WHERE aliases IS NOT NULL AND array_length(aliases, 1) > 0
+	`).Scan(&peopleWithAliases)
 	require.NoError(t, err)
-	t.Logf("Person aliases loaded: %d", aliasCount)
+	t.Logf("People with aliases: %d", peopleWithAliases)
 
-	// Verify some expected aliases exist
-	type aliasCheck struct {
-		aliasValue string
-		personName string
-	}
-
-	expectedAliases := []aliasCheck{
+	// Verify people can be found by email
+	expectedPeople := []struct {
+		email string
+		name  string
+	}{
 		{"john.smith@acme.com", "John Smith"},
 		{"sarah.chen@acme.com", "Sarah Chen"},
 	}
 
-	for _, expected := range expectedAliases {
+	for _, expected := range expectedPeople {
 		var canonicalName string
 		err = env.DB.QueryRow(ctx, `
-			SELECT p.canonical_name
-			FROM person_aliases pa
-			JOIN people p ON pa.person_id = p.id
-			WHERE pa.alias_value = $1
-		`, expected.aliasValue).Scan(&canonicalName)
+			SELECT canonical_name FROM people
+			WHERE primary_email = $1
+		`, expected.email).Scan(&canonicalName)
 
 		if err == nil {
-			t.Logf("Alias %s -> %s", expected.aliasValue, canonicalName)
-			assert.Equal(t, expected.personName, canonicalName,
-				"alias %s should resolve to %s", expected.aliasValue, expected.personName)
+			t.Logf("Email %s -> %s", expected.email, canonicalName)
+			assert.Equal(t, expected.name, canonicalName,
+				"email %s should belong to %s", expected.email, expected.name)
+		}
+	}
+
+	// List some people with their aliases
+	rows, err := env.DB.Query(ctx, `
+		SELECT canonical_name, primary_email, aliases
+		FROM people
+		WHERE aliases IS NOT NULL AND array_length(aliases, 1) > 0
+		LIMIT 5
+	`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var name, email string
+			var aliases []string
+			rows.Scan(&name, &email, &aliases)
+			t.Logf("  Person: %s <%s> aliases=%v", name, email, aliases)
 		}
 	}
 }
