@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/products"
 )
@@ -20,15 +21,17 @@ import (
 // Service implements the ProductService gRPC server.
 type Service struct {
 	productv1.UnimplementedProductServiceServer
-	repo   *products.Repository
-	logger logging.Logger
+	repo         *products.Repository
+	entitiesRepo *entities.Repository
+	logger       logging.Logger
 }
 
 // NewService creates a new product service.
-func NewService(repo *products.Repository, logger logging.Logger) *Service {
+func NewService(repo *products.Repository, entitiesRepo *entities.Repository, logger logging.Logger) *Service {
 	return &Service{
-		repo:   repo,
-		logger: logger,
+		repo:         repo,
+		entitiesRepo: entitiesRepo,
+		logger:       logger,
 	}
 }
 
@@ -1013,6 +1016,499 @@ func contextWindowToProto(w *products.ContextWindow) *productv1.ContextWindow {
 
 	for _, e := range w.EventsAfter {
 		proto.EventsAfter = append(proto.EventsAfter, eventToProto(e))
+	}
+
+	return proto
+}
+
+// ==================== Team Management Methods ====================
+
+// ListProductTeams lists teams associated with a product.
+func (s *Service) ListProductTeams(ctx context.Context, req *productv1.ListProductTeamsRequest) (*productv1.ListProductTeamsResponse, error) {
+	s.logger.Debug("ListProductTeams called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("product_identifier", req.ProductIdentifier),
+	)
+
+	if req.ProductIdentifier == "" {
+		return nil, status.Error(codes.InvalidArgument, "product_identifier is required")
+	}
+
+	// Resolve product
+	product, err := s.repo.ResolveProduct(ctx, req.TenantId, req.ProductIdentifier)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "product not found: %s", req.ProductIdentifier)
+	}
+
+	// Get teams for the product
+	teams, err := s.repo.GetTeamsForProduct(ctx, product.ID)
+	if err != nil {
+		s.logger.Error("Error listing product teams", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list product teams: %v", err)
+	}
+
+	protoTeams := make([]*productv1.ProductTeam, len(teams))
+	for i, pt := range teams {
+		protoTeams[i] = productTeamToProto(pt)
+	}
+
+	return &productv1.ListProductTeamsResponse{
+		Teams: protoTeams,
+	}, nil
+}
+
+// AddProductTeam associates a team with a product.
+func (s *Service) AddProductTeam(ctx context.Context, req *productv1.AddProductTeamRequest) (*productv1.AddProductTeamResponse, error) {
+	s.logger.Debug("AddProductTeam called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("product_identifier", req.ProductIdentifier),
+		logging.F("team_identifier", req.TeamIdentifier),
+	)
+
+	if req.ProductIdentifier == "" {
+		return nil, status.Error(codes.InvalidArgument, "product_identifier is required")
+	}
+	if req.TeamIdentifier == "" {
+		return nil, status.Error(codes.InvalidArgument, "team_identifier is required")
+	}
+
+	// Resolve product
+	product, err := s.repo.ResolveProduct(ctx, req.TenantId, req.ProductIdentifier)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "product not found: %s", req.ProductIdentifier)
+	}
+
+	// Resolve team - try by ID first, then by name
+	var team *entities.Team
+	if teamID, parseErr := strconv.ParseInt(req.TeamIdentifier, 10, 64); parseErr == nil {
+		team, err = s.entitiesRepo.GetTeamByID(ctx, teamID)
+	} else {
+		team, err = s.entitiesRepo.GetTeamByName(ctx, req.TenantId, req.TeamIdentifier)
+	}
+	if err != nil {
+		s.logger.Error("Error resolving team", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to resolve team: %v", err)
+	}
+	if team == nil {
+		return nil, status.Errorf(codes.NotFound, "team not found: %s", req.TeamIdentifier)
+	}
+
+	// Create association
+	pt := &products.ProductTeam{
+		TenantID:  req.TenantId,
+		ProductID: product.ID,
+		TeamID:    team.ID,
+		Context:   req.Context,
+	}
+
+	if err := s.repo.AssociateTeam(ctx, pt); err != nil {
+		if err == products.ErrTeamAssociationExists {
+			return nil, status.Error(codes.AlreadyExists, "team is already associated with this product")
+		}
+		s.logger.Error("Error associating team", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to associate team: %v", err)
+	}
+
+	// Populate names for response
+	pt.ProductName = product.Name
+	pt.TeamName = team.Name
+
+	return &productv1.AddProductTeamResponse{
+		ProductTeam: productTeamToProto(pt),
+	}, nil
+}
+
+// RemoveProductTeam removes a team association from a product.
+func (s *Service) RemoveProductTeam(ctx context.Context, req *productv1.RemoveProductTeamRequest) (*productv1.RemoveProductTeamResponse, error) {
+	s.logger.Debug("RemoveProductTeam called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("product_team_id", req.ProductTeamId),
+	)
+
+	if req.ProductTeamId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "product_team_id is required")
+	}
+
+	// Get the product team to find the product and team IDs
+	pt, err := s.repo.GetProductTeam(ctx, req.ProductTeamId)
+	if err != nil {
+		if err == products.ErrNotFound {
+			return nil, status.Error(codes.NotFound, "product team association not found")
+		}
+		s.logger.Error("Error getting product team", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get product team: %v", err)
+	}
+
+	// Dissociate the team
+	if err := s.repo.DissociateTeam(ctx, pt.ProductID, pt.TeamID, pt.Context); err != nil {
+		if err == products.ErrNotFound {
+			return nil, status.Error(codes.NotFound, "product team association not found")
+		}
+		s.logger.Error("Error removing product team", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to remove product team: %v", err)
+	}
+
+	return &productv1.RemoveProductTeamResponse{
+		Success: true,
+	}, nil
+}
+
+// ListProductTeamRoles lists roles for a product team.
+func (s *Service) ListProductTeamRoles(ctx context.Context, req *productv1.ListProductTeamRolesRequest) (*productv1.ListProductTeamRolesResponse, error) {
+	s.logger.Debug("ListProductTeamRoles called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("product_team_id", req.ProductTeamId),
+		logging.F("active_only", req.ActiveOnly),
+	)
+
+	if req.ProductTeamId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "product_team_id is required")
+	}
+
+	// Verify the product team exists
+	_, err := s.repo.GetProductTeam(ctx, req.ProductTeamId)
+	if err != nil {
+		if err == products.ErrNotFound {
+			return nil, status.Error(codes.NotFound, "product team not found")
+		}
+		s.logger.Error("Error getting product team", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get product team: %v", err)
+	}
+
+	// Get roles for the product team
+	roles, err := s.repo.GetRolesForProductTeam(ctx, req.ProductTeamId, req.ActiveOnly)
+	if err != nil {
+		s.logger.Error("Error listing product team roles", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list product team roles: %v", err)
+	}
+
+	protoRoles := make([]*productv1.ProductTeamRole, len(roles))
+	for i, r := range roles {
+		protoRoles[i] = productTeamRoleToProto(r)
+	}
+
+	return &productv1.ListProductTeamRolesResponse{
+		Roles: protoRoles,
+	}, nil
+}
+
+// AddProductTeamRole assigns a role to a person in a product team.
+func (s *Service) AddProductTeamRole(ctx context.Context, req *productv1.AddProductTeamRoleRequest) (*productv1.AddProductTeamRoleResponse, error) {
+	s.logger.Debug("AddProductTeamRole called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("product_team_id", req.ProductTeamId),
+		logging.F("person_identifier", req.PersonIdentifier),
+		logging.F("role", req.Role),
+	)
+
+	if req.ProductTeamId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "product_team_id is required")
+	}
+	if req.PersonIdentifier == "" {
+		return nil, status.Error(codes.InvalidArgument, "person_identifier is required")
+	}
+	if req.Role == "" {
+		return nil, status.Error(codes.InvalidArgument, "role is required")
+	}
+
+	// Verify the product team exists
+	pt, err := s.repo.GetProductTeam(ctx, req.ProductTeamId)
+	if err != nil {
+		if err == products.ErrNotFound {
+			return nil, status.Error(codes.NotFound, "product team not found")
+		}
+		s.logger.Error("Error getting product team", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get product team: %v", err)
+	}
+
+	// Resolve person - try by ID first, then by email
+	var person *entities.Person
+	if personID, parseErr := strconv.ParseInt(req.PersonIdentifier, 10, 64); parseErr == nil {
+		person, err = s.entitiesRepo.GetPersonByID(ctx, personID)
+	} else {
+		person, err = s.entitiesRepo.GetPersonByEmail(ctx, req.TenantId, req.PersonIdentifier)
+	}
+	if err != nil {
+		s.logger.Error("Error resolving person", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to resolve person: %v", err)
+	}
+	if person == nil {
+		return nil, status.Errorf(codes.NotFound, "person not found: %s", req.PersonIdentifier)
+	}
+
+	// Create role
+	role := &products.ProductTeamRole{
+		TenantID:      req.TenantId,
+		ProductTeamID: req.ProductTeamId,
+		PersonID:      person.ID,
+		Role:          req.Role,
+		Scope:         req.Scope,
+	}
+
+	if req.StartedAt != nil {
+		role.StartedAt = req.StartedAt.AsTime()
+	}
+
+	if err := s.repo.AddRole(ctx, role); err != nil {
+		s.logger.Error("Error adding role", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to add role: %v", err)
+	}
+
+	// Populate names for response
+	role.ProductName = pt.ProductName
+	role.TeamName = pt.TeamName
+	role.TeamContext = pt.Context
+	role.PersonName = person.CanonicalName
+	role.PersonEmail = person.PrimaryEmail
+
+	return &productv1.AddProductTeamRoleResponse{
+		Role: productTeamRoleToProto(role),
+	}, nil
+}
+
+// EndProductTeamRole ends an active role assignment.
+func (s *Service) EndProductTeamRole(ctx context.Context, req *productv1.EndProductTeamRoleRequest) (*productv1.EndProductTeamRoleResponse, error) {
+	s.logger.Debug("EndProductTeamRole called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("role_id", req.RoleId),
+	)
+
+	if req.RoleId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "role_id is required")
+	}
+
+	// End the role
+	if err := s.repo.EndRole(ctx, req.RoleId); err != nil {
+		if err == products.ErrNotFound {
+			return nil, status.Error(codes.NotFound, "role not found or already ended")
+		}
+		s.logger.Error("Error ending role", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to end role: %v", err)
+	}
+
+	// Fetch the updated role for response
+	role, err := s.repo.GetRole(ctx, req.RoleId)
+	if err != nil {
+		s.logger.Error("Error fetching ended role", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to fetch ended role: %v", err)
+	}
+
+	return &productv1.EndProductTeamRoleResponse{
+		Role: productTeamRoleToProto(role),
+	}, nil
+}
+
+// GetProductTeamRole retrieves a specific role assignment.
+func (s *Service) GetProductTeamRole(ctx context.Context, req *productv1.GetProductTeamRoleRequest) (*productv1.GetProductTeamRoleResponse, error) {
+	s.logger.Debug("GetProductTeamRole called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("role_id", req.RoleId),
+	)
+
+	if req.RoleId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "role_id is required")
+	}
+
+	role, err := s.repo.GetRole(ctx, req.RoleId)
+	if err != nil {
+		if err == products.ErrNotFound {
+			return nil, status.Error(codes.NotFound, "role not found")
+		}
+		s.logger.Error("Error getting role", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get role: %v", err)
+	}
+
+	return &productv1.GetProductTeamRoleResponse{
+		Role: productTeamRoleToProto(role),
+	}, nil
+}
+
+// FindByRole finds people by role across products.
+func (s *Service) FindByRole(ctx context.Context, req *productv1.FindByRoleRequest) (*productv1.FindByRoleResponse, error) {
+	s.logger.Debug("FindByRole called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("role", req.Role),
+		logging.F("product_identifier", req.ProductIdentifier),
+		logging.F("team_identifier", req.TeamIdentifier),
+		logging.F("scope", req.Scope),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+
+	// Build role query
+	query := products.RoleQuery{
+		TenantID:   req.TenantId,
+		Role:       req.Role,
+		Scope:      req.Scope,
+		ActiveOnly: req.ActiveOnly,
+	}
+
+	// Resolve product name if provided
+	if req.ProductIdentifier != "" {
+		product, err := s.repo.ResolveProduct(ctx, req.TenantId, req.ProductIdentifier)
+		if err != nil {
+			return nil, status.Errorf(codes.NotFound, "product not found: %s", req.ProductIdentifier)
+		}
+		query.ProductName = product.Name
+	}
+
+	// Resolve team name if provided
+	if req.TeamIdentifier != "" {
+		var team *entities.Team
+		var err error
+		if teamID, parseErr := strconv.ParseInt(req.TeamIdentifier, 10, 64); parseErr == nil {
+			team, err = s.entitiesRepo.GetTeamByID(ctx, teamID)
+		} else {
+			team, err = s.entitiesRepo.GetTeamByName(ctx, req.TenantId, req.TeamIdentifier)
+		}
+		if err != nil {
+			s.logger.Error("Error resolving team", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to resolve team: %v", err)
+		}
+		if team == nil {
+			return nil, status.Errorf(codes.NotFound, "team not found: %s", req.TeamIdentifier)
+		}
+		query.TeamName = team.Name
+	}
+
+	// Find matching roles
+	roles, err := s.repo.FindByRole(ctx, query)
+	if err != nil {
+		s.logger.Error("Error finding by role", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to find by role: %v", err)
+	}
+
+	protoRoles := make([]*productv1.ProductTeamRole, len(roles))
+	for i, r := range roles {
+		protoRoles[i] = productTeamRoleToProto(r)
+	}
+
+	return &productv1.FindByRoleResponse{
+		Roles: protoRoles,
+	}, nil
+}
+
+// ListProductPeople lists all people associated with a product through teams.
+func (s *Service) ListProductPeople(ctx context.Context, req *productv1.ListProductPeopleRequest) (*productv1.ListProductPeopleResponse, error) {
+	s.logger.Debug("ListProductPeople called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("product_identifier", req.ProductIdentifier),
+		logging.F("active_only", req.ActiveOnly),
+	)
+
+	if req.ProductIdentifier == "" {
+		return nil, status.Error(codes.InvalidArgument, "product_identifier is required")
+	}
+
+	// Resolve product
+	product, err := s.repo.ResolveProduct(ctx, req.TenantId, req.ProductIdentifier)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "product not found: %s", req.ProductIdentifier)
+	}
+
+	// Get all roles for people on this product
+	roles, err := s.repo.GetPeopleOnProduct(ctx, product.ID, req.ActiveOnly)
+	if err != nil {
+		s.logger.Error("Error listing product people", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list product people: %v", err)
+	}
+
+	// Group roles by person to build summaries
+	personRoles := make(map[int64][]*products.ProductTeamRole)
+	personTeams := make(map[int64]map[string]bool)
+	personInfo := make(map[int64]*products.ProductTeamRole)
+
+	for _, r := range roles {
+		personRoles[r.PersonID] = append(personRoles[r.PersonID], r)
+		if personTeams[r.PersonID] == nil {
+			personTeams[r.PersonID] = make(map[string]bool)
+		}
+		personTeams[r.PersonID][r.TeamName] = true
+		personInfo[r.PersonID] = r // Store last one for person info
+	}
+
+	// Build response
+	var people []*productv1.ProductPersonSummary
+	for personID, roles := range personRoles {
+		info := personInfo[personID]
+
+		// Build team names list
+		var teamNames []string
+		for teamName := range personTeams[personID] {
+			teamNames = append(teamNames, teamName)
+		}
+
+		// Convert roles to proto
+		protoRoles := make([]*productv1.ProductTeamRole, len(roles))
+		for i, r := range roles {
+			protoRoles[i] = productTeamRoleToProto(r)
+		}
+
+		summary := &productv1.ProductPersonSummary{
+			Person: &productv1.Person{
+				Id:            personID,
+				TenantId:      req.TenantId,
+				CanonicalName: info.PersonName,
+				PrimaryEmail:  info.PersonEmail,
+			},
+			TeamNames: teamNames,
+			Roles:     protoRoles,
+		}
+		people = append(people, summary)
+	}
+
+	return &productv1.ListProductPeopleResponse{
+		People: people,
+	}, nil
+}
+
+// ==================== Team Conversion Helpers ====================
+
+func productTeamToProto(pt *products.ProductTeam) *productv1.ProductTeam {
+	if pt == nil {
+		return nil
+	}
+
+	return &productv1.ProductTeam{
+		Id:          pt.ID,
+		TenantId:    pt.TenantID,
+		ProductId:   pt.ProductID,
+		TeamId:      pt.TeamID,
+		Context:     pt.Context,
+		TeamName:    pt.TeamName,
+		ProductName: pt.ProductName,
+		CreatedAt:   timestamppb.New(pt.CreatedAt),
+		UpdatedAt:   timestamppb.New(pt.UpdatedAt),
+	}
+}
+
+func productTeamRoleToProto(r *products.ProductTeamRole) *productv1.ProductTeamRole {
+	if r == nil {
+		return nil
+	}
+
+	proto := &productv1.ProductTeamRole{
+		Id:            r.ID,
+		TenantId:      r.TenantID,
+		ProductTeamId: r.ProductTeamID,
+		PersonId:      r.PersonID,
+		Role:          r.Role,
+		Scope:         r.Scope,
+		IsActive:      r.IsActive,
+		StartedAt:     timestamppb.New(r.StartedAt),
+		PersonName:    r.PersonName,
+		PersonEmail:   r.PersonEmail,
+		TeamName:      r.TeamName,
+		ProductName:   r.ProductName,
+		TeamContext:   r.TeamContext,
+		CreatedAt:     timestamppb.New(r.CreatedAt),
+		UpdatedAt:     timestamppb.New(r.UpdatedAt),
+	}
+
+	if r.EndedAt != nil {
+		proto.EndedAt = timestamppb.New(*r.EndedAt)
 	}
 
 	return proto

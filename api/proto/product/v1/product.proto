@@ -60,6 +60,35 @@ service ProductService {
 
   // GetEventContext retrieves events around a specific point in time.
   rpc GetEventContext(GetEventContextRequest) returns (GetEventContextResponse);
+
+  // Team management
+  // ListProductTeams lists teams associated with a product.
+  rpc ListProductTeams(ListProductTeamsRequest) returns (ListProductTeamsResponse);
+
+  // AddProductTeam associates a team with a product.
+  rpc AddProductTeam(AddProductTeamRequest) returns (AddProductTeamResponse);
+
+  // RemoveProductTeam removes a team association from a product.
+  rpc RemoveProductTeam(RemoveProductTeamRequest) returns (RemoveProductTeamResponse);
+
+  // Role management
+  // ListProductTeamRoles lists roles for a product team.
+  rpc ListProductTeamRoles(ListProductTeamRolesRequest) returns (ListProductTeamRolesResponse);
+
+  // AddProductTeamRole assigns a role to a person in a product team.
+  rpc AddProductTeamRole(AddProductTeamRoleRequest) returns (AddProductTeamRoleResponse);
+
+  // EndProductTeamRole ends an active role assignment.
+  rpc EndProductTeamRole(EndProductTeamRoleRequest) returns (EndProductTeamRoleResponse);
+
+  // GetProductTeamRole retrieves a specific role assignment.
+  rpc GetProductTeamRole(GetProductTeamRoleRequest) returns (GetProductTeamRoleResponse);
+
+  // FindByRole finds people by role across products.
+  rpc FindByRole(FindByRoleRequest) returns (FindByRoleResponse);
+
+  // ListProductPeople lists all people associated with a product through teams.
+  rpc ListProductPeople(ListProductPeopleRequest) returns (ListProductPeopleResponse);
 }
 
 // =============================================================================
@@ -650,4 +679,332 @@ message GetEventContextRequest {
 message GetEventContextResponse {
   // The context window with surrounding events.
   ContextWindow context = 1;
+}
+
+// =============================================================================
+// Team Management Messages
+// =============================================================================
+
+// ProductTeam represents an association between a product and a team.
+message ProductTeam {
+  // Unique identifier.
+  int64 id = 1;
+
+  // Tenant ID for multi-tenant support.
+  string tenant_id = 2;
+
+  // Product ID this team is associated with.
+  int64 product_id = 3;
+
+  // Team ID from the entities system.
+  int64 team_id = 4;
+
+  // Context describes the team's relationship (e.g., "Core Team", "DRI Team").
+  string context = 5;
+
+  // Team name (populated on read operations).
+  string team_name = 6;
+
+  // Product name (populated on read operations).
+  string product_name = 7;
+
+  // When the association was created.
+  google.protobuf.Timestamp created_at = 8;
+
+  // When the association was last updated.
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// ProductTeamRole represents a scoped role assignment.
+// A person has a role in the context of a product through a team.
+message ProductTeamRole {
+  // Unique identifier.
+  int64 id = 1;
+
+  // Tenant ID for multi-tenant support.
+  string tenant_id = 2;
+
+  // Product team ID this role belongs to.
+  int64 product_team_id = 3;
+
+  // Person ID from the entities system.
+  int64 person_id = 4;
+
+  // Role name (e.g., "DRI", "Manager", "Lead").
+  string role = 5;
+
+  // Optional scope within the role (e.g., "Networking", "Database").
+  string scope = 6;
+
+  // Whether this role assignment is currently active.
+  bool is_active = 7;
+
+  // When this role started.
+  google.protobuf.Timestamp started_at = 8;
+
+  // When this role ended (if not active).
+  google.protobuf.Timestamp ended_at = 9;
+
+  // Person name (populated on read operations).
+  string person_name = 10;
+
+  // Person email (populated on read operations).
+  string person_email = 11;
+
+  // Team name (populated on read operations).
+  string team_name = 12;
+
+  // Product name (populated on read operations).
+  string product_name = 13;
+
+  // Team context (populated on read operations).
+  string team_context = 14;
+
+  // When the record was created.
+  google.protobuf.Timestamp created_at = 15;
+
+  // When the record was last updated.
+  google.protobuf.Timestamp updated_at = 16;
+}
+
+// Team represents a team from the entities system.
+message Team {
+  // Unique identifier.
+  int64 id = 1;
+
+  // Tenant ID for multi-tenant support.
+  string tenant_id = 2;
+
+  // Team name.
+  string name = 3;
+
+  // Team description.
+  string description = 4;
+
+  // When the team was created.
+  google.protobuf.Timestamp created_at = 5;
+
+  // When the team was last updated.
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// Person represents a person from the entities system.
+message Person {
+  // Unique identifier.
+  int64 id = 1;
+
+  // Tenant ID for multi-tenant support.
+  string tenant_id = 2;
+
+  // Canonical name.
+  string canonical_name = 3;
+
+  // Primary email address.
+  string primary_email = 4;
+
+  // Job title.
+  string title = 5;
+
+  // Department.
+  string department = 6;
+
+  // Company.
+  string company = 7;
+
+  // Whether this is an internal person.
+  bool is_internal = 8;
+}
+
+// =============================================================================
+// Team Management Request/Response Messages
+// =============================================================================
+
+// ListProductTeamsRequest lists teams for a product.
+message ListProductTeamsRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product ID, name, or alias.
+  string product_identifier = 2;
+}
+
+// ListProductTeamsResponse returns the product teams.
+message ListProductTeamsResponse {
+  // The product teams.
+  repeated ProductTeam teams = 1;
+}
+
+// AddProductTeamRequest associates a team with a product.
+message AddProductTeamRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product ID, name, or alias.
+  string product_identifier = 2;
+
+  // Team ID or name.
+  string team_identifier = 3;
+
+  // Context describing the relationship (e.g., "Core Team", "DRI Team").
+  string context = 4;
+}
+
+// AddProductTeamResponse returns the created association.
+message AddProductTeamResponse {
+  // The created product team.
+  ProductTeam product_team = 1;
+}
+
+// RemoveProductTeamRequest removes a team association.
+message RemoveProductTeamRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product team ID to remove.
+  int64 product_team_id = 2;
+}
+
+// RemoveProductTeamResponse confirms removal.
+message RemoveProductTeamResponse {
+  // Whether the removal was successful.
+  bool success = 1;
+}
+
+// =============================================================================
+// Role Management Request/Response Messages
+// =============================================================================
+
+// ListProductTeamRolesRequest lists roles for a product team.
+message ListProductTeamRolesRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product team ID.
+  int64 product_team_id = 2;
+
+  // Only return active roles.
+  bool active_only = 3;
+}
+
+// ListProductTeamRolesResponse returns the roles.
+message ListProductTeamRolesResponse {
+  // The roles.
+  repeated ProductTeamRole roles = 1;
+}
+
+// AddProductTeamRoleRequest assigns a role to a person.
+message AddProductTeamRoleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product team ID.
+  int64 product_team_id = 2;
+
+  // Person ID or email.
+  string person_identifier = 3;
+
+  // Role name (e.g., "DRI", "Manager", "Lead").
+  string role = 4;
+
+  // Optional scope within the role (e.g., "Networking", "Database").
+  string scope = 5;
+
+  // When this role started (defaults to now).
+  google.protobuf.Timestamp started_at = 6;
+}
+
+// AddProductTeamRoleResponse returns the created role.
+message AddProductTeamRoleResponse {
+  // The created role.
+  ProductTeamRole role = 1;
+}
+
+// EndProductTeamRoleRequest ends an active role.
+message EndProductTeamRoleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Role ID to end.
+  int64 role_id = 2;
+
+  // When the role ended (defaults to now).
+  google.protobuf.Timestamp ended_at = 3;
+}
+
+// EndProductTeamRoleResponse confirms the role was ended.
+message EndProductTeamRoleResponse {
+  // The updated role.
+  ProductTeamRole role = 1;
+}
+
+// GetProductTeamRoleRequest retrieves a specific role.
+message GetProductTeamRoleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Role ID.
+  int64 role_id = 2;
+}
+
+// GetProductTeamRoleResponse returns the role.
+message GetProductTeamRoleResponse {
+  // The role.
+  ProductTeamRole role = 1;
+}
+
+// FindByRoleRequest finds people by role across products.
+message FindByRoleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Role to search for (e.g., "DRI", "Manager").
+  string role = 2;
+
+  // Optional: filter by product (ID, name, or alias).
+  string product_identifier = 3;
+
+  // Optional: filter by team (ID or name).
+  string team_identifier = 4;
+
+  // Optional: filter by scope.
+  string scope = 5;
+
+  // Only return active roles (default: true).
+  bool active_only = 6;
+}
+
+// FindByRoleResponse returns matching roles.
+message FindByRoleResponse {
+  // The matching roles.
+  repeated ProductTeamRole roles = 1;
+}
+
+// ListProductPeopleRequest lists people associated with a product.
+message ListProductPeopleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product ID, name, or alias.
+  string product_identifier = 2;
+
+  // Only return people with active roles.
+  bool active_only = 3;
+}
+
+// ProductPersonSummary represents a person's involvement with a product.
+message ProductPersonSummary {
+  // The person.
+  Person person = 1;
+
+  // Teams this person belongs to for this product.
+  repeated string team_names = 2;
+
+  // Roles this person has for this product.
+  repeated ProductTeamRole roles = 3;
+}
+
+// ListProductPeopleResponse returns people associated with a product.
+message ListProductPeopleResponse {
+  // People with their team and role information.
+  repeated ProductPersonSummary people = 1;
 }

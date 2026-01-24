@@ -22,21 +22,30 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ProductService_CreateProduct_FullMethodName      = "/penfold.product.v1.ProductService/CreateProduct"
-	ProductService_GetProduct_FullMethodName         = "/penfold.product.v1.ProductService/GetProduct"
-	ProductService_UpdateProduct_FullMethodName      = "/penfold.product.v1.ProductService/UpdateProduct"
-	ProductService_DeleteProduct_FullMethodName      = "/penfold.product.v1.ProductService/DeleteProduct"
-	ProductService_ListProducts_FullMethodName       = "/penfold.product.v1.ProductService/ListProducts"
-	ProductService_GetHierarchy_FullMethodName       = "/penfold.product.v1.ProductService/GetHierarchy"
-	ProductService_AddAlias_FullMethodName           = "/penfold.product.v1.ProductService/AddAlias"
-	ProductService_RemoveAlias_FullMethodName        = "/penfold.product.v1.ProductService/RemoveAlias"
-	ProductService_ListAliases_FullMethodName        = "/penfold.product.v1.ProductService/ListAliases"
-	ProductService_ListProductEvents_FullMethodName  = "/penfold.product.v1.ProductService/ListProductEvents"
-	ProductService_CreateProductEvent_FullMethodName = "/penfold.product.v1.ProductService/CreateProductEvent"
-	ProductService_GetProductEvent_FullMethodName    = "/penfold.product.v1.ProductService/GetProductEvent"
-	ProductService_DeleteProductEvent_FullMethodName = "/penfold.product.v1.ProductService/DeleteProductEvent"
-	ProductService_LinkProductEvent_FullMethodName   = "/penfold.product.v1.ProductService/LinkProductEvent"
-	ProductService_GetEventContext_FullMethodName    = "/penfold.product.v1.ProductService/GetEventContext"
+	ProductService_CreateProduct_FullMethodName        = "/penfold.product.v1.ProductService/CreateProduct"
+	ProductService_GetProduct_FullMethodName           = "/penfold.product.v1.ProductService/GetProduct"
+	ProductService_UpdateProduct_FullMethodName        = "/penfold.product.v1.ProductService/UpdateProduct"
+	ProductService_DeleteProduct_FullMethodName        = "/penfold.product.v1.ProductService/DeleteProduct"
+	ProductService_ListProducts_FullMethodName         = "/penfold.product.v1.ProductService/ListProducts"
+	ProductService_GetHierarchy_FullMethodName         = "/penfold.product.v1.ProductService/GetHierarchy"
+	ProductService_AddAlias_FullMethodName             = "/penfold.product.v1.ProductService/AddAlias"
+	ProductService_RemoveAlias_FullMethodName          = "/penfold.product.v1.ProductService/RemoveAlias"
+	ProductService_ListAliases_FullMethodName          = "/penfold.product.v1.ProductService/ListAliases"
+	ProductService_ListProductEvents_FullMethodName    = "/penfold.product.v1.ProductService/ListProductEvents"
+	ProductService_CreateProductEvent_FullMethodName   = "/penfold.product.v1.ProductService/CreateProductEvent"
+	ProductService_GetProductEvent_FullMethodName      = "/penfold.product.v1.ProductService/GetProductEvent"
+	ProductService_DeleteProductEvent_FullMethodName   = "/penfold.product.v1.ProductService/DeleteProductEvent"
+	ProductService_LinkProductEvent_FullMethodName     = "/penfold.product.v1.ProductService/LinkProductEvent"
+	ProductService_GetEventContext_FullMethodName      = "/penfold.product.v1.ProductService/GetEventContext"
+	ProductService_ListProductTeams_FullMethodName     = "/penfold.product.v1.ProductService/ListProductTeams"
+	ProductService_AddProductTeam_FullMethodName       = "/penfold.product.v1.ProductService/AddProductTeam"
+	ProductService_RemoveProductTeam_FullMethodName    = "/penfold.product.v1.ProductService/RemoveProductTeam"
+	ProductService_ListProductTeamRoles_FullMethodName = "/penfold.product.v1.ProductService/ListProductTeamRoles"
+	ProductService_AddProductTeamRole_FullMethodName   = "/penfold.product.v1.ProductService/AddProductTeamRole"
+	ProductService_EndProductTeamRole_FullMethodName   = "/penfold.product.v1.ProductService/EndProductTeamRole"
+	ProductService_GetProductTeamRole_FullMethodName   = "/penfold.product.v1.ProductService/GetProductTeamRole"
+	ProductService_FindByRole_FullMethodName           = "/penfold.product.v1.ProductService/FindByRole"
+	ProductService_ListProductPeople_FullMethodName    = "/penfold.product.v1.ProductService/ListProductPeople"
 )
 
 // ProductServiceClient is the client API for ProductService service.
@@ -76,6 +85,26 @@ type ProductServiceClient interface {
 	LinkProductEvent(ctx context.Context, in *LinkProductEventRequest, opts ...grpc.CallOption) (*LinkProductEventResponse, error)
 	// GetEventContext retrieves events around a specific point in time.
 	GetEventContext(ctx context.Context, in *GetEventContextRequest, opts ...grpc.CallOption) (*GetEventContextResponse, error)
+	// Team management
+	// ListProductTeams lists teams associated with a product.
+	ListProductTeams(ctx context.Context, in *ListProductTeamsRequest, opts ...grpc.CallOption) (*ListProductTeamsResponse, error)
+	// AddProductTeam associates a team with a product.
+	AddProductTeam(ctx context.Context, in *AddProductTeamRequest, opts ...grpc.CallOption) (*AddProductTeamResponse, error)
+	// RemoveProductTeam removes a team association from a product.
+	RemoveProductTeam(ctx context.Context, in *RemoveProductTeamRequest, opts ...grpc.CallOption) (*RemoveProductTeamResponse, error)
+	// Role management
+	// ListProductTeamRoles lists roles for a product team.
+	ListProductTeamRoles(ctx context.Context, in *ListProductTeamRolesRequest, opts ...grpc.CallOption) (*ListProductTeamRolesResponse, error)
+	// AddProductTeamRole assigns a role to a person in a product team.
+	AddProductTeamRole(ctx context.Context, in *AddProductTeamRoleRequest, opts ...grpc.CallOption) (*AddProductTeamRoleResponse, error)
+	// EndProductTeamRole ends an active role assignment.
+	EndProductTeamRole(ctx context.Context, in *EndProductTeamRoleRequest, opts ...grpc.CallOption) (*EndProductTeamRoleResponse, error)
+	// GetProductTeamRole retrieves a specific role assignment.
+	GetProductTeamRole(ctx context.Context, in *GetProductTeamRoleRequest, opts ...grpc.CallOption) (*GetProductTeamRoleResponse, error)
+	// FindByRole finds people by role across products.
+	FindByRole(ctx context.Context, in *FindByRoleRequest, opts ...grpc.CallOption) (*FindByRoleResponse, error)
+	// ListProductPeople lists all people associated with a product through teams.
+	ListProductPeople(ctx context.Context, in *ListProductPeopleRequest, opts ...grpc.CallOption) (*ListProductPeopleResponse, error)
 }
 
 type productServiceClient struct {
@@ -236,6 +265,96 @@ func (c *productServiceClient) GetEventContext(ctx context.Context, in *GetEvent
 	return out, nil
 }
 
+func (c *productServiceClient) ListProductTeams(ctx context.Context, in *ListProductTeamsRequest, opts ...grpc.CallOption) (*ListProductTeamsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListProductTeamsResponse)
+	err := c.cc.Invoke(ctx, ProductService_ListProductTeams_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) AddProductTeam(ctx context.Context, in *AddProductTeamRequest, opts ...grpc.CallOption) (*AddProductTeamResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddProductTeamResponse)
+	err := c.cc.Invoke(ctx, ProductService_AddProductTeam_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) RemoveProductTeam(ctx context.Context, in *RemoveProductTeamRequest, opts ...grpc.CallOption) (*RemoveProductTeamResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveProductTeamResponse)
+	err := c.cc.Invoke(ctx, ProductService_RemoveProductTeam_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) ListProductTeamRoles(ctx context.Context, in *ListProductTeamRolesRequest, opts ...grpc.CallOption) (*ListProductTeamRolesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListProductTeamRolesResponse)
+	err := c.cc.Invoke(ctx, ProductService_ListProductTeamRoles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) AddProductTeamRole(ctx context.Context, in *AddProductTeamRoleRequest, opts ...grpc.CallOption) (*AddProductTeamRoleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddProductTeamRoleResponse)
+	err := c.cc.Invoke(ctx, ProductService_AddProductTeamRole_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) EndProductTeamRole(ctx context.Context, in *EndProductTeamRoleRequest, opts ...grpc.CallOption) (*EndProductTeamRoleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EndProductTeamRoleResponse)
+	err := c.cc.Invoke(ctx, ProductService_EndProductTeamRole_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) GetProductTeamRole(ctx context.Context, in *GetProductTeamRoleRequest, opts ...grpc.CallOption) (*GetProductTeamRoleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetProductTeamRoleResponse)
+	err := c.cc.Invoke(ctx, ProductService_GetProductTeamRole_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) FindByRole(ctx context.Context, in *FindByRoleRequest, opts ...grpc.CallOption) (*FindByRoleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FindByRoleResponse)
+	err := c.cc.Invoke(ctx, ProductService_FindByRole_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) ListProductPeople(ctx context.Context, in *ListProductPeopleRequest, opts ...grpc.CallOption) (*ListProductPeopleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListProductPeopleResponse)
+	err := c.cc.Invoke(ctx, ProductService_ListProductPeople_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProductServiceServer is the server API for ProductService service.
 // All implementations must embed UnimplementedProductServiceServer
 // for forward compatibility.
@@ -273,6 +392,26 @@ type ProductServiceServer interface {
 	LinkProductEvent(context.Context, *LinkProductEventRequest) (*LinkProductEventResponse, error)
 	// GetEventContext retrieves events around a specific point in time.
 	GetEventContext(context.Context, *GetEventContextRequest) (*GetEventContextResponse, error)
+	// Team management
+	// ListProductTeams lists teams associated with a product.
+	ListProductTeams(context.Context, *ListProductTeamsRequest) (*ListProductTeamsResponse, error)
+	// AddProductTeam associates a team with a product.
+	AddProductTeam(context.Context, *AddProductTeamRequest) (*AddProductTeamResponse, error)
+	// RemoveProductTeam removes a team association from a product.
+	RemoveProductTeam(context.Context, *RemoveProductTeamRequest) (*RemoveProductTeamResponse, error)
+	// Role management
+	// ListProductTeamRoles lists roles for a product team.
+	ListProductTeamRoles(context.Context, *ListProductTeamRolesRequest) (*ListProductTeamRolesResponse, error)
+	// AddProductTeamRole assigns a role to a person in a product team.
+	AddProductTeamRole(context.Context, *AddProductTeamRoleRequest) (*AddProductTeamRoleResponse, error)
+	// EndProductTeamRole ends an active role assignment.
+	EndProductTeamRole(context.Context, *EndProductTeamRoleRequest) (*EndProductTeamRoleResponse, error)
+	// GetProductTeamRole retrieves a specific role assignment.
+	GetProductTeamRole(context.Context, *GetProductTeamRoleRequest) (*GetProductTeamRoleResponse, error)
+	// FindByRole finds people by role across products.
+	FindByRole(context.Context, *FindByRoleRequest) (*FindByRoleResponse, error)
+	// ListProductPeople lists all people associated with a product through teams.
+	ListProductPeople(context.Context, *ListProductPeopleRequest) (*ListProductPeopleResponse, error)
 	mustEmbedUnimplementedProductServiceServer()
 }
 
@@ -327,6 +466,33 @@ func (UnimplementedProductServiceServer) LinkProductEvent(context.Context, *Link
 }
 func (UnimplementedProductServiceServer) GetEventContext(context.Context, *GetEventContextRequest) (*GetEventContextResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetEventContext not implemented")
+}
+func (UnimplementedProductServiceServer) ListProductTeams(context.Context, *ListProductTeamsRequest) (*ListProductTeamsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListProductTeams not implemented")
+}
+func (UnimplementedProductServiceServer) AddProductTeam(context.Context, *AddProductTeamRequest) (*AddProductTeamResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddProductTeam not implemented")
+}
+func (UnimplementedProductServiceServer) RemoveProductTeam(context.Context, *RemoveProductTeamRequest) (*RemoveProductTeamResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveProductTeam not implemented")
+}
+func (UnimplementedProductServiceServer) ListProductTeamRoles(context.Context, *ListProductTeamRolesRequest) (*ListProductTeamRolesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListProductTeamRoles not implemented")
+}
+func (UnimplementedProductServiceServer) AddProductTeamRole(context.Context, *AddProductTeamRoleRequest) (*AddProductTeamRoleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddProductTeamRole not implemented")
+}
+func (UnimplementedProductServiceServer) EndProductTeamRole(context.Context, *EndProductTeamRoleRequest) (*EndProductTeamRoleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EndProductTeamRole not implemented")
+}
+func (UnimplementedProductServiceServer) GetProductTeamRole(context.Context, *GetProductTeamRoleRequest) (*GetProductTeamRoleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetProductTeamRole not implemented")
+}
+func (UnimplementedProductServiceServer) FindByRole(context.Context, *FindByRoleRequest) (*FindByRoleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FindByRole not implemented")
+}
+func (UnimplementedProductServiceServer) ListProductPeople(context.Context, *ListProductPeopleRequest) (*ListProductPeopleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListProductPeople not implemented")
 }
 func (UnimplementedProductServiceServer) mustEmbedUnimplementedProductServiceServer() {}
 func (UnimplementedProductServiceServer) testEmbeddedByValue()                        {}
@@ -619,6 +785,168 @@ func _ProductService_GetEventContext_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProductService_ListProductTeams_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListProductTeamsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).ListProductTeams(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_ListProductTeams_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).ListProductTeams(ctx, req.(*ListProductTeamsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_AddProductTeam_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddProductTeamRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).AddProductTeam(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_AddProductTeam_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).AddProductTeam(ctx, req.(*AddProductTeamRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_RemoveProductTeam_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveProductTeamRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).RemoveProductTeam(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_RemoveProductTeam_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).RemoveProductTeam(ctx, req.(*RemoveProductTeamRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_ListProductTeamRoles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListProductTeamRolesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).ListProductTeamRoles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_ListProductTeamRoles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).ListProductTeamRoles(ctx, req.(*ListProductTeamRolesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_AddProductTeamRole_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddProductTeamRoleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).AddProductTeamRole(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_AddProductTeamRole_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).AddProductTeamRole(ctx, req.(*AddProductTeamRoleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_EndProductTeamRole_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EndProductTeamRoleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).EndProductTeamRole(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_EndProductTeamRole_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).EndProductTeamRole(ctx, req.(*EndProductTeamRoleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_GetProductTeamRole_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetProductTeamRoleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).GetProductTeamRole(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_GetProductTeamRole_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).GetProductTeamRole(ctx, req.(*GetProductTeamRoleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_FindByRole_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FindByRoleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).FindByRole(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_FindByRole_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).FindByRole(ctx, req.(*FindByRoleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_ListProductPeople_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListProductPeopleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).ListProductPeople(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_ListProductPeople_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).ListProductPeople(ctx, req.(*ListProductPeopleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProductService_ServiceDesc is the grpc.ServiceDesc for ProductService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -685,6 +1013,42 @@ var ProductService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEventContext",
 			Handler:    _ProductService_GetEventContext_Handler,
+		},
+		{
+			MethodName: "ListProductTeams",
+			Handler:    _ProductService_ListProductTeams_Handler,
+		},
+		{
+			MethodName: "AddProductTeam",
+			Handler:    _ProductService_AddProductTeam_Handler,
+		},
+		{
+			MethodName: "RemoveProductTeam",
+			Handler:    _ProductService_RemoveProductTeam_Handler,
+		},
+		{
+			MethodName: "ListProductTeamRoles",
+			Handler:    _ProductService_ListProductTeamRoles_Handler,
+		},
+		{
+			MethodName: "AddProductTeamRole",
+			Handler:    _ProductService_AddProductTeamRole_Handler,
+		},
+		{
+			MethodName: "EndProductTeamRole",
+			Handler:    _ProductService_EndProductTeamRole_Handler,
+		},
+		{
+			MethodName: "GetProductTeamRole",
+			Handler:    _ProductService_GetProductTeamRole_Handler,
+		},
+		{
+			MethodName: "FindByRole",
+			Handler:    _ProductService_FindByRole_Handler,
+		},
+		{
+			MethodName: "ListProductPeople",
+			Handler:    _ProductService_ListProductPeople_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -191,8 +191,8 @@ func main() {
 	pipelinev1.RegisterPipelineServiceServer(grpcServer, pipelineSvc)
 	logger.Info("Registered PipelineService")
 
-	// Register ProductService for product CRUD, hierarchy, and aliases.
-	productSvc := productservice.NewService(productRepo, logger)
+	// Register ProductService for product CRUD, hierarchy, aliases, and team management.
+	productSvc := productservice.NewService(productRepo, entityRepo, logger)
 	productv1.RegisterProductServiceServer(grpcServer, productSvc)
 	logger.Info("Registered ProductService")
 
