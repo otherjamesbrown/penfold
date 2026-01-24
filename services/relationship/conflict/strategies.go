@@ -19,7 +19,7 @@ type StrategyRegistry struct {
 // NewStrategyRegistry creates a new StrategyRegistry.
 func NewStrategyRegistry(logger logging.Logger) *StrategyRegistry {
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 	return &StrategyRegistry{
 		strategies: make(map[string]Strategy),
@@ -95,7 +95,7 @@ type LatestWinsStrategy struct {
 // NewLatestWinsStrategy creates a new LatestWinsStrategy.
 func NewLatestWinsStrategy(logger logging.Logger) *LatestWinsStrategy {
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 	return &LatestWinsStrategy{
 		logger:        logger.With(logging.F("strategy", "latest_wins")),
@@ -258,7 +258,7 @@ type HighConfidenceStrategy struct {
 // NewHighConfidenceStrategy creates a new HighConfidenceStrategy.
 func NewHighConfidenceStrategy(logger logging.Logger) *HighConfidenceStrategy {
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 	return &HighConfidenceStrategy{
 		logger:        logger.With(logging.F("strategy", "high_confidence")),
@@ -435,7 +435,7 @@ type MergeStrategy struct {
 // NewMergeStrategy creates a new MergeStrategy.
 func NewMergeStrategy(logger logging.Logger) *MergeStrategy {
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 	return &MergeStrategy{
 		logger:        logger.With(logging.F("strategy", "merge")),
@@ -615,7 +615,7 @@ type HumanReviewStrategy struct {
 // NewHumanReviewStrategy creates a new HumanReviewStrategy.
 func NewHumanReviewStrategy(logger logging.Logger) *HumanReviewStrategy {
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 	return &HumanReviewStrategy{
 		logger:        logger.With(logging.F("strategy", "human_review")),

@@ -587,11 +587,15 @@ func (r *PostgresRepository) GetPendingCount(ctx context.Context, tenantID strin
 	return count, nil
 }
 
-// BatchCreateMentions creates multiple mentions in a single transaction.
+// BatchCreateMentions creates multiple mentions using PostgreSQL's COPY protocol
+// for optimal bulk insert performance (single round-trip instead of N round-trips).
 func (r *PostgresRepository) BatchCreateMentions(ctx context.Context, inputs []MentionInput) ([]ContentMention, error) {
 	if len(inputs) == 0 {
 		return []ContentMention{}, nil
 	}
+
+	tenantID := getTenantFromContext(ctx)
+	now := time.Now()
 
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -599,37 +603,60 @@ func (r *PostgresRepository) BatchCreateMentions(ctx context.Context, inputs []M
 	}
 	defer tx.Rollback(ctx)
 
-	tenantID := getTenantFromContext(ctx)
+	// Pre-allocate IDs from the sequence in a single query
+	// This allows us to use CopyFrom while still knowing the IDs
+	var startID int64
+	err = tx.QueryRow(ctx,
+		"SELECT setval('content_mentions_id_seq', nextval('content_mentions_id_seq') + $1 - 1)",
+		len(inputs),
+	).Scan(&startID)
+	if err != nil {
+		return nil, fmt.Errorf("allocating IDs: %w", err)
+	}
+	// startID is now the last ID in our allocated range
+	// So the first ID we use is startID - len(inputs) + 1
+	firstID := startID - int64(len(inputs)) + 1
+
+	// Use CopyFrom for bulk insert (single round-trip)
+	columns := []string{
+		"id", "tenant_id", "content_id", "entity_type", "mentioned_text",
+		"position", "context_snippet", "project_context_id", "status", "candidates", "created_at",
+	}
+
+	_, err = tx.CopyFrom(
+		ctx,
+		pgx.Identifier{"content_mentions"},
+		columns,
+		pgx.CopyFromSlice(len(inputs), func(i int) ([]any, error) {
+			input := inputs[i]
+			return []any{
+				firstID + int64(i),           // id
+				tenantID,                     // tenant_id
+				input.ContentID,              // content_id
+				string(input.EntityType),     // entity_type
+				input.MentionedText,          // mentioned_text
+				input.Position,               // position (can be nil)
+				nullableString(input.ContextSnippet), // context_snippet
+				input.ProjectContextID,       // project_context_id (can be nil)
+				string(MentionStatusPending), // status
+				[]byte("[]"),                 // candidates (empty JSONB array)
+				now,                          // created_at
+			}, nil
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("bulk inserting mentions: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("committing transaction: %w", err)
+	}
+
+	// Build result slice with known IDs
 	mentions := make([]ContentMention, len(inputs))
-
 	for i, input := range inputs {
-		query := `
-			INSERT INTO content_mentions (
-				tenant_id, content_id, entity_type, mentioned_text,
-				position, context_snippet, project_context_id, status, candidates
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', '[]'::jsonb)
-			RETURNING id, created_at
-		`
-
-		var id int64
-		var createdAt time.Time
-
-		err := tx.QueryRow(ctx, query,
-			tenantID,
-			input.ContentID,
-			string(input.EntityType),
-			input.MentionedText,
-			input.Position,
-			nullableString(input.ContextSnippet),
-			input.ProjectContextID,
-		).Scan(&id, &createdAt)
-
-		if err != nil {
-			return nil, fmt.Errorf("creating mention %d: %w", i, err)
-		}
-
 		mentions[i] = ContentMention{
-			ID:               id,
+			ID:               firstID + int64(i),
 			TenantID:         tenantID,
 			ContentID:        input.ContentID,
 			EntityType:       input.EntityType,
@@ -639,12 +666,8 @@ func (r *PostgresRepository) BatchCreateMentions(ctx context.Context, inputs []M
 			ProjectContextID: input.ProjectContextID,
 			Status:           MentionStatusPending,
 			Candidates:       []Candidate{},
-			CreatedAt:        createdAt,
+			CreatedAt:        now,
 		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("committing transaction: %w", err)
 	}
 
 	return mentions, nil
@@ -993,6 +1016,6 @@ func nullableString(s string) *string {
 }
 
 func getTenantFromContext(ctx context.Context) string {
-	// TODO: Extract from context when multi-tenant support is added
+	// STUB: Returns hardcoded tenant until multi-tenant context propagation is implemented.
 	return "00000001-0000-0000-0000-000000000001"
 }

@@ -328,6 +328,10 @@ func TestBuildSearchQuery_BasicQuery(t *testing.T) {
 	if !containsString(query, "OFFSET $") {
 		t.Error("query should contain OFFSET clause")
 	}
+	// Verify SQL contains window function for total count
+	if !containsString(query, "COUNT(*) OVER()") {
+		t.Error("query should contain COUNT(*) OVER() window function for total count")
+	}
 
 	// Verify args
 	if len(args) < 4 {

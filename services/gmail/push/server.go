@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/services/gateway/ratelimit"
 )
 
 // ServerConfig holds configuration for the push notification server.
@@ -48,6 +50,14 @@ type ServerConfig struct {
 
 	// Metrics for monitoring.
 	Metrics *PushMetrics
+
+	// RateLimiter enables rate limiting for the push endpoint.
+	// If nil, rate limiting is disabled.
+	RateLimiter *ratelimit.RateLimiter
+
+	// RateLimitConfig provides configuration for rate limiting.
+	// If RateLimiter is set, this is ignored.
+	RateLimitConfig *RateLimitConfig
 }
 
 // DefaultServerConfig returns a ServerConfig with sensible defaults.
@@ -58,6 +68,26 @@ func DefaultServerConfig() *ServerConfig {
 		ReadTimeout:         10 * time.Second,
 		WriteTimeout:        10 * time.Second,
 		MaxRequestSize:      1 * 1024 * 1024, // 1MB
+	}
+}
+
+// RateLimitConfig holds rate limiting configuration for the push server.
+type RateLimitConfig struct {
+	// RPS is the requests per second limit.
+	RPS float64
+
+	// Burst is the maximum burst capacity.
+	Burst int
+}
+
+// DefaultRateLimitConfig returns a RateLimitConfig with sensible defaults.
+// These defaults are tuned for Google Cloud Pub/Sub push delivery patterns:
+// - Burst of 100 allows handling notification spikes
+// - 50 RPS sustained rate handles normal steady-state traffic
+func DefaultRateLimitConfig() *RateLimitConfig {
+	return &RateLimitConfig{
+		RPS:   50.0,  // 50 requests per second sustained
+		Burst: 100,   // Allow bursts of up to 100 requests
 	}
 }
 
@@ -107,9 +137,23 @@ func NewServer(config *ServerConfig) (*Server, error) {
 	mux.HandleFunc("/gmail/push", s.handlePush)
 	mux.HandleFunc("/health", s.handleHealth)
 
+	// Apply rate limiting if configured.
+	var handler http.Handler = mux
+	if config.RateLimiter != nil {
+		handler = s.wrapWithRateLimiter(mux, config.RateLimiter)
+	} else if config.RateLimitConfig != nil {
+		limiter := ratelimit.NewRateLimiter(ratelimit.Config{
+			DefaultRPS:      config.RateLimitConfig.RPS,
+			DefaultBurst:    config.RateLimitConfig.Burst,
+			CleanupInterval: 5 * time.Minute,
+			BucketTTL:       10 * time.Minute,
+		})
+		handler = s.wrapWithRateLimiter(mux, limiter)
+	}
+
 	s.httpServer = &http.Server{
 		Addr:         config.Address,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  config.ReadTimeout,
 		WriteTimeout: config.WriteTimeout,
 	}
@@ -285,6 +329,52 @@ func (s *Server) cleanupDeduplication() {
 			delete(s.seenMsgs, msgID)
 		}
 	}
+}
+
+// wrapWithRateLimiter wraps the handler with rate limiting middleware.
+// It uses the client IP address as the tenant ID for per-source rate limiting,
+// and skips rate limiting for the health endpoint.
+func (s *Server) wrapWithRateLimiter(handler http.Handler, limiter *ratelimit.RateLimiter) http.Handler {
+	return ratelimit.HTTPMiddlewareWithConfig(&ratelimit.HTTPMiddlewareConfig{
+		Limiter: limiter,
+		TenantExtractor: func(r *http.Request) string {
+			// Use source IP as tenant for rate limiting.
+			// This ensures rate limiting is applied per-source.
+			return extractClientIP(r)
+		},
+		EndpointExtractor: func(r *http.Request) string {
+			return r.URL.Path
+		},
+		SkipPaths:      []string{"/health"},
+		IncludeHeaders: true,
+	})(handler)
+}
+
+// extractClientIP extracts the client IP address from a request.
+// It checks X-Forwarded-For and X-Real-IP headers for proxied requests,
+// and falls back to the RemoteAddr.
+func extractClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header (may contain multiple IPs).
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first IP (original client).
+		if idx := strings.Index(xff, ","); idx > 0 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+
+	// Check X-Real-IP header.
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	// Fall back to RemoteAddr.
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		// RemoteAddr might not have a port.
+		return r.RemoteAddr
+	}
+	return ip
 }
 
 func (s *Server) log() logging.Logger {

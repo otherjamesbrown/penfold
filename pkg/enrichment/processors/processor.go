@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // Source represents the raw content to be enriched.
@@ -27,7 +28,7 @@ type ProcessorContext struct {
 	Source     *Source
 	Enrichment *enrichment.Enrichment
 	TenantID   string
-	Logger     interface{} // zerolog.Logger
+	Logger     logging.Logger
 }
 
 // Processor is the interface that all enrichment processors must implement.

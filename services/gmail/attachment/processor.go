@@ -358,7 +358,7 @@ func (p *AttachmentProcessor) ProcessAttachment(ctx context.Context, attachment 
 	hash := sha256.Sum256(content)
 	attachment.ContentHash = hex.EncodeToString(hash[:])
 
-	// TODO: Virus scanning placeholder.
+	// FUTURE: Virus scanning integration (ClamAV or cloud service).
 	// if err := p.scanForVirus(content); err != nil {
 	//     result.Error = err.Error()
 	//     return result, ErrVirusScanFailed

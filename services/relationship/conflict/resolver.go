@@ -60,7 +60,7 @@ func NewConflictResolver(config *ResolverConfig, logger logging.Logger) *Conflic
 		config = DefaultResolverConfig()
 	}
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 
 	resolver := &ConflictResolver{

@@ -115,7 +115,7 @@ func (a *MentionsActivities) ExtractMentions(ctx context.Context, input ExtractM
 	if input.Subject != "" {
 		batch.Metadata = &resolver.ContentMetadata{
 			Subject: input.Subject,
-			Date:    time.Now(), // TODO: Pass actual content date
+			Date:    time.Now(), // TODO(pe-xxxx): Add ContentDate to ExtractMentionsInput struct
 		}
 	}
 

@@ -60,15 +60,15 @@ type SearchResult struct {
 
 // SearchResponse contains search results and metadata.
 type SearchResponse struct {
-	Query        string         `json:"query" yaml:"query"`
-	Mode         SearchMode     `json:"mode" yaml:"mode"`
-	Results      []SearchResult `json:"results" yaml:"results"`
-	TotalCount   int64          `json:"total_count" yaml:"total_count"`
-	QueryTimeMs  float64        `json:"query_time_ms" yaml:"query_time_ms"`
-	Limit        int            `json:"limit" yaml:"limit"`
-	Offset       int            `json:"offset" yaml:"offset"`
-	Filters      SearchFilters  `json:"filters,omitempty" yaml:"filters,omitempty"`
-	SearchedAt   time.Time      `json:"searched_at" yaml:"searched_at"`
+	Query       string         `json:"query" yaml:"query"`
+	Mode        SearchMode     `json:"mode" yaml:"mode"`
+	Results     []SearchResult `json:"results" yaml:"results"`
+	TotalCount  int64          `json:"total_count" yaml:"total_count"`
+	QueryTimeMs float64        `json:"query_time_ms" yaml:"query_time_ms"`
+	Limit       int            `json:"limit" yaml:"limit"`
+	Offset      int            `json:"offset" yaml:"offset"`
+	Filters     SearchFilters  `json:"filters,omitempty" yaml:"filters,omitempty"`
+	SearchedAt  time.Time      `json:"searched_at" yaml:"searched_at"`
 }
 
 // SearchFilters contains the active filters for a search.
@@ -100,14 +100,14 @@ type SearchHistoryResponse struct {
 
 // AdvancedSearchOptions holds options for advanced search.
 type AdvancedSearchOptions struct {
-	FieldFilters []string   `json:"field_filters,omitempty" yaml:"field_filters,omitempty"`
-	SortField    string     `json:"sort_field,omitempty" yaml:"sort_field,omitempty"`
-	SortOrder    string     `json:"sort_order,omitempty" yaml:"sort_order,omitempty"`
-	MinScore     float64    `json:"min_score,omitempty" yaml:"min_score,omitempty"`
-	Semantic     bool       `json:"semantic,omitempty" yaml:"semantic,omitempty"`
-	ExactMatch   bool       `json:"exact_match,omitempty" yaml:"exact_match,omitempty"`
-	TextWeight   float64    `json:"text_weight,omitempty" yaml:"text_weight,omitempty"`
-	VectorWeight float64    `json:"vector_weight,omitempty" yaml:"vector_weight,omitempty"`
+	FieldFilters []string `json:"field_filters,omitempty" yaml:"field_filters,omitempty"`
+	SortField    string   `json:"sort_field,omitempty" yaml:"sort_field,omitempty"`
+	SortOrder    string   `json:"sort_order,omitempty" yaml:"sort_order,omitempty"`
+	MinScore     float64  `json:"min_score,omitempty" yaml:"min_score,omitempty"`
+	Semantic     bool     `json:"semantic,omitempty" yaml:"semantic,omitempty"`
+	ExactMatch   bool     `json:"exact_match,omitempty" yaml:"exact_match,omitempty"`
+	TextWeight   float64  `json:"text_weight,omitempty" yaml:"text_weight,omitempty"`
+	VectorWeight float64  `json:"vector_weight,omitempty" yaml:"vector_weight,omitempty"`
 }
 
 // SearchCommandDeps holds the dependencies for search commands.
@@ -402,8 +402,7 @@ func parseSearchDate(p *query.Parser, dateStr string) (time.Time, error) {
 
 // executeSearch performs the actual search (mock implementation until gRPC is connected).
 func executeSearch(queryStr string, mode SearchMode, filters SearchFilters, limit, offset int, verbose bool) []SearchResult {
-	// TODO: Replace with actual gRPC call to search service.
-	// For now, return mock results for development/testing.
+	// STUB: Returns mock data until search service gRPC is connected.
 
 	mockResults := []SearchResult{
 		{
@@ -908,8 +907,7 @@ func runAdvancedSearch(ctx context.Context, deps *SearchCommandDeps, queryStr st
 
 // executeAdvancedSearch performs an advanced search with filters (mock implementation).
 func executeAdvancedSearch(queryStr string, mode SearchMode, filters SearchFilters, minScore float64, limit, offset int, verbose bool) []SearchResult {
-	// TODO: Replace with actual gRPC call to search service.
-	// For now, use the basic executeSearch and filter by score.
+	// STUB: Returns mock data until search service gRPC is connected.
 	results := executeSearch(queryStr, mode, filters, limit*2, 0, verbose)
 
 	// Apply field filters.
@@ -1097,7 +1095,7 @@ func runSearchHistoryClear(ctx context.Context, deps *SearchCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// TODO: Replace with actual gRPC call to clear history.
+	// STUB: Returns mock acknowledgment until search service gRPC is connected.
 	fmt.Println("Search history cleared.")
 	return nil
 }

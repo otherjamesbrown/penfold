@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/rs/zerolog"
 
 	"github.com/otherjamesbrown/penfold/pkg/ingest/eml"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // Redis channel for manual email events
@@ -117,7 +117,7 @@ type IngestJobCompletedEvent struct {
 // Publisher publishes ingest events to Redis.
 type Publisher struct {
 	client *redis.Client
-	logger zerolog.Logger
+	logger logging.Logger
 }
 
 // PublisherConfig holds Redis connection configuration.
@@ -129,15 +129,15 @@ type PublisherConfig struct {
 }
 
 // NewPublisher creates a new event publisher.
-func NewPublisher(client *redis.Client, logger zerolog.Logger) *Publisher {
+func NewPublisher(client *redis.Client, logger logging.Logger) *Publisher {
 	return &Publisher{
 		client: client,
-		logger: logger.With().Str("component", "event_publisher").Logger(),
+		logger: logger.With(logging.F("component", "event_publisher")),
 	}
 }
 
 // NewPublisherFromConfig creates a publisher with a new Redis connection.
-func NewPublisherFromConfig(cfg PublisherConfig, logger zerolog.Logger) (*Publisher, error) {
+func NewPublisherFromConfig(cfg PublisherConfig, logger logging.Logger) (*Publisher, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 		Password: cfg.Password,
@@ -255,17 +255,15 @@ func (p *Publisher) publish(ctx context.Context, channel string, event interface
 	}
 
 	if err := p.client.Publish(ctx, channel, data).Err(); err != nil {
-		p.logger.Error().
-			Err(err).
-			Str("channel", channel).
-			Msg("Failed to publish event")
+		p.logger.Error("Failed to publish event",
+			logging.Err(err),
+			logging.F("channel", channel))
 		return fmt.Errorf("failed to publish to %s: %w", channel, err)
 	}
 
-	p.logger.Debug().
-		Str("channel", channel).
-		Int("payload_size", len(data)).
-		Msg("Event published")
+	p.logger.Debug("Event published",
+		logging.F("channel", channel),
+		logging.F("payload_size", len(data)))
 
 	return nil
 }

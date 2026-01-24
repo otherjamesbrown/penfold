@@ -1,6 +1,15 @@
 // Package credentials provides secure credential storage for the penf CLI.
 // It stores API keys and JWT tokens in ~/.penf/credentials.yaml
 // with encryption for sensitive data at rest.
+//
+// Encryption Key Storage:
+// The encryption key is stored securely using the system keyring:
+// - macOS: Keychain
+// - Windows: Credential Manager
+// - Linux: Secret Service (libsecret)
+//
+// For CI/testing environments, set PENF_ENCRYPTION_KEY to a 64-character
+// hex string (32 bytes).
 package credentials
 
 import (
@@ -69,26 +78,186 @@ type Credentials struct {
 type Store struct {
 	// credentialsDir is the directory containing credentials.
 	credentialsDir string
-	// encryptionKey is derived from machine-specific data.
+	// encryptionKey is the key used for encrypting/decrypting credentials.
 	encryptionKey []byte
+	// keyProvider is the source of the encryption key.
+	keyProvider KeyProvider
 }
 
 // NewStore creates a new credential store with default settings.
+// It uses the system keyring (macOS Keychain, Windows Credential Manager,
+// or Linux Secret Service) to store the encryption key securely.
+//
+// If credentials exist from a previous version using the old machine-derived
+// key, they will be automatically migrated to use the new secure key.
 func NewStore() (*Store, error) {
 	dir, err := CredentialsDir()
 	if err != nil {
 		return nil, fmt.Errorf("getting credentials directory: %w", err)
 	}
 
-	key, err := deriveEncryptionKey()
+	keyProvider, err := GetDefaultKeyProvider()
 	if err != nil {
-		return nil, fmt.Errorf("deriving encryption key: %w", err)
+		return nil, fmt.Errorf("initializing key provider: %w", err)
+	}
+
+	key, err := keyProvider.GetKey()
+	if err != nil {
+		return nil, fmt.Errorf("getting encryption key: %w", err)
+	}
+
+	store := &Store{
+		credentialsDir: dir,
+		encryptionKey:  key,
+		keyProvider:    keyProvider,
+	}
+
+	// Attempt migration from legacy key if credentials exist but can't be decrypted
+	if store.needsMigration() {
+		if migrateErr := store.migrateFromLegacyKey(); migrateErr != nil {
+			// Log but don't fail - user can re-authenticate
+			fmt.Fprintf(os.Stderr, "Warning: could not migrate credentials: %v\n", migrateErr)
+		}
+	}
+
+	return store, nil
+}
+
+// NewStoreWithKeyProvider creates a new credential store with a custom key provider.
+// This is primarily used for testing.
+func NewStoreWithKeyProvider(keyProvider KeyProvider) (*Store, error) {
+	dir, err := CredentialsDir()
+	if err != nil {
+		return nil, fmt.Errorf("getting credentials directory: %w", err)
+	}
+
+	key, err := keyProvider.GetKey()
+	if err != nil {
+		return nil, fmt.Errorf("getting encryption key: %w", err)
 	}
 
 	return &Store{
 		credentialsDir: dir,
 		encryptionKey:  key,
+		keyProvider:    keyProvider,
 	}, nil
+}
+
+// needsMigration checks if credentials exist but cannot be decrypted with the current key.
+func (s *Store) needsMigration() bool {
+	credPath := filepath.Join(s.credentialsDir, DefaultCredentialsFile)
+
+	data, err := os.ReadFile(credPath)
+	if err != nil {
+		return false // No credentials to migrate
+	}
+
+	var creds Credentials
+	if err := yaml.Unmarshal(data, &creds); err != nil {
+		return false // File is corrupted
+	}
+
+	// Try to decrypt any encrypted field
+	if creds.APIKey != "" {
+		_, err := s.decrypt(creds.APIKey)
+		if err != nil {
+			return true // Can't decrypt with current key
+		}
+	}
+	if creds.Token != "" {
+		_, err := s.decrypt(creds.Token)
+		if err != nil {
+			return true // Can't decrypt with current key
+		}
+	}
+
+	return false // Decryption works fine
+}
+
+// migrateFromLegacyKey attempts to decrypt credentials using the legacy
+// machine-derived key and re-encrypt them with the new secure key.
+func (s *Store) migrateFromLegacyKey() error {
+	credPath := filepath.Join(s.credentialsDir, DefaultCredentialsFile)
+
+	data, err := os.ReadFile(credPath)
+	if err != nil {
+		return fmt.Errorf("reading credentials: %w", err)
+	}
+
+	var creds Credentials
+	if err := yaml.Unmarshal(data, &creds); err != nil {
+		return fmt.Errorf("parsing credentials: %w", err)
+	}
+
+	// Get the legacy key
+	legacyKey, err := deriveLegacyEncryptionKey()
+	if err != nil {
+		return fmt.Errorf("deriving legacy key: %w", err)
+	}
+
+	// Try to decrypt with legacy key
+	if creds.APIKey != "" {
+		decrypted, err := decryptWithKey(creds.APIKey, legacyKey)
+		if err != nil {
+			return fmt.Errorf("decrypting API key with legacy key: %w", err)
+		}
+		creds.APIKey = decrypted
+	}
+
+	if creds.Token != "" {
+		decrypted, err := decryptWithKey(creds.Token, legacyKey)
+		if err != nil {
+			return fmt.Errorf("decrypting token with legacy key: %w", err)
+		}
+		creds.Token = decrypted
+	}
+
+	if creds.RefreshToken != "" {
+		decrypted, err := decryptWithKey(creds.RefreshToken, legacyKey)
+		if err != nil {
+			return fmt.Errorf("decrypting refresh token with legacy key: %w", err)
+		}
+		creds.RefreshToken = decrypted
+	}
+
+	// Re-save with the new key
+	if err := s.Save(&creds); err != nil {
+		return fmt.Errorf("saving migrated credentials: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Successfully migrated credentials to secure key storage (%s)\n", s.keyProvider.Description())
+	return nil
+}
+
+// decryptWithKey decrypts data using a specific key (used for migration).
+func decryptWithKey(ciphertext string, key []byte) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(ciphertext)
+	if err != nil {
+		return "", fmt.Errorf("%w: decoding base64: %v", ErrEncryptionFailed, err)
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", fmt.Errorf("%w: creating cipher: %v", ErrEncryptionFailed, err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("%w: creating GCM: %v", ErrEncryptionFailed, err)
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("%w: ciphertext too short", ErrEncryptionFailed)
+	}
+
+	nonce, ciphertextBytes := data[:nonceSize], data[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertextBytes, nil)
+	if err != nil {
+		return "", fmt.Errorf("%w: decryption failed: %v", ErrEncryptionFailed, err)
+	}
+
+	return string(plaintext), nil
 }
 
 // CredentialsDir returns the credentials directory path.
@@ -115,9 +284,10 @@ func CredentialsPath() (string, error) {
 	return filepath.Join(dir, DefaultCredentialsFile), nil
 }
 
-// deriveEncryptionKey creates a machine-specific encryption key.
-// This provides basic protection against copying credential files to other machines.
-func deriveEncryptionKey() ([]byte, error) {
+// deriveLegacyEncryptionKey creates the old machine-specific encryption key.
+// This is only used for migrating credentials from the old format.
+// DO NOT use this for new encryptions - use the keyring-based key instead.
+func deriveLegacyEncryptionKey() ([]byte, error) {
 	// Combine machine-specific data for key derivation.
 	var keyMaterial strings.Builder
 

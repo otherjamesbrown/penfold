@@ -36,7 +36,7 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 		logging.F("tenant_id", req.GetTenantId()),
 	)
 
-	// TODO: Implement embedding generation using Ollama or cloud provider
+	// STUB: Returns Unimplemented until Ollama/cloud provider integration.
 	return nil, status.Errorf(codes.Unimplemented, "method GenerateEmbedding not implemented")
 }
 
@@ -51,7 +51,7 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 		logging.F("tenant_id", req.GetTenantId()),
 	)
 
-	// TODO: Implement summary generation using LLM
+	// STUB: Returns Unimplemented until LLM integration.
 	return nil, status.Errorf(codes.Unimplemented, "method GenerateSummary not implemented")
 }
 
@@ -66,7 +66,7 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 		logging.F("tenant_id", req.GetTenantId()),
 	)
 
-	// TODO: Implement assertion extraction using LLM
+	// STUB: Returns Unimplemented until LLM integration.
 	return nil, status.Errorf(codes.Unimplemented, "method ExtractAssertions not implemented")
 }
 
@@ -82,7 +82,7 @@ func (s *AIServer) ClassifyContent(ctx context.Context, req *aiv1.ClassifyConten
 		logging.F("tenant_id", req.GetTenantId()),
 	)
 
-	// TODO: Implement content classification using LLM
+	// STUB: Returns Unimplemented until LLM integration.
 	return nil, status.Errorf(codes.Unimplemented, "method ClassifyContent not implemented")
 }
 
@@ -95,6 +95,6 @@ func (s *AIServer) GetModelStatus(ctx context.Context, req *aiv1.GetModelStatusR
 		logging.F("include_metrics", req.GetIncludeMetrics()),
 	)
 
-	// TODO: Implement model status checking for Ollama and cloud providers
+	// STUB: Returns Unimplemented until Ollama/cloud provider integration.
 	return nil, status.Errorf(codes.Unimplemented, "method GetModelStatus not implemented")
 }

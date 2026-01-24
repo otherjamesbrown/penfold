@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/client"
 )
@@ -37,7 +38,12 @@ func TestConfigStruct(t *testing.T) {
 func TestClientOptions(t *testing.T) {
 	t.Run("WithLogger", func(t *testing.T) {
 		var buf bytes.Buffer
-		logger := zerolog.New(&buf).With().Str("test", "value").Logger()
+		logger := logging.NewLogger(&logging.Config{
+			Level:       logging.LevelDebug,
+			ServiceName: "test",
+			JSONFormat:  true,
+			Output:      &buf,
+		})
 
 		opts := &client.Options{}
 		WithLogger(logger)(opts)

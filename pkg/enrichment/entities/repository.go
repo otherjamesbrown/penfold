@@ -8,20 +8,21 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // Repository provides database operations for entity resolution.
 type Repository struct {
 	pool   *pgxpool.Pool
-	logger zerolog.Logger
+	logger logging.Logger
 }
 
 // NewRepository creates a new entity repository.
-func NewRepository(pool *pgxpool.Pool, logger zerolog.Logger) *Repository {
+func NewRepository(pool *pgxpool.Pool, logger logging.Logger) *Repository {
 	return &Repository{
 		pool:   pool,
-		logger: logger.With().Str("component", "entity_repository").Logger(),
+		logger: logger.With(logging.F("component", "entity_repository")),
 	}
 }
 
@@ -67,10 +68,9 @@ func (r *Repository) CreatePerson(ctx context.Context, p *Person) error {
 		return fmt.Errorf("failed to create person: %w", err)
 	}
 
-	r.logger.Debug().
-		Int64("id", p.ID).
-		Str("email", p.PrimaryEmail).
-		Msg("Person created")
+	r.logger.Debug("Person created",
+		logging.F("id", p.ID),
+		logging.F("email", p.PrimaryEmail))
 
 	return nil
 }

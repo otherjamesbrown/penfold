@@ -1,0 +1,246 @@
+// Workflow Protobuf Definitions
+// Defines input/output messages for Temporal workflows and activities
+
+syntax = "proto3";
+
+package penfold.processing.workflow.v1;
+
+option go_package = "github.com/otherjamesbrown/penfold/api/proto/processing/v1/workflowpb;workflowpb";
+
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Workflow Input Messages
+// =============================================================================
+
+// EmailProcessingInput is the workflow input for email processing.
+// Contains all metadata needed to process an email through the AI pipeline.
+message EmailProcessingInput {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Database source record ID
+  int64 source_id = 2;
+
+  // Unique email message identifier (e.g., Message-ID header)
+  string message_id = 3;
+
+  // Email thread identifier for conversation threading
+  string thread_id = 4;
+
+  // Sender email address
+  string from_email = 5;
+
+  // Sender display name (optional)
+  optional string from_name = 6;
+
+  // Email subject line (optional)
+  optional string subject = 7;
+
+  // List of recipient email addresses
+  repeated string to_emails = 8;
+
+  // List of CC recipient email addresses
+  repeated string cc_emails = 9;
+
+  // Email date/time
+  google.protobuf.Timestamp email_date = 10;
+
+  // Hash of email content for deduplication
+  string content_hash = 11;
+
+  // Processing job identifier for tracking
+  string job_id = 12;
+}
+
+// EmailProcessingResult is the workflow result after email processing completes.
+message EmailProcessingResult {
+  // Database source record ID that was processed
+  int64 source_id = 1;
+
+  // Generated embedding record ID (if successful)
+  optional int64 embedding_id = 2;
+
+  // Generated summary record ID (if successful)
+  optional int64 summary_id = 3;
+
+  // Number of assertions extracted from the email
+  int32 assertion_count = 4;
+
+  // Processing status: "completed" or "failed"
+  string status = 5;
+
+  // Error message if processing failed (optional)
+  optional string error = 6;
+}
+
+// ContentProcessingInput is the workflow input for generic content processing.
+// Used for processing documents, meeting notes, and other content types.
+message ContentProcessingInput {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Source record identifier
+  string source_id = 2;
+
+  // Type of source content: "email", "meeting", "document"
+  string source_type = 3;
+
+  // The actual content text to process
+  string content = 4;
+
+  // Additional metadata key-value pairs
+  map<string, string> metadata = 5;
+}
+
+// RelationshipDiscoveryInput is the workflow input for relationship discovery.
+// Triggers analysis of relationships between entities mentioned in a source.
+message RelationshipDiscoveryInput {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Source record that triggered relationship discovery
+  string source_id = 2;
+
+  // List of entity IDs to analyze for relationships
+  repeated string entity_ids = 3;
+}
+
+// =============================================================================
+// Activity Input/Output Messages
+// =============================================================================
+
+// FetchSourceInput is the activity input for fetching source content.
+message FetchSourceInput {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Database source record ID to fetch
+  int64 source_id = 2;
+}
+
+// FetchSourceOutput is the activity output containing fetched source content.
+message FetchSourceOutput {
+  // The text content of the source
+  string content_text = 1;
+
+  // Additional metadata associated with the source
+  map<string, string> metadata = 2;
+}
+
+// GenerateEmbeddingInput is the activity input for embedding generation.
+message GenerateEmbeddingInput {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Database source record ID
+  int64 source_id = 2;
+
+  // Content text to generate embeddings for
+  string content = 3;
+
+  // Hash of content for deduplication/caching
+  string content_hash = 4;
+}
+
+// GenerateEmbeddingOutput is the activity output containing the generated embedding.
+message GenerateEmbeddingOutput {
+  // Database embedding record ID
+  int64 embedding_id = 1;
+
+  // Embedding vector dimensions
+  int32 dimensions = 2;
+}
+
+// GenerateSummaryInput is the activity input for LLM summary generation.
+message GenerateSummaryInput {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Database source record ID
+  int64 source_id = 2;
+
+  // Processing job identifier for tracking
+  string job_id = 3;
+
+  // Content text to summarize
+  string content = 4;
+}
+
+// GenerateSummaryOutput is the activity output containing the generated summary.
+message GenerateSummaryOutput {
+  // Database summary record ID
+  int64 summary_id = 1;
+
+  // The generated summary text
+  string summary = 2;
+
+  // LLM model used for generation
+  string model_name = 3;
+}
+
+// ExtractAssertionsInput is the activity input for LLM assertion extraction.
+message ExtractAssertionsInput {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Database source record ID
+  int64 source_id = 2;
+
+  // Processing job identifier for tracking
+  string job_id = 3;
+
+  // Content text to extract assertions from
+  string content = 4;
+}
+
+// ExtractAssertionsOutput is the activity output containing extracted assertions.
+message ExtractAssertionsOutput {
+  // Number of assertions extracted
+  int32 assertion_count = 1;
+
+  // List of extracted assertion texts
+  repeated string assertions = 2;
+
+  // LLM model used for extraction
+  string model_name = 3;
+}
+
+// UpdateSourceStatusInput is the activity input for updating source processing status.
+message UpdateSourceStatusInput {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Database source record ID
+  int64 source_id = 2;
+
+  // New status value: "pending", "processing", "completed", "failed"
+  string status = 3;
+
+  // Optional error message if status is "failed"
+  optional string error_message = 4;
+}
+
+// StoreResultsInput is the activity input for storing processing results.
+message StoreResultsInput {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Processing job identifier
+  string job_id = 2;
+
+  // Type of result: "brief_summary", "detailed_summary", "assertion"
+  string result_type = 3;
+
+  // JSON-encoded result data
+  bytes result_data = 4;
+
+  // LLM model used (optional)
+  optional string model_name = 5;
+}
+
+// StoreResultsOutput is the activity output after storing results.
+message StoreResultsOutput {
+  // Database result record ID
+  int64 result_id = 1;
+}

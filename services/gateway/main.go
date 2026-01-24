@@ -171,8 +171,8 @@ func main() {
 	logger.Info("Registered MentionsService")
 
 	// Register EntityService for bulk entity seeding.
-	entityRepo := entities.NewRepository(dbPool, logger.Zerolog())
-	productRepo := products.NewRepository(dbPool, logger.Zerolog())
+	entityRepo := entities.NewRepository(dbPool, logger)
+	productRepo := products.NewRepository(dbPool, logger)
 	entitySvc := entityservice.NewService(entityRepo, productRepo, logger)
 	entityv1.RegisterEntityServiceServer(grpcServer, entitySvc)
 	logger.Info("Registered EntityService")

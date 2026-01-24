@@ -29,6 +29,12 @@ type GatewayConfig struct {
 	// Auth contains authentication-specific configuration.
 	Auth AuthConfig
 
+	// CSRFEnabled enables CSRF protection for HTTP endpoints.
+	CSRFEnabled bool
+
+	// CSRF contains CSRF protection configuration.
+	CSRF CSRFConfig
+
 	// RateLimitEnabled enables rate limiting when true.
 	RateLimitEnabled bool
 
@@ -74,6 +80,29 @@ type AuthConfig struct {
 	SkipAuthMethods []string
 }
 
+// CSRFConfig holds CSRF protection configuration for the gateway.
+type CSRFConfig struct {
+	// Enabled enables CSRF protection for HTTP endpoints.
+	Enabled bool
+
+	// SecretKey is the base64-encoded 32-byte secret key for CSRF tokens.
+	// If not provided, a random key will be generated (not recommended for production).
+	SecretKey string
+
+	// Secure sets the Secure flag on cookies (should be true for HTTPS).
+	Secure bool
+
+	// Domain sets the cookie domain (empty for current domain).
+	Domain string
+
+	// ExemptPaths is a list of path prefixes to exempt from CSRF protection.
+	// Paths ending with "/" are treated as prefix patterns.
+	ExemptPaths []string
+
+	// TrustedOrigins is a list of trusted origins for referer checking.
+	TrustedOrigins []string
+}
+
 // RateLimitConfig holds rate limiting configuration for the gateway.
 type RateLimitConfig struct {
 	// DefaultRPS is the default requests per second allowed per tenant.
@@ -104,6 +133,7 @@ const (
 	DefaultGRPCPort             = 50051
 	DefaultHTTPPort             = 8080
 	DefaultAuthEnabled          = false
+	DefaultCSRFEnabled          = false
 	DefaultRateLimitEnabled     = false
 	DefaultRateLimitRPS         = 100
 	DefaultOrchestratorAddress  = "localhost:50052"
@@ -136,11 +166,17 @@ func Load() (*GatewayConfig, error) {
 		GRPCPort:            DefaultGRPCPort,
 		HTTPPort:            DefaultHTTPPort,
 		AuthEnabled:         DefaultAuthEnabled,
+		CSRFEnabled:         DefaultCSRFEnabled,
 		RateLimitEnabled:    DefaultRateLimitEnabled,
 		RateLimitRPS:        DefaultRateLimitRPS,
 		OrchestratorAddress: DefaultOrchestratorAddress,
 		SearchAddress:       DefaultSearchAddress,
 		DailyReviewAddress:  DefaultDailyReviewAddress,
+		CSRF: CSRFConfig{
+			Enabled:     DefaultCSRFEnabled,
+			Secure:      true,
+			ExemptPaths: []string{"/health", "/ready", "/live", "/metrics", "/api/webhooks/"},
+		},
 		RateLimit: RateLimitConfig{
 			DefaultRPS:      DefaultRateLimitDefaultRPS,
 			DefaultBurst:    DefaultRateLimitDefaultBurst,
@@ -196,6 +232,43 @@ func loadGatewayEnv(cfg *GatewayConfig) {
 			methods[i] = strings.TrimSpace(methods[i])
 		}
 		cfg.Auth.SkipAuthMethods = methods
+	}
+
+	// CSRF configuration
+	if v := os.Getenv("GATEWAY_CSRF_ENABLED"); v != "" {
+		enabled := v == "true" || v == "1"
+		cfg.CSRFEnabled = enabled
+		cfg.CSRF.Enabled = enabled
+	}
+
+	if v := os.Getenv("GATEWAY_CSRF_SECRET_KEY"); v != "" {
+		cfg.CSRF.SecretKey = v
+	}
+
+	if v := os.Getenv("GATEWAY_CSRF_SECURE"); v != "" {
+		cfg.CSRF.Secure = v == "true" || v == "1"
+	}
+
+	if v := os.Getenv("GATEWAY_CSRF_DOMAIN"); v != "" {
+		cfg.CSRF.Domain = v
+	}
+
+	if v := os.Getenv("GATEWAY_CSRF_EXEMPT_PATHS"); v != "" {
+		// Comma-separated list of paths to exempt
+		paths := strings.Split(v, ",")
+		for i := range paths {
+			paths[i] = strings.TrimSpace(paths[i])
+		}
+		cfg.CSRF.ExemptPaths = paths
+	}
+
+	if v := os.Getenv("GATEWAY_CSRF_TRUSTED_ORIGINS"); v != "" {
+		// Comma-separated list of trusted origins
+		origins := strings.Split(v, ",")
+		for i := range origins {
+			origins[i] = strings.TrimSpace(origins[i])
+		}
+		cfg.CSRF.TrustedOrigins = origins
 	}
 
 	if v := os.Getenv("GATEWAY_RATE_LIMIT_ENABLED"); v != "" {

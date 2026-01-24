@@ -8,20 +8,21 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // Repository provides database operations for content enrichment.
 type Repository struct {
 	pool   *pgxpool.Pool
-	logger zerolog.Logger
+	logger logging.Logger
 }
 
 // NewRepository creates a new enrichment repository.
-func NewRepository(pool *pgxpool.Pool, logger zerolog.Logger) *Repository {
+func NewRepository(pool *pgxpool.Pool, logger logging.Logger) *Repository {
 	return &Repository{
 		pool:   pool,
-		logger: logger.With().Str("component", "enrichment_repository").Logger(),
+		logger: logger.With(logging.F("component", "enrichment_repository")),
 	}
 }
 
@@ -95,20 +96,18 @@ func (r *Repository) Create(ctx context.Context, e *Enrichment) error {
 	).Scan(&e.ID, &e.CreatedAt, &e.UpdatedAt)
 
 	if err != nil {
-		r.logger.Error().
-			Err(err).
-			Int64("source_id", e.SourceID).
-			Str("tenant_id", e.TenantID).
-			Msg("Failed to create enrichment")
+		r.logger.Error("Failed to create enrichment",
+			logging.Err(err),
+			logging.F("source_id", e.SourceID),
+			logging.F("tenant_id", e.TenantID))
 		return fmt.Errorf("failed to create enrichment: %w", err)
 	}
 
-	r.logger.Debug().
-		Int64("id", e.ID).
-		Int64("source_id", e.SourceID).
-		Str("content_type", string(e.Classification.ContentType)).
-		Str("subtype", string(e.Classification.Subtype)).
-		Msg("Enrichment created")
+	r.logger.Debug("Enrichment created",
+		logging.F("id", e.ID),
+		logging.F("source_id", e.SourceID),
+		logging.F("content_type", string(e.Classification.ContentType)),
+		logging.F("subtype", string(e.Classification.Subtype)))
 
 	return nil
 }

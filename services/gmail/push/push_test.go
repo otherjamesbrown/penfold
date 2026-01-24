@@ -1130,3 +1130,297 @@ func TestProcessorConfig_Fields(t *testing.T) {
 		t.Errorf("BatchWindow = %v, want 5s", cfg.BatchWindow)
 	}
 }
+
+// TestServerRateLimiting tests the server's rate limiting functionality.
+func TestServerRateLimiting(t *testing.T) {
+	store := NewMemorySubscriptionStore()
+	mockEngine := &mockSyncEngine{}
+	processor, _ := NewNotificationProcessor(&ProcessorConfig{
+		SyncEngine:  mockEngine.toRealEngine(),
+		WorkerCount: 1,
+		QueueSize:   100,
+		BatchWindow: 0,
+	})
+	_ = processor.Start()
+	defer processor.Stop()
+
+	handler, _ := NewHandler(&HandlerConfig{
+		SubscriptionStore:     store,
+		NotificationProcessor: processor,
+	})
+
+	t.Run("rate limits requests when limit exceeded", func(t *testing.T) {
+		// Configure with very low limit for testing.
+		server, err := NewServer(&ServerConfig{
+			Address:             ":0",
+			Handler:             handler,
+			DeduplicationWindow: 10 * time.Minute,
+			RateLimitConfig: &RateLimitConfig{
+				RPS:   1.0,  // 1 request per second
+				Burst: 2,    // Allow 2 requests initially
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to create server: %v", err)
+		}
+
+		// Create test server using the rate-limited handler.
+		ts := httptest.NewServer(server.httpServer.Handler)
+		defer ts.Close()
+
+		// First two requests should succeed (burst capacity).
+		for i := 0; i < 2; i++ {
+			notification := PushNotification{
+				Message: PubSubMessage{
+					MessageID: fmt.Sprintf("rate-limit-test-%d", i),
+					Data:      base64.StdEncoding.EncodeToString([]byte(`{"emailAddress":"test@example.com","historyId":12345}`)),
+				},
+				Subscription: "projects/test/subscriptions/gmail-push",
+			}
+			body, _ := json.Marshal(notification)
+			resp, err := http.Post(ts.URL+"/gmail/push", "application/json", bytes.NewReader(body))
+			if err != nil {
+				t.Fatalf("request %d failed: %v", i, err)
+			}
+			// Note: May get 400 due to no subscription, but should NOT be 429.
+			if resp.StatusCode == http.StatusTooManyRequests {
+				t.Errorf("request %d should not be rate limited", i)
+			}
+			resp.Body.Close()
+		}
+
+		// Third request should be rate limited.
+		notification := PushNotification{
+			Message: PubSubMessage{
+				MessageID: "rate-limit-test-blocked",
+				Data:      base64.StdEncoding.EncodeToString([]byte(`{"emailAddress":"test@example.com","historyId":12345}`)),
+			},
+			Subscription: "projects/test/subscriptions/gmail-push",
+		}
+		body, _ := json.Marshal(notification)
+		resp, err := http.Post(ts.URL+"/gmail/push", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("rate limited request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusTooManyRequests {
+			t.Errorf("third request should be rate limited, got status %d", resp.StatusCode)
+		}
+
+		// Verify Retry-After header is set.
+		retryAfter := resp.Header.Get("Retry-After")
+		if retryAfter == "" {
+			t.Error("expected Retry-After header to be set")
+		}
+	})
+
+	t.Run("health endpoint is not rate limited", func(t *testing.T) {
+		server, err := NewServer(&ServerConfig{
+			Address:             ":0",
+			Handler:             handler,
+			DeduplicationWindow: 10 * time.Minute,
+			RateLimitConfig: &RateLimitConfig{
+				RPS:   1.0,
+				Burst: 1, // Very low burst to ensure we'd hit limit quickly.
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to create server: %v", err)
+		}
+
+		ts := httptest.NewServer(server.httpServer.Handler)
+		defer ts.Close()
+
+		// Health endpoint should never be rate limited.
+		for i := 0; i < 10; i++ {
+			resp, err := http.Get(ts.URL + "/health")
+			if err != nil {
+				t.Fatalf("health check %d failed: %v", i, err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("health check %d should not be rate limited, got status %d", i, resp.StatusCode)
+			}
+			resp.Body.Close()
+		}
+	})
+
+	t.Run("includes rate limit headers", func(t *testing.T) {
+		server, err := NewServer(&ServerConfig{
+			Address:             ":0",
+			Handler:             handler,
+			DeduplicationWindow: 10 * time.Minute,
+			RateLimitConfig: &RateLimitConfig{
+				RPS:   100.0,
+				Burst: 50,
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to create server: %v", err)
+		}
+
+		ts := httptest.NewServer(server.httpServer.Handler)
+		defer ts.Close()
+
+		notification := PushNotification{
+			Message: PubSubMessage{
+				MessageID: "rate-limit-headers-test",
+				Data:      base64.StdEncoding.EncodeToString([]byte(`{"emailAddress":"test@example.com","historyId":12345}`)),
+			},
+			Subscription: "projects/test/subscriptions/gmail-push",
+		}
+		body, _ := json.Marshal(notification)
+		resp, err := http.Post(ts.URL+"/gmail/push", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Check that rate limit headers are set.
+		if resp.Header.Get("X-RateLimit-Limit") == "" {
+			t.Error("expected X-RateLimit-Limit header to be set")
+		}
+		if resp.Header.Get("X-RateLimit-Remaining") == "" {
+			t.Error("expected X-RateLimit-Remaining header to be set")
+		}
+	})
+
+	t.Run("no rate limiting when not configured", func(t *testing.T) {
+		server, err := NewServer(&ServerConfig{
+			Address:             ":0",
+			Handler:             handler,
+			DeduplicationWindow: 10 * time.Minute,
+			// No RateLimiter or RateLimitConfig.
+		})
+		if err != nil {
+			t.Fatalf("failed to create server: %v", err)
+		}
+
+		ts := httptest.NewServer(server.httpServer.Handler)
+		defer ts.Close()
+
+		// Should be able to make many requests without rate limiting.
+		for i := 0; i < 20; i++ {
+			notification := PushNotification{
+				Message: PubSubMessage{
+					MessageID: fmt.Sprintf("no-rate-limit-test-%d", i),
+					Data:      base64.StdEncoding.EncodeToString([]byte(`{"emailAddress":"test@example.com","historyId":12345}`)),
+				},
+				Subscription: "projects/test/subscriptions/gmail-push",
+			}
+			body, _ := json.Marshal(notification)
+			resp, err := http.Post(ts.URL+"/gmail/push", "application/json", bytes.NewReader(body))
+			if err != nil {
+				t.Fatalf("request %d failed: %v", i, err)
+			}
+			if resp.StatusCode == http.StatusTooManyRequests {
+				t.Errorf("request %d should not be rate limited when rate limiting is disabled", i)
+			}
+			resp.Body.Close()
+		}
+	})
+}
+
+// TestExtractClientIP tests the client IP extraction function.
+func TestExtractClientIP(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteAddr string
+		headers    map[string]string
+		wantIP     string
+	}{
+		{
+			name:       "remote addr with port",
+			remoteAddr: "192.168.1.100:12345",
+			headers:    nil,
+			wantIP:     "192.168.1.100",
+		},
+		{
+			name:       "remote addr without port",
+			remoteAddr: "192.168.1.100",
+			headers:    nil,
+			wantIP:     "192.168.1.100",
+		},
+		{
+			name:       "X-Forwarded-For single IP",
+			remoteAddr: "10.0.0.1:12345",
+			headers:    map[string]string{"X-Forwarded-For": "203.0.113.50"},
+			wantIP:     "203.0.113.50",
+		},
+		{
+			name:       "X-Forwarded-For multiple IPs",
+			remoteAddr: "10.0.0.1:12345",
+			headers:    map[string]string{"X-Forwarded-For": "203.0.113.50, 70.41.3.18, 150.172.238.178"},
+			wantIP:     "203.0.113.50",
+		},
+		{
+			name:       "X-Forwarded-For with spaces",
+			remoteAddr: "10.0.0.1:12345",
+			headers:    map[string]string{"X-Forwarded-For": "  203.0.113.50  "},
+			wantIP:     "203.0.113.50",
+		},
+		{
+			name:       "X-Real-IP",
+			remoteAddr: "10.0.0.1:12345",
+			headers:    map[string]string{"X-Real-IP": "198.51.100.25"},
+			wantIP:     "198.51.100.25",
+		},
+		{
+			name:       "X-Forwarded-For takes precedence over X-Real-IP",
+			remoteAddr: "10.0.0.1:12345",
+			headers: map[string]string{
+				"X-Forwarded-For": "203.0.113.50",
+				"X-Real-IP":       "198.51.100.25",
+			},
+			wantIP: "203.0.113.50",
+		},
+		{
+			name:       "IPv6 address",
+			remoteAddr: "[2001:db8::1]:12345",
+			headers:    nil,
+			wantIP:     "2001:db8::1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/gmail/push", nil)
+			req.RemoteAddr = tt.remoteAddr
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+
+			got := extractClientIP(req)
+			if got != tt.wantIP {
+				t.Errorf("extractClientIP() = %q, want %q", got, tt.wantIP)
+			}
+		})
+	}
+}
+
+// TestDefaultRateLimitConfig tests the default rate limit configuration.
+func TestDefaultRateLimitConfig(t *testing.T) {
+	cfg := DefaultRateLimitConfig()
+
+	if cfg.RPS != 50.0 {
+		t.Errorf("RPS = %v, want 50.0", cfg.RPS)
+	}
+	if cfg.Burst != 100 {
+		t.Errorf("Burst = %d, want 100", cfg.Burst)
+	}
+}
+
+// TestRateLimitConfig_Fields tests RateLimitConfig struct fields.
+func TestRateLimitConfig_Fields(t *testing.T) {
+	cfg := RateLimitConfig{
+		RPS:   25.5,
+		Burst: 50,
+	}
+
+	if cfg.RPS != 25.5 {
+		t.Errorf("RPS = %v, want 25.5", cfg.RPS)
+	}
+	if cfg.Burst != 50 {
+		t.Errorf("Burst = %d, want 50", cfg.Burst)
+	}
+}

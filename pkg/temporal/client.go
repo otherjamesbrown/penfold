@@ -7,6 +7,8 @@ import (
 	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/log"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // Config holds Temporal connection settings.
@@ -21,10 +23,10 @@ type Config struct {
 // ClientOption is a function that configures client options.
 type ClientOption func(*client.Options)
 
-// WithLogger sets a zerolog logger for the Temporal client.
-func WithLogger(logger zerolog.Logger) ClientOption {
+// WithLogger sets a logging.Logger for the Temporal client.
+func WithLogger(logger logging.Logger) ClientOption {
 	return func(opts *client.Options) {
-		opts.Logger = NewLogger(logger)
+		opts.Logger = NewLoggerFromInterface(logger)
 	}
 }
 
@@ -99,8 +101,54 @@ func (a *zerologAdapter) logWithKeyvals(event *zerolog.Event, msg string, keyval
 }
 
 // NewLogger creates a Temporal-compatible logger from zerolog.
+// Deprecated: Use NewLoggerFromInterface with logging.Logger instead.
 func NewLogger(logger zerolog.Logger) log.Logger {
 	return &zerologAdapter{
 		logger: logger.With().Str("component", "temporal").Logger(),
+	}
+}
+
+// loggingAdapter adapts logging.Logger to Temporal's log interface.
+type loggingAdapter struct {
+	logger logging.Logger
+}
+
+// Debug logs at debug level.
+func (a *loggingAdapter) Debug(msg string, keyvals ...interface{}) {
+	a.logger.Debug(msg, keyvalsToFields(keyvals)...)
+}
+
+// Info logs at info level.
+func (a *loggingAdapter) Info(msg string, keyvals ...interface{}) {
+	a.logger.Info(msg, keyvalsToFields(keyvals)...)
+}
+
+// Warn logs at warn level.
+func (a *loggingAdapter) Warn(msg string, keyvals ...interface{}) {
+	a.logger.Warn(msg, keyvalsToFields(keyvals)...)
+}
+
+// Error logs at error level.
+func (a *loggingAdapter) Error(msg string, keyvals ...interface{}) {
+	a.logger.Error(msg, keyvalsToFields(keyvals)...)
+}
+
+// keyvalsToFields converts key-value pairs to logging.Field slice.
+func keyvalsToFields(keyvals []interface{}) []logging.Field {
+	fields := make([]logging.Field, 0, len(keyvals)/2)
+	for i := 0; i < len(keyvals)-1; i += 2 {
+		key, ok := keyvals[i].(string)
+		if !ok {
+			key = fmt.Sprintf("%v", keyvals[i])
+		}
+		fields = append(fields, logging.F(key, keyvals[i+1]))
+	}
+	return fields
+}
+
+// NewLoggerFromInterface creates a Temporal-compatible logger from logging.Logger.
+func NewLoggerFromInterface(logger logging.Logger) log.Logger {
+	return &loggingAdapter{
+		logger: logger.With(logging.F("component", "temporal")),
 	}
 }

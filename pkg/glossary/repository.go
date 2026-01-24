@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	pferrors "github.com/otherjamesbrown/penfold/pkg/errors"
 )
 
 // Repository provides access to glossary data.
@@ -300,7 +302,7 @@ func (r *Repository) Delete(ctx context.Context, id int64) error {
 		return fmt.Errorf("delete glossary term: %w", err)
 	}
 	if result.RowsAffected() == 0 {
-		return fmt.Errorf("term not found")
+		return pferrors.ErrNotFound
 	}
 	return nil
 }
@@ -312,7 +314,7 @@ func (r *Repository) DeleteByTerm(ctx context.Context, termStr string) error {
 		return fmt.Errorf("delete glossary term: %w", err)
 	}
 	if result.RowsAffected() == 0 {
-		return fmt.Errorf("term not found")
+		return pferrors.ErrNotFound
 	}
 	return nil
 }
@@ -431,7 +433,7 @@ func (r *Repository) LinkEntity(ctx context.Context, termID int64, entityType st
 	// Validate entity type
 	validTypes := map[string]bool{"product": true, "project": true, "company": true}
 	if !validTypes[entityType] {
-		return nil, fmt.Errorf("invalid entity type: %s (must be product, project, or company)", entityType)
+		return nil, fmt.Errorf("%w: invalid entity type: %s (must be product, project, or company)", pferrors.ErrValidation, entityType)
 	}
 
 	var term Term
@@ -457,7 +459,7 @@ func (r *Repository) LinkEntity(ctx context.Context, termID int64, entityType st
 		&term.LinkedEntityID,
 	)
 	if err == pgx.ErrNoRows {
-		return nil, fmt.Errorf("term not found")
+		return nil, pferrors.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("link entity: %w", err)
@@ -490,7 +492,7 @@ func (r *Repository) UnlinkEntity(ctx context.Context, termID int64) (*Term, err
 		&term.LinkedEntityID,
 	)
 	if err == pgx.ErrNoRows {
-		return nil, fmt.Errorf("term not found")
+		return nil, pferrors.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("unlink entity: %w", err)

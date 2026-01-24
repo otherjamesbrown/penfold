@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -89,6 +91,9 @@ func (l *testLogger) With(fields ...logging.Field) logging.Logger {
 }
 func (l *testLogger) WithContext(ctx context.Context) logging.Logger {
 	return l
+}
+func (l *testLogger) Zerolog() zerolog.Logger {
+	return zerolog.Nop()
 }
 
 func newTestLogger() logging.Logger {

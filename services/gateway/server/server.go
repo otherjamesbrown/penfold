@@ -79,7 +79,7 @@ func (s *GatewayServer) ProcessEmail(ctx context.Context, req *ProcessEmailReque
 		logging.F("message_id", req.MessageID),
 	)
 
-	// TODO: Implement actual email processing by calling the orchestrator service.
+	// STUB: Returns Unimplemented until orchestrator service integration.
 	return nil, status.Error(codes.Unimplemented, "ProcessEmail not yet implemented")
 }
 
@@ -117,7 +117,7 @@ func (s *GatewayServer) Search(ctx context.Context, req *SearchRequest) (*Search
 		logging.F("mode", req.Mode),
 	)
 
-	// TODO: Implement actual search by calling the search service.
+	// STUB: Returns Unimplemented until search service integration.
 	return nil, status.Error(codes.Unimplemented, "Search not yet implemented")
 }
 
@@ -161,7 +161,7 @@ func (s *GatewayServer) GetDailyReview(ctx context.Context, req *GetDailyReviewR
 		logging.F("user_id", req.UserID),
 	)
 
-	// TODO: Implement actual daily review by calling the daily review service.
+	// STUB: Returns Unimplemented until daily review service integration.
 	return nil, status.Error(codes.Unimplemented, "GetDailyReview not yet implemented")
 }
 

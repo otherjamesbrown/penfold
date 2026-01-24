@@ -60,7 +60,7 @@ func main() {
 		return nil
 	}, health.Critical())
 
-	// TODO: Add graph database health check when implemented
+	// FUTURE: Add graph database health check when graph storage is implemented.
 	// healthChecker.RegisterCheck("graphdb", graphDBHealthCheck, health.Critical())
 
 	// Create the relationship server

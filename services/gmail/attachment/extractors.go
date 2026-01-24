@@ -425,8 +425,7 @@ func (e *ImageExtractor) Extract(content []byte) (string, error) {
 		return fmt.Sprintf("[Image: %s, size: %d bytes]", imageType, len(content)), nil
 	}
 
-	// TODO: Implement OCR integration.
-	// Options:
+	// FUTURE: OCR integration options:
 	// - Google Cloud Vision API
 	// - AWS Textract
 	// - Azure Computer Vision

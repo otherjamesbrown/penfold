@@ -1,0 +1,361 @@
+// Workflow Orchestrator Service Protobuf Definitions
+// Defines the gRPC service for managing Temporal workflows
+
+syntax = "proto3";
+
+package penfold.processing.orchestrator.v1;
+
+option go_package = "github.com/otherjamesbrown/penfold/api/proto/processing/v1/orchestratorpb;orchestratorpb";
+
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// OrchestratorService provides gRPC endpoints for managing Temporal workflows.
+// This service acts as a facade over Temporal's API, providing simplified workflow
+// management for the Penfold AI processing pipeline.
+service OrchestratorService {
+  // StartWorkflow initiates a new workflow execution.
+  rpc StartWorkflow(StartWorkflowRequest) returns (StartWorkflowResponse);
+
+  // GetWorkflowStatus retrieves the status of a specific workflow execution.
+  rpc GetWorkflowStatus(GetWorkflowStatusRequest) returns (GetWorkflowStatusResponse);
+
+  // CancelWorkflow requests cancellation of a running workflow.
+  rpc CancelWorkflow(CancelWorkflowRequest) returns (CancelWorkflowResponse);
+
+  // ListWorkflows returns a paginated list of workflow executions.
+  rpc ListWorkflows(ListWorkflowsRequest) returns (ListWorkflowsResponse);
+
+  // SignalWorkflow sends a signal to a running workflow execution.
+  // Signals allow external events to be delivered to a workflow.
+  rpc SignalWorkflow(SignalWorkflowRequest) returns (SignalWorkflowResponse);
+
+  // RetryWorkflow resets and retries a failed workflow from its last failure point.
+  rpc RetryWorkflow(RetryWorkflowRequest) returns (RetryWorkflowResponse);
+
+  // GetStats returns workflow execution statistics.
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+
+  // Health checks the health of the orchestrator service.
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// =============================================================================
+// Workflow Management Messages
+// =============================================================================
+
+// StartWorkflowRequest initiates a new workflow execution.
+message StartWorkflowRequest {
+  // Type of workflow to start: "email_processing", "content_processing", "relationship_discovery"
+  string workflow_type = 1;
+
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 2;
+
+  // JSON-encoded workflow input (specific to workflow type)
+  bytes input = 3;
+
+  // Optional custom workflow ID (auto-generated if not provided)
+  optional string workflow_id = 4;
+}
+
+// StartWorkflowResponse contains the identifiers for the started workflow.
+message StartWorkflowResponse {
+  // Unique workflow execution ID
+  string workflow_id = 1;
+
+  // Run ID for this specific execution attempt
+  string run_id = 2;
+}
+
+// GetWorkflowStatusRequest retrieves the status of a specific workflow execution.
+message GetWorkflowStatusRequest {
+  // Unique workflow execution ID
+  string workflow_id = 1;
+
+  // Optional run ID for a specific execution attempt
+  optional string run_id = 2;
+}
+
+// GetWorkflowStatusResponse contains the workflow execution status details.
+message GetWorkflowStatusResponse {
+  // The workflow execution details
+  WorkflowExecution execution = 1;
+}
+
+// WorkflowExecution contains detailed information about a workflow execution.
+message WorkflowExecution {
+  // Unique workflow execution ID
+  string workflow_id = 1;
+
+  // Run ID for this specific execution attempt
+  string run_id = 2;
+
+  // Type of workflow: "email_processing", "content_processing", "relationship_discovery"
+  string workflow_type = 3;
+
+  // Execution status: "Running", "Completed", "Failed", "Canceled", "Terminated", "TimedOut"
+  string status = 4;
+
+  // When the workflow execution started
+  google.protobuf.Timestamp start_time = 5;
+
+  // When the workflow execution closed (completed, failed, canceled, etc.)
+  optional google.protobuf.Timestamp close_time = 6;
+
+  // JSON-encoded result if workflow completed successfully
+  optional bytes result = 7;
+
+  // Error message if workflow failed
+  optional string error = 8;
+
+  // Tenant ID associated with this workflow
+  string tenant_id = 9;
+
+  // Task queue the workflow is running on
+  string task_queue = 10;
+
+  // Number of pending activities
+  int32 pending_activities = 11;
+
+  // History event count
+  int64 history_length = 12;
+}
+
+// ListWorkflowsRequest retrieves a paginated list of workflow executions.
+message ListWorkflowsRequest {
+  // Filter by workflow type (optional)
+  optional string workflow_type = 1;
+
+  // Filter by status (optional): "Running", "Completed", "Failed", "Canceled", "Terminated"
+  optional string status = 2;
+
+  // Filter by tenant ID (optional)
+  optional string tenant_id = 3;
+
+  // Maximum number of results to return (default: 100, max: 1000)
+  int32 page_size = 4;
+
+  // Pagination token from previous response
+  string page_token = 5;
+
+  // Filter by start time range (optional)
+  optional google.protobuf.Timestamp start_time_from = 6;
+  optional google.protobuf.Timestamp start_time_to = 7;
+}
+
+// ListWorkflowsResponse contains a paginated list of workflow executions.
+message ListWorkflowsResponse {
+  // List of workflow executions
+  repeated WorkflowExecution workflows = 1;
+
+  // Token for fetching the next page (empty if no more results)
+  string next_page_token = 2;
+
+  // Total count of matching workflows (if available)
+  optional int64 total_count = 3;
+}
+
+// CancelWorkflowRequest requests cancellation of a running workflow.
+message CancelWorkflowRequest {
+  // Unique workflow execution ID to cancel
+  string workflow_id = 1;
+
+  // Optional run ID for a specific execution attempt
+  optional string run_id = 2;
+
+  // Reason for cancellation
+  string reason = 3;
+}
+
+// CancelWorkflowResponse confirms the cancellation request.
+message CancelWorkflowResponse {
+  // Whether the cancellation request was accepted
+  bool accepted = 1;
+
+  // Message providing additional details
+  string message = 2;
+}
+
+// SignalWorkflowRequest sends a signal to a running workflow execution.
+message SignalWorkflowRequest {
+  // Unique workflow execution ID to signal
+  string workflow_id = 1;
+
+  // Optional run ID for a specific execution attempt
+  optional string run_id = 2;
+
+  // Name of the signal to send
+  string signal_name = 3;
+
+  // JSON-encoded signal payload (optional)
+  optional bytes payload = 4;
+}
+
+// SignalWorkflowResponse confirms the signal was sent.
+message SignalWorkflowResponse {
+  // Whether the signal was successfully delivered
+  bool delivered = 1;
+
+  // Message providing additional details
+  string message = 2;
+}
+
+// RetryWorkflowRequest resets and retries a failed workflow.
+message RetryWorkflowRequest {
+  // Unique workflow execution ID to retry
+  string workflow_id = 1;
+
+  // Optional run ID for a specific execution attempt
+  optional string run_id = 2;
+
+  // Reason for retry
+  string reason = 3;
+}
+
+// RetryWorkflowResponse contains the new execution identifiers.
+message RetryWorkflowResponse {
+  // New workflow execution ID (may be same as original)
+  string workflow_id = 1;
+
+  // New run ID for the retry attempt
+  string run_id = 2;
+}
+
+// =============================================================================
+// Stats and Health Messages
+// =============================================================================
+
+// GetStatsRequest retrieves workflow execution statistics.
+message GetStatsRequest {
+  // Optional tenant ID filter
+  optional string tenant_id = 1;
+
+  // Time range for statistics (default: last 24 hours)
+  optional google.protobuf.Timestamp from_time = 2;
+  optional google.protobuf.Timestamp to_time = 3;
+}
+
+// GetStatsResponse contains workflow execution statistics.
+message GetStatsResponse {
+  // Number of currently running workflows
+  int64 workflows_running = 1;
+
+  // Number of workflows completed in the time range
+  int64 workflows_completed_24h = 2;
+
+  // Number of workflows failed in the time range
+  int64 workflows_failed_24h = 3;
+
+  // Number of pending activities across all workflows
+  int64 activities_pending = 4;
+
+  // Breakdown of workflows by type
+  map<string, int64> workflows_by_type = 5;
+
+  // Breakdown of workflows by status
+  map<string, int64> workflows_by_status = 6;
+
+  // Average workflow duration in milliseconds
+  double avg_workflow_duration_ms = 7;
+
+  // Average activity duration in milliseconds
+  double avg_activity_duration_ms = 8;
+
+  // P95 workflow duration in milliseconds
+  double p95_workflow_duration_ms = 9;
+
+  // P99 workflow duration in milliseconds
+  double p99_workflow_duration_ms = 10;
+
+  // Workflow throughput (completions per minute)
+  double workflows_per_minute = 11;
+
+  // Activity throughput (completions per minute)
+  double activities_per_minute = 12;
+}
+
+// HealthRequest checks the health of the orchestrator service.
+message HealthRequest {}
+
+// HealthResponse indicates the health status of the service.
+message HealthResponse {
+  // Overall health status
+  bool healthy = 1;
+
+  // Human-readable status message
+  string message = 2;
+
+  // Individual component health checks
+  repeated ComponentHealth components = 3;
+
+  // Service version
+  string version = 4;
+
+  // Service uptime in seconds
+  int64 uptime_seconds = 5;
+}
+
+// ComponentHealth represents the health of a specific component.
+message ComponentHealth {
+  // Component name: "temporal", "database", "embedding_service", "llm_service"
+  string name = 1;
+
+  // Whether the component is healthy
+  bool healthy = 2;
+
+  // Status message or error details
+  string message = 3;
+
+  // Response latency in milliseconds (for connectivity checks)
+  optional double latency_ms = 4;
+}
+
+// =============================================================================
+// Workflow Type Enum
+// =============================================================================
+
+// WorkflowType enumerates the available workflow types.
+enum WorkflowType {
+  // Unspecified workflow type
+  WORKFLOW_TYPE_UNSPECIFIED = 0;
+
+  // Email processing workflow - processes incoming emails through AI pipeline
+  WORKFLOW_TYPE_EMAIL_PROCESSING = 1;
+
+  // Content ingestion workflow - ingests and processes documents and content
+  WORKFLOW_TYPE_CONTENT_INGESTION = 2;
+
+  // Daily review workflow - generates daily review items for user attention
+  WORKFLOW_TYPE_DAILY_REVIEW = 3;
+
+  // Relationship discovery workflow - discovers and analyzes entity relationships
+  WORKFLOW_TYPE_RELATIONSHIP_DISCOVERY = 4;
+}
+
+// WorkflowStatus enumerates the possible workflow execution statuses.
+enum WorkflowStatus {
+  // Unspecified status
+  WORKFLOW_STATUS_UNSPECIFIED = 0;
+
+  // Workflow is pending execution (scheduled but not yet started)
+  WORKFLOW_STATUS_PENDING = 1;
+
+  // Workflow is currently running
+  WORKFLOW_STATUS_RUNNING = 2;
+
+  // Workflow completed successfully
+  WORKFLOW_STATUS_COMPLETED = 3;
+
+  // Workflow failed with an error
+  WORKFLOW_STATUS_FAILED = 4;
+
+  // Workflow was cancelled
+  WORKFLOW_STATUS_CANCELLED = 5;
+
+  // Workflow timed out
+  WORKFLOW_STATUS_TIMED_OUT = 6;
+}

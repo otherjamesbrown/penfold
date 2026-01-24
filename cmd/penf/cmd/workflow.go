@@ -375,7 +375,7 @@ func runWorkflowCancel(ctx context.Context, deps *WorkflowCommandDeps, workflowI
 		return fmt.Errorf("workflow %s cannot be cancelled (status: %s)", workflowID, workflow.Status)
 	}
 
-	// TODO: Replace with actual gRPC call to cancel workflow.
+	// STUB: Returns mock acknowledgment until workflow service gRPC is connected.
 	if workflowForce {
 		fmt.Printf("Force cancelling workflow %s...\n", workflowID)
 	} else {

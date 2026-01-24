@@ -173,6 +173,6 @@ func registerHealthChecks(checker *pkghealth.Checker, cfg *config.ServiceConfig)
 		return nil
 	}, pkghealth.Critical())
 
-	// TODO: Add database connectivity check when storage layer is implemented.
-	// TODO: Add Redis connectivity check when event processing is implemented.
+	// FUTURE: Add database connectivity check when storage layer is implemented.
+	// FUTURE: Add Redis connectivity check when event processing is implemented.
 }

@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/products"
 )
 
@@ -384,11 +384,11 @@ func initProductDeps(ctx context.Context, deps *ProductCommandDeps) error {
 
 	// Initialize repository if not already initialized.
 	if deps.Repository == nil {
-		logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).
-			Level(zerolog.InfoLevel).
-			With().
-			Timestamp().
-			Logger()
+		logger := logging.NewLogger(&logging.Config{
+			Level:       logging.LevelInfo,
+			ServiceName: "penf",
+			Output:      os.Stderr,
+		})
 		deps.Repository = products.NewRepository(deps.Pool, logger)
 	}
 

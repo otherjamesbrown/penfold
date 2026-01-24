@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // Team-related errors.
@@ -45,11 +47,11 @@ func (r *Repository) AssociateTeam(ctx context.Context, pt *ProductTeam) error {
 		return fmt.Errorf("failed to associate team: %w", err)
 	}
 
-	r.logger.Debug().
-		Int64("id", pt.ID).
-		Int64("product_id", pt.ProductID).
-		Int64("team_id", pt.TeamID).
-		Msg("Team associated with product")
+	r.logger.Debug("Team associated with product",
+		logging.F("id", pt.ID),
+		logging.F("product_id", pt.ProductID),
+		logging.F("team_id", pt.TeamID),
+	)
 
 	return nil
 }
@@ -181,11 +183,11 @@ func (r *Repository) AddRole(ctx context.Context, role *ProductTeamRole) error {
 		return fmt.Errorf("failed to add role: %w", err)
 	}
 
-	r.logger.Debug().
-		Int64("id", role.ID).
-		Str("role", role.Role).
-		Int64("person_id", role.PersonID).
-		Msg("Role added")
+	r.logger.Debug("Role added",
+		logging.F("id", role.ID),
+		logging.F("role", role.Role),
+		logging.F("person_id", role.PersonID),
+	)
 
 	return nil
 }

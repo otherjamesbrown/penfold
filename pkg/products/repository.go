@@ -8,26 +8,33 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
+
+	pferrors "github.com/otherjamesbrown/penfold/pkg/errors"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
-// Common errors.
+// Common errors - these are aliases to centralized errors for backward compatibility.
 var (
-	ErrNotFound      = errors.New("product not found")
-	ErrAliasConflict = errors.New("alias already exists for another product")
+	// ErrNotFound is returned when a product is not found.
+	// Deprecated: Use pferrors.ErrNotFound and pferrors.IsNotFound() instead.
+	ErrNotFound = pferrors.ErrNotFound
+
+	// ErrAliasConflict is returned when an alias already exists for another product.
+	// Deprecated: Use pferrors.ErrConflict and pferrors.IsConflict() instead.
+	ErrAliasConflict = pferrors.ErrConflict
 )
 
 // Repository provides database operations for products.
 type Repository struct {
 	pool   *pgxpool.Pool
-	logger zerolog.Logger
+	logger logging.Logger
 }
 
 // NewRepository creates a new product repository.
-func NewRepository(pool *pgxpool.Pool, logger zerolog.Logger) *Repository {
+func NewRepository(pool *pgxpool.Pool, logger logging.Logger) *Repository {
 	return &Repository{
 		pool:   pool,
-		logger: logger.With().Str("component", "product_repository").Logger(),
+		logger: logger.With(logging.F("component", "product_repository")),
 	}
 }
 
@@ -62,10 +69,9 @@ func (r *Repository) CreateProduct(ctx context.Context, p *Product) error {
 		return fmt.Errorf("failed to create product: %w", err)
 	}
 
-	r.logger.Debug().
-		Int64("id", p.ID).
-		Str("name", p.Name).
-		Msg("Product created")
+	r.logger.Debug("Product created",
+		logging.F("id", p.ID),
+		logging.F("name", p.Name))
 
 	return nil
 }

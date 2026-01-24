@@ -3,7 +3,7 @@ package attachments
 import (
 	"context"
 
-	"github.com/rs/zerolog"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // ClassifierStep is the interface for a single classification step in the pipeline.
@@ -21,15 +21,15 @@ type ClassifierStep interface {
 // Classifier runs attachments through a pipeline of classification steps.
 type Classifier struct {
 	steps  []ClassifierStep
-	logger zerolog.Logger
+	logger logging.Logger
 }
 
 // NewClassifier creates a new classifier with the given steps.
 // Steps are run in order; first definitive classification wins.
-func NewClassifier(logger zerolog.Logger, steps ...ClassifierStep) *Classifier {
+func NewClassifier(logger logging.Logger, steps ...ClassifierStep) *Classifier {
 	return &Classifier{
 		steps:  steps,
-		logger: logger.With().Str("component", "attachment_classifier").Logger(),
+		logger: logger.With(logging.F("component", "attachment_classifier")),
 	}
 }
 
@@ -46,20 +46,18 @@ func (c *Classifier) Classify(ctx context.Context, att *Attachment) (*Classifica
 	for _, step := range c.steps {
 		classification, err := step.Classify(ctx, att)
 		if err != nil {
-			c.logger.Warn().
-				Err(err).
-				Str("step", step.Name()).
-				Str("filename", att.Filename).
-				Msg("Classification step failed, continuing to next")
+			c.logger.Warn("Classification step failed, continuing to next",
+				logging.Err(err),
+				logging.F("step", step.Name()),
+				logging.F("filename", att.Filename))
 			continue
 		}
 
 		if classification == nil {
 			// Step deferred, continue to next
-			c.logger.Debug().
-				Str("step", step.Name()).
-				Str("filename", att.Filename).
-				Msg("Step deferred classification")
+			c.logger.Debug("Step deferred classification",
+				logging.F("step", step.Name()),
+				logging.F("filename", att.Filename))
 			continue
 		}
 
@@ -74,23 +72,21 @@ func (c *Classifier) Classify(ctx context.Context, att *Attachment) (*Classifica
 
 		// If this is a definitive classification, return it
 		if classification.IsDefinitive() {
-			c.logger.Debug().
-				Str("step", step.Name()).
-				Str("filename", att.Filename).
-				Str("tier", string(classification.Tier)).
-				Str("reason", classification.Reason).
-				Float64("confidence", classification.Confidence).
-				Msg("Definitive classification")
+			c.logger.Debug("Definitive classification",
+				logging.F("step", step.Name()),
+				logging.F("filename", att.Filename),
+				logging.F("tier", string(classification.Tier)),
+				logging.F("reason", classification.Reason),
+				logging.F("confidence", classification.Confidence))
 
 			return classification, steps, nil
 		}
 
 		// Record pending_review but continue to see if another step is more decisive
-		c.logger.Debug().
-			Str("step", step.Name()).
-			Str("filename", att.Filename).
-			Str("reason", classification.Reason).
-			Msg("Step returned pending_review, continuing")
+		c.logger.Debug("Step returned pending_review, continuing",
+			logging.F("step", step.Name()),
+			logging.F("filename", att.Filename),
+			logging.F("reason", classification.Reason))
 	}
 
 	// No definitive classification; return pending_review

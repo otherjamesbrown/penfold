@@ -272,10 +272,9 @@ func TestVersionInfo(t *testing.T) {
 	}
 }
 
-// TODO: The following tests are disabled because they reference functions
+// NOTE: The following tests are disabled because they reference functions
 // defined in main.go which are not accessible from the cmd package.
-// These tests should be moved to a main_test.go file or the helper functions
-// should be moved to the cmd package.
+// To enable, move to main_test.go or export the helper functions.
 
 /*
 // TestBoolToStatus tests the boolToStatus helper function.

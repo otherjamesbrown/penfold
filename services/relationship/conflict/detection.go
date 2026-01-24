@@ -2,7 +2,6 @@
 package conflict
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -40,7 +39,7 @@ func NewDetectorRegistry(config *DetectorConfig, logger logging.Logger) *Detecto
 		config = DefaultDetectorConfig()
 	}
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 
 	return &DetectorRegistry{
@@ -104,7 +103,7 @@ func NewDuplicateDetector(config *DetectorConfig, logger logging.Logger) *Duplic
 		config = DefaultDetectorConfig()
 	}
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 	return &DuplicateDetector{
 		config: config,
@@ -328,7 +327,7 @@ func NewContradictionDetector(config *DetectorConfig, logger logging.Logger) *Co
 		config = DefaultDetectorConfig()
 	}
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 	return &ContradictionDetector{
 		config: config,
@@ -482,7 +481,7 @@ func NewCycleDetector(config *DetectorConfig, logger logging.Logger) *CycleDetec
 		config = DefaultDetectorConfig()
 	}
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 	return &CycleDetector{
 		config: config,
@@ -645,7 +644,7 @@ func NewInconsistencyDetector(config *DetectorConfig, logger logging.Logger) *In
 		config = DefaultDetectorConfig()
 	}
 	if logger == nil {
-		logger = &noopLogger{}
+		logger = logging.MustGlobal()
 	}
 	return &InconsistencyDetector{
 		config: config,
@@ -878,20 +877,6 @@ func CalculateSeverity(conflict *Conflict) Severity {
 	}
 
 	return severity
-}
-
-// noopLogger is a no-op logger implementation.
-type noopLogger struct{}
-
-func (l *noopLogger) Debug(msg string, fields ...logging.Field) {}
-func (l *noopLogger) Info(msg string, fields ...logging.Field)  {}
-func (l *noopLogger) Warn(msg string, fields ...logging.Field)  {}
-func (l *noopLogger) Error(msg string, fields ...logging.Field) {}
-func (l *noopLogger) With(fields ...logging.Field) logging.Logger {
-	return l
-}
-func (l *noopLogger) WithContext(_ context.Context) logging.Logger {
-	return l
 }
 
 // Utility functions

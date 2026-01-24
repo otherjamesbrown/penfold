@@ -58,6 +58,16 @@ func resolveTenantID(tenantID string) string {
 	return tenantID
 }
 
+// safeRecordHeartbeat records a heartbeat only if running in an activity context.
+// This allows activities to be called directly in unit tests without panicking.
+func safeRecordHeartbeat(ctx context.Context, details ...interface{}) {
+	defer func() {
+		// Recover from panic if not in activity context
+		recover()
+	}()
+	activity.RecordHeartbeat(ctx, details...)
+}
+
 // FetchSource fetches the source content from the database.
 func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourceInput) (*workflows.FetchSourceOutput, error) {
 	logger := a.logger.With().
@@ -66,7 +76,7 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 		Int64("source_id", input.SourceID).
 		Logger()
 
-	activity.RecordHeartbeat(ctx, "fetching source")
+	safeRecordHeartbeat(ctx, "fetching source")
 	logger.Info().Msg("Fetching source content")
 
 	if a.db == nil {
@@ -126,7 +136,7 @@ func (a *Activities) GenerateEmbedding(ctx context.Context, input workflows.Gene
 		Int64("source_id", input.SourceID).
 		Logger()
 
-	activity.RecordHeartbeat(ctx, "generating embedding")
+	safeRecordHeartbeat(ctx, "generating embedding")
 	logger.Info().Msg("Generating embedding for content")
 
 	if a.db == nil {
@@ -155,7 +165,7 @@ func (a *Activities) GenerateEmbedding(ctx context.Context, input workflows.Gene
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	activity.RecordHeartbeat(ctx, "calling embedding service")
+	safeRecordHeartbeat(ctx, "calling embedding service")
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -178,7 +188,7 @@ func (a *Activities) GenerateEmbedding(ctx context.Context, input workflows.Gene
 	}
 
 	embedding := embResp.Data[0].Embedding
-	activity.RecordHeartbeat(ctx, "storing embedding")
+	safeRecordHeartbeat(ctx, "storing embedding")
 
 	// Store embedding in database
 	// Schema: entity_type, entity_id, source_id, embedding_model, model_version, embedding
@@ -226,12 +236,11 @@ func (a *Activities) GenerateSummary(ctx context.Context, input workflows.Genera
 		Str("job_id", input.JobID).
 		Logger()
 
-	activity.RecordHeartbeat(ctx, "generating summary")
+	safeRecordHeartbeat(ctx, "generating summary")
 	logger.Info().Msg("Generating summary via LLM")
 
-	// TODO: Implement actual summary generation using Ollama/Gemini
-	// For now, skip this step and return success
-	logger.Info().Msg("Summary generation skipped (not implemented)")
+	// STUB: Skipped until AI service integration (Ollama/Gemini).
+	logger.Info().Msg("Summary generation skipped (AI service not connected)")
 	return 0, nil
 }
 
@@ -244,12 +253,11 @@ func (a *Activities) ExtractAssertions(ctx context.Context, input workflows.Extr
 		Str("job_id", input.JobID).
 		Logger()
 
-	activity.RecordHeartbeat(ctx, "extracting assertions")
+	safeRecordHeartbeat(ctx, "extracting assertions")
 	logger.Info().Msg("Extracting assertions via LLM")
 
-	// TODO: Implement actual assertion extraction using Ollama/Gemini
-	// For now, skip this step and return success
-	logger.Info().Msg("Assertion extraction skipped (not implemented)")
+	// STUB: Skipped until AI service integration (Ollama/Gemini).
+	logger.Info().Msg("Assertion extraction skipped (AI service not connected)")
 	return 0, nil
 }
 
@@ -262,7 +270,7 @@ func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.Upd
 		Str("status", input.Status).
 		Logger()
 
-	activity.RecordHeartbeat(ctx, "updating source status")
+	safeRecordHeartbeat(ctx, "updating source status")
 	logger.Info().Msg("Updating source status")
 
 	if a.db == nil {

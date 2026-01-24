@@ -388,11 +388,15 @@ func (c *GRPCClient) ServerAddress() string {
 
 // TenantID returns the configured tenant ID.
 func (c *GRPCClient) TenantID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.options.TenantID
 }
 
 // SetTenantID updates the default tenant ID for requests.
 func (c *GRPCClient) SetTenantID(tenantID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.options.TenantID = tenantID
 }
 
@@ -400,7 +404,9 @@ func (c *GRPCClient) SetTenantID(tenantID string) {
 // If tenantID is empty, uses the default tenant ID from options.
 func (c *GRPCClient) ContextWithTenant(ctx context.Context, tenantID string) context.Context {
 	if tenantID == "" {
+		c.mu.RLock()
 		tenantID = c.options.TenantID
+		c.mu.RUnlock()
 	}
 	if tenantID == "" {
 		return ctx
@@ -437,10 +443,9 @@ func (c *GRPCClient) ConnectionState() string {
 
 // GetStatus retrieves the system status from the gateway.
 // If verbose is true, additional details are included.
-// Currently returns mock data until the gateway service is implemented.
+// STUB: Returns mock data until gateway service gRPC is connected.
 func (c *GRPCClient) GetStatus(ctx context.Context, verbose bool) (*SystemStatus, error) {
-	// TODO: Replace with actual gRPC call once proto is generated.
-	// The actual implementation would look like:
+	// When connected, the implementation would look like:
 	//   client := cliv1.NewCLIServiceClient(c.conn)
 	//   resp, err := client.GetStatus(ctx, &cliv1.GetStatusRequest{Verbose: verbose})
 	//   if err != nil {

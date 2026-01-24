@@ -793,8 +793,7 @@ func runIngestConfigSet(ctx context.Context, deps *IngestCommandDeps, key, value
 			key, strings.Join(getValidConfigKeys(), ", "))
 	}
 
-	// TODO: Implement actual gRPC call to update config.
-	// For now, just acknowledge the change.
+	// STUB: Returns mock acknowledgment until ingest service gRPC is connected.
 	fmt.Printf("Updated ingestion setting:\n")
 	fmt.Printf("  %s = %s\n", key, value)
 

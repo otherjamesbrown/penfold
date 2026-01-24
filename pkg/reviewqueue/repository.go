@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	pferrors "github.com/otherjamesbrown/penfold/pkg/errors"
 )
 
 // Repository provides access to the review queue.
@@ -200,7 +202,7 @@ func (r *Repository) Resolve(ctx context.Context, id int64, resolution, resolved
 		return fmt.Errorf("resolve review item: %w", err)
 	}
 	if result.RowsAffected() == 0 {
-		return fmt.Errorf("item not found or already resolved")
+		return pferrors.ErrNotFound
 	}
 	return nil
 }
@@ -216,7 +218,7 @@ func (r *Repository) Dismiss(ctx context.Context, id int64, reason, dismissedBy 
 		return fmt.Errorf("dismiss review item: %w", err)
 	}
 	if result.RowsAffected() == 0 {
-		return fmt.Errorf("item not found or already processed")
+		return pferrors.ErrNotFound
 	}
 	return nil
 }
@@ -232,7 +234,7 @@ func (r *Repository) Defer(ctx context.Context, id int64) error {
 		return fmt.Errorf("defer review item: %w", err)
 	}
 	if result.RowsAffected() == 0 {
-		return fmt.Errorf("item not found or already processed")
+		return pferrors.ErrNotFound
 	}
 	return nil
 }

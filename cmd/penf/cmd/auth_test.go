@@ -11,6 +11,23 @@ import (
 	"github.com/otherjamesbrown/penfold/cmd/penf/credentials"
 )
 
+// testEncryptionKey is a valid 32-byte (64 hex chars) encryption key for testing.
+const testEncryptionKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// setupTestEncryptionKey sets up the encryption key for tests and returns a cleanup function.
+func setupTestEncryptionKey(t *testing.T) func() {
+	t.Helper()
+	originalKey := os.Getenv("PENF_ENCRYPTION_KEY")
+	os.Setenv("PENF_ENCRYPTION_KEY", testEncryptionKey)
+	return func() {
+		if originalKey != "" {
+			os.Setenv("PENF_ENCRYPTION_KEY", originalKey)
+		} else {
+			os.Unsetenv("PENF_ENCRYPTION_KEY")
+		}
+	}
+}
+
 func TestValidateCredential(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -138,6 +155,10 @@ func TestAuthCmd_LoginFlags(t *testing.T) {
 }
 
 func TestRunLogin_WithAPIKeyFlag(t *testing.T) {
+	// Set up encryption key for tests
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	// Create temp dir for credentials
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
@@ -188,7 +209,10 @@ func TestRunLogin_WithAPIKeyFlag(t *testing.T) {
 	}
 
 	// Verify credentials were saved
-	store, _ := credentials.NewStore()
+	store, err := credentials.NewStore()
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	creds, err := store.Load()
 	if err != nil {
 		t.Fatalf("Failed to load credentials: %v", err)
@@ -203,6 +227,9 @@ func TestRunLogin_WithAPIKeyFlag(t *testing.T) {
 }
 
 func TestRunLogin_WithTokenFlag(t *testing.T) {
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -231,7 +258,10 @@ func TestRunLogin_WithTokenFlag(t *testing.T) {
 		t.Fatalf("runLogin() error = %v", err)
 	}
 
-	store, _ := credentials.NewStore()
+	store, err := credentials.NewStore()
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	creds, err := store.Load()
 	if err != nil {
 		t.Fatalf("Failed to load credentials: %v", err)
@@ -243,6 +273,9 @@ func TestRunLogin_WithTokenFlag(t *testing.T) {
 }
 
 func TestRunLogin_WithEnvVar(t *testing.T) {
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -277,7 +310,10 @@ func TestRunLogin_WithEnvVar(t *testing.T) {
 		t.Fatalf("runLogin() error = %v", err)
 	}
 
-	store, _ := credentials.NewStore()
+	store, err := credentials.NewStore()
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	creds, err := store.Load()
 	if err != nil {
 		t.Fatalf("Failed to load credentials: %v", err)
@@ -289,6 +325,9 @@ func TestRunLogin_WithEnvVar(t *testing.T) {
 }
 
 func TestRunLogin_NonInteractiveNoCredentials(t *testing.T) {
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -330,6 +369,9 @@ func TestRunLogin_NonInteractiveNoCredentials(t *testing.T) {
 }
 
 func TestRunLogout(t *testing.T) {
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -341,7 +383,10 @@ func TestRunLogout(t *testing.T) {
 	os.Setenv("PENF_CONFIG_DIR", tempDir)
 
 	// First, save some credentials
-	store, _ := credentials.NewStore()
+	store, err := credentials.NewStore()
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	creds := &credentials.Credentials{
 		AuthType: credentials.AuthTypeAPIKey,
 		APIKey:   "test-key-12345",
@@ -369,6 +414,9 @@ func TestRunLogout(t *testing.T) {
 }
 
 func TestRunLogout_NoCredentials(t *testing.T) {
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -390,6 +438,9 @@ func TestRunLogout_NoCredentials(t *testing.T) {
 }
 
 func TestRunStatus_WithStoredCredentials(t *testing.T) {
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -409,7 +460,10 @@ func TestRunStatus_WithStoredCredentials(t *testing.T) {
 	os.Unsetenv("PENF_TOKEN")
 
 	// Save some credentials
-	store, _ := credentials.NewStore()
+	store, err := credentials.NewStore()
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	creds := &credentials.Credentials{
 		AuthType:      credentials.AuthTypeAPIKey,
 		APIKey:        "pf-test-key-12345",
@@ -452,6 +506,9 @@ func TestRunStatus_WithStoredCredentials(t *testing.T) {
 }
 
 func TestRunStatus_NoCredentials(t *testing.T) {
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -496,6 +553,9 @@ func TestRunStatus_NoCredentials(t *testing.T) {
 }
 
 func TestRunStatus_WithEnvVar(t *testing.T) {
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -540,6 +600,9 @@ func TestRunStatus_WithEnvVar(t *testing.T) {
 }
 
 func TestRunRefresh_NoCredentials(t *testing.T) {
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -562,6 +625,9 @@ func TestRunRefresh_NoCredentials(t *testing.T) {
 }
 
 func TestRunRefresh_WithAPIKey(t *testing.T) {
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -573,7 +639,10 @@ func TestRunRefresh_WithAPIKey(t *testing.T) {
 	os.Setenv("PENF_CONFIG_DIR", tempDir)
 
 	// Save API key credentials
-	store, _ := credentials.NewStore()
+	store, err := credentials.NewStore()
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	creds := &credentials.Credentials{
 		AuthType: credentials.AuthTypeAPIKey,
 		APIKey:   "test-key-12345",
@@ -608,6 +677,9 @@ func TestRunRefresh_WithAPIKey(t *testing.T) {
 }
 
 func TestRunRefresh_WithTokenNoRefreshToken(t *testing.T) {
+	cleanupKey := setupTestEncryptionKey(t)
+	defer cleanupKey()
+
 	tempDir, err := os.MkdirTemp("", "penf-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -619,7 +691,10 @@ func TestRunRefresh_WithTokenNoRefreshToken(t *testing.T) {
 	os.Setenv("PENF_CONFIG_DIR", tempDir)
 
 	// Save token credentials without refresh token
-	store, _ := credentials.NewStore()
+	store, err := credentials.NewStore()
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
 	creds := &credentials.Credentials{
 		AuthType: credentials.AuthTypeToken,
 		Token:    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0In0.signature",
