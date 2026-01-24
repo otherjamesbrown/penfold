@@ -14,19 +14,33 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
+	"github.com/otherjamesbrown/penfold/pkg/contentid"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
+// Repository defines the interface for ingest storage operations.
+// This interface allows for easy mocking in tests.
+type Repository interface {
+	CheckDuplicate(ctx context.Context, tenantID, messageID, contentHash string) (bool, int64, string, error)
+	CreateSource(ctx context.Context, source *storage.EmailSource) (*storage.CreatedSource, error)
+	CreateJob(ctx context.Context, job *storage.IngestJob) error
+	GetJob(ctx context.Context, jobID string) (*storage.IngestJob, error)
+	UpdateJobProgress(ctx context.Context, jobID string, processed, imported, skipped, failed int, processedFiles []string) error
+	CompleteJob(ctx context.Context, jobID string, status storage.IngestJobStatus) error
+	RecordError(ctx context.Context, jobID, filePath string, errorType storage.IngestErrorType, errorMsg string, details map[string]interface{}) error
+	GetRemainingFilesForJob(ctx context.Context, jobID string, allFiles []string) ([]string, error)
+}
+
 // Service implements the IngestService gRPC server.
 type Service struct {
 	ingestv1.UnimplementedIngestServiceServer
-	repo   *storage.Repository
+	repo   Repository
 	logger logging.Logger
 }
 
 // NewService creates a new ingest service.
-func NewService(repo *storage.Repository, logger logging.Logger) *Service {
+func NewService(repo Repository, logger logging.Logger) *Service {
 	return &Service{
 		repo:   repo,
 		logger: logger.With(logging.F("component", "ingest_service")),
@@ -38,6 +52,7 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 	s.logger.Debug("IngestEmail called",
 		logging.F("tenant_id", req.TenantId),
 		logging.F("message_id", req.MessageId),
+		logging.F("content_id", req.ContentId),
 	)
 
 	// Validate required fields
@@ -46,6 +61,11 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 	}
 	if req.ContentHash == "" {
 		return nil, status.Error(codes.InvalidArgument, "content_hash is required")
+	}
+
+	// Validate content_id if provided (empty is OK for backwards compat)
+	if req.ContentId != "" && !contentid.IsValid(req.ContentId) {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid content_id format: %s", req.ContentId)
 	}
 
 	// Check for duplicates
@@ -109,6 +129,7 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 		Metadata:          metadata,
 		SourceTimestamp:   sourceTimestamp,
 		ParticipantEmails: participantEmails,
+		ContentID:         req.ContentId,
 	}
 
 	// Set default source system if not specified
@@ -130,12 +151,14 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 		logging.F("tenant_id", req.TenantId),
 		logging.F("source_id", createdSource.ID),
 		logging.F("message_id", req.MessageId),
+		logging.F("content_id", createdSource.ContentID),
 	)
 
 	return &ingestv1.IngestEmailResponse{
 		SourceId:     fmt.Sprintf("%d", createdSource.ID),
 		WasDuplicate: false,
 		Status:       ingestv1.ProcessingStatus_PROCESSING_STATUS_PENDING,
+		ContentId:    createdSource.ContentID,
 	}, nil
 }
 
@@ -144,6 +167,7 @@ func (s *Service) IngestAttachment(ctx context.Context, req *ingestv1.IngestAtta
 	s.logger.Debug("IngestAttachment called",
 		logging.F("tenant_id", req.TenantId),
 		logging.F("parent_source_id", req.ParentSourceId),
+		logging.F("content_id", req.ContentId),
 	)
 
 	// Validate required fields
@@ -152,6 +176,11 @@ func (s *Service) IngestAttachment(ctx context.Context, req *ingestv1.IngestAtta
 	}
 	if req.Metadata == nil || req.Metadata.Filename == "" {
 		return nil, status.Error(codes.InvalidArgument, "attachment metadata with filename is required")
+	}
+
+	// Validate content_id if provided (empty is OK for backwards compat)
+	if req.ContentId != "" && !contentid.IsValid(req.ContentId) {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid content_id format: %s", req.ContentId)
 	}
 
 	// Check for duplicate by content hash
@@ -194,6 +223,7 @@ func (s *Service) IngestAttachment(ctx context.Context, req *ingestv1.IngestAtta
 		ContentSize:     int32(req.Metadata.SizeBytes),
 		Metadata:        metadata,
 		SourceTimestamp: time.Now(),
+		ContentID:       req.ContentId,
 	}
 
 	createdSource, err := s.repo.CreateSource(ctx, attachmentSource)
@@ -209,6 +239,7 @@ func (s *Service) IngestAttachment(ctx context.Context, req *ingestv1.IngestAtta
 		logging.F("attachment_id", createdSource.ID),
 		logging.F("parent_source_id", req.ParentSourceId),
 		logging.F("filename", req.Metadata.Filename),
+		logging.F("content_id", createdSource.ContentID),
 	)
 
 	return &ingestv1.IngestAttachmentResponse{
@@ -216,6 +247,7 @@ func (s *Service) IngestAttachment(ctx context.Context, req *ingestv1.IngestAtta
 		StoragePath:  req.Metadata.StoragePath,
 		WasDuplicate: false,
 		Status:       ingestv1.ProcessingStatus_PROCESSING_STATUS_PENDING,
+		ContentId:    createdSource.ContentID,
 	}, nil
 }
 
@@ -224,11 +256,17 @@ func (s *Service) IngestMeeting(ctx context.Context, req *ingestv1.IngestMeeting
 	s.logger.Debug("IngestMeeting called",
 		logging.F("tenant_id", req.TenantId),
 		logging.F("meeting_id", req.ExternalMeetingId),
+		logging.F("content_id", req.ContentId),
 	)
 
 	// Validate required fields
 	if req.ExternalMeetingId == "" {
 		return nil, status.Error(codes.InvalidArgument, "external_meeting_id is required")
+	}
+
+	// Validate content_id if provided (empty is OK for backwards compat)
+	if req.ContentId != "" && !contentid.IsValid(req.ContentId) {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid content_id format: %s", req.ContentId)
 	}
 
 	// Parse meeting timestamp
@@ -293,6 +331,7 @@ func (s *Service) IngestMeeting(ctx context.Context, req *ingestv1.IngestMeeting
 		Metadata:          metadata,
 		SourceTimestamp:   meetingTimestamp,
 		ParticipantEmails: participantEmails,
+		ContentID:         req.ContentId,
 	}
 
 	createdSource, err := s.repo.CreateSource(ctx, meetingSource)
@@ -309,14 +348,16 @@ func (s *Service) IngestMeeting(ctx context.Context, req *ingestv1.IngestMeeting
 		logging.F("meeting_id", req.ExternalMeetingId),
 		logging.F("transcript_segments", len(req.Transcript)),
 		logging.F("chat_messages", len(req.ChatMessages)),
+		logging.F("content_id", createdSource.ContentID),
 	)
 
 	return &ingestv1.IngestMeetingResponse{
-		SourceId:                fmt.Sprintf("%d", createdSource.ID),
-		WasDuplicate:           false,
-		Status:                 ingestv1.ProcessingStatus_PROCESSING_STATUS_PENDING,
+		SourceId:                 fmt.Sprintf("%d", createdSource.ID),
+		WasDuplicate:            false,
+		Status:                  ingestv1.ProcessingStatus_PROCESSING_STATUS_PENDING,
 		TranscriptSegmentsCount: int32(len(req.Transcript)),
 		ChatMessagesCount:       int32(len(req.ChatMessages)),
+		ContentId:               createdSource.ContentID,
 	}, nil
 }
 

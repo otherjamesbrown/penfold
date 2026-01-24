@@ -66,12 +66,14 @@ type EmailSource struct {
 	Metadata          map[string]interface{}
 	SourceTimestamp   time.Time
 	ParticipantEmails []string // From, To, Cc, Bcc email addresses
+	ContentID         string   // Optional: short human-readable ID for unified tracing (format: <type>-<base62>)
 }
 
 // CreatedSource contains the result of creating a source.
 type CreatedSource struct {
 	ID        int64
 	CreatedAt time.Time
+	ContentID string // The content_id that was stored (echoed back for confirmation)
 }
 
 // IngestJob tracks a batch ingest operation.
@@ -136,22 +138,29 @@ func (r *Repository) CreateSource(ctx context.Context, source *EmailSource) (*Cr
 		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
+	// Handle nullable content_id (empty string becomes NULL)
+	var contentID interface{}
+	if source.ContentID != "" {
+		contentID = source.ContentID
+	}
+
 	query := `
 		INSERT INTO sources (
 			tenant_id, source_system, external_id, content_hash,
 			raw_content, content_type, content_size,
 			ingestion_metadata, processing_status, source_timestamp,
-			participant_emails, created_at, updated_at
+			participant_emails, content_id, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7,
 			$8, $9, $10,
-			$11, NOW(), NOW()
+			$11, $12, NOW(), NOW()
 		)
-		RETURNING id, created_at
+		RETURNING id, created_at, content_id
 	`
 
 	var result CreatedSource
+	var returnedContentID *string
 	err = r.pool.QueryRow(ctx, query,
 		tenantID,
 		source.SourceSystem,
@@ -164,7 +173,8 @@ func (r *Repository) CreateSource(ctx context.Context, source *EmailSource) (*Cr
 		ProcessingStatusPending,
 		source.SourceTimestamp,
 		source.ParticipantEmails,
-	).Scan(&result.ID, &result.CreatedAt)
+		contentID,
+	).Scan(&result.ID, &result.CreatedAt, &returnedContentID)
 
 	if err != nil {
 		r.logger.Error("Failed to create source",
@@ -174,10 +184,16 @@ func (r *Repository) CreateSource(ctx context.Context, source *EmailSource) (*Cr
 		return nil, fmt.Errorf("failed to create source: %w", err)
 	}
 
+	// Convert nullable content_id back to string
+	if returnedContentID != nil {
+		result.ContentID = *returnedContentID
+	}
+
 	r.logger.Debug("Source created",
 		logging.F("id", result.ID),
 		logging.F("tenant_id", tenantID),
-		logging.F("external_id", source.ExternalID))
+		logging.F("external_id", source.ExternalID),
+		logging.F("content_id", result.ContentID))
 
 	return &result, nil
 }
