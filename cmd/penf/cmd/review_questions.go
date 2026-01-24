@@ -48,7 +48,18 @@ Examples:
   penf review questions list --priority high
   penf review questions next              # Get next question to answer
   penf review questions resolve 123 "..."  # Answer a question
-  penf review questions dismiss 123       # Dismiss a question`,
+  penf review questions dismiss 123       # Dismiss a question
+
+JSON Output (for AI processing):
+  penf review questions list -o json
+
+  Returns:
+  {
+    "questions": [
+      {"id": 1, "type": "acronym", "term": "LKE", "priority": "high", "context": "..."}
+    ],
+    "total": 15
+  }`,
 		Aliases: []string{"q", "ask"},
 	}
 

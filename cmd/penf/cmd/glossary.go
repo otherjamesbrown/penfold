@@ -63,7 +63,18 @@ Terms can have:
   - Context: Tags for categorization (e.g., "MTC", "meetings")
   - Aliases: Alternative forms (e.g., "T.E.R.", "ter")
 
-Query expansion automatically expands known acronyms in search queries.`,
+Query expansion automatically expands known acronyms in search queries.
+
+JSON Output (for AI processing):
+  penf glossary list -o json
+
+  Returns:
+  {
+    "terms": [
+      {"id": 1, "term": "LKE", "expansion": "Linode Kubernetes Engine", "context": ["infrastructure"]}
+    ],
+    "total": 42
+  }`,
 		Aliases: []string{"terms", "dict"},
 	}
 
