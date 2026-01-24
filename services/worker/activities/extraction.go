@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -80,6 +81,15 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	startTime := time.Now()
 	activity.RecordHeartbeat(ctx, "calling AI service for assertion extraction")
 
+	// Start LLM call trace
+	// Note: ContentID uses source_id for now; will be updated when content ID propagation is complete
+	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.extract_assertions", tracing.LLMCallOptions{
+		TenantID:  input.TenantID,
+		ContentID: fmt.Sprintf("%d", input.SourceID),
+		TaskType:  "extract",
+	})
+	defer llmSpan.End()
+
 	// Default parameters for assertion extraction
 	minConfidence := float32(0.5)
 	maxAssertions := int32(20)
@@ -93,9 +103,24 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 
 	resp, err := a.aiClient.ExtractAssertions(ctx, assertionReq)
 	if err != nil {
+		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
+			LatencyMs: time.Since(startTime).Milliseconds(),
+			Error:     err,
+		})
 		logger.Error().Err(err).Msg("Failed to extract assertions from AI service")
 		return 0, fmt.Errorf("failed to extract assertions: %w", err)
 	}
+
+	// Record LLM result
+	tracing.SetLLMResult(llmSpan, tracing.LLMResult{
+		Model:     resp.ModelUsed,
+		LatencyMs: time.Since(startTime).Milliseconds(),
+	})
+	tracing.SetAttributes(llmSpan,
+		tracing.AttrInt("assertions.found", len(resp.Assertions)),
+		tracing.AttrInt("assertions.total_found", int(resp.TotalFound)),
+		tracing.AttrInt("assertions.filtered_count", int(resp.FilteredCount)),
+	)
 
 	// Record heartbeat after AI call
 	activity.RecordHeartbeat(ctx, "assertions extracted, processing results")
@@ -215,6 +240,15 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 	startTime := time.Now()
 	activity.RecordHeartbeat(ctx, "calling AI service for entity extraction")
 
+	// Start LLM call trace
+	// Note: ContentID uses source_id for now; will be updated when content ID propagation is complete
+	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.extract_entities", tracing.LLMCallOptions{
+		TenantID:  input.TenantID,
+		ContentID: fmt.Sprintf("%d", input.SourceID),
+		TaskType:  "extract",
+	})
+	defer llmSpan.End()
+
 	// Use assertion extraction to identify entities as subjects/objects
 	minConfidence := float32(0.6)
 	maxAssertions := int32(50) // Extract more to get diverse entities
@@ -228,12 +262,22 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 
 	resp, err := a.aiClient.ExtractAssertions(ctx, assertionReq)
 	if err != nil {
+		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
+			LatencyMs: time.Since(startTime).Milliseconds(),
+			Error:     err,
+		})
 		logger.Error().Err(err).Msg("Failed to extract entities from AI service")
 		return nil, fmt.Errorf("failed to extract entities: %w", err)
 	}
 
 	// Record heartbeat after AI call
 	activity.RecordHeartbeat(ctx, "entities extracted, processing results")
+
+	// Record LLM result for entity extraction
+	tracing.SetLLMResult(llmSpan, tracing.LLMResult{
+		Model:     resp.ModelUsed,
+		LatencyMs: time.Since(startTime).Milliseconds(),
+	})
 
 	// Extract unique entities from subjects and objects
 	entityMap := make(map[string]*Entity)
@@ -277,6 +321,11 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 	for _, e := range entityMap {
 		entities = append(entities, e)
 	}
+
+	// Add entity count to trace
+	tracing.SetAttributes(llmSpan,
+		tracing.AttrInt("entities.found", len(entities)),
+	)
 
 	logger.Info().
 		Dur("ai_duration", time.Since(startTime)).

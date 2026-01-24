@@ -79,6 +79,7 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 	activity.RecordHeartbeat(ctx, "calling AI service for summary generation")
 
 	// Start LLM call trace
+	// Note: ContentID uses source_id for now; will be updated when content ID propagation is complete
 	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.summarize", tracing.LLMCallOptions{
 		TenantID:  input.TenantID,
 		ContentID: fmt.Sprintf("%d", input.SourceID),
@@ -234,6 +235,7 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 	activity.RecordHeartbeat(ctx, "calling AI service")
 
 	// Start LLM call trace
+	// Note: ContentID uses source_id for now; will be updated when content ID propagation is complete
 	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.summarize", tracing.LLMCallOptions{
 		Model:     input.Model,
 		TenantID:  input.TenantID,

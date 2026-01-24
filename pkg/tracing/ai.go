@@ -14,13 +14,13 @@ import (
 // and Langfuse-specific extensions.
 const (
 	// GenAI semantic conventions
-	AttrGenAISystem          = "gen_ai.system"
-	AttrGenAIRequestModel    = "gen_ai.request.model"
-	AttrGenAIResponseModel   = "gen_ai.response.model"
-	AttrGenAIUsageInputToken = "gen_ai.usage.input_tokens"
+	AttrGenAISystem           = "gen_ai.system"
+	AttrGenAIRequestModel     = "gen_ai.request.model"
+	AttrGenAIResponseModel    = "gen_ai.response.model"
+	AttrGenAIUsageInputToken  = "gen_ai.usage.input_tokens"
 	AttrGenAIUsageOutputToken = "gen_ai.usage.output_tokens"
-	AttrGenAIPrompt          = "gen_ai.prompt"
-	AttrGenAICompletion      = "gen_ai.completion"
+	AttrGenAIPrompt           = "gen_ai.prompt"
+	AttrGenAICompletion       = "gen_ai.completion"
 
 	// Langfuse-specific attributes
 	AttrLangfuseObservationType = "langfuse.observation.type"
@@ -29,10 +29,18 @@ const (
 	AttrLangfuseTraceMetadata   = "langfuse.trace.metadata"
 
 	// Penfold-specific attributes
-	AttrPenfoldTenantID   = "penfold.tenant_id"
-	AttrPenfoldContentID  = "penfold.content_id"
+	AttrPenfoldTenantID = "penfold.tenant_id"
+	// AttrPenfoldContentID is the unique content identifier for tracing.
+	// Expected format: <type:2>-<base62:8> (11 chars total), e.g.:
+	//   - em-abc12XYZ (email)
+	//   - mt-def34ABC (meeting)
+	//   - dc-ghi56DEF (document)
+	//   - tr-jkl78GHI (transcript)
+	//   - at-mno90JKL (attachment)
+	// See pkg/contentid for ID generation and validation.
+	AttrPenfoldContentID   = "penfold.content_id"
 	AttrPenfoldContentType = "penfold.content_type"
-	AttrPenfoldTaskType   = "penfold.task_type"
+	AttrPenfoldTaskType    = "penfold.task_type"
 )
 
 // Langfuse observation types
@@ -66,7 +74,10 @@ type LLMCallOptions struct {
 	// TenantID is the Penfold tenant identifier.
 	TenantID string
 
-	// ContentID is the content being processed.
+	// ContentID is the unique content identifier being processed.
+	// Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
+	// Use pkg/contentid.New() to generate or pkg/contentid.IsValid() to validate.
+	// Content types: em (email), mt (meeting), dc (document), tr (transcript), at (attachment).
 	ContentID string
 
 	// TaskType describes the AI task (e.g., "summarize", "extract", "classify").
@@ -188,7 +199,10 @@ type EmbeddingOptions struct {
 	// TenantID is the Penfold tenant identifier.
 	TenantID string
 
-	// ContentID is the content being embedded.
+	// ContentID is the unique content identifier being embedded.
+	// Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
+	// Use pkg/contentid.New() to generate or pkg/contentid.IsValid() to validate.
+	// Content types: em (email), mt (meeting), dc (document), tr (transcript), at (attachment).
 	ContentID string
 
 	// BatchSize is the number of texts being embedded (for batch operations).
@@ -277,10 +291,14 @@ type AIProcessingOptions struct {
 	// TenantID is the Penfold tenant identifier.
 	TenantID string
 
-	// ContentID is the content being processed.
+	// ContentID is the unique content identifier being processed.
+	// Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
+	// Use pkg/contentid.New() to generate or pkg/contentid.IsValid() to validate.
+	// Content types: em (email), mt (meeting), dc (document), tr (transcript), at (attachment).
 	ContentID string
 
 	// ContentType is the type of content (e.g., "email", "document").
+	// This is a human-readable type, distinct from the content ID prefix.
 	ContentType string
 }
 
@@ -318,9 +336,13 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 // StartPipeline starts a parent span for an AI processing pipeline.
 // Use this to group multiple AI operations under a single trace.
 //
+// The contentID should be in the standard format: <type:2>-<base62:8> (11 chars),
+// e.g., "em-abc12XYZ" for email. Use pkg/contentid.New() to generate IDs.
+//
 // Example:
 //
-//	ctx, span := tracing.StartPipeline(ctx, "email-enrichment", "email-123", "email")
+//	contentID := contentid.New(contentid.TypeEmail) // e.g., "em-abc12XYZ"
+//	ctx, span := tracing.StartPipeline(ctx, "email-enrichment", contentID, "email")
 //	defer span.End()
 //	// ... perform multiple AI operations ...
 func StartPipeline(ctx context.Context, name, contentID, contentType string) (context.Context, trace.Span) {
