@@ -10,83 +10,151 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  GO_VERSION: "1.22"
+
 jobs:
+  # Fast lint check - runs in parallel with tests
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: "**/go.sum"
 
-      - name: Install dependencies
+      - name: golangci-lint (pkg)
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          working-directory: pkg
+          args: --timeout=5m
+
+      - name: golangci-lint (cmd/penf)
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          working-directory: cmd/penf
+          args: --timeout=5m
+
+      - name: golangci-lint (services)
         run: |
-          python -m pip install --upgrade pip
-          pip install ruff
+          for svc in ai content gateway gmail relationship review search worker; do
+            echo "::group::Linting services/$svc"
+            cd services/$svc
+            golangci-lint run --timeout=5m
+            cd ../..
+            echo "::endgroup::"
+          done
 
-      - name: Run Ruff linter
-        run: ruff check .
-
-      - name: Run Ruff formatter check
-        run: ruff format --check .
-
-  type-check:
-    name: Type Check
+  # Proto linting
+  proto-lint:
+    name: Proto Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Setup Buf
+        uses: bufbuild/buf-setup-action@v1
         with:
-          python-version: "3.12"
+          version: latest
 
-      - name: Install dependencies
+      - name: Buf lint (consolidated modules)
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          for module in core/v1 connectors/v1 intelligence/v1 processing/v1; do
+            if [ -f "api/proto/$module/buf.yaml" ]; then
+              echo "::group::Linting api/proto/$module"
+              cd api/proto/$module
+              buf lint
+              cd ../../..
+              echo "::endgroup::"
+            fi
+          done
 
-      - name: Run mypy
-        run: mypy penf_lib
-
-  test-unit:
-    name: Unit Tests
+  # Unit tests - matrix across all Go modules
+  unit-tests:
+    name: Unit Tests (${{ matrix.module }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - pkg
+          - cmd/penf
+          - penfold-go-pipeline
+          - services/ai
+          - services/content
+          - services/gateway
+          - services/gmail
+          - services/relationship
+          - services/review
+          - services/search
+          - services/worker
+
+    env:
+      # Required for credential tests
+      PENF_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: "**/go.sum"
 
       - name: Run unit tests
-        run: pytest tests/unit -v --cov=penf_lib --cov-report=xml
+        working-directory: ${{ matrix.module }}
+        run: |
+          go test -v -race -short -coverprofile=coverage.out ./...
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
+        if: success()
         with:
-          files: ./coverage.xml
-          flags: unit
+          files: ${{ matrix.module }}/coverage.out
+          flags: unit-${{ matrix.module }}
           fail_ci_if_error: false
 
-  test-integration:
+  # Validate test fixtures
+  validate-fixtures:
+    name: Validate Fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: "**/go.sum"
+
+      - name: Validate fixture YAML files
+        run: |
+          cd pkg
+          go test -v ./testfixtures/... -run TestYAML
+
+  # Integration tests - requires database
+  integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
+    needs: [unit-tests, lint]
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+
     services:
       postgres:
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
+          POSTGRES_USER: penfold
+          POSTGRES_PASSWORD: penfold_test_password
           POSTGRES_DB: penfold_test
         options: >-
           --health-cmd pg_isready
@@ -96,91 +164,125 @@ jobs:
         ports:
           - 5432:5432
 
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-
     env:
-      PENFOLD_ENV: testing
-      DB_HOST: localhost
-      DB_PORT: 5432
-      DB_USER: test
-      DB_PASSWORD: test
-      DB_NAME: penfold_test
-      REDIS_HOST: localhost
-      REDIS_PORT: 6379
-      JWT_SECRET_KEY: test-jwt-secret-key-minimum-32-characters-long
-      PENF_MASTER_KEY: test-master-key-for-ci-testing-only
+      PENFOLD_DB_HOST: localhost
+      PENFOLD_DB_PORT: 5432
+      PENFOLD_DB_USER: penfold
+      PENFOLD_DB_PASSWORD: penfold_test_password
+      PENFOLD_DB_NAME: penfold_test
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: "**/go.sum"
 
-      - name: Install dependencies
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Wait for PostgreSQL
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          until pg_isready -h localhost -p 5432 -U penfold; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+
+      - name: Create pgvector extension
+        run: |
+          PGPASSWORD=penfold_test_password psql -h localhost -U penfold -d penfold_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+      - name: Run database migrations
+        run: |
+          cd cmd/penf
+          go run . migrate up
 
       - name: Run integration tests
-        run: pytest tests/integration -v --cov=penf_lib --cov-report=xml
+        run: |
+          cd tests
+          go test -tags=integration -v -race -timeout 10m ./integration/...
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
+        if: success()
         with:
-          files: ./coverage.xml
+          files: tests/coverage.out
           flags: integration
           fail_ci_if_error: false
 
-  test-contract:
-    name: Contract Tests
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: penfold_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
+  # E2E tests - only on main, requires self-hosted runner with LLM
+  e2e-tests:
+    name: E2E Tests
+    runs-on: [self-hosted, macos, ARM64]
+    needs: integration-tests
+    if: github.ref == 'refs/heads/main'
 
     env:
-      PENFOLD_ENV: testing
-      DB_HOST: localhost
-      DB_PORT: 5432
-      DB_USER: test
-      DB_PASSWORD: test
-      DB_NAME: penfold_test
-      JWT_SECRET_KEY: test-jwt-secret-key-minimum-32-characters-long
-      PENF_MASTER_KEY: test-master-key-for-ci-testing-only
+      PENFOLD_DB_HOST: home-01.brown.chat
+      PENFOLD_DB_PORT: 5432
+      PENFOLD_DB_USER: penfold
+      PENFOLD_DB_PASSWORD: ${{ secrets.PENFOLD_DB_PASSWORD }}
+      PENFOLD_DB_NAME: penfold_test_e2e
+      LLM_URL: http://localhost:8080
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: "**/go.sum"
 
-      - name: Install dependencies
+      - name: Check LLM availability
+        id: llm-check
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          if curl -sf http://localhost:8080/v1/models; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "::warning::LLM not available, E2E tests will be skipped"
+          fi
 
-      - name: Run contract tests
-        run: pytest tests/contract -v
+      - name: Run database migrations
+        if: steps.llm-check.outputs.available == 'true'
+        run: |
+          cd cmd/penf
+          go run . migrate up
+
+      - name: Run E2E tests
+        if: steps.llm-check.outputs.available == 'true'
+        run: |
+          cd tests
+          go test -tags=e2e -v -timeout 15m ./e2e/...
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-results
+          path: tests/e2e/*.log
+          retention-days: 7
+
+  # Summary job for branch protection
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    needs: [lint, proto-lint, unit-tests, validate-fixtures, integration-tests]
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" ]] || \
+             [[ "${{ needs.proto-lint.result }}" != "success" ]] || \
+             [[ "${{ needs.unit-tests.result }}" != "success" ]] || \
+             [[ "${{ needs.validate-fixtures.result }}" != "success" ]] || \
+             [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
+            echo "One or more required jobs failed"
+            exit 1
+          fi
+          echo "All required CI checks passed!"

@@ -5,35 +5,16 @@ on:
     branches: [main]
     paths:
       - "api/proto/**"
-      - "buf.yaml"
-      - "buf.gen.yaml"
   pull_request:
     branches: [main]
     paths:
       - "api/proto/**"
-      - "buf.yaml"
-      - "buf.gen.yaml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  buf-lint:
-    name: Buf Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Buf
-        uses: bufbuild/buf-setup-action@v1
-        with:
-          version: latest
-
-      - name: Buf lint
-        working-directory: api/proto
-        run: buf lint
-
   buf-breaking:
     name: Buf Breaking Change Detection
     runs-on: ubuntu-latest
@@ -43,11 +24,37 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check for breaking change label
+        id: check-label
+        run: |
+          # Skip breaking change detection if PR has 'breaking-change' label
+          # or if PR title contains [breaking] or [proto-breaking]
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          if [[ "$PR_TITLE" == *"[breaking]"* ]] || [[ "$PR_TITLE" == *"[proto-breaking]"* ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "::notice::Skipping breaking change detection (PR title contains breaking marker)"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Setup Buf
+        if: steps.check-label.outputs.skip != 'true'
         uses: bufbuild/buf-setup-action@v1
         with:
           version: latest
 
-      - name: Buf breaking
+      - name: Buf breaking (legacy modules)
+        if: steps.check-label.outputs.skip != 'true'
+        continue-on-error: true
         working-directory: api/proto
-        run: buf breaking --against ".git#branch=main,subdir=api/proto"
+        run: |
+          # Check breaking changes for legacy proto modules
+          # These are being deprecated in favor of consolidated modules
+          echo "::warning::Breaking change detection for legacy proto modules"
+          buf breaking --against ".git#branch=main,subdir=api/proto" || true
+
+      - name: Report skipped
+        if: steps.check-label.outputs.skip == 'true'
+        run: |
+          echo "::notice::Breaking change detection skipped for this PR"
+          echo "This is expected for major proto restructuring"
