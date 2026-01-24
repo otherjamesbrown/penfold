@@ -9,11 +9,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/batch"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // Email ingest specific flags
@@ -143,11 +143,11 @@ func runIngestEmail(ctx context.Context, deps *IngestCommandDeps, path string) e
 	defer redisClient.Close()
 
 	// Create logger
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).
-		With().
-		Timestamp().
-		Str("component", "email_ingest").
-		Logger()
+	logger := logging.NewLogger(&logging.Config{
+		Level:       logging.LevelInfo,
+		ServiceName: "penf",
+		Output:      os.Stderr,
+	}).With(logging.F("component", "email_ingest"))
 
 	// Configure processor
 	processorCfg := batch.ProcessorConfig{

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/products"
 )
 
@@ -85,11 +85,11 @@ func runProductQuery(ctx context.Context, deps *ProductCommandDeps, queryStr str
 	}
 
 	// Create query service
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).
-		Level(zerolog.InfoLevel).
-		With().
-		Timestamp().
-		Logger()
+	logger := logging.NewLogger(&logging.Config{
+		Level:       logging.LevelInfo,
+		ServiceName: "penf",
+		Output:      os.Stderr,
+	})
 	querySvc := products.NewQueryService(deps.Pool, logger)
 
 	// Execute query

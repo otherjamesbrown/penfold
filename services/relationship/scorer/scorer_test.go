@@ -2,11 +2,13 @@ package scorer
 
 import (
 	"context"
+	"io"
 	"math"
 	"testing"
 	"time"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/rs/zerolog"
 )
 
 // mockLogger implements logging.Logger for testing.
@@ -21,6 +23,9 @@ func (m *mockLogger) With(fields ...logging.Field) logging.Logger {
 }
 func (m *mockLogger) WithContext(ctx context.Context) logging.Logger {
 	return m
+}
+func (m *mockLogger) Zerolog() zerolog.Logger {
+	return zerolog.New(io.Discard)
 }
 
 // fixedTimeNow returns a function that always returns the same time.

@@ -20,9 +20,8 @@ func TestNewActivities(t *testing.T) {
 	require.NotNil(t, acts)
 }
 
-// TestFetchSource_NotImplemented verifies FetchSource returns not implemented error.
-// This test documents the expected behavior and will be updated when the activity is implemented.
-func TestFetchSource_NotImplemented(t *testing.T) {
+// TestFetchSource_NoDB verifies FetchSource returns error when database is not configured.
+func TestFetchSource_NoDB(t *testing.T) {
 	logger := zerolog.Nop()
 	acts := NewActivities(logger)
 
@@ -35,14 +34,12 @@ func TestFetchSource_NotImplemented(t *testing.T) {
 	result, err := acts.FetchSource(ctx, input)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet implemented")
-	require.NotNil(t, result) // Returns partial result even on error
-	require.Equal(t, "", result.ContentText)
-	require.Equal(t, "text/plain", result.ContentType)
+	require.Contains(t, err.Error(), "database connection not configured")
+	require.Nil(t, result)
 }
 
-// TestGenerateEmbedding_NotImplemented verifies GenerateEmbedding returns not implemented error.
-func TestGenerateEmbedding_NotImplemented(t *testing.T) {
+// TestGenerateEmbedding_NoDB verifies GenerateEmbedding returns error when database is not configured.
+func TestGenerateEmbedding_NoDB(t *testing.T) {
 	logger := zerolog.Nop()
 	acts := NewActivities(logger)
 
@@ -57,12 +54,12 @@ func TestGenerateEmbedding_NotImplemented(t *testing.T) {
 	result, err := acts.GenerateEmbedding(ctx, input)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet implemented")
+	require.Contains(t, err.Error(), "database connection not configured")
 	require.Equal(t, int64(0), result)
 }
 
-// TestGenerateSummary_NotImplemented verifies GenerateSummary returns not implemented error.
-func TestGenerateSummary_NotImplemented(t *testing.T) {
+// TestGenerateSummary_Stub verifies GenerateSummary returns nil (stub pending AI integration).
+func TestGenerateSummary_Stub(t *testing.T) {
 	logger := zerolog.Nop()
 	acts := NewActivities(logger)
 
@@ -76,13 +73,12 @@ func TestGenerateSummary_NotImplemented(t *testing.T) {
 
 	result, err := acts.GenerateSummary(ctx, input)
 
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet implemented")
+	require.NoError(t, err)
 	require.Equal(t, int64(0), result)
 }
 
-// TestExtractAssertions_NotImplemented verifies ExtractAssertions returns not implemented error.
-func TestExtractAssertions_NotImplemented(t *testing.T) {
+// TestExtractAssertions_Stub verifies ExtractAssertions returns nil (stub pending AI integration).
+func TestExtractAssertions_Stub(t *testing.T) {
 	logger := zerolog.Nop()
 	acts := NewActivities(logger)
 
@@ -96,13 +92,13 @@ func TestExtractAssertions_NotImplemented(t *testing.T) {
 
 	result, err := acts.ExtractAssertions(ctx, input)
 
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet implemented")
+	require.NoError(t, err)
 	require.Equal(t, 0, result)
 }
 
 // TestUpdateSourceStatus_NotImplemented verifies UpdateSourceStatus returns not implemented error.
-func TestUpdateSourceStatus_NotImplemented(t *testing.T) {
+// TestUpdateSourceStatus_NoDB verifies UpdateSourceStatus returns error when database is not configured.
+func TestUpdateSourceStatus_NoDB(t *testing.T) {
 	logger := zerolog.Nop()
 	acts := NewActivities(logger)
 
@@ -116,7 +112,7 @@ func TestUpdateSourceStatus_NotImplemented(t *testing.T) {
 	err := acts.UpdateSourceStatus(ctx, input)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet implemented")
+	require.Contains(t, err.Error(), "database connection not configured")
 }
 
 // MockSourceRepository is a mock implementation for testing.

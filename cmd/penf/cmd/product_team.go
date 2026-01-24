@@ -7,11 +7,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/products"
 )
 
@@ -263,11 +263,11 @@ func initTeamDeps(ctx context.Context, deps *ProductCommandDeps) (*TeamDeps, err
 		return nil, err
 	}
 
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).
-		Level(zerolog.InfoLevel).
-		With().
-		Timestamp().
-		Logger()
+	logger := logging.NewLogger(&logging.Config{
+		Level:       logging.LevelInfo,
+		ServiceName: "penf",
+		Output:      os.Stderr,
+	})
 
 	return &TeamDeps{
 		ProductCommandDeps: deps,

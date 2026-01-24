@@ -68,7 +68,7 @@ func DefaultConfig() *CLIConfig {
 		ServerAddress: DefaultServerAddress,
 		Timeout:       DefaultTimeout,
 		OutputFormat:  DefaultOutputFormat,
-		Insecure:      true, // Default to insecure for development (no TLS).
+		// Insecure defaults to false (secure). Use --insecure flag or PENF_INSECURE=true for development.
 	}
 }
 
