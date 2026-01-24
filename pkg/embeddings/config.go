@@ -43,17 +43,18 @@ const (
 	EnvMaxRetries = "PENFOLD_EMBEDDING_MAX_RETRIES"
 )
 
-// Config holds configuration for the MLX embedding client.
+// Config holds configuration for the embedding client.
 type Config struct {
-	// ServerURL is the URL of the MLX/Ollama-compatible embedding server.
-	// The server should expose an OpenAI-compatible /api/embeddings endpoint.
+	// ServerURL is the URL of the embedding server (optional for gRPC-backed clients).
+	// For direct HTTP clients, this should be the MLX/Ollama-compatible server URL.
+	// Deprecated: Use AIClient-backed client instead.
 	ServerURL string
 
 	// Model is the name of the embedding model to use.
 	// Default is mxbai-embed-large-v1 which provides 1024-dimension vectors.
 	Model string
 
-	// BatchSize is the maximum number of texts to embed in a single request.
+	// BatchSize is the maximum number of texts to embed in a single batch request.
 	// Larger batch sizes are more efficient but use more memory.
 	BatchSize int
 
@@ -125,10 +126,8 @@ func LoadFromEnv() *Config {
 }
 
 // Validate checks if the configuration is valid.
+// Note: ServerURL is no longer required for AIClient-backed clients.
 func (c *Config) Validate() error {
-	if c.ServerURL == "" {
-		return ErrInvalidServerURL
-	}
 	if c.Model == "" {
 		return ErrInvalidModel
 	}

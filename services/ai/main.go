@@ -17,6 +17,8 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
+	"github.com/otherjamesbrown/penfold/pkg/tracing"
+	"github.com/otherjamesbrown/penfold/services/ai/backend"
 	"github.com/otherjamesbrown/penfold/services/ai/config"
 	"github.com/otherjamesbrown/penfold/services/ai/server"
 	"google.golang.org/grpc"
@@ -50,6 +52,30 @@ func main() {
 		logging.F("environment", cfg.Environment),
 	)
 
+	// Initialize tracing with Langfuse if configured
+	var tracingShutdown tracing.ShutdownFunc
+	if lfConfig := tracing.LangfuseConfigFromEnv(); lfConfig != nil && lfConfig.Host != "" {
+		tracingCfg := &tracing.Config{
+			ServiceName: cfg.ServiceName,
+			Environment: cfg.Environment,
+			SampleRate:  1.0,
+			Exporter:    tracing.ExporterLangfuse,
+			Langfuse:    lfConfig,
+		}
+		var err error
+		tracingShutdown, err = tracing.InitTracer(tracingCfg)
+		if err != nil {
+			logger.Error("Failed to initialize Langfuse tracing", logging.Err(err))
+			// Continue without tracing - not fatal
+		} else {
+			logger.Info("Langfuse tracing initialized",
+				logging.F("host", lfConfig.Host),
+			)
+		}
+	} else {
+		logger.Info("Langfuse not configured - tracing disabled (set LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY to enable)")
+	}
+
 	// Initialize metrics
 	svcMetrics := metrics.NewMetrics(cfg.ServiceName, "penfold")
 	if err := svcMetrics.RegisterMetrics(); err != nil {
@@ -66,10 +92,32 @@ func main() {
 		return nil
 	}, health.Critical())
 
-	// Register Ollama health check (non-critical - service can work with cloud-only)
-	healthChecker.RegisterCheck("ollama", func(ctx context.Context) error {
-		// STUB: Returns healthy until Ollama integration is complete.
-		return nil
+	// Create MLX backend
+	mlxBackend := backend.NewMLXBackend(&backend.MLXConfig{
+		EmbeddingsURL:         cfg.MLXEmbeddingsURL,
+		LLMURL:                cfg.MLXLLMURL,
+		DefaultEmbeddingModel: cfg.DefaultEmbeddingModel,
+		DefaultLLMModel:       cfg.DefaultLLMModel,
+		EmbeddingDimensions:   cfg.EmbeddingDimensions,
+		Timeout:               120 * time.Second,
+	})
+	defer mlxBackend.Close()
+
+	logger.Info("MLX backend configured",
+		logging.F("embeddings_url", cfg.MLXEmbeddingsURL),
+		logging.F("llm_url", cfg.MLXLLMURL),
+		logging.F("default_embedding_model", cfg.DefaultEmbeddingModel),
+		logging.F("default_llm_model", cfg.DefaultLLMModel),
+	)
+
+	// Register MLX embeddings health check (non-critical)
+	healthChecker.RegisterCheck("mlx_embeddings", func(ctx context.Context) error {
+		return mlxBackend.CheckEmbeddingsHealth(ctx)
+	})
+
+	// Register MLX LLM health check (non-critical)
+	healthChecker.RegisterCheck("mlx_llm", func(ctx context.Context) error {
+		return mlxBackend.CheckLLMHealth(ctx)
 	})
 
 	// Create gRPC server
@@ -81,7 +129,7 @@ func main() {
 	)
 
 	// Register AI service
-	aiServer := server.NewAIServer(cfg, logger)
+	aiServer := server.NewAIServer(cfg, logger, mlxBackend)
 	aiv1.RegisterAICoordinatorServiceServer(grpcServer, aiServer)
 
 	// Enable gRPC reflection for debugging
@@ -149,6 +197,15 @@ func main() {
 		logger.Error("HTTP server shutdown error", logging.Err(err))
 	} else {
 		logger.Info("HTTP server stopped")
+	}
+
+	// Shutdown tracing
+	if tracingShutdown != nil {
+		if err := tracingShutdown(shutdownCtx); err != nil {
+			logger.Error("Tracing shutdown error", logging.Err(err))
+		} else {
+			logger.Info("Tracing shutdown complete")
+		}
 	}
 
 	logger.Info("AI Coordinator service shutdown complete")

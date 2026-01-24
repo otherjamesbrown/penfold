@@ -38,6 +38,15 @@ type Config struct {
 	// DefaultLLMModel is the default model for text generation.
 	DefaultLLMModel string
 
+	// MLXEmbeddingsURL is the URL of the MLX embeddings server.
+	MLXEmbeddingsURL string
+
+	// MLXLLMURL is the URL of the MLX LLM server.
+	MLXLLMURL string
+
+	// EmbeddingDimensions is the expected dimension of embedding vectors.
+	EmbeddingDimensions int
+
 	// LogLevel controls logging verbosity (debug, info, warn, error).
 	LogLevel string
 
@@ -55,12 +64,15 @@ type Config struct {
 const (
 	DefaultServiceName              = "ai-coordinator"
 	DefaultGRPCPort                 = 50051
-	DefaultHTTPPort                 = 8080
+	DefaultHTTPPort                 = 8090
 	DefaultOllamaHost               = "http://localhost:11434"
 	DefaultOllamaDefaultModel       = "llama3.2"
 	DefaultGeminiDefaultModel       = "gemini-1.5-pro"
-	DefaultEmbeddingModel           = "nomic-embed-text"
-	DefaultLLMModel                 = "llama3.2"
+	DefaultEmbeddingModel           = "mxbai-embed-large-v1"
+	DefaultLLMModel                 = "mlx-community/Qwen2.5-32B-Instruct-4bit"
+	DefaultMLXEmbeddingsURL         = "http://localhost:8081"
+	DefaultMLXLLMURL                = "http://localhost:8080"
+	DefaultEmbeddingDimensions      = 1024
 	DefaultLogLevel                 = "info"
 	DefaultEnvironment              = "dev"
 	DefaultGracefulShutdownTimeout  = 30
@@ -77,6 +89,9 @@ func Load() (*Config, error) {
 		GeminiDefaultModel:      DefaultGeminiDefaultModel,
 		DefaultEmbeddingModel:   DefaultEmbeddingModel,
 		DefaultLLMModel:         DefaultLLMModel,
+		MLXEmbeddingsURL:        DefaultMLXEmbeddingsURL,
+		MLXLLMURL:               DefaultMLXLLMURL,
+		EmbeddingDimensions:     DefaultEmbeddingDimensions,
 		LogLevel:                DefaultLogLevel,
 		Environment:             DefaultEnvironment,
 		EnableMetrics:           true,
@@ -126,6 +141,22 @@ func Load() (*Config, error) {
 
 	if v := os.Getenv("AI_DEFAULT_LLM_MODEL"); v != "" {
 		cfg.DefaultLLMModel = v
+	}
+
+	if v := os.Getenv("AI_MLX_EMBEDDINGS_URL"); v != "" {
+		cfg.MLXEmbeddingsURL = v
+	}
+
+	if v := os.Getenv("AI_MLX_LLM_URL"); v != "" {
+		cfg.MLXLLMURL = v
+	}
+
+	if v := os.Getenv("AI_EMBEDDING_DIMENSIONS"); v != "" {
+		dims, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid AI_EMBEDDING_DIMENSIONS: %w", err)
+		}
+		cfg.EmbeddingDimensions = dims
 	}
 
 	if v := os.Getenv("AI_LOG_LEVEL"); v != "" {

@@ -61,8 +61,11 @@ type Config struct {
 	// DatabaseURL is the PostgreSQL connection string.
 	DatabaseURL string
 
-	// AIServiceURL is the URL for the AI/embeddings service.
+	// AIServiceURL is the URL for the AI/embeddings service (deprecated, use AIServiceAddr for gRPC).
 	AIServiceURL string
+
+	// AIServiceAddr is the gRPC address for the AI Coordinator service.
+	AIServiceAddr string
 }
 
 // Default configuration values.
@@ -163,6 +166,12 @@ func Load() (*Config, error) {
 		cfg.AIServiceURL = v
 	} else {
 		cfg.AIServiceURL = "http://localhost:8081"
+	}
+
+	if v := os.Getenv("AI_SERVICE_ADDR"); v != "" {
+		cfg.AIServiceAddr = v
+	} else {
+		cfg.AIServiceAddr = "localhost:50055"
 	}
 
 	if err := cfg.Validate(); err != nil {

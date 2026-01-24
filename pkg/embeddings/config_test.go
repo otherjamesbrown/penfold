@@ -120,14 +120,14 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "empty server URL",
+			name: "valid config without server URL (gRPC client)",
 			config: &Config{
 				Model:      DefaultModel,
 				BatchSize:  DefaultBatchSize,
 				Timeout:    DefaultTimeout,
 				Dimensions: DefaultDimensions,
 			},
-			wantErr: ErrInvalidServerURL,
+			wantErr: nil, // ServerURL is no longer required for AIClient-backed clients
 		},
 		{
 			name: "empty model",

@@ -21,6 +21,7 @@ import (
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
 	mentionsv1 "github.com/otherjamesbrown/penfold/api/proto/mentions/v1"
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
+	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
@@ -131,6 +132,31 @@ func main() {
 			Timeout:  5 * time.Second,
 		})
 		logger.Info("Registered worker health check", logging.F("url", cfg.WorkerHealthURL))
+	}
+
+	// Create AI service client (optional - gateway can work without it).
+	var aiClient *ai.Client
+	if cfg.AIServiceAddr != "" {
+		var err error
+		aiClient, err = ai.NewClient(cfg.AIServiceAddr, ai.WithInsecure())
+		if err != nil {
+			logger.Warn("Failed to connect to AI service, gateway will operate without AI capabilities",
+				logging.F("addr", cfg.AIServiceAddr),
+				logging.Err(err),
+			)
+			// Continue without AI - not fatal
+		} else {
+			logger.Info("Connected to AI service", logging.F("addr", cfg.AIServiceAddr))
+
+			// Register AI service health check (non-critical).
+			healthAggregator.RegisterService(gatewayhealth.ServiceConfig{
+				Name:     "ai_service",
+				Client:   gatewayhealth.NewAIHealthClient(aiClient.HealthCheck),
+				Critical: false, // AI service is not critical for gateway operation
+				Timeout:  5 * time.Second,
+			})
+			logger.Info("Registered AI service health check", logging.F("addr", cfg.AIServiceAddr))
+		}
 	}
 
 	// Create the gateway server with health aggregator.
@@ -261,6 +287,15 @@ func main() {
 	case <-shutdownCtx.Done():
 		logger.Warn("gRPC shutdown timeout, forcing stop")
 		grpcServer.Stop()
+	}
+
+	// Close AI client if it was created.
+	if aiClient != nil {
+		if err := aiClient.Close(); err != nil {
+			logger.Error("AI client close error", logging.Err(err))
+		} else {
+			logger.Info("AI client closed")
+		}
 	}
 
 	logger.Info("Gateway service shutdown complete",

@@ -1,0 +1,86 @@
+// Package backend provides backend connectors for AI services.
+// It abstracts the communication with embedding and LLM servers.
+package backend
+
+import (
+	"context"
+)
+
+// Backend defines the interface for AI backend operations.
+// Implementations connect to embedding servers and LLM servers
+// to provide AI capabilities.
+type Backend interface {
+	// Embedding operations
+
+	// GenerateEmbedding creates a vector embedding for the given text.
+	// Returns the embedding as a slice of float32 values.
+	GenerateEmbedding(ctx context.Context, text string, model string) (*EmbeddingResult, error)
+
+	// LLM operations
+
+	// ChatCompletion sends a chat completion request to the LLM.
+	// Returns the generated text response.
+	ChatCompletion(ctx context.Context, messages []Message, opts CompletionOptions) (*CompletionResult, error)
+
+	// Health operations
+
+	// CheckEmbeddingsHealth checks if the embeddings service is healthy.
+	CheckEmbeddingsHealth(ctx context.Context) error
+
+	// CheckLLMHealth checks if the LLM service is healthy.
+	CheckLLMHealth(ctx context.Context) error
+
+	// Close releases any resources held by the backend.
+	Close() error
+}
+
+// Message represents a chat message for LLM completion.
+type Message struct {
+	Role    string `json:"role"`    // "system", "user", or "assistant"
+	Content string `json:"content"` // Message content
+}
+
+// CompletionOptions configures the LLM completion request.
+type CompletionOptions struct {
+	// Model specifies the model to use. Empty uses the default.
+	Model string
+
+	// MaxTokens limits the response length. 0 uses the default.
+	MaxTokens int
+
+	// Temperature controls randomness (0.0-1.0). 0 uses the default.
+	Temperature float32
+
+	// JSONMode requests structured JSON output.
+	JSONMode bool
+}
+
+// EmbeddingResult contains the result of an embedding generation.
+type EmbeddingResult struct {
+	// Vector is the embedding vector.
+	Vector []float32
+
+	// Dimensions is the number of dimensions in the vector.
+	Dimensions int
+
+	// Model is the model that was used.
+	Model string
+
+	// TokenCount is the number of tokens in the input text.
+	TokenCount int
+}
+
+// CompletionResult contains the result of an LLM completion.
+type CompletionResult struct {
+	// Content is the generated text.
+	Content string
+
+	// Model is the model that was used.
+	Model string
+
+	// InputTokens is the number of input tokens.
+	InputTokens int
+
+	// OutputTokens is the number of output tokens.
+	OutputTokens int
+}

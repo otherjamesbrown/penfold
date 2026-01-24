@@ -3,14 +3,12 @@ package embeddings
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
-	"net/http"
-	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
@@ -24,58 +22,68 @@ func newTestLogger() logging.Logger {
 	})
 }
 
-func TestNewMLXClient(t *testing.T) {
+func TestNewAIBackedClient(t *testing.T) {
 	logger := newTestLogger()
+	mockAI := &MockAIClient{}
 
 	t.Run("with valid config", func(t *testing.T) {
 		cfg := DefaultConfig()
-		client, err := NewMLXClient(cfg, logger, nil)
+		client, err := NewAIBackedClient(mockAI, cfg, logger, nil)
 		if err != nil {
-			t.Fatalf("NewMLXClient() error = %v", err)
+			t.Fatalf("NewAIBackedClient() error = %v", err)
 		}
 		if client == nil {
-			t.Fatal("NewMLXClient() returned nil")
+			t.Fatal("NewAIBackedClient() returned nil")
 		}
 		defer client.Close()
 	})
 
 	t.Run("with nil config uses defaults", func(t *testing.T) {
-		client, err := NewMLXClient(nil, logger, nil)
+		client, err := NewAIBackedClient(mockAI, nil, logger, nil)
 		if err != nil {
-			t.Fatalf("NewMLXClient() error = %v", err)
+			t.Fatalf("NewAIBackedClient() error = %v", err)
 		}
 		if client == nil {
-			t.Fatal("NewMLXClient() returned nil")
+			t.Fatal("NewAIBackedClient() returned nil")
 		}
 		defer client.Close()
 	})
 
+	t.Run("with nil AIClient returns error", func(t *testing.T) {
+		cfg := DefaultConfig()
+		_, err := NewAIBackedClient(nil, cfg, logger, nil)
+		if err == nil {
+			t.Error("NewAIBackedClient() expected error for nil AIClient")
+		}
+	})
+
 	t.Run("with invalid config returns error", func(t *testing.T) {
 		cfg := &Config{} // Invalid - missing required fields
-		_, err := NewMLXClient(cfg, logger, nil)
+		_, err := NewAIBackedClient(mockAI, cfg, logger, nil)
 		if err == nil {
-			t.Error("NewMLXClient() expected error for invalid config")
+			t.Error("NewAIBackedClient() expected error for invalid config")
 		}
 	})
 
 	t.Run("with cache", func(t *testing.T) {
 		cfg := DefaultConfig()
 		cache := NewMemoryCache(nil)
-		client, err := NewMLXClient(cfg, logger, cache)
+		client, err := NewAIBackedClient(mockAI, cfg, logger, cache)
 		if err != nil {
-			t.Fatalf("NewMLXClient() error = %v", err)
+			t.Fatalf("NewAIBackedClient() error = %v", err)
 		}
 		if client == nil {
-			t.Fatal("NewMLXClient() returned nil")
+			t.Fatal("NewAIBackedClient() returned nil")
 		}
 		defer client.Close()
 	})
 }
 
-func TestMLXClient_Embed_EmptyText(t *testing.T) {
+func TestAIBackedClient_Embed_EmptyText(t *testing.T) {
 	logger := newTestLogger()
+	mockAI := &MockAIClient{}
 	cfg := DefaultConfig()
-	client, _ := NewMLXClient(cfg, logger, nil)
+	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
 	defer client.Close()
 
 	_, err := client.Embed(context.Background(), "")
@@ -89,47 +97,37 @@ func TestMLXClient_Embed_EmptyText(t *testing.T) {
 	}
 }
 
-func TestMLXClient_Embed_WithMockServer(t *testing.T) {
+func TestAIBackedClient_Embed_WithMockAI(t *testing.T) {
 	logger := newTestLogger()
 
-	t.Run("successful OpenAI-compatible response", func(t *testing.T) {
-		embedding := make([]float64, 1024)
+	t.Run("successful response", func(t *testing.T) {
+		embedding := make([]float32, 1024)
 		for i := range embedding {
-			embedding[i] = float64(i) / 1024.0
+			embedding[i] = float32(i) / 1024.0
 		}
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/v1/embeddings" {
-				resp := openaiEmbedResponse{
-					Object: "list",
-					Data: []struct {
-						Object    string    `json:"object"`
-						Embedding []float64 `json:"embedding"`
-						Index     int       `json:"index"`
-					}{
-						{Object: "embedding", Embedding: embedding, Index: 0},
-					},
-					Model: "mxbai-embed-large-v1",
-				}
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(resp)
-			}
-		}))
-		defer server.Close()
+		mockAI := &MockAIClient{
+			EmbeddingFunc: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+				return &aiv1.EmbeddingResponse{
+					Vector:     embedding,
+					Dimensions: 1024,
+					ModelUsed:  "test-model",
+				}, nil
+			},
+		}
 
 		cfg := &Config{
-			ServerURL:  server.URL,
 			Model:      DefaultModel,
 			BatchSize:  DefaultBatchSize,
 			Timeout:    DefaultTimeout,
 			Dimensions: DefaultDimensions,
-			MaxRetries: 0, // No retries for testing
+			MaxRetries: 0,
 			RetryDelay: DefaultRetryDelay,
 		}
 
-		client, err := NewMLXClient(cfg, logger, nil)
+		client, err := NewAIBackedClient(mockAI, cfg, logger, nil)
 		if err != nil {
-			t.Fatalf("NewMLXClient() error = %v", err)
+			t.Fatalf("NewAIBackedClient() error = %v", err)
 		}
 		defer client.Close()
 
@@ -143,30 +141,14 @@ func TestMLXClient_Embed_WithMockServer(t *testing.T) {
 		}
 	})
 
-	t.Run("fallback to Ollama endpoint", func(t *testing.T) {
-		embedding := make([]float64, 1024)
-		for i := range embedding {
-			embedding[i] = float64(i) / 1024.0
+	t.Run("AI service error", func(t *testing.T) {
+		mockAI := &MockAIClient{
+			EmbeddingFunc: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+				return nil, errors.New("AI service error")
+			},
 		}
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/v1/embeddings" {
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-			if r.URL.Path == "/api/embeddings" {
-				resp := ollamaEmbedResponse{
-					Embedding: embedding,
-					Model:     "mxbai-embed-large-v1",
-				}
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(resp)
-			}
-		}))
-		defer server.Close()
-
 		cfg := &Config{
-			ServerURL:  server.URL,
 			Model:      DefaultModel,
 			BatchSize:  DefaultBatchSize,
 			Timeout:    DefaultTimeout,
@@ -175,60 +157,26 @@ func TestMLXClient_Embed_WithMockServer(t *testing.T) {
 			RetryDelay: DefaultRetryDelay,
 		}
 
-		client, err := NewMLXClient(cfg, logger, nil)
+		client, err := NewAIBackedClient(mockAI, cfg, logger, nil)
 		if err != nil {
-			t.Fatalf("NewMLXClient() error = %v", err)
-		}
-		defer client.Close()
-
-		result, err := client.Embed(context.Background(), "test text")
-		if err != nil {
-			t.Fatalf("Embed() error = %v", err)
-		}
-
-		if len(result) != 1024 {
-			t.Errorf("Embed() returned %d dimensions, want 1024", len(result))
-		}
-	})
-
-	t.Run("server error", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("internal error"))
-		}))
-		defer server.Close()
-
-		cfg := &Config{
-			ServerURL:  server.URL,
-			Model:      DefaultModel,
-			BatchSize:  DefaultBatchSize,
-			Timeout:    DefaultTimeout,
-			Dimensions: DefaultDimensions,
-			MaxRetries: 0,
-			RetryDelay: DefaultRetryDelay,
-		}
-
-		client, err := NewMLXClient(cfg, logger, nil)
-		if err != nil {
-			t.Fatalf("NewMLXClient() error = %v", err)
+			t.Fatalf("NewAIBackedClient() error = %v", err)
 		}
 		defer client.Close()
 
 		_, err = client.Embed(context.Background(), "test text")
 		if err == nil {
-			t.Error("Embed() expected error for server error")
+			t.Error("Embed() expected error for AI service error")
 		}
 	})
 
-	t.Run("invalid response", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte("not valid json"))
-		}))
-		defer server.Close()
+	t.Run("invalid response - nil", func(t *testing.T) {
+		mockAI := &MockAIClient{
+			EmbeddingFunc: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+				return nil, nil
+			},
+		}
 
 		cfg := &Config{
-			ServerURL:  server.URL,
 			Model:      DefaultModel,
 			BatchSize:  DefaultBatchSize,
 			Timeout:    DefaultTimeout,
@@ -237,48 +185,72 @@ func TestMLXClient_Embed_WithMockServer(t *testing.T) {
 			RetryDelay: DefaultRetryDelay,
 		}
 
-		client, err := NewMLXClient(cfg, logger, nil)
+		client, err := NewAIBackedClient(mockAI, cfg, logger, nil)
 		if err != nil {
-			t.Fatalf("NewMLXClient() error = %v", err)
+			t.Fatalf("NewAIBackedClient() error = %v", err)
 		}
 		defer client.Close()
 
 		_, err = client.Embed(context.Background(), "test text")
 		if err == nil {
-			t.Error("Embed() expected error for invalid response")
+			t.Error("Embed() expected error for nil response")
+		}
+	})
+
+	t.Run("invalid response - empty vector", func(t *testing.T) {
+		mockAI := &MockAIClient{
+			EmbeddingFunc: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+				return &aiv1.EmbeddingResponse{
+					Vector:     []float32{},
+					Dimensions: 0,
+				}, nil
+			},
+		}
+
+		cfg := &Config{
+			Model:      DefaultModel,
+			BatchSize:  DefaultBatchSize,
+			Timeout:    DefaultTimeout,
+			Dimensions: DefaultDimensions,
+			MaxRetries: 0,
+			RetryDelay: DefaultRetryDelay,
+		}
+
+		client, err := NewAIBackedClient(mockAI, cfg, logger, nil)
+		if err != nil {
+			t.Fatalf("NewAIBackedClient() error = %v", err)
+		}
+		defer client.Close()
+
+		_, err = client.Embed(context.Background(), "test text")
+		if err == nil {
+			t.Error("Embed() expected error for empty vector response")
 		}
 	})
 }
 
-func TestMLXClient_Embed_WithCache(t *testing.T) {
+func TestAIBackedClient_Embed_WithCache(t *testing.T) {
 	logger := newTestLogger()
 	cache := NewMemoryCache(nil)
 
-	embedding := make([]float64, 1024)
+	embedding := make([]float32, 1024)
 	for i := range embedding {
-		embedding[i] = float64(i) / 1024.0
+		embedding[i] = float32(i) / 1024.0
 	}
 
-	requestCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
-		resp := openaiEmbedResponse{
-			Object: "list",
-			Data: []struct {
-				Object    string    `json:"object"`
-				Embedding []float64 `json:"embedding"`
-				Index     int       `json:"index"`
-			}{
-				{Object: "embedding", Embedding: embedding, Index: 0},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
+	var requestCount int64
+	mockAI := &MockAIClient{
+		EmbeddingFunc: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+			atomic.AddInt64(&requestCount, 1)
+			return &aiv1.EmbeddingResponse{
+				Vector:     embedding,
+				Dimensions: 1024,
+				ModelUsed:  "test-model",
+			}, nil
+		},
+	}
 
 	cfg := &Config{
-		ServerURL:  server.URL,
 		Model:      DefaultModel,
 		BatchSize:  DefaultBatchSize,
 		Timeout:    DefaultTimeout,
@@ -287,16 +259,16 @@ func TestMLXClient_Embed_WithCache(t *testing.T) {
 		RetryDelay: DefaultRetryDelay,
 	}
 
-	client, _ := NewMLXClient(cfg, logger, cache)
+	client, _ := NewAIBackedClient(mockAI, cfg, logger, cache)
 	defer client.Close()
 
-	// First call - should hit server
+	// First call - should hit AI service
 	_, err := client.Embed(context.Background(), "test text")
 	if err != nil {
 		t.Fatalf("First Embed() error = %v", err)
 	}
-	if requestCount != 1 {
-		t.Errorf("Expected 1 server request, got %d", requestCount)
+	if atomic.LoadInt64(&requestCount) != 1 {
+		t.Errorf("Expected 1 AI request, got %d", requestCount)
 	}
 
 	// Second call - should hit cache
@@ -304,31 +276,38 @@ func TestMLXClient_Embed_WithCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Second Embed() error = %v", err)
 	}
-	if requestCount != 1 {
-		t.Errorf("Expected 1 server request (cached), got %d", requestCount)
+	if atomic.LoadInt64(&requestCount) != 1 {
+		t.Errorf("Expected 1 AI request (cached), got %d", requestCount)
 	}
 
-	// Different text - should hit server
+	// Different text - should hit AI service
 	_, err = client.Embed(context.Background(), "different text")
 	if err != nil {
 		t.Fatalf("Third Embed() error = %v", err)
 	}
-	if requestCount != 2 {
-		t.Errorf("Expected 2 server requests, got %d", requestCount)
+	if atomic.LoadInt64(&requestCount) != 2 {
+		t.Errorf("Expected 2 AI requests, got %d", requestCount)
 	}
 }
 
-func TestMLXClient_Embed_ContextCanceled(t *testing.T) {
+func TestAIBackedClient_Embed_ContextCanceled(t *testing.T) {
 	logger := newTestLogger()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(100 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+	// Mock that checks context cancellation
+	mockAI := &MockAIClient{
+		EmbeddingFunc: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+			// Check if context is already canceled
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return &aiv1.EmbeddingResponse{
+				Vector:     make([]float32, 1024),
+				Dimensions: 1024,
+			}, nil
+		},
+	}
 
 	cfg := &Config{
-		ServerURL:  server.URL,
 		Model:      DefaultModel,
 		BatchSize:  DefaultBatchSize,
 		Timeout:    5 * time.Second,
@@ -337,7 +316,7 @@ func TestMLXClient_Embed_ContextCanceled(t *testing.T) {
 		RetryDelay: DefaultRetryDelay,
 	}
 
-	client, _ := NewMLXClient(cfg, logger, nil)
+	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
 	defer client.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -349,12 +328,52 @@ func TestMLXClient_Embed_ContextCanceled(t *testing.T) {
 	}
 }
 
-func TestMLXClient_BatchEmbed(t *testing.T) {
+func TestAIBackedClient_Embed_Retries(t *testing.T) {
 	logger := newTestLogger()
+
+	var attemptCount int64
+	mockAI := &MockAIClient{
+		EmbeddingFunc: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+			count := atomic.AddInt64(&attemptCount, 1)
+			if count < 3 {
+				return nil, errors.New("temporary error")
+			}
+			return &aiv1.EmbeddingResponse{
+				Vector:     make([]float32, 1024),
+				Dimensions: 1024,
+			}, nil
+		},
+	}
+
+	cfg := &Config{
+		Model:      DefaultModel,
+		BatchSize:  DefaultBatchSize,
+		Timeout:    5 * time.Second,
+		Dimensions: DefaultDimensions,
+		MaxRetries: 3,
+		RetryDelay: 10 * time.Millisecond,
+	}
+
+	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
+	defer client.Close()
+
+	_, err := client.Embed(context.Background(), "test text")
+	if err != nil {
+		t.Fatalf("Embed() error = %v, expected success after retries", err)
+	}
+
+	if atomic.LoadInt64(&attemptCount) != 3 {
+		t.Errorf("Expected 3 attempts, got %d", attemptCount)
+	}
+}
+
+func TestAIBackedClient_BatchEmbed(t *testing.T) {
+	logger := newTestLogger()
+	mockAI := &MockAIClient{}
 
 	t.Run("empty batch", func(t *testing.T) {
 		cfg := DefaultConfig()
-		client, _ := NewMLXClient(cfg, logger, nil)
+		client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
 		defer client.Close()
 
 		_, err := client.BatchEmbed(context.Background(), []string{})
@@ -365,7 +384,6 @@ func TestMLXClient_BatchEmbed(t *testing.T) {
 
 	t.Run("batch too large", func(t *testing.T) {
 		cfg := &Config{
-			ServerURL:  DefaultServerURL,
 			Model:      DefaultModel,
 			BatchSize:  2, // Small batch size for testing
 			Timeout:    DefaultTimeout,
@@ -373,7 +391,7 @@ func TestMLXClient_BatchEmbed(t *testing.T) {
 			MaxRetries: 0,
 			RetryDelay: DefaultRetryDelay,
 		}
-		client, _ := NewMLXClient(cfg, logger, nil)
+		client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
 		defer client.Close()
 
 		_, err := client.BatchEmbed(context.Background(), []string{"a", "b", "c"})
@@ -384,7 +402,7 @@ func TestMLXClient_BatchEmbed(t *testing.T) {
 
 	t.Run("empty text in batch", func(t *testing.T) {
 		cfg := DefaultConfig()
-		client, _ := NewMLXClient(cfg, logger, nil)
+		client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
 		defer client.Close()
 
 		_, err := client.BatchEmbed(context.Background(), []string{"valid", "", "text"})
@@ -394,33 +412,22 @@ func TestMLXClient_BatchEmbed(t *testing.T) {
 	})
 
 	t.Run("successful batch", func(t *testing.T) {
-		embeddings := make([][]float64, 2)
-		for i := range embeddings {
-			embeddings[i] = make([]float64, 1024)
-			for j := range embeddings[i] {
-				embeddings[i][j] = float64(i*1024+j) / 2048.0
-			}
+		embedding := make([]float32, 1024)
+		for i := range embedding {
+			embedding[i] = float32(i) / 1024.0
 		}
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			resp := openaiEmbedResponse{
-				Object: "list",
-				Data: []struct {
-					Object    string    `json:"object"`
-					Embedding []float64 `json:"embedding"`
-					Index     int       `json:"index"`
-				}{
-					{Object: "embedding", Embedding: embeddings[0], Index: 0},
-					{Object: "embedding", Embedding: embeddings[1], Index: 1},
-				},
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-		}))
-		defer server.Close()
+		mockAI := &MockAIClient{
+			EmbeddingFunc: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+				return &aiv1.EmbeddingResponse{
+					Vector:     embedding,
+					Dimensions: 1024,
+					ModelUsed:  "test-model",
+				}, nil
+			},
+		}
 
 		cfg := &Config{
-			ServerURL:  server.URL,
 			Model:      DefaultModel,
 			BatchSize:  DefaultBatchSize,
 			Timeout:    DefaultTimeout,
@@ -429,7 +436,7 @@ func TestMLXClient_BatchEmbed(t *testing.T) {
 			RetryDelay: DefaultRetryDelay,
 		}
 
-		client, _ := NewMLXClient(cfg, logger, nil)
+		client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
 		defer client.Close()
 
 		results, err := client.BatchEmbed(context.Background(), []string{"text1", "text2"})
@@ -441,12 +448,62 @@ func TestMLXClient_BatchEmbed(t *testing.T) {
 			t.Errorf("BatchEmbed() returned %d results, want 2", len(results))
 		}
 	})
+
+	t.Run("batch with partial cache", func(t *testing.T) {
+		cache := NewMemoryCache(nil)
+		embedding := make([]float32, 1024)
+		for i := range embedding {
+			embedding[i] = float32(i) / 1024.0
+		}
+
+		// Pre-populate cache with one embedding
+		cache.Set(context.Background(), "cached text", embedding)
+
+		var requestCount int64
+		mockAI := &MockAIClient{
+			EmbeddingFunc: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+				atomic.AddInt64(&requestCount, 1)
+				return &aiv1.EmbeddingResponse{
+					Vector:     embedding,
+					Dimensions: 1024,
+					ModelUsed:  "test-model",
+				}, nil
+			},
+		}
+
+		cfg := &Config{
+			Model:      DefaultModel,
+			BatchSize:  DefaultBatchSize,
+			Timeout:    DefaultTimeout,
+			Dimensions: DefaultDimensions,
+			MaxRetries: 0,
+			RetryDelay: DefaultRetryDelay,
+		}
+
+		client, _ := NewAIBackedClient(mockAI, cfg, logger, cache)
+		defer client.Close()
+
+		results, err := client.BatchEmbed(context.Background(), []string{"cached text", "uncached text"})
+		if err != nil {
+			t.Fatalf("BatchEmbed() error = %v", err)
+		}
+
+		if len(results) != 2 {
+			t.Errorf("BatchEmbed() returned %d results, want 2", len(results))
+		}
+
+		// Only one request should have been made (for uncached text)
+		if atomic.LoadInt64(&requestCount) != 1 {
+			t.Errorf("Expected 1 AI request, got %d", requestCount)
+		}
+	})
 }
 
-func TestMLXClient_Dimensions(t *testing.T) {
+func TestAIBackedClient_Dimensions(t *testing.T) {
 	logger := newTestLogger()
+	mockAI := &MockAIClient{}
+
 	cfg := &Config{
-		ServerURL:  DefaultServerURL,
 		Model:      DefaultModel,
 		BatchSize:  DefaultBatchSize,
 		Timeout:    DefaultTimeout,
@@ -455,7 +512,7 @@ func TestMLXClient_Dimensions(t *testing.T) {
 		RetryDelay: DefaultRetryDelay,
 	}
 
-	client, _ := NewMLXClient(cfg, logger, nil)
+	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
 	defer client.Close()
 
 	if client.Dimensions() != 512 {
@@ -463,10 +520,11 @@ func TestMLXClient_Dimensions(t *testing.T) {
 	}
 }
 
-func TestMLXClient_ModelInfo(t *testing.T) {
+func TestAIBackedClient_ModelInfo(t *testing.T) {
 	logger := newTestLogger()
+	mockAI := &MockAIClient{}
 	cfg := DefaultConfig()
-	client, _ := NewMLXClient(cfg, logger, nil)
+	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
 	defer client.Close()
 
 	info := client.ModelInfo()
@@ -481,14 +539,42 @@ func TestMLXClient_ModelInfo(t *testing.T) {
 	}
 }
 
-func TestMLXClient_Close(t *testing.T) {
+func TestAIBackedClient_Close(t *testing.T) {
 	logger := newTestLogger()
+	mockAI := &MockAIClient{}
 	cfg := DefaultConfig()
-	client, _ := NewMLXClient(cfg, logger, nil)
+	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
 
 	err := client.Close()
 	if err != nil {
 		t.Errorf("Close() error = %v", err)
+	}
+}
+
+func TestAIBackedClient_Stats(t *testing.T) {
+	logger := newTestLogger()
+
+	embedding := make([]float32, 1024)
+	mockAI := &MockAIClient{
+		EmbeddingFunc: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+			return &aiv1.EmbeddingResponse{
+				Vector:     embedding,
+				Dimensions: 1024,
+			}, nil
+		},
+	}
+
+	cfg := DefaultConfig()
+	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
+	defer client.Close()
+
+	// Make some requests
+	client.Embed(context.Background(), "text1")
+	client.Embed(context.Background(), "text2")
+
+	stats := client.Stats()
+	if stats.RequestsTotal != 2 {
+		t.Errorf("Stats().RequestsTotal = %d, want 2", stats.RequestsTotal)
 	}
 }
 
@@ -563,99 +649,49 @@ func TestMockClient(t *testing.T) {
 	})
 }
 
-func TestToFloat32(t *testing.T) {
-	t.Run("empty slice", func(t *testing.T) {
-		result := toFloat32([]float64{})
-		if len(result) != 0 {
-			t.Errorf("toFloat32([]) length = %d, want 0", len(result))
-		}
-	})
-
-	t.Run("conversion", func(t *testing.T) {
-		input := []float64{1.5, 2.5, 3.5}
-		result := toFloat32(input)
-
-		if len(result) != 3 {
-			t.Fatalf("toFloat32() length = %d, want 3", len(result))
-		}
-		if result[0] != 1.5 {
-			t.Errorf("result[0] = %f, want 1.5", result[0])
-		}
-		if result[1] != 2.5 {
-			t.Errorf("result[1] = %f, want 2.5", result[1])
-		}
-		if result[2] != 3.5 {
-			t.Errorf("result[2] = %f, want 3.5", result[2])
-		}
-	})
-}
-
-// roundTripFunc is a helper for testing HTTP clients
-type roundTripFunc func(req *http.Request) *http.Response
-
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req), nil
-}
-
-func TestOllamaRequestFormats(t *testing.T) {
-	t.Run("ollamaEmbedRequest marshals correctly", func(t *testing.T) {
-		req := ollamaEmbedRequest{
-			Model:  "test-model",
-			Prompt: "test prompt",
-		}
-
-		data, err := json.Marshal(req)
+func TestMockAIClient(t *testing.T) {
+	t.Run("default behavior", func(t *testing.T) {
+		client := &MockAIClient{}
+		resp, err := client.GenerateEmbedding(context.Background(), &aiv1.EmbeddingRequest{
+			Text: "test",
+		})
 		if err != nil {
-			t.Fatalf("Marshal error: %v", err)
+			t.Fatalf("GenerateEmbedding() error = %v", err)
 		}
-
-		var parsed map[string]string
-		json.Unmarshal(data, &parsed)
-
-		if parsed["model"] != "test-model" {
-			t.Errorf("model = %q, want %q", parsed["model"], "test-model")
-		}
-		if parsed["prompt"] != "test prompt" {
-			t.Errorf("prompt = %q, want %q", parsed["prompt"], "test prompt")
+		if len(resp.Vector) != 1024 {
+			t.Errorf("GenerateEmbedding() returned %d dimensions, want 1024", len(resp.Vector))
 		}
 	})
 
-	t.Run("openaiEmbedRequest marshals correctly", func(t *testing.T) {
-		req := openaiEmbedRequest{
-			Model: "test-model",
-			Input: "test input",
+	t.Run("custom function", func(t *testing.T) {
+		client := &MockAIClient{
+			EmbeddingFunc: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+				if req.Text == "error" {
+					return nil, errors.New("custom error")
+				}
+				return &aiv1.EmbeddingResponse{
+					Vector:     []float32{1.0, 2.0, 3.0},
+					Dimensions: 3,
+					ModelUsed:  "custom-model",
+				}, nil
+			},
 		}
 
-		data, err := json.Marshal(req)
+		resp, err := client.GenerateEmbedding(context.Background(), &aiv1.EmbeddingRequest{
+			Text: "test",
+		})
 		if err != nil {
-			t.Fatalf("Marshal error: %v", err)
+			t.Fatalf("GenerateEmbedding() error = %v", err)
+		}
+		if len(resp.Vector) != 3 {
+			t.Errorf("GenerateEmbedding() returned %d dimensions, want 3", len(resp.Vector))
 		}
 
-		var parsed map[string]interface{}
-		json.Unmarshal(data, &parsed)
-
-		if parsed["model"] != "test-model" {
-			t.Errorf("model = %v, want %q", parsed["model"], "test-model")
-		}
-		if parsed["input"] != "test input" {
-			t.Errorf("input = %v, want %q", parsed["input"], "test input")
+		_, err = client.GenerateEmbedding(context.Background(), &aiv1.EmbeddingRequest{
+			Text: "error",
+		})
+		if err == nil {
+			t.Error("GenerateEmbedding() expected error")
 		}
 	})
-}
-
-// Helper function for creating test responses
-func createTestResponse(statusCode int, body interface{}) *http.Response {
-	var bodyReader io.ReadCloser
-	if body != nil {
-		jsonBody, _ := json.Marshal(body)
-		bodyReader = io.NopCloser(bytes.NewReader(jsonBody))
-	} else {
-		bodyReader = io.NopCloser(bytes.NewReader([]byte{}))
-	}
-
-	return &http.Response{
-		StatusCode: statusCode,
-		Body:       bodyReader,
-		Header:     make(http.Header),
-	}
 }
