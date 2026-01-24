@@ -21,6 +21,7 @@ import (
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
 	mentionsv1 "github.com/otherjamesbrown/penfold/api/proto/mentions/v1"
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
+	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
@@ -39,6 +40,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/mentionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/middleware"
 	"github.com/otherjamesbrown/penfold/services/gateway/pipelineservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/productservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/questionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
 )
@@ -185,6 +187,11 @@ func main() {
 	pipelineSvc := pipelineservice.NewService(pipelineRepo, logger)
 	pipelinev1.RegisterPipelineServiceServer(grpcServer, pipelineSvc)
 	logger.Info("Registered PipelineService")
+
+	// Register ProductService for product CRUD, hierarchy, and aliases.
+	productSvc := productservice.NewService(productRepo, logger)
+	productv1.RegisterProductServiceServer(grpcServer, productSvc)
+	logger.Info("Registered ProductService")
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()

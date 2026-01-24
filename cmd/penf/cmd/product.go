@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
+	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/products"
@@ -30,11 +32,17 @@ var (
 )
 
 // ProductCommandDeps holds the dependencies for product commands.
+// Core CRUD commands use gRPC via the gateway.
+// Advanced commands (team, timeline, query) use direct DB access until
+// their gRPC endpoints are implemented.
 type ProductCommandDeps struct {
 	Config     *config.CLIConfig
+	LoadConfig func() (*config.CLIConfig, error)
+
+	// Direct DB access for advanced commands (team, timeline, query).
+	// These will be migrated to gRPC in a future phase.
 	Pool       *pgxpool.Pool
 	Repository *products.Repository
-	LoadConfig func() (*config.CLIConfig, error)
 	InitPool   func(*config.CLIConfig) (*pgxpool.Pool, error)
 }
 
@@ -46,58 +54,71 @@ func DefaultProductDeps() *ProductCommandDeps {
 	}
 }
 
-// initProductPool creates a database pool for product operations.
-// Requires PENFOLD_DB_* environment variables to be set.
-// See context/infrastructure.md for connection details.
+// initProductPool creates a database connection pool from environment variables.
 func initProductPool(cfg *config.CLIConfig) (*pgxpool.Pool, error) {
-	// All database config comes from environment variables - no defaults for credentials.
-	host := os.Getenv("PENFOLD_DB_HOST")
-	port := os.Getenv("PENFOLD_DB_PORT")
-	user := os.Getenv("PENFOLD_DB_USER")
-	password := os.Getenv("PENFOLD_DB_PASSWORD")
-	dbname := os.Getenv("PENFOLD_DB_NAME")
+	// Build connection string from environment variables.
+	connStr := os.Getenv("DATABASE_URL")
+	if connStr == "" {
+		host := getEnvOrDefault("DB_HOST", "localhost")
+		port := getEnvOrDefault("DB_PORT", "5432")
+		user := getEnvOrDefault("DB_USER", "penfold")
+		pass := getEnvOrDefault("DB_PASSWORD", "")
+		dbname := getEnvOrDefault("DB_NAME", "penfold")
+		sslmode := getEnvOrDefault("DB_SSLMODE", "prefer")
 
-	// Validate required env vars.
-	var missing []string
-	if host == "" {
-		missing = append(missing, "PENFOLD_DB_HOST")
-	}
-	if user == "" {
-		missing = append(missing, "PENFOLD_DB_USER")
-	}
-	if password == "" {
-		missing = append(missing, "PENFOLD_DB_PASSWORD")
-	}
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("missing required environment variables: %s\nSee context/infrastructure.md for setup", strings.Join(missing, ", "))
+		connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+			host, port, user, pass, dbname, sslmode)
 	}
 
-	// Apply defaults for non-sensitive values.
-	if port == "" {
-		port = "5432"
-	}
-	if dbname == "" {
-		dbname = "penfold"
-	}
-
-	// Use keyword-value format to avoid URL encoding issues with special chars.
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		host, port, user, password, dbname)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	pool, err := pgxpool.New(ctx, dsn)
+	pool, err := pgxpool.New(context.Background(), connStr)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to database: %w", err)
 	}
 
-	if err := pool.Ping(ctx); err != nil {
+	// Test connection.
+	if err := pool.Ping(context.Background()); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("pinging database: %w", err)
+		return nil, fmt.Errorf("testing connection: %w", err)
 	}
 
 	return pool, nil
+}
+
+// initProductDeps initializes the direct DB dependencies for advanced commands.
+// This is used by team, timeline, and query commands that haven't been migrated to gRPC yet.
+func initProductDeps(ctx context.Context, deps *ProductCommandDeps) error {
+	// Load config if not already loaded.
+	if deps.Config == nil {
+		cfg, err := deps.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("loading configuration: %w", err)
+		}
+		deps.Config = cfg
+	}
+
+	// Initialize pool if not already initialized.
+	if deps.Pool == nil {
+		if deps.InitPool == nil {
+			deps.InitPool = initProductPool
+		}
+		pool, err := deps.InitPool(deps.Config)
+		if err != nil {
+			return err
+		}
+		deps.Pool = pool
+	}
+
+	// Initialize repository if not already initialized.
+	if deps.Repository == nil {
+		logger := logging.NewLogger(&logging.Config{
+			Level:       logging.LevelInfo,
+			ServiceName: "penf",
+			Output:      os.Stderr,
+		})
+		deps.Repository = products.NewRepository(deps.Pool, logger)
+	}
+
+	return nil
 }
 
 // NewProductCommand creates the root product command with all subcommands.
@@ -191,7 +212,8 @@ Examples:
   penf product list --status active`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runProductList(cmd.Context(), deps)
+			listAll, _ := cmd.Flags().GetBool("all")
+			return runProductList(cmd.Context(), deps, listAll)
 		},
 	}
 
@@ -360,39 +382,24 @@ Example:
 	}
 }
 
-// ==================== Command Execution Functions ====================
+// ==================== gRPC Connection ====================
 
-// initProductDeps initializes the dependencies (config, pool, repository).
-func initProductDeps(ctx context.Context, deps *ProductCommandDeps) error {
-	// Load config if not already loaded.
-	if deps.Config == nil {
-		cfg, err := deps.LoadConfig()
-		if err != nil {
-			return fmt.Errorf("loading configuration: %w", err)
-		}
-		deps.Config = cfg
+// connectProductToGateway creates a gRPC connection to the gateway service.
+func connectProductToGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	defer cancel()
+
+	opts := []grpc.DialOption{
+		grpc.WithBlock(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
 
-	// Initialize pool if not already initialized.
-	if deps.Pool == nil {
-		pool, err := deps.InitPool(deps.Config)
-		if err != nil {
-			return fmt.Errorf("initializing database pool: %w", err)
-		}
-		deps.Pool = pool
+	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to gateway at %s: %w", cfg.ServerAddress, err)
 	}
 
-	// Initialize repository if not already initialized.
-	if deps.Repository == nil {
-		logger := logging.NewLogger(&logging.Config{
-			Level:       logging.LevelInfo,
-			ServiceName: "penf",
-			Output:      os.Stderr,
-		})
-		deps.Repository = products.NewRepository(deps.Pool, logger)
-	}
-
-	return nil
+	return conn, nil
 }
 
 // getTenantIDForProduct returns the tenant ID from flag, env, or config.
@@ -410,259 +417,230 @@ func getTenantIDForProduct(deps *ProductCommandDeps) string {
 	return "00000001-0000-0000-0000-000000000001"
 }
 
+// ==================== Command Execution Functions ====================
+
 // runProductList executes the product list command.
-func runProductList(ctx context.Context, deps *ProductCommandDeps) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+func runProductList(ctx context.Context, deps *ProductCommandDeps, listAll bool) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
-	repo := deps.Repository
 
-	var productsList []*products.Product
-	var err error
-
-	// Determine listing mode.
-	listAll := false
-	if cmd := ctx.Value("cmd"); cmd != nil {
-		if c, ok := cmd.(*cobra.Command); ok {
-			listAll, _ = c.Flags().GetBool("all")
-		}
+	filter := &productv1.ProductFilter{
+		TenantId:   tenantID,
+		IncludeAll: listAll,
 	}
 
 	if productParent != "" {
-		// List children of a specific product.
-		parent, err := repo.ResolveProduct(ctx, tenantID, productParent)
-		if err != nil {
-			return fmt.Errorf("resolving parent product '%s': %w", productParent, err)
-		}
-		productsList, err = repo.ListChildren(ctx, parent.ID)
-		if err != nil {
-			return fmt.Errorf("listing children: %w", err)
-		}
-	} else if listAll {
-		// List all products with optional filters.
-		filter := products.ProductFilter{
-			TenantID: tenantID,
-		}
-		if productType != "" {
-			pt := products.ProductType(productType)
-			filter.ProductType = &pt
-		}
-		if productStatus != "" {
-			ps := products.ProductStatus(productStatus)
-			filter.Status = &ps
-		}
-		productsList, err = repo.ListProducts(ctx, filter)
-		if err != nil {
-			return fmt.Errorf("listing products: %w", err)
-		}
-	} else {
-		// List top-level products by default.
-		productsList, err = repo.ListTopLevelProducts(ctx, tenantID)
-		if err != nil {
-			return fmt.Errorf("listing top-level products: %w", err)
-		}
+		filter.Parent = productParent
 	}
 
-	return outputProducts(deps.Config, productsList)
+	if productType != "" {
+		filter.ProductType = productTypeToProto(productType)
+	}
+
+	if productStatus != "" {
+		filter.Status = productStatusToProto(productStatus)
+	}
+
+	resp, err := client.ListProducts(ctx, &productv1.ListProductsRequest{Filter: filter})
+	if err != nil {
+		return fmt.Errorf("listing products: %w", err)
+	}
+
+	return outputProducts(cfg, resp.Products)
 }
 
 // runProductAdd executes the product add command.
 func runProductAdd(ctx context.Context, deps *ProductCommandDeps, name string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
-	repo := deps.Repository
 
-	// Validate product type.
-	pt := products.ProductType(productType)
-	switch pt {
-	case products.ProductTypeProduct, products.ProductTypeSubProduct, products.ProductTypeFeature:
-		// Valid.
-	default:
-		return fmt.Errorf("invalid product type: %s (must be product, sub_product, or feature)", productType)
-	}
-
-	// Validate status.
-	ps := products.ProductStatus(productStatus)
-	switch ps {
-	case products.ProductStatusActive, products.ProductStatusBeta, products.ProductStatusSunset, products.ProductStatusDeprecated:
-		// Valid.
-	default:
-		return fmt.Errorf("invalid status: %s (must be active, beta, sunset, or deprecated)", productStatus)
-	}
-
-	// Resolve parent if specified.
-	var parentID *int64
-	if productParent != "" {
-		parent, err := repo.ResolveProduct(ctx, tenantID, productParent)
-		if err != nil {
-			return fmt.Errorf("resolving parent product '%s': %w", productParent, err)
-		}
-		parentID = &parent.ID
-	}
-
-	// Create the product.
-	var desc *string
-	if productDescription != "" {
-		desc = &productDescription
-	}
-	product := &products.Product{
-		TenantID:    tenantID,
+	input := &productv1.ProductInput{
 		Name:        name,
-		Description: desc,
-		ParentID:    parentID,
-		ProductType: pt,
-		Status:      ps,
+		Description: productDescription,
+		Parent:      productParent,
+		ProductType: productTypeToProto(productType),
+		Status:      productStatusToProto(productStatus),
 		Keywords:    productKeywords,
 	}
 
-	if err := repo.CreateProduct(ctx, product); err != nil {
+	resp, err := client.CreateProduct(ctx, &productv1.CreateProductRequest{
+		TenantId: tenantID,
+		Input:    input,
+	})
+	if err != nil {
 		return fmt.Errorf("creating product: %w", err)
 	}
 
-	fmt.Printf("\033[32mCreated product:\033[0m %s (ID: %d)\n", name, product.ID)
+	fmt.Printf("\033[32mCreated product:\033[0m %s (ID: %d)\n", name, resp.Product.Id)
 	return nil
 }
 
 // runProductShow executes the product info command.
 func runProductShow(ctx context.Context, deps *ProductCommandDeps, name string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
-	repo := deps.Repository
 
-	// Resolve product by name or alias.
-	product, err := repo.ResolveProduct(ctx, tenantID, name)
+	resp, err := client.GetProduct(ctx, &productv1.GetProductRequest{
+		TenantId:   tenantID,
+		Identifier: name,
+	})
 	if err != nil {
 		return fmt.Errorf("product not found: %s", name)
 	}
 
-	// Get aliases.
-	aliases, err := repo.GetAliases(ctx, product.ID)
-	if err != nil {
-		// Non-fatal, just log.
-		aliases = nil
-	}
-
-	// Get parent if exists.
-	var parentName string
-	if product.ParentID != nil {
-		parent, err := repo.GetProductByID(ctx, *product.ParentID)
-		if err == nil {
-			parentName = parent.Name
-		}
-	}
-
-	return outputProductDetail(deps.Config, product, aliases, parentName)
+	return outputProductDetail(cfg, resp.Product)
 }
 
 // runProductHierarchy executes the product hierarchy command.
 func runProductHierarchy(ctx context.Context, deps *ProductCommandDeps, name string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
-	repo := deps.Repository
 
-	// Resolve product.
-	product, err := repo.ResolveProduct(ctx, tenantID, name)
-	if err != nil {
-		return fmt.Errorf("product not found: %s", name)
-	}
-
-	// Get hierarchy.
-	hierarchy, err := repo.GetHierarchy(ctx, product.ID)
+	resp, err := client.GetHierarchy(ctx, &productv1.GetHierarchyRequest{
+		TenantId:   tenantID,
+		Identifier: name,
+	})
 	if err != nil {
 		return fmt.Errorf("getting hierarchy: %w", err)
 	}
 
-	return outputProductHierarchy(deps.Config, hierarchy)
+	return outputProductHierarchy(cfg, resp.Hierarchy)
 }
 
 // runProductAliasAdd adds an alias to a product.
 func runProductAliasAdd(ctx context.Context, deps *ProductCommandDeps, productName, alias string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
-	repo := deps.Repository
 
-	// Resolve product.
-	product, err := repo.ResolveProduct(ctx, tenantID, productName)
+	resp, err := client.AddAlias(ctx, &productv1.AddAliasRequest{
+		TenantId:   tenantID,
+		Identifier: productName,
+		Alias:      alias,
+	})
 	if err != nil {
-		return fmt.Errorf("product not found: %s", productName)
-	}
-
-	// Add alias.
-	if err := repo.AddAlias(ctx, product.ID, alias); err != nil {
 		return fmt.Errorf("adding alias: %w", err)
 	}
 
-	fmt.Printf("\033[32mAdded alias:\033[0m '%s' -> %s\n", alias, product.Name)
+	fmt.Printf("\033[32mAdded alias:\033[0m '%s' -> %s\n", resp.Alias, resp.ProductName)
 	return nil
 }
 
 // runProductAliasRemove removes an alias from a product.
 func runProductAliasRemove(ctx context.Context, deps *ProductCommandDeps, productName, alias string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
-	repo := deps.Repository
 
-	// Resolve product.
-	product, err := repo.ResolveProduct(ctx, tenantID, productName)
+	resp, err := client.RemoveAlias(ctx, &productv1.RemoveAliasRequest{
+		TenantId:   tenantID,
+		Identifier: productName,
+		Alias:      alias,
+	})
 	if err != nil {
-		return fmt.Errorf("product not found: %s", productName)
-	}
-
-	// Remove alias.
-	if err := repo.RemoveAlias(ctx, product.ID, alias); err != nil {
 		return fmt.Errorf("removing alias: %w", err)
 	}
 
-	fmt.Printf("\033[32mRemoved alias:\033[0m '%s' from %s\n", alias, product.Name)
+	fmt.Printf("\033[32mRemoved alias:\033[0m '%s' from %s\n", resp.Alias, resp.ProductName)
 	return nil
 }
 
 // runProductAliasList lists aliases for a product.
 func runProductAliasList(ctx context.Context, deps *ProductCommandDeps, productName string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
-	repo := deps.Repository
 
-	// Resolve product.
-	product, err := repo.ResolveProduct(ctx, tenantID, productName)
-	if err != nil {
-		return fmt.Errorf("product not found: %s", productName)
-	}
-
-	// Get aliases.
-	aliases, err := repo.GetAliases(ctx, product.ID)
+	resp, err := client.ListAliases(ctx, &productv1.ListAliasesRequest{
+		TenantId:   tenantID,
+		Identifier: productName,
+	})
 	if err != nil {
 		return fmt.Errorf("getting aliases: %w", err)
 	}
 
-	return outputProductAliases(deps.Config, product.Name, aliases)
+	return outputProductAliases(cfg, resp.ProductName, resp.Aliases)
 }
 
 // ==================== Output Functions ====================
@@ -679,7 +657,7 @@ func getProductOutputFormat(cfg *config.CLIConfig) config.OutputFormat {
 }
 
 // outputProducts outputs a list of products.
-func outputProducts(cfg *config.CLIConfig, productsList []*products.Product) error {
+func outputProducts(cfg *config.CLIConfig, productsList []*productv1.Product) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
@@ -693,7 +671,7 @@ func outputProducts(cfg *config.CLIConfig, productsList []*products.Product) err
 }
 
 // outputProductsTable outputs products in table format.
-func outputProductsTable(productsList []*products.Product) error {
+func outputProductsTable(productsList []*productv1.Product) error {
 	if len(productsList) == 0 {
 		fmt.Println("No products found.")
 		return nil
@@ -704,15 +682,17 @@ func outputProductsTable(productsList []*products.Product) error {
 	fmt.Println("  --      ----                           ----          ------")
 
 	for _, p := range productsList {
-		typeColor := getProductTypeColor(p.ProductType)
-		statusColor := getProductStatusColor(p.Status)
+		typeStr := productTypeFromProtoToString(p.ProductType)
+		statusStr := productStatusFromProtoToString(p.Status)
+		typeColor := getProductTypeColor(typeStr)
+		statusColor := getProductStatusColor(statusStr)
 		fmt.Printf("  %-6d  %-30s %s%-12s\033[0m  %s%-10s\033[0m\n",
-			p.ID,
+			p.Id,
 			truncateString(p.Name, 30),
 			typeColor,
-			p.ProductType,
+			typeStr,
 			statusColor,
-			p.Status)
+			statusStr)
 	}
 
 	fmt.Println()
@@ -720,7 +700,7 @@ func outputProductsTable(productsList []*products.Product) error {
 }
 
 // outputProductDetail outputs detailed product information.
-func outputProductDetail(cfg *config.CLIConfig, product *products.Product, aliases []*products.ProductAlias, parentName string) error {
+func outputProductDetail(cfg *config.CLIConfig, product *productv1.Product) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
@@ -729,52 +709,54 @@ func outputProductDetail(cfg *config.CLIConfig, product *products.Product, alias
 	case config.OutputFormatYAML:
 		return outputProductYAML(product)
 	default:
-		return outputProductDetailText(product, aliases, parentName)
+		return outputProductDetailText(product)
 	}
 }
 
 // outputProductDetailText outputs product info in human-readable format.
-func outputProductDetailText(product *products.Product, aliases []*products.ProductAlias, parentName string) error {
-	typeColor := getProductTypeColor(product.ProductType)
-	statusColor := getProductStatusColor(product.Status)
+func outputProductDetailText(product *productv1.Product) error {
+	typeStr := productTypeFromProtoToString(product.ProductType)
+	statusStr := productStatusFromProtoToString(product.Status)
+	typeColor := getProductTypeColor(typeStr)
+	statusColor := getProductStatusColor(statusStr)
 
 	fmt.Println("Product Details:")
 	fmt.Println()
-	fmt.Printf("  \033[1mID:\033[0m          %d\n", product.ID)
+	fmt.Printf("  \033[1mID:\033[0m          %d\n", product.Id)
 	fmt.Printf("  \033[1mName:\033[0m        %s\n", product.Name)
-	fmt.Printf("  \033[1mType:\033[0m        %s%s\033[0m\n", typeColor, product.ProductType)
-	fmt.Printf("  \033[1mStatus:\033[0m      %s%s\033[0m\n", statusColor, product.Status)
+	fmt.Printf("  \033[1mType:\033[0m        %s%s\033[0m\n", typeColor, typeStr)
+	fmt.Printf("  \033[1mStatus:\033[0m      %s%s\033[0m\n", statusColor, statusStr)
 	fmt.Println()
 
-	if product.Description != nil && *product.Description != "" {
-		fmt.Printf("  \033[1mDescription:\033[0m\n    %s\n\n", *product.Description)
+	if product.Description != "" {
+		fmt.Printf("  \033[1mDescription:\033[0m\n    %s\n\n", product.Description)
 	}
 
-	if parentName != "" {
-		fmt.Printf("  \033[1mParent:\033[0m      %s\n", parentName)
+	if product.ParentName != "" {
+		fmt.Printf("  \033[1mParent:\033[0m      %s\n", product.ParentName)
 	}
 
 	if len(product.Keywords) > 0 {
 		fmt.Printf("  \033[1mKeywords:\033[0m    %s\n", strings.Join(product.Keywords, ", "))
 	}
 
-	if len(aliases) > 0 {
-		aliasNames := make([]string, len(aliases))
-		for i, a := range aliases {
-			aliasNames[i] = a.Alias
-		}
-		fmt.Printf("  \033[1mAliases:\033[0m     %s\n", strings.Join(aliasNames, ", "))
+	if len(product.Aliases) > 0 {
+		fmt.Printf("  \033[1mAliases:\033[0m     %s\n", strings.Join(product.Aliases, ", "))
 	}
 
 	fmt.Println()
-	fmt.Printf("  \033[1mCreated:\033[0m     %s\n", product.CreatedAt.Format(time.RFC3339))
-	fmt.Printf("  \033[1mUpdated:\033[0m     %s\n", product.UpdatedAt.Format(time.RFC3339))
+	if product.CreatedAt != nil {
+		fmt.Printf("  \033[1mCreated:\033[0m     %s\n", product.CreatedAt.AsTime().Format("2006-01-02 15:04:05"))
+	}
+	if product.UpdatedAt != nil {
+		fmt.Printf("  \033[1mUpdated:\033[0m     %s\n", product.UpdatedAt.AsTime().Format("2006-01-02 15:04:05"))
+	}
 
 	return nil
 }
 
 // outputProductHierarchy outputs the product hierarchy tree.
-func outputProductHierarchy(cfg *config.CLIConfig, hierarchy []*products.ProductWithHierarchy) error {
+func outputProductHierarchy(cfg *config.CLIConfig, hierarchy []*productv1.ProductWithHierarchy) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
@@ -788,7 +770,7 @@ func outputProductHierarchy(cfg *config.CLIConfig, hierarchy []*products.Product
 }
 
 // outputProductHierarchyTree outputs hierarchy as a tree.
-func outputProductHierarchyTree(hierarchy []*products.ProductWithHierarchy) error {
+func outputProductHierarchyTree(hierarchy []*productv1.ProductWithHierarchy) error {
 	if len(hierarchy) == 0 {
 		fmt.Println("No products in hierarchy.")
 		return nil
@@ -799,7 +781,7 @@ func outputProductHierarchyTree(hierarchy []*products.ProductWithHierarchy) erro
 
 	for i, h := range hierarchy {
 		prefix := ""
-		for d := 0; d < h.Depth; d++ {
+		for d := 0; d < int(h.Depth); d++ {
 			prefix += "    "
 		}
 
@@ -811,18 +793,20 @@ func outputProductHierarchyTree(hierarchy []*products.ProductWithHierarchy) erro
 			treeChar = "└── "
 		}
 
-		typeColor := getProductTypeColor(h.ProductType)
-		statusColor := getProductStatusColor(h.Status)
+		typeStr := productTypeFromProtoToString(h.Product.ProductType)
+		statusStr := productStatusFromProtoToString(h.Product.Status)
+		typeColor := getProductTypeColor(typeStr)
+		statusColor := getProductStatusColor(statusStr)
 
 		fmt.Printf("%s%s%s %s(%s)%s %s[%s]%s\n",
 			prefix,
 			treeChar,
-			h.Name,
+			h.Product.Name,
 			typeColor,
-			h.ProductType,
+			typeStr,
 			"\033[0m",
 			statusColor,
-			h.Status,
+			statusStr,
 			"\033[0m")
 	}
 
@@ -831,7 +815,7 @@ func outputProductHierarchyTree(hierarchy []*products.ProductWithHierarchy) erro
 }
 
 // outputProductAliases outputs product aliases.
-func outputProductAliases(cfg *config.CLIConfig, productName string, aliases []*products.ProductAlias) error {
+func outputProductAliases(cfg *config.CLIConfig, productName string, aliases []*productv1.ProductAlias) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
@@ -845,7 +829,7 @@ func outputProductAliases(cfg *config.CLIConfig, productName string, aliases []*
 }
 
 // outputProductAliasesText outputs aliases in text format.
-func outputProductAliasesText(productName string, aliases []*products.ProductAlias) error {
+func outputProductAliasesText(productName string, aliases []*productv1.ProductAlias) error {
 	if len(aliases) == 0 {
 		fmt.Printf("No aliases for product '%s'\n", productName)
 		return nil
@@ -872,30 +856,88 @@ func outputProductYAML(v interface{}) error {
 	return enc.Encode(v)
 }
 
+// ==================== Proto Conversion Helpers ====================
+
+func productTypeToProto(t string) productv1.ProductType {
+	switch t {
+	case "product":
+		return productv1.ProductType_PRODUCT_TYPE_PRODUCT
+	case "sub_product":
+		return productv1.ProductType_PRODUCT_TYPE_SUB_PRODUCT
+	case "feature":
+		return productv1.ProductType_PRODUCT_TYPE_FEATURE
+	default:
+		return productv1.ProductType_PRODUCT_TYPE_PRODUCT
+	}
+}
+
+func productTypeFromProtoToString(pt productv1.ProductType) string {
+	switch pt {
+	case productv1.ProductType_PRODUCT_TYPE_PRODUCT:
+		return "product"
+	case productv1.ProductType_PRODUCT_TYPE_SUB_PRODUCT:
+		return "sub_product"
+	case productv1.ProductType_PRODUCT_TYPE_FEATURE:
+		return "feature"
+	default:
+		return "product"
+	}
+}
+
+func productStatusToProto(s string) productv1.ProductStatus {
+	switch s {
+	case "active":
+		return productv1.ProductStatus_PRODUCT_STATUS_ACTIVE
+	case "beta":
+		return productv1.ProductStatus_PRODUCT_STATUS_BETA
+	case "sunset":
+		return productv1.ProductStatus_PRODUCT_STATUS_SUNSET
+	case "deprecated":
+		return productv1.ProductStatus_PRODUCT_STATUS_DEPRECATED
+	default:
+		return productv1.ProductStatus_PRODUCT_STATUS_ACTIVE
+	}
+}
+
+func productStatusFromProtoToString(ps productv1.ProductStatus) string {
+	switch ps {
+	case productv1.ProductStatus_PRODUCT_STATUS_ACTIVE:
+		return "active"
+	case productv1.ProductStatus_PRODUCT_STATUS_BETA:
+		return "beta"
+	case productv1.ProductStatus_PRODUCT_STATUS_SUNSET:
+		return "sunset"
+	case productv1.ProductStatus_PRODUCT_STATUS_DEPRECATED:
+		return "deprecated"
+	default:
+		return "active"
+	}
+}
+
 // Color helpers for product output.
 
-func getProductTypeColor(pt products.ProductType) string {
+func getProductTypeColor(pt string) string {
 	switch pt {
-	case products.ProductTypeProduct:
+	case "product":
 		return "\033[35m" // Magenta.
-	case products.ProductTypeSubProduct:
+	case "sub_product":
 		return "\033[36m" // Cyan.
-	case products.ProductTypeFeature:
+	case "feature":
 		return "\033[34m" // Blue.
 	default:
 		return ""
 	}
 }
 
-func getProductStatusColor(ps products.ProductStatus) string {
+func getProductStatusColor(ps string) string {
 	switch ps {
-	case products.ProductStatusActive:
+	case "active":
 		return "\033[32m" // Green.
-	case products.ProductStatusBeta:
+	case "beta":
 		return "\033[33m" // Yellow.
-	case products.ProductStatusSunset:
+	case "sunset":
 		return "\033[31m" // Red.
-	case products.ProductStatusDeprecated:
+	case "deprecated":
 		return "\033[90m" // Gray.
 	default:
 		return ""

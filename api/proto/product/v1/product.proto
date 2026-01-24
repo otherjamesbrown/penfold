@@ -1,0 +1,328 @@
+// Product Service Protobuf Definitions
+// Provides gRPC service for product management with hierarchy and aliases
+
+syntax = "proto3";
+
+package penfold.product.v1;
+
+option go_package = "github.com/otherjamesbrown/penfold/api/proto/product/v1;productv1";
+
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// ProductService provides gRPC endpoints for product management.
+service ProductService {
+  // CreateProduct creates a new product.
+  rpc CreateProduct(CreateProductRequest) returns (CreateProductResponse);
+
+  // GetProduct retrieves a product by ID or name/alias.
+  rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+
+  // UpdateProduct updates an existing product.
+  rpc UpdateProduct(UpdateProductRequest) returns (UpdateProductResponse);
+
+  // DeleteProduct deletes a product by ID.
+  rpc DeleteProduct(DeleteProductRequest) returns (DeleteProductResponse);
+
+  // ListProducts lists products with optional filtering.
+  rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+
+  // GetHierarchy retrieves the product hierarchy tree.
+  rpc GetHierarchy(GetHierarchyRequest) returns (GetHierarchyResponse);
+
+  // AddAlias adds an alias to a product.
+  rpc AddAlias(AddAliasRequest) returns (AliasResponse);
+
+  // RemoveAlias removes an alias from a product.
+  rpc RemoveAlias(RemoveAliasRequest) returns (AliasResponse);
+
+  // ListAliases lists all aliases for a product.
+  rpc ListAliases(ListAliasesRequest) returns (ListAliasesResponse);
+}
+
+// =============================================================================
+// Enums
+// =============================================================================
+
+// ProductType represents the type/level of a product in the hierarchy.
+enum ProductType {
+  PRODUCT_TYPE_UNSPECIFIED = 0;
+  PRODUCT_TYPE_PRODUCT = 1;
+  PRODUCT_TYPE_SUB_PRODUCT = 2;
+  PRODUCT_TYPE_FEATURE = 3;
+}
+
+// ProductStatus represents the lifecycle status of a product.
+enum ProductStatus {
+  PRODUCT_STATUS_UNSPECIFIED = 0;
+  PRODUCT_STATUS_ACTIVE = 1;
+  PRODUCT_STATUS_BETA = 2;
+  PRODUCT_STATUS_SUNSET = 3;
+  PRODUCT_STATUS_DEPRECATED = 4;
+}
+
+// =============================================================================
+// Core Messages
+// =============================================================================
+
+// Product represents a business product with hierarchy support.
+message Product {
+  // Unique product identifier.
+  int64 id = 1;
+
+  // Tenant ID for multi-tenant support.
+  string tenant_id = 2;
+
+  // Product name.
+  string name = 3;
+
+  // Product description.
+  string description = 4;
+
+  // Parent product ID (for hierarchy).
+  optional int64 parent_id = 5;
+
+  // Product type in the hierarchy.
+  ProductType product_type = 6;
+
+  // Product lifecycle status.
+  ProductStatus status = 7;
+
+  // Keywords for searching.
+  repeated string keywords = 8;
+
+  // When the product was created.
+  google.protobuf.Timestamp created_at = 9;
+
+  // When the product was last updated.
+  google.protobuf.Timestamp updated_at = 10;
+
+  // Parent product name (populated on read operations).
+  string parent_name = 11;
+
+  // Aliases for this product (populated on read operations).
+  repeated string aliases = 12;
+}
+
+// ProductInput represents input for creating or updating a product.
+message ProductInput {
+  // Product name (required).
+  string name = 1;
+
+  // Product description (optional).
+  string description = 2;
+
+  // Parent product name or ID (optional).
+  string parent = 3;
+
+  // Product type (default: PRODUCT).
+  ProductType product_type = 4;
+
+  // Product status (default: ACTIVE).
+  ProductStatus status = 5;
+
+  // Keywords for searching.
+  repeated string keywords = 6;
+}
+
+// ProductWithHierarchy represents a product with its hierarchy depth and path.
+message ProductWithHierarchy {
+  // The product.
+  Product product = 1;
+
+  // Depth in the hierarchy (0 = root).
+  int32 depth = 2;
+
+  // Full path to this product (e.g., "LKE > Managed Databases > PostgreSQL").
+  string path = 3;
+}
+
+// ProductAlias represents an alternative name for a product.
+message ProductAlias {
+  // Alias ID.
+  int64 id = 1;
+
+  // Product ID this alias belongs to.
+  int64 product_id = 2;
+
+  // The alias string.
+  string alias = 3;
+
+  // When the alias was created.
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// ProductFilter contains filtering options for product queries.
+message ProductFilter {
+  // Tenant ID (required).
+  string tenant_id = 1;
+
+  // Filter by parent product name or ID.
+  string parent = 2;
+
+  // Filter by product type.
+  ProductType product_type = 3;
+
+  // Filter by status.
+  ProductStatus status = 4;
+
+  // Search by name.
+  string name_search = 5;
+
+  // Maximum number of results.
+  int32 limit = 6;
+
+  // Pagination offset.
+  int32 offset = 7;
+
+  // List all products (not just top-level).
+  bool include_all = 8;
+}
+
+// =============================================================================
+// Request/Response Messages
+// =============================================================================
+
+// CreateProductRequest creates a new product.
+message CreateProductRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product input.
+  ProductInput input = 2;
+}
+
+// CreateProductResponse returns the created product.
+message CreateProductResponse {
+  // The created product.
+  Product product = 1;
+}
+
+// GetProductRequest retrieves a product.
+message GetProductRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product ID, name, or alias.
+  string identifier = 2;
+}
+
+// GetProductResponse returns the product.
+message GetProductResponse {
+  // The product.
+  Product product = 1;
+}
+
+// UpdateProductRequest updates an existing product.
+message UpdateProductRequest {
+  // Product ID to update.
+  int64 id = 1;
+
+  // Updated product input.
+  ProductInput input = 2;
+}
+
+// UpdateProductResponse returns the updated product.
+message UpdateProductResponse {
+  // The updated product.
+  Product product = 1;
+}
+
+// DeleteProductRequest deletes a product.
+message DeleteProductRequest {
+  // Product ID to delete.
+  int64 id = 1;
+}
+
+// DeleteProductResponse confirms deletion.
+message DeleteProductResponse {
+  // Whether the deletion was successful.
+  bool success = 1;
+}
+
+// ListProductsRequest lists products.
+message ListProductsRequest {
+  // Filter options.
+  ProductFilter filter = 1;
+}
+
+// ListProductsResponse returns matching products.
+message ListProductsResponse {
+  // The matching products.
+  repeated Product products = 1;
+
+  // Total count of matching products.
+  int64 total_count = 2;
+}
+
+// GetHierarchyRequest retrieves product hierarchy.
+message GetHierarchyRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product ID, name, or alias to start from.
+  string identifier = 2;
+}
+
+// GetHierarchyResponse returns the hierarchy tree.
+message GetHierarchyResponse {
+  // Products in hierarchy order (depth-first).
+  repeated ProductWithHierarchy hierarchy = 1;
+}
+
+// AddAliasRequest adds an alias to a product.
+message AddAliasRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product ID, name, or alias.
+  string identifier = 2;
+
+  // The alias to add.
+  string alias = 3;
+}
+
+// RemoveAliasRequest removes an alias from a product.
+message RemoveAliasRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product ID, name, or alias.
+  string identifier = 2;
+
+  // The alias to remove.
+  string alias = 3;
+}
+
+// AliasResponse confirms alias operation.
+message AliasResponse {
+  // Whether the operation was successful.
+  bool success = 1;
+
+  // The product name.
+  string product_name = 2;
+
+  // The alias involved.
+  string alias = 3;
+}
+
+// ListAliasesRequest lists aliases for a product.
+message ListAliasesRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product ID, name, or alias.
+  string identifier = 2;
+}
+
+// ListAliasesResponse returns the aliases.
+message ListAliasesResponse {
+  // The product name.
+  string product_name = 1;
+
+  // The aliases.
+  repeated ProductAlias aliases = 2;
+}
