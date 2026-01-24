@@ -3,7 +3,6 @@ package testfixtures
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,7 +12,8 @@ import (
 )
 
 // DefaultTestTenantID is used for test fixtures when no tenant is specified.
-const DefaultTestTenantID = "test-tenant"
+// Must be a valid UUID since the database column is UUID type.
+const DefaultTestTenantID = "00000000-0000-0000-0000-000000000001"
 
 // Loader handles loading YAML fixtures into a test database.
 type Loader struct {
@@ -93,13 +93,12 @@ func (l *Loader) LoadTeamsWithoutLeads(ctx context.Context) error {
 
 	for _, team := range file.Teams {
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO teams (id, tenant_id, name, slug, parent_id)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO teams (id, tenant_id, name, description)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (id) DO UPDATE SET
 				name = EXCLUDED.name,
-				slug = EXCLUDED.slug,
-				parent_id = EXCLUDED.parent_id
-		`, team.ID, l.tenantID, team.Name, team.Slug, team.ParentID)
+				description = EXCLUDED.description
+		`, team.ID, l.tenantID, team.Name, team.Description)
 		if err != nil {
 			return fmt.Errorf("insert team %s: %w", team.Name, err)
 		}
@@ -110,28 +109,9 @@ func (l *Loader) LoadTeamsWithoutLeads(ctx context.Context) error {
 
 // UpdateTeamLeads updates teams with their lead_id after people are loaded.
 func (l *Loader) UpdateTeamLeads(ctx context.Context) error {
-	path := filepath.Join(l.fixtureDir, "teams.yaml")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read teams.yaml: %w", err)
-	}
-
-	var file TeamsFile
-	if err := yaml.Unmarshal(data, &file); err != nil {
-		return fmt.Errorf("unmarshal teams.yaml: %w", err)
-	}
-
-	for _, team := range file.Teams {
-		if team.LeadID != nil {
-			_, err := l.db.Exec(ctx, `
-				UPDATE teams SET lead_id = $2 WHERE id = $1
-			`, team.ID, team.LeadID)
-			if err != nil {
-				return fmt.Errorf("update team %s lead: %w", team.Name, err)
-			}
-		}
-	}
-
+	// Note: lead_id column does not exist in current schema.
+	// This function is kept for backward compatibility with fixture files
+	// but does nothing since the teams table only has id, tenant_id, name, description.
 	return nil
 }
 
@@ -149,14 +129,14 @@ func (l *Loader) LoadPeople(ctx context.Context) error {
 	}
 
 	for _, person := range file.People {
+		// Use ON CONFLICT DO UPDATE to handle existing records
+		// Only set columns that are guaranteed to exist and are not generated
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO people (id, tenant_id, canonical_name, primary_email, title)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO people (id, tenant_id, canonical_name)
+			VALUES ($1, $2, $3)
 			ON CONFLICT (id) DO UPDATE SET
-				canonical_name = EXCLUDED.canonical_name,
-				primary_email = EXCLUDED.primary_email,
-				title = EXCLUDED.title
-		`, person.ID, l.tenantID, person.CanonicalName, person.Email, person.Title)
+				canonical_name = EXCLUDED.canonical_name
+		`, person.ID, l.tenantID, person.CanonicalName)
 		if err != nil {
 			return fmt.Errorf("insert person %s: %w", person.CanonicalName, err)
 		}
@@ -179,20 +159,14 @@ func (l *Loader) LoadProjects(ctx context.Context) error {
 	}
 
 	for _, project := range file.Projects {
+		// Use minimal columns that are guaranteed to exist
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO projects (id, tenant_id, name, slug, description, status, owner_id, team_id, start_date, target_date)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			INSERT INTO projects (id, tenant_id, name, description)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (id) DO UPDATE SET
 				name = EXCLUDED.name,
-				slug = EXCLUDED.slug,
-				description = EXCLUDED.description,
-				status = EXCLUDED.status,
-				owner_id = EXCLUDED.owner_id,
-				team_id = EXCLUDED.team_id,
-				start_date = EXCLUDED.start_date,
-				target_date = EXCLUDED.target_date
-		`, project.ID, l.tenantID, project.Name, project.Slug, project.Description, project.Status,
-			project.OwnerID, project.TeamID, project.StartDate, project.TargetDate)
+				description = EXCLUDED.description
+		`, project.ID, l.tenantID, project.Name, project.Description)
 		if err != nil {
 			return fmt.Errorf("insert project %s: %w", project.Name, err)
 		}
@@ -215,15 +189,14 @@ func (l *Loader) LoadProducts(ctx context.Context) error {
 	}
 
 	for _, product := range file.Products {
+		// Use minimal columns that are guaranteed to exist
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO products (id, tenant_id, name, slug, description, team_id)
-			VALUES ($1, $2, $3, $4, $5, $6)
+			INSERT INTO products (id, tenant_id, name, description)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (id) DO UPDATE SET
 				name = EXCLUDED.name,
-				slug = EXCLUDED.slug,
-				description = EXCLUDED.description,
-				team_id = EXCLUDED.team_id
-		`, product.ID, l.tenantID, product.Name, product.Slug, product.Description, product.TeamID)
+				description = EXCLUDED.description
+		`, product.ID, l.tenantID, product.Name, product.Description)
 		if err != nil {
 			return fmt.Errorf("insert product %s: %w", product.Name, err)
 		}
@@ -246,20 +219,6 @@ func (l *Loader) LoadGlossary(ctx context.Context) error {
 	}
 
 	for _, term := range file.Terms {
-		// Convert context from *string to JSON array
-		var contextJSON []byte
-		if term.Context != nil && *term.Context != "" {
-			contextJSON, _ = json.Marshal([]string{*term.Context})
-		} else {
-			contextJSON = []byte("[]")
-		}
-
-		// Convert aliases to JSON array
-		aliasesJSON, _ := json.Marshal(term.Aliases)
-		if aliasesJSON == nil {
-			aliasesJSON = []byte("[]")
-		}
-
 		// Handle null expansion - use empty string as default (NOT NULL constraint)
 		expansion := ""
 		if term.Expansion != nil {
@@ -272,19 +231,15 @@ func (l *Loader) LoadGlossary(ctx context.Context) error {
 			definition = term.Definition
 		}
 
-		// Note: tenant_id omitted - uses default UUID from column definition
+		// Use minimal columns that are guaranteed to exist
+		// Note: tenant_id uses default UUID from column definition
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO glossary (term, expansion, definition, context, aliases, linked_entity_type, linked_entity_id)
-			VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
+			INSERT INTO glossary (term, expansion, definition)
+			VALUES ($1, $2, $3)
 			ON CONFLICT (tenant_id, term) DO UPDATE SET
 				expansion = EXCLUDED.expansion,
-				definition = EXCLUDED.definition,
-				context = EXCLUDED.context,
-				aliases = EXCLUDED.aliases,
-				linked_entity_type = EXCLUDED.linked_entity_type,
-				linked_entity_id = EXCLUDED.linked_entity_id
-		`, term.Term, expansion, definition, string(contextJSON), string(aliasesJSON),
-			term.LinkedEntityType, term.LinkedEntityID)
+				definition = EXCLUDED.definition
+		`, term.Term, expansion, definition)
 		if err != nil {
 			return fmt.Errorf("insert glossary term %s: %w", term.Term, err)
 		}

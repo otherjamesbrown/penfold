@@ -32,11 +32,15 @@ func TestIngestJobStructure(t *testing.T) {
 		TenantID:       "tenant-123",
 		Status:         IngestJobStatusPending,
 		SourceTag:      "test-import",
-		TotalItems:     100,
-		ProcessedItems: 0,
-		FailedItems:    0,
-		LastFilePath:   "",
-		Labels:         []string{"label1", "label2"},
+		ContentType:    "email",
+		TotalFiles:     100,
+		ProcessedCount: 0,
+		ImportedCount:  0,
+		SkippedCount:   0,
+		FailedCount:    0,
+		FileManifest:   []string{"/path/file1.eml", "/path/file2.eml"},
+		ProcessedFiles: []string{},
+		Options:        map[string]interface{}{"label": "test"},
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 	}
@@ -44,8 +48,8 @@ func TestIngestJobStructure(t *testing.T) {
 	if job.Status != IngestJobStatusPending {
 		t.Errorf("unexpected status: %s", job.Status)
 	}
-	if len(job.Labels) != 2 {
-		t.Errorf("unexpected labels count: %d", len(job.Labels))
+	if len(job.FileManifest) != 2 {
+		t.Errorf("unexpected file manifest count: %d", len(job.FileManifest))
 	}
 }
 
@@ -55,8 +59,9 @@ func TestIngestJobStatusValues(t *testing.T) {
 		valid  bool
 	}{
 		{IngestJobStatusPending, true},
-		{IngestJobStatusRunning, true},
+		{IngestJobStatusInProgress, true},
 		{IngestJobStatusCompleted, true},
+		{IngestJobStatusCompletedErrors, true},
 		{IngestJobStatusFailed, true},
 		{IngestJobStatusCancelled, true},
 	}
@@ -94,11 +99,14 @@ func TestProcessingStatusConstants(t *testing.T) {
 
 func TestIngestErrorStructure(t *testing.T) {
 	ingestErr := &IngestError{
-		ID:        1,
-		JobID:     "job-123",
-		FilePath:  "/path/to/file.eml",
-		ErrorMsg:  "parsing failed",
-		CreatedAt: time.Now(),
+		ID:           "error-uuid-123",
+		JobID:        "job-123",
+		FilePath:     "/path/to/file.eml",
+		ErrorType:    ErrorTypeParse,
+		ErrorMsg:     "parsing failed",
+		ErrorDetails: map[string]interface{}{"line": 42},
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
 
 	if ingestErr.JobID != "job-123" {

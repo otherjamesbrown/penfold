@@ -4,42 +4,56 @@
 teams:
   - id: 1
     name: "Engineering"
+    description: "Core engineering and development team"
     slug: "engineering"
     parent_id: null
     lead_id: 1  # John Smith
 
   - id: 2
     name: "Product"
+    description: "Product management and strategy team"
     slug: "product"
     parent_id: null
     lead_id: 5  # David Park
 
   - id: 3
     name: "Sales"
+    description: "Sales and business development team"
     slug: "sales"
     parent_id: null
     lead_id: 3  # Marcus Rodriguez
 
   - id: 4
     name: "Platform Team"
+    description: "Infrastructure and platform engineering"
     slug: "platform"
     parent_id: 1  # Under Engineering
     lead_id: 6  # Lisa Chang
 
   - id: 5
     name: "Frontend Team"
+    description: "Frontend development and user interface"
     slug: "frontend"
     parent_id: 1  # Under Engineering
     lead_id: 8  # Jennifer Lee
 
   - id: 6
     name: "Infrastructure"
+    description: "Infrastructure and DevOps team"
     slug: "infra"
     parent_id: 1  # Under Engineering
     lead_id: 9  # Robert Taylor
 
   - id: 7
     name: "Design"
+    description: "UX and product design team"
     slug: "design"
     parent_id: 2  # Under Product
     lead_id: 11  # Kevin Wilson
+
+  - id: 8
+    name: "Backend Team"
+    description: "Backend services and API development"
+    slug: "backend"
+    parent_id: 1  # Under Engineering
+    lead_id: null
