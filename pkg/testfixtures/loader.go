@@ -93,12 +93,14 @@ func (l *Loader) LoadTeamsWithoutLeads(ctx context.Context) error {
 
 	for _, team := range file.Teams {
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO teams (id, tenant_id, name, description)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO teams (id, tenant_id, name, description, slug, parent_id)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (id) DO UPDATE SET
 				name = EXCLUDED.name,
-				description = EXCLUDED.description
-		`, team.ID, l.tenantID, team.Name, team.Description)
+				description = EXCLUDED.description,
+				slug = EXCLUDED.slug,
+				parent_id = EXCLUDED.parent_id
+		`, team.ID, l.tenantID, team.Name, team.Description, team.Slug, team.ParentID)
 		if err != nil {
 			return fmt.Errorf("insert team %s: %w", team.Name, err)
 		}
@@ -109,9 +111,28 @@ func (l *Loader) LoadTeamsWithoutLeads(ctx context.Context) error {
 
 // UpdateTeamLeads updates teams with their lead_id after people are loaded.
 func (l *Loader) UpdateTeamLeads(ctx context.Context) error {
-	// Note: lead_id column does not exist in current schema.
-	// This function is kept for backward compatibility with fixture files
-	// but does nothing since the teams table only has id, tenant_id, name, description.
+	path := filepath.Join(l.fixtureDir, "teams.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read teams.yaml: %w", err)
+	}
+
+	var file TeamsFile
+	if err := yaml.Unmarshal(data, &file); err != nil {
+		return fmt.Errorf("unmarshal teams.yaml: %w", err)
+	}
+
+	for _, team := range file.Teams {
+		if team.LeadID != nil {
+			_, err := l.db.Exec(ctx, `
+				UPDATE teams SET lead_id = $2 WHERE id = $1
+			`, team.ID, team.LeadID)
+			if err != nil {
+				return fmt.Errorf("update team %s lead: %w", team.Name, err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -129,14 +150,14 @@ func (l *Loader) LoadPeople(ctx context.Context) error {
 	}
 
 	for _, person := range file.People {
-		// Use ON CONFLICT DO UPDATE to handle existing records
-		// Only set columns that are guaranteed to exist and are not generated
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO people (id, tenant_id, canonical_name)
-			VALUES ($1, $2, $3)
+			INSERT INTO people (id, tenant_id, canonical_name, primary_email, title)
+			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (id) DO UPDATE SET
-				canonical_name = EXCLUDED.canonical_name
-		`, person.ID, l.tenantID, person.CanonicalName)
+				canonical_name = EXCLUDED.canonical_name,
+				primary_email = EXCLUDED.primary_email,
+				title = EXCLUDED.title
+		`, person.ID, l.tenantID, person.CanonicalName, person.Email, person.Title)
 		if err != nil {
 			return fmt.Errorf("insert person %s: %w", person.CanonicalName, err)
 		}

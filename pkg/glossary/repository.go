@@ -172,11 +172,14 @@ func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, erro
 	}
 
 	if len(filter.Context) > 0 {
-		// Match any context tag
-		contextJSON, _ := json.Marshal(filter.Context)
-		query += fmt.Sprintf(" AND context ?| $%d", argNum)
-		args = append(args, string(contextJSON))
-		argNum++
+		// Match any context tag using JSONB containment
+		// Build conditions for each context value
+		conditions := []string{}
+		for _, ctx := range filter.Context {
+			ctxJSON, _ := json.Marshal(ctx)
+			conditions = append(conditions, fmt.Sprintf("context @> '[%s]'::jsonb", string(ctxJSON)))
+		}
+		query += fmt.Sprintf(" AND (%s)", strings.Join(conditions, " OR "))
 	}
 
 	if filter.Source != "" {

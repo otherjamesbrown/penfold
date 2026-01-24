@@ -27,9 +27,9 @@ type TeamFixture struct {
 	ID          int64  `yaml:"id"`
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
-	Slug        string `yaml:"slug"`     // Legacy: not used in current schema
-	ParentID    *int64 `yaml:"parent_id"` // Legacy: not used in current schema
-	LeadID      *int64 `yaml:"lead_id"`   // Legacy: not used in current schema
+	Slug        string `yaml:"slug"`
+	ParentID    *int64 `yaml:"parent_id"`
+	LeadID      *int64 `yaml:"lead_id"`
 }
 
 // ProjectsFile represents the structure of projects.yaml.
