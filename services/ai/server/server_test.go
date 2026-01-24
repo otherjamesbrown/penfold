@@ -214,7 +214,7 @@ func TestGenerateEmbedding_WhitespaceOnlyText(t *testing.T) {
 func TestGenerateEmbedding_BackendError(t *testing.T) {
 	be := &mockBackend{
 		generateEmbeddingFunc: func(ctx context.Context, text string, model string) (*backend.EmbeddingResult, error) {
-			return nil, errors.New("service unavailable: connection refused")
+			return nil, backend.ErrServiceUnavailable
 		},
 	}
 	server := newTestServer(be)
@@ -765,18 +765,28 @@ func TestConvertError(t *testing.T) {
 	}{
 		{
 			name:     "context canceled",
-			err:      errors.New("context canceled"),
+			err:      backend.ErrContextCanceled,
 			wantCode: codes.Canceled,
 		},
 		{
 			name:     "service unavailable",
-			err:      errors.New("service unavailable: connection refused"),
+			err:      backend.ErrServiceUnavailable,
 			wantCode: codes.Unavailable,
 		},
 		{
 			name:     "empty text",
-			err:      errors.New("text cannot be empty"),
+			err:      backend.ErrEmptyText,
 			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "empty messages",
+			err:      backend.ErrEmptyMessages,
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "request timeout",
+			err:      backend.ErrRequestTimeout,
+			wantCode: codes.DeadlineExceeded,
 		},
 		{
 			name:     "generic error",
