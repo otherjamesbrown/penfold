@@ -96,7 +96,7 @@ Claude processes the context and guides the user:
 ```
 After importing 15 emails, here's what Penfold discovered:
 
-📊 Summary:
+Summary:
   - 12 new people (from email headers)
   - 15 unknown acronyms
   - 8 unresolved person mentions

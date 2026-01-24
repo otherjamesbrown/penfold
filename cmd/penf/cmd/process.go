@@ -167,7 +167,7 @@ This workflow allows Claude to:
 2. Access the existing glossary to check for duplicates
 3. Batch resolve multiple acronyms efficiently
 
-See context/workflows/acronym-review.md for detailed guidance.`,
+See docs/workflows/acronym-review.md for detailed guidance.`,
 		Aliases: []string{"acro"},
 	}
 

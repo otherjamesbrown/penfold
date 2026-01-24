@@ -39,7 +39,7 @@ This workflow allows Claude to:
 3. Batch resolve multiple mentions efficiently
 4. Create new patterns for recurring mentions
 
-See specs/013-content-enrichment/mention-resolution.md for detailed guidance.`,
+See docs/workflows/mention-review.md for detailed guidance.`,
 		Aliases: []string{"mention"},
 	}
 
