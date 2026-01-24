@@ -791,15 +791,16 @@ func (r *ModelRouter) processQueue(backendName string) {
 				return // Channel closed
 			}
 
-			atomic.AddInt64(sizePtr, -1)
-			if r.metrics != nil {
-				r.metrics.queuedRequests.WithLabelValues(backendName).Dec()
-			}
-
 			// Process the request
 			ctx, cancel := context.WithTimeout(r.ctx, queued.req.Timeout)
 			resp, err := r.routeToBackend(ctx, queued.req, backendName)
 			cancel()
+
+			// Decrement queue size after processing completes
+			atomic.AddInt64(sizePtr, -1)
+			if r.metrics != nil {
+				r.metrics.queuedRequests.WithLabelValues(backendName).Dec()
+			}
 
 			queued.respChan <- &queuedResponse{resp: resp, err: err}
 		}

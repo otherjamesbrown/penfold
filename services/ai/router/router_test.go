@@ -27,6 +27,7 @@ type mockBackend struct {
 	processDelay time.Duration
 	failCount    int
 	failAfter    int
+	blockChan    chan struct{} // blocks Process until closed
 }
 
 func newMockBackend(name, provider string, isLocal bool) *mockBackend {
@@ -63,7 +64,18 @@ func (m *mockBackend) Process(ctx context.Context, req *Request) (*Response, err
 	failAfter := m.failAfter
 	failCount := m.failCount
 	fn := m.processFunc
+	blockChan := m.blockChan
 	m.mu.Unlock()
+
+	// Wait on block channel if set (used for queue full testing)
+	if blockChan != nil {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-blockChan:
+			// Unblocked, continue processing
+		}
+	}
 
 	// Check if we should fail
 	if failAfter > 0 {
@@ -115,6 +127,12 @@ func (m *mockBackend) SetFailAfter(after, count int) {
 	defer m.mu.Unlock()
 	m.failAfter = after
 	m.failCount = count
+}
+
+func (m *mockBackend) SetBlockChan(ch chan struct{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.blockChan = ch
 }
 
 func (m *mockBackend) GetProcessCount() int64 {
@@ -807,11 +825,13 @@ func TestModelRouter_QueueFull(t *testing.T) {
 	router := NewModelRouter(cfg)
 	defer router.Shutdown(context.Background())
 
+	// Create a blocking channel that prevents the processor from completing
+	blockChan := make(chan struct{})
 	backend := newMockBackend("test", "test", true)
-	backend.SetProcessDelay(500 * time.Millisecond) // Slow processing
+	backend.SetBlockChan(blockChan)
 	router.RegisterBackend(backend)
 
-	// Fill the queue
+	// Fill the queue - these will block in the processor
 	for i := 0; i < 2; i++ {
 		req := &Request{
 			ID:      "queued",
@@ -825,7 +845,11 @@ func TestModelRouter_QueueFull(t *testing.T) {
 		}
 	}
 
-	// Next should fail
+	// Give the processor time to pick up items from the channel
+	// (items will be blocked in Process, so counter stays at 2)
+	time.Sleep(50 * time.Millisecond)
+
+	// Next should fail because queue counter is still at 2
 	req := &Request{
 		ID:      "overflow",
 		Type:    RequestTypeEmbedding,
@@ -836,6 +860,9 @@ func TestModelRouter_QueueFull(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when queue is full")
 	}
+
+	// Unblock processors to allow clean shutdown
+	close(blockChan)
 }
 
 func TestModelRouter_Shutdown(t *testing.T) {
