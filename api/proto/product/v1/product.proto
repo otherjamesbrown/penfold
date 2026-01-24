@@ -41,6 +41,25 @@ service ProductService {
 
   // ListAliases lists all aliases for a product.
   rpc ListAliases(ListAliasesRequest) returns (ListAliasesResponse);
+
+  // Timeline/Event management
+  // ListProductEvents lists events for a product with optional filtering.
+  rpc ListProductEvents(ListProductEventsRequest) returns (ListProductEventsResponse);
+
+  // CreateProductEvent creates a new timeline event for a product.
+  rpc CreateProductEvent(CreateProductEventRequest) returns (CreateProductEventResponse);
+
+  // GetProductEvent retrieves a specific event by ID.
+  rpc GetProductEvent(GetProductEventRequest) returns (GetProductEventResponse);
+
+  // DeleteProductEvent deletes an event by ID.
+  rpc DeleteProductEvent(DeleteProductEventRequest) returns (DeleteProductEventResponse);
+
+  // LinkProductEvent links an event to another entity.
+  rpc LinkProductEvent(LinkProductEventRequest) returns (LinkProductEventResponse);
+
+  // GetEventContext retrieves events around a specific point in time.
+  rpc GetEventContext(GetEventContextRequest) returns (GetEventContextResponse);
 }
 
 // =============================================================================
@@ -62,6 +81,43 @@ enum ProductStatus {
   PRODUCT_STATUS_BETA = 2;
   PRODUCT_STATUS_SUNSET = 3;
   PRODUCT_STATUS_DEPRECATED = 4;
+}
+
+// EventType represents the type of timeline event.
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_DECISION = 1;
+  EVENT_TYPE_MILESTONE = 2;
+  EVENT_TYPE_RISK = 3;
+  EVENT_TYPE_RELEASE = 4;
+  EVENT_TYPE_COMPETITOR = 5;
+  EVENT_TYPE_ORG_CHANGE = 6;
+  EVENT_TYPE_MARKET = 7;
+  EVENT_TYPE_NOTE = 8;
+}
+
+// EventVisibility indicates whether an event is internal or external.
+enum EventVisibility {
+  EVENT_VISIBILITY_UNSPECIFIED = 0;
+  EVENT_VISIBILITY_INTERNAL = 1;
+  EVENT_VISIBILITY_EXTERNAL = 2;
+}
+
+// EventSourceType indicates how an event was created.
+enum EventSourceType {
+  EVENT_SOURCE_TYPE_UNSPECIFIED = 0;
+  EVENT_SOURCE_TYPE_MANUAL = 1;
+  EVENT_SOURCE_TYPE_EMAIL = 2;
+  EVENT_SOURCE_TYPE_MEETING = 3;
+  EVENT_SOURCE_TYPE_DOCUMENT = 4;
+}
+
+// LinkType indicates the relationship between an event and a linked entity.
+enum LinkType {
+  LINK_TYPE_UNSPECIFIED = 0;
+  LINK_TYPE_SOURCE = 1;
+  LINK_TYPE_REFERENCE = 2;
+  LINK_TYPE_FOLLOW_UP = 3;
 }
 
 // =============================================================================
@@ -325,4 +381,273 @@ message ListAliasesResponse {
 
   // The aliases.
   repeated ProductAlias aliases = 2;
+}
+
+// =============================================================================
+// Event Messages
+// =============================================================================
+
+// ProductEvent represents a timeline entry for a product.
+message ProductEvent {
+  // Unique event identifier.
+  int64 id = 1;
+
+  // UUID for external reference.
+  string event_uuid = 2;
+
+  // Tenant ID for multi-tenant support.
+  string tenant_id = 3;
+
+  // Product ID this event belongs to.
+  int64 product_id = 4;
+
+  // Type of event.
+  EventType event_type = 5;
+
+  // Visibility of the event.
+  EventVisibility visibility = 6;
+
+  // How the event was created.
+  EventSourceType source_type = 7;
+
+  // Event title.
+  string title = 8;
+
+  // Event description.
+  string description = 9;
+
+  // When the event occurred.
+  google.protobuf.Timestamp occurred_at = 10;
+
+  // Who recorded this event.
+  string recorded_by = 11;
+
+  // Additional metadata as JSON.
+  string metadata_json = 12;
+
+  // When the event was created.
+  google.protobuf.Timestamp created_at = 13;
+
+  // When the event was last updated.
+  google.protobuf.Timestamp updated_at = 14;
+
+  // Product name (populated on read operations).
+  string product_name = 15;
+
+  // Links to other entities (populated on read operations).
+  repeated ProductEventLink links = 16;
+}
+
+// ProductEventInput represents input for creating an event.
+message ProductEventInput {
+  // Type of event (required).
+  EventType event_type = 1;
+
+  // Visibility of the event (default: internal).
+  EventVisibility visibility = 2;
+
+  // How the event was created (default: manual).
+  EventSourceType source_type = 3;
+
+  // Event title (required).
+  string title = 4;
+
+  // Event description (optional).
+  string description = 5;
+
+  // When the event occurred (required).
+  google.protobuf.Timestamp occurred_at = 6;
+
+  // Who recorded this event (optional).
+  string recorded_by = 7;
+
+  // Additional metadata as JSON (optional).
+  string metadata_json = 8;
+}
+
+// ProductEventLink links an event to other entities.
+message ProductEventLink {
+  // Link identifier.
+  int64 id = 1;
+
+  // Event ID this link belongs to.
+  int64 event_id = 2;
+
+  // Type of linked entity (meeting, email, document, etc.).
+  string linked_entity_type = 3;
+
+  // ID of the linked entity.
+  int64 linked_entity_id = 4;
+
+  // Type of link relationship.
+  LinkType link_type = 5;
+
+  // When the link was created.
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// EventFilter contains filtering options for event queries.
+message EventFilter {
+  // Tenant ID (required).
+  string tenant_id = 1;
+
+  // Filter by product ID (optional).
+  optional int64 product_id = 2;
+
+  // Filter by event types (optional).
+  repeated EventType event_types = 3;
+
+  // Filter by visibility (optional).
+  EventVisibility visibility = 4;
+
+  // Filter events since this time (optional).
+  google.protobuf.Timestamp since = 5;
+
+  // Filter events until this time (optional).
+  google.protobuf.Timestamp until = 6;
+
+  // Maximum number of results.
+  int32 limit = 7;
+
+  // Pagination offset.
+  int32 offset = 8;
+}
+
+// ContextWindow represents events around a specific point in time.
+message ContextWindow {
+  // The center time of the window.
+  google.protobuf.Timestamp center_time = 1;
+
+  // Start of the context window.
+  google.protobuf.Timestamp window_start = 2;
+
+  // End of the context window.
+  google.protobuf.Timestamp window_end = 3;
+
+  // The event at the center (if any).
+  ProductEvent center_event = 4;
+
+  // Events before the center time.
+  repeated ProductEvent events_before = 5;
+
+  // Events after the center time.
+  repeated ProductEvent events_after = 6;
+}
+
+// =============================================================================
+// Event Request/Response Messages
+// =============================================================================
+
+// ListProductEventsRequest lists events for a product.
+message ListProductEventsRequest {
+  // Filter options.
+  EventFilter filter = 1;
+}
+
+// ListProductEventsResponse returns matching events.
+message ListProductEventsResponse {
+  // The matching events.
+  repeated ProductEvent events = 1;
+
+  // Total count of matching events.
+  int64 total_count = 2;
+}
+
+// CreateProductEventRequest creates a new event.
+message CreateProductEventRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product ID, name, or alias.
+  string product_identifier = 2;
+
+  // Event input.
+  ProductEventInput input = 3;
+}
+
+// CreateProductEventResponse returns the created event.
+message CreateProductEventResponse {
+  // The created event.
+  ProductEvent event = 1;
+}
+
+// GetProductEventRequest retrieves an event.
+message GetProductEventRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Event ID or UUID.
+  string identifier = 2;
+}
+
+// GetProductEventResponse returns the event.
+message GetProductEventResponse {
+  // The event.
+  ProductEvent event = 1;
+}
+
+// DeleteProductEventRequest deletes an event.
+message DeleteProductEventRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Event ID or UUID.
+  string identifier = 2;
+}
+
+// DeleteProductEventResponse confirms deletion.
+message DeleteProductEventResponse {
+  // Whether the deletion was successful.
+  bool success = 1;
+}
+
+// LinkProductEventRequest links an event to another entity.
+message LinkProductEventRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Event ID or UUID.
+  string event_identifier = 2;
+
+  // Type of entity to link (meeting, email, document, etc.).
+  string linked_entity_type = 3;
+
+  // ID of the entity to link.
+  int64 linked_entity_id = 4;
+
+  // Type of link relationship.
+  LinkType link_type = 5;
+}
+
+// LinkProductEventResponse returns the created link.
+message LinkProductEventResponse {
+  // The created link.
+  ProductEventLink link = 1;
+}
+
+// GetEventContextRequest retrieves events around a point in time.
+message GetEventContextRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Product ID, name, or alias.
+  string product_identifier = 2;
+
+  // Center time for the context window.
+  google.protobuf.Timestamp center_time = 3;
+
+  // Optional: specific event ID or UUID to center on.
+  string event_identifier = 4;
+
+  // Number of events before the center time (default: 5).
+  int32 events_before_count = 5;
+
+  // Number of events after the center time (default: 5).
+  int32 events_after_count = 6;
+}
+
+// GetEventContextResponse returns the context window.
+message GetEventContextResponse {
+  // The context window with surrounding events.
+  ContextWindow context = 1;
 }

@@ -22,15 +22,21 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ProductService_CreateProduct_FullMethodName = "/penfold.product.v1.ProductService/CreateProduct"
-	ProductService_GetProduct_FullMethodName    = "/penfold.product.v1.ProductService/GetProduct"
-	ProductService_UpdateProduct_FullMethodName = "/penfold.product.v1.ProductService/UpdateProduct"
-	ProductService_DeleteProduct_FullMethodName = "/penfold.product.v1.ProductService/DeleteProduct"
-	ProductService_ListProducts_FullMethodName  = "/penfold.product.v1.ProductService/ListProducts"
-	ProductService_GetHierarchy_FullMethodName  = "/penfold.product.v1.ProductService/GetHierarchy"
-	ProductService_AddAlias_FullMethodName      = "/penfold.product.v1.ProductService/AddAlias"
-	ProductService_RemoveAlias_FullMethodName   = "/penfold.product.v1.ProductService/RemoveAlias"
-	ProductService_ListAliases_FullMethodName   = "/penfold.product.v1.ProductService/ListAliases"
+	ProductService_CreateProduct_FullMethodName      = "/penfold.product.v1.ProductService/CreateProduct"
+	ProductService_GetProduct_FullMethodName         = "/penfold.product.v1.ProductService/GetProduct"
+	ProductService_UpdateProduct_FullMethodName      = "/penfold.product.v1.ProductService/UpdateProduct"
+	ProductService_DeleteProduct_FullMethodName      = "/penfold.product.v1.ProductService/DeleteProduct"
+	ProductService_ListProducts_FullMethodName       = "/penfold.product.v1.ProductService/ListProducts"
+	ProductService_GetHierarchy_FullMethodName       = "/penfold.product.v1.ProductService/GetHierarchy"
+	ProductService_AddAlias_FullMethodName           = "/penfold.product.v1.ProductService/AddAlias"
+	ProductService_RemoveAlias_FullMethodName        = "/penfold.product.v1.ProductService/RemoveAlias"
+	ProductService_ListAliases_FullMethodName        = "/penfold.product.v1.ProductService/ListAliases"
+	ProductService_ListProductEvents_FullMethodName  = "/penfold.product.v1.ProductService/ListProductEvents"
+	ProductService_CreateProductEvent_FullMethodName = "/penfold.product.v1.ProductService/CreateProductEvent"
+	ProductService_GetProductEvent_FullMethodName    = "/penfold.product.v1.ProductService/GetProductEvent"
+	ProductService_DeleteProductEvent_FullMethodName = "/penfold.product.v1.ProductService/DeleteProductEvent"
+	ProductService_LinkProductEvent_FullMethodName   = "/penfold.product.v1.ProductService/LinkProductEvent"
+	ProductService_GetEventContext_FullMethodName    = "/penfold.product.v1.ProductService/GetEventContext"
 )
 
 // ProductServiceClient is the client API for ProductService service.
@@ -57,6 +63,19 @@ type ProductServiceClient interface {
 	RemoveAlias(ctx context.Context, in *RemoveAliasRequest, opts ...grpc.CallOption) (*AliasResponse, error)
 	// ListAliases lists all aliases for a product.
 	ListAliases(ctx context.Context, in *ListAliasesRequest, opts ...grpc.CallOption) (*ListAliasesResponse, error)
+	// Timeline/Event management
+	// ListProductEvents lists events for a product with optional filtering.
+	ListProductEvents(ctx context.Context, in *ListProductEventsRequest, opts ...grpc.CallOption) (*ListProductEventsResponse, error)
+	// CreateProductEvent creates a new timeline event for a product.
+	CreateProductEvent(ctx context.Context, in *CreateProductEventRequest, opts ...grpc.CallOption) (*CreateProductEventResponse, error)
+	// GetProductEvent retrieves a specific event by ID.
+	GetProductEvent(ctx context.Context, in *GetProductEventRequest, opts ...grpc.CallOption) (*GetProductEventResponse, error)
+	// DeleteProductEvent deletes an event by ID.
+	DeleteProductEvent(ctx context.Context, in *DeleteProductEventRequest, opts ...grpc.CallOption) (*DeleteProductEventResponse, error)
+	// LinkProductEvent links an event to another entity.
+	LinkProductEvent(ctx context.Context, in *LinkProductEventRequest, opts ...grpc.CallOption) (*LinkProductEventResponse, error)
+	// GetEventContext retrieves events around a specific point in time.
+	GetEventContext(ctx context.Context, in *GetEventContextRequest, opts ...grpc.CallOption) (*GetEventContextResponse, error)
 }
 
 type productServiceClient struct {
@@ -157,6 +176,66 @@ func (c *productServiceClient) ListAliases(ctx context.Context, in *ListAliasesR
 	return out, nil
 }
 
+func (c *productServiceClient) ListProductEvents(ctx context.Context, in *ListProductEventsRequest, opts ...grpc.CallOption) (*ListProductEventsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListProductEventsResponse)
+	err := c.cc.Invoke(ctx, ProductService_ListProductEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) CreateProductEvent(ctx context.Context, in *CreateProductEventRequest, opts ...grpc.CallOption) (*CreateProductEventResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateProductEventResponse)
+	err := c.cc.Invoke(ctx, ProductService_CreateProductEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) GetProductEvent(ctx context.Context, in *GetProductEventRequest, opts ...grpc.CallOption) (*GetProductEventResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetProductEventResponse)
+	err := c.cc.Invoke(ctx, ProductService_GetProductEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) DeleteProductEvent(ctx context.Context, in *DeleteProductEventRequest, opts ...grpc.CallOption) (*DeleteProductEventResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteProductEventResponse)
+	err := c.cc.Invoke(ctx, ProductService_DeleteProductEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) LinkProductEvent(ctx context.Context, in *LinkProductEventRequest, opts ...grpc.CallOption) (*LinkProductEventResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LinkProductEventResponse)
+	err := c.cc.Invoke(ctx, ProductService_LinkProductEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *productServiceClient) GetEventContext(ctx context.Context, in *GetEventContextRequest, opts ...grpc.CallOption) (*GetEventContextResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetEventContextResponse)
+	err := c.cc.Invoke(ctx, ProductService_GetEventContext_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProductServiceServer is the server API for ProductService service.
 // All implementations must embed UnimplementedProductServiceServer
 // for forward compatibility.
@@ -181,6 +260,19 @@ type ProductServiceServer interface {
 	RemoveAlias(context.Context, *RemoveAliasRequest) (*AliasResponse, error)
 	// ListAliases lists all aliases for a product.
 	ListAliases(context.Context, *ListAliasesRequest) (*ListAliasesResponse, error)
+	// Timeline/Event management
+	// ListProductEvents lists events for a product with optional filtering.
+	ListProductEvents(context.Context, *ListProductEventsRequest) (*ListProductEventsResponse, error)
+	// CreateProductEvent creates a new timeline event for a product.
+	CreateProductEvent(context.Context, *CreateProductEventRequest) (*CreateProductEventResponse, error)
+	// GetProductEvent retrieves a specific event by ID.
+	GetProductEvent(context.Context, *GetProductEventRequest) (*GetProductEventResponse, error)
+	// DeleteProductEvent deletes an event by ID.
+	DeleteProductEvent(context.Context, *DeleteProductEventRequest) (*DeleteProductEventResponse, error)
+	// LinkProductEvent links an event to another entity.
+	LinkProductEvent(context.Context, *LinkProductEventRequest) (*LinkProductEventResponse, error)
+	// GetEventContext retrieves events around a specific point in time.
+	GetEventContext(context.Context, *GetEventContextRequest) (*GetEventContextResponse, error)
 	mustEmbedUnimplementedProductServiceServer()
 }
 
@@ -217,6 +309,24 @@ func (UnimplementedProductServiceServer) RemoveAlias(context.Context, *RemoveAli
 }
 func (UnimplementedProductServiceServer) ListAliases(context.Context, *ListAliasesRequest) (*ListAliasesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAliases not implemented")
+}
+func (UnimplementedProductServiceServer) ListProductEvents(context.Context, *ListProductEventsRequest) (*ListProductEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListProductEvents not implemented")
+}
+func (UnimplementedProductServiceServer) CreateProductEvent(context.Context, *CreateProductEventRequest) (*CreateProductEventResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateProductEvent not implemented")
+}
+func (UnimplementedProductServiceServer) GetProductEvent(context.Context, *GetProductEventRequest) (*GetProductEventResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetProductEvent not implemented")
+}
+func (UnimplementedProductServiceServer) DeleteProductEvent(context.Context, *DeleteProductEventRequest) (*DeleteProductEventResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteProductEvent not implemented")
+}
+func (UnimplementedProductServiceServer) LinkProductEvent(context.Context, *LinkProductEventRequest) (*LinkProductEventResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LinkProductEvent not implemented")
+}
+func (UnimplementedProductServiceServer) GetEventContext(context.Context, *GetEventContextRequest) (*GetEventContextResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetEventContext not implemented")
 }
 func (UnimplementedProductServiceServer) mustEmbedUnimplementedProductServiceServer() {}
 func (UnimplementedProductServiceServer) testEmbeddedByValue()                        {}
@@ -401,6 +511,114 @@ func _ProductService_ListAliases_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProductService_ListProductEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListProductEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).ListProductEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_ListProductEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).ListProductEvents(ctx, req.(*ListProductEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_CreateProductEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateProductEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).CreateProductEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_CreateProductEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).CreateProductEvent(ctx, req.(*CreateProductEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_GetProductEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetProductEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).GetProductEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_GetProductEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).GetProductEvent(ctx, req.(*GetProductEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_DeleteProductEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteProductEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).DeleteProductEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_DeleteProductEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).DeleteProductEvent(ctx, req.(*DeleteProductEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_LinkProductEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LinkProductEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).LinkProductEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_LinkProductEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).LinkProductEvent(ctx, req.(*LinkProductEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProductService_GetEventContext_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEventContextRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProductServiceServer).GetEventContext(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProductService_GetEventContext_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProductServiceServer).GetEventContext(ctx, req.(*GetEventContextRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProductService_ServiceDesc is the grpc.ServiceDesc for ProductService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -443,6 +661,30 @@ var ProductService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListAliases",
 			Handler:    _ProductService_ListAliases_Handler,
+		},
+		{
+			MethodName: "ListProductEvents",
+			Handler:    _ProductService_ListProductEvents_Handler,
+		},
+		{
+			MethodName: "CreateProductEvent",
+			Handler:    _ProductService_CreateProductEvent_Handler,
+		},
+		{
+			MethodName: "GetProductEvent",
+			Handler:    _ProductService_GetProductEvent_Handler,
+		},
+		{
+			MethodName: "DeleteProductEvent",
+			Handler:    _ProductService_DeleteProductEvent_Handler,
+		},
+		{
+			MethodName: "LinkProductEvent",
+			Handler:    _ProductService_LinkProductEvent_Handler,
+		},
+		{
+			MethodName: "GetEventContext",
+			Handler:    _ProductService_GetEventContext_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

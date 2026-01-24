@@ -3,7 +3,11 @@ package productservice
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
+	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -378,6 +382,316 @@ func (s *Service) ListAliases(ctx context.Context, req *productv1.ListAliasesReq
 	}, nil
 }
 
+// ==================== Event Methods ====================
+
+// ListProductEvents lists events for a product with optional filtering.
+func (s *Service) ListProductEvents(ctx context.Context, req *productv1.ListProductEventsRequest) (*productv1.ListProductEventsResponse, error) {
+	s.logger.Debug("ListProductEvents called",
+		logging.F("tenant_id", req.Filter.TenantId),
+	)
+
+	if req.Filter == nil || req.Filter.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required in filter")
+	}
+
+	filter := eventFilterFromProto(req.Filter)
+
+	events, err := s.repo.ListEvents(ctx, filter)
+	if err != nil {
+		s.logger.Error("Error listing events", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list events: %v", err)
+	}
+
+	protoEvents := make([]*productv1.ProductEvent, len(events))
+	for i, e := range events {
+		protoEvents[i] = eventToProto(e)
+	}
+
+	return &productv1.ListProductEventsResponse{
+		Events:     protoEvents,
+		TotalCount: int64(len(events)),
+	}, nil
+}
+
+// CreateProductEvent creates a new timeline event for a product.
+func (s *Service) CreateProductEvent(ctx context.Context, req *productv1.CreateProductEventRequest) (*productv1.CreateProductEventResponse, error) {
+	s.logger.Debug("CreateProductEvent called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("product_identifier", req.ProductIdentifier),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.ProductIdentifier == "" {
+		return nil, status.Error(codes.InvalidArgument, "product_identifier is required")
+	}
+	if req.Input == nil {
+		return nil, status.Error(codes.InvalidArgument, "input is required")
+	}
+	if req.Input.Title == "" {
+		return nil, status.Error(codes.InvalidArgument, "title is required")
+	}
+	if req.Input.OccurredAt == nil {
+		return nil, status.Error(codes.InvalidArgument, "occurred_at is required")
+	}
+
+	// Resolve product
+	product, err := s.repo.ResolveProduct(ctx, req.TenantId, req.ProductIdentifier)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "product not found: %s", req.ProductIdentifier)
+	}
+
+	// Parse metadata if provided
+	var metadata map[string]any
+	if req.Input.MetadataJson != "" {
+		if err := json.Unmarshal([]byte(req.Input.MetadataJson), &metadata); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid metadata JSON: %v", err)
+		}
+	}
+
+	event := &products.ProductEvent{
+		TenantID:    req.TenantId,
+		ProductID:   product.ID,
+		EventType:   eventTypeFromProto(req.Input.EventType),
+		Visibility:  eventVisibilityFromProto(req.Input.Visibility),
+		SourceType:  eventSourceTypeFromProto(req.Input.SourceType),
+		Title:       req.Input.Title,
+		Description: req.Input.Description,
+		OccurredAt:  req.Input.OccurredAt.AsTime(),
+		RecordedBy:  req.Input.RecordedBy,
+		Metadata:    metadata,
+	}
+
+	if err := s.repo.CreateEvent(ctx, event); err != nil {
+		s.logger.Error("Error creating event", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to create event: %v", err)
+	}
+
+	event.ProductName = product.Name
+
+	return &productv1.CreateProductEventResponse{
+		Event: eventToProto(event),
+	}, nil
+}
+
+// GetProductEvent retrieves a specific event by ID or UUID.
+func (s *Service) GetProductEvent(ctx context.Context, req *productv1.GetProductEventRequest) (*productv1.GetProductEventResponse, error) {
+	s.logger.Debug("GetProductEvent called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("identifier", req.Identifier),
+	)
+
+	if req.Identifier == "" {
+		return nil, status.Error(codes.InvalidArgument, "identifier is required")
+	}
+
+	var event *products.ProductEvent
+	var err error
+
+	// Try as numeric ID first
+	if id, parseErr := strconv.ParseInt(req.Identifier, 10, 64); parseErr == nil {
+		event, err = s.repo.GetEvent(ctx, id)
+	} else {
+		// Try as UUID
+		eventUUID, parseErr := uuid.Parse(req.Identifier)
+		if parseErr != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid identifier: must be numeric ID or UUID")
+		}
+		event, err = s.repo.GetEventByUUID(ctx, eventUUID)
+	}
+
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "event not found: %s", req.Identifier)
+	}
+
+	// Verify tenant
+	if req.TenantId != "" && event.TenantID != req.TenantId {
+		return nil, status.Error(codes.NotFound, "event not found")
+	}
+
+	// Load links
+	links, _ := s.repo.GetEventLinks(ctx, event.ID)
+	event.Links = links
+
+	return &productv1.GetProductEventResponse{
+		Event: eventToProto(event),
+	}, nil
+}
+
+// DeleteProductEvent deletes an event by ID or UUID.
+func (s *Service) DeleteProductEvent(ctx context.Context, req *productv1.DeleteProductEventRequest) (*productv1.DeleteProductEventResponse, error) {
+	s.logger.Debug("DeleteProductEvent called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("identifier", req.Identifier),
+	)
+
+	if req.Identifier == "" {
+		return nil, status.Error(codes.InvalidArgument, "identifier is required")
+	}
+
+	var eventID int64
+
+	// Try as numeric ID first
+	if id, parseErr := strconv.ParseInt(req.Identifier, 10, 64); parseErr == nil {
+		eventID = id
+	} else {
+		// Try as UUID - need to resolve to ID
+		eventUUID, parseErr := uuid.Parse(req.Identifier)
+		if parseErr != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid identifier: must be numeric ID or UUID")
+		}
+		event, err := s.repo.GetEventByUUID(ctx, eventUUID)
+		if err != nil {
+			return nil, status.Errorf(codes.NotFound, "event not found: %s", req.Identifier)
+		}
+		// Verify tenant
+		if req.TenantId != "" && event.TenantID != req.TenantId {
+			return nil, status.Error(codes.NotFound, "event not found")
+		}
+		eventID = event.ID
+	}
+
+	if err := s.repo.DeleteEvent(ctx, eventID); err != nil {
+		s.logger.Error("Error deleting event", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to delete event: %v", err)
+	}
+
+	return &productv1.DeleteProductEventResponse{
+		Success: true,
+	}, nil
+}
+
+// LinkProductEvent links an event to another entity.
+func (s *Service) LinkProductEvent(ctx context.Context, req *productv1.LinkProductEventRequest) (*productv1.LinkProductEventResponse, error) {
+	s.logger.Debug("LinkProductEvent called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("event_identifier", req.EventIdentifier),
+		logging.F("linked_entity_type", req.LinkedEntityType),
+		logging.F("linked_entity_id", req.LinkedEntityId),
+	)
+
+	if req.EventIdentifier == "" {
+		return nil, status.Error(codes.InvalidArgument, "event_identifier is required")
+	}
+	if req.LinkedEntityType == "" {
+		return nil, status.Error(codes.InvalidArgument, "linked_entity_type is required")
+	}
+	if req.LinkedEntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "linked_entity_id is required")
+	}
+
+	// Resolve event ID
+	var eventID int64
+	if id, parseErr := strconv.ParseInt(req.EventIdentifier, 10, 64); parseErr == nil {
+		eventID = id
+	} else {
+		eventUUID, parseErr := uuid.Parse(req.EventIdentifier)
+		if parseErr != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid event_identifier: must be numeric ID or UUID")
+		}
+		event, err := s.repo.GetEventByUUID(ctx, eventUUID)
+		if err != nil {
+			return nil, status.Errorf(codes.NotFound, "event not found: %s", req.EventIdentifier)
+		}
+		if req.TenantId != "" && event.TenantID != req.TenantId {
+			return nil, status.Error(codes.NotFound, "event not found")
+		}
+		eventID = event.ID
+	}
+
+	link := &products.ProductEventLink{
+		EventID:          eventID,
+		LinkedEntityType: req.LinkedEntityType,
+		LinkedEntityID:   req.LinkedEntityId,
+		LinkType:         linkTypeFromProto(req.LinkType),
+	}
+
+	if err := s.repo.LinkEventToSource(ctx, link); err != nil {
+		s.logger.Error("Error linking event", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to link event: %v", err)
+	}
+
+	return &productv1.LinkProductEventResponse{
+		Link: eventLinkToProto(link),
+	}, nil
+}
+
+// GetEventContext retrieves events around a specific point in time.
+func (s *Service) GetEventContext(ctx context.Context, req *productv1.GetEventContextRequest) (*productv1.GetEventContextResponse, error) {
+	s.logger.Debug("GetEventContext called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("product_identifier", req.ProductIdentifier),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.ProductIdentifier == "" {
+		return nil, status.Error(codes.InvalidArgument, "product_identifier is required")
+	}
+
+	// Resolve product
+	product, err := s.repo.ResolveProduct(ctx, req.TenantId, req.ProductIdentifier)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "product not found: %s", req.ProductIdentifier)
+	}
+
+	// Determine center time
+	var centerTime time.Time
+	if req.EventIdentifier != "" {
+		// Use the event's time as center
+		var event *products.ProductEvent
+		if id, parseErr := strconv.ParseInt(req.EventIdentifier, 10, 64); parseErr == nil {
+			event, err = s.repo.GetEvent(ctx, id)
+		} else {
+			eventUUID, parseErr := uuid.Parse(req.EventIdentifier)
+			if parseErr != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "invalid event_identifier: must be numeric ID or UUID")
+			}
+			event, err = s.repo.GetEventByUUID(ctx, eventUUID)
+		}
+		if err != nil {
+			return nil, status.Errorf(codes.NotFound, "event not found: %s", req.EventIdentifier)
+		}
+		centerTime = event.OccurredAt
+	} else if req.CenterTime != nil {
+		centerTime = req.CenterTime.AsTime()
+	} else {
+		return nil, status.Error(codes.InvalidArgument, "either center_time or event_identifier is required")
+	}
+
+	// Calculate window days based on requested event counts
+	// Default to 30 days if not specified
+	windowDays := 30
+	if req.EventsBeforeCount > 0 || req.EventsAfterCount > 0 {
+		// Estimate window size - this is a simplification
+		// A more sophisticated approach would use adaptive windowing
+		windowDays = 90
+	}
+
+	window, err := s.repo.GetContextWindow(ctx, product.ID, centerTime, windowDays)
+	if err != nil {
+		s.logger.Error("Error getting context window", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get context window: %v", err)
+	}
+
+	// Apply limits if specified
+	if req.EventsBeforeCount > 0 && len(window.EventsBefore) > int(req.EventsBeforeCount) {
+		// Keep the events closest to center time (last N)
+		start := len(window.EventsBefore) - int(req.EventsBeforeCount)
+		window.EventsBefore = window.EventsBefore[start:]
+	}
+	if req.EventsAfterCount > 0 && len(window.EventsAfter) > int(req.EventsAfterCount) {
+		// Keep the events closest to center time (first N)
+		window.EventsAfter = window.EventsAfter[:req.EventsAfterCount]
+	}
+
+	return &productv1.GetEventContextResponse{
+		Context: contextWindowToProto(window),
+	}, nil
+}
+
 // Conversion helpers
 
 func productToProto(p *products.Product) *productv1.Product {
@@ -467,4 +781,239 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ==================== Event Conversion Helpers ====================
+
+func eventToProto(e *products.ProductEvent) *productv1.ProductEvent {
+	if e == nil {
+		return nil
+	}
+
+	proto := &productv1.ProductEvent{
+		Id:          e.ID,
+		EventUuid:   e.EventUUID.String(),
+		TenantId:    e.TenantID,
+		ProductId:   e.ProductID,
+		EventType:   eventTypeToProto(e.EventType),
+		Visibility:  eventVisibilityToProto(e.Visibility),
+		SourceType:  eventSourceTypeToProto(e.SourceType),
+		Title:       e.Title,
+		Description: e.Description,
+		OccurredAt:  timestamppb.New(e.OccurredAt),
+		RecordedBy:  e.RecordedBy,
+		CreatedAt:   timestamppb.New(e.CreatedAt),
+		UpdatedAt:   timestamppb.New(e.UpdatedAt),
+		ProductName: e.ProductName,
+	}
+
+	// Serialize metadata to JSON
+	if e.Metadata != nil {
+		metadataJSON, err := json.Marshal(e.Metadata)
+		if err == nil {
+			proto.MetadataJson = string(metadataJSON)
+		}
+	}
+
+	// Convert links
+	for _, link := range e.Links {
+		proto.Links = append(proto.Links, eventLinkToProto(link))
+	}
+
+	return proto
+}
+
+func eventTypeToProto(et products.EventType) productv1.EventType {
+	switch et {
+	case products.EventTypeDecision:
+		return productv1.EventType_EVENT_TYPE_DECISION
+	case products.EventTypeMilestone:
+		return productv1.EventType_EVENT_TYPE_MILESTONE
+	case products.EventTypeRisk:
+		return productv1.EventType_EVENT_TYPE_RISK
+	case products.EventTypeRelease:
+		return productv1.EventType_EVENT_TYPE_RELEASE
+	case products.EventTypeCompetitor:
+		return productv1.EventType_EVENT_TYPE_COMPETITOR
+	case products.EventTypeOrgChange:
+		return productv1.EventType_EVENT_TYPE_ORG_CHANGE
+	case products.EventTypeMarket:
+		return productv1.EventType_EVENT_TYPE_MARKET
+	case products.EventTypeNote:
+		return productv1.EventType_EVENT_TYPE_NOTE
+	default:
+		return productv1.EventType_EVENT_TYPE_UNSPECIFIED
+	}
+}
+
+func eventTypeFromProto(et productv1.EventType) products.EventType {
+	switch et {
+	case productv1.EventType_EVENT_TYPE_DECISION:
+		return products.EventTypeDecision
+	case productv1.EventType_EVENT_TYPE_MILESTONE:
+		return products.EventTypeMilestone
+	case productv1.EventType_EVENT_TYPE_RISK:
+		return products.EventTypeRisk
+	case productv1.EventType_EVENT_TYPE_RELEASE:
+		return products.EventTypeRelease
+	case productv1.EventType_EVENT_TYPE_COMPETITOR:
+		return products.EventTypeCompetitor
+	case productv1.EventType_EVENT_TYPE_ORG_CHANGE:
+		return products.EventTypeOrgChange
+	case productv1.EventType_EVENT_TYPE_MARKET:
+		return products.EventTypeMarket
+	case productv1.EventType_EVENT_TYPE_NOTE:
+		return products.EventTypeNote
+	default:
+		return products.EventTypeNote // Default to note for unspecified
+	}
+}
+
+func eventVisibilityToProto(ev products.EventVisibility) productv1.EventVisibility {
+	switch ev {
+	case products.EventVisibilityInternal:
+		return productv1.EventVisibility_EVENT_VISIBILITY_INTERNAL
+	case products.EventVisibilityExternal:
+		return productv1.EventVisibility_EVENT_VISIBILITY_EXTERNAL
+	default:
+		return productv1.EventVisibility_EVENT_VISIBILITY_UNSPECIFIED
+	}
+}
+
+func eventVisibilityFromProto(ev productv1.EventVisibility) products.EventVisibility {
+	switch ev {
+	case productv1.EventVisibility_EVENT_VISIBILITY_INTERNAL:
+		return products.EventVisibilityInternal
+	case productv1.EventVisibility_EVENT_VISIBILITY_EXTERNAL:
+		return products.EventVisibilityExternal
+	default:
+		return products.EventVisibilityInternal // Default to internal
+	}
+}
+
+func eventSourceTypeToProto(st products.EventSourceType) productv1.EventSourceType {
+	switch st {
+	case products.EventSourceManual:
+		return productv1.EventSourceType_EVENT_SOURCE_TYPE_MANUAL
+	case products.EventSourceDerived:
+		// Map derived to unspecified since proto has different options
+		return productv1.EventSourceType_EVENT_SOURCE_TYPE_UNSPECIFIED
+	default:
+		return productv1.EventSourceType_EVENT_SOURCE_TYPE_UNSPECIFIED
+	}
+}
+
+func eventSourceTypeFromProto(st productv1.EventSourceType) products.EventSourceType {
+	switch st {
+	case productv1.EventSourceType_EVENT_SOURCE_TYPE_MANUAL:
+		return products.EventSourceManual
+	case productv1.EventSourceType_EVENT_SOURCE_TYPE_EMAIL,
+		productv1.EventSourceType_EVENT_SOURCE_TYPE_MEETING,
+		productv1.EventSourceType_EVENT_SOURCE_TYPE_DOCUMENT:
+		return products.EventSourceDerived
+	default:
+		return products.EventSourceManual // Default to manual
+	}
+}
+
+func linkTypeToProto(lt string) productv1.LinkType {
+	switch lt {
+	case "source":
+		return productv1.LinkType_LINK_TYPE_SOURCE
+	case "reference":
+		return productv1.LinkType_LINK_TYPE_REFERENCE
+	case "follow_up":
+		return productv1.LinkType_LINK_TYPE_FOLLOW_UP
+	default:
+		return productv1.LinkType_LINK_TYPE_UNSPECIFIED
+	}
+}
+
+func linkTypeFromProto(lt productv1.LinkType) string {
+	switch lt {
+	case productv1.LinkType_LINK_TYPE_SOURCE:
+		return "source"
+	case productv1.LinkType_LINK_TYPE_REFERENCE:
+		return "reference"
+	case productv1.LinkType_LINK_TYPE_FOLLOW_UP:
+		return "follow_up"
+	default:
+		return "reference" // Default to reference
+	}
+}
+
+func eventLinkToProto(link *products.ProductEventLink) *productv1.ProductEventLink {
+	if link == nil {
+		return nil
+	}
+	return &productv1.ProductEventLink{
+		Id:               link.ID,
+		EventId:          link.EventID,
+		LinkedEntityType: link.LinkedEntityType,
+		LinkedEntityId:   link.LinkedEntityID,
+		LinkType:         linkTypeToProto(link.LinkType),
+		CreatedAt:        timestamppb.New(link.CreatedAt),
+	}
+}
+
+func eventFilterFromProto(f *productv1.EventFilter) products.EventFilter {
+	filter := products.EventFilter{
+		TenantID: f.TenantId,
+		Limit:    int(f.Limit),
+		Offset:   int(f.Offset),
+	}
+
+	if f.ProductId != nil {
+		filter.ProductID = f.ProductId
+	}
+
+	if len(f.EventTypes) > 0 {
+		filter.EventTypes = make([]products.EventType, len(f.EventTypes))
+		for i, et := range f.EventTypes {
+			filter.EventTypes[i] = eventTypeFromProto(et)
+		}
+	}
+
+	if f.Visibility != productv1.EventVisibility_EVENT_VISIBILITY_UNSPECIFIED {
+		vis := eventVisibilityFromProto(f.Visibility)
+		filter.Visibility = &vis
+	}
+
+	if f.Since != nil {
+		t := f.Since.AsTime()
+		filter.Since = &t
+	}
+
+	if f.Until != nil {
+		t := f.Until.AsTime()
+		filter.Until = &t
+	}
+
+	return filter
+}
+
+func contextWindowToProto(w *products.ContextWindow) *productv1.ContextWindow {
+	if w == nil {
+		return nil
+	}
+
+	proto := &productv1.ContextWindow{
+		CenterTime:  timestamppb.New(w.CenterTime),
+		WindowStart: timestamppb.New(w.WindowStart),
+		WindowEnd:   timestamppb.New(w.WindowEnd),
+	}
+
+	if w.CenterEvent != nil {
+		proto.CenterEvent = eventToProto(w.CenterEvent)
+	}
+
+	for _, e := range w.EventsBefore {
+		proto.EventsBefore = append(proto.EventsBefore, eventToProto(e))
+	}
+
+	for _, e := range w.EventsAfter {
+		proto.EventsAfter = append(proto.EventsAfter, eventToProto(e))
+	}
+
+	return proto
 }
