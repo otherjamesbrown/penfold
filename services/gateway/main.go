@@ -19,6 +19,7 @@ import (
 
 	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
+	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
 	mentionsv1 "github.com/otherjamesbrown/penfold/api/proto/mentions/v1"
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
@@ -34,9 +35,11 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	"github.com/otherjamesbrown/penfold/pkg/sources"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
+	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
+	"github.com/otherjamesbrown/penfold/services/gateway/ingestservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/mentionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/middleware"
 	"github.com/otherjamesbrown/penfold/services/gateway/pipelineservice"
@@ -192,6 +195,12 @@ func main() {
 	productSvc := productservice.NewService(productRepo, logger)
 	productv1.RegisterProductServiceServer(grpcServer, productSvc)
 	logger.Info("Registered ProductService")
+
+	// Register IngestService for email and meeting ingestion.
+	ingestRepo := storage.NewRepository(dbPool, logger)
+	ingestSvc := ingestservice.NewService(ingestRepo, logger)
+	ingestv1.RegisterIngestServiceServer(grpcServer, ingestSvc)
+	logger.Info("Registered IngestService")
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()

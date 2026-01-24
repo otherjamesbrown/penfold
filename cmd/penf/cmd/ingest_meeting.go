@@ -2,27 +2,27 @@ package cmd
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/otherjamesbrown/penfold/pkg/glossary"
+	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
+	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/meeting"
-	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 )
 
 // Meeting ingest specific flags
 var (
-	meetingSource    string
-	meetingPlatform  string
-	meetingDryRun    bool
+	meetingSource   string
+	meetingPlatform string
+	meetingDryRun   bool
 )
 
 // DefaultTenantID for single-tenant mode
@@ -181,34 +181,31 @@ func runIngestMeeting(ctx context.Context, deps *IngestCommandDeps, path string)
 		return nil
 	}
 
-	// Initialize database connection
-	pool, err := connectToDatabase(ctx, cfg)
+	// Connect to gateway via gRPC
+	conn, err := connectMeetingToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return fmt.Errorf("connecting to gateway: %w", err)
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	// Create logger
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).
-		With().
-		Timestamp().
-		Str("component", "meeting_ingest").
-		Logger()
+	ingestClient := ingestv1.NewIngestServiceClient(conn)
 
 	// Process each meeting
 	startTime := time.Now()
-	var importedCount, failedCount int
+	var importedCount, skippedCount, failedCount int
 
 	for i, m := range meetings {
 		fmt.Printf("[%d/%d] Processing: %s\n", i+1, len(meetings), m.Title)
 
-		err := processMeeting(ctx, pool, logger, m, tenantID, meetingSource, meetingPlatform)
+		resp, err := processMeetingViaGRPC(ctx, ingestClient, m, tenantID, meetingSource, meetingPlatform)
 		if err != nil {
-			logger.Error().Err(err).Str("meeting", m.Title).Msg("Failed to process meeting")
 			fmt.Printf("  ERROR: %v\n", err)
 			failedCount++
+		} else if resp.WasDuplicate {
+			fmt.Printf("  SKIPPED (duplicate)\n")
+			skippedCount++
 		} else {
-			fmt.Printf("  OK\n")
+			fmt.Printf("  OK (source_id: %s)\n", resp.SourceId)
 			importedCount++
 		}
 	}
@@ -220,6 +217,7 @@ func runIngestMeeting(ctx context.Context, deps *IngestCommandDeps, path string)
 	fmt.Println(strings.Repeat("=", 50))
 	fmt.Printf("  Total:       %d\n", len(meetings))
 	fmt.Printf("  Imported:    \033[32m%d\033[0m\n", importedCount)
+	fmt.Printf("  Skipped:     \033[33m%d\033[0m\n", skippedCount)
 	fmt.Printf("  Failed:      \033[31m%d\033[0m\n", failedCount)
 	fmt.Printf("  Duration:    %s\n", formatDuration(duration))
 
@@ -230,23 +228,66 @@ func runIngestMeeting(ctx context.Context, deps *IngestCommandDeps, path string)
 	return nil
 }
 
-// processMeeting processes a single meeting and stores it in the database.
-func processMeeting(ctx context.Context, pool *pgxpool.Pool, logger zerolog.Logger, m *meeting.Meeting, tenantID, sourceTag, platform string) error {
+// connectMeetingToGateway establishes a gRPC connection to the gateway.
+func connectMeetingToGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	defer cancel()
+
+	opts := []grpc.DialOption{
+		grpc.WithBlock(),
+	}
+
+	if cfg.Insecure {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	} else {
+		// Default to insecure for development
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+
+	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to gateway at %s: %w", cfg.ServerAddress, err)
+	}
+
+	return conn, nil
+}
+
+// platformToProto converts a platform string to the proto Platform enum.
+func platformToProto(platform string) ingestv1.Platform {
+	switch strings.ToLower(platform) {
+	case "webex":
+		// Webex is similar to Teams in functionality
+		return ingestv1.Platform_PLATFORM_TEAMS
+	case "teams":
+		return ingestv1.Platform_PLATFORM_TEAMS
+	case "zoom":
+		return ingestv1.Platform_PLATFORM_ZOOM
+	case "google_meet", "googlemeet", "meet":
+		return ingestv1.Platform_PLATFORM_GOOGLE_MEET
+	case "local":
+		return ingestv1.Platform_PLATFORM_LOCAL
+	default:
+		return ingestv1.Platform_PLATFORM_UNSPECIFIED
+	}
+}
+
+// processMeetingViaGRPC processes a single meeting and sends it to the gateway via gRPC.
+func processMeetingViaGRPC(ctx context.Context, client ingestv1.IngestServiceClient, m *meeting.Meeting, tenantID, sourceTag, platform string) (*ingestv1.IngestMeetingResponse, error) {
 	// Resolve tenant ID
 	resolvedTenantID := tenantID
 	if resolvedTenantID == "" || resolvedTenantID == "default" {
 		resolvedTenantID = DefaultTenantID
 	}
 
-	// Parse transcript if available
-	var transcriptResult *meeting.TranscriptResult
+	// Parse transcript if available (CLI keeps file parsing)
 	if m.Files.TranscriptPath != "" {
 		f, err := os.Open(m.Files.TranscriptPath)
 		if err != nil {
-			return fmt.Errorf("opening transcript: %w", err)
+			return nil, fmt.Errorf("opening transcript: %w", err)
 		}
 		defer f.Close()
 
+		var transcriptResult *meeting.TranscriptResult
 		// Detect format and parse
 		if strings.HasSuffix(strings.ToLower(m.Files.TranscriptPath), ".vtt") {
 			transcriptResult, err = meeting.ParseVTT(f)
@@ -254,7 +295,7 @@ func processMeeting(ctx context.Context, pool *pgxpool.Pool, logger zerolog.Logg
 			transcriptResult, err = meeting.ParseTXTTranscript(f)
 		}
 		if err != nil {
-			return fmt.Errorf("parsing transcript: %w", err)
+			return nil, fmt.Errorf("parsing transcript: %w", err)
 		}
 		m.Transcript = transcriptResult
 		m.Participants = transcriptResult.Speakers
@@ -263,18 +304,17 @@ func processMeeting(ctx context.Context, pool *pgxpool.Pool, logger zerolog.Logg
 		}
 	}
 
-	// Parse chat if available
-	var chatResult *meeting.ChatResult
+	// Parse chat if available (CLI keeps file parsing)
 	if m.Files.ChatPath != "" {
 		f, err := os.Open(m.Files.ChatPath)
 		if err != nil {
-			return fmt.Errorf("opening chat: %w", err)
+			return nil, fmt.Errorf("opening chat: %w", err)
 		}
 		defer f.Close()
 
-		chatResult, err = meeting.ParseChatLog(f)
+		chatResult, err := meeting.ParseChatLog(f)
 		if err != nil {
-			return fmt.Errorf("parsing chat: %w", err)
+			return nil, fmt.Errorf("parsing chat: %w", err)
 		}
 		m.Chat = chatResult
 
@@ -293,223 +333,76 @@ func processMeeting(ctx context.Context, pool *pgxpool.Pool, logger zerolog.Logg
 		}
 	}
 
-	// Start transaction
-	tx, err := pool.Begin(ctx)
+	// Convert parsed meeting to proto request
+	req := meetingToProtoRequest(m, resolvedTenantID, sourceTag, platform)
+
+	// Call gRPC service
+	resp, err := client.IngestMeeting(ctx, req)
 	if err != nil {
-		return fmt.Errorf("starting transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	// Insert meeting record
-	participantsJSON := "[]"
-	if len(m.Participants) > 0 {
-		participantsJSON = `["` + strings.Join(m.Participants, `","`) + `"]`
+		return nil, fmt.Errorf("calling IngestMeeting: %w", err)
 	}
 
-	// Normalize title for search
-	normalizedTitle := meeting.NormalizeTitle(m.Title)
-
-	var meetingID int64
-	err = tx.QueryRow(ctx, `
-		INSERT INTO meetings (
-			tenant_id, title, normalized_title, meeting_date, platform, duration_seconds,
-			participant_count, participants, source_tag, source_path,
-			has_transcript, has_chat, has_video, has_audio,
-			processing_status, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
-		RETURNING id
-	`,
-		resolvedTenantID,
-		m.Title,
-		normalizedTitle,
-		m.Date,
-		platform,
-		m.DurationSeconds,
-		len(m.Participants),
-		participantsJSON,
-		sourceTag,
-		m.Files.TranscriptPath,
-		m.Files.TranscriptPath != "",
-		m.Files.ChatPath != "",
-		m.Files.VideoPath != "",
-		m.Files.AudioPath != "",
-		"pending",
-	).Scan(&meetingID)
-	if err != nil {
-		return fmt.Errorf("inserting meeting: %w", err)
-	}
-
-	logger.Info().Int64("meeting_id", meetingID).Str("title", m.Title).Msg("Created meeting record")
-
-	// Insert transcript as source if available
-	if transcriptResult != nil && transcriptResult.FullText != "" {
-		// Generate external_id from meeting ID and file path
-		externalID := fmt.Sprintf("meeting-%d-transcript", meetingID)
-
-		// Compute SHA256 hash
-		hash := sha256.Sum256([]byte(transcriptResult.FullText))
-		contentHash := hex.EncodeToString(hash[:])
-
-		var sourceID int64
-		err = tx.QueryRow(ctx, `
-			INSERT INTO sources (
-				tenant_id, meeting_id, source_system, external_id, content_type,
-				raw_content, content_hash, processing_status,
-				created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-			RETURNING id
-		`,
-			resolvedTenantID,
-			meetingID,
-			"meeting_transcript",
-			externalID,
-			"text/plain",
-			transcriptResult.FullText,
-			contentHash,
-			"pending",
-		).Scan(&sourceID)
-		if err != nil {
-			return fmt.Errorf("inserting transcript source: %w", err)
-		}
-
-		logger.Info().Int64("source_id", sourceID).Msg("Created transcript source")
-	}
-
-	// Insert chat as source if available
-	if chatResult != nil && len(chatResult.Messages) > 0 {
-		// Build chat text
-		var chatText strings.Builder
-		for _, msg := range chatResult.Messages {
-			chatText.WriteString(fmt.Sprintf("%s: %s\n", msg.Speaker, msg.Message))
-		}
-
-		// Generate external_id from meeting ID
-		externalID := fmt.Sprintf("meeting-%d-chat", meetingID)
-
-		// Compute SHA256 hash
-		chatHash := sha256.Sum256([]byte(chatText.String()))
-		chatContentHash := hex.EncodeToString(chatHash[:])
-
-		var sourceID int64
-		err = tx.QueryRow(ctx, `
-			INSERT INTO sources (
-				tenant_id, meeting_id, source_system, external_id, content_type,
-				raw_content, content_hash, processing_status,
-				created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-			RETURNING id
-		`,
-			resolvedTenantID,
-			meetingID,
-			"meeting_chat",
-			externalID,
-			"text/plain",
-			chatText.String(),
-			chatContentHash,
-			"pending",
-		).Scan(&sourceID)
-		if err != nil {
-			return fmt.Errorf("inserting chat source: %w", err)
-		}
-
-		logger.Info().Int64("source_id", sourceID).Msg("Created chat source")
-	}
-
-	// Commit transaction
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("committing transaction: %w", err)
-	}
-
-	// Detect acronyms in transcript and queue for review
-	if transcriptResult != nil && transcriptResult.FullText != "" {
-		detectAndQueueAcronyms(ctx, pool, logger, transcriptResult, meetingID, m.Title, resolvedTenantID)
-	}
-
-	return nil
+	return resp, nil
 }
 
-// detectAndQueueAcronyms detects unknown acronyms in transcript and queues them for review.
-func detectAndQueueAcronyms(ctx context.Context, pool *pgxpool.Pool, logger zerolog.Logger, transcript *meeting.TranscriptResult, meetingID int64, meetingTitle, tenantID string) {
-	// Load known terms from glossary
-	glossaryRepo := glossary.NewRepository(pool)
-	terms, err := glossaryRepo.List(ctx, glossary.TermFilter{Limit: 1000})
-	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to load glossary terms for acronym detection")
-		return
+// meetingToProtoRequest converts a parsed meeting to a proto IngestMeetingRequest.
+func meetingToProtoRequest(m *meeting.Meeting, tenantID, sourceTag, platform string) *ingestv1.IngestMeetingRequest {
+	req := &ingestv1.IngestMeetingRequest{
+		TenantId: tenantID,
+		Title:    m.Title,
+		Platform: platformToProto(platform),
+		Labels:   []string{sourceTag},
 	}
 
-	// Create detector with known terms
-	detector := meeting.NewAcronymDetector()
-	knownTerms := make([]string, len(terms))
-	for i, t := range terms {
-		knownTerms[i] = t.Term
-	}
-	detector.SetKnownTerms(knownTerms)
-
-	// Detect acronyms (require at least 1 occurrence)
-	acronyms := detector.DetectInTranscript(transcript, 1)
-
-	if len(acronyms) == 0 {
-		return
-	}
-
-	// Queue acronyms for review
-	reviewRepo := reviewqueue.NewRepository(pool)
-	sourceRef := fmt.Sprintf("Meeting: %s", meetingTitle)
-
-	var queued int
-	for _, acr := range acronyms {
-		question := reviewqueue.AcronymQuestion{
-			Term:            acr.Term,
-			Context:         acr.Context,
-			SourceType:      "meeting",
-			SourceID:        meetingID,
-			SourceReference: sourceRef,
-			Confidence:      calculateAcronymConfidence(acr),
-		}
-
-		_, created, err := reviewRepo.CreateIfNotExists(ctx, question.ToInput())
-		if err != nil {
-			logger.Warn().Err(err).Str("term", acr.Term).Msg("Failed to queue acronym for review")
-			continue
-		}
-		if created {
-			queued++
-			logger.Debug().Str("term", acr.Term).Int("count", acr.Count).Msg("Queued acronym for review")
+	// Set meeting times
+	if !m.Date.IsZero() {
+		req.ActualStart = timestamppb.New(m.Date)
+		// Estimate end time based on duration
+		if m.DurationSeconds > 0 {
+			endTime := m.Date.Add(time.Duration(m.DurationSeconds) * time.Second)
+			req.ActualEnd = timestamppb.New(endTime)
 		}
 	}
 
-	if queued > 0 {
-		logger.Info().Int("queued", queued).Int("total", len(acronyms)).Msg("Queued acronyms for review")
-	}
-}
-
-// calculateAcronymConfidence estimates confidence that a detected term is a meaningful acronym.
-func calculateAcronymConfidence(acr meeting.DetectedAcronym) float64 {
-	// Base confidence
-	confidence := 0.5
-
-	// Higher confidence for terms appearing multiple times
-	if acr.Count >= 3 {
-		confidence += 0.2
-	} else if acr.Count >= 2 {
-		confidence += 0.1
+	// Convert participants
+	for _, name := range m.Participants {
+		req.Participants = append(req.Participants, &ingestv1.MeetingParticipant{
+			Name:     name,
+			Attended: true,
+		})
 	}
 
-	// Higher confidence for longer acronyms (less likely to be noise)
-	if len(acr.Term) >= 4 {
-		confidence += 0.1
+	// Convert transcript segments
+	if m.Transcript != nil {
+		for _, seg := range m.Transcript.Segments {
+			req.Transcript = append(req.Transcript, &ingestv1.TranscriptSegment{
+				Speaker:      seg.Speaker,
+				Text:         seg.Text,
+				StartSeconds: float64(seg.StartMs) / 1000.0,
+				EndSeconds:   float64(seg.EndMs) / 1000.0,
+			})
+		}
 	}
 
-	// Cap at 0.9
-	if confidence > 0.9 {
-		confidence = 0.9
+	// Convert chat messages
+	if m.Chat != nil {
+		for _, msg := range m.Chat.Messages {
+			chatMsg := &ingestv1.ChatMessage{
+				Sender: msg.Speaker,
+				Text:   msg.Message,
+			}
+			if !msg.Timestamp.IsZero() {
+				chatMsg.Timestamp = timestamppb.New(msg.Timestamp)
+			}
+			req.ChatMessages = append(req.ChatMessages, chatMsg)
+		}
 	}
 
-	return confidence
+	return req
 }
 
 // runResolveMeetingParticipants resolves meeting participants to people.
+// NOTE: This still uses direct database access as there is no gRPC service for this operation yet.
 func runResolveMeetingParticipants(ctx context.Context, deps *IngestCommandDeps) error {
 	// Load configuration
 	cfg, err := deps.LoadConfig()
@@ -531,7 +424,7 @@ func runResolveMeetingParticipants(ctx context.Context, deps *IngestCommandDeps)
 	fmt.Printf("  Tenant: %s\n\n", tenantID)
 
 	// Initialize database connection
-	pool, err := connectToDatabase(ctx, cfg)
+	pool, err := connectMeetingToDatabase(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
@@ -678,6 +571,28 @@ func runResolveMeetingParticipants(ctx context.Context, deps *IngestCommandDeps)
 	return nil
 }
 
+// connectMeetingToDatabase establishes a database connection for meeting-related operations.
+// NOTE: This is used by resolve and mentions subcommands that still use direct DB access.
+func connectMeetingToDatabase(ctx context.Context, cfg *config.CLIConfig) (*pgxpool.Pool, error) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		return nil, fmt.Errorf("DATABASE_URL environment variable is required for this operation")
+	}
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("creating database pool: %w", err)
+	}
+
+	// Test the connection
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("pinging database: %w", err)
+	}
+
+	return pool, nil
+}
+
 // loadPeople loads all people from the database for entity resolution.
 func loadPeople(ctx context.Context, pool *pgxpool.Pool, tenantID string) ([]meeting.Person, error) {
 	rows, err := pool.Query(ctx, `
@@ -741,6 +656,7 @@ Examples:
 }
 
 // runExtractMeetingMentions extracts mentions of people from meeting transcripts.
+// NOTE: This still uses direct database access as there is no gRPC service for this operation yet.
 func runExtractMeetingMentions(ctx context.Context, deps *IngestCommandDeps) error {
 	// Load configuration
 	cfg, err := deps.LoadConfig()
@@ -762,7 +678,7 @@ func runExtractMeetingMentions(ctx context.Context, deps *IngestCommandDeps) err
 	fmt.Printf("  Tenant: %s\n\n", tenantID)
 
 	// Initialize database connection
-	pool, err := connectToDatabase(ctx, cfg)
+	pool, err := connectMeetingToDatabase(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
