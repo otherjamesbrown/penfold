@@ -111,8 +111,8 @@ message SearchRequest {
   // Search mode to use.
   SearchMode mode = 4;
 
-  // Filter results by source type (e.g., "email", "document", "slack").
-  repeated string source_types = 5;
+  // Filter results by source type.
+  repeated SourceType source_types = 5;
 
   // Filter results by date range.
   optional google.protobuf.Timestamp from_date = 6;
@@ -143,6 +143,27 @@ enum SearchMode {
   SEARCH_MODE_HYBRID = 3;
 }
 
+// SourceType defines the types of content sources.
+enum SourceType {
+  // Unspecified source type.
+  SOURCE_TYPE_UNSPECIFIED = 0;
+
+  // Email message.
+  SOURCE_TYPE_EMAIL = 1;
+
+  // Document (PDF, Word, etc.).
+  SOURCE_TYPE_DOCUMENT = 2;
+
+  // Slack message.
+  SOURCE_TYPE_SLACK = 3;
+
+  // Meeting notes or transcript.
+  SOURCE_TYPE_MEETING = 4;
+
+  // Calendar event.
+  SOURCE_TYPE_CALENDAR = 5;
+}
+
 // SearchResponse contains search results.
 message SearchResponse {
   // List of search results.
@@ -169,8 +190,8 @@ message SearchResult {
   // Content snippet with search term highlighting.
   string snippet = 3;
 
-  // Source type (e.g., "email", "document", "slack_message").
-  string source_type = 4;
+  // Source type.
+  SourceType source_type = 4;
 
   // Source identifier (e.g., email message ID, document path).
   string source_id = 5;

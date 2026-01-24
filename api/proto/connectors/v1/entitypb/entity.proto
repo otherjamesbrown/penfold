@@ -119,6 +119,43 @@ message PersonSkipped {
 }
 
 // =============================================================================
+// Product Enums
+// =============================================================================
+
+// ProductType specifies the type of product in the hierarchy.
+enum ProductType {
+  // Default value
+  PRODUCT_TYPE_UNSPECIFIED = 0;
+
+  // Top-level product
+  PRODUCT_TYPE_PRODUCT = 1;
+
+  // Sub-product within a product
+  PRODUCT_TYPE_SUB_PRODUCT = 2;
+
+  // Feature within a product or sub-product
+  PRODUCT_TYPE_FEATURE = 3;
+}
+
+// ProductStatus specifies the lifecycle status of a product.
+enum ProductStatus {
+  // Default: active
+  PRODUCT_STATUS_UNSPECIFIED = 0;
+
+  // Currently active and supported
+  PRODUCT_STATUS_ACTIVE = 1;
+
+  // In beta/preview phase
+  PRODUCT_STATUS_BETA = 2;
+
+  // Being phased out
+  PRODUCT_STATUS_SUNSET = 3;
+
+  // No longer supported
+  PRODUCT_STATUS_DEPRECATED = 4;
+}
+
+// =============================================================================
 // Products Messages
 // =============================================================================
 
@@ -130,8 +167,8 @@ message ProductInput {
   // Product description (optional)
   string description = 2;
 
-  // Product type: product, sub_product, feature (optional, default: product)
-  string product_type = 3;
+  // Product type (optional, default: PRODUCT_TYPE_PRODUCT)
+  ProductType product_type = 3;
 
   // Name of parent product for hierarchy (optional)
   string parent_name = 4;
@@ -139,8 +176,8 @@ message ProductInput {
   // Alternative names for this product (optional)
   repeated string aliases = 5;
 
-  // Product status: active, beta, sunset, deprecated (optional, default: active)
-  string status = 6;
+  // Product status (optional, default: PRODUCT_STATUS_ACTIVE)
+  ProductStatus status = 6;
 
   // Keywords for matching (optional)
   repeated string keywords = 7;
@@ -158,13 +195,13 @@ message Product {
   string description = 3;
 
   // Product type
-  string product_type = 4;
+  ProductType product_type = 4;
 
   // Parent product ID if hierarchical
   optional int64 parent_id = 5;
 
   // Status
-  string status = 6;
+  ProductStatus status = 6;
 
   // When created
   google.protobuf.Timestamp created_at = 7;

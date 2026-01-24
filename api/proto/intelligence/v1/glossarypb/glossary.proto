@@ -48,13 +48,32 @@ service GlossaryService {
 }
 
 // =============================================================================
+// Enums
+// =============================================================================
+
+// EntityType specifies the type of entity a glossary term can link to.
+enum EntityType {
+  // Unspecified entity type.
+  ENTITY_TYPE_UNSPECIFIED = 0;
+
+  // A product in the product catalog.
+  ENTITY_TYPE_PRODUCT = 1;
+
+  // A project or initiative.
+  ENTITY_TYPE_PROJECT = 2;
+
+  // A company or organization.
+  ENTITY_TYPE_COMPANY = 3;
+}
+
+// =============================================================================
 // Core Messages
 // =============================================================================
 
 // LinkedEntity represents a product, project, or company that a term links to.
 message LinkedEntity {
-  // Entity type: product, project, company.
-  string entity_type = 1;
+  // Entity type.
+  EntityType entity_type = 1;
 
   // Entity ID.
   int64 entity_id = 2;
@@ -276,8 +295,8 @@ message LinkTermRequest {
   // Term string to link (alternative to term_id).
   string term_str = 2;
 
-  // Entity type: product, project, company.
-  string entity_type = 3;
+  // Entity type.
+  EntityType entity_type = 3;
 
   // Entity ID.
   int64 entity_id = 4;

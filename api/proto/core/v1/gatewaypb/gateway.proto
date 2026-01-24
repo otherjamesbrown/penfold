@@ -9,7 +9,7 @@ package penfold.core.gateway.v1;
 option go_package = "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb;gatewaypb";
 
 import "google/protobuf/timestamp.proto";
-import "commonpb/common.proto";
+import "core/v1/commonpb/common.proto";
 
 // =============================================================================
 // Service Definition

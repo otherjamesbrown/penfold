@@ -311,8 +311,9 @@ message ListEmailsRequest {
   // Thread ID to filter by specific conversation
   optional string thread_id = 11;
 
-  // Sort order: "date_desc" (default), "date_asc"
-  string order_by = 12;
+  // Sort order for results
+  // Default: SORT_ORDER_DATE_DESC
+  SortOrder order_by = 12;
 }
 
 // ListEmailsResponse contains a paginated list of emails.
@@ -338,9 +339,9 @@ message GetEmailRequest {
   // Gmail message ID
   string email_id = 2;
 
-  // Format for the email body: "minimal", "full", "raw", "metadata"
-  // Default: "full"
-  string format = 3;
+  // Format for the email body
+  // Default: EMAIL_FORMAT_FULL
+  EmailFormat format = 3;
 }
 
 // =============================================================================
@@ -381,17 +382,32 @@ message WatchMailboxResponse {
 // Common Enums
 // =============================================================================
 
+// SortOrder specifies the ordering for list operations.
+enum SortOrder {
+  // Unspecified, defaults to date descending
+  SORT_ORDER_UNSPECIFIED = 0;
+
+  // Newest first
+  SORT_ORDER_DATE_DESC = 1;
+
+  // Oldest first
+  SORT_ORDER_DATE_ASC = 2;
+}
+
 // EmailFormat specifies the format for retrieving email content.
 enum EmailFormat {
+  // Unspecified, defaults to full format
+  EMAIL_FORMAT_UNSPECIFIED = 0;
+
   // Returns only email metadata (IDs, labels, thread info)
-  EMAIL_FORMAT_METADATA = 0;
+  EMAIL_FORMAT_METADATA = 1;
 
   // Returns all email data except body content
-  EMAIL_FORMAT_MINIMAL = 1;
+  EMAIL_FORMAT_MINIMAL = 2;
 
   // Returns full email message including body
-  EMAIL_FORMAT_FULL = 2;
+  EMAIL_FORMAT_FULL = 3;
 
   // Returns the raw RFC 2822 formatted email
-  EMAIL_FORMAT_RAW = 3;
+  EMAIL_FORMAT_RAW = 4;
 }
