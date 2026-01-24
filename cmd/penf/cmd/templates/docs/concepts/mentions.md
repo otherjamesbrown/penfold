@@ -126,11 +126,11 @@ Candidates are scored based on:
 ### View Pending Mentions
 
 ```bash
-# Get context for Claude processing
+# Get context for Claude processing (recommended)
 penf process mentions context --output json
 
-# List pending mentions
-penf review questions list --type mention
+# List pending person-type questions
+penf review questions list --type person
 ```
 
 ### Resolve Mentions

@@ -54,7 +54,17 @@ Examples:
   penf product query "what are the sub-products of Cloud Platform"
 
   # Search for products
-  penf product query "kubernetes"`,
+  penf product query "kubernetes"
+
+JSON Output (for AI processing):
+  penf product query "who owns LKE" -o json
+
+  Returns (varies by query type):
+  {
+    "type": "role",
+    "message": "Jane Doe (jane@example.com) is the DRI for LKE",
+    "persons": [{"person_id": 1, "name": "Jane Doe", "role": "DRI", ...}]
+  }`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runProductQuery(cmd.Context(), deps, strings.Join(args, " "))

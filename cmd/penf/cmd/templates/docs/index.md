@@ -119,6 +119,127 @@ penf review questions list     # List pending questions
 penf review questions resolve ID "answer"  # Answer question
 ```
 
+## Quick Reference for AI Agents
+
+This section provides patterns optimized for Claude Code working with the penf CLI.
+
+### Batch Processing Pattern
+
+Use `penf process <workflow> context` to get full context for intelligent batch processing:
+
+```bash
+# Get all pending items with context for decision-making
+penf process acronyms context --output json
+penf process mentions context --output json
+penf process onboarding context --output json
+```
+
+Then submit batch resolutions:
+
+```bash
+# Resolve multiple items at once
+penf process acronyms batch-resolve '{"resolutions":[...],"dismissals":[...]}'
+```
+
+### JSON Output for Processing
+
+Always use `--output json` or `-o json` when you need to process results:
+
+```bash
+# Search with JSON output
+penf search "API gateway" -o json
+
+# List with JSON output
+penf review questions list -o json
+penf glossary list -o json
+penf product list -o json
+```
+
+### Common JSON Response Patterns
+
+**Search results:**
+```json
+{
+  "results": [
+    {"id": 123, "content": "...", "score": 0.95, "source": "email", "date": "..."}
+  ],
+  "total": 42
+}
+```
+
+**Review questions:**
+```json
+{
+  "questions": [
+    {"id": 1, "type": "acronym", "term": "LKE", "context": "...", "candidates": [...]}
+  ]
+}
+```
+
+**Process context (acronyms):**
+```json
+{
+  "pending": [...],
+  "glossary": [...],
+  "stats": {"total": 15, "auto_resolvable": 8},
+  "guidance": "..."
+}
+```
+
+### Decision Guide: Which Command to Use
+
+| Task | Command | When to Use |
+|------|---------|-------------|
+| Find information | `penf search "query" -o json` | User asks about a topic |
+| Review new acronyms | `penf process acronyms context` | After content import |
+| Resolve person mentions | `penf process mentions context` | Ambiguous name references |
+| Post-import review | `penf process onboarding context` | After `penf ingest` |
+| Answer pending questions | `penf review questions list -o json` | Check review queue |
+| Add known term | `penf glossary add TERM "Expansion"` | User provides definition |
+| Find product info | `penf product query "who owns X"` | Natural language product queries |
+
+### Workflow: Processing a Review Queue
+
+```bash
+# 1. Get context for intelligent processing
+penf process acronyms context --output json > context.json
+
+# 2. Analyze and categorize (Claude does this)
+#    - Standard tech terms → auto-resolve
+#    - Already in glossary → dismiss
+#    - Ambiguous → ask user
+
+# 3. Submit batch resolution
+penf process acronyms batch-resolve '{
+  "resolutions": [
+    {"question_id": 1, "expansion": "Kubernetes", "context": "container orchestration"}
+  ],
+  "dismissals": [
+    {"question_id": 2, "reason": "duplicate of existing term"}
+  ]
+}'
+```
+
+### Error Handling
+
+When commands fail, check:
+
+```bash
+# Gateway connectivity
+penf status
+
+# Detailed health
+penf health
+
+# With verbose output
+penf <command> --verbose
+```
+
+Common errors:
+- "connection refused" → Gateway not running, check `penf status`
+- "not found" → Entity doesn't exist, verify with `list` command first
+- "unauthorized" → Auth expired, run `penf auth login`
+
 ## For More Information
 
 Each concept and workflow document provides detailed explanations,

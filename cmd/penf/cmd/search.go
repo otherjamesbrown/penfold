@@ -220,7 +220,20 @@ Query Syntax:
   - Quoted phrases: "exact phrase"
   - Boolean operators: project AND budget NOT cancelled
   - Field filters: type:email from:alice after:yesterday
-  - Negation: -exclude_term`,
+  - Negation: -exclude_term
+
+JSON Output (for AI processing):
+  penf search "query" -o json
+
+  Returns:
+  {
+    "query": "...",
+    "results": [
+      {"id": "...", "title": "...", "snippet": "...", "score": 0.95, "content_type": "email"}
+    ],
+    "total_count": 42,
+    "query_time_ms": 23.5
+  }`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSearch(cmd.Context(), deps, strings.Join(args, " "))

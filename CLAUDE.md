@@ -50,10 +50,33 @@ bd sync                               # Sync with git
 
 ### Critical Rules
 - Find or create bead BEFORE writing code
+- **Assign agent when creating**: `bd update <id> --assignee="CLI Development"` (or appropriate agent)
 - Update status when starting: `bd update <id> --status=in_progress`
 - Reference bead in commits: `feat(component): description [pe-xxx]`
 - Close with commit hash: `bd close <id> --reason="commit <hash>: summary"`
 - Run `bd sync` before ending session
+
+### Agent Assignment
+When creating beads, always specify which agent should do the work:
+
+```bash
+# Create bead with agent assignment
+bd create --title="Fix search help text" --type=task
+bd update <id> --assignee="CLI Development"
+
+# Or for investigation work
+bd create --title="Investigate flaky test" --type=bug
+bd update <id> --assignee="Debugger"
+```
+
+| Work Type | Assign To |
+|-----------|-----------|
+| CLI commands, help text, CLI docs | `CLI Development` |
+| Database, migrations, repositories | `Data Development` |
+| AI/ML features, embeddings | `AI Development` |
+| Temporal workflows, activities | `Worker Development` |
+| Bug investigation, root cause | `Debugger` |
+| Test framework, fixtures | `Testing Development` |
 
 ### After Closing a Bead
 When closing a bead that belongs to an epic, check if all sibling beads are also closed:
@@ -129,6 +152,54 @@ bd list --status=open   # All open work
 4. **Follow dependencies** - Use bead dependency chains
 
 **When in doubt:** Run `bd ready` and ask user which direction they prefer.
+
+## 🤖 SPECIALIZED DEVELOPMENT AGENTS - MANDATORY
+
+**Use specialized agents for domain-specific work. Do NOT do the work directly.**
+
+When development work falls within a specific domain, spawn the appropriate agent to do the work. This ensures domain expertise, proper patterns, and complete documentation updates.
+
+### Available Development Agents
+
+| Agent | Domain | When to Use |
+|-------|--------|-------------|
+| `CLI Development` | CLI commands, help text, CLI docs | Any work in `cmd/penf/` |
+| `Data Development` | Database, migrations, repositories | Schema changes, queries, `pkg/` repos |
+| `AI Development` | LLM integration, embeddings, AI logic | AI/ML features, prompt engineering |
+| `Worker Development` | Temporal workflows, activities | Background jobs, workflow orchestration |
+| `Gmail Development` | Gmail connector, OAuth | Email sync, Gmail API |
+| `Testing Development` | Test framework, fixtures, mocks | Test infrastructure, AI mocking |
+| `SpecKit Development` | Specifications, planning, beads | Feature specs, task generation |
+
+### Debugger Agent - REQUIRED for Complex Issues
+
+**Use the Debugger agent when:**
+- Bug investigation takes >30 minutes
+- Root cause is unclear
+- Issue is recurring or intermittent
+- Need systematic analysis before fixing
+
+```
+The Debugger agent investigates WITHOUT fixing. It produces:
+- Root cause analysis
+- Fix recommendations
+- New beads for the actual fix work
+```
+
+### How to Spawn Agents
+
+```bash
+# Use the Task tool with the appropriate subagent_type
+Task(subagent_type="CLI Development", prompt="...")
+Task(subagent_type="Debugger", prompt="Investigate the failing search tests...")
+```
+
+### Agent Spawning Rules
+
+1. **Match work to agent domain** - CLI work → CLI Development, not direct coding
+2. **Debugger for investigation** - Don't guess at fixes, investigate first
+3. **Let agents complete their work** - Don't interrupt with direct edits
+4. **Review agent output** - Verify completeness before reporting to user
 
 ## ⚙️ DEVELOPMENT STANDARDS
 
@@ -248,6 +319,8 @@ See `context/workflows/` for detailed workflow guides:
 - **Batch processing**: `penf process <workflow> context` then `batch-resolve`
 - **When stuck**: Ask user for direction on priorities
 - **Before ending**: `git push` + `bd sync`
+- **Development agents**: `.claude/agents/` (use for domain-specific work)
+- **Debugging**: Use Debugger agent for complex issues (>30 min or unclear root cause)
 
 ## Active Technologies
 - Go 1.22+ with Cobra, gRPC, Protocol Buffers

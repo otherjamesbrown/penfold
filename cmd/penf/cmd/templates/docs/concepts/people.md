@@ -130,13 +130,15 @@ This affects:
 
 ## Review Status
 
-Auto-created people have `needs_review: true`:
+Auto-created people have `needs_review: true`.
+
+To review them, use the onboarding workflow:
 
 ```bash
-# List people needing review
-penf relationship entity list --needs-review
+# Get all entities needing review
+penf process onboarding context --output json
 
-# Mark as reviewed (via onboarding flow)
+# Mark as reviewed via batch command
 penf process onboarding batch '{"confirm_people": [12, 14]}'
 ```
 
@@ -149,15 +151,15 @@ penf relationship entity list --type person
 # Show person details
 penf relationship entity show <id>
 
-# Search by name
-penf relationship entity list --search "John"
+# Filter by confidence score
+penf relationship entity list --type person --confidence-min 0.8
 
-# List with duplicates
-penf relationship entity list --duplicates
-
-# Merge duplicates
+# Merge duplicate people (first ID is kept, second is merged into it)
 penf relationship entity merge <keep-id> <merge-id>
 ```
+
+Note: To find potential duplicates, use `penf process onboarding context` which
+includes duplicate detection in its analysis.
 
 ## Related Documentation
 
