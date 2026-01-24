@@ -5,9 +5,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: reviewpb/review.proto
+// source: processing/v1/reviewpb/review.proto
 
-package reviewpb
+package reviewv1
 
 import (
 	context "context"
@@ -382,5 +382,5 @@ var ReviewService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "reviewpb/review.proto",
+	Metadata: "processing/v1/reviewpb/review.proto",
 }

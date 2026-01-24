@@ -4,16 +4,20 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
+	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
-	"github.com/otherjamesbrown/penfold/pkg/ingest/batch"
-	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/ingest/eml"
 )
 
 // Email ingest specific flags
@@ -24,6 +28,110 @@ var (
 	emailDryRun      bool
 	emailResumeJob   string
 )
+
+// emailIngestResult tracks the result of email ingestion.
+type emailIngestResult struct {
+	JobID         string
+	TotalFiles    int
+	ImportedCount int
+	SkippedCount  int
+	FailedCount   int
+	StartedAt     time.Time
+	CompletedAt   time.Time
+	Success       bool
+	Errors        []emailFileError
+}
+
+// emailFileError records an error for a specific file.
+type emailFileError struct {
+	FilePath string
+	Error    string
+}
+
+// emailProgress tracks progress of email ingestion.
+type emailProgress struct {
+	mu             sync.RWMutex
+	TotalFiles     int
+	ProcessedCount int
+	ImportedCount  int
+	SkippedCount   int
+	FailedCount    int
+	CurrentFile    string
+	StartedAt      time.Time
+}
+
+func newEmailProgress(totalFiles int) *emailProgress {
+	return &emailProgress{
+		TotalFiles: totalFiles,
+		StartedAt:  time.Now(),
+	}
+}
+
+func (p *emailProgress) snapshot() emailProgressSnapshot {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	elapsed := time.Since(p.StartedAt).Seconds()
+	var estimatedRemaining *float64
+	if p.ProcessedCount > 0 {
+		remaining := p.TotalFiles - p.ProcessedCount
+		rate := elapsed / float64(p.ProcessedCount)
+		est := rate * float64(remaining)
+		estimatedRemaining = &est
+	}
+
+	return emailProgressSnapshot{
+		TotalFiles:                p.TotalFiles,
+		ProcessedCount:            p.ProcessedCount,
+		ImportedCount:             p.ImportedCount,
+		SkippedCount:              p.SkippedCount,
+		FailedCount:               p.FailedCount,
+		EstimatedRemainingSeconds: estimatedRemaining,
+	}
+}
+
+func (p *emailProgress) recordImported() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ImportedCount++
+	p.ProcessedCount++
+}
+
+func (p *emailProgress) recordSkipped() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.SkippedCount++
+	p.ProcessedCount++
+}
+
+func (p *emailProgress) recordFailed() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.FailedCount++
+	p.ProcessedCount++
+}
+
+func (p *emailProgress) setCurrentFile(path string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.CurrentFile = path
+}
+
+type emailProgressSnapshot struct {
+	TotalFiles                int
+	ProcessedCount            int
+	ImportedCount             int
+	SkippedCount              int
+	FailedCount               int
+	EstimatedRemainingSeconds *float64
+}
+
+func (s emailProgressSnapshot) percentComplete() float64 {
+	if s.TotalFiles == 0 {
+		return 0
+	}
+	return float64(s.ProcessedCount) / float64(s.TotalFiles) * 100
+}
 
 // newIngestEmailCommand creates the 'ingest email' subcommand.
 func newIngestEmailCommand(deps *IngestCommandDeps) *cobra.Command {
@@ -128,58 +236,95 @@ func runIngestEmail(ctx context.Context, deps *IngestCommandDeps, path string) e
 	}
 	fmt.Println()
 
-	// Initialize database connection
-	pool, err := connectToDatabase(ctx, cfg)
+	// Discover files locally (CLI keeps file discovery)
+	files, err := discoverEmailFiles(path)
 	if err != nil {
-		return fmt.Errorf("connecting to database: %w", err)
+		return fmt.Errorf("discovering files: %w", err)
 	}
-	defer pool.Close()
 
-	// Initialize Redis connection
-	redisClient, err := connectToRedis(ctx, cfg)
+	if len(files) == 0 {
+		fmt.Println("No .eml files found.")
+		return nil
+	}
+
+	fmt.Printf("Found %d .eml files\n\n", len(files))
+
+	// Create email parser (CLI keeps parsing)
+	parseOpts := eml.DefaultParseOptions()
+	parseOpts.IncludeAttachmentContent = false // Only need metadata for gRPC
+	parser := eml.NewParser(parseOpts)
+
+	// For dry-run mode, just parse and display without calling gRPC
+	if emailDryRun {
+		return runEmailDryRun(ctx, parser, files, format)
+	}
+
+	// Connect to gateway for gRPC operations
+	conn, err := connectIngestToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connecting to Redis: %w", err)
+		return fmt.Errorf("connecting to gateway: %w", err)
 	}
-	defer redisClient.Close()
+	defer conn.Close()
 
-	// Create logger
-	logger := logging.NewLogger(&logging.Config{
-		Level:       logging.LevelInfo,
-		ServiceName: "penf",
-		Output:      os.Stderr,
-	}).With(logging.F("component", "email_ingest"))
+	client := ingestv1.NewIngestServiceClient(conn)
 
-	// Configure processor
-	processorCfg := batch.ProcessorConfig{
-		Concurrency: emailConcurrency,
-		TenantID:    tenantID,
-		SourceTag:   emailSource,
-		Labels:      emailLabels,
-		DryRun:      emailDryRun,
-		ResumeJobID: emailResumeJob,
-	}
-
-	// Create and run processor
-	processor := batch.NewProcessor(pool, redisClient, logger, processorCfg)
-
-	// Set up progress display
-	progress := processor.Progress()
-	if progress != nil {
-		progress.SetOnUpdate(func(p *batch.Progress) {
-			displayProgress(p, format)
+	// Create or resume job via gRPC
+	jobID := emailResumeJob
+	if jobID == "" {
+		jobID = uuid.New().String()
+		// Create job record via gRPC
+		_, err := client.CreateIngestJob(ctx, &ingestv1.CreateIngestJobRequest{
+			TenantId:   tenantID,
+			Name:       fmt.Sprintf("Email ingest: %s", emailSource),
+			Platform:   ingestv1.Platform_PLATFORM_LOCAL,
+			TotalFiles: int64(len(files)),
+			SourcePath: path,
+			Metadata: map[string]string{
+				"source_tag": emailSource,
+				"labels":     strings.Join(emailLabels, ","),
+			},
 		})
+		if err != nil {
+			return fmt.Errorf("creating ingest job: %w", err)
+		}
+	}
+
+	// Initialize progress tracking
+	progress := newEmailProgress(len(files))
+	result := &emailIngestResult{
+		JobID:      jobID,
+		TotalFiles: len(files),
+		StartedAt:  time.Now(),
+		Errors:     []emailFileError{},
 	}
 
 	// Process files
-	startTime := time.Now()
-	result, err := processor.Process(ctx, path)
+	if emailConcurrency == 1 {
+		processEmailsSequential(ctx, client, parser, tenantID, jobID, files, progress, result, format)
+	} else {
+		processEmailsParallel(ctx, client, parser, tenantID, jobID, files, progress, result, format)
+	}
+
+	result.CompletedAt = time.Now()
+	result.ImportedCount = progress.ImportedCount
+	result.SkippedCount = progress.SkippedCount
+	result.FailedCount = progress.FailedCount
+	result.Success = result.FailedCount == 0
+
+	// Complete job via gRPC
+	_, err = client.CompleteIngestJob(ctx, &ingestv1.CompleteIngestJobRequest{
+		JobId:        jobID,
+		Success:      result.Success,
+		ErrorMessage: "",
+	})
 	if err != nil {
-		return fmt.Errorf("processing failed: %w", err)
+		// Log warning but don't fail - files are already ingested
+		fmt.Fprintf(os.Stderr, "Warning: failed to complete job: %v\n", err)
 	}
 
 	// Display results
 	fmt.Println()
-	displayResults(result, startTime, format)
+	displayEmailResults(result, format)
 
 	// Return error if there were failures
 	if result.FailedCount > 0 {
@@ -189,88 +334,374 @@ func runIngestEmail(ctx context.Context, deps *IngestCommandDeps, path string) e
 	return nil
 }
 
-// connectToDatabase establishes a database connection.
-func connectToDatabase(ctx context.Context, cfg *config.CLIConfig) (*pgxpool.Pool, error) {
-	// Build connection string from config or environment
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		// Build from individual components
-		host := getEnvOrDefault("DB_HOST", "localhost")
-		port := getEnvOrDefault("DB_PORT", "5432")
-		user := getEnvOrDefault("DB_USER", "penfold")
-		pass := getEnvOrDefault("DB_PASSWORD", "")
-		dbname := getEnvOrDefault("DB_NAME", "penfold")
-		sslmode := getEnvOrDefault("DB_SSLMODE", "prefer")
+// connectIngestToGateway creates a gRPC connection to the gateway service.
+func connectIngestToGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	defer cancel()
 
-		connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-			host, port, user, pass, dbname, sslmode)
+	opts := []grpc.DialOption{
+		grpc.WithBlock(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
 
-	poolCfg, err := pgxpool.ParseConfig(connStr)
+	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("parsing connection string: %w", err)
+		return nil, fmt.Errorf("connecting to gateway at %s: %w", cfg.ServerAddress, err)
 	}
 
-	poolCfg.MaxConns = 25
-	poolCfg.MinConns = 2
-	poolCfg.MaxConnLifetime = time.Hour
-	poolCfg.MaxConnIdleTime = 30 * time.Minute
-
-	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
-	if err != nil {
-		return nil, fmt.Errorf("creating connection pool: %w", err)
-	}
-
-	// Test connection
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("testing connection: %w", err)
-	}
-
-	return pool, nil
+	return conn, nil
 }
 
-// connectToRedis establishes a Redis connection.
-func connectToRedis(ctx context.Context, cfg *config.CLIConfig) (*redis.Client, error) {
-	host := getEnvOrDefault("REDIS_HOST", "localhost")
-	port := getEnvOrDefault("REDIS_PORT", "6379")
-	password := os.Getenv("REDIS_PASSWORD")
+// discoverEmailFiles finds all .eml files at the given path.
+func discoverEmailFiles(path string) ([]string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
 
-	client := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%s", host, port),
-		Password: password,
-		DB:       0,
+	if !info.IsDir() {
+		// Single file
+		if strings.HasSuffix(strings.ToLower(path), ".eml") {
+			absPath, err := filepath.Abs(path)
+			if err != nil {
+				return nil, err
+			}
+			return []string{absPath}, nil
+		}
+		return nil, fmt.Errorf("file is not an .eml file: %s", path)
+	}
+
+	// Directory - walk recursively
+	var files []string
+	err = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".eml") {
+			absPath, err := filepath.Abs(p)
+			if err != nil {
+				return err
+			}
+			files = append(files, absPath)
+		}
+		return nil
 	})
 
-	// Test connection
-	if err := client.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("testing connection: %w", err)
+	if err != nil {
+		return nil, err
 	}
 
-	return client, nil
+	return files, nil
 }
 
-// getEnvOrDefault returns environment variable value or default.
-func getEnvOrDefault(key, defaultVal string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
+// runEmailDryRun processes files in dry-run mode (parse only, no gRPC calls).
+func runEmailDryRun(ctx context.Context, parser *eml.Parser, files []string, format config.OutputFormat) error {
+	progress := newEmailProgress(len(files))
+	result := &emailIngestResult{
+		JobID:      "dry-run",
+		TotalFiles: len(files),
+		StartedAt:  time.Now(),
+		Errors:     []emailFileError{},
 	}
-	return defaultVal
+
+	for _, file := range files {
+		if ctx.Err() != nil {
+			break
+		}
+
+		progress.setCurrentFile(file)
+
+		// Parse the email
+		parseResult, err := parser.ParseFile(file)
+		if err != nil {
+			result.Errors = append(result.Errors, emailFileError{
+				FilePath: file,
+				Error:    err.Error(),
+			})
+			progress.recordFailed()
+			continue
+		}
+
+		email := parseResult.Email
+		fmt.Printf("  [DRY RUN] Would import: %s\n", filepath.Base(file))
+		fmt.Printf("            Subject: %s\n", truncateIngestString(email.Subject, 60))
+		fmt.Printf("            From: %s\n", email.From.Email)
+		fmt.Printf("            Date: %s\n", email.Date.Format(time.RFC3339))
+		if email.HasAttachments() {
+			fmt.Printf("            Attachments: %d\n", email.AttachmentCount())
+		}
+		fmt.Println()
+
+		progress.recordImported()
+	}
+
+	result.CompletedAt = time.Now()
+	result.ImportedCount = progress.ImportedCount
+	result.SkippedCount = progress.SkippedCount
+	result.FailedCount = progress.FailedCount
+	result.Success = result.FailedCount == 0
+
+	fmt.Println()
+	fmt.Println("=== DRY RUN COMPLETE ===")
+	displayEmailResults(result, format)
+
+	return nil
 }
 
-// displayProgress shows progress updates.
-func displayProgress(p *batch.Progress, format config.OutputFormat) {
+// processEmailsSequential processes files one at a time.
+func processEmailsSequential(
+	ctx context.Context,
+	client ingestv1.IngestServiceClient,
+	parser *eml.Parser,
+	tenantID, jobID string,
+	files []string,
+	progress *emailProgress,
+	result *emailIngestResult,
+	format config.OutputFormat,
+) {
+	for _, file := range files {
+		if ctx.Err() != nil {
+			return
+		}
+
+		progress.setCurrentFile(file)
+		outcome := processEmailFile(ctx, client, parser, tenantID, jobID, file)
+		recordEmailOutcome(ctx, client, jobID, file, outcome, progress, result)
+		displayEmailProgress(progress, format)
+	}
+}
+
+// processEmailsParallel processes files using a worker pool.
+func processEmailsParallel(
+	ctx context.Context,
+	client ingestv1.IngestServiceClient,
+	parser *eml.Parser,
+	tenantID, jobID string,
+	files []string,
+	progress *emailProgress,
+	result *emailIngestResult,
+	format config.OutputFormat,
+) {
+	filesCh := make(chan string, len(files))
+	resultsCh := make(chan emailFileOutcome, len(files))
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < emailConcurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for file := range filesCh {
+				if ctx.Err() != nil {
+					resultsCh <- emailFileOutcome{file: file, outcome: emailOutcome{status: "skipped"}}
+					continue
+				}
+				progress.setCurrentFile(file)
+				outcome := processEmailFile(ctx, client, parser, tenantID, jobID, file)
+				resultsCh <- emailFileOutcome{file: file, outcome: outcome}
+			}
+		}()
+	}
+
+	// Send files to workers
+	for _, file := range files {
+		filesCh <- file
+	}
+	close(filesCh)
+
+	// Wait for workers to finish
+	go func() {
+		wg.Wait()
+		close(resultsCh)
+	}()
+
+	// Collect results
+	for fo := range resultsCh {
+		recordEmailOutcome(ctx, client, jobID, fo.file, fo.outcome, progress, result)
+		displayEmailProgress(progress, format)
+	}
+}
+
+type emailFileOutcome struct {
+	file    string
+	outcome emailOutcome
+}
+
+type emailOutcome struct {
+	status   string // "imported", "skipped", "failed"
+	sourceID string
+	err      error
+}
+
+// processEmailFile processes a single file and returns the outcome.
+func processEmailFile(
+	ctx context.Context,
+	client ingestv1.IngestServiceClient,
+	parser *eml.Parser,
+	tenantID, jobID, filePath string,
+) emailOutcome {
+	// Parse the email locally (CLI keeps parsing)
+	parseResult, err := parser.ParseFile(filePath)
+	if err != nil {
+		return emailOutcome{status: "failed", err: fmt.Errorf("parsing: %w", err)}
+	}
+
+	email := parseResult.Email
+
+	// Convert to proto request and send via gRPC
+	req := emailToProtoRequest(email, tenantID, emailSource, emailLabels, jobID)
+
+	resp, err := client.IngestEmail(ctx, req)
+	if err != nil {
+		return emailOutcome{status: "failed", err: fmt.Errorf("ingesting: %w", err)}
+	}
+
+	if resp.WasDuplicate {
+		return emailOutcome{status: "skipped", sourceID: resp.ExistingSourceId}
+	}
+
+	return emailOutcome{status: "imported", sourceID: resp.SourceId}
+}
+
+// emailToProtoRequest converts a parsed email to a gRPC request.
+func emailToProtoRequest(email *eml.ParsedEmail, tenantID, sourceTag string, labels []string, jobID string) *ingestv1.IngestEmailRequest {
+	req := &ingestv1.IngestEmailRequest{
+		TenantId:     tenantID,
+		MessageId:    email.MessageID,
+		ContentHash:  email.ContentHash,
+		Subject:      email.Subject,
+		BodyPlain:    email.BodyText,
+		BodyHtml:     email.BodyHTML,
+		SourceSystem: "manual_eml",
+		SourceTag:    sourceTag,
+		Labels:       labels,
+		InReplyTo:    email.InReplyTo,
+		References:   email.References,
+		JobId:        jobID,
+	}
+
+	// From address
+	req.From = &ingestv1.EmailAddress{
+		Name:    email.From.Name,
+		Address: email.From.Email,
+	}
+
+	// To addresses
+	for _, addr := range email.To {
+		req.To = append(req.To, &ingestv1.EmailAddress{
+			Name:    addr.Name,
+			Address: addr.Email,
+		})
+	}
+
+	// Cc addresses
+	for _, addr := range email.Cc {
+		req.Cc = append(req.Cc, &ingestv1.EmailAddress{
+			Name:    addr.Name,
+			Address: addr.Email,
+		})
+	}
+
+	// Bcc addresses
+	for _, addr := range email.Bcc {
+		req.Bcc = append(req.Bcc, &ingestv1.EmailAddress{
+			Name:    addr.Name,
+			Address: addr.Email,
+		})
+	}
+
+	// Timestamps
+	if !email.Date.IsZero() {
+		req.SentAt = timestamppb.New(email.Date)
+		req.ReceivedAt = timestamppb.New(email.Date)
+	}
+
+	// Attachment metadata (content not included - gateway handles storage)
+	for _, att := range email.Attachments {
+		req.Attachments = append(req.Attachments, &ingestv1.AttachmentMetadata{
+			Filename: att.Filename,
+			MimeType: att.MimeType,
+			SizeBytes: int64(att.Size),
+		})
+	}
+
+	// Additional headers
+	if email.Headers != nil {
+		req.Headers = email.Headers
+	}
+
+	return req
+}
+
+// recordEmailOutcome updates progress and result based on the processing outcome.
+func recordEmailOutcome(
+	ctx context.Context,
+	client ingestv1.IngestServiceClient,
+	jobID, filePath string,
+	o emailOutcome,
+	progress *emailProgress,
+	result *emailIngestResult,
+) {
+	switch o.status {
+	case "imported":
+		progress.recordImported()
+
+	case "skipped":
+		progress.recordSkipped()
+
+	case "failed":
+		progress.recordFailed()
+		result.Errors = append(result.Errors, emailFileError{
+			FilePath: filePath,
+			Error:    o.err.Error(),
+		})
+
+		// Record error via gRPC
+		errorType := ingestv1.ErrorType_ERROR_TYPE_UNKNOWN
+		errMsg := o.err.Error()
+		if strings.Contains(errMsg, "parse") || strings.Contains(errMsg, "Parse") {
+			errorType = ingestv1.ErrorType_ERROR_TYPE_PARSE_ERROR
+		} else if strings.Contains(errMsg, "validation") {
+			errorType = ingestv1.ErrorType_ERROR_TYPE_VALIDATION
+		} else if strings.Contains(errMsg, "storage") || strings.Contains(errMsg, "database") {
+			errorType = ingestv1.ErrorType_ERROR_TYPE_STORAGE
+		}
+
+		_, _ = client.RecordIngestError(ctx, &ingestv1.RecordIngestErrorRequest{
+			TenantId:     "", // Will be inferred from job
+			JobId:        jobID,
+			FilePath:     filePath,
+			ErrorType:    errorType,
+			ErrorMessage: errMsg,
+			IsRetryable:  errorType != ingestv1.ErrorType_ERROR_TYPE_PARSE_ERROR,
+		})
+	}
+
+	// Update job progress via gRPC (batch updates to reduce overhead)
+	snapshot := progress.snapshot()
+	if snapshot.ProcessedCount%10 == 0 || snapshot.ProcessedCount == snapshot.TotalFiles {
+		_, _ = client.UpdateJobProgress(ctx, &ingestv1.UpdateJobProgressRequest{
+			JobId:          jobID,
+			ProcessedDelta: 0, // We send absolute counts indirectly via Complete
+			FailedDelta:    0,
+			SkippedDelta:   0,
+		})
+	}
+}
+
+// displayEmailProgress shows progress updates.
+func displayEmailProgress(progress *emailProgress, format config.OutputFormat) {
 	if format != config.OutputFormatText {
 		return
 	}
 
-	snapshot := p.Snapshot()
+	snapshot := progress.snapshot()
 	if snapshot.ProcessedCount == 0 {
 		return
 	}
 
 	// Simple progress line
-	pct := snapshot.PercentComplete()
+	pct := snapshot.percentComplete()
 	remaining := ""
 	if snapshot.EstimatedRemainingSeconds != nil {
 		remaining = fmt.Sprintf(" ETA: %s", formatDuration(time.Duration(*snapshot.EstimatedRemainingSeconds)*time.Second))
@@ -286,22 +717,22 @@ func displayProgress(p *batch.Progress, format config.OutputFormat) {
 		remaining)
 }
 
-// displayResults shows the final results.
-func displayResults(result *batch.ProcessResult, startTime time.Time, format config.OutputFormat) {
-	duration := time.Since(startTime)
+// displayEmailResults shows the final results.
+func displayEmailResults(result *emailIngestResult, format config.OutputFormat) {
+	duration := result.CompletedAt.Sub(result.StartedAt)
 
 	switch format {
 	case config.OutputFormatJSON:
-		outputJSON(result)
+		outputEmailJSON(result)
 	case config.OutputFormatYAML:
-		outputYAML(result)
+		outputEmailYAML(result)
 	default:
-		outputResultsText(result, duration)
+		outputEmailResultsText(result, duration)
 	}
 }
 
-// outputResultsText displays results in human-readable format.
-func outputResultsText(result *batch.ProcessResult, duration time.Duration) {
+// outputEmailResultsText displays results in human-readable format.
+func outputEmailResultsText(result *emailIngestResult, duration time.Duration) {
 	fmt.Println("Ingest Complete")
 	fmt.Println(strings.Repeat("=", 50))
 	fmt.Printf("  Job ID:        %s\n", result.JobID)
@@ -335,8 +766,8 @@ func outputResultsText(result *batch.ProcessResult, duration time.Duration) {
 	}
 }
 
-// outputJSON outputs result as JSON.
-func outputJSON(result *batch.ProcessResult) {
+// outputEmailJSON outputs result as JSON.
+func outputEmailJSON(result *emailIngestResult) {
 	fmt.Printf(`{
   "job_id": "%s",
   "total_files": %d,
@@ -357,8 +788,8 @@ func outputJSON(result *batch.ProcessResult) {
 		result.CompletedAt.Format(time.RFC3339))
 }
 
-// outputYAML outputs result as YAML.
-func outputYAML(result *batch.ProcessResult) {
+// outputEmailYAML outputs result as YAML.
+func outputEmailYAML(result *emailIngestResult) {
 	fmt.Printf(`job_id: %s
 total_files: %d
 imported: %d

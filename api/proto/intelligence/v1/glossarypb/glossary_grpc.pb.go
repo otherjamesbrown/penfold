@@ -5,9 +5,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: glossarypb/glossary.proto
+// source: intelligence/v1/glossarypb/glossary.proto
 
-package glossarypb
+package glossaryv1
 
 import (
 	context "context"
@@ -488,5 +488,5 @@ var GlossaryService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "glossarypb/glossary.proto",
+	Metadata: "intelligence/v1/glossarypb/glossary.proto",
 }

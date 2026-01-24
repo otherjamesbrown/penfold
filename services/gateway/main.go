@@ -19,7 +19,10 @@ import (
 
 	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
+	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
 	mentionsv1 "github.com/otherjamesbrown/penfold/api/proto/mentions/v1"
+	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
+	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
@@ -28,15 +31,20 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
+	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/products"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	"github.com/otherjamesbrown/penfold/pkg/sources"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
+	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
+	"github.com/otherjamesbrown/penfold/services/gateway/ingestservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/mentionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/middleware"
+	"github.com/otherjamesbrown/penfold/services/gateway/pipelineservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/productservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/questionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
 )
@@ -202,6 +210,23 @@ func main() {
 	entitySvc := entityservice.NewService(entityRepo, productRepo, logger)
 	entityv1.RegisterEntityServiceServer(grpcServer, entitySvc)
 	logger.Info("Registered EntityService")
+
+	// Register PipelineService for pipeline stats and job tracking.
+	pipelineRepo := pipeline.NewRepository(dbPool)
+	pipelineSvc := pipelineservice.NewService(pipelineRepo, logger)
+	pipelinev1.RegisterPipelineServiceServer(grpcServer, pipelineSvc)
+	logger.Info("Registered PipelineService")
+
+	// Register ProductService for product CRUD, hierarchy, aliases, and team management.
+	productSvc := productservice.NewService(productRepo, entityRepo, logger)
+	productv1.RegisterProductServiceServer(grpcServer, productSvc)
+	logger.Info("Registered ProductService")
+
+	// Register IngestService for email and meeting ingestion.
+	ingestRepo := storage.NewRepository(dbPool, logger)
+	ingestSvc := ingestservice.NewService(ingestRepo, logger)
+	ingestv1.RegisterIngestServiceServer(grpcServer, ingestSvc)
+	logger.Info("Registered IngestService")
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()

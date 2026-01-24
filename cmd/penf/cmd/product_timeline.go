@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
+	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
-	"github.com/otherjamesbrown/penfold/pkg/products"
 )
 
 // Timeline/Event command flags.
@@ -265,36 +265,46 @@ Examples:
 
 // runProductTimeline lists events for a product.
 func runProductTimeline(ctx context.Context, deps *ProductCommandDeps, productName string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
 
-	// Resolve product.
-	product, err := deps.Repository.ResolveProduct(ctx, tenantID, productName)
+	// First, resolve the product to get its ID.
+	productResp, err := client.GetProduct(ctx, &productv1.GetProductRequest{
+		TenantId:   tenantID,
+		Identifier: productName,
+	})
 	if err != nil {
 		return fmt.Errorf("product not found: %s", productName)
 	}
 
 	// Build filter.
-	filter := products.EventFilter{
-		TenantID:  tenantID,
-		ProductID: &product.ID,
-		Limit:     timelineLimit,
+	filter := &productv1.EventFilter{
+		TenantId:  tenantID,
+		ProductId: &productResp.Product.Id,
+		Limit:     int32(timelineLimit),
 	}
 
 	// Parse event type filter.
 	if timelineType != "" {
-		et := products.EventType(timelineType)
-		filter.EventTypes = []products.EventType{et}
+		et := eventTypeToProto(timelineType)
+		filter.EventTypes = []productv1.EventType{et}
 	}
 
 	// Parse visibility filter.
 	if timelineVisibility != "" {
-		v := products.EventVisibility(timelineVisibility)
-		filter.Visibility = &v
+		filter.Visibility = eventVisibilityToProto(timelineVisibility)
 	}
 
 	// Parse date filters.
@@ -303,7 +313,7 @@ func runProductTimeline(ctx context.Context, deps *ProductCommandDeps, productNa
 		if err != nil {
 			return fmt.Errorf("invalid --since value: %w", err)
 		}
-		filter.Since = &since
+		filter.Since = timestamppb.New(since)
 	}
 
 	if timelineUntil != "" {
@@ -311,149 +321,172 @@ func runProductTimeline(ctx context.Context, deps *ProductCommandDeps, productNa
 		if err != nil {
 			return fmt.Errorf("invalid --until value: %w", err)
 		}
-		filter.Until = &until
+		filter.Until = timestamppb.New(until)
 	}
 
 	// Get events.
-	events, err := deps.Repository.ListEvents(ctx, filter)
+	resp, err := client.ListProductEvents(ctx, &productv1.ListProductEventsRequest{
+		Filter: filter,
+	})
 	if err != nil {
 		return fmt.Errorf("listing events: %w", err)
 	}
 
-	return outputProductTimeline(deps.Config, product.Name, events)
+	return outputProductTimeline(deps.Config, productResp.Product.Name, resp.Events)
 }
 
 // runProductEventAdd adds a new event.
 func runProductEventAdd(ctx context.Context, deps *ProductCommandDeps, productName string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
 
-	// Resolve product.
-	product, err := deps.Repository.ResolveProduct(ctx, tenantID, productName)
-	if err != nil {
-		return fmt.Errorf("product not found: %s", productName)
-	}
-
 	// Validate event type.
-	et := products.EventType(eventAddType)
-	switch et {
-	case products.EventTypeDecision, products.EventTypeMilestone, products.EventTypeRisk,
-		products.EventTypeRelease, products.EventTypeCompetitor, products.EventTypeOrgChange,
-		products.EventTypeMarket, products.EventTypeNote:
-		// Valid.
-	default:
+	et := eventTypeToProto(eventAddType)
+	if et == productv1.EventType_EVENT_TYPE_UNSPECIFIED {
 		return fmt.Errorf("invalid event type: %s", eventAddType)
 	}
 
 	// Validate visibility.
-	vis := products.EventVisibility(eventAddVisibility)
-	switch vis {
-	case products.EventVisibilityInternal, products.EventVisibilityExternal:
-		// Valid.
-	default:
+	vis := eventVisibilityToProto(eventAddVisibility)
+	if vis == productv1.EventVisibility_EVENT_VISIBILITY_UNSPECIFIED {
 		return fmt.Errorf("invalid visibility: %s", eventAddVisibility)
 	}
 
 	// Parse occurred date.
 	occurredAt := time.Now()
 	if eventAddOccurred != "" {
-		var err error
 		occurredAt, err = time.Parse("2006-01-02", eventAddOccurred)
 		if err != nil {
 			return fmt.Errorf("invalid --occurred date (use YYYY-MM-DD): %w", err)
 		}
 	}
 
-	// Create event.
-	event := &products.ProductEvent{
-		EventUUID:   uuid.New(),
-		TenantID:    tenantID,
-		ProductID:   product.ID,
+	// Create event input.
+	input := &productv1.ProductEventInput{
 		EventType:   et,
 		Visibility:  vis,
-		SourceType:  products.EventSourceManual,
+		SourceType:  productv1.EventSourceType_EVENT_SOURCE_TYPE_MANUAL,
 		Title:       eventAddTitle,
 		Description: eventAddDescription,
-		OccurredAt:  occurredAt,
+		OccurredAt:  timestamppb.New(occurredAt),
 		RecordedBy:  eventAddRecordedBy,
 	}
 
-	if err := deps.Repository.CreateEvent(ctx, event); err != nil {
+	resp, err := client.CreateProductEvent(ctx, &productv1.CreateProductEventRequest{
+		TenantId:          tenantID,
+		ProductIdentifier: productName,
+		Input:             input,
+	})
+	if err != nil {
 		return fmt.Errorf("creating event: %w", err)
 	}
 
-	fmt.Printf("\033[32mCreated event:\033[0m %s (ID: %d)\n", event.Title, event.ID)
-	fmt.Printf("  Product: %s\n", product.Name)
-	fmt.Printf("  Type: %s\n", event.EventType)
-	fmt.Printf("  Occurred: %s\n", event.OccurredAt.Format("2006-01-02"))
+	event := resp.Event
+	fmt.Printf("\033[32mCreated event:\033[0m %s (ID: %d)\n", event.Title, event.Id)
+	fmt.Printf("  Product: %s\n", event.ProductName)
+	fmt.Printf("  Type: %s\n", eventTypeFromProtoToString(event.EventType))
+	fmt.Printf("  Occurred: %s\n", event.OccurredAt.AsTime().Format("2006-01-02"))
 
 	return nil
 }
 
 // runProductEventShow shows event details.
 func runProductEventShow(ctx context.Context, deps *ProductCommandDeps, eventIDStr string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
-	var eventID int64
-	if _, err := fmt.Sscanf(eventIDStr, "%d", &eventID); err != nil {
-		return fmt.Errorf("invalid event ID: %s", eventIDStr)
-	}
+	client := productv1.NewProductServiceClient(conn)
+	tenantID := getTenantIDForProduct(deps)
 
-	event, err := deps.Repository.GetEvent(ctx, eventID)
+	resp, err := client.GetProductEvent(ctx, &productv1.GetProductEventRequest{
+		TenantId:   tenantID,
+		Identifier: eventIDStr,
+	})
 	if err != nil {
-		return fmt.Errorf("event not found: %d", eventID)
+		return fmt.Errorf("event not found: %s", eventIDStr)
 	}
 
-	// Get links.
-	links, _ := deps.Repository.GetEventLinks(ctx, eventID)
-
-	return outputProductEventDetails(deps.Config, event, links)
+	// Links are included in the event response.
+	return outputProductEventDetails(deps.Config, resp.Event)
 }
 
 // runProductEventDelete deletes an event.
 func runProductEventDelete(ctx context.Context, deps *ProductCommandDeps, eventIDStr string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
-	var eventID int64
-	if _, err := fmt.Sscanf(eventIDStr, "%d", &eventID); err != nil {
-		return fmt.Errorf("invalid event ID: %s", eventIDStr)
-	}
+	client := productv1.NewProductServiceClient(conn)
+	tenantID := getTenantIDForProduct(deps)
 
 	// Get event info for confirmation message.
-	event, err := deps.Repository.GetEvent(ctx, eventID)
+	eventResp, err := client.GetProductEvent(ctx, &productv1.GetProductEventRequest{
+		TenantId:   tenantID,
+		Identifier: eventIDStr,
+	})
 	if err != nil {
-		return fmt.Errorf("event not found: %d", eventID)
+		return fmt.Errorf("event not found: %s", eventIDStr)
 	}
 
-	if err := deps.Repository.DeleteEvent(ctx, eventID); err != nil {
+	_, err = client.DeleteProductEvent(ctx, &productv1.DeleteProductEventRequest{
+		TenantId:   tenantID,
+		Identifier: eventIDStr,
+	})
+	if err != nil {
 		return fmt.Errorf("deleting event: %w", err)
 	}
 
-	fmt.Printf("\033[32mDeleted event:\033[0m %s (ID: %d)\n", event.Title, eventID)
+	fmt.Printf("\033[32mDeleted event:\033[0m %s (ID: %s)\n", eventResp.Event.Title, eventIDStr)
 	return nil
 }
 
 // runProductEventLink links an event to another entity.
 func runProductEventLink(ctx context.Context, deps *ProductCommandDeps, eventIDStr, entityType, entityIDStr string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
-	var eventID, entityID int64
-	if _, err := fmt.Sscanf(eventIDStr, "%d", &eventID); err != nil {
-		return fmt.Errorf("invalid event ID: %s", eventIDStr)
-	}
+	client := productv1.NewProductServiceClient(conn)
+	tenantID := getTenantIDForProduct(deps)
+
+	var entityID int64
 	if _, err := fmt.Sscanf(entityIDStr, "%d", &entityID); err != nil {
 		return fmt.Errorf("invalid entity ID: %s", entityIDStr)
 	}
@@ -466,43 +499,44 @@ func runProductEventLink(ctx context.Context, deps *ProductCommandDeps, eventIDS
 		return fmt.Errorf("invalid entity type: %s (must be meeting, email, document, or source)", entityType)
 	}
 
-	// Validate link type.
-	switch eventLinkType {
-	case "source", "reference", "follow_up":
-		// Valid.
-	default:
+	// Validate and convert link type.
+	lt := linkTypeToProto(eventLinkType)
+	if lt == productv1.LinkType_LINK_TYPE_UNSPECIFIED {
 		return fmt.Errorf("invalid link type: %s (must be source, reference, or follow_up)", eventLinkType)
 	}
 
-	link := &products.ProductEventLink{
-		EventID:          eventID,
+	resp, err := client.LinkProductEvent(ctx, &productv1.LinkProductEventRequest{
+		TenantId:         tenantID,
+		EventIdentifier:  eventIDStr,
 		LinkedEntityType: entityType,
-		LinkedEntityID:   entityID,
-		LinkType:         eventLinkType,
-	}
-
-	if err := deps.Repository.LinkEventToSource(ctx, link); err != nil {
+		LinkedEntityId:   entityID,
+		LinkType:         lt,
+	})
+	if err != nil {
 		return fmt.Errorf("linking event: %w", err)
 	}
 
-	fmt.Printf("\033[32mLinked event %d\033[0m to %s %d (type: %s)\n", eventID, entityType, entityID, eventLinkType)
+	fmt.Printf("\033[32mLinked event %s\033[0m to %s %d (type: %s)\n",
+		eventIDStr, entityType, resp.Link.LinkedEntityId, linkTypeFromProtoToString(resp.Link.LinkType))
 	return nil
 }
 
 // runProductEventContext shows events around a specific date.
 func runProductEventContext(ctx context.Context, deps *ProductCommandDeps, productName, dateStr string) error {
-	if err := initProductDeps(ctx, deps); err != nil {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
-
-	// Resolve product.
-	product, err := deps.Repository.ResolveProduct(ctx, tenantID, productName)
-	if err != nil {
-		return fmt.Errorf("product not found: %s", productName)
-	}
 
 	// Parse center date.
 	centerTime, err := time.Parse("2006-01-02", dateStr)
@@ -511,17 +545,23 @@ func runProductEventContext(ctx context.Context, deps *ProductCommandDeps, produ
 	}
 
 	// Get context window.
-	window, err := deps.Repository.GetContextWindow(ctx, product.ID, centerTime, eventContextWindow)
+	resp, err := client.GetEventContext(ctx, &productv1.GetEventContextRequest{
+		TenantId:          tenantID,
+		ProductIdentifier: productName,
+		CenterTime:        timestamppb.New(centerTime),
+		EventsBeforeCount: int32(eventContextWindow),
+		EventsAfterCount:  int32(eventContextWindow),
+	})
 	if err != nil {
 		return fmt.Errorf("getting context window: %w", err)
 	}
 
-	return outputProductEventContext(deps.Config, product.Name, window)
+	return outputProductEventContext(deps.Config, productName, resp.Context)
 }
 
 // ==================== Output Functions ====================
 
-func outputProductTimeline(cfg *config.CLIConfig, productName string, events []*products.ProductEvent) error {
+func outputProductTimeline(cfg *config.CLIConfig, productName string, events []*productv1.ProductEvent) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
@@ -534,7 +574,7 @@ func outputProductTimeline(cfg *config.CLIConfig, productName string, events []*
 	}
 }
 
-func outputProductTimelineTable(productName string, events []*products.ProductEvent) error {
+func outputProductTimelineTable(productName string, events []*productv1.ProductEvent) error {
 	if len(events) == 0 {
 		fmt.Printf("No events found for '%s'\n", productName)
 		return nil
@@ -545,14 +585,16 @@ func outputProductTimelineTable(productName string, events []*products.ProductEv
 	fmt.Println("  ----        ----         ----------  -----")
 
 	for _, e := range events {
-		typeColor := getEventTypeColor(e.EventType)
-		visColor := getEventVisibilityColor(e.Visibility)
+		typeStr := eventTypeFromProtoToString(e.EventType)
+		visStr := eventVisibilityFromProtoToString(e.Visibility)
+		typeColor := getEventTypeColorFromString(typeStr)
+		visColor := getEventVisibilityColorFromString(visStr)
 		fmt.Printf("  %s  %s%-11s\033[0m  %s%-10s\033[0m  %s\n",
-			e.OccurredAt.Format("2006-01-02"),
+			e.OccurredAt.AsTime().Format("2006-01-02"),
 			typeColor,
-			e.EventType,
+			typeStr,
 			visColor,
-			e.Visibility,
+			visStr,
 			truncateString(e.Title, 50))
 	}
 
@@ -560,7 +602,7 @@ func outputProductTimelineTable(productName string, events []*products.ProductEv
 	return nil
 }
 
-func outputProductEventDetails(cfg *config.CLIConfig, event *products.ProductEvent, links []*products.ProductEventLink) error {
+func outputProductEventDetails(cfg *config.CLIConfig, event *productv1.ProductEvent) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
@@ -569,22 +611,25 @@ func outputProductEventDetails(cfg *config.CLIConfig, event *products.ProductEve
 	case config.OutputFormatYAML:
 		return outputProductYAML(event)
 	default:
-		return outputProductEventDetailsText(event, links)
+		return outputProductEventDetailsText(event)
 	}
 }
 
-func outputProductEventDetailsText(event *products.ProductEvent, links []*products.ProductEventLink) error {
-	typeColor := getEventTypeColor(event.EventType)
-	visColor := getEventVisibilityColor(event.Visibility)
+func outputProductEventDetailsText(event *productv1.ProductEvent) error {
+	typeStr := eventTypeFromProtoToString(event.EventType)
+	visStr := eventVisibilityFromProtoToString(event.Visibility)
+	sourceStr := eventSourceTypeFromProtoToString(event.SourceType)
+	typeColor := getEventTypeColorFromString(typeStr)
+	visColor := getEventVisibilityColorFromString(visStr)
 
 	fmt.Println("Event Details:")
 	fmt.Println()
-	fmt.Printf("  \033[1mID:\033[0m          %d\n", event.ID)
-	fmt.Printf("  \033[1mUUID:\033[0m        %s\n", event.EventUUID)
+	fmt.Printf("  \033[1mID:\033[0m          %d\n", event.Id)
+	fmt.Printf("  \033[1mUUID:\033[0m        %s\n", event.EventUuid)
 	fmt.Printf("  \033[1mProduct:\033[0m     %s\n", event.ProductName)
-	fmt.Printf("  \033[1mType:\033[0m        %s%s\033[0m\n", typeColor, event.EventType)
-	fmt.Printf("  \033[1mVisibility:\033[0m  %s%s\033[0m\n", visColor, event.Visibility)
-	fmt.Printf("  \033[1mSource:\033[0m      %s\n", event.SourceType)
+	fmt.Printf("  \033[1mType:\033[0m        %s%s\033[0m\n", typeColor, typeStr)
+	fmt.Printf("  \033[1mVisibility:\033[0m  %s%s\033[0m\n", visColor, visStr)
+	fmt.Printf("  \033[1mSource:\033[0m      %s\n", sourceStr)
 	fmt.Println()
 	fmt.Printf("  \033[1mTitle:\033[0m       %s\n", event.Title)
 
@@ -593,33 +638,36 @@ func outputProductEventDetailsText(event *products.ProductEvent, links []*produc
 	}
 
 	fmt.Println()
-	fmt.Printf("  \033[1mOccurred:\033[0m    %s\n", event.OccurredAt.Format("2006-01-02 15:04:05"))
+	if event.OccurredAt != nil {
+		fmt.Printf("  \033[1mOccurred:\033[0m    %s\n", event.OccurredAt.AsTime().Format("2006-01-02 15:04:05"))
+	}
 	if event.RecordedBy != "" {
 		fmt.Printf("  \033[1mRecorded by:\033[0m %s\n", event.RecordedBy)
 	}
-	fmt.Printf("  \033[1mCreated:\033[0m     %s\n", event.CreatedAt.Format(time.RFC3339))
-	fmt.Printf("  \033[1mUpdated:\033[0m     %s\n", event.UpdatedAt.Format(time.RFC3339))
+	if event.CreatedAt != nil {
+		fmt.Printf("  \033[1mCreated:\033[0m     %s\n", event.CreatedAt.AsTime().Format(time.RFC3339))
+	}
+	if event.UpdatedAt != nil {
+		fmt.Printf("  \033[1mUpdated:\033[0m     %s\n", event.UpdatedAt.AsTime().Format(time.RFC3339))
+	}
 
-	if len(links) > 0 {
+	if len(event.Links) > 0 {
 		fmt.Println()
 		fmt.Println("  \033[1mLinks:\033[0m")
-		for _, l := range links {
-			fmt.Printf("    - %s %d (%s)\n", l.LinkedEntityType, l.LinkedEntityID, l.LinkType)
+		for _, l := range event.Links {
+			fmt.Printf("    - %s %d (%s)\n", l.LinkedEntityType, l.LinkedEntityId, linkTypeFromProtoToString(l.LinkType))
 		}
 	}
 
-	if len(event.Metadata) > 0 {
+	if event.MetadataJson != "" {
 		fmt.Println()
-		fmt.Println("  \033[1mMetadata:\033[0m")
-		for k, v := range event.Metadata {
-			fmt.Printf("    %s: %v\n", k, v)
-		}
+		fmt.Printf("  \033[1mMetadata:\033[0m %s\n", event.MetadataJson)
 	}
 
 	return nil
 }
 
-func outputProductEventContext(cfg *config.CLIConfig, productName string, window *products.ContextWindow) error {
+func outputProductEventContext(cfg *config.CLIConfig, productName string, window *productv1.ContextWindow) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
@@ -632,18 +680,37 @@ func outputProductEventContext(cfg *config.CLIConfig, productName string, window
 	}
 }
 
-func outputProductEventContextText(productName string, window *products.ContextWindow) error {
-	fmt.Printf("Context window for '%s' around %s:\n\n", productName, window.CenterTime.Format("2006-01-02"))
-	fmt.Printf("  Window: %s to %s\n\n", window.WindowStart.Format("2006-01-02"), window.WindowEnd.Format("2006-01-02"))
+func outputProductEventContextText(productName string, window *productv1.ContextWindow) error {
+	centerTimeStr := "N/A"
+	windowStartStr := "N/A"
+	windowEndStr := "N/A"
+
+	if window.CenterTime != nil {
+		centerTimeStr = window.CenterTime.AsTime().Format("2006-01-02")
+	}
+	if window.WindowStart != nil {
+		windowStartStr = window.WindowStart.AsTime().Format("2006-01-02")
+	}
+	if window.WindowEnd != nil {
+		windowEndStr = window.WindowEnd.AsTime().Format("2006-01-02")
+	}
+
+	fmt.Printf("Context window for '%s' around %s:\n\n", productName, centerTimeStr)
+	fmt.Printf("  Window: %s to %s\n\n", windowStartStr, windowEndStr)
 
 	if len(window.EventsBefore) > 0 {
 		fmt.Println("  \033[1mBefore:\033[0m")
 		for _, e := range window.EventsBefore {
-			typeColor := getEventTypeColor(e.EventType)
+			typeStr := eventTypeFromProtoToString(e.EventType)
+			typeColor := getEventTypeColorFromString(typeStr)
+			occurredStr := "N/A"
+			if e.OccurredAt != nil {
+				occurredStr = e.OccurredAt.AsTime().Format("2006-01-02")
+			}
 			fmt.Printf("    %s  %s%-11s\033[0m  %s\n",
-				e.OccurredAt.Format("2006-01-02"),
+				occurredStr,
 				typeColor,
-				e.EventType,
+				typeStr,
 				truncateString(e.Title, 40))
 		}
 		fmt.Println()
@@ -651,11 +718,16 @@ func outputProductEventContextText(productName string, window *products.ContextW
 
 	if window.CenterEvent != nil {
 		fmt.Println("  \033[1m>>> Center Event:\033[0m")
-		typeColor := getEventTypeColor(window.CenterEvent.EventType)
+		typeStr := eventTypeFromProtoToString(window.CenterEvent.EventType)
+		typeColor := getEventTypeColorFromString(typeStr)
+		occurredStr := "N/A"
+		if window.CenterEvent.OccurredAt != nil {
+			occurredStr = window.CenterEvent.OccurredAt.AsTime().Format("2006-01-02")
+		}
 		fmt.Printf("    %s  %s%-11s\033[0m  %s\n",
-			window.CenterEvent.OccurredAt.Format("2006-01-02"),
+			occurredStr,
 			typeColor,
-			window.CenterEvent.EventType,
+			typeStr,
 			window.CenterEvent.Title)
 		fmt.Println()
 	}
@@ -663,11 +735,16 @@ func outputProductEventContextText(productName string, window *products.ContextW
 	if len(window.EventsAfter) > 0 {
 		fmt.Println("  \033[1mAfter:\033[0m")
 		for _, e := range window.EventsAfter {
-			typeColor := getEventTypeColor(e.EventType)
+			typeStr := eventTypeFromProtoToString(e.EventType)
+			typeColor := getEventTypeColorFromString(typeStr)
+			occurredStr := "N/A"
+			if e.OccurredAt != nil {
+				occurredStr = e.OccurredAt.AsTime().Format("2006-01-02")
+			}
 			fmt.Printf("    %s  %s%-11s\033[0m  %s\n",
-				e.OccurredAt.Format("2006-01-02"),
+				occurredStr,
 				typeColor,
-				e.EventType,
+				typeStr,
 				truncateString(e.Title, 40))
 		}
 		fmt.Println()
@@ -728,36 +805,147 @@ func parseRelativeDate(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("invalid date format: %s (use YYYY-MM-DD or relative: 7d, 2w, 3m, 1y)", s)
 }
 
+// ==================== Proto Conversion Helpers ====================
+
+func eventTypeToProto(t string) productv1.EventType {
+	switch t {
+	case "decision":
+		return productv1.EventType_EVENT_TYPE_DECISION
+	case "milestone":
+		return productv1.EventType_EVENT_TYPE_MILESTONE
+	case "risk":
+		return productv1.EventType_EVENT_TYPE_RISK
+	case "release":
+		return productv1.EventType_EVENT_TYPE_RELEASE
+	case "competitor":
+		return productv1.EventType_EVENT_TYPE_COMPETITOR
+	case "org_change":
+		return productv1.EventType_EVENT_TYPE_ORG_CHANGE
+	case "market":
+		return productv1.EventType_EVENT_TYPE_MARKET
+	case "note":
+		return productv1.EventType_EVENT_TYPE_NOTE
+	default:
+		return productv1.EventType_EVENT_TYPE_UNSPECIFIED
+	}
+}
+
+func eventTypeFromProtoToString(et productv1.EventType) string {
+	switch et {
+	case productv1.EventType_EVENT_TYPE_DECISION:
+		return "decision"
+	case productv1.EventType_EVENT_TYPE_MILESTONE:
+		return "milestone"
+	case productv1.EventType_EVENT_TYPE_RISK:
+		return "risk"
+	case productv1.EventType_EVENT_TYPE_RELEASE:
+		return "release"
+	case productv1.EventType_EVENT_TYPE_COMPETITOR:
+		return "competitor"
+	case productv1.EventType_EVENT_TYPE_ORG_CHANGE:
+		return "org_change"
+	case productv1.EventType_EVENT_TYPE_MARKET:
+		return "market"
+	case productv1.EventType_EVENT_TYPE_NOTE:
+		return "note"
+	default:
+		return "unknown"
+	}
+}
+
+func eventVisibilityToProto(v string) productv1.EventVisibility {
+	switch v {
+	case "internal":
+		return productv1.EventVisibility_EVENT_VISIBILITY_INTERNAL
+	case "external":
+		return productv1.EventVisibility_EVENT_VISIBILITY_EXTERNAL
+	default:
+		return productv1.EventVisibility_EVENT_VISIBILITY_UNSPECIFIED
+	}
+}
+
+func eventVisibilityFromProtoToString(v productv1.EventVisibility) string {
+	switch v {
+	case productv1.EventVisibility_EVENT_VISIBILITY_INTERNAL:
+		return "internal"
+	case productv1.EventVisibility_EVENT_VISIBILITY_EXTERNAL:
+		return "external"
+	default:
+		return "unknown"
+	}
+}
+
+func eventSourceTypeFromProtoToString(s productv1.EventSourceType) string {
+	switch s {
+	case productv1.EventSourceType_EVENT_SOURCE_TYPE_MANUAL:
+		return "manual"
+	case productv1.EventSourceType_EVENT_SOURCE_TYPE_EMAIL:
+		return "email"
+	case productv1.EventSourceType_EVENT_SOURCE_TYPE_MEETING:
+		return "meeting"
+	case productv1.EventSourceType_EVENT_SOURCE_TYPE_DOCUMENT:
+		return "document"
+	default:
+		return "unknown"
+	}
+}
+
+func linkTypeToProto(lt string) productv1.LinkType {
+	switch lt {
+	case "source":
+		return productv1.LinkType_LINK_TYPE_SOURCE
+	case "reference":
+		return productv1.LinkType_LINK_TYPE_REFERENCE
+	case "follow_up":
+		return productv1.LinkType_LINK_TYPE_FOLLOW_UP
+	default:
+		return productv1.LinkType_LINK_TYPE_UNSPECIFIED
+	}
+}
+
+func linkTypeFromProtoToString(lt productv1.LinkType) string {
+	switch lt {
+	case productv1.LinkType_LINK_TYPE_SOURCE:
+		return "source"
+	case productv1.LinkType_LINK_TYPE_REFERENCE:
+		return "reference"
+	case productv1.LinkType_LINK_TYPE_FOLLOW_UP:
+		return "follow_up"
+	default:
+		return "unknown"
+	}
+}
+
 // Color helpers for event output.
 
-func getEventTypeColor(et products.EventType) string {
+func getEventTypeColorFromString(et string) string {
 	switch et {
-	case products.EventTypeDecision:
+	case "decision":
 		return "\033[35m" // Magenta
-	case products.EventTypeMilestone:
+	case "milestone":
 		return "\033[32m" // Green
-	case products.EventTypeRisk:
+	case "risk":
 		return "\033[31m" // Red
-	case products.EventTypeRelease:
+	case "release":
 		return "\033[36m" // Cyan
-	case products.EventTypeCompetitor:
+	case "competitor":
 		return "\033[33m" // Yellow
-	case products.EventTypeOrgChange:
+	case "org_change":
 		return "\033[34m" // Blue
-	case products.EventTypeMarket:
+	case "market":
 		return "\033[33m" // Yellow
-	case products.EventTypeNote:
+	case "note":
 		return "\033[90m" // Gray
 	default:
 		return ""
 	}
 }
 
-func getEventVisibilityColor(v products.EventVisibility) string {
+func getEventVisibilityColorFromString(v string) string {
 	switch v {
-	case products.EventVisibilityInternal:
+	case "internal":
 		return "\033[90m" // Gray
-	case products.EventVisibilityExternal:
+	case "external":
 		return "\033[33m" // Yellow
 	default:
 		return ""

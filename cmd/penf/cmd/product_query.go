@@ -12,9 +12,8 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
-	"github.com/otherjamesbrown/penfold/pkg/logging"
-	"github.com/otherjamesbrown/penfold/pkg/products"
 )
 
 // Product query command flags.
@@ -69,11 +68,12 @@ Examples:
 
 // runProductQuery executes a natural language product query.
 func runProductQuery(ctx context.Context, deps *ProductCommandDeps, queryStr string) error {
-	// Initialize dependencies
-	if err := initProductDeps(ctx, deps); err != nil {
+	// Connect to Gateway
+	conn, err := connectProductToGateway(deps.Config)
+	if err != nil {
 		return err
 	}
-	defer deps.Pool.Close()
+	defer conn.Close()
 
 	// Determine output format
 	outputFormat := deps.Config.OutputFormat
@@ -84,21 +84,19 @@ func runProductQuery(ctx context.Context, deps *ProductCommandDeps, queryStr str
 		}
 	}
 
-	// Create query service
-	logger := logging.NewLogger(&logging.Config{
-		Level:       logging.LevelInfo,
-		ServiceName: "penf",
-		Output:      os.Stderr,
-	})
-	querySvc := products.NewQueryService(deps.Pool, logger)
+	// Create gRPC client
+	client := productv1.NewProductServiceClient(conn)
 
-	// Execute query
-	result, err := querySvc.Query(ctx, deps.Config.TenantID, queryStr)
+	// Execute query via gRPC
+	resp, err := client.QueryProducts(ctx, &productv1.QueryProductsRequest{
+		TenantId: deps.Config.TenantID,
+		Query:    queryStr,
+	})
 	if err != nil {
 		return fmt.Errorf("query failed: %w", err)
 	}
 
-	return outputQueryResult(outputFormat, result, queryStr)
+	return outputQueryResultFromProto(outputFormat, resp, queryStr)
 }
 
 // ProductQueryResponse represents the JSON/YAML output for a query.
@@ -160,12 +158,12 @@ type HierarchyInfo struct {
 	Children    []ProductSummary `json:"children,omitempty" yaml:"children,omitempty"`
 }
 
-// outputQueryResult formats and outputs the query result.
-func outputQueryResult(format config.OutputFormat, result *products.QueryResult, queryStr string) error {
+// outputQueryResultFromProto formats and outputs the query result from proto response.
+func outputQueryResultFromProto(format config.OutputFormat, result *productv1.QueryProductsResponse, queryStr string) error {
 	// Build response
 	response := ProductQueryResponse{
 		Query:     queryStr,
-		Type:      string(result.Type),
+		Type:      queryTypeFromProto(result.Type),
 		Message:   result.Message,
 		QueriedAt: time.Now(),
 	}
@@ -173,16 +171,12 @@ func outputQueryResult(format config.OutputFormat, result *products.QueryResult,
 	// Add type-specific data
 	if len(result.Products) > 0 {
 		for _, p := range result.Products {
-			desc := ""
-			if p.Description != nil {
-				desc = *p.Description
-			}
 			response.Products = append(response.Products, ProductSummary{
-				ID:          p.ID,
+				ID:          p.Id,
 				Name:        p.Name,
-				Description: desc,
-				ProductType: string(p.ProductType),
-				Status:      string(p.Status),
+				Description: p.Description,
+				ProductType: productTypeFromProtoStr(p.ProductType),
+				Status:      productStatusFromProtoStr(p.Status),
 				Keywords:    p.Keywords,
 			})
 		}
@@ -191,7 +185,7 @@ func outputQueryResult(format config.OutputFormat, result *products.QueryResult,
 	if len(result.Persons) > 0 {
 		for _, p := range result.Persons {
 			response.Persons = append(response.Persons, PersonInfo{
-				PersonID:    p.PersonID,
+				PersonID:    p.PersonId,
 				Name:        p.PersonName,
 				Email:       p.PersonEmail,
 				Role:        p.Role,
@@ -205,7 +199,7 @@ func outputQueryResult(format config.OutputFormat, result *products.QueryResult,
 	if len(result.Teams) > 0 {
 		for _, t := range result.Teams {
 			response.Teams = append(response.Teams, TeamInfo{
-				TeamID:   t.TeamID,
+				TeamID:   t.TeamId,
 				TeamName: t.TeamName,
 				Context:  t.Context,
 			})
@@ -215,21 +209,22 @@ func outputQueryResult(format config.OutputFormat, result *products.QueryResult,
 	if len(result.Events) > 0 {
 		for _, e := range result.Events {
 			response.Events = append(response.Events, EventInfo{
-				ID:          e.ID,
-				EventType:   string(e.EventType),
-				Visibility:  string(e.Visibility),
+				ID:          e.Id,
+				EventType:   eventTypeFromProtoStr(e.EventType),
+				Visibility:  eventVisibilityFromProtoStr(e.Visibility),
 				Title:       e.Title,
 				Description: e.Description,
-				OccurredAt:  e.OccurredAt,
+				OccurredAt:  e.OccurredAt.AsTime(),
 			})
 		}
 	}
 
-	if result.Hierarchy != nil {
+	if len(result.Hierarchy) > 0 {
+		h := result.Hierarchy[0]
 		response.Hierarchy = &HierarchyInfo{
-			ID:          result.Hierarchy.ID,
-			Name:        result.Hierarchy.Name,
-			ProductType: string(result.Hierarchy.ProductType),
+			ID:          h.Product.Id,
+			Name:        h.Product.Name,
+			ProductType: productTypeFromProtoStr(h.Product.ProductType),
 		}
 	}
 
@@ -243,18 +238,18 @@ func outputQueryResult(format config.OutputFormat, result *products.QueryResult,
 		enc := yaml.NewEncoder(os.Stdout)
 		return enc.Encode(response)
 	default:
-		return outputQueryResultText(response, result)
+		return outputQueryResultTextFromProto(response, result)
 	}
 }
 
-// outputQueryResultText formats query results for terminal display.
-func outputQueryResultText(response ProductQueryResponse, result *products.QueryResult) error {
+// outputQueryResultTextFromProto formats query results for terminal display from proto response.
+func outputQueryResultTextFromProto(response ProductQueryResponse, result *productv1.QueryProductsResponse) error {
 	// Print the answer
 	fmt.Printf("\n%s\n\n", response.Message)
 
 	// Print additional details based on query type
 	switch result.Type {
-	case products.QueryTypeRole:
+	case productv1.QueryType_QUERY_TYPE_ROLE:
 		if len(result.Persons) > 0 {
 			fmt.Println("Details:")
 			for _, p := range result.Persons {
@@ -272,7 +267,7 @@ func outputQueryResultText(response ProductQueryResponse, result *products.Query
 			}
 		}
 
-	case products.QueryTypeTeam:
+	case productv1.QueryType_QUERY_TYPE_TEAM:
 		if len(result.Teams) > 0 {
 			fmt.Println("Team Details:")
 			for _, t := range result.Teams {
@@ -284,39 +279,121 @@ func outputQueryResultText(response ProductQueryResponse, result *products.Query
 			}
 		}
 
-	case products.QueryTypeTimeline:
+	case productv1.QueryType_QUERY_TYPE_TIMELINE:
 		if len(result.Events) > 0 {
 			fmt.Println("Recent Events:")
 			fmt.Println("  DATE        TYPE         TITLE")
 			for _, e := range result.Events {
 				fmt.Printf("  %s  %-11s  %s\n",
-					e.OccurredAt.Format("2006-01-02"),
-					e.EventType,
+					e.OccurredAt.AsTime().Format("2006-01-02"),
+					eventTypeFromProtoStr(e.EventType),
 					truncateString(e.Title, 50))
 			}
 		}
 
-	case products.QueryTypeHierarchy:
-		if result.Hierarchy != nil {
-			fmt.Printf("Product: %s (%s)\n", result.Hierarchy.Name, result.Hierarchy.ProductType)
-			// Note: Full hierarchy tree would require additional implementation
+	case productv1.QueryType_QUERY_TYPE_HIERARCHY:
+		if len(result.Hierarchy) > 0 {
+			h := result.Hierarchy[0]
+			fmt.Printf("Product: %s (%s)\n", h.Product.Name, productTypeFromProtoStr(h.Product.ProductType))
 		}
 
-	case products.QueryTypeSearch:
+	case productv1.QueryType_QUERY_TYPE_SEARCH:
 		if len(result.Products) > 0 {
 			fmt.Println("Products:")
 			for _, p := range result.Products {
 				fmt.Printf("  • %s", p.Name)
-				if p.ProductType != "product" {
-					fmt.Printf(" [%s]", p.ProductType)
+				pt := productTypeFromProtoStr(p.ProductType)
+				if pt != "product" {
+					fmt.Printf(" [%s]", pt)
 				}
 				fmt.Println()
-				if p.Description != nil && *p.Description != "" {
-					fmt.Printf("    %s\n", truncateString(*p.Description, 60))
+				if p.Description != "" {
+					fmt.Printf("    %s\n", truncateString(p.Description, 60))
 				}
 			}
 		}
 	}
 
 	return nil
+}
+
+// Query type and enum conversion helpers
+
+func queryTypeFromProto(qt productv1.QueryType) string {
+	switch qt {
+	case productv1.QueryType_QUERY_TYPE_SEARCH:
+		return "search"
+	case productv1.QueryType_QUERY_TYPE_ROLE:
+		return "role"
+	case productv1.QueryType_QUERY_TYPE_TEAM:
+		return "team"
+	case productv1.QueryType_QUERY_TYPE_TIMELINE:
+		return "timeline"
+	case productv1.QueryType_QUERY_TYPE_HIERARCHY:
+		return "hierarchy"
+	default:
+		return "unknown"
+	}
+}
+
+func productTypeFromProtoStr(pt productv1.ProductType) string {
+	switch pt {
+	case productv1.ProductType_PRODUCT_TYPE_PRODUCT:
+		return "product"
+	case productv1.ProductType_PRODUCT_TYPE_SUB_PRODUCT:
+		return "sub_product"
+	case productv1.ProductType_PRODUCT_TYPE_FEATURE:
+		return "feature"
+	default:
+		return "product"
+	}
+}
+
+func productStatusFromProtoStr(ps productv1.ProductStatus) string {
+	switch ps {
+	case productv1.ProductStatus_PRODUCT_STATUS_ACTIVE:
+		return "active"
+	case productv1.ProductStatus_PRODUCT_STATUS_BETA:
+		return "beta"
+	case productv1.ProductStatus_PRODUCT_STATUS_SUNSET:
+		return "sunset"
+	case productv1.ProductStatus_PRODUCT_STATUS_DEPRECATED:
+		return "deprecated"
+	default:
+		return "active"
+	}
+}
+
+func eventTypeFromProtoStr(et productv1.EventType) string {
+	switch et {
+	case productv1.EventType_EVENT_TYPE_DECISION:
+		return "decision"
+	case productv1.EventType_EVENT_TYPE_MILESTONE:
+		return "milestone"
+	case productv1.EventType_EVENT_TYPE_RISK:
+		return "risk"
+	case productv1.EventType_EVENT_TYPE_RELEASE:
+		return "release"
+	case productv1.EventType_EVENT_TYPE_COMPETITOR:
+		return "competitor"
+	case productv1.EventType_EVENT_TYPE_ORG_CHANGE:
+		return "org_change"
+	case productv1.EventType_EVENT_TYPE_MARKET:
+		return "market"
+	case productv1.EventType_EVENT_TYPE_NOTE:
+		return "note"
+	default:
+		return "note"
+	}
+}
+
+func eventVisibilityFromProtoStr(ev productv1.EventVisibility) string {
+	switch ev {
+	case productv1.EventVisibility_EVENT_VISIBILITY_INTERNAL:
+		return "internal"
+	case productv1.EventVisibility_EVENT_VISIBILITY_EXTERNAL:
+		return "external"
+	default:
+		return "internal"
+	}
 }

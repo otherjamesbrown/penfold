@@ -38,6 +38,11 @@ func NewRepository(pool *pgxpool.Pool, logger logging.Logger) *Repository {
 	}
 }
 
+// Pool returns the underlying database pool.
+func (r *Repository) Pool() *pgxpool.Pool {
+	return r.pool
+}
+
 // ==================== Product CRUD ====================
 
 // CreateProduct creates a new product.

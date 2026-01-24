@@ -5,9 +5,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: relationshippb/relationship.proto
+// source: intelligence/v1/relationshippb/relationship.proto
 
-package relationshippb
+package relationshipv1
 
 import (
 	context "context"
@@ -294,5 +294,5 @@ var RelationshipService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "relationshippb/relationship.proto",
+	Metadata: "intelligence/v1/relationshippb/relationship.proto",
 }

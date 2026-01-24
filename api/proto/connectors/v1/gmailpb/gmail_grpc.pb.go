@@ -5,9 +5,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: gmailpb/gmail.proto
+// source: connectors/v1/gmailpb/gmail.proto
 
-package gmailpb
+package gmailv1
 
 import (
 	context "context"
@@ -294,5 +294,5 @@ var GmailConnectorService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "gmailpb/gmail.proto",
+	Metadata: "connectors/v1/gmailpb/gmail.proto",
 }

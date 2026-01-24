@@ -6,9 +6,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: gatewaypb/gateway.proto
+// source: core/v1/gatewaypb/gateway.proto
 
-package gatewaypb
+package gatewayv1
 
 import (
 	context "context"
@@ -257,5 +257,5 @@ var GatewayService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "gatewaypb/gateway.proto",
+	Metadata: "core/v1/gatewaypb/gateway.proto",
 }

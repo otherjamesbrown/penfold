@@ -4,15 +4,12 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
-	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
-	"github.com/otherjamesbrown/penfold/pkg/logging"
-	"github.com/otherjamesbrown/penfold/pkg/products"
 )
 
 // Team command flags.
@@ -251,101 +248,36 @@ Examples:
 
 // ==================== Command Execution Functions ====================
 
-// TeamDeps extends ProductCommandDeps with team-specific dependencies.
-type TeamDeps struct {
-	*ProductCommandDeps
-	EntitiesRepo *entities.Repository
-}
-
-// initTeamDeps initializes dependencies for team commands.
-func initTeamDeps(ctx context.Context, deps *ProductCommandDeps) (*TeamDeps, error) {
-	if err := initProductDeps(ctx, deps); err != nil {
-		return nil, err
-	}
-
-	logger := logging.NewLogger(&logging.Config{
-		Level:       logging.LevelInfo,
-		ServiceName: "penf",
-		Output:      os.Stderr,
-	})
-
-	return &TeamDeps{
-		ProductCommandDeps: deps,
-		EntitiesRepo:       entities.NewRepository(deps.Pool, logger),
-	}, nil
-}
-
-// resolveTeam resolves a team by name.
-func resolveTeam(ctx context.Context, repo *entities.Repository, tenantID, teamName string) (*entities.Team, error) {
-	team, err := repo.GetTeamByName(ctx, tenantID, teamName)
-	if err != nil {
-		return nil, fmt.Errorf("team lookup error: %w", err)
-	}
-	if team == nil {
-		return nil, fmt.Errorf("team not found: %s", teamName)
-	}
-	return team, nil
-}
-
-// findProductTeam finds a product-team association.
-func findProductTeam(ctx context.Context, repo *products.Repository, productID, teamID int64, context string) (*products.ProductTeam, error) {
-	teams, err := repo.GetTeamsForProduct(ctx, productID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, pt := range teams {
-		if pt.TeamID == teamID {
-			// If context specified, must match.
-			if context != "" {
-				if !strings.EqualFold(pt.Context, context) {
-					continue
-				}
-			}
-			return pt, nil
-		}
-	}
-
-	return nil, products.ErrNotFound
-}
-
-// resolvePerson resolves a person by email.
-func resolvePerson(ctx context.Context, repo *entities.Repository, tenantID, email string) (*entities.Person, error) {
-	person, err := repo.GetPersonByEmail(ctx, tenantID, email)
-	if err != nil {
-		return nil, fmt.Errorf("person lookup error: %w", err)
-	}
-	if person == nil {
-		return nil, fmt.Errorf("person not found: %s", email)
-	}
-	return person, nil
-}
-
 // runProductTeamList lists teams for a product.
 func runProductTeamList(ctx context.Context, deps *ProductCommandDeps, productName string) error {
-	tdeps, err := initTeamDeps(ctx, deps)
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
 	if err != nil {
 		return err
 	}
-	defer tdeps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
 
-	// Resolve product.
-	product, err := tdeps.Repository.ResolveProduct(ctx, tenantID, productName)
+	resp, err := client.ListProductTeams(ctx, &productv1.ListProductTeamsRequest{
+		TenantId:          tenantID,
+		ProductIdentifier: productName,
+	})
 	if err != nil {
-		return fmt.Errorf("product not found: %s", productName)
+		return fmt.Errorf("listing teams: %w", err)
 	}
 
-	// Get teams.
-	teams, err := tdeps.Repository.GetTeamsForProduct(ctx, product.ID)
-	if err != nil {
-		return fmt.Errorf("getting teams: %w", err)
-	}
+	teams := resp.Teams
 
-	// Filter by context if specified.
+	// Filter by context if specified (client-side filtering).
 	if teamContext != "" {
-		var filtered []*products.ProductTeam
+		var filtered []*productv1.ProductTeam
 		for _, t := range teams {
 			if strings.EqualFold(t.Context, teamContext) {
 				filtered = append(filtered, t)
@@ -354,255 +286,332 @@ func runProductTeamList(ctx context.Context, deps *ProductCommandDeps, productNa
 		teams = filtered
 	}
 
-	return outputProductTeams(deps.Config, product.Name, teams)
+	return outputProductTeamsProto(deps.Config, productName, teams)
 }
 
 // runProductTeamAdd associates a team with a product.
 func runProductTeamAdd(ctx context.Context, deps *ProductCommandDeps, productName, teamName string) error {
-	tdeps, err := initTeamDeps(ctx, deps)
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
 	if err != nil {
 		return err
 	}
-	defer tdeps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
 
-	// Resolve product and team.
-	product, err := tdeps.Repository.ResolveProduct(ctx, tenantID, productName)
+	resp, err := client.AddProductTeam(ctx, &productv1.AddProductTeamRequest{
+		TenantId:          tenantID,
+		ProductIdentifier: productName,
+		TeamIdentifier:    teamName,
+		Context:           teamContext,
+	})
 	if err != nil {
-		return fmt.Errorf("product not found: %s", productName)
-	}
-
-	team, err := resolveTeam(ctx, tdeps.EntitiesRepo, tenantID, teamName)
-	if err != nil {
-		return err
-	}
-
-	// Create association.
-	pt := &products.ProductTeam{
-		TenantID:  tenantID,
-		ProductID: product.ID,
-		TeamID:    team.ID,
-		Context:   teamContext,
-	}
-
-	if err := tdeps.Repository.AssociateTeam(ctx, pt); err != nil {
 		return fmt.Errorf("associating team: %w", err)
 	}
 
 	contextStr := ""
-	if teamContext != "" {
-		contextStr = fmt.Sprintf(" (context: %s)", teamContext)
+	if resp.ProductTeam.Context != "" {
+		contextStr = fmt.Sprintf(" (context: %s)", resp.ProductTeam.Context)
 	}
-	fmt.Printf("\033[32mAssociated team:\033[0m %s -> %s%s\n", teamName, productName, contextStr)
+	fmt.Printf("\033[32mAssociated team:\033[0m %s -> %s%s\n", resp.ProductTeam.TeamName, resp.ProductTeam.ProductName, contextStr)
 	return nil
 }
 
 // runProductTeamRemove removes a team from a product.
 func runProductTeamRemove(ctx context.Context, deps *ProductCommandDeps, productName, teamName string) error {
-	tdeps, err := initTeamDeps(ctx, deps)
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
 	if err != nil {
 		return err
 	}
-	defer tdeps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
 
-	// Resolve product and team.
-	product, err := tdeps.Repository.ResolveProduct(ctx, tenantID, productName)
+	// First, list teams to find the product-team ID.
+	listResp, err := client.ListProductTeams(ctx, &productv1.ListProductTeamsRequest{
+		TenantId:          tenantID,
+		ProductIdentifier: productName,
+	})
 	if err != nil {
-		return fmt.Errorf("product not found: %s", productName)
+		return fmt.Errorf("listing teams: %w", err)
 	}
 
-	team, err := resolveTeam(ctx, tdeps.EntitiesRepo, tenantID, teamName)
-	if err != nil {
-		return err
+	// Find the matching team.
+	var productTeamID int64
+	var foundTeamName string
+	for _, pt := range listResp.Teams {
+		if strings.EqualFold(pt.TeamName, teamName) {
+			// If context specified, must match.
+			if teamContext != "" && !strings.EqualFold(pt.Context, teamContext) {
+				continue
+			}
+			productTeamID = pt.Id
+			foundTeamName = pt.TeamName
+			break
+		}
 	}
 
-	// Remove association.
-	if err := tdeps.Repository.DissociateTeam(ctx, product.ID, team.ID, teamContext); err != nil {
+	if productTeamID == 0 {
+		return fmt.Errorf("team '%s' is not associated with '%s'", teamName, productName)
+	}
+
+	// Remove the association.
+	_, err = client.RemoveProductTeam(ctx, &productv1.RemoveProductTeamRequest{
+		TenantId:      tenantID,
+		ProductTeamId: productTeamID,
+	})
+	if err != nil {
 		return fmt.Errorf("removing team: %w", err)
 	}
 
-	fmt.Printf("\033[32mRemoved team:\033[0m %s from %s\n", teamName, productName)
+	fmt.Printf("\033[32mRemoved team:\033[0m %s from %s\n", foundTeamName, productName)
 	return nil
 }
 
 // runProductTeamRoleList lists roles for a product-team.
 func runProductTeamRoleList(ctx context.Context, deps *ProductCommandDeps, productName, teamName string) error {
-	tdeps, err := initTeamDeps(ctx, deps)
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
 	if err != nil {
 		return err
 	}
-	defer tdeps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
 
-	// Resolve product and team.
-	product, err := tdeps.Repository.ResolveProduct(ctx, tenantID, productName)
+	// First, list teams to find the product-team ID.
+	listResp, err := client.ListProductTeams(ctx, &productv1.ListProductTeamsRequest{
+		TenantId:          tenantID,
+		ProductIdentifier: productName,
+	})
 	if err != nil {
-		return fmt.Errorf("product not found: %s", productName)
+		return fmt.Errorf("listing teams: %w", err)
 	}
 
-	team, err := resolveTeam(ctx, tdeps.EntitiesRepo, tenantID, teamName)
-	if err != nil {
-		return err
+	// Find the matching team.
+	var productTeamID int64
+	for _, pt := range listResp.Teams {
+		if strings.EqualFold(pt.TeamName, teamName) {
+			// If context specified, must match.
+			if teamContext != "" && !strings.EqualFold(pt.Context, teamContext) {
+				continue
+			}
+			productTeamID = pt.Id
+			break
+		}
 	}
 
-	// Find product-team association.
-	pt, err := findProductTeam(ctx, tdeps.Repository, product.ID, team.ID, teamContext)
-	if err != nil {
+	if productTeamID == 0 {
 		return fmt.Errorf("team '%s' is not associated with '%s'", teamName, productName)
 	}
 
 	// Get roles.
 	activeOnly := !showAll
-	roles, err := tdeps.Repository.GetRolesForProductTeam(ctx, pt.ID, activeOnly)
+	rolesResp, err := client.ListProductTeamRoles(ctx, &productv1.ListProductTeamRolesRequest{
+		TenantId:      tenantID,
+		ProductTeamId: productTeamID,
+		ActiveOnly:    activeOnly,
+	})
 	if err != nil {
 		return fmt.Errorf("getting roles: %w", err)
 	}
 
-	return outputProductTeamRoles(deps.Config, productName, teamName, roles)
+	return outputProductTeamRolesProto(deps.Config, productName, teamName, rolesResp.Roles)
 }
 
 // runProductTeamRoleAdd adds a role assignment.
 func runProductTeamRoleAdd(ctx context.Context, deps *ProductCommandDeps, productName, teamName, personEmail, roleName string) error {
-	tdeps, err := initTeamDeps(ctx, deps)
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
 	if err != nil {
 		return err
 	}
-	defer tdeps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
 
-	// Resolve product, team, and person.
-	product, err := tdeps.Repository.ResolveProduct(ctx, tenantID, productName)
+	// First, list teams to find the product-team ID.
+	listResp, err := client.ListProductTeams(ctx, &productv1.ListProductTeamsRequest{
+		TenantId:          tenantID,
+		ProductIdentifier: productName,
+	})
 	if err != nil {
-		return fmt.Errorf("product not found: %s", productName)
+		return fmt.Errorf("listing teams: %w", err)
 	}
 
-	team, err := resolveTeam(ctx, tdeps.EntitiesRepo, tenantID, teamName)
-	if err != nil {
-		return err
+	// Find the matching team.
+	var productTeamID int64
+	for _, pt := range listResp.Teams {
+		if strings.EqualFold(pt.TeamName, teamName) {
+			// If context specified, must match.
+			if teamContext != "" && !strings.EqualFold(pt.Context, teamContext) {
+				continue
+			}
+			productTeamID = pt.Id
+			break
+		}
 	}
 
-	person, err := resolvePerson(ctx, tdeps.EntitiesRepo, tenantID, personEmail)
-	if err != nil {
-		return err
-	}
-
-	// Find product-team association.
-	pt, err := findProductTeam(ctx, tdeps.Repository, product.ID, team.ID, teamContext)
-	if err != nil {
+	if productTeamID == 0 {
 		return fmt.Errorf("team '%s' is not associated with '%s' - add team first", teamName, productName)
 	}
 
-	// Add role.
-	role := &products.ProductTeamRole{
-		TenantID:      tenantID,
-		ProductTeamID: pt.ID,
-		PersonID:      person.ID,
-		Role:          roleName,
-		Scope:         teamScope,
-	}
-
-	if err := tdeps.Repository.AddRole(ctx, role); err != nil {
+	// Add role via gRPC - gateway resolves person by email.
+	resp, err := client.AddProductTeamRole(ctx, &productv1.AddProductTeamRoleRequest{
+		TenantId:         tenantID,
+		ProductTeamId:    productTeamID,
+		PersonIdentifier: personEmail,
+		Role:             roleName,
+		Scope:            teamScope,
+	})
+	if err != nil {
 		return fmt.Errorf("adding role: %w", err)
 	}
 
 	scopeStr := ""
-	if teamScope != "" {
-		scopeStr = fmt.Sprintf(" [%s]", teamScope)
+	if resp.Role.Scope != "" {
+		scopeStr = fmt.Sprintf(" [%s]", resp.Role.Scope)
 	}
 	fmt.Printf("\033[32mAdded role:\033[0m %s is now %s%s on %s/%s (ID: %d)\n",
-		person.CanonicalName, roleName, scopeStr, productName, teamName, role.ID)
+		resp.Role.PersonName, resp.Role.Role, scopeStr, resp.Role.ProductName, resp.Role.TeamName, resp.Role.Id)
 	return nil
 }
 
 // runProductTeamRoleEnd ends a role assignment.
 func runProductTeamRoleEnd(ctx context.Context, deps *ProductCommandDeps, roleIDStr string) error {
-	tdeps, err := initTeamDeps(ctx, deps)
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
 	if err != nil {
 		return err
 	}
-	defer tdeps.Pool.Close()
+	defer conn.Close()
+
+	client := productv1.NewProductServiceClient(conn)
+	tenantID := getTenantIDForProduct(deps)
 
 	var roleID int64
 	if _, err := fmt.Sscanf(roleIDStr, "%d", &roleID); err != nil {
 		return fmt.Errorf("invalid role ID: %s", roleIDStr)
 	}
 
-	// Get role info for display.
-	role, err := tdeps.Repository.GetRole(ctx, roleID)
+	// Get role info for display before ending.
+	getResp, err := client.GetProductTeamRole(ctx, &productv1.GetProductTeamRoleRequest{
+		TenantId: tenantID,
+		RoleId:   roleID,
+	})
 	if err != nil {
 		return fmt.Errorf("role not found: %d", roleID)
 	}
 
 	// End role.
-	if err := tdeps.Repository.EndRole(ctx, roleID); err != nil {
+	_, err = client.EndProductTeamRole(ctx, &productv1.EndProductTeamRoleRequest{
+		TenantId: tenantID,
+		RoleId:   roleID,
+	})
+	if err != nil {
 		return fmt.Errorf("ending role: %w", err)
 	}
 
 	fmt.Printf("\033[32mEnded role:\033[0m %s is no longer %s on %s/%s\n",
-		role.PersonName, role.Role, role.ProductName, role.TeamName)
+		getResp.Role.PersonName, getResp.Role.Role, getResp.Role.ProductName, getResp.Role.TeamName)
 	return nil
 }
 
 // runProductTeamRoleFind finds people by role.
 func runProductTeamRoleFind(ctx context.Context, deps *ProductCommandDeps) error {
-	tdeps, err := initTeamDeps(ctx, deps)
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
 	if err != nil {
 		return err
 	}
-	defer tdeps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
 
-	query := products.RoleQuery{
-		TenantID:    tenantID,
-		Role:        teamRole,
-		ProductName: productParent, // reusing the --product flag
-		Scope:       teamScope,
-		ActiveOnly:  !showAll,
-	}
-
-	roles, err := tdeps.Repository.FindByRole(ctx, query)
+	resp, err := client.FindByRole(ctx, &productv1.FindByRoleRequest{
+		TenantId:          tenantID,
+		Role:              teamRole,
+		ProductIdentifier: productParent, // reusing the --product flag
+		Scope:             teamScope,
+		ActiveOnly:        !showAll,
+	})
 	if err != nil {
 		return fmt.Errorf("finding roles: %w", err)
 	}
 
-	return outputRoleSearchResults(deps.Config, roles)
+	return outputRoleSearchResultsProto(deps.Config, resp.Roles)
 }
 
 // runProductTeamPeople lists all people on a product.
 func runProductTeamPeople(ctx context.Context, deps *ProductCommandDeps, productName string) error {
-	tdeps, err := initTeamDeps(ctx, deps)
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProductToGateway(cfg)
 	if err != nil {
 		return err
 	}
-	defer tdeps.Pool.Close()
+	defer conn.Close()
 
+	client := productv1.NewProductServiceClient(conn)
 	tenantID := getTenantIDForProduct(deps)
 
-	// Resolve product.
-	product, err := tdeps.Repository.ResolveProduct(ctx, tenantID, productName)
-	if err != nil {
-		return fmt.Errorf("product not found: %s", productName)
-	}
-
-	// Get people.
 	activeOnly := !showAll
-	roles, err := tdeps.Repository.GetPeopleOnProduct(ctx, product.ID, activeOnly)
+	resp, err := client.ListProductPeople(ctx, &productv1.ListProductPeopleRequest{
+		TenantId:          tenantID,
+		ProductIdentifier: productName,
+		ActiveOnly:        activeOnly,
+	})
 	if err != nil {
 		return fmt.Errorf("getting people: %w", err)
 	}
 
-	return outputProductPeople(deps.Config, productName, roles)
+	return outputProductPeopleProto(deps.Config, productName, resp.People)
 }
 
 // ==================== Output Functions ====================
 
-func outputProductTeams(cfg *config.CLIConfig, productName string, teams []*products.ProductTeam) error {
+func outputProductTeamsProto(cfg *config.CLIConfig, productName string, teams []*productv1.ProductTeam) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
@@ -611,11 +620,11 @@ func outputProductTeams(cfg *config.CLIConfig, productName string, teams []*prod
 	case config.OutputFormatYAML:
 		return outputProductYAML(teams)
 	default:
-		return outputProductTeamsTable(productName, teams)
+		return outputProductTeamsTableProto(productName, teams)
 	}
 }
 
-func outputProductTeamsTable(productName string, teams []*products.ProductTeam) error {
+func outputProductTeamsTableProto(productName string, teams []*productv1.ProductTeam) error {
 	if len(teams) == 0 {
 		fmt.Printf("No teams associated with '%s'\n", productName)
 		return nil
@@ -630,14 +639,14 @@ func outputProductTeamsTable(productName string, teams []*products.ProductTeam) 
 		if t.Context != "" {
 			context = t.Context
 		}
-		fmt.Printf("  %-6d  %-30s %s\n", t.ID, truncateString(t.TeamName, 30), context)
+		fmt.Printf("  %-6d  %-30s %s\n", t.Id, truncateString(t.TeamName, 30), context)
 	}
 
 	fmt.Println()
 	return nil
 }
 
-func outputProductTeamRoles(cfg *config.CLIConfig, productName, teamName string, roles []*products.ProductTeamRole) error {
+func outputProductTeamRolesProto(cfg *config.CLIConfig, productName, teamName string, roles []*productv1.ProductTeamRole) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
@@ -646,11 +655,11 @@ func outputProductTeamRoles(cfg *config.CLIConfig, productName, teamName string,
 	case config.OutputFormatYAML:
 		return outputProductYAML(roles)
 	default:
-		return outputProductTeamRolesTable(productName, teamName, roles)
+		return outputProductTeamRolesTableProto(productName, teamName, roles)
 	}
 }
 
-func outputProductTeamRolesTable(productName, teamName string, roles []*products.ProductTeamRole) error {
+func outputProductTeamRolesTableProto(productName, teamName string, roles []*productv1.ProductTeamRole) error {
 	if len(roles) == 0 {
 		fmt.Printf("No roles assigned for '%s' / '%s'\n", productName, teamName)
 		return nil
@@ -670,7 +679,7 @@ func outputProductTeamRolesTable(productName, teamName string, roles []*products
 			activeStr = "\033[90mno\033[0m"
 		}
 		fmt.Printf("  %-6d  %-30s %-13s %-13s %s\n",
-			r.ID,
+			r.Id,
 			truncateString(r.PersonName, 30),
 			r.Role,
 			truncateString(scope, 13),
@@ -681,7 +690,7 @@ func outputProductTeamRolesTable(productName, teamName string, roles []*products
 	return nil
 }
 
-func outputRoleSearchResults(cfg *config.CLIConfig, roles []*products.ProductTeamRole) error {
+func outputRoleSearchResultsProto(cfg *config.CLIConfig, roles []*productv1.ProductTeamRole) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
@@ -690,11 +699,11 @@ func outputRoleSearchResults(cfg *config.CLIConfig, roles []*products.ProductTea
 	case config.OutputFormatYAML:
 		return outputProductYAML(roles)
 	default:
-		return outputRoleSearchResultsTable(roles)
+		return outputRoleSearchResultsTableProto(roles)
 	}
 }
 
-func outputRoleSearchResultsTable(roles []*products.ProductTeamRole) error {
+func outputRoleSearchResultsTableProto(roles []*productv1.ProductTeamRole) error {
 	if len(roles) == 0 {
 		fmt.Println("No matching roles found.")
 		return nil
@@ -710,7 +719,7 @@ func outputRoleSearchResultsTable(roles []*products.ProductTeamRole) error {
 			scope = r.Scope
 		}
 		fmt.Printf("  %-6d  %-20s %-20s %-25s %-13s %s\n",
-			r.ID,
+			r.Id,
 			truncateString(r.ProductName, 20),
 			truncateString(r.TeamName, 20),
 			truncateString(r.PersonName, 25),
@@ -722,40 +731,48 @@ func outputRoleSearchResultsTable(roles []*products.ProductTeamRole) error {
 	return nil
 }
 
-func outputProductPeople(cfg *config.CLIConfig, productName string, roles []*products.ProductTeamRole) error {
+func outputProductPeopleProto(cfg *config.CLIConfig, productName string, people []*productv1.ProductPersonSummary) error {
 	format := getProductOutputFormat(cfg)
 
 	switch format {
 	case config.OutputFormatJSON:
-		return outputProductJSON(roles)
+		return outputProductJSON(people)
 	case config.OutputFormatYAML:
-		return outputProductYAML(roles)
+		return outputProductYAML(people)
 	default:
-		return outputProductPeopleTable(productName, roles)
+		return outputProductPeopleTableProto(productName, people)
 	}
 }
 
-func outputProductPeopleTable(productName string, roles []*products.ProductTeamRole) error {
-	if len(roles) == 0 {
+func outputProductPeopleTableProto(productName string, people []*productv1.ProductPersonSummary) error {
+	if len(people) == 0 {
 		fmt.Printf("No people assigned to '%s'\n", productName)
 		return nil
 	}
 
-	fmt.Printf("People on '%s' (%d):\n\n", productName, len(roles))
+	// Count total roles across all people.
+	totalRoles := 0
+	for _, p := range people {
+		totalRoles += len(p.Roles)
+	}
+
+	fmt.Printf("People on '%s' (%d people, %d roles):\n\n", productName, len(people), totalRoles)
 	fmt.Println("  TEAM                 PERSON                         ROLE          SCOPE         EMAIL")
 	fmt.Println("  ----                 ------                         ----          -----         -----")
 
-	for _, r := range roles {
-		scope := "-"
-		if r.Scope != "" {
-			scope = r.Scope
+	for _, p := range people {
+		for _, r := range p.Roles {
+			scope := "-"
+			if r.Scope != "" {
+				scope = r.Scope
+			}
+			fmt.Printf("  %-20s %-30s %-13s %-13s %s\n",
+				truncateString(r.TeamName, 20),
+				truncateString(r.PersonName, 30),
+				r.Role,
+				truncateString(scope, 13),
+				r.PersonEmail)
 		}
-		fmt.Printf("  %-20s %-30s %-13s %-13s %s\n",
-			truncateString(r.TeamName, 20),
-			truncateString(r.PersonName, 30),
-			r.Role,
-			truncateString(scope, 13),
-			r.PersonEmail)
 	}
 
 	fmt.Println()

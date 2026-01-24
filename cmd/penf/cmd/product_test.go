@@ -403,13 +403,13 @@ func TestProductStatus_Valid(t *testing.T) {
 
 func TestGetProductTypeColor(t *testing.T) {
 	tests := []struct {
-		input    products.ProductType
+		input    string
 		expected string
 	}{
-		{products.ProductTypeProduct, "\033[35m"},    // Magenta
-		{products.ProductTypeSubProduct, "\033[36m"}, // Cyan
-		{products.ProductTypeFeature, "\033[34m"},    // Blue
-		{products.ProductType("unknown"), ""},
+		{"product", "\033[35m"},     // Magenta
+		{"sub_product", "\033[36m"}, // Cyan
+		{"feature", "\033[34m"},     // Blue
+		{"unknown", ""},
 	}
 
 	for _, tt := range tests {
@@ -422,14 +422,14 @@ func TestGetProductTypeColor(t *testing.T) {
 
 func TestGetProductStatusColor(t *testing.T) {
 	tests := []struct {
-		input    products.ProductStatus
+		input    string
 		expected string
 	}{
-		{products.ProductStatusActive, "\033[32m"},     // Green
-		{products.ProductStatusBeta, "\033[33m"},       // Yellow
-		{products.ProductStatusSunset, "\033[31m"},     // Red
-		{products.ProductStatusDeprecated, "\033[90m"}, // Gray
-		{products.ProductStatus("unknown"), ""},
+		{"active", "\033[32m"},     // Green
+		{"beta", "\033[33m"},       // Yellow
+		{"sunset", "\033[31m"},     // Red
+		{"deprecated", "\033[90m"}, // Gray
+		{"unknown", ""},
 	}
 
 	for _, tt := range tests {

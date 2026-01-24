@@ -5,9 +5,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: entitypb/entity.proto
+// source: connectors/v1/entitypb/entity.proto
 
-package entitypb
+package entityv1
 
 import (
 	context "context"
@@ -208,5 +208,5 @@ var EntityService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "entitypb/entity.proto",
+	Metadata: "connectors/v1/entitypb/entity.proto",
 }
