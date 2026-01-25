@@ -245,9 +245,9 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 	cb := NewCircuitBreaker("test", cfg)
 
 	// Open the circuit
-	cb.Allow()
+	_ = cb.Allow()
 	cb.RecordFailure()
-	cb.Allow()
+	_ = cb.Allow()
 	cb.RecordFailure()
 
 	if cb.State() != CircuitOpen {
@@ -258,7 +258,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 
 	// Transition to half-open
-	cb.Allow()
+	_ = cb.Allow()
 	if cb.State() != CircuitHalfOpen {
 		t.Fatalf("Expected circuit half-open, got %s", cb.State())
 	}
@@ -390,11 +390,11 @@ func TestCircuitBreakerManager(t *testing.T) {
 	}
 
 	// Open circuit on backend1
-	cb1.Allow()
+	_ = cb1.Allow()
 	cb1.RecordFailure()
-	cb1.Allow()
+	_ = cb1.Allow()
 	cb1.RecordFailure()
-	cb1.Allow()
+	_ = cb1.Allow()
 	cb1.RecordFailure()
 
 	if cb1.State() != CircuitOpen {

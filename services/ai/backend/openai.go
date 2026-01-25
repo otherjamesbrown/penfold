@@ -225,7 +225,7 @@ func (b *OpenAIBackend) GenerateEmbedding(ctx context.Context, text string, mode
 	if err != nil {
 		return nil, b.handleHTTPError(ctx, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -320,7 +320,7 @@ func (b *OpenAIBackend) ChatCompletion(ctx context.Context, messages []Message, 
 	if err != nil {
 		return nil, b.handleHTTPError(ctx, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -378,7 +378,7 @@ func (b *OpenAIBackend) checkHealth(ctx context.Context) error {
 	if err != nil {
 		return b.handleHTTPError(ctx, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		return ErrAuthenticationFailed

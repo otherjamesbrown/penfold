@@ -293,6 +293,7 @@ func TestIsValidType(t *testing.T) {
 // isBase62 checks if a string contains only base62 characters
 func isBase62(s string) bool {
 	for _, c := range s {
+		//nolint:staticcheck // QF1001: current form is more readable than De Morgan's law version
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
 			return false
 		}

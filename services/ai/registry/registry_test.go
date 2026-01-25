@@ -690,7 +690,7 @@ func TestRegistry_OllamaDiscovery(t *testing.T) {
 					},
 				},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -734,7 +734,7 @@ func TestRegistry_OllamaHealthCheck(t *testing.T) {
 					{Name: "test-model"},
 				},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

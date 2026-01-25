@@ -17,15 +17,15 @@ func TestConfigFromEnv(t *testing.T) {
 	origPK := os.Getenv("LANGFUSE_PUBLIC_KEY")
 	origSK := os.Getenv("LANGFUSE_SECRET_KEY")
 	defer func() {
-		os.Setenv("LANGFUSE_HOST", origHost)
-		os.Setenv("LANGFUSE_PUBLIC_KEY", origPK)
-		os.Setenv("LANGFUSE_SECRET_KEY", origSK)
+		_ = os.Setenv("LANGFUSE_HOST", origHost)
+		_ = os.Setenv("LANGFUSE_PUBLIC_KEY", origPK)
+		_ = os.Setenv("LANGFUSE_SECRET_KEY", origSK)
 	}()
 
 	// Test with no env vars
-	os.Unsetenv("LANGFUSE_HOST")
-	os.Unsetenv("LANGFUSE_PUBLIC_KEY")
-	os.Unsetenv("LANGFUSE_SECRET_KEY")
+	_ = os.Unsetenv("LANGFUSE_HOST")
+	_ = os.Unsetenv("LANGFUSE_PUBLIC_KEY")
+	_ = os.Unsetenv("LANGFUSE_SECRET_KEY")
 
 	cfg := langfuse.ConfigFromEnv()
 	if cfg != nil {
@@ -33,16 +33,16 @@ func TestConfigFromEnv(t *testing.T) {
 	}
 
 	// Test with partial env vars
-	os.Setenv("LANGFUSE_HOST", "http://localhost:3000")
+	_ = os.Setenv("LANGFUSE_HOST", "http://localhost:3000")
 	cfg = langfuse.ConfigFromEnv()
 	if cfg != nil {
 		t.Error("expected nil config when only host set")
 	}
 
 	// Test with all env vars
-	os.Setenv("LANGFUSE_HOST", "http://localhost:3000")
-	os.Setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
-	os.Setenv("LANGFUSE_SECRET_KEY", "sk-test")
+	_ = os.Setenv("LANGFUSE_HOST", "http://localhost:3000")
+	_ = os.Setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+	_ = os.Setenv("LANGFUSE_SECRET_KEY", "sk-test")
 
 	cfg = langfuse.ConfigFromEnv()
 	if cfg == nil {
@@ -139,7 +139,7 @@ func TestCreateDataset(t *testing.T) {
 
 		// Return response
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(langfuse.Dataset{
+		_ = json.NewEncoder(w).Encode(langfuse.Dataset{
 			ID:          "ds-123",
 			Name:        req.Name,
 			Description: req.Description,
@@ -187,7 +187,7 @@ func TestCreateDatasetItem(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(langfuse.DatasetItem{
+		_ = json.NewEncoder(w).Encode(langfuse.DatasetItem{
 			ID:          "item-456",
 			DatasetName: req.DatasetName,
 			Input:       req.Input,
@@ -230,7 +230,7 @@ func TestCreateDatasetRunItem(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(langfuse.DatasetRunItem{
+		_ = json.NewEncoder(w).Encode(langfuse.DatasetRunItem{
 			ID:            "run-item-789",
 			DatasetItemID: req.DatasetItemID,
 			TraceID:       req.TraceID,
@@ -272,7 +272,7 @@ func TestGetDataset(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(langfuse.Dataset{
+		_ = json.NewEncoder(w).Encode(langfuse.Dataset{
 			ID:   "ds-123",
 			Name: "my-dataset",
 		})
@@ -305,7 +305,7 @@ func TestGetDatasetRuns(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(langfuse.DatasetRunsResponse{
+		_ = json.NewEncoder(w).Encode(langfuse.DatasetRunsResponse{
 			Data: []langfuse.DatasetRun{
 				{ID: "run-1", Name: "phi-test"},
 				{ID: "run-2", Name: "qwen-test"},
@@ -336,7 +336,7 @@ func TestGetDatasetRuns(t *testing.T) {
 func TestAPIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Dataset name is required"}`))
+		_, _ = w.Write([]byte(`{"error": "Dataset name is required"}`))
 	}))
 	defer server.Close()
 

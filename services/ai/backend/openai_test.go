@@ -89,8 +89,8 @@ func TestNewOpenAIBackend(t *testing.T) {
 
 	t.Run("reads API key from environment", func(t *testing.T) {
 		oldKey := os.Getenv("OPENAI_API_KEY")
-		os.Setenv("OPENAI_API_KEY", "env-api-key")
-		defer os.Setenv("OPENAI_API_KEY", oldKey)
+		_ = os.Setenv("OPENAI_API_KEY", "env-api-key")
+		defer func() { _ = os.Setenv("OPENAI_API_KEY", oldKey) }()
 
 		be, err := NewOpenAIBackend(&OpenAIConfig{})
 		if err != nil {
@@ -103,8 +103,8 @@ func TestNewOpenAIBackend(t *testing.T) {
 
 	t.Run("config API key overrides environment", func(t *testing.T) {
 		oldKey := os.Getenv("OPENAI_API_KEY")
-		os.Setenv("OPENAI_API_KEY", "env-api-key")
-		defer os.Setenv("OPENAI_API_KEY", oldKey)
+		_ = os.Setenv("OPENAI_API_KEY", "env-api-key")
+		defer func() { _ = os.Setenv("OPENAI_API_KEY", oldKey) }()
 
 		be, err := NewOpenAIBackend(&OpenAIConfig{
 			APIKey: "config-api-key",
@@ -155,7 +155,7 @@ func TestOpenAIBackend_GenerateEmbedding(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -204,7 +204,7 @@ func TestOpenAIBackend_GenerateEmbedding(t *testing.T) {
 		var requestedModel string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var req openaiEmbedRequest
-			json.NewDecoder(r.Body).Decode(&req)
+			_ = json.NewDecoder(r.Body).Decode(&req)
 			requestedModel = req.Model
 
 			resp := openaiEmbedResponse{
@@ -217,7 +217,7 @@ func TestOpenAIBackend_GenerateEmbedding(t *testing.T) {
 				},
 				Model: req.Model,
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -226,7 +226,7 @@ func TestOpenAIBackend_GenerateEmbedding(t *testing.T) {
 			Timeout:  5 * time.Second,
 		})
 
-		be.GenerateEmbedding(context.Background(), "test", "text-embedding-3-large")
+		_, _ = be.GenerateEmbedding(context.Background(), "test", "text-embedding-3-large")
 		if requestedModel != "text-embedding-3-large" {
 			t.Errorf("expected text-embedding-3-large, got %s", requestedModel)
 		}
@@ -235,7 +235,7 @@ func TestOpenAIBackend_GenerateEmbedding(t *testing.T) {
 	t.Run("server error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error": map[string]string{
 					"message": "internal error",
 					"type":    "server_error",
@@ -258,7 +258,7 @@ func TestOpenAIBackend_GenerateEmbedding(t *testing.T) {
 	t.Run("authentication error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error": map[string]string{
 					"message": "Invalid API key",
 					"type":    "invalid_request_error",
@@ -286,7 +286,7 @@ func TestOpenAIBackend_GenerateEmbedding(t *testing.T) {
 	t.Run("rate limit error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error": map[string]string{
 					"message": "Rate limit exceeded",
 					"type":    "rate_limit_error",
@@ -339,7 +339,7 @@ func TestOpenAIBackend_ChatCompletion(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -386,7 +386,7 @@ func TestOpenAIBackend_ChatCompletion(t *testing.T) {
 				Choices: []openaiChatChoice{},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -405,7 +405,7 @@ func TestOpenAIBackend_ChatCompletion(t *testing.T) {
 	t.Run("JSON mode sets response_format", func(t *testing.T) {
 		var requestBody openaiChatRequest
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			json.NewDecoder(r.Body).Decode(&requestBody)
+			_ = json.NewDecoder(r.Body).Decode(&requestBody)
 
 			resp := openaiChatResponse{
 				ID: "chatcmpl-123",
@@ -413,7 +413,7 @@ func TestOpenAIBackend_ChatCompletion(t *testing.T) {
 					{Message: openaiMessage{Content: `{"result": "ok"}`}},
 				},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -423,7 +423,7 @@ func TestOpenAIBackend_ChatCompletion(t *testing.T) {
 		})
 
 		messages := []Message{{Role: "user", Content: "Return JSON"}}
-		be.ChatCompletion(context.Background(), messages, CompletionOptions{
+		_, _ = be.ChatCompletion(context.Background(), messages, CompletionOptions{
 			JSONMode: true,
 		})
 
@@ -439,7 +439,7 @@ func TestOpenAIBackend_ChatCompletion(t *testing.T) {
 		var requestedModel string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var req openaiChatRequest
-			json.NewDecoder(r.Body).Decode(&req)
+			_ = json.NewDecoder(r.Body).Decode(&req)
 			requestedModel = req.Model
 
 			resp := openaiChatResponse{
@@ -449,7 +449,7 @@ func TestOpenAIBackend_ChatCompletion(t *testing.T) {
 					{Message: openaiMessage{Content: "Response"}},
 				},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -459,7 +459,7 @@ func TestOpenAIBackend_ChatCompletion(t *testing.T) {
 		})
 
 		messages := []Message{{Role: "user", Content: "Hello"}}
-		be.ChatCompletion(context.Background(), messages, CompletionOptions{
+		_, _ = be.ChatCompletion(context.Background(), messages, CompletionOptions{
 			Model: "gpt-4o",
 		})
 
@@ -471,13 +471,13 @@ func TestOpenAIBackend_ChatCompletion(t *testing.T) {
 	t.Run("temperature and max_tokens are set", func(t *testing.T) {
 		var requestBody openaiChatRequest
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			json.NewDecoder(r.Body).Decode(&requestBody)
+			_ = json.NewDecoder(r.Body).Decode(&requestBody)
 
 			resp := openaiChatResponse{
 				ID:      "chatcmpl-123",
 				Choices: []openaiChatChoice{{Message: openaiMessage{Content: "Hi"}}},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -487,7 +487,7 @@ func TestOpenAIBackend_ChatCompletion(t *testing.T) {
 		})
 
 		messages := []Message{{Role: "user", Content: "Hello"}}
-		be.ChatCompletion(context.Background(), messages, CompletionOptions{
+		_, _ = be.ChatCompletion(context.Background(), messages, CompletionOptions{
 			MaxTokens:   500,
 			Temperature: 0.7,
 		})
@@ -598,7 +598,7 @@ func TestOpenAIBackend_AzureConfig(t *testing.T) {
 			Timeout:         5 * time.Second,
 		})
 
-		be.CheckLLMHealth(context.Background())
+		_ = be.CheckLLMHealth(context.Background())
 
 		// Azure should use api-key header instead of Authorization
 		if receivedHeaders.Get("api-key") != "azure-key" {
@@ -626,7 +626,7 @@ func TestOpenAIBackend_OrganizationHeader(t *testing.T) {
 		Timeout:      5 * time.Second,
 	})
 
-	be.CheckLLMHealth(context.Background())
+	_ = be.CheckLLMHealth(context.Background())
 
 	if receivedHeaders.Get("OpenAI-Organization") != "org-12345" {
 		t.Errorf("expected org header, got: %s", receivedHeaders.Get("OpenAI-Organization"))

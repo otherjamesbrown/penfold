@@ -185,7 +185,7 @@ func TestFullAIPipeline(t *testing.T) {
 		Logger:               logger,
 	}
 	modelRouter := router.NewModelRouter(routerCfg)
-	defer modelRouter.Shutdown(ctx)
+	defer func() { _ = modelRouter.Shutdown(ctx) }()
 
 	// Register backends
 	localBackend := newMockBackend("local-llm", "ollama", true, []string{"summarization", "extraction"})
@@ -350,7 +350,7 @@ func TestEscalationFlow(t *testing.T) {
 	escalationCfg.EnableMetrics = false
 	escalationCfg.MaxEscalations = 2
 	manager := escalation.NewEscalationManager(escalationCfg, logger)
-	defer manager.Close()
+	defer func() { _ = manager.Close() }()
 
 	// Set up mock processor
 	callCount := 0
@@ -501,7 +501,7 @@ func TestRegistryWithRouter(t *testing.T) {
 			Logger:         logger,
 		}
 		r := router.NewModelRouter(routerCfg)
-		defer r.Shutdown(ctx)
+		defer func() { _ = r.Shutdown(ctx) }()
 
 		// In a real integration, we'd map registry models to router backends
 		// For this test, we verify the registration flow
@@ -546,9 +546,9 @@ func TestEnsembleIntegration(t *testing.T) {
 		confidence: 0.7,
 	}
 
-	ep.AddModel(model1)
-	ep.AddModel(model2)
-	ep.AddModel(model3)
+	_ = ep.AddModel(model1)
+	_ = ep.AddModel(model2)
+	_ = ep.AddModel(model3)
 
 	t.Run("ParallelStrategy", func(t *testing.T) {
 		req := &ensemble.EnsembleRequest{
@@ -620,7 +620,7 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 		Logger:        logger,
 	}
 	r := router.NewModelRouter(routerCfg)
-	defer r.Shutdown(ctx)
+	defer func() { _ = r.Shutdown(ctx) }()
 
 	// Create failing backend
 	failingBackend := newMockBackend("failing", "test", true, []string{"chat"})
@@ -639,8 +639,8 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 		Content: "test",
 	}
 
-	r.Route(ctx, req)
-	r.Route(ctx, req)
+	_, _ = r.Route(ctx, req)
+	_, _ = r.Route(ctx, req)
 
 	// Check circuit is open
 	stats := r.GetCircuitStats("failing")
@@ -809,10 +809,10 @@ func BenchmarkFullPipeline(b *testing.B) {
 		Logger:         logger,
 	}
 	r := router.NewModelRouter(routerCfg)
-	defer r.Shutdown(ctx)
+	defer func() { _ = r.Shutdown(ctx) }()
 
 	backend := newMockBackend("bench", "test", true, []string{"chat"})
-	r.RegisterBackend(backend)
+	_ = r.RegisterBackend(backend)
 
 	req := &router.Request{
 		ID:       "bench",
@@ -823,7 +823,7 @@ func BenchmarkFullPipeline(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.Route(ctx, req)
+		_, _ = r.Route(ctx, req)
 	}
 }
 
@@ -838,7 +838,7 @@ func BenchmarkModelSelection(b *testing.B) {
 
 	// Register multiple models
 	for i := 0; i < 10; i++ {
-		s.RegisterModel(&selector.ModelConfig{
+		_ = s.RegisterModel(&selector.ModelConfig{
 			ModelID:  "model-" + string(rune('a'+i)),
 			Provider: selector.ModelProviderOllama,
 			Capabilities: &selector.ModelCapabilities{
@@ -856,6 +856,6 @@ func BenchmarkModelSelection(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		s.SelectModel(ctx, criteria)
+		_, _ = s.SelectModel(ctx, criteria)
 	}
 }

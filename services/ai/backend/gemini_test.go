@@ -31,8 +31,8 @@ func TestNewGeminiBackend(t *testing.T) {
 	})
 
 	t.Run("with API key from environment", func(t *testing.T) {
-		os.Setenv("GEMINI_API_KEY", "env-api-key")
-		defer os.Unsetenv("GEMINI_API_KEY")
+		_ = os.Setenv("GEMINI_API_KEY", "env-api-key")
+		defer func() { _ = os.Unsetenv("GEMINI_API_KEY") }()
 
 		be, err := NewGeminiBackend(nil)
 		if err != nil {
@@ -47,7 +47,7 @@ func TestNewGeminiBackend(t *testing.T) {
 	})
 
 	t.Run("missing API key returns error", func(t *testing.T) {
-		os.Unsetenv("GEMINI_API_KEY")
+		_ = os.Unsetenv("GEMINI_API_KEY")
 		_, err := NewGeminiBackend(&GeminiConfig{})
 		if err == nil {
 			t.Fatal("expected error for missing API key")
@@ -123,7 +123,7 @@ func TestGeminiBackend_GenerateEmbedding(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -162,7 +162,7 @@ func TestGeminiBackend_GenerateEmbedding(t *testing.T) {
 					Values: []float32{0.1},
 				},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -199,7 +199,7 @@ func TestGeminiBackend_GenerateEmbedding(t *testing.T) {
 	t.Run("server error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error": map[string]interface{}{
 					"code":    500,
 					"message": "internal error",
@@ -224,7 +224,7 @@ func TestGeminiBackend_GenerateEmbedding(t *testing.T) {
 	t.Run("rate limit error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error": map[string]interface{}{
 					"code":    429,
 					"message": "quota exceeded",
@@ -253,7 +253,7 @@ func TestGeminiBackend_GenerateEmbedding(t *testing.T) {
 	t.Run("authentication error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error": map[string]interface{}{
 					"code":    401,
 					"message": "API key not valid",
@@ -281,7 +281,7 @@ func TestGeminiBackend_GenerateEmbedding(t *testing.T) {
 	t.Run("empty embedding response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			resp := geminiEmbedResponse{} // No embedding
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -328,7 +328,7 @@ func TestGeminiBackend_ChatCompletion(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -363,7 +363,7 @@ func TestGeminiBackend_ChatCompletion(t *testing.T) {
 	t.Run("with system message", func(t *testing.T) {
 		var receivedReq geminiGenerateRequest
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			json.NewDecoder(r.Body).Decode(&receivedReq)
+			_ = json.NewDecoder(r.Body).Decode(&receivedReq)
 
 			resp := geminiGenerateResponse{
 				Candidates: []geminiCandidate{{
@@ -372,7 +372,7 @@ func TestGeminiBackend_ChatCompletion(t *testing.T) {
 					},
 				}},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -410,13 +410,13 @@ func TestGeminiBackend_ChatCompletion(t *testing.T) {
 	t.Run("assistant role converted to model", func(t *testing.T) {
 		var receivedReq geminiGenerateRequest
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			json.NewDecoder(r.Body).Decode(&receivedReq)
+			_ = json.NewDecoder(r.Body).Decode(&receivedReq)
 			resp := geminiGenerateResponse{
 				Candidates: []geminiCandidate{{
 					Content: geminiContent{Parts: []geminiPart{{Text: "response"}}},
 				}},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -447,13 +447,13 @@ func TestGeminiBackend_ChatCompletion(t *testing.T) {
 	t.Run("JSON mode", func(t *testing.T) {
 		var receivedReq geminiGenerateRequest
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			json.NewDecoder(r.Body).Decode(&receivedReq)
+			_ = json.NewDecoder(r.Body).Decode(&receivedReq)
 			resp := geminiGenerateResponse{
 				Candidates: []geminiCandidate{{
 					Content: geminiContent{Parts: []geminiPart{{Text: `{"key":"value"}`}}},
 				}},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -485,13 +485,13 @@ func TestGeminiBackend_ChatCompletion(t *testing.T) {
 			if r.URL.Path != "/models/gemini-2.0-pro:generateContent" {
 				t.Errorf("unexpected path: %s", r.URL.Path)
 			}
-			json.NewDecoder(r.Body).Decode(&receivedReq)
+			_ = json.NewDecoder(r.Body).Decode(&receivedReq)
 			resp := geminiGenerateResponse{
 				Candidates: []geminiCandidate{{
 					Content: geminiContent{Parts: []geminiPart{{Text: "response"}}},
 				}},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -551,7 +551,7 @@ func TestGeminiBackend_ChatCompletion(t *testing.T) {
 			resp := geminiGenerateResponse{
 				Candidates: []geminiCandidate{},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -576,7 +576,7 @@ func TestGeminiBackend_ChatCompletion(t *testing.T) {
 					Status:  "INVALID_ARGUMENT",
 				},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -604,7 +604,7 @@ func TestGeminiBackend_CheckHealth(t *testing.T) {
 					Values: []float32{0.1, 0.2},
 				},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -645,7 +645,7 @@ func TestGeminiBackend_CheckHealth(t *testing.T) {
 					Content: geminiContent{Parts: []geminiPart{{Text: "ok"}}},
 				}},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 

@@ -113,7 +113,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 
 // parseResponse reads and unmarshals the response body.
 func parseResponse[T any](resp *http.Response) (*T, error) {
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

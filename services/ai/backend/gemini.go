@@ -209,7 +209,7 @@ func (b *GeminiBackend) GenerateEmbedding(ctx context.Context, text string, mode
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -338,7 +338,7 @@ func (b *GeminiBackend) ChatCompletion(ctx context.Context, messages []Message, 
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
