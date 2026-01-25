@@ -30,4 +30,13 @@ var (
 
 	// ErrHealthCheckFailed is returned when a health check fails.
 	ErrHealthCheckFailed = errors.New("health check failed")
+
+	// ErrInvalidRoutingRule is returned when a routing rule is invalid.
+	ErrInvalidRoutingRule = errors.New("invalid routing rule")
+
+	// ErrRoutingRuleNotFound is returned when a routing rule is not found.
+	ErrRoutingRuleNotFound = errors.New("routing rule not found")
+
+	// ErrDatabaseError is returned when a database operation fails.
+	ErrDatabaseError = errors.New("database error")
 )
