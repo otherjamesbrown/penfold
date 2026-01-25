@@ -209,6 +209,44 @@ Task(subagent_type="Debugger", prompt="Investigate the failing search tests...")
 - **Zero warnings** from `go vet` and `staticcheck`
 - **80% test coverage** minimum for core packages
 
+### Go Lint-Compliant Patterns (MANDATORY)
+
+**Write lint-compliant code from the start. These patterns are enforced by CI.**
+
+| Pattern | Wrong | Correct |
+|---------|-------|---------|
+| HTTP response close | `defer resp.Body.Close()` | `defer func() { _ = resp.Body.Close() }()` |
+| JSON encode in handlers | `json.NewEncoder(w).Encode(x)` | `_ = json.NewEncoder(w).Encode(x)` |
+| Env vars in tests | `os.Setenv("K", "v")` | `t.Setenv("K", "v")` or `_ = os.Setenv("K", "v")` |
+| Error strings | `fmt.Errorf("Error msg")` | `fmt.Errorf("error msg")` (lowercase) |
+| Ignored errors | `fn()` | `_ = fn()` (explicit ignore) |
+
+**Key lint rules to follow:**
+- **errcheck**: Always handle or explicitly ignore error returns with `_ = `
+- **ST1005**: Error strings should not be capitalized or end with punctuation
+- **SA9003**: Avoid empty if branches - handle errors meaningfully
+- **ineffassign**: Don't assign to variables that are never read
+- **unused**: Don't declare unused variables, functions, or types
+- **S1016**: Use type conversion instead of struct literal when types match
+
+**HTTP client pattern:**
+```go
+resp, err := client.Do(req)
+if err != nil {
+    return err
+}
+defer func() { _ = resp.Body.Close() }()
+```
+
+**Test HTTP handler pattern:**
+```go
+server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    _ = json.NewEncoder(w).Encode(response)
+}))
+defer server.Close()
+```
+
 ### Git Workflow
 - All commits must reference bead: `[pe-xxx]`
 - Push to remote before ending session
