@@ -135,6 +135,7 @@ All Go services expose standardized health endpoints:
 | Hostname | IP | Role |
 |----------|-----|------|
 | `dev01.brown.chat` | 10.0.10.144 | Development machine, MLX inference |
+| `dev02.brown.chat` | 10.0.10.251 | Linux server (Intel N150, 16GB RAM, 500GB NVMe) - available |
 | `home-01.brown.chat` | 10.0.10.253 | Data services, Gateway |
 
 Use hostnames in all configs for portability. IPs may change.
@@ -527,4 +528,4 @@ PENFOLD_DB_NAME=penfold
 
 ---
 
-*Last topology verification: 2026-01-23*
+*Last topology verification: 2026-01-25*
