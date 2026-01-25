@@ -101,7 +101,7 @@ func main() {
 		EmbeddingDimensions:   cfg.EmbeddingDimensions,
 		Timeout:               120 * time.Second,
 	})
-	defer mlxBackend.Close()
+	defer func() { _ = mlxBackend.Close() }()
 
 	logger.Info("MLX backend configured",
 		logging.F("embeddings_url", cfg.MLXEmbeddingsURL),

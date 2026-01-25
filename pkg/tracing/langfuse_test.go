@@ -65,7 +65,7 @@ func TestLangfuseExport(t *testing.T) {
 	span.End()
 
 	// Create a child embedding span
-	ctx, embedSpan := tracing.StartEmbedding(ctx, "test-embedding", tracing.EmbeddingOptions{
+	_, embedSpan := tracing.StartEmbedding(ctx, "test-embedding", tracing.EmbeddingOptions{
 		Model:     "test-embed-model",
 		System:    tracing.AISystemMLX,
 		TenantID:  "test-tenant",
@@ -94,15 +94,15 @@ func TestLangfuseConfigFromEnv(t *testing.T) {
 	origPK := os.Getenv("LANGFUSE_PUBLIC_KEY")
 	origSK := os.Getenv("LANGFUSE_SECRET_KEY")
 	defer func() {
-		os.Setenv("LANGFUSE_HOST", origHost)
-		os.Setenv("LANGFUSE_PUBLIC_KEY", origPK)
-		os.Setenv("LANGFUSE_SECRET_KEY", origSK)
+		_ = os.Setenv("LANGFUSE_HOST", origHost)
+		_ = os.Setenv("LANGFUSE_PUBLIC_KEY", origPK)
+		_ = os.Setenv("LANGFUSE_SECRET_KEY", origSK)
 	}()
 
 	// Test with no env vars
-	os.Unsetenv("LANGFUSE_HOST")
-	os.Unsetenv("LANGFUSE_PUBLIC_KEY")
-	os.Unsetenv("LANGFUSE_SECRET_KEY")
+	_ = os.Unsetenv("LANGFUSE_HOST")
+	_ = os.Unsetenv("LANGFUSE_PUBLIC_KEY")
+	_ = os.Unsetenv("LANGFUSE_SECRET_KEY")
 
 	cfg := tracing.LangfuseConfigFromEnv()
 	if cfg != nil {
@@ -110,9 +110,9 @@ func TestLangfuseConfigFromEnv(t *testing.T) {
 	}
 
 	// Test with env vars
-	os.Setenv("LANGFUSE_HOST", "http://test-host:3000")
-	os.Setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
-	os.Setenv("LANGFUSE_SECRET_KEY", "sk-test")
+	_ = os.Setenv("LANGFUSE_HOST", "http://test-host:3000")
+	_ = os.Setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+	_ = os.Setenv("LANGFUSE_SECRET_KEY", "sk-test")
 
 	cfg = tracing.LangfuseConfigFromEnv()
 	if cfg == nil {

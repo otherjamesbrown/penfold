@@ -15,6 +15,7 @@ import (
 
 	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
+	"github.com/otherjamesbrown/penfold/pkg/contentid"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/meeting"
 )
 
@@ -193,11 +194,15 @@ func runIngestMeeting(ctx context.Context, deps *IngestCommandDeps, path string)
 	// Process each meeting
 	startTime := time.Now()
 	var importedCount, skippedCount, failedCount int
+	var contentIDs []string
 
 	for i, m := range meetings {
 		fmt.Printf("[%d/%d] Processing: %s\n", i+1, len(meetings), m.Title)
 
-		resp, err := processMeetingViaGRPC(ctx, ingestClient, m, tenantID, meetingSource, meetingPlatform)
+		// Generate content_id before sending to gateway
+		cid := contentid.New(contentid.TypeMeeting)
+
+		resp, err := processMeetingViaGRPC(ctx, ingestClient, m, tenantID, meetingSource, meetingPlatform, cid)
 		if err != nil {
 			fmt.Printf("  ERROR: %v\n", err)
 			failedCount++
@@ -205,7 +210,10 @@ func runIngestMeeting(ctx context.Context, deps *IngestCommandDeps, path string)
 			fmt.Printf("  SKIPPED (duplicate)\n")
 			skippedCount++
 		} else {
-			fmt.Printf("  OK (source_id: %s)\n", resp.SourceId)
+			fmt.Printf("  Content ID: %s\n", resp.ContentId)
+			fmt.Printf("  Source ID:  %s\n", resp.SourceId)
+			fmt.Printf("  Status:     pending\n")
+			contentIDs = append(contentIDs, resp.ContentId)
 			importedCount++
 		}
 	}
@@ -220,6 +228,21 @@ func runIngestMeeting(ctx context.Context, deps *IngestCommandDeps, path string)
 	fmt.Printf("  Skipped:     \033[33m%d\033[0m\n", skippedCount)
 	fmt.Printf("  Failed:      \033[31m%d\033[0m\n", failedCount)
 	fmt.Printf("  Duration:    %s\n", formatDuration(duration))
+
+	// Display content IDs if any
+	if len(contentIDs) > 0 {
+		fmt.Println("\nContent IDs:")
+		displayCount := len(contentIDs)
+		if displayCount > 10 {
+			displayCount = 10
+		}
+		for i := 0; i < displayCount; i++ {
+			fmt.Printf("  - %s\n", contentIDs[i])
+		}
+		if len(contentIDs) > 10 {
+			fmt.Printf("  ... and %d more\n", len(contentIDs)-10)
+		}
+	}
 
 	if failedCount > 0 {
 		return fmt.Errorf("%d meetings failed to import", failedCount)
@@ -272,7 +295,7 @@ func platformToProto(platform string) ingestv1.Platform {
 }
 
 // processMeetingViaGRPC processes a single meeting and sends it to the gateway via gRPC.
-func processMeetingViaGRPC(ctx context.Context, client ingestv1.IngestServiceClient, m *meeting.Meeting, tenantID, sourceTag, platform string) (*ingestv1.IngestMeetingResponse, error) {
+func processMeetingViaGRPC(ctx context.Context, client ingestv1.IngestServiceClient, m *meeting.Meeting, tenantID, sourceTag, platform string, contentID string) (*ingestv1.IngestMeetingResponse, error) {
 	// Resolve tenant ID
 	resolvedTenantID := tenantID
 	if resolvedTenantID == "" || resolvedTenantID == "default" {
@@ -334,7 +357,7 @@ func processMeetingViaGRPC(ctx context.Context, client ingestv1.IngestServiceCli
 	}
 
 	// Convert parsed meeting to proto request
-	req := meetingToProtoRequest(m, resolvedTenantID, sourceTag, platform)
+	req := meetingToProtoRequest(m, resolvedTenantID, sourceTag, platform, contentID)
 
 	// Call gRPC service
 	resp, err := client.IngestMeeting(ctx, req)
@@ -346,12 +369,13 @@ func processMeetingViaGRPC(ctx context.Context, client ingestv1.IngestServiceCli
 }
 
 // meetingToProtoRequest converts a parsed meeting to a proto IngestMeetingRequest.
-func meetingToProtoRequest(m *meeting.Meeting, tenantID, sourceTag, platform string) *ingestv1.IngestMeetingRequest {
+func meetingToProtoRequest(m *meeting.Meeting, tenantID, sourceTag, platform string, contentID string) *ingestv1.IngestMeetingRequest {
 	req := &ingestv1.IngestMeetingRequest{
-		TenantId: tenantID,
-		Title:    m.Title,
-		Platform: platformToProto(platform),
-		Labels:   []string{sourceTag},
+		TenantId:  tenantID,
+		Title:     m.Title,
+		Platform:  platformToProto(platform),
+		Labels:    []string{sourceTag},
+		ContentId: contentID,
 	}
 
 	// Set meeting times

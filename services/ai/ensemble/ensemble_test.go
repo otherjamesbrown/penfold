@@ -112,7 +112,7 @@ func createTestProcessor(models ...ModelBackend) *EnsembleProcessor {
 	ep := NewEnsembleProcessor(cfg, nil)
 
 	for _, m := range models {
-		ep.AddModel(m)
+		_ = ep.AddModel(m)
 	}
 
 	return ep

@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
 	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
@@ -43,6 +44,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/ingestservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/mentionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/middleware"
+	"github.com/otherjamesbrown/penfold/services/gateway/modelservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/pipelineservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/productservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/questionsservice"
@@ -227,6 +229,16 @@ func main() {
 	ingestSvc := ingestservice.NewService(ingestRepo, logger)
 	ingestv1.RegisterIngestServiceServer(grpcServer, ingestSvc)
 	logger.Info("Registered IngestService")
+
+	// Register ModelService for AI model management (proxies to AI Coordinator).
+	// This service works even when aiClient is nil - it returns Unavailable status.
+	modelSvc := modelservice.NewService(aiClient, logger)
+	aiv1.RegisterAICoordinatorServiceServer(grpcServer, modelSvc)
+	if aiClient != nil {
+		logger.Info("Registered ModelService (AI Coordinator proxy)")
+	} else {
+		logger.Warn("Registered ModelService (AI service not connected, operations will return Unavailable)")
+	}
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()

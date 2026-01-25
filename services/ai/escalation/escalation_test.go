@@ -563,7 +563,7 @@ func TestEscalationManager(t *testing.T) {
 		if manager == nil {
 			t.Fatal("expected manager to be created")
 		}
-		defer manager.Close()
+		defer func() { _ = manager.Close() }()
 
 		config := manager.GetConfig()
 		if config == nil {
@@ -575,7 +575,7 @@ func TestEscalationManager(t *testing.T) {
 		config := DefaultManagerConfig()
 		config.EnableMetrics = false
 		manager := NewEscalationManager(config, nil)
-		defer manager.Close()
+		defer func() { _ = manager.Close() }()
 
 		request := &EscalationRequest{
 			ID:          "test-1",
@@ -597,7 +597,7 @@ func TestEscalationManager(t *testing.T) {
 		config := DefaultManagerConfig()
 		config.EnableMetrics = false
 		manager := NewEscalationManager(config, nil)
-		defer manager.Close()
+		defer func() { _ = manager.Close() }()
 
 		request := &EscalationRequest{
 			ID:          "test-1",
@@ -620,7 +620,7 @@ func TestEscalationManager(t *testing.T) {
 		config := DefaultManagerConfig()
 		config.EnableMetrics = false
 		manager := NewEscalationManager(config, nil)
-		defer manager.Close()
+		defer func() { _ = manager.Close() }()
 
 		processor := &MockModelProcessor{}
 		manager.SetProcessor(processor)
@@ -646,7 +646,7 @@ func TestEscalationManager(t *testing.T) {
 		config := DefaultManagerConfig()
 		config.EnableMetrics = false
 		manager := NewEscalationManager(config, nil)
-		defer manager.Close()
+		defer func() { _ = manager.Close() }()
 
 		path := manager.GetEscalationPath("summarization")
 		if len(path) == 0 {
@@ -659,7 +659,7 @@ func TestEscalationManager(t *testing.T) {
 		config.EnableMetrics = false
 		config.EnableAuditLog = true
 		manager := NewEscalationManager(config, nil)
-		defer manager.Close()
+		defer func() { _ = manager.Close() }()
 
 		processor := &MockModelProcessor{}
 		manager.SetProcessor(processor)
@@ -689,7 +689,7 @@ func TestEscalationManager(t *testing.T) {
 		config.EnableMetrics = false
 		config.MaxEscalations = 2
 		manager := NewEscalationManager(config, nil)
-		defer manager.Close()
+		defer func() { _ = manager.Close() }()
 
 		callCount := 0
 		processor := &MockModelProcessor{

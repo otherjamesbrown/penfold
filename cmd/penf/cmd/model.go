@@ -16,8 +16,11 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
 
@@ -117,6 +120,7 @@ type ModelCommandDeps struct {
 	LoadConfig   func() (*config.CLIConfig, error)
 	ConfigDir    string
 	SidecarDir   string
+	GatewayAddr  string // Gateway gRPC address for AI service
 }
 
 // DefaultModelDeps returns the default dependencies for production use.
@@ -137,41 +141,57 @@ func NewModelCommand(deps *ModelCommandDeps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "model",
-		Short: "Manage local LLM models",
-		Long: `Manage local MLX LLM models for Penfold.
+		Short: "Manage AI models (local + remote)",
+		Long: `Manage AI models for Penfold - both local MLX models and remote API models.
 
-The model command provides tools to manage the local LLM models used for
-entity extraction, mention resolution, and other AI-powered features.
+The model command provides tools to manage the AI models used for
+entity extraction, mention resolution, embeddings, summarization, and
+other AI-powered features.
 
-Features:
-  - List available and downloaded models
-  - Start/stop model servers on different ports
-  - Switch between models
-  - Monitor running servers
-  - Configure model profiles
+Model Types:
+  - Local models: MLX models running on your machine (Ollama, MLX sidecar)
+  - Remote models: Cloud API models (Gemini, OpenAI, Anthropic)
+
+Commands:
+  list       List downloaded local models
+  registry   List all registered models (local + remote) from AI service
+  add        Register a new remote model
+  enable     Enable a registered model
+  disable    Disable a registered model
+  rules      Show model routing configuration
+  status     Show running local model servers
+  serve      Start a local model server
+  stop       Stop local model server(s)
 
 Examples:
-  # List available models
+  # List local downloaded models
   penf model list
 
-  # Show running servers
-  penf model status
+  # Show all registered models (local + remote)
+  penf model registry
 
-  # Start a model server
-  penf model serve phi --port 8080
+  # Show only remote models
+  penf model registry --remote
 
-  # Stop a server
-  penf model stop --port 8080
+  # Register a new remote model
+  penf model add gemini gemini-2.0-flash
 
-  # Switch models on a running server
-  penf model switch qwen-7b`,
+  # Enable/disable a model
+  penf model enable <model-id>
+  penf model disable <model-id>
+
+  # Show routing rules
+  penf model rules
+
+  # Start a local model server
+  penf model serve phi --port 8080`,
 		Aliases: []string{"models", "llm"},
 	}
 
 	// Persistent flags.
 	cmd.PersistentFlags().StringVarP(&modelOutput, "output", "o", "", "Output format: text, json, yaml")
 
-	// Add subcommands.
+	// Add subcommands - local model management.
 	cmd.AddCommand(newModelListCommand(deps))
 	cmd.AddCommand(newModelStatusCommand(deps))
 	cmd.AddCommand(newModelServeCommand(deps))
@@ -179,6 +199,14 @@ Examples:
 	cmd.AddCommand(newModelSwitchCommand(deps))
 	cmd.AddCommand(newModelInfoCommand(deps))
 	cmd.AddCommand(newModelBenchCommand(deps))
+	cmd.AddCommand(newModelDownloadCommand(deps))
+
+	// Add subcommands - registry management (local + remote).
+	cmd.AddCommand(newModelRegistryCommand(deps))
+	cmd.AddCommand(newModelAddCommand(deps))
+	cmd.AddCommand(newModelEnableCommand(deps))
+	cmd.AddCommand(newModelDisableCommand(deps))
+	cmd.AddCommand(newModelRulesCommand(deps))
 
 	return cmd
 }
@@ -343,6 +371,208 @@ Examples:
 	}
 
 	cmd.Flags().IntVar(&modelPort, "port", 8080, "Port of server to benchmark")
+
+	return cmd
+}
+
+// newModelDownloadCommand creates the 'model download' subcommand.
+func newModelDownloadCommand(deps *ModelCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "download <model>",
+		Short: "Download a model from HuggingFace",
+		Long: `Download an MLX model from HuggingFace.
+
+Downloads the specified model to the local HuggingFace cache.
+The model can be specified by:
+  - Short name (e.g., "phi", "qwen-7b", "llama")
+  - Full model ID (e.g., "mlx-community/Mistral-7B-Instruct-v0.3-4bit")
+
+After download, the model will appear in 'penf model list' and can be
+served with 'penf model serve'.
+
+Note: Downloads use the huggingface-cli tool via the sidecar Python
+environment. Large models (7B+) may take several minutes to download.
+
+Examples:
+  # Download by short name
+  penf model download phi
+  penf model download qwen-7b
+
+  # Download by full HuggingFace ID
+  penf model download mlx-community/Mistral-7B-Instruct-v0.3-4bit
+
+  # Download a specific MLX model
+  penf model download mlx-community/Llama-3.2-1B-Instruct-4bit`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runModelDownload(cmd.Context(), deps, args[0])
+		},
+	}
+}
+
+// ==================== Registry Commands (Local + Remote) ====================
+
+// newModelRegistryCommand creates the 'model registry' subcommand.
+func newModelRegistryCommand(deps *ModelCommandDeps) *cobra.Command {
+	var providerFilter string
+	var showLocal bool
+	var showRemote bool
+	var showEnabled bool
+	var showDisabled bool
+
+	cmd := &cobra.Command{
+		Use:   "registry",
+		Short: "List all registered models (local + remote)",
+		Long: `Shows all models registered in the AI service registry.
+
+This includes:
+  - Local models (Ollama, MLX) auto-discovered from running services
+  - Remote models (Gemini, OpenAI) configured in the database
+
+The registry is managed by the AI service and determines which models
+are available for different AI tasks (embedding, summarization, etc.).
+
+Use 'penf model add' to register new remote models, and
+'penf model enable/disable' to control which models are active.
+
+Examples:
+  penf model registry
+  penf model registry --provider gemini
+  penf model registry --local
+  penf model registry --remote
+  penf model registry --enabled
+  penf model registry -o json`,
+		Aliases: []string{"reg"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runModelRegistry(cmd.Context(), deps, providerFilter, showLocal, showRemote, showEnabled, showDisabled)
+		},
+	}
+
+	cmd.Flags().StringVar(&providerFilter, "provider", "", "Filter by provider (ollama, gemini, openai, anthropic)")
+	cmd.Flags().BoolVar(&showLocal, "local", false, "Show only local models")
+	cmd.Flags().BoolVar(&showRemote, "remote", false, "Show only remote models")
+	cmd.Flags().BoolVar(&showEnabled, "enabled", false, "Show only enabled models")
+	cmd.Flags().BoolVar(&showDisabled, "disabled", false, "Show only disabled models")
+
+	return cmd
+}
+
+// newModelAddCommand creates the 'model add' subcommand.
+func newModelAddCommand(deps *ModelCommandDeps) *cobra.Command {
+	var modelType string
+	var capabilities []string
+	var endpoint string
+	var priority int
+
+	cmd := &cobra.Command{
+		Use:   "add <provider> <model-name>",
+		Short: "Register a remote model",
+		Long: `Register a new remote model in the AI service registry.
+
+Supported providers:
+  - gemini    Google's Gemini models (gemini-2.0-flash, gemini-1.5-pro, etc.)
+  - openai    OpenAI models (gpt-4o, gpt-4o-mini, text-embedding-3-small, etc.)
+  - anthropic Anthropic models (claude-3-5-sonnet, etc.)
+
+The model will be registered and enabled by default. Use --type to specify
+whether this is an LLM or embedding model.
+
+Examples:
+  # Register a Gemini model
+  penf model add gemini gemini-2.0-flash
+
+  # Register an OpenAI embedding model
+  penf model add openai text-embedding-3-small --type embedding
+
+  # Register with custom capabilities
+  penf model add openai gpt-4o --capabilities chat,summarization,extraction
+
+  # Register with custom priority (higher = preferred)
+  penf model add gemini gemini-1.5-pro --priority 10`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runModelAdd(cmd.Context(), deps, args[0], args[1], modelType, capabilities, endpoint, priority)
+		},
+	}
+
+	cmd.Flags().StringVar(&modelType, "type", "llm", "Model type: llm, embedding, classifier")
+	cmd.Flags().StringSliceVar(&capabilities, "capabilities", nil, "Capabilities (comma-separated): chat, summarization, extraction, classification, embedding")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "Custom API endpoint (optional)")
+	cmd.Flags().IntVar(&priority, "priority", 0, "Model priority for selection (higher = preferred)")
+
+	return cmd
+}
+
+// newModelEnableCommand creates the 'model enable' subcommand.
+func newModelEnableCommand(deps *ModelCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "enable <model-id>",
+		Short: "Enable a registered model",
+		Long: `Enable a model in the AI service registry.
+
+Enabled models are available for routing and will be considered
+when selecting models for AI tasks. Use the model ID from
+'penf model registry'.
+
+Examples:
+  penf model enable abc123
+  penf model enable gemini-2.0-flash`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runModelEnable(cmd.Context(), deps, args[0], true)
+		},
+	}
+}
+
+// newModelDisableCommand creates the 'model disable' subcommand.
+func newModelDisableCommand(deps *ModelCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "disable <model-id>",
+		Short: "Disable a registered model",
+		Long: `Disable a model in the AI service registry.
+
+Disabled models remain in the registry but are not selected for
+AI tasks. This is useful for temporarily removing a model from
+rotation without deleting its configuration.
+
+Examples:
+  penf model disable abc123
+  penf model disable gemini-2.0-flash`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runModelEnable(cmd.Context(), deps, args[0], false)
+		},
+	}
+}
+
+// newModelRulesCommand creates the 'model rules' subcommand.
+func newModelRulesCommand(deps *ModelCommandDeps) *cobra.Command {
+	var taskTypeFilter string
+
+	cmd := &cobra.Command{
+		Use:   "rules",
+		Short: "Show model routing rules",
+		Long: `Display the AI model routing configuration.
+
+Shows which models are preferred for different task types:
+  - embedding:      Vector embedding generation
+  - summarization:  Content summarization
+  - extraction:     Entity and assertion extraction
+  - classification: Content categorization
+
+Each rule specifies preferred models (tried first) and fallback
+models (used if preferred models fail).
+
+Examples:
+  penf model rules
+  penf model rules --task embedding
+  penf model rules -o json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runModelRules(cmd.Context(), deps, taskTypeFilter)
+		},
+	}
+
+	cmd.Flags().StringVar(&taskTypeFilter, "task", "", "Filter by task type (embedding, summarization, extraction, classification)")
 
 	return cmd
 }
@@ -612,7 +842,364 @@ func runModelBench(ctx context.Context, deps *ModelCommandDeps) error {
 	return nil
 }
 
+// runModelDownload executes the model download command.
+func runModelDownload(ctx context.Context, deps *ModelCommandDeps, model string) error {
+	// Resolve model name to full ID.
+	modelID := resolveModelID(deps, model)
+
+	// Check if already downloaded.
+	downloadedModels := getDownloadedModels(deps)
+	if downloadedModels[modelID] {
+		fmt.Printf("Model '%s' is already downloaded.\n", modelID)
+		fmt.Println("\nUse 'penf model serve' to start a server with this model.")
+		return nil
+	}
+
+	// Find model info in catalog for display.
+	var modelInfo *ModelCatalogEntry
+	for _, m := range defaultModelCatalog {
+		if m.ID == modelID {
+			entryCopy := m
+			modelInfo = &entryCopy
+			break
+		}
+	}
+
+	fmt.Println("Downloading Model")
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Printf("  \033[1mModel ID:\033[0m %s\n", modelID)
+	if modelInfo != nil {
+		fmt.Printf("  \033[1mName:\033[0m     %s\n", modelInfo.Name)
+		fmt.Printf("  \033[1mSize:\033[0m     %s\n", modelInfo.Size)
+	} else {
+		fmt.Printf("  \033[33mNote: Model not in catalog - downloading from HuggingFace\033[0m\n")
+	}
+	fmt.Println()
+
+	// Use huggingface-cli from the sidecar venv to download.
+	venvBin := filepath.Join(deps.SidecarDir, ".venv", "bin")
+	hfCLI := filepath.Join(venvBin, "huggingface-cli")
+
+	// Check if huggingface-cli exists.
+	if _, err := os.Stat(hfCLI); os.IsNotExist(err) {
+		return fmt.Errorf("huggingface-cli not found at %s\nEnsure the sidecar environment is set up", hfCLI)
+	}
+
+	fmt.Println("Starting download... (this may take several minutes for large models)")
+	fmt.Println()
+
+	// Build the download command.
+	// huggingface-cli download <model-id>
+	execCmd := exec.CommandContext(ctx, hfCLI, "download", modelID)
+	execCmd.Dir = deps.SidecarDir
+
+	// Stream output to show progress.
+	execCmd.Stdout = os.Stdout
+	execCmd.Stderr = os.Stderr
+
+	// Run the download.
+	if err := execCmd.Run(); err != nil {
+		// Check for common error conditions.
+		if ctx.Err() == context.Canceled {
+			return fmt.Errorf("download cancelled")
+		}
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Check for network errors, disk space, etc.
+			return fmt.Errorf("download failed (exit code %d): check network connection and disk space", exitErr.ExitCode())
+		}
+		return fmt.Errorf("download failed: %w", err)
+	}
+
+	fmt.Println()
+	fmt.Printf("\033[32mDownload complete!\033[0m\n")
+	fmt.Println()
+
+	// Verify the model was downloaded.
+	downloadedModels = getDownloadedModels(deps)
+	if !downloadedModels[modelID] {
+		fmt.Printf("\033[33mWarning: Model may not be MLX-compatible or download incomplete.\033[0m\n")
+		fmt.Println("Check 'penf model list --all' to verify.")
+		return nil
+	}
+
+	fmt.Println("Model is ready to use:")
+	fmt.Printf("  penf model serve %s\n", model)
+
+	return nil
+}
+
+// ==================== Registry Command Execution Functions ====================
+
+// runModelRegistry executes the model registry command.
+func runModelRegistry(ctx context.Context, deps *ModelCommandDeps, providerFilter string, showLocal, showRemote, showEnabled, showDisabled bool) error {
+	cfg, err := loadModelConfig(deps)
+	if err != nil {
+		return err
+	}
+
+	conn, err := connectModelToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := aiv1.NewAICoordinatorServiceClient(conn)
+
+	// Build request with filters.
+	req := &aiv1.ListModelsRequest{}
+
+	if providerFilter != "" {
+		req.Provider = &providerFilter
+	}
+
+	if showLocal && !showRemote {
+		isLocal := true
+		req.IsLocal = &isLocal
+	} else if showRemote && !showLocal {
+		isLocal := false
+		req.IsLocal = &isLocal
+	}
+
+	if showEnabled && !showDisabled {
+		isEnabled := true
+		req.IsEnabled = &isEnabled
+	} else if showDisabled && !showEnabled {
+		isEnabled := false
+		req.IsEnabled = &isEnabled
+	}
+
+	resp, err := client.ListModels(ctx, req)
+	if err != nil {
+		return fmt.Errorf("listing models from registry: %w\n\nEnsure the Gateway service is running at %s", err, cfg.ServerAddress)
+	}
+
+	return outputRegistryModels(deps, resp.Models, resp.TotalCount)
+}
+
+// runModelAdd executes the model add command.
+func runModelAdd(ctx context.Context, deps *ModelCommandDeps, provider, modelName, modelType string, capabilities []string, endpoint string, priority int) error {
+	cfg, err := loadModelConfig(deps)
+	if err != nil {
+		return err
+	}
+
+	conn, err := connectModelToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := aiv1.NewAICoordinatorServiceClient(conn)
+
+	// Map model type string to proto enum.
+	var protoType aiv1.ModelType
+	switch strings.ToLower(modelType) {
+	case "embedding":
+		protoType = aiv1.ModelType_MODEL_TYPE_EMBEDDING
+	case "classifier", "classification":
+		protoType = aiv1.ModelType_MODEL_TYPE_CLASSIFIER
+	case "ner":
+		protoType = aiv1.ModelType_MODEL_TYPE_NER
+	default:
+		protoType = aiv1.ModelType_MODEL_TYPE_LLM
+	}
+
+	// Set default capabilities based on model type if not provided.
+	if len(capabilities) == 0 {
+		switch protoType {
+		case aiv1.ModelType_MODEL_TYPE_EMBEDDING:
+			capabilities = []string{"embedding"}
+		case aiv1.ModelType_MODEL_TYPE_LLM:
+			capabilities = []string{"chat", "summarization", "extraction"}
+		case aiv1.ModelType_MODEL_TYPE_CLASSIFIER:
+			capabilities = []string{"classification"}
+		}
+	}
+
+	// Generate a display name from provider and model name.
+	displayName := fmt.Sprintf("%s/%s", provider, modelName)
+
+	req := &aiv1.RegisterModelRequest{
+		Name:         displayName,
+		Provider:     provider,
+		ModelName:    modelName,
+		Type:         protoType,
+		Capabilities: capabilities,
+		IsLocal:      false, // Remote models
+		IsEnabled:    true,  // Enabled by default
+		Priority:     int32(priority),
+	}
+
+	if endpoint != "" {
+		req.Endpoint = &endpoint
+	}
+
+	resp, err := client.RegisterModel(ctx, req)
+	if err != nil {
+		return fmt.Errorf("registering model: %w", err)
+	}
+
+	fmt.Printf("\033[32mRegistered model:\033[0m %s\n", resp.Model.Name)
+	fmt.Printf("  ID:           %s\n", resp.Model.Id)
+	fmt.Printf("  Provider:     %s\n", resp.Model.Provider)
+	fmt.Printf("  Type:         %s\n", modelTypeToString(resp.Model.Type))
+	fmt.Printf("  Capabilities: %s\n", strings.Join(resp.Model.Capabilities, ", "))
+	fmt.Printf("  Enabled:      %v\n", resp.Model.IsEnabled)
+
+	return nil
+}
+
+// runModelEnable executes the model enable/disable command.
+func runModelEnable(ctx context.Context, deps *ModelCommandDeps, modelID string, enable bool) error {
+	cfg, err := loadModelConfig(deps)
+	if err != nil {
+		return err
+	}
+
+	conn, err := connectModelToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := aiv1.NewAICoordinatorServiceClient(conn)
+
+	req := &aiv1.UpdateModelRequest{
+		ModelId:   modelID,
+		IsEnabled: &enable,
+	}
+
+	resp, err := client.UpdateModel(ctx, req)
+	if err != nil {
+		return fmt.Errorf("updating model: %w", err)
+	}
+
+	action := "Enabled"
+	if !enable {
+		action = "Disabled"
+	}
+
+	fmt.Printf("\033[32m%s model:\033[0m %s\n", action, resp.Model.Name)
+	fmt.Printf("  ID: %s\n", resp.Model.Id)
+
+	return nil
+}
+
+// runModelRules executes the model rules command.
+func runModelRules(ctx context.Context, deps *ModelCommandDeps, taskTypeFilter string) error {
+	cfg, err := loadModelConfig(deps)
+	if err != nil {
+		return err
+	}
+
+	conn, err := connectModelToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := aiv1.NewAICoordinatorServiceClient(conn)
+
+	req := &aiv1.GetRoutingRulesRequest{}
+	if taskTypeFilter != "" {
+		req.TaskType = &taskTypeFilter
+	}
+
+	resp, err := client.GetRoutingRules(ctx, req)
+	if err != nil {
+		return fmt.Errorf("getting routing rules: %w\n\nEnsure the Gateway service is running at %s", err, cfg.ServerAddress)
+	}
+
+	return outputRoutingRules(deps, resp.Rules)
+}
+
 // ==================== Helper Functions ====================
+
+// loadModelConfig loads the CLI configuration.
+func loadModelConfig(deps *ModelCommandDeps) (*config.CLIConfig, error) {
+	if deps.Config != nil {
+		return deps.Config, nil
+	}
+
+	if deps.LoadConfig == nil {
+		deps.LoadConfig = config.LoadConfig
+	}
+
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+	return cfg, nil
+}
+
+// connectModelToGateway creates a gRPC connection to the gateway service.
+func connectModelToGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	defer cancel()
+
+	opts := []grpc.DialOption{
+		grpc.WithBlock(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+
+	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to gateway at %s: %w", cfg.ServerAddress, err)
+	}
+
+	return conn, nil
+}
+
+// modelTypeToString converts a proto ModelType to a readable string.
+func modelTypeToString(t aiv1.ModelType) string {
+	switch t {
+	case aiv1.ModelType_MODEL_TYPE_EMBEDDING:
+		return "embedding"
+	case aiv1.ModelType_MODEL_TYPE_LLM:
+		return "llm"
+	case aiv1.ModelType_MODEL_TYPE_CLASSIFIER:
+		return "classifier"
+	case aiv1.ModelType_MODEL_TYPE_NER:
+		return "ner"
+	default:
+		return "unknown"
+	}
+}
+
+// modelStatusToString converts a proto ModelStatus to a readable string.
+func modelStatusToString(s aiv1.ModelStatus) string {
+	switch s {
+	case aiv1.ModelStatus_MODEL_STATUS_READY:
+		return "ready"
+	case aiv1.ModelStatus_MODEL_STATUS_LOADING:
+		return "loading"
+	case aiv1.ModelStatus_MODEL_STATUS_ERROR:
+		return "error"
+	case aiv1.ModelStatus_MODEL_STATUS_UNLOADED:
+		return "unloaded"
+	case aiv1.ModelStatus_MODEL_STATUS_UPDATING:
+		return "updating"
+	default:
+		return "unknown"
+	}
+}
+
+// optimizationModeToString converts a proto OptimizationMode to a readable string.
+func optimizationModeToString(m aiv1.OptimizationMode) string {
+	switch m {
+	case aiv1.OptimizationMode_OPTIMIZATION_MODE_LATENCY:
+		return "latency"
+	case aiv1.OptimizationMode_OPTIMIZATION_MODE_QUALITY:
+		return "quality"
+	case aiv1.OptimizationMode_OPTIMIZATION_MODE_COST:
+		return "cost"
+	case aiv1.OptimizationMode_OPTIMIZATION_MODE_BALANCED:
+		return "balanced"
+	default:
+		return "default"
+	}
+}
 
 // getDownloadedModels returns a map of model IDs that are downloaded.
 func getDownloadedModels(deps *ModelCommandDeps) map[string]bool {
@@ -913,6 +1500,216 @@ func outputModelInfoText(entry *ModelCatalogEntry) error {
 		status = "\033[33mnot downloaded\033[0m"
 	}
 	fmt.Printf("  \033[1mStatus:\033[0m          %s\n", status)
+
+	fmt.Println()
+	return nil
+}
+
+// ==================== Registry Output Functions ====================
+
+// RegistryModelEntry represents a model for JSON/YAML output.
+type RegistryModelEntry struct {
+	ID           string   `json:"id" yaml:"id"`
+	Name         string   `json:"name" yaml:"name"`
+	Provider     string   `json:"provider" yaml:"provider"`
+	ModelName    string   `json:"model_name" yaml:"model_name"`
+	Type         string   `json:"type" yaml:"type"`
+	Status       string   `json:"status" yaml:"status"`
+	Capabilities []string `json:"capabilities" yaml:"capabilities"`
+	IsLocal      bool     `json:"is_local" yaml:"is_local"`
+	IsEnabled    bool     `json:"is_enabled" yaml:"is_enabled"`
+	Priority     int32    `json:"priority" yaml:"priority"`
+}
+
+// RoutingRuleEntry represents a routing rule for JSON/YAML output.
+type RoutingRuleEntry struct {
+	ID               string   `json:"id" yaml:"id"`
+	Name             string   `json:"name" yaml:"name"`
+	TaskType         string   `json:"task_type" yaml:"task_type"`
+	PreferredModels  []string `json:"preferred_models" yaml:"preferred_models"`
+	FallbackModels   []string `json:"fallback_models" yaml:"fallback_models"`
+	OptimizationMode string   `json:"optimization_mode" yaml:"optimization_mode"`
+	IsEnabled        bool     `json:"is_enabled" yaml:"is_enabled"`
+	Description      string   `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
+// outputRegistryModels outputs the registry models.
+func outputRegistryModels(deps *ModelCommandDeps, models []*aiv1.ModelInfo, totalCount int32) error {
+	format := getModelOutputFormat(deps)
+
+	// Convert to output format.
+	entries := make([]RegistryModelEntry, len(models))
+	for i, m := range models {
+		entries[i] = RegistryModelEntry{
+			ID:           m.Id,
+			Name:         m.Name,
+			Provider:     m.Provider,
+			ModelName:    m.ModelName,
+			Type:         modelTypeToString(m.Type),
+			Status:       modelStatusToString(m.Status),
+			Capabilities: m.Capabilities,
+			IsLocal:      m.IsLocal,
+			IsEnabled:    m.IsEnabled,
+			Priority:     m.Priority,
+		}
+	}
+
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(entries)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(entries)
+	default:
+		return outputRegistryModelsText(entries, totalCount)
+	}
+}
+
+// outputRegistryModelsText outputs registry models in human-readable format.
+func outputRegistryModelsText(models []RegistryModelEntry, totalCount int32) error {
+	if len(models) == 0 {
+		fmt.Println("No models registered in the AI service.")
+		fmt.Println("\nUse 'penf model add <provider> <model-name>' to register a model.")
+		return nil
+	}
+
+	fmt.Printf("Registered Models (%d)\n", totalCount)
+	fmt.Println(strings.Repeat("=", 100))
+	fmt.Printf("  %-12s %-32s %-10s %-10s %-8s %s\n", "ID", "NAME", "PROVIDER", "TYPE", "STATUS", "ENABLED")
+	fmt.Printf("  %-12s %-32s %-10s %-10s %-8s %s\n", "--", "----", "--------", "----", "------", "-------")
+
+	for _, m := range models {
+		// Truncate ID for display.
+		id := m.ID
+		if len(id) > 10 {
+			id = id[:10] + ".."
+		}
+
+		// Truncate name for display.
+		name := m.Name
+		if len(name) > 30 {
+			name = name[:27] + "..."
+		}
+
+		// Format enabled status with color.
+		enabledStr := "\033[32myes\033[0m"
+		if !m.IsEnabled {
+			enabledStr = "\033[31mno\033[0m"
+		}
+
+		// Format status with color.
+		statusColor := ""
+		switch m.Status {
+		case "ready":
+			statusColor = "\033[32m"
+		case "loading", "updating":
+			statusColor = "\033[33m"
+		case "error", "unloaded":
+			statusColor = "\033[31m"
+		default:
+			statusColor = "\033[90m"
+		}
+
+		// Format type indicator.
+		typeStr := m.Type
+		if m.IsLocal {
+			typeStr += " (L)"
+		}
+
+		fmt.Printf("  %-12s %-32s %-10s %-10s %s%-8s\033[0m %s\n",
+			id,
+			name,
+			m.Provider,
+			typeStr,
+			statusColor,
+			m.Status,
+			enabledStr)
+	}
+
+	fmt.Println()
+	fmt.Println("(L) = Local model")
+	fmt.Println()
+	return nil
+}
+
+// outputRoutingRules outputs the routing rules.
+func outputRoutingRules(deps *ModelCommandDeps, rules []*aiv1.RoutingRule) error {
+	format := getModelOutputFormat(deps)
+
+	// Convert to output format.
+	entries := make([]RoutingRuleEntry, len(rules))
+	for i, r := range rules {
+		desc := ""
+		if r.Description != nil {
+			desc = *r.Description
+		}
+		entries[i] = RoutingRuleEntry{
+			ID:               r.Id,
+			Name:             r.Name,
+			TaskType:         r.TaskType,
+			PreferredModels:  r.PreferredModelIds,
+			FallbackModels:   r.FallbackModelIds,
+			OptimizationMode: optimizationModeToString(r.OptimizationMode),
+			IsEnabled:        r.IsEnabled,
+			Description:      desc,
+		}
+	}
+
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(entries)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(entries)
+	default:
+		return outputRoutingRulesText(entries)
+	}
+}
+
+// outputRoutingRulesText outputs routing rules in human-readable format.
+func outputRoutingRulesText(rules []RoutingRuleEntry) error {
+	if len(rules) == 0 {
+		fmt.Println("No routing rules configured.")
+		fmt.Println("\nRouting rules are configured in the AI service to determine")
+		fmt.Println("which models are used for different task types.")
+		return nil
+	}
+
+	fmt.Printf("Routing Rules (%d)\n", len(rules))
+	fmt.Println(strings.Repeat("=", 80))
+
+	for _, r := range rules {
+		enabledStr := "\033[32menabled\033[0m"
+		if !r.IsEnabled {
+			enabledStr = "\033[31mdisabled\033[0m"
+		}
+
+		fmt.Printf("\n  \033[1m%s\033[0m (%s)\n", r.Name, enabledStr)
+		fmt.Printf("  Task Type: %s\n", r.TaskType)
+		fmt.Printf("  Optimization: %s\n", r.OptimizationMode)
+
+		if len(r.PreferredModels) > 0 {
+			fmt.Printf("  Preferred Models:\n")
+			for i, m := range r.PreferredModels {
+				fmt.Printf("    %d. %s\n", i+1, m)
+			}
+		}
+
+		if len(r.FallbackModels) > 0 {
+			fmt.Printf("  Fallback Models:\n")
+			for i, m := range r.FallbackModels {
+				fmt.Printf("    %d. %s\n", i+1, m)
+			}
+		}
+
+		if r.Description != "" {
+			fmt.Printf("  Description: %s\n", r.Description)
+		}
+	}
 
 	fmt.Println()
 	return nil

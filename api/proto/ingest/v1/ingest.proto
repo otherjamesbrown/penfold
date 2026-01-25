@@ -198,6 +198,9 @@ message IngestEmailRequest {
 
   // Ingestion job ID (for batch tracking).
   string job_id = 21;
+
+  // Content ID for unified tracing across CLI, Gateway, and Worker.
+  string content_id = 22;
 }
 
 // IngestEmailResponse returns the result of email ingestion.
@@ -216,6 +219,9 @@ message IngestEmailResponse {
 
   // Processing status.
   ProcessingStatus status = 5;
+
+  // Content ID echoed back to confirm what was processed.
+  string content_id = 6;
 }
 
 // =============================================================================
@@ -238,6 +244,9 @@ message IngestAttachmentRequest {
 
   // Ingestion job ID (for batch tracking).
   string job_id = 5;
+
+  // Content ID for unified tracing across CLI, Gateway, and Worker.
+  string content_id = 6;
 }
 
 // IngestAttachmentResponse returns the result of attachment ingestion.
@@ -253,6 +262,9 @@ message IngestAttachmentResponse {
 
   // Processing status.
   ProcessingStatus status = 4;
+
+  // Content ID echoed back to confirm what was processed.
+  string content_id = 5;
 }
 
 // =============================================================================
@@ -368,6 +380,9 @@ message IngestMeetingRequest {
 
   // Ingestion job ID (for batch tracking).
   string job_id = 18;
+
+  // Content ID for unified tracing across CLI, Gateway, and Worker.
+  string content_id = 19;
 }
 
 // IngestMeetingResponse returns the result of meeting ingestion.
@@ -389,6 +404,9 @@ message IngestMeetingResponse {
 
   // Number of chat messages processed.
   int32 chat_messages_count = 6;
+
+  // Content ID echoed back to confirm what was processed.
+  string content_id = 7;
 }
 
 // =============================================================================

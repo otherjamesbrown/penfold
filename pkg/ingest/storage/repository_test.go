@@ -130,3 +130,57 @@ func TestCreatedSourceStructure(t *testing.T) {
 		t.Error("created_at should not be zero")
 	}
 }
+
+func TestCreatedSourceWithContentID(t *testing.T) {
+	created := &CreatedSource{
+		ID:        42,
+		CreatedAt: time.Now(),
+		ContentID: "em-9x3kp7mn",
+	}
+
+	if created.ID != 42 {
+		t.Errorf("unexpected id: %d", created.ID)
+	}
+	if created.ContentID != "em-9x3kp7mn" {
+		t.Errorf("unexpected content_id: %s", created.ContentID)
+	}
+}
+
+func TestEmailSourceWithContentID(t *testing.T) {
+	source := &EmailSource{
+		TenantID:        "tenant-123",
+		SourceSystem:    SourceSystemManualEML,
+		ExternalID:      "<test@example.com>",
+		ContentHash:     "abc123",
+		RawContent:      "raw email content",
+		ContentType:     "text/plain",
+		ContentSize:     100,
+		Metadata:        map[string]interface{}{"key": "value"},
+		SourceTimestamp: time.Now(),
+		ContentID:       "em-9x3kp7mn",
+	}
+
+	if source.ContentID != "em-9x3kp7mn" {
+		t.Errorf("unexpected content_id: %s", source.ContentID)
+	}
+}
+
+func TestEmailSourceContentIDOptional(t *testing.T) {
+	// Verify that ContentID is optional (can be empty)
+	source := &EmailSource{
+		TenantID:        "tenant-123",
+		SourceSystem:    SourceSystemManualEML,
+		ExternalID:      "<test@example.com>",
+		ContentHash:     "abc123",
+		RawContent:      "raw email content",
+		ContentType:     "text/plain",
+		ContentSize:     100,
+		Metadata:        map[string]interface{}{"key": "value"},
+		SourceTimestamp: time.Now(),
+		// ContentID not set - should be empty string
+	}
+
+	if source.ContentID != "" {
+		t.Errorf("content_id should be empty by default, got: %s", source.ContentID)
+	}
+}

@@ -171,13 +171,14 @@ CREATE TABLE sources (
     source_timestamp TIMESTAMPTZ,
     meeting_id BIGINT,                      -- FK to meetings (migration 010)
     participant_emails TEXT[],              -- All participant emails (migration 020)
+    content_id VARCHAR(12),                 -- Human-readable tracing ID (migration 021)
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(tenant_id, source_system, external_id)
 );
 ```
 
-**Key Indexes**: tenant_created, status, content_hash, meeting_id, participant_emails (GIN)
+**Key Indexes**: tenant_created, status, content_hash, meeting_id, participant_emails (GIN), content_id (unique partial)
 
 ### tenants
 Tenant organizations for multi-tenant support.

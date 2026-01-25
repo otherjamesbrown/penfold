@@ -228,12 +228,12 @@ func createStdoutExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 // Langfuse uses HTTP/protobuf (not gRPC) with Basic auth.
 func createLangfuseExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 	if cfg.Langfuse == nil {
-		return nil, fmt.Errorf("Langfuse configuration is required for ExporterLangfuse")
+		return nil, fmt.Errorf("langfuse configuration is required for ExporterLangfuse")
 	}
 
 	lf := cfg.Langfuse
 	if lf.Host == "" || lf.PublicKey == "" || lf.SecretKey == "" {
-		return nil, fmt.Errorf("Langfuse Host, PublicKey, and SecretKey are required")
+		return nil, fmt.Errorf("langfuse Host, PublicKey, and SecretKey are required")
 	}
 
 	// Langfuse expects Basic auth with base64-encoded "pk:sk"

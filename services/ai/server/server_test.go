@@ -17,6 +17,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/ai/backend"
 	"github.com/otherjamesbrown/penfold/services/ai/config"
+	"github.com/otherjamesbrown/penfold/services/ai/registry"
 )
 
 // =============================================================================
@@ -954,4 +955,273 @@ func boolPtr(b bool) *bool {
 // modelTypePtr returns a pointer to the given ModelType.
 func modelTypePtr(mt aiv1.ModelType) *aiv1.ModelType {
 	return &mt
+}
+
+// =============================================================================
+// Router/Registry Integration Tests
+// =============================================================================
+
+func TestNewAIServerWithRouter(t *testing.T) {
+	cfg := testConfig()
+	logger := testLogger()
+
+	// Test with nil router and registry (should not panic)
+	server := NewAIServerWithRouter(cfg, logger, nil, nil)
+	require.NotNil(t, server)
+	assert.Equal(t, cfg, server.config)
+	assert.Nil(t, server.backend)
+	assert.Nil(t, server.router)
+	assert.Nil(t, server.registry)
+}
+
+func TestNewAIServerWithAll(t *testing.T) {
+	cfg := testConfig()
+	logger := testLogger()
+	be := &mockBackend{}
+
+	server := NewAIServerWithAll(cfg, logger, be, nil, nil)
+	require.NotNil(t, server)
+	assert.Equal(t, cfg, server.config)
+	assert.NotNil(t, server.backend)
+}
+
+func TestListModels_NoRegistry(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	req := &aiv1.ListModelsRequest{}
+	_, err := server.ListModels(context.Background(), req)
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+}
+
+func TestRegisterModel_NoRegistry(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	req := &aiv1.RegisterModelRequest{
+		Name:         "test-model",
+		Provider:     "ollama",
+		ModelName:    "llama3.2",
+		Type:         aiv1.ModelType_MODEL_TYPE_LLM,
+		Capabilities: []string{"chat"},
+	}
+	_, err := server.RegisterModel(context.Background(), req)
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+}
+
+func TestRegisterModel_ValidationErrors(t *testing.T) {
+	// Create a server with a mock registry would require mocking the registry
+	// For now, test that validation happens before registry check
+	server := newTestServer(&mockBackend{})
+
+	tests := []struct {
+		name    string
+		req     *aiv1.RegisterModelRequest
+		wantErr string
+	}{
+		{
+			name: "missing name",
+			req: &aiv1.RegisterModelRequest{
+				Provider:     "ollama",
+				ModelName:    "llama3.2",
+				Type:         aiv1.ModelType_MODEL_TYPE_LLM,
+				Capabilities: []string{"chat"},
+			},
+			wantErr: "Unimplemented", // Will hit registry check before validation in current impl
+		},
+		{
+			name: "missing provider",
+			req: &aiv1.RegisterModelRequest{
+				Name:         "test",
+				ModelName:    "llama3.2",
+				Type:         aiv1.ModelType_MODEL_TYPE_LLM,
+				Capabilities: []string{"chat"},
+			},
+			wantErr: "Unimplemented",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.RegisterModel(context.Background(), tt.req)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestUpdateModel_NoRegistry(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	req := &aiv1.UpdateModelRequest{
+		ModelId: "test-model-id",
+	}
+	_, err := server.UpdateModel(context.Background(), req)
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+}
+
+func TestDeleteModel_NoRegistry(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	req := &aiv1.DeleteModelRequest{
+		ModelId: "test-model-id",
+	}
+	_, err := server.DeleteModel(context.Background(), req)
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+}
+
+func TestGetRoutingRules_NoRegistry(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	req := &aiv1.GetRoutingRulesRequest{}
+	_, err := server.GetRoutingRules(context.Background(), req)
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+}
+
+func TestUpdateRoutingRule_NoRegistry(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	req := &aiv1.UpdateRoutingRuleRequest{
+		Name:              "test-rule",
+		TaskType:          "embedding",
+		PreferredModelIds: []string{"model-1"},
+	}
+	_, err := server.UpdateRoutingRule(context.Background(), req)
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+}
+
+func TestUpdateRoutingRule_ValidationErrors(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	tests := []struct {
+		name    string
+		req     *aiv1.UpdateRoutingRuleRequest
+		wantErr string
+	}{
+		{
+			name: "missing name",
+			req: &aiv1.UpdateRoutingRuleRequest{
+				TaskType:          "embedding",
+				PreferredModelIds: []string{"model-1"},
+			},
+			wantErr: "Unimplemented", // Will hit registry check before validation
+		},
+		{
+			name: "missing task_type",
+			req: &aiv1.UpdateRoutingRuleRequest{
+				Name:              "test-rule",
+				PreferredModelIds: []string{"model-1"},
+			},
+			wantErr: "Unimplemented",
+		},
+		{
+			name: "missing preferred_model_ids",
+			req: &aiv1.UpdateRoutingRuleRequest{
+				Name:     "test-rule",
+				TaskType: "embedding",
+			},
+			wantErr: "Unimplemented",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.UpdateRoutingRule(context.Background(), tt.req)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestGetModelStatus_WithNilBackend(t *testing.T) {
+	cfg := testConfig()
+	logger := testLogger()
+	// Create server without backend
+	server := NewAIServerWithRouter(cfg, logger, nil, nil)
+
+	req := &aiv1.GetModelStatusRequest{}
+	resp, err := server.GetModelStatus(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.True(t, resp.Healthy)
+	assert.Empty(t, resp.Models)
+}
+
+func TestConvertError_RegistryErrors(t *testing.T) {
+	server := newTestServer(&mockBackend{})
+
+	tests := []struct {
+		name     string
+		err      error
+		wantCode codes.Code
+	}{
+		{
+			name:     "model not found",
+			err:      registry.ErrModelNotFound,
+			wantCode: codes.NotFound,
+		},
+		{
+			name:     "model already exists",
+			err:      registry.ErrModelAlreadyExists,
+			wantCode: codes.AlreadyExists,
+		},
+		{
+			name:     "invalid model ID",
+			err:      registry.ErrInvalidModelID,
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "invalid model name",
+			err:      registry.ErrInvalidModelName,
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "invalid provider",
+			err:      registry.ErrInvalidProvider,
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "no capabilities",
+			err:      registry.ErrNoCapabilities,
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "invalid routing rule",
+			err:      registry.ErrInvalidRoutingRule,
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "routing rule not found",
+			err:      registry.ErrRoutingRuleNotFound,
+			wantCode: codes.NotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			grpcErr := server.convertError(tt.err)
+			st, _ := status.FromError(grpcErr)
+			assert.Equal(t, tt.wantCode, st.Code())
+		})
+	}
 }

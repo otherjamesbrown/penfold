@@ -202,7 +202,7 @@ func (b *MLXBackend) GenerateEmbedding(ctx context.Context, text string, model s
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -293,7 +293,7 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -340,7 +340,7 @@ func (b *MLXBackend) CheckEmbeddingsHealth(ctx context.Context) error {
 		}
 		return fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%w: embeddings health check returned %d", ErrServiceUnavailable, resp.StatusCode)
@@ -364,7 +364,7 @@ func (b *MLXBackend) CheckLLMHealth(ctx context.Context) error {
 		}
 		return fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%w: LLM health check returned %d", ErrServiceUnavailable, resp.StatusCode)

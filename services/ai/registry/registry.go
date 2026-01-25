@@ -497,7 +497,7 @@ func (r *ModelRegistry) checkOllamaHealth(ctx context.Context, model *ModelConfi
 		health.ErrorMessage = err.Error()
 		return health
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	health.AvgLatencyMs = float64(time.Since(start).Milliseconds())
 
@@ -538,7 +538,7 @@ func (r *ModelRegistry) discoveryLoop(ctx context.Context) {
 	defer ticker.Stop()
 
 	// Run initial discovery
-	r.discoverOllamaModels(ctx)
+	_ = r.discoverOllamaModels(ctx)
 
 	for {
 		select {
@@ -547,7 +547,7 @@ func (r *ModelRegistry) discoveryLoop(ctx context.Context) {
 		case <-r.stopChan:
 			return
 		case <-ticker.C:
-			r.discoverOllamaModels(ctx)
+			_ = r.discoverOllamaModels(ctx)
 		}
 	}
 }
@@ -582,7 +582,7 @@ func (r *ModelRegistry) discoverOllamaModels(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDiscoveryFailed, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%w: unexpected status %d", ErrDiscoveryFailed, resp.StatusCode)
