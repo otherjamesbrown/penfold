@@ -155,6 +155,20 @@ func (m *mockRepository) GetRoutingRulesByTask(ctx context.Context, taskType str
 	return result, nil
 }
 
+func (m *mockRepository) GetRoutingRuleByName(ctx context.Context, name string) (*RoutingRule, error) {
+	if m.routingErr != nil {
+		return nil, m.routingErr
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, rule := range m.routingRules {
+		if rule.Name == name {
+			return rule.Clone(), nil
+		}
+	}
+	return nil, ErrRoutingRuleNotFound
+}
+
 func (m *mockRepository) CreateRoutingRule(ctx context.Context, rule *RoutingRule) error {
 	if m.routingErr != nil {
 		return m.routingErr

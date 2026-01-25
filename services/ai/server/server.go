@@ -1242,21 +1242,13 @@ func (s *AIServer) UpdateRoutingRule(ctx context.Context, req *aiv1.UpdateRoutin
 	// Convert optimization mode
 	optMode := s.protoOptimizationModeToString(req.GetOptimizationMode())
 
-	// Check if rule exists by name
-	existingRules, err := s.registry.GetRoutingRulesByTask(ctx, req.GetTaskType())
-	if err != nil {
-		s.logger.Error("Failed to check existing rules",
+	// Check if rule exists by name using direct lookup
+	existingRule, err := s.registry.GetRoutingRuleByName(ctx, req.GetName())
+	if err != nil && !errors.Is(err, registry.ErrRoutingRuleNotFound) {
+		s.logger.Error("Failed to check existing rule",
 			logging.Err(err),
 		)
 		return nil, s.convertError(err)
-	}
-
-	var existingRule *registry.RoutingRule
-	for _, r := range existingRules {
-		if r.Name == req.GetName() {
-			existingRule = r
-			break
-		}
 	}
 
 	created := false

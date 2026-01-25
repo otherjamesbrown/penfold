@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"gopkg.in/yaml.v3"
 
 	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
@@ -825,18 +826,19 @@ func outputEmailJSON(result *emailIngestResult) {
 
 // outputEmailYAML outputs result as YAML.
 func outputEmailYAML(result *emailIngestResult) {
-	fmt.Printf("job_id: %s\n", result.JobID)
-	fmt.Printf("total_files: %d\n", result.TotalFiles)
-	fmt.Printf("imported: %d\n", result.ImportedCount)
-	fmt.Printf("skipped: %d\n", result.SkippedCount)
-	fmt.Printf("failed: %d\n", result.FailedCount)
-	fmt.Printf("success: %t\n", result.Success)
-	fmt.Printf("started_at: %s\n", result.StartedAt.Format(time.RFC3339))
-	fmt.Printf("completed_at: %s\n", result.CompletedAt.Format(time.RFC3339))
-	if len(result.ContentIDs) > 0 {
-		fmt.Println("content_ids:")
-		for _, cid := range result.ContentIDs {
-			fmt.Printf("  - %s\n", cid)
-		}
+	output := emailJSONResult{
+		JobID:       result.JobID,
+		TotalFiles:  result.TotalFiles,
+		Imported:    result.ImportedCount,
+		Skipped:     result.SkippedCount,
+		Failed:      result.FailedCount,
+		Success:     result.Success,
+		StartedAt:   result.StartedAt.Format(time.RFC3339),
+		CompletedAt: result.CompletedAt.Format(time.RFC3339),
+		ContentIDs:  result.ContentIDs,
+	}
+	enc := yaml.NewEncoder(os.Stdout)
+	if err := enc.Encode(output); err != nil {
+		fmt.Fprintf(os.Stderr, "Error encoding YAML: %v\n", err)
 	}
 }

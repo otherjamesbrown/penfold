@@ -29,6 +29,7 @@ type Repository interface {
 	// Routing rules
 	GetRoutingRules(ctx context.Context) ([]*RoutingRule, error)
 	GetRoutingRulesByTask(ctx context.Context, taskType string) ([]*RoutingRule, error)
+	GetRoutingRuleByName(ctx context.Context, name string) (*RoutingRule, error)
 	CreateRoutingRule(ctx context.Context, rule *RoutingRule) error
 	UpdateRoutingRule(ctx context.Context, rule *RoutingRule) error
 	DeleteRoutingRule(ctx context.Context, ruleID string) error
@@ -514,6 +515,45 @@ func (r *PostgresRepository) GetRoutingRulesByTask(ctx context.Context, taskType
 	defer rows.Close()
 
 	return r.scanRoutingRules(rows)
+}
+
+// GetRoutingRuleByName retrieves a routing rule by its unique name.
+func (r *PostgresRepository) GetRoutingRuleByName(ctx context.Context, name string) (*RoutingRule, error) {
+	query := `
+		SELECT
+			id, name, task_type, preferred_models, fallback_models,
+			require_local, max_cost_per_request, optimization_mode,
+			priority, is_enabled, created_at
+		FROM ai_routing_rules
+		WHERE name = $1
+	`
+
+	var rule RoutingRule
+	var maxCost *float64
+
+	err := r.pool.QueryRow(ctx, query, name).Scan(
+		&rule.ID,
+		&rule.Name,
+		&rule.TaskType,
+		&rule.PreferredModels,
+		&rule.FallbackModels,
+		&rule.RequireLocal,
+		&maxCost,
+		&rule.OptimizationMode,
+		&rule.Priority,
+		&rule.IsEnabled,
+		&rule.CreatedAt,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrRoutingRuleNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+
+	rule.MaxCostPerRequest = maxCost
+	return &rule, nil
 }
 
 // CreateRoutingRule inserts a new routing rule.

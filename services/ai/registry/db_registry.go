@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // DBRegistry provides a database-backed model registry that wraps the in-memory
@@ -11,6 +13,7 @@ import (
 type DBRegistry struct {
 	*ModelRegistry        // Embedded for in-memory operations
 	repo           Repository
+	logger         logging.Logger
 	mu             sync.RWMutex
 	syncInterval   time.Duration
 	stopSync       chan struct{}
@@ -25,6 +28,9 @@ type DBRegistryConfig struct {
 	// SyncInterval is how often to sync health status to the database.
 	// Default: 1 minute.
 	SyncInterval time.Duration
+
+	// Logger for logging operations. If nil, a no-op logger is used.
+	Logger logging.Logger
 }
 
 // DefaultDBRegistryConfig returns a configuration with sensible defaults.
@@ -41,12 +47,18 @@ func NewDBRegistry(repo Repository, config *DBRegistryConfig) *DBRegistry {
 		config = DefaultDBRegistryConfig()
 	}
 
-	return &DBRegistry{
+	reg := &DBRegistry{
 		ModelRegistry: NewRegistry(config.RegistryConfig),
 		repo:          repo,
 		syncInterval:  config.SyncInterval,
 		stopSync:      make(chan struct{}),
 	}
+
+	if config.Logger != nil {
+		reg.logger = config.Logger.With(logging.F("component", "db_registry"))
+	}
+
+	return reg
 }
 
 // Start loads models from the database, runs discovery, and starts background tasks.
@@ -181,7 +193,13 @@ func (r *DBRegistry) UpdateHealth(modelID string, health ModelHealth) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		_ = r.repo.UpdateHealth(ctx, modelID, &health)
+		if err := r.repo.UpdateHealth(ctx, modelID, &health); err != nil {
+			if r.logger != nil {
+				r.logger.Error("Failed to sync model health to DB",
+					logging.Err(err),
+					logging.F("model_id", modelID))
+			}
+		}
 	}()
 
 	return nil
@@ -195,6 +213,11 @@ func (r *DBRegistry) GetRoutingRules(ctx context.Context) ([]*RoutingRule, error
 // GetRoutingRulesByTask retrieves routing rules for a specific task type.
 func (r *DBRegistry) GetRoutingRulesByTask(ctx context.Context, taskType string) ([]*RoutingRule, error) {
 	return r.repo.GetRoutingRulesByTask(ctx, taskType)
+}
+
+// GetRoutingRuleByName retrieves a routing rule by its unique name.
+func (r *DBRegistry) GetRoutingRuleByName(ctx context.Context, name string) (*RoutingRule, error) {
+	return r.repo.GetRoutingRuleByName(ctx, name)
 }
 
 // CreateRoutingRule creates a new routing rule in the database.
