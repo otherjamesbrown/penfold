@@ -210,3 +210,129 @@ func (c *Client) ClassifyContent(ctx context.Context, req *aiv1.ClassifyContentR
 
 	return resp, nil
 }
+
+// ListModels returns all registered models with optional filtering.
+func (c *Client) ListModels(ctx context.Context, req *aiv1.ListModelsRequest) (*aiv1.ListModelsResponse, error) {
+	if req == nil {
+		req = &aiv1.ListModelsRequest{}
+	}
+
+	// Apply request timeout if configured
+	if c.options.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.options.requestTimeout)
+		defer cancel()
+	}
+
+	resp, err := c.client.ListModels(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("list models failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// RegisterModel adds a new model to the registry.
+func (c *Client) RegisterModel(ctx context.Context, req *aiv1.RegisterModelRequest) (*aiv1.RegisterModelResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+
+	// Apply request timeout if configured
+	if c.options.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.options.requestTimeout)
+		defer cancel()
+	}
+
+	resp, err := c.client.RegisterModel(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("register model failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// UpdateModel modifies an existing model's configuration.
+func (c *Client) UpdateModel(ctx context.Context, req *aiv1.UpdateModelRequest) (*aiv1.UpdateModelResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+
+	// Apply request timeout if configured
+	if c.options.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.options.requestTimeout)
+		defer cancel()
+	}
+
+	resp, err := c.client.UpdateModel(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("update model failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// DeleteModel removes a model from the registry.
+func (c *Client) DeleteModel(ctx context.Context, req *aiv1.DeleteModelRequest) (*aiv1.DeleteModelResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+
+	// Apply request timeout if configured
+	if c.options.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.options.requestTimeout)
+		defer cancel()
+	}
+
+	resp, err := c.client.DeleteModel(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("delete model failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// GetRoutingRules returns routing rules with optional filtering.
+func (c *Client) GetRoutingRules(ctx context.Context, req *aiv1.GetRoutingRulesRequest) (*aiv1.GetRoutingRulesResponse, error) {
+	if req == nil {
+		req = &aiv1.GetRoutingRulesRequest{}
+	}
+
+	// Apply request timeout if configured
+	if c.options.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.options.requestTimeout)
+		defer cancel()
+	}
+
+	resp, err := c.client.GetRoutingRules(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("get routing rules failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// UpdateRoutingRule creates or updates a routing rule.
+func (c *Client) UpdateRoutingRule(ctx context.Context, req *aiv1.UpdateRoutingRuleRequest) (*aiv1.UpdateRoutingRuleResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+
+	// Apply request timeout if configured
+	if c.options.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.options.requestTimeout)
+		defer cancel()
+	}
+
+	resp, err := c.client.UpdateRoutingRule(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("update routing rule failed: %w", err)
+	}
+
+	return resp, nil
+}
