@@ -24,6 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 - Multiple valid approaches exist and user preference is needed
 - Adding new architectural components (observability, auth, etc.)
 - Technical blockers require user intervention
+- **After modifying CLI code or docs** - Ask if a new release should be created
 
 ### Architecture Coordination
 **STOP and CHECK before adding:**
@@ -121,6 +122,50 @@ bd dep tree <epic-id>                 # Show epic's bead tree
 - `[EPIC] Operationalization: Dev Agents and Documentation`
 - `[EPIC] Integration: Cross-Cutting System Concerns`
 - `[EPIC] Maintenance: Cleanup and Audits`
+
+## 📦 CLI RELEASE WORKFLOW
+
+**After making changes to CLI code (`cmd/penf/`) or documentation, ASK the user if a new release should be created.**
+
+### When to Suggest a Release
+- Bug fixes in CLI commands
+- New CLI features or commands
+- Help text or documentation updates
+- Process definition changes (`~/.penf/processes.md`)
+- Any user-facing changes
+
+### How to Create a Release
+1. **Bump the version** in `cmd/penf/VERSION`:
+   ```bash
+   # Check current version
+   cat cmd/penf/VERSION
+
+   # Update to new version (e.g., v0.1.6)
+   echo "v0.1.6" > cmd/penf/VERSION
+   ```
+
+2. **Commit and push** the version change:
+   ```bash
+   git add cmd/penf/VERSION
+   git commit -m "chore(release): bump version to v0.1.6 [pe-xxx]"
+   git push
+   ```
+
+3. **GitHub Actions handles the rest**:
+   - `auto-release.yml` detects VERSION change
+   - Creates git tag automatically
+   - `release.yml` builds binaries for all platforms
+   - Creates GitHub release with assets
+
+4. **Users update** with:
+   ```bash
+   penf update
+   ```
+
+### Version Numbering
+- **Patch** (v0.1.x): Bug fixes, minor improvements
+- **Minor** (v0.x.0): New features, significant changes
+- **Major** (vx.0.0): Breaking changes
 
 ## 🔄 SESSION CLOSE PROTOCOL
 
