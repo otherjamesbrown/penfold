@@ -28,6 +28,12 @@ const (
 	AICoordinatorService_ExtractAssertions_FullMethodName = "/penfold.ai.v1.AICoordinatorService/ExtractAssertions"
 	AICoordinatorService_ClassifyContent_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/ClassifyContent"
 	AICoordinatorService_GetModelStatus_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/GetModelStatus"
+	AICoordinatorService_ListModels_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/ListModels"
+	AICoordinatorService_RegisterModel_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/RegisterModel"
+	AICoordinatorService_UpdateModel_FullMethodName       = "/penfold.ai.v1.AICoordinatorService/UpdateModel"
+	AICoordinatorService_DeleteModel_FullMethodName       = "/penfold.ai.v1.AICoordinatorService/DeleteModel"
+	AICoordinatorService_GetRoutingRules_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/GetRoutingRules"
+	AICoordinatorService_UpdateRoutingRule_FullMethodName = "/penfold.ai.v1.AICoordinatorService/UpdateRoutingRule"
 )
 
 // AICoordinatorServiceClient is the client API for AICoordinatorService service.
@@ -53,6 +59,24 @@ type AICoordinatorServiceClient interface {
 	// GetModelStatus checks the availability and health of AI models.
 	// Returns information about loaded models and their capabilities.
 	GetModelStatus(ctx context.Context, in *GetModelStatusRequest, opts ...grpc.CallOption) (*GetModelStatusResponse, error)
+	// ListModels returns all registered models with optional filtering.
+	// Use this to discover available models and their configurations.
+	ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error)
+	// RegisterModel adds a new model to the registry.
+	// Returns the registered model configuration.
+	RegisterModel(ctx context.Context, in *RegisterModelRequest, opts ...grpc.CallOption) (*RegisterModelResponse, error)
+	// UpdateModel modifies an existing model's configuration.
+	// Only specified fields are updated; unset fields remain unchanged.
+	UpdateModel(ctx context.Context, in *UpdateModelRequest, opts ...grpc.CallOption) (*UpdateModelResponse, error)
+	// DeleteModel removes a model from the registry.
+	// Active requests using this model may fail after deletion.
+	DeleteModel(ctx context.Context, in *DeleteModelRequest, opts ...grpc.CallOption) (*DeleteModelResponse, error)
+	// GetRoutingRules returns routing rules with optional filtering.
+	// Routing rules determine which models are used for different task types.
+	GetRoutingRules(ctx context.Context, in *GetRoutingRulesRequest, opts ...grpc.CallOption) (*GetRoutingRulesResponse, error)
+	// UpdateRoutingRule creates or updates a routing rule.
+	// If a rule with the same name exists, it is updated; otherwise, created.
+	UpdateRoutingRule(ctx context.Context, in *UpdateRoutingRuleRequest, opts ...grpc.CallOption) (*UpdateRoutingRuleResponse, error)
 }
 
 type aICoordinatorServiceClient struct {
@@ -113,6 +137,66 @@ func (c *aICoordinatorServiceClient) GetModelStatus(ctx context.Context, in *Get
 	return out, nil
 }
 
+func (c *aICoordinatorServiceClient) ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListModelsResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_ListModels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) RegisterModel(ctx context.Context, in *RegisterModelRequest, opts ...grpc.CallOption) (*RegisterModelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RegisterModelResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_RegisterModel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) UpdateModel(ctx context.Context, in *UpdateModelRequest, opts ...grpc.CallOption) (*UpdateModelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateModelResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_UpdateModel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) DeleteModel(ctx context.Context, in *DeleteModelRequest, opts ...grpc.CallOption) (*DeleteModelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteModelResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_DeleteModel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) GetRoutingRules(ctx context.Context, in *GetRoutingRulesRequest, opts ...grpc.CallOption) (*GetRoutingRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRoutingRulesResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_GetRoutingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) UpdateRoutingRule(ctx context.Context, in *UpdateRoutingRuleRequest, opts ...grpc.CallOption) (*UpdateRoutingRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateRoutingRuleResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_UpdateRoutingRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AICoordinatorServiceServer is the server API for AICoordinatorService service.
 // All implementations must embed UnimplementedAICoordinatorServiceServer
 // for forward compatibility.
@@ -136,6 +220,24 @@ type AICoordinatorServiceServer interface {
 	// GetModelStatus checks the availability and health of AI models.
 	// Returns information about loaded models and their capabilities.
 	GetModelStatus(context.Context, *GetModelStatusRequest) (*GetModelStatusResponse, error)
+	// ListModels returns all registered models with optional filtering.
+	// Use this to discover available models and their configurations.
+	ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error)
+	// RegisterModel adds a new model to the registry.
+	// Returns the registered model configuration.
+	RegisterModel(context.Context, *RegisterModelRequest) (*RegisterModelResponse, error)
+	// UpdateModel modifies an existing model's configuration.
+	// Only specified fields are updated; unset fields remain unchanged.
+	UpdateModel(context.Context, *UpdateModelRequest) (*UpdateModelResponse, error)
+	// DeleteModel removes a model from the registry.
+	// Active requests using this model may fail after deletion.
+	DeleteModel(context.Context, *DeleteModelRequest) (*DeleteModelResponse, error)
+	// GetRoutingRules returns routing rules with optional filtering.
+	// Routing rules determine which models are used for different task types.
+	GetRoutingRules(context.Context, *GetRoutingRulesRequest) (*GetRoutingRulesResponse, error)
+	// UpdateRoutingRule creates or updates a routing rule.
+	// If a rule with the same name exists, it is updated; otherwise, created.
+	UpdateRoutingRule(context.Context, *UpdateRoutingRuleRequest) (*UpdateRoutingRuleResponse, error)
 	mustEmbedUnimplementedAICoordinatorServiceServer()
 }
 
@@ -160,6 +262,24 @@ func (UnimplementedAICoordinatorServiceServer) ClassifyContent(context.Context, 
 }
 func (UnimplementedAICoordinatorServiceServer) GetModelStatus(context.Context, *GetModelStatusRequest) (*GetModelStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetModelStatus not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListModels not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) RegisterModel(context.Context, *RegisterModelRequest) (*RegisterModelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterModel not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) UpdateModel(context.Context, *UpdateModelRequest) (*UpdateModelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateModel not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) DeleteModel(context.Context, *DeleteModelRequest) (*DeleteModelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteModel not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) GetRoutingRules(context.Context, *GetRoutingRulesRequest) (*GetRoutingRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRoutingRules not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) UpdateRoutingRule(context.Context, *UpdateRoutingRuleRequest) (*UpdateRoutingRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateRoutingRule not implemented")
 }
 func (UnimplementedAICoordinatorServiceServer) mustEmbedUnimplementedAICoordinatorServiceServer() {}
 func (UnimplementedAICoordinatorServiceServer) testEmbeddedByValue()                              {}
@@ -272,6 +392,114 @@ func _AICoordinatorService_GetModelStatus_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AICoordinatorService_ListModels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListModelsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).ListModels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_ListModels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).ListModels(ctx, req.(*ListModelsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_RegisterModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterModelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).RegisterModel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_RegisterModel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).RegisterModel(ctx, req.(*RegisterModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_UpdateModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateModelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).UpdateModel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_UpdateModel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).UpdateModel(ctx, req.(*UpdateModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_DeleteModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteModelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).DeleteModel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_DeleteModel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).DeleteModel(ctx, req.(*DeleteModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_GetRoutingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRoutingRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).GetRoutingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_GetRoutingRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).GetRoutingRules(ctx, req.(*GetRoutingRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_UpdateRoutingRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateRoutingRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).UpdateRoutingRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_UpdateRoutingRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).UpdateRoutingRule(ctx, req.(*UpdateRoutingRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AICoordinatorService_ServiceDesc is the grpc.ServiceDesc for AICoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -298,6 +526,30 @@ var AICoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetModelStatus",
 			Handler:    _AICoordinatorService_GetModelStatus_Handler,
+		},
+		{
+			MethodName: "ListModels",
+			Handler:    _AICoordinatorService_ListModels_Handler,
+		},
+		{
+			MethodName: "RegisterModel",
+			Handler:    _AICoordinatorService_RegisterModel_Handler,
+		},
+		{
+			MethodName: "UpdateModel",
+			Handler:    _AICoordinatorService_UpdateModel_Handler,
+		},
+		{
+			MethodName: "DeleteModel",
+			Handler:    _AICoordinatorService_DeleteModel_Handler,
+		},
+		{
+			MethodName: "GetRoutingRules",
+			Handler:    _AICoordinatorService_GetRoutingRules_Handler,
+		},
+		{
+			MethodName: "UpdateRoutingRule",
+			Handler:    _AICoordinatorService_UpdateRoutingRule_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
