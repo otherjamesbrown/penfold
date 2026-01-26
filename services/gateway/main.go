@@ -25,6 +25,7 @@ import (
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
+	tenantv1 "github.com/otherjamesbrown/penfold/api/proto/tenant/v1"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
@@ -36,6 +37,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/products"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	"github.com/otherjamesbrown/penfold/pkg/sources"
+	"github.com/otherjamesbrown/penfold/pkg/tenant"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
@@ -49,6 +51,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/productservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/questionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
+	"github.com/otherjamesbrown/penfold/services/gateway/tenantservice"
 )
 
 func main() {
@@ -239,6 +242,12 @@ func main() {
 	} else {
 		logger.Warn("Registered ModelService (AI service not connected, operations will return Unavailable)")
 	}
+
+	// Register TenantService for multi-tenant management.
+	tenantRepo := tenant.NewRepository(dbPool)
+	tenantSvc := tenantservice.NewService(tenantRepo, logger)
+	tenantv1.RegisterTenantServiceServer(grpcServer, tenantSvc)
+	logger.Info("Registered TenantService")
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()
