@@ -252,15 +252,38 @@ func (l *Loader) LoadGlossary(ctx context.Context) error {
 			definition = term.Definition
 		}
 
-		// Use minimal columns that are guaranteed to exist
-		// Note: tenant_id uses default UUID from column definition
+		// Handle context - JSONB column, wrap string in quotes for valid JSON
+		var contextJSON *string
+		if term.Context != nil {
+			quoted := fmt.Sprintf("%q", *term.Context)
+			contextJSON = &quoted
+		}
+
+		// Handle aliases - JSONB array, default to empty array
+		aliasesJSON := "[]"
+		if len(term.Aliases) > 0 {
+			// Build JSON array manually to avoid import
+			aliasesJSON = "["
+			for i, alias := range term.Aliases {
+				if i > 0 {
+					aliasesJSON += ","
+				}
+				aliasesJSON += fmt.Sprintf("%q", alias)
+			}
+			aliasesJSON += "]"
+		}
+
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO glossary (term, expansion, definition)
-			VALUES ($1, $2, $3)
+			INSERT INTO glossary (term, expansion, definition, context, aliases, linked_entity_type, linked_entity_id)
+			VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
 			ON CONFLICT (tenant_id, term) DO UPDATE SET
 				expansion = EXCLUDED.expansion,
-				definition = EXCLUDED.definition
-		`, term.Term, expansion, definition)
+				definition = EXCLUDED.definition,
+				context = EXCLUDED.context,
+				aliases = EXCLUDED.aliases,
+				linked_entity_type = EXCLUDED.linked_entity_type,
+				linked_entity_id = EXCLUDED.linked_entity_id
+		`, term.Term, expansion, definition, contextJSON, aliasesJSON, term.LinkedEntityType, term.LinkedEntityID)
 		if err != nil {
 			return fmt.Errorf("insert glossary term %s: %w", term.Term, err)
 		}
