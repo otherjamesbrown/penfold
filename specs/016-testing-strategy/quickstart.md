@@ -159,14 +159,15 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-### Run Migrations on Test Databases
+### Apply Migrations to Test Databases
 
 ```bash
+# Migrations are in ./migrations/*.sql - apply using psql
 # Integration DB
-PENFOLD_DB_NAME=penfold_test_integration go run ./cmd/penf migrate up
+psql -h dev02.brown.chat -U penfold -d penfold_test_integration -f migrations/*.sql
 
 # E2E DB
-PENFOLD_DB_NAME=penfold_test_e2e go run ./cmd/penf migrate up
+psql -h dev02.brown.chat -U penfold -d penfold_test_e2e -f migrations/*.sql
 ```
 
 ---

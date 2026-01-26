@@ -181,9 +181,10 @@ func TestGeminiAPIConnection(t *testing.T) {
 # Set up environment
 source ~/github/otherjamesbrown/secrets/.env.penfold
 
-# Run migrations on test databases (one-time)
-PENFOLD_DB_NAME=penfold_test_integration go run ./cmd/penf migrate up
-PENFOLD_DB_NAME=penfold_test_e2e go run ./cmd/penf migrate up
+# Apply migrations to test databases (one-time)
+# Migrations are in ./migrations/*.sql - apply using psql or golang-migrate
+psql -h dev02.brown.chat -U penfold -d penfold_test_integration -f migrations/*.sql
+psql -h dev02.brown.chat -U penfold -d penfold_test_e2e -f migrations/*.sql
 
 # Run unit tests
 go test ./pkg/... -short
@@ -536,8 +537,8 @@ echo $PENFOLD_DB_PASSWORD
 # Test connection
 psql -h dev02.brown.chat -U penfold -d penfold_test_integration
 
-# Check migrations
-PENFOLD_DB_NAME=penfold_test_integration go run ./cmd/penf migrate status
+# Check database schema
+psql -h dev02.brown.chat -U penfold -d penfold_test_integration -c "\dt"
 ```
 
 ### LLM Not Available

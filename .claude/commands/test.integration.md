@@ -109,8 +109,8 @@ If tests fail, provide diagnostic commands:
 Check database connection:
   psql -h dev02.brown.chat -U penfold -d penfold_test_integration -c "SELECT 1"
 
-Check migrations:
-  PENFOLD_DB_NAME=penfold_test_integration go run ./cmd/penf migrate status
+Check database schema:
+  psql -h dev02.brown.chat -U penfold -d penfold_test_integration -c "\dt"
 
 Re-run with verbose output:
   go test -tags=integration -v ./tests/integration/... -run TestName
