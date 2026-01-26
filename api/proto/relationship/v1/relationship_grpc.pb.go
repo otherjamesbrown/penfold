@@ -25,8 +25,18 @@ const (
 	RelationshipService_DiscoverRelationships_FullMethodName = "/penfold.relationship.v1.RelationshipService/DiscoverRelationships"
 	RelationshipService_GetRelationship_FullMethodName       = "/penfold.relationship.v1.RelationshipService/GetRelationship"
 	RelationshipService_ListRelationships_FullMethodName     = "/penfold.relationship.v1.RelationshipService/ListRelationships"
+	RelationshipService_SearchRelationships_FullMethodName   = "/penfold.relationship.v1.RelationshipService/SearchRelationships"
 	RelationshipService_ValidateRelationship_FullMethodName  = "/penfold.relationship.v1.RelationshipService/ValidateRelationship"
 	RelationshipService_GetNetworkGraph_FullMethodName       = "/penfold.relationship.v1.RelationshipService/GetNetworkGraph"
+	RelationshipService_GetNetworkStats_FullMethodName       = "/penfold.relationship.v1.RelationshipService/GetNetworkStats"
+	RelationshipService_GetCentralEntities_FullMethodName    = "/penfold.relationship.v1.RelationshipService/GetCentralEntities"
+	RelationshipService_GetClusters_FullMethodName           = "/penfold.relationship.v1.RelationshipService/GetClusters"
+	RelationshipService_ListEntities_FullMethodName          = "/penfold.relationship.v1.RelationshipService/ListEntities"
+	RelationshipService_GetEntity_FullMethodName             = "/penfold.relationship.v1.RelationshipService/GetEntity"
+	RelationshipService_MergeEntities_FullMethodName         = "/penfold.relationship.v1.RelationshipService/MergeEntities"
+	RelationshipService_ListConflicts_FullMethodName         = "/penfold.relationship.v1.RelationshipService/ListConflicts"
+	RelationshipService_GetConflict_FullMethodName           = "/penfold.relationship.v1.RelationshipService/GetConflict"
+	RelationshipService_ResolveConflict_FullMethodName       = "/penfold.relationship.v1.RelationshipService/ResolveConflict"
 )
 
 // RelationshipServiceClient is the client API for RelationshipService service.
@@ -43,12 +53,32 @@ type RelationshipServiceClient interface {
 	GetRelationship(ctx context.Context, in *GetRelationshipRequest, opts ...grpc.CallOption) (*Relationship, error)
 	// ListRelationships returns a paginated list of relationships with optional filters.
 	ListRelationships(ctx context.Context, in *ListRelationshipsRequest, opts ...grpc.CallOption) (*ListRelationshipsResponse, error)
+	// SearchRelationships searches relationships by entity name.
+	SearchRelationships(ctx context.Context, in *SearchRelationshipsRequest, opts ...grpc.CallOption) (*SearchRelationshipsResponse, error)
 	// ValidateRelationship allows users to confirm or reject a discovered relationship.
 	// This provides human-in-the-loop validation for AI-discovered relationships.
 	ValidateRelationship(ctx context.Context, in *ValidateRelationshipRequest, opts ...grpc.CallOption) (*ValidateRelationshipResponse, error)
 	// GetNetworkGraph retrieves the relationship network graph for visualization
 	// and analysis of entity connections.
 	GetNetworkGraph(ctx context.Context, in *GetNetworkGraphRequest, opts ...grpc.CallOption) (*NetworkGraph, error)
+	// GetNetworkStats retrieves statistics about the relationship network.
+	GetNetworkStats(ctx context.Context, in *GetNetworkStatsRequest, opts ...grpc.CallOption) (*NetworkStats, error)
+	// GetCentralEntities retrieves the most connected entities in the network.
+	GetCentralEntities(ctx context.Context, in *GetCentralEntitiesRequest, opts ...grpc.CallOption) (*GetCentralEntitiesResponse, error)
+	// GetClusters retrieves clusters (communities) in the relationship network.
+	GetClusters(ctx context.Context, in *GetClustersRequest, opts ...grpc.CallOption) (*GetClustersResponse, error)
+	// ListEntities returns a paginated list of entities with optional filters.
+	ListEntities(ctx context.Context, in *ListEntitiesRequest, opts ...grpc.CallOption) (*ListEntitiesResponse, error)
+	// GetEntity retrieves a single entity by ID.
+	GetEntity(ctx context.Context, in *GetEntityRequest, opts ...grpc.CallOption) (*Entity, error)
+	// MergeEntities merges two entities into one.
+	MergeEntities(ctx context.Context, in *MergeEntitiesRequest, opts ...grpc.CallOption) (*MergeEntitiesResponse, error)
+	// ListConflicts returns a list of detected relationship conflicts.
+	ListConflicts(ctx context.Context, in *ListConflictsRequest, opts ...grpc.CallOption) (*ListConflictsResponse, error)
+	// GetConflict retrieves a single conflict by ID.
+	GetConflict(ctx context.Context, in *GetConflictRequest, opts ...grpc.CallOption) (*Conflict, error)
+	// ResolveConflict resolves a relationship conflict.
+	ResolveConflict(ctx context.Context, in *ResolveConflictRequest, opts ...grpc.CallOption) (*ResolveConflictResponse, error)
 }
 
 type relationshipServiceClient struct {
@@ -89,6 +119,16 @@ func (c *relationshipServiceClient) ListRelationships(ctx context.Context, in *L
 	return out, nil
 }
 
+func (c *relationshipServiceClient) SearchRelationships(ctx context.Context, in *SearchRelationshipsRequest, opts ...grpc.CallOption) (*SearchRelationshipsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SearchRelationshipsResponse)
+	err := c.cc.Invoke(ctx, RelationshipService_SearchRelationships_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *relationshipServiceClient) ValidateRelationship(ctx context.Context, in *ValidateRelationshipRequest, opts ...grpc.CallOption) (*ValidateRelationshipResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ValidateRelationshipResponse)
@@ -109,6 +149,96 @@ func (c *relationshipServiceClient) GetNetworkGraph(ctx context.Context, in *Get
 	return out, nil
 }
 
+func (c *relationshipServiceClient) GetNetworkStats(ctx context.Context, in *GetNetworkStatsRequest, opts ...grpc.CallOption) (*NetworkStats, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NetworkStats)
+	err := c.cc.Invoke(ctx, RelationshipService_GetNetworkStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relationshipServiceClient) GetCentralEntities(ctx context.Context, in *GetCentralEntitiesRequest, opts ...grpc.CallOption) (*GetCentralEntitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCentralEntitiesResponse)
+	err := c.cc.Invoke(ctx, RelationshipService_GetCentralEntities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relationshipServiceClient) GetClusters(ctx context.Context, in *GetClustersRequest, opts ...grpc.CallOption) (*GetClustersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetClustersResponse)
+	err := c.cc.Invoke(ctx, RelationshipService_GetClusters_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relationshipServiceClient) ListEntities(ctx context.Context, in *ListEntitiesRequest, opts ...grpc.CallOption) (*ListEntitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListEntitiesResponse)
+	err := c.cc.Invoke(ctx, RelationshipService_ListEntities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relationshipServiceClient) GetEntity(ctx context.Context, in *GetEntityRequest, opts ...grpc.CallOption) (*Entity, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Entity)
+	err := c.cc.Invoke(ctx, RelationshipService_GetEntity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relationshipServiceClient) MergeEntities(ctx context.Context, in *MergeEntitiesRequest, opts ...grpc.CallOption) (*MergeEntitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MergeEntitiesResponse)
+	err := c.cc.Invoke(ctx, RelationshipService_MergeEntities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relationshipServiceClient) ListConflicts(ctx context.Context, in *ListConflictsRequest, opts ...grpc.CallOption) (*ListConflictsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListConflictsResponse)
+	err := c.cc.Invoke(ctx, RelationshipService_ListConflicts_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relationshipServiceClient) GetConflict(ctx context.Context, in *GetConflictRequest, opts ...grpc.CallOption) (*Conflict, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Conflict)
+	err := c.cc.Invoke(ctx, RelationshipService_GetConflict_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relationshipServiceClient) ResolveConflict(ctx context.Context, in *ResolveConflictRequest, opts ...grpc.CallOption) (*ResolveConflictResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveConflictResponse)
+	err := c.cc.Invoke(ctx, RelationshipService_ResolveConflict_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RelationshipServiceServer is the server API for RelationshipService service.
 // All implementations must embed UnimplementedRelationshipServiceServer
 // for forward compatibility.
@@ -123,12 +253,32 @@ type RelationshipServiceServer interface {
 	GetRelationship(context.Context, *GetRelationshipRequest) (*Relationship, error)
 	// ListRelationships returns a paginated list of relationships with optional filters.
 	ListRelationships(context.Context, *ListRelationshipsRequest) (*ListRelationshipsResponse, error)
+	// SearchRelationships searches relationships by entity name.
+	SearchRelationships(context.Context, *SearchRelationshipsRequest) (*SearchRelationshipsResponse, error)
 	// ValidateRelationship allows users to confirm or reject a discovered relationship.
 	// This provides human-in-the-loop validation for AI-discovered relationships.
 	ValidateRelationship(context.Context, *ValidateRelationshipRequest) (*ValidateRelationshipResponse, error)
 	// GetNetworkGraph retrieves the relationship network graph for visualization
 	// and analysis of entity connections.
 	GetNetworkGraph(context.Context, *GetNetworkGraphRequest) (*NetworkGraph, error)
+	// GetNetworkStats retrieves statistics about the relationship network.
+	GetNetworkStats(context.Context, *GetNetworkStatsRequest) (*NetworkStats, error)
+	// GetCentralEntities retrieves the most connected entities in the network.
+	GetCentralEntities(context.Context, *GetCentralEntitiesRequest) (*GetCentralEntitiesResponse, error)
+	// GetClusters retrieves clusters (communities) in the relationship network.
+	GetClusters(context.Context, *GetClustersRequest) (*GetClustersResponse, error)
+	// ListEntities returns a paginated list of entities with optional filters.
+	ListEntities(context.Context, *ListEntitiesRequest) (*ListEntitiesResponse, error)
+	// GetEntity retrieves a single entity by ID.
+	GetEntity(context.Context, *GetEntityRequest) (*Entity, error)
+	// MergeEntities merges two entities into one.
+	MergeEntities(context.Context, *MergeEntitiesRequest) (*MergeEntitiesResponse, error)
+	// ListConflicts returns a list of detected relationship conflicts.
+	ListConflicts(context.Context, *ListConflictsRequest) (*ListConflictsResponse, error)
+	// GetConflict retrieves a single conflict by ID.
+	GetConflict(context.Context, *GetConflictRequest) (*Conflict, error)
+	// ResolveConflict resolves a relationship conflict.
+	ResolveConflict(context.Context, *ResolveConflictRequest) (*ResolveConflictResponse, error)
 	mustEmbedUnimplementedRelationshipServiceServer()
 }
 
@@ -148,11 +298,41 @@ func (UnimplementedRelationshipServiceServer) GetRelationship(context.Context, *
 func (UnimplementedRelationshipServiceServer) ListRelationships(context.Context, *ListRelationshipsRequest) (*ListRelationshipsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListRelationships not implemented")
 }
+func (UnimplementedRelationshipServiceServer) SearchRelationships(context.Context, *SearchRelationshipsRequest) (*SearchRelationshipsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SearchRelationships not implemented")
+}
 func (UnimplementedRelationshipServiceServer) ValidateRelationship(context.Context, *ValidateRelationshipRequest) (*ValidateRelationshipResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ValidateRelationship not implemented")
 }
 func (UnimplementedRelationshipServiceServer) GetNetworkGraph(context.Context, *GetNetworkGraphRequest) (*NetworkGraph, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetNetworkGraph not implemented")
+}
+func (UnimplementedRelationshipServiceServer) GetNetworkStats(context.Context, *GetNetworkStatsRequest) (*NetworkStats, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetNetworkStats not implemented")
+}
+func (UnimplementedRelationshipServiceServer) GetCentralEntities(context.Context, *GetCentralEntitiesRequest) (*GetCentralEntitiesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCentralEntities not implemented")
+}
+func (UnimplementedRelationshipServiceServer) GetClusters(context.Context, *GetClustersRequest) (*GetClustersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetClusters not implemented")
+}
+func (UnimplementedRelationshipServiceServer) ListEntities(context.Context, *ListEntitiesRequest) (*ListEntitiesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListEntities not implemented")
+}
+func (UnimplementedRelationshipServiceServer) GetEntity(context.Context, *GetEntityRequest) (*Entity, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetEntity not implemented")
+}
+func (UnimplementedRelationshipServiceServer) MergeEntities(context.Context, *MergeEntitiesRequest) (*MergeEntitiesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MergeEntities not implemented")
+}
+func (UnimplementedRelationshipServiceServer) ListConflicts(context.Context, *ListConflictsRequest) (*ListConflictsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListConflicts not implemented")
+}
+func (UnimplementedRelationshipServiceServer) GetConflict(context.Context, *GetConflictRequest) (*Conflict, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetConflict not implemented")
+}
+func (UnimplementedRelationshipServiceServer) ResolveConflict(context.Context, *ResolveConflictRequest) (*ResolveConflictResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveConflict not implemented")
 }
 func (UnimplementedRelationshipServiceServer) mustEmbedUnimplementedRelationshipServiceServer() {}
 func (UnimplementedRelationshipServiceServer) testEmbeddedByValue()                             {}
@@ -229,6 +409,24 @@ func _RelationshipService_ListRelationships_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RelationshipService_SearchRelationships_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchRelationshipsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).SearchRelationships(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_SearchRelationships_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).SearchRelationships(ctx, req.(*SearchRelationshipsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RelationshipService_ValidateRelationship_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ValidateRelationshipRequest)
 	if err := dec(in); err != nil {
@@ -265,6 +463,168 @@ func _RelationshipService_GetNetworkGraph_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RelationshipService_GetNetworkStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetNetworkStatsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).GetNetworkStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_GetNetworkStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).GetNetworkStats(ctx, req.(*GetNetworkStatsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RelationshipService_GetCentralEntities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCentralEntitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).GetCentralEntities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_GetCentralEntities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).GetCentralEntities(ctx, req.(*GetCentralEntitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RelationshipService_GetClusters_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetClustersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).GetClusters(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_GetClusters_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).GetClusters(ctx, req.(*GetClustersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RelationshipService_ListEntities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListEntitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).ListEntities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_ListEntities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).ListEntities(ctx, req.(*ListEntitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RelationshipService_GetEntity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEntityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).GetEntity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_GetEntity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).GetEntity(ctx, req.(*GetEntityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RelationshipService_MergeEntities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MergeEntitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).MergeEntities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_MergeEntities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).MergeEntities(ctx, req.(*MergeEntitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RelationshipService_ListConflicts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListConflictsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).ListConflicts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_ListConflicts_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).ListConflicts(ctx, req.(*ListConflictsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RelationshipService_GetConflict_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetConflictRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).GetConflict(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_GetConflict_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).GetConflict(ctx, req.(*GetConflictRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RelationshipService_ResolveConflict_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveConflictRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).ResolveConflict(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_ResolveConflict_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).ResolveConflict(ctx, req.(*ResolveConflictRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RelationshipService_ServiceDesc is the grpc.ServiceDesc for RelationshipService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -285,12 +645,52 @@ var RelationshipService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RelationshipService_ListRelationships_Handler,
 		},
 		{
+			MethodName: "SearchRelationships",
+			Handler:    _RelationshipService_SearchRelationships_Handler,
+		},
+		{
 			MethodName: "ValidateRelationship",
 			Handler:    _RelationshipService_ValidateRelationship_Handler,
 		},
 		{
 			MethodName: "GetNetworkGraph",
 			Handler:    _RelationshipService_GetNetworkGraph_Handler,
+		},
+		{
+			MethodName: "GetNetworkStats",
+			Handler:    _RelationshipService_GetNetworkStats_Handler,
+		},
+		{
+			MethodName: "GetCentralEntities",
+			Handler:    _RelationshipService_GetCentralEntities_Handler,
+		},
+		{
+			MethodName: "GetClusters",
+			Handler:    _RelationshipService_GetClusters_Handler,
+		},
+		{
+			MethodName: "ListEntities",
+			Handler:    _RelationshipService_ListEntities_Handler,
+		},
+		{
+			MethodName: "GetEntity",
+			Handler:    _RelationshipService_GetEntity_Handler,
+		},
+		{
+			MethodName: "MergeEntities",
+			Handler:    _RelationshipService_MergeEntities_Handler,
+		},
+		{
+			MethodName: "ListConflicts",
+			Handler:    _RelationshipService_ListConflicts_Handler,
+		},
+		{
+			MethodName: "GetConflict",
+			Handler:    _RelationshipService_GetConflict_Handler,
+		},
+		{
+			MethodName: "ResolveConflict",
+			Handler:    _RelationshipService_ResolveConflict_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
@@ -106,11 +107,13 @@ type NetworkCluster struct {
 
 // RelationshipCommandDeps holds the dependencies for relationship commands.
 type RelationshipCommandDeps struct {
-	Config       *config.CLIConfig
-	GRPCClient   *client.GRPCClient
-	OutputFormat config.OutputFormat
-	LoadConfig   func() (*config.CLIConfig, error)
-	InitClient   func(*config.CLIConfig) (*client.GRPCClient, error)
+	Config             *config.CLIConfig
+	GRPCClient         *client.GRPCClient
+	RelationshipClient *client.RelationshipClient
+	OutputFormat       config.OutputFormat
+	LoadConfig         func() (*config.CLIConfig, error)
+	InitClient         func(*config.CLIConfig) (*client.GRPCClient, error)
+	InitRelClient      func(*config.CLIConfig) (*client.RelationshipClient, error)
 }
 
 // DefaultRelationshipDeps returns the default dependencies for production use.
@@ -132,6 +135,22 @@ func DefaultRelationshipDeps() *RelationshipCommandDeps {
 				return nil, fmt.Errorf("connecting to server: %w", err)
 			}
 			return grpcClient, nil
+		},
+		InitRelClient: func(cfg *config.CLIConfig) (*client.RelationshipClient, error) {
+			opts := client.DefaultOptions()
+			opts.Insecure = cfg.Insecure
+			opts.Debug = cfg.Debug
+			opts.ConnectTimeout = cfg.Timeout
+			opts.TenantID = cfg.TenantID
+
+			relClient := client.NewRelationshipClient(cfg.ServerAddress, opts)
+			ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+			defer cancel()
+
+			if err := relClient.Connect(ctx); err != nil {
+				return nil, fmt.Errorf("connecting to relationship service: %w", err)
+			}
+			return relClient, nil
 		},
 	}
 }
@@ -659,30 +678,54 @@ func runNetworkGraph(ctx context.Context, deps *RelationshipCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// Mock network statistics.
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Get network stats via gRPC.
+	stats, err := relClient.GetNetworkStats(ctx, cfg.TenantID)
+	if err != nil {
+		return fmt.Errorf("getting network stats: %w", err)
+	}
+
+	// Display network statistics.
 	fmt.Println("Relationship Network Graph")
 	fmt.Println("=" + strings.Repeat("=", 40))
 	fmt.Println()
-	fmt.Printf("  \033[1mNodes (Entities):\033[0m    %d\n", 156)
-	fmt.Printf("  \033[1mEdges (Relations):\033[0m   %d\n", 423)
-	fmt.Printf("  \033[1mDensity:\033[0m             %.3f\n", 0.035)
-	fmt.Printf("  \033[1mAvg. Connections:\033[0m    %.1f\n", 5.4)
-	fmt.Printf("  \033[1mClusters:\033[0m            %d\n", 8)
+	fmt.Printf("  \033[1mNodes (Entities):\033[0m    %d\n", stats.TotalNodes)
+	fmt.Printf("  \033[1mEdges (Relations):\033[0m   %d\n", stats.TotalEdges)
+	fmt.Printf("  \033[1mDensity:\033[0m             %.3f\n", stats.Density)
+	fmt.Printf("  \033[1mAvg. Connections:\033[0m    %.1f\n", stats.AvgConnections)
+	fmt.Printf("  \033[1mClusters:\033[0m            %d\n", stats.ClusterCount)
 	fmt.Println()
-	fmt.Println("Entity Types:")
-	fmt.Printf("  - Person:        %d (%.1f%%)\n", 78, 50.0)
-	fmt.Printf("  - Organization:  %d (%.1f%%)\n", 23, 14.7)
-	fmt.Printf("  - Topic:         %d (%.1f%%)\n", 32, 20.5)
-	fmt.Printf("  - Project:       %d (%.1f%%)\n", 15, 9.6)
-	fmt.Printf("  - Location:      %d (%.1f%%)\n", 8, 5.1)
-	fmt.Println()
-	fmt.Println("Relationship Types:")
-	fmt.Printf("  - colleague:     %d\n", 89)
-	fmt.Printf("  - works_on:      %d\n", 67)
-	fmt.Printf("  - member_of:     %d\n", 56)
-	fmt.Printf("  - discusses:     %d\n", 112)
-	fmt.Printf("  - mentions:      %d\n", 78)
-	fmt.Printf("  - reports_to:    %d\n", 21)
+
+	if len(stats.EntityTypeCounts) > 0 {
+		total := float64(stats.TotalNodes)
+		fmt.Println("Entity Types:")
+		for entType, count := range stats.EntityTypeCounts {
+			pct := 0.0
+			if total > 0 {
+				pct = float64(count) / total * 100
+			}
+			fmt.Printf("  - %s: %d (%.1f%%)\n", entType, count, pct)
+		}
+		fmt.Println()
+	}
+
+	if len(stats.RelationshipTypeCounts) > 0 {
+		fmt.Println("Relationship Types:")
+		for relType, count := range stats.RelationshipTypeCounts {
+			fmt.Printf("  - %s: %d\n", relType, count)
+		}
+	}
 
 	return nil
 }
@@ -695,8 +738,29 @@ func runNetworkCentral(ctx context.Context, deps *RelationshipCommandDeps) error
 	}
 	deps.Config = cfg
 
-	// Mock central entities.
-	entities := getMockCentralEntities(relationshipLimit)
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Get central entities via gRPC.
+	ents, err := relClient.GetCentralEntities(ctx, cfg.TenantID, int32(relationshipLimit))
+	if err != nil {
+		return fmt.Errorf("getting central entities: %w", err)
+	}
+
+	// Convert to local types for output.
+	entities := make([]Entity, len(ents))
+	for i, e := range ents {
+		entities[i] = clientEntityToLocal(e)
+	}
 
 	format := cfg.OutputFormat
 	if relationshipOutput != "" {
@@ -714,8 +778,29 @@ func runNetworkClusters(ctx context.Context, deps *RelationshipCommandDeps) erro
 	}
 	deps.Config = cfg
 
-	// Mock clusters.
-	clusters := getMockClusters()
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Get clusters via gRPC.
+	clusterList, err := relClient.GetClusters(ctx, cfg.TenantID)
+	if err != nil {
+		return fmt.Errorf("getting clusters: %w", err)
+	}
+
+	// Convert to local types for output.
+	clusters := make([]NetworkCluster, len(clusterList))
+	for i, c := range clusterList {
+		clusters[i] = clientClusterToLocal(c)
+	}
 
 	format := cfg.OutputFormat
 	if relationshipOutput != "" {
@@ -733,8 +818,34 @@ func runConflictList(ctx context.Context, deps *RelationshipCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// Mock conflicts.
-	conflicts := getMockConflicts(relationshipLimit)
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Get conflicts via gRPC.
+	req := &client.ListConflictsRequest{
+		TenantID: cfg.TenantID,
+		Limit:    int32(relationshipLimit),
+	}
+
+	conflictList, _, err := relClient.ListConflicts(ctx, req)
+	if err != nil {
+		return fmt.Errorf("listing conflicts: %w", err)
+	}
+
+	// Convert to local types for output.
+	conflicts := make([]RelationshipConflict, len(conflictList))
+	for i, c := range conflictList {
+		conflicts[i] = clientConflictToLocal(c)
+	}
 
 	format := cfg.OutputFormat
 	if relationshipOutput != "" {
@@ -752,18 +863,32 @@ func runConflictShow(ctx context.Context, deps *RelationshipCommandDeps, conflic
 	}
 	deps.Config = cfg
 
-	// Get conflict details (mock for now).
-	conflict := getMockConflictByID(conflictID)
-	if conflict == nil {
-		return fmt.Errorf("conflict not found: %s", conflictID)
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
 	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Get conflict details via gRPC.
+	c, err := relClient.GetConflict(ctx, cfg.TenantID, conflictID)
+	if err != nil {
+		return fmt.Errorf("getting conflict: %w", err)
+	}
+
+	conflict := clientConflictToLocal(c)
 
 	format := cfg.OutputFormat
 	if relationshipOutput != "" {
 		format = config.OutputFormat(relationshipOutput)
 	}
 
-	return outputConflictDetail(format, *conflict)
+	return outputConflictDetail(format, conflict)
 }
 
 // runConflictResolve executes the conflict resolve command.
@@ -774,6 +899,11 @@ func runConflictResolve(ctx context.Context, deps *RelationshipCommandDeps, conf
 	}
 	deps.Config = cfg
 
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
 	// Validate strategy.
 	switch strategy {
 	case ConflictStrategyKeepLatest, ConflictStrategyKeepFirst, ConflictStrategyMerge, ConflictStrategyManual:
@@ -782,11 +912,30 @@ func runConflictResolve(ctx context.Context, deps *RelationshipCommandDeps, conf
 		return fmt.Errorf("invalid resolution strategy: %s (must be keep_latest, keep_first, merge, or manual)", strategy)
 	}
 
-	// STUB: Returns mock acknowledgment until relationship service gRPC is connected.
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
 	fmt.Printf("Resolving conflict %s with strategy '%s'...\n", conflictID, strategy)
+
+	// Resolve conflict via gRPC.
+	req := &client.ResolveConflictRequest{
+		TenantID:   cfg.TenantID,
+		ConflictID: conflictID,
+		Strategy:   stringToConflictStrategy(string(strategy)),
+	}
+
+	_, updated, err := relClient.ResolveConflict(ctx, req)
+	if err != nil {
+		return fmt.Errorf("resolving conflict: %w", err)
+	}
+
 	fmt.Printf("\n\033[32mSuccess!\033[0m Conflict resolved.\n")
 	fmt.Printf("  Strategy used: %s\n", strategy)
-	fmt.Printf("  Relationships updated: 2\n")
+	fmt.Printf("  Relationships updated: %d\n", updated)
 
 	return nil
 }
@@ -1500,4 +1649,115 @@ func outputRelJSON(v interface{}) error {
 func outputRelYAML(v interface{}) error {
 	enc := yaml.NewEncoder(os.Stdout)
 	return enc.Encode(v)
+}
+
+// Client type conversion helpers
+
+// clientEntityToLocal converts a client RelEntity to a local Entity.
+func clientEntityToLocal(e *client.RelEntity) Entity {
+	if e == nil {
+		return Entity{}
+	}
+	return Entity{
+		ID:            e.ID,
+		Name:          e.Name,
+		Type:          EntityType(e.Type),
+		Aliases:       e.Aliases,
+		Confidence:    float64(e.Confidence),
+		SourceCount:   int(e.SourceCount),
+		FirstSeen:     e.FirstSeen,
+		LastSeen:      e.LastSeen,
+		Metadata:      e.Metadata,
+		RelationCount: int(e.RelationCount),
+	}
+}
+
+// clientClusterToLocal converts a client NetworkCluster to a local NetworkCluster.
+func clientClusterToLocal(c *client.NetworkCluster) NetworkCluster {
+	if c == nil {
+		return NetworkCluster{}
+	}
+	topEntities := make([]Entity, len(c.TopEntities))
+	for i, e := range c.TopEntities {
+		topEntities[i] = clientEntityToLocal(e)
+	}
+	return NetworkCluster{
+		ID:          c.ID,
+		Name:        c.Name,
+		EntityCount: int(c.EntityCount),
+		TopEntities: topEntities,
+		Density:     float64(c.Density),
+	}
+}
+
+// clientConflictToLocal converts a client RelationshipConflict to a local RelationshipConflict.
+func clientConflictToLocal(c *client.RelationshipConflict) RelationshipConflict {
+	if c == nil {
+		return RelationshipConflict{}
+	}
+	rels := make([]Relationship, len(c.Relationships))
+	for i, r := range c.Relationships {
+		rels[i] = clientRelToLocal(r)
+	}
+	return RelationshipConflict{
+		ID:              c.ID,
+		Type:            c.Type,
+		Description:     c.Description,
+		Relationships:   rels,
+		SuggestedAction: c.SuggestedAction,
+		CreatedAt:       c.CreatedAt,
+		Status:          c.Status,
+	}
+}
+
+// clientRelToLocal converts a client Relationship to a local Relationship.
+func clientRelToLocal(r *client.Relationship) Relationship {
+	if r == nil {
+		return Relationship{}
+	}
+	var sourceName, sourceID, targetName, targetID string
+	if r.SourceEntity != nil {
+		sourceName = r.SourceEntity.Name
+		sourceID = r.SourceEntity.ID
+	}
+	if r.TargetEntity != nil {
+		targetName = r.TargetEntity.Name
+		targetID = r.TargetEntity.ID
+	}
+
+	evidence := make([]string, len(r.Evidence))
+	for i, e := range r.Evidence {
+		evidence[i] = e.Excerpt
+	}
+
+	return Relationship{
+		ID:          r.ID,
+		SourceID:    sourceID,
+		SourceName:  sourceName,
+		TargetID:    targetID,
+		TargetName:  targetName,
+		Type:        RelationshipType(r.RelationshipType),
+		Confidence:  float64(r.Confidence),
+		Weight:      1.0, // Default weight
+		Evidence:    evidence,
+		FirstSeen:   r.CreatedAt,
+		LastSeen:    r.UpdatedAt,
+		SourceCount: len(r.Evidence),
+	}
+}
+
+// stringToConflictStrategy converts a string to a proto ConflictResolutionStrategy.
+func stringToConflictStrategy(s string) relationshipv1.ConflictResolutionStrategy {
+	switch s {
+	case "keep_latest":
+		return relationshipv1.ConflictResolutionStrategy_CONFLICT_RESOLUTION_STRATEGY_KEEP_LATEST
+	case "keep_first":
+		return relationshipv1.ConflictResolutionStrategy_CONFLICT_RESOLUTION_STRATEGY_KEEP_FIRST
+	case "merge":
+		return relationshipv1.ConflictResolutionStrategy_CONFLICT_RESOLUTION_STRATEGY_MERGE
+	case "manual":
+		return relationshipv1.ConflictResolutionStrategy_CONFLICT_RESOLUTION_STRATEGY_MANUAL
+	default:
+		return relationshipv1.ConflictResolutionStrategy_CONFLICT_RESOLUTION_STRATEGY_UNSPECIFIED
+	}
 }

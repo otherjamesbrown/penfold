@@ -26,6 +26,9 @@ service RelationshipService {
   // ListRelationships returns a paginated list of relationships with optional filters.
   rpc ListRelationships(ListRelationshipsRequest) returns (ListRelationshipsResponse);
 
+  // SearchRelationships searches relationships by entity name.
+  rpc SearchRelationships(SearchRelationshipsRequest) returns (SearchRelationshipsResponse);
+
   // ValidateRelationship allows users to confirm or reject a discovered relationship.
   // This provides human-in-the-loop validation for AI-discovered relationships.
   rpc ValidateRelationship(ValidateRelationshipRequest) returns (ValidateRelationshipResponse);
@@ -33,6 +36,33 @@ service RelationshipService {
   // GetNetworkGraph retrieves the relationship network graph for visualization
   // and analysis of entity connections.
   rpc GetNetworkGraph(GetNetworkGraphRequest) returns (NetworkGraph);
+
+  // GetNetworkStats retrieves statistics about the relationship network.
+  rpc GetNetworkStats(GetNetworkStatsRequest) returns (NetworkStats);
+
+  // GetCentralEntities retrieves the most connected entities in the network.
+  rpc GetCentralEntities(GetCentralEntitiesRequest) returns (GetCentralEntitiesResponse);
+
+  // GetClusters retrieves clusters (communities) in the relationship network.
+  rpc GetClusters(GetClustersRequest) returns (GetClustersResponse);
+
+  // ListEntities returns a paginated list of entities with optional filters.
+  rpc ListEntities(ListEntitiesRequest) returns (ListEntitiesResponse);
+
+  // GetEntity retrieves a single entity by ID.
+  rpc GetEntity(GetEntityRequest) returns (Entity);
+
+  // MergeEntities merges two entities into one.
+  rpc MergeEntities(MergeEntitiesRequest) returns (MergeEntitiesResponse);
+
+  // ListConflicts returns a list of detected relationship conflicts.
+  rpc ListConflicts(ListConflictsRequest) returns (ListConflictsResponse);
+
+  // GetConflict retrieves a single conflict by ID.
+  rpc GetConflict(GetConflictRequest) returns (Conflict);
+
+  // ResolveConflict resolves a relationship conflict.
+  rpc ResolveConflict(ResolveConflictRequest) returns (ResolveConflictResponse);
 }
 
 // =============================================================================
@@ -62,6 +92,24 @@ message Entity {
 
   // When the entity was last updated
   google.protobuf.Timestamp updated_at = 7;
+
+  // Known aliases for this entity
+  repeated string aliases = 8;
+
+  // Confidence score (0.0 to 1.0)
+  float confidence = 9;
+
+  // Number of sources where this entity was found
+  int32 source_count = 10;
+
+  // Number of relationships this entity participates in
+  int32 relation_count = 11;
+
+  // When the entity was first seen in content
+  google.protobuf.Timestamp first_seen = 12;
+
+  // When the entity was last seen in content
+  google.protobuf.Timestamp last_seen = 13;
 }
 
 // EntityType enumerates the possible types of entities.
@@ -482,4 +530,317 @@ message GraphMetadata {
 
   // Depth of the graph
   int32 depth = 5;
+}
+
+// =============================================================================
+// Search Messages
+// =============================================================================
+
+// SearchRelationshipsRequest searches relationships by entity name.
+message SearchRelationshipsRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Search query string
+  string query = 2;
+
+  // Minimum confidence threshold
+  optional float min_confidence = 3;
+
+  // Maximum number of results
+  int32 limit = 4;
+}
+
+// SearchRelationshipsResponse contains the search results.
+message SearchRelationshipsResponse {
+  // List of matching relationships
+  repeated Relationship relationships = 1;
+
+  // Total count of matching relationships
+  int64 total_count = 2;
+}
+
+// =============================================================================
+// Entity Messages
+// =============================================================================
+
+// ListEntitiesRequest retrieves entities with filters.
+message ListEntitiesRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Filter by entity type
+  optional EntityType entity_type = 2;
+
+  // Search query for entity name/aliases
+  optional string search = 3;
+
+  // Minimum confidence threshold
+  optional float min_confidence = 4;
+
+  // Maximum number of results (default: 100, max: 1000)
+  int32 page_size = 5;
+
+  // Pagination offset
+  int32 offset = 6;
+}
+
+// ListEntitiesResponse contains the paginated entity list.
+message ListEntitiesResponse {
+  // List of entities matching the filters
+  repeated Entity entities = 1;
+
+  // Total count of matching entities
+  int64 total_count = 2;
+}
+
+// GetEntityRequest retrieves a single entity by ID.
+message GetEntityRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Unique entity ID
+  string entity_id = 2;
+}
+
+// MergeEntitiesRequest merges two entities into one.
+message MergeEntitiesRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // ID of the primary entity (will be kept)
+  string primary_entity_id = 2;
+
+  // ID of the entity to merge (will be archived)
+  string merged_entity_id = 3;
+}
+
+// MergeEntitiesResponse contains the result of the merge operation.
+message MergeEntitiesResponse {
+  // The updated primary entity
+  Entity primary_entity = 1;
+
+  // Number of relationships transferred
+  int32 relationships_transferred = 2;
+
+  // Whether the merge was successful
+  bool success = 3;
+
+  // Message providing additional details
+  string message = 4;
+}
+
+// =============================================================================
+// Network Statistics Messages
+// =============================================================================
+
+// GetNetworkStatsRequest retrieves network statistics.
+message GetNetworkStatsRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+}
+
+// NetworkStats contains statistics about the relationship network.
+message NetworkStats {
+  // Total number of nodes (entities)
+  int32 total_nodes = 1;
+
+  // Total number of edges (relationships)
+  int32 total_edges = 2;
+
+  // Network density (0.0 to 1.0)
+  float density = 3;
+
+  // Average number of connections per node
+  float avg_connections = 4;
+
+  // Number of clusters in the network
+  int32 cluster_count = 5;
+
+  // Count of entities by type
+  map<string, int32> entity_type_counts = 6;
+
+  // Count of relationships by type
+  map<string, int32> relationship_type_counts = 7;
+}
+
+// GetCentralEntitiesRequest retrieves the most connected entities.
+message GetCentralEntitiesRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Maximum number of entities to return
+  int32 limit = 2;
+}
+
+// GetCentralEntitiesResponse contains the most connected entities.
+message GetCentralEntitiesResponse {
+  // List of central entities, ordered by connectivity
+  repeated Entity entities = 1;
+}
+
+// GetClustersRequest retrieves clusters in the network.
+message GetClustersRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+}
+
+// GetClustersResponse contains the network clusters.
+message GetClustersResponse {
+  // List of clusters
+  repeated NetworkCluster clusters = 1;
+}
+
+// NetworkCluster represents a cluster in the relationship network.
+message NetworkCluster {
+  // Unique identifier for the cluster
+  string id = 1;
+
+  // Display name for the cluster
+  string name = 2;
+
+  // Number of entities in the cluster
+  int32 entity_count = 3;
+
+  // Top entities in the cluster
+  repeated Entity top_entities = 4;
+
+  // Cluster density (0.0 to 1.0)
+  float density = 5;
+}
+
+// =============================================================================
+// Conflict Messages
+// =============================================================================
+
+// ConflictStatus represents the status of a conflict.
+enum ConflictStatus {
+  // Unspecified status
+  CONFLICT_STATUS_UNSPECIFIED = 0;
+
+  // Conflict is pending resolution
+  CONFLICT_STATUS_PENDING = 1;
+
+  // Conflict has been resolved
+  CONFLICT_STATUS_RESOLVED = 2;
+}
+
+// ConflictResolutionStrategy defines how to resolve conflicts.
+enum ConflictResolutionStrategy {
+  // Unspecified strategy
+  CONFLICT_RESOLUTION_STRATEGY_UNSPECIFIED = 0;
+
+  // Keep the most recently updated item
+  CONFLICT_RESOLUTION_STRATEGY_KEEP_LATEST = 1;
+
+  // Keep the first discovered item
+  CONFLICT_RESOLUTION_STRATEGY_KEEP_FIRST = 2;
+
+  // Attempt to merge conflicting data
+  CONFLICT_RESOLUTION_STRATEGY_MERGE = 3;
+
+  // Mark for manual review
+  CONFLICT_RESOLUTION_STRATEGY_MANUAL = 4;
+}
+
+// Conflict represents a detected conflict in the relationship graph.
+message Conflict {
+  // Unique identifier for the conflict
+  string id = 1;
+
+  // Tenant identifier
+  string tenant_id = 2;
+
+  // Type of conflict (duplicate_entity, contradictory_relationship, low_confidence)
+  string type = 3;
+
+  // Human-readable description
+  string description = 4;
+
+  // Suggested action to resolve
+  string suggested_action = 5;
+
+  // Current status
+  ConflictStatus status = 6;
+
+  // Resolution notes (if resolved)
+  optional string resolution = 7;
+
+  // Who resolved the conflict
+  optional string resolved_by = 8;
+
+  // When the conflict was resolved
+  optional google.protobuf.Timestamp resolved_at = 9;
+
+  // When the conflict was created
+  google.protobuf.Timestamp created_at = 10;
+
+  // Related relationships (if applicable)
+  repeated Relationship relationships = 11;
+}
+
+// ListConflictsRequest retrieves conflicts with filters.
+message ListConflictsRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Filter by status
+  optional ConflictStatus status = 2;
+
+  // Maximum number of results
+  int32 limit = 3;
+
+  // Pagination offset
+  int32 offset = 4;
+}
+
+// ListConflictsResponse contains the conflict list.
+message ListConflictsResponse {
+  // List of conflicts
+  repeated Conflict conflicts = 1;
+
+  // Total count of conflicts
+  int64 total_count = 2;
+}
+
+// GetConflictRequest retrieves a single conflict by ID.
+message GetConflictRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Unique conflict ID
+  string conflict_id = 2;
+}
+
+// ResolveConflictRequest resolves a conflict.
+message ResolveConflictRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Unique conflict ID
+  string conflict_id = 2;
+
+  // Resolution strategy
+  ConflictResolutionStrategy strategy = 3;
+
+  // User resolving the conflict
+  optional string resolved_by = 4;
+
+  // Optional notes about the resolution
+  optional string notes = 5;
+}
+
+// ResolveConflictResponse contains the resolution result.
+message ResolveConflictResponse {
+  // The resolved conflict
+  Conflict conflict = 1;
+
+  // Number of relationships updated
+  int32 relationships_updated = 2;
+
+  // Whether the resolution was successful
+  bool success = 3;
+
+  // Message providing additional details
+  string message = 4;
 }

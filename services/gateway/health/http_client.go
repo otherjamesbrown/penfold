@@ -82,3 +82,19 @@ func NewAIHealthClient(healthCheckFunc func(ctx context.Context) error) *AIHealt
 func (c *AIHealthClient) HealthCheck(ctx context.Context) error {
 	return c.healthCheckFunc(ctx)
 }
+
+// TemporalHealthClient checks Temporal service health.
+type TemporalHealthClient struct {
+	healthCheckFunc func(ctx context.Context) error
+}
+
+// NewTemporalHealthClient creates a Temporal health client.
+// The healthCheckFunc should perform a basic Temporal API call to verify connectivity.
+func NewTemporalHealthClient(healthCheckFunc func(ctx context.Context) error) *TemporalHealthClient {
+	return &TemporalHealthClient{healthCheckFunc: healthCheckFunc}
+}
+
+// HealthCheck performs a health check on the Temporal service.
+func (c *TemporalHealthClient) HealthCheck(ctx context.Context) error {
+	return c.healthCheckFunc(ctx)
+}

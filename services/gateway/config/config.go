@@ -65,6 +65,21 @@ type GatewayConfig struct {
 
 	// AIServiceAddr is the gRPC address of the AI Coordinator service.
 	AIServiceAddr string
+
+	// Temporal contains Temporal workflow engine configuration.
+	Temporal TemporalConfig
+}
+
+// TemporalConfig holds Temporal connection configuration.
+type TemporalConfig struct {
+	// HostPort is the Temporal server address (default: localhost:7233).
+	HostPort string
+
+	// Namespace is the Temporal namespace (default: default).
+	Namespace string
+
+	// Enabled controls whether workflow operations are available.
+	Enabled bool
 }
 
 // AuthConfig holds authentication configuration for the gateway.
@@ -149,6 +164,11 @@ const (
 	DefaultRateLimitDefaultBurst = 150
 	DefaultRateLimitCleanup      = 5 * time.Minute
 	DefaultRateLimitBucketTTL    = 10 * time.Minute
+
+	// Temporal defaults.
+	DefaultTemporalHostPort  = "localhost:7233"
+	DefaultTemporalNamespace = "default"
+	DefaultTemporalEnabled   = false
 )
 
 // Load loads the gateway configuration from environment variables.
@@ -190,6 +210,11 @@ func Load() (*GatewayConfig, error) {
 			SkipMethods:     []string{},
 			SkipPaths:       []string{"/health", "/ready", "/live", "/metrics"},
 			IncludeHeaders:  true,
+		},
+		Temporal: TemporalConfig{
+			HostPort:  DefaultTemporalHostPort,
+			Namespace: DefaultTemporalNamespace,
+			Enabled:   DefaultTemporalEnabled,
 		},
 	}
 
@@ -351,6 +376,22 @@ func loadGatewayEnv(cfg *GatewayConfig) {
 	// AI service address
 	if v := os.Getenv("GATEWAY_AI_SERVICE_ADDR"); v != "" {
 		cfg.AIServiceAddr = v
+	}
+
+	// Temporal configuration
+	// Uses TEMPORAL_ prefix for consistency with worker config
+	if v := os.Getenv("TEMPORAL_HOST_PORT"); v != "" {
+		cfg.Temporal.HostPort = v
+		// Enable Temporal if host is explicitly set
+		cfg.Temporal.Enabled = true
+	}
+
+	if v := os.Getenv("TEMPORAL_NAMESPACE"); v != "" {
+		cfg.Temporal.Namespace = v
+	}
+
+	if v := os.Getenv("GATEWAY_TEMPORAL_ENABLED"); v != "" {
+		cfg.Temporal.Enabled = v == "true" || v == "1"
 	}
 }
 

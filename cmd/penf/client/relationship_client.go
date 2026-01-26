@@ -1,0 +1,760 @@
+// Package client provides gRPC clients for Penfold services.
+package client
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
+)
+
+// RelationshipClient manages the connection to the Penfold Relationship service.
+type RelationshipClient struct {
+	conn       *grpc.ClientConn
+	client     relationshipv1.RelationshipServiceClient
+	serverAddr string
+	options    *ClientOptions
+	mu         sync.RWMutex
+	connected  bool
+}
+
+// NewRelationshipClient creates a new RelationshipClient with the given options.
+// Call Connect() to establish the connection.
+func NewRelationshipClient(serverAddr string, opts *ClientOptions) *RelationshipClient {
+	if opts == nil {
+		opts = DefaultOptions()
+	}
+
+	return &RelationshipClient{
+		serverAddr: serverAddr,
+		options:    opts,
+	}
+}
+
+// Connect establishes a connection to the Relationship service.
+func (c *RelationshipClient) Connect(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.connected && c.conn != nil {
+		return nil // Already connected.
+	}
+
+	// Create connection context with timeout.
+	connectCtx, cancel := context.WithTimeout(ctx, c.options.ConnectTimeout)
+	defer cancel()
+
+	// Build dial options.
+	dialOpts := c.buildDialOptions()
+
+	// Establish connection.
+	conn, err := grpc.DialContext(connectCtx, c.serverAddr, dialOpts...)
+	if err != nil {
+		return fmt.Errorf("connecting to relationship service at %s: %w", c.serverAddr, err)
+	}
+
+	c.conn = conn
+	c.client = relationshipv1.NewRelationshipServiceClient(conn)
+	c.connected = true
+
+	return nil
+}
+
+// buildDialOptions constructs the gRPC dial options from client configuration.
+func (c *RelationshipClient) buildDialOptions() []grpc.DialOption {
+	opts := []grpc.DialOption{
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                c.options.KeepaliveTime,
+			Timeout:             c.options.KeepaliveTimeout,
+			PermitWithoutStream: true,
+		}),
+		grpc.WithDefaultCallOptions(
+			grpc.WaitForReady(true),
+		),
+	}
+
+	// Configure credentials.
+	if c.options.Insecure {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+
+	return opts
+}
+
+// Close closes the connection to the Relationship service.
+func (c *RelationshipClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.connected || c.conn == nil {
+		return nil
+	}
+
+	err := c.conn.Close()
+	c.conn = nil
+	c.client = nil
+	c.connected = false
+
+	if err != nil {
+		return fmt.Errorf("closing relationship connection: %w", err)
+	}
+
+	return nil
+}
+
+// IsConnected returns true if the client has an active connection.
+func (c *RelationshipClient) IsConnected() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.connected && c.conn != nil
+}
+
+// contextWithTenant returns a context with the tenant ID in metadata.
+func (c *RelationshipClient) contextWithTenant(ctx context.Context, tenantID string) context.Context {
+	if tenantID == "" {
+		c.mu.RLock()
+		tenantID = c.options.TenantID
+		c.mu.RUnlock()
+	}
+	if tenantID == "" {
+		return ctx
+	}
+	md := metadata.Pairs("x-tenant-id", tenantID)
+	return metadata.NewOutgoingContext(ctx, md)
+}
+
+// Domain types for the client
+
+// RelEntity represents an entity in the relationship graph.
+type RelEntity struct {
+	ID            string
+	Name          string
+	Type          string
+	CanonicalName string
+	Aliases       []string
+	Confidence    float32
+	SourceCount   int32
+	RelationCount int32
+	FirstSeen     time.Time
+	LastSeen      time.Time
+	Metadata      map[string]string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// Relationship represents a relationship between entities.
+type Relationship struct {
+	ID               string
+	SourceEntity     *RelEntity
+	TargetEntity     *RelEntity
+	RelationshipType string
+	Confidence       float32
+	Status           string
+	Evidence         []Evidence
+	Notes            string
+	TenantID         string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// Evidence represents supporting evidence for a relationship.
+type Evidence struct {
+	SourceID               string
+	SourceType             string
+	Excerpt                string
+	DiscoveredAt           time.Time
+	ConfidenceContribution float32
+}
+
+// NetworkStats contains statistics about the relationship network.
+type NetworkStats struct {
+	TotalNodes             int32
+	TotalEdges             int32
+	Density                float32
+	AvgConnections         float32
+	ClusterCount           int32
+	EntityTypeCounts       map[string]int32
+	RelationshipTypeCounts map[string]int32
+}
+
+// NetworkCluster represents a cluster in the relationship network.
+type NetworkCluster struct {
+	ID          string
+	Name        string
+	EntityCount int32
+	TopEntities []*RelEntity
+	Density     float32
+}
+
+// RelationshipConflict represents a detected conflict in the relationship graph.
+type RelationshipConflict struct {
+	ID              string
+	TenantID        string
+	Type            string
+	Description     string
+	SuggestedAction string
+	Status          string
+	Resolution      string
+	ResolvedBy      string
+	ResolvedAt      *time.Time
+	CreatedAt       time.Time
+	Relationships   []*Relationship
+}
+
+// ListRelationshipsRequest represents a request to list relationships.
+type ListRelationshipsRequest struct {
+	TenantID         string
+	EntityID         string
+	RelationshipType relationshipv1.RelationshipType
+	Status           relationshipv1.RelationshipStatus
+	MinConfidence    float32
+	SourceEntityType relationshipv1.EntityType
+	TargetEntityType relationshipv1.EntityType
+	PageSize         int32
+}
+
+// ListRelationships returns a list of relationships matching the filter.
+func (c *RelationshipClient) ListRelationships(ctx context.Context, req *ListRelationshipsRequest) ([]*Relationship, int64, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, 0, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, req.TenantID)
+
+	protoReq := &relationshipv1.ListRelationshipsRequest{
+		TenantId: req.TenantID,
+		PageSize: req.PageSize,
+	}
+
+	if req.EntityID != "" {
+		protoReq.EntityId = &req.EntityID
+	}
+
+	if req.RelationshipType != relationshipv1.RelationshipType_RELATIONSHIP_TYPE_UNSPECIFIED {
+		protoReq.RelationshipType = &req.RelationshipType
+	}
+
+	if req.Status != relationshipv1.RelationshipStatus_RELATIONSHIP_STATUS_UNSPECIFIED {
+		protoReq.Status = &req.Status
+	}
+
+	if req.MinConfidence > 0 {
+		protoReq.MinConfidence = &req.MinConfidence
+	}
+
+	if req.SourceEntityType != relationshipv1.EntityType_ENTITY_TYPE_UNSPECIFIED {
+		protoReq.SourceEntityType = &req.SourceEntityType
+	}
+
+	if req.TargetEntityType != relationshipv1.EntityType_ENTITY_TYPE_UNSPECIFIED {
+		protoReq.TargetEntityType = &req.TargetEntityType
+	}
+
+	resp, err := client.ListRelationships(ctx, protoReq)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list relationships request failed: %w", err)
+	}
+
+	relationships := make([]*Relationship, len(resp.Relationships))
+	for i, r := range resp.Relationships {
+		relationships[i] = protoToRelationship(r)
+	}
+
+	var totalCount int64
+	if resp.TotalCount != nil {
+		totalCount = *resp.TotalCount
+	}
+
+	return relationships, totalCount, nil
+}
+
+// GetRelationship retrieves a single relationship by ID.
+func (c *RelationshipClient) GetRelationship(ctx context.Context, tenantID, relationshipID string) (*Relationship, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	resp, err := client.GetRelationship(ctx, &relationshipv1.GetRelationshipRequest{
+		TenantId:       tenantID,
+		RelationshipId: relationshipID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get relationship request failed: %w", err)
+	}
+
+	return protoToRelationship(resp), nil
+}
+
+// SearchRelationships searches relationships by entity name.
+func (c *RelationshipClient) SearchRelationships(ctx context.Context, tenantID, query string, limit int32) ([]*Relationship, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	resp, err := client.SearchRelationships(ctx, &relationshipv1.SearchRelationshipsRequest{
+		TenantId: tenantID,
+		Query:    query,
+		Limit:    limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("search relationships request failed: %w", err)
+	}
+
+	relationships := make([]*Relationship, len(resp.Relationships))
+	for i, r := range resp.Relationships {
+		relationships[i] = protoToRelationship(r)
+	}
+
+	return relationships, nil
+}
+
+// ListEntitiesRequest represents a request to list entities.
+type ListEntitiesRequest struct {
+	TenantID      string
+	EntityType    relationshipv1.EntityType
+	Search        string
+	MinConfidence float32
+	PageSize      int32
+	Offset        int32
+}
+
+// ListEntities returns a list of entities matching the filter.
+func (c *RelationshipClient) ListEntities(ctx context.Context, req *ListEntitiesRequest) ([]*RelEntity, int64, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, 0, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, req.TenantID)
+
+	protoReq := &relationshipv1.ListEntitiesRequest{
+		TenantId: req.TenantID,
+		PageSize: req.PageSize,
+		Offset:   req.Offset,
+	}
+
+	if req.EntityType != relationshipv1.EntityType_ENTITY_TYPE_UNSPECIFIED {
+		protoReq.EntityType = &req.EntityType
+	}
+
+	if req.Search != "" {
+		protoReq.Search = &req.Search
+	}
+
+	if req.MinConfidence > 0 {
+		protoReq.MinConfidence = &req.MinConfidence
+	}
+
+	resp, err := client.ListEntities(ctx, protoReq)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list entities request failed: %w", err)
+	}
+
+	entities := make([]*RelEntity, len(resp.Entities))
+	for i, e := range resp.Entities {
+		entities[i] = protoToEntity(e)
+	}
+
+	return entities, resp.TotalCount, nil
+}
+
+// GetEntity retrieves a single entity by ID.
+func (c *RelationshipClient) GetEntity(ctx context.Context, tenantID, entityID string) (*RelEntity, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	resp, err := client.GetEntity(ctx, &relationshipv1.GetEntityRequest{
+		TenantId: tenantID,
+		EntityId: entityID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get entity request failed: %w", err)
+	}
+
+	return protoToEntity(resp), nil
+}
+
+// MergeEntities merges two entities into one.
+func (c *RelationshipClient) MergeEntities(ctx context.Context, tenantID, primaryEntityID, mergedEntityID string) (*RelEntity, int32, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, 0, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	resp, err := client.MergeEntities(ctx, &relationshipv1.MergeEntitiesRequest{
+		TenantId:        tenantID,
+		PrimaryEntityId: primaryEntityID,
+		MergedEntityId:  mergedEntityID,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("merge entities request failed: %w", err)
+	}
+
+	return protoToEntity(resp.PrimaryEntity), resp.RelationshipsTransferred, nil
+}
+
+// GetNetworkStats retrieves statistics about the relationship network.
+func (c *RelationshipClient) GetNetworkStats(ctx context.Context, tenantID string) (*NetworkStats, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	resp, err := client.GetNetworkStats(ctx, &relationshipv1.GetNetworkStatsRequest{
+		TenantId: tenantID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get network stats request failed: %w", err)
+	}
+
+	return &NetworkStats{
+		TotalNodes:             resp.TotalNodes,
+		TotalEdges:             resp.TotalEdges,
+		Density:                resp.Density,
+		AvgConnections:         resp.AvgConnections,
+		ClusterCount:           resp.ClusterCount,
+		EntityTypeCounts:       resp.EntityTypeCounts,
+		RelationshipTypeCounts: resp.RelationshipTypeCounts,
+	}, nil
+}
+
+// GetCentralEntities retrieves the most connected entities in the network.
+func (c *RelationshipClient) GetCentralEntities(ctx context.Context, tenantID string, limit int32) ([]*RelEntity, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	resp, err := client.GetCentralEntities(ctx, &relationshipv1.GetCentralEntitiesRequest{
+		TenantId: tenantID,
+		Limit:    limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get central entities request failed: %w", err)
+	}
+
+	entities := make([]*RelEntity, len(resp.Entities))
+	for i, e := range resp.Entities {
+		entities[i] = protoToEntity(e)
+	}
+
+	return entities, nil
+}
+
+// GetClusters retrieves clusters in the relationship network.
+func (c *RelationshipClient) GetClusters(ctx context.Context, tenantID string) ([]*NetworkCluster, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	resp, err := client.GetClusters(ctx, &relationshipv1.GetClustersRequest{
+		TenantId: tenantID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get clusters request failed: %w", err)
+	}
+
+	clusters := make([]*NetworkCluster, len(resp.Clusters))
+	for i, c := range resp.Clusters {
+		topEntities := make([]*RelEntity, len(c.TopEntities))
+		for j, e := range c.TopEntities {
+			topEntities[j] = protoToEntity(e)
+		}
+
+		clusters[i] = &NetworkCluster{
+			ID:          c.Id,
+			Name:        c.Name,
+			EntityCount: c.EntityCount,
+			TopEntities: topEntities,
+			Density:     c.Density,
+		}
+	}
+
+	return clusters, nil
+}
+
+// ListConflictsRequest represents a request to list conflicts.
+type ListConflictsRequest struct {
+	TenantID string
+	Status   relationshipv1.ConflictStatus
+	Limit    int32
+	Offset   int32
+}
+
+// ListConflicts returns a list of conflicts matching the filter.
+func (c *RelationshipClient) ListConflicts(ctx context.Context, req *ListConflictsRequest) ([]*RelationshipConflict, int64, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, 0, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, req.TenantID)
+
+	protoReq := &relationshipv1.ListConflictsRequest{
+		TenantId: req.TenantID,
+		Limit:    req.Limit,
+		Offset:   req.Offset,
+	}
+
+	if req.Status != relationshipv1.ConflictStatus_CONFLICT_STATUS_UNSPECIFIED {
+		protoReq.Status = &req.Status
+	}
+
+	resp, err := client.ListConflicts(ctx, protoReq)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list conflicts request failed: %w", err)
+	}
+
+	conflicts := make([]*RelationshipConflict, len(resp.Conflicts))
+	for i, c := range resp.Conflicts {
+		conflicts[i] = protoToConflict(c)
+	}
+
+	return conflicts, resp.TotalCount, nil
+}
+
+// GetConflict retrieves a single conflict by ID.
+func (c *RelationshipClient) GetConflict(ctx context.Context, tenantID, conflictID string) (*RelationshipConflict, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	resp, err := client.GetConflict(ctx, &relationshipv1.GetConflictRequest{
+		TenantId:   tenantID,
+		ConflictId: conflictID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get conflict request failed: %w", err)
+	}
+
+	return protoToConflict(resp), nil
+}
+
+// ResolveConflictRequest represents a request to resolve a conflict.
+type ResolveConflictRequest struct {
+	TenantID   string
+	ConflictID string
+	Strategy   relationshipv1.ConflictResolutionStrategy
+	ResolvedBy string
+	Notes      string
+}
+
+// ResolveConflict resolves a relationship conflict.
+func (c *RelationshipClient) ResolveConflict(ctx context.Context, req *ResolveConflictRequest) (*RelationshipConflict, int32, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, 0, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, req.TenantID)
+
+	protoReq := &relationshipv1.ResolveConflictRequest{
+		TenantId:   req.TenantID,
+		ConflictId: req.ConflictID,
+		Strategy:   req.Strategy,
+	}
+
+	if req.ResolvedBy != "" {
+		protoReq.ResolvedBy = &req.ResolvedBy
+	}
+
+	if req.Notes != "" {
+		protoReq.Notes = &req.Notes
+	}
+
+	resp, err := client.ResolveConflict(ctx, protoReq)
+	if err != nil {
+		return nil, 0, fmt.Errorf("resolve conflict request failed: %w", err)
+	}
+
+	return protoToConflict(resp.Conflict), resp.RelationshipsUpdated, nil
+}
+
+// Conversion helpers
+
+func protoToEntity(e *relationshipv1.Entity) *RelEntity {
+	if e == nil {
+		return nil
+	}
+
+	entity := &RelEntity{
+		ID:            e.Id,
+		Name:          e.Name,
+		Type:          e.Type.String(),
+		Aliases:       e.Aliases,
+		Confidence:    e.Confidence,
+		SourceCount:   e.SourceCount,
+		RelationCount: e.RelationCount,
+		Metadata:      e.Metadata,
+	}
+
+	if e.CanonicalName != nil {
+		entity.CanonicalName = *e.CanonicalName
+	}
+
+	if e.CreatedAt != nil {
+		entity.CreatedAt = e.CreatedAt.AsTime()
+	}
+
+	if e.UpdatedAt != nil {
+		entity.UpdatedAt = e.UpdatedAt.AsTime()
+	}
+
+	if e.FirstSeen != nil {
+		entity.FirstSeen = e.FirstSeen.AsTime()
+	}
+
+	if e.LastSeen != nil {
+		entity.LastSeen = e.LastSeen.AsTime()
+	}
+
+	return entity
+}
+
+func protoToRelationship(r *relationshipv1.Relationship) *Relationship {
+	if r == nil {
+		return nil
+	}
+
+	rel := &Relationship{
+		ID:               r.Id,
+		SourceEntity:     protoToEntity(r.SourceEntity),
+		TargetEntity:     protoToEntity(r.TargetEntity),
+		RelationshipType: r.RelationshipType.String(),
+		Confidence:       r.Confidence,
+		Status:           r.Status.String(),
+		TenantID:         r.TenantId,
+	}
+
+	if r.Notes != nil {
+		rel.Notes = *r.Notes
+	}
+
+	if r.CreatedAt != nil {
+		rel.CreatedAt = r.CreatedAt.AsTime()
+	}
+
+	if r.UpdatedAt != nil {
+		rel.UpdatedAt = r.UpdatedAt.AsTime()
+	}
+
+	rel.Evidence = make([]Evidence, len(r.Evidence))
+	for i, e := range r.Evidence {
+		ev := Evidence{
+			SourceID:               e.SourceId,
+			SourceType:             e.SourceType,
+			Excerpt:                e.Excerpt,
+			ConfidenceContribution: e.ConfidenceContribution,
+		}
+		if e.DiscoveredAt != nil {
+			ev.DiscoveredAt = e.DiscoveredAt.AsTime()
+		}
+		rel.Evidence[i] = ev
+	}
+
+	return rel
+}
+
+func protoToConflict(c *relationshipv1.Conflict) *RelationshipConflict {
+	if c == nil {
+		return nil
+	}
+
+	conflict := &RelationshipConflict{
+		ID:              c.Id,
+		TenantID:        c.TenantId,
+		Type:            c.Type,
+		Description:     c.Description,
+		SuggestedAction: c.SuggestedAction,
+		Status:          c.Status.String(),
+	}
+
+	if c.Resolution != nil {
+		conflict.Resolution = *c.Resolution
+	}
+
+	if c.ResolvedBy != nil {
+		conflict.ResolvedBy = *c.ResolvedBy
+	}
+
+	if c.ResolvedAt != nil {
+		t := c.ResolvedAt.AsTime()
+		conflict.ResolvedAt = &t
+	}
+
+	if c.CreatedAt != nil {
+		conflict.CreatedAt = c.CreatedAt.AsTime()
+	}
+
+	conflict.Relationships = make([]*Relationship, len(c.Relationships))
+	for i, r := range c.Relationships {
+		conflict.Relationships[i] = protoToRelationship(r)
+	}
+
+	return conflict
+}
