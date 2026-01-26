@@ -93,6 +93,7 @@ Related Commands:
 	cmd.AddCommand(newProjectListCommand(deps))
 	cmd.AddCommand(newProjectAddCommand(deps))
 	cmd.AddCommand(newProjectShowCommand(deps))
+	cmd.AddCommand(newProjectDeleteCommand(deps))
 
 	return cmd
 }
@@ -204,6 +205,45 @@ Examples:
 			return runProjectShow(cmd.Context(), deps, args[0])
 		},
 	}
+}
+
+// newProjectDeleteCommand creates the 'project delete' subcommand.
+func newProjectDeleteCommand(deps *ProjectCommandDeps) *cobra.Command {
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "delete <identifier>",
+		Short: "Delete a project",
+		Long: `Delete a project from the system.
+
+This removes the project and its keyword associations. Content previously
+tagged with this project will no longer be associated with it.
+
+The identifier can be:
+  - Project ID (numeric)
+  - Project name (case-insensitive)
+
+By default, prompts for confirmation. Use --force to skip the prompt.
+
+Examples:
+  # Delete by ID
+  penf project delete 2
+
+  # Delete by name
+  penf project delete "MTC"
+
+  # Force delete without confirmation
+  penf project delete "MTC" --force`,
+		Aliases: []string{"rm", "remove"},
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runProjectDelete(cmd.Context(), deps, args[0], force)
+		},
+	}
+
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation prompt")
+
+	return cmd
 }
 
 // ==================== gRPC Connection ====================
@@ -352,6 +392,57 @@ func runProjectShow(ctx context.Context, deps *ProjectCommandDeps, identifier st
 	}
 
 	return outputProjectDetailProto(cfg, resp.Project)
+}
+
+// runProjectDelete executes the project delete command via gRPC.
+func runProjectDelete(ctx context.Context, deps *ProjectCommandDeps, identifier string, force bool) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectProjectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := projectv1.NewProjectServiceClient(conn)
+	tenantID := getTenantIDForProject(deps)
+
+	// First, resolve the identifier to get project details
+	projectResp, err := client.GetProject(ctx, &projectv1.GetProjectRequest{
+		TenantId:   tenantID,
+		Identifier: identifier,
+	})
+	if err != nil {
+		return fmt.Errorf("project not found: %s", identifier)
+	}
+
+	project := projectResp.Project
+
+	// Prompt for confirmation unless --force is used
+	if !force {
+		fmt.Printf("Delete project \"%s\" (ID: %d)? [y/N] ", project.Name, project.Id)
+		var response string
+		fmt.Scanln(&response)
+		if response != "y" && response != "Y" {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+	}
+
+	// Delete the project by ID
+	_, err = client.DeleteProject(ctx, &projectv1.DeleteProjectRequest{
+		Id: project.Id,
+	})
+	if err != nil {
+		return fmt.Errorf("deleting project: %w", err)
+	}
+
+	fmt.Printf("\033[32mDeleted project:\033[0m %s (ID: %d)\n", project.Name, project.Id)
+	return nil
 }
 
 // ==================== Output Functions ====================

@@ -75,7 +75,7 @@ func TestNewProjectCommand_Subcommands(t *testing.T) {
 	cmd := NewProjectCommand(deps)
 
 	// Check subcommands exist.
-	subcommands := []string{"list", "add", "show"}
+	subcommands := []string{"list", "add", "show", "delete"}
 	for _, sub := range subcommands {
 		found := false
 		for _, c := range cmd.Commands() {
@@ -166,6 +166,41 @@ func TestProjectShowCommand_Structure(t *testing.T) {
 	getCmd, _, _ := cmd.Find([]string{"get"})
 	if getCmd == nil {
 		t.Fatal("get alias not found")
+	}
+}
+
+// ==================== Project Delete Command Tests ====================
+
+func TestProjectDeleteCommand_Structure(t *testing.T) {
+	deps := createProjectTestDeps(projectMockConfig())
+	cmd := NewProjectCommand(deps)
+
+	deleteCmd, _, _ := cmd.Find([]string{"delete"})
+	if deleteCmd == nil {
+		t.Fatal("delete subcommand not found")
+	}
+
+	// Check requires exactly 1 argument.
+	if deleteCmd.Args == nil {
+		t.Error("expected delete command to have args validation")
+	}
+
+	// Check --force flag.
+	forceFlag := deleteCmd.Flags().Lookup("force")
+	if forceFlag == nil {
+		t.Error("expected --force flag to exist on delete command")
+	}
+
+	// Check "rm" alias works.
+	rmCmd, _, _ := cmd.Find([]string{"rm"})
+	if rmCmd == nil {
+		t.Fatal("rm alias not found")
+	}
+
+	// Check "remove" alias works.
+	removeCmd, _, _ := cmd.Find([]string{"remove"})
+	if removeCmd == nil {
+		t.Fatal("remove alias not found")
 	}
 }
 
