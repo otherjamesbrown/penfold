@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
@@ -442,84 +443,89 @@ func (c *GRPCClient) ConnectionState() string {
 }
 
 // GetStatus retrieves the system status from the gateway.
-// If verbose is true, additional details are included.
-// STUB: Returns mock data until gateway service gRPC is connected.
+// If verbose is true, additional details (dependencies) are included.
 func (c *GRPCClient) GetStatus(ctx context.Context, verbose bool) (*SystemStatus, error) {
-	// When connected, the implementation would look like:
-	//   client := cliv1.NewCLIServiceClient(c.conn)
-	//   resp, err := client.GetStatus(ctx, &cliv1.GetStatusRequest{Verbose: verbose})
-	//   if err != nil {
-	//       return nil, fmt.Errorf("GetStatus RPC failed: %w", err)
-	//   }
-	//   return convertStatus(resp.Status), nil
+	c.mu.RLock()
+	conn := c.conn
+	connected := c.connected
+	c.mu.RUnlock()
 
-	return getMockStatus(verbose), nil
+	if !connected || conn == nil {
+		return nil, fmt.Errorf("not connected to gateway")
+	}
+
+	// Create gRPC client for the gateway service.
+	client := gatewaypb.NewGatewayServiceClient(conn)
+
+	// Call the HealthCheck RPC.
+	resp, err := client.HealthCheck(ctx, &gatewaypb.HealthCheckRequest{
+		IncludeDependencies: verbose,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("HealthCheck RPC failed: %w", err)
+	}
+
+	// Convert the gRPC response to SystemStatus.
+	return convertHealthCheckResponse(resp), nil
 }
 
-// getMockStatus returns mock status data for development/testing.
-// This will be removed once the gateway service is implemented.
-func getMockStatus(verbose bool) *SystemStatus {
-	return &SystemStatus{
-		Healthy:   true,
-		Message:   "All systems operational (mock data - gateway not connected)",
+// convertHealthCheckResponse maps the gRPC HealthCheckResponse to the client SystemStatus struct.
+func convertHealthCheckResponse(resp *gatewaypb.HealthCheckResponse) *SystemStatus {
+	status := &SystemStatus{
+		Healthy:   resp.GetHealthy(),
+		Message:   resp.GetMessage(),
 		Timestamp: time.Now(),
-		Services: []ServiceHealth{
-			{
-				Name:          "gateway",
-				Healthy:       true,
-				Status:        "running",
-				Message:       "Ready to accept connections",
-				LatencyMs:     1.2,
-				Version:       "0.1.0",
-				UptimeSeconds: 3600,
-			},
-			{
-				Name:          "orchestrator",
-				Healthy:       true,
-				Status:        "running",
-				Message:       "",
-				LatencyMs:     2.5,
-				Version:       "0.1.0",
-				UptimeSeconds: 3600,
-			},
-			{
-				Name:          "ai_service",
-				Healthy:       true,
-				Status:        "running",
-				Message:       "Ollama backend available",
-				LatencyMs:     5.0,
-				Version:       "0.1.0",
-				UptimeSeconds: 3600,
-			},
-		},
-		Database: &DatabaseStatus{
-			Healthy:                true,
-			Type:                   "postgresql",
-			ConnectionStatus:       "connected",
-			ActiveConnections:      5,
-			MaxConnections:         100,
-			VectorExtensionEnabled: true,
-			ContentCount:           1250,
-			EntityCount:            340,
-			LatencyMs:              0.8,
-		},
-		Queues: &QueueStatus{
-			Healthy:         true,
-			Type:            "redis",
-			TotalPending:    12,
-			ProcessingRate:  45.2,
-			DeadLetterCount: 0,
-			QueueDepths: map[string]int64{
-				"ingestion":  5,
-				"embedding":  3,
-				"extraction": 4,
-			},
-		},
-		Version: &VersionInfo{
-			Version:   "0.1.0",
-			Commit:    "abc123",
-			BuildTime: time.Now().Format(time.RFC3339),
-			GoVersion: "go1.24.0",
-		},
+		Services:  make([]ServiceHealth, 0, len(resp.GetDependencies())),
 	}
+
+	// Convert timestamp if present.
+	if resp.GetTimestamp() != nil {
+		status.Timestamp = resp.GetTimestamp().AsTime()
+	}
+
+	// Convert version info.
+	if resp.GetVersion() != "" {
+		status.Version = &VersionInfo{
+			Version: resp.GetVersion(),
+		}
+	}
+
+	// Convert dependencies to service health entries.
+	for _, dep := range resp.GetDependencies() {
+		svcHealth := ServiceHealth{
+			Name:    dep.GetName(),
+			Healthy: dep.GetHealthy(),
+			Message: dep.GetMessage(),
+		}
+
+		// Set status string based on health.
+		if dep.GetHealthy() {
+			svcHealth.Status = "running"
+		} else {
+			svcHealth.Status = "down"
+		}
+
+		// Set latency if available.
+		if dep.LatencyMs != nil {
+			svcHealth.LatencyMs = *dep.LatencyMs
+		}
+
+		status.Services = append(status.Services, svcHealth)
+	}
+
+	// Add gateway service itself with uptime.
+	gatewayService := ServiceHealth{
+		Name:          "gateway",
+		Healthy:       resp.GetHealthy(),
+		Status:        "running",
+		Message:       resp.GetMessage(),
+		UptimeSeconds: resp.GetUptimeSeconds(),
+	}
+	if resp.GetVersion() != "" {
+		gatewayService.Version = resp.GetVersion()
+	}
+	// Prepend gateway service to the list.
+	status.Services = append([]ServiceHealth{gatewayService}, status.Services...)
+
+	return status
 }

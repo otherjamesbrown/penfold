@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/metadata"
@@ -225,37 +226,24 @@ func TestGRPCClient_ContextWithTenant(t *testing.T) {
 	})
 }
 
-// TestGRPCClient_GetStatus verifies mock status retrieval.
+// TestGRPCClient_GetStatus verifies status retrieval behavior.
+// Note: GetStatus now requires a real gRPC connection since it calls the gateway.
 func TestGRPCClient_GetStatus(t *testing.T) {
 	client := NewGRPCClient("localhost:50051", nil)
 	ctx := context.Background()
 
-	t.Run("non-verbose", func(t *testing.T) {
+	t.Run("returns error when not connected", func(t *testing.T) {
+		// Without calling Connect(), GetStatus should return an error
 		status, err := client.GetStatus(ctx, false)
-		if err != nil {
-			t.Fatalf("GetStatus() error = %v", err)
+		if err == nil {
+			t.Fatal("GetStatus() expected error when not connected")
 		}
-		if status == nil {
-			t.Fatal("GetStatus() returned nil status")
+		if status != nil {
+			t.Error("expected nil status when not connected")
 		}
-		if !status.Healthy {
-			t.Error("expected healthy status")
-		}
-		if status.Message == "" {
-			t.Error("expected non-empty message")
-		}
-		if len(status.Services) == 0 {
-			t.Error("expected at least one service")
-		}
-	})
-
-	t.Run("verbose", func(t *testing.T) {
-		status, err := client.GetStatus(ctx, true)
-		if err != nil {
-			t.Fatalf("GetStatus() error = %v", err)
-		}
-		if status == nil {
-			t.Fatal("GetStatus() returned nil status")
+		// Verify the error message indicates not connected
+		if err.Error() != "not connected to gateway" {
+			t.Errorf("unexpected error message: %v", err)
 		}
 	})
 }
@@ -693,57 +681,86 @@ func TestGRPCClient_AlreadyConnected(t *testing.T) {
 	client.mu.Unlock()
 }
 
-// TestGetMockStatus verifies mock status generation.
-func TestGetMockStatus(t *testing.T) {
-	status := getMockStatus(false)
+// TestConvertHealthCheckResponse verifies health check response conversion.
+func TestConvertHealthCheckResponse(t *testing.T) {
+	latencyVal := float64(5.5)
+	resp := &gatewaypb.HealthCheckResponse{
+		Healthy:       true,
+		Message:       "Gateway is healthy",
+		Version:       "0.1.0",
+		UptimeSeconds: 3600,
+		Dependencies: []*gatewaypb.DependencyHealth{
+			{
+				Name:      "database",
+				Healthy:   true,
+				Message:   "connected",
+				LatencyMs: &latencyVal,
+			},
+			{
+				Name:    "redis",
+				Healthy: false,
+				Message: "connection refused",
+			},
+		},
+	}
+
+	status := convertHealthCheckResponse(resp)
 
 	if status == nil {
-		t.Fatal("getMockStatus returned nil")
+		t.Fatal("convertHealthCheckResponse returned nil")
 	}
 
 	// Verify expected structure
 	if !status.Healthy {
 		t.Error("expected healthy status")
 	}
-	if status.Message == "" {
-		t.Error("expected non-empty message")
+	if status.Message != "Gateway is healthy" {
+		t.Errorf("Message = %v, want 'Gateway is healthy'", status.Message)
 	}
-	if len(status.Services) == 0 {
-		t.Error("expected at least one service")
+
+	// Gateway service should be prepended, plus dependencies
+	if len(status.Services) != 3 {
+		t.Errorf("expected 3 services (gateway + 2 deps), got %d", len(status.Services))
 	}
-	if status.Database == nil {
-		t.Error("expected database status")
+
+	// Verify gateway is first
+	if status.Services[0].Name != "gateway" {
+		t.Errorf("first service should be gateway, got %v", status.Services[0].Name)
 	}
-	if status.Queues == nil {
-		t.Error("expected queue status")
+	if status.Services[0].UptimeSeconds != 3600 {
+		t.Errorf("gateway UptimeSeconds = %v, want 3600", status.Services[0].UptimeSeconds)
 	}
+
+	// Verify database dependency
+	if status.Services[1].Name != "database" {
+		t.Errorf("second service should be database, got %v", status.Services[1].Name)
+	}
+	if !status.Services[1].Healthy {
+		t.Error("database should be healthy")
+	}
+	if status.Services[1].LatencyMs != 5.5 {
+		t.Errorf("database LatencyMs = %v, want 5.5", status.Services[1].LatencyMs)
+	}
+	if status.Services[1].Status != "running" {
+		t.Errorf("database Status = %v, want 'running'", status.Services[1].Status)
+	}
+
+	// Verify redis dependency (unhealthy)
+	if status.Services[2].Name != "redis" {
+		t.Errorf("third service should be redis, got %v", status.Services[2].Name)
+	}
+	if status.Services[2].Healthy {
+		t.Error("redis should be unhealthy")
+	}
+	if status.Services[2].Status != "down" {
+		t.Errorf("redis Status = %v, want 'down'", status.Services[2].Status)
+	}
+
+	// Verify version info
 	if status.Version == nil {
 		t.Error("expected version info")
-	}
-
-	// Verify services
-	foundGateway := false
-	for _, svc := range status.Services {
-		if svc.Name == "gateway" {
-			foundGateway = true
-			if !svc.Healthy {
-				t.Error("gateway should be healthy")
-			}
-			break
-		}
-	}
-	if !foundGateway {
-		t.Error("expected gateway service in mock status")
-	}
-
-	// Verify database
-	if status.Database.Type != "postgresql" {
-		t.Errorf("Database.Type = %v, want postgresql", status.Database.Type)
-	}
-
-	// Verify queues
-	if status.Queues.Type != "redis" {
-		t.Errorf("Queues.Type = %v, want redis", status.Queues.Type)
+	} else if status.Version.Version != "0.1.0" {
+		t.Errorf("Version = %v, want '0.1.0'", status.Version.Version)
 	}
 }
 
