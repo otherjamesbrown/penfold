@@ -195,13 +195,46 @@ func runTenantList(ctx context.Context, deps *TenantCommandDeps) error {
 	// Get current tenant ID (from env or config).
 	currentTenantID := getCurrentTenantID(cfg)
 
-	// Get list of tenants (mock implementation for now).
-	tenants := getMockTenantList(currentTenantID)
+	// Create tenant client and fetch tenants from gRPC service.
+	tenantClient := client.NewTenantClient(cfg.ServerAddress, &client.ClientOptions{
+		Insecure:       cfg.Insecure,
+		Debug:          cfg.Debug,
+		ConnectTimeout: cfg.Timeout,
+	})
+
+	if err := tenantClient.Connect(ctx); err != nil {
+		return fmt.Errorf("connecting to tenant service: %w", err)
+	}
+	defer tenantClient.Close()
+
+	tenantList, totalCount, err := tenantClient.ListTenants(ctx, &client.ListTenantsRequest{
+		Limit: 100,
+	})
+	if err != nil {
+		return fmt.Errorf("listing tenants: %w", err)
+	}
+
+	// Convert to TenantInfo slice.
+	tenants := make([]TenantInfo, len(tenantList))
+	for i, t := range tenantList {
+		status := "inactive"
+		if t.IsActive {
+			status = "active"
+		}
+		tenants[i] = TenantInfo{
+			ID:          t.Slug,
+			Name:        t.Name,
+			Description: t.Description,
+			CreatedAt:   t.CreatedAt,
+			Status:      status,
+			IsCurrent:   t.Slug == currentTenantID,
+		}
+	}
 
 	response := TenantListResponse{
 		Tenants:    tenants,
 		CurrentID:  currentTenantID,
-		TotalCount: len(tenants),
+		TotalCount: int(totalCount),
 		FetchedAt:  time.Now(),
 	}
 
@@ -320,9 +353,36 @@ func runTenantShow(ctx context.Context, deps *TenantCommandDeps, tenantRef strin
 	// Resolve alias to tenant ID if applicable.
 	tenantID := resolveTenantAlias(cfg, tenantRef)
 
-	// Get tenant info (mock implementation for now).
-	info := getMockTenantInfo(tenantID)
-	info.IsCurrent = tenantID == getCurrentTenantID(cfg)
+	// Create tenant client and fetch tenant from gRPC service.
+	tenantClient := client.NewTenantClient(cfg.ServerAddress, &client.ClientOptions{
+		Insecure:       cfg.Insecure,
+		Debug:          cfg.Debug,
+		ConnectTimeout: cfg.Timeout,
+	})
+
+	if err := tenantClient.Connect(ctx); err != nil {
+		return fmt.Errorf("connecting to tenant service: %w", err)
+	}
+	defer tenantClient.Close()
+
+	tenant, err := tenantClient.GetTenant(ctx, 0, tenantID)
+	if err != nil {
+		return fmt.Errorf("getting tenant info: %w", err)
+	}
+
+	status := "inactive"
+	if tenant != nil && tenant.IsActive {
+		status = "active"
+	}
+
+	info := TenantInfo{
+		ID:          tenant.Slug,
+		Name:        tenant.Name,
+		Description: tenant.Description,
+		CreatedAt:   tenant.CreatedAt,
+		Status:      status,
+		IsCurrent:   tenant.Slug == getCurrentTenantID(cfg),
+	}
 
 	return outputTenantDetail(cfg.OutputFormat, info)
 }
@@ -363,77 +423,49 @@ func findTenantAlias(cfg *config.CLIConfig, tenantID string) string {
 }
 
 // validateTenantAccess validates that the user has access to the tenant.
-// STUB: Uses mock validation until tenant service gRPC is connected.
 func validateTenantAccess(ctx context.Context, deps *TenantCommandDeps, tenantID string) error {
-	// Uses mock validation that accepts any tenant ID.
-
-	// Mock validation: reject if tenant ID is empty.
 	if tenantID == "" {
 		return fmt.Errorf("tenant ID cannot be empty")
 	}
 
-	// Mock validation: reject if tenant ID contains invalid characters.
 	if strings.ContainsAny(tenantID, " \t\n") {
 		return fmt.Errorf("tenant ID contains invalid characters")
 	}
 
-	return nil
-}
-
-// getMockTenantList returns mock tenant data for development/testing.
-func getMockTenantList(currentTenantID string) []TenantInfo {
-	tenants := []TenantInfo{
-		{
-			ID:          "tenant-default-001",
-			Name:        "Default Tenant",
-			Description: "Default personal tenant",
-			Status:      "active",
-			Role:        "owner",
-			CreatedAt:   time.Now().AddDate(-1, 0, 0),
-		},
-		{
-			ID:          "tenant-acme-002",
-			Name:        "Acme Corporation",
-			Description: "Work tenant for Acme Corp",
-			Status:      "active",
-			Role:        "admin",
-			CreatedAt:   time.Now().AddDate(0, -6, 0),
-		},
-		{
-			ID:          "tenant-project-003",
-			Name:        "Side Project",
-			Description: "Personal side project",
-			Status:      "active",
-			Role:        "member",
-			CreatedAt:   time.Now().AddDate(0, -1, 0),
-		},
-	}
-
-	// Mark the current tenant.
-	for i := range tenants {
-		tenants[i].IsCurrent = tenants[i].ID == currentTenantID
-	}
-
-	return tenants
-}
-
-// getMockTenantInfo returns mock tenant info for development/testing.
-func getMockTenantInfo(tenantID string) TenantInfo {
-	// Check against mock tenants.
-	mockTenants := getMockTenantList("")
-	for _, t := range mockTenants {
-		if t.ID == tenantID {
-			return t
+	cfg := deps.Config
+	if cfg == nil {
+		var err error
+		cfg, err = deps.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("loading configuration: %w", err)
 		}
 	}
 
-	// Return unknown tenant info.
-	return TenantInfo{
-		ID:     tenantID,
-		Name:   tenantID,
-		Status: "unknown",
-		Role:   "unknown",
+	// Create tenant client and validate tenant via gRPC service.
+	tenantClient := client.NewTenantClient(cfg.ServerAddress, &client.ClientOptions{
+		Insecure:       cfg.Insecure,
+		Debug:          cfg.Debug,
+		ConnectTimeout: cfg.Timeout,
+	})
+
+	if err := tenantClient.Connect(ctx); err != nil {
+		return fmt.Errorf("connecting to tenant service: %w", err)
 	}
+	defer tenantClient.Close()
+
+	_, valid, errMsg, err := tenantClient.SetCurrentTenant(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("validating tenant: %w", err)
+	}
+
+	if !valid {
+		if errMsg != "" {
+			return fmt.Errorf("tenant validation failed: %s", errMsg)
+		}
+		return fmt.Errorf("tenant %q is not accessible", tenantID)
+	}
+
+	return nil
 }
 
 // outputTenantList outputs the tenant list in the configured format.

@@ -411,16 +411,21 @@ Example:
 // newReviewUndoCommand creates the 'review undo' subcommand.
 func newReviewUndoCommand(deps *ReviewCommandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "undo",
-		Short: "Undo the last review action",
-		Long: `Undo the last review action.
+		Use:   "undo [item-id]",
+		Short: "Undo the last review action on an item",
+		Long: `Undo the last review action on a specific item.
 
 Restores the item to its previous state before the last accept/reject/defer.
 
 Example:
-  penf review undo`,
+  penf review undo item-123`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runReviewUndo(cmd.Context(), deps)
+			var itemID string
+			if len(args) > 0 {
+				itemID = args[0]
+			}
+			return runReviewUndo(cmd.Context(), deps, itemID)
 		},
 	}
 }
@@ -924,22 +929,47 @@ func runReviewShow(ctx context.Context, deps *ReviewCommandDeps, itemID string) 
 }
 
 // runReviewUndo executes the review undo command.
-func runReviewUndo(ctx context.Context, deps *ReviewCommandDeps) error {
+func runReviewUndo(ctx context.Context, deps *ReviewCommandDeps, itemID string) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	action := getMockLastAction()
-	if action == nil {
-		fmt.Println("Nothing to undo.")
+	if itemID == "" {
+		fmt.Println("Please specify an item ID to undo.")
+		fmt.Println("Usage: penf review undo <item-id>")
 		return nil
 	}
 
-	fmt.Printf("Undone: %s on item %s\n", action.Action, action.ItemID)
-	fmt.Printf("  Status reverted from %s to %s\n", action.NewStatus, action.OldStatus)
+	conn, err := connectToReviewGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := reviewv1.NewReviewServiceClient(conn)
+
+	resp, err := client.UndoAction(ctx, &reviewv1.UndoActionRequest{
+		Id: itemID,
+	})
+	if err != nil {
+		return fmt.Errorf("undoing action: %w", err)
+	}
+
+	if resp.UndoneAction == nil {
+		fmt.Println("Nothing to undo for this item.")
+		return nil
+	}
+
+	fmt.Printf("Undone: %s on item %s\n", resp.UndoneAction.ActionType.String(), itemID)
+	fmt.Printf("  Status reverted from %s to %s\n",
+		resp.UndoneAction.NewStatus.String(),
+		resp.UndoneAction.PreviousStatus.String())
+
+	if resp.CanUndoMore {
+		fmt.Println("  (More actions available to undo)")
+	}
 
 	return nil
 }
@@ -952,15 +982,11 @@ func runReviewRedo(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	action := getMockLastUndoneAction()
-	if action == nil {
-		fmt.Println("Nothing to redo.")
-		return nil
-	}
-
-	fmt.Printf("Redone: %s on item %s\n", action.Action, action.ItemID)
-	fmt.Printf("  Status changed from %s to %s\n", action.OldStatus, action.NewStatus)
+	// TODO: No redo RPC exists in the review service yet.
+	// The backend would need to track undone actions and provide a RedoAction RPC.
+	// For now, inform the user that redo is not yet implemented.
+	fmt.Println("Redo functionality is not yet implemented in the review service.")
+	fmt.Println("To re-apply an action, use the original command (accept/reject/defer) again.")
 
 	return nil
 }
@@ -1030,8 +1056,10 @@ func runReviewAutoStatus(ctx context.Context, deps *ReviewCommandDeps) error {
 		}
 	}
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	rules := getMockAutoRules()
+	// TODO: No automation rules backend exists yet.
+	// When implemented, this should call a ListAutoRules RPC.
+	// For now, return an empty list.
+	var rules []ReviewAutoRule
 
 	return outputReviewAutoRules(outputFormat, rules)
 }
@@ -1044,15 +1072,11 @@ func runReviewAutoEnable(ctx context.Context, deps *ReviewCommandDeps, ruleName 
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	rule := getMockAutoRule(ruleName)
-	if rule == nil {
-		return fmt.Errorf("automation rule not found: %s", ruleName)
-	}
-	rule.Enabled = true
-
-	fmt.Printf("Automation rule enabled: %s\n", rule.Name)
-	fmt.Printf("  %s\n", rule.Description)
+	// TODO: No automation rules backend exists yet.
+	// When implemented, this should call an EnableAutoRule RPC.
+	_ = ruleName // Suppress unused variable warning
+	fmt.Println("Automation rules are not yet implemented in the review service.")
+	fmt.Println("This feature will be available in a future release.")
 
 	return nil
 }
@@ -1065,14 +1089,11 @@ func runReviewAutoDisable(ctx context.Context, deps *ReviewCommandDeps, ruleName
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	rule := getMockAutoRule(ruleName)
-	if rule == nil {
-		return fmt.Errorf("automation rule not found: %s", ruleName)
-	}
-	rule.Enabled = false
-
-	fmt.Printf("Automation rule disabled: %s\n", rule.Name)
+	// TODO: No automation rules backend exists yet.
+	// When implemented, this should call a DisableAutoRule RPC.
+	_ = ruleName // Suppress unused variable warning
+	fmt.Println("Automation rules are not yet implemented in the review service.")
+	fmt.Println("This feature will be available in a future release.")
 
 	return nil
 }
@@ -1169,213 +1190,6 @@ func protoItemToLocal(item *reviewv1.ReviewItem) ReviewItem {
 	}
 
 	return result
-}
-
-// Mock data functions for development/testing.
-
-// getMockSession returns mock session data.
-func getMockSession() *ReviewSession {
-	started := time.Now().Add(-30 * time.Minute)
-	return &ReviewSession{
-		ID:            "session-001",
-		Status:        ReviewSessionStatusActive,
-		StartedAt:     started,
-		TotalReviewed: 15,
-		Accepted:      8,
-		Rejected:      4,
-		Deferred:      3,
-	}
-}
-
-// getMockReviewQueue returns mock review queue items.
-func getMockReviewQueue(priority ReviewPriority) []ReviewItem {
-	items := []ReviewItem{
-		{
-			ID:          "item-001",
-			Title:       "Q4 Budget Planning Email Thread",
-			ContentType: "email",
-			Source:      "gmail",
-			Priority:    ReviewPriorityHigh,
-			Status:      ReviewItemStatusPending,
-			Summary:     "Discussion about Q4 budget allocation and priorities",
-			CreatedAt:   time.Now().Add(-2 * time.Hour),
-		},
-		{
-			ID:          "item-002",
-			Title:       "Team Standup Notes - Jan 15",
-			ContentType: "meeting",
-			Source:      "calendar",
-			Priority:    ReviewPriorityMedium,
-			Status:      ReviewItemStatusPending,
-			Summary:     "Daily standup notes with action items",
-			CreatedAt:   time.Now().Add(-5 * time.Hour),
-		},
-		{
-			ID:          "item-003",
-			Title:       "Technical Design Review: API Gateway",
-			ContentType: "document",
-			Source:      "drive",
-			Priority:    ReviewPriorityHigh,
-			Status:      ReviewItemStatusPending,
-			Summary:     "Design document for new API gateway architecture",
-			CreatedAt:   time.Now().Add(-24 * time.Hour),
-		},
-		{
-			ID:          "item-004",
-			Title:       "Slack: #engineering - deployment discussion",
-			ContentType: "chat",
-			Source:      "slack",
-			Priority:    ReviewPriorityLow,
-			Status:      ReviewItemStatusPending,
-			Summary:     "Thread about deployment process improvements",
-			CreatedAt:   time.Now().Add(-3 * time.Hour),
-		},
-		{
-			ID:          "item-005",
-			Title:       "Customer Feedback Analysis",
-			ContentType: "document",
-			Source:      "drive",
-			Priority:    ReviewPriorityMedium,
-			Status:      ReviewItemStatusPending,
-			Summary:     "Analysis of recent customer feedback survey",
-			CreatedAt:   time.Now().Add(-48 * time.Hour),
-		},
-	}
-
-	// Filter by priority if specified.
-	if priority != "" {
-		var filtered []ReviewItem
-		for _, item := range items {
-			if item.Priority == priority {
-				filtered = append(filtered, item)
-			}
-		}
-		return filtered
-	}
-
-	return items
-}
-
-// getMockReviewItem returns a mock review item by ID.
-func getMockReviewItem(itemID string) *ReviewItem {
-	items := getMockReviewQueue("")
-	for _, item := range items {
-		if item.ID == itemID {
-			return &item
-		}
-	}
-
-	// Return a generic item if not found.
-	return &ReviewItem{
-		ID:          itemID,
-		Title:       "Unknown Item",
-		ContentType: "unknown",
-		Source:      "unknown",
-		Priority:    ReviewPriorityMedium,
-		Status:      ReviewItemStatusPending,
-		CreatedAt:   time.Now(),
-	}
-}
-
-// getMockLastAction returns the last review action (mock).
-func getMockLastAction() *ReviewAction {
-	return &ReviewAction{
-		ID:        "action-001",
-		ItemID:    "item-001",
-		Action:    "accept",
-		OldStatus: ReviewItemStatusPending,
-		NewStatus: ReviewItemStatusAccepted,
-		Timestamp: time.Now().Add(-5 * time.Minute),
-		Undone:    false,
-	}
-}
-
-// getMockLastUndoneAction returns the last undone action (mock).
-func getMockLastUndoneAction() *ReviewAction {
-	return &ReviewAction{
-		ID:        "action-001",
-		ItemID:    "item-001",
-		Action:    "accept",
-		OldStatus: ReviewItemStatusPending,
-		NewStatus: ReviewItemStatusAccepted,
-		Timestamp: time.Now().Add(-5 * time.Minute),
-		Undone:    true,
-	}
-}
-
-// getMockActionHistory returns mock action history.
-func getMockActionHistory() []ReviewAction {
-	return []ReviewAction{
-		{
-			ID:        "action-003",
-			ItemID:    "item-003",
-			Action:    "defer",
-			OldStatus: ReviewItemStatusPending,
-			NewStatus: ReviewItemStatusDeferred,
-			Timestamp: time.Now().Add(-2 * time.Minute),
-			Undone:    false,
-		},
-		{
-			ID:        "action-002",
-			ItemID:    "item-002",
-			Action:    "reject",
-			OldStatus: ReviewItemStatusPending,
-			NewStatus: ReviewItemStatusRejected,
-			Reason:    "Duplicate content",
-			Timestamp: time.Now().Add(-5 * time.Minute),
-			Undone:    false,
-		},
-		{
-			ID:        "action-001",
-			ItemID:    "item-001",
-			Action:    "accept",
-			OldStatus: ReviewItemStatusPending,
-			NewStatus: ReviewItemStatusAccepted,
-			Timestamp: time.Now().Add(-10 * time.Minute),
-			Undone:    false,
-		},
-	}
-}
-
-// getMockAutoRules returns mock automation rules.
-func getMockAutoRules() []ReviewAutoRule {
-	return []ReviewAutoRule{
-		{
-			ID:          "rule-001",
-			Name:        "auto-accept-known",
-			Description: "Automatically accept items from known trusted sources",
-			Enabled:     true,
-			Criteria:    "source in [trusted-contacts]",
-			Action:      "accept",
-		},
-		{
-			ID:          "rule-002",
-			Name:        "auto-archive-spam",
-			Description: "Automatically reject items detected as spam",
-			Enabled:     true,
-			Criteria:    "spam_score > 0.8",
-			Action:      "reject",
-		},
-		{
-			ID:          "rule-003",
-			Name:        "auto-defer-low-priority",
-			Description: "Defer low priority items to weekly review",
-			Enabled:     false,
-			Criteria:    "priority == low",
-			Action:      "defer",
-		},
-	}
-}
-
-// getMockAutoRule returns a mock automation rule by name.
-func getMockAutoRule(name string) *ReviewAutoRule {
-	rules := getMockAutoRules()
-	for _, rule := range rules {
-		if rule.Name == name || rule.ID == name {
-			return &rule
-		}
-	}
-	return nil
 }
 
 // Output formatting functions.

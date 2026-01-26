@@ -512,8 +512,20 @@ func runIngestFile(ctx context.Context, deps *IngestCommandDeps, filePath string
 		return fmt.Errorf("invalid priority: %s (must be low, normal, or high)", ingestPriority)
 	}
 
-	// Create job (mock for now).
-	job := createMockIngestJob("file", filePath)
+	// Determine tenant ID.
+	tenantID := ingestTenantID
+	if tenantID == "" {
+		tenantID = cfg.TenantID
+	}
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
+	// Create job via gRPC.
+	job, err := createIngestJobViaGRPC(ctx, deps, cfg, tenantID, "file", filePath)
+	if err != nil {
+		return fmt.Errorf("creating ingest job: %w", err)
+	}
 
 	if ingestAsync {
 		fmt.Printf("Ingestion job queued: %s\n", job.ID)
@@ -551,8 +563,20 @@ func runIngestURL(ctx context.Context, deps *IngestCommandDeps, url string) erro
 		return fmt.Errorf("invalid priority: %s (must be low, normal, or high)", ingestPriority)
 	}
 
-	// Create job (mock for now).
-	job := createMockIngestJob("url", url)
+	// Determine tenant ID.
+	tenantID := ingestTenantID
+	if tenantID == "" {
+		tenantID = cfg.TenantID
+	}
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
+	// Create job via gRPC.
+	job, err := createIngestJobViaGRPC(ctx, deps, cfg, tenantID, "url", url)
+	if err != nil {
+		return fmt.Errorf("creating ingest job: %w", err)
+	}
 
 	if ingestAsync {
 		fmt.Printf("Ingestion job queued: %s\n", job.ID)
@@ -594,9 +618,21 @@ func runIngestBatch(ctx context.Context, deps *IngestCommandDeps, manifestPath s
 		return fmt.Errorf("invalid priority: %s (must be low, normal, or high)", ingestPriority)
 	}
 
-	// Create job (mock for now).
-	job := createMockIngestJob("batch", manifestPath)
-	job.ItemsTotal = 5 // Mock batch size.
+	// Determine tenant ID.
+	tenantID := ingestTenantID
+	if tenantID == "" {
+		tenantID = cfg.TenantID
+	}
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
+	// Create job via gRPC.
+	job, err := createIngestJobViaGRPC(ctx, deps, cfg, tenantID, "batch", manifestPath)
+	if err != nil {
+		return fmt.Errorf("creating ingest job: %w", err)
+	}
+	job.ItemsTotal = 5 // TODO: Parse manifest to get actual item count.
 
 	// Dry-run mode: validate manifest and preview.
 	if ingestDryRun {
@@ -701,8 +737,34 @@ func runIngestGmailStatus(ctx context.Context, deps *IngestCommandDeps) error {
 	// Determine output format.
 	format := getIngestOutputFormat(cfg)
 
-	// Mock status.
-	status := getMockGmailStatus()
+	// Determine tenant ID.
+	tenantID := ingestTenantID
+	if tenantID == "" {
+		tenantID = cfg.TenantID
+	}
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
+	// TODO: GetGmailSyncStatus requires a syncID parameter, but the CLI status command
+	// should show the current/overall status without needing a specific sync ID.
+	// Need to add a GetCurrentGmailStatus or ListGmailSyncs endpoint to the GmailConnectorService.
+	// For now, return default empty status indicating no active sync.
+	status := GmailSyncStatus{
+		Connected:   false,
+		SyncState:   "unknown",
+		TotalEmails: 0,
+		Error:       "Gmail status service not yet implemented - requires GetCurrentGmailStatus endpoint",
+	}
+
+	// Try to connect and get status if possible.
+	grpcClient, err := deps.InitClient(cfg)
+	if err == nil {
+		defer grpcClient.Close()
+		// TODO: When GetCurrentGmailStatus is available, use it here.
+		// For now, just indicate we connected but have no status endpoint.
+		status.SyncState = "service connected, status endpoint not available"
+	}
 
 	return outputGmailStatus(format, status)
 }
@@ -718,8 +780,13 @@ func runIngestGmailHistory(ctx context.Context, deps *IngestCommandDeps, limit i
 	// Determine output format.
 	format := getIngestOutputFormat(cfg)
 
-	// Mock history.
-	history := getMockGmailHistory(limit)
+	// TODO: GmailConnectorService does not have a ListSyncHistory endpoint yet.
+	// Need to add ListGmailSyncHistory RPC to return past sync operations.
+	// For now, return empty history with a message.
+	_ = limit // Will be used when ListGmailSyncHistory is available.
+	history := []GmailSyncHistoryEntry{}
+
+	fmt.Fprintln(os.Stderr, "Warning: Gmail sync history service not yet implemented")
 
 	return outputGmailHistory(format, history)
 }
@@ -754,10 +821,7 @@ func runIngestStatus(ctx context.Context, deps *IngestCommandDeps, jobID string)
 
 		ingestJob, err := grpcClient.GetIngestJob(ctx, tenantID, jobID)
 		if err != nil {
-			// Fall back to mock if service returns error (e.g., not found).
-			fmt.Fprintf(os.Stderr, "Warning: Could not retrieve job (%v), showing mock data\n\n", err)
-			job := getMockIngestJob(jobID)
-			return outputIngestJob(format, job)
+			return fmt.Errorf("retrieving job %s: %w", jobID, err)
 		}
 
 		// Convert proto job to CLI job type.
@@ -765,8 +829,20 @@ func runIngestStatus(ctx context.Context, deps *IngestCommandDeps, jobID string)
 		return outputIngestJob(format, job)
 	}
 
-	// Show overall status (aggregate - still uses mock as there's no aggregate endpoint).
-	status := getMockIngestStatus()
+	// TODO: IngestService does not have a GetIngestStatus or ListIngestJobs endpoint yet.
+	// Need to add aggregate status RPC to return overall ingestion statistics.
+	// For now, return empty status with zeros.
+	fmt.Fprintln(os.Stderr, "Warning: Aggregate ingest status service not yet implemented")
+	status := IngestStatusResponse{
+		TotalJobs:      0,
+		PendingJobs:    0,
+		ProcessingJobs: 0,
+		CompletedJobs:  0,
+		FailedJobs:     0,
+		ProcessingRate: 0,
+		LastUpdated:    time.Now(),
+		RecentJobs:     []IngestJob{},
+	}
 	return outputIngestStatus(format, status)
 }
 
@@ -781,8 +857,11 @@ func runIngestQueue(ctx context.Context, deps *IngestCommandDeps) error {
 	// Determine output format.
 	format := getIngestOutputFormat(cfg)
 
-	// Mock queue.
-	jobs := getMockIngestQueue()
+	// TODO: IngestService does not have a ListPendingJobs endpoint yet.
+	// Need to add ListIngestJobs RPC with status filter to return pending jobs.
+	// For now, return empty queue.
+	fmt.Fprintln(os.Stderr, "Warning: Ingest queue service not yet implemented")
+	jobs := []IngestJob{}
 
 	return outputIngestQueue(format, jobs)
 }
@@ -798,8 +877,19 @@ func runIngestConfigShow(ctx context.Context, deps *IngestCommandDeps) error {
 	// Determine output format.
 	format := getIngestOutputFormat(cfg)
 
-	// Mock config.
-	ingestCfg := getMockIngestConfig()
+	// TODO: There is no IngestConfigService yet.
+	// Need to add GetIngestConfig RPC to retrieve server-side ingestion settings.
+	// For now, return default configuration values.
+	fmt.Fprintln(os.Stderr, "Warning: Ingest config service not yet implemented - showing defaults")
+	ingestCfg := IngestConfig{
+		AutoSync:        false,
+		SyncInterval:    "30m",
+		BatchSize:       50,
+		MaxRetries:      3,
+		DefaultPriority: "normal",
+		DefaultCategory: "",
+		ExcludePatterns: []string{},
+	}
 
 	return outputIngestConfig(format, ingestCfg)
 }
@@ -911,21 +1001,64 @@ func convertProtoToIngestJob(pj *ingestv1.IngestJob) IngestJob {
 	return job
 }
 
-// createMockIngestJob creates a mock ingestion job.
-func createMockIngestJob(jobType, source string) IngestJob {
-	now := time.Now()
-	return IngestJob{
-		ID:        fmt.Sprintf("ingest-%s-%d", jobType, now.UnixNano()%10000),
-		Type:      jobType,
-		Source:    source,
-		Status:    IngestJobStatusPending,
-		Priority:  ingestPriority,
-		Progress:  0,
-		CreatedAt: now,
-		Tags:      ingestTags,
-		Category:  ingestCategory,
-		TenantID:  ingestTenantID,
+// createIngestJobViaGRPC creates an ingest job using the gRPC IngestService.
+func createIngestJobViaGRPC(ctx context.Context, deps *IngestCommandDeps, cfg *config.CLIConfig, tenantID, jobType, source string) (IngestJob, error) {
+	grpcClient, err := deps.InitClient(cfg)
+	if err != nil {
+		return IngestJob{}, fmt.Errorf("connecting to gateway: %w", err)
 	}
+	defer grpcClient.Close()
+
+	// Map job type to platform.
+	platform := ingestv1.Platform_PLATFORM_LOCAL
+	switch jobType {
+	case "file":
+		platform = ingestv1.Platform_PLATFORM_LOCAL
+	case "url":
+		platform = ingestv1.Platform_PLATFORM_LOCAL // URLs are treated as local ingestion
+	case "batch":
+		platform = ingestv1.Platform_PLATFORM_LOCAL
+	case "gmail":
+		platform = ingestv1.Platform_PLATFORM_GMAIL
+	}
+
+	// Build metadata from tags and category.
+	metadata := make(map[string]string)
+	if len(ingestTags) > 0 {
+		metadata["tags"] = strings.Join(ingestTags, ",")
+	}
+	if ingestCategory != "" {
+		metadata["category"] = ingestCategory
+	}
+	if ingestPriority != "" {
+		metadata["priority"] = ingestPriority
+	}
+
+	req := &ingestv1.CreateIngestJobRequest{
+		TenantId:   tenantID,
+		Name:       fmt.Sprintf("%s ingestion: %s", jobType, source),
+		Platform:   platform,
+		TotalFiles: 1, // Single file/URL; batch will update this.
+		SourcePath: source,
+		Metadata:   metadata,
+	}
+
+	protoJob, err := grpcClient.CreateIngestJob(ctx, req)
+	if err != nil {
+		return IngestJob{}, fmt.Errorf("CreateIngestJob RPC: %w", err)
+	}
+
+	// Convert proto response to CLI job type.
+	job := convertProtoToIngestJob(protoJob)
+
+	// Augment with CLI-specific fields not in proto.
+	job.Type = jobType
+	job.Priority = ingestPriority
+	job.Tags = ingestTags
+	job.Category = ingestCategory
+	job.TenantID = tenantID
+
+	return job, nil
 }
 
 // simulateIngestProgress simulates ingestion progress for synchronous operations.
@@ -960,165 +1093,6 @@ func simulateIngestProgress(job IngestJob, format config.OutputFormat) IngestJob
 	job.Status = IngestJobStatusCompleted
 
 	return job
-}
-
-// getMockIngestJob returns mock job data for a specific job ID.
-func getMockIngestJob(jobID string) IngestJob {
-	now := time.Now()
-	startedAt := now.Add(-30 * time.Second)
-	return IngestJob{
-		ID:        jobID,
-		Type:      "file",
-		Source:    "/path/to/document.pdf",
-		Status:    IngestJobStatusProcessing,
-		Priority:  "normal",
-		Progress:  65,
-		Message:   "Generating embeddings...",
-		CreatedAt: now.Add(-1 * time.Minute),
-		StartedAt: &startedAt,
-		Tags:      []string{"documents"},
-	}
-}
-
-// getMockIngestStatus returns mock overall ingestion status.
-func getMockIngestStatus() IngestStatusResponse {
-	return IngestStatusResponse{
-		TotalJobs:      152,
-		PendingJobs:    3,
-		ProcessingJobs: 2,
-		CompletedJobs:  145,
-		FailedJobs:     2,
-		ProcessingRate: 12.5,
-		LastUpdated:    time.Now(),
-		RecentJobs: []IngestJob{
-			{
-				ID:        "ingest-001",
-				Type:      "file",
-				Source:    "/docs/report.pdf",
-				Status:    IngestJobStatusCompleted,
-				Priority:  "normal",
-				Progress:  100,
-				CreatedAt: time.Now().Add(-5 * time.Minute),
-			},
-			{
-				ID:        "ingest-002",
-				Type:      "url",
-				Source:    "https://example.com/article",
-				Status:    IngestJobStatusProcessing,
-				Priority:  "high",
-				Progress:  45,
-				CreatedAt: time.Now().Add(-2 * time.Minute),
-			},
-			{
-				ID:        "ingest-003",
-				Type:      "gmail",
-				Source:    "Gmail sync",
-				Status:    IngestJobStatusPending,
-				Priority:  "normal",
-				Progress:  0,
-				CreatedAt: time.Now().Add(-1 * time.Minute),
-			},
-		},
-	}
-}
-
-// getMockIngestQueue returns mock pending jobs.
-func getMockIngestQueue() []IngestJob {
-	return []IngestJob{
-		{
-			ID:        "ingest-q1",
-			Type:      "batch",
-			Source:    "manifest.yaml",
-			Status:    IngestJobStatusPending,
-			Priority:  "high",
-			ItemsTotal: 15,
-			CreatedAt: time.Now().Add(-10 * time.Second),
-		},
-		{
-			ID:        "ingest-q2",
-			Type:      "file",
-			Source:    "/docs/design.docx",
-			Status:    IngestJobStatusPending,
-			Priority:  "normal",
-			CreatedAt: time.Now().Add(-30 * time.Second),
-		},
-		{
-			ID:        "ingest-q3",
-			Type:      "url",
-			Source:    "https://docs.example.com/guide",
-			Status:    IngestJobStatusPending,
-			Priority:  "low",
-			CreatedAt: time.Now().Add(-1 * time.Minute),
-		},
-	}
-}
-
-// getMockGmailStatus returns mock Gmail sync status.
-func getMockGmailStatus() GmailSyncStatus {
-	return GmailSyncStatus{
-		Connected:    true,
-		LastSyncAt:   time.Now().Add(-15 * time.Minute),
-		NextSyncAt:   time.Now().Add(15 * time.Minute),
-		TotalEmails:  5420,
-		SyncedEmails: 5420,
-		SyncState:    "idle",
-	}
-}
-
-// getMockGmailHistory returns mock Gmail sync history.
-func getMockGmailHistory(limit int) []GmailSyncHistoryEntry {
-	history := []GmailSyncHistoryEntry{
-		{
-			ID:          "sync-001",
-			StartedAt:   time.Now().Add(-15 * time.Minute),
-			CompletedAt: time.Now().Add(-14 * time.Minute),
-			EmailsAdded: 12,
-			EmailsUpdated: 3,
-			Status:      "completed",
-		},
-		{
-			ID:          "sync-002",
-			StartedAt:   time.Now().Add(-1 * time.Hour),
-			CompletedAt: time.Now().Add(-59 * time.Minute),
-			EmailsAdded: 8,
-			EmailsUpdated: 1,
-			Status:      "completed",
-		},
-		{
-			ID:          "sync-003",
-			StartedAt:   time.Now().Add(-2 * time.Hour),
-			CompletedAt: time.Now().Add(-119 * time.Minute),
-			EmailsAdded: 0,
-			EmailsUpdated: 0,
-			Status:      "completed",
-		},
-		{
-			ID:          "sync-004",
-			StartedAt:   time.Now().Add(-3 * time.Hour),
-			CompletedAt: time.Now().Add(-179 * time.Minute),
-			EmailsAdded: 25,
-			EmailsUpdated: 5,
-			Status:      "completed",
-		},
-	}
-
-	if limit > 0 && limit < len(history) {
-		return history[:limit]
-	}
-	return history
-}
-
-// getMockIngestConfig returns mock ingestion configuration.
-func getMockIngestConfig() IngestConfig {
-	return IngestConfig{
-		AutoSync:        true,
-		SyncInterval:    "30m",
-		BatchSize:       50,
-		MaxRetries:      3,
-		DefaultPriority: "normal",
-		DefaultCategory: "",
-		ExcludePatterns: []string{"*.tmp", "*.bak", ".DS_Store"},
-	}
 }
 
 // Output functions.

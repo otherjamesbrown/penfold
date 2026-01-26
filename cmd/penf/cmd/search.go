@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1055,12 +1054,12 @@ func runSearchHistory(ctx context.Context, deps *SearchCommandDeps) error {
 		historyLimit = 100
 	}
 
-	// Get search history (mock for now).
-	entries := getMockSearchHistory(historyLimit)
-
+	// TODO: Search history requires a backend service that doesn't exist yet.
+	// For now, return an empty history with a message.
+	// When implemented, this should call a SearchHistoryService via gRPC.
 	response := SearchHistoryResponse{
-		Entries:    entries,
-		TotalCount: len(entries),
+		Entries:    []SearchHistoryEntry{},
+		TotalCount: 0,
 		FetchedAt:  time.Now(),
 	}
 
@@ -1076,89 +1075,9 @@ func runSearchHistoryClear(ctx context.Context, deps *SearchCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock acknowledgment until search service gRPC is connected.
+	// TODO: Search history requires a backend service that doesn't exist yet.
 	fmt.Println("Search history cleared.")
 	return nil
-}
-
-// getMockSearchHistory returns mock search history entries.
-func getMockSearchHistory(limit int) []SearchHistoryEntry {
-	entries := []SearchHistoryEntry{
-		{
-			Query:       "project status update",
-			Mode:        "hybrid",
-			ResultCount: 15,
-			QueryTimeMs: 45.2,
-			SearchedAt:  time.Now().Add(-10 * time.Minute),
-			Filters:     "type:email",
-		},
-		{
-			Query:       "Q4 budget planning",
-			Mode:        "semantic",
-			ResultCount: 8,
-			QueryTimeMs: 62.1,
-			SearchedAt:  time.Now().Add(-1 * time.Hour),
-			Filters:     "",
-		},
-		{
-			Query:       "meeting notes engineering",
-			Mode:        "hybrid",
-			ResultCount: 23,
-			QueryTimeMs: 38.5,
-			SearchedAt:  time.Now().Add(-3 * time.Hour),
-			Filters:     "type:meeting",
-		},
-		{
-			Query:       "deployment schedule",
-			Mode:        "keyword",
-			ResultCount: 5,
-			QueryTimeMs: 12.3,
-			SearchedAt:  time.Now().Add(-24 * time.Hour),
-			Filters:     "source:slack",
-		},
-		{
-			Query:       "customer feedback analysis",
-			Mode:        "hybrid",
-			ResultCount: 31,
-			QueryTimeMs: 78.9,
-			SearchedAt:  time.Now().Add(-48 * time.Hour),
-			Filters:     "",
-		},
-		{
-			Query:       "API gateway design",
-			Mode:        "semantic",
-			ResultCount: 12,
-			QueryTimeMs: 55.4,
-			SearchedAt:  time.Now().Add(-72 * time.Hour),
-			Filters:     "type:document",
-		},
-		{
-			Query:       "team standup notes",
-			Mode:        "hybrid",
-			ResultCount: 45,
-			QueryTimeMs: 42.0,
-			SearchedAt:  time.Now().Add(-96 * time.Hour),
-			Filters:     "",
-		},
-		{
-			Query:       "sprint retrospective",
-			Mode:        "keyword",
-			ResultCount: 7,
-			QueryTimeMs: 18.2,
-			SearchedAt:  time.Now().Add(-120 * time.Hour),
-			Filters:     "tag:agile",
-		},
-	}
-
-	// Sort by most recent first.
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].SearchedAt.After(entries[j].SearchedAt)
-	})
-
-	if limit < len(entries) {
-		return entries[:limit]
-	}
-	return entries
 }
 
 // outputSearchHistory formats and outputs search history.

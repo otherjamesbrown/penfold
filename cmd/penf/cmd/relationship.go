@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -558,8 +557,35 @@ func runRelationshipList(ctx context.Context, deps *RelationshipCommandDeps) err
 		cfg.TenantID = relationshipTenant
 	}
 
-	// Get relationships (mock for now).
-	relationships := getMockRelationships(relationshipLimit, relationshipConfidenceMin, relationshipType)
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Build request.
+	req := &client.ListRelationshipsRequest{
+		TenantID:      cfg.TenantID,
+		PageSize:      int32(relationshipLimit),
+		MinConfidence: float32(relationshipConfidenceMin),
+	}
+
+	if relationshipType != "" {
+		req.RelationshipType = stringToRelType(relationshipType)
+	}
+
+	// Get relationships via gRPC.
+	rels, _, err := relClient.ListRelationships(ctx, req)
+	if err != nil {
+		return fmt.Errorf("listing relationships: %w", err)
+	}
+
+	// Convert to local types for output.
+	relationships := make([]Relationship, len(rels))
+	for i, r := range rels {
+		relationships[i] = clientRelToLocal(r)
+	}
 
 	// Determine output format.
 	format := cfg.OutputFormat
@@ -578,18 +604,32 @@ func runRelationshipShow(ctx context.Context, deps *RelationshipCommandDeps, rel
 	}
 	deps.Config = cfg
 
-	// Get relationship details (mock for now).
-	relationship := getMockRelationshipByID(relationshipID)
-	if relationship == nil {
-		return fmt.Errorf("relationship not found: %s", relationshipID)
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
 	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Get relationship details via gRPC.
+	rel, err := relClient.GetRelationship(ctx, cfg.TenantID, relationshipID)
+	if err != nil {
+		return fmt.Errorf("getting relationship: %w", err)
+	}
+
+	relationship := clientRelToLocal(rel)
 
 	format := cfg.OutputFormat
 	if relationshipOutput != "" {
 		format = config.OutputFormat(relationshipOutput)
 	}
 
-	return outputRelationshipDetail(format, *relationship)
+	return outputRelationshipDetail(format, relationship)
 }
 
 // runRelationshipSearch executes the relationship search command.
@@ -600,8 +640,29 @@ func runRelationshipSearch(ctx context.Context, deps *RelationshipCommandDeps, q
 	}
 	deps.Config = cfg
 
-	// Search relationships (mock for now).
-	relationships := searchMockRelationships(query, relationshipLimit, relationshipConfidenceMin)
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Search relationships via gRPC.
+	rels, err := relClient.SearchRelationships(ctx, cfg.TenantID, query, int32(relationshipLimit))
+	if err != nil {
+		return fmt.Errorf("searching relationships: %w", err)
+	}
+
+	// Convert to local types for output.
+	relationships := make([]Relationship, len(rels))
+	for i, r := range rels {
+		relationships[i] = clientRelToLocal(r)
+	}
 
 	format := cfg.OutputFormat
 	if relationshipOutput != "" {
@@ -619,8 +680,40 @@ func runEntityList(ctx context.Context, deps *RelationshipCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// Get entities (mock for now).
-	entities := getMockEntities(relationshipLimit, relationshipConfidenceMin, relationshipEntityType)
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Build request.
+	req := &client.ListEntitiesRequest{
+		TenantID:      cfg.TenantID,
+		PageSize:      int32(relationshipLimit),
+		MinConfidence: float32(relationshipConfidenceMin),
+	}
+
+	if relationshipEntityType != "" {
+		req.EntityType = stringToEntityType(relationshipEntityType)
+	}
+
+	// Get entities via gRPC.
+	ents, _, err := relClient.ListEntities(ctx, req)
+	if err != nil {
+		return fmt.Errorf("listing entities: %w", err)
+	}
+
+	// Convert to local types for output.
+	entities := make([]Entity, len(ents))
+	for i, e := range ents {
+		entities[i] = clientEntityToLocal(e)
+	}
 
 	format := cfg.OutputFormat
 	if relationshipOutput != "" {
@@ -638,18 +731,32 @@ func runEntityShow(ctx context.Context, deps *RelationshipCommandDeps, entityID 
 	}
 	deps.Config = cfg
 
-	// Get entity details (mock for now).
-	entity := getMockEntityByID(entityID)
-	if entity == nil {
-		return fmt.Errorf("entity not found: %s", entityID)
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
 	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Get entity details via gRPC.
+	ent, err := relClient.GetEntity(ctx, cfg.TenantID, entityID)
+	if err != nil {
+		return fmt.Errorf("getting entity: %w", err)
+	}
+
+	entity := clientEntityToLocal(ent)
 
 	format := cfg.OutputFormat
 	if relationshipOutput != "" {
 		format = config.OutputFormat(relationshipOutput)
 	}
 
-	return outputEntityDetail(format, *entity)
+	return outputEntityDetail(format, entity)
 }
 
 // runEntityMerge executes the entity merge command.
@@ -660,12 +767,30 @@ func runEntityMerge(ctx context.Context, deps *RelationshipCommandDeps, entityID
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock acknowledgment until relationship service gRPC is connected.
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
 	fmt.Printf("Merging entity %s into %s...\n", entityID2, entityID1)
+
+	// Merge entities via gRPC.
+	_, transferred, err := relClient.MergeEntities(ctx, cfg.TenantID, entityID1, entityID2)
+	if err != nil {
+		return fmt.Errorf("merging entities: %w", err)
+	}
+
 	fmt.Printf("\n\033[32mSuccess!\033[0m Entities merged.\n")
 	fmt.Printf("  Primary entity: %s\n", entityID1)
 	fmt.Printf("  Merged entity:  %s (now archived)\n", entityID2)
-	fmt.Printf("  Relationships transferred: 5\n")
+	fmt.Printf("  Relationships transferred: %d\n", transferred)
 
 	return nil
 }
@@ -940,343 +1065,62 @@ func runConflictResolve(ctx context.Context, deps *RelationshipCommandDeps, conf
 	return nil
 }
 
-// Mock data functions.
+// Type conversion helpers
 
-// getMockRelationships returns mock relationship data.
-func getMockRelationships(limit int, minConfidence float64, relType string) []Relationship {
-	relationships := []Relationship{
-		{
-			ID:          "rel-001",
-			SourceID:    "ent-alice",
-			SourceName:  "Alice Johnson",
-			TargetID:    "ent-bob",
-			TargetName:  "Bob Smith",
-			Type:        RelationshipTypeColleague,
-			Confidence:  0.95,
-			Weight:      0.8,
-			Evidence:    []string{"Mentioned together in 12 emails", "Co-attendees in 5 meetings"},
-			FirstSeen:   time.Now().AddDate(-1, 0, 0),
-			LastSeen:    time.Now().AddDate(0, 0, -1),
-			SourceCount: 17,
-		},
-		{
-			ID:          "rel-002",
-			SourceID:    "ent-alice",
-			SourceName:  "Alice Johnson",
-			TargetID:    "ent-acme",
-			TargetName:  "Acme Corp",
-			Type:        RelationshipTypeMemberOf,
-			Confidence:  0.99,
-			Weight:      1.0,
-			Evidence:    []string{"Email signature", "Profile information"},
-			FirstSeen:   time.Now().AddDate(-2, 0, 0),
-			LastSeen:    time.Now(),
-			SourceCount: 150,
-		},
-		{
-			ID:          "rel-003",
-			SourceID:    "ent-bob",
-			SourceName:  "Bob Smith",
-			TargetID:    "ent-proj-alpha",
-			TargetName:  "Project Alpha",
-			Type:        RelationshipTypeWorksOn,
-			Confidence:  0.87,
-			Weight:      0.7,
-			Evidence:    []string{"Project documentation", "Meeting notes"},
-			FirstSeen:   time.Now().AddDate(0, -6, 0),
-			LastSeen:    time.Now().AddDate(0, 0, -3),
-			SourceCount: 28,
-		},
-		{
-			ID:          "rel-004",
-			SourceID:    "ent-alice",
-			SourceName:  "Alice Johnson",
-			TargetID:    "ent-topic-ml",
-			TargetName:  "Machine Learning",
-			Type:        RelationshipTypeDiscusses,
-			Confidence:  0.72,
-			Weight:      0.5,
-			Evidence:    []string{"Email discussions", "Document references"},
-			FirstSeen:   time.Now().AddDate(0, -3, 0),
-			LastSeen:    time.Now().AddDate(0, 0, -7),
-			SourceCount: 8,
-		},
-		{
-			ID:          "rel-005",
-			SourceID:    "ent-bob",
-			SourceName:  "Bob Smith",
-			TargetID:    "ent-alice",
-			TargetName:  "Alice Johnson",
-			Type:        RelationshipTypeReportsTo,
-			Confidence:  0.65,
-			Weight:      0.6,
-			Evidence:    []string{"Org chart reference", "Meeting patterns"},
-			FirstSeen:   time.Now().AddDate(-1, 0, 0),
-			LastSeen:    time.Now().AddDate(0, -1, 0),
-			SourceCount: 5,
-		},
-	}
-
-	// Apply filters.
-	var filtered []Relationship
-	for _, r := range relationships {
-		if r.Confidence < minConfidence {
-			continue
-		}
-		if relType != "" && string(r.Type) != relType {
-			continue
-		}
-		filtered = append(filtered, r)
-	}
-
-	// Apply limit.
-	if limit > 0 && len(filtered) > limit {
-		filtered = filtered[:limit]
-	}
-
-	return filtered
-}
-
-// getMockRelationshipByID returns a mock relationship by ID.
-func getMockRelationshipByID(id string) *Relationship {
-	relationships := getMockRelationships(100, 0, "")
-	for _, r := range relationships {
-		if r.ID == id {
-			return &r
-		}
-	}
-	// Return a fake one if not found in mocks.
-	return &Relationship{
-		ID:          id,
-		SourceID:    "ent-unknown-1",
-		SourceName:  "Unknown Entity 1",
-		TargetID:    "ent-unknown-2",
-		TargetName:  "Unknown Entity 2",
-		Type:        RelationshipTypeRelatedTo,
-		Confidence:  0.5,
-		Weight:      0.5,
-		Evidence:    []string{"Inferred from context"},
-		FirstSeen:   time.Now().AddDate(0, -1, 0),
-		LastSeen:    time.Now(),
-		SourceCount: 1,
+// stringToEntityType converts a string to a proto EntityType.
+func stringToEntityType(s string) relationshipv1.EntityType {
+	switch strings.ToLower(s) {
+	case "person":
+		return relationshipv1.EntityType_ENTITY_TYPE_PERSON
+	case "organization":
+		return relationshipv1.EntityType_ENTITY_TYPE_ORGANIZATION
+	case "topic":
+		return relationshipv1.EntityType_ENTITY_TYPE_TOPIC
+	case "project":
+		return relationshipv1.EntityType_ENTITY_TYPE_PROJECT
+	case "location":
+		return relationshipv1.EntityType_ENTITY_TYPE_LOCATION
+	default:
+		return relationshipv1.EntityType_ENTITY_TYPE_UNSPECIFIED
 	}
 }
 
-// searchMockRelationships searches mock relationships.
-func searchMockRelationships(query string, limit int, minConfidence float64) []Relationship {
-	query = strings.ToLower(query)
-	relationships := getMockRelationships(100, minConfidence, "")
-
-	var results []Relationship
-	for _, r := range relationships {
-		if strings.Contains(strings.ToLower(r.SourceName), query) ||
-			strings.Contains(strings.ToLower(r.TargetName), query) {
-			results = append(results, r)
-		}
+// stringToRelType converts a string to a proto RelationshipType.
+func stringToRelType(s string) relationshipv1.RelationshipType {
+	switch strings.ToLower(s) {
+	case "colleague":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_COLLABORATES_WITH
+	case "reports_to":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_REPORTS_TO
+	case "member_of":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_MEMBER_OF
+	case "works_on", "works_at":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_WORKS_AT
+	case "discusses":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_DISCUSSED
+	case "mentions", "mentioned_with":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_MENTIONED_WITH
+	case "located_at":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_LOCATED_AT
+	case "related_to":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_RELATED_TO
+	case "knows":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_KNOWS
+	case "manages":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_MANAGES
+	case "collaborates_with":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_COLLABORATES_WITH
+	case "attended":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_ATTENDED
+	case "owns":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_OWNS
+	case "created":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_CREATED
+	case "part_of":
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_PART_OF
+	default:
+		return relationshipv1.RelationshipType_RELATIONSHIP_TYPE_UNSPECIFIED
 	}
-
-	if limit > 0 && len(results) > limit {
-		results = results[:limit]
-	}
-
-	return results
-}
-
-// getMockEntities returns mock entity data.
-func getMockEntities(limit int, minConfidence float64, entType string) []Entity {
-	entities := []Entity{
-		{
-			ID:            "ent-alice",
-			Name:          "Alice Johnson",
-			Type:          EntityTypePerson,
-			Aliases:       []string{"A. Johnson", "AJ"},
-			Confidence:    0.98,
-			SourceCount:   150,
-			FirstSeen:     time.Now().AddDate(-2, 0, 0),
-			LastSeen:      time.Now(),
-			Metadata:      map[string]string{"email": "alice@acme.com", "department": "Engineering"},
-			RelationCount: 23,
-		},
-		{
-			ID:            "ent-bob",
-			Name:          "Bob Smith",
-			Type:          EntityTypePerson,
-			Aliases:       []string{"Robert Smith", "B. Smith"},
-			Confidence:    0.95,
-			SourceCount:   89,
-			FirstSeen:     time.Now().AddDate(-1, -6, 0),
-			LastSeen:      time.Now().AddDate(0, 0, -3),
-			Metadata:      map[string]string{"email": "bob@acme.com", "department": "Engineering"},
-			RelationCount: 18,
-		},
-		{
-			ID:            "ent-acme",
-			Name:          "Acme Corp",
-			Type:          EntityTypeOrganization,
-			Aliases:       []string{"Acme Corporation", "ACME"},
-			Confidence:    0.99,
-			SourceCount:   500,
-			FirstSeen:     time.Now().AddDate(-3, 0, 0),
-			LastSeen:      time.Now(),
-			Metadata:      map[string]string{"industry": "Technology", "size": "Enterprise"},
-			RelationCount: 45,
-		},
-		{
-			ID:            "ent-proj-alpha",
-			Name:          "Project Alpha",
-			Type:          EntityTypeProject,
-			Aliases:       []string{"Alpha Initiative"},
-			Confidence:    0.92,
-			SourceCount:   67,
-			FirstSeen:     time.Now().AddDate(0, -8, 0),
-			LastSeen:      time.Now().AddDate(0, 0, -1),
-			Metadata:      map[string]string{"status": "active", "priority": "high"},
-			RelationCount: 12,
-		},
-		{
-			ID:            "ent-topic-ml",
-			Name:          "Machine Learning",
-			Type:          EntityTypeTopic,
-			Aliases:       []string{"ML", "AI/ML"},
-			Confidence:    0.85,
-			SourceCount:   34,
-			FirstSeen:     time.Now().AddDate(0, -6, 0),
-			LastSeen:      time.Now().AddDate(0, 0, -7),
-			Metadata:      map[string]string{"category": "technology"},
-			RelationCount: 8,
-		},
-		{
-			ID:            "ent-hq",
-			Name:          "San Francisco HQ",
-			Type:          EntityTypeLocation,
-			Aliases:       []string{"SF Office", "Headquarters"},
-			Confidence:    0.91,
-			SourceCount:   45,
-			FirstSeen:     time.Now().AddDate(-2, 0, 0),
-			LastSeen:      time.Now().AddDate(0, 0, -5),
-			Metadata:      map[string]string{"city": "San Francisco", "state": "CA"},
-			RelationCount: 15,
-		},
-	}
-
-	// Apply filters.
-	var filtered []Entity
-	for _, e := range entities {
-		if e.Confidence < minConfidence {
-			continue
-		}
-		if entType != "" && string(e.Type) != entType {
-			continue
-		}
-		filtered = append(filtered, e)
-	}
-
-	// Sort by relation count (most connected first).
-	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].RelationCount > filtered[j].RelationCount
-	})
-
-	// Apply limit.
-	if limit > 0 && len(filtered) > limit {
-		filtered = filtered[:limit]
-	}
-
-	return filtered
-}
-
-// getMockEntityByID returns a mock entity by ID.
-func getMockEntityByID(id string) *Entity {
-	entities := getMockEntities(100, 0, "")
-	for _, e := range entities {
-		if e.ID == id {
-			return &e
-		}
-	}
-	return nil
-}
-
-// getMockCentralEntities returns mock central entities.
-func getMockCentralEntities(limit int) []Entity {
-	entities := getMockEntities(100, 0, "")
-	// Already sorted by relation count.
-	if limit > 0 && len(entities) > limit {
-		entities = entities[:limit]
-	}
-	return entities
-}
-
-// getMockClusters returns mock network clusters.
-func getMockClusters() []NetworkCluster {
-	return []NetworkCluster{
-		{
-			ID:          "cluster-eng",
-			Name:        "Engineering Team",
-			EntityCount: 23,
-			TopEntities: getMockEntities(3, 0.8, "person"),
-			Density:     0.45,
-		},
-		{
-			ID:          "cluster-ml",
-			Name:        "ML/AI Projects",
-			EntityCount: 15,
-			TopEntities: getMockEntities(3, 0.7, ""),
-			Density:     0.38,
-		},
-		{
-			ID:          "cluster-exec",
-			Name:        "Executive Leadership",
-			EntityCount: 8,
-			TopEntities: getMockEntities(3, 0.9, "person"),
-			Density:     0.62,
-		},
-	}
-}
-
-// getMockConflicts returns mock conflict data.
-func getMockConflicts(limit int) []RelationshipConflict {
-	conflicts := []RelationshipConflict{
-		{
-			ID:              "conf-001",
-			Type:            "duplicate_entity",
-			Description:     "Possible duplicate: 'Bob Smith' and 'Robert Smith' may be the same person",
-			SuggestedAction: "Merge entities using 'penf relationship entity merge'",
-			CreatedAt:       time.Now().AddDate(0, 0, -3),
-			Status:          "pending",
-		},
-		{
-			ID:              "conf-002",
-			Type:            "contradictory_relationship",
-			Description:     "Conflicting reports_to relationships detected for 'Alice Johnson'",
-			SuggestedAction: "Review evidence and resolve manually",
-			CreatedAt:       time.Now().AddDate(0, 0, -1),
-			Status:          "pending",
-		},
-		{
-			ID:              "conf-003",
-			Type:            "low_confidence",
-			Description:     "Relationship between 'Project Beta' and 'Marketing Team' has low confidence (0.35)",
-			SuggestedAction: "Verify or remove relationship",
-			CreatedAt:       time.Now().AddDate(0, 0, -5),
-			Status:          "pending",
-		},
-	}
-
-	if limit > 0 && len(conflicts) > limit {
-		conflicts = conflicts[:limit]
-	}
-
-	return conflicts
-}
-
-// getMockConflictByID returns a mock conflict by ID.
-func getMockConflictByID(id string) *RelationshipConflict {
-	conflicts := getMockConflicts(100)
-	for _, c := range conflicts {
-		if c.ID == id {
-			return &c
-		}
-	}
-	return nil
 }
 
 // Output functions.
