@@ -25,17 +25,22 @@ const (
 
 // Default configuration values.
 const (
-	DefaultServerAddress = "localhost:50051"
-	DefaultTimeout       = 30 * time.Second
-	DefaultOutputFormat  = OutputFormatText
-	DefaultConfigDir     = ".penf"
-	DefaultConfigFile    = "config.yaml"
+	DefaultServerAddress       = "localhost:50051"
+	DefaultSearchServiceAddress = "localhost:50053"
+	DefaultTimeout             = 30 * time.Second
+	DefaultOutputFormat        = OutputFormatText
+	DefaultConfigDir           = ".penf"
+	DefaultConfigFile          = "config.yaml"
 )
 
 // CLIConfig holds the CLI configuration settings.
 type CLIConfig struct {
 	// ServerAddress is the address of the API Gateway (host:port).
 	ServerAddress string `yaml:"server_address"`
+
+	// SearchServiceAddress is the address of the Search service (host:port).
+	// If empty, search commands will use the gateway address.
+	SearchServiceAddress string `yaml:"search_service_address,omitempty"`
 
 	// Timeout is the default timeout for API requests.
 	Timeout time.Duration `yaml:"timeout"`
@@ -136,14 +141,15 @@ func loadFromFile(cfg *CLIConfig, path string) error {
 
 	// We need a temp struct for unmarshaling duration as string.
 	type configFile struct {
-		ServerAddress string            `yaml:"server_address"`
-		Timeout       string            `yaml:"timeout"`
-		OutputFormat  OutputFormat      `yaml:"output_format"`
-		TenantID      string            `yaml:"tenant_id"`
-		TenantAliases map[string]string `yaml:"tenant_aliases"`
-		InstallPath   string            `yaml:"install_path"`
-		Debug         bool              `yaml:"debug"`
-		Insecure      bool              `yaml:"insecure"`
+		ServerAddress        string            `yaml:"server_address"`
+		SearchServiceAddress string            `yaml:"search_service_address"`
+		Timeout              string            `yaml:"timeout"`
+		OutputFormat         OutputFormat      `yaml:"output_format"`
+		TenantID             string            `yaml:"tenant_id"`
+		TenantAliases        map[string]string `yaml:"tenant_aliases"`
+		InstallPath          string            `yaml:"install_path"`
+		Debug                bool              `yaml:"debug"`
+		Insecure             bool              `yaml:"insecure"`
 	}
 
 	var fileCfg configFile
@@ -153,6 +159,9 @@ func loadFromFile(cfg *CLIConfig, path string) error {
 
 	if fileCfg.ServerAddress != "" {
 		cfg.ServerAddress = fileCfg.ServerAddress
+	}
+	if fileCfg.SearchServiceAddress != "" {
+		cfg.SearchServiceAddress = fileCfg.SearchServiceAddress
 	}
 	if fileCfg.Timeout != "" {
 		timeout, err := time.ParseDuration(fileCfg.Timeout)
@@ -183,6 +192,10 @@ func loadFromFile(cfg *CLIConfig, path string) error {
 func loadFromEnv(cfg *CLIConfig) {
 	if v := os.Getenv("PENF_SERVER_ADDRESS"); v != "" {
 		cfg.ServerAddress = v
+	}
+
+	if v := os.Getenv("PENF_SEARCH_SERVICE_ADDRESS"); v != "" {
+		cfg.SearchServiceAddress = v
 	}
 
 	if v := os.Getenv("PENF_TIMEOUT"); v != "" {
@@ -260,25 +273,27 @@ func SaveConfig(cfg *CLIConfig) error {
 
 	// Convert to YAML-friendly format with duration as string.
 	type configFile struct {
-		ServerAddress string            `yaml:"server_address"`
-		Timeout       string            `yaml:"timeout"`
-		OutputFormat  OutputFormat      `yaml:"output_format"`
-		TenantID      string            `yaml:"tenant_id,omitempty"`
-		TenantAliases map[string]string `yaml:"tenant_aliases,omitempty"`
-		InstallPath   string            `yaml:"install_path,omitempty"`
-		Debug         bool              `yaml:"debug,omitempty"`
-		Insecure      bool              `yaml:"insecure,omitempty"`
+		ServerAddress        string            `yaml:"server_address"`
+		SearchServiceAddress string            `yaml:"search_service_address,omitempty"`
+		Timeout              string            `yaml:"timeout"`
+		OutputFormat         OutputFormat      `yaml:"output_format"`
+		TenantID             string            `yaml:"tenant_id,omitempty"`
+		TenantAliases        map[string]string `yaml:"tenant_aliases,omitempty"`
+		InstallPath          string            `yaml:"install_path,omitempty"`
+		Debug                bool              `yaml:"debug,omitempty"`
+		Insecure             bool              `yaml:"insecure,omitempty"`
 	}
 
 	fileCfg := configFile{
-		ServerAddress: cfg.ServerAddress,
-		Timeout:       cfg.Timeout.String(),
-		OutputFormat:  cfg.OutputFormat,
-		TenantID:      cfg.TenantID,
-		TenantAliases: cfg.TenantAliases,
-		InstallPath:   cfg.InstallPath,
-		Debug:         cfg.Debug,
-		Insecure:      cfg.Insecure,
+		ServerAddress:        cfg.ServerAddress,
+		SearchServiceAddress: cfg.SearchServiceAddress,
+		Timeout:              cfg.Timeout.String(),
+		OutputFormat:         cfg.OutputFormat,
+		TenantID:             cfg.TenantID,
+		TenantAliases:        cfg.TenantAliases,
+		InstallPath:          cfg.InstallPath,
+		Debug:                cfg.Debug,
+		Insecure:             cfg.Insecure,
 	}
 
 	data, err := yaml.Marshal(&fileCfg)
@@ -330,4 +345,13 @@ func (c *CLIConfig) GetInstallPath() (string, error) {
 		return "", fmt.Errorf("getting executable path: %w", err)
 	}
 	return filepath.EvalSymlinks(execPath)
+}
+
+// GetSearchServiceAddress returns the search service address.
+// If not configured, returns the default search service address.
+func (c *CLIConfig) GetSearchServiceAddress() string {
+	if c.SearchServiceAddress != "" {
+		return c.SearchServiceAddress
+	}
+	return DefaultSearchServiceAddress
 }

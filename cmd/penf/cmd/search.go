@@ -114,9 +114,11 @@ type AdvancedSearchOptions struct {
 type SearchCommandDeps struct {
 	Config       *config.CLIConfig
 	GRPCClient   *client.GRPCClient
+	SearchClient *client.SearchClient
 	OutputFormat config.OutputFormat
 	LoadConfig   func() (*config.CLIConfig, error)
 	InitClient   func(*config.CLIConfig) (*client.GRPCClient, error)
+	InitSearch   func(*config.CLIConfig) (*client.SearchClient, error)
 }
 
 // DefaultSearchDeps returns the default dependencies for production use.
@@ -138,6 +140,22 @@ func DefaultSearchDeps() *SearchCommandDeps {
 				return nil, fmt.Errorf("connecting to server: %w", err)
 			}
 			return grpcClient, nil
+		},
+		InitSearch: func(cfg *config.CLIConfig) (*client.SearchClient, error) {
+			opts := client.DefaultOptions()
+			opts.Insecure = cfg.Insecure
+			opts.Debug = cfg.Debug
+			opts.ConnectTimeout = cfg.Timeout
+			opts.TenantID = cfg.TenantID
+
+			searchClient := client.NewSearchClient(cfg.GetSearchServiceAddress(), opts)
+			ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+			defer cancel()
+
+			if err := searchClient.Connect(ctx); err != nil {
+				return nil, fmt.Errorf("connecting to search service: %w", err)
+			}
+			return searchClient, nil
 		},
 	}
 }
@@ -233,7 +251,12 @@ JSON Output (for AI processing):
     ],
     "total_count": 42,
     "query_time_ms": 23.5
-  }`,
+  }
+
+Documentation:
+  Glossary expansion: docs/concepts/glossary.md (how acronyms expand queries)
+  Entity types:       docs/shared/entities.md (what you're searching)
+  Vision:             docs/shared/vision.md (why search matters)`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSearch(cmd.Context(), deps, strings.Join(args, " "))
@@ -345,17 +368,52 @@ func runSearch(ctx context.Context, deps *SearchCommandDeps, queryStr string) er
 		ExactMatch:   searchExact,
 	}
 
-	// Execute the search (mock for now until gRPC is connected).
+	// Initialize search client.
+	searchClient, err := deps.InitSearch(cfg)
+	if err != nil {
+		return fmt.Errorf("connecting to search service: %w", err)
+	}
+	defer searchClient.Close()
+
+	// Build search request.
+	req := &client.SearchRequest{
+		Query:        queryStr,
+		TenantID:     cfg.TenantID,
+		ContentTypes: searchTypes,
+		DateFrom:     dateFrom,
+		DateTo:       dateTo,
+		Limit:        int32(searchLimit),
+		Offset:       int32(searchOffset),
+	}
+
+	// Execute the search based on mode.
+	var searchResp *client.SearchResponse
 	startTime := time.Now()
-	results := executeSearch(queryStr, mode, filters, searchLimit, searchOffset, searchVerbose)
+
+	switch mode {
+	case SearchModeSemantic:
+		searchResp, err = searchClient.SemanticSearch(ctx, req)
+	case SearchModeKeyword:
+		searchResp, err = searchClient.KeywordSearch(ctx, req)
+	default: // SearchModeHybrid
+		searchResp, err = searchClient.Search(ctx, req)
+	}
+
+	if err != nil {
+		return fmt.Errorf("search failed: %w", err)
+	}
+
 	queryTime := time.Since(startTime).Seconds() * 1000
+
+	// Convert search response to CLI format.
+	results := convertSearchResults(searchResp.Results, searchVerbose)
 
 	// Build response.
 	response := SearchResponse{
 		Query:       queryStr,
 		Mode:        mode,
 		Results:     results,
-		TotalCount:  int64(len(results) + searchOffset + 5), // Mock total count.
+		TotalCount:  searchResp.TotalCount,
 		QueryTimeMs: queryTime,
 		Limit:       searchLimit,
 		Offset:      searchOffset,
@@ -365,6 +423,40 @@ func runSearch(ctx context.Context, deps *SearchCommandDeps, queryStr string) er
 
 	// Output results.
 	return outputSearchResults(outputFormat, response, searchVerbose)
+}
+
+// convertSearchResults converts client.SearchResult to cmd.SearchResult.
+func convertSearchResults(results []client.SearchResult, verbose bool) []SearchResult {
+	converted := make([]SearchResult, len(results))
+	for i, r := range results {
+		result := SearchResult{
+			ID:          r.DocumentID,
+			Title:       getTitle(r.Title, r.ContentType),
+			ContentType: r.ContentType,
+			Source:      r.SourceID,
+			Snippet:     r.Snippet,
+			Highlights:  r.Highlights,
+			Score:       float64(r.Score),
+			CreatedAt:   r.CreatedAt,
+			Metadata:    r.Metadata,
+		}
+		if r.TextScore != nil {
+			result.TextScore = float64(*r.TextScore)
+		}
+		if r.VectorScore != nil {
+			result.VectorScore = float64(*r.VectorScore)
+		}
+		converted[i] = result
+	}
+	return converted
+}
+
+// getTitle returns the title or a default based on content type.
+func getTitle(title *string, contentType string) string {
+	if title != nil && *title != "" {
+		return *title
+	}
+	return fmt.Sprintf("Untitled %s", contentType)
 }
 
 // parseSearchDate parses a date string for search filters.
@@ -411,150 +503,6 @@ func parseSearchDate(p *query.Parser, dateStr string) (time.Time, error) {
 	}
 
 	return time.Time{}, fmt.Errorf("unable to parse date: %s", dateStr)
-}
-
-// executeSearch performs the actual search (mock implementation until gRPC is connected).
-func executeSearch(queryStr string, mode SearchMode, filters SearchFilters, limit, offset int, verbose bool) []SearchResult {
-	// STUB: Returns mock data until search service gRPC is connected.
-
-	mockResults := []SearchResult{
-		{
-			ID:          "doc-001",
-			Title:       "Q4 Budget Planning Meeting Notes",
-			ContentType: "meeting",
-			Source:      "calendar",
-			Snippet:     "Discussed <em>project</em> timeline and resource allocation for Q4. Key decisions included prioritizing the infrastructure upgrade <em>project</em>...",
-			Highlights:  []string{"Discussed <em>project</em> timeline", "infrastructure upgrade <em>project</em>"},
-			Score:       0.92,
-			TextScore:   0.88,
-			VectorScore: 0.95,
-			CreatedAt:   time.Now().AddDate(0, 0, -3),
-			Metadata: map[string]string{
-				"attendees": "alice@example.com, bob@example.com",
-				"duration":  "1h",
-			},
-		},
-		{
-			ID:          "email-042",
-			Title:       "Re: Project Status Update",
-			ContentType: "email",
-			Source:      "gmail",
-			Snippet:     "Thanks for the <em>update</em>. The current <em>status</em> looks good. Please ensure all deliverables are on track for the end of month deadline...",
-			Highlights:  []string{"Thanks for the <em>update</em>", "current <em>status</em> looks good"},
-			Score:       0.87,
-			TextScore:   0.91,
-			VectorScore: 0.82,
-			CreatedAt:   time.Now().AddDate(0, 0, -1),
-			Metadata: map[string]string{
-				"from":    "manager@example.com",
-				"to":      "team@example.com",
-				"subject": "Re: Project Status Update",
-			},
-		},
-		{
-			ID:          "doc-015",
-			Title:       "Technical Design Document: API Gateway",
-			ContentType: "document",
-			Source:      "drive",
-			Snippet:     "This document outlines the technical design for the new API Gateway. The <em>project</em> aims to consolidate all external API access...",
-			Highlights:  []string{"technical design for the new API Gateway", "The <em>project</em> aims"},
-			Score:       0.79,
-			TextScore:   0.72,
-			VectorScore: 0.85,
-			CreatedAt:   time.Now().AddDate(0, -1, -5),
-			Metadata: map[string]string{
-				"author":     "engineering@example.com",
-				"page_count": "12",
-			},
-		},
-		{
-			ID:          "chat-208",
-			Title:       "Slack: #engineering",
-			ContentType: "chat",
-			Source:      "slack",
-			Snippet:     "Hey team, quick <em>update</em> on the deployment - everything is green and we're ready for the production push tomorrow morning.",
-			Highlights:  []string{"quick <em>update</em> on the deployment"},
-			Score:       0.71,
-			TextScore:   0.68,
-			VectorScore: 0.74,
-			CreatedAt:   time.Now().AddDate(0, 0, -2),
-			Metadata: map[string]string{
-				"channel": "#engineering",
-				"author":  "devops@example.com",
-			},
-		},
-		{
-			ID:          "note-033",
-			Title:       "Personal Notes: Sprint Retrospective",
-			ContentType: "note",
-			Source:      "manual",
-			Snippet:     "Key takeaways from the retrospective: 1. Need better communication on blockers 2. <em>Project</em> scope creep was a concern...",
-			Highlights:  []string{"<em>Project</em> scope creep was a concern"},
-			Score:       0.65,
-			TextScore:   0.60,
-			VectorScore: 0.70,
-			CreatedAt:   time.Now().AddDate(0, 0, -7),
-			Metadata: map[string]string{
-				"tags": "retrospective,sprint,agile",
-			},
-		},
-	}
-
-	// Apply content type filter.
-	if len(filters.ContentTypes) > 0 {
-		var filtered []SearchResult
-		typeSet := make(map[string]bool)
-		for _, t := range filters.ContentTypes {
-			typeSet[strings.ToLower(t)] = true
-		}
-		for _, r := range mockResults {
-			if typeSet[strings.ToLower(r.ContentType)] {
-				filtered = append(filtered, r)
-			}
-		}
-		mockResults = filtered
-	}
-
-	// Apply date filters.
-	if filters.DateFrom != nil {
-		var filtered []SearchResult
-		for _, r := range mockResults {
-			if !r.CreatedAt.Before(*filters.DateFrom) {
-				filtered = append(filtered, r)
-			}
-		}
-		mockResults = filtered
-	}
-
-	if filters.DateTo != nil {
-		var filtered []SearchResult
-		for _, r := range mockResults {
-			if !r.CreatedAt.After(*filters.DateTo) {
-				filtered = append(filtered, r)
-			}
-		}
-		mockResults = filtered
-	}
-
-	// Apply sorting.
-	if filters.Sort == SortOrderDate {
-		// Sort by date descending (newest first) - already the default mock order.
-	} else if filters.Sort == SortOrderDateAsc {
-		// Reverse the order for ascending.
-		for i, j := 0, len(mockResults)-1; i < j; i, j = i+1, j-1 {
-			mockResults[i], mockResults[j] = mockResults[j], mockResults[i]
-		}
-	}
-
-	// Apply pagination.
-	if offset >= len(mockResults) {
-		return []SearchResult{}
-	}
-	end := offset + limit
-	if end > len(mockResults) {
-		end = len(mockResults)
-	}
-	return mockResults[offset:end]
 }
 
 // outputSearchResults formats and outputs search results.
@@ -896,17 +844,60 @@ func runAdvancedSearch(ctx context.Context, deps *SearchCommandDeps, queryStr st
 		ExactMatch:   searchExact,
 	}
 
-	// Execute the advanced search (mock for now until gRPC is connected).
+	// Initialize search client.
+	searchClient, err := deps.InitSearch(cfg)
+	if err != nil {
+		return fmt.Errorf("connecting to search service: %w", err)
+	}
+	defer searchClient.Close()
+
+	// Build search request.
+	minScore := float32(advancedMinScore)
+	req := &client.SearchRequest{
+		Query:    queryStr,
+		TenantID: cfg.TenantID,
+		Limit:    int32(searchLimit),
+		Offset:   int32(searchOffset),
+	}
+	if advancedMinScore > 0 {
+		req.MinScore = &minScore
+	}
+
+	// Execute the search based on mode.
+	var searchResp *client.SearchResponse
 	startTime := time.Now()
-	results := executeAdvancedSearch(queryStr, mode, filters, advancedMinScore, searchLimit, searchOffset, searchVerbose)
+
+	switch mode {
+	case SearchModeSemantic:
+		searchResp, err = searchClient.SemanticSearch(ctx, req)
+	case SearchModeKeyword:
+		searchResp, err = searchClient.KeywordSearch(ctx, req)
+	default: // SearchModeHybrid
+		searchResp, err = searchClient.Search(ctx, req)
+	}
+
+	if err != nil {
+		return fmt.Errorf("search failed: %w", err)
+	}
+
 	queryTime := time.Since(startTime).Seconds() * 1000
+
+	// Convert search response to CLI format.
+	results := convertSearchResults(searchResp.Results, searchVerbose)
+
+	// Apply client-side field filters if specified.
+	// Note: These filters are applied after the search since the search service
+	// doesn't support arbitrary field filters yet.
+	if len(advancedFilters) > 0 {
+		results = applyFieldFilters(results, advancedFilters)
+	}
 
 	// Build response.
 	response := SearchResponse{
 		Query:       queryStr,
 		Mode:        mode,
 		Results:     results,
-		TotalCount:  int64(len(results) + searchOffset + 3),
+		TotalCount:  searchResp.TotalCount,
 		QueryTimeMs: queryTime,
 		Limit:       searchLimit,
 		Offset:      searchOffset,
@@ -918,89 +909,66 @@ func runAdvancedSearch(ctx context.Context, deps *SearchCommandDeps, queryStr st
 	return outputSearchResults(outputFormat, response, searchVerbose)
 }
 
-// executeAdvancedSearch performs an advanced search with filters (mock implementation).
-func executeAdvancedSearch(queryStr string, mode SearchMode, filters SearchFilters, minScore float64, limit, offset int, verbose bool) []SearchResult {
-	// STUB: Returns mock data until search service gRPC is connected.
-	results := executeSearch(queryStr, mode, filters, limit*2, 0, verbose)
+// applyFieldFilters applies field filters to results client-side.
+func applyFieldFilters(results []SearchResult, fieldFilters []string) []SearchResult {
+	if len(fieldFilters) == 0 {
+		return results
+	}
 
-	// Apply field filters.
-	if len(filters.FieldFilters) > 0 {
-		var filtered []SearchResult
-		for _, result := range results {
-			match := true
-			for _, filter := range filters.FieldFilters {
-				parts := strings.SplitN(filter, ":", 2)
-				if len(parts) != 2 {
-					continue
+	var filtered []SearchResult
+	for _, result := range results {
+		match := true
+		for _, filter := range fieldFilters {
+			parts := strings.SplitN(filter, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			field, value := strings.ToLower(parts[0]), strings.ToLower(parts[1])
+
+			switch field {
+			case "type":
+				if !strings.Contains(strings.ToLower(result.ContentType), value) {
+					match = false
 				}
-				field, value := strings.ToLower(parts[0]), strings.ToLower(parts[1])
-
-				switch field {
-				case "type":
-					if !strings.Contains(strings.ToLower(result.ContentType), value) {
+			case "source":
+				if !strings.Contains(strings.ToLower(result.Source), value) {
+					match = false
+				}
+			case "from":
+				if from, ok := result.Metadata["from"]; ok {
+					if !strings.Contains(strings.ToLower(from), value) {
 						match = false
 					}
-				case "source":
-					if !strings.Contains(strings.ToLower(result.Source), value) {
+				} else {
+					match = false
+				}
+			case "to":
+				if to, ok := result.Metadata["to"]; ok {
+					if !strings.Contains(strings.ToLower(to), value) {
 						match = false
 					}
-				case "from":
-					if from, ok := result.Metadata["from"]; ok {
-						if !strings.Contains(strings.ToLower(from), value) {
-							match = false
-						}
-					} else {
+				} else {
+					match = false
+				}
+			case "subject":
+				if !strings.Contains(strings.ToLower(result.Title), value) {
+					match = false
+				}
+			case "tag":
+				if tags, ok := result.Metadata["tags"]; ok {
+					if !strings.Contains(strings.ToLower(tags), value) {
 						match = false
 					}
-				case "to":
-					if to, ok := result.Metadata["to"]; ok {
-						if !strings.Contains(strings.ToLower(to), value) {
-							match = false
-						}
-					} else {
-						match = false
-					}
-				case "subject":
-					if !strings.Contains(strings.ToLower(result.Title), value) {
-						match = false
-					}
-				case "tag":
-					if tags, ok := result.Metadata["tags"]; ok {
-						if !strings.Contains(strings.ToLower(tags), value) {
-							match = false
-						}
-					} else {
-						match = false
-					}
+				} else {
+					match = false
 				}
 			}
-			if match {
-				filtered = append(filtered, result)
-			}
 		}
-		results = filtered
-	}
-
-	// Apply minimum score filter.
-	if minScore > 0 {
-		var filtered []SearchResult
-		for _, result := range results {
-			if result.Score >= minScore {
-				filtered = append(filtered, result)
-			}
+		if match {
+			filtered = append(filtered, result)
 		}
-		results = filtered
 	}
-
-	// Apply pagination.
-	if offset >= len(results) {
-		return []SearchResult{}
-	}
-	end := offset + limit
-	if end > len(results) {
-		end = len(results)
-	}
-	return results[offset:end]
+	return filtered
 }
 
 // =============================================================================

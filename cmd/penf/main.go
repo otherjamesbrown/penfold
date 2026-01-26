@@ -51,8 +51,31 @@ var rootCmd = &cobra.Command{
 Penfold aggregates and correlates information from communication channels
 (email, Slack, documents, meetings) into a queryable institutional memory.
 
-Use penf to search, ingest content, review daily briefings, and manage
-your personal knowledge base.`,
+DESIGNED FOR AI ASSISTANTS:
+  This CLI is optimized for use by AI assistants (like Claude Code), not direct
+  human interaction. Commands support JSON output (-o json) for structured data,
+  and batch processing for intelligent bulk operations.
+
+QUICK START:
+  penf init              Initialize configuration and documentation
+  penf search "query"    Search the knowledge base
+  penf health            Check system status
+
+DOCUMENTATION:
+  After running 'penf init', documentation is available at:
+    docs/assistant-rules.md   How Penfold (the AI) should operate
+    docs/index.md             System overview and navigation
+    docs/shared/vision.md     What Penfold is and why
+    docs/shared/entities.md   Core entities (people, products, glossary)
+    docs/concepts/            Detailed concept guides
+    docs/workflows/           Step-by-step workflow guides
+
+  Run 'penf init' to install these docs, or 'penf update' to refresh them.
+
+FOR AI ASSISTANTS:
+  Read docs/assistant-rules.md first - it defines your operating principles.
+  Use -o json for all commands when processing data programmatically.
+  Use 'penf process <workflow> context' for intelligent batch operations.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Skip initialization for commands that don't need it.
 		if cmd.Name() == "version" || cmd.Name() == "help" || cmd.Name() == "completion" {
