@@ -21,22 +21,29 @@ import (
 	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
 	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
+	logsv1 "github.com/otherjamesbrown/penfold/api/proto/logs/v1"
 	mentionsv1 "github.com/otherjamesbrown/penfold/api/proto/mentions/v1"
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
+	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
+	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
 	tenantv1 "github.com/otherjamesbrown/penfold/api/proto/tenant/v1"
+	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/logs"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/products"
+	"github.com/otherjamesbrown/penfold/pkg/relationships"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	"github.com/otherjamesbrown/penfold/pkg/sources"
+	"github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/pkg/tenant"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
@@ -44,14 +51,18 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
 	"github.com/otherjamesbrown/penfold/services/gateway/ingestservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/logsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/mentionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/middleware"
 	"github.com/otherjamesbrown/penfold/services/gateway/modelservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/pipelineservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/productservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/questionsservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/relationshipservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/reviewservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
 	"github.com/otherjamesbrown/penfold/services/gateway/tenantservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/workflowservice"
 )
 
 func main() {
@@ -203,6 +214,11 @@ func main() {
 	questionsv1.RegisterQuestionsServiceServer(grpcServer, questionsSvc)
 	logger.Info("Registered QuestionsService")
 
+	// Register ReviewService for review sessions and item management.
+	reviewSvc := reviewservice.NewService(questionsRepo, logger)
+	reviewv1.RegisterReviewServiceServer(grpcServer, reviewSvc)
+	logger.Info("Registered ReviewService")
+
 	// Register MentionsService.
 	mentionsRepo := mentions.NewPostgresRepository(dbPool)
 	mentionsSvc := mentionsservice.NewService(mentionsRepo, logger)
@@ -233,14 +249,17 @@ func main() {
 	ingestv1.RegisterIngestServiceServer(grpcServer, ingestSvc)
 	logger.Info("Registered IngestService")
 
-	// Register ModelService for AI model management (proxies to AI Coordinator).
+	// Register ModelService for AI model management and AI operations (Query, Summarize, Analyze).
 	// This service works even when aiClient is nil - it returns Unavailable status.
 	modelSvc := modelservice.NewService(aiClient, logger)
+	modelSvc.SetSourcesRepo(sourcesRepo)
+	modelSvc.SetDB(dbPool)
+	// Note: Search client can be set later if search service connection is available
 	aiv1.RegisterAICoordinatorServiceServer(grpcServer, modelSvc)
 	if aiClient != nil {
-		logger.Info("Registered ModelService (AI Coordinator proxy)")
+		logger.Info("Registered ModelService (AI Coordinator proxy + AI Operations)")
 	} else {
-		logger.Warn("Registered ModelService (AI service not connected, operations will return Unavailable)")
+		logger.Warn("Registered ModelService (AI service not connected, AI operations will return Unavailable)")
 	}
 
 	// Register TenantService for multi-tenant management.
@@ -248,6 +267,61 @@ func main() {
 	tenantSvc := tenantservice.NewService(tenantRepo, logger)
 	tenantv1.RegisterTenantServiceServer(grpcServer, tenantSvc)
 	logger.Info("Registered TenantService")
+
+	// Register RelationshipService for knowledge graph operations.
+	relationshipRepo := relationships.NewRepository(dbPool, logger)
+	relationshipSvc := relationshipservice.NewService(relationshipRepo, logger)
+	relationshipv1.RegisterRelationshipServiceServer(grpcServer, relationshipSvc)
+	logger.Info("Registered RelationshipService")
+
+	// Register LogsService for centralized log viewing.
+	logsRepo := logs.NewRepository(dbPool)
+	logsSvc := logsservice.NewService(logsRepo, logger)
+	logsv1.RegisterLogsServiceServer(grpcServer, logsSvc)
+	logger.Info("Registered LogsService")
+
+	// Register WorkflowService for Temporal workflow management (optional).
+	if cfg.Temporal.Enabled {
+		temporalCfg := &temporal.Config{
+			HostPort:  cfg.Temporal.HostPort,
+			Namespace: cfg.Temporal.Namespace,
+		}
+		temporalClient, err := temporal.NewClient(temporalCfg, temporal.WithLogger(logger))
+		if err != nil {
+			logger.Warn("Failed to connect to Temporal, WorkflowService will not be available",
+				logging.F("host_port", cfg.Temporal.HostPort),
+				logging.Err(err),
+			)
+		} else {
+			workflowSvc := workflowservice.NewService(temporalClient, cfg.Temporal.Namespace, logger)
+			workflowv1.RegisterWorkflowServiceServer(grpcServer, workflowSvc)
+			logger.Info("Registered WorkflowService",
+				logging.F("temporal_host", cfg.Temporal.HostPort),
+				logging.F("namespace", cfg.Temporal.Namespace),
+			)
+
+			// Register Temporal health check (non-critical).
+			healthAggregator.RegisterService(gatewayhealth.ServiceConfig{
+				Name: "temporal",
+				Client: gatewayhealth.NewTemporalHealthClient(func(ctx context.Context) error {
+					// Simple health check - try to list namespaces
+					_, err := temporalClient.WorkflowService().GetSystemInfo(ctx, nil)
+					return err
+				}),
+				Critical: false,
+				Timeout:  5 * time.Second,
+			})
+			logger.Info("Registered Temporal health check")
+
+			// Ensure Temporal client is closed on shutdown
+			defer func() {
+				temporalClient.Close()
+				logger.Info("Temporal client closed")
+			}()
+		}
+	} else {
+		logger.Info("WorkflowService disabled (TEMPORAL_HOST_PORT not set or GATEWAY_TEMPORAL_ENABLED=false)")
+	}
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()

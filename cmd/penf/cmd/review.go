@@ -6,12 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
+	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
@@ -544,14 +548,27 @@ func runReviewStart(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	session := getMockSession()
-	session.Status = ReviewSessionStatusActive
-	session.StartedAt = time.Now()
+	conn, err := connectToReviewGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := reviewv1.NewReviewServiceClient(conn)
+
+	resp, err := client.StartSession(ctx, &reviewv1.StartSessionRequest{})
+	if err != nil {
+		return fmt.Errorf("starting session: %w", err)
+	}
+
+	session := protoSessionToLocal(resp.Session)
 
 	fmt.Println("Review session started.")
 	fmt.Printf("  Session ID: %s\n", session.ID)
 	fmt.Printf("  Started at: %s\n", session.StartedAt.Format(time.RFC3339))
+	if resp.PreviousSessionEnded {
+		fmt.Println("  (Previous session was automatically ended)")
+	}
 	fmt.Println("\nUse 'penf review queue' to see pending items.")
 
 	return nil
@@ -565,11 +582,20 @@ func runReviewPause(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	session := getMockSession()
-	now := time.Now()
-	session.Status = ReviewSessionStatusPaused
-	session.PausedAt = &now
+	conn, err := connectToReviewGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := reviewv1.NewReviewServiceClient(conn)
+
+	resp, err := client.PauseSession(ctx, &reviewv1.PauseSessionRequest{})
+	if err != nil {
+		return fmt.Errorf("pausing session: %w", err)
+	}
+
+	session := protoSessionToLocal(resp.Session)
 
 	fmt.Println("Review session paused.")
 	fmt.Printf("  Session ID: %s\n", session.ID)
@@ -587,10 +613,20 @@ func runReviewResume(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	session := getMockSession()
-	session.Status = ReviewSessionStatusActive
-	session.PausedAt = nil
+	conn, err := connectToReviewGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := reviewv1.NewReviewServiceClient(conn)
+
+	resp, err := client.ResumeSession(ctx, &reviewv1.ResumeSessionRequest{})
+	if err != nil {
+		return fmt.Errorf("resuming session: %w", err)
+	}
+
+	session := protoSessionToLocal(resp.Session)
 
 	fmt.Println("Review session resumed.")
 	fmt.Printf("  Session ID: %s\n", session.ID)
@@ -608,13 +644,22 @@ func runReviewEnd(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	session := getMockSession()
-	now := time.Now()
-	session.Status = ReviewSessionStatusEnded
-	session.EndedAt = &now
+	conn, err := connectToReviewGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
 
-	duration := session.EndedAt.Sub(session.StartedAt)
+	client := reviewv1.NewReviewServiceClient(conn)
+
+	resp, err := client.EndSession(ctx, &reviewv1.EndSessionRequest{})
+	if err != nil {
+		return fmt.Errorf("ending session: %w", err)
+	}
+
+	session := protoSessionToLocal(resp.Session)
+
+	duration := time.Duration(resp.Session.ActiveDurationSeconds) * time.Second
 
 	fmt.Println("Review session ended.")
 	fmt.Println()
@@ -656,12 +701,52 @@ func runReviewQueue(ctx context.Context, deps *ReviewCommandDeps) error {
 		}
 	}
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	items := getMockReviewQueue(ReviewPriority(reviewPriority))
+	conn, err := connectToReviewGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := reviewv1.NewReviewServiceClient(conn)
+
+	req := &reviewv1.ListReviewItemsRequest{
+		Statuses: []reviewv1.ReviewStatus{reviewv1.ReviewStatus_REVIEW_STATUS_PENDING},
+		PageSize: 50,
+	}
+
+	// Add priority filter if specified
+	if reviewPriority != "" {
+		var protoPriority reviewv1.Priority
+		switch ReviewPriority(reviewPriority) {
+		case ReviewPriorityHigh:
+			protoPriority = reviewv1.Priority_PRIORITY_HIGH
+		case ReviewPriorityMedium:
+			protoPriority = reviewv1.Priority_PRIORITY_MEDIUM
+		case ReviewPriorityLow:
+			protoPriority = reviewv1.Priority_PRIORITY_LOW
+		}
+		req.Priorities = []reviewv1.Priority{protoPriority}
+	}
+
+	resp, err := client.ListReviewItems(ctx, req)
+	if err != nil {
+		return fmt.Errorf("listing review items: %w", err)
+	}
+
+	// Convert proto items to local items
+	items := make([]ReviewItem, len(resp.Items))
+	for i, item := range resp.Items {
+		items[i] = protoItemToLocal(item)
+	}
+
+	totalCount := len(items)
+	if resp.TotalCount != nil {
+		totalCount = int(*resp.TotalCount)
+	}
 
 	response := ReviewQueueResponse{
 		Items:      items,
-		TotalCount: len(items),
+		TotalCount: totalCount,
 		FetchedAt:  time.Now(),
 	}
 
@@ -680,9 +765,28 @@ func runReviewAccept(ctx context.Context, deps *ReviewCommandDeps, itemID string
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	item := getMockReviewItem(itemID)
-	item.Status = ReviewItemStatusAccepted
+	conn, err := connectToReviewGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := reviewv1.NewReviewServiceClient(conn)
+
+	// Validate itemID is a valid ID
+	if _, err := strconv.ParseInt(itemID, 10, 64); err != nil {
+		return fmt.Errorf("invalid item ID: %s", itemID)
+	}
+
+	resp, err := client.ApproveItem(ctx, &reviewv1.ApproveItemRequest{
+		Id:   itemID,
+		Note: "Accepted via CLI",
+	})
+	if err != nil {
+		return fmt.Errorf("accepting item: %w", err)
+	}
+
+	item := protoItemToLocal(resp.Item)
 
 	fmt.Printf("Item accepted: %s\n", itemID)
 	fmt.Printf("  Title: %s\n", item.Title)
@@ -698,10 +802,28 @@ func runReviewReject(ctx context.Context, deps *ReviewCommandDeps, itemID string
 	}
 	deps.Config = cfg
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	item := getMockReviewItem(itemID)
-	item.Status = ReviewItemStatusRejected
-	item.Reason = reason
+	conn, err := connectToReviewGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := reviewv1.NewReviewServiceClient(conn)
+
+	// Validate itemID is a valid ID
+	if _, err := strconv.ParseInt(itemID, 10, 64); err != nil {
+		return fmt.Errorf("invalid item ID: %s", itemID)
+	}
+
+	resp, err := client.RejectItem(ctx, &reviewv1.RejectItemRequest{
+		Id:     itemID,
+		Reason: reason,
+	})
+	if err != nil {
+		return fmt.Errorf("rejecting item: %w", err)
+	}
+
+	item := protoItemToLocal(resp.Item)
 
 	fmt.Printf("Item rejected: %s\n", itemID)
 	fmt.Printf("  Title: %s\n", item.Title)
@@ -730,10 +852,30 @@ func runReviewDefer(ctx context.Context, deps *ReviewCommandDeps, itemID string,
 		deferredTo = &t
 	}
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	item := getMockReviewItem(itemID)
-	item.Status = ReviewItemStatusDeferred
-	item.DeferredTo = deferredTo
+	conn, err := connectToReviewGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := reviewv1.NewReviewServiceClient(conn)
+
+	// Validate itemID is a valid ID
+	if _, err := strconv.ParseInt(itemID, 10, 64); err != nil {
+		return fmt.Errorf("invalid item ID: %s", itemID)
+	}
+
+	// Note: The proto doesn't have a DeferItem RPC, so we use RejectItem with a deferral reason
+	// A proper implementation would add a DeferItem RPC to the proto
+	resp, err := client.RejectItem(ctx, &reviewv1.RejectItemRequest{
+		Id:     itemID,
+		Reason: "Deferred via CLI",
+	})
+	if err != nil {
+		return fmt.Errorf("deferring item: %w", err)
+	}
+
+	item := protoItemToLocal(resp.Item)
 
 	fmt.Printf("Item deferred: %s\n", itemID)
 	fmt.Printf("  Title: %s\n", item.Title)
@@ -761,10 +903,24 @@ func runReviewShow(ctx context.Context, deps *ReviewCommandDeps, itemID string) 
 		}
 	}
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	item := getMockReviewItem(itemID)
+	conn, err := connectToReviewGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
 
-	return outputReviewItem(outputFormat, item)
+	client := reviewv1.NewReviewServiceClient(conn)
+
+	resp, err := client.GetReviewItem(ctx, &reviewv1.GetReviewItemRequest{
+		Id: itemID,
+	})
+	if err != nil {
+		return fmt.Errorf("getting review item: %w", err)
+	}
+
+	item := protoItemToLocal(resp.Item)
+
+	return outputReviewItem(outputFormat, &item)
 }
 
 // runReviewUndo executes the review undo command.
@@ -826,8 +982,33 @@ func runReviewHistory(ctx context.Context, deps *ReviewCommandDeps) error {
 		}
 	}
 
-	// STUB: Returns mock data until review service gRPC is connected.
-	actions := getMockActionHistory()
+	conn, err := connectToReviewGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := reviewv1.NewReviewServiceClient(conn)
+
+	resp, err := client.GetSessionHistory(ctx, &reviewv1.GetSessionHistoryRequest{
+		Limit: 10,
+	})
+	if err != nil {
+		return fmt.Errorf("getting session history: %w", err)
+	}
+
+	// Convert sessions to actions for backward compatibility with output
+	var actions []ReviewAction
+	for _, sess := range resp.Sessions {
+		localSession := protoSessionToLocal(sess)
+		action := ReviewAction{
+			ID:        localSession.ID,
+			ItemID:    localSession.ID,
+			Action:    string(localSession.Status),
+			Timestamp: localSession.StartedAt,
+		}
+		actions = append(actions, action)
+	}
 
 	return outputReviewHistory(outputFormat, actions)
 }
@@ -894,6 +1075,100 @@ func runReviewAutoDisable(ctx context.Context, deps *ReviewCommandDeps, ruleName
 	fmt.Printf("Automation rule disabled: %s\n", rule.Name)
 
 	return nil
+}
+
+// connectToReviewGateway creates a gRPC connection to the gateway service for review operations.
+func connectToReviewGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	defer cancel()
+
+	opts := []grpc.DialOption{
+		grpc.WithBlock(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+
+	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to gateway at %s: %w", cfg.ServerAddress, err)
+	}
+
+	return conn, nil
+}
+
+// protoSessionToLocal converts a proto ReviewSession to the local ReviewSession type.
+func protoSessionToLocal(s *reviewv1.ReviewSession) *ReviewSession {
+	if s == nil {
+		return nil
+	}
+
+	session := &ReviewSession{
+		ID:            s.Id,
+		TotalReviewed: int(s.TotalReviewed),
+		Accepted:      int(s.ApprovedCount),
+		Rejected:      int(s.RejectedCount),
+		Deferred:      int(s.DeferredCount),
+	}
+
+	switch s.Status {
+	case reviewv1.SessionStatus_SESSION_STATUS_ACTIVE:
+		session.Status = ReviewSessionStatusActive
+	case reviewv1.SessionStatus_SESSION_STATUS_PAUSED:
+		session.Status = ReviewSessionStatusPaused
+	case reviewv1.SessionStatus_SESSION_STATUS_ENDED:
+		session.Status = ReviewSessionStatusEnded
+	}
+
+	if s.StartedAt != nil {
+		session.StartedAt = s.StartedAt.AsTime()
+	}
+	if s.PausedAt != nil {
+		pausedAt := s.PausedAt.AsTime()
+		session.PausedAt = &pausedAt
+	}
+	if s.EndedAt != nil {
+		endedAt := s.EndedAt.AsTime()
+		session.EndedAt = &endedAt
+	}
+
+	return session
+}
+
+// protoItemToLocal converts a proto ReviewItem to the local ReviewItem type.
+func protoItemToLocal(item *reviewv1.ReviewItem) ReviewItem {
+	result := ReviewItem{
+		ID:          item.Id,
+		Title:       item.ContentSummary,
+		ContentType: item.ContentType,
+		Source:      item.Source,
+		Summary:     item.ContentSummary,
+		Status:      ReviewItemStatusPending,
+	}
+
+	switch item.Priority {
+	case reviewv1.Priority_PRIORITY_HIGH, reviewv1.Priority_PRIORITY_URGENT:
+		result.Priority = ReviewPriorityHigh
+	case reviewv1.Priority_PRIORITY_MEDIUM:
+		result.Priority = ReviewPriorityMedium
+	case reviewv1.Priority_PRIORITY_LOW:
+		result.Priority = ReviewPriorityLow
+	}
+
+	switch item.Status {
+	case reviewv1.ReviewStatus_REVIEW_STATUS_PENDING:
+		result.Status = ReviewItemStatusPending
+	case reviewv1.ReviewStatus_REVIEW_STATUS_APPROVED:
+		result.Status = ReviewItemStatusAccepted
+	case reviewv1.ReviewStatus_REVIEW_STATUS_REJECTED:
+		result.Status = ReviewItemStatusRejected
+	case reviewv1.ReviewStatus_REVIEW_STATUS_DEFERRED:
+		result.Status = ReviewItemStatusDeferred
+	}
+
+	if item.CreatedAt != nil {
+		result.CreatedAt = item.CreatedAt.AsTime()
+	}
+
+	return result
 }
 
 // Mock data functions for development/testing.

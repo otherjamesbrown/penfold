@@ -43,6 +43,30 @@ service ReviewService {
   // GetReviewStats retrieves review statistics and metrics.
   // Provides insights into review queue health and processing velocity.
   rpc GetReviewStats(GetReviewStatsRequest) returns (GetReviewStatsResponse);
+
+  // ==========================================================================
+  // Session Management RPCs
+  // ==========================================================================
+
+  // StartSession starts a new review session.
+  // Only one active session is allowed per user at a time.
+  rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
+
+  // PauseSession pauses the current active session.
+  // Progress is saved and can be resumed later.
+  rpc PauseSession(PauseSessionRequest) returns (PauseSessionResponse);
+
+  // ResumeSession resumes a paused session.
+  rpc ResumeSession(ResumeSessionRequest) returns (ResumeSessionResponse);
+
+  // EndSession ends the current session and returns a summary.
+  rpc EndSession(EndSessionRequest) returns (EndSessionResponse);
+
+  // GetCurrentSession retrieves the current active or paused session.
+  rpc GetCurrentSession(GetCurrentSessionRequest) returns (GetCurrentSessionResponse);
+
+  // GetSessionHistory retrieves past review sessions.
+  rpc GetSessionHistory(GetSessionHistoryRequest) returns (GetSessionHistoryResponse);
 }
 
 // =============================================================================
@@ -412,4 +436,159 @@ message DailyReviewCount {
 
   // Number rejected.
   int64 rejected = 5;
+}
+
+// =============================================================================
+// Session Management Enums
+// =============================================================================
+
+// SessionStatus represents the state of a review session.
+enum SessionStatus {
+  // Default value. Should not be used explicitly.
+  SESSION_STATUS_UNSPECIFIED = 0;
+
+  // Session is currently active.
+  SESSION_STATUS_ACTIVE = 1;
+
+  // Session is paused.
+  SESSION_STATUS_PAUSED = 2;
+
+  // Session has ended.
+  SESSION_STATUS_ENDED = 3;
+}
+
+// =============================================================================
+// Session Management Messages
+// =============================================================================
+
+// ReviewSession represents a user's review session.
+message ReviewSession {
+  // Unique identifier for the session.
+  string id = 1;
+
+  // Current session status.
+  SessionStatus status = 2;
+
+  // When the session was started.
+  google.protobuf.Timestamp started_at = 3;
+
+  // When the session was last paused (if paused).
+  google.protobuf.Timestamp paused_at = 4;
+
+  // When the session ended (if ended).
+  google.protobuf.Timestamp ended_at = 5;
+
+  // Total number of items reviewed in this session.
+  int32 total_reviewed = 6;
+
+  // Number of items approved.
+  int32 approved_count = 7;
+
+  // Number of items rejected.
+  int32 rejected_count = 8;
+
+  // Number of items deferred.
+  int32 deferred_count = 9;
+
+  // Total active duration in seconds (excludes paused time).
+  int64 active_duration_seconds = 10;
+}
+
+// StartSessionRequest starts a new review session.
+message StartSessionRequest {
+  // Optional tenant ID for multi-tenancy support.
+  optional string tenant_id = 1;
+}
+
+// StartSessionResponse confirms session creation.
+message StartSessionResponse {
+  // The newly created session.
+  ReviewSession session = 1;
+
+  // Whether a previous session was ended to start this one.
+  bool previous_session_ended = 2;
+}
+
+// PauseSessionRequest pauses the current session.
+message PauseSessionRequest {
+  // Optional tenant ID for multi-tenancy support.
+  optional string tenant_id = 1;
+
+  // Optional session ID (uses current session if not specified).
+  string session_id = 2;
+}
+
+// PauseSessionResponse confirms the session was paused.
+message PauseSessionResponse {
+  // The paused session.
+  ReviewSession session = 1;
+}
+
+// ResumeSessionRequest resumes a paused session.
+message ResumeSessionRequest {
+  // Optional tenant ID for multi-tenancy support.
+  optional string tenant_id = 1;
+
+  // Optional session ID (uses current paused session if not specified).
+  string session_id = 2;
+}
+
+// ResumeSessionResponse confirms the session was resumed.
+message ResumeSessionResponse {
+  // The resumed session.
+  ReviewSession session = 1;
+}
+
+// EndSessionRequest ends the current session.
+message EndSessionRequest {
+  // Optional tenant ID for multi-tenancy support.
+  optional string tenant_id = 1;
+
+  // Optional session ID (uses current session if not specified).
+  string session_id = 2;
+}
+
+// EndSessionResponse confirms the session was ended and provides summary.
+message EndSessionResponse {
+  // The ended session with final statistics.
+  ReviewSession session = 1;
+
+  // Summary message for the user.
+  string summary = 2;
+}
+
+// GetCurrentSessionRequest retrieves the current session.
+message GetCurrentSessionRequest {
+  // Optional tenant ID for multi-tenancy support.
+  optional string tenant_id = 1;
+}
+
+// GetCurrentSessionResponse contains the current session if any.
+message GetCurrentSessionResponse {
+  // The current session (null if no active/paused session).
+  ReviewSession session = 1;
+
+  // Whether there is an active session.
+  bool has_session = 2;
+}
+
+// GetSessionHistoryRequest retrieves past sessions.
+message GetSessionHistoryRequest {
+  // Optional tenant ID for multi-tenancy support.
+  optional string tenant_id = 1;
+
+  // Maximum number of sessions to return (default: 10).
+  int32 limit = 2;
+
+  // Pagination offset.
+  int32 offset = 3;
+}
+
+// GetSessionHistoryResponse contains past sessions.
+message GetSessionHistoryResponse {
+  // List of past sessions, most recent first.
+  repeated ReviewSession sessions = 1;
+
+  // Total number of sessions.
+  int64 total_count = 2;
 }

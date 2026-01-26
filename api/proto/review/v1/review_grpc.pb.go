@@ -22,13 +22,19 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ReviewService_GetDailyReview_FullMethodName  = "/penfold.review.v1.ReviewService/GetDailyReview"
-	ReviewService_GetReviewItem_FullMethodName   = "/penfold.review.v1.ReviewService/GetReviewItem"
-	ReviewService_ListReviewItems_FullMethodName = "/penfold.review.v1.ReviewService/ListReviewItems"
-	ReviewService_ApproveItem_FullMethodName     = "/penfold.review.v1.ReviewService/ApproveItem"
-	ReviewService_RejectItem_FullMethodName      = "/penfold.review.v1.ReviewService/RejectItem"
-	ReviewService_UndoAction_FullMethodName      = "/penfold.review.v1.ReviewService/UndoAction"
-	ReviewService_GetReviewStats_FullMethodName  = "/penfold.review.v1.ReviewService/GetReviewStats"
+	ReviewService_GetDailyReview_FullMethodName    = "/penfold.review.v1.ReviewService/GetDailyReview"
+	ReviewService_GetReviewItem_FullMethodName     = "/penfold.review.v1.ReviewService/GetReviewItem"
+	ReviewService_ListReviewItems_FullMethodName   = "/penfold.review.v1.ReviewService/ListReviewItems"
+	ReviewService_ApproveItem_FullMethodName       = "/penfold.review.v1.ReviewService/ApproveItem"
+	ReviewService_RejectItem_FullMethodName        = "/penfold.review.v1.ReviewService/RejectItem"
+	ReviewService_UndoAction_FullMethodName        = "/penfold.review.v1.ReviewService/UndoAction"
+	ReviewService_GetReviewStats_FullMethodName    = "/penfold.review.v1.ReviewService/GetReviewStats"
+	ReviewService_StartSession_FullMethodName      = "/penfold.review.v1.ReviewService/StartSession"
+	ReviewService_PauseSession_FullMethodName      = "/penfold.review.v1.ReviewService/PauseSession"
+	ReviewService_ResumeSession_FullMethodName     = "/penfold.review.v1.ReviewService/ResumeSession"
+	ReviewService_EndSession_FullMethodName        = "/penfold.review.v1.ReviewService/EndSession"
+	ReviewService_GetCurrentSession_FullMethodName = "/penfold.review.v1.ReviewService/GetCurrentSession"
+	ReviewService_GetSessionHistory_FullMethodName = "/penfold.review.v1.ReviewService/GetSessionHistory"
 )
 
 // ReviewServiceClient is the client API for ReviewService service.
@@ -59,6 +65,20 @@ type ReviewServiceClient interface {
 	// GetReviewStats retrieves review statistics and metrics.
 	// Provides insights into review queue health and processing velocity.
 	GetReviewStats(ctx context.Context, in *GetReviewStatsRequest, opts ...grpc.CallOption) (*GetReviewStatsResponse, error)
+	// StartSession starts a new review session.
+	// Only one active session is allowed per user at a time.
+	StartSession(ctx context.Context, in *StartSessionRequest, opts ...grpc.CallOption) (*StartSessionResponse, error)
+	// PauseSession pauses the current active session.
+	// Progress is saved and can be resumed later.
+	PauseSession(ctx context.Context, in *PauseSessionRequest, opts ...grpc.CallOption) (*PauseSessionResponse, error)
+	// ResumeSession resumes a paused session.
+	ResumeSession(ctx context.Context, in *ResumeSessionRequest, opts ...grpc.CallOption) (*ResumeSessionResponse, error)
+	// EndSession ends the current session and returns a summary.
+	EndSession(ctx context.Context, in *EndSessionRequest, opts ...grpc.CallOption) (*EndSessionResponse, error)
+	// GetCurrentSession retrieves the current active or paused session.
+	GetCurrentSession(ctx context.Context, in *GetCurrentSessionRequest, opts ...grpc.CallOption) (*GetCurrentSessionResponse, error)
+	// GetSessionHistory retrieves past review sessions.
+	GetSessionHistory(ctx context.Context, in *GetSessionHistoryRequest, opts ...grpc.CallOption) (*GetSessionHistoryResponse, error)
 }
 
 type reviewServiceClient struct {
@@ -139,6 +159,66 @@ func (c *reviewServiceClient) GetReviewStats(ctx context.Context, in *GetReviewS
 	return out, nil
 }
 
+func (c *reviewServiceClient) StartSession(ctx context.Context, in *StartSessionRequest, opts ...grpc.CallOption) (*StartSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartSessionResponse)
+	err := c.cc.Invoke(ctx, ReviewService_StartSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reviewServiceClient) PauseSession(ctx context.Context, in *PauseSessionRequest, opts ...grpc.CallOption) (*PauseSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PauseSessionResponse)
+	err := c.cc.Invoke(ctx, ReviewService_PauseSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reviewServiceClient) ResumeSession(ctx context.Context, in *ResumeSessionRequest, opts ...grpc.CallOption) (*ResumeSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResumeSessionResponse)
+	err := c.cc.Invoke(ctx, ReviewService_ResumeSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reviewServiceClient) EndSession(ctx context.Context, in *EndSessionRequest, opts ...grpc.CallOption) (*EndSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EndSessionResponse)
+	err := c.cc.Invoke(ctx, ReviewService_EndSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reviewServiceClient) GetCurrentSession(ctx context.Context, in *GetCurrentSessionRequest, opts ...grpc.CallOption) (*GetCurrentSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCurrentSessionResponse)
+	err := c.cc.Invoke(ctx, ReviewService_GetCurrentSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reviewServiceClient) GetSessionHistory(ctx context.Context, in *GetSessionHistoryRequest, opts ...grpc.CallOption) (*GetSessionHistoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSessionHistoryResponse)
+	err := c.cc.Invoke(ctx, ReviewService_GetSessionHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ReviewServiceServer is the server API for ReviewService service.
 // All implementations must embed UnimplementedReviewServiceServer
 // for forward compatibility.
@@ -167,6 +247,20 @@ type ReviewServiceServer interface {
 	// GetReviewStats retrieves review statistics and metrics.
 	// Provides insights into review queue health and processing velocity.
 	GetReviewStats(context.Context, *GetReviewStatsRequest) (*GetReviewStatsResponse, error)
+	// StartSession starts a new review session.
+	// Only one active session is allowed per user at a time.
+	StartSession(context.Context, *StartSessionRequest) (*StartSessionResponse, error)
+	// PauseSession pauses the current active session.
+	// Progress is saved and can be resumed later.
+	PauseSession(context.Context, *PauseSessionRequest) (*PauseSessionResponse, error)
+	// ResumeSession resumes a paused session.
+	ResumeSession(context.Context, *ResumeSessionRequest) (*ResumeSessionResponse, error)
+	// EndSession ends the current session and returns a summary.
+	EndSession(context.Context, *EndSessionRequest) (*EndSessionResponse, error)
+	// GetCurrentSession retrieves the current active or paused session.
+	GetCurrentSession(context.Context, *GetCurrentSessionRequest) (*GetCurrentSessionResponse, error)
+	// GetSessionHistory retrieves past review sessions.
+	GetSessionHistory(context.Context, *GetSessionHistoryRequest) (*GetSessionHistoryResponse, error)
 	mustEmbedUnimplementedReviewServiceServer()
 }
 
@@ -197,6 +291,24 @@ func (UnimplementedReviewServiceServer) UndoAction(context.Context, *UndoActionR
 }
 func (UnimplementedReviewServiceServer) GetReviewStats(context.Context, *GetReviewStatsRequest) (*GetReviewStatsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetReviewStats not implemented")
+}
+func (UnimplementedReviewServiceServer) StartSession(context.Context, *StartSessionRequest) (*StartSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartSession not implemented")
+}
+func (UnimplementedReviewServiceServer) PauseSession(context.Context, *PauseSessionRequest) (*PauseSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PauseSession not implemented")
+}
+func (UnimplementedReviewServiceServer) ResumeSession(context.Context, *ResumeSessionRequest) (*ResumeSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResumeSession not implemented")
+}
+func (UnimplementedReviewServiceServer) EndSession(context.Context, *EndSessionRequest) (*EndSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EndSession not implemented")
+}
+func (UnimplementedReviewServiceServer) GetCurrentSession(context.Context, *GetCurrentSessionRequest) (*GetCurrentSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentSession not implemented")
+}
+func (UnimplementedReviewServiceServer) GetSessionHistory(context.Context, *GetSessionHistoryRequest) (*GetSessionHistoryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSessionHistory not implemented")
 }
 func (UnimplementedReviewServiceServer) mustEmbedUnimplementedReviewServiceServer() {}
 func (UnimplementedReviewServiceServer) testEmbeddedByValue()                       {}
@@ -345,6 +457,114 @@ func _ReviewService_GetReviewStats_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ReviewService_StartSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReviewServiceServer).StartSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReviewService_StartSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReviewServiceServer).StartSession(ctx, req.(*StartSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReviewService_PauseSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PauseSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReviewServiceServer).PauseSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReviewService_PauseSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReviewServiceServer).PauseSession(ctx, req.(*PauseSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReviewService_ResumeSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResumeSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReviewServiceServer).ResumeSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReviewService_ResumeSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReviewServiceServer).ResumeSession(ctx, req.(*ResumeSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReviewService_EndSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EndSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReviewServiceServer).EndSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReviewService_EndSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReviewServiceServer).EndSession(ctx, req.(*EndSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReviewService_GetCurrentSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCurrentSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReviewServiceServer).GetCurrentSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReviewService_GetCurrentSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReviewServiceServer).GetCurrentSession(ctx, req.(*GetCurrentSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReviewService_GetSessionHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSessionHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReviewServiceServer).GetSessionHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReviewService_GetSessionHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReviewServiceServer).GetSessionHistory(ctx, req.(*GetSessionHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ReviewService_ServiceDesc is the grpc.ServiceDesc for ReviewService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -379,6 +599,30 @@ var ReviewService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetReviewStats",
 			Handler:    _ReviewService_GetReviewStats_Handler,
+		},
+		{
+			MethodName: "StartSession",
+			Handler:    _ReviewService_StartSession_Handler,
+		},
+		{
+			MethodName: "PauseSession",
+			Handler:    _ReviewService_PauseSession_Handler,
+		},
+		{
+			MethodName: "ResumeSession",
+			Handler:    _ReviewService_ResumeSession_Handler,
+		},
+		{
+			MethodName: "EndSession",
+			Handler:    _ReviewService_EndSession_Handler,
+		},
+		{
+			MethodName: "GetCurrentSession",
+			Handler:    _ReviewService_GetCurrentSession_Handler,
+		},
+		{
+			MethodName: "GetSessionHistory",
+			Handler:    _ReviewService_GetSessionHistory_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
