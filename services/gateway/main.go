@@ -25,6 +25,7 @@ import (
 	mentionsv1 "github.com/otherjamesbrown/penfold/api/proto/mentions/v1"
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
+	projectv1 "github.com/otherjamesbrown/penfold/api/proto/project/v1"
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
 	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
 	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
@@ -40,6 +41,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/products"
+	"github.com/otherjamesbrown/penfold/pkg/projects"
 	"github.com/otherjamesbrown/penfold/pkg/relationships"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	"github.com/otherjamesbrown/penfold/pkg/sources"
@@ -57,6 +59,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/modelservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/pipelineservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/productservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/projectservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/questionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/relationshipservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/reviewservice"
@@ -242,6 +245,12 @@ func main() {
 	productSvc := productservice.NewService(productRepo, entityRepo, logger)
 	productv1.RegisterProductServiceServer(grpcServer, productSvc)
 	logger.Info("Registered ProductService")
+
+	// Register ProjectService for project CRUD and member management.
+	projectRepo := projects.NewRepository(dbPool, logger)
+	projectSvc := projectservice.NewService(projectRepo, entityRepo, logger)
+	projectv1.RegisterProjectServiceServer(grpcServer, projectSvc)
+	logger.Info("Registered ProjectService")
 
 	// Register IngestService for email and meeting ingestion.
 	ingestRepo := storage.NewRepository(dbPool, logger)
