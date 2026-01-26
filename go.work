@@ -15,6 +15,7 @@ use (
 	./api/proto/gmail/v1
 	./api/proto/ingest/v1
 	./api/proto/intelligence/v1
+	./api/proto/logs/v1
 	./api/proto/orchestrator/v1
 	./api/proto/processing/v1
 	./api/proto/relationship/v1

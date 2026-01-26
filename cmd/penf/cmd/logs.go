@@ -145,7 +145,7 @@ Examples:
 	}
 
 	// Define flags.
-	cmd.Flags().StringVarP(&logsService, "service", "s", "", "Filter by service (gateway, orchestrator, ai_service, etc.)")
+	cmd.Flags().StringVarP(&logsService, "service", "s", "", "Filter by service (gateway, worker, ai_service, etc.)")
 	cmd.Flags().StringVarP(&logsLevel, "level", "l", "", "Minimum log level (debug, info, warn, error)")
 	cmd.Flags().StringVar(&logsSince, "since", "15m", "Show logs since this time ago (e.g., 5m, 1h, 24h)")
 	cmd.Flags().StringVar(&logsUntil, "until", "", "Show logs until this time ago")
@@ -209,17 +209,50 @@ func runLogs(ctx context.Context, deps *LogsCommandDeps) error {
 		Limit:    logsLimit,
 	}
 
+	// Initialize gRPC client.
+	grpcClient, err := deps.InitClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	defer grpcClient.Close()
+	deps.GRPCClient = grpcClient
+
 	if logsFollow {
 		return runLogsFollow(ctx, deps, query, outputFormat)
 	}
 
-	// Get logs (mock implementation until gRPC is connected).
-	entries := getMockLogs(query)
+	// Build filter for gRPC call.
+	filter := client.LogFilter{
+		Service:  query.Service,
+		Level:    query.Level,
+		Since:    query.Since,
+		Until:    query.Until,
+		Contains: query.Contains,
+	}
+
+	// Call the logs service.
+	resp, err := grpcClient.ListLogs(ctx, filter, query.Limit, 0, false)
+	if err != nil {
+		return fmt.Errorf("fetching logs: %w", err)
+	}
+
+	// Convert client response to CLI response format.
+	entries := make([]LogEntry, len(resp.Entries))
+	for i, e := range resp.Entries {
+		entries[i] = LogEntry{
+			Timestamp: e.Timestamp,
+			Level:     LogLevel(e.Level),
+			Service:   e.Service,
+			Message:   e.Message,
+			Fields:    e.Fields,
+			TraceID:   e.TraceID,
+		}
+	}
 
 	response := LogsResponse{
 		Entries:    entries,
-		TotalCount: len(entries),
-		Truncated:  len(entries) >= logsLimit,
+		TotalCount: int(resp.TotalCount),
+		Truncated:  resp.Truncated,
 		Query:      query,
 		FetchedAt:  time.Now(),
 	}
@@ -232,175 +265,33 @@ func runLogsFollow(ctx context.Context, deps *LogsCommandDeps, query LogQuery, o
 	fmt.Println("Following logs (press Ctrl+C to stop)...")
 	fmt.Println()
 
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	lastTimestamp := time.Now()
-
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Println("\nStopped following logs.")
-			return nil
-		case <-ticker.C:
-			// Get new logs since last fetch.
-			query.Since = lastTimestamp
-			entries := getMockLogs(query)
-
-			if len(entries) > 0 {
-				for _, entry := range entries {
-					outputLogEntry(entry, logsNoColor)
-				}
-				lastTimestamp = entries[len(entries)-1].Timestamp
-			}
-		}
-	}
-}
-
-// getMockLogs returns mock log entries.
-func getMockLogs(query LogQuery) []LogEntry {
-	now := time.Now()
-
-	// Generate mock log entries.
-	entries := []LogEntry{
-		{
-			Timestamp: now.Add(-30 * time.Second),
-			Level:     LogLevelInfo,
-			Service:   "gateway",
-			Message:   "Request processed successfully",
-			Fields: map[string]string{
-				"method":   "POST",
-				"path":     "/api/v1/search",
-				"status":   "200",
-				"duration": "45ms",
-			},
-			TraceID: "trace-abc123",
-		},
-		{
-			Timestamp: now.Add(-45 * time.Second),
-			Level:     LogLevelDebug,
-			Service:   "orchestrator",
-			Message:   "Processing content item",
-			Fields: map[string]string{
-				"content_id":   "doc-001",
-				"content_type": "email",
-			},
-			TraceID: "trace-def456",
-		},
-		{
-			Timestamp: now.Add(-1 * time.Minute),
-			Level:     LogLevelWarn,
-			Service:   "ai_service",
-			Message:   "Slow model response",
-			Fields: map[string]string{
-				"model":    "llama-3.1-8b",
-				"duration": "2.5s",
-				"expected": "500ms",
-			},
-			TraceID: "trace-ghi789",
-		},
-		{
-			Timestamp: now.Add(-2 * time.Minute),
-			Level:     LogLevelError,
-			Service:   "gateway",
-			Message:   "Connection pool exhausted",
-			Fields: map[string]string{
-				"pool_size":   "100",
-				"active":      "100",
-				"waiting":     "15",
-				"retry_after": "5s",
-			},
-			TraceID: "trace-jkl012",
-		},
-		{
-			Timestamp: now.Add(-3 * time.Minute),
-			Level:     LogLevelInfo,
-			Service:   "orchestrator",
-			Message:   "Workflow completed",
-			Fields: map[string]string{
-				"workflow_id": "wf-001",
-				"type":        "ingestion",
-				"duration":    "45m",
-				"items":       "230",
-			},
-			TraceID: "trace-mno345",
-		},
-		{
-			Timestamp: now.Add(-4 * time.Minute),
-			Level:     LogLevelInfo,
-			Service:   "search",
-			Message:   "Search index updated",
-			Fields: map[string]string{
-				"documents_added":   "15",
-				"documents_updated": "3",
-				"index_size":        "1.2GB",
-			},
-			TraceID: "trace-pqr678",
-		},
-		{
-			Timestamp: now.Add(-5 * time.Minute),
-			Level:     LogLevelDebug,
-			Service:   "ai_service",
-			Message:   "Embedding batch processed",
-			Fields: map[string]string{
-				"batch_size": "50",
-				"model":      "text-embedding-3-small",
-				"duration":   "1.2s",
-			},
-			TraceID: "trace-stu901",
-		},
-		{
-			Timestamp: now.Add(-6 * time.Minute),
-			Level:     LogLevelWarn,
-			Service:   "gateway",
-			Message:   "Rate limit approaching",
-			Fields: map[string]string{
-				"tenant":    "tenant-001",
-				"limit":     "1000",
-				"current":   "950",
-				"window":    "1h",
-			},
-			TraceID: "trace-vwx234",
-		},
+	// Build filter for streaming.
+	filter := client.LogFilter{
+		Service:  query.Service,
+		Level:    query.Level,
+		Since:    time.Now(), // Start from now for follow mode
+		Contains: query.Contains,
 	}
 
-	// Apply filters.
-	var filtered []LogEntry
-	for _, entry := range entries {
-		// Filter by service.
-		if query.Service != "" && entry.Service != query.Service {
-			continue
+	// Stream logs with 1 second poll interval.
+	err := deps.GRPCClient.StreamLogs(ctx, filter, 1000, func(entry client.LogEntry) {
+		logEntry := LogEntry{
+			Timestamp: entry.Timestamp,
+			Level:     LogLevel(entry.Level),
+			Service:   entry.Service,
+			Message:   entry.Message,
+			Fields:    entry.Fields,
+			TraceID:   entry.TraceID,
 		}
+		outputLogEntry(logEntry, logsNoColor)
+	})
 
-		// Filter by level.
-		if query.Level != "" && !logLevelMatches(entry.Level, LogLevel(query.Level)) {
-			continue
-		}
-
-		// Filter by time range.
-		if !query.Since.IsZero() && entry.Timestamp.Before(query.Since) {
-			continue
-		}
-		if !query.Until.IsZero() && entry.Timestamp.After(query.Until) {
-			continue
-		}
-
-		// Filter by content.
-		if query.Contains != "" {
-			if !strings.Contains(strings.ToLower(entry.Message), strings.ToLower(query.Contains)) {
-				continue
-			}
-		}
-
-		filtered = append(filtered, entry)
-
-		// Apply limit.
-		if len(filtered) >= query.Limit {
-			break
-		}
+	if err != nil && ctx.Err() == nil {
+		return fmt.Errorf("streaming logs: %w", err)
 	}
 
-	return filtered
+	fmt.Println("\nStopped following logs.")
+	return nil
 }
 
 // logLevelMatches checks if entry level meets minimum level.

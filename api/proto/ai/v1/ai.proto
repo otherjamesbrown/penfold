@@ -67,6 +67,22 @@ service AICoordinatorService {
   // UpdateRoutingRule creates or updates a routing rule.
   // If a rule with the same name exists, it is updated; otherwise, created.
   rpc UpdateRoutingRule(UpdateRoutingRuleRequest) returns (UpdateRoutingRuleResponse);
+
+  // ---------------------------------------------------------------------------
+  // AI Operations RPCs (CLI-facing)
+  // ---------------------------------------------------------------------------
+
+  // Query performs RAG-style question answering over the knowledge base.
+  // Searches relevant content and generates an answer using an LLM.
+  rpc Query(QueryRequest) returns (QueryResponse);
+
+  // SummarizeByID generates a summary of content identified by its ID.
+  // Fetches the content and produces a summary with key points.
+  rpc SummarizeByID(SummarizeByIDRequest) returns (SummarizeByIDResponse);
+
+  // AnalyzeByID performs deep analysis on content identified by its ID.
+  // Supports sentiment, entity, topic, and action item extraction.
+  rpc AnalyzeByID(AnalyzeByIDRequest) returns (AnalyzeByIDResponse);
 }
 
 // =============================================================================
@@ -729,4 +745,257 @@ message UpdateRoutingRuleResponse {
 
   // True if a new rule was created, false if an existing rule was updated.
   bool created = 2;
+}
+
+// =============================================================================
+// AI Operations Messages (CLI-facing)
+// =============================================================================
+
+// QueryRequest contains the question for RAG-style Q&A over the knowledge base.
+message QueryRequest {
+  // The question to answer using the knowledge base.
+  string question = 1;
+
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 2;
+
+  // Maximum number of source documents to consider for context (default: 5).
+  optional int32 context_limit = 3;
+
+  // The LLM model to use for answering.
+  // If not specified, the default model will be used.
+  optional string model = 4;
+
+  // Maximum tokens in the response (default: 1000).
+  optional int32 max_tokens = 5;
+
+  // Response creativity (0.0 to 1.0, default: 0.7).
+  optional float temperature = 6;
+}
+
+// QuerySource represents a source document used to answer a query.
+message QuerySource {
+  // Unique identifier of the source document.
+  string source_id = 1;
+
+  // Title or subject of the source document.
+  string title = 2;
+
+  // Type of content: "email", "document", "meeting", etc.
+  string content_type = 3;
+
+  // Relevance score (0.0 to 1.0).
+  float relevance = 4;
+
+  // Snippet showing relevant content.
+  optional string snippet = 5;
+}
+
+// QueryResponse contains the answer and its sources.
+message QueryResponse {
+  // Unique identifier for this query response.
+  string response_id = 1;
+
+  // The generated answer to the question.
+  string answer = 2;
+
+  // Source documents that informed the answer.
+  repeated QuerySource sources = 3;
+
+  // The model that was used to generate the answer.
+  string model_used = 4;
+
+  // Token count of the input (question + context).
+  optional int32 input_tokens = 5;
+
+  // Token count of the generated answer.
+  optional int32 output_tokens = 6;
+
+  // Query execution time in milliseconds.
+  optional double latency_ms = 7;
+}
+
+// SummarizeByIDRequest requests a summary of content by its ID.
+message SummarizeByIDRequest {
+  // The content ID to summarize.
+  string content_id = 1;
+
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 2;
+
+  // Summary length: "brief", "standard", or "detailed" (default: "standard").
+  optional string length = 3;
+
+  // The LLM model to use for summarization.
+  // If not specified, the default model will be used.
+  optional string model = 4;
+}
+
+// SummarizeByIDResponse contains the generated summary.
+message SummarizeByIDResponse {
+  // Unique identifier for this summary response.
+  string response_id = 1;
+
+  // The content ID that was summarized.
+  string content_id = 2;
+
+  // The generated summary.
+  string summary = 3;
+
+  // Key points extracted from the content.
+  repeated string key_points = 4;
+
+  // The model that was used to generate the summary.
+  string model_used = 5;
+
+  // Content type of the summarized content.
+  string content_type = 6;
+
+  // Token count of the input content.
+  optional int32 input_tokens = 7;
+
+  // Token count of the generated summary.
+  optional int32 output_tokens = 8;
+
+  // Execution time in milliseconds.
+  optional double latency_ms = 9;
+}
+
+// AnalysisType specifies the type of analysis to perform.
+enum AnalysisType {
+  // Unspecified - performs full analysis.
+  ANALYSIS_TYPE_UNSPECIFIED = 0;
+
+  // Analyze emotional tone and sentiment.
+  ANALYSIS_TYPE_SENTIMENT = 1;
+
+  // Extract key entities (people, places, organizations).
+  ANALYSIS_TYPE_ENTITIES = 2;
+
+  // Identify main topics and themes.
+  ANALYSIS_TYPE_TOPICS = 3;
+
+  // Extract action items and tasks.
+  ANALYSIS_TYPE_ACTION = 4;
+
+  // Comprehensive analysis (all of the above).
+  ANALYSIS_TYPE_FULL = 5;
+}
+
+// AnalyzeByIDRequest requests deep analysis of content by its ID.
+message AnalyzeByIDRequest {
+  // The content ID to analyze.
+  string content_id = 1;
+
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 2;
+
+  // Type of analysis to perform (default: FULL).
+  AnalysisType analysis_type = 3;
+
+  // The LLM model to use for analysis.
+  // If not specified, the default model will be used.
+  optional string model = 4;
+}
+
+// SentimentResult contains sentiment analysis results.
+message SentimentResult {
+  // Overall sentiment score (-1.0 negative to 1.0 positive).
+  float score = 1;
+
+  // Sentiment label: "positive", "negative", "neutral", "mixed".
+  string label = 2;
+
+  // Confidence in the sentiment analysis (0.0 to 1.0).
+  float confidence = 3;
+
+  // Key sentiment indicators found in the content.
+  repeated string indicators = 4;
+}
+
+// ExtractedEntity represents an entity found in content.
+message ExtractedEntity {
+  // Name of the entity.
+  string name = 1;
+
+  // Type of entity: "person", "organization", "location", "date", "project".
+  string entity_type = 2;
+
+  // Number of times this entity appears.
+  int32 mention_count = 3;
+
+  // Role or context of the entity (if known).
+  optional string role = 4;
+}
+
+// TopicResult represents a topic identified in content.
+message TopicResult {
+  // Topic name or label.
+  string topic = 1;
+
+  // Confidence score (0.0 to 1.0).
+  float confidence = 2;
+
+  // Keywords associated with this topic.
+  repeated string keywords = 3;
+}
+
+// ActionItem represents an action item extracted from content.
+message ActionItem {
+  // Description of the action item.
+  string description = 1;
+
+  // Priority: "high", "medium", "low".
+  optional string priority = 2;
+
+  // Assigned person (if mentioned).
+  optional string assignee = 3;
+
+  // Due date (if mentioned).
+  optional string due_date = 4;
+}
+
+// AnalyzeByIDResponse contains the analysis results.
+message AnalyzeByIDResponse {
+  // Unique identifier for this analysis response.
+  string response_id = 1;
+
+  // The content ID that was analyzed.
+  string content_id = 2;
+
+  // Type of analysis performed.
+  AnalysisType analysis_type = 3;
+
+  // Content type of the analyzed content.
+  string content_type = 4;
+
+  // Brief summary of the content (always included).
+  string summary = 5;
+
+  // Sentiment analysis results (if requested or full analysis).
+  optional SentimentResult sentiment = 6;
+
+  // Extracted entities (if requested or full analysis).
+  repeated ExtractedEntity entities = 7;
+
+  // Identified topics (if requested or full analysis).
+  repeated TopicResult topics = 8;
+
+  // Extracted action items (if requested or full analysis).
+  repeated ActionItem action_items = 9;
+
+  // Additional insights or recommendations.
+  repeated string insights = 10;
+
+  // The model that was used for analysis.
+  string model_used = 11;
+
+  // Token count of the input content.
+  optional int32 input_tokens = 12;
+
+  // Token count of the analysis output.
+  optional int32 output_tokens = 13;
+
+  // Execution time in milliseconds.
+  optional double latency_ms = 14;
 }

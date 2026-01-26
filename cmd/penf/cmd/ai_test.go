@@ -134,7 +134,7 @@ func TestAICommand_AnalyzeSubcommand(t *testing.T) {
 	}
 }
 
-func TestRunAIQuery(t *testing.T) {
+func TestRunAIQuery_ConnectionRequired(t *testing.T) {
 	cfg := mockAIConfig()
 	deps := createAITestDeps(cfg)
 
@@ -151,26 +151,15 @@ func TestRunAIQuery(t *testing.T) {
 		aiModel = oldModel
 	}()
 
-	// Capture stdout.
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
 	ctx := context.Background()
 	err := runAIQuery(ctx, deps, "What are the Q4 objectives?")
 
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	output := buf.String()
-
-	assert.NoError(t, err)
-	assert.Contains(t, output, "AI Query")
+	// Without a running server, we expect a connection error.
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "connecting to AI service")
 }
 
-func TestRunAIQuery_JSONOutput(t *testing.T) {
+func TestRunAIQuery_OutputFormatParsing(t *testing.T) {
 	cfg := mockAIConfig()
 	deps := createAITestDeps(cfg)
 
@@ -184,29 +173,12 @@ func TestRunAIQuery_JSONOutput(t *testing.T) {
 		aiVerbose = oldVerbose
 	}()
 
-	// Capture stdout.
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
 	ctx := context.Background()
 	err := runAIQuery(ctx, deps, "What are the Q4 objectives?")
 
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	output := buf.String()
-
-	assert.NoError(t, err)
-
-	// Verify valid JSON.
-	var response AIResponse
-	err = json.Unmarshal([]byte(output), &response)
-	assert.NoError(t, err)
-	assert.Equal(t, "query", response.Operation)
-	assert.Contains(t, response.Query, "Q4 objectives")
+	// Without a running server, we expect a connection error (not a format error).
+	assert.Error(t, err)
+	assert.NotContains(t, err.Error(), "invalid output format")
 }
 
 func TestRunAIQuery_InvalidOutputFormat(t *testing.T) {
@@ -227,7 +199,7 @@ func TestRunAIQuery_InvalidOutputFormat(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid output format")
 }
 
-func TestRunAISummarize(t *testing.T) {
+func TestRunAISummarize_ConnectionRequired(t *testing.T) {
 	cfg := mockAIConfig()
 	deps := createAITestDeps(cfg)
 
@@ -241,24 +213,12 @@ func TestRunAISummarize(t *testing.T) {
 		aiVerbose = oldVerbose
 	}()
 
-	// Capture stdout.
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
 	ctx := context.Background()
 	err := runAISummarize(ctx, deps, "doc-123", "standard")
 
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	output := buf.String()
-
-	assert.NoError(t, err)
-	assert.Contains(t, output, "AI Summarize")
-	assert.Contains(t, output, "doc-123")
+	// Without a running server, we expect a connection error.
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "connecting to AI service")
 }
 
 func TestRunAISummarize_InvalidLength(t *testing.T) {
@@ -279,11 +239,11 @@ func TestRunAISummarize_InvalidLength(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid summary length")
 }
 
-func TestRunAISummarize_AllLengths(t *testing.T) {
+func TestRunAISummarize_AllLengthsValidation(t *testing.T) {
 	lengths := []string{"brief", "standard", "detailed"}
 
 	for _, length := range lengths {
-		t.Run(length, func(t *testing.T) {
+		t.Run(length+"_validation", func(t *testing.T) {
 			cfg := mockAIConfig()
 			deps := createAITestDeps(cfg)
 
@@ -293,23 +253,18 @@ func TestRunAISummarize_AllLengths(t *testing.T) {
 				aiOutput = oldOutput
 			}()
 
-			// Capture stdout.
-			oldStdout := os.Stdout
-			_, w, _ := os.Pipe()
-			os.Stdout = w
-
 			ctx := context.Background()
 			err := runAISummarize(ctx, deps, "doc-123", length)
 
-			w.Close()
-			os.Stdout = oldStdout
-
-			assert.NoError(t, err)
+			// Without a running server, we expect a connection error, not validation error.
+			if err != nil {
+				assert.NotContains(t, err.Error(), "invalid summary length")
+			}
 		})
 	}
 }
 
-func TestRunAIAnalyze(t *testing.T) {
+func TestRunAIAnalyze_ConnectionRequired(t *testing.T) {
 	cfg := mockAIConfig()
 	deps := createAITestDeps(cfg)
 
@@ -323,24 +278,12 @@ func TestRunAIAnalyze(t *testing.T) {
 		aiVerbose = oldVerbose
 	}()
 
-	// Capture stdout.
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
 	ctx := context.Background()
 	err := runAIAnalyze(ctx, deps, "doc-123", "full")
 
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	output := buf.String()
-
-	assert.NoError(t, err)
-	assert.Contains(t, output, "AI Analyze")
-	assert.Contains(t, output, "doc-123")
+	// Without a running server, we expect a connection error.
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "connecting to AI service")
 }
 
 func TestRunAIAnalyze_InvalidType(t *testing.T) {
@@ -364,7 +307,7 @@ func TestRunAIAnalyze_AllTypes(t *testing.T) {
 	analysisTypes := []string{"sentiment", "entities", "topics", "action", "full"}
 
 	for _, analysisType := range analysisTypes {
-		t.Run(analysisType, func(t *testing.T) {
+		t.Run(analysisType+"_validation", func(t *testing.T) {
 			cfg := mockAIConfig()
 			deps := createAITestDeps(cfg)
 
@@ -374,56 +317,81 @@ func TestRunAIAnalyze_AllTypes(t *testing.T) {
 				aiOutput = oldOutput
 			}()
 
-			// Capture stdout.
-			oldStdout := os.Stdout
-			_, w, _ := os.Pipe()
-			os.Stdout = w
-
+			// Test that the analysis type is valid (runAIAnalyze validates before connecting).
+			// We can't test full execution without a running server, but we can test validation.
 			ctx := context.Background()
 			err := runAIAnalyze(ctx, deps, "doc-123", analysisType)
 
-			w.Close()
-			os.Stdout = oldStdout
-
-			assert.NoError(t, err)
+			// Expect connection error since no server is running, but not validation error.
+			if err != nil {
+				assert.NotContains(t, err.Error(), "invalid analysis type")
+			}
 		})
 	}
 }
 
-func TestExecuteAIQuery(t *testing.T) {
-	response := executeAIQuery("test question", "", 1000, 5)
+// Note: Tests for executeAIQuery, executeAISummarize, executeAIAnalyze have been removed
+// because these mock functions were replaced with real gRPC calls. Integration tests
+// should be used to test the actual gRPC endpoints.
 
-	assert.NotNil(t, response)
-	assert.Equal(t, "query", response.Operation)
-	assert.Equal(t, "test question", response.Query)
-	assert.Equal(t, "llama-3.1-8b", response.Model) // Default model.
-	assert.NotEmpty(t, response.Response)
-	assert.True(t, response.TokensUsed > 0)
+func TestFormatAnalysisResponse_FullAnalysis(t *testing.T) {
+	resp := &client.AnalyzeResponse{
+		ResponseID:   "test-id",
+		ContentID:    "doc-123",
+		AnalysisType: "ANALYSIS_TYPE_FULL",
+		ContentType:  "document",
+		Summary:      "Test summary of the document.",
+		Sentiment: &client.SentimentResult{
+			Score:      0.72,
+			Label:      "positive",
+			Confidence: 0.85,
+			Indicators: []string{"excellent", "on track"},
+		},
+		Entities: []client.ExtractedEntity{
+			{Name: "Alice", EntityType: "person", MentionCount: 3, Role: "Lead"},
+			{Name: "Acme Corp", EntityType: "organization", MentionCount: 2},
+		},
+		Topics: []client.TopicResult{
+			{Topic: "Architecture", Confidence: 0.9, Keywords: []string{"API", "design"}},
+		},
+		ActionItems: []client.ActionItem{
+			{Description: "Complete review", Priority: "high", Assignee: "Bob", DueDate: "2024-10-25"},
+		},
+		Insights: []string{"Good progress overall", "Consider adding more tests"},
+		ModelUsed: "llama-3.1-8b",
+	}
+
+	result := formatAnalysisResponse(resp, "full")
+
+	assert.Contains(t, result, "Summary")
+	assert.Contains(t, result, "Test summary")
+	assert.Contains(t, result, "Sentiment Analysis")
+	assert.Contains(t, result, "positive")
+	assert.Contains(t, result, "Entities Extracted")
+	assert.Contains(t, result, "Alice")
+	assert.Contains(t, result, "Topics Identified")
+	assert.Contains(t, result, "Architecture")
+	assert.Contains(t, result, "Action Items")
+	assert.Contains(t, result, "Complete review")
+	assert.Contains(t, result, "Insights")
 }
 
-func TestExecuteAIQuery_WithCustomModel(t *testing.T) {
-	response := executeAIQuery("test question", "gpt-4", 1000, 5)
+func TestFormatAnalysisResponse_SentimentOnly(t *testing.T) {
+	resp := &client.AnalyzeResponse{
+		Summary: "Test summary.",
+		Sentiment: &client.SentimentResult{
+			Score:      -0.5,
+			Label:      "negative",
+			Confidence: 0.9,
+		},
+	}
 
-	assert.NotNil(t, response)
-	assert.Equal(t, "gpt-4", response.Model)
-}
+	result := formatAnalysisResponse(resp, "sentiment")
 
-func TestExecuteAISummarize(t *testing.T) {
-	response := executeAISummarize("doc-123", "standard", "")
-
-	assert.NotNil(t, response)
-	assert.Equal(t, "summarize", response.Operation)
-	assert.Equal(t, "doc-123", response.ContentID)
-	assert.NotEmpty(t, response.Response)
-}
-
-func TestExecuteAIAnalyze(t *testing.T) {
-	response := executeAIAnalyze("doc-123", "full", "")
-
-	assert.NotNil(t, response)
-	assert.Equal(t, "analyze", response.Operation)
-	assert.Equal(t, "doc-123", response.ContentID)
-	assert.NotEmpty(t, response.Response)
+	assert.Contains(t, result, "Sentiment Analysis")
+	assert.Contains(t, result, "negative")
+	assert.NotContains(t, result, "Entities")
+	assert.NotContains(t, result, "Topics")
 }
 
 func TestOutputAIResponse_JSON(t *testing.T) {

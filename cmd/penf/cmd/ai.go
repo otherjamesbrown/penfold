@@ -261,11 +261,57 @@ func runAIQuery(ctx context.Context, deps *AICommandDeps, question string) error
 		}
 	}
 
-	// Execute query (mock implementation until gRPC is connected).
-	startTime := time.Now()
-	response := executeAIQuery(question, aiModel, aiMaxTokens, aiContext)
-	response.LatencyMs = float64(time.Since(startTime).Milliseconds())
-	response.CompletedAt = time.Now()
+	// Connect to AI service via gateway.
+	aiClient := client.NewAIClient(cfg.ServerAddress, &client.ClientOptions{
+		Insecure:       cfg.Insecure,
+		Debug:          cfg.Debug,
+		ConnectTimeout: cfg.Timeout,
+		TenantID:       cfg.TenantID,
+	})
+
+	if err := aiClient.Connect(ctx); err != nil {
+		return fmt.Errorf("connecting to AI service: %w", err)
+	}
+	defer aiClient.Close()
+
+	// Execute query via gRPC.
+	queryResp, err := aiClient.Query(ctx, &client.QueryRequest{
+		Question:     question,
+		TenantID:     cfg.TenantID,
+		ContextLimit: int32(aiContext),
+		Model:        aiModel,
+		MaxTokens:    int32(aiMaxTokens),
+		Temperature:  float32(aiTemperature),
+	})
+	if err != nil {
+		return fmt.Errorf("AI query failed: %w", err)
+	}
+
+	// Convert to response format.
+	response := &AIResponse{
+		ID:          queryResp.ResponseID,
+		Operation:   "query",
+		Query:       question,
+		Response:    queryResp.Answer,
+		Model:       queryResp.ModelUsed,
+		TokensUsed:  int(queryResp.InputTokens + queryResp.OutputTokens),
+		LatencyMs:   queryResp.LatencyMs,
+		CompletedAt: time.Now(),
+		Metadata: map[string]string{
+			"context_docs": fmt.Sprintf("%d", aiContext),
+			"max_tokens":   fmt.Sprintf("%d", aiMaxTokens),
+		},
+	}
+
+	// Convert sources.
+	for _, src := range queryResp.Sources {
+		response.Sources = append(response.Sources, AISource{
+			ID:          src.SourceID,
+			Title:       src.Title,
+			ContentType: src.ContentType,
+			Relevance:   float64(src.Relevance),
+		})
+	}
 
 	return outputAIResponse(outputFormat, response, aiVerbose)
 }
@@ -293,11 +339,54 @@ func runAISummarize(ctx context.Context, deps *AICommandDeps, contentID, length 
 		}
 	}
 
-	// Execute summarize (mock implementation until gRPC is connected).
-	startTime := time.Now()
-	response := executeAISummarize(contentID, length, aiModel)
-	response.LatencyMs = float64(time.Since(startTime).Milliseconds())
-	response.CompletedAt = time.Now()
+	// Connect to AI service via gateway.
+	aiClient := client.NewAIClient(cfg.ServerAddress, &client.ClientOptions{
+		Insecure:       cfg.Insecure,
+		Debug:          cfg.Debug,
+		ConnectTimeout: cfg.Timeout,
+		TenantID:       cfg.TenantID,
+	})
+
+	if err := aiClient.Connect(ctx); err != nil {
+		return fmt.Errorf("connecting to AI service: %w", err)
+	}
+	defer aiClient.Close()
+
+	// Execute summarize via gRPC.
+	summaryResp, err := aiClient.Summarize(ctx, &client.SummarizeRequest{
+		ContentID: contentID,
+		TenantID:  cfg.TenantID,
+		Length:    length,
+		Model:     aiModel,
+	})
+	if err != nil {
+		return fmt.Errorf("AI summarize failed: %w", err)
+	}
+
+	// Build response text with key points if available.
+	responseText := summaryResp.Summary
+	if len(summaryResp.KeyPoints) > 0 {
+		responseText += "\n\n**Key Points:**\n"
+		for _, point := range summaryResp.KeyPoints {
+			responseText += fmt.Sprintf("- %s\n", point)
+		}
+	}
+
+	// Convert to response format.
+	response := &AIResponse{
+		ID:          summaryResp.ResponseID,
+		Operation:   "summarize",
+		ContentID:   contentID,
+		Response:    responseText,
+		Model:       summaryResp.ModelUsed,
+		TokensUsed:  int(summaryResp.InputTokens + summaryResp.OutputTokens),
+		LatencyMs:   summaryResp.LatencyMs,
+		CompletedAt: time.Now(),
+		Metadata: map[string]string{
+			"length":       length,
+			"content_type": summaryResp.ContentType,
+		},
+	}
 
 	return outputAIResponse(outputFormat, response, aiVerbose)
 }
@@ -331,286 +420,135 @@ func runAIAnalyze(ctx context.Context, deps *AICommandDeps, contentID, analysisT
 		}
 	}
 
-	// Execute analyze (mock implementation until gRPC is connected).
-	startTime := time.Now()
-	response := executeAIAnalyze(contentID, analysisType, aiModel)
-	response.LatencyMs = float64(time.Since(startTime).Milliseconds())
-	response.CompletedAt = time.Now()
+	// Connect to AI service via gateway.
+	aiClient := client.NewAIClient(cfg.ServerAddress, &client.ClientOptions{
+		Insecure:       cfg.Insecure,
+		Debug:          cfg.Debug,
+		ConnectTimeout: cfg.Timeout,
+		TenantID:       cfg.TenantID,
+	})
+
+	if err := aiClient.Connect(ctx); err != nil {
+		return fmt.Errorf("connecting to AI service: %w", err)
+	}
+	defer aiClient.Close()
+
+	// Execute analyze via gRPC.
+	analyzeResp, err := aiClient.Analyze(ctx, &client.AnalyzeRequest{
+		ContentID:    contentID,
+		TenantID:     cfg.TenantID,
+		AnalysisType: analysisType,
+		Model:        aiModel,
+	})
+	if err != nil {
+		return fmt.Errorf("AI analyze failed: %w", err)
+	}
+
+	// Build response text from analysis results.
+	responseText := formatAnalysisResponse(analyzeResp, analysisType)
+
+	// Convert to response format.
+	response := &AIResponse{
+		ID:          analyzeResp.ResponseID,
+		Operation:   "analyze",
+		ContentID:   contentID,
+		Response:    responseText,
+		Model:       analyzeResp.ModelUsed,
+		TokensUsed:  int(analyzeResp.InputTokens + analyzeResp.OutputTokens),
+		LatencyMs:   analyzeResp.LatencyMs,
+		CompletedAt: time.Now(),
+		Metadata: map[string]string{
+			"analysis_type": analysisType,
+			"content_type":  analyzeResp.ContentType,
+		},
+	}
 
 	return outputAIResponse(outputFormat, response, aiVerbose)
 }
 
-// executeAIQuery performs the AI query (mock implementation).
-func executeAIQuery(question, model string, maxTokens, contextDocs int) *AIResponse {
-	// STUB: Returns mock data until AI service gRPC is connected.
-	if model == "" {
-		model = "llama-3.1-8b"
+// formatAnalysisResponse formats the analysis response for display.
+func formatAnalysisResponse(resp *client.AnalyzeResponse, analysisType string) string {
+	var sb strings.Builder
+
+	// Always include summary
+	sb.WriteString("**Summary**\n")
+	sb.WriteString(resp.Summary)
+	sb.WriteString("\n\n")
+
+	// Include sentiment if available and relevant.
+	if resp.Sentiment != nil && (analysisType == "sentiment" || analysisType == "full") {
+		sb.WriteString("**Sentiment Analysis**\n")
+		sb.WriteString(fmt.Sprintf("Overall Sentiment: %s (%.2f)\n", resp.Sentiment.Label, resp.Sentiment.Score))
+		sb.WriteString(fmt.Sprintf("Confidence: %.0f%%\n", resp.Sentiment.Confidence*100))
+		if len(resp.Sentiment.Indicators) > 0 {
+			sb.WriteString("Key indicators: ")
+			sb.WriteString(strings.Join(resp.Sentiment.Indicators, ", "))
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
 	}
 
-	return &AIResponse{
-		ID:        fmt.Sprintf("query-%d", time.Now().UnixNano()),
-		Operation: "query",
-		Query:     question,
-		Response: `Based on your knowledge base, here's what I found:
-
-The Q4 objectives focus on three main areas:
-1. **Infrastructure Modernization** - Completing the API Gateway migration and improving system reliability
-2. **User Engagement** - Launching the new search interface and implementing daily review features
-3. **Data Quality** - Improving entity extraction accuracy and relationship discovery
-
-Key milestones include:
-- API Gateway go-live by end of October
-- Search interface v2 launch in November
-- Quarterly review completion by December 15th
-
-Sources indicate strong alignment across teams, with the engineering team prioritizing the infrastructure work while product focuses on user-facing improvements.
-
-(Note: This is mock data. Connect to the AI service for real responses.)`,
-		Model:      model,
-		TokensUsed: 245,
-		Sources: []AISource{
-			{
-				ID:          "doc-q4-planning",
-				Title:       "Q4 Planning Document",
-				ContentType: "document",
-				Relevance:   0.95,
-			},
-			{
-				ID:          "meeting-strategy-review",
-				Title:       "Strategy Review Meeting Notes",
-				ContentType: "meeting",
-				Relevance:   0.87,
-			},
-			{
-				ID:          "email-objectives-thread",
-				Title:       "Re: Q4 Objectives Discussion",
-				ContentType: "email",
-				Relevance:   0.82,
-			},
-		},
-		Metadata: map[string]string{
-			"context_docs": fmt.Sprintf("%d", contextDocs),
-			"max_tokens":   fmt.Sprintf("%d", maxTokens),
-		},
-	}
-}
-
-// executeAISummarize performs the AI summarize (mock implementation).
-func executeAISummarize(contentID, length, model string) *AIResponse {
-	// STUB: Returns mock data until AI service gRPC is connected.
-	if model == "" {
-		model = "llama-3.1-8b"
+	// Include entities if available and relevant.
+	if len(resp.Entities) > 0 && (analysisType == "entities" || analysisType == "full") {
+		sb.WriteString("**Entities Extracted**\n")
+		// Group by type.
+		byType := make(map[string][]client.ExtractedEntity)
+		for _, e := range resp.Entities {
+			byType[e.EntityType] = append(byType[e.EntityType], e)
+		}
+		for entityType, entities := range byType {
+			sb.WriteString(fmt.Sprintf("\n%s (%d found):\n", strings.Title(entityType), len(entities)))
+			for _, e := range entities {
+				if e.Role != "" {
+					sb.WriteString(fmt.Sprintf("  - %s (%s)\n", e.Name, e.Role))
+				} else {
+					sb.WriteString(fmt.Sprintf("  - %s\n", e.Name))
+				}
+			}
+		}
+		sb.WriteString("\n")
 	}
 
-	var summary string
-	switch length {
-	case "brief":
-		summary = `**Brief Summary**
-
-This document outlines the technical specifications for the new API Gateway. Key points include:
-- RESTful API design with gRPC backend
-- Multi-tenant authentication support
-- Rate limiting and quota management
-
-(Note: This is mock data. Connect to the AI service for real responses.)`
-	case "detailed":
-		summary = `**Detailed Summary**
-
-This comprehensive document provides the technical blueprint for the new API Gateway implementation.
-
-**Architecture Overview**
-The gateway follows a layered architecture with clear separation between:
-- Public API layer (REST/GraphQL)
-- Service mesh integration
-- Backend gRPC services
-
-**Authentication & Authorization**
-Multi-tenant support is achieved through:
-- JWT-based authentication with tenant claims
-- Role-based access control (RBAC)
-- API key management for service-to-service communication
-
-**Performance Considerations**
-- Connection pooling for database connections
-- Redis caching layer for frequently accessed data
-- Circuit breaker patterns for resilience
-
-**Deployment Strategy**
-- Kubernetes-native deployment
-- Horizontal pod autoscaling
-- Blue-green deployment support
-
-(Note: This is mock data. Connect to the AI service for real responses.)`
-	default:
-		summary = `**Summary**
-
-This document describes the API Gateway technical design, covering:
-
-1. **Architecture**: Layered design with REST/GraphQL public APIs backed by gRPC services
-2. **Security**: JWT authentication with multi-tenant support and RBAC
-3. **Performance**: Connection pooling, Redis caching, and circuit breakers
-4. **Operations**: Kubernetes deployment with autoscaling capabilities
-
-The gateway serves as the unified entry point for all external API access, consolidating multiple backend services into a cohesive API surface.
-
-(Note: This is mock data. Connect to the AI service for real responses.)`
+	// Include topics if available and relevant.
+	if len(resp.Topics) > 0 && (analysisType == "topics" || analysisType == "full") {
+		sb.WriteString("**Topics Identified**\n")
+		for _, t := range resp.Topics {
+			sb.WriteString(fmt.Sprintf("  - %s (%.0f%% confidence)\n", t.Topic, t.Confidence*100))
+			if len(t.Keywords) > 0 {
+				sb.WriteString(fmt.Sprintf("    Keywords: %s\n", strings.Join(t.Keywords, ", ")))
+			}
+		}
+		sb.WriteString("\n")
 	}
 
-	return &AIResponse{
-		ID:         fmt.Sprintf("summary-%d", time.Now().UnixNano()),
-		Operation:  "summarize",
-		ContentID:  contentID,
-		Response:   summary,
-		Model:      model,
-		TokensUsed: 180,
-		Metadata: map[string]string{
-			"length":       length,
-			"content_type": "document",
-		},
-	}
-}
-
-// executeAIAnalyze performs the AI analyze (mock implementation).
-func executeAIAnalyze(contentID, analysisType, model string) *AIResponse {
-	// STUB: Returns mock data until AI service gRPC is connected.
-	if model == "" {
-		model = "llama-3.1-8b"
+	// Include action items if available and relevant.
+	if len(resp.ActionItems) > 0 && (analysisType == "action" || analysisType == "full") {
+		sb.WriteString("**Action Items**\n")
+		for i, a := range resp.ActionItems {
+			priority := a.Priority
+			if priority == "" {
+				priority = "medium"
+			}
+			sb.WriteString(fmt.Sprintf("  %d. [%s] %s\n", i+1, strings.ToUpper(priority), a.Description))
+			if a.Assignee != "" {
+				sb.WriteString(fmt.Sprintf("     Assignee: %s\n", a.Assignee))
+			}
+			if a.DueDate != "" {
+				sb.WriteString(fmt.Sprintf("     Due: %s\n", a.DueDate))
+			}
+		}
+		sb.WriteString("\n")
 	}
 
-	var analysis string
-	switch analysisType {
-	case "sentiment":
-		analysis = `**Sentiment Analysis**
-
-Overall Sentiment: **Positive** (0.72)
-
-Breakdown:
-- Professional tone: 85%
-- Confidence level: High
-- Urgency indicators: Low
-
-Key sentiment markers:
-- Positive: "excellent progress", "strong alignment", "on track"
-- Neutral: "scheduled", "planned", "outlined"
-- Concerns: "timeline risks" (minor)
-
-(Note: This is mock data. Connect to the AI service for real responses.)`
-	case "entities":
-		analysis = `**Entity Extraction**
-
-**People** (5 found):
-- Alice Johnson (Engineering Lead)
-- Bob Smith (Product Manager)
-- Carol Williams (mentioned 3 times)
-- David Chen (stakeholder)
-- Eve Martinez (reviewer)
-
-**Organizations** (2 found):
-- Acme Corporation (client)
-- TechPartners Inc (vendor)
-
-**Projects/Products** (3 found):
-- API Gateway v2
-- Project Alpha
-- Q4 Initiative
-
-**Dates/Deadlines** (4 found):
-- October 31, 2024 (milestone)
-- November 15, 2024 (review)
-- December 1, 2024 (launch)
-- Q4 2024 (general)
-
-(Note: This is mock data. Connect to the AI service for real responses.)`
-	case "topics":
-		analysis = `**Topic Analysis**
-
-**Primary Topics**:
-1. Technical Architecture (35%)
-   - API design, system integration, performance
-2. Project Management (28%)
-   - Timelines, milestones, resource allocation
-3. Security (20%)
-   - Authentication, authorization, compliance
-
-**Secondary Topics**:
-4. Team Coordination (10%)
-5. Documentation (7%)
-
-**Topic Relationships**:
-- Architecture <-> Security: Strong connection
-- Project Management <-> Team: Moderate connection
-
-(Note: This is mock data. Connect to the AI service for real responses.)`
-	case "action":
-		analysis = `**Action Items Extracted**
-
-**High Priority**:
-1. [ ] Complete API Gateway security review by Oct 25
-   - Owner: Alice Johnson
-   - Due: 2024-10-25
-
-2. [ ] Update deployment documentation
-   - Owner: Bob Smith
-   - Due: 2024-10-28
-
-**Medium Priority**:
-3. [ ] Schedule stakeholder demo
-   - Owner: Carol Williams
-   - Due: 2024-11-01
-
-4. [ ] Review and approve budget allocation
-   - Owner: David Chen
-   - Due: 2024-11-05
-
-**Follow-ups**:
-5. [ ] Sync with TechPartners on integration timeline
-6. [ ] Update project board with new milestones
-
-(Note: This is mock data. Connect to the AI service for real responses.)`
-	default: // full
-		analysis = `**Comprehensive Analysis**
-
-## Summary
-Technical design document for the API Gateway migration project. The document outlines architecture decisions, security requirements, and deployment strategy.
-
-## Sentiment: Positive (0.72)
-Professional and confident tone with clear direction. Minor concerns noted around timeline.
-
-## Key Entities
-- **People**: Alice Johnson (Lead), Bob Smith (PM), 3 others
-- **Organizations**: Acme Corp, TechPartners Inc
-- **Projects**: API Gateway v2, Project Alpha
-
-## Main Topics
-1. Technical Architecture (35%)
-2. Project Management (28%)
-3. Security (20%)
-
-## Action Items (6 found)
-- 2 High Priority (due within 2 weeks)
-- 2 Medium Priority
-- 2 Follow-ups
-
-## Recommendations
-1. Clarify timeline risks mentioned in section 4.2
-2. Add success metrics for the security review
-3. Consider documenting rollback procedures
-
-(Note: This is mock data. Connect to the AI service for real responses.)`
+	// Include insights if available.
+	if len(resp.Insights) > 0 {
+		sb.WriteString("**Insights & Recommendations**\n")
+		for _, insight := range resp.Insights {
+			sb.WriteString(fmt.Sprintf("  - %s\n", insight))
+		}
 	}
 
-	return &AIResponse{
-		ID:         fmt.Sprintf("analysis-%d", time.Now().UnixNano()),
-		Operation:  "analyze",
-		ContentID:  contentID,
-		Response:   analysis,
-		Model:      model,
-		TokensUsed: 320,
-		Metadata: map[string]string{
-			"analysis_type": analysisType,
-			"content_type":  "document",
-		},
-	}
+	return sb.String()
 }
 
 // outputAIResponse formats and outputs the AI response.

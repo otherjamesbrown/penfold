@@ -34,6 +34,9 @@ const (
 	AICoordinatorService_DeleteModel_FullMethodName       = "/penfold.ai.v1.AICoordinatorService/DeleteModel"
 	AICoordinatorService_GetRoutingRules_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/GetRoutingRules"
 	AICoordinatorService_UpdateRoutingRule_FullMethodName = "/penfold.ai.v1.AICoordinatorService/UpdateRoutingRule"
+	AICoordinatorService_Query_FullMethodName             = "/penfold.ai.v1.AICoordinatorService/Query"
+	AICoordinatorService_SummarizeByID_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/SummarizeByID"
+	AICoordinatorService_AnalyzeByID_FullMethodName       = "/penfold.ai.v1.AICoordinatorService/AnalyzeByID"
 )
 
 // AICoordinatorServiceClient is the client API for AICoordinatorService service.
@@ -77,6 +80,15 @@ type AICoordinatorServiceClient interface {
 	// UpdateRoutingRule creates or updates a routing rule.
 	// If a rule with the same name exists, it is updated; otherwise, created.
 	UpdateRoutingRule(ctx context.Context, in *UpdateRoutingRuleRequest, opts ...grpc.CallOption) (*UpdateRoutingRuleResponse, error)
+	// Query performs RAG-style question answering over the knowledge base.
+	// Searches relevant content and generates an answer using an LLM.
+	Query(ctx context.Context, in *QueryRequest, opts ...grpc.CallOption) (*QueryResponse, error)
+	// SummarizeByID generates a summary of content identified by its ID.
+	// Fetches the content and produces a summary with key points.
+	SummarizeByID(ctx context.Context, in *SummarizeByIDRequest, opts ...grpc.CallOption) (*SummarizeByIDResponse, error)
+	// AnalyzeByID performs deep analysis on content identified by its ID.
+	// Supports sentiment, entity, topic, and action item extraction.
+	AnalyzeByID(ctx context.Context, in *AnalyzeByIDRequest, opts ...grpc.CallOption) (*AnalyzeByIDResponse, error)
 }
 
 type aICoordinatorServiceClient struct {
@@ -197,6 +209,36 @@ func (c *aICoordinatorServiceClient) UpdateRoutingRule(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *aICoordinatorServiceClient) Query(ctx context.Context, in *QueryRequest, opts ...grpc.CallOption) (*QueryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QueryResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_Query_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) SummarizeByID(ctx context.Context, in *SummarizeByIDRequest, opts ...grpc.CallOption) (*SummarizeByIDResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SummarizeByIDResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_SummarizeByID_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) AnalyzeByID(ctx context.Context, in *AnalyzeByIDRequest, opts ...grpc.CallOption) (*AnalyzeByIDResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AnalyzeByIDResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_AnalyzeByID_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AICoordinatorServiceServer is the server API for AICoordinatorService service.
 // All implementations must embed UnimplementedAICoordinatorServiceServer
 // for forward compatibility.
@@ -238,6 +280,15 @@ type AICoordinatorServiceServer interface {
 	// UpdateRoutingRule creates or updates a routing rule.
 	// If a rule with the same name exists, it is updated; otherwise, created.
 	UpdateRoutingRule(context.Context, *UpdateRoutingRuleRequest) (*UpdateRoutingRuleResponse, error)
+	// Query performs RAG-style question answering over the knowledge base.
+	// Searches relevant content and generates an answer using an LLM.
+	Query(context.Context, *QueryRequest) (*QueryResponse, error)
+	// SummarizeByID generates a summary of content identified by its ID.
+	// Fetches the content and produces a summary with key points.
+	SummarizeByID(context.Context, *SummarizeByIDRequest) (*SummarizeByIDResponse, error)
+	// AnalyzeByID performs deep analysis on content identified by its ID.
+	// Supports sentiment, entity, topic, and action item extraction.
+	AnalyzeByID(context.Context, *AnalyzeByIDRequest) (*AnalyzeByIDResponse, error)
 	mustEmbedUnimplementedAICoordinatorServiceServer()
 }
 
@@ -280,6 +331,15 @@ func (UnimplementedAICoordinatorServiceServer) GetRoutingRules(context.Context, 
 }
 func (UnimplementedAICoordinatorServiceServer) UpdateRoutingRule(context.Context, *UpdateRoutingRuleRequest) (*UpdateRoutingRuleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateRoutingRule not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) Query(context.Context, *QueryRequest) (*QueryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Query not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) SummarizeByID(context.Context, *SummarizeByIDRequest) (*SummarizeByIDResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SummarizeByID not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) AnalyzeByID(context.Context, *AnalyzeByIDRequest) (*AnalyzeByIDResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AnalyzeByID not implemented")
 }
 func (UnimplementedAICoordinatorServiceServer) mustEmbedUnimplementedAICoordinatorServiceServer() {}
 func (UnimplementedAICoordinatorServiceServer) testEmbeddedByValue()                              {}
@@ -500,6 +560,60 @@ func _AICoordinatorService_UpdateRoutingRule_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AICoordinatorService_Query_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).Query(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_Query_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).Query(ctx, req.(*QueryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_SummarizeByID_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SummarizeByIDRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).SummarizeByID(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_SummarizeByID_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).SummarizeByID(ctx, req.(*SummarizeByIDRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_AnalyzeByID_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AnalyzeByIDRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).AnalyzeByID(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_AnalyzeByID_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).AnalyzeByID(ctx, req.(*AnalyzeByIDRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AICoordinatorService_ServiceDesc is the grpc.ServiceDesc for AICoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -550,6 +664,18 @@ var AICoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateRoutingRule",
 			Handler:    _AICoordinatorService_UpdateRoutingRule_Handler,
+		},
+		{
+			MethodName: "Query",
+			Handler:    _AICoordinatorService_Query_Handler,
+		},
+		{
+			MethodName: "SummarizeByID",
+			Handler:    _AICoordinatorService_SummarizeByID_Handler,
+		},
+		{
+			MethodName: "AnalyzeByID",
+			Handler:    _AICoordinatorService_AnalyzeByID_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -53,6 +53,9 @@ Thumbs.db
 # Logs
 *.log
 logs/
+# But not our code packages named 'logs'
+!pkg/logs/
+!api/proto/logs/
 
 # Configuration files with secrets
 .env*

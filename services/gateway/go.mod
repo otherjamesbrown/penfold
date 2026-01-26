@@ -61,4 +61,6 @@ replace github.com/otherjamesbrown/penfold/api/proto => ../../api/proto
 
 replace github.com/otherjamesbrown/penfold/api/proto/aiv1 => ../../api/proto/ai/v1
 
+replace github.com/otherjamesbrown/penfold/api/proto/search => ../../api/proto/search
+
 replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240822170219-fc7c04adadcd
