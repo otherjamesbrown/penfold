@@ -4,9 +4,10 @@ package cmd
 import (
 	"bufio"
 	"context"
-	"embed"
+	_ "embed"
 	"fmt"
-	"io/fs"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,12 +28,6 @@ var processesTemplate string
 
 //go:embed templates/acronym-review.md
 var acronymReviewTemplate string
-
-//go:embed templates/docs
-var docsFS embed.FS
-
-//go:embed templates/shared
-var sharedFS embed.FS
 
 var (
 	initServerAddr string
@@ -318,11 +313,12 @@ func initProcessDefinitions() error {
 	return nil
 }
 
-// initDocs installs the documentation hierarchy for Claude agents.
-// These CAN be updated by penf init or penf update.
+// initDocs downloads documentation from GitHub for Claude agents.
+// Downloads from context/client/ and context/shared/ in the penfold repo.
 // Structure:
-//   docs/           - Client docs (concepts, workflows)
-//   docs/shared/    - Shared docs (vision, entities, use-cases)
+//
+//	docs/           - Client docs (agents.md, assistant-rules.md, concepts/, workflows/)
+//	docs/shared/    - Shared docs (vision, entities, use-cases)
 func initDocs() error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -331,101 +327,91 @@ func initDocs() error {
 
 	docsDir := filepath.Join(cwd, "docs")
 
-	// Walk the embedded docs filesystem and copy all files
-	err = fs.WalkDir(docsFS, "templates/docs", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Calculate the relative path (strip "templates/docs" prefix)
-		relPath, err := filepath.Rel("templates/docs", path)
-		if err != nil {
-			return err
-		}
-
-		// Skip the root
-		if relPath == "." {
-			return nil
-		}
-
-		destPath := filepath.Join(docsDir, relPath)
-
-		if d.IsDir() {
-			// Create directory
-			if err := os.MkdirAll(destPath, 0755); err != nil {
-				return fmt.Errorf("creating directory %s: %w", destPath, err)
-			}
-			return nil
-		}
-
-		// Read and write file
-		content, err := docsFS.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("reading %s: %w", path, err)
-		}
-
-		if err := os.WriteFile(destPath, content, 0644); err != nil {
-			return fmt.Errorf("writing %s: %w", destPath, err)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("installing docs: %w", err)
+	// Files to download from context/client/ -> docs/
+	clientFiles := []string{
+		"agents.md",
+		"assistant-rules.md",
+		"index.md",
+		"preferences.md",
+		"processes.md",
+		"concepts/entities.md",
+		"concepts/glossary.md",
+		"concepts/mentions.md",
+		"concepts/people.md",
+		"concepts/products.md",
+		"workflows/acronym-review.md",
+		"workflows/init-entities.md",
+		"workflows/mention-review.md",
+		"workflows/onboarding.md",
 	}
 
-	// Also install shared docs (vision, entities, use-cases, interaction-model)
+	// Files to download from context/shared/ -> docs/shared/
+	sharedFiles := []string{
+		"vision.md",
+		"entities.md",
+		"use-cases.md",
+		"interaction-model.md",
+	}
+
+	baseURL := "https://raw.githubusercontent.com/otherjamesbrown/penfold/main/context"
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Download client docs
+	for _, file := range clientFiles {
+		destPath := filepath.Join(docsDir, file)
+		srcURL := fmt.Sprintf("%s/client/%s", baseURL, file)
+
+		if err := downloadFile(client, srcURL, destPath); err != nil {
+			return fmt.Errorf("downloading %s: %w", file, err)
+		}
+	}
+
+	// Download shared docs
 	sharedDir := filepath.Join(docsDir, "shared")
-	if err := os.MkdirAll(sharedDir, 0755); err != nil {
-		return fmt.Errorf("creating shared directory: %w", err)
+	for _, file := range sharedFiles {
+		destPath := filepath.Join(sharedDir, file)
+		srcURL := fmt.Sprintf("%s/shared/%s", baseURL, file)
+
+		if err := downloadFile(client, srcURL, destPath); err != nil {
+			return fmt.Errorf("downloading shared/%s: %w", file, err)
+		}
 	}
 
-	err = fs.WalkDir(sharedFS, "templates/shared", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Calculate the relative path (strip "templates/shared" prefix)
-		relPath, err := filepath.Rel("templates/shared", path)
-		if err != nil {
-			return err
-		}
-
-		// Skip the root
-		if relPath == "." {
-			return nil
-		}
-
-		destPath := filepath.Join(sharedDir, relPath)
-
-		if d.IsDir() {
-			if err := os.MkdirAll(destPath, 0755); err != nil {
-				return fmt.Errorf("creating directory %s: %w", destPath, err)
-			}
-			return nil
-		}
-
-		// Read and write file
-		content, err := sharedFS.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("reading %s: %w", path, err)
-		}
-
-		if err := os.WriteFile(destPath, content, 0644); err != nil {
-			return fmt.Errorf("writing %s: %w", destPath, err)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("installing shared docs: %w", err)
-	}
-
-	fmt.Printf("  \033[32m✓\033[0m Installed docs/ hierarchy (concepts, workflows, shared)\n")
-	fmt.Println("    Claude reads docs/index.md first, then follows links for details")
+	fmt.Printf("  \033[32m✓\033[0m Downloaded docs/ from GitHub (concepts, workflows, shared)\n")
+	fmt.Println("    Claude reads docs/agents.md first for identity and required reading")
 	fmt.Println("    Shared docs (vision, entities, use-cases) are in docs/shared/")
+
+	return nil
+}
+
+// downloadFile downloads a file from a URL and saves it to destPath.
+func downloadFile(client *http.Client, url, destPath string) error {
+	// Create parent directory
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return fmt.Errorf("creating directory: %w", err)
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("fetching %s: %w", url, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == 404 {
+		return fmt.Errorf("file not found: %s", url)
+	}
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response: %w", err)
+	}
+
+	if err := os.WriteFile(destPath, content, 0644); err != nil {
+		return fmt.Errorf("writing file: %w", err)
+	}
 
 	return nil
 }
@@ -488,65 +474,31 @@ Periodically review memory files and update preferences.md with what's worth kee
 }
 
 // generateAssistantClaudeMd generates the assistant CLAUDE.md content.
+// This is intentionally minimal - all real content lives in docs/agents.md.
 func generateAssistantClaudeMd(cfg *config.CLIConfig) string {
-	return fmt.Sprintf(`# Penfold Assistant Configuration
+	return fmt.Sprintf(`# Penfold Assistant
 
-This file provides context to Claude Code when working with Penfold CLI.
+**Read `+"`docs/agents.md`"+` first** - it tells you who you are and what to read.
 
 ## Configuration
 
-- **Server Address:** %s
-- **Config Directory:** ~/.penf/
+- **Server:** %s
+- **Config:** ~/.penf/config.yaml
+- **Docs:** docs/ (downloaded from GitHub)
 
-## Quick Reference
+## Quick Start
 
-### Common Commands
-`+"```"+`bash
-penf status              # Check connection status
-penf health              # View system health
-penf search <query>      # Search content
-
-# Glossary management
-penf glossary list       # List all terms
-penf glossary add <term> # Add a new term
-penf glossary lookup <text>  # Look up terms in text
-
-# Review questions
-penf review questions list    # List pending questions
-penf review questions next    # Get next question
-penf review questions resolve <id> <answer>  # Answer a question
-
-# Ingestion
-penf ingest meeting <file>    # Ingest meeting transcript
-penf ingest email             # Start email sync
-`+"```"+`
-
-### Environment Variables
-- ` + "`PENF_SERVER_ADDRESS`" + ` - Override server address
-- ` + "`PENF_TIMEOUT`" + ` - Request timeout (default: 30s)
-- ` + "`PENF_OUTPUT_FORMAT`" + ` - Output format (text, json, yaml)
-- ` + "`PENF_TENANT_ID`" + ` - Tenant identifier
-
-## Architecture
-
-Penfold CLI communicates with the gateway service via gRPC. The gateway handles:
-- Authentication and authorization
-- Request routing to backend services
-- Rate limiting and connection management
-
-The CLI does not have direct database access. All operations go through the gateway API.
+1. Read `+"`docs/agents.md`"+` - your identity and required reading
+2. Read `+"`docs/assistant-rules.md`"+` - how to behave
+3. Check Agent Mail inbox for dev messages
+4. Help the user
 
 ## Troubleshooting
 
-If you encounter connection issues:
-1. Verify the server address: ` + "`penf status`" + `
-2. Check server health: ` + "`penf health`" + `
-3. Ensure the gateway is running on the configured address
-4. Check firewall rules allow gRPC traffic (port 50051)
-
-## More Information
-
-Run ` + "`penf help`" + ` for full command documentation.
-Run ` + "`penf <command> --help`" + ` for command-specific help.
+`+"```"+`bash
+penf status    # Check connection
+penf health    # View system health
+penf update    # Update CLI and docs
+`+"```"+`
 `, cfg.ServerAddress)
 }
