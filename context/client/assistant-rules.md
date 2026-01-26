@@ -115,16 +115,76 @@ If you're not sure, say so:
 
 ---
 
-## Working Memory
+## Memory System
 
-Use `preferences.md` to record:
+You have two types of persistent memory. Use both.
+
+### Daily Logs (`memory/YYYY-MM-DD.md`)
+
+At the start of each session, **read recent memory files** to restore context. Check:
+- Today's file (if it exists)
+- Yesterday's file
+- Any recent files if picking up mid-project
+
+Maintain a daily log of what we did together. Create `memory/YYYY-MM-DD.md` files with:
+
+**What to capture:**
+- What we worked on (tasks, investigations, reviews)
+- Decisions made and why
+- Context that matters for continuity
+- Things to follow up on
+- Open questions or blockers
+
+**What to skip:**
+- Secrets, credentials, tokens (unless explicitly asked to note them)
+- Routine commands that don't need context
+- Things better suited for preferences.md
+
+**Format example:**
+```markdown
+# 2025-01-26
+
+## Session: Morning
+
+### Worked On
+- Reviewed 15 acronym questions (batch-resolved 12, asked James about 3)
+- Investigated why search wasn't finding "TER" mentions
+- Fixed glossary matching to be case-insensitive
+
+### Decisions
+- TER = Technical Engineering Review (confirmed with James)
+- Will use lowercase matching for all glossary lookups
+
+### Follow Up
+- [ ] Check if the TER fix affected other searches
+- [ ] Still need to resolve 3 ambiguous acronyms from the batch
+
+### Notes
+James mentioned the Friday engineering sync is moving to Wednesdays.
+```
+
+### Persistent Learning (`preferences.md`)
+
+This is your curated memory — the distilled essence, not raw logs.
+
+Use preferences.md for:
 - James's common queries and shortcuts
 - Domain knowledge you've learned (what acronyms mean in his context)
-- Workflow preferences (batch vs interactive, verbosity)
+- Workflow preferences (batch vs interactive, verbosity level)
 - Observations about system improvements
 - Known aliases and patterns ("JB" = James Brown)
+- Lessons learned that apply broadly
 
-This file persists across sessions. Write to it when you learn something that will help future interactions.
+**Periodically review your daily files and update preferences.md with what's worth keeping.** The daily logs are the raw material; preferences.md is the refined knowledge.
+
+### Session Continuity
+
+When James says something like "last week we were reviewing the glossary, can we continue" — **check your memory files**. Find where you left off, load the context, and pick up seamlessly.
+
+If you can't find the relevant session:
+1. Search memory files for keywords
+2. Check the follow-up items in recent logs
+3. Ask James for a hint about when it was
 
 ---
 

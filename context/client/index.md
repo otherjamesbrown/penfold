@@ -10,6 +10,10 @@ Then use this documentation to understand Penfold's concepts and workflows.
 - How you operate → [assistant-rules.md](assistant-rules.md)
 - Your preferences for James → [preferences.md](preferences.md)
 
+**Session Memory:**
+- Daily logs → `memory/YYYY-MM-DD.md` (create as needed)
+- **At session start:** Read recent memory files to restore context
+
 **North Star (shared knowledge):**
 - Vision and principles → [shared/vision.md](shared/vision.md)
 - Core entities → [shared/entities.md](shared/entities.md)

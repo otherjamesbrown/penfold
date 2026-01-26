@@ -169,6 +169,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
+	// Step 9: Create memory directory for session logs.
+	fmt.Println("Creating memory directory...")
+	if err := initMemoryDir(); err != nil {
+		fmt.Printf("  \033[33mWarning:\033[0m Could not create memory directory: %v\n", err)
+	}
+	fmt.Println()
+
 	// Summary.
 	fmt.Println("Initialization complete!")
 	fmt.Println()
@@ -179,6 +186,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Preferences:     %s\n", filepath.Join(cwd, "preferences.md"))
 	fmt.Printf("  Processes:       %s\n", filepath.Join(cwd, "processes/"))
 	fmt.Printf("  Documentation:   %s\n", filepath.Join(cwd, "docs/"))
+	fmt.Printf("  Memory:          %s\n", filepath.Join(cwd, "memory/"))
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Println("  • Edit preferences.md to customize your settings")
@@ -418,6 +426,63 @@ func initDocs() error {
 	fmt.Printf("  \033[32m✓\033[0m Installed docs/ hierarchy (concepts, workflows, shared)\n")
 	fmt.Println("    Claude reads docs/index.md first, then follows links for details")
 	fmt.Println("    Shared docs (vision, entities, use-cases) are in docs/shared/")
+
+	return nil
+}
+
+// initMemoryDir creates the memory directory for session logs.
+// This directory stores daily YYYY-MM-DD.md files for session continuity.
+func initMemoryDir() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting current directory: %w", err)
+	}
+
+	memoryDir := filepath.Join(cwd, "memory")
+
+	// Create memory directory if it doesn't exist
+	if err := os.MkdirAll(memoryDir, 0755); err != nil {
+		return fmt.Errorf("creating memory directory: %w", err)
+	}
+
+	// Create a README.md to explain the directory
+	readmePath := filepath.Join(memoryDir, "README.md")
+	if _, err := os.Stat(readmePath); os.IsNotExist(err) {
+		readmeContent := `# Session Memory
+
+This directory contains daily session logs for Penfold.
+
+## File Format
+
+Files are named ` + "`YYYY-MM-DD.md`" + ` (e.g., ` + "`2025-01-26.md`" + `).
+
+## What Gets Logged
+
+- What we worked on (tasks, investigations, reviews)
+- Decisions made and why
+- Context that matters for continuity
+- Things to follow up on
+- Open questions or blockers
+
+## Session Continuity
+
+When starting a new session, Penfold reads recent memory files to restore context.
+This enables picking up mid-project: "last week we were reviewing the glossary, can we continue"
+
+## Relationship to preferences.md
+
+- **memory/**: Raw session logs, daily activity
+- **preferences.md**: Curated learning, distilled insights
+
+Periodically review memory files and update preferences.md with what's worth keeping.
+`
+		if err := os.WriteFile(readmePath, []byte(readmeContent), 0644); err != nil {
+			return fmt.Errorf("writing README.md: %w", err)
+		}
+	}
+
+	fmt.Printf("  \033[32m✓\033[0m Created memory/ directory for session logs\n")
+	fmt.Println("    Penfold will create YYYY-MM-DD.md files to track session context")
 
 	return nil
 }

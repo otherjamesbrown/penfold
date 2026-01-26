@@ -1,5 +1,6 @@
 // Workflow Protobuf Definitions
-// Defines input/output messages for Temporal workflows and activities
+// Defines input/output messages for Temporal workflows and activities,
+// and the WorkflowService for managing workflow executions.
 
 syntax = "proto3";
 
@@ -8,6 +9,177 @@ package workflow.v1;
 option go_package = "github.com/otherjamesbrown/penfold/api/proto/workflow/v1;workflowv1";
 
 import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// WorkflowService provides gRPC endpoints for managing Temporal workflow executions.
+service WorkflowService {
+  // ListWorkflows lists workflows matching the given filter criteria.
+  rpc ListWorkflows(ListWorkflowsRequest) returns (ListWorkflowsResponse);
+
+  // GetWorkflowStatus retrieves the status of a specific workflow.
+  rpc GetWorkflowStatus(GetWorkflowStatusRequest) returns (GetWorkflowStatusResponse);
+
+  // CancelWorkflow cancels a running workflow.
+  rpc CancelWorkflow(CancelWorkflowRequest) returns (CancelWorkflowResponse);
+
+  // TerminateWorkflow forcefully terminates a workflow.
+  rpc TerminateWorkflow(TerminateWorkflowRequest) returns (TerminateWorkflowResponse);
+}
+
+// =============================================================================
+// Service Request/Response Messages
+// =============================================================================
+
+// WorkflowExecutionStatus represents the status of a workflow execution.
+enum WorkflowExecutionStatus {
+  WORKFLOW_EXECUTION_STATUS_UNSPECIFIED = 0;
+  WORKFLOW_EXECUTION_STATUS_RUNNING = 1;
+  WORKFLOW_EXECUTION_STATUS_COMPLETED = 2;
+  WORKFLOW_EXECUTION_STATUS_FAILED = 3;
+  WORKFLOW_EXECUTION_STATUS_CANCELED = 4;
+  WORKFLOW_EXECUTION_STATUS_TERMINATED = 5;
+  WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW = 6;
+  WORKFLOW_EXECUTION_STATUS_TIMED_OUT = 7;
+}
+
+// WorkflowInfo represents summarized workflow information for listing.
+message WorkflowInfo {
+  // Workflow execution ID.
+  string workflow_id = 1;
+
+  // Run ID for this specific execution.
+  string run_id = 2;
+
+  // Type name of the workflow (e.g., "IngestionWorkflow").
+  string workflow_type = 3;
+
+  // Current execution status.
+  WorkflowExecutionStatus status = 4;
+
+  // Task queue the workflow is running on.
+  string task_queue = 5;
+
+  // When the workflow started.
+  google.protobuf.Timestamp start_time = 6;
+
+  // When the workflow closed (if completed/failed/canceled).
+  google.protobuf.Timestamp close_time = 7;
+}
+
+// WorkflowStatusDetails contains detailed status information for a workflow.
+message WorkflowStatusDetails {
+  // Basic workflow info.
+  WorkflowInfo info = 1;
+
+  // Number of pending activities.
+  int32 pending_activities = 2;
+
+  // Number of pending child workflows.
+  int32 pending_children = 3;
+
+  // History event count.
+  int64 history_length = 4;
+
+  // Execution duration in milliseconds (if completed).
+  int64 execution_duration_ms = 5;
+
+  // Memo attached to the workflow (key-value pairs).
+  map<string, string> memo = 6;
+
+  // Search attributes attached to the workflow.
+  map<string, string> search_attributes = 7;
+}
+
+// ListWorkflowsRequest is the request for ListWorkflows.
+message ListWorkflowsRequest {
+  // Filter by workflow type (optional).
+  string workflow_type = 1;
+
+  // Filter by status (optional).
+  WorkflowExecutionStatus status = 2;
+
+  // Maximum number of results to return (default: 20, max: 100).
+  int32 page_size = 3;
+
+  // Token for pagination (from previous response).
+  bytes next_page_token = 4;
+
+  // Filter by start time range (optional).
+  google.protobuf.Timestamp start_time_min = 5;
+  google.protobuf.Timestamp start_time_max = 6;
+
+  // Temporal query string for advanced filtering (optional).
+  string query = 7;
+}
+
+// ListWorkflowsResponse is the response for ListWorkflows.
+message ListWorkflowsResponse {
+  // List of matching workflows.
+  repeated WorkflowInfo workflows = 1;
+
+  // Token for fetching next page of results.
+  bytes next_page_token = 2;
+}
+
+// GetWorkflowStatusRequest is the request for GetWorkflowStatus.
+message GetWorkflowStatusRequest {
+  // Workflow execution ID (required).
+  string workflow_id = 1;
+
+  // Run ID (optional, defaults to latest run).
+  string run_id = 2;
+}
+
+// GetWorkflowStatusResponse is the response for GetWorkflowStatus.
+message GetWorkflowStatusResponse {
+  // Detailed workflow status.
+  WorkflowStatusDetails status = 1;
+}
+
+// CancelWorkflowRequest is the request for CancelWorkflow.
+message CancelWorkflowRequest {
+  // Workflow execution ID (required).
+  string workflow_id = 1;
+
+  // Run ID (optional, defaults to latest run).
+  string run_id = 2;
+
+  // Reason for cancellation (optional).
+  string reason = 3;
+}
+
+// CancelWorkflowResponse is the response for CancelWorkflow.
+message CancelWorkflowResponse {
+  // Whether the cancellation request was accepted.
+  bool accepted = 1;
+
+  // Message describing the result.
+  string message = 2;
+}
+
+// TerminateWorkflowRequest is the request for TerminateWorkflow.
+message TerminateWorkflowRequest {
+  // Workflow execution ID (required).
+  string workflow_id = 1;
+
+  // Run ID (optional, defaults to latest run).
+  string run_id = 2;
+
+  // Reason for termination (optional).
+  string reason = 3;
+}
+
+// TerminateWorkflowResponse is the response for TerminateWorkflow.
+message TerminateWorkflowResponse {
+  // Whether the termination request was accepted.
+  bool accepted = 1;
+
+  // Message describing the result.
+  string message = 2;
+}
 
 // =============================================================================
 // Workflow Input Messages

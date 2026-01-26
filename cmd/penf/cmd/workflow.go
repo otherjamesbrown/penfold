@@ -261,17 +261,6 @@ func runWorkflowList(ctx context.Context, deps *WorkflowCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// Validate status filter if provided.
-	if workflowStatus != "" {
-		validStatuses := map[string]bool{
-			"pending": true, "running": true, "completed": true,
-			"failed": true, "cancelled": true,
-		}
-		if !validStatuses[workflowStatus] {
-			return fmt.Errorf("invalid status: %s (must be pending, running, completed, failed, or cancelled)", workflowStatus)
-		}
-	}
-
 	// Determine output format.
 	outputFormat := cfg.OutputFormat
 	if workflowOutput != "" {
@@ -281,8 +270,67 @@ func runWorkflowList(ctx context.Context, deps *WorkflowCommandDeps) error {
 		}
 	}
 
-	// Get workflows (mock implementation until gRPC is connected).
-	workflows := getMockWorkflows(workflowType, workflowStatus, workflowLimit)
+	// Initialize gRPC client.
+	grpcClient, err := deps.InitClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	defer grpcClient.Close()
+
+	// Map status string for API (normalize capitalization).
+	statusFilter := workflowStatus
+	if statusFilter != "" {
+		switch strings.ToLower(statusFilter) {
+		case "pending":
+			// Temporal doesn't have "pending" - workflows are either Running or completed states
+			// Return empty list for pending filter
+			fmt.Println("Note: Temporal workflows don't have a 'pending' state. Showing 'Running' workflows instead.")
+			statusFilter = "Running"
+		case "running":
+			statusFilter = "Running"
+		case "completed":
+			statusFilter = "Completed"
+		case "failed":
+			statusFilter = "Failed"
+		case "cancelled", "canceled":
+			statusFilter = "Canceled"
+		default:
+			return fmt.Errorf("invalid status: %s (must be running, completed, failed, or cancelled)", workflowStatus)
+		}
+	}
+
+	// Call the workflow service.
+	filter := client.ListWorkflowsFilter{
+		WorkflowType: workflowType,
+		Status:       statusFilter,
+		PageSize:     int32(workflowLimit),
+	}
+
+	result, err := grpcClient.ListWorkflows(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("listing workflows: %w", err)
+	}
+
+	// Convert to response format.
+	workflows := make([]Workflow, 0, len(result.Workflows))
+	for _, wf := range result.Workflows {
+		workflow := Workflow{
+			ID:        wf.WorkflowID,
+			Type:      wf.WorkflowType,
+			Name:      wf.WorkflowType, // Use type as name for now
+			Status:    mapAPIStatusToWorkflowStatus(wf.Status),
+			CreatedAt: wf.StartTime,
+		}
+		if !wf.StartTime.IsZero() {
+			startTime := wf.StartTime
+			workflow.StartedAt = &startTime
+		}
+		if !wf.CloseTime.IsZero() {
+			closeTime := wf.CloseTime
+			workflow.CompletedAt = &closeTime
+		}
+		workflows = append(workflows, workflow)
+	}
 
 	response := WorkflowListResponse{
 		Workflows:  workflows,
@@ -314,10 +362,39 @@ func runWorkflowStatus(ctx context.Context, deps *WorkflowCommandDeps, workflowI
 		return runWorkflowWatch(ctx, deps, workflowID, outputFormat)
 	}
 
-	// Get workflow status (mock implementation until gRPC is connected).
-	workflow := getMockWorkflow(workflowID)
-	if workflow == nil {
-		return fmt.Errorf("workflow not found: %s", workflowID)
+	// Initialize gRPC client.
+	grpcClient, err := deps.InitClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	defer grpcClient.Close()
+
+	// Get workflow status from the service.
+	status, err := grpcClient.GetWorkflowStatus(ctx, workflowID, "")
+	if err != nil {
+		return fmt.Errorf("getting workflow status: %w", err)
+	}
+
+	// Convert to workflow format.
+	workflow := &Workflow{
+		ID:        status.WorkflowID,
+		Type:      status.WorkflowType,
+		Name:      status.WorkflowType, // Use type as name
+		Status:    mapAPIStatusToWorkflowStatus(status.Status),
+		CreatedAt: status.StartTime,
+		Input:     status.SearchAttributes,
+	}
+	if !status.StartTime.IsZero() {
+		startTime := status.StartTime
+		workflow.StartedAt = &startTime
+	}
+	if !status.CloseTime.IsZero() {
+		closeTime := status.CloseTime
+		workflow.CompletedAt = &closeTime
+	}
+	// Add some extra info as message
+	if status.PendingActivities > 0 {
+		workflow.Message = fmt.Sprintf("%d pending activities", status.PendingActivities)
 	}
 
 	return outputWorkflowStatus(outputFormat, workflow)
@@ -325,6 +402,18 @@ func runWorkflowStatus(ctx context.Context, deps *WorkflowCommandDeps, workflowI
 
 // runWorkflowWatch monitors workflow progress until completion.
 func runWorkflowWatch(ctx context.Context, deps *WorkflowCommandDeps, workflowID string, outputFormat config.OutputFormat) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+
+	// Initialize gRPC client.
+	grpcClient, err := deps.InitClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	defer grpcClient.Close()
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -334,9 +423,30 @@ func runWorkflowWatch(ctx context.Context, deps *WorkflowCommandDeps, workflowID
 			fmt.Print("\033[H\033[2J")
 		}
 
-		workflow := getMockWorkflow(workflowID)
-		if workflow == nil {
-			return fmt.Errorf("workflow not found: %s", workflowID)
+		// Get workflow status from the service.
+		status, err := grpcClient.GetWorkflowStatus(ctx, workflowID, "")
+		if err != nil {
+			return fmt.Errorf("getting workflow status: %w", err)
+		}
+
+		// Convert to workflow format.
+		workflow := &Workflow{
+			ID:        status.WorkflowID,
+			Type:      status.WorkflowType,
+			Name:      status.WorkflowType,
+			Status:    mapAPIStatusToWorkflowStatus(status.Status),
+			CreatedAt: status.StartTime,
+		}
+		if !status.StartTime.IsZero() {
+			startTime := status.StartTime
+			workflow.StartedAt = &startTime
+		}
+		if !status.CloseTime.IsZero() {
+			closeTime := status.CloseTime
+			workflow.CompletedAt = &closeTime
+		}
+		if status.PendingActivities > 0 {
+			workflow.Message = fmt.Sprintf("%d pending activities", status.PendingActivities)
 		}
 
 		if err := outputWorkflowStatus(outputFormat, workflow); err != nil {
@@ -369,170 +479,53 @@ func runWorkflowCancel(ctx context.Context, deps *WorkflowCommandDeps, workflowI
 	}
 	deps.Config = cfg
 
-	// Get workflow to verify it exists and is cancellable.
-	workflow := getMockWorkflow(workflowID)
-	if workflow == nil {
-		return fmt.Errorf("workflow not found: %s", workflowID)
+	// Initialize gRPC client.
+	grpcClient, err := deps.InitClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
 	}
+	defer grpcClient.Close()
 
-	if workflow.Status != WorkflowStatusPending && workflow.Status != WorkflowStatusRunning {
-		return fmt.Errorf("workflow %s cannot be cancelled (status: %s)", workflowID, workflow.Status)
-	}
-
-	// STUB: Returns mock acknowledgment until workflow service gRPC is connected.
+	var result *client.CancelWorkflowResult
 	if workflowForce {
-		fmt.Printf("Force cancelling workflow %s...\n", workflowID)
+		fmt.Printf("Force terminating workflow %s...\n", workflowID)
+		result, err = grpcClient.TerminateWorkflow(ctx, workflowID, "", "Terminated via CLI (--force)")
 	} else {
 		fmt.Printf("Cancelling workflow %s...\n", workflowID)
+		result, err = grpcClient.CancelWorkflow(ctx, workflowID, "", "Cancelled via CLI")
 	}
 
-	fmt.Printf("\nWorkflow %s has been cancelled.\n", workflowID)
-	fmt.Println("\n(Note: This is mock data. Connect to the service for real cancellation.)")
+	if err != nil {
+		return fmt.Errorf("cancelling workflow: %w", err)
+	}
+
+	if result.Accepted {
+		fmt.Printf("\n%s\n", result.Message)
+	} else {
+		fmt.Printf("\nFailed to cancel workflow: %s\n", result.Message)
+	}
 
 	return nil
 }
 
-// getMockWorkflows returns mock workflow data.
-func getMockWorkflows(typeFilter, statusFilter string, limit int) []Workflow {
-	now := time.Now()
-	startTime := now.Add(-30 * time.Minute)
-	endTime := now.Add(-10 * time.Minute)
-
-	workflows := []Workflow{
-		{
-			ID:        "wf-ingestion-001",
-			Type:      "ingestion",
-			Name:      "Email Import Batch",
-			Status:    WorkflowStatusRunning,
-			Progress:  65,
-			Message:   "Processing 150 of 230 emails",
-			CreatedAt: now.Add(-45 * time.Minute),
-			StartedAt: &startTime,
-		},
-		{
-			ID:          "wf-batch-002",
-			Type:        "batch",
-			Name:        "Entity Extraction",
-			Status:      WorkflowStatusCompleted,
-			Progress:    100,
-			Message:     "Extracted 342 entities from 85 documents",
-			CreatedAt:   now.Add(-2 * time.Hour),
-			StartedAt:   &startTime,
-			CompletedAt: &endTime,
-		},
-		{
-			ID:        "wf-scheduled-003",
-			Type:      "scheduled",
-			Name:      "Daily Digest Generation",
-			Status:    WorkflowStatusPending,
-			Progress:  0,
-			Message:   "Scheduled for 18:00",
-			CreatedAt: now.Add(-1 * time.Hour),
-		},
-		{
-			ID:          "wf-ingestion-004",
-			Type:        "ingestion",
-			Name:        "Document Upload",
-			Status:      WorkflowStatusFailed,
-			Progress:    45,
-			Message:     "Failed at step 3 of 5",
-			Error:       "Connection timeout while uploading to storage",
-			CreatedAt:   now.Add(-3 * time.Hour),
-			StartedAt:   &startTime,
-			CompletedAt: &endTime,
-		},
-		{
-			ID:          "wf-batch-005",
-			Type:        "batch",
-			Name:        "Embedding Generation",
-			Status:      WorkflowStatusCancelled,
-			Progress:    30,
-			Message:     "Cancelled by user",
-			CreatedAt:   now.Add(-4 * time.Hour),
-			StartedAt:   &startTime,
-			CompletedAt: &endTime,
-		},
+// mapAPIStatusToWorkflowStatus maps API status string to WorkflowStatus.
+func mapAPIStatusToWorkflowStatus(status string) WorkflowStatus {
+	switch status {
+	case "Running":
+		return WorkflowStatusRunning
+	case "Completed":
+		return WorkflowStatusCompleted
+	case "Failed":
+		return WorkflowStatusFailed
+	case "Canceled", "Cancelled":
+		return WorkflowStatusCancelled
+	case "Terminated":
+		return WorkflowStatusCancelled // Map terminated to cancelled for display
+	case "TimedOut":
+		return WorkflowStatusFailed // Map timed out to failed for display
+	default:
+		return WorkflowStatusPending
 	}
-
-	// Apply filters.
-	var filtered []Workflow
-	for _, wf := range workflows {
-		if typeFilter != "" && wf.Type != typeFilter {
-			continue
-		}
-		if statusFilter != "" && string(wf.Status) != statusFilter {
-			continue
-		}
-		filtered = append(filtered, wf)
-	}
-
-	// Apply limit.
-	if len(filtered) > limit {
-		filtered = filtered[:limit]
-	}
-
-	return filtered
-}
-
-// getMockWorkflow returns a mock workflow by ID.
-func getMockWorkflow(workflowID string) *Workflow {
-	now := time.Now()
-	startTime := now.Add(-30 * time.Minute)
-	step1Time := now.Add(-28 * time.Minute)
-	step2Time := now.Add(-20 * time.Minute)
-
-	// Return a detailed mock workflow.
-	if strings.HasPrefix(workflowID, "wf-") {
-		return &Workflow{
-			ID:       workflowID,
-			Type:     "ingestion",
-			Name:     "Email Import Batch",
-			Status:   WorkflowStatusRunning,
-			Progress: 65,
-			Message:  "Processing 150 of 230 emails",
-			Steps: []WorkflowStep{
-				{
-					Name:        "Fetch emails from source",
-					Status:      WorkflowStatusCompleted,
-					Message:     "Retrieved 230 emails",
-					StartedAt:   &startTime,
-					CompletedAt: &step1Time,
-				},
-				{
-					Name:        "Parse and validate",
-					Status:      WorkflowStatusCompleted,
-					Message:     "228 emails valid, 2 skipped",
-					StartedAt:   &step1Time,
-					CompletedAt: &step2Time,
-				},
-				{
-					Name:      "Generate embeddings",
-					Status:    WorkflowStatusRunning,
-					Message:   "Processing batch 3 of 5",
-					StartedAt: &step2Time,
-				},
-				{
-					Name:    "Store in database",
-					Status:  WorkflowStatusPending,
-					Message: "Waiting for embeddings",
-				},
-				{
-					Name:    "Update search index",
-					Status:  WorkflowStatusPending,
-					Message: "Waiting for storage",
-				},
-			},
-			Input: map[string]string{
-				"source":     "gmail",
-				"date_range": "2024-01-01 to 2024-01-15",
-				"folder":     "INBOX",
-			},
-			CreatedAt: now.Add(-45 * time.Minute),
-			StartedAt: &startTime,
-		}
-	}
-
-	return nil
 }
 
 // outputWorkflowList formats and outputs the workflow list.
