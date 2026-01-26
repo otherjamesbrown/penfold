@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
@@ -725,13 +726,37 @@ func runIngestStatus(ctx context.Context, deps *IngestCommandDeps, jobID string)
 	// Determine output format.
 	format := getIngestOutputFormat(cfg)
 
+	// Determine tenant ID.
+	tenantID := ingestTenantID
+	if tenantID == "" {
+		tenantID = cfg.TenantID
+	}
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
 	if jobID != "" {
-		// Show specific job status.
-		job := getMockIngestJob(jobID)
+		// Show specific job status via gRPC.
+		grpcClient, err := deps.InitClient(cfg)
+		if err != nil {
+			return fmt.Errorf("connecting to gateway: %w", err)
+		}
+		defer grpcClient.Close()
+
+		ingestJob, err := grpcClient.GetIngestJob(ctx, tenantID, jobID)
+		if err != nil {
+			// Fall back to mock if service returns error (e.g., not found).
+			fmt.Fprintf(os.Stderr, "Warning: Could not retrieve job (%v), showing mock data\n\n", err)
+			job := getMockIngestJob(jobID)
+			return outputIngestJob(format, job)
+		}
+
+		// Convert proto job to CLI job type.
+		job := convertProtoToIngestJob(ingestJob)
 		return outputIngestJob(format, job)
 	}
 
-	// Show overall status.
+	// Show overall status (aggregate - still uses mock as there's no aggregate endpoint).
 	status := getMockIngestStatus()
 	return outputIngestStatus(format, status)
 }
@@ -830,6 +855,51 @@ func getValidConfigKeys() []string {
 		"default_priority",
 		"default_category",
 	}
+}
+
+// convertProtoToIngestJob converts a proto IngestJob to the CLI IngestJob type.
+func convertProtoToIngestJob(pj *ingestv1.IngestJob) IngestJob {
+	job := IngestJob{
+		ID:         pj.Id,
+		Type:       pj.Platform.String(),
+		Source:     pj.SourcePath,
+		Priority:   "normal",
+		ItemsTotal: int(pj.TotalFiles),
+		ItemsDone:  int(pj.ProcessedCount),
+		Progress:   0,
+	}
+
+	// Calculate progress.
+	if pj.TotalFiles > 0 {
+		job.Progress = int(float64(pj.ProcessedCount) / float64(pj.TotalFiles) * 100)
+	}
+
+	// Map status.
+	switch pj.Status {
+	case ingestv1.JobStatus_JOB_STATUS_CREATED:
+		job.Status = IngestJobStatusPending
+	case ingestv1.JobStatus_JOB_STATUS_RUNNING:
+		job.Status = IngestJobStatusProcessing
+	case ingestv1.JobStatus_JOB_STATUS_COMPLETED:
+		job.Status = IngestJobStatusCompleted
+	case ingestv1.JobStatus_JOB_STATUS_FAILED:
+		job.Status = IngestJobStatusFailed
+	case ingestv1.JobStatus_JOB_STATUS_CANCELLED:
+		job.Status = IngestJobStatusFailed
+	default:
+		job.Status = IngestJobStatusPending
+	}
+
+	// Timestamps.
+	if pj.CreatedAt != nil {
+		job.CreatedAt = pj.CreatedAt.AsTime()
+	}
+	if pj.CompletedAt != nil {
+		t := pj.CompletedAt.AsTime()
+		job.CompletedAt = &t
+	}
+
+	return job
 }
 
 // createMockIngestJob creates a mock ingestion job.

@@ -13,12 +13,14 @@ use (
 	./api/proto/core/v1
 	./api/proto/gateway/v1
 	./api/proto/gmail/v1
+	./api/proto/ingest/v1
 	./api/proto/intelligence/v1
 	./api/proto/orchestrator/v1
 	./api/proto/processing/v1
 	./api/proto/relationship/v1
 	./api/proto/review/v1
 	./api/proto/search/v1
+	./api/proto/tenant/v1
 	./api/proto/workflow/v1
 
 	// CLI and pipeline
