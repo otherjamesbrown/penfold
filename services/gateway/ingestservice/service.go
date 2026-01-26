@@ -32,19 +32,75 @@ type Repository interface {
 	GetRemainingFilesForJob(ctx context.Context, jobID string, allFiles []string) ([]string, error)
 }
 
+// Tenant represents a tenant entity with its ID.
+type Tenant struct {
+	ID string
+}
+
+// TenantRepository defines the interface for tenant lookup operations.
+// This allows resolving tenant slugs to UUIDs.
+type TenantRepository interface {
+	GetByRef(ctx context.Context, ref string) (*Tenant, error)
+}
+
+// tenantRepoAdapter adapts the tenant package's Repository to TenantRepository.
+type tenantRepoAdapter struct {
+	getByRef func(ctx context.Context, ref string) (string, error)
+}
+
+func (a *tenantRepoAdapter) GetByRef(ctx context.Context, ref string) (*Tenant, error) {
+	id, err := a.getByRef(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if id == "" {
+		return nil, nil
+	}
+	return &Tenant{ID: id}, nil
+}
+
+// NewTenantRepoAdapter creates a TenantRepository adapter.
+// The getByRefFn should return the tenant UUID for a given reference (UUID or slug),
+// or empty string if not found.
+func NewTenantRepoAdapter(getByRefFn func(ctx context.Context, ref string) (string, error)) TenantRepository {
+	return &tenantRepoAdapter{getByRef: getByRefFn}
+}
+
 // Service implements the IngestService gRPC server.
 type Service struct {
 	ingestv1.UnimplementedIngestServiceServer
-	repo   Repository
-	logger logging.Logger
+	repo       Repository
+	tenantRepo TenantRepository
+	logger     logging.Logger
 }
 
 // NewService creates a new ingest service.
-func NewService(repo Repository, logger logging.Logger) *Service {
+func NewService(repo Repository, tenantRepo TenantRepository, logger logging.Logger) *Service {
 	return &Service{
-		repo:   repo,
-		logger: logger.With(logging.F("component", "ingest_service")),
+		repo:       repo,
+		tenantRepo: tenantRepo,
+		logger:     logger.With(logging.F("component", "ingest_service")),
 	}
+}
+
+// resolveTenantID resolves a tenant reference (UUID or slug) to a UUID.
+// This allows users to specify tenant by name/slug in their config.
+func (s *Service) resolveTenantID(ctx context.Context, tenantRef string) (string, error) {
+	if tenantRef == "" {
+		return "", status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+
+	// Try to resolve via tenant repository
+	t, err := s.tenantRepo.GetByRef(ctx, tenantRef)
+	if err != nil {
+		s.logger.Error("Error resolving tenant", logging.Err(err), logging.F("tenant_ref", tenantRef))
+		return "", status.Errorf(codes.Internal, "failed to resolve tenant: %v", err)
+	}
+	if t == nil {
+		return "", status.Errorf(codes.NotFound, "tenant not found: %s", tenantRef)
+	}
+
+	return t.ID, nil
 }
 
 // IngestEmail ingests a single email, checking for duplicates first.
@@ -369,6 +425,12 @@ func (s *Service) CreateIngestJob(ctx context.Context, req *ingestv1.CreateInges
 		logging.F("total_files", req.TotalFiles),
 	)
 
+	// Resolve tenant reference to UUID
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	// Generate job ID
 	jobID := uuid.New().String()
 
@@ -383,7 +445,7 @@ func (s *Service) CreateIngestJob(ctx context.Context, req *ingestv1.CreateInges
 
 	job := &storage.IngestJob{
 		ID:             jobID,
-		TenantID:       req.TenantId,
+		TenantID:       tenantID,
 		Status:         storage.IngestJobStatusPending,
 		SourceTag:      sourceTag,
 		ContentType:    platformToContentType(req.Platform),

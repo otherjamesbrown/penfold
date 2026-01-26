@@ -21,6 +21,7 @@ import (
 type mockRepository struct {
 	checkDuplicateFn func(ctx context.Context, tenantID, messageID, contentHash string) (bool, int64, string, error)
 	createSourceFn   func(ctx context.Context, source *storage.EmailSource) (*storage.CreatedSource, error)
+	createJobFn      func(ctx context.Context, job *storage.IngestJob) error
 	lastSource       *storage.EmailSource // capture for assertions
 }
 
@@ -44,6 +45,9 @@ func (m *mockRepository) CreateSource(ctx context.Context, source *storage.Email
 }
 
 func (m *mockRepository) CreateJob(ctx context.Context, job *storage.IngestJob) error {
+	if m.createJobFn != nil {
+		return m.createJobFn(ctx, job)
+	}
 	return nil
 }
 
@@ -73,11 +77,25 @@ func testLogger() logging.Logger {
 	return logging.NewLogger(cfg)
 }
 
+// mockTenantRepository implements TenantRepository for tests.
+type mockTenantRepository struct {
+	getByRefFn func(ctx context.Context, ref string) (*Tenant, error)
+}
+
+func (m *mockTenantRepository) GetByRef(ctx context.Context, ref string) (*Tenant, error) {
+	if m.getByRefFn != nil {
+		return m.getByRefFn(ctx, ref)
+	}
+	// Default: return the ref as-is (passthrough for backwards compat)
+	return &Tenant{ID: ref}, nil
+}
+
 // newTestService creates a service with a mock repository
 func newTestService() (*Service, *mockRepository) {
 	logger := testLogger()
 	repo := &mockRepository{}
-	svc := NewService(repo, logger)
+	tenantRepo := &mockTenantRepository{}
+	svc := NewService(repo, tenantRepo, logger)
 	return svc, repo
 }
 
@@ -438,5 +456,134 @@ func TestBackwardsCompatibility_NoContentID(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.Equal(t, "", resp.ContentId)
+	})
+}
+
+// ============ Tenant Resolution Tests ============
+
+func TestCreateIngestJob_TenantResolution(t *testing.T) {
+	t.Run("resolves tenant slug to UUID", func(t *testing.T) {
+		logger := testLogger()
+		repo := &mockRepository{}
+
+		// Mock tenant resolution: slug "akamai" -> UUID
+		tenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+		tenantRepo := &mockTenantRepository{
+			getByRefFn: func(ctx context.Context, ref string) (*Tenant, error) {
+				if ref == "akamai" {
+					return &Tenant{ID: tenantUUID}, nil
+				}
+				return nil, nil
+			},
+		}
+
+		var capturedTenantID string
+		repo.createJobFn = func(ctx context.Context, job *storage.IngestJob) error {
+			capturedTenantID = job.TenantID
+			return nil
+		}
+
+		svc := NewService(repo, tenantRepo, logger)
+
+		req := &ingestv1.CreateIngestJobRequest{
+			TenantId:   "akamai", // Slug, not UUID
+			Name:       "Test Job",
+			TotalFiles: 10,
+			Platform:   ingestv1.Platform_PLATFORM_LOCAL,
+		}
+
+		resp, err := svc.CreateIngestJob(context.Background(), req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		// Verify the UUID was used, not the slug
+		assert.Equal(t, tenantUUID, capturedTenantID)
+	})
+
+	t.Run("passes through UUID unchanged", func(t *testing.T) {
+		logger := testLogger()
+		repo := &mockRepository{}
+
+		tenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+		tenantRepo := &mockTenantRepository{
+			getByRefFn: func(ctx context.Context, ref string) (*Tenant, error) {
+				// UUID format is passed through
+				return &Tenant{ID: ref}, nil
+			},
+		}
+
+		var capturedTenantID string
+		repo.createJobFn = func(ctx context.Context, job *storage.IngestJob) error {
+			capturedTenantID = job.TenantID
+			return nil
+		}
+
+		svc := NewService(repo, tenantRepo, logger)
+
+		req := &ingestv1.CreateIngestJobRequest{
+			TenantId:   tenantUUID, // Already a UUID
+			Name:       "Test Job",
+			TotalFiles: 10,
+			Platform:   ingestv1.Platform_PLATFORM_LOCAL,
+		}
+
+		resp, err := svc.CreateIngestJob(context.Background(), req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Equal(t, tenantUUID, capturedTenantID)
+	})
+
+	t.Run("returns error for unknown tenant", func(t *testing.T) {
+		logger := testLogger()
+		repo := &mockRepository{}
+
+		tenantRepo := &mockTenantRepository{
+			getByRefFn: func(ctx context.Context, ref string) (*Tenant, error) {
+				return nil, nil // Not found
+			},
+		}
+
+		svc := NewService(repo, tenantRepo, logger)
+
+		req := &ingestv1.CreateIngestJobRequest{
+			TenantId:   "unknown-tenant",
+			Name:       "Test Job",
+			TotalFiles: 10,
+			Platform:   ingestv1.Platform_PLATFORM_LOCAL,
+		}
+
+		resp, err := svc.CreateIngestJob(context.Background(), req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.NotFound, st.Code())
+		assert.Contains(t, st.Message(), "tenant not found")
+	})
+
+	t.Run("returns error for empty tenant_id", func(t *testing.T) {
+		logger := testLogger()
+		repo := &mockRepository{}
+		tenantRepo := &mockTenantRepository{}
+
+		svc := NewService(repo, tenantRepo, logger)
+
+		req := &ingestv1.CreateIngestJobRequest{
+			TenantId:   "", // Empty
+			Name:       "Test Job",
+			TotalFiles: 10,
+			Platform:   ingestv1.Platform_PLATFORM_LOCAL,
+		}
+
+		resp, err := svc.CreateIngestJob(context.Background(), req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+		assert.Contains(t, st.Message(), "tenant_id is required")
 	})
 }

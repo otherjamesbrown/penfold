@@ -247,14 +247,27 @@ func main() {
 	logger.Info("Registered ProductService")
 
 	// Register ProjectService for project CRUD and member management.
+	// Note: tenantRepo is created early to allow tenant resolution in multiple services.
+	tenantRepo := tenant.NewRepository(dbPool)
 	projectRepo := projects.NewRepository(dbPool, logger)
-	projectSvc := projectservice.NewService(projectRepo, entityRepo, logger)
+	projectSvc := projectservice.NewService(projectRepo, entityRepo, tenantRepo, logger)
 	projectv1.RegisterProjectServiceServer(grpcServer, projectSvc)
 	logger.Info("Registered ProjectService")
 
 	// Register IngestService for email and meeting ingestion.
+	// Uses tenantRepo (created above) for tenant slug-to-UUID resolution.
 	ingestRepo := storage.NewRepository(dbPool, logger)
-	ingestSvc := ingestservice.NewService(ingestRepo, logger)
+	ingestTenantAdapter := ingestservice.NewTenantRepoAdapter(func(ctx context.Context, ref string) (string, error) {
+		t, err := tenantRepo.GetByRef(ctx, ref)
+		if err != nil {
+			return "", err
+		}
+		if t == nil {
+			return "", nil
+		}
+		return t.ID, nil
+	})
+	ingestSvc := ingestservice.NewService(ingestRepo, ingestTenantAdapter, logger)
 	ingestv1.RegisterIngestServiceServer(grpcServer, ingestSvc)
 	logger.Info("Registered IngestService")
 
@@ -272,7 +285,7 @@ func main() {
 	}
 
 	// Register TenantService for multi-tenant management.
-	tenantRepo := tenant.NewRepository(dbPool)
+	// tenantRepo already created above for projectService
 	tenantSvc := tenantservice.NewService(tenantRepo, logger)
 	tenantv1.RegisterTenantServiceServer(grpcServer, tenantSvc)
 	logger.Info("Registered TenantService")
