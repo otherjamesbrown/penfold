@@ -68,6 +68,20 @@ git push
 - This creates a git tag, which triggers the release build
 - **Always bump version** when CLI changes ship - otherwise users won't get updates
 
+**After releasing, notify the client via Agent Mail:**
+
+```
+mcp__agent-mail__send_message(
+  project_key: "/Users/james/github/otherjamesbrown/penfold",
+  sender_name: "RusticDesert",
+  to: ["RedWolf"],
+  subject: "CLI Update: v0.2.5 released",
+  body_md: "## New Release: v0.2.5\n\n### Changes\n- [list changes]\n\n### Update\n```bash\npenf update\n```\n\nLet me know if you have questions!"
+)
+```
+
+This ensures the client knows to pull the latest version and what's new.
+
 ## Context Structure
 
 ```
