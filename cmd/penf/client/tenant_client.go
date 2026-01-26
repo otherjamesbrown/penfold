@@ -118,7 +118,7 @@ func (c *TenantClient) IsConnected() bool {
 
 // Tenant represents a tenant organization.
 type Tenant struct {
-	ID               int64
+	ID               string
 	Name             string
 	Slug             string
 	Description      string
@@ -172,7 +172,7 @@ func (c *TenantClient) ListTenants(ctx context.Context, req *ListTenantsRequest)
 }
 
 // GetTenant retrieves a single tenant by ID or slug.
-func (c *TenantClient) GetTenant(ctx context.Context, id int64, slug string) (*Tenant, error) {
+func (c *TenantClient) GetTenant(ctx context.Context, id string, slug string) (*Tenant, error) {
 	c.mu.RLock()
 	client := c.client
 	c.mu.RUnlock()
@@ -182,7 +182,7 @@ func (c *TenantClient) GetTenant(ctx context.Context, id int64, slug string) (*T
 	}
 
 	protoReq := &tenantv1.GetTenantRequest{}
-	if id > 0 {
+	if id != "" {
 		protoReq.Id = id
 	}
 	if slug != "" {
@@ -232,7 +232,7 @@ func (c *TenantClient) CreateTenant(ctx context.Context, req *CreateTenantReques
 
 // UpdateTenantRequest represents a request to update a tenant.
 type UpdateTenantRequest struct {
-	ID          int64
+	ID          string
 	Name        *string
 	Description *string
 	IsActive    *bool
@@ -266,7 +266,7 @@ func (c *TenantClient) UpdateTenant(ctx context.Context, req *UpdateTenantReques
 }
 
 // DeleteTenant soft-deletes a tenant.
-func (c *TenantClient) DeleteTenant(ctx context.Context, id int64, reason string) (bool, error) {
+func (c *TenantClient) DeleteTenant(ctx context.Context, id string, reason string) (bool, error) {
 	c.mu.RLock()
 	client := c.client
 	c.mu.RUnlock()

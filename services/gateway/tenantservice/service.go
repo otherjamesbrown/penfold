@@ -75,7 +75,7 @@ func (s *Service) GetTenant(ctx context.Context, req *tenantv1.GetTenantRequest)
 	var t *tenant.Tenant
 	var err error
 
-	if req.Id > 0 {
+	if req.Id != "" {
 		t, err = s.repo.Get(ctx, req.Id)
 	} else if req.Slug != "" {
 		t, err = s.repo.GetBySlug(ctx, req.Slug)
@@ -142,7 +142,7 @@ func (s *Service) UpdateTenant(ctx context.Context, req *tenantv1.UpdateTenantRe
 		logging.F("id", req.Id),
 	)
 
-	if req.Id == 0 {
+	if req.Id == "" {
 		return nil, status.Error(codes.InvalidArgument, "id is required")
 	}
 
@@ -166,7 +166,7 @@ func (s *Service) UpdateTenant(ctx context.Context, req *tenantv1.UpdateTenantRe
 	updated, err := s.repo.Update(ctx, req.Id, input)
 	if err != nil {
 		if errors.Is(err, pferrors.ErrNotFound) {
-			return nil, status.Errorf(codes.NotFound, "tenant with id %d not found", req.Id)
+			return nil, status.Errorf(codes.NotFound, "tenant with id %s not found", req.Id)
 		}
 		s.logger.Error("Error updating tenant", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to update tenant: %v", err)
@@ -184,14 +184,14 @@ func (s *Service) DeleteTenant(ctx context.Context, req *tenantv1.DeleteTenantRe
 		logging.F("reason", req.Reason),
 	)
 
-	if req.Id == 0 {
+	if req.Id == "" {
 		return nil, status.Error(codes.InvalidArgument, "id is required")
 	}
 
 	err := s.repo.Delete(ctx, req.Id, req.Reason)
 	if err != nil {
 		if errors.Is(err, pferrors.ErrNotFound) {
-			return nil, status.Errorf(codes.NotFound, "tenant with id %d not found", req.Id)
+			return nil, status.Errorf(codes.NotFound, "tenant with id %s not found", req.Id)
 		}
 		s.logger.Error("Error deleting tenant", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to delete tenant: %v", err)

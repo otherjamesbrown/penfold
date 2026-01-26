@@ -62,15 +62,17 @@ func (r *Repository) Create(ctx context.Context, input TenantInput) (*Tenant, er
 
 	var tenant Tenant
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO tenants (name, slug, description, is_active, settings)
-		VALUES ($1, $2, $3, $4, $5::jsonb)
-		RETURNING id, name, slug, description, is_active, settings::text, created_at, updated_at
+		INSERT INTO tenants (display_name, slug, description, is_active, settings, name, owner_email)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+		RETURNING id::text, display_name, slug, COALESCE(description, ''), is_active, COALESCE(settings::text, '{}'), created_at, updated_at
 	`,
 		input.Name,
 		slug,
 		input.Description,
 		isActive,
 		settings,
+		slug,        // Use slug as the name field (category)
+		"",          // owner_email - empty for now
 	).Scan(
 		&tenant.ID,
 		&tenant.Name,
@@ -91,17 +93,17 @@ func (r *Repository) Create(ctx context.Context, input TenantInput) (*Tenant, er
 	return &tenant, nil
 }
 
-// Get retrieves a tenant by ID.
-func (r *Repository) Get(ctx context.Context, id int64) (*Tenant, error) {
+// Get retrieves a tenant by ID (UUID).
+func (r *Repository) Get(ctx context.Context, id string) (*Tenant, error) {
 	var tenant Tenant
 	err := r.db.QueryRow(ctx, `
 		SELECT
-			t.id, t.name, t.slug, COALESCE(t.description, ''), t.is_active,
+			t.id::text, t.display_name, t.slug, COALESCE(t.description, ''), t.is_active,
 			COALESCE(t.settings::text, '{}'), t.created_at, t.updated_at,
-			COALESCE((SELECT COUNT(*) FROM tenant_integrations WHERE tenant_id = t.id AND enabled), 0) AS integration_count,
-			COALESCE((SELECT COUNT(*) FROM tenant_processing_rules WHERE tenant_id = t.id AND enabled), 0) AS rule_count
+			0 AS integration_count,
+			0 AS rule_count
 		FROM tenants t
-		WHERE t.id = $1
+		WHERE t.id = $1::uuid AND NOT t.is_deleted
 	`, id).Scan(
 		&tenant.ID,
 		&tenant.Name,
@@ -128,12 +130,12 @@ func (r *Repository) GetBySlug(ctx context.Context, slug string) (*Tenant, error
 	var tenant Tenant
 	err := r.db.QueryRow(ctx, `
 		SELECT
-			t.id, t.name, t.slug, COALESCE(t.description, ''), t.is_active,
+			t.id::text, t.display_name, t.slug, COALESCE(t.description, ''), t.is_active,
 			COALESCE(t.settings::text, '{}'), t.created_at, t.updated_at,
-			COALESCE((SELECT COUNT(*) FROM tenant_integrations WHERE tenant_id = t.id AND enabled), 0) AS integration_count,
-			COALESCE((SELECT COUNT(*) FROM tenant_processing_rules WHERE tenant_id = t.id AND enabled), 0) AS rule_count
+			0 AS integration_count,
+			0 AS rule_count
 		FROM tenants t
-		WHERE t.slug = $1
+		WHERE t.slug = $1 AND NOT t.is_deleted
 	`, slug).Scan(
 		&tenant.ID,
 		&tenant.Name,
@@ -158,15 +160,15 @@ func (r *Repository) GetBySlug(ctx context.Context, slug string) (*Tenant, error
 // List retrieves tenants matching the filter.
 func (r *Repository) List(ctx context.Context, filter TenantFilter) ([]*Tenant, int64, error) {
 	// Build base query for count
-	countQuery := `SELECT COUNT(*) FROM tenants t WHERE 1=1`
+	countQuery := `SELECT COUNT(*) FROM tenants t WHERE NOT t.is_deleted`
 	query := `
 		SELECT
-			t.id, t.name, t.slug, COALESCE(t.description, ''), t.is_active,
+			t.id::text, t.display_name, t.slug, COALESCE(t.description, ''), t.is_active,
 			COALESCE(t.settings::text, '{}'), t.created_at, t.updated_at,
-			COALESCE((SELECT COUNT(*) FROM tenant_integrations WHERE tenant_id = t.id AND enabled), 0) AS integration_count,
-			COALESCE((SELECT COUNT(*) FROM tenant_processing_rules WHERE tenant_id = t.id AND enabled), 0) AS rule_count
+			0 AS integration_count,
+			0 AS rule_count
 		FROM tenants t
-		WHERE 1=1
+		WHERE NOT t.is_deleted
 	`
 	args := []interface{}{}
 	argNum := 1
@@ -181,7 +183,7 @@ func (r *Repository) List(ctx context.Context, filter TenantFilter) ([]*Tenant, 
 
 	if filter.Search != "" {
 		condition := fmt.Sprintf(` AND (
-			t.name ILIKE $%d OR
+			t.display_name ILIKE $%d OR
 			t.slug ILIKE $%d OR
 			t.description ILIKE $%d
 		)`, argNum, argNum, argNum)
@@ -200,7 +202,7 @@ func (r *Repository) List(ctx context.Context, filter TenantFilter) ([]*Tenant, 
 	}
 
 	// Add ordering and pagination
-	query += " ORDER BY t.name ASC"
+	query += " ORDER BY t.display_name ASC"
 
 	limit := 50
 	if filter.Limit > 0 && filter.Limit <= 1000 {
@@ -245,7 +247,7 @@ func (r *Repository) List(ctx context.Context, filter TenantFilter) ([]*Tenant, 
 }
 
 // Update modifies an existing tenant.
-func (r *Repository) Update(ctx context.Context, id int64, input TenantInput) (*Tenant, error) {
+func (r *Repository) Update(ctx context.Context, id string, input TenantInput) (*Tenant, error) {
 	// Get existing tenant first
 	existing, err := r.Get(ctx, id)
 	if err != nil {
@@ -256,9 +258,9 @@ func (r *Repository) Update(ctx context.Context, id int64, input TenantInput) (*
 	}
 
 	// Apply updates
-	name := existing.Name
+	displayName := existing.Name
 	if input.Name != "" {
-		name = input.Name
+		displayName = input.Name
 	}
 
 	description := existing.Description
@@ -279,12 +281,12 @@ func (r *Repository) Update(ctx context.Context, id int64, input TenantInput) (*
 	var tenant Tenant
 	err = r.db.QueryRow(ctx, `
 		UPDATE tenants
-		SET name = $2, description = $3, is_active = $4, settings = $5::jsonb, updated_at = NOW()
-		WHERE id = $1
-		RETURNING id, name, slug, COALESCE(description, ''), is_active, COALESCE(settings::text, '{}'), created_at, updated_at
+		SET display_name = $2, description = $3, is_active = $4, settings = $5::jsonb, updated_at = NOW()
+		WHERE id = $1::uuid AND NOT is_deleted
+		RETURNING id::text, display_name, slug, COALESCE(description, ''), is_active, COALESCE(settings::text, '{}'), created_at, updated_at
 	`,
 		id,
-		name,
+		displayName,
 		description,
 		isActive,
 		settings,
@@ -309,10 +311,7 @@ func (r *Repository) Update(ctx context.Context, id int64, input TenantInput) (*
 }
 
 // Delete soft-deletes a tenant by ID.
-// Note: The current schema uses hard delete. For soft delete, the schema would need
-// deleted_at, is_deleted, deleted_by, deletion_reason columns.
-// For now, we perform a hard delete but the API indicates soft delete semantics.
-func (r *Repository) Delete(ctx context.Context, id int64, reason string) error {
+func (r *Repository) Delete(ctx context.Context, id string, reason string) error {
 	// First check if tenant exists
 	existing, err := r.Get(ctx, id)
 	if err != nil {
@@ -322,8 +321,12 @@ func (r *Repository) Delete(ctx context.Context, id int64, reason string) error 
 		return pferrors.ErrNotFound
 	}
 
-	// Perform delete (hard delete for now since schema doesn't have soft delete columns)
-	result, err := r.db.Exec(ctx, `DELETE FROM tenants WHERE id = $1`, id)
+	// Perform soft delete using existing schema columns
+	result, err := r.db.Exec(ctx, `
+		UPDATE tenants
+		SET is_deleted = true, deleted_at = NOW(), deletion_reason = $2
+		WHERE id = $1::uuid AND NOT is_deleted
+	`, id, reason)
 	if err != nil {
 		return fmt.Errorf("delete tenant: %w", err)
 	}
@@ -333,12 +336,14 @@ func (r *Repository) Delete(ctx context.Context, id int64, reason string) error 
 	return nil
 }
 
-// GetByRef retrieves a tenant by either ID (as string) or slug.
+// GetByRef retrieves a tenant by either ID (UUID string) or slug.
 func (r *Repository) GetByRef(ctx context.Context, ref string) (*Tenant, error) {
-	// First try to parse as ID
-	var id int64
-	if _, err := fmt.Sscanf(ref, "%d", &id); err == nil {
-		return r.Get(ctx, id)
+	// First try as UUID (36 chars with hyphens, or 32 without)
+	if len(ref) == 36 || len(ref) == 32 {
+		tenant, err := r.Get(ctx, ref)
+		if err == nil && tenant != nil {
+			return tenant, nil
+		}
 	}
 	// Otherwise treat as slug
 	return r.GetBySlug(ctx, ref)

@@ -18,6 +18,19 @@ import (
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
 
+// getInsecureFlag retrieves the --insecure flag from the command's root.
+// This is needed because tenant commands load their own config, which doesn't
+// include flag overrides from PersistentPreRunE.
+func getInsecureFlag(cmd *cobra.Command) bool {
+	// Walk up to root command to find the persistent flag.
+	root := cmd.Root()
+	if root == nil {
+		return false
+	}
+	insecure, _ := root.PersistentFlags().GetBool("insecure")
+	return insecure
+}
+
 // TenantInfo represents detailed information about a tenant.
 type TenantInfo struct {
 	ID          string    `json:"id" yaml:"id"`
@@ -109,7 +122,7 @@ Displays tenant ID, name, status, and indicates the currently active tenant.
 Use --output to change the output format (text, json, yaml).`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTenantList(cmd.Context(), deps)
+			return runTenantList(cmd.Context(), deps, getInsecureFlag(cmd))
 		},
 	}
 }
@@ -133,7 +146,7 @@ Example:
 		Aliases: []string{"use", "sw"},
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTenantSwitch(cmd.Context(), deps, args[0], !noValidate)
+			return runTenantSwitch(cmd.Context(), deps, args[0], !noValidate, getInsecureFlag(cmd))
 		},
 	}
 
@@ -179,16 +192,20 @@ Example:
 			if len(args) > 0 {
 				tenantID = args[0]
 			}
-			return runTenantShow(cmd.Context(), deps, tenantID)
+			return runTenantShow(cmd.Context(), deps, tenantID, getInsecureFlag(cmd))
 		},
 	}
 }
 
 // runTenantList executes the tenant list command.
-func runTenantList(ctx context.Context, deps *TenantCommandDeps) error {
+func runTenantList(ctx context.Context, deps *TenantCommandDeps, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
+	}
+	// Override with command-line flag if set.
+	if insecureFlag {
+		cfg.Insecure = true
 	}
 	deps.Config = cfg
 
@@ -242,10 +259,14 @@ func runTenantList(ctx context.Context, deps *TenantCommandDeps) error {
 }
 
 // runTenantSwitch executes the tenant switch command.
-func runTenantSwitch(ctx context.Context, deps *TenantCommandDeps, tenantRef string, validate bool) error {
+func runTenantSwitch(ctx context.Context, deps *TenantCommandDeps, tenantRef string, validate bool, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
+	}
+	// Override with command-line flag if set.
+	if insecureFlag {
+		cfg.Insecure = true
 	}
 	deps.Config = cfg
 
@@ -335,10 +356,14 @@ func runTenantCurrent(deps *TenantCommandDeps) error {
 }
 
 // runTenantShow executes the tenant info command.
-func runTenantShow(ctx context.Context, deps *TenantCommandDeps, tenantRef string) error {
+func runTenantShow(ctx context.Context, deps *TenantCommandDeps, tenantRef string, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
+	}
+	// Override with command-line flag if set.
+	if insecureFlag {
+		cfg.Insecure = true
 	}
 	deps.Config = cfg
 
@@ -365,7 +390,7 @@ func runTenantShow(ctx context.Context, deps *TenantCommandDeps, tenantRef strin
 	}
 	defer tenantClient.Close()
 
-	tenant, err := tenantClient.GetTenant(ctx, 0, tenantID)
+	tenant, err := tenantClient.GetTenant(ctx, "", tenantID)
 	if err != nil {
 		return fmt.Errorf("getting tenant info: %w", err)
 	}

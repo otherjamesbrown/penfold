@@ -41,8 +41,8 @@ service TenantService {
 
 // Tenant represents a tenant organization.
 message Tenant {
-  // Unique identifier.
-  int64 id = 1;
+  // Unique identifier (UUID).
+  string id = 1;
 
   // Short name (e.g., "acme").
   string name = 2;
@@ -99,8 +99,8 @@ message CreateTenantResponse {
 
 // GetTenantRequest retrieves a tenant by ID or slug.
 message GetTenantRequest {
-  // Get by ID.
-  int64 id = 1;
+  // Get by ID (UUID).
+  string id = 1;
 
   // Or get by slug.
   string slug = 2;
@@ -138,8 +138,8 @@ message ListTenantsResponse {
 
 // UpdateTenantRequest updates an existing tenant.
 message UpdateTenantRequest {
-  // ID of the tenant to update.
-  int64 id = 1;
+  // ID of the tenant to update (UUID).
+  string id = 1;
 
   // New name (optional).
   optional string name = 2;
@@ -162,8 +162,8 @@ message UpdateTenantResponse {
 
 // DeleteTenantRequest soft-deletes a tenant.
 message DeleteTenantRequest {
-  // ID of the tenant to delete.
-  int64 id = 1;
+  // ID of the tenant to delete (UUID).
+  string id = 1;
 
   // Reason for deletion (optional).
   string reason = 2;

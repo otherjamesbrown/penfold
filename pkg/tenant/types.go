@@ -5,7 +5,7 @@ import "time"
 
 // Tenant represents a tenant organization in the system.
 type Tenant struct {
-	ID               int64     `json:"id"`
+	ID               string    `json:"id"`
 	Name             string    `json:"name"`
 	Slug             string    `json:"slug"`
 	Description      string    `json:"description,omitempty"`

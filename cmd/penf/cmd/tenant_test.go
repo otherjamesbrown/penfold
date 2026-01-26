@@ -539,7 +539,7 @@ func TestRunTenantList(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runTenantList(context.Background(), deps)
+	err := runTenantList(context.Background(), deps, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -623,7 +623,7 @@ func TestRunTenantSwitch(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runTenantSwitch(context.Background(), deps, "new-tenant-id", true)
+	err := runTenantSwitch(context.Background(), deps, "new-tenant-id", true, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -658,7 +658,7 @@ func TestRunTenantSwitch_WithAlias(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runTenantSwitch(context.Background(), deps, "work", true)
+	err := runTenantSwitch(context.Background(), deps, "work", true, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -688,7 +688,7 @@ func TestRunTenantSwitch_InvalidID(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runTenantSwitch(context.Background(), deps, "", true)
+	err := runTenantSwitch(context.Background(), deps, "", true, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -713,7 +713,7 @@ func TestRunTenantSwitch_NoValidation(t *testing.T) {
 	os.Stdout = w
 
 	// Switch with no validation - should work even with invalid format.
-	err := runTenantSwitch(context.Background(), deps, "any-tenant", false)
+	err := runTenantSwitch(context.Background(), deps, "any-tenant", false, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -736,7 +736,7 @@ func TestRunTenantInfo_CurrentTenant(t *testing.T) {
 	os.Stdout = w
 
 	// Call with empty string to use current tenant.
-	err := runTenantShow(context.Background(), deps, "")
+	err := runTenantShow(context.Background(), deps, "", false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -763,7 +763,7 @@ func TestRunTenantInfo_SpecificTenant(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runTenantShow(context.Background(), deps, "tenant-acme-002")
+	err := runTenantShow(context.Background(), deps, "tenant-acme-002", false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -788,7 +788,7 @@ func TestRunTenantInfo_NoCurrentTenant(t *testing.T) {
 
 	os.Unsetenv("PENF_TENANT_ID")
 
-	err := runTenantShow(context.Background(), deps, "")
+	err := runTenantShow(context.Background(), deps, "", false)
 	if err == nil {
 		t.Error("expected error when no current tenant and no argument")
 	}
