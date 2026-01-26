@@ -519,6 +519,38 @@ Task-based model selection rules.
 
 ---
 
+### Embeddings
+
+**Critical for semantic search.** Vector representations of content for similarity matching.
+
+| Field | Description |
+|-------|-------------|
+| `id` | Primary key |
+| `tenant_id` | Multi-tenant isolation |
+| `entity_type` | What was embedded: `source`, `assertion`, `person`, `project`, `team` |
+| `entity_id` | ID of the embedded entity |
+| `embedding_model` | Model used (e.g., `mlx/mxbai-embed-large-v1`) |
+| `model_version` | Model version for cache invalidation |
+| `text_content` | Text that was embedded |
+| `content_hash` | SHA-256 of text (for deduplication) |
+| `embedding` | Vector array (typically 1024 dimensions) |
+| `search_count` | How often this embedding was matched in searches |
+| `last_searched_at` | For analytics and cache management |
+
+**Why Embeddings Matter:**
+- Enable semantic search ("find discussions about scaling" finds "auto-scaling", "horizontal scaling", etc.)
+- Power similarity matching for duplicate detection
+- Support question-answering over content
+
+**Embedding Sources:**
+- `source_id` → Content from emails, meetings, documents
+- `assertion_id` → Extracted facts/claims
+- `person_id` → Person profile summaries
+- `project_id` → Project descriptions
+- `team_id` → Team descriptions
+
+---
+
 ## Entity Relationships Diagram
 
 ```
@@ -580,5 +612,8 @@ Task-based model selection rules.
 
 ## See Also
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture and data flow
-- [infrastructure.md](infrastructure.md) - Deployment topology and configuration
+- [vision.md](vision.md) - What Penfold is and why
+- [use-cases.md](use-cases.md) - Prioritized use cases
+- [interaction-model.md](interaction-model.md) - How users interact via Claude Code
+- [../ARCHITECTURE.md](../ARCHITECTURE.md) - System architecture and data flow
+- [../infrastructure.md](../infrastructure.md) - Deployment topology and configuration

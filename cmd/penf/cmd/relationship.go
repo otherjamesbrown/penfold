@@ -177,7 +177,13 @@ Relationship Types:
   - discusses:    Talks about topic
   - mentions:     References entity
   - located_at:   Physical location
-  - related_to:   General association`,
+  - related_to:   General association
+
+Documentation:
+  People entities:        docs/concepts/people.md (how people are resolved)
+  Entity types:           docs/concepts/entities.md (all entity types)
+  Mention resolution:     docs/concepts/mentions.md (how mentions become entities)
+  Use case:               docs/shared/use-cases.md (UC-3: Expertise Discovery)`,
 		Aliases: []string{"rel", "relations"},
 	}
 

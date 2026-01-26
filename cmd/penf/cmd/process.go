@@ -144,7 +144,14 @@ Example workflow:
   # Batch resolve multiple items
   penf process acronyms batch-resolve '{"resolutions":[...]}'
   penf process mentions batch-resolve '{"resolutions":[...]}'
-  penf process onboarding batch '{"confirm_people":[...]}'`,
+  penf process onboarding batch '{"confirm_people":[...]}'
+
+Documentation:
+  How to operate:         docs/assistant-rules.md (your operating principles)
+  Acronym workflow:       docs/workflows/acronym-review.md
+  Mention workflow:       docs/workflows/mention-review.md
+  Onboarding workflow:    docs/workflows/onboarding.md
+  Interaction model:      docs/shared/interaction-model.md`,
 	}
 
 	// Add workflow subcommands.

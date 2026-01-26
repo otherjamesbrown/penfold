@@ -138,7 +138,11 @@ Examples:
   penf workflow status wf-abc123
 
   # Cancel a running workflow
-  penf workflow cancel wf-abc123`,
+  penf workflow cancel wf-abc123
+
+Documentation:
+  Pipeline overview:   docs/concepts/pipeline.md
+  System vision:       docs/shared/vision.md`,
 	}
 
 	// Add subcommands.

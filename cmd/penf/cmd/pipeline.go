@@ -54,7 +54,11 @@ The pipeline processes ingested content through several stages:
 Commands:
   status  - Show overall pipeline statistics
   job     - Show details for a specific job
-  jobs    - List recent ingest jobs`,
+  jobs    - List recent ingest jobs
+
+Documentation:
+  Pipeline concepts:   docs/concepts/pipeline.md
+  System vision:       docs/shared/vision.md`,
 	}
 
 	cmd.AddCommand(newPipelineStatusCmd(pipelineDeps))

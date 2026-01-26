@@ -184,7 +184,10 @@ Examples:
   penf model rules
 
   # Start a local model server
-  penf model serve phi --port 8080`,
+  penf model serve phi --port 8080
+
+Documentation:
+  System vision:       docs/shared/vision.md`,
 		Aliases: []string{"models", "llm"},
 	}
 

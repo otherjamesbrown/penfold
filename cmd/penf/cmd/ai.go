@@ -108,7 +108,11 @@ Examples:
   penf ai summarize doc-123
 
   # Analyze content for insights
-  penf ai analyze email-456`,
+  penf ai analyze email-456
+
+Documentation:
+  System vision:       docs/shared/vision.md
+  Entity model:        docs/shared/entities.md`,
 	}
 
 	// Add subcommands.

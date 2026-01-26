@@ -361,8 +361,10 @@ Instead of executing commands one at a time, use the `penf process` commands.
    ```
 
 ### Workflow Documentation
-See `context/workflows/` for detailed workflow guides:
+See `context/client/workflows/` for detailed workflow guides:
 - `acronym-review.md` - Acronym processing decision criteria and patterns
+- `onboarding.md` - Post-import entity review workflow
+- `mention-review.md` - Person mention resolution workflow
 
 ### When to Use Batch vs Interactive
 - **Batch**: Processing queues, bulk operations, repetitive tasks
@@ -397,12 +399,13 @@ See `context/workflows/` for detailed workflow guides:
 - **Process definitions**: `~/.penf/processes.md` (read at session start for available workflows)
 - **Development standards**: `project-constitution.md`
 - **Infrastructure**: `context/infrastructure.md` (architecture, services, connections)
-- **Workflow guides**: `context/workflows/` (batch processing patterns)
 - **Credentials**: `source ~/github/otherjamesbrown/secrets/.env.penfold` (NEVER hardcode passwords)
 - **Batch processing**: `penf process <workflow> context` then `batch-resolve`
 - **When stuck**: Ask user for direction on priorities
 - **Before ending**: `git push` + `bd sync`
-- **Development agents**: `.claude/agents/` (use for domain-specific work)
+- **Development agents**: `context/agents/` (use for domain-specific work)
+- **North star docs**: `context/shared/` (vision, entities, use-cases, interaction-model)
+- **Client docs**: `context/client/` (shipped with CLI for user's Claude Code)
 - **Debugging**: Use Debugger agent for complex issues (>30 min or unclear root cause)
 
 ## Active Technologies

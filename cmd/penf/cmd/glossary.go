@@ -74,7 +74,12 @@ JSON Output (for AI processing):
       {"id": 1, "term": "LKE", "expansion": "Linode Kubernetes Engine", "context": ["infrastructure"]}
     ],
     "total": 42
-  }`,
+  }
+
+Documentation:
+  How glossary works:     docs/concepts/glossary.md (multi-context, aliases, expansion)
+  Acronym workflow:       docs/workflows/acronym-review.md (processing unknown acronyms)
+  Entity types:           docs/shared/entities.md (glossary as an entity)`,
 		Aliases: []string{"terms", "dict"},
 	}
 

@@ -68,7 +68,11 @@ mention resolution, including:
   - Stage 4: Verification - Verify uncertain resolutions
 
 Each trace includes timing, decisions, reasoning, and optionally
-full LLM prompts/responses for debugging.`,
+full LLM prompts/responses for debugging.
+
+Documentation:
+  Entity resolution:   docs/concepts/mention-resolution.md
+  Entity model:        docs/shared/entities.md`,
 	}
 
 	// Add persistent flags

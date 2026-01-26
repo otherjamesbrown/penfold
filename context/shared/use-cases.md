@@ -21,6 +21,32 @@ The goal: **Never lose context. Always know who knows what.**
 
 ---
 
+## Implementation Tiers
+
+Use cases are prioritized into tiers to guide development focus:
+
+| Tier | Status | Description |
+|------|--------|-------------|
+| **Tier 1 (Core)** | Building | Essential functionality - must work well |
+| **Tier 2 (Important)** | Planned | Key differentiators - build after core |
+| **Tier 3 (Future)** | Vision | Aspirational - guides architecture decisions |
+
+### Current Status
+
+| Use Case | Tier | Status |
+|----------|------|--------|
+| UC-1: Semantic Search | Tier 1 | **Implemented** - hybrid search working |
+| UC-2: Meeting Intelligence | Tier 1 | **Implemented** - transcript ingestion working |
+| UC-6: Acronym/Terminology | Tier 1 | **Implemented** - glossary and query expansion |
+| UC-8: Email Archive | Tier 1 | **Implemented** - .eml ingestion working |
+| UC-3: Expertise Discovery | Tier 2 | Partial - entity resolution working, expertise scoring planned |
+| UC-4: Product Knowledge | Tier 2 | Partial - products working, timeline events planned |
+| UC-7: Question Resolution | Tier 2 | **Implemented** - review queue working |
+| UC-5: Daily Review | Tier 3 | Planned - design complete |
+| UC-9-12: Secondary | Tier 3 | Vision - architecture allows for these |
+
+---
+
 ## Core Problems We Solve
 
 ### 1. Lost Institutional Knowledge
@@ -345,6 +371,8 @@ To maintain focus, Penfold explicitly does **not** aim to:
 
 ## See Also
 
+- [vision.md](vision.md) - Core vision and principles
 - [entities.md](entities.md) - Data model and entity relationships
-- [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture
-- [infrastructure.md](infrastructure.md) - Deployment and operations
+- [interaction-model.md](interaction-model.md) - How users interact via Claude Code
+- [../ARCHITECTURE.md](../ARCHITECTURE.md) - System architecture
+- [../infrastructure.md](../infrastructure.md) - Deployment and operations

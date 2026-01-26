@@ -184,7 +184,16 @@ Examples:
   penf ingest gmail sync
 
   # Check ingestion status
-  penf ingest status`,
+  penf ingest status
+
+After Ingestion:
+  Run 'penf process onboarding context' to review discovered entities.
+  See docs/workflows/onboarding.md for the post-import review workflow.
+
+Documentation:
+  What gets extracted:    docs/shared/entities.md (people, products, glossary)
+  Post-import workflow:   docs/workflows/onboarding.md
+  Entity resolution:      docs/concepts/mentions.md`,
 	}
 
 	// Global ingest flags.

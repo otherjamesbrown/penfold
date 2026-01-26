@@ -79,7 +79,11 @@ Examples:
   penf trace em-abc12345
 
   # Output as JSON for programmatic use
-  penf trace dc-9x3kp7mn -o json`,
+  penf trace dc-9x3kp7mn -o json
+
+Documentation:
+  Pipeline concepts:   docs/concepts/pipeline.md
+  Entity model:        docs/shared/entities.md`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTrace(cmd, deps, args[0])

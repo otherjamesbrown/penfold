@@ -158,7 +158,12 @@ Examples:
   penf product show "My Product"
 
   # Show product hierarchy
-  penf product hierarchy "My Product"`,
+  penf product hierarchy "My Product"
+
+Documentation:
+  Product model:          docs/concepts/products.md (hierarchy, teams, events)
+  Entity types:           docs/shared/entities.md (products as entities)
+  Use case:               docs/shared/use-cases.md (UC-4: Product Knowledge Base)`,
 		Aliases: []string{"prod", "products"},
 	}
 

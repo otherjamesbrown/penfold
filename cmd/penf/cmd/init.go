@@ -31,6 +31,9 @@ var acronymReviewTemplate string
 //go:embed templates/docs
 var docsFS embed.FS
 
+//go:embed templates/shared
+var sharedFS embed.FS
+
 var (
 	initServerAddr string
 	initNonInteractive bool
@@ -56,7 +59,13 @@ Run this from your project directory. Global config goes to ~/.penf/,
 but context files (CLAUDE.md, preferences.md, processes/, docs/) are created
 in the current directory so Claude Code can find them.
 
-After init, run 'penf init entities' to seed known people, products, and glossary.`,
+After init, run 'penf init entities' to seed known people, products, and glossary.
+
+Documentation (installed to docs/):
+  docs/assistant-rules.md   How Penfold (the AI) should operate
+  docs/index.md             System overview and navigation
+  docs/shared/vision.md     What Penfold is and why
+  docs/shared/entities.md   Data model and relationships`,
 		RunE: runInit,
 	}
 
@@ -303,6 +312,9 @@ func initProcessDefinitions() error {
 
 // initDocs installs the documentation hierarchy for Claude agents.
 // These CAN be updated by penf init or penf update.
+// Structure:
+//   docs/           - Client docs (concepts, workflows)
+//   docs/shared/    - Shared docs (vision, entities, use-cases)
 func initDocs() error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -355,8 +367,57 @@ func initDocs() error {
 		return fmt.Errorf("installing docs: %w", err)
 	}
 
-	fmt.Printf("  \033[32m✓\033[0m Installed docs/ hierarchy (concepts, workflows)\n")
+	// Also install shared docs (vision, entities, use-cases, interaction-model)
+	sharedDir := filepath.Join(docsDir, "shared")
+	if err := os.MkdirAll(sharedDir, 0755); err != nil {
+		return fmt.Errorf("creating shared directory: %w", err)
+	}
+
+	err = fs.WalkDir(sharedFS, "templates/shared", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Calculate the relative path (strip "templates/shared" prefix)
+		relPath, err := filepath.Rel("templates/shared", path)
+		if err != nil {
+			return err
+		}
+
+		// Skip the root
+		if relPath == "." {
+			return nil
+		}
+
+		destPath := filepath.Join(sharedDir, relPath)
+
+		if d.IsDir() {
+			if err := os.MkdirAll(destPath, 0755); err != nil {
+				return fmt.Errorf("creating directory %s: %w", destPath, err)
+			}
+			return nil
+		}
+
+		// Read and write file
+		content, err := sharedFS.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", path, err)
+		}
+
+		if err := os.WriteFile(destPath, content, 0644); err != nil {
+			return fmt.Errorf("writing %s: %w", destPath, err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("installing shared docs: %w", err)
+	}
+
+	fmt.Printf("  \033[32m✓\033[0m Installed docs/ hierarchy (concepts, workflows, shared)\n")
 	fmt.Println("    Claude reads docs/index.md first, then follows links for details")
+	fmt.Println("    Shared docs (vision, entities, use-cases) are in docs/shared/")
 
 	return nil
 }
