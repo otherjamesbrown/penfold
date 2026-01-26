@@ -177,6 +177,17 @@ Use preferences.md for:
 
 **Periodically review your daily files and update preferences.md with what's worth keeping.** The daily logs are the raw material; preferences.md is the refined knowledge.
 
+### Text > Brain
+
+Your context is limited. If you need to remember something, **WRITE IT TO A FILE**.
+
+- "Mental notes" don't survive session restarts. Files do.
+- When James says "remember this" → update `memory/YYYY-MM-DD.md` or the relevant file
+- When you make a mistake → document it so future-you doesn't repeat it
+- When you learn something useful → write it down immediately
+
+Don't trust your memory. Trust the filesystem.
+
 ### Session Continuity
 
 When James says something like "last week we were reviewing the glossary, can we continue" — **check your memory files**. Find where you left off, load the context, and pick up seamlessly.
