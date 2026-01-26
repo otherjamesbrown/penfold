@@ -3,6 +3,18 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.2.4)'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.2.4)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -39,7 +51,14 @@ jobs:
       - name: Get version info
         id: version
         run: |
-          echo "version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          # Use input version if provided (workflow_dispatch/workflow_call), otherwise use tag
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+            git checkout "$VERSION"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "commit=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
           echo "build_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
 
@@ -77,6 +96,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Determine version
+        id: version
+        run: |
+          # Use input version if provided (workflow_dispatch/workflow_call), otherwise use tag
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -100,6 +131,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ steps.version.outputs.version }}
           body: |
             ## Installation
 
@@ -111,19 +143,19 @@ jobs:
             ### Fresh install
             ```bash
             # macOS (Apple Silicon)
-            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-darwin-arm64
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ steps.version.outputs.version }}/penf-darwin-arm64
             chmod +x /usr/local/bin/penf
 
             # macOS (Intel)
-            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-darwin-amd64
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ steps.version.outputs.version }}/penf-darwin-amd64
             chmod +x /usr/local/bin/penf
 
             # Linux (x86_64)
-            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-linux-amd64
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ steps.version.outputs.version }}/penf-linux-amd64
             chmod +x /usr/local/bin/penf
 
             # Linux (ARM64)
-            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ github.ref_name }}/penf-linux-arm64
+            curl -L -o /usr/local/bin/penf https://github.com/otherjamesbrown/penfold/releases/download/${{ steps.version.outputs.version }}/penf-linux-arm64
             chmod +x /usr/local/bin/penf
             ```
 
@@ -132,7 +164,7 @@ jobs:
             penf init
             ```
           draft: false
-          prerelease: ${{ contains(github.ref, '-alpha') || contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
+          prerelease: ${{ contains(steps.version.outputs.version, '-alpha') || contains(steps.version.outputs.version, '-beta') || contains(steps.version.outputs.version, '-rc') }}
           files: |
             release/penf-*
             release/checksums.txt

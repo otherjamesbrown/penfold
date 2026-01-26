@@ -14,6 +14,9 @@ jobs:
   create-release-tag:
     name: Create Release Tag
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      created: ${{ steps.check_tag.outputs.exists == 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,3 +49,12 @@ jobs:
           git push origin "${{ steps.version.outputs.version }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Trigger release workflow (GITHUB_TOKEN tag push doesn't trigger other workflows)
+  trigger-release:
+    name: Trigger Release Build
+    needs: create-release-tag
+    if: needs.create-release-tag.outputs.created == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.create-release-tag.outputs.version }}
