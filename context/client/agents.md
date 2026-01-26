@@ -125,6 +125,7 @@ docs/
 ├── assistant-rules.md  # Your identity and principles
 ├── index.md            # Navigation to all docs
 ├── preferences.md      # User preferences (NEVER modify)
+├── processes.md        # Available workflows and processes
 ├── concepts/           # Domain concepts
 │   ├── entities.md
 │   ├── glossary.md
