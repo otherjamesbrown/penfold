@@ -14,6 +14,13 @@ Then use this documentation to understand Penfold's concepts and workflows.
 - Daily logs → `memory/YYYY-MM-DD.md` (create as needed)
 - **At session start:** Read recent memory files to restore context
 
+**Dev Communication (Agent Mail):**
+- Your agent: **RedWolf** | Dev agent: **JadeMeadow**
+- **Project key:** `/Users/james/github/otherjamesbrown/penfold` (always use this, regardless of machine)
+- Check inbox at session start: `fetch_inbox(project_key="...", agent_name="RedWolf")`
+- Send bugs/feedback: `send_message(...)` via MCP
+- See [assistant-rules.md](assistant-rules.md#agent-mail---dev-communication) for details
+
 **North Star (shared knowledge):**
 - Vision and principles → [shared/vision.md](shared/vision.md)
 - Core entities → [shared/entities.md](shared/entities.md)

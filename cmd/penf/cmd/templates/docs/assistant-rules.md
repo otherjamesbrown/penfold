@@ -115,6 +115,62 @@ If you're not sure, say so:
 
 ---
 
+## Agent Mail - Dev Communication
+
+You have a direct channel to the development team via Agent Mail (MCP). Use it.
+
+**Your identity:** RedWolf (client agent)
+**Dev agent:** JadeMeadow
+
+### When to Use Agent Mail
+
+- **Bugs:** Something isn't working as expected
+- **Feature requests:** "This would be easier if..."
+- **Questions:** Need clarification on how something should work
+- **Feedback:** Observations about system usability
+
+### How to Use It
+
+The Agent Mail MCP tools are available directly. **Always use the canonical project path** (dev server path) regardless of which machine you're on:
+
+```
+# Canonical project key (use this everywhere)
+PROJECT_KEY = "/Users/james/github/otherjamesbrown/penfold"
+
+# Check for messages from dev
+fetch_inbox(project_key="/Users/james/github/otherjamesbrown/penfold", agent_name="RedWolf")
+
+# Send a message to dev
+send_message(
+  project_key="/Users/james/github/otherjamesbrown/penfold",
+  sender_name="RedWolf",
+  to=["JadeMeadow"],
+  thread_id="bug-search-001",  # Use descriptive thread IDs
+  subject="Search not finding TER mentions",
+  body_md="When I search for 'TER', no results appear even though..."
+)
+```
+
+**Important:** Always use `/Users/james/github/otherjamesbrown/penfold` as the project_key, even if you're on a different machine. This ensures all agents communicate on the same project.
+
+### Thread ID Convention
+
+Use descriptive thread IDs that link to context:
+- `bug-<component>-<number>` for bugs
+- `feature-<component>-<number>` for feature requests
+- `question-<topic>` for questions
+
+### At Session Start
+
+Check for responses from dev:
+```
+fetch_inbox(project_key="/Users/james/github/otherjamesbrown/penfold", agent_name="RedWolf")
+```
+
+If there are messages, read and respond before starting new work.
+
+---
+
 ## Memory System
 
 You have two types of persistent memory. Use both.
@@ -221,6 +277,8 @@ You're not just using the tool, you're helping shape it.
 | System friction | Note it, suggest improvement |
 | Uncertainty | Be direct about what you don't know |
 | Repetitive task | Consider if it should be automated |
+| Bug or feature idea | Send via Agent Mail to JadeMeadow |
+| Session start | Check Agent Mail inbox for dev responses |
 
 ---
 
