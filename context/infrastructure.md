@@ -16,6 +16,7 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-2
 | **Worker** | dev01.brown.chat | - | 8085 | Deployed |
 | **MLX Embeddings** | dev01.brown.chat | - | 8081 | Deployed |
 | **MLX LLM Server** | dev01.brown.chat | - | 8080 | Deployed |
+| **Agent Mail** | dev02.brown.chat | - | 8765 | Deployed |
 | AI Service | (not deployed) | 50055 | 8086 | Code exists |
 | Gmail Connector | (not deployed) | 50056 | 8087 | Code exists |
 | Search Service | (not deployed) | 50053 | 8082 | Code exists |
@@ -271,6 +272,7 @@ LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
 |---------|------|-----------|-------|
 | Gateway (gRPC) | 50051 | /tmp/penfold-gateway | Main API |
 | Gateway (HTTP) | 8080 | /tmp/penfold-gateway | Health, metrics |
+| Agent Mail | 8765 | - | Client-dev communication |
 | PostgreSQL | 5432 | penfold-postgres | pgvector, TimescaleDB |
 | Redis | 6379 | penfold-redis | No password |
 | Temporal | 7233 | penfold-temporal | Workflow engine |
@@ -349,6 +351,38 @@ timeout: 30s
 output_format: text
 insecure: true
 ```
+
+### Agent Mail (Client-Dev Communication)
+
+Agent Mail enables two-way communication between Client Claude (laptop) and Dev Claude (server).
+
+**Server:** `http://dev02.brown.chat:8765`
+
+**Agents:**
+| Agent Name | Role | Program |
+|------------|------|---------|
+| RedWolf | Client agent | Claude Code Client |
+| JadeMeadow | Dev agent | Claude Code Dev |
+
+**Client Config (~/.penf/config.yaml):**
+```yaml
+agent_mail:
+  server: "http://dev02.brown.chat:8765"
+  project: "/Users/james/github/otherjamesbrown/penfold"
+  client_agent: "RedWolf"
+  dev_agent: "JadeMeadow"
+  bearer_token: "<see secrets/.env.penfold>"
+```
+
+**Canonical Project Key:** `/Users/james/github/otherjamesbrown/penfold`
+(Use this regardless of which machine you're on - it's the shared identifier)
+
+**Health Check:**
+```bash
+curl -s http://dev02.brown.chat:8765/health/liveness
+```
+
+**Web UI:** http://dev02.brown.chat:8765/mail
 
 ## Starting Services
 

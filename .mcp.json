@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agent-mail": {
+      "type": "http",
+      "url": "http://dev02.brown.chat:8765/mcp",
+      "headers": {
+        "Authorization": "Bearer ${AGENT_MAIL_TOKEN}"
+      }
+    }
+  }
+}
