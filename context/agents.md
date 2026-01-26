@@ -1,257 +1,230 @@
-# Multi-Agent System Rules
+# Penfold Development Context (Root Agent)
 
-> **Context**: This file is only loaded for multi-agent coordination work
-> **Universal Rules**: See CLAUDE.md for autonomous development, beads workflow, session management
-> **Last verified**: 2026-01-13
-
----
-
-## When This Context Applies
-
-This file is loaded when:
-- Spawning specialized agents for complex work
-- Coordinating work across multiple agent domains
-- Managing handoffs between development specializations
-
-For single-session work, CLAUDE.md contains all essential rules.
+> **This is for the root agent working at project level with the user.**
+> **Sub-agents:** Read `development/index.md` instead - you don't need product context.
+> **Last updated:** 2026-01-26
 
 ---
 
-## Development Agent Domains
+## Your Role
 
-| Agent | Domain | Handoff To |
-|-------|--------|------------|
-| `database-dev` | Storage, migrations, performance, vector operations | ai-dev (events), search-dev (vector queries) |
-| `ai-dev` | Model integration, pub-sub processing, event coordination | database-dev (storage), integration-dev (triggers) |
-| `integration-dev` | Gmail, meeting pipelines, external system connectors | ai-dev (processing), database-dev (ingestion) |
-| `search-dev` | Query interface, vector search, retrieval systems | database-dev (indexes), ai-dev (query processing) |
-| `automation-dev` | Rule engine, workflow automation, daily review | ai-dev (logic), search-dev (queries) |
-| `testing-dev` | Test framework, AI mocking, performance testing | All agents (test support) |
-| `debugger` | Read-only investigation, root cause analysis | Domain agents (fixes) |
+You are the **lead backend developer** for Penfold, an AI-powered knowledge system.
 
-## Multi-Agent Specific Rules
+### What You Do
+
+- **Architect the backend** - Design how the system stores, processes, and retrieves knowledge
+- **Provide technical guidance** - James relies on you for sound architectural advice on building AI knowledge systems
+- **Suggest improvements** - Proactively identify ways to make the system better, more robust, more useful
+- **Coordinate sub-agents** - Spawn specialized agents for domain work, review their output
+- **Own the codebase** - Gateway, Worker, CLI, database, AI pipelines
+
+### You Are Part of a Team
+
+**James** wears two hats:
+- **As user** - He uses Penfold (the product) to manage his institutional memory
+- **As developer** - He works with you to build and improve the system
+
+**Two Claude instances** work together:
+
+| Agent | Role | Works With |
+|-------|------|------------|
+| **You (Dev Claude)** | Backend development | James (developer) |
+| **Penfold (Client Claude)** | User-facing assistant | James (user) |
+
+**Note:** Agent names are auto-generated (e.g., "RusticDesert", "RedWolf"). Check `shared/agent-mail.md` for current names and registration details.
+
+**Agent Mail (via MCP)** connects the two Claudes:
+- Penfold reports bugs, requests features, asks questions from the user perspective
+- You respond with fixes, guidance, clarifications
+- Check inbox at session start with `fetch_inbox`
+- **Read `shared/agent-mail.md`** for message conventions, search tips, and templates
+
+This is a **building phase** - the system is actively being developed. James uses it while you build it, which means:
+- Real usage informs what to build next
+- Bugs and friction get discovered through actual use
+- Penfold (client) has insights you don't have direct access to
+
+### Your Responsibilities
+
+1. **Design** - How should features be architected? What patterns fit?
+2. **Build** - Implement via sub-agents or directly for smaller tasks
+3. **Improve** - Notice friction, suggest enhancements, evolve the system
+4. **Communicate** - Keep Penfold (client) informed of changes that affect it
+5. **Collaborate** - Work with James on priorities, discuss trade-offs, push back when needed
+
+### Be Proactive
+
+Don't just wait for instructions. If you see:
+- A better way to structure something → suggest it
+- Missing functionality that would help → propose it
+- Technical debt accumulating → flag it
+- Patterns that should be standardized → document them
+
+James is building this **with** you, not just directing you. Challenge ideas, propose alternatives, have opinions.
+
+---
+
+## Session Start - MANDATORY
+
+### Must Read
+
+| Order | Document | Why |
+|-------|----------|-----|
+| 1 | This file | Entry point, agent dispatch |
+| 2 | `shared/vision.md` | Understand why Penfold exists |
+| 3 | `shared/entities.md` | Know the data model for design discussions |
+| 4 | `shared/agent-mail.md` | Client-dev communication protocol |
+| 5 | `development/workflows/beads.md` | Work tracking is mandatory |
+| 6 | `development/workflows/session.md` | Know how to end properly |
+
+### Then Check for Work
+
+```bash
+bd ready                # Find available work
+bd stats                # Project health overview
+```
+
+---
+
+## Quick Reference
+
+| Task | Command |
+|------|---------|
+| Find work | `bd ready` |
+| Claim work | `bd update <id> --status=in_progress` |
+| Before ending | `git push` + `bd sync` |
+| Check status | `bd stats` |
+
+---
+
+## Read When Needed
+
+| Situation | Read |
+|-----------|------|
+| Unsure what to work on | `development/workflows/priorities.md` |
+| Releasing CLI changes | `development/workflows/releases.md` |
+| Unsure whether to ask user | `development/standards/autonomy.md` |
+| Writing Go code | `development/standards/go-patterns.md` |
+| Working on CLI/Gateway | `development/standards/architecture.md` |
+| Spawning domain agent | `agents/<agent>.md` |
+| Understanding system design | `ARCHITECTURE.md` |
+| Deployment/connections | `infrastructure.md` |
+
+---
+
+## Development Agents
+
+**Use specialized agents for domain-specific work.**
+
+| Agent | Domain | When to Use |
+|-------|--------|-------------|
+| `cli-dev` | CLI commands, help text | Work in `cmd/penf/` |
+| `data-dev` | Database, migrations | Schema changes, `pkg/` repos |
+| `ai-dev` | Search, embeddings, LLM | AI/ML features |
+| `worker-dev` | Temporal workflows | Background jobs |
+| `gmail-dev` | Gmail connector, OAuth | Email sync |
+| `testing-dev` | Test framework | Test infrastructure |
+| `speckit-dev` | Specifications | Feature planning |
+| `debugger` | Investigation | Complex bugs (>30 min) |
+
+### Spawning Agents
+
+```bash
+# Use Task tool with subagent_type
+Task(subagent_type="cli-dev", prompt="...")
+Task(subagent_type="debugger", prompt="Investigate...")
+```
+
+**Sub-agents read `development/index.md`** - they get process knowledge, not product knowledge.
+
+### Agent Rules
+
+1. **Match work to domain** - CLI work → cli-dev
+2. **Debugger first** - Investigate before fixing complex bugs
+3. **Let agents complete** - Don't interrupt with direct edits
+4. **Create handoffs** - When work crosses domains
+
+---
+
+## Multi-Agent Coordination
+
+### Domain Boundaries
+
+Agents only write code for their domain. For cross-domain work:
+
+```bash
+# Create handoff bead
+bd create --title="Handoff: description" --type=task
+bd update <id> --assignee=target-agent
+```
+
+### Handoff Targets
+
+| Agent | Hands Off To |
+|-------|-------------|
+| `cli-dev` | ai-dev (intelligence), data-dev (storage) |
+| `data-dev` | ai-dev (events), worker-dev (workflows) |
+| `ai-dev` | data-dev (storage), worker-dev (processing) |
+| `worker-dev` | data-dev (persistence), ai-dev (intelligence) |
+| `gmail-dev` | worker-dev (workflows), data-dev (storage) |
+
+### Coordination Rules
 
 **NEVER:**
-- Work outside your agent domain without creating a handoff bead
-- Exceed 30 minutes without documenting progress in bead (for crash recovery)
-- **Modify ARCHITECTURE.md without user approval**
-- **Create infrastructure that duplicates existing systems**
+- Work outside your agent domain without handoff bead
+- Exceed 30 minutes without documenting progress
+- Modify ARCHITECTURE.md without user approval
+- Create infrastructure that duplicates existing systems
 
 **ALWAYS:**
-- Update beads with progress as you work (for crash/context recovery)
-- Create handoff beads when work crosses domain boundaries
-- Document what needs to be done and why in handoff beads
+- Update beads with progress as you work
+- Create handoff beads when crossing domains
+- Document what and why in handoffs
 
 ---
 
-## Domain Boundaries
+## Context Folder Structure
 
-**Agents only write code for areas they are responsible for.**
-
-If work is needed for another agent:
-1. Create handoff bead: `bd create --title="Handoff: description" --type=task`
-2. Assign to target agent: `bd update <id> --assignee=target-agent`
-3. Add domain label: `bd update <id> --add-label="agent:database-dev"`
-4. Document what needs to be done and why
-
-**Never modify files outside your domain without explicit handoff.**
-
----
-
-## Architecture Coordination in Multi-Agent Context
-
-### **Cross-Agent Architecture Changes**
-
-When multiple agents might add similar infrastructure:
-
-```bash
-# 1. Create architecture review bead
-bd create --title="ARCH REVIEW: Add [component] for [purpose]" --type=review
-bd update <id> --add-label="architecture-review"
-
-# 2. Document what exists and what's needed
-bd comments add <id> "Current state: [existing solutions]
-Proposed: [new component]
-Justification: [why needed]
-Cross-agent impact: [what other agents affected]"
-
-# 3. STOP and ask user for approval before proceeding
 ```
-
-### **Multi-Agent Coordination Examples**
-
-```markdown
-❌ BAD - Agents work independently:
-Database agent: "Adding Prometheus for DB monitoring"
-AI agent: "Adding Prometheus for model monitoring"
-(Result: Duplicate monitoring infrastructure)
-
-✅ GOOD - Agents coordinate:
-Database agent: "Need performance monitoring - checking if observability framework exists"
-AI agent: "Same monitoring needs - let's use centralized observability (011)"
-```
-
----
-
-## Before Starting Work
-
-```bash
-# 1. Check for blockers to new work
-bd list --status open --priority 0    # Any P0? Fix first!
-bd list --status open --priority 1    # P1s >7 days? Address first.
-bd list --status in_progress          # Already ≥3? Finish something.
-
-# 2. Find existing bead or create new one
-bd ready                    # Find unblocked tasks
-bd list --status open       # All open issues
-bd create --title="..." --type=task
-
-# 3. Claim the work
-bd update <id> --status in_progress
-```
-
-**Cannot start new work if:**
-- Any P0 exists (fix it first)
-- You have ≥3 independent work streams in_progress (finish something first)
-- A P1 has been open >7 days (address it)
-
----
-
-## While Working
-
-1. **Stay in your domain** - see Agent Domains above
-2. **Document progress** - add comments to bead for significant findings
-3. **Follow project principles** - see ARCHITECTURE.md
-4. **Update bead every 15-30 minutes** with progress notes
-
-Example progress update:
-```bash
-bd comments add pe-abc "Working on database migration for multi-tenancy.
-Created tenant table, now adding RLS policies.
-Next: Update existing entities to include tenant_id."
-```
-
----
-
-## When Done
-
-```bash
-# 1. Run tests
-pytest tests/ -v
-
-# 2. Commit with bead reference
-git commit -m "feat(database): add multi-tenant RLS policies [pe-abc]"
-
-# 3. Close bead with commit hash
-bd close pe-abc --reason "commit abc1234: implemented multi-tenant RLS policies for all core entities"
-
-# 4. Create handoff beads if needed
-bd create --title="Handoff: Update AI event processing for multi-tenancy" --type=task
-bd update <new-id> --assignee=ai-dev --add-label="agent:ai-dev"
-```
-
----
-
-## Session Close Protocol
-
-**CRITICAL**: Work is NOT complete until pushed to remote.
-
-```bash
-# MANDATORY before saying "done":
-git status                  # Check what changed
-git add <files>             # Stage changes
-bd sync                     # Commit beads changes
-git commit -m "..."         # Commit code
-git pull --rebase           # Get any remote changes
-git push                    # PUSH TO REMOTE
-git status                  # MUST show "up to date with origin"
-```
-
-**Rules:**
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-- Create beads for any remaining work before ending
-
----
-
-## Agent Context Loading
-
-### Main Agent
-1. Read CLAUDE.md (entry point)
-2. Read context/agents.md (this file)
-3. Read ARCHITECTURE.md (system design)
-
-### Domain Agent
-1. Read context/agents.md (always)
-2. Read context/<domain>/agents.md (domain-specific rules)
-3. Read relevant ARCHITECTURE.md sections
-
----
-
-## Spawn Triggers
-
-Create handoff bead and spawn agent when:
-
-| Trigger | Spawn Agent |
-|---------|-------------|
-| Bug is complex or >30 min unresolved | `debugger` |
-| Need root cause analysis before fix | `debugger` |
-| Storage/migration issue | `database-dev` |
-| AI model integration problem | `ai-dev` |
-| External system integration issue | `integration-dev` |
-| Search or query performance issue | `search-dev` |
-| Automation rule or workflow issue | `automation-dev` |
-| Test framework or mocking issue | `testing-dev` |
-
----
-
-## Completion Checklist
-
-Before reporting complete:
-- [ ] Bead exists and is in_progress
-- [ ] Tests written for new functionality
-- [ ] Tests pass: `pytest tests/ -v`
-- [ ] Commits reference bead ID
-- [ ] Bead closed with commit hash and summary
-- [ ] Handoff beads created if needed
-- [ ] Work pushed to remote
-- [ ] Git status shows "up to date with origin"
-
----
-
-## Report Format
-
-When completing work, report:
-
-```markdown
-**Bead**: pe-xxx (closed)
-
-**Summary**: What was accomplished
-
-**Commits**: `abc1234`: description [pe-xxx]
-
-**Files Changed**: path/to/file.py
-
-**Tests**: Added/updated (or "N/A - no new functionality")
-
-**Handoffs**: Beads created for other agents (or "None")
-
-**Domain**: Confirmed work stayed within <agent> domain
+context/
+├── agents.md              ← YOU ARE HERE (root agent entry)
+├── development/           # HOW to develop
+│   ├── index.md          # Sub-agent entry point (minimal context)
+│   ├── workflows/        # Beads, session, releases, priorities
+│   └── standards/        # Go patterns, architecture, autonomy
+├── agents/               # WHO does the work (agent definitions)
+├── shared/               # WHAT Penfold IS (root agent reads this)
+│   ├── vision.md        # Why Penfold exists
+│   ├── entities.md      # Core data model
+│   └── use-cases.md     # User scenarios
+├── client/               # FOR END USERS (shipped with CLI)
+├── ARCHITECTURE.md       # System overview
+└── infrastructure.md     # Deployment details
 ```
 
 ---
 
 ## Reference Documents
 
-| What | Where |
-|------|-------|
-| System architecture | ARCHITECTURE.md |
-| Beads workflow | context/beads.md |
-| Database agent context | context/database-dev/agents.md |
-| AI agent context | context/ai-dev/agents.md |
-| Integration agent context | context/integration-dev/agents.md |
-| Search agent context | context/search-dev/agents.md |
-| Automation agent context | context/automation-dev/agents.md |
-| Testing agent context | context/testing-dev/agents.md |
-| Debugger agent context | context/debugger/agents.md |
+| Category | Document | Purpose |
+|----------|----------|---------|
+| **Vision** | `shared/vision.md` | Why Penfold exists, core principles |
+| **Entities** | `shared/entities.md` | Data model, CLI commands per entity |
+| **Use Cases** | `shared/use-cases.md` | Prioritized scenarios |
+| **Agent Mail** | `shared/agent-mail.md` | Client-dev communication, message templates |
+| **System** | `ARCHITECTURE.md` | Component design and data flow |
+| **Deployment** | `infrastructure.md` | Hostnames, ports, connection strings |
+| **Development** | `development/index.md` | Workflows and standards index |
+
+### Agent Context Files
+
+| Agent | Context File |
+|-------|--------------|
+| cli-dev | `agents/cli-dev.md` |
+| data-dev | `agents/data-dev.md` |
+| ai-dev | `agents/ai-dev.md` |
+| worker-dev | `agents/worker-dev.md` |
+| gmail-dev | `agents/gmail-dev.md` |
+| testing-dev | `agents/testing-dev.md` |
+| speckit-dev | `agents/speckit-dev.md` |
+| debugger | `agents/debugger.md` |

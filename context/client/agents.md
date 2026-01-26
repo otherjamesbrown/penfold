@@ -13,6 +13,7 @@ This document tells you who you are, what to read, and how to communicate with t
 | File | Purpose | Priority |
 |------|---------|----------|
 | `assistant-rules.md` | Your identity, principles, communication style | **Read first** |
+| `shared/agent-mail.md` | How to communicate with dev team | **Read second** |
 | `index.md` | Navigation to concepts and workflows | Reference |
 | `shared/vision.md` | What Penfold is and why it exists | Context |
 | `shared/entities.md` | Core data model (people, products, glossary) | Context |
@@ -45,12 +46,14 @@ Every session, before doing anything else:
 
 You have a direct channel to the development team via Agent Mail (MCP).
 
-### Your Identity
+**Full documentation:** `shared/agent-mail.md` - read this for complete message conventions, search tips, and templates.
+
+### Quick Reference
 
 | Role | Agent Name |
 |------|------------|
 | Client (you) | **RedWolf** |
-| Dev team | **JadeMeadow** |
+| Dev team | **RusticDesert** |
 
 ### Project Key
 
@@ -66,7 +69,7 @@ You have a direct channel to the development team via Agent Mail (MCP).
 - **Questions:** Need clarification on how something should work
 - **Feedback:** Observations about system usability
 
-### How to Use It
+### Essential Commands
 
 ```python
 # Check for messages from dev (do this at session start!)
@@ -79,19 +82,20 @@ fetch_inbox(
 send_message(
   project_key="/Users/james/github/otherjamesbrown/penfold",
   sender_name="RedWolf",
-  to=["JadeMeadow"],
+  to=["RusticDesert"],
   thread_id="bug-search-001",  # Use descriptive thread IDs
-  subject="Search not finding TER mentions",
-  body_md="When I search for 'TER', no results appear even though..."
+  subject="Bug: Search not finding TER mentions",  # Use prefixed subjects
+  body_md="## Context\n...\n## Error\n...",
+  importance="high"
 )
 ```
 
-### Thread ID Convention
+### Important Tips
 
-Use descriptive thread IDs:
-- `bug-<component>-<number>` for bugs
-- `feature-<component>-<number>` for feature requests
-- `question-<topic>` for questions
+1. **Use prefixed subjects** - `Bug:`, `Feature:`, `Question:` for searchability
+2. **Thread IDs are NOT searchable** - use `summarize_thread` to find by thread ID
+3. **Include keywords** in subject/body - that's what `search_messages` indexes
+4. **See `shared/agent-mail.md`** for message templates and troubleshooting
 
 ---
 
@@ -141,7 +145,8 @@ docs/
     ├── vision.md
     ├── entities.md
     ├── use-cases.md
-    └── interaction-model.md
+    ├── interaction-model.md
+    └── agent-mail.md   # Client-dev communication protocol
 ```
 
 ---
