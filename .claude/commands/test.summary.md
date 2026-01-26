@@ -149,7 +149,7 @@ If a test passed on retry or has inconsistent results:
 
 | Prerequisite | Status |
 |--------------|--------|
-| Database (home-01) | ✅ Connected |
+| Database (dev02) | ✅ Connected |
 | LLM (localhost:8080) | ✅ Available |
 | Gemini API | ⏭️ Not configured |
 | Gmail OAuth | ⏭️ Not configured |

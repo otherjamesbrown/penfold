@@ -62,7 +62,7 @@ All tests passed with correct entity extraction, resolution, glossary expansion,
 4. **Search Simulation** - Match query against enriched content
 
 ### Environment
-- Database: PostgreSQL 16 with pgvector on home-01
+- Database: PostgreSQL 16 with pgvector on dev02
 - LLM Server: MLX-LM server on localhost:8080
 - Test Framework: Go testing with e2e build tag
 

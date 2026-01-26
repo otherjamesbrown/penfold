@@ -671,8 +671,8 @@ CELERY_CONFIG = {
 
 ### Development Environment
 - **Platform**: Mac Mini M4 (32GB RAM)
-- **Database**: PostgreSQL 16+ with pgvector (home-01:5432)
-- **Queue**: Redis 7+ (home-01:6379)
+- **Database**: PostgreSQL 16+ with pgvector (dev02:5432)
+- **Queue**: Redis 7+ (dev02:6379)
 - **Temporal**: Temporal Server with PostgreSQL backend (localhost:7233, UI at :8088)
 - **Local AI**: vLLM-MLX with Qwen2.5-14B (:8000), MLX Sidecar (:8001)
 - **Python**: 3.12 with async/await

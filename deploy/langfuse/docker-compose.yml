@@ -1,5 +1,5 @@
 # Langfuse deployment for Penfold AI Provenance
-# Deployed on home-01.brown.chat alongside existing penfold services
+# Deployed on dev02.brown.chat alongside existing penfold services
 #
 # Port allocations (to avoid conflicts with penfold services):
 #   - langfuse-web: 3000 (main UI)
@@ -8,7 +8,7 @@
 #   - clickhouse: 8123, 9000 (new)
 #   - minio: 9092, 9093 (new)
 #
-# Access: http://home-01.brown.chat:3000
+# Access: http://dev02.brown.chat:3000
 
 services:
   langfuse-worker:
@@ -27,7 +27,7 @@ services:
     ports:
       - 127.0.0.1:3030:3030
     environment: &langfuse-worker-env
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://home-01.brown.chat:3000}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://dev02.brown.chat:3000}
       DATABASE_URL: ${DATABASE_URL:-postgresql://langfuse:${POSTGRES_PASSWORD}@langfuse-postgres:5432/langfuse}
       SALT: ${SALT}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
@@ -50,7 +50,7 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_MEDIA_UPLOAD_REGION:-auto}
       LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID:-minio}
       LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT:-http://home-01.brown.chat:9092}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT:-http://dev02.brown.chat:9092}
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: ${LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE:-true}
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: ${LANGFUSE_S3_MEDIA_UPLOAD_PREFIX:-media/}
       LANGFUSE_S3_BATCH_EXPORT_ENABLED: ${LANGFUSE_S3_BATCH_EXPORT_ENABLED:-false}

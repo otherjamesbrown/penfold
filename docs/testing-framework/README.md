@@ -200,7 +200,7 @@ export PENFOLD_DB_NAME=penfold_test_integration
 # E2E tests use:
 export PENFOLD_DB_NAME=penfold_test_e2e
 
-# Both connect to home-01.brown.chat
+# Both connect to dev02.brown.chat
 ```
 
 ### LLM Setup (E2E Tests)
@@ -377,7 +377,7 @@ type GlossaryTermFixture struct {
 ### Environment Variables
 ```bash
 # Database configuration
-export PENFOLD_DB_HOST=home-01.brown.chat
+export PENFOLD_DB_HOST=dev02.brown.chat
 export PENFOLD_DB_PORT=5432
 export PENFOLD_DB_USER=penfold
 export PENFOLD_DB_PASSWORD=<from secrets>
@@ -534,7 +534,7 @@ tests/                        # Special test categories
 echo $PENFOLD_DB_PASSWORD
 
 # Test connection
-psql -h home-01.brown.chat -U penfold -d penfold_test_integration
+psql -h dev02.brown.chat -U penfold -d penfold_test_integration
 
 # Check migrations
 PENFOLD_DB_NAME=penfold_test_integration go run ./cmd/penf migrate status

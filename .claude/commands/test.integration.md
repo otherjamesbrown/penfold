@@ -11,7 +11,7 @@ If not provided, runs all integration tests.
 
 Integration tests require:
 - `PENFOLD_DB_PASSWORD` environment variable set
-- PostgreSQL accessible at home-01.brown.chat
+- PostgreSQL accessible at dev02.brown.chat
 - Test database `penfold_test_integration` with migrations applied
 
 ## Instructions
@@ -63,7 +63,7 @@ Parse JSON output (same format as unit tests):
 | ❌ Failed | Y |
 | ⏭️ Skipped | Z |
 
-**Database**: penfold_test_integration @ home-01.brown.chat
+**Database**: penfold_test_integration @ dev02.brown.chat
 **Duration**: X.XXs
 ```
 
@@ -107,7 +107,7 @@ If tests fail, provide diagnostic commands:
 ### 🔧 Diagnostics
 
 Check database connection:
-  psql -h home-01.brown.chat -U penfold -d penfold_test_integration -c "SELECT 1"
+  psql -h dev02.brown.chat -U penfold -d penfold_test_integration -c "SELECT 1"
 
 Check migrations:
   PENFOLD_DB_NAME=penfold_test_integration go run ./cmd/penf migrate status

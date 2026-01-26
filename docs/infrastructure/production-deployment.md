@@ -1,7 +1,7 @@
 # Penfold Production Deployment Guide
 
 **Last Updated**: 2026-01-23
-**Target Environment**: Mac Mini M4 (dev01) + Intel NUC (home-01)
+**Target Environment**: Mac Mini M4 (dev01) + Intel NUC (dev02)
 **Deployment Model**: Distributed Go services with Temporal orchestration
 
 This guide provides step-by-step instructions for deploying Penfold to a production environment. It covers the distributed architecture, service deployment, security hardening, monitoring, and operational procedures.
@@ -29,7 +29,7 @@ This guide provides step-by-step instructions for deploying Penfold to a product
 
 ### Hardware Requirements
 
-| Component | dev01 (Mac Mini M4) | home-01 (Intel NUC) |
+| Component | dev01 (Mac Mini M4) | dev02 (Intel NUC) |
 |-----------|---------------------|---------------------|
 | CPU | Apple M4 | Intel Core i5+ |
 | RAM | 32GB | 16GB+ |
@@ -45,12 +45,12 @@ sw_vers                    # macOS Sonoma or later
 go version                 # Go 1.22+
 python3 --version          # Python 3.11+ (for MLX sidecar)
 
-# home-01 (Intel NUC)
+# dev02 (Intel NUC)
 docker --version           # Docker 24+
 docker compose version     # Compose v2
 ```
 
-### Required Services (home-01)
+### Required Services (dev02)
 
 ```bash
 # Docker containers
@@ -77,7 +77,7 @@ docker ps --filter 'name=penfold'
                                     gRPC :50051
                                              |
 +-----------------------------------------------------------------------------------------------------------------+
-|                                   home-01.brown.chat (Intel NUC)                                                 |
+|                                   dev02.brown.chat (Intel NUC)                                                 |
 |                                                                                                                  |
 |  +-----------------------+     +---------------------+     +------------------+     +------------------+         |
 |  |  Penfold Gateway      |     |  PostgreSQL         |     |  Redis           |     |  Temporal        |         |
@@ -107,10 +107,10 @@ docker ps --filter 'name=penfold'
 
 | Service | Host | Type | Port | Purpose |
 |---------|------|------|------|---------|
-| Gateway | home-01 | Go binary | 50051 (gRPC), 8080 (HTTP) | API gateway, gRPC services |
-| PostgreSQL | home-01 | Docker | 5432 | Primary database with pgvector |
-| Redis | home-01 | Docker | 6379 | Caching |
-| Temporal | home-01 | Docker | 7233, 8088 (UI) | Workflow orchestration |
+| Gateway | dev02 | Go binary | 50051 (gRPC), 8080 (HTTP) | API gateway, gRPC services |
+| PostgreSQL | dev02 | Docker | 5432 | Primary database with pgvector |
+| Redis | dev02 | Docker | 6379 | Caching |
+| Temporal | dev02 | Docker | 7233, 8088 (UI) | Workflow orchestration |
 | Worker | dev01 | Go binary | 8085 (health) | Temporal workflow execution |
 | MLX Embeddings | dev01 | Python (uvicorn) | 8081 | Vector embeddings |
 | MLX LLM | dev01 | Python (mlx_lm) | 8080 | LLM inference for mention resolution |
@@ -137,7 +137,7 @@ docker ps --filter 'name=penfold'
 ~/github/otherjamesbrown/secrets/     # Credentials
 ~/.penf/                              # CLI configuration
 
-# home-01 - Data services
+# dev02 - Data services
 /opt/penfold/                         # Deployment directory
 /opt/penfold/data/postgres/           # PostgreSQL data
 /opt/penfold/data/redis/              # Redis data
@@ -157,18 +157,18 @@ source ~/github/otherjamesbrown/secrets/.env.penfold
 
 # Worker configuration (set in ~/.zshrc or launchd plist)
 export PENFOLD_SERVICE_NAME=worker
-export PENFOLD_DB_HOST=home-01.brown.chat
+export PENFOLD_DB_HOST=dev02.brown.chat
 export PENFOLD_DB_PORT=5432
 export PENFOLD_DB_USER=penfold
 export PENFOLD_DB_PASSWORD=<from secrets>
 export PENFOLD_DB_NAME=penfold
-export PENFOLD_TEMPORAL_HOST=home-01.brown.chat:7233
+export PENFOLD_TEMPORAL_HOST=dev02.brown.chat:7233
 export AI_SERVICE_URL=http://localhost:8081   # Local MLX embeddings
 export LLM_URL=http://localhost:8080          # Local MLX LLM
 export LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
 ```
 
-#### home-01 - Gateway Environment
+#### dev02 - Gateway Environment
 
 ```bash
 export PENFOLD_SERVICE_NAME=gateway
@@ -191,7 +191,7 @@ export GATEWAY_WORKER_HEALTH_URL=http://dev01.brown.chat:8085
 Create `~/.penf/config.yaml`:
 
 ```yaml
-server_address: home-01.brown.chat:50051
+server_address: dev02.brown.chat:50051
 timeout: 30s
 output_format: text
 insecure: true    # Set to false with TLS
@@ -201,7 +201,7 @@ insecure: true    # Set to false with TLS
 
 ## Service Deployment
 
-### Docker Compose for Data Services (home-01)
+### Docker Compose for Data Services (dev02)
 
 Create `/opt/penfold/docker-compose.yml`:
 
@@ -294,14 +294,14 @@ cd services/worker && go build -o ../../bin/penfold-worker .
 cd cmd/penf && go build -o ../../bin/penf .
 ```
 
-### Deploying Gateway (home-01)
+### Deploying Gateway (dev02)
 
 ```bash
-# Copy binary to home-01
-scp bin/penfold-gateway home-01.brown.chat:/tmp/
+# Copy binary to dev02
+scp bin/penfold-gateway dev02.brown.chat:/tmp/
 
 # SSH and start gateway
-ssh home-01.brown.chat
+ssh dev02.brown.chat
 
 # Set environment and run
 source /opt/penfold/.env
@@ -330,9 +330,9 @@ Create `~/Library/LaunchAgents/com.penfold.worker.plist`:
     <key>EnvironmentVariables</key>
     <dict>
         <key>PENFOLD_DB_HOST</key>
-        <string>home-01.brown.chat</string>
+        <string>dev02.brown.chat</string>
         <key>PENFOLD_TEMPORAL_HOST</key>
-        <string>home-01.brown.chat:7233</string>
+        <string>dev02.brown.chat:7233</string>
         <key>AI_SERVICE_URL</key>
         <string>http://localhost:8081</string>
         <key>LLM_URL</key>
@@ -394,14 +394,14 @@ For secure gRPC connections, generate certificates:
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout /opt/penfold/certs/server.key \
     -out /opt/penfold/certs/server.crt \
-    -subj "/CN=home-01.brown.chat"
+    -subj "/CN=dev02.brown.chat"
 ```
 
 Update CLI config:
 
 ```yaml
 # ~/.penf/config.yaml
-server_address: home-01.brown.chat:50051
+server_address: dev02.brown.chat:50051
 insecure: false
 tls_cert_path: /path/to/server.crt
 ```
@@ -429,9 +429,9 @@ Services bind to specific interfaces:
 
 | Service | Host | Binding |
 |---------|------|---------|
-| PostgreSQL | home-01 | 0.0.0.0:5432 (internal network) |
-| Redis | home-01 | 0.0.0.0:6379 (internal network) |
-| Gateway | home-01 | 0.0.0.0:50051, 0.0.0.0:8080 |
+| PostgreSQL | dev02 | 0.0.0.0:5432 (internal network) |
+| Redis | dev02 | 0.0.0.0:6379 (internal network) |
+| Gateway | dev02 | 0.0.0.0:50051, 0.0.0.0:8080 |
 | Worker | dev01 | 0.0.0.0:8085 (health only) |
 | MLX Embeddings | dev01 | 0.0.0.0:8081 |
 | MLX LLM | dev01 | 0.0.0.0:8080 |
@@ -444,10 +444,10 @@ Services bind to specific interfaces:
 
 | Service | Endpoint | Purpose |
 |---------|----------|---------|
-| Gateway | `http://home-01.brown.chat:8080/health` | Full health with backend services |
-| Gateway | `http://home-01.brown.chat:8080/ready` | Readiness probe |
-| Gateway | `http://home-01.brown.chat:8080/live` | Liveness probe |
-| Gateway | `http://home-01.brown.chat:8080/metrics` | Prometheus metrics |
+| Gateway | `http://dev02.brown.chat:8080/health` | Full health with backend services |
+| Gateway | `http://dev02.brown.chat:8080/ready` | Readiness probe |
+| Gateway | `http://dev02.brown.chat:8080/live` | Liveness probe |
+| Gateway | `http://dev02.brown.chat:8080/metrics` | Prometheus metrics |
 | Worker | `http://dev01.brown.chat:8085/health` | Worker health status |
 | Worker | `http://dev01.brown.chat:8085/ready` | Readiness probe |
 | Embeddings | `http://dev01.brown.chat:8081/health` | MLX embeddings health |
@@ -480,12 +480,12 @@ echo "=== Penfold Health Check ==="
 echo "Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo ""
 
-# Check Gateway (home-01)
+# Check Gateway (dev02)
 echo "Checking Gateway..."
-GATEWAY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://home-01.brown.chat:8080/health" || echo "000")
+GATEWAY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://dev02.brown.chat:8080/health" || echo "000")
 if [[ "$GATEWAY_STATUS" == "200" ]]; then
     echo "  Gateway: HEALTHY"
-    curl -s "http://home-01.brown.chat:8080/health" | jq -r '.services | to_entries[] | "    \(.key): \(.value.status)"'
+    curl -s "http://dev02.brown.chat:8080/health" | jq -r '.services | to_entries[] | "    \(.key): \(.value.status)"'
 else
     echo "  Gateway: UNHEALTHY (HTTP ${GATEWAY_STATUS})"
 fi
@@ -519,7 +519,7 @@ echo ""
 
 # Check Temporal
 echo "Checking Temporal..."
-TEMPORAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://home-01.brown.chat:7233" || echo "000")
+TEMPORAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://dev02.brown.chat:7233" || echo "000")
 if [[ "$TEMPORAL_STATUS" != "000" ]]; then
     echo "  Temporal: REACHABLE"
 else
@@ -558,11 +558,11 @@ echo "=== Health Check Complete ==="
 ### Full Stack Startup
 
 ```bash
-# 1. Verify Docker services on home-01
-ssh home-01.brown.chat "docker ps --filter 'name=penfold'"
+# 1. Verify Docker services on dev02
+ssh dev02.brown.chat "docker ps --filter 'name=penfold'"
 
-# 2. Start Gateway on home-01 (if not running)
-ssh home-01.brown.chat "source /opt/penfold/.env && \
+# 2. Start Gateway on dev02 (if not running)
+ssh dev02.brown.chat "source /opt/penfold/.env && \
   nohup /tmp/penfold-gateway > /opt/penfold/logs/gateway.log 2>&1 &"
 
 # 3. Start MLX Embeddings on dev01
@@ -612,10 +612,10 @@ launchctl stop com.penfold.worker
 sleep 5
 launchctl start com.penfold.worker
 
-# 5. Deploy and restart Gateway (home-01)
+# 5. Deploy and restart Gateway (dev02)
 echo "Step 5: Deploying Gateway..."
-scp bin/penfold-gateway home-01.brown.chat:/tmp/
-ssh home-01.brown.chat "pkill penfold-gateway || true; sleep 2; \
+scp bin/penfold-gateway dev02.brown.chat:/tmp/
+ssh dev02.brown.chat "pkill penfold-gateway || true; sleep 2; \
   source /opt/penfold/.env && \
   nohup /tmp/penfold-gateway > /opt/penfold/logs/gateway.log 2>&1 &"
 
@@ -648,7 +648,7 @@ echo "=== EMERGENCY ROLLBACK ==="
 # 1. Stop services
 echo "Stopping services..."
 launchctl stop com.penfold.worker || true
-ssh home-01.brown.chat "pkill penfold-gateway || true"
+ssh dev02.brown.chat "pkill penfold-gateway || true"
 
 # 2. Rollback to previous commit
 echo "Rolling back code..."
@@ -661,8 +661,8 @@ make build
 
 # 4. Redeploy
 echo "Redeploying..."
-scp bin/penfold-gateway home-01.brown.chat:/tmp/
-ssh home-01.brown.chat "source /opt/penfold/.env && \
+scp bin/penfold-gateway dev02.brown.chat:/tmp/
+ssh dev02.brown.chat "source /opt/penfold/.env && \
   nohup /tmp/penfold-gateway > /opt/penfold/logs/gateway.log 2>&1 &"
 launchctl start com.penfold.worker
 
@@ -686,7 +686,7 @@ BACKUP_FILE=$1
 if [[ -z "$BACKUP_FILE" ]]; then
     echo "Usage: rollback-database.sh <backup_file>"
     echo "Available backups:"
-    ssh home-01.brown.chat "ls -la /opt/penfold/backups/*.sql.gz"
+    ssh dev02.brown.chat "ls -la /opt/penfold/backups/*.sql.gz"
     exit 1
 fi
 
@@ -695,14 +695,14 @@ echo "Restoring from: ${BACKUP_FILE}"
 
 # Stop application services
 launchctl stop com.penfold.worker || true
-ssh home-01.brown.chat "pkill penfold-gateway || true"
+ssh dev02.brown.chat "pkill penfold-gateway || true"
 
 # Restore database
-ssh home-01.brown.chat "gunzip -c ${BACKUP_FILE} | \
+ssh dev02.brown.chat "gunzip -c ${BACKUP_FILE} | \
   docker exec -i penfold-postgres psql -U penfold -d penfold"
 
 # Restart services
-ssh home-01.brown.chat "source /opt/penfold/.env && \
+ssh dev02.brown.chat "source /opt/penfold/.env && \
   nohup /tmp/penfold-gateway > /opt/penfold/logs/gateway.log 2>&1 &"
 launchctl start com.penfold.worker
 
@@ -718,8 +718,8 @@ echo "=== Database Rollback Complete ==="
 | Setting | Development | Production |
 |---------|-------------|------------|
 | LOG_LEVEL | debug | info |
-| Database Host | localhost | home-01.brown.chat |
-| Temporal Host | localhost:7233 | home-01.brown.chat:7233 |
+| Database Host | localhost | dev02.brown.chat |
+| Temporal Host | localhost:7233 | dev02.brown.chat:7233 |
 | TLS | disabled | optional |
 | gRPC Reflection | enabled | disabled |
 | Max Concurrent Activities | 4 | 10 |
@@ -781,7 +781,7 @@ cat > ${BACKUP_DIR}/backup_${TIMESTAMP}.json << EOF
     "timestamp": "${TIMESTAMP}",
     "database_file": "penfold_${TIMESTAMP}.sql.gz",
     "redis_file": "redis_${TIMESTAMP}.rdb",
-    "gateway_version": "$(ssh home-01.brown.chat '/tmp/penfold-gateway --version 2>/dev/null || echo unknown')",
+    "gateway_version": "$(ssh dev02.brown.chat '/tmp/penfold-gateway --version 2>/dev/null || echo unknown')",
     "git_commit": "$(cd ~/github/otherjamesbrown/penfold && git rev-parse HEAD)"
 }
 EOF
@@ -804,26 +804,26 @@ echo "Finished: $(date)"
 
 ```bash
 # Check logs
-ssh home-01.brown.chat "tail -100 /opt/penfold/logs/gateway.log"
+ssh dev02.brown.chat "tail -100 /opt/penfold/logs/gateway.log"
 
 # Check database connectivity
-ssh home-01.brown.chat "docker exec penfold-postgres pg_isready -U penfold -d penfold"
+ssh dev02.brown.chat "docker exec penfold-postgres pg_isready -U penfold -d penfold"
 
 # Check port availability
-ssh home-01.brown.chat "lsof -i :50051"
+ssh dev02.brown.chat "lsof -i :50051"
 ```
 
 #### Worker Won't Connect to Temporal
 
 ```bash
 # Check Temporal is running
-curl -s http://home-01.brown.chat:7233
+curl -s http://dev02.brown.chat:7233
 
 # Check worker logs
 tail -100 /tmp/penfold-worker.log
 
 # Verify network connectivity
-nc -zv home-01.brown.chat 7233
+nc -zv dev02.brown.chat 7233
 ```
 
 #### MLX Services Not Responding
@@ -849,27 +849,27 @@ source ~/github/otherjamesbrown/secrets/.env.penfold
 psql "host=$PENFOLD_DB_HOST user=$PENFOLD_DB_USER password=$PENFOLD_DB_PASSWORD dbname=$PENFOLD_DB_NAME" -c "SELECT 1"
 
 # Check PostgreSQL logs
-ssh home-01.brown.chat "docker logs penfold-postgres --tail 100"
+ssh dev02.brown.chat "docker logs penfold-postgres --tail 100"
 ```
 
 ### Log Analysis
 
 ```bash
 # Gateway errors
-ssh home-01.brown.chat "grep -i 'error\|failed' /opt/penfold/logs/gateway.log | tail -50"
+ssh dev02.brown.chat "grep -i 'error\|failed' /opt/penfold/logs/gateway.log | tail -50"
 
 # Worker errors
 grep -i 'error\|failed' /tmp/penfold-worker.log | tail -50
 
 # Temporal workflow failures
-open http://home-01.brown.chat:8088  # Temporal UI
+open http://dev02.brown.chat:8088  # Temporal UI
 ```
 
 ### Performance Debugging
 
 ```bash
 # Database slow queries
-ssh home-01.brown.chat "docker exec penfold-postgres psql -U penfold -d penfold -c \"
+ssh dev02.brown.chat "docker exec penfold-postgres psql -U penfold -d penfold -c \"
 SELECT query, calls, total_exec_time/calls as avg_time
 FROM pg_stat_statements
 ORDER BY avg_time DESC
@@ -877,7 +877,7 @@ LIMIT 10;
 \""
 
 # Container resource usage
-ssh home-01.brown.chat "docker stats --no-stream"
+ssh dev02.brown.chat "docker stats --no-stream"
 
 # Worker metrics
 curl -s http://dev01.brown.chat:8085/metrics
@@ -899,22 +899,22 @@ launchctl list | grep penfold
 launchctl stop com.penfold.worker
 launchctl start com.penfold.worker
 
-# Service management (home-01)
-ssh home-01.brown.chat "docker ps --filter 'name=penfold'"
-ssh home-01.brown.chat "pkill penfold-gateway"
+# Service management (dev02)
+ssh dev02.brown.chat "docker ps --filter 'name=penfold'"
+ssh dev02.brown.chat "pkill penfold-gateway"
 
 # Database access
-ssh home-01.brown.chat "docker exec -it penfold-postgres psql -U penfold -d penfold"
+ssh dev02.brown.chat "docker exec -it penfold-postgres psql -U penfold -d penfold"
 
 # Redis access
-ssh home-01.brown.chat "docker exec -it penfold-redis redis-cli"
+ssh dev02.brown.chat "docker exec -it penfold-redis redis-cli"
 
 # Temporal UI
-open http://home-01.brown.chat:8088
+open http://dev02.brown.chat:8088
 
 # View logs
 tail -f /tmp/penfold-worker.log
-ssh home-01.brown.chat "tail -f /opt/penfold/logs/gateway.log"
+ssh dev02.brown.chat "tail -f /opt/penfold/logs/gateway.log"
 ```
 
 ### Important File Locations
@@ -926,9 +926,9 @@ ssh home-01.brown.chat "tail -f /opt/penfold/logs/gateway.log"
 | CLI config | `~/.penf/config.yaml` |
 | Worker logs | `/tmp/penfold-worker.log` |
 | MLX logs | `/tmp/mlx-embeddings.log`, `/tmp/mlx-llm-server.log` |
-| Gateway logs | `/opt/penfold/logs/gateway.log` (home-01) |
-| Database data | `/opt/penfold/data/postgres/` (home-01) |
-| Backups | `/opt/penfold/backups/` (home-01) |
+| Gateway logs | `/opt/penfold/logs/gateway.log` (dev02) |
+| Database data | `/opt/penfold/data/postgres/` (dev02) |
+| Backups | `/opt/penfold/backups/` (dev02) |
 
 ---
 

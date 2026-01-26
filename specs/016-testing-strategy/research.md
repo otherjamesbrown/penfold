@@ -7,16 +7,16 @@
 
 ### 1. Go Testcontainers vs Direct Database
 
-**Question**: Should we use testcontainers-go for isolated test databases or connect directly to test databases on home-01?
+**Question**: Should we use testcontainers-go for isolated test databases or connect directly to test databases on dev02?
 
-**Decision**: Direct database connection to home-01.brown.chat
+**Decision**: Direct database connection to dev02.brown.chat
 
 **Rationale**:
 - Simpler setup - no Docker-in-Docker complexity for CI
 - Faster test startup - no container provisioning overhead
 - pgvector extension already installed and configured
 - Existing infrastructure reused (no additional resources)
-- Network latency from dev01 → home-01 is negligible (~1ms)
+- Network latency from dev01 → dev02 is negligible (~1ms)
 
 **Alternatives Considered**:
 - Testcontainers-go: More isolated, but adds complexity and startup time
@@ -27,7 +27,7 @@
 // tests/integration/helpers.go
 func SetupTestDB(t *testing.T) *pgxpool.Pool {
     dbName := os.Getenv("PENFOLD_TEST_DB") // e.g., penfold_test_integration
-    host := os.Getenv("PENFOLD_DB_HOST")   // home-01.brown.chat
+    host := os.Getenv("PENFOLD_DB_HOST")   // dev02.brown.chat
     // Connect and return pool
 }
 ```
@@ -130,7 +130,7 @@ func (l *FixtureLoader) LoadAcmeCorp(ctx context.Context) error {
 **Rationale**:
 - Required for MLX LLM access (Apple Silicon only)
 - No cloud costs for Apple Silicon runners
-- Full access to local infrastructure (home-01 DB, Redis)
+- Full access to local infrastructure (dev02 DB, Redis)
 - Persistent runner with launchd service management
 
 **Implementation**:
@@ -156,7 +156,7 @@ e2e:
   runs-on: [self-hosted, dev01]
   env:
     LLM_URL: http://localhost:8080
-    PENFOLD_DB_HOST: home-01.brown.chat
+    PENFOLD_DB_HOST: dev02.brown.chat
 ```
 
 ---
@@ -167,7 +167,7 @@ All research items resolved. Key decisions:
 
 | Item | Decision |
 |------|----------|
-| Database isolation | Direct connection to home-01 test databases |
+| Database isolation | Direct connection to dev02 test databases |
 | Build tags | `//go:build integration`, `e2e`, `live`, `flaky` |
 | Fixture loading | YAML with typed structs via yaml.v3 |
 | CI runner | Self-hosted on dev01 with launchd service |

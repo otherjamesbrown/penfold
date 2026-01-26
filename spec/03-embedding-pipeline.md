@@ -70,7 +70,7 @@ worker:
   queue_size: 1000
 
 database:
-  host: "home-01"
+  host: "dev02"
   port: 5432
   name: "penfold"
   pool_size: 10

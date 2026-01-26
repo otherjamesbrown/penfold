@@ -7,7 +7,7 @@
 #
 # Environment:
 #   DATABASE_URL - PostgreSQL connection string
-#   REDIS_HOST   - Redis host (default: home-01)
+#   REDIS_HOST   - Redis host (default: dev02)
 #   TEST_DATA    - Path to test emails (default: ~/github/otherjamesbrown/penfold_test_data/email-small)
 #
 
@@ -25,8 +25,8 @@ PENF="${PROJECT_ROOT}/bin/penf"
 TEST_DATA="${TEST_DATA:-$HOME/github/otherjamesbrown/penfold_test_data/email-small}"
 
 # Database connection
-export DATABASE_URL="${DATABASE_URL:-postgresql://penfold:penfold@home-01:5432/penfold?sslmode=disable}"
-export REDIS_HOST="${REDIS_HOST:-home-01}"
+export DATABASE_URL="${DATABASE_URL:-postgresql://penfold:penfold@dev02:5432/penfold?sslmode=disable}"
+export REDIS_HOST="${REDIS_HOST:-dev02}"
 
 # Test results
 TESTS_PASSED=0
@@ -79,7 +79,7 @@ clear_database() {
     log_info "Clearing database tables..."
 
     local result
-    result=$(ssh -o StrictHostKeyChecking=no home-01 "docker exec -i penfold-postgres psql -U penfold -d penfold -c 'TRUNCATE sources, source_attachments, ingest_jobs, ingest_errors CASCADE'" 2>&1)
+    result=$(ssh -o StrictHostKeyChecking=no dev02 "docker exec -i penfold-postgres psql -U penfold -d penfold -c 'TRUNCATE sources, source_attachments, ingest_jobs, ingest_errors CASCADE'" 2>&1)
 
     if [[ $? -eq 0 ]]; then
         log_pass "Database cleared"
@@ -235,7 +235,7 @@ test_sql_search() {
     log_info "Testing direct SQL search..."
 
     local result
-    result=$(ssh -o StrictHostKeyChecking=no home-01 "docker exec -i penfold-postgres psql -U penfold -d penfold -tA -c \"SELECT COUNT(*) FROM sources WHERE raw_content ILIKE '%TikTok%'\"" 2>&1)
+    result=$(ssh -o StrictHostKeyChecking=no dev02 "docker exec -i penfold-postgres psql -U penfold -d penfold -tA -c \"SELECT COUNT(*) FROM sources WHERE raw_content ILIKE '%TikTok%'\"" 2>&1)
 
     if [[ $? -eq 0 && -n "$result" && "$result" -gt 0 ]]; then
         log_pass "SQL search found ${result} matching documents"

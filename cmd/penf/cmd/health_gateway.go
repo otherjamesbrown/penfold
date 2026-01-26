@@ -82,7 +82,7 @@ func runHealthGateway(cmd *cobra.Command, args []string) error {
 		serverAddr := os.Getenv("PENF_SERVER_ADDRESS")
 		if serverAddr == "" {
 			// Fall back to config file default.
-			serverAddr = "home-01.brown.chat:50051"
+			serverAddr = "dev02.brown.chat:50051"
 		}
 		// Extract host from server address.
 		host := serverAddr

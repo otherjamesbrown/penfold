@@ -11,7 +11,7 @@ If not provided, runs all E2E tests.
 
 E2E tests require:
 - `PENFOLD_DB_PASSWORD` environment variable set
-- PostgreSQL accessible at home-01.brown.chat
+- PostgreSQL accessible at dev02.brown.chat
 - Test database `penfold_test_e2e` with migrations applied
 - Local LLM server running at http://localhost:8080 (vLLM-MLX with Qwen)
 
@@ -77,7 +77,7 @@ Note: E2E tests may have longer durations due to LLM inference.
 | ❌ Failed | Y |
 | ⏭️ Skipped | Z |
 
-**Database**: penfold_test_e2e @ home-01.brown.chat
+**Database**: penfold_test_e2e @ dev02.brown.chat
 **LLM**: Qwen2.5-32B @ localhost:8080
 **Duration**: X.XXs
 ```

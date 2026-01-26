@@ -260,7 +260,7 @@ func TestWithFixtures(t *testing.T) {
 # E2E tests use: penfold_test_e2e
 
 # Create databases (one-time)
-psql -h home-01.brown.chat -U penfold -d penfold <<EOF
+psql -h dev02.brown.chat -U penfold -d penfold <<EOF
 CREATE DATABASE penfold_test_integration;
 CREATE DATABASE penfold_test_e2e;
 \c penfold_test_integration

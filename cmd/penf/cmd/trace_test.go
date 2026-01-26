@@ -42,9 +42,9 @@ func TestBuildLangfuseURL(t *testing.T) {
 	}{
 		{
 			name:      "basic document",
-			host:      "langfuse.home-01:3000",
+			host:      "dev02.brown.chat:3000",
 			contentID: "dc-9x3kp7mn",
-			wantURL:   "https://langfuse.home-01:3000/traces?filter=penfold.content_id%3Ddc-9x3kp7mn",
+			wantURL:   "https://dev02.brown.chat:3000/traces?filter=penfold.content_id%3Ddc-9x3kp7mn",
 		},
 		{
 			name:      "email content",
@@ -75,7 +75,7 @@ func TestOutputTraceResultsText(t *testing.T) {
 	output := TraceOutput{
 		ContentID:   "dc-9x3kp7mn",
 		ContentType: "document",
-		LangfuseURL: "https://langfuse.home-01:3000/traces?filter=penfold.content_id%3Ddc-9x3kp7mn",
+		LangfuseURL: "https://dev02.brown.chat:3000/traces?filter=penfold.content_id%3Ddc-9x3kp7mn",
 	}
 
 	// Capture stdout.
@@ -100,7 +100,7 @@ func TestOutputTraceResultsText(t *testing.T) {
 		"Content: dc-9x3kp7mn",
 		"Type:    document",
 		"Langfuse Traces:",
-		"https://langfuse.home-01:3000/traces?filter=penfold.content_id%3Ddc-9x3kp7mn",
+		"https://dev02.brown.chat:3000/traces?filter=penfold.content_id%3Ddc-9x3kp7mn",
 	}
 
 	for _, line := range expectedLines {
@@ -114,7 +114,7 @@ func TestOutputTraceResultsJSON(t *testing.T) {
 	output := TraceOutput{
 		ContentID:   "em-abc12345",
 		ContentType: "email",
-		LangfuseURL: "https://langfuse.home-01:3000/traces?filter=penfold.content_id%3Dem-abc12345",
+		LangfuseURL: "https://dev02.brown.chat:3000/traces?filter=penfold.content_id%3Dem-abc12345",
 	}
 
 	// Capture stdout.

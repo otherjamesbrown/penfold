@@ -11,10 +11,10 @@
 
 ### For Integration Tests
 - Go 1.22+
-- Network access to home-01.brown.chat
+- Network access to dev02.brown.chat
 - Environment variables:
   ```bash
-  export PENFOLD_DB_HOST=home-01.brown.chat
+  export PENFOLD_DB_HOST=dev02.brown.chat
   export PENFOLD_DB_PORT=5432
   export PENFOLD_DB_NAME=penfold_test_integration
   export PENFOLD_DB_USER=penfold
@@ -140,8 +140,8 @@ go tool cover -func=coverage.out | grep total
 ### Create Test Databases (One-Time)
 
 ```bash
-# Connect to home-01 PostgreSQL
-psql "host=home-01.brown.chat user=penfold password=<password> dbname=penfold"
+# Connect to dev02 PostgreSQL
+psql "host=dev02.brown.chat user=penfold password=<password> dbname=penfold"
 
 # Create test databases
 CREATE DATABASE penfold_test_integration;
@@ -214,13 +214,13 @@ launchctl load ~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist
 ### Database Connection Failed
 
 ```
-Error: failed to connect to host=home-01.brown.chat
+Error: failed to connect to host=dev02.brown.chat
 ```
 
 **Fix**: Check network and credentials:
 ```bash
 # Test connection
-psql "host=home-01.brown.chat user=penfold dbname=penfold_test_integration"
+psql "host=dev02.brown.chat user=penfold dbname=penfold_test_integration"
 
 # Verify environment
 echo $PENFOLD_DB_HOST

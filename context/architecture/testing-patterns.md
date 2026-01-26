@@ -53,8 +53,8 @@ func (db *TestDB) TruncateAllTables(t *testing.T) {
 ```
 
 **Key Points**:
-- Integration tests: `penfold_test_integration` on home-01
-- E2E tests: `penfold_test_e2e` on home-01
+- Integration tests: `penfold_test_integration` on dev02
+- E2E tests: `penfold_test_e2e` on dev02
 - Cleanup via `t.Cleanup()` for automatic resource release
 
 ## 3. YAML Fixture Loading

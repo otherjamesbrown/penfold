@@ -36,7 +36,7 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	t.Helper()
 
 	// Setup database connection
-	host := getEnvOrDefault("PENFOLD_DB_HOST", "home-01.brown.chat")
+	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
 	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
 	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
 	password := os.Getenv("PENFOLD_DB_PASSWORD")

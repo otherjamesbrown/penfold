@@ -24,7 +24,7 @@ type TestDB struct {
 
 // SetupTestDB creates a connection to the test database.
 // It reads configuration from environment variables:
-//   - PENFOLD_DB_HOST (default: home-01.brown.chat)
+//   - PENFOLD_DB_HOST (default: dev02.brown.chat)
 //   - PENFOLD_DB_PORT (default: 5432)
 //   - PENFOLD_DB_USER (default: penfold)
 //   - PENFOLD_DB_PASSWORD (required)
@@ -32,7 +32,7 @@ type TestDB struct {
 func SetupTestDB(t *testing.T) *TestDB {
 	t.Helper()
 
-	host := getEnvOrDefault("PENFOLD_DB_HOST", "home-01.brown.chat")
+	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
 	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
 	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
 	password := os.Getenv("PENFOLD_DB_PASSWORD")

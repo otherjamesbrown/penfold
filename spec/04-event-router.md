@@ -636,7 +636,7 @@ temporal:
   task_queue: "penfold-ai-processing"
 
 database:
-  host: "home-01"
+  host: "dev02"
   port: 5432
   database: "penfold"
   user: "penfold"

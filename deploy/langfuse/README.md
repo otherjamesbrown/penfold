@@ -5,12 +5,12 @@ Self-hosted Langfuse instance for tracing and visualizing Penfold's AI operation
 ## Quick Start
 
 ```bash
-# On home-01.brown.chat
+# On dev02.brown.chat
 cd /opt/langfuse
 docker compose up -d
 ```
 
-Access: http://home-01.brown.chat:3000
+Access: http://dev02.brown.chat:3000
 
 ## Port Allocations
 
@@ -24,7 +24,7 @@ Access: http://home-01.brown.chat:3000
 
 ## Initial Credentials
 
-- **URL**: http://home-01.brown.chat:3000
+- **URL**: http://dev02.brown.chat:3000
 - **Email**: james@brown.chat
 - **Password**: (see .env file, change on first login)
 
@@ -38,17 +38,17 @@ Configure in Penfold worker:
 ```bash
 LANGFUSE_PUBLIC_KEY=pk-lf-penfold
 LANGFUSE_SECRET_KEY=sk-lf-penfold-secret
-LANGFUSE_HOST=http://home-01.brown.chat:3000
+LANGFUSE_HOST=http://dev02.brown.chat:3000
 ```
 
 ## Deployment
 
 ```bash
-# Copy files to home-01
-scp -r deploy/langfuse home-01.brown.chat:/opt/
+# Copy files to dev02
+scp -r deploy/langfuse dev02.brown.chat:/opt/
 
-# SSH to home-01 and start
-ssh home-01.brown.chat
+# SSH to dev02 and start
+ssh dev02.brown.chat
 cd /opt/langfuse
 docker compose up -d
 
@@ -78,7 +78,7 @@ docker exec langfuse-postgres pg_dump -U langfuse langfuse > langfuse_backup.sql
 
 ```bash
 # Check service health
-curl http://home-01.brown.chat:3000/api/public/health
+curl http://dev02.brown.chat:3000/api/public/health
 
 # Check ClickHouse
 curl http://localhost:8123/ping

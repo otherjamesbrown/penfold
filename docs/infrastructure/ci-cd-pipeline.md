@@ -148,7 +148,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     env:
-      PENFOLD_DB_HOST: home-01.brown.chat
+      PENFOLD_DB_HOST: dev02.brown.chat
       PENFOLD_DB_PORT: 5432
       PENFOLD_DB_USER: penfold
       PENFOLD_DB_PASSWORD: ${{ secrets.PENFOLD_DB_PASSWORD }}

@@ -365,7 +365,7 @@ If a command fails:
 
 ## Environment
 
-- Server: `home-01.brown.chat:50051`
+- Server: `dev02.brown.chat:50051`
 - Config: `~/.penf/config.yaml`
 - Binary: `/usr/local/bin/penf` or user's PATH
 

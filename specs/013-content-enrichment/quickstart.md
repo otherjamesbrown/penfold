@@ -5,7 +5,7 @@
 ## Prerequisites
 
 - Go 1.22+
-- PostgreSQL 16+ (running on home-01)
+- PostgreSQL 16+ (running on dev02)
 - MLX sidecar running on dev01 (port 8081)
 - Penfold database with existing schema
 
@@ -18,9 +18,9 @@
 penf db migrate
 
 # Or manually apply new migrations
-psql -h home-01 -U penfold -d penfold -f migrations/016_glossary_linked_entity.sql
-psql -h home-01 -U penfold -d penfold -f migrations/017_mention_resolution.sql
-psql -h home-01 -U penfold -d penfold -f migrations/018_resolution_comparisons.sql
+psql -h dev02 -U penfold -d penfold -f migrations/016_glossary_linked_entity.sql
+psql -h dev02 -U penfold -d penfold -f migrations/017_mention_resolution.sql
+psql -h dev02 -U penfold -d penfold -f migrations/018_resolution_comparisons.sql
 ```
 
 ### 2. Verify MLX Sidecar

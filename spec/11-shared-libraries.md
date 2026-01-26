@@ -898,7 +898,7 @@ func main() {
 
     // Setup database
     pool, err := db.NewPool(ctx, &db.Config{
-        Host:     "home-01",
+        Host:     "dev02",
         Port:     5432,
         Database: "penfold",
         User:     "penfold",

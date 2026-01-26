@@ -20,9 +20,9 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration
-DB_HOST="${DB_HOST:-home-01}"
-REDIS_HOST="${REDIS_HOST:-home-01}"
-TEMPORAL_HOST="${TEMPORAL_HOST:-home-01}"
+DB_HOST="${DB_HOST:-dev02}"
+REDIS_HOST="${REDIS_HOST:-dev02}"
+TEMPORAL_HOST="${TEMPORAL_HOST:-dev02}"
 
 log_status() {
     local name="$1"

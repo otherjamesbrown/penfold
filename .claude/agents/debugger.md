@@ -98,10 +98,10 @@ temporal workflow describe -w <workflow-id> --namespace penfold
 **Database Investigation:**
 ```bash
 # Check recent errors
-psql -h home-01 -U penfold -c "SELECT * FROM pg_stat_activity WHERE state = 'active';"
+psql -h dev02 -U penfold -c "SELECT * FROM pg_stat_activity WHERE state = 'active';"
 
 # Check for lock contention
-psql -h home-01 -U penfold -c "SELECT * FROM pg_locks WHERE NOT granted;"
+psql -h dev02 -U penfold -c "SELECT * FROM pg_locks WHERE NOT granted;"
 ```
 
 ### 3. Form Hypotheses

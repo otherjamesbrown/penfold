@@ -1776,7 +1776,7 @@ undo:
   expiry_hours: 24           # How long undo history is kept
 
 database:
-  host: "home-01"
+  host: "dev02"
   port: 5432
   database: "penfold"
   user: "penfold"
@@ -1784,7 +1784,7 @@ database:
   pool_size: 20
 
 redis:
-  address: "home-01:6379"
+  address: "dev02:6379"
 
 content_processor:
   address: "localhost:8083"

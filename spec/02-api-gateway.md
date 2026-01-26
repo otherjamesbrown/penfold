@@ -351,7 +351,7 @@ services:
 
 rate_limit:
   enabled: true
-  redis_address: "home-01:6379"
+  redis_address: "dev02:6379"
 
 logging:
   level: "info"

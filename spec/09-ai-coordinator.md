@@ -1968,7 +1968,7 @@ registry:
   failure_threshold: 3
 
 database:
-  host: "home-01"
+  host: "dev02"
   port: 5432
   database: "penfold"
   user: "penfold"
@@ -1976,7 +1976,7 @@ database:
   pool_size: 20
 
 redis:
-  address: "home-01:6379"
+  address: "dev02:6379"
 
 logging:
   level: "info"

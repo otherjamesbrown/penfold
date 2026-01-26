@@ -5,18 +5,18 @@
 
 ## Summary
 
-Implement a comprehensive testing strategy with four test categories (unit, integration, E2E, live) to address the current gap where 160 test files exist but are almost entirely unit tests with mocked dependencies. The implementation establishes integration tests against real PostgreSQL on home-01, E2E tests with local LLM (Qwen via MLX), and a mock organization ("Acme Corp") fixture for realistic end-to-end validation.
+Implement a comprehensive testing strategy with four test categories (unit, integration, E2E, live) to address the current gap where 160 test files exist but are almost entirely unit tests with mocked dependencies. The implementation establishes integration tests against real PostgreSQL on dev02, E2E tests with local LLM (Qwen via MLX), and a mock organization ("Acme Corp") fixture for realistic end-to-end validation.
 
 ## Technical Context
 
 **Language/Version**: Go 1.22+
 **Primary Dependencies**: testify (assertions/mocking), pgx/v5 (PostgreSQL), yaml.v3 (fixtures)
-**Storage**: PostgreSQL 16 + pgvector on home-01.brown.chat (separate test databases)
+**Storage**: PostgreSQL 16 + pgvector on dev02.brown.chat (separate test databases)
 **Testing**: go test with testify, build tags for test isolation
 **Target Platform**: macOS (dev01 for E2E with MLX), Linux (CI for unit/integration)
 **Project Type**: Single project - test infrastructure addition
 **Performance Goals**: Unit < 10s, Integration < 60s, E2E < 5min total suite
-**Constraints**: E2E requires Apple Silicon (MLX LLM), network access to home-01
+**Constraints**: E2E requires Apple Silicon (MLX LLM), network access to dev02
 **Scale/Scope**: Extend 160 existing tests → target 200+ with integration/E2E coverage
 
 ## Constitution Check
@@ -28,7 +28,7 @@ Implement a comprehensive testing strategy with four test categories (unit, inte
 | III. Test-First Development | ✅ PASS | This spec establishes TDD infrastructure |
 | IV. Integration Testing | ✅ PASS | Directly addresses integration test gap |
 | V. Observability & Debugging | ✅ PASS | Tests will use structured logging |
-| VII. Simplicity & YAGNI | ✅ PASS | Uses existing infra (home-01 DB, dev01 LLM) |
+| VII. Simplicity & YAGNI | ✅ PASS | Uses existing infra (dev02 DB, dev01 LLM) |
 | Code Quality: 80% coverage | ✅ PASS | Spec targets 80%+ for core packages |
 
 **Gate Result**: PASS - All constitution principles satisfied
@@ -86,7 +86,7 @@ tests/
 
 | Aspect | Decision | Rationale |
 |--------|----------|-----------|
-| DB isolation | Separate databases on home-01 | Simpler than testcontainers, reuses existing infra |
+| DB isolation | Separate databases on dev02 | Simpler than testcontainers, reuses existing infra |
 | LLM for E2E | Real local LLM (Qwen) | Validates actual LLM behavior, not just mocks |
 | CI runner | Self-hosted on dev01 | Required for MLX, no additional cost |
 

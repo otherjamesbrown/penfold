@@ -1,6 +1,6 @@
 # Penfold Infrastructure
 
-Deployment-specific configuration for Penfold services. Last verified: 2026-01-23.
+Deployment-specific configuration for Penfold services. Last verified: 2026-01-26.
 
 > **See also:** [ARCHITECTURE.md](ARCHITECTURE.md) for component design and data flow patterns.
 
@@ -12,7 +12,7 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-2
 
 | Service | Host | gRPC Port | HTTP Port | Status |
 |---------|------|-----------|-----------|--------|
-| **Gateway** | home-01.brown.chat | 50051 | 8080 | Deployed |
+| **Gateway** | dev02.brown.chat | 50051 | 8080 | Deployed |
 | **Worker** | dev01.brown.chat | - | 8085 | Deployed |
 | **MLX Embeddings** | dev01.brown.chat | - | 8081 | Deployed |
 | **MLX LLM Server** | dev01.brown.chat | - | 8080 | Deployed |
@@ -59,10 +59,10 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-2
 ```
 
 **Startup sequence:**
-1. PostgreSQL, Redis, Temporal (Docker containers on home-01)
+1. PostgreSQL, Redis, Temporal (Docker containers on dev02)
 2. MLX Embeddings Sidecar (launchd on dev01)
 3. MLX LLM Server (launchd on dev01)
-4. Gateway (process on home-01)
+4. Gateway (process on dev02)
 5. Worker (process on dev01)
 6. CLI ready to use
 
@@ -73,7 +73,7 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-2
 │                           NETWORK COMMUNICATION MAP                              │
 ├──────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
-│   dev01.brown.chat                         home-01.brown.chat                    │
+│   dev01.brown.chat                         dev02.brown.chat                      │
 │  ┌────────────────────────────┐           ┌────────────────────────────┐        │
 │  │                            │           │                            │        │
 │  │  ┌──────────────────┐      │           │      ┌──────────────────┐  │        │
@@ -97,9 +97,10 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-2
 │  │                            │           │      │  :6379           │  │        │
 │  │  ┌──────────────────┐      │           │      └──────────────────┘  │        │
 │  │  │  MLX LLM Server  │      │           │                            │        │
-│  │  │  :8080           │      │           │                            │        │
-│  │  └──────────────────┘      │           │                            │        │
-│  │                            │           │                            │        │
+│  │  │  :8080           │      │           │      ┌──────────────────┐  │        │
+│  │  └──────────────────┘      │           │      │  Langfuse        │  │        │
+│  │                            │           │      │  :3000           │  │        │
+│  │                            │           │      └──────────────────┘  │        │
 │  └────────────────────────────┘           └────────────────────────────┘        │
 │                                                                                  │
 │  Legend: ───► Network call (with port)                                          │
@@ -123,7 +124,7 @@ All Go services expose standardized health endpoints:
 
 | Service | URL | Checks |
 |---------|-----|--------|
-| Gateway | `http://home-01.brown.chat:8080/health` | database (critical), embeddings, llm, worker |
+| Gateway | `http://dev02.brown.chat:8080/health` | database (critical), embeddings, llm, worker |
 | Worker | `http://dev01.brown.chat:8085/health` | temporal_connection (critical), database (critical), embeddings (critical), llm (critical), worker_penfold-main, worker_penfold-ai, worker_penfold-email |
 | MLX Embeddings | `http://localhost:8081/health` | Basic health (Python service) |
 | MLX LLM Server | `http://localhost:8080/v1/models` | Model availability check |
@@ -134,9 +135,9 @@ All Go services expose standardized health endpoints:
 
 | Hostname | IP | Role |
 |----------|-----|------|
-| `dev01.brown.chat` | 10.0.10.144 | Development machine, MLX inference |
-| `dev02.brown.chat` | 10.0.10.251 | Linux server (Intel N150, 16GB RAM, 500GB NVMe) - available |
-| `home-01.brown.chat` | 10.0.10.253 | Data services, Gateway |
+| `dev01.brown.chat` | 10.0.10.144 | Development machine (Mac Mini M4), MLX inference, Worker |
+| `dev02.brown.chat` | 10.0.10.251 | Data services (Intel N150), PostgreSQL, Redis, Temporal, Langfuse, Gateway |
+| `home-01.brown.chat` | 10.0.10.253 | **Legacy - decommission pending** |
 
 Use hostnames in all configs for portability. IPs may change.
 
@@ -144,24 +145,33 @@ Use hostnames in all configs for portability. IPs may change.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
+│  Client Machine (any)                                                       │
+│  ┌──────────────────────────┐                                              │
+│  │  Claude Code + penf CLI  │──────────────┐                               │
+│  │  → dev02.brown.chat      │              │                               │
+│  └──────────────────────────┘              │                               │
+└────────────────────────────────────────────┼────────────────────────────────┘
+                                             │ gRPC :50051
+┌────────────────────────────────────────────┼────────────────────────────────┐
 │                        dev01.brown.chat (Mac Mini M4)                       │
-│                                                                             │
-│  ┌──────────────────────────┐    ┌──────────────────────────┐              │
+│                                            │                                │
+│  ┌──────────────────────────┐    ┌─────────┼────────────────┐              │
 │  │  MLX Embeddings Sidecar  │    │  Penfold Worker          │              │
 │  │  localhost:8081          │◄───│  Health: localhost:8085  │              │
 │  │  mxbai-embed-large-v1    │    │                          │              │
 │  └──────────────────────────┘    └────────────┬─────────────┘              │
 │                                               │                             │
 │  ┌──────────────────────────┐                 │                             │
-│  │  penf CLI                │                 │                             │
-│  │  → home-01.brown.chat    │                 │                             │
+│  │  MLX LLM Server          │                 │                             │
+│  │  localhost:8080          │                 │                             │
+│  │  Qwen2.5-32B-Instruct    │                 │                             │
 │  └──────────────────────────┘                 │                             │
 └───────────────────────────────────────────────┼─────────────────────────────┘
                                                 │
                                     Network (1 Gbps)
                                                 │
 ┌───────────────────────────────────────────────┼─────────────────────────────┐
-│                      home-01.brown.chat (Intel NUC)                         │
+│                      dev02.brown.chat (Intel N150)                          │
 │                                               │                             │
 │  ┌──────────────────────────┐                 │                             │
 │  │  Penfold Gateway         │◄────────────────┘                             │
@@ -174,6 +184,12 @@ Use hostnames in all configs for portability. IPs may change.
 │  │  :5432                   │  │  :6379          │  │  :7233          │    │
 │  │  penfold-postgres        │  │  penfold-redis  │  │  UI: :8088      │    │
 │  └──────────────────────────┘  └─────────────────┘  └─────────────────┘    │
+│                                                                             │
+│  ┌──────────────────────────┐                                              │
+│  │  Langfuse                │                                              │
+│  │  Web: :3000              │                                              │
+│  │  (AI Provenance)         │                                              │
+│  └──────────────────────────┘                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -238,18 +254,18 @@ tail -f /tmp/mlx-llm-server.log
 **Worker Environment:**
 ```bash
 # See ~/github/otherjamesbrown/secrets/.env.penfold for actual credentials
-PENFOLD_DB_HOST=home-01.brown.chat
+PENFOLD_DB_HOST=dev02.brown.chat
 PENFOLD_DB_PORT=5432
 PENFOLD_DB_USER=penfold
 PENFOLD_DB_PASSWORD=<see secrets/.env.penfold>
 PENFOLD_DB_NAME=penfold
-PENFOLD_TEMPORAL_HOST=home-01.brown.chat:7233
+PENFOLD_TEMPORAL_HOST=dev02.brown.chat:7233
 AI_SERVICE_URL=http://localhost:8081  # MLX embeddings (local to dev01)
 LLM_URL=http://localhost:8080         # MLX LLM server (local to dev01)
 LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
 ```
 
-### home-01.brown.chat
+### dev02.brown.chat
 
 | Service | Port | Container | Notes |
 |---------|------|-----------|-------|
@@ -290,7 +306,7 @@ host=$PENFOLD_DB_HOST port=$PENFOLD_DB_PORT user=$PENFOLD_DB_USER password=$PENF
 psql "host=$PENFOLD_DB_HOST port=$PENFOLD_DB_PORT user=$PENFOLD_DB_USER password=$PENFOLD_DB_PASSWORD dbname=$PENFOLD_DB_NAME"
 ```
 
-### PostgreSQL (from Gateway on home-01)
+### PostgreSQL (from Gateway on dev02)
 ```bash
 # Co-located, use localhost
 PENFOLD_DB_HOST=localhost
@@ -298,37 +314,37 @@ PENFOLD_DB_HOST=localhost
 
 ### Redis
 ```bash
-REDIS_HOST=home-01.brown.chat
+REDIS_HOST=dev02.brown.chat
 REDIS_PORT=6379
 # No password
 ```
 
 ### Temporal
 ```bash
-PENFOLD_TEMPORAL_HOST=home-01.brown.chat:7233
+PENFOLD_TEMPORAL_HOST=dev02.brown.chat:7233
 TEMPORAL_NAMESPACE=default
 ```
 
 ### Langfuse (AI Provenance)
 ```bash
 # Web UI
-LANGFUSE_HOST=http://home-01.brown.chat:3000
+LANGFUSE_HOST=http://dev02.brown.chat:3000
 
 # API keys for trace ingestion
 LANGFUSE_PUBLIC_KEY=pk-lf-penfold
 LANGFUSE_SECRET_KEY=sk-lf-penfold-secret
 
 # OpenTelemetry endpoint (for OTEL SDK)
-OTEL_EXPORTER_OTLP_ENDPOINT=http://home-01.brown.chat:3000/api/public/otel
+OTEL_EXPORTER_OTLP_ENDPOINT=http://dev02.brown.chat:3000/api/public/otel
 ```
 
-Deployment: `~/langfuse/docker-compose.yml` on home-01
+Deployment: `~/langfuse/docker-compose.yml` on dev02
 Credentials: See `~/github/otherjamesbrown/secrets/.env.langfuse`
 
 ### penf CLI
 ```yaml
 # ~/.penf/config.yaml
-server_address: home-01.brown.chat:50051
+server_address: dev02.brown.chat:50051
 timeout: 30s
 output_format: text
 insecure: true
@@ -339,11 +355,11 @@ insecure: true
 ### Full Stack Startup
 
 ```bash
-# 1. Verify Docker services on home-01
-ssh home-01.brown.chat "docker ps --filter 'name=penfold'"
+# 1. Verify Docker services on dev02
+ssh dev02.brown.chat "docker ps --filter 'name=penfold'"
 
-# 2. Start Gateway on home-01 (if not running)
-ssh home-01.brown.chat "PENFOLD_SERVICE_NAME=gateway \
+# 2. Start Gateway on dev02 (if not running)
+ssh dev02.brown.chat "PENFOLD_SERVICE_NAME=gateway \
   PENFOLD_DB_HOST=localhost \
   PENFOLD_DB_PASSWORD=penfold \
   nohup /tmp/penfold-gateway > /tmp/gateway.log 2>&1 &"
@@ -356,8 +372,8 @@ cd penfold-go-pipeline/sidecar
 .venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-32B-Instruct-4bit --port 8080 --host 0.0.0.0 &
 
 # 5. Start Worker on dev01
-PENFOLD_DB_HOST=home-01.brown.chat \
-PENFOLD_TEMPORAL_HOST=home-01.brown.chat:7233 \
+PENFOLD_DB_HOST=dev02.brown.chat \
+PENFOLD_TEMPORAL_HOST=dev02.brown.chat:7233 \
 AI_SERVICE_URL=http://localhost:8081 \
 LLM_URL=http://localhost:8080 \
 ./bin/penfold-worker &
@@ -385,9 +401,9 @@ penf status
 ### Gateway Health Aggregation
 
 The gateway aggregates health status from all backend services and exposes it via HTTP:
-- `http://home-01.brown.chat:8080/health` - Full health status with all services
-- `http://home-01.brown.chat:8080/ready` - Kubernetes readiness probe
-- `http://home-01.brown.chat:8080/live` - Kubernetes liveness probe
+- `http://dev02.brown.chat:8080/health` - Full health status with all services
+- `http://dev02.brown.chat:8080/ready` - Kubernetes readiness probe
+- `http://dev02.brown.chat:8080/live` - Kubernetes liveness probe
 
 **Services monitored:**
 - `database` - PostgreSQL connection (critical)
@@ -415,7 +431,7 @@ curl -s http://localhost:8080/v1/models
 curl -s http://localhost:8085/health
 
 # Gateway aggregated health (from any machine)
-curl -s http://home-01.brown.chat:8080/health | jq
+curl -s http://dev02.brown.chat:8080/health | jq
 ```
 
 ## Verification Commands
@@ -428,13 +444,13 @@ penf status
 penf health gateway
 
 # PostgreSQL (from dev01)
-psql "host=home-01.brown.chat user=penfold password=penfold dbname=penfold" -c "SELECT 1"
+psql "host=dev02.brown.chat user=penfold password=penfold dbname=penfold" -c "SELECT 1"
 
-# Docker containers (home-01)
-ssh home-01.brown.chat "docker ps --filter 'name=penfold'"
+# Docker containers (dev02)
+ssh dev02.brown.chat "docker ps --filter 'name=penfold'"
 
 # Temporal UI
-open http://home-01.brown.chat:8088
+open http://dev02.brown.chat:8088
 ```
 
 ## Design Rationale
@@ -444,7 +460,7 @@ open http://home-01.brown.chat:8088
 - Embedding calls stay local (large vectors, fast)
 - DB/Temporal calls cross network (small payloads, acceptable latency)
 
-**Why Gateway on home-01?**
+**Why Gateway on dev02?**
 - Co-located with PostgreSQL for fast queries
 - CLI calls cross network (small gRPC payloads)
 
@@ -473,7 +489,7 @@ Complete inventory of Penfold Go services with their default configurations.
 | Content Processor | `services/content` | 50058 | 8089 | - | Developed |
 | Relationship Service | `services/relationship` | 50059 | 8090 | - | Developed |
 
-### External Dependencies (Docker on home-01)
+### External Dependencies (Docker on dev02)
 
 | Service | Container Name | Port | Health Check |
 |---------|---------------|------|--------------|
@@ -510,7 +526,7 @@ GATEWAY_WORKER_HEALTH_URL=...    # Worker health endpoint URL
 ```bash
 WORKER_HTTP_PORT=8085            # HTTP health/metrics port
 WORKER_TASK_QUEUES=penfold-main,penfold-ai,penfold-email
-TEMPORAL_HOST_PORT=home-01.brown.chat:7233
+TEMPORAL_HOST_PORT=dev02.brown.chat:7233
 TEMPORAL_NAMESPACE=default
 AI_SERVICE_URL=http://localhost:8081  # MLX embeddings
 LLM_URL=http://localhost:8080         # MLX LLM server
@@ -519,13 +535,10 @@ LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
 
 #### Database (`PENFOLD_DB_*`)
 ```bash
-PENFOLD_DB_HOST=home-01.brown.chat
+PENFOLD_DB_HOST=dev02.brown.chat
 PENFOLD_DB_PORT=5432
 PENFOLD_DB_USER=penfold
 PENFOLD_DB_PASSWORD=<see secrets>
 PENFOLD_DB_NAME=penfold
 ```
 
----
-
-*Last topology verification: 2026-01-25*

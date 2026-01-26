@@ -26,14 +26,14 @@ type TraceCommandDeps struct {
 	Config       *config.CLIConfig
 	LoadConfig   func() (*config.CLIConfig, error)
 	OutputFormat config.OutputFormat
-	LangfuseHost string // Langfuse server host (default: langfuse.home-01:3000)
+	LangfuseHost string // Langfuse server host (default: dev02.brown.chat:3000)
 }
 
 // DefaultTraceDeps returns the default dependencies for production use.
 func DefaultTraceDeps() *TraceCommandDeps {
 	return &TraceCommandDeps{
 		LoadConfig:   config.LoadConfig,
-		LangfuseHost: "langfuse.home-01:3000",
+		LangfuseHost: "dev02.brown.chat:3000",
 	}
 }
 

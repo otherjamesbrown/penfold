@@ -155,7 +155,7 @@ Components are distributed across two machines based on their requirements:
 | Machine | Components | Rationale |
 |---------|------------|-----------|
 | **dev01** (Apple Silicon) | Worker, MLX Embeddings, CLI | GPU/Neural Engine for embeddings |
-| **home-01** (Intel) | Gateway, PostgreSQL, Redis, Temporal | Data storage, no GPU needed |
+| **dev02** (Intel) | Gateway, PostgreSQL, Redis, Temporal | Data storage, no GPU needed |
 
 **Key Principles:**
 - Co-locate services that exchange large data (Worker ↔ Embeddings)

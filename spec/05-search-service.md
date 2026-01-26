@@ -611,7 +611,7 @@ server:
   metrics_port: 9081
 
 database:
-  host: "home-01"
+  host: "dev02"
   port: 5432
   database: "penfold"
   user: "penfold"
@@ -631,7 +631,7 @@ search:
 
 cache:
   enabled: true
-  redis_address: "home-01:6379"
+  redis_address: "dev02:6379"
   ttl: "5m"
   embedding_ttl: "1h"
 

@@ -288,7 +288,7 @@ When this email is ingested, E2E tests should verify:
 └───────────────┼─────────────────────────────────────────────────┘
                 │ Network
 ┌───────────────┼─────────────────────────────────────────────────┐
-│               │           home-01.brown.chat                    │
+│               │           dev02.brown.chat                    │
 │               ▼                                                 │
 │  ┌──────────────────────────┐    ┌──────────────────────────┐  │
 │  │  PostgreSQL + pgvector   │    │  Redis                   │  │
@@ -356,7 +356,7 @@ func AssertMentionResolved(t *testing.T, mention Mention, expectedPersonID int64
 
 ### Database Isolation Strategy
 
-Tests use **separate databases on home-01 PostgreSQL server** rather than testcontainers:
+Tests use **separate databases on dev02 PostgreSQL server** rather than testcontainers:
 
 | Test Type | Database | Purpose |
 |-----------|----------|---------|
@@ -372,7 +372,7 @@ Tests use **separate databases on home-01 PostgreSQL server** rather than testco
 ```go
 func setupTestDB(t *testing.T, dbName string) *pgxpool.Pool {
     cfg := db.Config{
-        Host:     "home-01.brown.chat",
+        Host:     "dev02.brown.chat",
         Port:     5432,
         Database: dbName,  // e.g., "penfold_test_integration"
         User:     "penfold",
@@ -492,7 +492,7 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     env:
-      PENFOLD_DB_HOST: home-01.brown.chat
+      PENFOLD_DB_HOST: dev02.brown.chat
       PENFOLD_DB_NAME: penfold_test_integration
     steps:
       - uses: actions/checkout@v4
@@ -504,7 +504,7 @@ jobs:
   e2e:
     runs-on: [self-hosted, dev01]  # Self-hosted on dev01.brown.chat
     env:
-      PENFOLD_DB_HOST: home-01.brown.chat
+      PENFOLD_DB_HOST: dev02.brown.chat
       PENFOLD_DB_NAME: penfold_test_e2e
       LLM_URL: http://localhost:8080
     steps:
@@ -536,7 +536,7 @@ sudo ./svc.sh start
 
 **Prerequisites on dev01:**
 - MLX LLM server running (`com.penfold.mlx-llm-server`)
-- Network access to home-01.brown.chat (PostgreSQL, Redis)
+- Network access to dev02.brown.chat (PostgreSQL, Redis)
 - Go 1.22+ installed
 
 ---
@@ -567,7 +567,7 @@ sudo ./svc.sh start
 
 ### Session 2026-01-22
 
-- Q: How should parallel test isolation be handled for database tests? → A: Separate test databases on home-01 PostgreSQL server (e.g., `penfold_test_integration`, `penfold_test_e2e`)
+- Q: How should parallel test isolation be handled for database tests? → A: Separate test databases on dev02 PostgreSQL server (e.g., `penfold_test_integration`, `penfold_test_e2e`)
 - Q: How should flaky tests be handled? → A: Quarantine with build tag (`//go:build !flaky`), fix within 1 week
 - Q: How should E2E tests handle LLM response non-determinism? → A: Semantic assertions with temperature=0 (verify structure/intent, not exact text)
 - Q: How should CI run E2E tests requiring Apple Silicon? → A: Self-hosted GitHub Actions runner on dev01.brown.chat

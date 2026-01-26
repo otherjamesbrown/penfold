@@ -42,7 +42,7 @@ const (
 
 // LangfuseConfig holds Langfuse-specific configuration.
 type LangfuseConfig struct {
-	// Host is the Langfuse server URL (e.g., "http://home-01.brown.chat:3000").
+	// Host is the Langfuse server URL (e.g., "http://dev02.brown.chat:3000").
 	Host string
 
 	// PublicKey is the Langfuse public key (pk-lf-xxx).
