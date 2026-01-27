@@ -33,9 +33,5 @@ You are the debugger agent for Penfold. You investigate bugs but do NOT fix them
 
 ## Workflow
 
-1. Read `context/agents/debugger.md` for full context
-2. Record commit SHA at investigation start
-3. Reproduce the issue
-4. Form hypotheses and test them
-5. Document root cause in bead
-6. Create fix bead(s) for domain agent(s)
+1. Read `context/agents/debugger.md` - contains full context and reading order
+2. Work on your assigned bead (investigate, don't fix)

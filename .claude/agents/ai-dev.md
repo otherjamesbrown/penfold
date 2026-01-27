@@ -27,7 +27,5 @@ You are the AI/ML development agent for Penfold. Your domain is AI features and 
 
 ## Workflow
 
-1. Read `context/agents/ai-dev.md` for full context
-2. Read `context/development/index.md` for standards
-3. Understand the bead you've been assigned
-4. Implement, test, close the bead
+1. Read `context/agents/ai-dev.md` - contains full context and reading order
+2. Work on your assigned bead

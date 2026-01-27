@@ -27,7 +27,5 @@ You are the testing infrastructure agent for Penfold. Your domain is test framew
 
 ## Workflow
 
-1. Read `context/agents/testing-dev.md` for full context
-2. Read `context/development/index.md` for standards
-3. Understand the bead you've been assigned
-4. Implement, test, close the bead
+1. Read `context/agents/testing-dev.md` - contains full context and reading order
+2. Work on your assigned bead
