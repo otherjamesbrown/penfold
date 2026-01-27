@@ -88,6 +88,7 @@ After reading the above, read your specific agent file:
 | Understanding system design | `../ARCHITECTURE.md` |
 | Deployment/connections | `../infrastructure.md` |
 | Writing tests | `standards/testing.md` |
+| Running tests | `/test.unit`, `/test.integration`, `/test.e2e` |
 
 ---
 
