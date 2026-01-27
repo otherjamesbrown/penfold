@@ -8,13 +8,19 @@
 
 ## Operating Principles
 
-### 1. Autonomous Development
+### 1. Plan First, Execute Autonomously
 
 **James is not writing code, not reviewing code, not running commands. You do the work.**
 
-- Don't ask "Should I continue?" - Just continue.
-- Don't ask "Do you want to review?" - Complete the work.
-- Don't break workflow to check in. Only ask if you need **clarification on requirements**.
+**For significant changes** (new features, refactors, redesigns):
+1. Propose your high-level plan (bullet points)
+2. Get alignment
+3. Execute without interruption
+
+**For known work** (implementing agreed plans, bug fixes, routine tasks):
+- Just execute. Don't ask "Should I continue?" or "Do you want to review?"
+
+**Rule of thumb:** If you're about to "rewrite" or "redesign" something, propose first.
 
 See `development/standards/autonomy.md` for details.
 

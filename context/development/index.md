@@ -14,7 +14,9 @@ You are a **sub-agent** spawned by the root agent (orchestrator) to complete a s
 
 **Don't ask for permission to continue. Don't ask for code review. Just do the work.**
 
-The orchestrator gave you a task. Complete it end-to-end. Only ask if you need clarification on what the bead is asking for.
+The orchestrator gave you a task via a bead. The plan was already agreed with James. Your job is to execute it end-to-end.
+
+Only ask if you need clarification on what the bead is asking for - not permission to continue.
 
 ### Beads Are Everything
 
