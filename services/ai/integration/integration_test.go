@@ -136,11 +136,11 @@ func TestFullAIPipeline(t *testing.T) {
 	// Register test models
 	err := modelSelector.RegisterModel(&selector.ModelConfig{
 		ModelID:  "local-llm",
-		Provider: selector.ModelProviderOllama,
+		Provider: selector.ModelProviderMLX,
 		Endpoint: "http://localhost:11434",
 		Capabilities: &selector.ModelCapabilities{
 			ModelID:        "local-llm",
-			Provider:       selector.ModelProviderOllama,
+			Provider:       selector.ModelProviderMLX,
 			IsLocal:        true,
 			SupportedTasks: []selector.TaskType{selector.TaskTypeSummarization, selector.TaskTypeExtraction},
 			ContextWindow:  128000,
@@ -188,7 +188,7 @@ func TestFullAIPipeline(t *testing.T) {
 	defer func() { _ = modelRouter.Shutdown(ctx) }()
 
 	// Register backends
-	localBackend := newMockBackend("local-llm", "ollama", true, []string{"summarization", "extraction"})
+	localBackend := newMockBackend("local-llm", "mlx", true, []string{"summarization", "extraction"})
 	cloudBackend := newMockBackend("cloud-llm", "gemini", false, []string{"summarization", "extraction"})
 
 	if err := modelRouter.RegisterBackend(localBackend); err != nil {
@@ -413,7 +413,8 @@ func TestRegistryWithRouter(t *testing.T) {
 
 	// Create registry with default models
 	regConfig := &registry.RegistryConfig{
-		OllamaHost:          "http://localhost:11434",
+		MLXLLMURL:           "http://localhost:8080",
+		MLXEmbeddingsURL:    "http://localhost:8081",
 		GeminiEndpoint:      "https://api.example.com",
 		HealthCheckInterval: 0, // Disable for tests
 		EnableAutoDiscovery: false,
@@ -422,9 +423,9 @@ func TestRegistryWithRouter(t *testing.T) {
 
 	// Register models
 	localModel := &registry.ModelConfig{
-		ID:        "ollama/llama3",
+		ID:        "mlx/qwen2.5-32b",
 		Name:      "Llama 3",
-		Provider:  registry.ProviderOllama,
+		Provider:  registry.ProviderMLX,
 		ModelName: "llama3",
 		Capabilities: registry.ModelCapabilities{
 			Capabilities: []registry.Capability{registry.CapabilityChat, registry.CapabilitySummarization},
@@ -479,7 +480,7 @@ func TestRegistryWithRouter(t *testing.T) {
 	})
 
 	t.Run("UpdateHealth", func(t *testing.T) {
-		err := reg.UpdateHealth("ollama/llama3", registry.ModelHealth{
+		err := reg.UpdateHealth("mlx/qwen2.5-32b", registry.ModelHealth{
 			Status:    registry.HealthStatusUnhealthy,
 			LastCheck: time.Now(),
 		})
@@ -526,7 +527,7 @@ func TestEnsembleIntegration(t *testing.T) {
 	// Add mock models
 	model1 := &mockEnsembleModel{
 		name:       "model1",
-		provider:   "ollama",
+		provider:   "mlx",
 		isLocal:    true,
 		response:   "answer A",
 		confidence: 0.9,
@@ -840,7 +841,7 @@ func BenchmarkModelSelection(b *testing.B) {
 	for i := 0; i < 10; i++ {
 		_ = s.RegisterModel(&selector.ModelConfig{
 			ModelID:  "model-" + string(rune('a'+i)),
-			Provider: selector.ModelProviderOllama,
+			Provider: selector.ModelProviderMLX,
 			Capabilities: &selector.ModelCapabilities{
 				ModelID:        "model-" + string(rune('a'+i)),
 				SupportedTasks: []selector.TaskType{selector.TaskTypeSummarization},

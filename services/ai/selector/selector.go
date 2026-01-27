@@ -20,10 +20,10 @@ var (
 
 // ModelConfig represents a fully configured model ready for use.
 type ModelConfig struct {
-	// ModelID is the unique identifier (e.g., "llama3.2", "gemini-1.5-pro").
+	// ModelID is the unique identifier (e.g., "Qwen2.5-32B", "gemini-1.5-pro").
 	ModelID string
 
-	// Provider is the model provider (e.g., "ollama", "gemini").
+	// Provider is the model provider (e.g., "mlx", "gemini").
 	Provider ModelProvider
 
 	// Endpoint is the API endpoint for the model.
@@ -621,23 +621,23 @@ func (w *WarmupManager) ResetUsageCount() {
 }
 
 // RegisterDefaultModels registers the default Penfold model configurations.
-// This includes standard Ollama local models and Gemini cloud models.
-func RegisterDefaultModels(selector *ModelSelector, ollamaHost, geminiAPIKey string) error {
-	// Local Ollama embedding model
+// This includes MLX local models (via vllm-mlx) and Gemini cloud models.
+func RegisterDefaultModels(selector *ModelSelector, mlxLLMURL, mlxEmbeddingsURL, geminiAPIKey string) error {
+	// Local MLX embedding model
 	if err := selector.RegisterModel(&ModelConfig{
-		ModelID:  "nomic-embed-text",
-		Provider: ModelProviderOllama,
-		Endpoint: ollamaHost,
+		ModelID:  "mxbai-embed-large-v1",
+		Provider: ModelProviderMLX,
+		Endpoint: mlxEmbeddingsURL,
 		Capabilities: &ModelCapabilities{
-			ModelID:             "nomic-embed-text",
-			Provider:            ModelProviderOllama,
+			ModelID:             "mxbai-embed-large-v1",
+			Provider:            ModelProviderMLX,
 			IsLocal:             true,
 			SupportedTasks:      []TaskType{TaskTypeEmbedding},
 			ContextWindow:       8192,
-			EmbeddingDimensions: 768,
+			EmbeddingDimensions: 1024,
 			AvgLatency:          100 * time.Millisecond,
 			CostPer1KTokens:     0,
-			QualityScore:        0.75,
+			QualityScore:        0.80,
 			SpeedScore:          0.85,
 			IsAvailable:         true,
 			WarmupRequired:      true,
@@ -646,20 +646,20 @@ func RegisterDefaultModels(selector *ModelSelector, ollamaHost, geminiAPIKey str
 		return err
 	}
 
-	// Local Ollama LLM (llama3.2)
+	// Local MLX LLM (Qwen 2.5 32B)
 	if err := selector.RegisterModel(&ModelConfig{
-		ModelID:  "llama3.2",
-		Provider: ModelProviderOllama,
-		Endpoint: ollamaHost,
+		ModelID:  "Qwen2.5-32B-Instruct-4bit",
+		Provider: ModelProviderMLX,
+		Endpoint: mlxLLMURL,
 		Capabilities: &ModelCapabilities{
-			ModelID:         "llama3.2",
-			Provider:        ModelProviderOllama,
+			ModelID:         "Qwen2.5-32B-Instruct-4bit",
+			Provider:        ModelProviderMLX,
 			IsLocal:         true,
 			SupportedTasks:  []TaskType{TaskTypeSummarization, TaskTypeExtraction, TaskTypeClassification},
-			ContextWindow:   128000,
+			ContextWindow:   32768,
 			AvgLatency:      500 * time.Millisecond,
 			CostPer1KTokens: 0,
-			QualityScore:    0.70,
+			QualityScore:    0.80,
 			SpeedScore:      0.75,
 			IsAvailable:     true,
 			WarmupRequired:  true,

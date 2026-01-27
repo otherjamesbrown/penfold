@@ -2,10 +2,13 @@ package registry
 
 import "time"
 
-// DefaultModels returns the pre-configured known models for Ollama and Gemini.
-func DefaultModels(ollamaHost, geminiEndpoint string) []*ModelConfig {
-	if ollamaHost == "" {
-		ollamaHost = "http://localhost:11434"
+// DefaultModels returns the pre-configured known models for MLX and Gemini.
+func DefaultModels(mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint string) []*ModelConfig {
+	if mlxLLMURL == "" {
+		mlxLLMURL = "http://localhost:8080"
+	}
+	if mlxEmbeddingsURL == "" {
+		mlxEmbeddingsURL = "http://localhost:8081"
 	}
 	if geminiEndpoint == "" {
 		geminiEndpoint = "https://generativelanguage.googleapis.com/v1"
@@ -14,22 +17,22 @@ func DefaultModels(ollamaHost, geminiEndpoint string) []*ModelConfig {
 	now := time.Now()
 
 	return []*ModelConfig{
-		// Ollama Models
+		// MLX Models (via vllm-mlx)
 		{
-			ID:        "ollama/llama3",
-			Name:      "Llama 3",
-			Provider:  ProviderOllama,
-			ModelName: "llama3",
-			Endpoint:  ollamaHost,
+			ID:        "mlx/Qwen2.5-32B-Instruct-4bit",
+			Name:      "Qwen 2.5 32B Instruct",
+			Provider:  ProviderMLX,
+			ModelName: "mlx-community/Qwen2.5-32B-Instruct-4bit",
+			Endpoint:  mlxLLMURL,
 			Capabilities: ModelCapabilities{
-				Capabilities:            []Capability{CapabilityChat, CapabilityCompletion, CapabilitySummarization, CapabilityExtraction},
-				SupportsFunctionCalling: false,
+				Capabilities:            []Capability{CapabilityChat, CapabilityCompletion, CapabilitySummarization, CapabilityExtraction, CapabilityClassification, CapabilityCodeGeneration},
+				SupportsFunctionCalling: true,
 				SupportsStreaming:       true,
 				SupportsJSON:            true,
 			},
 			Limits: ModelLimits{
-				ContextWindow:   8192,
-				MaxOutputTokens: 4096,
+				ContextWindow:   32768,
+				MaxOutputTokens: 8192,
 				RateLimitRPM:    0, // No rate limit for local
 				MaxBatchSize:    1,
 			},
@@ -39,8 +42,8 @@ func DefaultModels(ollamaHost, geminiEndpoint string) []*ModelConfig {
 				Currency:        "USD",
 			},
 			Version: ModelVersion{
-				Version:       "3",
-				ParameterSize: "8B",
+				Version:       "2.5",
+				ParameterSize: "32B",
 				IsLatest:      true,
 			},
 			Health: ModelHealth{
@@ -48,134 +51,20 @@ func DefaultModels(ollamaHost, geminiEndpoint string) []*ModelConfig {
 			},
 			IsLocal:   true,
 			IsDefault: true,
-			Priority:  100,
-			Tags:      []string{"general", "fast", "local"},
-			CreatedAt: now,
-			UpdatedAt: now,
-		},
-		{
-			ID:        "ollama/llama3.1",
-			Name:      "Llama 3.1",
-			Provider:  ProviderOllama,
-			ModelName: "llama3.1",
-			Endpoint:  ollamaHost,
-			Capabilities: ModelCapabilities{
-				Capabilities:            []Capability{CapabilityChat, CapabilityCompletion, CapabilitySummarization, CapabilityExtraction},
-				SupportsFunctionCalling: true,
-				SupportsStreaming:       true,
-				SupportsJSON:            true,
-			},
-			Limits: ModelLimits{
-				ContextWindow:   131072,
-				MaxOutputTokens: 4096,
-				RateLimitRPM:    0,
-				MaxBatchSize:    1,
-			},
-			Cost: ModelCost{
-				InputCostPer1K:  0,
-				OutputCostPer1K: 0,
-				Currency:        "USD",
-			},
-			Version: ModelVersion{
-				Version:       "3.1",
-				ParameterSize: "8B",
-				IsLatest:      true,
-			},
-			Health: ModelHealth{
-				Status: HealthStatusUnknown,
-			},
-			IsLocal:   true,
-			IsDefault: false,
-			Priority:  110,
-			Tags:      []string{"general", "fast", "local", "long-context"},
-			CreatedAt: now,
-			UpdatedAt: now,
-		},
-		{
-			ID:        "ollama/llama3.2",
-			Name:      "Llama 3.2",
-			Provider:  ProviderOllama,
-			ModelName: "llama3.2",
-			Endpoint:  ollamaHost,
-			Capabilities: ModelCapabilities{
-				Capabilities:            []Capability{CapabilityChat, CapabilityCompletion, CapabilitySummarization, CapabilityExtraction, CapabilityClassification},
-				SupportsFunctionCalling: true,
-				SupportsStreaming:       true,
-				SupportsJSON:            true,
-			},
-			Limits: ModelLimits{
-				ContextWindow:   131072,
-				MaxOutputTokens: 4096,
-				RateLimitRPM:    0,
-				MaxBatchSize:    1,
-			},
-			Cost: ModelCost{
-				InputCostPer1K:  0,
-				OutputCostPer1K: 0,
-				Currency:        "USD",
-			},
-			Version: ModelVersion{
-				Version:       "3.2",
-				ParameterSize: "3B",
-				IsLatest:      true,
-			},
-			Health: ModelHealth{
-				Status: HealthStatusUnknown,
-			},
-			IsLocal:   true,
-			IsDefault: false,
 			Priority:  120,
-			Tags:      []string{"general", "fast", "local", "long-context", "lightweight"},
+			Tags:      []string{"general", "fast", "local", "instruction-following"},
 			CreatedAt: now,
 			UpdatedAt: now,
 		},
 		{
-			ID:        "ollama/mistral",
-			Name:      "Mistral",
-			Provider:  ProviderOllama,
-			ModelName: "mistral",
-			Endpoint:  ollamaHost,
-			Capabilities: ModelCapabilities{
-				Capabilities:            []Capability{CapabilityChat, CapabilityCompletion, CapabilitySummarization},
-				SupportsFunctionCalling: false,
-				SupportsStreaming:       true,
-				SupportsJSON:            true,
-			},
-			Limits: ModelLimits{
-				ContextWindow:   32768,
-				MaxOutputTokens: 4096,
-				RateLimitRPM:    0,
-				MaxBatchSize:    1,
-			},
-			Cost: ModelCost{
-				InputCostPer1K:  0,
-				OutputCostPer1K: 0,
-				Currency:        "USD",
-			},
-			Version: ModelVersion{
-				Version:       "0.3",
-				ParameterSize: "7B",
-				IsLatest:      true,
-			},
-			Health: ModelHealth{
-				Status: HealthStatusUnknown,
-			},
-			IsLocal:   true,
-			IsDefault: false,
-			Priority:  90,
-			Tags:      []string{"general", "fast", "local"},
-			CreatedAt: now,
-			UpdatedAt: now,
-		},
-		{
-			ID:        "ollama/nomic-embed-text",
-			Name:      "Nomic Embed Text",
-			Provider:  ProviderOllama,
-			ModelName: "nomic-embed-text",
-			Endpoint:  ollamaHost,
+			ID:        "mlx/mxbai-embed-large-v1",
+			Name:      "MixedBread Embed Large",
+			Provider:  ProviderMLX,
+			ModelName: "mxbai-embed-large-v1",
+			Endpoint:  mlxEmbeddingsURL,
 			Capabilities: ModelCapabilities{
 				Capabilities:        []Capability{CapabilityEmbedding},
-				EmbeddingDimensions: 768,
+				EmbeddingDimensions: 1024,
 				SupportsStreaming:   false,
 				SupportsJSON:        false,
 			},
@@ -190,7 +79,7 @@ func DefaultModels(ollamaHost, geminiEndpoint string) []*ModelConfig {
 				Currency:           "USD",
 			},
 			Version: ModelVersion{
-				Version:  "1.5",
+				Version:  "1",
 				IsLatest: true,
 			},
 			Health: ModelHealth{
@@ -360,8 +249,8 @@ func DefaultModels(ollamaHost, geminiEndpoint string) []*ModelConfig {
 }
 
 // RegisterDefaults registers all default models into the registry.
-func RegisterDefaults(r *ModelRegistry, ollamaHost, geminiEndpoint string) error {
-	models := DefaultModels(ollamaHost, geminiEndpoint)
+func RegisterDefaults(r *ModelRegistry, mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint string) error {
+	models := DefaultModels(mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint)
 	for _, m := range models {
 		if err := r.Register(m); err != nil {
 			// Ignore already exists errors for idempotency
@@ -377,13 +266,15 @@ func RegisterDefaults(r *ModelRegistry, ollamaHost, geminiEndpoint string) error
 func NewRegistryWithDefaults(config *RegistryConfig) *ModelRegistry {
 	r := NewRegistry(config)
 
-	ollamaHost := ""
+	mlxLLMURL := ""
+	mlxEmbeddingsURL := ""
 	geminiEndpoint := ""
 	if config != nil {
-		ollamaHost = config.OllamaHost
+		mlxLLMURL = config.MLXLLMURL
+		mlxEmbeddingsURL = config.MLXEmbeddingsURL
 		geminiEndpoint = config.GeminiEndpoint
 	}
 
-	_ = RegisterDefaults(r, ollamaHost, geminiEndpoint)
+	_ = RegisterDefaults(r, mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint)
 	return r
 }

@@ -35,11 +35,11 @@ func createTestSelector(t *testing.T) *ModelSelector {
 	// Register test models
 	require.NoError(t, selector.RegisterModel(&ModelConfig{
 		ModelID:  "local-embedding",
-		Provider: ModelProviderOllama,
-		Endpoint: "http://localhost:11434",
+		Provider: ModelProviderMLX,
+		Endpoint: "http://localhost:8080",
 		Capabilities: &ModelCapabilities{
 			ModelID:             "local-embedding",
-			Provider:            ModelProviderOllama,
+			Provider:            ModelProviderMLX,
 			IsLocal:             true,
 			SupportedTasks:      []TaskType{TaskTypeEmbedding},
 			ContextWindow:       8192,
@@ -55,11 +55,11 @@ func createTestSelector(t *testing.T) *ModelSelector {
 
 	require.NoError(t, selector.RegisterModel(&ModelConfig{
 		ModelID:  "local-llm",
-		Provider: ModelProviderOllama,
-		Endpoint: "http://localhost:11434",
+		Provider: ModelProviderMLX,
+		Endpoint: "http://localhost:8080",
 		Capabilities: &ModelCapabilities{
 			ModelID:         "local-llm",
-			Provider:        ModelProviderOllama,
+			Provider:        ModelProviderMLX,
 			IsLocal:         true,
 			SupportedTasks:  []TaskType{TaskTypeSummarization, TaskTypeExtraction, TaskTypeClassification},
 			ContextWindow:   128000,
@@ -129,7 +129,7 @@ func TestRegisterModel(t *testing.T) {
 	t.Run("successful registration", func(t *testing.T) {
 		err := selector.RegisterModel(&ModelConfig{
 			ModelID:  "test-model",
-			Provider: ModelProviderOllama,
+			Provider: ModelProviderMLX,
 			Capabilities: &ModelCapabilities{
 				ModelID:        "test-model",
 				SupportedTasks: []TaskType{TaskTypeEmbedding},
@@ -150,7 +150,7 @@ func TestRegisterModel(t *testing.T) {
 
 	t.Run("empty model ID", func(t *testing.T) {
 		err := selector.RegisterModel(&ModelConfig{
-			Provider: ModelProviderOllama,
+			Provider: ModelProviderMLX,
 			Capabilities: &ModelCapabilities{
 				SupportedTasks: []TaskType{TaskTypeEmbedding},
 			},
@@ -161,7 +161,7 @@ func TestRegisterModel(t *testing.T) {
 	t.Run("nil capabilities", func(t *testing.T) {
 		err := selector.RegisterModel(&ModelConfig{
 			ModelID:  "test",
-			Provider: ModelProviderOllama,
+			Provider: ModelProviderMLX,
 		})
 		assert.Error(t, err)
 	})

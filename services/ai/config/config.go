@@ -20,12 +20,6 @@ type Config struct {
 	// HTTPPort is the port for HTTP endpoints (health, metrics).
 	HTTPPort int
 
-	// OllamaHost is the address of the Ollama server for local models.
-	OllamaHost string
-
-	// OllamaDefaultModel is the default model to use with Ollama.
-	OllamaDefaultModel string
-
 	// GeminiAPIKey is the API key for Google Gemini.
 	GeminiAPIKey string
 
@@ -65,8 +59,6 @@ const (
 	DefaultServiceName              = "ai-coordinator"
 	DefaultGRPCPort                 = 50051
 	DefaultHTTPPort                 = 8090
-	DefaultOllamaHost               = "http://localhost:11434"
-	DefaultOllamaDefaultModel       = "llama3.2"
 	DefaultGeminiDefaultModel       = "gemini-1.5-pro"
 	DefaultEmbeddingModel           = "mxbai-embed-large-v1"
 	DefaultLLMModel                 = "mlx-community/Qwen2.5-32B-Instruct-4bit"
@@ -84,8 +76,6 @@ func Load() (*Config, error) {
 		ServiceName:             DefaultServiceName,
 		GRPCPort:                DefaultGRPCPort,
 		HTTPPort:                DefaultHTTPPort,
-		OllamaHost:              DefaultOllamaHost,
-		OllamaDefaultModel:      DefaultOllamaDefaultModel,
 		GeminiDefaultModel:      DefaultGeminiDefaultModel,
 		DefaultEmbeddingModel:   DefaultEmbeddingModel,
 		DefaultLLMModel:         DefaultLLMModel,
@@ -117,14 +107,6 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid AI_HTTP_PORT: %w", err)
 		}
 		cfg.HTTPPort = port
-	}
-
-	if v := os.Getenv("AI_OLLAMA_HOST"); v != "" {
-		cfg.OllamaHost = v
-	}
-
-	if v := os.Getenv("AI_OLLAMA_DEFAULT_MODEL"); v != "" {
-		cfg.OllamaDefaultModel = v
 	}
 
 	if v := os.Getenv("AI_GEMINI_API_KEY"); v != "" {
@@ -204,10 +186,6 @@ func (c *Config) Validate() error {
 
 	if c.GRPCPort == c.HTTPPort {
 		errs = append(errs, "grpc_port and http_port must be different")
-	}
-
-	if c.OllamaHost == "" {
-		errs = append(errs, "ollama_host is required")
 	}
 
 	validLogLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}

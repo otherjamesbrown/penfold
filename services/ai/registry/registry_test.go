@@ -2,7 +2,6 @@ package registry
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,7 +48,7 @@ func TestModelConfig_Validate(t *testing.T) {
 	validConfig := &ModelConfig{
 		ID:        "test/model",
 		Name:      "Test Model",
-		Provider:  ProviderOllama,
+		Provider:  ProviderMLX,
 		ModelName: "test-model",
 		Capabilities: ModelCapabilities{
 			Capabilities: []Capability{CapabilityChat},
@@ -100,7 +99,7 @@ func TestModelConfig_Clone(t *testing.T) {
 	original := &ModelConfig{
 		ID:        "test/model",
 		Name:      "Test Model",
-		Provider:  ProviderOllama,
+		Provider:  ProviderMLX,
 		ModelName: "test-model",
 		Capabilities: ModelCapabilities{
 			Capabilities: []Capability{CapabilityChat, CapabilityEmbedding},
@@ -135,8 +134,8 @@ func TestModelConfig_Clone(t *testing.T) {
 
 func TestModelFilter_Match(t *testing.T) {
 	model := &ModelConfig{
-		ID:       "ollama/llama3",
-		Provider: ProviderOllama,
+		ID:       "mlx/qwen2.5-32b",
+		Provider: ProviderMLX,
 		Capabilities: ModelCapabilities{
 			Capabilities: []Capability{CapabilityChat, CapabilitySummarization},
 		},
@@ -155,7 +154,7 @@ func TestModelFilter_Match(t *testing.T) {
 	}{
 		{"nil filter matches", nil, true},
 		{"empty filter matches", &ModelFilter{}, true},
-		{"matching provider", &ModelFilter{Provider: ProviderOllama}, true},
+		{"matching provider", &ModelFilter{Provider: ProviderMLX}, true},
 		{"non-matching provider", &ModelFilter{Provider: ProviderGemini}, false},
 		{"matching capability", &ModelFilter{Capability: CapabilityChat}, true},
 		{"non-matching capability", &ModelFilter{Capability: CapabilityVision}, false},
@@ -189,7 +188,7 @@ func TestRegistry_Register(t *testing.T) {
 	model := &ModelConfig{
 		ID:        "test/model",
 		Name:      "Test Model",
-		Provider:  ProviderOllama,
+		Provider:  ProviderMLX,
 		ModelName: "test-model",
 		Capabilities: ModelCapabilities{
 			Capabilities: []Capability{CapabilityChat},
@@ -227,7 +226,7 @@ func TestRegistry_Get(t *testing.T) {
 	model := &ModelConfig{
 		ID:        "test/model",
 		Name:      "Test Model",
-		Provider:  ProviderOllama,
+		Provider:  ProviderMLX,
 		ModelName: "test-model",
 		Capabilities: ModelCapabilities{
 			Capabilities: []Capability{CapabilityChat},
@@ -257,7 +256,7 @@ func TestRegistry_Update(t *testing.T) {
 	model := &ModelConfig{
 		ID:        "test/model",
 		Name:      "Test Model",
-		Provider:  ProviderOllama,
+		Provider:  ProviderMLX,
 		ModelName: "test-model",
 		Capabilities: ModelCapabilities{
 			Capabilities: []Capability{CapabilityChat},
@@ -292,7 +291,7 @@ func TestRegistry_Unregister(t *testing.T) {
 	model := &ModelConfig{
 		ID:        "test/model",
 		Name:      "Test Model",
-		Provider:  ProviderOllama,
+		Provider:  ProviderMLX,
 		ModelName: "test-model",
 		Capabilities: ModelCapabilities{
 			Capabilities: []Capability{CapabilityChat},
@@ -322,9 +321,9 @@ func TestRegistry_List(t *testing.T) {
 	// Register multiple models
 	models := []*ModelConfig{
 		{
-			ID:        "ollama/llama3",
+			ID:        "mlx/qwen2.5-32b",
 			Name:      "Llama 3",
-			Provider:  ProviderOllama,
+			Provider:  ProviderMLX,
 			ModelName: "llama3",
 			Capabilities: ModelCapabilities{
 				Capabilities: []Capability{CapabilityChat, CapabilitySummarization},
@@ -332,9 +331,9 @@ func TestRegistry_List(t *testing.T) {
 			IsLocal: true,
 		},
 		{
-			ID:        "ollama/embed",
+			ID:        "mlx/embed",
 			Name:      "Embed",
-			Provider:  ProviderOllama,
+			Provider:  ProviderMLX,
 			ModelName: "nomic-embed-text",
 			Capabilities: ModelCapabilities{
 				Capabilities: []Capability{CapabilityEmbedding},
@@ -364,9 +363,9 @@ func TestRegistry_List(t *testing.T) {
 	}
 
 	// List by provider
-	ollamaModels := r.ListByProvider(ProviderOllama)
-	if len(ollamaModels) != 2 {
-		t.Errorf("expected 2 Ollama models, got %d", len(ollamaModels))
+	mlxModels := r.ListByProvider(ProviderMLX)
+	if len(mlxModels) != 2 {
+		t.Errorf("expected 2 MLX models, got %d", len(mlxModels))
 	}
 
 	// List by capability
@@ -389,7 +388,7 @@ func TestRegistry_ListAvailable(t *testing.T) {
 		{
 			ID:           "healthy",
 			Name:         "Healthy",
-			Provider:     ProviderOllama,
+			Provider:     ProviderMLX,
 			ModelName:    "healthy",
 			Capabilities: ModelCapabilities{Capabilities: []Capability{CapabilityChat}},
 			Health:       ModelHealth{Status: HealthStatusHealthy},
@@ -397,7 +396,7 @@ func TestRegistry_ListAvailable(t *testing.T) {
 		{
 			ID:           "degraded",
 			Name:         "Degraded",
-			Provider:     ProviderOllama,
+			Provider:     ProviderMLX,
 			ModelName:    "degraded",
 			Capabilities: ModelCapabilities{Capabilities: []Capability{CapabilityChat}},
 			Health:       ModelHealth{Status: HealthStatusDegraded},
@@ -405,7 +404,7 @@ func TestRegistry_ListAvailable(t *testing.T) {
 		{
 			ID:           "unhealthy",
 			Name:         "Unhealthy",
-			Provider:     ProviderOllama,
+			Provider:     ProviderMLX,
 			ModelName:    "unhealthy",
 			Capabilities: ModelCapabilities{Capabilities: []Capability{CapabilityChat}},
 			Health:       ModelHealth{Status: HealthStatusUnhealthy},
@@ -430,7 +429,7 @@ func TestRegistry_GetDefaultModel(t *testing.T) {
 		{
 			ID:           "model1",
 			Name:         "Model 1",
-			Provider:     ProviderOllama,
+			Provider:     ProviderMLX,
 			ModelName:    "model1",
 			Capabilities: ModelCapabilities{Capabilities: []Capability{CapabilityChat}},
 			Health:       ModelHealth{Status: HealthStatusHealthy},
@@ -440,7 +439,7 @@ func TestRegistry_GetDefaultModel(t *testing.T) {
 		{
 			ID:           "model2",
 			Name:         "Model 2",
-			Provider:     ProviderOllama,
+			Provider:     ProviderMLX,
 			ModelName:    "model2",
 			Capabilities: ModelCapabilities{Capabilities: []Capability{CapabilityChat}},
 			Health:       ModelHealth{Status: HealthStatusHealthy},
@@ -477,7 +476,7 @@ func TestRegistry_SelectModel(t *testing.T) {
 		{
 			ID:           "local",
 			Name:         "Local",
-			Provider:     ProviderOllama,
+			Provider:     ProviderMLX,
 			ModelName:    "local",
 			Capabilities: ModelCapabilities{Capabilities: []Capability{CapabilityChat}},
 			Health:       ModelHealth{Status: HealthStatusHealthy},
@@ -525,7 +524,7 @@ func TestRegistry_UpdateHealth(t *testing.T) {
 	model := &ModelConfig{
 		ID:           "test",
 		Name:         "Test",
-		Provider:     ProviderOllama,
+		Provider:     ProviderMLX,
 		ModelName:    "test",
 		Capabilities: ModelCapabilities{Capabilities: []Capability{CapabilityChat}},
 	}
@@ -558,7 +557,7 @@ func TestRegistry_RecordRequest(t *testing.T) {
 	model := &ModelConfig{
 		ID:           "test",
 		Name:         "Test",
-		Provider:     ProviderOllama,
+		Provider:     ProviderMLX,
 		ModelName:    "test",
 		Capabilities: ModelCapabilities{Capabilities: []Capability{CapabilityChat}},
 	}
@@ -598,7 +597,7 @@ func TestRegistry_ClosedOperations(t *testing.T) {
 	model := &ModelConfig{
 		ID:           "test",
 		Name:         "Test",
-		Provider:     ProviderOllama,
+		Provider:     ProviderMLX,
 		ModelName:    "test",
 		Capabilities: ModelCapabilities{Capabilities: []Capability{CapabilityChat}},
 	}
@@ -621,7 +620,7 @@ func TestRegistry_ClosedOperations(t *testing.T) {
 }
 
 func TestDefaultModels(t *testing.T) {
-	models := DefaultModels("http://localhost:11434", "https://api.example.com")
+	models := DefaultModels("http://localhost:8080", "http://localhost:8081", "https://api.example.com")
 
 	if len(models) == 0 {
 		t.Error("expected default models")
@@ -634,11 +633,10 @@ func TestDefaultModels(t *testing.T) {
 	}
 
 	expectedIDs := []string{
-		"ollama/llama3",
-		"ollama/mistral",
-		"ollama/nomic-embed-text",
+		"mlx/Qwen2.5-32B-Instruct-4bit",
+		"mlx/mxbai-embed-large-v1",
 		"gemini/gemini-pro",
-		"gemini/gemini-pro-vision",
+		"gemini/gemini-1.5-pro",
 	}
 
 	for _, id := range expectedIDs {
@@ -668,29 +666,11 @@ func TestNewRegistryWithDefaults(t *testing.T) {
 	}
 }
 
-func TestRegistry_OllamaDiscovery(t *testing.T) {
-	// Create mock Ollama server
+func TestRegistry_MLXHealthCheck(t *testing.T) {
+	// Create mock MLX server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/tags" {
-			resp := ollamaTagsResponse{
-				Models: []ollamaModel{
-					{
-						Name:       "discovered-model",
-						ModifiedAt: time.Now(),
-						Size:       1000000,
-						Details: struct {
-							Format            string   `json:"format"`
-							Family            string   `json:"family"`
-							Families          []string `json:"families"`
-							ParameterSize     string   `json:"parameter_size"`
-							QuantizationLevel string   `json:"quantization_level"`
-						}{
-							ParameterSize: "7B",
-						},
-					},
-				},
-			}
-			_ = json.NewEncoder(w).Encode(resp)
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -698,51 +678,8 @@ func TestRegistry_OllamaDiscovery(t *testing.T) {
 	defer server.Close()
 
 	config := &RegistryConfig{
-		OllamaHost:          server.URL,
-		EnableAutoDiscovery: false, // Disable auto-discovery for test
-		HealthCheckInterval: 0,     // Disable health checks for test
-	}
-
-	r := NewRegistry(config)
-
-	// Manually trigger discovery
-	ctx := context.Background()
-	if err := r.DiscoverModels(ctx); err != nil {
-		t.Errorf("DiscoverModels failed: %v", err)
-	}
-
-	// Check that the model was discovered
-	model, err := r.Get("ollama/discovered-model")
-	if err != nil {
-		t.Errorf("Discovered model not found: %v", err)
-	}
-
-	if model.Provider != ProviderOllama {
-		t.Error("Discovered model has wrong provider")
-	}
-	if !model.IsLocal {
-		t.Error("Discovered model should be local")
-	}
-}
-
-func TestRegistry_OllamaHealthCheck(t *testing.T) {
-	// Create mock Ollama server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/tags" {
-			resp := ollamaTagsResponse{
-				Models: []ollamaModel{
-					{Name: "test-model"},
-				},
-			}
-			_ = json.NewEncoder(w).Encode(resp)
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	config := &RegistryConfig{
-		OllamaHost:          server.URL,
+		MLXLLMURL:           server.URL,
+		MLXEmbeddingsURL:    server.URL,
 		EnableAutoDiscovery: false,
 		HealthCheckInterval: 0,
 		HealthCheckTimeout:  5 * time.Second,
@@ -751,9 +688,9 @@ func TestRegistry_OllamaHealthCheck(t *testing.T) {
 	r := NewRegistry(config)
 
 	model := &ModelConfig{
-		ID:           "ollama/test-model",
+		ID:           "mlx/test-model",
 		Name:         "Test Model",
-		Provider:     ProviderOllama,
+		Provider:     ProviderMLX,
 		ModelName:    "test-model",
 		Endpoint:     server.URL,
 		Capabilities: ModelCapabilities{Capabilities: []Capability{CapabilityChat}},
@@ -765,109 +702,16 @@ func TestRegistry_OllamaHealthCheck(t *testing.T) {
 	r.checkAllHealth(ctx)
 
 	// Verify health was updated
-	checked, _ := r.Get("ollama/test-model")
+	checked, _ := r.Get("mlx/test-model")
 	if checked.Health.Status != HealthStatusHealthy {
 		t.Errorf("expected healthy status, got %s", checked.Health.Status)
 	}
 }
 
-func TestInferOllamaCapabilities(t *testing.T) {
-	tests := []struct {
-		name     string
-		model    ollamaModel
-		expected []Capability
-	}{
-		{
-			name:     "embedding model",
-			model:    ollamaModel{Name: "nomic-embed-text"},
-			expected: []Capability{CapabilityEmbedding},
-		},
-		{
-			name:     "vision model",
-			model:    ollamaModel{Name: "llava"},
-			expected: []Capability{CapabilityCompletion, CapabilityChat, CapabilityVision},
-		},
-		{
-			name:     "code model",
-			model:    ollamaModel{Name: "codellama"},
-			expected: []Capability{CapabilityCompletion, CapabilityChat, CapabilityCodeGeneration},
-		},
-		{
-			name:     "generic model",
-			model:    ollamaModel{Name: "llama3"},
-			expected: []Capability{CapabilityCompletion, CapabilityChat},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			caps := inferOllamaCapabilities(tc.model)
-			if len(caps) != len(tc.expected) {
-				t.Errorf("expected %d capabilities, got %d", len(tc.expected), len(caps))
-				return
-			}
-			// Check each expected capability is present
-			for _, exp := range tc.expected {
-				found := false
-				for _, cap := range caps {
-					if cap == exp {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Errorf("expected capability %s not found", exp)
-				}
-			}
-		})
-	}
-}
-
-func TestContainsAny(t *testing.T) {
-	tests := []struct {
-		s        string
-		substrs  []string
-		expected bool
-	}{
-		{"hello world", []string{"hello"}, true},
-		{"hello world", []string{"world"}, true},
-		{"hello world", []string{"foo", "bar"}, false},
-		{"hello world", []string{"foo", "world"}, true},
-		{"", []string{"test"}, false},
-		{"test", []string{}, false},
-	}
-
-	for _, tc := range tests {
-		result := containsAny(tc.s, tc.substrs...)
-		if result != tc.expected {
-			t.Errorf("containsAny(%q, %v) = %v, want %v", tc.s, tc.substrs, result, tc.expected)
-		}
-	}
-}
-
-func TestInferContextWindow(t *testing.T) {
-	tests := []struct {
-		name     string
-		expected int
-	}{
-		{"llama3", 8192},
-		{"mistral", 32768},
-		{"mixtral", 32768},
-		{"unknown", 4096},
-	}
-
-	for _, tc := range tests {
-		model := ollamaModel{Name: tc.name}
-		result := inferContextWindow(model)
-		if result != tc.expected {
-			t.Errorf("inferContextWindow(%s) = %d, want %d", tc.name, result, tc.expected)
-		}
-	}
-}
-
 func TestRegistry_StartStop(t *testing.T) {
 	config := &RegistryConfig{
-		OllamaHost:          "http://localhost:11434",
+		MLXLLMURL:           "http://localhost:8080",
+		MLXEmbeddingsURL:    "http://localhost:8081",
 		HealthCheckInterval: 100 * time.Millisecond,
 		DiscoveryInterval:   100 * time.Millisecond,
 		EnableAutoDiscovery: false, // Disable to avoid connection errors
@@ -903,13 +747,13 @@ func TestRegistry_StartStop(t *testing.T) {
 func TestRegisterDefaults(t *testing.T) {
 	r := NewRegistry(nil)
 
-	err := RegisterDefaults(r, "http://localhost:11434", "https://api.example.com")
+	err := RegisterDefaults(r, "http://localhost:8080", "http://localhost:8081", "https://api.example.com")
 	if err != nil {
 		t.Errorf("RegisterDefaults failed: %v", err)
 	}
 
 	// Calling again should not fail (idempotent)
-	err = RegisterDefaults(r, "http://localhost:11434", "https://api.example.com")
+	err = RegisterDefaults(r, "http://localhost:8080", "http://localhost:8081", "https://api.example.com")
 	if err != nil {
 		t.Errorf("Second RegisterDefaults failed: %v", err)
 	}

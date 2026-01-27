@@ -215,7 +215,7 @@ func createTestModel(id string) *ModelConfig {
 	return &ModelConfig{
 		ID:        id,
 		Name:      "Test Model " + id,
-		Provider:  ProviderOllama,
+		Provider:  ProviderMLX,
 		ModelName: id,
 		Capabilities: ModelCapabilities{
 			Capabilities: []Capability{CapabilityChat},

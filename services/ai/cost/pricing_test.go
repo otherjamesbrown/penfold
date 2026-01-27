@@ -2,6 +2,8 @@ package cost
 
 import (
 	"testing"
+
+	"github.com/otherjamesbrown/penfold/services/ai/testutil"
 )
 
 func TestNewPricingTable(t *testing.T) {
@@ -20,10 +22,25 @@ func TestNewPricingTable(t *testing.T) {
 		t.Error("Expected positive input cost for gemini-1.5-pro")
 	}
 
-	// Check local model
-	localPricing := pt.GetPricing("llama3.2", "")
+	// Check local model using dynamic MLX discovery
+	mlx := testutil.DiscoverMLXModels()
+	if !mlx.Available() {
+		t.Skip("MLX server not available, skipping local model test")
+	}
+
+	// Register discovered MLX models as local in the pricing table
+	for _, modelID := range mlx.Models {
+		pt.SetPricing(&ModelPricing{
+			Model:    modelID,
+			Provider: "mlx",
+			IsLocal:  true,
+		})
+	}
+
+	localModelID := mlx.GetFirst()
+	localPricing := pt.GetPricing(localModelID, "")
 	if !localPricing.IsLocal {
-		t.Error("Expected llama3.2 to be marked as local")
+		t.Errorf("Expected %s to be marked as local", localModelID)
 	}
 	if localPricing.InputCostPer1K != 0 {
 		t.Error("Expected local model to have zero cost")

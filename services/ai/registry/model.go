@@ -1,5 +1,5 @@
 // Package registry provides model registration and discovery for the AI Coordinator.
-// It manages configurations for both local (Ollama) and cloud (Gemini) AI models.
+// It manages configurations for both local (MLX) and cloud (Gemini) AI models.
 package registry
 
 import (
@@ -10,8 +10,8 @@ import (
 type Provider string
 
 const (
-	// ProviderOllama is the Ollama local model provider.
-	ProviderOllama Provider = "ollama"
+	// ProviderMLX is the MLX local model provider (vllm-mlx).
+	ProviderMLX Provider = "mlx"
 	// ProviderGemini is the Google Gemini cloud provider.
 	ProviderGemini Provider = "gemini"
 	// ProviderOpenAI is the OpenAI cloud provider.
@@ -172,13 +172,13 @@ func (mh *ModelHealth) IsAvailable() bool {
 // ModelConfig represents the complete configuration for an AI model.
 type ModelConfig struct {
 	// ID is the unique identifier for this model configuration.
-	// Format: provider/model-name (e.g., "ollama/llama3", "gemini/gemini-pro").
+	// Format: provider/model-name (e.g., "mlx/Qwen2.5-32B", "gemini/gemini-pro").
 	ID string `json:"id"`
 
 	// Name is the human-readable display name.
 	Name string `json:"name"`
 
-	// Provider is the model provider (ollama, gemini, etc.).
+	// Provider is the model provider (mlx, gemini, etc.).
 	Provider Provider `json:"provider"`
 
 	// ModelName is the provider-specific model identifier.
@@ -186,7 +186,7 @@ type ModelConfig struct {
 	ModelName string `json:"model_name"`
 
 	// Endpoint is the API endpoint URL for cloud providers.
-	// For local providers like Ollama, this is the base URL.
+	// For local providers like MLX, this is the base URL.
 	Endpoint string `json:"endpoint,omitempty"`
 
 	// Capabilities describes what the model can do.

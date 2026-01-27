@@ -140,15 +140,15 @@ func DefaultTierConfig() *TierConfig {
 			{
 				Level:          TierLevelLocal,
 				Name:           "Local",
-				Models:         []string{"llama3.2", "llama3.1:8b", "nomic-embed-text"},
-				PreferredModel: "llama3.2",
+				Models:         []string{"mlx-community/Qwen2.5-32B-Instruct-4bit", "mxbai-embed-large-v1"},
+				PreferredModel: "mlx-community/Qwen2.5-32B-Instruct-4bit",
 				CostMultiplier: 0.0,
 				Capabilities:   []string{"embedding", "summarization", "extraction", "classification"},
 				MaxLatency:     500 * time.Millisecond,
 				MinConfidence:  0.6,
 				QualityScore:   0.70,
 				IsLocal:        true,
-				Description:    "Local Ollama models for privacy-sensitive and high-volume tasks",
+				Description:    "Local MLX models for privacy-sensitive and high-volume tasks",
 			},
 			{
 				Level:          TierLevelCloudStandard,

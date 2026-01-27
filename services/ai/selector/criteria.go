@@ -48,8 +48,8 @@ const (
 type ModelProvider string
 
 const (
-	// ModelProviderOllama is for local Ollama models.
-	ModelProviderOllama ModelProvider = "ollama"
+	// ModelProviderMLX is for local MLX models (vllm-mlx).
+	ModelProviderMLX ModelProvider = "mlx"
 
 	// ModelProviderGemini is for Google Gemini cloud models.
 	ModelProviderGemini ModelProvider = "gemini"

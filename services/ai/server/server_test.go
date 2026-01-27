@@ -105,13 +105,11 @@ func testConfig() *config.Config {
 		ServiceName:             "ai-test",
 		GRPCPort:                50051,
 		HTTPPort:                8090,
-		OllamaHost:              "http://localhost:11434",
-		OllamaDefaultModel:      "llama3.2",
+		MLXLLMURL:               "http://localhost:8080",
+		MLXEmbeddingsURL:        "http://localhost:8081",
 		GeminiDefaultModel:      "gemini-1.5-pro",
 		DefaultEmbeddingModel:   "mxbai-embed-large-v1",
 		DefaultLLMModel:         "mlx-community/Qwen2.5-32B-Instruct-4bit",
-		MLXEmbeddingsURL:        "http://localhost:8081",
-		MLXLLMURL:               "http://localhost:8080",
 		EmbeddingDimensions:     1024,
 		LogLevel:                "info",
 		Environment:             "dev",
@@ -1002,7 +1000,7 @@ func TestRegisterModel_NoRegistry(t *testing.T) {
 
 	req := &aiv1.RegisterModelRequest{
 		Name:         "test-model",
-		Provider:     "ollama",
+		Provider:     "mlx",
 		ModelName:    "llama3.2",
 		Type:         aiv1.ModelType_MODEL_TYPE_LLM,
 		Capabilities: []string{"chat"},
@@ -1028,7 +1026,7 @@ func TestRegisterModel_ValidationErrors(t *testing.T) {
 		{
 			name: "missing name",
 			req: &aiv1.RegisterModelRequest{
-				Provider:     "ollama",
+				Provider:     "mlx",
 				ModelName:    "llama3.2",
 				Type:         aiv1.ModelType_MODEL_TYPE_LLM,
 				Capabilities: []string{"chat"},

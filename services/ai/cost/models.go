@@ -29,7 +29,7 @@ type Cost struct {
 	// Model is the model that incurred this cost.
 	Model string `json:"model"`
 
-	// Provider is the provider (ollama, gemini, openai, anthropic).
+	// Provider is the provider (mlx, gemini, openai, anthropic).
 	Provider string `json:"provider"`
 
 	// Currency is always "USD".

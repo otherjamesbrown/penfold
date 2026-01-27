@@ -16,7 +16,7 @@ type ModelBackend interface {
 	// Name returns the unique identifier for this backend.
 	Name() string
 
-	// Provider returns the provider name (e.g., "ollama", "gemini", "openai").
+	// Provider returns the provider name (e.g., "mlx", "gemini", "openai").
 	Provider() string
 
 	// IsLocal returns true if this is a local model (not cloud API).

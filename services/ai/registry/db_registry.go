@@ -292,7 +292,7 @@ func (r *DBRegistry) syncHealthToDB(ctx context.Context) {
 }
 
 // MergeDiscoveredModels adds auto-discovered models to the database.
-// This should be called after Ollama discovery to persist new models.
+// This should be called after model discovery to persist new models.
 func (r *DBRegistry) MergeDiscoveredModels(ctx context.Context) error {
 	// Get all in-memory models
 	models := r.ModelRegistry.List(nil)

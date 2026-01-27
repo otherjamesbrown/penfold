@@ -2,7 +2,6 @@ package registry
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -58,15 +57,17 @@ func (f *ModelFilter) Match(m *ModelConfig) bool {
 
 // RegistryConfig holds configuration for the model registry.
 type RegistryConfig struct {
-	// OllamaHost is the base URL for the Ollama API.
-	OllamaHost string
+	// MLXEmbeddingsURL is the base URL for the MLX embeddings server.
+	MLXEmbeddingsURL string
+	// MLXLLMURL is the base URL for the MLX LLM server.
+	MLXLLMURL string
 	// GeminiEndpoint is the base URL for the Gemini API.
 	GeminiEndpoint string
 	// HealthCheckInterval is how often to check model health.
 	HealthCheckInterval time.Duration
 	// HealthCheckTimeout is the timeout for health check requests.
 	HealthCheckTimeout time.Duration
-	// EnableAutoDiscovery enables automatic model discovery from Ollama.
+	// EnableAutoDiscovery enables automatic model discovery (disabled for MLX).
 	EnableAutoDiscovery bool
 	// DiscoveryInterval is how often to run discovery (if enabled).
 	DiscoveryInterval time.Duration
@@ -75,11 +76,12 @@ type RegistryConfig struct {
 // DefaultRegistryConfig returns a configuration with sensible defaults.
 func DefaultRegistryConfig() *RegistryConfig {
 	return &RegistryConfig{
-		OllamaHost:          "http://localhost:11434",
+		MLXEmbeddingsURL:    "http://localhost:8081",
+		MLXLLMURL:           "http://localhost:8080",
 		GeminiEndpoint:      "https://generativelanguage.googleapis.com/v1",
 		HealthCheckInterval: 30 * time.Second,
 		HealthCheckTimeout:  5 * time.Second,
-		EnableAutoDiscovery: true,
+		EnableAutoDiscovery: false, // MLX models are pre-configured
 		DiscoveryInterval:   5 * time.Minute,
 	}
 }
@@ -456,8 +458,8 @@ func (r *ModelRegistry) checkModelHealth(ctx context.Context, model *ModelConfig
 	}
 
 	switch model.Provider {
-	case ProviderOllama:
-		health = r.checkOllamaHealth(ctx, model)
+	case ProviderMLX:
+		health = r.checkMLXHealth(ctx, model)
 	case ProviderGemini:
 		// Gemini health is checked via API availability
 		health.Status = HealthStatusHealthy
@@ -470,8 +472,8 @@ func (r *ModelRegistry) checkModelHealth(ctx context.Context, model *ModelConfig
 	return health
 }
 
-// checkOllamaHealth checks if an Ollama model is available.
-func (r *ModelRegistry) checkOllamaHealth(ctx context.Context, model *ModelConfig) ModelHealth {
+// checkMLXHealth checks if an MLX model server is available.
+func (r *ModelRegistry) checkMLXHealth(ctx context.Context, model *ModelConfig) ModelHealth {
 	health := ModelHealth{
 		LastCheck: time.Now(),
 		Status:    HealthStatusUnknown,
@@ -479,11 +481,16 @@ func (r *ModelRegistry) checkOllamaHealth(ctx context.Context, model *ModelConfi
 
 	endpoint := model.Endpoint
 	if endpoint == "" {
-		endpoint = r.config.OllamaHost
+		// Use appropriate MLX endpoint based on capability
+		if model.SupportsCapability(CapabilityEmbedding) {
+			endpoint = r.config.MLXEmbeddingsURL
+		} else {
+			endpoint = r.config.MLXLLMURL
+		}
 	}
 
-	// Check if the model is loaded by calling /api/tags
-	req, err := http.NewRequestWithContext(ctx, "GET", endpoint+"/api/tags", nil)
+	// Check MLX server health via /health or /v1/models endpoint
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint+"/health", nil)
 	if err != nil {
 		health.Status = HealthStatusUnhealthy
 		health.ErrorMessage = err.Error()
@@ -501,44 +508,24 @@ func (r *ModelRegistry) checkOllamaHealth(ctx context.Context, model *ModelConfi
 
 	health.AvgLatencyMs = float64(time.Since(start).Milliseconds())
 
-	if resp.StatusCode != http.StatusOK {
-		health.Status = HealthStatusUnhealthy
-		health.ErrorMessage = fmt.Sprintf("unexpected status code: %d", resp.StatusCode)
+	if resp.StatusCode == http.StatusOK {
+		health.Status = HealthStatusHealthy
+		health.LastSuccess = time.Now()
 		return health
 	}
 
-	// Parse response to check if our model is available
-	var tagsResp ollamaTagsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tagsResp); err != nil {
-		health.Status = HealthStatusDegraded
-		health.ErrorMessage = "failed to parse tags response"
-		return health
-	}
-
-	// Check if our specific model is in the list
-	for _, m := range tagsResp.Models {
-		if m.Name == model.ModelName {
-			health.Status = HealthStatusHealthy
-			health.LastSuccess = time.Now()
-			return health
-		}
-	}
-
-	// Model not found in Ollama
 	health.Status = HealthStatusUnhealthy
-	health.ErrorMessage = fmt.Sprintf("model %s not found in Ollama", model.ModelName)
+	health.ErrorMessage = fmt.Sprintf("MLX server returned status code: %d", resp.StatusCode)
 	return health
 }
 
 // discoveryLoop periodically discovers new models from providers.
+// Note: MLX models are pre-configured, so discovery is a no-op for MLX.
 func (r *ModelRegistry) discoveryLoop(ctx context.Context) {
 	defer r.wg.Done()
 
 	ticker := time.NewTicker(r.config.DiscoveryInterval)
 	defer ticker.Stop()
-
-	// Run initial discovery
-	_ = r.discoverOllamaModels(ctx)
 
 	for {
 		select {
@@ -547,178 +534,14 @@ func (r *ModelRegistry) discoveryLoop(ctx context.Context) {
 		case <-r.stopChan:
 			return
 		case <-ticker.C:
-			_ = r.discoverOllamaModels(ctx)
+			// MLX models are pre-configured, no dynamic discovery needed
 		}
 	}
-}
-
-// ollamaTagsResponse represents the response from Ollama's /api/tags endpoint.
-type ollamaTagsResponse struct {
-	Models []ollamaModel `json:"models"`
-}
-
-type ollamaModel struct {
-	Name       string    `json:"name"`
-	ModifiedAt time.Time `json:"modified_at"`
-	Size       int64     `json:"size"`
-	Digest     string    `json:"digest"`
-	Details    struct {
-		Format            string   `json:"format"`
-		Family            string   `json:"family"`
-		Families          []string `json:"families"`
-		ParameterSize     string   `json:"parameter_size"`
-		QuantizationLevel string   `json:"quantization_level"`
-	} `json:"details"`
-}
-
-// discoverOllamaModels queries Ollama for available models.
-func (r *ModelRegistry) discoverOllamaModels(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", r.config.OllamaHost+"/api/tags", nil)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDiscoveryFailed, err)
-	}
-
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDiscoveryFailed, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: unexpected status %d", ErrDiscoveryFailed, resp.StatusCode)
-	}
-
-	var tagsResp ollamaTagsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tagsResp); err != nil {
-		return fmt.Errorf("%w: failed to decode response: %v", ErrDiscoveryFailed, err)
-	}
-
-	for _, model := range tagsResp.Models {
-		modelID := fmt.Sprintf("ollama/%s", model.Name)
-
-		// Check if already registered
-		r.mu.RLock()
-		_, exists := r.models[modelID]
-		r.mu.RUnlock()
-
-		if exists {
-			continue
-		}
-
-		// Create configuration for discovered model
-		config := createOllamaModelConfig(model, r.config.OllamaHost)
-
-		// Register the model (ignore error if it already exists due to race)
-		_ = r.Register(config)
-	}
-
-	return nil
 }
 
 // DiscoverModels manually triggers model discovery.
-func (r *ModelRegistry) DiscoverModels(ctx context.Context) error {
-	return r.discoverOllamaModels(ctx)
-}
-
-// createOllamaModelConfig creates a ModelConfig from an Ollama model.
-func createOllamaModelConfig(model ollamaModel, endpoint string) *ModelConfig {
-	// Determine capabilities based on model name/family
-	caps := inferOllamaCapabilities(model)
-
-	return &ModelConfig{
-		ID:        fmt.Sprintf("ollama/%s", model.Name),
-		Name:      model.Name,
-		Provider:  ProviderOllama,
-		ModelName: model.Name,
-		Endpoint:  endpoint,
-		Capabilities: ModelCapabilities{
-			Capabilities:      caps,
-			SupportsStreaming: true,
-			SupportsJSON:      true,
-		},
-		Limits: ModelLimits{
-			ContextWindow:   inferContextWindow(model),
-			MaxOutputTokens: 4096,
-			RateLimitRPM:    0, // No rate limit for local
-		},
-		Version: ModelVersion{
-			Version:       extractVersion(model.Name),
-			ParameterSize: model.Details.ParameterSize,
-			IsLatest:      true,
-		},
-		Health: ModelHealth{
-			Status:    HealthStatusHealthy,
-			LastCheck: time.Now(),
-		},
-		IsLocal:   true,
-		Priority:  50, // Default priority for discovered models
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-}
-
-// inferOllamaCapabilities determines capabilities based on model name.
-func inferOllamaCapabilities(model ollamaModel) []Capability {
-	name := model.Name
-	caps := []Capability{CapabilityCompletion, CapabilityChat}
-
-	// Embedding models
-	if containsAny(name, "embed", "nomic-embed") {
-		return []Capability{CapabilityEmbedding}
-	}
-
-	// Vision models
-	if containsAny(name, "llava", "vision", "bakllava") {
-		caps = append(caps, CapabilityVision)
-	}
-
-	// Code models
-	if containsAny(name, "code", "codellama", "deepseek-coder", "starcoder") {
-		caps = append(caps, CapabilityCodeGeneration)
-	}
-
-	return caps
-}
-
-// inferContextWindow determines context window based on model.
-func inferContextWindow(model ollamaModel) int {
-	name := model.Name
-
-	// Known context windows
-	if containsAny(name, "llama3") {
-		return 8192
-	}
-	if containsAny(name, "mistral") {
-		return 32768
-	}
-	if containsAny(name, "mixtral") {
-		return 32768
-	}
-
-	// Default
-	return 4096
-}
-
-// extractVersion extracts version info from model name.
-func extractVersion(name string) string {
-	// Simple extraction - could be enhanced
-	parts := []string{"3.1", "3.2", "3", "2", "1.5", "1"}
-	for _, p := range parts {
-		if containsAny(name, p) {
-			return p
-		}
-	}
-	return "1.0"
-}
-
-// containsAny checks if s contains any of the substrings.
-func containsAny(s string, substrs ...string) bool {
-	for _, sub := range substrs {
-		for i := 0; i <= len(s)-len(sub); i++ {
-			if s[i:i+len(sub)] == sub {
-				return true
-			}
-		}
-	}
-	return false
+// Note: MLX models are pre-configured, so this is a no-op.
+func (r *ModelRegistry) DiscoverModels(_ context.Context) error {
+	// MLX models are pre-configured via defaults, no dynamic discovery
+	return nil
 }

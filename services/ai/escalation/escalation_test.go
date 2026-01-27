@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/otherjamesbrown/penfold/services/ai/testutil"
 )
 
 // MockModelProcessor is a mock implementation of ModelProcessor for testing.
@@ -57,16 +59,34 @@ func TestTierRegistry(t *testing.T) {
 	})
 
 	t.Run("GetTierForModel returns correct tier", func(t *testing.T) {
-		registry := NewTierRegistry(nil)
+		// Discover available MLX models dynamically
+		mlxModels := testutil.DiscoverMLXModels()
+		if !mlxModels.Available() {
+			t.Skip("MLX server unavailable, skipping GetTierForModel test")
+		}
 
-		level, err := registry.GetTierForModel("llama3.2")
+		// Create a custom tier config with discovered MLX models
+		config := DefaultTierConfig()
+		// Add discovered MLX models to the local tier
+		localTier := config.Tiers[0]
+		localTier.Models = append(localTier.Models, mlxModels.Models...)
+		if len(mlxModels.Models) > 0 {
+			localTier.PreferredModel = mlxModels.Models[0]
+		}
+
+		registry := NewTierRegistry(config)
+
+		// Test that discovered MLX model is in local tier
+		firstModel := mlxModels.GetFirst()
+		level, err := registry.GetTierForModel(firstModel)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("unexpected error for MLX model %q: %v", firstModel, err)
 		}
 		if level != TierLevelLocal {
-			t.Errorf("expected local tier, got %v", level)
+			t.Errorf("expected local tier for MLX model %q, got %v", firstModel, level)
 		}
 
+		// Test that cloud premium model is still in premium tier
 		level, err = registry.GetTierForModel("gemini-1.5-pro")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

@@ -29,7 +29,7 @@ var (
 )
 
 // OpenAIBackend connects to OpenAI-compatible APIs for embeddings and LLM operations.
-// It supports OpenAI, Azure OpenAI, and compatible servers (LiteLLM, Ollama, etc.).
+// It supports OpenAI, Azure OpenAI, and compatible servers (LiteLLM, vllm-mlx, etc.).
 type OpenAIBackend struct {
 	endpoint   string
 	apiKey     string

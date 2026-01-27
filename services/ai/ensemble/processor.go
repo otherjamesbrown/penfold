@@ -30,7 +30,7 @@ type ModelResult struct {
 	// ModelID is the identifier of the model that produced this result.
 	ModelID string
 
-	// Provider is the model provider (e.g., "ollama", "gemini").
+	// Provider is the model provider (e.g., "mlx", "gemini").
 	Provider string
 
 	// Response is the model's response data.
@@ -164,7 +164,7 @@ type ModelBackend interface {
 	// Name returns the unique identifier for this backend.
 	Name() string
 
-	// Provider returns the provider name (e.g., "ollama", "gemini", "openai").
+	// Provider returns the provider name (e.g., "mlx", "gemini", "openai").
 	Provider() string
 
 	// IsLocal returns true if this is a local model.

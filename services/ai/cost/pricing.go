@@ -86,20 +86,15 @@ func NewPricingTable() *PricingTable {
 // loadDefaultPricing populates the table with current model pricing.
 // Pricing as of 2024 - should be updated periodically.
 func (pt *PricingTable) loadDefaultPricing() {
-	// Local models (Ollama) - free
+	// Local models (MLX via vllm-mlx) - free
 	localModels := []string{
-		"llama3.2", "llama3.2:8b", "llama3.2:70b",
-		"llama3.1", "llama3.1:8b", "llama3.1:70b",
-		"nomic-embed-text", "mxbai-embed-large",
-		"mistral", "mistral:7b",
-		"codellama", "codellama:7b", "codellama:13b",
-		"phi3", "phi3:3.8b",
-		"qwen2", "qwen2:7b",
+		"mlx-community/Qwen2.5-32B-Instruct-4bit",
+		"mxbai-embed-large-v1",
 	}
 	for _, model := range localModels {
 		pt.pricing[model] = &ModelPricing{
 			Model:              model,
-			Provider:           "ollama",
+			Provider:           "mlx",
 			InputCostPer1K:     0,
 			OutputCostPer1K:    0,
 			EmbeddingCostPer1K: 0,
