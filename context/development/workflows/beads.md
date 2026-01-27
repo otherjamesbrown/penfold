@@ -82,6 +82,16 @@ bd dep tree <epic-id>                 # Check if all children are closed
 
 If all child beads are closed, suggest closing the parent epic to the user.
 
+### Context Validation
+
+**Before closing, verify context docs are accurate:**
+
+- If implementation changed system behavior → update `infrastructure.md` or `ARCHITECTURE.md`
+- If docs described a "plan" that's now complete → update status from "planned" to "deployed"
+- If you referenced docs that were wrong → create a bead to fix them
+
+**Don't silently work around stale docs.** Fix them or track the fix.
+
 ---
 
 ## Epic Management

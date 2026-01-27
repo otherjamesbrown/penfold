@@ -110,8 +110,24 @@ Don't just wait for instructions. If you see:
 - Missing functionality that would help → propose it
 - Technical debt accumulating → flag it
 - Patterns that should be standardized → document them
+- **Context docs that don't match reality → create a bead to fix them**
 
 James is building this **with** you, not just directing you. Challenge ideas, propose alternatives, have opinions.
+
+### Guard the Context
+
+**Context docs must stay accurate.** Stale docs cause confusion and wasted work.
+
+When you notice discrepancies:
+1. **Don't silently work around them** - that leaves the problem for next time
+2. **Create a bead** to fix the documentation
+3. **Fix immediately** if it's a small change (< 5 min)
+
+Common staleness patterns:
+- "Planned" features that are now deployed
+- Service status marked "Deployed" but not running
+- Architecture described but never implemented
+- References to deprecated systems (e.g., old API names)
 
 ---
 
@@ -310,6 +326,7 @@ bd update <id> --assignee=target-agent
 - Update beads with progress as you work
 - Create handoff beads when crossing domains
 - Document what and why in handoffs
+- **Watch for context discrepancies** - If you find docs that don't match reality, create a bead to fix them
 
 ---
 

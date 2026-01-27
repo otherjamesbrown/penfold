@@ -17,7 +17,7 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-2
 | **MLX Embeddings** | dev01.brown.chat | - | 8081 | Deployed |
 | **MLX LLM Server** | dev01.brown.chat | - | 8080 | Deployed |
 | **Agent Mail** | dev02.brown.chat | - | 8765 | Deployed |
-| AI Service | (not deployed) | 50055 | 8086 | Code exists |
+| **AI Service** | dev01.brown.chat | 50055 | 8086 | Code exists |
 | Gmail Connector | (not deployed) | 50056 | 8087 | Code exists |
 | Search Service | (not deployed) | 50053 | 8082 | Code exists |
 | Review Service | (not deployed) | 50057 | 8088 | Code exists |
@@ -266,6 +266,29 @@ LLM_URL=http://localhost:8080         # MLX LLM server (local to dev01)
 LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
 ```
 
+**AI Service (dev01):**
+```bash
+# Binary location
+/tmp/penfold-ai
+
+# Build from source
+cd services/ai && go build -o /tmp/penfold-ai .
+
+# Start with default config (uses localhost MLX services)
+AI_GRPC_PORT=50055 AI_HTTP_PORT=8086 nohup /tmp/penfold-ai > /tmp/penfold-ai.log 2>&1 &
+
+# Health check
+curl -s http://localhost:8086/health
+
+# Environment variables (all have sensible defaults)
+AI_GRPC_PORT=50055              # gRPC server port
+AI_HTTP_PORT=8086               # HTTP health/metrics port
+AI_MLX_EMBEDDINGS_URL=http://localhost:8081
+AI_MLX_LLM_URL=http://localhost:8080
+AI_DEFAULT_EMBEDDING_MODEL=mxbai-embed-large-v1
+AI_DEFAULT_LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
+```
+
 ### dev02.brown.chat
 
 | Service | Port | Container | Notes |
@@ -362,7 +385,7 @@ Agent Mail enables two-way communication between Client Claude (laptop) and Dev 
 | Agent Name | Role | Program |
 |------------|------|---------|
 | RedWolf | Client agent | Claude Code Client |
-| JadeMeadow | Dev agent | Claude Code Dev |
+| RusticDesert | Dev agent | Claude Code Dev |
 
 **Client Config (~/.penf/config.yaml):**
 ```yaml
@@ -370,7 +393,7 @@ agent_mail:
   server: "http://dev02.brown.chat:8765"
   project: "/Users/james/github/otherjamesbrown/penfold"
   client_agent: "RedWolf"
-  dev_agent: "JadeMeadow"
+  dev_agent: "RusticDesert"
   bearer_token: "<see secrets/.env.penfold>"
 ```
 
@@ -383,6 +406,26 @@ curl -s http://dev02.brown.chat:8765/health/liveness
 ```
 
 **Web UI:** http://dev02.brown.chat:8765/mail
+
+**Claude Code MCP Configuration:**
+
+Agent Mail is accessed via MCP (Model Context Protocol). Add to Claude Code settings (`~/.claude/settings.json` or project `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "agent-mail": {
+      "command": "uvx",
+      "args": ["mcp-agentmail", "--host", "dev02.brown.chat", "--port", "8765"],
+      "env": {
+        "MCP_AGENT_MAIL_OUTPUT_FORMAT": "toon"
+      }
+    }
+  }
+}
+```
+
+This provides the `mcp__agent-mail__*` tools: `fetch_inbox`, `send_message`, `reply_message`, `register_agent`, etc.
 
 ## Starting Services
 
@@ -516,7 +559,7 @@ Complete inventory of Penfold Go services with their default configurations.
 |---------|-------------|--------------|--------------|-------------|--------|
 | Gateway | `services/gateway` | 50051 | 8080 | - | Production |
 | Worker | `services/worker` | - | 8085 | penfold-main, penfold-ai, penfold-email | Production |
-| AI Service | `services/ai` | 50055 | 8086 | - | Developed |
+| AI Service | `services/ai` | 50055 | 8086 | - | Production |
 | Gmail Connector | `services/gmail` | 50056 | 8087 | - | Developed |
 | Search Service | `services/search` | 50053 | 8082 | - | Developed |
 | Review Service | `services/review` | 50057 | 8088 | - | Developed |
