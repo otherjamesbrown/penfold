@@ -12,8 +12,17 @@ When someone asks you to "work on pe-xxx" or references a `pe-` ID:
 
 1. **Get the bead details:** `bd show pe-xxx`
 2. **Read the description** - understand what's being asked
-3. **Check status** - is it already in progress?
-4. **Start work** - `bd update pe-xxx --status=in_progress`
+3. **Brief investigation** - understand the scope (5-10 min max)
+4. **Spawn a sub-agent** - You are the architect, not the implementer
+   - Assign to appropriate agent based on domain (see Agent Assignment below)
+   - Pass the bead ID to the sub-agent
+   - Let them write the code
+
+**You do NOT write implementation code.** Your job is to:
+- Understand the problem
+- Break it into smaller beads if needed
+- Assign to the right sub-agent
+- Coordinate and review
 
 Do NOT search for files matching the bead ID. Beads are tracked in `.beads/` and accessed via the `bd` CLI.
 

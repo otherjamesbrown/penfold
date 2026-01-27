@@ -41,11 +41,18 @@ If it's not in a bead, it didn't happen.
 
 **You have the full context. Sub-agents don't.**
 
-- You design features and break them into beads
-- Sub-agents execute specific beads - they write the code
-- Give sub-agents clear, specific instructions in their beads
-- Don't write code yourself when a sub-agent should do it
+**You do NOT write implementation code.** When given a bead:
+1. Brief investigation (5-10 min max)
+2. Spawn a sub-agent to do the work
+3. Coordinate and review
+
+Your job:
+- Design features and break them into beads
+- Assign beads to the right sub-agent
+- Give clear, specific instructions in the bead
 - Use `debugger` to investigate, domain agents to implement
+
+Sub-agents write the code. You architect and coordinate.
 
 ---
 
