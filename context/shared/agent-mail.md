@@ -1,6 +1,6 @@
 # Agent Mail
 
-> **Last updated:** 2026-01-26
+> **Last updated:** 2026-01-26 (added reply_message `to` requirement)
 
 ## Overview
 
@@ -138,6 +138,49 @@ mcp__agent-mail__summarize_thread(
 )
 ```
 
+## Issue Tracking Protocol
+
+When bugs or feature requests come through Agent Mail, they must be tracked in the bead system.
+
+### Dev: Receiving a Bug/Feature Request
+
+1. **Create bead(s)** immediately upon receiving the report
+   - One primary bead for the main issue
+   - Sub-beads if the work naturally splits (e.g., fix + migration + tests)
+
+2. **Reply ASAP** with acknowledgment and tracking info:
+   ```markdown
+   ## Acknowledged
+
+   Created bead(s) to track this:
+
+   | Bead | Description | Status |
+   |------|-------------|--------|
+   | pe-xxxx | Main issue description | open |
+   | pe-yyyy | Sub-task if applicable | open |
+
+   I'll update you when resolved.
+   ```
+
+3. **Reply again** when work is complete with resolution details
+
+### Client: After Receiving Bead IDs
+
+Once you have a bead ID, **use it for all future discussion** about that issue:
+
+- Reference the bead in follow-up messages: "Regarding pe-xxxx..."
+- Use the bead ID as thread_id for related messages: `thread_id="pe-xxxx"`
+- Check bead status directly: `bd show pe-xxxx`
+
+This keeps communication organized and traceable.
+
+### Why This Matters
+
+- **Traceability** - Every issue has a trackable ID
+- **Async-friendly** - Either agent can check status without messaging
+- **History** - Beads persist; chat context doesn't
+- **Handoffs** - Work can transfer between sessions via bead
+
 ## Common Workflows
 
 ### Client: Report a Bug
@@ -185,12 +228,20 @@ bugs = search_messages(
 
 ### Dev: Reply to Bug Report
 
+**Important:** Follow the [Issue Tracking Protocol](#issue-tracking-protocol) - create beads first, then reply with bead IDs.
+
 ```python
+# 1. Create bead(s) first
+# bd create --title="Fix: <description>" --type=bug
+
+# 2. Reply with bead ID(s)
+# IMPORTANT: Always specify `to` explicitly - see Troubleshooting
 reply_message(
   project_key="/Users/james/github/otherjamesbrown/penfold",
   message_id=<original_message_id>,
   sender_name="RusticDesert",
-  body_md="## Investigation\n...\n## Fix\nCreated bead pe-xxxx..."
+  to=["RedWolf"],  # Always specify recipient explicitly!
+  body_md="## Acknowledged\n\nCreated bead **pe-xxxx** to track this.\n\n| Bead | Description |\n|------|-------------|\n| pe-xxxx | Fix description |\n\nWill update when resolved."
 )
 ```
 
@@ -260,14 +311,19 @@ How urgent is this? (nice-to-have / important / blocking)
 ### Do
 
 - **Always register** with `macro_start_session` at session start
+- **Create beads immediately** for bugs/features - reply with bead IDs ASAP
+- **Use bead IDs** in follow-up discussions (e.g., "Regarding pe-xxxx...")
 - **Use searchable subjects** - include keywords that describe the issue
 - **Include bead IDs** in messages when referencing tracked work
-- **Use thread IDs** for related conversations
+- **Use thread IDs** for related conversations (use bead ID as thread_id after acknowledgment)
 - **Mark messages read** with `mark_message_read` after processing
 - **Acknowledge** messages with `ack_required=true` using `acknowledge_message`
 
 ### Don't
 
+- Don't leave bug/feature requests untracked - always create a bead
+- Don't reply without bead IDs - client needs them for follow-up
+- Don't omit `to` in `reply_message` - always specify recipient explicitly (see Troubleshooting)
 - Don't search for thread IDs (they're not indexed)
 - Don't use descriptive agent names (use auto-generated ones)
 - Don't assume your inbox has all messages (you only see messages TO you)
@@ -278,6 +334,24 @@ How urgent is this? (nice-to-have / important / blocking)
 ### "Inbox is empty but I know there are messages"
 
 Messages only appear in your inbox if you're a recipient. Use `search_messages` with keywords to find messages not addressed to you.
+
+### "Reply went to wrong recipient" / "Reply went to myself"
+
+**Known issue:** `reply_message` does not reliably default `to` to the original sender. The message may go to yourself instead of the intended recipient.
+
+**Always specify `to` explicitly:**
+
+```python
+reply_message(
+  project_key="...",
+  message_id=123,
+  sender_name="RusticDesert",
+  to=["RedWolf"],  # REQUIRED - don't rely on default!
+  body_md="..."
+)
+```
+
+If you forget `to`, your reply may end up in your own inbox instead of the recipient's.
 
 ### "search_messages returns nothing for thread ID"
 
@@ -290,5 +364,5 @@ Use `whois(agent_name="...")` to look up agent details, or check the agents list
 ## See Also
 
 - [infrastructure.md](../infrastructure.md) - Agent Mail server setup on dev02
-- [agents.md](../agents.md) - How dev agents are organized
+- [root-agent.md](../root-agent.md) - How dev agents are organized
 - [client/assistant-rules.md](../client/assistant-rules.md) - Client Claude's Agent Mail usage

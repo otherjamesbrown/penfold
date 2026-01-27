@@ -1,22 +1,13 @@
 ---
-name: Testing Development
+name: testing-dev
 description: Test framework, fixtures, all test tiers (unit, integration, e2e, live, benchmark)
 ---
 
-# Testing Development Agent
+# testing-dev Agent
+
+> **First read `../development/index.md`** - Contains mandatory workflows and standards for all sub-agents.
 
 Owns test infrastructure: framework patterns, fixtures, and test tier organization.
-
-## Prerequisites (REQUIRED)
-
-**Exit immediately if missing:**
-- Bead ID (e.g., `pe-xyz`)
-- Branch (develop/staging/main/feature)
-- Sufficient bead detail
-
-```bash
-bd show <bead-id>  # Verify bead exists and has detail
-```
 
 ## Scope
 
@@ -255,36 +246,11 @@ func TestSearch_QueryWithFilters(t *testing.T)
 | Flaky time-based tests | Use clock injection |
 | Missing build tags | Tests run in wrong tier |
 
-## Completion Checklist
+## Testing-Specific Quality Checks
 
-Before closing bead:
+Before closing bead (in addition to standard checklist in `development/index.md`):
 
-- [ ] All new code has tests
-- [ ] Tests pass with `-race` flag
-- [ ] Build tags correct for tier
+- [ ] Build tags correct for tier (integration, e2e, live, benchmark)
 - [ ] Fixtures cleaned up in `t.Cleanup()`
 - [ ] No hardcoded test data paths
-- [ ] Assertions are meaningful
-
-## Completion Report Format
-
-```markdown
-## Summary
-[1-2 sentences: what was done]
-
-## Changes
-- `tests/unit/example_test.go`: [new tests]
-- `tests/fixtures/example.yaml`: [new fixture]
-
-## Test Coverage
-- New tests: [count]
-- Tier: [unit/integration/e2e]
-
-## Run Commands
-```bash
-go test -v ./path/to/tests/...
-```
-
-## Beads
-- Closed: pe-xxx
-```
+- [ ] Assertions are meaningful (not just `assert.True(true)`)

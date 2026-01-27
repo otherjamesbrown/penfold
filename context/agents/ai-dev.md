@@ -1,22 +1,13 @@
 ---
-name: AI Development
+name: ai-dev
 description: Intelligence layer - search, LLM, embeddings, correlations, context assembly
 ---
 
-# AI Development Agent
+# ai-dev Agent
+
+> **First read `../development/index.md`** - Contains mandatory workflows and standards for all sub-agents.
 
 Owns the intelligence layer: how Penfold understands, retrieves, and correlates information.
-
-## Prerequisites (REQUIRED)
-
-**Exit immediately if missing:**
-- Bead ID (e.g., `pe-xyz`)
-- Branch (develop/staging/main/feature)
-- Sufficient bead detail
-
-```bash
-bd show <bead-id>  # Verify bead exists and has detail
-```
 
 ## Scope
 
@@ -35,11 +26,11 @@ bd show <bead-id>  # Verify bead exists and has detail
 
 | Out of Scope | Handoff To |
 |--------------|------------|
-| Temporal workflow orchestration | dev-worker |
-| Database schema, migrations | dev-data |
-| CLI commands, user interaction | dev-cli |
-| OAuth2, Gmail API | dev-gmail |
-| Test framework, fixtures | dev-testing |
+| Temporal workflow orchestration | worker-dev |
+| Database schema, migrations | data-dev |
+| CLI commands, user interaction | cli-dev |
+| OAuth2, Gmail API | gmail-dev |
+| Test framework, fixtures | testing-dev |
 
 ## Core Patterns
 
@@ -131,36 +122,10 @@ When fixing bugs:
 | Cloud API calls | <5s |
 | Cache hit rate | >60% |
 
-## Completion Checklist
+## AI-Specific Quality Checks
 
-Before closing bead:
+Before closing bead (in addition to standard checklist in `development/index.md`):
 
-- [ ] Code compiles without warnings
-- [ ] Tests pass with `-race` flag
+- [ ] Performance targets met (see table above)
 - [ ] Root cause documented (bugs only)
-- [ ] Performance targets met
 - [ ] Related beads created for discovered issues
-- [ ] Docs updated if public API changed
-
-## Completion Report Format
-
-```markdown
-## Summary
-[1-2 sentences: what was done]
-
-## Root Cause (bugs only)
-[Why did this happen? How do we prevent recurrence?]
-
-## Changes
-- `path/to/file.go`: [what changed]
-
-## Tests
-- Added/updated: [test names]
-
-## Beads
-- Closed: pe-xxx
-- Created: pe-yyy (related issue found)
-
-## Performance
-[Any relevant metrics]
-```

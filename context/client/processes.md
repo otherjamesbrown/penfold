@@ -1,52 +1,33 @@
 # Penfold Processes
 
-This file lists available workflows for Claude when assisting with Penfold.
-Process definitions are in `~/.penf/processes/` or the repo's `context/workflows/`.
+Quick reference for common workflows. Full details in `workflows/` directory.
 
-## Available Processes
+## Available Workflows
 
-| Process | Trigger | Description |
-|---------|---------|-------------|
-| [Acronym Review](processes/acronym-review.md) | "review acronyms", pending questions | Resolve unknown acronyms from transcripts |
+| Workflow | Trigger | Guide |
+|----------|---------|-------|
+| Acronym Review | "review acronyms", pending questions | [workflows/acronym-review.md](workflows/acronym-review.md) |
+| Mention Review | Ambiguous person references | [workflows/mention-review.md](workflows/mention-review.md) |
+| Init Entities | Before first import | [workflows/init-entities.md](workflows/init-entities.md) |
+| Onboarding | After content import | [workflows/onboarding.md](workflows/onboarding.md) |
 
-## Quick Reference
+## Quick Commands
 
-### Acronym Review
 ```bash
-# Get batch context for intelligent processing
+# Acronym review
 penf process acronyms context -o json
+penf process acronyms batch-resolve '{"resolutions":[...]}'
 
-# Batch resolve/dismiss
-penf process acronyms batch-resolve --dry-run '{"resolutions":[...]}'
-```
-
-### Search
-```bash
-# Hybrid search (default)
+# Search
 penf search "query" -o json
 
-# Semantic only
-penf search "query" --semantic -o json
-```
-
-### Glossary Management
-```bash
-# List all terms
+# Glossary
 penf glossary list -o json
-
-# Add term
-penf glossary add TERM "Expansion" --context tag1,tag2
-
-# Add alias for transcription errors
-penf glossary alias EXISTING_TERM NEW_ALIAS
+penf glossary add TERM "Expansion"
 ```
 
-## Process Locations
+## File Locations
 
-- **User preferences**: `~/.penf/preferences.md` (never overwritten)
-- **Process definitions**: `~/.penf/processes/` (updated by `penf update`)
-- **Built-in workflows**: Run `penf help <command>` for CLI syntax
-
-## Updating Processes
-
-Process files may be updated when you run `penf update`. Your `preferences.md` is never touched.
+- **User preferences**: `preferences.md` (never overwritten)
+- **Workflow guides**: `workflows/`
+- **CLI help**: `penf help <command>`

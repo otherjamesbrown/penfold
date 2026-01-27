@@ -1,22 +1,14 @@
 ---
-name: SpecKit Development
-description: Feature lifecycle - specification, planning, beads, implementation, archival
+name: speckit-reference
+description: Reference documentation for speckit skills (not an agent)
 ---
 
-# SpecKit Development Agent
+# Speckit Reference
 
-Owns feature lifecycle: from specification through implementation to documentation archival.
+> **This is reference documentation for the `/speckit.*` skills, not a sub-agent.**
+> The root agent (orchestrator) uses these skills directly for feature planning.
 
-## Prerequisites (REQUIRED)
-
-**Exit immediately if missing:**
-- Feature name or description
-- User confirmation before implementation
-
-```bash
-# Verify feature directory exists (after /speckit.specify)
-ls .specify/features/<feature-name>/
-```
+Speckit manages feature lifecycle: from specification through implementation to documentation archival.
 
 ## Scope
 
@@ -36,12 +28,12 @@ ls .specify/features/<feature-name>/
 
 | Out of Scope | Handoff To |
 |--------------|------------|
-| AI/search implementation | dev-ai |
-| CLI commands | dev-cli |
-| Workflows | dev-worker |
-| Database schema | dev-data |
-| Test framework | dev-testing |
-| Gmail integration | dev-gmail |
+| AI/search implementation | ai-dev |
+| CLI commands | cli-dev |
+| Workflows | worker-dev |
+| Database schema | data-dev |
+| Test framework | testing-dev |
+| Gmail integration | gmail-dev |
 
 ## Workflow
 
@@ -201,35 +193,13 @@ After feature completion:
 | US3 | 007-search/US1 | Needs search API |
 ```
 
-## Completion Checklist
+## Feature Completion Checklist
 
-Before closing feature:
+Before closing a feature:
 
 - [ ] All beads closed
 - [ ] Tests pass
 - [ ] Documentation updated
-- [ ] ARCHIVE.md created
-- [ ] Patterns extracted
+- [ ] ARCHIVE.md created (in `.specify/features/<name>/`)
+- [ ] Reusable patterns extracted to `context/architecture/`
 - [ ] Epic bead closed
-
-## Completion Report Format
-
-```markdown
-## Feature: <name>
-
-## Summary
-[What was built]
-
-## Beads Completed
-- pe-xxx: [description]
-- pe-yyy: [description]
-
-## Key Decisions
-- [Decision 1]: [rationale]
-
-## Patterns Extracted
-- [Pattern name]: [location]
-
-## Documentation Updated
-- [File]: [changes]
-```

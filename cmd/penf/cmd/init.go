@@ -317,7 +317,7 @@ func initProcessDefinitions() error {
 // Downloads from context/client/ and context/shared/ in the penfold repo.
 // Structure:
 //
-//	docs/           - Client docs (agents.md, assistant-rules.md, concepts/, workflows/)
+//	docs/           - Client docs (assistant-rules.md, index.md, concepts/, workflows/)
 //	docs/shared/    - Shared docs (vision, entities, use-cases)
 func initDocs() error {
 	cwd, err := os.Getwd()
@@ -329,7 +329,6 @@ func initDocs() error {
 
 	// Files to download from context/client/ -> docs/
 	clientFiles := []string{
-		"agents.md",
 		"assistant-rules.md",
 		"index.md",
 		"preferences.md",
@@ -378,7 +377,7 @@ func initDocs() error {
 	}
 
 	fmt.Printf("  \033[32m✓\033[0m Downloaded docs/ from GitHub (concepts, workflows, shared)\n")
-	fmt.Println("    Claude reads docs/agents.md first for identity and required reading")
+	fmt.Println("    Claude reads docs/assistant-rules.md for identity and operating principles")
 	fmt.Println("    Shared docs (vision, entities, use-cases) are in docs/shared/")
 
 	return nil
@@ -474,11 +473,11 @@ Periodically review memory files and update preferences.md with what's worth kee
 }
 
 // generateAssistantClaudeMd generates the assistant CLAUDE.md content.
-// This is intentionally minimal - all real content lives in docs/agents.md.
+// This is intentionally minimal - all real content lives in docs/assistant-rules.md.
 func generateAssistantClaudeMd(cfg *config.CLIConfig) string {
 	return fmt.Sprintf(`# Penfold Assistant
 
-**Read `+"`docs/agents.md`"+` first** - it tells you who you are and what to read.
+**Read `+"`docs/assistant-rules.md`"+` first** - it defines who you are and how to operate.
 
 ## Configuration
 
@@ -488,8 +487,8 @@ func generateAssistantClaudeMd(cfg *config.CLIConfig) string {
 
 ## Quick Start
 
-1. Read `+"`docs/agents.md`"+` - your identity and required reading
-2. Read `+"`docs/assistant-rules.md`"+` - how to behave
+1. Read `+"`docs/assistant-rules.md`"+` - your identity and operating principles
+2. Read `+"`docs/index.md`"+` - system overview and navigation
 3. Check Agent Mail inbox for dev messages
 4. Help the user
 

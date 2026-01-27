@@ -1,8 +1,8 @@
 # Penfold System Documentation
 
-**Start here:** Read [assistant-rules.md](assistant-rules.md) first. That's who you are.
+> **You should have already read [assistant-rules.md](assistant-rules.md)** - that's your entry point and identity.
 
-Then use this documentation to understand Penfold's concepts and workflows.
+Use this documentation to understand Penfold's concepts and workflows.
 
 ## Quick Navigation
 
@@ -15,7 +15,7 @@ Then use this documentation to understand Penfold's concepts and workflows.
 - **At session start:** Read recent memory files to restore context
 
 **Dev Communication (Agent Mail):**
-- Your agent: **RedWolf** | Dev agent: **JadeMeadow**
+- Your agent: **RedWolf** | Dev agent: **RusticDesert**
 - **Project key:** `/Users/james/github/otherjamesbrown/penfold` (always use this, regardless of machine)
 - Check inbox at session start: `fetch_inbox(project_key="...", agent_name="RedWolf")`
 - Send bugs/feedback: `send_message(...)` via MCP

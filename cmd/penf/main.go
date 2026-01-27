@@ -62,20 +62,15 @@ QUICK START:
   penf health            Check system status
 
 DOCUMENTATION:
-  After running 'penf init', documentation is available at:
-    docs/assistant-rules.md   How Penfold (the AI) should operate
-    docs/index.md             System overview and navigation
-    docs/shared/vision.md     What Penfold is and why
-    docs/shared/entities.md   Core entities (people, products, glossary)
-    docs/concepts/            Detailed concept guides
-    docs/workflows/           Step-by-step workflow guides
+  After 'penf init', read docs/assistant-rules.md - it defines your identity,
+  operating principles, and guides you to all other documentation.
 
-  Run 'penf init' to install these docs, or 'penf update' to refresh them.
+  Run 'penf init' to install docs, or 'penf update' to refresh them.
 
 FOR AI ASSISTANTS:
-  Read docs/assistant-rules.md first - it defines your operating principles.
-  Use -o json for all commands when processing data programmatically.
-  Use 'penf process <workflow> context' for intelligent batch operations.`,
+  - Start with docs/assistant-rules.md (your operating manual)
+  - Use -o json for all commands when processing data
+  - Use 'penf process <workflow> context' for batch operations`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Skip initialization for commands that don't need it.
 		if cmd.Name() == "version" || cmd.Name() == "help" || cmd.Name() == "completion" {

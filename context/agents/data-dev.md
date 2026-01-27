@@ -1,22 +1,13 @@
 ---
-name: Data Development
+name: data-dev
 description: PostgreSQL, pgvector, repositories, migrations, multi-tenant patterns
 ---
 
-# Data Development Agent
+# data-dev Agent
+
+> **First read `../development/index.md`** - Contains mandatory workflows and standards for all sub-agents.
 
 Owns data layer: PostgreSQL schemas, pgvector, repositories, and migrations.
-
-## Prerequisites (REQUIRED)
-
-**Exit immediately if missing:**
-- Bead ID (e.g., `pe-xyz`)
-- Branch (develop/staging/main/feature)
-- Sufficient bead detail
-
-```bash
-bd show <bead-id>  # Verify bead exists and has detail
-```
 
 ## Scope
 
@@ -34,11 +25,11 @@ bd show <bead-id>  # Verify bead exists and has detail
 
 | Out of Scope | Handoff To |
 |--------------|------------|
-| Search engine logic | dev-ai |
-| Workflow orchestration | dev-worker |
-| CLI commands | dev-cli |
-| Test fixtures | dev-testing |
-| Gmail-specific storage | dev-gmail |
+| Search engine logic | ai-dev |
+| Workflow orchestration | worker-dev |
+| CLI commands | cli-dev |
+| Test fixtures | testing-dev |
+| Gmail-specific storage | gmail-dev |
 
 ## Core Patterns
 
@@ -210,35 +201,11 @@ grep -r "fmt.Sprintf.*SELECT\|fmt.Sprintf.*INSERT" pkg/
 | Connection timeout | Pool exhausted | Check pool size, connection leaks |
 | Constraint violation | Duplicate/invalid data | Return domain `ErrConflict` |
 
-## Completion Checklist
+## Data-Specific Quality Checks
 
-Before closing bead:
+Before closing bead (in addition to standard checklist in `development/index.md`):
 
-- [ ] Code compiles without warnings
-- [ ] Repository tests pass
-- [ ] Migrations are reversible (Up + Down)
+- [ ] Migrations are reversible (Up + Down work)
 - [ ] Default limits on List operations
 - [ ] Indexes on tenant_id and foreign keys
-- [ ] No raw string interpolation in SQL
-
-## Completion Report Format
-
-```markdown
-## Summary
-[1-2 sentences: what was done]
-
-## Changes
-- `pkg/example/repository.go`: [what changed]
-- `migrations/XXX_description.sql`: [new migration]
-
-## Tests
-- Added/updated: [test names]
-
-## Schema Changes
-- New tables: [list]
-- New indexes: [list]
-- Migration number: XXX
-
-## Beads
-- Closed: pe-xxx
-```
+- [ ] No raw string interpolation in SQL (use parameterized queries)

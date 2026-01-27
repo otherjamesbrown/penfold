@@ -1,22 +1,13 @@
 ---
-name: Gmail Development
+name: gmail-dev
 description: Gmail connector - OAuth2 PKCE, sync, push notifications, attachments
 ---
 
-# Gmail Development Agent
+# gmail-dev Agent
+
+> **First read `../development/index.md`** - Contains mandatory workflows and standards for all sub-agents.
 
 Owns Gmail integration: OAuth2, message sync, push notifications, and attachment processing.
-
-## Prerequisites (REQUIRED)
-
-**Exit immediately if missing:**
-- Bead ID (e.g., `pe-xyz`)
-- Branch (develop/staging/main/feature)
-- Sufficient bead detail
-
-```bash
-bd show <bead-id>  # Verify bead exists and has detail
-```
 
 ## Scope
 
@@ -36,11 +27,11 @@ bd show <bead-id>  # Verify bead exists and has detail
 
 | Out of Scope | Handoff To |
 |--------------|------------|
-| Email content AI processing | dev-ai |
-| Workflow orchestration | dev-worker |
-| CLI auth commands | dev-cli |
-| Database schema for emails | dev-data |
-| Test fixtures | dev-testing |
+| Email content AI processing | ai-dev |
+| Workflow orchestration | worker-dev |
+| CLI auth commands | cli-dev |
+| Database schema for emails | data-dev |
+| Test fixtures | testing-dev |
 
 ## Core Patterns
 
@@ -236,32 +227,11 @@ go test ./services/gmail/... -race
 | `history_not_found` | historyId too old | Full sync required |
 | `push_not_verified` | Invalid signature | Check verification |
 
-## Completion Checklist
+## Gmail-Specific Quality Checks
 
-Before closing bead:
+Before closing bead (in addition to standard checklist in `development/index.md`):
 
-- [ ] Code compiles without warnings
-- [ ] Tests pass with `-race` flag
-- [ ] OAuth tokens encrypted at rest
-- [ ] Rate limiting in place
-- [ ] Error handling for API failures
-- [ ] Privacy filters applied
-
-## Completion Report Format
-
-```markdown
-## Summary
-[1-2 sentences: what was done]
-
-## Changes
-- `services/gmail/sync/engine.go`: [what changed]
-
-## Tests
-- Added/updated: [test names]
-
-## Security Considerations
-- [Any security-relevant changes]
-
-## Beads
-- Closed: pe-xxx
-```
+- [ ] OAuth tokens encrypted at rest (AES-256-GCM)
+- [ ] Rate limiting in place for API calls
+- [ ] Privacy filters applied to content
+- [ ] Error handling for common API failures (see table above)

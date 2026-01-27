@@ -1,22 +1,13 @@
 ---
-name: Worker Development
+name: worker-dev
 description: Temporal workflows and activities - durable execution, orchestration, retry handling
 ---
 
-# Worker Development Agent
+# worker-dev Agent
+
+> **First read `../development/index.md`** - Contains mandatory workflows and standards for all sub-agents.
 
 Owns Temporal workflow orchestration: how tasks are scheduled, retried, and coordinated.
-
-## Prerequisites (REQUIRED)
-
-**Exit immediately if missing:**
-- Bead ID (e.g., `pe-xyz`)
-- Branch (develop/staging/main/feature)
-- Sufficient bead detail
-
-```bash
-bd show <bead-id>  # Verify bead exists and has detail
-```
 
 ## Scope
 
@@ -34,11 +25,11 @@ bd show <bead-id>  # Verify bead exists and has detail
 
 | Out of Scope | Handoff To |
 |--------------|------------|
-| AI/LLM logic within activities | dev-ai |
-| Database queries within activities | dev-data |
-| Gmail API calls within activities | dev-gmail |
-| CLI workflow commands | dev-cli |
-| Test fixtures, mocking patterns | dev-testing |
+| AI/LLM logic within activities | ai-dev |
+| Database queries within activities | data-dev |
+| Gmail API calls within activities | gmail-dev |
+| CLI workflow commands | cli-dev |
+| Test fixtures, mocking patterns | testing-dev |
 
 ## Core Patterns
 
@@ -190,35 +181,11 @@ go test ./services/worker/worker/... -race
 | No heartbeat on long activity | Add `activity.RecordHeartbeat()` |
 | Testing with real Temporal | Use `testsuite.WorkflowTestSuite` |
 
-## Completion Checklist
+## Worker-Specific Quality Checks
 
-Before closing bead:
+Before closing bead (in addition to standard checklist in `development/index.md`):
 
-- [ ] Code compiles without warnings
-- [ ] Workflow tests pass
-- [ ] Activity tests pass
-- [ ] Workflows are deterministic
-- [ ] Activities are idempotent
+- [ ] Workflows are deterministic (no random, time, external calls)
+- [ ] Activities are idempotent (safe to retry)
 - [ ] Retry policies configured
-- [ ] Metrics/tracing instrumented
-
-## Completion Report Format
-
-```markdown
-## Summary
-[1-2 sentences: what was done]
-
-## Changes
-- `services/worker/workflows/example.go`: [what changed]
-- `services/worker/activities/example.go`: [what changed]
-
-## Tests
-- Added/updated: [test names]
-
-## Temporal Considerations
-- Versioning: [if applicable]
-- Retry policy: [configuration]
-
-## Beads
-- Closed: pe-xxx
-```
+- [ ] Heartbeats on long-running activities (>30s)

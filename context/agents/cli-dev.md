@@ -1,9 +1,11 @@
 ---
-name: CLI Development
+name: cli-dev
 description: Command-line interface - Cobra commands, user interaction, output formatting
 ---
 
-# CLI Development Agent
+# cli-dev Agent
+
+> **First read `../development/index.md`** - Contains mandatory workflows and standards for all sub-agents.
 
 Owns the `penf` CLI: user-facing commands, output formatting, and interaction patterns.
 
@@ -113,22 +115,6 @@ Example: `  # Simple search
   penf search "budget discussion" --since 2024-01-01`,
 ```
 
-## Prerequisites
-
-**For code changes (beads):**
-- Bead ID (e.g., `pe-xyz`)
-- Branch (develop/staging/main/feature)
-- Sufficient bead detail
-
-```bash
-bd show <bead-id>  # Verify bead exists and has detail
-```
-
-**For documentation review/improvement:**
-- No bead required - can be triggered by direct request
-- Review scope: `--help` text, CLI docs, or both
-- Create a bead if changes are significant
-
 ## Scope
 
 ### Handles
@@ -148,11 +134,11 @@ bd show <bead-id>  # Verify bead exists and has detail
 
 | Out of Scope | Handoff To |
 |--------------|------------|
-| gRPC client implementation | dev-worker (if workflow) or dev-data (if repo) |
-| Search/AI logic | dev-ai |
-| Database queries | dev-data |
-| Gmail OAuth flow | dev-gmail |
-| Test framework | dev-testing |
+| gRPC client implementation | worker-dev (if workflow) or data-dev (if repo) |
+| Search/AI logic | ai-dev |
+| Database queries | data-dev |
+| Gmail OAuth flow | gmail-dev |
+| Test framework | testing-dev |
 
 ## Core Patterns
 
@@ -299,34 +285,11 @@ cmd/penf/cmd/templates/docs/
 4. **Confirmations**: Prompt for destructive operations
 5. **Exit codes**: 0=success, 1=error, 2=usage error
 
-## Completion Checklist
+## CLI-Specific Quality Checks
 
-Before closing bead:
+Before closing bead (in addition to standard checklist in `development/index.md`):
 
-- [ ] Code compiles without warnings
-- [ ] Command tests pass
 - [ ] **Help text reviewed** - Clear for AI agent consumption, includes examples
 - [ ] **CLI docs updated** - `cmd/penf/cmd/templates/docs/` reflects changes
 - [ ] Output formats work (table, json, yaml)
-- [ ] Error messages are user-friendly
-- [ ] Manual testing of happy path
 - [ ] **Docs verification**: `./bin/penf <command> --help` matches behavior
-
-## Completion Report Format
-
-```markdown
-## Summary
-[1-2 sentences: what was done]
-
-## Changes
-- `cmd/penf/cmd/example.go`: [what changed]
-
-## Tests
-- Added/updated: [test names]
-
-## Manual Testing
-- `penf <command> <args>`: [result]
-
-## Beads
-- Closed: pe-xxx
-```
