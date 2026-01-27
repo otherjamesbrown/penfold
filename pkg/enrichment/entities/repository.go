@@ -29,10 +29,12 @@ func NewRepository(pool *pgxpool.Pool, logger logging.Logger) *Repository {
 // ==================== People Operations ====================
 
 // CreatePerson creates a new person record.
+// Note: primary_email is a generated column (email_addresses[1]), so we insert
+// into email_addresses instead.
 func (r *Repository) CreatePerson(ctx context.Context, p *Person) error {
 	query := `
 		INSERT INTO people (
-			tenant_id, canonical_name, primary_email,
+			tenant_id, canonical_name, email_addresses,
 			job_title, department, company, is_internal, account_type,
 			confidence_score, needs_review, auto_created,
 			reviewed_at, reviewed_by, potential_duplicates,
@@ -44,13 +46,19 @@ func (r *Repository) CreatePerson(ctx context.Context, p *Person) error {
 			$12, $13, $14,
 			NOW(), NOW()
 		)
-		RETURNING id, created_at, updated_at
+		RETURNING id, primary_email, created_at, updated_at
 	`
+
+	// Build email_addresses array from PrimaryEmail
+	var emailAddresses []string
+	if p.PrimaryEmail != "" {
+		emailAddresses = []string{p.PrimaryEmail}
+	}
 
 	err := r.pool.QueryRow(ctx, query,
 		p.TenantID,
 		p.CanonicalName,
-		p.PrimaryEmail,
+		emailAddresses,
 		nullIfEmpty(p.Title),
 		nullIfEmpty(p.Department),
 		nullIfEmpty(p.Company),
@@ -62,7 +70,7 @@ func (r *Repository) CreatePerson(ctx context.Context, p *Person) error {
 		p.ReviewedAt,
 		nullIfEmpty(p.ReviewedBy),
 		p.PotentialDuplicates,
-	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
+	).Scan(&p.ID, &p.PrimaryEmail, &p.CreatedAt, &p.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to create person: %w", err)
@@ -202,11 +210,13 @@ func (r *Repository) ListPeopleNeedingReview(ctx context.Context, tenantID strin
 }
 
 // UpdatePerson updates a person record.
+// Note: primary_email is a generated column (email_addresses[1]), so we update
+// email_addresses instead.
 func (r *Repository) UpdatePerson(ctx context.Context, p *Person) error {
 	query := `
 		UPDATE people SET
 			canonical_name = $2,
-			primary_email = $3,
+			email_addresses = $3,
 			job_title = $4,
 			department = $5,
 			is_internal = $6,
@@ -221,10 +231,16 @@ func (r *Repository) UpdatePerson(ctx context.Context, p *Person) error {
 		RETURNING updated_at
 	`
 
+	// Build email_addresses array from PrimaryEmail
+	var emailAddresses []string
+	if p.PrimaryEmail != "" {
+		emailAddresses = []string{p.PrimaryEmail}
+	}
+
 	err := r.pool.QueryRow(ctx, query,
 		p.ID,
 		p.CanonicalName,
-		p.PrimaryEmail,
+		emailAddresses,
 		nullIfEmpty(p.Title),
 		nullIfEmpty(p.Department),
 		p.IsInternal,

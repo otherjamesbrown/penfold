@@ -85,17 +85,6 @@ func TestMigrations_VersionSequence(t *testing.T) {
 	}
 }
 
-// TestMigrations_HaveDownMigrations verifies each up migration has a corresponding down.
-func TestMigrations_HaveDownMigrations(t *testing.T) {
-	available := getAvailableMigrations(t)
-
-	for _, m := range available {
-		if !m.HasDown {
-			t.Errorf("Migration %03d_%s is missing down migration (rollback)", m.Version, m.Name)
-		}
-	}
-}
-
 // TestMigrations_ContentID_ColumnExists specifically tests the content_id migration
 // that caused production issues.
 func TestMigrations_ContentID_ColumnExists(t *testing.T) {

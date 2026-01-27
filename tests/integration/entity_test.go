@@ -246,7 +246,7 @@ func TestEntityRepository_UpdatePerson(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Name", found.CanonicalName)
 	assert.Equal(t, "Senior Developer", found.Title)
-	assert.Equal(t, 1.0, found.Confidence)
+	assert.Equal(t, float32(1.0), found.Confidence)
 	assert.False(t, found.NeedsReview)
 	assert.True(t, found.UpdatedAt.After(originalUpdatedAt) || found.UpdatedAt.Equal(originalUpdatedAt))
 }
@@ -282,7 +282,7 @@ func TestEntityRepository_MarkPersonReviewed(t *testing.T) {
 	found, err := repo.GetPersonByID(ctx, person.ID)
 	require.NoError(t, err)
 	assert.False(t, found.NeedsReview)
-	assert.Equal(t, 1.0, found.Confidence)
+	assert.Equal(t, float32(1.0), found.Confidence)
 	assert.Equal(t, "reviewer@test.com", found.ReviewedBy)
 	assert.NotNil(t, found.ReviewedAt)
 }
@@ -386,6 +386,8 @@ func TestEntityRepository_SearchPeopleByName(t *testing.T) {
 	ctx := context.Background()
 
 	// Create multiple people
+	// Note: Avoid names that contain other search terms as substrings
+	// (e.g., "Johnson" contains "John" which would match the "John" search)
 	people := []struct {
 		name  string
 		email string
@@ -393,7 +395,7 @@ func TestEntityRepository_SearchPeopleByName(t *testing.T) {
 		{"John Smith", "john.smith@test.com"},
 		{"John Doe", "john.doe@test.com"},
 		{"Jane Smith", "jane.smith@test.com"},
-		{"Bob Johnson", "bob.johnson@test.com"},
+		{"Bob Williams", "bob.williams@test.com"},
 	}
 
 	for _, p := range people {

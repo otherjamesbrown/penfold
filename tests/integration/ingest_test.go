@@ -54,7 +54,7 @@ func TestIngestRepository_CreateSource(t *testing.T) {
 				TenantID:        tenantID,
 				SourceSystem:    storage.SourceSystemManualEML,
 				ExternalID:      "msg-001@test.com",
-				ContentHash:     "hash001",
+				ContentHash:     testHexHash(),
 				RawContent:      "Subject: Test\n\nThis is a test email.",
 				ContentType:     "message/rfc822",
 				ContentSize:     42,
@@ -68,7 +68,7 @@ func TestIngestRepository_CreateSource(t *testing.T) {
 				TenantID:     tenantID,
 				SourceSystem: storage.SourceSystemGmail,
 				ExternalID:   "msg-002@test.com",
-				ContentHash:  "hash002",
+				ContentHash:  testHexHash(),
 				RawContent:   "Subject: Gmail Test\n\nTest email from Gmail.",
 				ContentType:  "message/rfc822",
 				ContentSize:  50,
@@ -87,7 +87,7 @@ func TestIngestRepository_CreateSource(t *testing.T) {
 				TenantID:     tenantID,
 				SourceSystem: storage.SourceSystemManualEML,
 				ExternalID:   "msg-003@test.com",
-				ContentHash:  "hash003",
+				ContentHash:  testHexHash(),
 				RawContent:   "Subject: Team Update\n\nProject update for the team.",
 				ContentType:  "message/rfc822",
 				ContentSize:  55,
@@ -106,7 +106,7 @@ func TestIngestRepository_CreateSource(t *testing.T) {
 				TenantID:        tenantID,
 				SourceSystem:    storage.SourceSystemManualEML,
 				ExternalID:      "msg-004@test.com",
-				ContentHash:     "hash004",
+				ContentHash:     testHexHash(),
 				RawContent:      "Subject: Traced Email\n\nEmail with content ID.",
 				ContentType:     "message/rfc822",
 				ContentSize:     45,
@@ -143,12 +143,15 @@ func TestIngestRepository_CheckDuplicate(t *testing.T) {
 	repo := storage.NewRepository(db.Pool, logger)
 	ctx := context.Background()
 
+	// Use a fixed hash for this test to verify duplicate detection
+	duplicateHash := testHexHash()
+
 	// Create a source first
 	source := &storage.EmailSource{
 		TenantID:        tenantID,
 		SourceSystem:    storage.SourceSystemManualEML,
 		ExternalID:      "duplicate-test@test.com",
-		ContentHash:     "duplicate-hash",
+		ContentHash:     duplicateHash,
 		RawContent:      "Test content",
 		ContentType:     "message/rfc822",
 		ContentSize:     12,
@@ -167,21 +170,21 @@ func TestIngestRepository_CheckDuplicate(t *testing.T) {
 		{
 			name:        "detect duplicate by message ID",
 			messageID:   "duplicate-test@test.com",
-			contentHash: "different-hash",
+			contentHash: testHexHash(), // Different hash
 			wantDup:     true,
 			wantReason:  "message_id",
 		},
 		{
 			name:        "detect duplicate by content hash",
 			messageID:   "different@test.com",
-			contentHash: "duplicate-hash",
+			contentHash: duplicateHash, // Same hash as original
 			wantDup:     true,
 			wantReason:  "content_hash",
 		},
 		{
 			name:        "no duplicate",
 			messageID:   "unique@test.com",
-			contentHash: "unique-hash",
+			contentHash: testHexHash(),
 			wantDup:     false,
 			wantReason:  "",
 		},
@@ -517,7 +520,7 @@ func TestIngestRepository_ExistsByExternalID(t *testing.T) {
 		TenantID:        tenantID,
 		SourceSystem:    storage.SourceSystemManualEML,
 		ExternalID:      "exists-test@test.com",
-		ContentHash:     "exists-hash",
+		ContentHash:     testHexHash(),
 		RawContent:      "Test content",
 		ContentType:     "message/rfc822",
 		ContentSize:     12,
@@ -564,12 +567,15 @@ func TestIngestRepository_ExistsByContentHash(t *testing.T) {
 	repo := storage.NewRepository(db.Pool, logger)
 	ctx := context.Background()
 
+	// Use a fixed hash for this test to verify existence checks
+	knownHash := testHexHash()
+
 	// Create a source
 	source := &storage.EmailSource{
 		TenantID:        tenantID,
 		SourceSystem:    storage.SourceSystemManualEML,
 		ExternalID:      "hash-test@test.com",
-		ContentHash:     "known-content-hash",
+		ContentHash:     knownHash,
 		RawContent:      "Test content for hash",
 		ContentType:     "message/rfc822",
 		ContentSize:     21,
@@ -585,12 +591,12 @@ func TestIngestRepository_ExistsByContentHash(t *testing.T) {
 	}{
 		{
 			name:        "existing content hash",
-			contentHash: "known-content-hash",
+			contentHash: knownHash,
 			wantExists:  true,
 		},
 		{
 			name:        "non-existent content hash",
-			contentHash: "unknown-hash",
+			contentHash: testHexHash(),
 			wantExists:  false,
 		},
 	}
@@ -616,12 +622,15 @@ func TestIngestRepository_GetSource(t *testing.T) {
 	repo := storage.NewRepository(db.Pool, logger)
 	ctx := context.Background()
 
+	// Use a fixed hash to verify retrieval
+	sourceHash := testHexHash()
+
 	// Create a source
 	source := &storage.EmailSource{
 		TenantID:        tenantID,
 		SourceSystem:    storage.SourceSystemManualEML,
 		ExternalID:      "get-source-test@test.com",
-		ContentHash:     "get-source-hash",
+		ContentHash:     sourceHash,
 		RawContent:      "Test content for retrieval",
 		ContentType:     "message/rfc822",
 		ContentSize:     26,
@@ -636,7 +645,7 @@ func TestIngestRepository_GetSource(t *testing.T) {
 	assert.Equal(t, created.ID, found.ID)
 	assert.Equal(t, tenantID, found.TenantID)
 	assert.Equal(t, "Test content for retrieval", found.RawContent)
-	assert.Equal(t, "get-source-hash", found.ContentHash)
+	assert.Equal(t, sourceHash, found.ContentHash)
 }
 
 func TestIngestRepository_UpdateSourceStatus(t *testing.T) {
@@ -653,7 +662,7 @@ func TestIngestRepository_UpdateSourceStatus(t *testing.T) {
 		TenantID:        tenantID,
 		SourceSystem:    storage.SourceSystemManualEML,
 		ExternalID:      "status-test@test.com",
-		ContentHash:     "status-hash",
+		ContentHash:     testHexHash(),
 		RawContent:      "Test content",
 		ContentType:     "message/rfc822",
 		ContentSize:     12,
