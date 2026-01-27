@@ -43,10 +43,8 @@ func TestFullPipeline_IngestToSearch(t *testing.T) {
 		t.Logf("Ingest stdout: %s", result.Stdout)
 	}
 
-	// The command might fail if services aren't running - skip with helpful message
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest command failed (exit code %d) - ensure services are running. Stderr: %s",
-			result.ExitCode, result.Stderr)
+		t.Fatalf("Ingest command failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	t.Logf("Ingest completed in %v", result.Duration)
@@ -109,7 +107,7 @@ func TestFullPipeline_MentionExtraction(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "mention-test")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest command failed (exit code %d) - ensure services are running", result.ExitCode)
+		t.Fatalf("Ingest command failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Allow time for async processing (if applicable)
@@ -172,7 +170,7 @@ func TestFullPipeline_BatchIngestion(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailDir, "--source", "batch-test", "--concurrency", "2")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Batch ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
+		t.Fatalf("Batch ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	t.Logf("Batch ingest completed in %v", result.Duration)
@@ -260,7 +258,7 @@ func TestFullPipeline_CrossDocumentSearch(t *testing.T) {
 		emailPath := env.FixturePath(filepath.Join("emails", email))
 		result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "cross-doc-test")
 		if result.ExitCode != 0 {
-			t.Skipf("Failed to ingest %s: %s", email, result.Stderr)
+			t.Fatalf("Failed to ingest %s (exit code %d): %s", email, result.ExitCode, result.Stderr)
 		}
 	}
 

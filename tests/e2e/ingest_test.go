@@ -32,8 +32,7 @@ func TestEmailIngestion_SingleFile(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "single-file-test")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest command failed (exit code %d) - ensure services are running. Stderr: %s",
-			result.ExitCode, result.Stderr)
+		t.Fatalf("Ingest command failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	t.Logf("Ingest completed in %v", result.Duration)
@@ -76,7 +75,7 @@ func TestEmailIngestion_Directory(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailDir, "--source", "directory-test", "--concurrency", "2")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Batch ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
+		t.Fatalf("Batch ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	t.Logf("Batch ingest completed in %v", result.Duration)
@@ -108,7 +107,7 @@ func TestEmailIngestion_DuplicateDetection(t *testing.T) {
 	// First ingestion
 	result1 := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "dup-test")
 	if result1.ExitCode != 0 {
-		t.Skipf("First ingest failed: %s", result1.Stderr)
+		t.Fatalf("First ingest failed (exit code %d): %s", result1.ExitCode, result1.Stderr)
 	}
 
 	var countAfterFirst int
@@ -183,7 +182,7 @@ func TestEmailIngestion_WithLabels(t *testing.T) {
 		"--labels", "important,project-alpha")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest with labels failed: %s", result.Stderr)
+		t.Fatalf("Ingest with labels failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	t.Logf("Output:\n%s", result.Stdout)
@@ -263,7 +262,7 @@ func TestEmailIngestion_PersonExtraction(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "person-extract-test")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest failed: %s", result.Stderr)
+		t.Fatalf("Ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Check if people were auto-created
@@ -308,7 +307,7 @@ func TestEmailIngestion_ContentParsing(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "parse-test")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest failed: %s", result.Stderr)
+		t.Fatalf("Ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Verify content was stored (check raw_content column)

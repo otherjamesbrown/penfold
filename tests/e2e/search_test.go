@@ -28,7 +28,7 @@ func TestSearch_BasicQuery(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "search-test")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest command failed (exit code %d) - ensure services are running", result.ExitCode)
+		t.Fatalf("Ingest command failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Test basic search
@@ -66,7 +66,7 @@ func TestSearch_WithFilters(t *testing.T) {
 		emailPath := env.FixturePath(filepath.Join("emails", email))
 		result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "filter-test")
 		if result.ExitCode != 0 {
-			t.Skipf("Failed to ingest %s", email)
+			t.Fatalf("Failed to ingest %s (exit code %d): %s", email, result.ExitCode, result.Stderr)
 		}
 	}
 
@@ -96,7 +96,7 @@ func TestSearch_SemanticQuery(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "semantic-test", "--concurrency", "2")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest failed (exit code %d)", result.ExitCode)
+		t.Fatalf("Ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Test semantic search with mode flag
@@ -143,7 +143,7 @@ func TestSearch_DateRangeFilters(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "date-test")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest failed (exit code %d)", result.ExitCode)
+		t.Fatalf("Ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Test search with date filters (if supported)
@@ -172,7 +172,7 @@ func TestSearch_PersonEntity(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "person-test")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest failed (exit code %d)", result.ExitCode)
+		t.Fatalf("Ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Search for content related to a person
@@ -215,7 +215,7 @@ func TestSearch_GlossaryExpansion(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "glossary-test")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest failed (exit code %d)", result.ExitCode)
+		t.Fatalf("Ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Search using acronyms - search should expand them
@@ -254,7 +254,7 @@ func TestSearch_ResultSorting(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailDir, "--source", "sort-test", "--concurrency", "2")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest failed (exit code %d)", result.ExitCode)
+		t.Fatalf("Ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Test different sort options
@@ -308,7 +308,7 @@ func TestSearch_JSONOutput(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "json-test")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest failed (exit code %d)", result.ExitCode)
+		t.Fatalf("Ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Search with JSON output
@@ -339,7 +339,7 @@ func TestSearch_Pagination(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailDir, "--source", "page-test", "--concurrency", "2")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest failed (exit code %d)", result.ExitCode)
+		t.Fatalf("Ingest failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Test pagination parameters

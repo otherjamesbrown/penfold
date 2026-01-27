@@ -1,0 +1,198 @@
+# Development Context (Sub-Agents)
+
+> **Minimal context for spawned development agents.**
+> You don't need product knowledge - just follow processes and write good code.
+> **Last updated:** 2026-01-27
+
+---
+
+## Your Job
+
+You are a **sub-agent** spawned by the root agent (orchestrator) to complete a specific task.
+
+### Work Autonomously
+
+**Don't ask for permission to continue. Don't ask for code review. Just do the work.**
+
+The orchestrator gave you a task. Complete it end-to-end. Only ask if you need clarification on what the bead is asking for.
+
+### Beads Are Everything
+
+**Your task comes from a bead. Your progress goes in the bead. Your completion closes the bead.**
+
+```bash
+bd show <bead-id>     # Read your task
+bd comments add ...   # Log progress as you work
+bd close <bead-id>    # Mark complete when done
+```
+
+If your session dies, the bead preserves your progress. Update it frequently.
+
+### Critical Rules
+
+1. **Do only what the bead asks** - Nothing more. No "helpful" extras, no refactoring nearby code, no adding features that weren't requested.
+
+2. **Stay in your domain** - You own specific files/packages. Don't touch anything else.
+
+3. **Follow the 3-iteration rule** - If your test doesn't pass after 3 code-test-fix cycles, STOP. Mark the bead as `blocked`, document what you tried, and let the orchestrator reassess.
+
+4. **Update the bead as you work** - Log progress so if your session dies, we know where you were.
+
+5. **Test before committing** - Never commit code that doesn't pass tests.
+
+---
+
+## Session Start - MANDATORY
+
+### Must Read
+
+| Order | Document | Why |
+|-------|----------|-----|
+| 1 | This file | Entry point for sub-agents |
+| 2 | `workflows/beads.md` | Work tracking is mandatory |
+| 3 | `workflows/session.md` | Know how to end properly |
+| 4 | `standards/autonomy.md` | Know when to ask vs proceed |
+
+### Then Read Your Agent Context
+
+After reading the above, read your specific agent file:
+- `../agents/cli-dev.md`
+- `../agents/data-dev.md`
+- `../agents/ai-dev.md`
+- etc.
+
+---
+
+## Quick Reference
+
+| Task | Command |
+|------|---------|
+| Find work | `bd ready` |
+| Claim work | `bd update <id> --status=in_progress` |
+| Before ending | `git push` + `bd sync` |
+| Check status | `bd stats` |
+
+---
+
+## Read When Needed
+
+| Situation | Read |
+|-----------|------|
+| Writing Go code | `standards/go-patterns.md` |
+| Working on CLI/Gateway | `standards/architecture.md` |
+| Unsure what to work on | `workflows/priorities.md` |
+| Releasing CLI changes | `workflows/releases.md` |
+| **Deploying to dev02** | `workflows/deployment-checklist.md` |
+| Understanding system design | `../ARCHITECTURE.md` |
+| Deployment/connections | `../infrastructure.md` |
+| Writing tests | `standards/testing.md` |
+
+---
+
+## Document Index
+
+### Workflows (HOW to do things)
+
+| Document | Purpose |
+|----------|---------|
+| `workflows/beads.md` | Bead lifecycle, epic management, agent assignment |
+| `workflows/session.md` | Session close protocol, git workflow |
+| `workflows/releases.md` | CLI versioning and release process |
+| `workflows/priorities.md` | Finding work, priority guidelines |
+| `workflows/deployment-checklist.md` | **MANDATORY after deploying** - verification steps |
+
+### Standards (WHAT to follow)
+
+| Document | Purpose |
+|----------|---------|
+| `standards/go-patterns.md` | Lint-compliant patterns, error handling, HTTP patterns |
+| `standards/architecture.md` | CLI→Gateway→DB flow, gRPC contracts, proto locations |
+| `standards/autonomy.md` | When to proceed vs ask, architecture coordination |
+| `standards/testing.md` | **MANDATORY** - test rules, no t.Skip on failure, mocks |
+
+---
+
+## Domain Boundaries
+
+**You only write code for your domain.**
+
+If work is needed for another agent:
+
+```bash
+# Create handoff bead
+bd create --title="Handoff: description" --type=task
+bd update <id> --assignee=target-agent
+```
+
+**Never modify files outside your domain without explicit handoff.**
+
+---
+
+## Coordination Rules
+
+**NEVER:**
+- Work outside your agent domain without handoff bead
+- Exceed 30 minutes without documenting progress in bead
+- Modify ARCHITECTURE.md without user approval
+- Create infrastructure that duplicates existing systems
+- Add features, refactor code, or make "improvements" beyond what the bead asks
+- Continue past 3 failed test iterations - abandon and mark blocked instead
+
+**ALWAYS:**
+- Update beads with progress as you work
+- Create handoff beads when crossing domains
+- Document what and why in handoffs
+- Run tests before committing
+- Push to remote before ending
+- **Run `./scripts/verify-deployment.sh` after deploying to dev02**
+
+### The 3-Iteration Rule
+
+When working on a bead with a test:
+
+```
+write code → run test → FAIL → fix code → run test → FAIL → fix code → run test → FAIL → STOP
+```
+
+After 3 code-test-fix cycles without passing:
+1. **Stop working** - Don't keep trying
+2. **Mark bead as `blocked`** - `bd update <id> --status=blocked`
+3. **Document what you tried** - Add notes to the bead
+4. **Report back** - The orchestrator will reassess (maybe the bead was too big, instructions unclear, or you're missing context)
+
+---
+
+## Completion Checklist
+
+Before reporting complete:
+- [ ] Bead exists and is in_progress
+- [ ] Tests written for new functionality
+- [ ] Tests pass: `go test ./... -v`
+- [ ] Commits reference bead ID: `[pe-xxx]`
+- [ ] Bead closed with commit hash and summary
+- [ ] Handoff beads created if needed
+- [ ] Work pushed to remote
+- [ ] Git status shows "up to date with origin"
+- [ ] **If deployed: `./scripts/verify-deployment.sh` passes (exit 0 or 2)**
+
+---
+
+## Report Format
+
+When completing work, report:
+
+```markdown
+**Bead**: pe-xxx (closed)
+
+**Summary**: What was accomplished
+
+**Commits**: `abc1234`: description [pe-xxx]
+
+**Files Changed**: path/to/file.go
+
+**Tests**: Added/updated (or "N/A - no new functionality")
+
+**Handoffs**: Beads created for other agents (or "None")
+
+**Domain**: Confirmed work stayed within <agent> domain
+```

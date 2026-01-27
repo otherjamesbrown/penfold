@@ -57,9 +57,53 @@ penf update
 
 ## Gateway Deployment
 
-**When making changes to gateway code (`services/gateway/`, `pkg/tenant/`, etc.), you must deploy to dev02.**
+**When making changes to gateway code (`services/gateway/`, `pkg/`, `proto/`), you must deploy to dev02.**
 
-### 1. Cross-compile for Linux (from Mac)
+### MANDATORY: Deployment Verification
+
+**A deployment is NOT complete until verification passes.** Never mark a deployment task as done without running verification.
+
+```bash
+# Full deploy with automatic verification
+./scripts/deploy-gateway.sh
+
+# Or run verification separately
+./scripts/verify-deployment.sh
+```
+
+**Exit codes from verify-deployment.sh:**
+- `0` = All checks passed → Deployment complete
+- `1` = Critical failure → MUST rollback
+- `2` = Warnings only → May proceed with caution
+
+See `context/development/workflows/deployment-checklist.md` for the full checklist.
+
+### Quick Deploy (Recommended)
+
+```bash
+./scripts/deploy-gateway.sh
+```
+
+This script handles everything:
+1. Cross-compiles for Linux amd64
+2. Stops the running gateway
+3. Copies binary to dev02
+4. Starts with correct environment
+5. **Runs verification (smoke tests)**
+6. **Auto-rollback on failure**
+
+### Script Options
+
+```bash
+./scripts/deploy-gateway.sh           # Full deploy (build + deploy + restart)
+./scripts/deploy-gateway.sh --build   # Build only
+./scripts/deploy-gateway.sh --deploy  # Deploy only (use existing binary)
+./scripts/deploy-gateway.sh --status  # Check gateway status and logs
+```
+
+### Manual Steps (if needed)
+
+#### 1. Cross-compile for Linux (from Mac)
 
 ```bash
 cd services/gateway
@@ -68,24 +112,23 @@ GOOS=linux GOARCH=amd64 go build -o gateway-linux .
 
 **Important:** dev02 is Intel Linux (amd64), not ARM. A Mac-compiled binary won't work.
 
-### 2. Deploy to dev02
+#### 2. Deploy to dev02
 
 ```bash
 scp gateway-linux dev02:/home/james/penfold-gateway
 ```
 
-### 3. Restart gateway with correct environment
+#### 3. Restart gateway with correct environment
 
 ```bash
-ssh dev02 "PENFOLD_SERVICE_NAME=gateway \
+ssh dev02 "pkill penfold-gateway; sleep 2; \
+  PENFOLD_SERVICE_NAME=gateway \
   PENFOLD_DB_HOST=localhost \
-  PENFOLD_DB_PASSWORD=penfold2024 \
+  PENFOLD_DB_PASSWORD=<see secrets/.env.penfold> \
   nohup /home/james/penfold-gateway > /tmp/gateway.log 2>&1 &"
 ```
 
-**Note:** The password is in `~/github/otherjamesbrown/secrets/.env.penfold`
-
-### 4. Verify gateway started
+#### 4. Verify gateway started
 
 ```bash
 # Check process is running
@@ -105,7 +148,8 @@ ssh dev02 "tail -50 /tmp/gateway.log"
 | "Syntax error" on startup | Binary compiled for wrong platform | Cross-compile with `GOOS=linux GOARCH=amd64` |
 | "password authentication failed" | Wrong DB password | Check `secrets/.env.penfold` for correct password |
 | Connection refused on :5432 | DB host wrong | Use `PENFOLD_DB_HOST=localhost` (co-located) |
-| Gateway dies with SSH session | nohup not used properly | Use full nohup syntax with `</dev/null` |
+| Gateway dies with SSH session | nohup not used properly | Use full nohup syntax |
+| Service not found (gRPC) | Gateway not redeployed after proto changes | Run `./scripts/deploy-gateway.sh` |
 
 ---
 

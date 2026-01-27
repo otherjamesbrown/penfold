@@ -110,12 +110,30 @@ func (db *TestDB) TruncateAllTables(t *testing.T) {
 }
 
 // TruncateTables truncates specific tables.
+// Tables that don't exist are silently skipped with a warning.
 func (db *TestDB) TruncateTables(t *testing.T, tables ...string) {
 	t.Helper()
 
 	ctx := context.Background()
 	for _, table := range tables {
-		_, err := db.Pool.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table))
+		// Check if table exists first
+		var exists bool
+		err := db.Pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.tables
+				WHERE table_name = $1
+			)
+		`, table).Scan(&exists)
+		if err != nil {
+			t.Logf("Warning: could not check if table %s exists: %v", table, err)
+			continue
+		}
+		if !exists {
+			t.Logf("Warning: table %s does not exist, skipping truncate", table)
+			continue
+		}
+
+		_, err = db.Pool.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table))
 		require.NoError(t, err, "failed to truncate table %s", table)
 	}
 }

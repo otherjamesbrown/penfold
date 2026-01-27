@@ -1,0 +1,248 @@
+name: Deployment Verification
+
+on:
+  # Manual trigger for post-deployment verification
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to verify'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+      gateway_host:
+        description: 'Gateway host (optional, uses default for environment)'
+        required: false
+        type: string
+      quick_check:
+        description: 'Run quick health check only'
+        required: false
+        default: false
+        type: boolean
+
+  # Can be called from other workflows (e.g., after deploy)
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment to verify'
+        required: true
+        type: string
+      gateway_host:
+        description: 'Gateway host'
+        required: false
+        type: string
+    secrets:
+      PENFOLD_DB_PASSWORD:
+        required: false
+
+env:
+  GO_VERSION: "1.22"
+
+jobs:
+  verify-gateway:
+    name: Verify Gateway (${{ inputs.environment }})
+    runs-on: [self-hosted, macos, ARM64]
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: "**/go.sum"
+
+      - name: Determine environment settings
+        id: env-config
+        run: |
+          case "${{ inputs.environment }}" in
+            dev)
+              echo "gateway_host=dev02.brown.chat" >> $GITHUB_OUTPUT
+              echo "gateway_http_port=8080" >> $GITHUB_OUTPUT
+              echo "worker_host=dev01.brown.chat" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "gateway_host=staging.penfold.dev" >> $GITHUB_OUTPUT
+              echo "gateway_http_port=8080" >> $GITHUB_OUTPUT
+              echo "worker_host=staging-worker.penfold.dev" >> $GITHUB_OUTPUT
+              ;;
+            production)
+              echo "gateway_host=api.penfold.dev" >> $GITHUB_OUTPUT
+              echo "gateway_http_port=8080" >> $GITHUB_OUTPUT
+              echo "worker_host=worker.penfold.dev" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+          # Override with input if provided
+          if [[ -n "${{ inputs.gateway_host }}" ]]; then
+            echo "gateway_host=${{ inputs.gateway_host }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build CLI
+        run: |
+          cd cmd/penf
+          go build -o penf .
+          sudo mv penf /usr/local/bin/
+
+      - name: Run quick verification
+        if: ${{ inputs.quick_check == true }}
+        env:
+          GATEWAY_HOST: ${{ steps.env-config.outputs.gateway_host }}
+          GATEWAY_HTTP_PORT: ${{ steps.env-config.outputs.gateway_http_port }}
+        run: |
+          ./scripts/verify-deployment.sh --quick
+
+      - name: Run full verification
+        if: ${{ inputs.quick_check != true }}
+        env:
+          GATEWAY_HOST: ${{ steps.env-config.outputs.gateway_host }}
+          GATEWAY_HTTP_PORT: ${{ steps.env-config.outputs.gateway_http_port }}
+          WORKER_HOST: ${{ steps.env-config.outputs.worker_host }}
+          PENFOLD_DB_PASSWORD: ${{ secrets.PENFOLD_DB_PASSWORD }}
+        run: |
+          ./scripts/verify-deployment.sh --gateway
+
+      - name: Export verification results (JSON)
+        if: always()
+        env:
+          GATEWAY_HOST: ${{ steps.env-config.outputs.gateway_host }}
+          GATEWAY_HTTP_PORT: ${{ steps.env-config.outputs.gateway_http_port }}
+        run: |
+          mkdir -p verification-results
+          ./scripts/verify-deployment.sh --gateway --output json > verification-results/gateway.json || true
+          cat verification-results/gateway.json
+
+      - name: Upload verification results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-results-${{ inputs.environment }}
+          path: verification-results/
+          retention-days: 30
+
+  verify-worker:
+    name: Verify Worker (${{ inputs.environment }})
+    runs-on: [self-hosted, macos, ARM64]
+    timeout-minutes: 10
+    if: ${{ inputs.quick_check != true }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine environment settings
+        id: env-config
+        run: |
+          case "${{ inputs.environment }}" in
+            dev)
+              echo "worker_host=dev01.brown.chat" >> $GITHUB_OUTPUT
+              echo "worker_port=8085" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "worker_host=staging-worker.penfold.dev" >> $GITHUB_OUTPUT
+              echo "worker_port=8085" >> $GITHUB_OUTPUT
+              ;;
+            production)
+              echo "worker_host=worker.penfold.dev" >> $GITHUB_OUTPUT
+              echo "worker_port=8085" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Run worker verification
+        env:
+          WORKER_HOST: ${{ steps.env-config.outputs.worker_host }}
+          WORKER_PORT: ${{ steps.env-config.outputs.worker_port }}
+        run: |
+          ./scripts/verify-deployment.sh --worker
+
+      - name: Export verification results (JSON)
+        if: always()
+        env:
+          WORKER_HOST: ${{ steps.env-config.outputs.worker_host }}
+          WORKER_PORT: ${{ steps.env-config.outputs.worker_port }}
+        run: |
+          mkdir -p verification-results
+          ./scripts/verify-deployment.sh --worker --output json > verification-results/worker.json || true
+          cat verification-results/worker.json
+
+      - name: Upload verification results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-results-worker-${{ inputs.environment }}
+          path: verification-results/
+          retention-days: 30
+
+  summary:
+    name: Verification Summary
+    runs-on: ubuntu-latest
+    needs: [verify-gateway, verify-worker]
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-results
+
+      - name: Generate summary
+        run: |
+          echo "## Deployment Verification Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Gateway results
+          if [[ -f "all-results/verification-results-${{ inputs.environment }}/gateway.json" ]]; then
+            echo "### Gateway" >> $GITHUB_STEP_SUMMARY
+            status=$(jq -r '.status' "all-results/verification-results-${{ inputs.environment }}/gateway.json")
+            case "$status" in
+              pass) echo "Status: :white_check_mark: **PASSED**" >> $GITHUB_STEP_SUMMARY ;;
+              warning) echo "Status: :warning: **WARNINGS**" >> $GITHUB_STEP_SUMMARY ;;
+              critical_failure) echo "Status: :x: **FAILED**" >> $GITHUB_STEP_SUMMARY ;;
+            esac
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Worker results
+          if [[ -f "all-results/verification-results-worker-${{ inputs.environment }}/worker.json" ]]; then
+            echo "### Worker" >> $GITHUB_STEP_SUMMARY
+            status=$(jq -r '.status' "all-results/verification-results-worker-${{ inputs.environment }}/worker.json")
+            case "$status" in
+              pass) echo "Status: :white_check_mark: **PASSED**" >> $GITHUB_STEP_SUMMARY ;;
+              warning) echo "Status: :warning: **WARNINGS**" >> $GITHUB_STEP_SUMMARY ;;
+              critical_failure) echo "Status: :x: **FAILED**" >> $GITHUB_STEP_SUMMARY ;;
+            esac
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check for failures
+        run: |
+          gateway_status=""
+          worker_status=""
+
+          if [[ -f "all-results/verification-results-${{ inputs.environment }}/gateway.json" ]]; then
+            gateway_status=$(jq -r '.status' "all-results/verification-results-${{ inputs.environment }}/gateway.json")
+          fi
+
+          if [[ -f "all-results/verification-results-worker-${{ inputs.environment }}/worker.json" ]]; then
+            worker_status=$(jq -r '.status' "all-results/verification-results-worker-${{ inputs.environment }}/worker.json")
+          fi
+
+          if [[ "$gateway_status" == "critical_failure" ]] || [[ "$worker_status" == "critical_failure" ]]; then
+            echo "::error::Deployment verification failed with critical errors"
+            exit 1
+          fi
+
+          if [[ "$gateway_status" == "warning" ]] || [[ "$worker_status" == "warning" ]]; then
+            echo "::warning::Deployment verification completed with warnings"
+          fi
+
+          echo "Deployment verification completed successfully"

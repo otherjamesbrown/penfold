@@ -62,8 +62,8 @@ func (r *Repository) Create(ctx context.Context, input TenantInput) (*Tenant, er
 
 	var tenant Tenant
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO tenants (display_name, slug, description, is_active, settings, name, owner_email)
-		VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+		INSERT INTO tenants (id, display_name, slug, description, is_active, settings, name, owner_email)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5::jsonb, $6, $7)
 		RETURNING id::text, display_name, slug, COALESCE(description, ''), is_active, COALESCE(settings::text, '{}'), created_at, updated_at
 	`,
 		input.Name,

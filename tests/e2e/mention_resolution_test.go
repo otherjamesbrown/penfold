@@ -36,8 +36,7 @@ func TestMentionResolution_AfterIngestion(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "mention-resolution-test")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest command failed (exit code %d) - ensure services are running. Stderr: %s",
-			result.ExitCode, result.Stderr)
+		t.Fatalf("Ingest command failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	t.Logf("Ingest completed in %v", result.Duration)
@@ -316,7 +315,7 @@ func TestMentionResolution_EntityAffinity(t *testing.T) {
 	result := env.CLI.Run(ctx, "ingest", "email", emailPath, "--source", "affinity-test")
 
 	if result.ExitCode != 0 {
-		t.Skipf("Ingest command failed (exit code %d) - ensure services are running", result.ExitCode)
+		t.Fatalf("Ingest command failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	// Allow time for processing

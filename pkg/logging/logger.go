@@ -314,3 +314,20 @@ func MustGlobal() Logger {
 	}
 	return global
 }
+
+// nopLogger is a logger that discards all output.
+type nopLogger struct{}
+
+func (n *nopLogger) Debug(msg string, fields ...Field)       {}
+func (n *nopLogger) Info(msg string, fields ...Field)        {}
+func (n *nopLogger) Warn(msg string, fields ...Field)        {}
+func (n *nopLogger) Error(msg string, fields ...Field)       {}
+func (n *nopLogger) With(fields ...Field) Logger             { return n }
+func (n *nopLogger) WithContext(ctx context.Context) Logger  { return n }
+func (n *nopLogger) Zerolog() zerolog.Logger                 { return zerolog.Nop() }
+
+// NewNopLogger returns a logger that discards all output.
+// Useful for testing when you don't want log noise.
+func NewNopLogger() Logger {
+	return &nopLogger{}
+}
