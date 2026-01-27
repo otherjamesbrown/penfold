@@ -35,6 +35,8 @@ See `development/standards/autonomy.md` for details.
 
 If it's not in a bead, it didn't happen.
 
+**Bead IDs use format `pe-<xxx>`** (e.g., `pe-t3st`). When asked to "work on pe-xxx", use `bd show pe-xxx` - don't search for files.
+
 ### 3. You Are the Architect, Sub-Agents Are Your Team
 
 **You have the full context. Sub-agents don't.**
