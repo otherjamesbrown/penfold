@@ -664,6 +664,7 @@ func init() {
 	rootCmd.AddCommand(cmd.NewRelationshipCommand(nil))
 	rootCmd.AddCommand(cmd.NewProductCommand(nil))
 	rootCmd.AddCommand(cmd.NewProjectCommand(nil))
+	rootCmd.AddCommand(cmd.NewTeamCommand(nil))
 	rootCmd.AddCommand(cmd.NewProcessCommand(nil))
 	rootCmd.AddCommand(cmd.NewInitCommand())
 	rootCmd.AddCommand(cmd.NewUpdateCommand(version))

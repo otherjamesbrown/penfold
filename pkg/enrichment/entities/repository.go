@@ -477,6 +477,78 @@ func (r *Repository) GetTeamMembers(ctx context.Context, teamID int64) ([]TeamMe
 	return members, rows.Err()
 }
 
+// ListTeams retrieves teams with optional filtering.
+func (r *Repository) ListTeams(ctx context.Context, tenantID, nameSearch string, limit, offset int) ([]*Team, error) {
+	query := `
+		SELECT id, tenant_id, name, description, created_at, updated_at
+		FROM teams
+		WHERE tenant_id = $1
+		  AND ($2 = '' OR LOWER(name) LIKE LOWER('%' || $2 || '%'))
+		ORDER BY name ASC
+		LIMIT $3 OFFSET $4
+	`
+
+	// Default limit if not specified
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := r.pool.Query(ctx, query, tenantID, nameSearch, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list teams: %w", err)
+	}
+	defer rows.Close()
+
+	var teams []*Team
+	for rows.Next() {
+		t := &Team{}
+		var description *string
+		if err := rows.Scan(
+			&t.ID, &t.TenantID, &t.Name, &description, &t.CreatedAt, &t.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan team: %w", err)
+		}
+		if description != nil {
+			t.Description = *description
+		}
+		teams = append(teams, t)
+	}
+
+	return teams, rows.Err()
+}
+
+// RemoveTeamMember removes a member from a team.
+func (r *Repository) RemoveTeamMember(ctx context.Context, memberID int64) error {
+	query := `DELETE FROM team_members WHERE id = $1`
+
+	result, err := r.pool.Exec(ctx, query, memberID)
+	if err != nil {
+		return fmt.Errorf("failed to remove team member: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("team member not found: %d", memberID)
+	}
+
+	return nil
+}
+
+// DeleteTeam deletes a team by ID.
+func (r *Repository) DeleteTeam(ctx context.Context, teamID int64) error {
+	query := `DELETE FROM teams WHERE id = $1`
+
+	result, err := r.pool.Exec(ctx, query, teamID)
+	if err != nil {
+		return fmt.Errorf("failed to delete team: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("team not found: %d", teamID)
+	}
+
+	return nil
+}
+
 // ==================== Project Operations ====================
 
 // CreateProject creates a new project.

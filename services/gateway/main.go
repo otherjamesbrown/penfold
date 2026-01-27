@@ -29,6 +29,7 @@ import (
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
 	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
 	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
+	teamsv1 "github.com/otherjamesbrown/penfold/api/proto/teams/v1"
 	tenantv1 "github.com/otherjamesbrown/penfold/api/proto/tenant/v1"
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
@@ -64,6 +65,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/relationshipservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/reviewservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
+	"github.com/otherjamesbrown/penfold/services/gateway/teamsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/tenantservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/workflowservice"
 )
@@ -229,9 +231,11 @@ func main() {
 	logger.Info("Registered MentionsService")
 
 	// Register EntityService for bulk entity seeding.
+	// Note: tenantRepo is created here to allow tenant resolution in EntityService and later services.
+	tenantRepo := tenant.NewRepository(dbPool)
 	entityRepo := entities.NewRepository(dbPool, logger)
 	productRepo := products.NewRepository(dbPool, logger)
-	entitySvc := entityservice.NewService(entityRepo, productRepo, logger)
+	entitySvc := entityservice.NewService(entityRepo, productRepo, tenantRepo, logger)
 	entityv1.RegisterEntityServiceServer(grpcServer, entitySvc)
 	logger.Info("Registered EntityService")
 
@@ -247,12 +251,17 @@ func main() {
 	logger.Info("Registered ProductService")
 
 	// Register ProjectService for project CRUD and member management.
-	// Note: tenantRepo is created early to allow tenant resolution in multiple services.
-	tenantRepo := tenant.NewRepository(dbPool)
+	// Uses tenantRepo (created above for EntityService) for tenant slug-to-UUID resolution.
 	projectRepo := projects.NewRepository(dbPool, logger)
 	projectSvc := projectservice.NewService(projectRepo, entityRepo, tenantRepo, logger)
 	projectv1.RegisterProjectServiceServer(grpcServer, projectSvc)
 	logger.Info("Registered ProjectService")
+
+	// Register TeamsService for team CRUD and member management.
+	// Uses entityRepo (created above) for team operations and tenantRepo for tenant resolution.
+	teamsSvc := teamsservice.NewService(entityRepo, tenantRepo, logger)
+	teamsv1.RegisterTeamsServiceServer(grpcServer, teamsSvc)
+	logger.Info("Registered TeamsService")
 
 	// Register IngestService for email and meeting ingestion.
 	// Uses tenantRepo (created above) for tenant slug-to-UUID resolution.
@@ -291,8 +300,9 @@ func main() {
 	logger.Info("Registered TenantService")
 
 	// Register RelationshipService for knowledge graph operations.
+	// Uses tenantRepo (created above) for tenant slug-to-UUID resolution.
 	relationshipRepo := relationships.NewRepository(dbPool, logger)
-	relationshipSvc := relationshipservice.NewService(relationshipRepo, logger)
+	relationshipSvc := relationshipservice.NewService(relationshipRepo, tenantRepo, logger)
 	relationshipv1.RegisterRelationshipServiceServer(grpcServer, relationshipSvc)
 	logger.Info("Registered RelationshipService")
 
