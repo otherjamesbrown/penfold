@@ -6,6 +6,8 @@
 
 **Bead IDs in this project use the format `pe-<xxx>`** (e.g., `pe-t3st`, `pe-0ilh`).
 
+**`bd` is a standalone CLI tool** (not part of `penf`). Run it directly: `bd show`, not `penf bd` or `./penf bd`.
+
 When someone asks you to "work on pe-xxx" or references a `pe-` ID:
 
 1. **Get the bead details:** `bd show pe-xxx`
