@@ -1,47 +1,62 @@
 # Mail Check
 
-Check inbox for new messages and propose actions.
+Check inbox for new messages and propose actions using Context-Palace.
+
+## Configuration
+
+```yaml
+AGENT_NAME: agent-penfdev
+PROJECT: penfold
+DB_HOST: dev02.brown.chat
+DB_NAME: contextpalace
+DB_USER: penfold
+```
 
 ## Instructions
 
-### Step 1: Register Identity
+### Step 1: Check Inbox
 
-Register with agent-mail as RusticDesert:
+Fetch unread messages from Context-Palace:
 
-```
-mcp__agent-mail__register_agent(
-  project_key: "/Users/james/github/otherjamesbrown/penfold",
-  name: "RusticDesert",
-  program: "claude-code",
-  model: <your model>,
-  task_description: "Checking mail"
-)
+```sql
+SELECT * FROM unread_for('penfold', '<AGENT_NAME>');
 ```
 
-### Step 2: Fetch Inbox
+For full content:
 
-Fetch recent messages:
-
+```sql
+SELECT s.id, s.title, s.content, s.creator, s.created_at, s.type,
+       array_agg(DISTINCT l.label) as labels
+FROM unread_for('penfold', '<AGENT_NAME>') u
+JOIN shards s ON s.id = u.id
+LEFT JOIN labels l ON l.shard_id = s.id
+GROUP BY s.id, s.title, s.content, s.creator, s.created_at, s.type
+ORDER BY s.created_at;
 ```
-mcp__agent-mail__fetch_inbox(
-  project_key: "/Users/james/github/otherjamesbrown/penfold",
-  agent_name: "RusticDesert",
-  limit: 20,
-  include_bodies: true
-)
+
+### Step 2: Check Tasks
+
+Also check for assigned tasks:
+
+```sql
+-- Your tasks
+SELECT * FROM tasks_for('penfold', '<AGENT_NAME>');
+
+-- Claimable tasks
+SELECT * FROM ready_tasks('penfold');
 ```
 
 ### Step 3: Categorize Messages
 
-For each message, determine:
+For each message, determine category from JSON frontmatter or content:
 
-| Category | Description | Typical Action |
-|----------|-------------|----------------|
-| **Bug Report** | Something is broken | Create P1/P2 bead |
-| **Feature Request** | New functionality needed | Create P2/P3 bead |
-| **Question** | Needs information/clarification | Reply with answer |
-| **Status Update** | FYI, completion notice | Acknowledge only |
-| **Blocker** | Urgent, blocking work | Create P0 bead |
+| Category | JSON type | Typical Action |
+|----------|-----------|----------------|
+| **Bug Report** | `bug` | Create task P1/P2 |
+| **Feature Request** | `feature` | Create task P2/P3 |
+| **Question** | `question` | Reply with answer |
+| **Status Update** | `status` | Acknowledge only |
+| **Blocker** | `bug` + severity:blocking | Create task P0 |
 
 ### Step 4: Build Summary
 
@@ -49,17 +64,18 @@ Present a summary table:
 
 ```
 ═══════════════════════════════════════════════════════════════
- INBOX SUMMARY - RusticDesert
+ INBOX SUMMARY - <AGENT_NAME>
 ═══════════════════════════════════════════════════════════════
 
- Messages: X new, Y total
+ Messages: X new
+ Tasks: Y assigned, Z claimable
 
- # | From      | Subject                    | Category   | Proposed Action
-───┼───────────┼────────────────────────────┼────────────┼─────────────────
- 1 | RedWolf   | Bug: login fails           | Bug        | Create bead P1
- 2 | RedWolf   | Add dark mode              | Feature    | Create bead P3
- 3 | JadeMeadow| Refactor complete          | Status     | Acknowledge
- 4 | RedWolf   | How does X work?           | Question   | Reply with answer
+ # | From       | Subject                    | Category   | Proposed Action
+───┼────────────┼────────────────────────────┼────────────┼─────────────────
+ 1 | agent-penf | Bug: login fails           | Bug        | Create task P1
+ 2 | agent-penf | Add dark mode              | Feature    | Create task P3
+ 3 | agent-test | Refactor complete          | Status     | Acknowledge
+ 4 | agent-penf | How does X work?           | Question   | Reply with answer
 
 ═══════════════════════════════════════════════════════════════
 ```
@@ -70,20 +86,19 @@ For each actionable message, provide details:
 
 ```
 ───────────────────────────────────────────────────────────────
-MESSAGE #1: Bug: login fails
+MESSAGE #1: Bug: login fails (pf-xxx)
 ───────────────────────────────────────────────────────────────
-From: RedWolf
+From: agent-penf
 Category: Bug Report
 Priority: P1 (blocks user workflow)
-Agent: cli-dev (work in cmd/penf/)
 
 Summary: [1-2 sentence summary of the issue]
 
 Proposed Action:
-  → Create bead: "fix: login authentication failure"
-  → Labels: bug, auth, cli
-  → Assign to: cli-dev agent
-  → Reply: "Created bead pe-XXXX, assigning to cli-dev agent."
+  → Create task: "fix: login authentication failure"
+  → Priority: 1
+  → Link to message with discovered-from edge
+  → Reply: "Created task pf-XXXX, investigating."
 
 ───────────────────────────────────────────────────────────────
 ```
@@ -95,8 +110,8 @@ Use AskUserQuestion to get approval:
 **Question:** "How should I proceed with these messages?"
 
 **Options:**
-1. **Process all** - Create beads and send replies (no execution)
-2. **Process and execute** - Create beads, spawn agents, execute, reply when done
+1. **Process all** - Create tasks and send replies
+2. **Process and execute** - Create tasks, spawn agents, execute, reply when done
 3. **Review one by one** - Confirm each action individually
 4. **Skip for now** - Don't take any actions
 
@@ -104,34 +119,59 @@ Use AskUserQuestion to get approval:
 
 ---
 
-## Option A: Process All (Create beads, reply, no execution)
+## Option A: Process All (Create tasks, reply, no execution)
 
 For each actionable message:
 
-1. **Create bead** using correct syntax:
-   ```bash
-   bd create "<type>: <title>" \
-     --priority <P0|P1|P2|P3> \
-     --label <label1> \
-     --label <label2> \
-     --description "<context from the message>"
-   ```
+1. **Mark as read**:
+```sql
+SELECT mark_read(ARRAY['<MESSAGE_ID>'], '<AGENT_NAME>');
+```
 
-2. **Reply to sender**:
-   ```
-   mcp__agent-mail__reply_message(
-     project_key: "/Users/james/github/otherjamesbrown/penfold",
-     message_id: <id>,
-     sender_name: "RusticDesert",
-     to: ["<sender_name>"],
-     body_md: "## Acknowledged\n\n<summary>\n\n### Bead Created\n| Bead | Title | Priority |\n|------|-------|----------|\n| **pe-XXXX** | <title> | <priority> |\n\nWill update you when resolved."
-   )
-   ```
+2. **Create task** using helper:
+```sql
+SELECT create_task_from(
+  'penfold',
+  '<AGENT_NAME>',
+  '<MESSAGE_ID>',
+  '<type>: <title>',
+  '<description from message>',
+  <priority>,
+  '<AGENT_NAME>'
+);
+```
 
-3. **Acknowledge message**:
-   ```
-   mcp__agent-mail__acknowledge_message(...)
-   ```
+3. **Reply to sender**:
+```sql
+SELECT send_message(
+  'penfold',
+  '<AGENT_NAME>',
+  ARRAY['<SENDER>'],
+  'Re: <SUBJECT>',
+  $body$
+{
+  "poll_hint": "done",
+  "type": "ack"
+}
+
+## Acknowledged
+
+<summary>
+
+### Task Created
+| Task | Title | Priority |
+|------|-------|----------|
+| **pf-XXXX** | <title> | P<n> |
+
+Will update you when resolved.
+
+-- <AGENT_NAME>
+$body$,
+  NULL,
+  'ack',
+  '<MESSAGE_ID>'
+);
+```
 
 ---
 
@@ -139,7 +179,7 @@ For each actionable message:
 
 For each actionable message:
 
-1. **Create bead** (same as Option A)
+1. **Create task** (same as Option A)
 
 2. **Determine agent** based on domain:
 
@@ -153,60 +193,131 @@ For each actionable message:
    | Gateway services | `gateway-dev` | gRPC, `services/gateway/` |
    | Complex investigation | `debugger` | Unknown cause, >30 min |
 
-3. **Reply with assignment**:
-   ```
-   mcp__agent-mail__reply_message(
-     ...
-     body_md: "## In Progress\n\nCreated bead **pe-XXXX** and assigned to **<agent>** agent.\n\nWill update you when complete."
-   )
-   ```
+3. **Assign task**:
+```sql
+UPDATE shards SET owner = '<agent-name>' WHERE id = '<TASK_ID>';
+```
 
-4. **Spawn agent** using Task tool:
-   ```
-   Task(
-     subagent_type: "general-purpose",
-     prompt: "You are the <agent-name> agent. Read context/agents/<agent-name>.md first.
+4. **Reply with assignment**:
+```sql
+SELECT send_message(
+  'penfold',
+  '<AGENT_NAME>',
+  ARRAY['<SENDER>'],
+  'Re: <SUBJECT>',
+  $body$
+{
+  "poll_hint": "continue",
+  "type": "ack"
+}
 
-     Work on bead pe-XXXX: <title>
+## In Progress
 
-     Context from client (RedWolf):
-     <paste message body>
+Created task **pf-XXXX** and assigned to **<agent>** agent.
 
-     Requirements:
-     1. Claim the bead: bd update pe-XXXX --status=in_progress
-     2. Implement the fix/feature
-     3. Test your changes
-     4. Close the bead: bd close pe-XXXX
-     5. Return a summary of what you did and any client actions needed
+Will update you when complete.
 
-     If CLI changes: bump version in cmd/penf/VERSION and push to trigger release.",
-     description: "<agent>: pe-XXXX"
-   )
-   ```
+-- <AGENT_NAME>
+$body$,
+  NULL,
+  'ack',
+  '<MESSAGE_ID>'
+);
+```
 
-5. **After agent completes**, reply to client with results:
-   ```
-   mcp__agent-mail__reply_message(
-     ...
-     body_md: "## Resolved: <title>\n\n### What Was Done\n<agent summary>\n\n### Client Action\n<if needed: 'Run `penf update` to get the fix' or 'Just retry the command'>\n\n### Bead\n**pe-XXXX** - Closed"
-   )
-   ```
+5. **Spawn agent** using Task tool:
+```
+Task(
+  subagent_type: "<agent-type>",
+  prompt: "You are the <agent-name> agent.
+
+  Work on task pf-XXXX: <title>
+
+  Context from reporter:
+  <paste message body>
+
+  Requirements:
+  1. Investigate and fix the issue
+  2. Test your changes
+  3. Close the task when done
+  4. Return a summary of what you did
+
+  Close task when done:
+  UPDATE shards SET status = 'closed', closed_at = NOW(),
+    closed_reason = 'Done: <summary>' WHERE id = 'pf-XXXX';",
+  description: "<agent>: pf-XXXX"
+)
+```
+
+6. **After agent completes**, reply to reporter:
+```sql
+SELECT send_message(
+  'penfold',
+  '<AGENT_NAME>',
+  ARRAY['<SENDER>'],
+  'Resolved: <SUBJECT>',
+  $body$
+{
+  "poll_hint": "done",
+  "type": "resolution"
+}
+
+## Resolved: <title>
+
+### What Was Done
+<agent summary>
+
+### Verification
+<if needed: command to verify>
+
+### Task
+**pf-XXXX** - Closed
+
+-- <AGENT_NAME>
+$body$,
+  NULL,
+  'resolution',
+  '<MESSAGE_ID>'
+);
+
+-- Link bug to fix
+SELECT link('<MESSAGE_ID>', '<TASK_ID>', 'fixed-by');
+```
 
 ---
 
-## Bead Creation Reference
+## Task Creation Reference
 
-**IMPORTANT: Use `bd create`, NOT `bd add`**
+### Using create_task_from()
 
-### Syntax
-```bash
-bd create "<type>: <title>" \
-  --priority <priority> \
-  --label <label> \
-  --description "<description>"
+```sql
+SELECT create_task_from(
+  'penfold',           -- project
+  'agent-penfdev',     -- creator
+  'pf-xxx',            -- source message ID
+  'fix: <title>',      -- task title
+  '<description>',     -- task description
+  1,                   -- priority (0-3)
+  'agent-penfdev'      -- owner (optional)
+);
 ```
 
+This automatically:
+- Creates task shard
+- Adds `discovered-from` edge to source
+- Copies relevant labels from source
+
+### Priority Mapping
+
+| Severity | Priority | Meaning |
+|----------|----------|---------|
+| blocking | 0 | Drop everything |
+| high | 1 | Do today |
+| medium | 2 | This week |
+| low | 3 | Backlog |
+
 ### Type Prefixes
+
 | Type | Usage |
 |------|-------|
 | `fix:` | Bug fixes |
@@ -214,24 +325,6 @@ bd create "<type>: <title>" \
 | `refactor:` | Code improvements |
 | `docs:` | Documentation |
 | `chore:` | Maintenance tasks |
-
-### Priority Mapping
-| Mail Importance | Bead Priority | Meaning |
-|-----------------|---------------|---------|
-| urgent | P0 | Drop everything |
-| high | P1 | Do today |
-| normal | P2 | This week |
-| low | P3 | Backlog |
-
-### Example
-```bash
-bd create "fix: ingest job tenant_id UUID resolution" \
-  --priority P1 \
-  --label bug \
-  --label ingest \
-  --label gateway \
-  --description "Ingest job creation passes tenant slug to UUID column. Apply same tenant resolution pattern used in ProjectService."
-```
 
 ---
 
@@ -245,18 +338,17 @@ After processing, show what was done:
 ═══════════════════════════════════════════════════════════════
 
  Processed: X messages
- Beads created: Y
+ Tasks created: Y
  Agents spawned: Z (if execute mode)
  Replies sent: W
- Acknowledged: V
 
- New Beads:
-   pe-XXXX  fix: <title>                              P1  [cli-dev]
-   pe-YYYY  feat: <title>                             P2  [data-dev]
+ New Tasks:
+   pf-XXXX  fix: <title>                              P1  [cli-dev]
+   pf-YYYY  feat: <title>                             P2  [data-dev]
 
  Agent Results: (if execute mode)
-   ✓ cli-dev completed pe-XXXX - client action: run `penf update`
-   ✓ data-dev completed pe-YYYY - no client action needed
+   ✓ cli-dev completed pf-XXXX - verification: run `penf version`
+   ✓ data-dev completed pf-YYYY - no action needed
 
 ═══════════════════════════════════════════════════════════════
 ```
@@ -265,10 +357,9 @@ After processing, show what was done:
 
 ## Notes
 
-- **Thread awareness**: If multiple messages are in the same thread, summarize the thread context before proposing action
-- **Don't duplicate**: Check if a bead already exists for the issue before proposing a new one (`bd search "<keywords>"`)
-- **Importance mapping**: Mail importance → bead priority (urgent=P0, high=P1, normal=P2, low=P3)
-- **Status updates**: Messages that are just "completed" or "FYI" only need acknowledgment, not beads
-- **Always specify `to`**: When using reply_message, always include explicit `to: ["<recipient>"]`
-- **Version bumps**: After CLI changes, bump `cmd/penf/VERSION` and push to trigger release
-- **Client notifications**: After releases, tell client to run `penf update`
+- **Use Context-Palace SQL**, not agent-mail MCP functions
+- **Parse JSON frontmatter** to get message type and severity
+- **Thread awareness**: Use `get_thread('pf-xxx')` to see conversation context
+- **Don't duplicate**: Search before creating: `SELECT * FROM shards WHERE project = 'penfold' AND type = 'task' AND title ILIKE '%keyword%';`
+- **Mark as read**: Use `mark_read()` after processing each message
+- **Always link**: Use `discovered-from` edge between tasks and source messages
