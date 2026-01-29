@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,6 +90,95 @@ func expandPath(path string) string {
 	return path
 }
 
+// ContextPalaceConfig holds Context-Palace database connection settings.
+type ContextPalaceConfig struct {
+	// Host is the database server hostname.
+	Host string `yaml:"host,omitempty"`
+
+	// Port is the database server port (default: 5432).
+	Port int `yaml:"port,omitempty"`
+
+	// Database is the database name.
+	Database string `yaml:"database,omitempty"`
+
+	// User is the database username.
+	User string `yaml:"user,omitempty"`
+
+	// SSLMode is the SSL connection mode (disable, require, verify-ca, verify-full).
+	SSLMode string `yaml:"sslmode,omitempty"`
+
+	// SSLRootCert is the path to the SSL root certificate file.
+	// Defaults to ~/.postgresql/root.crt if not specified and sslmode requires verification.
+	SSLRootCert string `yaml:"sslrootcert,omitempty"`
+
+	// Project is the Context-Palace project name for this CLI.
+	Project string `yaml:"project,omitempty"`
+
+	// Agent is the agent identity for logging commands.
+	Agent string `yaml:"agent,omitempty"`
+}
+
+// ConnectionString returns the PostgreSQL connection string for Context-Palace.
+// Returns empty string if Context-Palace is not configured.
+func (c *ContextPalaceConfig) ConnectionString() string {
+	if c == nil || c.Host == "" || c.Database == "" || c.User == "" {
+		return ""
+	}
+
+	port := c.Port
+	if port == 0 {
+		port = 5432
+	}
+
+	sslmode := c.SSLMode
+	if sslmode == "" {
+		sslmode = "require"
+	}
+
+	connStr := fmt.Sprintf("host=%s port=%d dbname=%s user=%s sslmode=%s",
+		c.Host, port, c.Database, c.User, sslmode)
+
+	// Add sslrootcert if SSL verification is required.
+	if sslmode == "verify-ca" || sslmode == "verify-full" {
+		sslrootcert := c.SSLRootCert
+		if sslrootcert == "" {
+			// Default to ~/.postgresql/root.crt
+			if home, err := os.UserHomeDir(); err == nil {
+				defaultCert := filepath.Join(home, ".postgresql", "root.crt")
+				if _, err := os.Stat(defaultCert); err == nil {
+					sslrootcert = defaultCert
+				}
+			}
+		}
+		if sslrootcert != "" {
+			connStr += fmt.Sprintf(" sslrootcert=%s", sslrootcert)
+		}
+	}
+
+	return connStr
+}
+
+// IsConfigured returns true if Context-Palace is configured with required fields.
+func (c *ContextPalaceConfig) IsConfigured() bool {
+	return c != nil && c.Host != "" && c.Database != "" && c.User != ""
+}
+
+// GetProject returns the project name, defaulting to "penfold".
+func (c *ContextPalaceConfig) GetProject() string {
+	if c == nil || c.Project == "" {
+		return "penfold"
+	}
+	return c.Project
+}
+
+// GetAgent returns the agent name, defaulting to "agent-penfdev".
+func (c *ContextPalaceConfig) GetAgent() string {
+	if c == nil || c.Agent == "" {
+		return "agent-penfdev"
+	}
+	return c.Agent
+}
+
 // CLIConfig holds the CLI configuration settings.
 type CLIConfig struct {
 	// ServerAddress is the address of the API Gateway (host:port).
@@ -121,6 +211,9 @@ type CLIConfig struct {
 
 	// Insecure disables TLS verification (for development only).
 	Insecure bool `yaml:"insecure,omitempty"`
+
+	// ContextPalace holds Context-Palace connection settings for command logging.
+	ContextPalace *ContextPalaceConfig `yaml:"context_palace,omitempty"`
 
 	// TLS contains the TLS/mTLS configuration settings.
 	TLS TLSConfig `yaml:"tls"`
@@ -200,16 +293,17 @@ func loadFromFile(cfg *CLIConfig, path string) error {
 
 	// We need a temp struct for unmarshaling duration as string.
 	type configFile struct {
-		ServerAddress        string            `yaml:"server_address"`
-		SearchServiceAddress string            `yaml:"search_service_address"`
-		Timeout              string            `yaml:"timeout"`
-		OutputFormat         OutputFormat      `yaml:"output_format"`
-		TenantID             string            `yaml:"tenant_id"`
-		TenantAliases        map[string]string `yaml:"tenant_aliases"`
-		InstallPath          string            `yaml:"install_path"`
-		Debug                bool              `yaml:"debug"`
-		Insecure             bool              `yaml:"insecure"`
-		TLS                  TLSConfig         `yaml:"tls"`
+		ServerAddress        string               `yaml:"server_address"`
+		SearchServiceAddress string               `yaml:"search_service_address"`
+		Timeout              string               `yaml:"timeout"`
+		OutputFormat         OutputFormat         `yaml:"output_format"`
+		TenantID             string               `yaml:"tenant_id"`
+		TenantAliases        map[string]string    `yaml:"tenant_aliases"`
+		InstallPath          string               `yaml:"install_path"`
+		Debug                bool                 `yaml:"debug"`
+		Insecure             bool                 `yaml:"insecure"`
+		ContextPalace        *ContextPalaceConfig `yaml:"context_palace"`
+		TLS                  TLSConfig            `yaml:"tls"`
 	}
 
 	var fileCfg configFile
@@ -241,6 +335,9 @@ func loadFromFile(cfg *CLIConfig, path string) error {
 	}
 	if fileCfg.InstallPath != "" {
 		cfg.InstallPath = fileCfg.InstallPath
+	}
+	if fileCfg.ContextPalace != nil {
+		cfg.ContextPalace = fileCfg.ContextPalace
 	}
 	cfg.Debug = fileCfg.Debug
 	cfg.Insecure = fileCfg.Insecure
@@ -309,6 +406,50 @@ func loadFromEnv(cfg *CLIConfig) {
 	if v := os.Getenv("PENF_TLS_SKIP_VERIFY"); v == "true" || v == "1" {
 		cfg.TLS.SkipVerify = true
 	}
+
+	// Context-Palace environment variables.
+	loadContextPalaceFromEnv(cfg)
+}
+
+// loadContextPalaceFromEnv overlays Context-Palace environment variables.
+func loadContextPalaceFromEnv(cfg *CLIConfig) {
+	// Check if any Context-Palace env vars are set.
+	host := os.Getenv("PENF_CONTEXT_PALACE_HOST")
+	database := os.Getenv("PENF_CONTEXT_PALACE_DATABASE")
+	user := os.Getenv("PENF_CONTEXT_PALACE_USER")
+
+	if host == "" && database == "" && user == "" {
+		return // No env vars set.
+	}
+
+	// Initialize if needed.
+	if cfg.ContextPalace == nil {
+		cfg.ContextPalace = &ContextPalaceConfig{}
+	}
+
+	if host != "" {
+		cfg.ContextPalace.Host = host
+	}
+	if database != "" {
+		cfg.ContextPalace.Database = database
+	}
+	if user != "" {
+		cfg.ContextPalace.User = user
+	}
+	if v := os.Getenv("PENF_CONTEXT_PALACE_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			cfg.ContextPalace.Port = port
+		}
+	}
+	if v := os.Getenv("PENF_CONTEXT_PALACE_SSLMODE"); v != "" {
+		cfg.ContextPalace.SSLMode = v
+	}
+	if v := os.Getenv("PENF_CONTEXT_PALACE_PROJECT"); v != "" {
+		cfg.ContextPalace.Project = v
+	}
+	if v := os.Getenv("PENF_CONTEXT_PALACE_AGENT"); v != "" {
+		cfg.ContextPalace.Agent = v
+	}
 }
 
 // Validate checks that the configuration is valid.
@@ -359,16 +500,17 @@ func SaveConfig(cfg *CLIConfig) error {
 
 	// Convert to YAML-friendly format with duration as string.
 	type configFile struct {
-		ServerAddress        string            `yaml:"server_address"`
-		SearchServiceAddress string            `yaml:"search_service_address,omitempty"`
-		Timeout              string            `yaml:"timeout"`
-		OutputFormat         OutputFormat      `yaml:"output_format"`
-		TenantID             string            `yaml:"tenant_id,omitempty"`
-		TenantAliases        map[string]string `yaml:"tenant_aliases,omitempty"`
-		InstallPath          string            `yaml:"install_path,omitempty"`
-		Debug                bool              `yaml:"debug,omitempty"`
-		Insecure             bool              `yaml:"insecure,omitempty"`
-		TLS                  TLSConfig         `yaml:"tls,omitempty"`
+		ServerAddress        string               `yaml:"server_address"`
+		SearchServiceAddress string               `yaml:"search_service_address,omitempty"`
+		Timeout              string               `yaml:"timeout"`
+		OutputFormat         OutputFormat         `yaml:"output_format"`
+		TenantID             string               `yaml:"tenant_id,omitempty"`
+		TenantAliases        map[string]string    `yaml:"tenant_aliases,omitempty"`
+		InstallPath          string               `yaml:"install_path,omitempty"`
+		Debug                bool                 `yaml:"debug,omitempty"`
+		Insecure             bool                 `yaml:"insecure,omitempty"`
+		ContextPalace        *ContextPalaceConfig `yaml:"context_palace,omitempty"`
+		TLS                  TLSConfig            `yaml:"tls,omitempty"`
 	}
 
 	fileCfg := configFile{
@@ -381,6 +523,7 @@ func SaveConfig(cfg *CLIConfig) error {
 		InstallPath:          cfg.InstallPath,
 		Debug:                cfg.Debug,
 		Insecure:             cfg.Insecure,
+		ContextPalace:        cfg.ContextPalace,
 		TLS:                  cfg.TLS,
 	}
 

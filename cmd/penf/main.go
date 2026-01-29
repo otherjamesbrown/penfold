@@ -3,11 +3,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +20,7 @@ import (
 	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/cmd"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
+	"github.com/otherjamesbrown/penfold/cmd/penf/contextpalace"
 )
 
 // Version information (set via ldflags at build time).
@@ -40,7 +44,23 @@ var (
 
 	// grpcClient is the shared gRPC client.
 	grpcClient *client.GRPCClient
+
+	// Command logging state.
+	cmdStartTime  time.Time
+	cmdOutputBuf  *bytes.Buffer
+	outputCapture *outputTee
 )
+
+// outputTee captures output while still writing to the original destination.
+type outputTee struct {
+	writer io.Writer
+	buffer *bytes.Buffer
+}
+
+func (t *outputTee) Write(p []byte) (n int, err error) {
+	t.buffer.Write(p)
+	return t.writer.Write(p)
+}
 
 // rootCmd represents the base command when called without any subcommands.
 var rootCmd = &cobra.Command{
@@ -72,6 +92,13 @@ FOR AI ASSISTANTS:
   - Use -o json for all commands when processing data
   - Use 'penf process <workflow> context' for batch operations`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Record start time for command logging.
+		cmdStartTime = time.Now()
+
+		// Set up output capture for command logging.
+		cmdOutputBuf = &bytes.Buffer{}
+		outputCapture = &outputTee{writer: os.Stdout, buffer: cmdOutputBuf}
+
 		// Skip initialization for commands that don't need it.
 		if cmd.Name() == "version" || cmd.Name() == "help" || cmd.Name() == "completion" {
 			return nil
@@ -99,6 +126,11 @@ FOR AI ASSISTANTS:
 		}
 		if insecure {
 			cfg.Insecure = true
+		}
+
+		// Set output capture on the command if Context-Palace is configured.
+		if cfg.ContextPalace != nil && cfg.ContextPalace.IsConfigured() {
+			cmd.SetOut(outputCapture)
 		}
 
 		return nil
@@ -673,6 +705,7 @@ func init() {
 	rootCmd.AddCommand(cmd.NewModelCommand(nil))
 	rootCmd.AddCommand(cmd.NewTraceCommand(nil))
 	rootCmd.AddCommand(cmd.NewCertCommand())
+	rootCmd.AddCommand(cmd.NewContextCommand(nil))
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)
@@ -698,9 +731,101 @@ func main() {
 		os.Exit(0)
 	}()
 
-	// Execute root command.
-	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	// Execute root command and capture the error for logging.
+	cmdErr := rootCmd.ExecuteContext(ctx)
+
+	// Log the command to Context-Palace (called here to capture both success and failure).
+	logCommandExecution(os.Args, cmdErr)
+
+	if cmdErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", cmdErr)
 		os.Exit(1)
 	}
+}
+
+// logCommandExecution logs the CLI command to Context-Palace.
+// This is best-effort - errors are logged to stderr but don't affect the command result.
+func logCommandExecution(args []string, cmdErr error) {
+	// Skip if config not loaded or Context-Palace not configured.
+	if cfg == nil || cfg.ContextPalace == nil || !cfg.ContextPalace.IsConfigured() {
+		return
+	}
+
+	// Skip logging for certain commands.
+	if len(args) > 1 {
+		cmd := args[1]
+		if cmd == "version" || cmd == "help" || cmd == "completion" || cmd == "context" {
+			return
+		}
+	}
+
+	// Calculate duration.
+	duration := time.Since(cmdStartTime)
+
+	// Build the command entry.
+	entry := &contextpalace.CommandEntry{
+		Command:     getCommandName(args),
+		Args:        getCommandArgs(args),
+		FullCommand: strings.Join(args, " "),
+		DurationMs:  int(duration.Milliseconds()),
+		Success:     cmdErr == nil,
+		TenantID:    cfg.TenantID,
+	}
+
+	// Capture error message if command failed.
+	if cmdErr != nil {
+		entry.ErrorMessage = cmdErr.Error()
+	}
+
+	// Capture response output.
+	if cmdOutputBuf != nil {
+		entry.Response = cmdOutputBuf.String()
+	}
+
+	// Connect to Context-Palace and log.
+	cpClient, err := contextpalace.NewClient(cfg.ContextPalace)
+	if err != nil {
+		if cfg.Debug {
+			fmt.Fprintf(os.Stderr, "Warning: failed to connect to Context-Palace: %v\n", err)
+		}
+		return
+	}
+	defer cpClient.Close()
+
+	logCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := cpClient.LogCommand(logCtx, entry); err != nil {
+		if cfg.Debug {
+			fmt.Fprintf(os.Stderr, "Warning: failed to log command to Context-Palace: %v\n", err)
+		}
+	}
+}
+
+// getCommandName extracts the command name from args (e.g., "search" from ["penf", "search", "query"]).
+func getCommandName(args []string) string {
+	if len(args) < 2 {
+		return "penf"
+	}
+	// Find the first non-flag argument after "penf".
+	for i := 1; i < len(args); i++ {
+		if !strings.HasPrefix(args[i], "-") {
+			return args[i]
+		}
+	}
+	return "penf"
+}
+
+// getCommandArgs extracts the arguments after the command name.
+func getCommandArgs(args []string) []string {
+	if len(args) < 3 {
+		return nil
+	}
+	// Find the command name index and return everything after it.
+	for i := 1; i < len(args); i++ {
+		if !strings.HasPrefix(args[i], "-") {
+			return args[i+1:]
+		}
+	}
+	return nil
 }
