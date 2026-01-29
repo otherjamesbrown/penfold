@@ -138,16 +138,20 @@ deploy_binary() {
 start_gateway() {
     log_info "Starting gateway on ${GATEWAY_HOST}..."
 
-    # Start with environment variables
+    # Start with environment variables (using mTLS for database)
     ssh "$GATEWAY_HOST" "PENFOLD_SERVICE_NAME=gateway \
-        PENFOLD_DB_HOST=localhost \
+        PENFOLD_DB_HOST=dev02.brown.chat \
         PENFOLD_DB_PORT=5432 \
         PENFOLD_DB_USER=penfold \
-        PENFOLD_DB_PASSWORD='${DB_PASSWORD}' \
         PENFOLD_DB_NAME=penfold \
+        PENFOLD_DB_SSL_MODE=verify-full \
+        PENFOLD_DB_SSL_CERT=/home/james/.postgresql/postgresql.crt \
+        PENFOLD_DB_SSL_KEY=/home/james/.postgresql/postgresql.key \
+        PENFOLD_DB_SSL_ROOT_CERT=/home/james/.postgresql/root.crt \
         GATEWAY_EMBEDDINGS_URL=http://dev01.brown.chat:8081 \
         GATEWAY_LLM_URL=http://dev01.brown.chat:8080 \
         GATEWAY_WORKER_HEALTH_URL=http://dev01.brown.chat:8085 \
+        GATEWAY_AI_SERVICE_ADDR=dev01.brown.chat:50055 \
         nohup ${GATEWAY_PATH} > ${GATEWAY_LOG} 2>&1 &"
 
     log_info "Waiting for gateway to start..."
@@ -298,11 +302,18 @@ rollback_deployment() {
         if [[ -f ${GATEWAY_PATH}.backup ]]; then
             mv ${GATEWAY_PATH}.backup ${GATEWAY_PATH}
             PENFOLD_SERVICE_NAME=gateway \
-            PENFOLD_DB_HOST=localhost \
+            PENFOLD_DB_HOST=dev02.brown.chat \
             PENFOLD_DB_PORT=5432 \
             PENFOLD_DB_USER=penfold \
-            PENFOLD_DB_PASSWORD='${DB_PASSWORD}' \
             PENFOLD_DB_NAME=penfold \
+            PENFOLD_DB_SSL_MODE=verify-full \
+            PENFOLD_DB_SSL_CERT=/home/james/.postgresql/postgresql.crt \
+            PENFOLD_DB_SSL_KEY=/home/james/.postgresql/postgresql.key \
+            PENFOLD_DB_SSL_ROOT_CERT=/home/james/.postgresql/root.crt \
+            GATEWAY_EMBEDDINGS_URL=http://dev01.brown.chat:8081 \
+            GATEWAY_LLM_URL=http://dev01.brown.chat:8080 \
+            GATEWAY_WORKER_HEALTH_URL=http://dev01.brown.chat:8085 \
+            GATEWAY_AI_SERVICE_ADDR=dev01.brown.chat:50055 \
             nohup ${GATEWAY_PATH} > ${GATEWAY_LOG} 2>&1 &
             echo 'Rolled back to previous version'
         else
