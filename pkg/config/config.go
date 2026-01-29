@@ -54,24 +54,62 @@ type Config struct {
 
 // DatabaseConfig holds PostgreSQL connection settings.
 type DatabaseConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	Name     string `yaml:"name"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
+	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"`
+	Name        string `yaml:"name"`
+	User        string `yaml:"user"`
+	Password    string `yaml:"password"`
+	SSLMode     string `yaml:"ssl_mode"`      // disable, require, verify-ca, verify-full
+	SSLCert     string `yaml:"ssl_cert"`      // Client certificate path
+	SSLKey      string `yaml:"ssl_key"`       // Client key path
+	SSLRootCert string `yaml:"ssl_root_cert"` // CA certificate path
 }
 
 // ConnectionString returns a PostgreSQL connection string.
 func (d *DatabaseConfig) ConnectionString() string {
-	return fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=disable",
-		d.Host, d.Port, d.Name, d.User, d.Password)
+	sslmode := d.SSLMode
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+
+	dsn := fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
+		d.Host, d.Port, d.Name, d.User, d.Password, sslmode)
+
+	if d.SSLCert != "" {
+		dsn += fmt.Sprintf(" sslcert=%s", d.SSLCert)
+	}
+	if d.SSLKey != "" {
+		dsn += fmt.Sprintf(" sslkey=%s", d.SSLKey)
+	}
+	if d.SSLRootCert != "" {
+		dsn += fmt.Sprintf(" sslrootcert=%s", d.SSLRootCert)
+	}
+
+	return dsn
 }
 
 // DSN returns a PostgreSQL DSN suitable for database/sql.
 // Uses keyword-value format to avoid URL encoding issues with special characters.
 func (d *DatabaseConfig) DSN() string {
-	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		d.Host, d.Port, d.User, d.Password, d.Name)
+	sslmode := d.SSLMode
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		d.Host, d.Port, d.User, d.Password, d.Name, sslmode)
+
+	if d.SSLCert != "" {
+		dsn += fmt.Sprintf(" sslcert=%s", d.SSLCert)
+	}
+	if d.SSLKey != "" {
+		dsn += fmt.Sprintf(" sslkey=%s", d.SSLKey)
+	}
+	if d.SSLRootCert != "" {
+		dsn += fmt.Sprintf(" sslrootcert=%s", d.SSLRootCert)
+	}
+
+	return dsn
 }
 
 // RedisConfig holds Redis connection settings.
@@ -196,6 +234,18 @@ func loadFromEnv(cfg *Config) {
 	}
 	if v := os.Getenv("PENFOLD_DB_PASSWORD"); v != "" {
 		cfg.Database.Password = v
+	}
+	if v := os.Getenv("PENFOLD_DB_SSL_MODE"); v != "" {
+		cfg.Database.SSLMode = v
+	}
+	if v := os.Getenv("PENFOLD_DB_SSL_CERT"); v != "" {
+		cfg.Database.SSLCert = v
+	}
+	if v := os.Getenv("PENFOLD_DB_SSL_KEY"); v != "" {
+		cfg.Database.SSLKey = v
+	}
+	if v := os.Getenv("PENFOLD_DB_SSL_ROOT_CERT"); v != "" {
+		cfg.Database.SSLRootCert = v
 	}
 
 	// Redis configuration.

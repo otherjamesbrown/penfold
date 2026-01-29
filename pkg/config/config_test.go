@@ -19,6 +19,10 @@ func clearEnv(t *testing.T) {
 		"PENFOLD_DB_NAME",
 		"PENFOLD_DB_USER",
 		"PENFOLD_DB_PASSWORD",
+		"PENFOLD_DB_SSL_MODE",
+		"PENFOLD_DB_SSL_CERT",
+		"PENFOLD_DB_SSL_KEY",
+		"PENFOLD_DB_SSL_ROOT_CERT",
 		"PENFOLD_REDIS_HOST",
 		"PENFOLD_REDIS_PORT",
 		"PENFOLD_TEMPORAL_HOST",
@@ -542,5 +546,209 @@ func TestLoadConfig_CaseInsensitiveEnv(t *testing.T) {
 	}
 	if cfg.LogLevel != LogDebug {
 		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, LogDebug)
+	}
+}
+
+func TestDatabaseConfig_DSN_WithSSL(t *testing.T) {
+	tests := []struct {
+		name     string
+		db       DatabaseConfig
+		expected string
+	}{
+		{
+			name: "sslmode only",
+			db: DatabaseConfig{
+				Host:     "localhost",
+				Port:     5432,
+				Name:     "testdb",
+				User:     "testuser",
+				Password: "testpass",
+				SSLMode:  "require",
+			},
+			expected: "host=localhost port=5432 user=testuser password=testpass dbname=testdb sslmode=require",
+		},
+		{
+			name: "full mTLS config",
+			db: DatabaseConfig{
+				Host:        "db.example.com",
+				Port:        5432,
+				Name:        "testdb",
+				User:        "testuser",
+				Password:    "testpass",
+				SSLMode:     "verify-full",
+				SSLCert:     "/path/to/client.crt",
+				SSLKey:      "/path/to/client.key",
+				SSLRootCert: "/path/to/root.crt",
+			},
+			expected: "host=db.example.com port=5432 user=testuser password=testpass dbname=testdb sslmode=verify-full sslcert=/path/to/client.crt sslkey=/path/to/client.key sslrootcert=/path/to/root.crt",
+		},
+		{
+			name: "partial SSL config",
+			db: DatabaseConfig{
+				Host:        "db.example.com",
+				Port:        5432,
+				Name:        "testdb",
+				User:        "testuser",
+				Password:    "testpass",
+				SSLMode:     "verify-ca",
+				SSLRootCert: "/path/to/root.crt",
+			},
+			expected: "host=db.example.com port=5432 user=testuser password=testpass dbname=testdb sslmode=verify-ca sslrootcert=/path/to/root.crt",
+		},
+		{
+			name: "empty sslmode defaults to disable",
+			db: DatabaseConfig{
+				Host:     "localhost",
+				Port:     5432,
+				Name:     "testdb",
+				User:     "testuser",
+				Password: "testpass",
+			},
+			expected: "host=localhost port=5432 user=testuser password=testpass dbname=testdb sslmode=disable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.db.DSN(); got != tt.expected {
+				t.Errorf("DSN() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestDatabaseConfig_ConnectionString_WithSSL(t *testing.T) {
+	tests := []struct {
+		name     string
+		db       DatabaseConfig
+		expected string
+	}{
+		{
+			name: "sslmode only",
+			db: DatabaseConfig{
+				Host:     "localhost",
+				Port:     5432,
+				Name:     "testdb",
+				User:     "testuser",
+				Password: "testpass",
+				SSLMode:  "require",
+			},
+			expected: "host=localhost port=5432 dbname=testdb user=testuser password=testpass sslmode=require",
+		},
+		{
+			name: "full mTLS config",
+			db: DatabaseConfig{
+				Host:        "db.example.com",
+				Port:        5432,
+				Name:        "testdb",
+				User:        "testuser",
+				Password:    "testpass",
+				SSLMode:     "verify-full",
+				SSLCert:     "/path/to/client.crt",
+				SSLKey:      "/path/to/client.key",
+				SSLRootCert: "/path/to/root.crt",
+			},
+			expected: "host=db.example.com port=5432 dbname=testdb user=testuser password=testpass sslmode=verify-full sslcert=/path/to/client.crt sslkey=/path/to/client.key sslrootcert=/path/to/root.crt",
+		},
+		{
+			name: "empty sslmode defaults to disable",
+			db: DatabaseConfig{
+				Host:     "localhost",
+				Port:     5432,
+				Name:     "testdb",
+				User:     "testuser",
+				Password: "testpass",
+			},
+			expected: "host=localhost port=5432 dbname=testdb user=testuser password=testpass sslmode=disable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.db.ConnectionString(); got != tt.expected {
+				t.Errorf("ConnectionString() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_SSLFromEnv(t *testing.T) {
+	clearEnv(t)
+	defer clearEnv(t)
+
+	setMinimalEnv(t)
+	os.Setenv("PENFOLD_DB_SSL_MODE", "verify-full")
+	os.Setenv("PENFOLD_DB_SSL_CERT", "/path/to/client.crt")
+	os.Setenv("PENFOLD_DB_SSL_KEY", "/path/to/client.key")
+	os.Setenv("PENFOLD_DB_SSL_ROOT_CERT", "/path/to/root.crt")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	if cfg.Database.SSLMode != "verify-full" {
+		t.Errorf("Database.SSLMode = %q, want %q", cfg.Database.SSLMode, "verify-full")
+	}
+	if cfg.Database.SSLCert != "/path/to/client.crt" {
+		t.Errorf("Database.SSLCert = %q, want %q", cfg.Database.SSLCert, "/path/to/client.crt")
+	}
+	if cfg.Database.SSLKey != "/path/to/client.key" {
+		t.Errorf("Database.SSLKey = %q, want %q", cfg.Database.SSLKey, "/path/to/client.key")
+	}
+	if cfg.Database.SSLRootCert != "/path/to/root.crt" {
+		t.Errorf("Database.SSLRootCert = %q, want %q", cfg.Database.SSLRootCert, "/path/to/root.crt")
+	}
+}
+
+func TestLoadConfig_SSLFromYAML(t *testing.T) {
+	clearEnv(t)
+	defer clearEnv(t)
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	yamlContent := `
+service_name: ssl-test-service
+environment: prod
+log_level: info
+database:
+  host: db.example.com
+  port: 5432
+  name: testdb
+  user: testuser
+  password: testpass
+  ssl_mode: verify-full
+  ssl_cert: /yaml/path/to/client.crt
+  ssl_key: /yaml/path/to/client.key
+  ssl_root_cert: /yaml/path/to/root.crt
+redis:
+  host: localhost
+  port: 6379
+temporal:
+  host: localhost:7233
+  namespace: default
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	os.Setenv("PENFOLD_CONFIG_FILE", configPath)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	if cfg.Database.SSLMode != "verify-full" {
+		t.Errorf("Database.SSLMode = %q, want %q", cfg.Database.SSLMode, "verify-full")
+	}
+	if cfg.Database.SSLCert != "/yaml/path/to/client.crt" {
+		t.Errorf("Database.SSLCert = %q, want %q", cfg.Database.SSLCert, "/yaml/path/to/client.crt")
+	}
+	if cfg.Database.SSLKey != "/yaml/path/to/client.key" {
+		t.Errorf("Database.SSLKey = %q, want %q", cfg.Database.SSLKey, "/yaml/path/to/client.key")
+	}
+	if cfg.Database.SSLRootCert != "/yaml/path/to/root.crt" {
+		t.Errorf("Database.SSLRootCert = %q, want %q", cfg.Database.SSLRootCert, "/yaml/path/to/root.crt")
 	}
 }
