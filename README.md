@@ -87,6 +87,20 @@ Key configuration:
 docker-compose up -d
 ```
 
+### TLS Authentication
+
+Penfold uses mutual TLS (mTLS) for client authentication. Before using the CLI, set up your certificates:
+
+```bash
+# Install certificates (get ca.crt, client.crt, client.key from admin)
+penf cert init --from /path/to/your/certs
+
+# Verify setup
+penf cert verify
+```
+
+See [mTLS Setup Guide](docs/infrastructure/mtls-setup.md) for detailed instructions.
+
 ### CLI Usage
 
 ```bash
@@ -185,6 +199,8 @@ bd sync
 ## Documentation
 
 - [Architecture Patterns](context/ARCHITECTURE.md)
+- [mTLS Authentication](docs/infrastructure/mtls-setup.md)
+- [Production Deployment](docs/infrastructure/production-deployment.md)
 - [Gmail Integration](docs/gmail-integration/README.md)
 - [Search Interface](docs/search/README.md)
 - [Database Schema](docs/database-schema/README.md)

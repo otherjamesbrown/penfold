@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
@@ -78,6 +79,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Load TLS configuration.
+	tlsConfig, err := LoadTLSConfig(&cfg.TLS)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load TLS config: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Initialize logger.
 	logCfg := &logging.Config{
 		Level:       logging.Level(cfg.Base.LogLevel),
@@ -94,6 +102,16 @@ func main() {
 		logging.F("grpc_port", cfg.GRPCPort),
 		logging.F("http_port", cfg.HTTPPort),
 	)
+
+	// Log TLS status.
+	if tlsConfig != nil {
+		logger.Info("TLS enabled",
+			logging.F("cert", cfg.TLS.CertFile),
+			logging.F("client_auth", cfg.TLS.ClientAuth),
+		)
+	} else {
+		logger.Warn("TLS disabled - connections are unencrypted")
+	}
 
 	// Initialize database connection pool.
 	dbPool, err := pgxpool.New(context.Background(), cfg.Base.Database.DSN())
@@ -193,6 +211,12 @@ func main() {
 
 	// Build gRPC server options with interceptors.
 	grpcOpts := buildGRPCServerOptions(cfg, logger, m)
+
+	// Add TLS credentials if configured.
+	if tlsConfig != nil {
+		creds := credentials.NewTLS(tlsConfig)
+		grpcOpts = append(grpcOpts, grpc.Creds(creds))
+	}
 
 	// Create gRPC server with options.
 	grpcServer := grpc.NewServer(grpcOpts...)

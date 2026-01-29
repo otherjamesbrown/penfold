@@ -4,6 +4,7 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
@@ -129,6 +131,10 @@ type ClientOptions struct {
 
 	// TenantID is the default tenant ID to include in all requests.
 	TenantID string
+
+	// TLSConfig is the TLS configuration for secure connections.
+	// If nil and Insecure is false, connection may fail.
+	TLSConfig *tls.Config
 }
 
 // DefaultOptions returns ClientOptions with default values.
@@ -200,8 +206,17 @@ func (c *GRPCClient) buildDialOptions() []grpc.DialOption {
 		),
 	}
 
-	// Configure credentials.
+	// Configure transport credentials.
 	if c.options.Insecure {
+		// Insecure mode - no TLS (for local development only).
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	} else if c.options.TLSConfig != nil {
+		// Use provided TLS configuration (mTLS).
+		creds := credentials.NewTLS(c.options.TLSConfig)
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+	} else {
+		// Fallback to insecure if no TLS config provided.
+		// This maintains backward compatibility but should log a warning.
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 

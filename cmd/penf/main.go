@@ -672,6 +672,7 @@ func init() {
 	rootCmd.AddCommand(cmd.NewAuditCommand(nil))
 	rootCmd.AddCommand(cmd.NewModelCommand(nil))
 	rootCmd.AddCommand(cmd.NewTraceCommand(nil))
+	rootCmd.AddCommand(cmd.NewCertCommand())
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)

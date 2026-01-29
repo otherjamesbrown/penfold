@@ -3,6 +3,7 @@
 package config
 
 import (
+	"crypto/tls"
 	"fmt"
 	"os"
 	"strconv"
@@ -44,6 +45,9 @@ type GatewayConfig struct {
 
 	// RateLimit contains detailed rate limiting configuration.
 	RateLimit RateLimitConfig
+
+	// TLS contains TLS/mTLS configuration for the gRPC server.
+	TLS TLSConfig
 
 	// OrchestratorAddress is the gRPC address of the orchestrator service.
 	OrchestratorAddress string
@@ -121,6 +125,58 @@ type CSRFConfig struct {
 	TrustedOrigins []string
 }
 
+// TLSConfig holds TLS/mTLS settings for the gateway.
+type TLSConfig struct {
+	// Enabled enables TLS for the gRPC server.
+	Enabled bool
+
+	// CertFile is the path to the server certificate file.
+	CertFile string
+
+	// KeyFile is the path to the server private key file.
+	KeyFile string
+
+	// CAFile is the path to the CA certificate file for client verification.
+	CAFile string
+
+	// ClientAuth specifies the client authentication mode: "none", "request", or "require".
+	ClientAuth string
+}
+
+// ClientAuthType converts the ClientAuth string to tls.ClientAuthType.
+func (c *TLSConfig) ClientAuthType() tls.ClientAuthType {
+	switch c.ClientAuth {
+	case "require":
+		return tls.RequireAndVerifyClientCert
+	case "request":
+		return tls.VerifyClientCertIfGiven
+	default:
+		return tls.NoClientCert
+	}
+}
+
+// Validate validates the TLS configuration.
+func (c *TLSConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+
+	// If TLS is enabled, cert and key are required
+	if c.CertFile == "" {
+		return fmt.Errorf("GATEWAY_TLS_CERT is required when TLS is enabled")
+	}
+	if c.KeyFile == "" {
+		return fmt.Errorf("GATEWAY_TLS_KEY is required when TLS is enabled")
+	}
+
+	// If client auth is not "none", CA file is required
+	if c.ClientAuth != "none" && c.ClientAuth != "" && c.CAFile == "" {
+		return fmt.Errorf("GATEWAY_TLS_CA is required when GATEWAY_TLS_CLIENT_AUTH is %q", c.ClientAuth)
+	}
+
+	return nil
+}
+
 // RateLimitConfig holds rate limiting configuration for the gateway.
 type RateLimitConfig struct {
 	// DefaultRPS is the default requests per second allowed per tenant.
@@ -169,6 +225,10 @@ const (
 	DefaultTemporalHostPort  = "localhost:7233"
 	DefaultTemporalNamespace = "default"
 	DefaultTemporalEnabled   = false
+
+	// TLS defaults.
+	DefaultTLSEnabled    = false
+	DefaultTLSClientAuth = "none"
 )
 
 // Load loads the gateway configuration from environment variables.
@@ -216,10 +276,19 @@ func Load() (*GatewayConfig, error) {
 			Namespace: DefaultTemporalNamespace,
 			Enabled:   DefaultTemporalEnabled,
 		},
+		TLS: TLSConfig{
+			Enabled:    DefaultTLSEnabled,
+			ClientAuth: DefaultTLSClientAuth,
+		},
 	}
 
 	// Override from environment variables.
 	loadGatewayEnv(cfg)
+
+	// Validate TLS configuration
+	if err := cfg.TLS.Validate(); err != nil {
+		return nil, fmt.Errorf("TLS config validation: %w", err)
+	}
 
 	return cfg, nil
 }
@@ -392,6 +461,31 @@ func loadGatewayEnv(cfg *GatewayConfig) {
 
 	if v := os.Getenv("GATEWAY_TEMPORAL_ENABLED"); v != "" {
 		cfg.Temporal.Enabled = v == "true" || v == "1"
+	}
+
+	// TLS configuration
+	if v := os.Getenv("GATEWAY_TLS_ENABLED"); v != "" {
+		cfg.TLS.Enabled = v == "true" || v == "1"
+	}
+
+	if v := os.Getenv("GATEWAY_TLS_CERT"); v != "" {
+		cfg.TLS.CertFile = v
+	}
+
+	if v := os.Getenv("GATEWAY_TLS_KEY"); v != "" {
+		cfg.TLS.KeyFile = v
+	}
+
+	if v := os.Getenv("GATEWAY_TLS_CA"); v != "" {
+		cfg.TLS.CAFile = v
+	}
+
+	if v := os.Getenv("GATEWAY_TLS_CLIENT_AUTH"); v != "" {
+		// Validate the value
+		switch v {
+		case "none", "request", "require":
+			cfg.TLS.ClientAuth = v
+		}
 	}
 }
 

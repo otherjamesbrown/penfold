@@ -1,0 +1,5 @@
+# These test certificates are safe to commit as they are for testing only.
+# The generate.sh script can regenerate them if needed.
+#
+# If you prefer not to commit the private keys, uncomment the following line:
+# *.key

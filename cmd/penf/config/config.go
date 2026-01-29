@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -25,13 +26,68 @@ const (
 
 // Default configuration values.
 const (
-	DefaultServerAddress       = "localhost:50051"
+	DefaultServerAddress        = "localhost:50051"
 	DefaultSearchServiceAddress = "localhost:50053"
-	DefaultTimeout             = 30 * time.Second
-	DefaultOutputFormat        = OutputFormatText
-	DefaultConfigDir           = ".penf"
-	DefaultConfigFile          = "config.yaml"
+	DefaultTimeout              = 30 * time.Second
+	DefaultOutputFormat         = OutputFormatText
+	DefaultConfigDir            = ".penf"
+	DefaultConfigFile           = "config.yaml"
+	DefaultCertDir              = ".config/penf/certs"
 )
+
+// TLSConfig holds client TLS settings.
+type TLSConfig struct {
+	// Enabled indicates whether TLS should be used for connections.
+	Enabled bool `yaml:"enabled"`
+
+	// CACert is the path to the CA certificate for verifying the server.
+	CACert string `yaml:"ca_cert"`
+
+	// ClientCert is the path to the client certificate for mTLS authentication.
+	ClientCert string `yaml:"client_cert"`
+
+	// ClientKey is the path to the client private key for mTLS authentication.
+	ClientKey string `yaml:"client_key"`
+
+	// CertDir is a directory containing ca.crt, client.crt, and client.key files.
+	// If set, it provides default paths for CACert, ClientCert, and ClientKey.
+	CertDir string `yaml:"cert_dir"`
+
+	// SkipVerify disables server certificate verification (insecure, for testing only).
+	SkipVerify bool `yaml:"skip_verify"`
+}
+
+// ResolvePaths expands ~ in paths and sets defaults from CertDir if configured.
+func (c *TLSConfig) ResolvePaths() {
+	if c.CertDir != "" {
+		c.CertDir = expandPath(c.CertDir)
+		if c.CACert == "" {
+			c.CACert = filepath.Join(c.CertDir, "ca.crt")
+		}
+		if c.ClientCert == "" {
+			c.ClientCert = filepath.Join(c.CertDir, "client.crt")
+		}
+		if c.ClientKey == "" {
+			c.ClientKey = filepath.Join(c.CertDir, "client.key")
+		}
+	} else {
+		c.CACert = expandPath(c.CACert)
+		c.ClientCert = expandPath(c.ClientCert)
+		c.ClientKey = expandPath(c.ClientKey)
+	}
+}
+
+// expandPath expands ~ to the user's home directory.
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path // Return original if home dir lookup fails.
+		}
+		return filepath.Join(home, path[2:])
+	}
+	return path
+}
 
 // CLIConfig holds the CLI configuration settings.
 type CLIConfig struct {
@@ -65,6 +121,9 @@ type CLIConfig struct {
 
 	// Insecure disables TLS verification (for development only).
 	Insecure bool `yaml:"insecure,omitempty"`
+
+	// TLS contains the TLS/mTLS configuration settings.
+	TLS TLSConfig `yaml:"tls"`
 }
 
 // DefaultConfig returns a CLIConfig with default values.
@@ -150,6 +209,7 @@ func loadFromFile(cfg *CLIConfig, path string) error {
 		InstallPath          string            `yaml:"install_path"`
 		Debug                bool              `yaml:"debug"`
 		Insecure             bool              `yaml:"insecure"`
+		TLS                  TLSConfig         `yaml:"tls"`
 	}
 
 	var fileCfg configFile
@@ -184,6 +244,7 @@ func loadFromFile(cfg *CLIConfig, path string) error {
 	}
 	cfg.Debug = fileCfg.Debug
 	cfg.Insecure = fileCfg.Insecure
+	cfg.TLS = fileCfg.TLS
 
 	return nil
 }
@@ -222,6 +283,31 @@ func loadFromEnv(cfg *CLIConfig) {
 
 	if v := os.Getenv("PENF_INSECURE"); v == "true" || v == "1" {
 		cfg.Insecure = true
+	}
+
+	// TLS environment variables.
+	if v := os.Getenv("PENF_TLS_ENABLED"); v == "true" || v == "1" {
+		cfg.TLS.Enabled = true
+	}
+
+	if v := os.Getenv("PENF_TLS_CA_CERT"); v != "" {
+		cfg.TLS.CACert = v
+	}
+
+	if v := os.Getenv("PENF_TLS_CLIENT_CERT"); v != "" {
+		cfg.TLS.ClientCert = v
+	}
+
+	if v := os.Getenv("PENF_TLS_CLIENT_KEY"); v != "" {
+		cfg.TLS.ClientKey = v
+	}
+
+	if v := os.Getenv("PENF_TLS_CERT_DIR"); v != "" {
+		cfg.TLS.CertDir = v
+	}
+
+	if v := os.Getenv("PENF_TLS_SKIP_VERIFY"); v == "true" || v == "1" {
+		cfg.TLS.SkipVerify = true
 	}
 }
 
@@ -282,6 +368,7 @@ func SaveConfig(cfg *CLIConfig) error {
 		InstallPath          string            `yaml:"install_path,omitempty"`
 		Debug                bool              `yaml:"debug,omitempty"`
 		Insecure             bool              `yaml:"insecure,omitempty"`
+		TLS                  TLSConfig         `yaml:"tls,omitempty"`
 	}
 
 	fileCfg := configFile{
@@ -294,6 +381,7 @@ func SaveConfig(cfg *CLIConfig) error {
 		InstallPath:          cfg.InstallPath,
 		Debug:                cfg.Debug,
 		Insecure:             cfg.Insecure,
+		TLS:                  cfg.TLS,
 	}
 
 	data, err := yaml.Marshal(&fileCfg)
