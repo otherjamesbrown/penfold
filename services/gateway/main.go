@@ -33,6 +33,7 @@ import (
 	teamsv1 "github.com/otherjamesbrown/penfold/api/proto/teams/v1"
 	tenantv1 "github.com/otherjamesbrown/penfold/api/proto/tenant/v1"
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
+	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
@@ -228,7 +229,8 @@ func main() {
 	}
 
 	// Register gRPC services.
-	_ = gatewayServer // Gateway server for future use
+	gatewaypb.RegisterGatewayServiceServer(grpcServer, gatewayServer)
+	logger.Info("Registered GatewayService")
 
 	// Register GlossaryService.
 	glossaryRepo := glossary.NewRepository(dbPool)
@@ -259,7 +261,7 @@ func main() {
 	tenantRepo := tenant.NewRepository(dbPool)
 	entityRepo := entities.NewRepository(dbPool, logger)
 	productRepo := products.NewRepository(dbPool, logger)
-	entitySvc := entityservice.NewService(entityRepo, productRepo, tenantRepo, logger)
+	entitySvc := entityservice.NewService(entityRepo, productRepo, logger)
 	entityv1.RegisterEntityServiceServer(grpcServer, entitySvc)
 	logger.Info("Registered EntityService")
 
@@ -277,7 +279,7 @@ func main() {
 	// Register ProjectService for project CRUD and member management.
 	// Uses tenantRepo (created above for EntityService) for tenant slug-to-UUID resolution.
 	projectRepo := projects.NewRepository(dbPool, logger)
-	projectSvc := projectservice.NewService(projectRepo, entityRepo, tenantRepo, logger)
+	projectSvc := projectservice.NewService(projectRepo, entityRepo, logger)
 	projectv1.RegisterProjectServiceServer(grpcServer, projectSvc)
 	logger.Info("Registered ProjectService")
 
@@ -326,7 +328,7 @@ func main() {
 	// Register RelationshipService for knowledge graph operations.
 	// Uses tenantRepo (created above) for tenant slug-to-UUID resolution.
 	relationshipRepo := relationships.NewRepository(dbPool, logger)
-	relationshipSvc := relationshipservice.NewService(relationshipRepo, tenantRepo, logger)
+	relationshipSvc := relationshipservice.NewService(relationshipRepo, logger)
 	relationshipv1.RegisterRelationshipServiceServer(grpcServer, relationshipSvc)
 	logger.Info("Registered RelationshipService")
 

@@ -92,3 +92,59 @@ WHERE project = 'penfold' AND search_vector @@ query ORDER BY ts_rank(search_vec
 - `kind:bug-report` - Bug report
 - `kind:status-update` - FYI / progress
 - `kind:question` - Needs response
+
+## After Making Code Changes
+
+**IMPORTANT:** After modifying any code, ALWAYS ask:
+
+> "Changes complete. Do you want me to:
+> 1. Commit and push?
+> 2. Create a PR?
+> 3. Deploy (if applicable)?"
+
+Do NOT assume the task is done after code changes. Changes aren't useful until deployed.
+
+### Deployment Commands
+
+**Gateway Service:**
+```bash
+./scripts/deploy-gateway.sh          # Full: build + deploy + verify + rollback on failure
+./scripts/deploy-gateway.sh --build  # Build only
+./scripts/deploy-gateway.sh --status # Check current status
+./scripts/verify-deployment.sh       # Verify deployment
+```
+
+**CLI Release:**
+```bash
+# 1. Bump version in cmd/penf/cmd/version.go
+# 2. Commit and push to main
+# 3. GitHub Actions auto-release.yml creates release
+# 4. Users run: penf update
+```
+
+**Other Services:**
+```bash
+# Worker (runs on dev01 - Apple Silicon)
+# Search, AI services - see context/development/workflows/deployment-checklist.md
+```
+
+### Deployment Checklist
+
+Full checklist: `context/development/workflows/deployment-checklist.md`
+
+Quick verification after deploy:
+```bash
+penf status                    # Gateway reachable?
+penf health                    # Services healthy?
+penf glossary list             # Basic query works?
+./scripts/verify-deployment.sh # Comprehensive check
+```
+
+### Component Locations
+
+| Component | Location | Deploy Target |
+|-----------|----------|---------------|
+| CLI (penf) | cmd/penf/ | GitHub Release |
+| Gateway | services/gateway/ | dev02 |
+| Worker | services/worker/ | dev01 |
+| AI Service | services/ai/ | dev01 |

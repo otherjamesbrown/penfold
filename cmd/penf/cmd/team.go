@@ -333,17 +333,17 @@ func connectTeamToGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
 	return conn, nil
 }
 
-func getTenantIDForTeam(deps *TeamCommandDeps) string {
+func getTenantIDForTeam(deps *TeamCommandDeps) (string, error) {
 	if teamTenant != "" {
-		return teamTenant
+		return teamTenant, nil
 	}
 	if envTenant := os.Getenv("PENF_TENANT_ID"); envTenant != "" {
-		return envTenant
+		return envTenant, nil
 	}
 	if deps.Config != nil && deps.Config.TenantID != "" {
-		return deps.Config.TenantID
+		return deps.Config.TenantID, nil
 	}
-	return "00000001-0000-0000-0000-000000000001"
+	return "", fmt.Errorf("tenant ID required: set --tenant flag, PENF_TENANT_ID env var, or tenant_id in config")
 }
 
 // ==================== Command Execution Functions ====================
@@ -362,7 +362,10 @@ func runTeamList(ctx context.Context, deps *TeamCommandDeps, nameSearch string) 
 	defer conn.Close()
 
 	client := teamsv1.NewTeamsServiceClient(conn)
-	tenantID := getTenantIDForTeam(deps)
+	tenantID, err := getTenantIDForTeam(deps)
+	if err != nil {
+		return err
+	}
 
 	filter := &teamsv1.TeamFilter{
 		TenantId:   tenantID,
@@ -391,7 +394,10 @@ func runTeamCreate(ctx context.Context, deps *TeamCommandDeps, name string) erro
 	defer conn.Close()
 
 	client := teamsv1.NewTeamsServiceClient(conn)
-	tenantID := getTenantIDForTeam(deps)
+	tenantID, err := getTenantIDForTeam(deps)
+	if err != nil {
+		return err
+	}
 
 	input := &teamsv1.TeamInput{
 		Name:        name,
@@ -430,7 +436,10 @@ func runTeamShow(ctx context.Context, deps *TeamCommandDeps, identifier string) 
 	defer conn.Close()
 
 	client := teamsv1.NewTeamsServiceClient(conn)
-	tenantID := getTenantIDForTeam(deps)
+	tenantID, err := getTenantIDForTeam(deps)
+	if err != nil {
+		return err
+	}
 
 	resp, err := client.GetTeam(ctx, &teamsv1.GetTeamRequest{
 		TenantId:   tenantID,
@@ -466,7 +475,10 @@ func runTeamDelete(ctx context.Context, deps *TeamCommandDeps, identifier string
 	defer conn.Close()
 
 	client := teamsv1.NewTeamsServiceClient(conn)
-	tenantID := getTenantIDForTeam(deps)
+	tenantID, err := getTenantIDForTeam(deps)
+	if err != nil {
+		return err
+	}
 
 	// First, resolve the identifier to get team details
 	teamResp, err := client.GetTeam(ctx, &teamsv1.GetTeamRequest{
@@ -516,7 +528,10 @@ func runTeamAddMember(ctx context.Context, deps *TeamCommandDeps, teamName, emai
 	defer conn.Close()
 
 	client := teamsv1.NewTeamsServiceClient(conn)
-	tenantID := getTenantIDForTeam(deps)
+	tenantID, err := getTenantIDForTeam(deps)
+	if err != nil {
+		return err
+	}
 
 	resp, err := client.AddTeamMember(ctx, &teamsv1.AddTeamMemberRequest{
 		TenantId:          tenantID,
@@ -550,7 +565,10 @@ func runTeamRemoveMember(ctx context.Context, deps *TeamCommandDeps, memberIDStr
 	defer conn.Close()
 
 	client := teamsv1.NewTeamsServiceClient(conn)
-	tenantID := getTenantIDForTeam(deps)
+	tenantID, err := getTenantIDForTeam(deps)
+	if err != nil {
+		return err
+	}
 
 	var memberID int64
 	if _, err := fmt.Sscanf(memberIDStr, "%d", &memberID); err != nil {
@@ -583,7 +601,10 @@ func runTeamMembers(ctx context.Context, deps *TeamCommandDeps, identifier strin
 	defer conn.Close()
 
 	client := teamsv1.NewTeamsServiceClient(conn)
-	tenantID := getTenantIDForTeam(deps)
+	tenantID, err := getTenantIDForTeam(deps)
+	if err != nil {
+		return err
+	}
 
 	resp, err := client.ListTeamMembers(ctx, &teamsv1.ListTeamMembersRequest{
 		TenantId:       tenantID,

@@ -9,6 +9,7 @@ import (
 
 	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
@@ -70,17 +71,18 @@ func (c *RelationshipClient) Connect(ctx context.Context) error {
 func (c *RelationshipClient) buildDialOptions() []grpc.DialOption {
 	opts := []grpc.DialOption{
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                c.options.KeepaliveTime,
-			Timeout:             c.options.KeepaliveTimeout,
+			Time:                10 * time.Second,
+			Timeout:             3 * time.Second,
 			PermitWithoutStream: true,
 		}),
-		grpc.WithDefaultCallOptions(
-			grpc.WaitForReady(true),
-		),
 	}
 
-	// Configure credentials.
 	if c.options.Insecure {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	} else if c.options.TLSConfig != nil {
+		creds := credentials.NewTLS(c.options.TLSConfig)
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+	} else {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 

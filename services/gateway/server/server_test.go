@@ -22,6 +22,7 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
+	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	gmailv1 "github.com/otherjamesbrown/penfold/api/proto/gmail/v1"
 	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
 	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
@@ -413,17 +414,35 @@ func dialMockServer(t *testing.T, addr string) *grpc.ClientConn {
 // Server Tests
 // =============================================================================
 
+// TestGatewayServer_ImplementsInterface verifies that GatewayServer
+// implements the proto-generated GatewayServiceServer interface.
+func TestGatewayServer_ImplementsInterface(t *testing.T) {
+	var _ gatewaypb.GatewayServiceServer = (*GatewayServer)(nil)
+}
+
 func TestNewGatewayServer(t *testing.T) {
 	tc := newTestContext(t)
 
-	server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
+	t.Run("creates server with config", func(t *testing.T) {
+		server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
 
-	assert.NotNil(t, server)
-	assert.NotNil(t, server.config)
-	assert.NotNil(t, server.logger)
-	assert.NotNil(t, server.metrics)
-	assert.NotNil(t, server.healthAggregator)
-	assert.False(t, server.startTime.IsZero())
+		assert.NotNil(t, server)
+		assert.NotNil(t, server.config)
+		assert.NotNil(t, server.logger)
+		assert.NotNil(t, server.metrics)
+		assert.NotNil(t, server.healthAggregator)
+		assert.False(t, server.startTime.IsZero())
+	})
+
+	t.Run("embeds UnimplementedGatewayServiceServer", func(t *testing.T) {
+		server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
+
+		// Verify the server embeds UnimplementedGatewayServiceServer for forward compatibility.
+		// This is verified by the interface check in TestGatewayServer_ImplementsInterface,
+		// but we also explicitly verify the type assertion works.
+		var svc gatewaypb.GatewayServiceServer = server
+		assert.NotNil(t, svc)
+	})
 }
 
 func TestGatewayServer_Uptime(t *testing.T) {
@@ -438,34 +457,67 @@ func TestGatewayServer_Uptime(t *testing.T) {
 	assert.True(t, uptime >= 10*time.Millisecond, "Expected uptime >= 10ms, got %v", uptime)
 }
 
-func TestGatewayServer_HealthCheck_AllHealthy(t *testing.T) {
-	tc := newTestContext(t)
+func TestGatewayServer_HealthCheck(t *testing.T) {
+	t.Run("returns healthy status", func(t *testing.T) {
+		tc := newTestContext(t)
 
-	// Register healthy backend services
-	tc.healthAggregator.RegisterService(health.ServiceConfig{
-		Name:     "search",
-		Client:   &mockHealthClient{healthy: true},
-		Critical: true,
+		// Register healthy backend services
+		tc.healthAggregator.RegisterService(health.ServiceConfig{
+			Name:     "search",
+			Client:   &mockHealthClient{healthy: true},
+			Critical: true,
+		})
+		tc.healthAggregator.RegisterService(health.ServiceConfig{
+			Name:     "ai",
+			Client:   &mockHealthClient{healthy: true},
+			Critical: false,
+		})
+
+		server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
+
+		resp, err := server.HealthCheck(context.Background(), &gatewaypb.HealthCheckRequest{
+			IncludeDependencies: false,
+		})
+
+		require.NoError(t, err)
+		assert.True(t, resp.Healthy)
+		assert.Equal(t, "Gateway is healthy", resp.Message)
+		assert.Equal(t, Version, resp.Version)
+		assert.NotNil(t, resp.Timestamp)
+		assert.True(t, resp.UptimeSeconds >= 0)
 	})
-	tc.healthAggregator.RegisterService(health.ServiceConfig{
-		Name:     "ai",
-		Client:   &mockHealthClient{healthy: true},
-		Critical: false,
+
+	t.Run("includes dependencies when requested", func(t *testing.T) {
+		tc := newTestContext(t)
+
+		// Register healthy backend services
+		tc.healthAggregator.RegisterService(health.ServiceConfig{
+			Name:     "search",
+			Client:   &mockHealthClient{healthy: true},
+			Critical: true,
+		})
+		tc.healthAggregator.RegisterService(health.ServiceConfig{
+			Name:     "ai",
+			Client:   &mockHealthClient{healthy: true},
+			Critical: false,
+		})
+
+		server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
+
+		resp, err := server.HealthCheck(context.Background(), &gatewaypb.HealthCheckRequest{
+			IncludeDependencies: true,
+		})
+
+		require.NoError(t, err)
+		assert.True(t, resp.Healthy)
+		assert.Len(t, resp.Dependencies, 2)
+
+		// Verify dependency information is populated
+		for _, dep := range resp.Dependencies {
+			assert.NotEmpty(t, dep.Name)
+			assert.True(t, dep.Healthy)
+		}
 	})
-
-	server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
-
-	resp, err := server.HealthCheck(context.Background(), &HealthCheckRequest{
-		IncludeDependencies: true,
-	})
-
-	require.NoError(t, err)
-	assert.True(t, resp.Healthy)
-	assert.Equal(t, "Gateway is healthy", resp.Message)
-	assert.Equal(t, Version, resp.Version)
-	assert.NotNil(t, resp.Timestamp)
-	assert.True(t, resp.UptimeSeconds >= 0)
-	assert.Len(t, resp.Dependencies, 2)
 }
 
 func TestGatewayServer_HealthCheck_CriticalFailure(t *testing.T) {
@@ -485,7 +537,7 @@ func TestGatewayServer_HealthCheck_CriticalFailure(t *testing.T) {
 
 	server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
 
-	resp, err := server.HealthCheck(context.Background(), &HealthCheckRequest{
+	resp, err := server.HealthCheck(context.Background(), &gatewaypb.HealthCheckRequest{
 		IncludeDependencies: true,
 	})
 
@@ -511,7 +563,7 @@ func TestGatewayServer_HealthCheck_Degraded(t *testing.T) {
 
 	server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
 
-	resp, err := server.HealthCheck(context.Background(), &HealthCheckRequest{
+	resp, err := server.HealthCheck(context.Background(), &gatewaypb.HealthCheckRequest{
 		IncludeDependencies: true,
 	})
 
@@ -531,7 +583,7 @@ func TestGatewayServer_HealthCheck_NoDependencies(t *testing.T) {
 
 	server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
 
-	resp, err := server.HealthCheck(context.Background(), &HealthCheckRequest{
+	resp, err := server.HealthCheck(context.Background(), &gatewaypb.HealthCheckRequest{
 		IncludeDependencies: false,
 	})
 
@@ -543,9 +595,9 @@ func TestGatewayServer_ProcessEmail_Unimplemented(t *testing.T) {
 	tc := newTestContext(t)
 	server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
 
-	_, err := server.ProcessEmail(context.Background(), &ProcessEmailRequest{
-		TenantID:  "tenant-1",
-		MessageID: "msg-1",
+	_, err := server.ProcessEmail(context.Background(), &gatewaypb.ProcessEmailRequest{
+		TenantId:  "tenant-1",
+		MessageId: "msg-1",
 	})
 
 	require.Error(t, err)
@@ -558,8 +610,8 @@ func TestGatewayServer_Search_Unimplemented(t *testing.T) {
 	tc := newTestContext(t)
 	server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
 
-	_, err := server.Search(context.Background(), &SearchRequest{
-		TenantID: "tenant-1",
+	_, err := server.Search(context.Background(), &gatewaypb.SearchRequest{
+		TenantId: "tenant-1",
 		Query:    "test query",
 	})
 
@@ -573,9 +625,10 @@ func TestGatewayServer_GetDailyReview_Unimplemented(t *testing.T) {
 	tc := newTestContext(t)
 	server := NewGatewayServer(tc.config, tc.logger, tc.metrics, tc.healthAggregator)
 
-	_, err := server.GetDailyReview(context.Background(), &GetDailyReviewRequest{
-		TenantID: "tenant-1",
-		UserID:   "user-1",
+	userID := "user-1"
+	_, err := server.GetDailyReview(context.Background(), &gatewaypb.GetDailyReviewRequest{
+		TenantId: "tenant-1",
+		UserId:   &userID,
 	})
 
 	require.Error(t, err)

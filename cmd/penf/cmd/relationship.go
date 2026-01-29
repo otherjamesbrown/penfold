@@ -142,6 +142,14 @@ func DefaultRelationshipDeps() *RelationshipCommandDeps {
 			opts.ConnectTimeout = cfg.Timeout
 			opts.TenantID = cfg.TenantID
 
+			if !cfg.Insecure {
+				tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
+				if err != nil {
+					return nil, fmt.Errorf("failed to load TLS config: %w", err)
+				}
+				opts.TLSConfig = tlsConfig
+			}
+
 			relClient := client.NewRelationshipClient(cfg.ServerAddress, opts)
 			ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 			defer cancel()
