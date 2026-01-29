@@ -9,6 +9,7 @@ import (
 
 	tenantv1 "github.com/otherjamesbrown/penfold/api/proto/tenant/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
@@ -80,6 +81,12 @@ func (c *TenantClient) buildDialOptions() []grpc.DialOption {
 
 	// Configure credentials.
 	if c.options.Insecure {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	} else if c.options.TLSConfig != nil {
+		creds := credentials.NewTLS(c.options.TLSConfig)
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+	} else {
+		// Fallback to insecure if no TLS config provided.
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 

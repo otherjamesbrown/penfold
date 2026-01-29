@@ -213,11 +213,19 @@ func runTenantList(ctx context.Context, deps *TenantCommandDeps, insecureFlag bo
 	currentTenantID := getCurrentTenantID(cfg)
 
 	// Create tenant client and fetch tenants from gRPC service.
-	tenantClient := client.NewTenantClient(cfg.ServerAddress, &client.ClientOptions{
+	opts := &client.ClientOptions{
 		Insecure:       cfg.Insecure,
 		Debug:          cfg.Debug,
 		ConnectTimeout: cfg.Timeout,
-	})
+	}
+	if !cfg.Insecure {
+		tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
+		if err != nil {
+			return fmt.Errorf("failed to load TLS config: %w", err)
+		}
+		opts.TLSConfig = tlsConfig
+	}
+	tenantClient := client.NewTenantClient(cfg.ServerAddress, opts)
 
 	if err := tenantClient.Connect(ctx); err != nil {
 		return fmt.Errorf("connecting to tenant service: %w", err)
@@ -379,11 +387,19 @@ func runTenantShow(ctx context.Context, deps *TenantCommandDeps, tenantRef strin
 	tenantID := resolveTenantAlias(cfg, tenantRef)
 
 	// Create tenant client and fetch tenant from gRPC service.
-	tenantClient := client.NewTenantClient(cfg.ServerAddress, &client.ClientOptions{
+	opts := &client.ClientOptions{
 		Insecure:       cfg.Insecure,
 		Debug:          cfg.Debug,
 		ConnectTimeout: cfg.Timeout,
-	})
+	}
+	if !cfg.Insecure {
+		tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
+		if err != nil {
+			return fmt.Errorf("failed to load TLS config: %w", err)
+		}
+		opts.TLSConfig = tlsConfig
+	}
+	tenantClient := client.NewTenantClient(cfg.ServerAddress, opts)
 
 	if err := tenantClient.Connect(ctx); err != nil {
 		return fmt.Errorf("connecting to tenant service: %w", err)
@@ -467,11 +483,19 @@ func validateTenantAccess(ctx context.Context, deps *TenantCommandDeps, tenantID
 	}
 
 	// Create tenant client and validate tenant via gRPC service.
-	tenantClient := client.NewTenantClient(cfg.ServerAddress, &client.ClientOptions{
+	opts := &client.ClientOptions{
 		Insecure:       cfg.Insecure,
 		Debug:          cfg.Debug,
 		ConnectTimeout: cfg.Timeout,
-	})
+	}
+	if !cfg.Insecure {
+		tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
+		if err != nil {
+			return fmt.Errorf("failed to load TLS config: %w", err)
+		}
+		opts.TLSConfig = tlsConfig
+	}
+	tenantClient := client.NewTenantClient(cfg.ServerAddress, opts)
 
 	if err := tenantClient.Connect(ctx); err != nil {
 		return fmt.Errorf("connecting to tenant service: %w", err)
