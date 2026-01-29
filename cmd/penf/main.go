@@ -621,6 +621,15 @@ func initClient() error {
 	opts.Debug = cfg.Debug
 	opts.ConnectTimeout = cfg.Timeout
 
+	// Load TLS configuration if not running in insecure mode.
+	if !cfg.Insecure && cfg.TLS.Enabled {
+		tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
+		if err != nil {
+			return fmt.Errorf("loading TLS config: %w", err)
+		}
+		opts.TLSConfig = tlsConfig
+	}
+
 	// Add tenant ID to default metadata if configured.
 	tenantID := getTenantID()
 	if tenantID != "" {

@@ -138,7 +138,7 @@ deploy_binary() {
 start_gateway() {
     log_info "Starting gateway on ${GATEWAY_HOST}..."
 
-    # Start with environment variables (using mTLS for database)
+    # Start with environment variables (using mTLS for database and TLS for gRPC)
     ssh "$GATEWAY_HOST" "PENFOLD_SERVICE_NAME=gateway \
         PENFOLD_DB_HOST=dev02.brown.chat \
         PENFOLD_DB_PORT=5432 \
@@ -148,6 +148,11 @@ start_gateway() {
         PENFOLD_DB_SSL_CERT=/home/james/.postgresql/postgresql.crt \
         PENFOLD_DB_SSL_KEY=/home/james/.postgresql/postgresql.key \
         PENFOLD_DB_SSL_ROOT_CERT=/home/james/.postgresql/root.crt \
+        GATEWAY_TLS_ENABLED=true \
+        GATEWAY_TLS_CERT=/home/james/.penfold/certs/gateway.crt \
+        GATEWAY_TLS_KEY=/home/james/.penfold/certs/gateway.key \
+        GATEWAY_TLS_CA=/home/james/.penfold/certs/ca.crt \
+        GATEWAY_TLS_CLIENT_AUTH=none \
         GATEWAY_EMBEDDINGS_URL=http://dev01.brown.chat:8081 \
         GATEWAY_LLM_URL=http://dev01.brown.chat:8080 \
         GATEWAY_WORKER_HEALTH_URL=http://dev01.brown.chat:8085 \
@@ -310,6 +315,11 @@ rollback_deployment() {
             PENFOLD_DB_SSL_CERT=/home/james/.postgresql/postgresql.crt \
             PENFOLD_DB_SSL_KEY=/home/james/.postgresql/postgresql.key \
             PENFOLD_DB_SSL_ROOT_CERT=/home/james/.postgresql/root.crt \
+            GATEWAY_TLS_ENABLED=true \
+            GATEWAY_TLS_CERT=/home/james/.penfold/certs/gateway.crt \
+            GATEWAY_TLS_KEY=/home/james/.penfold/certs/gateway.key \
+            GATEWAY_TLS_CA=/home/james/.penfold/certs/ca.crt \
+            GATEWAY_TLS_CLIENT_AUTH=none \
             GATEWAY_EMBEDDINGS_URL=http://dev01.brown.chat:8081 \
             GATEWAY_LLM_URL=http://dev01.brown.chat:8080 \
             GATEWAY_WORKER_HEALTH_URL=http://dev01.brown.chat:8085 \
