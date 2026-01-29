@@ -89,3 +89,12 @@ temp/
 # Build outputs
 bin/
 cmd/penf/penf
+
+# Build artifacts
+main
+services/gateway/gateway
+services/gateway/gateway-linux
+services/gateway/main
+services/worker/worker
+*.test
+storage.test
