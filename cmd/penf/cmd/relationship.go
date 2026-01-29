@@ -173,6 +173,16 @@ var (
 	conflictStrategy          string
 )
 
+// getRelInsecureFlag retrieves the --insecure flag from the command's root.
+func getRelInsecureFlag(cmd *cobra.Command) bool {
+	root := cmd
+	for root.Parent() != nil {
+		root = root.Parent()
+	}
+	insecure, _ := root.PersistentFlags().GetBool("insecure")
+	return insecure
+}
+
 // NewRelationshipCommand creates the root relationship command with all subcommands.
 func NewRelationshipCommand(deps *RelationshipCommandDeps) *cobra.Command {
 	if deps == nil {
@@ -254,7 +264,7 @@ Examples:
   penf relationship list --format json`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRelationshipList(cmd.Context(), deps)
+			return runRelationshipList(cmd.Context(), deps, getRelInsecureFlag(cmd))
 		},
 	}
 
@@ -277,7 +287,7 @@ Example:
   penf relationship show rel-abc123`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRelationshipShow(cmd.Context(), deps, args[0])
+			return runRelationshipShow(cmd.Context(), deps, args[0], getRelInsecureFlag(cmd))
 		},
 	}
 }
@@ -301,7 +311,7 @@ Examples:
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := strings.Join(args, " ")
-			return runRelationshipSearch(cmd.Context(), deps, query)
+			return runRelationshipSearch(cmd.Context(), deps, query, getRelInsecureFlag(cmd))
 		},
 	}
 }
@@ -345,7 +355,7 @@ Examples:
   penf relationship entity list --confidence-min 0.8`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEntityList(cmd.Context(), deps)
+			return runEntityList(cmd.Context(), deps, getRelInsecureFlag(cmd))
 		},
 	}
 
@@ -367,7 +377,7 @@ Example:
   penf relationship entity show ent-abc123`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEntityShow(cmd.Context(), deps, args[0])
+			return runEntityShow(cmd.Context(), deps, args[0], getRelInsecureFlag(cmd))
 		},
 	}
 }
@@ -387,7 +397,7 @@ Example:
   penf relationship entity merge ent-abc123 ent-def456`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEntityMerge(cmd.Context(), deps, args[0], args[1])
+			return runEntityMerge(cmd.Context(), deps, args[0], args[1], getRelInsecureFlag(cmd))
 		},
 	}
 }
@@ -424,7 +434,7 @@ density, and other graph metrics.
 Example:
   penf relationship network graph`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runNetworkGraph(cmd.Context(), deps)
+			return runNetworkGraph(cmd.Context(), deps, getRelInsecureFlag(cmd))
 		},
 	}
 }
@@ -443,7 +453,7 @@ Example:
   penf relationship network central --limit 10`,
 		Aliases: []string{"top", "hub"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runNetworkCentral(cmd.Context(), deps)
+			return runNetworkCentral(cmd.Context(), deps, getRelInsecureFlag(cmd))
 		},
 	}
 }
@@ -462,7 +472,7 @@ Example:
   penf relationship network clusters`,
 		Aliases: []string{"communities", "groups"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runNetworkClusters(cmd.Context(), deps)
+			return runNetworkClusters(cmd.Context(), deps, getRelInsecureFlag(cmd))
 		},
 	}
 }
@@ -500,7 +510,7 @@ Example:
   penf relationship conflict list`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConflictList(cmd.Context(), deps)
+			return runConflictList(cmd.Context(), deps, getRelInsecureFlag(cmd))
 		},
 	}
 }
@@ -519,7 +529,7 @@ Example:
   penf relationship conflict show conf-abc123`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConflictShow(cmd.Context(), deps, args[0])
+			return runConflictShow(cmd.Context(), deps, args[0], getRelInsecureFlag(cmd))
 		},
 	}
 }
@@ -541,7 +551,7 @@ Example:
   penf relationship conflict resolve conf-abc123 --strategy merge`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConflictResolve(cmd.Context(), deps, args[0], ConflictResolutionStrategy(conflictStrategy))
+			return runConflictResolve(cmd.Context(), deps, args[0], ConflictResolutionStrategy(conflictStrategy), getRelInsecureFlag(cmd))
 		},
 	}
 
@@ -553,12 +563,17 @@ Example:
 // Command execution functions.
 
 // runRelationshipList executes the relationship list command.
-func runRelationshipList(ctx context.Context, deps *RelationshipCommandDeps) error {
+func runRelationshipList(ctx context.Context, deps *RelationshipCommandDeps, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
@@ -605,12 +620,17 @@ func runRelationshipList(ctx context.Context, deps *RelationshipCommandDeps) err
 }
 
 // runRelationshipShow executes the relationship show command.
-func runRelationshipShow(ctx context.Context, deps *RelationshipCommandDeps, relationshipID string) error {
+func runRelationshipShow(ctx context.Context, deps *RelationshipCommandDeps, relationshipID string, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
@@ -641,12 +661,17 @@ func runRelationshipShow(ctx context.Context, deps *RelationshipCommandDeps, rel
 }
 
 // runRelationshipSearch executes the relationship search command.
-func runRelationshipSearch(ctx context.Context, deps *RelationshipCommandDeps, query string) error {
+func runRelationshipSearch(ctx context.Context, deps *RelationshipCommandDeps, query string, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
@@ -681,12 +706,17 @@ func runRelationshipSearch(ctx context.Context, deps *RelationshipCommandDeps, q
 }
 
 // runEntityList executes the entity list command.
-func runEntityList(ctx context.Context, deps *RelationshipCommandDeps) error {
+func runEntityList(ctx context.Context, deps *RelationshipCommandDeps, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
@@ -732,12 +762,17 @@ func runEntityList(ctx context.Context, deps *RelationshipCommandDeps) error {
 }
 
 // runEntityShow executes the entity show command.
-func runEntityShow(ctx context.Context, deps *RelationshipCommandDeps, entityID string) error {
+func runEntityShow(ctx context.Context, deps *RelationshipCommandDeps, entityID string, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
@@ -768,12 +803,17 @@ func runEntityShow(ctx context.Context, deps *RelationshipCommandDeps, entityID 
 }
 
 // runEntityMerge executes the entity merge command.
-func runEntityMerge(ctx context.Context, deps *RelationshipCommandDeps, entityID1, entityID2 string) error {
+func runEntityMerge(ctx context.Context, deps *RelationshipCommandDeps, entityID1, entityID2 string, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
@@ -804,12 +844,17 @@ func runEntityMerge(ctx context.Context, deps *RelationshipCommandDeps, entityID
 }
 
 // runNetworkGraph executes the network graph command.
-func runNetworkGraph(ctx context.Context, deps *RelationshipCommandDeps) error {
+func runNetworkGraph(ctx context.Context, deps *RelationshipCommandDeps, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
@@ -864,12 +909,17 @@ func runNetworkGraph(ctx context.Context, deps *RelationshipCommandDeps) error {
 }
 
 // runNetworkCentral executes the network central command.
-func runNetworkCentral(ctx context.Context, deps *RelationshipCommandDeps) error {
+func runNetworkCentral(ctx context.Context, deps *RelationshipCommandDeps, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
@@ -904,12 +954,17 @@ func runNetworkCentral(ctx context.Context, deps *RelationshipCommandDeps) error
 }
 
 // runNetworkClusters executes the network clusters command.
-func runNetworkClusters(ctx context.Context, deps *RelationshipCommandDeps) error {
+func runNetworkClusters(ctx context.Context, deps *RelationshipCommandDeps, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
@@ -944,12 +999,17 @@ func runNetworkClusters(ctx context.Context, deps *RelationshipCommandDeps) erro
 }
 
 // runConflictList executes the conflict list command.
-func runConflictList(ctx context.Context, deps *RelationshipCommandDeps) error {
+func runConflictList(ctx context.Context, deps *RelationshipCommandDeps, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
@@ -989,12 +1049,17 @@ func runConflictList(ctx context.Context, deps *RelationshipCommandDeps) error {
 }
 
 // runConflictShow executes the conflict show command.
-func runConflictShow(ctx context.Context, deps *RelationshipCommandDeps, conflictID string) error {
+func runConflictShow(ctx context.Context, deps *RelationshipCommandDeps, conflictID string, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
@@ -1025,12 +1090,17 @@ func runConflictShow(ctx context.Context, deps *RelationshipCommandDeps, conflic
 }
 
 // runConflictResolve executes the conflict resolve command.
-func runConflictResolve(ctx context.Context, deps *RelationshipCommandDeps, conflictID string, strategy ConflictResolutionStrategy) error {
+func runConflictResolve(ctx context.Context, deps *RelationshipCommandDeps, conflictID string, strategy ConflictResolutionStrategy, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
 
 	// Override tenant if specified.
 	if relationshipTenant != "" {
