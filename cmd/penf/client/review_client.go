@@ -9,6 +9,7 @@ import (
 
 	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
@@ -82,6 +83,11 @@ func (c *ReviewClient) buildDialOptions() []grpc.DialOption {
 
 	// Configure credentials.
 	if c.options.Insecure {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	} else if c.options.TLSConfig != nil {
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(c.options.TLSConfig)))
+	} else {
+		// Default to insecure if no TLS config provided
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 

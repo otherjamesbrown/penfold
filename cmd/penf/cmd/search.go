@@ -147,6 +147,15 @@ func DefaultSearchDeps() *SearchCommandDeps {
 			opts.ConnectTimeout = cfg.Timeout
 			opts.TenantID = cfg.TenantID
 
+			// Load TLS config if not insecure
+			if !cfg.Insecure && cfg.TLS.Enabled {
+				tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
+				if err != nil {
+					return nil, fmt.Errorf("loading TLS config: %w", err)
+				}
+				opts.TLSConfig = tlsConfig
+			}
+
 			searchClient := client.NewSearchClient(cfg.GetSearchServiceAddress(), opts)
 			ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 			defer cancel()
