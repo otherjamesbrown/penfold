@@ -10,10 +10,12 @@ import (
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
 	projectv1 "github.com/otherjamesbrown/penfold/api/proto/project/v1"
+	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
 
@@ -255,7 +257,22 @@ func connectProjectToGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
 
 	opts := []grpc.DialOption{
 		grpc.WithBlock(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+
+	if cfg.Insecure {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	} else if cfg.TLS.Enabled {
+		tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
+		if err != nil {
+			return nil, fmt.Errorf("loading TLS config: %w", err)
+		}
+		if tlsConfig != nil {
+			opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+		} else {
+			opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		}
+	} else {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
 	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, opts...)
