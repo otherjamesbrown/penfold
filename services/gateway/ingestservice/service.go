@@ -124,8 +124,14 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 		return nil, status.Errorf(codes.InvalidArgument, "invalid content_id format: %s", req.ContentId)
 	}
 
+	// Resolve tenant reference to UUID
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	// Check for duplicates
-	isDuplicate, existingID, duplicateReason, err := s.repo.CheckDuplicate(ctx, req.TenantId, req.MessageId, req.ContentHash)
+	isDuplicate, existingID, duplicateReason, err := s.repo.CheckDuplicate(ctx, tenantID, req.MessageId, req.ContentHash)
 	if err != nil {
 		s.logger.Error("Error checking duplicate",
 			logging.Err(err),
@@ -175,7 +181,7 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 
 	// Create the source record
 	emailSource := &storage.EmailSource{
-		TenantID:          req.TenantId,
+		TenantID:          tenantID,
 		SourceSystem:      req.SourceSystem,
 		ExternalID:        req.MessageId,
 		ContentHash:       req.ContentHash,
@@ -239,9 +245,15 @@ func (s *Service) IngestAttachment(ctx context.Context, req *ingestv1.IngestAtta
 		return nil, status.Errorf(codes.InvalidArgument, "invalid content_id format: %s", req.ContentId)
 	}
 
+	// Resolve tenant reference to UUID
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	// Check for duplicate by content hash
 	if req.Metadata.ContentHash != "" {
-		isDup, existingID, _, err := s.repo.CheckDuplicate(ctx, req.TenantId, "", req.Metadata.ContentHash)
+		isDup, existingID, _, err := s.repo.CheckDuplicate(ctx, tenantID, "", req.Metadata.ContentHash)
 		if err != nil {
 			s.logger.Error("Error checking attachment duplicate",
 				logging.Err(err),
@@ -270,7 +282,7 @@ func (s *Service) IngestAttachment(ctx context.Context, req *ingestv1.IngestAtta
 
 	// Create the attachment source record
 	attachmentSource := &storage.EmailSource{
-		TenantID:        req.TenantId,
+		TenantID:        tenantID,
 		SourceSystem:    "attachment",
 		ExternalID:      fmt.Sprintf("%s:%s", req.ParentSourceId, req.Metadata.Filename),
 		ContentHash:     req.Metadata.ContentHash,
@@ -325,6 +337,12 @@ func (s *Service) IngestMeeting(ctx context.Context, req *ingestv1.IngestMeeting
 		return nil, status.Errorf(codes.InvalidArgument, "invalid content_id format: %s", req.ContentId)
 	}
 
+	// Resolve tenant reference to UUID
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	// Parse meeting timestamp
 	var meetingTimestamp time.Time
 	if req.ActualStart != nil {
@@ -352,7 +370,7 @@ func (s *Service) IngestMeeting(ctx context.Context, req *ingestv1.IngestMeeting
 
 	// Check for duplicate meeting
 	externalID := fmt.Sprintf("meeting:%s", req.ExternalMeetingId)
-	isDup, existingID, reason, err := s.repo.CheckDuplicate(ctx, req.TenantId, externalID, transcriptHash)
+	isDup, existingID, reason, err := s.repo.CheckDuplicate(ctx, tenantID, externalID, transcriptHash)
 	if err != nil {
 		s.logger.Error("Error checking meeting duplicate",
 			logging.Err(err),
@@ -377,7 +395,7 @@ func (s *Service) IngestMeeting(ctx context.Context, req *ingestv1.IngestMeeting
 
 	// Create meeting source
 	meetingSource := &storage.EmailSource{
-		TenantID:          req.TenantId,
+		TenantID:          tenantID,
 		SourceSystem:      sourceSystemForPlatform(req.Platform),
 		ExternalID:        externalID,
 		ContentHash:       transcriptHash,
