@@ -134,11 +134,11 @@ check_gateway_health() {
     local body=$(echo "$health_response" | sed '$d')
 
     if [[ "$http_code" == "200" ]]; then
-        local status=$(echo "$body" | jq -r '.status' 2>/dev/null || echo "unknown")
-        log_pass "gateway_health" "Status: $status"
+        local health_status=$(echo "$body" | jq -r '.status' 2>/dev/null || echo "unknown")
+        log_pass "gateway_health" "Status: $health_status"
     elif [[ "$http_code" == "503" ]]; then
-        local status=$(echo "$body" | jq -r '.status' 2>/dev/null || echo "unhealthy")
-        log_fail "gateway_health" "Status: $status (HTTP $http_code)" "true"
+        local health_status=$(echo "$body" | jq -r '.status' 2>/dev/null || echo "unhealthy")
+        log_fail "gateway_health" "Status: $health_status (HTTP $http_code)" "true"
     else
         log_fail "gateway_health" "Unexpected HTTP $http_code" "true"
     fi
