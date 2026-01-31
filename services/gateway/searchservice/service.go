@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -16,14 +17,16 @@ import (
 
 	searchv1 "github.com/otherjamesbrown/penfold/api/proto/search/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/tenant"
 )
 
 // Service implements the SearchServiceServer using direct database queries.
 type Service struct {
 	searchv1.UnimplementedSearchServiceServer
 
-	db     *pgxpool.Pool
-	logger logging.Logger
+	db         *pgxpool.Pool
+	tenantRepo *tenant.Repository
+	logger     logging.Logger
 }
 
 // NewService creates a new search service with database access.
@@ -32,9 +35,37 @@ func NewService(db *pgxpool.Pool, logger logging.Logger) *Service {
 		logger = logging.NewLogger(logging.DefaultConfig())
 	}
 	return &Service{
-		db:     db,
-		logger: logger,
+		db:         db,
+		tenantRepo: tenant.NewRepository(db),
+		logger:     logger,
 	}
+}
+
+// resolveTenantID resolves a tenant reference (slug or UUID) to a UUID.
+func (s *Service) resolveTenantID(ctx context.Context, ref string) (string, error) {
+	if ref == "" {
+		return "", nil
+	}
+
+	// Check if it's already a UUID
+	if _, err := uuid.Parse(ref); err == nil {
+		return ref, nil
+	}
+
+	// Try to resolve as slug
+	if s.tenantRepo == nil {
+		return "", fmt.Errorf("tenant repository not configured")
+	}
+
+	t, err := s.tenantRepo.GetByRef(ctx, ref)
+	if err != nil {
+		return "", fmt.Errorf("tenant not found: %s", ref)
+	}
+	if t == nil {
+		return "", fmt.Errorf("tenant not found: %s", ref)
+	}
+
+	return t.ID, nil
 }
 
 // Search performs a hybrid search combining full-text and basic relevance scoring.
@@ -48,7 +79,15 @@ func (s *Service) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 		return nil, status.Error(codes.InvalidArgument, "query cannot be empty")
 	}
 
-	tenantID := req.GetTenantId()
+	// Resolve tenant ID (may be slug or UUID)
+	tenantID, err := s.resolveTenantID(ctx, req.GetTenantId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid tenant: %v", err)
+	}
+	if tenantID == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+
 	limit := req.GetLimit()
 	if limit <= 0 {
 		limit = 10
@@ -203,7 +242,16 @@ func (s *Service) GetSearchStats(ctx context.Context, req *searchv1.GetSearchSta
 		return nil, status.Error(codes.Unavailable, "database not configured")
 	}
 
-	tenantID := req.GetTenantId()
+	// Resolve tenant ID if provided
+	tenantRef := req.GetTenantId()
+	var tenantID string
+	var err error
+	if tenantRef != "" {
+		tenantID, err = s.resolveTenantID(ctx, tenantRef)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid tenant: %v", err)
+		}
+	}
 
 	var totalDocs int64
 	var query string
