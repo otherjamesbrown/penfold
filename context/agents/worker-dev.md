@@ -136,7 +136,7 @@ func TestExampleWorkflow(t *testing.T) {
 
 ## Quality Gates
 
-Before completing any bead:
+Before completing any shard:
 
 ```bash
 # Build worker
@@ -183,7 +183,7 @@ go test ./services/worker/worker/... -race
 
 ## Worker-Specific Quality Checks
 
-Before closing bead (in addition to standard checklist in `development/index.md`):
+Before closing shard (in addition to standard checklist in `development/index.md`):
 
 - [ ] Workflows are deterministic (no random, time, external calls)
 - [ ] Activities are idempotent (safe to retry)

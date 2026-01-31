@@ -33,43 +33,35 @@ Comprehensive review and action workflow for a GitHub Pull Request with integrat
    - Key files changed grouped by area
    - Any failing checks with failure details
 
-### Phase 1.5: Create PR Tracking Bead
+### Phase 1.5: Create PR Tracking Shard
 
-After displaying the summary, create a bead to track this PR review work:
+After displaying the summary, create a shard to track this PR review work:
 
-1. **Create the tracking bead**:
-   ```bash
-   bd create "PR#<PR_NUMBER>: <PR_TITLE>" --type task --priority 1
-   ```
-
-   Note the returned bead ID for use in subsequent commands.
-
-2. **Update the bead with PR details**:
-   ```bash
-   bd update <BEAD_ID> --label pr-review --label "pr-<PR_NUMBER>" --label "<BASE_BRANCH>-to-<HEAD_BRANCH>"
-   ```
-
-3. **Add a comment with the PR summary**:
-   ```bash
-   bd comments add <BEAD_ID> "PR Summary:
+1. **Create the tracking shard**:
+   ```sql
+   SELECT create_shard('penfold', 'PR#<PR_NUMBER>: <PR_TITLE>',
+     'PR Summary:
    - Branch: <HEAD_BRANCH> → <BASE_BRANCH>
    - Files changed: <COUNT>
    - Additions: +<ADDITIONS>, Deletions: -<DELETIONS>
    - CI Status: <PASS/FAIL>
-   - URL: <PR_URL>"
+   - URL: <PR_URL>',
+     'task', 'agent-penfdev');
    ```
 
-4. **Inform the user**: Display the created bead ID so they can reference it:
+   Note the returned shard ID (pf-xxx) for use in subsequent commands.
+
+2. **Inform the user**: Display the created shard ID so they can reference it:
    ```
-   📋 Created tracking bead: <BEAD_ID>
-   Use `bd show <BEAD_ID>` to view progress.
+   Created tracking shard: pf-xxx
+   Use `SELECT * FROM shards WHERE id = 'pf-xxx';` to view progress.
    ```
 
 ---
 
 ### Phase 2: Ask User What to Address
 
-After displaying the summary and creating the tracking bead, ask the user:
+After displaying the summary and creating the tracking shard, ask the user:
 
 **"What would you like me to address?"**
 
@@ -165,9 +157,9 @@ Wait for user response before proceeding.
    git push
    ```
 
-7. **Update tracking bead**:
+7. **Update tracking shard**:
    ```bash
-   bd comments add <BEAD_ID> "Addressed review comments:
+   -- Add comment to shard via <BEAD_ID> "Addressed review comments:
    - <SUMMARY_OF_CHANGES>
    Commit: <COMMIT_SHA>"
    ```
@@ -180,7 +172,7 @@ Wait for user response before proceeding.
 - [ ] For EACH comment: understood → fixed → replied on GitHub
 - [ ] Committed all fixes
 - [ ] Pushed to remote
-- [ ] Updated tracking bead
+- [ ] Updated tracking shard
 
 ---
 
@@ -214,9 +206,9 @@ Wait for user response before proceeding.
    git push
    ```
 
-7. **Update tracking bead**:
+7. **Update tracking shard**:
    ```bash
-   bd comments add <BEAD_ID> "Fixed CI failures:
+   -- Add comment to shard via <BEAD_ID> "Fixed CI failures:
    - <SUMMARY_OF_FIXES>
    Commit: <COMMIT_SHA>"
    ```
@@ -236,10 +228,10 @@ Use this phase when the PR has been merged and deployed to a new environment (e.
    - What issues are being observed?
    - Any error messages, logs, or symptoms?
 
-2. **Update the tracking bead**:
+2. **Update the tracking shard**:
    ```bash
-   bd comments add <BEAD_ID> "Merged to <ENVIRONMENT> - investigating issues"
-   bd update <BEAD_ID> --label "env-<ENVIRONMENT>"
+   -- Add comment to shard via <BEAD_ID> "Merged to <ENVIRONMENT> - investigating issues"
+   -- Update shard via <BEAD_ID> --label "env-<ENVIRONMENT>"
    ```
 
 #### 4.2: Debug Using Debugger Subagent
@@ -265,78 +257,78 @@ Use this phase when the PR has been merged and deployed to a new environment (e.
    ''')
    ```
 
-3. **Capture findings**: Document the root cause analysis in the tracking bead:
+3. **Capture findings**: Document the root cause analysis in the tracking shard:
    ```bash
-   bd comments add <BEAD_ID> "Root Cause Analysis:
+   -- Add comment to shard via <BEAD_ID> "Root Cause Analysis:
    <SUMMARY_FROM_DEBUGGER>"
    ```
 
-#### 4.3: Create Sub-Beads for Fixes
+#### 4.3: Create Sub-Shards for Fixes
 
 For each issue identified that requires a fix:
 
-1. **Create a sub-bead for the fix**:
+1. **Create a sub-shard for the fix**:
    ```bash
-   bd create "Fix: <ISSUE_DESCRIPTION>" --type bug --priority 1
+   SELECT create_shard(...) "Fix: <ISSUE_DESCRIPTION>" --type bug --priority 1
    ```
 
-2. **Link to parent PR bead**:
+2. **Link to parent PR shard**:
    ```bash
-   bd update <SUB_BEAD_ID> --label "parent-<PARENT_BEAD_ID>" --label "pr-<PR_NUMBER>" --label "env-<ENVIRONMENT>"
-   bd dep add <SUB_BEAD_ID> <PARENT_BEAD_ID>
+   -- Update shard via <SUB_BEAD_ID> --label "parent-<PARENT_BEAD_ID>" --label "pr-<PR_NUMBER>" --label "env-<ENVIRONMENT>"
+   SELECT link(...) <SUB_BEAD_ID> <PARENT_BEAD_ID>
    ```
 
-3. **Add context to the sub-bead**:
+3. **Add context to the sub-shard**:
    ```bash
-   bd comments add <SUB_BEAD_ID> "Issue discovered after PR #<PR_NUMBER> merged to <ENVIRONMENT>.
+   -- Add comment to shard via <SUB_BEAD_ID> "Issue discovered after PR #<PR_NUMBER> merged to <ENVIRONMENT>.
 
    Root cause: <ROOT_CAUSE>
 
    Suggested fix: <SUGGESTED_FIX>
 
-   Parent tracking bead: <PARENT_BEAD_ID>"
+   Parent tracking shard: <PARENT_BEAD_ID>"
    ```
 
-4. **Update parent bead with sub-bead reference**:
+4. **Update parent shard with sub-shard reference**:
    ```bash
-   bd comments add <PARENT_BEAD_ID> "Created sub-bead <SUB_BEAD_ID> to track fix for: <ISSUE_DESCRIPTION>"
+   -- Add comment to shard via <PARENT_BEAD_ID> "Created sub-shard <SUB_BEAD_ID> to track fix for: <ISSUE_DESCRIPTION>"
    ```
 
 #### 4.4: Work on Fixes
 
-For each sub-bead:
+For each sub-shard:
 
 1. **Update status to in_progress**:
    ```bash
-   bd update <SUB_BEAD_ID> --status in_progress
+   -- Update shard via <SUB_BEAD_ID> --status in_progress
    ```
 
 2. **Implement the fix** (may involve additional debugging, code changes)
 
 3. **Create a new PR for the fix** if needed
 
-4. **Close the sub-bead when fixed**:
+4. **Close the sub-shard when fixed**:
    ```bash
-   bd close <SUB_BEAD_ID> "Fixed in PR #<FIX_PR_NUMBER> / commit <COMMIT_SHA>"
+   SELECT close_task(...) <SUB_BEAD_ID> "Fixed in PR #<FIX_PR_NUMBER> / commit <COMMIT_SHA>"
    ```
 
 #### 4.5: Track Promotion Success
 
 When all issues are resolved and the code is stable in the target environment:
 
-1. **Update the tracking bead**:
+1. **Update the tracking shard**:
    ```bash
-   bd comments add <BEAD_ID> "✅ Successfully deployed to <ENVIRONMENT>. All issues resolved."
+   -- Add comment to shard via <BEAD_ID> "✅ Successfully deployed to <ENVIRONMENT>. All issues resolved."
    ```
 
 2. **If ready to promote to next environment**, add a note:
    ```bash
-   bd comments add <BEAD_ID> "Ready for promotion to <NEXT_ENVIRONMENT>"
+   -- Add comment to shard via <BEAD_ID> "Ready for promotion to <NEXT_ENVIRONMENT>"
    ```
 
-3. **Close the tracking bead** when the PR journey is complete:
+3. **Close the tracking shard** when the PR journey is complete:
    ```bash
-   bd close <BEAD_ID> "PR successfully deployed through all target environments"
+   SELECT close_task(...) <BEAD_ID> "PR successfully deployed through all target environments"
    ```
 
 ---
@@ -357,19 +349,19 @@ When all issues are resolved and the code is stable in the target environment:
 - **Reply to EVERY comment on GitHub** - this closes the feedback loop with reviewers
 - The only user interaction in Phase 3A should be the initial selection in Phase 2
 
-### Bead Tracking Notes
-- **Tracking bead**: Created in Phase 1.5 with auto-generated ID
+### Shard Tracking Notes
+- **Tracking shard**: Created in Phase 1.5 with auto-generated ID
 - **Labels used**:
-  - `pr-review` - Identifies this as a PR review tracking bead
+  - `pr-review` - Identifies this as a PR review tracking shard
   - `pr-<PR_NUMBER>` - Links to the specific PR number
   - `<BASE>-to-<HEAD>` - Shows branch flow (e.g., `develop-to-staging`)
   - `env-<ENVIRONMENT>` - Added when tracking environment issues
-  - `parent-<BEAD_ID>` - Used on sub-beads to link to parent
-- **Sub-beads**: Created in Phase 4 to track individual fixes needed after environment promotion
-- **Dependencies**: Use `bd dep add <child> <parent>` to establish relationships
-- **Finding PR beads**: `bd list --label pr-review` or `bd list --label pr-<NUMBER>`
+  - `parent-<BEAD_ID>` - Used on sub-shards to link to parent
+- **Sub-shards**: Created in Phase 4 to track individual fixes needed after environment promotion
+- **Dependencies**: Use `SELECT link(...) <child> <parent>` to establish relationships
+- **Finding PR shards**: `SELECT * FROM shards WHERE --label pr-review` or `SELECT * FROM shards WHERE --label pr-<NUMBER>`
 - **Workflow**:
-  1. Bead created at PR review start
+  1. Shard created at PR review start
   2. Comments added as work progresses
-  3. Sub-beads created for environment issues
-  4. Parent bead closed when PR deployed to all target environments
+  3. Sub-shards created for environment issues
+  4. Parent shard closed when PR deployed to all target environments

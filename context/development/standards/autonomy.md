@@ -51,7 +51,7 @@ For **known work** (implementing an agreed plan, bug fixes, routine tasks):
 | Significant refactoring | Bug fixes, small changes |
 | New patterns or architecture | Following established patterns |
 | "Can we improve X?" requests | "Fix the bug in X" requests |
-| Unclear or open-ended tasks | Well-defined tasks with beads |
+| Unclear or open-ended tasks | Well-defined tasks with shards |
 
 **Rule of thumb:** If you're about to write "Let me rewrite/redesign this", pause and propose first.
 
@@ -104,11 +104,13 @@ Once aligned (or for routine work):
 
 When work spans domains:
 
-1. **Create handoff beads** - Don't just mention it, create the bead
+1. **Create handoff shards** - Don't just mention it, create the shard
 2. **Stay in your domain** - Don't modify files outside your responsibility
-3. **Document in the bead** - What needs doing and why
+3. **Document in the shard** - What needs doing and why
 
-```bash
-bd create --title="Handoff: description" --type=task
-bd update <id> --assignee=target-agent
+```sql
+-- Create handoff shard
+SELECT create_shard('penfold', 'Handoff: description', 'Details', 'task', 'agent-penfdev');
+-- Then assign
+UPDATE shards SET owner = 'target-agent' WHERE id = 'pf-xxx';
 ```

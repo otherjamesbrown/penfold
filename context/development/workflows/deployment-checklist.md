@@ -183,7 +183,7 @@ penf health gateway
 ```
 
 ### 5. Document Issue
-- Create bead for the failure
+- Create shard for the failure: `SELECT create_shard('penfold', 'Deploy failure: ...', 'Details', 'task', 'agent-penfdev');`
 - Include logs and error messages
 - Tag as P0 if service is down
 

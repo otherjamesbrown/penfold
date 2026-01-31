@@ -246,7 +246,7 @@ protoc --go_out=. --go_opt=paths=source_relative \
 
 ## Quality Gates
 
-Before completing any bead:
+Before completing any shard:
 
 ```bash
 # Generate proto code if .proto files changed
@@ -318,7 +318,7 @@ buf lint api/proto/
 
 ## Service-Specific Quality Checks
 
-Before closing bead (in addition to standard checklist in `development/index.md`):
+Before closing shard (in addition to standard checklist in `development/index.md`):
 
 - [ ] Proto file follows style guide (lowercase_snake for fields)
 - [ ] Generated code committed if proto changed

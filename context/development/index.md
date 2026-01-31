@@ -37,17 +37,27 @@ The orchestrator gave you a task via a bead. The plan was already agreed with Ja
 
 Only ask if you need clarification on what the bead is asking for - not permission to continue.
 
-### Beads Are Everything
+### Shards Are Everything
 
-**Your task comes from a bead. Your progress goes in the bead. Your completion closes the bead.**
+**Your task comes from a shard. Your progress goes in the shard. Your completion closes the shard.**
 
-```bash
-bd show <bead-id>     # Read your task
-bd comments add ...   # Log progress as you work
-bd close <bead-id>    # Mark complete when done
+```sql
+-- Read your task
+SELECT * FROM shards WHERE id = 'pf-xxx';
+
+-- Log progress as you work
+SELECT send_message('penfold', 'agent-penfdev', ARRAY['agent-penfdev'], 'Progress', 'Update details', NULL, NULL, 'pf-xxx');
+
+-- Mark complete when done
+SELECT close_task('pf-xxx', 'Completed: summary');
 ```
 
-If your session dies, the bead preserves your progress. Update it frequently.
+**Connection:**
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
+```
+
+If your session dies, the shard preserves your progress. Update it frequently.
 
 ### Critical Rules
 
@@ -70,7 +80,7 @@ If your session dies, the bead preserves your progress. Update it frequently.
 | Order | Document | Why |
 |-------|----------|-----|
 | 1 | This file | Entry point for sub-agents |
-| 2 | `workflows/beads.md` | Work tracking is mandatory |
+| 2 | `workflows/shards.md` | Work tracking is mandatory |
 | 3 | `workflows/session.md` | Know how to end properly |
 | 4 | `standards/autonomy.md` | Know when to ask vs proceed |
 
@@ -90,12 +100,12 @@ After reading the above, read your specific agent file:
 
 ## Quick Reference
 
-| Task | Command |
-|------|---------|
-| Find work | `bd ready` |
-| Claim work | `bd update <id> --status=in_progress` |
-| Before ending | `git push` + `bd sync` |
-| Check status | `bd stats` |
+| Task | SQL Command |
+|------|-------------|
+| Find work | `SELECT * FROM tasks_for('penfold', 'agent-penfdev');` |
+| Claim work | `SELECT claim_task('pf-xxx', 'agent-penfdev');` |
+| Before ending | `git push` (no sync needed - DB is always live) |
+| Show shard | `SELECT * FROM shards WHERE id = 'pf-xxx';` |
 
 ---
 
@@ -121,7 +131,7 @@ After reading the above, read your specific agent file:
 
 | Document | Purpose |
 |----------|---------|
-| `workflows/beads.md` | Bead lifecycle, epic management, agent assignment |
+| `workflows/shards.md` | Shard lifecycle, task grouping, agent assignment |
 | `workflows/session.md` | Session close protocol, git workflow |
 | `workflows/releases.md` | CLI versioning and release process |
 | `workflows/priorities.md` | Finding work, priority guidelines |
@@ -144,10 +154,11 @@ After reading the above, read your specific agent file:
 
 If work is needed for another agent:
 
-```bash
-# Create handoff bead
-bd create --title="Handoff: description" --type=task
-bd update <id> --assignee=target-agent
+```sql
+-- Create handoff shard
+SELECT create_shard('penfold', 'Handoff: description', 'Details', 'task', 'agent-penfdev');
+-- Then assign
+UPDATE shards SET owner = 'target-agent' WHERE id = 'pf-xxx';
 ```
 
 **Never modify files outside your domain without explicit handoff.**
@@ -158,15 +169,15 @@ bd update <id> --assignee=target-agent
 
 **NEVER:**
 - Work outside your agent domain without handoff bead
-- Exceed 30 minutes without documenting progress in bead
+- Exceed 30 minutes without documenting progress in shard
 - Modify ARCHITECTURE.md without user approval
 - Create infrastructure that duplicates existing systems
-- Add features, refactor code, or make "improvements" beyond what the bead asks
+- Add features, refactor code, or make "improvements" beyond what the shard asks
 - Continue past 3 failed test iterations - abandon and mark blocked instead
 
 **ALWAYS:**
-- Update beads with progress as you work
-- Create handoff beads when crossing domains
+- Update shards with progress as you work
+- Create handoff shards when crossing domains
 - Document what and why in handoffs
 - Run tests before committing
 - Push to remote before ending
@@ -174,7 +185,7 @@ bd update <id> --assignee=target-agent
 
 ### The 3-Iteration Rule
 
-When working on a bead with a test:
+When working on a shard with a test:
 
 ```
 write code → run test → FAIL → fix code → run test → FAIL → fix code → run test → FAIL → STOP
@@ -182,21 +193,21 @@ write code → run test → FAIL → fix code → run test → FAIL → fix code
 
 After 3 code-test-fix cycles without passing:
 1. **Stop working** - Don't keep trying
-2. **Mark bead as `blocked`** - `bd update <id> --status=blocked`
-3. **Document what you tried** - Add notes to the bead
-4. **Report back** - The orchestrator will reassess (maybe the bead was too big, instructions unclear, or you're missing context)
+2. **Mark shard as blocked** - Update the shard content to indicate blocked status
+3. **Document what you tried** - Add notes to the shard
+4. **Report back** - The orchestrator will reassess (maybe the shard was too big, instructions unclear, or you're missing context)
 
 ---
 
 ## Completion Checklist
 
 Before reporting complete:
-- [ ] Bead exists and is in_progress
+- [ ] Shard exists and is in_progress
 - [ ] Tests written for new functionality
 - [ ] Tests pass: `go test ./... -v`
-- [ ] Commits reference bead ID: `[pe-xxx]`
-- [ ] Bead closed with commit hash and summary
-- [ ] Handoff beads created if needed
+- [ ] Commits reference shard ID: `[pf-xxx]`
+- [ ] Shard closed with commit hash and summary
+- [ ] Handoff shards created if needed
 - [ ] Work pushed to remote
 - [ ] Git status shows "up to date with origin"
 - [ ] **If deployed: `./scripts/verify-deployment.sh` passes (exit 0 or 2)**
@@ -208,17 +219,17 @@ Before reporting complete:
 When completing work, report:
 
 ```markdown
-**Bead**: pe-xxx (closed)
+**Shard**: pf-xxx (closed)
 
 **Summary**: What was accomplished
 
-**Commits**: `abc1234`: description [pe-xxx]
+**Commits**: `abc1234`: description [pf-xxx]
 
 **Files Changed**: path/to/file.go
 
 **Tests**: Added/updated (or "N/A - no new functionality")
 
-**Handoffs**: Beads created for other agents (or "None")
+**Handoffs**: Shards created for other agents (or "None")
 
 **Domain**: Confirmed work stayed within <agent> domain
 ```

@@ -2,40 +2,62 @@
 
 ## Dynamic Priority Discovery
 
+```sql
+-- Current available work
+SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+
+-- All open work
+SELECT id, title, status, owner FROM shards
+WHERE project = 'penfold' AND status != 'closed'
+ORDER BY created_at;
+
+-- Count by status
+SELECT status, COUNT(*) FROM shards
+WHERE project = 'penfold'
+GROUP BY status;
+```
+
+**Connection:**
 ```bash
-bd ready                # Current available work
-bd stats                # Project health overview
-bd list --status=open   # All open work
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
 ```
 
 ## Priority Guidelines
 
 1. **Blocked work** - Unblock others first
 2. **P0/P1 priorities** - Critical path items
-3. **Complete epic chains** - Finish what's started
-4. **Follow dependencies** - Use bead dependency chains
+3. **Complete group chains** - Finish what's started
+4. **Follow dependencies** - Use `relates-to` edges
 
-**When in doubt:** Run `bd ready` and ask user which direction they prefer.
+**When in doubt:** Check tasks and ask user which direction they prefer.
 
 ## Cannot Start New Work If
 
 - Any P0 exists (fix it first)
-- You have ≥3 independent work streams in_progress (finish something first)
+- You have >=3 independent work streams in_progress (finish something first)
 - A P1 has been open >7 days (address it)
 
 ## Before Starting Work
 
-```bash
-# 1. Check for blockers to new work
-bd list --status open --priority 0    # Any P0? Fix first!
-bd list --status open --priority 1    # P1s >7 days? Address first.
-bd list --status in_progress          # Already ≥3? Finish something.
+```sql
+-- 1. Check for blockers to new work
+-- Any high priority? Fix first!
+SELECT * FROM shards
+WHERE project = 'penfold'
+  AND status = 'open'
+  AND title LIKE '%P0%' OR title LIKE '%P1%';
 
-# 2. Find existing bead or create new one
-bd ready                    # Find unblocked tasks
-bd list --status open       # All open issues
-bd create --title="..." --type=task
+-- Already >=3 in progress? Finish something.
+SELECT COUNT(*) FROM shards
+WHERE project = 'penfold'
+  AND status = 'in_progress';
 
-# 3. Claim the work
-bd update <id> --status in_progress
+-- 2. Find existing shard or create new one
+SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+
+-- Create new shard
+SELECT create_shard('penfold', 'Title', 'Description', 'task', 'agent-penfdev');
+
+-- 3. Claim the work
+SELECT claim_task('pf-xxx', 'agent-penfdev');
 ```

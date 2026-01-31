@@ -19,8 +19,8 @@ Speckit manages feature lifecycle: from specification through implementation to 
 | Specification | `/speckit.specify` | `spec.md` |
 | Clarification | `/speckit.clarify` | Updated `spec.md` |
 | Planning | `/speckit.plan` | `plan.md` |
-| Bead generation | `/speckit.beads` | Beads in `bd` |
-| Implementation | `/speckit.implement-beads` | Working code |
+| Shard generation | `/speckit.shards` | Shards in `bd` |
+| Implementation | `/speckit.implement-shards` | Working code |
 | Analysis | `/speckit.analyze` | Consistency report |
 | Archival | Manual | `ARCHIVE.md`, patterns |
 
@@ -47,13 +47,13 @@ Speckit manages feature lifecycle: from specification through implementation to 
 # 3. Create technical plan
 /speckit.plan
 
-# 4. Generate beads
-/speckit.beads
+# 4. Generate shards
+/speckit.shards
 
 # 5. STOP - Get user approval
 
 # 6. Implement (after approval)
-/speckit.implement-beads
+/speckit.implement-shards
 
 # 7. Validate consistency
 /speckit.analyze
@@ -61,26 +61,39 @@ Speckit manages feature lifecycle: from specification through implementation to 
 
 ## MANDATORY: Implementation Gate
 
-**NEVER start `/speckit.implement-beads` without explicit user approval.**
+**NEVER start `/speckit.implement-shards` without explicit user approval.**
 
-After completing planning and bead generation:
+After completing planning and shard generation:
 
 1. Present summary of what will be implemented
-2. List all beads with descriptions
+2. List all shards with descriptions
 3. Ask: "Ready to begin implementation? (yes/no)"
 4. **WAIT for user confirmation**
 
 This is non-negotiable.
 
-## Bead Commands
+## Shard Commands
 
+```sql
+-- Find available work
+SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+
+-- View shard details
+SELECT * FROM shards WHERE id = 'pf-xxx';
+
+-- Claim work
+SELECT claim_task('pf-xxx', 'agent-penfdev');
+
+-- Complete work
+SELECT close_task('pf-xxx', 'Completed: summary');
+
+-- View group structure
+SELECT * FROM edges WHERE to_id = 'pf-group' AND edge_type = 'relates-to';
+```
+
+**Connection:**
 ```bash
-bd ready                              # Find available work
-bd show <id>                          # View bead details
-bd update <id> --status=in_progress   # Claim work
-bd close <id> --reason="..."          # Complete work
-bd dep tree <epic-id>                 # View epic structure
-bd sync                               # Sync with git
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
 ```
 
 ## Feature Directory Structure
@@ -138,8 +151,8 @@ cat .specify/features/<name>/spec.md  # Verify completeness
 # After planning
 cat .specify/features/<name>/plan.md  # Verify technical plan
 
-# After bead generation
-bd list | grep <feature>              # Verify beads created
+# After shard generation - verify shards created
+psql ... -c "SELECT id, title FROM shards WHERE project = 'penfold' AND title LIKE '%<feature>%';"
 
 # After implementation
 go build ./...                        # Builds
@@ -160,7 +173,7 @@ After feature completion:
 
 3. Update relevant documentation
 
-4. Close epic bead
+4. Close group shard
 
 ## Common Patterns
 
@@ -186,7 +199,7 @@ After feature completion:
 ### Cross-Feature Dependencies
 
 ```markdown
-## Cross-Spec Bead Dependencies
+## Cross-Spec Shard Dependencies
 
 | This Phase | Depends On | Reason |
 |------------|------------|--------|
@@ -197,9 +210,9 @@ After feature completion:
 
 Before closing a feature:
 
-- [ ] All beads closed
+- [ ] All shards closed
 - [ ] Tests pass
 - [ ] Documentation updated
 - [ ] ARCHIVE.md created (in `.specify/features/<name>/`)
 - [ ] Reusable patterns extracted to `context/architecture/`
-- [ ] Epic bead closed
+- [ ] Group shard closed

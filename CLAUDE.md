@@ -4,94 +4,64 @@ You are the orchestrator for Penfold backend development.
 
 **Start here:** Read `context/root-agent.md` for your role, session checklist, and how to coordinate sub-agents.
 
-## Context-Palace
+## Context-Palace (Support System)
 
 You are **agent-penfdev** working on project **penfold** (prefix: `pf-`).
 
-Context-Palace is your shared memory system. Use it to:
-- Create and track tasks/bugs
-- Send messages to other agents and humans
-- Log your actions
-- Store information that needs to persist
+Context-Palace is your **support system** for:
+- Raising issues and reporting bugs
+- Creating and tracking work items
+- Sending messages to other agents
+- Logging actions and storing information
 
-**Full guide:** Read `context-palace.md` in this folder.
+It assists your work - it is not your primary task.
 
-### Connection
+**Reference docs:**
+- `context-palace.md` - Full usage guide (Quick Reference at top, Common Mistakes section)
+- `pf-rules` - Project rules: `SELECT content FROM shards WHERE id = 'pf-rules';`
 
+**Connection:**
 ```bash
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
-```
-
-### Start of Session
-
-Always check for messages and tasks at the start of a session:
-
-```sql
--- Check inbox
-SELECT * FROM unread_for('penfold', 'agent-penfdev');
-
--- Check your tasks
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
-
--- See ready tasks anyone can claim
-SELECT * FROM ready_tasks('penfold');
 ```
 
 ### Quick Commands
 
 ```sql
--- Mark message read
-INSERT INTO read_receipts (shard_id, agent_id) VALUES ('pf-xxx', 'agent-penfdev') ON CONFLICT DO NOTHING;
-
--- Create task (simple)
-SELECT create_shard('penfold', 'Title', 'Details', 'task', 'agent-penfdev');
--- Returns: pf-a1b2c3
-
--- Create task with owner and priority
-SELECT create_shard('penfold', 'Title', 'Details', 'task', 'agent-penfdev', 'target-agent', 2);
+-- Check inbox and tasks
+SELECT * FROM unread_for('penfold', 'agent-penfdev');
+SELECT * FROM inbox_summary('penfold', 'agent-penfdev');
+SELECT * FROM tasks_for('penfold', 'agent-penfdev');
 
 -- Send message
-SELECT create_shard('penfold', 'Subject', 'Body', 'message', 'agent-penfdev');
-INSERT INTO labels (shard_id, label) VALUES ('pf-NEWID', 'to:recipient');
+SELECT send_message('penfold', 'agent-penfdev', ARRAY['recipient'], 'Subject', 'Body');
 
 -- Reply to message
-SELECT create_shard('penfold', 'Re: Subject', 'Reply text', 'message', 'agent-penfdev');
-INSERT INTO edges (from_id, to_id, edge_type) VALUES ('pf-REPLY', 'pf-ORIGINAL', 'replies-to');
-INSERT INTO labels (shard_id, label) VALUES ('pf-REPLY', 'to:original-sender');
+SELECT send_message('penfold', 'agent-penfdev', ARRAY['sender'], 'Re: Subject', 'Body', NULL, NULL, 'pf-original');
 
--- Claim task
-UPDATE shards SET owner = 'agent-penfdev', status = 'in_progress' WHERE id = 'pf-xxx' AND owner IS NULL;
+-- Mark read
+SELECT mark_read(ARRAY['pf-xxx'], 'agent-penfdev');
 
--- Close task
-UPDATE shards SET status = 'closed', closed_at = NOW(), closed_reason = 'Done: summary' WHERE id = 'pf-xxx';
+-- Create task
+SELECT create_shard('penfold', 'Title', 'Description', 'task', 'agent-penfdev');
 
--- Log an action
-SELECT create_shard('penfold', 'Did something', 'Details of action', 'log', 'agent-penfdev');
+-- Claim and close tasks
+SELECT claim_task('pf-xxx', 'agent-penfdev');
+SELECT close_task('pf-xxx', 'Completed: summary');
 
--- Get conversation thread
-SELECT * FROM get_thread('pf-xxx');
-
--- Search
-SELECT id, title, status FROM shards, to_tsquery('english', 'keyword') query
-WHERE project = 'penfold' AND search_vector @@ query ORDER BY ts_rank(search_vector, query) DESC LIMIT 10;
+-- Add artifact to task
+SELECT add_artifact('pf-xxx', 'commit', 'abc123', 'Fixed the bug');
 ```
 
-### Priorities
+### Common Mistakes
 
-| Priority | Meaning |
-|----------|---------|
-| 0 | Critical - drop everything |
-| 1 | High - do today |
-| 2 | Normal - this week |
-| 3 | Low - when possible |
+| Wrong | Correct |
+|-------|---------|
+| `body` | `content` |
+| `shard_type` | `type` |
+| `issues` table | `shards` or `issues` view |
 
-### Message Labels
-
-- `to:agent-xxx` - Send to agent
-- `to:human-xxx` - Send to human
-- `kind:bug-report` - Bug report
-- `kind:status-update` - FYI / progress
-- `kind:question` - Needs response
+See `context-palace.md` for full schema and function reference.
 
 ## After Making Code Changes
 

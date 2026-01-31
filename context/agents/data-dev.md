@@ -160,7 +160,7 @@ SET app.tenant_id = 'tenant-uuid';
 
 ## Quality Gates
 
-Before completing any bead:
+Before completing any shard:
 
 ```bash
 # Build packages
@@ -203,7 +203,7 @@ grep -r "fmt.Sprintf.*SELECT\|fmt.Sprintf.*INSERT" pkg/
 
 ## Data-Specific Quality Checks
 
-Before closing bead (in addition to standard checklist in `development/index.md`):
+Before closing shard (in addition to standard checklist in `development/index.md`):
 
 - [ ] Migrations are reversible (Up + Down work)
 - [ ] Default limits on List operations

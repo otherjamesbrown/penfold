@@ -7,20 +7,21 @@
 ```bash
 git status              # Check changes
 git add <files>         # Stage changes
-bd sync                 # Sync beads
-git commit -m "..."     # Commit with bead reference
+git commit -m "..."     # Commit with shard reference [pf-xxx]
 git push                # MUST PUSH TO REMOTE
 ```
+
+**(No sync needed - shards are always live in Context-Palace)**
 
 **Rules:**
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
-- Create beads for any remaining work before ending
+- Create shards for any remaining work before ending
 
 ## Git Workflow
 
-- All commits must reference bead: `[pe-xxx]`
+- All commits must reference shard: `[pf-xxx]`
 - Push to remote before ending session
 - Follow constitutional principles in `project-constitution.md`
 
@@ -29,7 +30,7 @@ git push                # MUST PUSH TO REMOTE
 ```bash
 # Use HEREDOC for proper formatting
 git commit -m "$(cat <<'EOF'
-feat(component): description [pe-xxx]
+feat(component): description [pf-xxx]
 
 Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
@@ -38,9 +39,8 @@ EOF
 
 ## Before Ending Session Checklist
 
-- [ ] All changes committed with bead reference
-- [ ] `bd sync` run to sync beads
+- [ ] All changes committed with shard reference
 - [ ] `git push` successful
 - [ ] `git status` shows "up to date with origin"
-- [ ] Beads created for any remaining work
-- [ ] **Context docs still accurate?** Did implementation change anything documented in `infrastructure.md`, `ARCHITECTURE.md`, or other context files? Update them or create a bead to fix.
+- [ ] Shards created for any remaining work
+- [ ] **Context docs still accurate?** Did implementation change anything documented in `infrastructure.md`, `ARCHITECTURE.md`, or other context files? Update them or create a shard to fix.

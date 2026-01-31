@@ -195,7 +195,7 @@ go test -v -cover ./pkg/...
 
 ## Quality Gates
 
-Before completing any bead:
+Before completing any shard:
 
 ```bash
 # All unit tests pass
@@ -248,7 +248,7 @@ func TestSearch_QueryWithFilters(t *testing.T)
 
 ## Testing-Specific Quality Checks
 
-Before closing bead (in addition to standard checklist in `development/index.md`):
+Before closing shard (in addition to standard checklist in `development/index.md`):
 
 - [ ] Build tags correct for tier (integration, e2e, live, benchmark)
 - [ ] Fixtures cleaned up in `t.Cleanup()`

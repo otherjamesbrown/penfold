@@ -91,7 +91,7 @@ Thread IDs group related messages. Use descriptive, prefixed IDs:
 | Bug | `bug-<topic>-<seq>` | `bug-schema-001` |
 | Feature | `feat-<topic>-<seq>` | `feat-glossary-001` |
 | Discussion | `disc-<topic>-<seq>` | `disc-architecture-001` |
-| Bead reference | `pe-<id>` | `pe-j73v` |
+| Shard reference | `pf-<id>` | `pf-j73v` |
 
 **Important:** Thread IDs are NOT searchable via `search_messages`. Always include keywords in the subject/body.
 
@@ -140,37 +140,41 @@ mcp__agent-mail__summarize_thread(
 
 ## Issue Tracking Protocol
 
-When bugs or feature requests come through Agent Mail, they must be tracked in the bead system.
+When bugs or feature requests come through Agent Mail, they must be tracked in Context-Palace (shards).
 
 ### Dev: Receiving a Bug/Feature Request
 
-1. **Create bead(s)** immediately upon receiving the report
-   - One primary bead for the main issue
-   - Sub-beads if the work naturally splits (e.g., fix + migration + tests)
+1. **Create shard(s)** immediately upon receiving the report
+   - One primary shard for the main issue
+   - Sub-shards if the work naturally splits (e.g., fix + migration + tests)
+
+   ```sql
+   SELECT create_shard('penfold', 'Bug: description', 'Details from report', 'task', 'agent-penfdev');
+   ```
 
 2. **Reply ASAP** with acknowledgment and tracking info:
    ```markdown
    ## Acknowledged
 
-   Created bead(s) to track this:
+   Created shard(s) to track this:
 
-   | Bead | Description | Status |
-   |------|-------------|--------|
-   | pe-xxxx | Main issue description | open |
-   | pe-yyyy | Sub-task if applicable | open |
+   | Shard | Description | Status |
+   |-------|-------------|--------|
+   | pf-xxxx | Main issue description | open |
+   | pf-yyyy | Sub-task if applicable | open |
 
    I'll update you when resolved.
    ```
 
 3. **Reply again** when work is complete with resolution details
 
-### Client: After Receiving Bead IDs
+### Client: After Receiving Shard IDs
 
-Once you have a bead ID, **use it for all future discussion** about that issue:
+Once you have a shard ID, **use it for all future discussion** about that issue:
 
-- Reference the bead in follow-up messages: "Regarding pe-xxxx..."
-- Use the bead ID as thread_id for related messages: `thread_id="pe-xxxx"`
-- Check bead status directly: `bd show pe-xxxx`
+- Reference the shard in follow-up messages: "Regarding pf-xxxx..."
+- Use the shard ID as thread_id for related messages: `thread_id="pf-xxxx"`
+- Check shard status directly: `SELECT * FROM shards WHERE id = 'pf-xxxx';`
 
 This keeps communication organized and traceable.
 
@@ -178,8 +182,8 @@ This keeps communication organized and traceable.
 
 - **Traceability** - Every issue has a trackable ID
 - **Async-friendly** - Either agent can check status without messaging
-- **History** - Beads persist; chat context doesn't
-- **Handoffs** - Work can transfer between sessions via bead
+- **History** - Shards persist; chat context doesn't
+- **Handoffs** - Work can transfer between sessions via shard
 
 ## Common Workflows
 
@@ -228,20 +232,20 @@ bugs = search_messages(
 
 ### Dev: Reply to Bug Report
 
-**Important:** Follow the [Issue Tracking Protocol](#issue-tracking-protocol) - create beads first, then reply with bead IDs.
+**Important:** Follow the [Issue Tracking Protocol](#issue-tracking-protocol) - create shards first, then reply with shard IDs.
 
 ```python
-# 1. Create bead(s) first
-# bd create --title="Fix: <description>" --type=bug
+# 1. Create shard(s) first via SQL
+# SELECT create_shard('penfold', 'Fix: <description>', 'Details', 'task', 'agent-penfdev');
 
-# 2. Reply with bead ID(s)
+# 2. Reply with shard ID(s)
 # IMPORTANT: Always specify `to` explicitly - see Troubleshooting
 reply_message(
   project_key="/Users/james/github/otherjamesbrown/penfold",
   message_id=<original_message_id>,
   sender_name="RusticDesert",
   to=["RedWolf"],  # Always specify recipient explicitly!
-  body_md="## Acknowledged\n\nCreated bead **pe-xxxx** to track this.\n\n| Bead | Description |\n|------|-------------|\n| pe-xxxx | Fix description |\n\nWill update when resolved."
+  body_md="## Acknowledged\n\nCreated shard **pf-xxxx** to track this.\n\n| Shard | Description |\n|-------|-------------|\n| pf-xxxx | Fix description |\n\nWill update when resolved."
 )
 ```
 
@@ -266,7 +270,7 @@ What should have happened.
 
 ## Code References
 - `path/to/file.go:123`
-- Related bead: pe-xxxx
+- Related shard: pf-xxxx
 
 ## Suggested Fix
 If you have ideas about what might be wrong.
@@ -301,9 +305,9 @@ How urgent is this? (nice-to-have / important / blocking)
 ## Next Steps
 - Item 4
 
-## Beads Updated
-- pe-xxxx: closed
-- pe-yyyy: in_progress
+## Shards Updated
+- pf-xxxx: closed
+- pf-yyyy: in_progress
 ```
 
 ## Best Practices
@@ -311,18 +315,18 @@ How urgent is this? (nice-to-have / important / blocking)
 ### Do
 
 - **Always register** with `macro_start_session` at session start
-- **Create beads immediately** for bugs/features - reply with bead IDs ASAP
-- **Use bead IDs** in follow-up discussions (e.g., "Regarding pe-xxxx...")
+- **Create shards immediately** for bugs/features - reply with shard IDs ASAP
+- **Use shard IDs** in follow-up discussions (e.g., "Regarding pf-xxxx...")
 - **Use searchable subjects** - include keywords that describe the issue
-- **Include bead IDs** in messages when referencing tracked work
-- **Use thread IDs** for related conversations (use bead ID as thread_id after acknowledgment)
+- **Include shard IDs** in messages when referencing tracked work
+- **Use thread IDs** for related conversations (use shard ID as thread_id after acknowledgment)
 - **Mark messages read** with `mark_message_read` after processing
 - **Acknowledge** messages with `ack_required=true` using `acknowledge_message`
 
 ### Don't
 
-- Don't leave bug/feature requests untracked - always create a bead
-- Don't reply without bead IDs - client needs them for follow-up
+- Don't leave bug/feature requests untracked - always create a shard
+- Don't reply without shard IDs - client needs them for follow-up
 - Don't omit `to` in `reply_message` - always specify recipient explicitly (see Troubleshooting)
 - Don't search for thread IDs (they're not indexed)
 - Don't use descriptive agent names (use auto-generated ones)

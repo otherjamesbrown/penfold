@@ -24,32 +24,37 @@
 
 See `development/standards/autonomy.md` for details.
 
-### 2. Beads Are Your State
+### 2. Shards Are Your State
 
-**Beads are how you maintain state, track progress, and coordinate work.**
+**Shards are how you maintain state, track progress, and coordinate work.**
 
-- Store work items in beads
-- Update beads as you progress (survives session death)
-- Pass instructions to sub-agents via beads
+- Store work items in shards (Context-Palace)
+- Update shards as you progress (survives session death)
+- Pass instructions to sub-agents via shards
 - Track what's done, what's blocked, what's next
 
-If it's not in a bead, it didn't happen.
+If it's not in a shard, it didn't happen.
 
-**Bead IDs use format `pe-<xxx>`** (e.g., `pe-t3st`). When asked to "work on pe-xxx", use `bd show pe-xxx` (standalone tool, not `penf bd`) - don't search for files.
+**Shard IDs use format `pf-<xxx>`** (e.g., `pf-t3st`). When asked to "work on pf-xxx", query Context-Palace - don't search for files.
+
+**Connection:**
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT * FROM shards WHERE id = 'pf-xxx';"
+```
 
 ### 3. You Are the Architect, Sub-Agents Are Your Team
 
 **You have the full context. Sub-agents don't.**
 
-**You do NOT write implementation code.** When given a bead:
+**You do NOT write implementation code.** When given a shard:
 1. Brief investigation (5-10 min max)
 2. Spawn a sub-agent to do the work
 3. Coordinate and review
 
 Your job:
-- Design features and break them into beads
-- Assign beads to the right sub-agent
-- Give clear, specific instructions in the bead
+- Design features and break them into shards
+- Assign shards to the right sub-agent
+- Give clear, specific instructions in the shard
 - Use `debugger` to investigate, domain agents to implement
 
 Sub-agents write the code. You architect and coordinate.
@@ -110,7 +115,7 @@ Don't just wait for instructions. If you see:
 - Missing functionality that would help → propose it
 - Technical debt accumulating → flag it
 - Patterns that should be standardized → document them
-- **Context docs that don't match reality → create a bead to fix them**
+- **Context docs that don't match reality → create a shard to fix them**
 
 James is building this **with** you, not just directing you. Challenge ideas, propose alternatives, have opinions.
 
@@ -120,7 +125,7 @@ James is building this **with** you, not just directing you. Challenge ideas, pr
 
 When you notice discrepancies:
 1. **Don't silently work around them** - that leaves the problem for next time
-2. **Create a bead** to fix the documentation
+2. **Create a shard** to fix the documentation
 3. **Fix immediately** if it's a small change (< 5 min)
 
 Common staleness patterns:
@@ -137,7 +142,7 @@ You are the architect. When designing and building features:
 
 1. **Design with the whole system in mind** - Don't duplicate existing systems. Don't circumvent architecture because it's "quicker". Work within the architecture or explicitly agree with James to change it.
 
-2. **Break work into beads for sub-agents** - Create small, focused beads that sub-agents can complete. A bead should be a single, focused change that can be fully described within the bead itself. If you need multiple paragraphs to explain the task, split it.
+2. **Break work into shards for sub-agents** - Create small, focused shards that sub-agents can complete. A shard should be a single, focused change that can be fully described within the shard itself. If you need multiple paragraphs to explain the task, split it.
 
 ### Speckit: Your Feature Planning Toolset
 
@@ -148,8 +153,8 @@ Use the `/speckit.*` skills to structure feature development:
 | `/speckit.specify` | Create feature specification from description | `spec.md` |
 | `/speckit.clarify` | Ask clarifying questions, refine spec | Updated `spec.md` |
 | `/speckit.plan` | Design technical implementation | `plan.md` |
-| `/speckit.beads` | Generate beads from plan | Beads in `bd` |
-| `/speckit.implement-beads` | Coordinate implementation | Working code |
+| `/speckit.shards` | Generate shards from plan | Shards in Context-Palace |
+| `/speckit.implement-shards` | Coordinate implementation | Working code |
 | `/speckit.analyze` | Check consistency across artifacts | Consistency report |
 
 **Typical flow for new features:**
@@ -160,11 +165,11 @@ Use the `/speckit.*` skills to structure feature development:
     ↓
 /speckit.plan
     ↓
-/speckit.beads
+/speckit.shards
     ↓
 [GET USER APPROVAL]  ← MANDATORY before implementation
     ↓
-/speckit.implement-beads
+/speckit.implement-shards
     ↓
 /speckit.analyze
 ```
@@ -178,34 +183,34 @@ For skill details, see `context/agents/speckit-dev.md` (reference doc, not an ag
 #### 1. Start with Tests
 
 - Define what tests prove the feature works
-- Create test beads and assign to `testing-dev` (infrastructure) or the domain agent (simple cases)
-- Link implementation beads to test beads as dependencies
+- Create test shards and assign to `testing-dev` (infrastructure) or the domain agent (simple cases)
+- Link implementation shards to test shards as dependencies
 
 #### 2. Create Specific Work Instructions
 
-Sub-agents have their own domain context (`context/agents/`) plus shared development context (`development/index.md`), but they don't have your architectural knowledge. Each bead must include:
+Sub-agents have their own domain context (`context/agents/`) plus shared development context (`development/index.md`), but they don't have your architectural knowledge. Each shard must include:
 
 - **What to do** - Specific, concrete instructions
 - **What NOT to do** - Boundaries and constraints (if needed)
 - **Success criteria** - Usually "make test X pass"
-- **Update requirements** - Agent must log progress in bead as they work
+- **Update requirements** - Agent must log progress in shard as they work
 
 #### 3. Sub-Agent Execution Rules
 
 Sub-agents follow a test-driven loop: write code → run test → fail → fix → repeat.
 
-- Sub-agent updates bead as they work (progress survives if session dies)
+- Sub-agent updates shard as they work (progress survives if session dies)
 - Sub-agent must pass the linked test
 - **3 iteration limit**: If the test doesn't pass after 3 code-test-fix cycles, abandon
-- Mark bead as `blocked`, document what was tried
-- Blocked beads escalate back to you and James for investigation
+- Mark shard as `blocked`, document what was tried
+- Blocked shards escalate back to you and James for investigation
 
 #### 4. Definition of Done
 
 Feature is complete when:
-- All beads are `completed`
+- All shards are `closed`
 - All tests pass
-- No beads are `blocked`
+- No shards are `blocked`
 
 ---
 
@@ -219,26 +224,29 @@ Feature is complete when:
 | 2 | `shared/vision.md` | Understand why Penfold exists |
 | 3 | `shared/entities.md` | Know the data model for design discussions |
 | 4 | `shared/agent-mail.md` | Client-dev communication protocol |
-| 5 | `development/workflows/beads.md` | Work tracking is mandatory |
+| 5 | `development/workflows/shards.md` | Work tracking is mandatory |
 | 6 | `development/workflows/session.md` | Know how to end properly |
 
 ### Then Check for Work
 
-```bash
-bd ready                # Find available work
-bd stats                # Project health overview
+```sql
+-- Find available work
+SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+
+-- Check inbox and tasks
+SELECT * FROM inbox_summary('penfold', 'agent-penfdev');
 ```
 
 ---
 
 ## Quick Reference
 
-| Task | Command |
-|------|---------|
-| Find work | `bd ready` |
-| Claim work | `bd update <id> --status=in_progress` |
-| Before ending | `git push` + `bd sync` |
-| Check status | `bd stats` |
+| Task | SQL Command |
+|------|-------------|
+| Find work | `SELECT * FROM tasks_for('penfold', 'agent-penfdev');` |
+| Claim work | `SELECT claim_task('pf-xxx', 'agent-penfdev');` |
+| Before ending | `git push` (no sync needed - DB is always live) |
+| Show shard | `SELECT * FROM shards WHERE id = 'pf-xxx';` |
 
 ---
 
@@ -298,10 +306,11 @@ Task(subagent_type="debugger", prompt="Investigate...")
 
 Agents only write code for their domain. For cross-domain work:
 
-```bash
-# Create handoff bead
-bd create --title="Handoff: description" --type=task
-bd update <id> --assignee=target-agent
+```sql
+-- Create handoff shard
+SELECT create_shard('penfold', 'Handoff: description', 'Details', 'task', 'agent-penfdev');
+-- Then assign
+UPDATE shards SET owner = 'target-agent' WHERE id = 'pf-xxx';
 ```
 
 ### Handoff Targets
@@ -317,16 +326,16 @@ bd update <id> --assignee=target-agent
 ### Coordination Rules
 
 **NEVER:**
-- Work outside your agent domain without handoff bead
+- Work outside your agent domain without handoff shard
 - Exceed 30 minutes without documenting progress
 - Modify ARCHITECTURE.md without user approval
 - Create infrastructure that duplicates existing systems
 
 **ALWAYS:**
-- Update beads with progress as you work
-- Create handoff beads when crossing domains
+- Update shards with progress as you work
+- Create handoff shards when crossing domains
 - Document what and why in handoffs
-- **Watch for context discrepancies** - If you find docs that don't match reality, create a bead to fix them
+- **Watch for context discrepancies** - If you find docs that don't match reality, create a shard to fix them
 
 ---
 
@@ -337,7 +346,7 @@ context/
 ├── root-agent.md          ← YOU ARE HERE (root agent entry)
 ├── development/           # HOW to develop
 │   ├── index.md          # Sub-agent entry point (minimal context)
-│   ├── workflows/        # Beads, session, releases, priorities
+│   ├── workflows/        # Shards, session, releases, priorities
 │   └── standards/        # Go patterns, architecture, autonomy
 ├── agents/               # WHO does the work (agent definitions)
 ├── shared/               # WHAT Penfold IS (root agent reads this)

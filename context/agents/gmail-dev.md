@@ -183,7 +183,7 @@ func (f *PrivacyFilter) Filter(msg *Message) *FilteredMessage {
 
 ## Quality Gates
 
-Before completing any bead:
+Before completing any shard:
 
 ```bash
 # Build service
@@ -229,7 +229,7 @@ go test ./services/gmail/... -race
 
 ## Gmail-Specific Quality Checks
 
-Before closing bead (in addition to standard checklist in `development/index.md`):
+Before closing shard (in addition to standard checklist in `development/index.md`):
 
 - [ ] OAuth tokens encrypted at rest (AES-256-GCM)
 - [ ] Rate limiting in place for API calls

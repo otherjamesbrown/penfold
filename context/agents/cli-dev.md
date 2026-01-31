@@ -79,8 +79,8 @@ The CLI agent may be asked to review and improve documentation without a specifi
    # For small fixes
    git commit -m "docs(cli): Fix outdated examples in glossary help"
 
-   # For significant improvements, create a bead first
-   bd create --title="CLI docs: Improve AI agent guidance" --type=chore
+   # For significant improvements, create a shard first
+   # SELECT create_shard('penfold', 'CLI docs: Improve AI agent guidance', 'Details', 'task', 'agent-penfdev');
    ```
 
 ### Documentation Quality Checklist
@@ -228,7 +228,7 @@ result, err := longOperation(ctx)
 
 ## Quality Gates
 
-Before completing any bead:
+Before completing any shard:
 
 ```bash
 # Build CLI
@@ -287,7 +287,7 @@ cmd/penf/cmd/templates/docs/
 
 ## CLI-Specific Quality Checks
 
-Before closing bead (in addition to standard checklist in `development/index.md`):
+Before closing shard (in addition to standard checklist in `development/index.md`):
 
 - [ ] **Help text reviewed** - Clear for AI agent consumption, includes examples
 - [ ] **CLI docs updated** - `cmd/penf/cmd/templates/docs/` reflects changes

@@ -1,32 +1,39 @@
 # Session Pickup
 
-Resume work from a previous session using a handoff bead.
+Resume work from a previous session using a handoff shard.
 
 ## Instructions
 
-### Step 1: Find Handoff Beads
+### Step 1: Find Handoff Shards
 
-Look for open handoff beads on the current branch:
+Look for open handoff shards:
 
-```bash
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-bd list --label handoff --label $BRANCH --status open
-bd list --label handoff --label $BRANCH --status in_progress
+```sql
+-- Check for open handoff shards
+SELECT id, title, status, created_at FROM shards
+WHERE project = 'penfold'
+  AND title LIKE '%Handoff%'
+  AND status != 'closed'
+ORDER BY created_at DESC;
 ```
 
-If no handoffs found for current branch, check all open handoffs:
-
+**Connection:**
 ```bash
-bd list --label handoff --status open
-bd list --label handoff --status in_progress
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
+```
+
+If no handoffs found, check all open work:
+
+```sql
+SELECT * FROM tasks_for('penfold', 'agent-penfdev');
 ```
 
 ### Step 2: Display Handoff Context
 
 For each handoff found, show the details:
 
-```bash
-bd show $HANDOFF_BEAD_ID
+```sql
+SELECT * FROM shards WHERE id = 'pf-xxx';
 ```
 
 Present a summary:
@@ -36,7 +43,7 @@ Present a summary:
  PENFOLD HANDOFF FOUND
 ═══════════════════════════════════════════════════════════════
 
- Handoff Bead:    $BEAD_ID
+ Handoff Shard:    pf-xxx
  Title:           $TITLE
  Branch:          $BRANCH_NAME
  Agent Domain:    $AGENT_DOMAIN
@@ -44,19 +51,19 @@ Present a summary:
  Created:         $CREATED_DATE
 
  ## Session Goal
- $GOAL_FROM_DESCRIPTION
+ $GOAL_FROM_CONTENT
 
  ## Progress Made
- $COMPLETED_FROM_DESCRIPTION
+ $COMPLETED_FROM_CONTENT
 
  ## Remaining Work
- $REMAINING_FROM_DESCRIPTION
+ $REMAINING_FROM_CONTENT
 
  ## Key Findings
- $FINDINGS_FROM_DESCRIPTION
+ $FINDINGS_FROM_CONTENT
 
- ## Related Beads
- $RELATED_BEADS
+ ## Related Shards
+ $RELATED_SHARDS
 
  ## Architecture Notes
  $ARCHITECTURE_IMPLICATIONS
@@ -66,10 +73,10 @@ Present a summary:
 
 ### Step 3: Mark as In Progress
 
-Update the handoff bead to show work has resumed:
+Update the handoff shard to show work has resumed:
 
-```bash
-bd update $HANDOFF_BEAD_ID --status in_progress
+```sql
+SELECT claim_task('pf-xxx', 'agent-penfdev');
 ```
 
 ### Step 4: Load Penfold Context
@@ -80,13 +87,16 @@ Based on the handoff, load relevant Penfold context:
 2. **Review agent domain context** - Load appropriate context/{domain}/agents.md
 3. **Check architecture relevance** - Review context/ARCHITECTURE.md for related patterns
 4. **Verify autonomous development rules** - Confirm behavior from CLAUDE.md
-5. **Review related beads** - Check status of dependent/related work
+5. **Review related shards** - Check status of dependent/related work:
+   ```sql
+   SELECT id, title, status FROM shards WHERE id IN ('pf-xxx', 'pf-yyy');
+   ```
 
 ### Step 5: Load Relevant Files
 
 Load files mentioned in the handoff:
 - Read key implementation files
-- Check status of related beads: `bd show $RELATED_BEAD_ID`
+- Check status of related shards: `SELECT * FROM shards WHERE id = 'pf-xxx';`
 - Review recent git history: `git log --oneline -10`
 - Check current working directory status: `git status`
 
@@ -115,7 +125,7 @@ Summarize what you've loaded and current project state:
  ✓ Agent Context:     $AGENT_DOMAIN_CONTEXT
  ✓ Architecture:      $RELEVANT_ARCHITECTURE_PATTERNS
  ✓ Current Branch:    $BRANCH_STATUS
- ✓ Related Beads:     $BEAD_STATUS_SUMMARY
+ ✓ Related Shards:    $SHARD_STATUS_SUMMARY
  ✓ Files Status:      $FILE_CHANGES_SUMMARY
 
  Ready to continue autonomous development within:

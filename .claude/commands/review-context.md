@@ -161,9 +161,9 @@ If issues are found that are simple to fix (broken links, typos, stale file refe
 2. If yes, make the edits directly
 3. List changes made
 
-For larger issues, create beads:
-```bash
-bd create --title "docs: [brief description]" --type task --priority 2 --labels "docs,context-review"
+For larger issues, create shards:
+```sql
+SELECT create_shard('penfold', 'docs: [brief description]', 'Details', 'task', 'agent-penfdev');
 ```
 
 ### Output

@@ -469,7 +469,7 @@ Related commands:
 After review, ask:
 "Found N issues. Create beads for tracking? (yes/no)"
 
-If yes, create beads only for High/Critical issues:
-```bash
-bd create --title "arch: [brief description]" --type task --priority [1-2] --labels "arch-review,$(date +%Y-%m)"
+If yes, create shards only for High/Critical issues:
+```sql
+SELECT create_shard('penfold', 'arch: [brief description]', 'Details', 'task', 'agent-penfdev');
 ```

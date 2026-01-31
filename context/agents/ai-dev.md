@@ -79,7 +79,7 @@ func (e *HybridEngine) Search(ctx context.Context, query string) ([]Result, erro
 
 ## Quality Gates
 
-Before completing any bead:
+Before completing any shard:
 
 ```bash
 # Build
@@ -98,7 +98,7 @@ When fixing bugs:
 1. Identify WHY the issue occurred, not just symptoms
 2. Search for similar patterns: `grep -r "pattern" services/ai services/search`
 3. Add regression test that would catch this bug
-4. Create beads for related issues found elsewhere
+4. Create shards for related issues found elsewhere
 5. Document prevention in bead close reason
 
 ## File Ownership
@@ -124,8 +124,8 @@ When fixing bugs:
 
 ## AI-Specific Quality Checks
 
-Before closing bead (in addition to standard checklist in `development/index.md`):
+Before closing shard (in addition to standard checklist in `development/index.md`):
 
 - [ ] Performance targets met (see table above)
 - [ ] Root cause documented (bugs only)
-- [ ] Related beads created for discovered issues
+- [ ] Related shards created for discovered issues
