@@ -79,8 +79,8 @@ The CLI agent may be asked to review and improve documentation without a specifi
    # For small fixes
    git commit -m "docs(cli): Fix outdated examples in glossary help"
 
-   # For significant improvements, create a shard first
-   # SELECT create_shard('penfold', 'CLI docs: Improve AI agent guidance', 'Details', 'task', 'agent-penfdev');
+   # For significant improvements, note in your progress and let orchestrator create shard
+   palace task progress pf-xxx "Doc improvement needed: CLI docs AI agent guidance"
    ```
 
 ### Documentation Quality Checklist

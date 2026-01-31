@@ -40,18 +40,12 @@ You investigate bugs. You do NOT fix them. Your job is to understand the problem
 
 ### 0. Start Investigation
 
-```sql
--- Record commit SHA for staleness detection (add as message/comment)
-SELECT send_message('penfold', 'agent-penfdev', ARRAY['agent-penfdev'],
-  'Investigation Started',
-  '**Commit**: <SHA>
-**Branch**: <branch>
-**Timestamp**: <timestamp>
-**Agent**: debugger',
-  NULL, NULL, 'pf-xxx');
+```bash
+# Claim the shard
+palace task claim pf-xxx
 
--- Claim the shard
-SELECT claim_task('pf-xxx', 'debugger');
+# Record commit SHA for staleness detection
+palace task progress pf-xxx "Investigation started at commit $(git rev-parse HEAD) on branch $(git branch --show-current)"
 ```
 
 ### 1. Capture Prior Context
@@ -112,15 +106,8 @@ Use read-only tools:
 
 ### 5. Document Evidence
 
-```sql
-SELECT send_message('penfold', 'agent-penfdev', ARRAY['agent-penfdev'],
-  'Evidence Found',
-  '| Source | Finding |
-|--------|---------|
-| `path/to/file.go:123` | <what was found> |
-| Temporal history | <workflow state> |
-| PostgreSQL logs | <relevant query> |',
-  NULL, NULL, 'pf-xxx');
+```bash
+palace task progress pf-xxx "Evidence: file.go:123 - found race condition in handleRequest"
 ```
 
 ### 6. Identify Root Cause
@@ -146,14 +133,8 @@ Categorize using Penfold-specific taxonomy:
 | `config_drift` | Environment mismatch | infrastructure |
 | `race_condition` | Timing/concurrency bug | varies |
 
-```sql
-SELECT send_message('penfold', 'agent-penfdev', ARRAY['agent-penfdev'],
-  'Root Cause',
-  '**Category**: `<category>`
-**Explanation**: <clear description>
-**Evidence**: <proof this is the cause>
-**Commit at Fault**: <SHA if applicable>',
-  NULL, NULL, 'pf-xxx');
+```bash
+palace task progress pf-xxx "ROOT CAUSE: <category> - <explanation>. Evidence: <proof>"
 ```
 
 ### 7. Check for Context Gap
@@ -168,38 +149,21 @@ Indicators:
 
 If yes, note in the shard content that there's a context-gap.
 
-### 8. Create Follow-up FIX Shards
+### 8. Request Follow-up FIX Shards
 
-```sql
--- Create fix shard
-SELECT create_shard('penfold', 'Fix: <specific description>',
-  '## Fix Context
+Log the fix requirements - the orchestrator will create the shards:
 
-**Investigation**: pf-original
-**Root Cause**: <category> - <summary>
-**Handoff To**: <ai-dev|worker-dev|data-dev|etc>
-
-**Proposed Fix**:
-<high-level description>
-
-**Files to Modify**:
-- `path/to/file.go` - <what to change>
-
-**Verification**:
-<how to verify fix works>',
-  'task', 'agent-penfdev');
-
--- Link fix to investigation
-SELECT link('pf-fix', 'pf-original', 'relates-to');
-
--- Assign to appropriate agent
-UPDATE shards SET owner = '<agent>' WHERE id = 'pf-fix';
+```bash
+palace task progress pf-xxx "FIX NEEDED: <category> handoff to <agent>
+Files: path/to/file.go
+Fix: <high-level description>
+Verify: <how to test>"
 ```
 
 ### 9. Close Original Shard
 
-```sql
-SELECT close_task('pf-xxx', 'ROOT CAUSE: <category>. <one-line summary>. Fix: pf-fix');
+```bash
+palace task close pf-xxx "ROOT CAUSE: <category>. <one-line summary>. Fix requested."
 ```
 
 ## Investigation Report Template
@@ -259,9 +223,9 @@ Write to shard comments:
 | Not recording commit SHA | Always record for staleness |
 | Jumping to fix | Understand first |
 | "I looked at logs and it seems like X" | Structured report |
-| Keeping findings in conversation only | Write to shard comments |
+| Keeping findings in conversation only | Log with `palace task progress` |
 | Skipping context gap check | Always ask if missing context caused it |
-| Creating unlinked fix shards | `SELECT link('pf-fix', 'pf-investigation', 'relates-to');` |
+| Creating fix shards directly | Request via progress note for orchestrator |
 
 ## Completion Checklist
 

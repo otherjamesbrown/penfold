@@ -6,7 +6,12 @@
 
 **Shard IDs in this project use the format `pf-<xxx>`** (e.g., `pf-t3st`, `pf-0ilh`).
 
-**Shards are stored in Context-Palace** (PostgreSQL on dev02). Access them via SQL using psql.
+**Shards are stored in Context-Palace** (PostgreSQL on dev02).
+
+| Role | Tool | Use For |
+|------|------|---------|
+| **Sub-agents** | `palace` CLI | Task ops (get, claim, progress, close, artifact) |
+| **Orchestrator** | `psql` SQL | Complex queries, shard creation, linking, messaging |
 
 When someone asks you to "work on pf-xxx" or references a `pf-` ID:
 

@@ -74,26 +74,18 @@ This is non-negotiable.
 
 ## Shard Commands
 
-```sql
--- Find available work
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
-
--- View shard details
-SELECT * FROM shards WHERE id = 'pf-xxx';
-
--- Claim work
-SELECT claim_task('pf-xxx', 'agent-penfdev');
-
--- Complete work
-SELECT close_task('pf-xxx', 'Completed: summary');
-
--- View group structure
-SELECT * FROM edges WHERE to_id = 'pf-group' AND edge_type = 'relates-to';
-```
-
-**Connection:**
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
+# View shard details
+palace task get pf-xxx
+
+# Claim work
+palace task claim pf-xxx
+
+# Log progress
+palace task progress pf-xxx "Completed spec.md, starting plan.md"
+
+# Complete work
+palace task close pf-xxx "Completed: summary"
 ```
 
 ## Feature Directory Structure

@@ -41,20 +41,20 @@ Only ask if you need clarification on what the bead is asking for - not permissi
 
 **Your task comes from a shard. Your progress goes in the shard. Your completion closes the shard.**
 
-```sql
--- Read your task
-SELECT * FROM shards WHERE id = 'pf-xxx';
+Use the `palace` CLI for all task operations (no SQL needed):
 
--- Log progress as you work
-SELECT send_message('penfold', 'agent-penfdev', ARRAY['agent-penfdev'], 'Progress', 'Update details', NULL, NULL, 'pf-xxx');
-
--- Mark complete when done
-SELECT close_task('pf-xxx', 'Completed: summary');
-```
-
-**Connection:**
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
+# Read your task
+palace task get pf-xxx
+
+# Log progress as you work
+palace task progress pf-xxx "Completed step 1, starting step 2"
+
+# Mark complete when done
+palace task close pf-xxx "Completed: summary"
+
+# Add commit artifact
+palace artifact add pf-xxx commit abc123 "Fixed the bug"
 ```
 
 If your session dies, the shard preserves your progress. Update it frequently.
@@ -100,12 +100,14 @@ After reading the above, read your specific agent file:
 
 ## Quick Reference
 
-| Task | SQL Command |
-|------|-------------|
-| Find work | `SELECT * FROM tasks_for('penfold', 'agent-penfdev');` |
-| Claim work | `SELECT claim_task('pf-xxx', 'agent-penfdev');` |
+| Task | Palace CLI |
+|------|------------|
+| Show shard | `palace task get pf-xxx` |
+| Claim work | `palace task claim pf-xxx` |
+| Log progress | `palace task progress pf-xxx "note"` |
+| Complete work | `palace task close pf-xxx "summary"` |
+| Add artifact | `palace artifact add pf-xxx commit abc123 "desc"` |
 | Before ending | `git push` (no sync needed - DB is always live) |
-| Show shard | `SELECT * FROM shards WHERE id = 'pf-xxx';` |
 
 ---
 
@@ -152,16 +154,13 @@ After reading the above, read your specific agent file:
 
 **You only write code for your domain.**
 
-If work is needed for another agent:
+If work is needed for another agent, log it in your progress note:
 
-```sql
--- Create handoff shard
-SELECT create_shard('penfold', 'Handoff: description', 'Details', 'task', 'agent-penfdev');
--- Then assign
-UPDATE shards SET owner = 'target-agent' WHERE id = 'pf-xxx';
+```bash
+palace task progress pf-xxx "Need handoff to data-dev: migration required for new column"
 ```
 
-**Never modify files outside your domain without explicit handoff.**
+The orchestrator will create the handoff shard. **Never modify files outside your domain without explicit handoff.**
 
 ---
 
