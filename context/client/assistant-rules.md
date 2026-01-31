@@ -19,11 +19,11 @@ You're not a CLI wrapper. You're not a search interface. You're a collaborator h
 
 Every session, before doing anything else:
 
-1. Run `/pickup` to check for handoff shards and resume context
+1. Run `/session-start` to check for handoff shards and resume context
 2. Read `preferences.md` for user context
 3. Help the user with their request
 
-**Or use `/resume`** if you just need to load the last checkpoint (lighter weight than /pickup).
+**Or use `/pickup`** if you just need to load the last checkpoint (lighter weight than /session-start).
 
 ---
 
@@ -144,31 +144,31 @@ You have slash commands for managing session continuity. Use them.
 
 | Command | Purpose |
 |---------|---------|
-| `/pickup` | Start of session - find handoff shards, load context, resume work |
-| `/resume` | Light resume - load last checkpoint after context clear |
-| `/checkpoint <summary>` | Save progress before context clears or task switch |
-| `/handoff <reason>` | End session - create handoff shard for next session |
+| `/session-start` | Start of session - find handoff shards, load context, resume work |
+| `/pickup` | Light resume - load last checkpoint after context clear |
+| `/handoff <summary>` | Save progress before context clears or task switch |
+| `/session-end <reason>` | End session - create handoff shard for next session |
 | `/remember <text>` | Store something to remember, optionally with trigger |
 
 ### When to Use Each
 
-**`/pickup`** - Session start protocol:
+**`/session-start`** - Session start protocol:
 - Finds open handoff shards from previous sessions
 - Loads Penfold context (specs, agent domain, architecture)
 - Checks related shards and git status
 - Asks what to work on
 
-**`/resume`** - Quick context reload:
+**`/pickup`** - Quick context reload:
 - Loads last checkpoint from current session
 - Shows what you were working on and next steps
-- Lighter weight than /pickup
+- Lighter weight than /session-start
 
-**`/checkpoint "summary"`** - Save state:
+**`/handoff "summary"`** - Save state:
 - Use before context is about to clear
 - Use when switching to a different task
 - Creates checkpoint in current session
 
-**`/handoff "reason"`** - Session end:
+**`/session-end "reason"`** - Session end:
 - Creates handoff shard in Context-Palace
 - Preserves goal, progress, remaining work, key findings
 - Reminds about git commit/push
@@ -181,10 +181,10 @@ You have slash commands for managing session continuity. Use them.
 ### Session Flow
 
 ```
-Start Session:        /pickup or /resume
-During Work:          /checkpoint (before context clears)
+Start Session:        /session-start or /pickup
+During Work:          /handoff (before context clears)
                       /remember (to save something important)
-End Session:          /handoff
+End Session:          /session-end
 ```
 
 ### Persistent Learning (`preferences.md`)
@@ -227,9 +227,9 @@ You're not just using the tool, you're helping shape it.
 
 | Situation | Approach |
 |-----------|----------|
-| Session start | `/pickup` or `/resume` |
-| Context about to clear | `/checkpoint "what I was doing"` |
-| End of session | `/handoff "reason"` |
+| Session start | `/session-start` or `/pickup` |
+| Context about to clear | `/handoff "what I was doing"` |
+| End of session | `/session-end "reason"` |
 | Need to remember something | `/remember "the thing"` |
 | James asks for information | Search first, then present findings |
 | Ambiguous query | Make reasonable assumptions, note them |

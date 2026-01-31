@@ -1,107 +1,68 @@
-# Session Handoff
+# Handoff
 
-Create a handoff shard to preserve context for resuming work in a new session.
+Save a checkpoint of current work progress before context clears or when switching tasks.
 
 ## Arguments: $ARGUMENTS
 
-Optional: Brief description of why you're handing off (e.g., "end of day", "context full", "switching agents")
+Required: Brief description of current state (e.g., "Working on TLS bug fixes", "Debugging gateway connection")
 
 ## Instructions
 
-### Step 1: Check for Existing Handoffs
+### Step 1: Check Active Session
 
-First, check if there's already an open handoff for this branch:
+First check if there's an active session:
 
-```sql
--- Check for open handoff shards
-SELECT id, title, status FROM shards
-WHERE project = 'penfold'
-  AND title LIKE '%Handoff%'
-  AND status != 'closed';
-```
-
-**Connection:**
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
+penf session context
 ```
 
-If existing handoff(s) found, ask the user whether to close them or update instead.
+If no active session exists, start one first:
+
+```bash
+penf session start "$(echo $ARGUMENTS | head -c 50)"
+```
 
 ### Step 2: Gather Context
 
-Collect all relevant information from the current session:
+Before creating the checkpoint, summarize:
 
-1. **What was the goal?** - Original task/problem being worked on
-2. **What was done?** - Completed steps, commits made, files changed
-3. **What's blocking/remaining?** - Unfinished work, blockers, next steps
-4. **Key findings** - Root causes discovered, important decisions made
-5. **Related shards** - Any shards created or worked on this session
-6. **Agent domain** - Which agent domain this work belongs to (database-dev, ai-dev, etc.)
-7. **Architectural decisions** - Any patterns discovered relevant to context/ARCHITECTURE.md
+1. **What you were working on** - Current task/problem
+2. **What was accomplished** - Steps completed, findings
+3. **What's next** - Immediate next steps when resuming
+4. **Key decisions** - Any important choices made
 
-### Step 3: Create Handoff Shard
+### Step 3: Create Checkpoint
 
-```sql
-SELECT create_shard('penfold',
-  'Handoff: $BRIEF_SUMMARY',
-  '## Session Goal
-<goal>
+Run the checkpoint command with the user's description plus your context:
 
-## Progress Made
-<completed steps>
+```bash
+penf session checkpoint "$ARGUMENTS
 
-## Remaining Work
-<next steps>
-
-## Key Findings
-<discoveries>
-
-## Related Shards
-- pf-xxx: description
-- pf-yyy: description
-
-## Architecture Notes
-<any relevant patterns>',
-  'task',
-  'agent-penfdev');
+Working on: <task>
+Completed: <steps>
+Next: <immediate actions>
+Files changed: <list>"
 ```
 
-### Step 4: Add Penfold-Specific Context
+### Step 4: Confirm
 
-Include relevant Penfold context in the handoff content:
-
-- **Current specification** (if working on specs/001-011)
-- **Implementation phase** (SpecKit → Implementation → Consolidation)
-- **Agent responsibilities** and domain boundaries
-- **Architecture implications** of the work
-- **Cross-agent dependencies** that might be affected
-
-### Step 5: Output Summary
+Output:
 
 ```
-Handoff Shard:    pf-xxx
-Branch:          $BRANCH_NAME
-Agent Domain:    $AGENT_DOMAIN (if applicable)
-Specification:   $CURRENT_SPEC (if applicable)
+Checkpoint saved.
 
-To resume in new session:
+Session: <session-id>
+Checkpoint: $ARGUMENTS
+
+To resume after context clear:
   /pickup
 
 Or manually:
-  SELECT * FROM shards WHERE title LIKE '%Handoff%' AND status != 'closed';
-  SELECT * FROM shards WHERE id = 'pf-xxx';
+  penf session resume
 ```
 
-### Step 6: Session Close Protocol
+## Notes
 
-Remind about mandatory session close steps:
-
-```
-⚠️  BEFORE ENDING SESSION - MANDATORY:
-   git status              # Check what changed
-   git add <files>         # Stage changes
-   git commit -m "..."     # Commit with shard reference [pf-xxx]
-   git push                # MUST PUSH TO REMOTE
-```
-
-(No sync needed - shards are always live in Context-Palace)
+- Checkpoints append to the current session's content
+- Multiple checkpoints can be made within one session
+- Use /pickup to load the checkpoint after context clears

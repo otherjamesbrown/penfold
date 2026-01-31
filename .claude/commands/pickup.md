@@ -1,139 +1,80 @@
-# Session Pickup
+# Pickup
 
-Resume work from a previous session using a handoff shard.
+Resume work from the last checkpoint after a context clear or at session start.
+
+## Arguments: $ARGUMENTS
+
+Optional: Session ID to resume (defaults to most recent active session)
 
 ## Instructions
 
-### Step 1: Find Handoff Shards
+### Step 1: Load Session State
 
-Look for open handoff shards:
+Run the resume command:
 
-```sql
--- Check for open handoff shards
-SELECT id, title, status, created_at FROM shards
-WHERE project = 'penfold'
-  AND title LIKE '%Handoff%'
-  AND status != 'closed'
-ORDER BY created_at DESC;
-```
-
-**Connection:**
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
+penf session resume
 ```
 
-If no handoffs found, check all open work:
+This displays:
+- Session title and start time
+- All checkpoints with timestamps
+- Current session state
 
-```sql
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+### Step 2: Parse Context
+
+From the session output, identify:
+
+1. **Original goal** - What the session was working toward
+2. **Latest checkpoint** - Most recent state
+3. **Next steps** - What was planned next
+4. **Files/shards involved** - Context references
+
+### Step 3: Check Related Work
+
+If the session references shards or files, check their current state:
+
+```bash
+# If shards mentioned
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT id, title, status FROM shards WHERE id IN ('pf-xxx');"
+
+# If files mentioned
+git status
+git log --oneline -3
 ```
 
-### Step 2: Display Handoff Context
-
-For each handoff found, show the details:
-
-```sql
-SELECT * FROM shards WHERE id = 'pf-xxx';
-```
-
-Present a summary:
+### Step 4: Output Summary
 
 ```
-═══════════════════════════════════════════════════════════════
- PENFOLD HANDOFF FOUND
-═══════════════════════════════════════════════════════════════
+Session Resumed: <session-title>
+Started: <start-time>
+Last Checkpoint: <checkpoint-summary>
 
- Handoff Shard:    pf-xxx
- Title:           $TITLE
- Branch:          $BRANCH_NAME
- Agent Domain:    $AGENT_DOMAIN
- Specification:   $CURRENT_SPEC
- Created:         $CREATED_DATE
+Continuing from: <last checkpoint description>
 
- ## Session Goal
- $GOAL_FROM_CONTENT
+Next Steps:
+1. <action from checkpoint>
+2. <action from checkpoint>
 
- ## Progress Made
- $COMPLETED_FROM_CONTENT
-
- ## Remaining Work
- $REMAINING_FROM_CONTENT
-
- ## Key Findings
- $FINDINGS_FROM_CONTENT
-
- ## Related Shards
- $RELATED_SHARDS
-
- ## Architecture Notes
- $ARCHITECTURE_IMPLICATIONS
-
-═══════════════════════════════════════════════════════════════
+Ready to continue. What would you like to work on?
 ```
 
-### Step 3: Mark as In Progress
+### Step 5: If No Active Session
 
-Update the handoff shard to show work has resumed:
-
-```sql
-SELECT claim_task('pf-xxx', 'agent-penfdev');
-```
-
-### Step 4: Load Penfold Context
-
-Based on the handoff, load relevant Penfold context:
-
-1. **Check current specification status** (if working on specs/001-011)
-2. **Review agent domain context** - Load appropriate context/{domain}/agents.md
-3. **Check architecture relevance** - Review context/ARCHITECTURE.md for related patterns
-4. **Verify autonomous development rules** - Confirm behavior from CLAUDE.md
-5. **Review related shards** - Check status of dependent/related work:
-   ```sql
-   SELECT id, title, status FROM shards WHERE id IN ('pf-xxx', 'pf-yyy');
-   ```
-
-### Step 5: Load Relevant Files
-
-Load files mentioned in the handoff:
-- Read key implementation files
-- Check status of related shards: `SELECT * FROM shards WHERE id = 'pf-xxx';`
-- Review recent git history: `git log --oneline -10`
-- Check current working directory status: `git status`
-
-### Step 6: Ask What to Do
-
-Use AskUserQuestion to ask:
-
-"What would you like to work on from this handoff?"
-
-Options:
-- Continue with remaining work
-- Focus on a specific item from the list
-- Start new related work
-- Review and update the handoff context
-- Something else (will ask for details)
-
-### Step 7: Context Summary
-
-Summarize what you've loaded and current project state:
+If no active session found:
 
 ```
-═══════════════════════════════════════════════════════════════
- CONTEXT LOADED
-═══════════════════════════════════════════════════════════════
+No active session found.
 
- ✓ Agent Context:     $AGENT_DOMAIN_CONTEXT
- ✓ Architecture:      $RELEVANT_ARCHITECTURE_PATTERNS
- ✓ Current Branch:    $BRANCH_STATUS
- ✓ Related Shards:    $SHARD_STATUS_SUMMARY
- ✓ Files Status:      $FILE_CHANGES_SUMMARY
+Recent sessions:
+  penf session history
 
- Ready to continue autonomous development within:
- - Current specification: $SPEC_NAME
- - Agent domain: $AGENT_DOMAIN
- - Established patterns: $ARCHITECTURE_PATTERNS
-
-═══════════════════════════════════════════════════════════════
+To start a new session:
+  penf session start "description"
 ```
 
-Then proceed with the user's chosen direction while following autonomous development rules from CLAUDE.md.
+## Notes
+
+- Resume loads context without modifying the session
+- Use /handoff to save progress before context clears
+- Use /session-end for more detailed session handoffs
