@@ -33,12 +33,8 @@ use (
 
 	// Services
 	./services/ai
-	./services/content
 	./services/gateway
 	./services/gmail
-	./services/relationship
-	./services/review
-	./services/search
 	./services/worker
 
 	// Tests

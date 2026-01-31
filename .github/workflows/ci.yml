@@ -44,7 +44,7 @@ jobs:
 
       - name: golangci-lint (services)
         run: |
-          for svc in ai content gateway gmail relationship review search worker; do
+          for svc in ai gateway gmail worker; do
             echo "::group::Linting services/$svc"
             cd services/$svc
             golangci-lint run --timeout=5m
@@ -88,12 +88,8 @@ jobs:
           - cmd/penf
           - penfold-go-pipeline
           - services/ai
-          - services/content
           - services/gateway
           - services/gmail
-          - services/relationship
-          - services/review
-          - services/search
           - services/worker
 
     env:
