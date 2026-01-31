@@ -1,8 +1,28 @@
 # Penfold Infrastructure
 
-Deployment-specific configuration for Penfold services. Last verified: 2026-01-26.
+Deployment-specific configuration for Penfold services. Last verified: 2026-01-31.
 
 > **See also:** [ARCHITECTURE.md](ARCHITECTURE.md) for component design and data flow patterns.
+
+---
+
+## CRITICAL: Deployment Architecture
+
+> **The CLI runs on James's LAPTOP, not on any server.**
+>
+> ```
+> LAPTOP (MacBook Pro)          SERVERS
+> ┌──────────────────┐          ┌─────────────────────────────────────┐
+> │  penf CLI        │──gRPC───►│  dev02: Gateway (:50051)            │
+> │  Claude Code     │          │         PostgreSQL, Temporal, Redis │
+> └──────────────────┘          ├─────────────────────────────────────┤
+>                               │  dev01: Worker (:8085)              │
+>                               │         MLX Embeddings, MLX LLM     │
+>                               └─────────────────────────────────────┘
+> ```
+>
+> **There is NO localhost access from the CLI.** All CLI commands go over the network to dev02.
+> The Gateway handles search, review, relationships, etc. directly - these are NOT separate services.
 
 ---
 
@@ -12,6 +32,7 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-2
 
 | Service | Host | gRPC Port | HTTP Port | Status |
 |---------|------|-----------|-----------|--------|
+| **penf CLI** | laptop (MacBook Pro) | - | - | Installed |
 | **Gateway** | dev02.brown.chat | 50051 | 8080 | Deployed |
 | **Worker** | dev01.brown.chat | - | 8085 | Deployed |
 | **MLX Embeddings** | dev01.brown.chat | - | 8081 | Deployed |
@@ -19,10 +40,8 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-2
 | **Agent Mail** | dev02.brown.chat | - | 8765 | Deployed |
 | **AI Service** | dev01.brown.chat | 50055 | 8086 | Code exists |
 | Gmail Connector | (not deployed) | 50056 | 8087 | Code exists |
-| Search Service | (not deployed) | 50053 | 8082 | Code exists |
-| Review Service | (not deployed) | 50057 | 8088 | Code exists |
-| Content Processor | (not deployed) | 50058 | 8089 | Code exists |
-| Relationship Service | (not deployed) | 50059 | 8090 | Code exists |
+
+**Note:** Search, Review, Content, and Relationship functionality is built into the Gateway (not separate services).
 
 ### Service Dependencies and Startup Order
 
@@ -74,38 +93,43 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-2
 │                           NETWORK COMMUNICATION MAP                              │
 ├──────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
+│   LAPTOP (MacBook Pro)                                                           │
+│  ┌────────────────────────────┐                                                  │
+│  │  penf CLI                  │                                                  │
+│  │  Claude Code               │─────────────────────┐                            │
+│  └────────────────────────────┘                     │                            │
+│                                                     │ gRPC :50051                │
 │   dev01.brown.chat                         dev02.brown.chat                      │
-│  ┌────────────────────────────┐           ┌────────────────────────────┐        │
+│  ┌────────────────────────────┐           ┌────────▼───────────────────┐        │
 │  │                            │           │                            │        │
 │  │  ┌──────────────────┐      │           │      ┌──────────────────┐  │        │
-│  │  │  penf CLI        │──────┼───gRPC────┼─────►│  Gateway         │  │        │
-│  │  │                  │      │  :50051   │      │  :50051/:8080    │  │        │
-│  │  └──────────────────┘      │           │      └────────┬─────────┘  │        │
-│  │                            │           │               │            │        │
-│  │  ┌──────────────────┐      │           │      ┌────────▼─────────┐  │        │
-│  │  │  Worker          │──────┼───TCP─────┼─────►│  PostgreSQL      │  │        │
-│  │  │  :8085           │      │  :5432    │      │  :5432           │  │        │
-│  │  │                  │──────┼───TCP─────┼─────►│                  │  │        │
-│  │  │                  │      │  :7233    │      └──────────────────┘  │        │
-│  │  └────────┬─────────┘      │           │                            │        │
-│  │           │                │           │      ┌──────────────────┐  │        │
-│  │           │ HTTP           │           │      │  Temporal        │  │        │
-│  │           │ (localhost)    │           │      │  :7233/:8088     │  │        │
-│  │  ┌────────▼─────────┐      │           │      └──────────────────┘  │        │
-│  │  │  MLX Embeddings  │      │           │                            │        │
-│  │  │  :8081           │      │           │      ┌──────────────────┐  │        │
-│  │  └──────────────────┘      │           │      │  Redis           │  │        │
-│  │                            │           │      │  :6379           │  │        │
+│  │  │  Worker          │──────┼───TCP─────┼─────►│  Gateway         │  │        │
+│  │  │  :8085           │      │  :5432    │      │  :50051/:8080    │  │        │
+│  │  │                  │──────┼───TCP─────┼─────►│  (search, review,│  │        │
+│  │  │                  │      │  :7233    │      │   relationships) │  │        │
+│  │  └────────┬─────────┘      │           │      └────────┬─────────┘  │        │
+│  │           │                │           │               │            │        │
+│  │           │ HTTP           │           │      ┌────────▼─────────┐  │        │
+│  │           │ (localhost)    │           │      │  PostgreSQL      │  │        │
+│  │  ┌────────▼─────────┐      │           │      │  :5432           │  │        │
+│  │  │  MLX Embeddings  │      │           │      └──────────────────┘  │        │
+│  │  │  :8081           │      │           │                            │        │
+│  │  └──────────────────┘      │           │      ┌──────────────────┐  │        │
+│  │                            │           │      │  Temporal        │  │        │
+│  │  ┌──────────────────┐      │           │      │  :7233/:8088     │  │        │
+│  │  │  MLX LLM Server  │      │           │      └──────────────────┘  │        │
+│  │  │  :8080           │      │           │                            │        │
+│  │  └──────────────────┘      │           │      ┌──────────────────┐  │        │
+│  │                            │           │      │  Redis :6379     │  │        │
 │  │  ┌──────────────────┐      │           │      └──────────────────┘  │        │
-│  │  │  MLX LLM Server  │      │           │                            │        │
-│  │  │  :8080           │      │           │      ┌──────────────────┐  │        │
-│  │  └──────────────────┘      │           │      │  Langfuse        │  │        │
-│  │                            │           │      │  :3000           │  │        │
+│  │  │  AI Service      │      │           │                            │        │
+│  │  │  :50055          │      │           │      ┌──────────────────┐  │        │
+│  │  └──────────────────┘      │           │      │  Langfuse :3000  │  │        │
 │  │                            │           │      └──────────────────┘  │        │
 │  └────────────────────────────┘           └────────────────────────────┘        │
 │                                                                                  │
 │  Legend: ───► Network call (with port)                                          │
-│          Localhost calls shown within same host box                             │
+│          CLI is on LAPTOP - NOT on dev01!                                        │
 │                                                                                  │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -561,10 +585,8 @@ Complete inventory of Penfold Go services with their default configurations.
 | Worker | `services/worker` | - | 8085 | penfold-main, penfold-ai, penfold-email | Production |
 | AI Service | `services/ai` | 50055 | 8086 | - | Production |
 | Gmail Connector | `services/gmail` | 50056 | 8087 | - | Developed |
-| Search Service | `services/search` | 50053 | 8082 | - | Developed |
-| Review Service | `services/review` | 50057 | 8088 | - | Developed |
-| Content Processor | `services/content` | 50058 | 8089 | - | Developed |
-| Relationship Service | `services/relationship` | 50059 | 8090 | - | Developed |
+
+**Note:** Search, Review, Content, and Relationship are handled directly by the Gateway (built-in services, not separate binaries).
 
 ### External Dependencies (Docker on dev02)
 

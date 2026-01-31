@@ -2,7 +2,25 @@
 
 > **Minimal context for spawned development agents.**
 > You don't need product knowledge - just follow processes and write good code.
-> **Last updated:** 2026-01-27
+> **Last updated:** 2026-01-31
+
+---
+
+## CRITICAL: Deployment Architecture
+
+> **The CLI runs on James's LAPTOP, not on any server. There is NO localhost.**
+>
+> ```
+> LAPTOP (MacBook Pro)     →  dev02 (Gateway :50051)  →  dev01 (Worker)
+>      penf CLI                   PostgreSQL               MLX/Temporal
+> ```
+>
+> - **ALL CLI commands go over the network** to dev02.brown.chat:50051
+> - The Gateway handles search, review, relationships DIRECTLY (built-in services)
+> - There are NO separate Search/Review/Content/Relationship service processes
+> - Worker runs on dev01 for MLX access, connects to DB/Temporal on dev02
+>
+> **Never assume localhost access from CLI. Never try to bypass the Gateway.**
 
 ---
 

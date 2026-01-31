@@ -98,3 +98,4 @@ services/gateway/main
 services/worker/worker
 *.test
 storage.test
+services/worker/worker-darwin-arm64

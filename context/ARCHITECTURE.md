@@ -1,6 +1,6 @@
 # Penfold Architecture
 
-**Last Updated**: 2026-01-20
+**Last Updated**: 2026-01-31
 
 > **Deployment Details:** See [infrastructure.md](infrastructure.md) for hostnames, ports, connection strings, and startup commands.
 
@@ -8,48 +8,58 @@
 
 Penfold is an AI-powered personal information system built with Go. It aggregates and correlates information from communication channels into a queryable institutional memory.
 
+## CRITICAL: Where Things Run
+
+> **The CLI runs on James's LAPTOP (MacBook Pro), NOT on any server.**
+>
+> - **LAPTOP**: penf CLI, Claude Code
+> - **dev02**: Gateway, PostgreSQL, Temporal, Redis
+> - **dev01**: Worker, MLX Embeddings, MLX LLM
+>
+> There is NO localhost access from the CLI. All requests go over the network to dev02.
+
 ## System Architecture
 
 ```
+  LAPTOP (MacBook Pro)
 ┌─────────────────────────────────────────────────────────────────┐
 │                         CLI (penf)                              │
 │                        cmd/penf/cmd                             │
 └─────────────────────────┬───────────────────────────────────────┘
-                          │ gRPC
-┌─────────────────────────▼───────────────────────────────────────┐
+                          │ gRPC (to dev02.brown.chat:50051)
+                          │
+  dev02.brown.chat        ▼
+┌─────────────────────────────────────────────────────────────────┐
 │                     API Gateway                                  │
 │                   services/gateway                               │
-│  • Authentication & Authorization                                │
-│  • Request routing                                               │
-│  • Rate limiting                                                 │
-└───────┬─────────────────┬─────────────────┬─────────────────────┘
-        │                 │                 │
-┌───────▼───────┐ ┌───────▼───────┐ ┌───────▼───────┐
-│  Gmail Sync   │ │    Search     │ │    Review     │
-│services/gmail │ │   Service     │ │   Service     │
-│               │ │               │ │               │
-│ • OAuth2 PKCE │ │ • Hybrid      │ │ • Daily queue │
-│ • Push/Poll   │ │   search      │ │ • AI triage   │
-│ • Attachments │ │ • Vector +    │ │ • Escalation  │
-└───────┬───────┘ │   fulltext    │ └───────────────┘
-        │         └───────────────┘
-┌───────▼───────────────────────────────────────────┐
-│                 Temporal Worker                    │
-│                 services/worker                    │
-│  • Durable workflow execution                      │
-│  • Activity implementations                        │
-│  • Retry and error handling                        │
-└───────────────────────┬───────────────────────────┘
-                        │
-┌───────────────────────▼───────────────────────────┐
-│              PostgreSQL + pgvector                 │
-│                                                    │
-│  • Content storage                                 │
-│  • Vector embeddings                               │
-│  • Relationship graph                              │
-│  • Audit trails                                    │
-└────────────────────────────────────────────────────┘
+│                                                                  │
+│  • Authentication & Authorization    • searchservice (built-in) │
+│  • Request routing                   • reviewservice (built-in) │
+│  • Rate limiting                     • relationshipservice      │
+│                                                                  │
+│  Connects to: PostgreSQL (localhost), Temporal (localhost)      │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ Temporal task dispatch
+  dev01.brown.chat        ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                 Temporal Worker                                  │
+│                 services/worker                                  │
+│                                                                  │
+│  • Durable workflow execution        • Connects to MLX locally  │
+│  • Content processing activities     • Connects to DB remotely  │
+│  • Embedding generation              • Connects to Temporal     │
+└─────────────────────────────────────────────────────────────────┘
+
+  dev02.brown.chat (data layer)
+┌─────────────────────────────────────────────────────────────────┐
+│              PostgreSQL + pgvector                               │
+│              Temporal Server                                     │
+│              Redis                                               │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Point:** Search, Review, Relationship, and Content services are NOT separate processes.
+They are built into the Gateway (as `gateway/*service/` packages) or Worker (as activities).
 
 ## Core Components
 
@@ -150,16 +160,18 @@ Architecture patterns are documented in detail in separate files:
 
 ## Deployment Topology
 
-Components are distributed across two machines based on their requirements:
+Components are distributed across machines based on their requirements:
 
 | Machine | Components | Rationale |
 |---------|------------|-----------|
-| **dev01** (Apple Silicon) | Worker, MLX Embeddings, CLI | GPU/Neural Engine for embeddings |
+| **LAPTOP** (MacBook Pro) | penf CLI, Claude Code | User's development machine |
+| **dev01** (Apple Silicon) | Worker, MLX Embeddings, MLX LLM, AI Service | GPU/Neural Engine for embeddings & LLM |
 | **dev02** (Intel) | Gateway, PostgreSQL, Redis, Temporal | Data storage, no GPU needed |
 
 **Key Principles:**
-- Co-locate services that exchange large data (Worker ↔ Embeddings)
-- Co-locate services that need fast DB access (Gateway ↔ PostgreSQL)
+- CLI runs on laptop, connects to Gateway over the network (NO localhost)
+- Co-locate services that exchange large data (Worker ↔ MLX on dev01)
+- Co-locate services that need fast DB access (Gateway ↔ PostgreSQL on dev02)
 - Cross-network traffic should be small payloads (gRPC calls, task dispatch)
 
 > **Configuration:** See [infrastructure.md](infrastructure.md) for specific hostnames, ports, and connection strings.
