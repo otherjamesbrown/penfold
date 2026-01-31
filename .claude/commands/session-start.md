@@ -1,129 +1,69 @@
 # Session Start
 
-Resume work from a previous session using a handoff shard.
+Pick up where we left off. Find what matters, summarize it, and get to work.
 
 ## Instructions
 
-### Step 1: Find Handoff Shards
-
-Look for open handoff shards:
+### Step 1: Find Recent Handoffs
 
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT id, title, status, created_at FROM shards WHERE project = 'penfold' AND title LIKE '%Handoff%' AND status IN ('open', 'in_progress') ORDER BY created_at DESC;"
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT id, title, status, created_at FROM shards WHERE project = 'penfold' AND title LIKE '%Handoff%' AND status IN ('open', 'in_progress') ORDER BY created_at DESC LIMIT 3;"
 ```
 
-If no handoffs found, check all open work:
+If found, read the most recent one:
 
-```sql
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT content FROM shards WHERE id = 'pf-xxx';"
 ```
 
-### Step 2: Display Handoff Context
+### Step 2: Check for Waiting Messages
 
-For each handoff found, show the details:
-
-```sql
-SELECT * FROM shards WHERE id = 'pf-xxx';
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT id, title, creator, created_at FROM shards WHERE project = 'penfold' AND type = 'message' AND status = 'open' ORDER BY created_at DESC LIMIT 5;"
 ```
 
-Present a summary:
+### Step 3: Summarize for James
 
-```
-═══════════════════════════════════════════════════════════════
- PENFOLD HANDOFF FOUND
-═══════════════════════════════════════════════════════════════
+**Don't regurgitate the handoff.** Parse it and tell James what he needs to know:
 
- Handoff Shard:    pf-xxx
- Title:           $TITLE
- Branch:          $BRANCH_NAME
- Agent Domain:    $AGENT_DOMAIN
- Specification:   $CURRENT_SPEC
- Created:         $CREATED_DATE
+- **What were we doing?** (1 sentence)
+- **Where did we leave off?** (the key blocker or next step)
+- **What's changed since?** (any replies, deployments, new info)
+- **What can we do now?** (actionable options)
 
- ## Session Goal
- $GOAL_FROM_CONTENT
+Example good summary:
+> "Last session we were cleaning up test data but hit a blocker - ContentProcessorService wasn't deployed. Agent-penfdev said they'd deploy it. We should check if that's done, then we can delete the test data."
 
- ## Progress Made
- $COMPLETED_FROM_CONTENT
+Example bad summary:
+> "Session Goal: Review feature requests. Progress Made: [list of 10 things]. Remaining Work: [list of 5 things]..."
 
- ## Remaining Work
- $REMAINING_FROM_CONTENT
+**Be conversational.** James doesn't need a status report, he needs context to make a decision.
 
- ## Key Findings
- $FINDINGS_FROM_CONTENT
+### Step 4: Offer Clear Options
 
- ## Related Shards
- $RELATED_SHARDS
+End with something like:
 
- ## Architecture Notes
- $ARCHITECTURE_IMPLICATIONS
+> "Want me to:
+> 1. Check if the deployment is done and continue?
+> 2. Work on something else?
+> 3. Show me more details about the handoff?"
 
-═══════════════════════════════════════════════════════════════
-```
+### Step 5: Claim the Handoff
 
-### Step 3: Mark as In Progress
+Once James decides to continue, mark it claimed:
 
-Update the handoff shard to show work has resumed:
-
-```sql
-SELECT claim_task('pf-xxx', 'agent-penfdev');
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT claim_task('pf-xxx', 'agent-penf');"
 ```
 
-### Step 4: Load Penfold Context
+## No Handoff Found?
 
-Based on the handoff, load relevant Penfold context:
+If no handoff exists, just say:
 
-1. **Check current specification status** (if working on specs/001-011)
-2. **Review agent domain context** - Load appropriate context/{domain}/agents.md
-3. **Check architecture relevance** - Review context/ARCHITECTURE.md for related patterns
-4. **Verify autonomous development rules** - Confirm behavior from CLAUDE.md
-5. **Review related shards** - Check status of dependent/related work:
-   ```sql
-   SELECT id, title, status FROM shards WHERE id IN ('pf-xxx', 'pf-yyy');
-   ```
+> "No recent handoff found. What would you like to work on?"
 
-### Step 5: Load Relevant Files
+Then check for open tasks or messages that might need attention.
 
-Load files mentioned in the handoff:
-- Read key implementation files
-- Check status of related shards: `SELECT * FROM shards WHERE id = 'pf-xxx';`
-- Review recent git history: `git log --oneline -10`
-- Check current working directory status: `git status`
+## Key Principle
 
-### Step 6: Ask What to Do
-
-Use AskUserQuestion to ask:
-
-"What would you like to work on from this handoff?"
-
-Options:
-- Continue with remaining work
-- Focus on a specific item from the list
-- Start new related work
-- Review and update the handoff context
-- Something else (will ask for details)
-
-### Step 7: Context Summary
-
-Summarize what you've loaded and current project state:
-
-```
-═══════════════════════════════════════════════════════════════
- CONTEXT LOADED
-═══════════════════════════════════════════════════════════════
-
- ✓ Agent Context:     $AGENT_DOMAIN_CONTEXT
- ✓ Architecture:      $RELEVANT_ARCHITECTURE_PATTERNS
- ✓ Current Branch:    $BRANCH_STATUS
- ✓ Related Shards:    $SHARD_STATUS_SUMMARY
- ✓ Files Status:      $FILE_CHANGES_SUMMARY
-
- Ready to continue autonomous development within:
- - Current specification: $SPEC_NAME
- - Agent domain: $AGENT_DOMAIN
- - Established patterns: $ARCHITECTURE_PATTERNS
-
-═══════════════════════════════════════════════════════════════
-```
-
-Then proceed with the user's chosen direction while following autonomous development rules from CLAUDE.md.
+**Add value, don't just relay information.** You've read the handoff - now help James understand what it means and what to do about it.
