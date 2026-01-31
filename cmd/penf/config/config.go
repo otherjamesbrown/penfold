@@ -579,10 +579,15 @@ func (c *CLIConfig) GetInstallPath() (string, error) {
 }
 
 // GetSearchServiceAddress returns the search service address.
-// If not configured, returns the default search service address.
+// If not configured, returns the gateway address (ServerAddress) since
+// the gateway now proxies SearchService requests to the backend.
 func (c *CLIConfig) GetSearchServiceAddress() string {
 	if c.SearchServiceAddress != "" {
 		return c.SearchServiceAddress
 	}
-	return DefaultSearchServiceAddress
+	// Fall back to gateway address - gateway proxies search to backend
+	if c.ServerAddress != "" {
+		return c.ServerAddress
+	}
+	return DefaultServerAddress
 }

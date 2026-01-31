@@ -30,6 +30,7 @@ import (
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
 	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
 	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
+	searchv1 "github.com/otherjamesbrown/penfold/api/proto/search/v1"
 	teamsv1 "github.com/otherjamesbrown/penfold/api/proto/teams/v1"
 	tenantv1 "github.com/otherjamesbrown/penfold/api/proto/tenant/v1"
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
@@ -66,6 +67,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/questionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/relationshipservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/reviewservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/searchservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
 	"github.com/otherjamesbrown/penfold/services/gateway/teamsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/tenantservice"
@@ -337,6 +339,31 @@ func main() {
 	logsSvc := logsservice.NewService(logsRepo, logger)
 	logsv1.RegisterLogsServiceServer(grpcServer, logsSvc)
 	logger.Info("Registered LogsService")
+
+	// Register SearchService proxy to backend search service (optional).
+	// This allows CLI to use gateway address for all operations.
+	if cfg.SearchAddress != "" {
+		searchSvc := searchservice.NewService(cfg.SearchAddress, logger)
+		connectCtx, connectCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := searchSvc.Connect(connectCtx); err != nil {
+			logger.Warn("Failed to connect to search backend, SearchService will return Unavailable",
+				logging.F("search_addr", cfg.SearchAddress),
+				logging.Err(err),
+			)
+		} else {
+			logger.Info("Connected to search backend",
+				logging.F("search_addr", cfg.SearchAddress),
+			)
+			defer searchSvc.Close()
+		}
+		connectCancel()
+		searchv1.RegisterSearchServiceServer(grpcServer, searchSvc)
+		logger.Info("Registered SearchService",
+			logging.F("backend_addr", cfg.SearchAddress),
+		)
+	} else {
+		logger.Info("SearchService disabled (GATEWAY_SEARCH_ADDRESS not set)")
+	}
 
 	// Register WorkflowService for Temporal workflow management (optional).
 	if cfg.Temporal.Enabled {
