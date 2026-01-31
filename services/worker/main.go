@@ -213,8 +213,15 @@ func main() {
 
 	// Initialize AIClient-based activities if AI client is available
 	if aiClient != nil {
+		// Create embedding repository if database is available
+		var embeddingRepo activities.EmbeddingRepository
+		if dbPool != nil {
+			embeddingRepo = activities.NewPostgresEmbeddingRepository(dbPool, zerologger)
+			logger.Info("Embedding repository initialized with database connection")
+		}
+
 		// Create embedding activities
-		embeddingActivities := activities.NewEmbeddingActivities(zerologger, aiClient, nil)
+		embeddingActivities := activities.NewEmbeddingActivities(zerologger, aiClient, embeddingRepo)
 		activityRegistrar.WithEmbeddingActivities(embeddingActivities)
 		logger.Info("Embedding activities initialized with AI client")
 
