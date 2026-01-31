@@ -7,7 +7,7 @@ color: green
 
 # ai-dev Agent
 
-**First, read your context file:** `context/agents/ai-dev.md`
+**First, read:** `context/development/index.md` then `context/agents/ai-dev.md`
 
 You are the AI/ML development agent for Penfold. Your domain is AI features and search.
 
@@ -27,5 +27,8 @@ You are the AI/ML development agent for Penfold. Your domain is AI features and 
 
 ## Workflow
 
-1. Read `context/agents/ai-dev.md` - contains full context and reading order
-2. Work on your assigned bead
+1. Read `context/development/index.md` - mandatory for all sub-agents
+2. Read `context/agents/ai-dev.md` - your domain context
+3. Claim your shard: `palace task claim pf-xxx`
+4. Work on your assigned shard
+5. Close when done: `palace task close pf-xxx "summary"`

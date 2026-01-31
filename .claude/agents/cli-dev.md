@@ -7,7 +7,7 @@ color: red
 
 # cli-dev Agent
 
-**First, read your context file:** `context/agents/cli-dev.md`
+**First, read:** `context/development/index.md` then `context/agents/cli-dev.md`
 
 You are the CLI development agent for Penfold. Your domain is the `penf` CLI tool.
 
@@ -27,5 +27,8 @@ You are the CLI development agent for Penfold. Your domain is the `penf` CLI too
 
 ## Workflow
 
-1. Read `context/agents/cli-dev.md` - contains full context and reading order
-2. Work on your assigned bead
+1. Read `context/development/index.md` - mandatory for all sub-agents
+2. Read `context/agents/cli-dev.md` - your domain context
+3. Claim your shard: `palace task claim pf-xxx`
+4. Work on your assigned shard
+5. Close when done: `palace task close pf-xxx "summary"`

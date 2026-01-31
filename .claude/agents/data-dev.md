@@ -7,7 +7,7 @@ color: blue
 
 # data-dev Agent
 
-**First, read your context file:** `context/agents/data-dev.md`
+**First, read:** `context/development/index.md` then `context/agents/data-dev.md`
 
 You are the database development agent for Penfold. Your domain is data storage and access.
 
@@ -27,5 +27,8 @@ You are the database development agent for Penfold. Your domain is data storage 
 
 ## Workflow
 
-1. Read `context/agents/data-dev.md` - contains full context and reading order
-2. Work on your assigned bead
+1. Read `context/development/index.md` - mandatory for all sub-agents
+2. Read `context/agents/data-dev.md` - your domain context
+3. Claim your shard: `palace task claim pf-xxx`
+4. Work on your assigned shard
+5. Close when done: `palace task close pf-xxx "summary"`
