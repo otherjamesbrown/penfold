@@ -58,10 +58,14 @@ If your session dies, the bead preserves your progress. Update it frequently.
 ### Then Read Your Agent Context
 
 After reading the above, read your specific agent file:
-- `../agents/cli-dev.md`
-- `../agents/data-dev.md`
-- `../agents/ai-dev.md`
-- etc.
+- `../agents/cli-dev.md` - CLI commands, help text, output formatting
+- `../agents/data-dev.md` - Database, PostgreSQL, migrations
+- `../agents/ai-dev.md` - AI/ML, embeddings, LLM integration
+- `../agents/worker-dev.md` - Temporal workflows, activities
+- `../agents/gmail-dev.md` - Gmail integration, OAuth, sync
+- `../agents/service-dev.md` - Go services, gRPC, protobufs, Gateway
+- `../agents/testing-dev.md` - Test infrastructure, fixtures
+- `../agents/debugger.md` - Bug investigation (read-only)
 
 ---
 

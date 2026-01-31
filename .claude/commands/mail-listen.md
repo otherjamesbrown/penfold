@@ -177,13 +177,16 @@ SELECT add_labels('<NEW_ID>', ARRAY['sync:true', 'sync:session-<SESSION_ID>']);
 - Filter by same session: `sync:session-<SESSION_ID>`
 
 **If you sent `poll_hint: done`:**
-- Conversation complete from your side
-- Continue polling for new conversations (return to Step 2 without session filter)
+- Conversation complete
+- Mark all messages as read
+- **EXIT the command entirely** (return to user)
 
 **If sender sent `poll_hint: done`:**
-- Acknowledge if needed
+- Mark all messages as read
 - Conversation complete
-- Continue polling for new conversations
+- **EXIT the command entirely** (return to user)
+
+**IMPORTANT:** When ANY party sends `poll_hint: done`, the conversation is over. Do NOT continue polling for new conversations. This command handles ONE synchronous conversation, then exits.
 
 ### Step 10: Summary on Exit
 

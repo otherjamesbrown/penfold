@@ -130,9 +130,11 @@ SELECT mark_read(ARRAY['<RESPONSE_ID>'], '<AGENT_NAME>');
 | poll_hint | Action |
 |-----------|--------|
 | `continue` | Process message, optionally reply, continue polling |
-| `done` | Process message, conversation complete |
+| `done` | Process message, **EXIT command entirely** |
 | `pause` | Sleep for `resume_in` seconds, then resume polling |
 | `typing` | Reset timeout, continue polling |
+
+**IMPORTANT:** When you receive `poll_hint: done`, the conversation is over. Mark messages as read and EXIT the command immediately. Do NOT continue polling.
 
 ### Step 7: Reply (if needed)
 
