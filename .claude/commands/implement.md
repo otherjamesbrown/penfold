@@ -436,7 +436,22 @@ If a sub-agent fails:
 
 ## Phase 8: Report Results and Close Shards
 
-When all implementation shards are complete:
+When all sub-agents have finished:
+
+### Verify All Implementation Shards Are Closed
+
+**IMPORTANT:** Before closing the feature request, verify ALL implementation shards are closed:
+
+```sql
+-- Check for any open implementation shards
+SELECT id, title, status FROM shards
+WHERE parent_id = 'pf-feature-id' AND status != 'closed';
+```
+
+If any are still open, close them manually:
+```bash
+/Users/dev/bin/palace task close pf-xxxxx "Manually closed: implementation complete"
+```
 
 ### Close the Original Feature Request Shards
 
