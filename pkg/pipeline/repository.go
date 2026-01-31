@@ -202,3 +202,26 @@ func (r *Repository) CountJobs(ctx context.Context, filter JobFilter) (int64, er
 
 	return count, nil
 }
+
+// KickPendingProcessing queues pending pipeline items for processing.
+// TODO: Actual implementation needed - this is a stub for compilation.
+func (r *Repository) KickPendingProcessing(ctx context.Context, limit int, sourceTag string) (int, error) {
+	// Stub implementation - needs to:
+	// 1. Find pending sources (processing_status = 'pending')
+	// 2. Optionally filter by source_tag via ingestion_metadata
+	// 3. Update processing_status to trigger workflow
+	// 4. Return count of queued items
+	return 0, fmt.Errorf("KickPendingProcessing not yet implemented")
+}
+
+// RetryFailedItems retries failed pipeline items.
+// TODO: Actual implementation needed - this is a stub for compilation.
+func (r *Repository) RetryFailedItems(ctx context.Context, jobID string, stage string) (int, error) {
+	// Stub implementation - needs to:
+	// 1. Find failed items by:
+	//    - job_id (from ingest_jobs + sources)
+	//    - stage (embedding vs attachment failures)
+	// 2. Reset processing_status or retry flags
+	// 3. Return count of retried items
+	return 0, fmt.Errorf("RetryFailedItems not yet implemented")
+}

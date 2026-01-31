@@ -3,6 +3,7 @@ package pipelineservice
 
 import (
 	"context"
+	"fmt"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -101,6 +102,87 @@ func (s *Service) ListJobs(ctx context.Context, req *pipelinev1.ListJobsRequest)
 	return &pipelinev1.ListJobsResponse{
 		Jobs:       protoJobs,
 		TotalCount: totalCount,
+	}, nil
+}
+
+// KickProcessing triggers processing of pending pipeline items.
+func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProcessingRequest) (*pipelinev1.KickProcessingResponse, error) {
+	s.logger.Info("KickProcessing called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("limit", req.Limit),
+		logging.F("source_tag", req.SourceTag),
+	)
+
+	// Validate limit
+	limit := int(req.Limit)
+	if limit < 0 {
+		return nil, status.Error(codes.InvalidArgument, "limit must be non-negative")
+	}
+	if limit == 0 {
+		limit = 100 // Default limit
+	}
+
+	// Call repository to queue pending items
+	count, err := s.repo.KickPendingProcessing(ctx, limit, req.SourceTag)
+	if err != nil {
+		s.logger.Error("Error kicking pending processing", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to kick processing: %v", err)
+	}
+
+	message := fmt.Sprintf("Queued %d pending items for processing", count)
+	if req.SourceTag != "" {
+		message = fmt.Sprintf("Queued %d pending items for processing (source_tag: %s)", count, req.SourceTag)
+	}
+
+	s.logger.Info("Pending items queued",
+		logging.F("queued_count", count),
+		logging.F("source_tag", req.SourceTag),
+	)
+
+	return &pipelinev1.KickProcessingResponse{
+		QueuedCount: int64(count),
+		Message:     message,
+	}, nil
+}
+
+// RetryFailed retries failed pipeline items.
+func (s *Service) RetryFailed(ctx context.Context, req *pipelinev1.RetryFailedRequest) (*pipelinev1.RetryFailedResponse, error) {
+	s.logger.Info("RetryFailed called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("job_id", req.JobId),
+		logging.F("stage", req.Stage),
+	)
+
+	// Validate stage if provided
+	if req.Stage != "" && req.Stage != "embedding" && req.Stage != "attachment" {
+		return nil, status.Error(codes.InvalidArgument, "stage must be 'embedding' or 'attachment'")
+	}
+
+	// Call repository to retry failed items
+	count, err := s.repo.RetryFailedItems(ctx, req.JobId, req.Stage)
+	if err != nil {
+		s.logger.Error("Error retrying failed items", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to retry items: %v", err)
+	}
+
+	var message string
+	if req.JobId != "" {
+		message = fmt.Sprintf("Retried %d failed items for job %s", count, req.JobId)
+	} else if req.Stage != "" {
+		message = fmt.Sprintf("Retried %d failed items in stage %s", count, req.Stage)
+	} else {
+		message = fmt.Sprintf("Retried %d failed items", count)
+	}
+
+	s.logger.Info("Failed items retried",
+		logging.F("retried_count", count),
+		logging.F("job_id", req.JobId),
+		logging.F("stage", req.Stage),
+	)
+
+	return &pipelinev1.RetryFailedResponse{
+		RetriedCount: int64(count),
+		Message:      message,
 	}, nil
 }
 

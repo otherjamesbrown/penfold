@@ -6,6 +6,21 @@ description: "Analyze feature requests and launch sub-agents to implement them. 
 
 Orchestrate implementation of feature requests by analyzing, decomposing, and delegating to sub-agents.
 
+## CRITICAL: Orchestrator Role
+
+You are the **ORCHESTRATOR**. You do **NOT** write code directly.
+
+Your job:
+1. Analyze and decompose tasks
+2. Identify what can run in parallel
+3. Create implementation shards
+4. Launch sub-agents to implement
+5. Monitor progress and resolve blockers
+
+**NEVER use Edit/Write tools yourself. ALWAYS delegate implementation to sub-agents.**
+
+Sub-agents get spawned with fresh context - this is intentional. They focus solely on their task without accumulated conversation noise.
+
 ## User Input
 
 ```text
@@ -27,9 +42,9 @@ Look back at recent conversation context for:
 - Summaries mentioning specific shards
 
 Extract the relevant shard IDs based on the user's filter:
-- "all of the above" → all shards mentioned
-- "HIGH priority ones" → filter by priority column/mention
-- "except X" → exclude matching shards
+- "all of the above" -> all shards mentioned
+- "HIGH priority ones" -> filter by priority column/mention
+- "except X" -> exclude matching shards
 
 **If ambiguous, ask a clarifying question. Otherwise proceed.**
 
@@ -52,99 +67,92 @@ For each shard, analyze:
    - Proto changes?
    - Database changes?
 
-2. **What existing patterns should be followed?**
-   - Read related existing code
-   - Identify conventions
+2. **What existing infrastructure can be used NOW?**
+   - Existing RPCs that already work
+   - Existing client methods
+   - Existing patterns to follow
 
-3. **What tests are needed?**
-   - Unit tests
-   - Integration tests
-   - Which test files to modify/create
+3. **What new infrastructure is needed?**
+   - New proto RPCs
+   - New gateway handlers
+   - New database tables/migrations
 
 4. **What are the acceptance criteria?**
    - Extract from shard content
    - Make implicit criteria explicit
 
-## Phase 3: Identify Shared Dependencies
+## Phase 3: Build Parallel Execution Plan
 
-Look across all shards for overlapping requirements:
+**Goal: Maximize parallelism. Start as much work as possible NOW.**
 
-| Overlap Type | Example | Action |
-|--------------|---------|--------|
-| Same proto field | Two shards need `ContentRequest.source` | Create foundation shard for proto change |
-| Same utility | Multiple shards need date parsing | Create shared util shard first |
-| Same API endpoint | Multiple CLI commands call same gateway endpoint | Create endpoint shard first |
-| Same test fixture | Multiple tests need same mock data | Create fixture shard first |
-
-**For each shared dependency:**
-1. Create a foundation shard in context-palace
-2. Add it as a blocker for dependent shards
-3. Foundation shards are implemented first
-
-```sql
--- Create foundation shard
-SELECT create_shard('penfold',
-  'Foundation: [description]',
-  '[detailed requirements]',
-  'task',
-  NULL);  -- Unassigned, will be claimed by sub-agent
-
--- Get the new shard ID and set up dependencies
--- Use relate_shards() or manual tracking
-```
-
-## Phase 4: Build Dependency Graph
-
-Determine execution order:
+### Step 1: Separate "Ready Now" vs "Needs Foundation"
 
 ```
-Level 0 (no dependencies):     [foundation shards]
-Level 1 (depends on L0):       [shards using foundations]
-Level 2 (depends on L1):       [shards using L1 outputs]
++-------------------------------------------------------------+
+|                    EXISTING INFRASTRUCTURE                   |
+|  (RPCs, tables, utilities that already exist)               |
++-----------------------------+-------------------------------+
+                              |
+          +-------------------+-------------------+
+          v                                       v
+   +-------------+                         +-------------+
+   | READY NOW   |                         | READY NOW   |
+   | Agent #1    |                         | Agent #2    |
+   | (parallel)  |                         | (parallel)  |
+   +-------------+                         +-------------+
+                              |
+          +-------------------+-------------------+
+          |         NEW INFRASTRUCTURE            |
+          |  (must be built before dependents)    |
+          +-------------------+-------------------+
+                              |
+                              v
+                    +-----------------+
+                    | NEEDS FOUNDATION|
+                    | Agent #3        |
+                    | (after above)   |
+                    +-----------------+
 ```
 
-Shards at the same level can run in parallel.
+### Step 2: Identify Parallel Tracks
 
-**Identify parallel tracks:**
-- Shards touching different files
-- Shards in different domains (CLI vs Gateway vs Worker)
-- Independent features
+Work items can run in parallel if they:
+- Touch different files (no merge conflicts)
+- Use different services (CLI vs Gateway vs Worker)
+- Use existing infrastructure (no dependency on new code)
 
-## Phase 5: Pre-Handoff Checklist
+**Example decomposition:**
 
-Before creating implementation shards, verify:
+| Agent | Task | Can Start | Why |
+|-------|------|-----------|-----|
+| cli-dev #1 | Command using existing RPC | NOW | RPC exists |
+| service-dev | New proto + gateway handlers | NOW | No dependencies |
+| cli-dev #2 | Commands using new RPCs | After service-dev | Needs new RPCs |
 
-### Requirements
-- [ ] Acceptance criteria explicit for each shard
-- [ ] Ambiguities resolved (or flagged)
-- [ ] Edge cases identified
+### Step 3: Right-Size the Agents
 
-### Codebase Context
-- [ ] Files to touch identified (prevents sub-agent conflicts)
-- [ ] Existing patterns documented (code samples, not descriptions)
-- [ ] Related tests identified
-- [ ] No file overlap between parallel shards
+**Too granular** (avoid):
+- 1 agent per function
+- 1 agent per file
 
-### Backend Readiness
-- [ ] Required APIs exist (or foundation shard created)
-- [ ] Required proto fields exist (or foundation shard created)
-- [ ] No missing infrastructure
+**Too coarse** (avoid):
+- 1 agent for entire feature spanning proto + gateway + CLI + tests
 
-### Safety
-- [ ] No database migrations needed (or flagged)
-- [ ] No breaking changes (or flagged)
-- [ ] Security implications reviewed
+**Right balance**:
+- Group by layer AND coherence
+- Proto + Gateway handler = 1 agent (tightly coupled)
+- Related CLI commands = 1 agent (share patterns)
+- Independent CLI command using existing RPC = 1 agent (can parallelize)
 
-**If blockers found, ask the user how to proceed. Otherwise continue.**
+## Phase 4: Create Implementation Shards
 
-## Phase 6: Create Implementation Shards
+Use heredoc with dollar-quoting for content with backticks:
 
-For each work unit, create an implementation shard with full context:
-
-```sql
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" <<'EOSQL'
 SELECT create_shard('penfold',
   'Implement: [specific task]',
-  '## Goal
+  $md$## Goal
 [What this shard accomplishes]
 
 ## Context
@@ -157,101 +165,101 @@ SELECT create_shard('penfold',
 ## Files to Create
 - path/to/new_file.go - [purpose]
 
-## Patterns to Follow
-[Code snippets from existing codebase showing the pattern]
-
-```go
-// Example from existing code
-func ExistingPattern() {
-    // ...
-}
-```
-
-## Tests Required
-- [ ] Unit test: [specific test case]
-- [ ] Integration test: [specific scenario]
-- Test file: path/to/test_file.go
+## Existing Code to Reference
+[Specific file paths the agent should read for patterns]
+- cmd/penf/cmd/workflow.go - similar command structure
+- services/gateway/workflowservice/service.go - similar handler pattern
 
 ## Acceptance Criteria
 - [ ] [Specific, verifiable criterion]
-- [ ] [Specific, verifiable criterion]
-- [ ] Tests pass
+- [ ] Code compiles: go build ./...
+- [ ] Tests pass: go test ./...
 
-## Dependencies
-- Depends on: pf-xxxxx (if any)
-- Blocks: pf-yyyyy (if any)
-
-## Verification
-```bash
-# Commands to verify this shard is complete
-go test ./path/to/...
+## Verification Commands
+go build ./cmd/penf/...
 penf [command] --help
-```
+go test ./path/to/...
 
-## Agent
+## Agent Type
 Assign to: [cli-dev | service-dev | worker-dev | data-dev | ai-dev]
-',
+$md$,
   'task',
   NULL);
+EOSQL
 ```
 
-## Phase 7: Launch Sub-Agents
+## Phase 5: Launch Sub-Agents in Parallel
 
-For each level in the dependency graph:
+**Launch ALL agents that can start NOW in a single message with multiple Task tool calls.**
 
-1. **Wait for previous level to complete** (if not level 0)
-
-2. **Launch parallel sub-agents** for shards at this level:
-
-```
-Use the Task tool with appropriate subagent_type:
+Available agent types:
 - cli-dev: CLI commands in cmd/penf/
 - service-dev: Gateway, proto, gRPC
 - worker-dev: Temporal workflows, activities
 - data-dev: Database, migrations, repositories
 - ai-dev: Embeddings, search, ML
-```
 
-3. **Sub-agent prompt includes:**
-   - The implementation shard ID
-   - Instruction to read shard via palace CLI
-   - Instruction to update progress via palace CLI
-   - Instruction to close shard when done
+### Sub-Agent Prompt Template
 
-Example sub-agent prompt:
 ```
 You have been assigned shard pf-xxxxx.
 
+## Setup
 1. Read your assignment:
-   palace task get pf-xxxxx
+   /Users/dev/bin/palace task get pf-xxxxx
 
 2. Claim the work:
-   palace task claim pf-xxxxx
+   /Users/dev/bin/palace task claim pf-xxxxx
 
-3. Implement as described in the shard content
+## Implementation
+3. Read the existing code patterns mentioned in the shard
+4. Implement the changes described
+5. Ensure code compiles: go build ./...
+6. Run relevant tests: go test ./...
 
-4. Log progress as you work:
-   palace task progress pf-xxxxx "Completed unit tests"
+## Completion
+7. Log what you did:
+   /Users/dev/bin/palace task progress pf-xxxxx "Implemented X, Y, Z"
 
-5. Add artifacts:
-   palace artifact add pf-xxxxx file cmd/penf/pipeline.go "Added kick command"
-   palace artifact add pf-xxxxx commit abc123 "Implemented pipeline kick"
-
-6. When complete:
-   palace task close pf-xxxxx "Implemented pipeline kick command with tests"
+8. Close the shard:
+   /Users/dev/bin/palace task close pf-xxxxx "Done: [summary]"
 
 Do not create a PR. Just implement and close the shard.
 ```
 
-4. **Monitor progress** via context-palace queries:
+### Parallel Launch Pattern
+
+To launch agents in parallel, use multiple Task tool invocations in a SINGLE response message. Do NOT send them sequentially - group all "can start NOW" agents together.
+
+Example: If cli-dev #1 and service-dev can both start NOW, invoke both Task tools in the same message.
+
+## Phase 6: Monitor and Coordinate
+
+### Check Progress
+
 ```sql
-SELECT id, title, status FROM shards
+SELECT id, title, status, owner
+FROM shards
 WHERE id IN ('pf-xxx', 'pf-yyy', 'pf-zzz');
 ```
 
-5. **When level complete**, proceed to next level
+### When Foundation Complete
 
-## Phase 8: Report Results
+Once a foundation agent (e.g., service-dev) completes:
+1. Verify the changes compile
+2. Launch dependent agents (e.g., cli-dev #2)
+
+### Handle Failures
+
+If a sub-agent fails:
+1. Read the shard for error details
+2. Determine if it's a blocker for other shards
+3. Ask the user how to proceed:
+   - Fix and retry?
+   - Skip and continue with non-blocked shards?
+   - Abort?
+
+## Phase 7: Report Results
 
 When all shards are complete:
 
@@ -259,9 +267,9 @@ When all shards are complete:
 Implementation Complete
 
 Shards Completed: N
-├── pf-xxxxx: [title] ✓
-├── pf-yyyyy: [title] ✓
-└── pf-zzzzz: [title] ✓
++-- pf-xxxxx: [title] Done
++-- pf-yyyyy: [title] Done
++-- pf-zzzzz: [title] Done
 
 Files Changed:
 - cmd/penf/pipeline.go (new)
@@ -278,20 +286,11 @@ Next Steps:
 3. Commit when ready: git add . && git commit
 ```
 
-## Error Handling
+## Key Principles
 
-If a sub-agent fails:
-1. Read the shard for error details
-2. Determine if it's a blocker for other shards
-3. Ask the user how to proceed:
-   - Fix and retry?
-   - Skip and continue with non-blocked shards?
-   - Abort?
-
-## Notes
-
-- Sub-agents use `palace` CLI for task management (no SQL needed)
-- Orchestrator (you) uses psql for complex queries and shard creation
-- No PRs created - just code changes
-- Ask questions when genuinely uncertain, otherwise act with confidence
-- Launch parallel sub-agents where possible for efficiency
+1. **NEVER write code yourself** - always delegate to sub-agents
+2. **Maximize parallelism** - launch all independent work simultaneously
+3. **Right-size agents** - not too granular, not too coarse
+4. **Fresh context is good** - sub-agents focus without distraction
+5. **Sub-agents use palace CLI** - orchestrator uses psql for complex queries
+6. **No PRs** - just code changes, user decides when to commit

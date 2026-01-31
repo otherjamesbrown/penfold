@@ -23,6 +23,12 @@ service PipelineService {
 
   // ListJobs lists recent ingest jobs with optional filtering.
   rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
+
+  // KickProcessing triggers processing of pending pipeline items.
+  rpc KickProcessing(KickProcessingRequest) returns (KickProcessingResponse);
+
+  // RetryFailed retries failed pipeline items.
+  rpc RetryFailed(RetryFailedRequest) returns (RetryFailedResponse);
 }
 
 // =============================================================================
@@ -172,4 +178,46 @@ message ListJobsResponse {
 
   // Total count of matching jobs.
   int64 total_count = 2;
+}
+
+// KickProcessingRequest triggers processing of pending pipeline items.
+message KickProcessingRequest {
+  // Tenant ID (for multi-tenant support).
+  string tenant_id = 1;
+
+  // Maximum number of items to queue (optional, 0 = no limit).
+  int32 limit = 2;
+
+  // Filter by source tag (optional).
+  string source_tag = 3;
+}
+
+// KickProcessingResponse contains the result of the kick operation.
+message KickProcessingResponse {
+  // Number of items queued for processing.
+  int64 queued_count = 1;
+
+  // Human-readable message.
+  string message = 2;
+}
+
+// RetryFailedRequest retries failed pipeline items.
+message RetryFailedRequest {
+  // Tenant ID (for multi-tenant support).
+  string tenant_id = 1;
+
+  // Job ID to retry (optional, if empty retries all failed).
+  string job_id = 2;
+
+  // Filter by pipeline stage (optional: "embedding", "attachment").
+  string stage = 3;
+}
+
+// RetryFailedResponse contains the result of the retry operation.
+message RetryFailedResponse {
+  // Number of items retried.
+  int64 retried_count = 1;
+
+  // Human-readable message.
+  string message = 2;
 }

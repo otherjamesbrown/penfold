@@ -22,9 +22,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PipelineService_GetStats_FullMethodName = "/penfold.pipeline.v1.PipelineService/GetStats"
-	PipelineService_GetJob_FullMethodName   = "/penfold.pipeline.v1.PipelineService/GetJob"
-	PipelineService_ListJobs_FullMethodName = "/penfold.pipeline.v1.PipelineService/ListJobs"
+	PipelineService_GetStats_FullMethodName       = "/penfold.pipeline.v1.PipelineService/GetStats"
+	PipelineService_GetJob_FullMethodName         = "/penfold.pipeline.v1.PipelineService/GetJob"
+	PipelineService_ListJobs_FullMethodName       = "/penfold.pipeline.v1.PipelineService/ListJobs"
+	PipelineService_KickProcessing_FullMethodName = "/penfold.pipeline.v1.PipelineService/KickProcessing"
+	PipelineService_RetryFailed_FullMethodName    = "/penfold.pipeline.v1.PipelineService/RetryFailed"
 )
 
 // PipelineServiceClient is the client API for PipelineService service.
@@ -39,6 +41,10 @@ type PipelineServiceClient interface {
 	GetJob(ctx context.Context, in *GetJobRequest, opts ...grpc.CallOption) (*GetJobResponse, error)
 	// ListJobs lists recent ingest jobs with optional filtering.
 	ListJobs(ctx context.Context, in *ListJobsRequest, opts ...grpc.CallOption) (*ListJobsResponse, error)
+	// KickProcessing triggers processing of pending pipeline items.
+	KickProcessing(ctx context.Context, in *KickProcessingRequest, opts ...grpc.CallOption) (*KickProcessingResponse, error)
+	// RetryFailed retries failed pipeline items.
+	RetryFailed(ctx context.Context, in *RetryFailedRequest, opts ...grpc.CallOption) (*RetryFailedResponse, error)
 }
 
 type pipelineServiceClient struct {
@@ -79,6 +85,26 @@ func (c *pipelineServiceClient) ListJobs(ctx context.Context, in *ListJobsReques
 	return out, nil
 }
 
+func (c *pipelineServiceClient) KickProcessing(ctx context.Context, in *KickProcessingRequest, opts ...grpc.CallOption) (*KickProcessingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(KickProcessingResponse)
+	err := c.cc.Invoke(ctx, PipelineService_KickProcessing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) RetryFailed(ctx context.Context, in *RetryFailedRequest, opts ...grpc.CallOption) (*RetryFailedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RetryFailedResponse)
+	err := c.cc.Invoke(ctx, PipelineService_RetryFailed_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PipelineServiceServer is the server API for PipelineService service.
 // All implementations must embed UnimplementedPipelineServiceServer
 // for forward compatibility.
@@ -91,6 +117,10 @@ type PipelineServiceServer interface {
 	GetJob(context.Context, *GetJobRequest) (*GetJobResponse, error)
 	// ListJobs lists recent ingest jobs with optional filtering.
 	ListJobs(context.Context, *ListJobsRequest) (*ListJobsResponse, error)
+	// KickProcessing triggers processing of pending pipeline items.
+	KickProcessing(context.Context, *KickProcessingRequest) (*KickProcessingResponse, error)
+	// RetryFailed retries failed pipeline items.
+	RetryFailed(context.Context, *RetryFailedRequest) (*RetryFailedResponse, error)
 	mustEmbedUnimplementedPipelineServiceServer()
 }
 
@@ -109,6 +139,12 @@ func (UnimplementedPipelineServiceServer) GetJob(context.Context, *GetJobRequest
 }
 func (UnimplementedPipelineServiceServer) ListJobs(context.Context, *ListJobsRequest) (*ListJobsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListJobs not implemented")
+}
+func (UnimplementedPipelineServiceServer) KickProcessing(context.Context, *KickProcessingRequest) (*KickProcessingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method KickProcessing not implemented")
+}
+func (UnimplementedPipelineServiceServer) RetryFailed(context.Context, *RetryFailedRequest) (*RetryFailedResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RetryFailed not implemented")
 }
 func (UnimplementedPipelineServiceServer) mustEmbedUnimplementedPipelineServiceServer() {}
 func (UnimplementedPipelineServiceServer) testEmbeddedByValue()                         {}
@@ -185,6 +221,42 @@ func _PipelineService_ListJobs_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_KickProcessing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(KickProcessingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).KickProcessing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_KickProcessing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).KickProcessing(ctx, req.(*KickProcessingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_RetryFailed_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RetryFailedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).RetryFailed(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_RetryFailed_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).RetryFailed(ctx, req.(*RetryFailedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PipelineService_ServiceDesc is the grpc.ServiceDesc for PipelineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -203,6 +275,14 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListJobs",
 			Handler:    _PipelineService_ListJobs_Handler,
+		},
+		{
+			MethodName: "KickProcessing",
+			Handler:    _PipelineService_KickProcessing_Handler,
+		},
+		{
+			MethodName: "RetryFailed",
+			Handler:    _PipelineService_RetryFailed_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
