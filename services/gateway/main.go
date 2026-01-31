@@ -340,30 +340,11 @@ func main() {
 	logsv1.RegisterLogsServiceServer(grpcServer, logsSvc)
 	logger.Info("Registered LogsService")
 
-	// Register SearchService proxy to backend search service (optional).
-	// This allows CLI to use gateway address for all operations.
-	if cfg.SearchAddress != "" {
-		searchSvc := searchservice.NewService(cfg.SearchAddress, logger)
-		connectCtx, connectCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := searchSvc.Connect(connectCtx); err != nil {
-			logger.Warn("Failed to connect to search backend, SearchService will return Unavailable",
-				logging.F("search_addr", cfg.SearchAddress),
-				logging.Err(err),
-			)
-		} else {
-			logger.Info("Connected to search backend",
-				logging.F("search_addr", cfg.SearchAddress),
-			)
-			defer searchSvc.Close()
-		}
-		connectCancel()
-		searchv1.RegisterSearchServiceServer(grpcServer, searchSvc)
-		logger.Info("Registered SearchService",
-			logging.F("backend_addr", cfg.SearchAddress),
-		)
-	} else {
-		logger.Info("SearchService disabled (GATEWAY_SEARCH_ADDRESS not set)")
-	}
+	// Register SearchService using direct database queries.
+	// This allows CLI to use gateway address for search without a separate service.
+	searchSvc := searchservice.NewService(dbPool, logger)
+	searchv1.RegisterSearchServiceServer(grpcServer, searchSvc)
+	logger.Info("Registered SearchService (database-backed)")
 
 	// Register WorkflowService for Temporal workflow management (optional).
 	if cfg.Temporal.Enabled {
