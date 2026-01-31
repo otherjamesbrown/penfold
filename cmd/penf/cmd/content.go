@@ -1,0 +1,837 @@
+// Package cmd provides CLI commands for the penf tool.
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"gopkg.in/yaml.v3"
+
+	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
+	"github.com/otherjamesbrown/penfold/cmd/penf/config"
+)
+
+// Content command flags
+var (
+	contentOutput     string
+	contentStatus     string
+	contentSource     string
+	contentTenant     string
+	contentLimit      int32
+	contentProcessing bool
+	contentConfirm    bool
+	contentBefore     string
+)
+
+// ContentCommandDeps holds the dependencies for content commands.
+type ContentCommandDeps struct {
+	Config     *config.CLIConfig
+	LoadConfig func() (*config.CLIConfig, error)
+}
+
+// DefaultContentDeps returns the default dependencies for production use.
+func DefaultContentDeps() *ContentCommandDeps {
+	return &ContentCommandDeps{
+		LoadConfig: config.LoadConfig,
+	}
+}
+
+// NewContentCommand creates the root content command with all subcommands.
+func NewContentCommand(deps *ContentCommandDeps) *cobra.Command {
+	if deps == nil {
+		deps = DefaultContentDeps()
+	}
+
+	cmd := &cobra.Command{
+		Use:   "content",
+		Short: "Manage content items in the processing pipeline",
+		Long: `Manage content items in the processing pipeline.
+
+Content items represent units of content from various sources (email, documents,
+meetings, Slack) that have been ingested and processed through the AI pipeline.
+
+Each content item goes through multiple processing stages:
+  - FETCH: Fetching raw content from the source system
+  - PARSE: Parsing and normalizing content structure
+  - EMBED: Generating vector embeddings for semantic search
+  - SUMMARIZE: Generating AI summaries
+  - EXTRACT: Extracting entities, assertions, and structured data
+
+Processing states:
+  - PENDING: Queued for processing
+  - IN_PROGRESS: Currently being processed
+  - COMPLETED: Processing completed successfully
+  - FAILED: Processing failed with an error
+  - CANCELLED: Processing was cancelled
+
+JSON Output (for AI processing):
+  penf content list -o json
+
+  Returns:
+  {
+    "items": [
+      {
+        "id": "content-123",
+        "source_type": "email",
+        "state": "COMPLETED",
+        "metadata": {"subject": "Project update", "from": "user@example.com"}
+      }
+    ],
+    "total_count": 42
+  }`,
+		Aliases: []string{"contents"},
+	}
+
+	// Add persistent flags
+	cmd.PersistentFlags().StringVarP(&contentOutput, "output", "o", "", "Output format: text, json, yaml")
+	cmd.PersistentFlags().Int32VarP(&contentLimit, "limit", "l", 50, "Maximum number of results")
+
+	// Add subcommands
+	cmd.AddCommand(newContentListCommand(deps))
+	cmd.AddCommand(newContentShowCommand(deps))
+	cmd.AddCommand(newContentDeleteCommand(deps))
+	cmd.AddCommand(newContentStatsCommand(deps))
+
+	return cmd
+}
+
+// newContentListCommand creates the 'content list' subcommand.
+func newContentListCommand(deps *ContentCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List content items",
+		Long: `List content items with optional filtering.
+
+Filter by processing state, source type, or tenant. Results are paginated.
+
+Examples:
+  # List all content items
+  penf content list
+
+  # Filter by status
+  penf content list --status pending
+  penf content list --status complete
+
+  # Filter by source type
+  penf content list --source email
+  penf content list --source document
+
+  # Combine filters
+  penf content list --status complete --source email --limit 100
+
+  # Output as JSON
+  penf content list -o json`,
+		Aliases: []string{"ls"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runContentList(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVar(&contentStatus, "status", "", "Filter by processing state: pending, processing, complete, failed")
+	cmd.Flags().StringVar(&contentSource, "source", "", "Filter by source type: email, document, meeting, slack")
+	cmd.Flags().StringVar(&contentTenant, "tenant", "", "Filter by tenant ID (defaults to config tenant)")
+
+	return cmd
+}
+
+// newContentShowCommand creates the 'content show' subcommand.
+func newContentShowCommand(deps *ContentCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "show <content-id>",
+		Short: "Show details of a content item",
+		Long: `Show detailed information about a specific content item.
+
+Displays content metadata, processing state, timestamps, and optionally
+detailed processing status with stage completion information.
+
+Examples:
+  # Show content item details
+  penf content show content-123
+
+  # Show with detailed processing status
+  penf content show content-123 --processing
+
+  # Output as JSON
+  penf content show content-123 -o json`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runContentShow(cmd.Context(), deps, args[0])
+		},
+	}
+
+	cmd.Flags().BoolVar(&contentProcessing, "processing", false, "Show detailed processing status")
+
+	return cmd
+}
+
+// Command execution functions
+
+func runContentList(ctx context.Context, deps *ContentCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := contentv1.NewContentProcessorServiceClient(conn)
+
+	// Build request
+	req := &contentv1.ListContentItemsRequest{
+		PageSize: contentLimit,
+	}
+
+	// Apply filters
+	if contentSource != "" {
+		req.SourceType = &contentSource
+	}
+
+	if contentStatus != "" {
+		state, err := parseProcessingState(contentStatus)
+		if err != nil {
+			return err
+		}
+		req.State = &state
+	}
+
+	// Get tenant ID
+	tenantID := contentTenant
+	if tenantID == "" {
+		tenantID = cfg.TenantID
+	}
+	if tenantID == "" {
+		return fmt.Errorf("tenant ID required: set via --tenant flag or 'penf config set tenant_id <id>'")
+	}
+	req.TenantId = tenantID
+
+	// Make request
+	resp, err := client.ListContentItems(ctx, req)
+	if err != nil {
+		return fmt.Errorf("listing content items: %w", err)
+	}
+
+	// Output results
+	format := cfg.OutputFormat
+	if contentOutput != "" {
+		format = config.OutputFormat(contentOutput)
+	}
+
+	return outputContentList(format, resp)
+}
+
+func runContentShow(ctx context.Context, deps *ContentCommandDeps, contentID string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := contentv1.NewContentProcessorServiceClient(conn)
+
+	// Get content item
+	getReq := &contentv1.GetContentItemRequest{
+		ContentId:        contentID,
+		IncludeEmbedding: false,
+	}
+	item, err := client.GetContentItem(ctx, getReq)
+	if err != nil {
+		return fmt.Errorf("getting content item: %w", err)
+	}
+
+	// Get processing status if requested
+	var status *contentv1.ProcessingStatus
+	if contentProcessing {
+		statusReq := &contentv1.GetProcessingStatusRequest{
+			ContentId: contentID,
+		}
+		status, err = client.GetProcessingStatus(ctx, statusReq)
+		if err != nil {
+			// Don't fail if processing status unavailable
+			fmt.Fprintf(os.Stderr, "Warning: could not get processing status: %v\n", err)
+		}
+	}
+
+	// Output results
+	format := cfg.OutputFormat
+	if contentOutput != "" {
+		format = config.OutputFormat(contentOutput)
+	}
+
+	return outputContentItem(format, item, status)
+}
+
+// Output functions
+
+func outputContentList(format config.OutputFormat, resp *contentv1.ListContentItemsResponse) error {
+	switch format {
+	case config.OutputFormatJSON:
+		return outputContentJSON(resp)
+	case config.OutputFormatYAML:
+		return outputContentYAML(resp)
+	default:
+		return outputContentListText(resp)
+	}
+}
+
+func outputContentListText(resp *contentv1.ListContentItemsResponse) error {
+	if len(resp.Items) == 0 {
+		fmt.Println("No content items found.")
+		return nil
+	}
+
+	totalCount := int64(len(resp.Items))
+	if resp.TotalCount != nil {
+		totalCount = *resp.TotalCount
+	}
+
+	fmt.Printf("Content Items (%d total):\n\n", totalCount)
+	fmt.Println("  ID                    TYPE        SUBJECT/TITLE                      SOURCE     STATE       CREATED")
+	fmt.Println("  --                    ----        -------------                      ------     -----       -------")
+
+	for _, item := range resp.Items {
+		// Get subject/title from metadata
+		subject := getSubjectFromMetadata(item.Metadata)
+		if subject == "" {
+			subject = "-"
+		}
+
+		// Format timestamps
+		createdStr := "-"
+		if item.CreatedAt != nil {
+			createdStr = item.CreatedAt.AsTime().Format("2006-01-02")
+		}
+
+		// Format state
+		stateStr := formatProcessingState(item.State)
+
+		fmt.Printf("  %-21s %-11s %-34s %-10s %-11s %s\n",
+			truncate(item.Id, 21),
+			truncate(item.SourceType, 11),
+			truncate(subject, 34),
+			truncate(item.SourceId, 10),
+			stateStr,
+			createdStr)
+	}
+
+	fmt.Println()
+
+	if resp.NextPageToken != "" {
+		fmt.Printf("More results available. Use --page-token=%s to fetch next page.\n", resp.NextPageToken)
+	}
+
+	return nil
+}
+
+func outputContentItem(format config.OutputFormat, item *contentv1.ContentItem, status *contentv1.ProcessingStatus) error {
+	switch format {
+	case config.OutputFormatJSON:
+		data := map[string]interface{}{
+			"item": item,
+		}
+		if status != nil {
+			data["processing_status"] = status
+		}
+		return outputContentJSON(data)
+	case config.OutputFormatYAML:
+		data := map[string]interface{}{
+			"item": item,
+		}
+		if status != nil {
+			data["processing_status"] = status
+		}
+		return outputContentYAML(data)
+	default:
+		return outputContentItemText(item, status)
+	}
+}
+
+func outputContentItemText(item *contentv1.ContentItem, status *contentv1.ProcessingStatus) error {
+	fmt.Println("Content Item Details:")
+	fmt.Println()
+	fmt.Printf("  \033[1mID:\033[0m           %s\n", item.Id)
+	fmt.Printf("  \033[1mSource Type:\033[0m  %s\n", item.SourceType)
+	fmt.Printf("  \033[1mSource ID:\033[0m    %s\n", item.SourceId)
+	fmt.Printf("  \033[1mTenant ID:\033[0m    %s\n", item.TenantId)
+	fmt.Printf("  \033[1mState:\033[0m        %s\n", formatProcessingState(item.State))
+	fmt.Println()
+
+	// Metadata
+	if len(item.Metadata) > 0 {
+		fmt.Println("  \033[1mMetadata:\033[0m")
+		for key, value := range item.Metadata {
+			fmt.Printf("    %-12s %s\n", key+":", truncate(value, 60))
+		}
+		fmt.Println()
+	}
+
+	// Content hash
+	fmt.Printf("  \033[1mContent Hash:\033[0m %s\n", item.ContentHash)
+	fmt.Println()
+
+	// Summary if available
+	if item.Summary != nil && *item.Summary != "" {
+		fmt.Printf("  \033[1mSummary:\033[0m\n")
+		fmt.Printf("    %s\n", *item.Summary)
+		fmt.Println()
+	}
+
+	// Timestamps
+	if item.CreatedAt != nil {
+		fmt.Printf("  \033[1mCreated:\033[0m      %s\n", item.CreatedAt.AsTime().Format("2006-01-02 15:04:05"))
+	}
+	if item.UpdatedAt != nil {
+		fmt.Printf("  \033[1mUpdated:\033[0m      %s\n", item.UpdatedAt.AsTime().Format("2006-01-02 15:04:05"))
+	}
+	if item.ProcessedAt != nil {
+		fmt.Printf("  \033[1mProcessed:\033[0m    %s\n", item.ProcessedAt.AsTime().Format("2006-01-02 15:04:05"))
+	}
+
+	// Processing status if available
+	if status != nil {
+		fmt.Println()
+		fmt.Println("  \033[1mProcessing Status:\033[0m")
+		fmt.Printf("    Job ID:       %s\n", status.JobId)
+		fmt.Printf("    State:        %s\n", formatProcessingState(status.State))
+		fmt.Printf("    Progress:     %d%%\n", status.ProgressPercent)
+
+		if status.CurrentStage != nil {
+			fmt.Printf("    Current Stage: %s\n", formatProcessingStage(*status.CurrentStage))
+		}
+
+		// Show completed stages with checkmarks
+		if len(status.StagesCompleted) > 0 {
+			fmt.Println()
+			fmt.Println("    \033[1mStages:\033[0m")
+			allStages := []contentv1.ProcessingStage{
+				contentv1.ProcessingStage_PROCESSING_STAGE_FETCH,
+				contentv1.ProcessingStage_PROCESSING_STAGE_PARSE,
+				contentv1.ProcessingStage_PROCESSING_STAGE_EMBED,
+				contentv1.ProcessingStage_PROCESSING_STAGE_SUMMARIZE,
+				contentv1.ProcessingStage_PROCESSING_STAGE_EXTRACT,
+			}
+
+			for _, stage := range allStages {
+				completed := stageCompleted(stage, status.StagesCompleted)
+				checkmark := " "
+				if completed {
+					checkmark = "\033[32m✓\033[0m"
+				}
+				fmt.Printf("      %s %s\n", checkmark, formatProcessingStage(stage))
+			}
+		}
+
+		// Show errors if any
+		if len(status.Errors) > 0 {
+			fmt.Println()
+			fmt.Println("    \033[1mErrors:\033[0m")
+			for _, err := range status.Errors {
+				fmt.Printf("      \033[31m[%s]\033[0m %s: %s\n",
+					formatProcessingStage(err.Stage),
+					err.Code,
+					err.Message)
+				if err.RetryCount > 0 {
+					fmt.Printf("        (retries: %d)\n", err.RetryCount)
+				}
+			}
+		}
+
+		// Duration
+		if status.DurationMs != nil {
+			duration := time.Duration(*status.DurationMs) * time.Millisecond
+			fmt.Printf("\n    Duration:     %s\n", duration)
+		}
+	}
+
+	fmt.Println()
+	return nil
+}
+
+func outputContentJSON(v interface{}) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+func outputContentYAML(v interface{}) error {
+	enc := yaml.NewEncoder(os.Stdout)
+	return enc.Encode(v)
+}
+
+// Helper functions
+
+func parseProcessingState(state string) (contentv1.ProcessingState, error) {
+	state = strings.ToLower(state)
+	switch state {
+	case "pending":
+		return contentv1.ProcessingState_PROCESSING_STATE_PENDING, nil
+	case "processing", "in_progress":
+		return contentv1.ProcessingState_PROCESSING_STATE_IN_PROGRESS, nil
+	case "complete", "completed":
+		return contentv1.ProcessingState_PROCESSING_STATE_COMPLETED, nil
+	case "failed":
+		return contentv1.ProcessingState_PROCESSING_STATE_FAILED, nil
+	case "cancelled":
+		return contentv1.ProcessingState_PROCESSING_STATE_CANCELLED, nil
+	default:
+		return contentv1.ProcessingState_PROCESSING_STATE_UNSPECIFIED,
+			fmt.Errorf("invalid processing state: %s (must be: pending, processing, complete, failed, cancelled)", state)
+	}
+}
+
+func formatProcessingState(state contentv1.ProcessingState) string {
+	switch state {
+	case contentv1.ProcessingState_PROCESSING_STATE_PENDING:
+		return "\033[33mPENDING\033[0m"
+	case contentv1.ProcessingState_PROCESSING_STATE_IN_PROGRESS:
+		return "\033[36mIN_PROGRESS\033[0m"
+	case contentv1.ProcessingState_PROCESSING_STATE_COMPLETED:
+		return "\033[32mCOMPLETED\033[0m"
+	case contentv1.ProcessingState_PROCESSING_STATE_FAILED:
+		return "\033[31mFAILED\033[0m"
+	case contentv1.ProcessingState_PROCESSING_STATE_CANCELLED:
+		return "\033[90mCANCELLED\033[0m"
+	default:
+		return "UNSPECIFIED"
+	}
+}
+
+func formatProcessingStage(stage contentv1.ProcessingStage) string {
+	switch stage {
+	case contentv1.ProcessingStage_PROCESSING_STAGE_FETCH:
+		return "FETCH"
+	case contentv1.ProcessingStage_PROCESSING_STAGE_PARSE:
+		return "PARSE"
+	case contentv1.ProcessingStage_PROCESSING_STAGE_EMBED:
+		return "EMBED"
+	case contentv1.ProcessingStage_PROCESSING_STAGE_SUMMARIZE:
+		return "SUMMARIZE"
+	case contentv1.ProcessingStage_PROCESSING_STAGE_EXTRACT:
+		return "EXTRACT"
+	case contentv1.ProcessingStage_PROCESSING_STAGE_COMPLETE:
+		return "COMPLETE"
+	default:
+		return "UNSPECIFIED"
+	}
+}
+
+func getSubjectFromMetadata(metadata map[string]string) string {
+	// Try common metadata keys for subject/title
+	keys := []string{"subject", "title", "name", "summary"}
+	for _, key := range keys {
+		if val, ok := metadata[key]; ok && val != "" {
+			return val
+		}
+	}
+	return ""
+}
+
+func stageCompleted(stage contentv1.ProcessingStage, completed []contentv1.ProcessingStage) bool {
+	for _, s := range completed {
+		if s == stage {
+			return true
+		}
+	}
+	return false
+}
+
+// newContentDeleteCommand creates the 'content delete' subcommand.
+func newContentDeleteCommand(deps *ContentCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete [content-id]",
+		Short: "Delete content items",
+		Long: `Delete content items individually or in bulk.
+
+Delete a single content item by ID, or bulk delete items matching filters.
+
+Examples:
+  # Delete a single content item
+  penf content delete content-123
+
+  # Bulk delete by filters (requires --confirm)
+  penf content delete --source email --status failed --confirm
+
+  # Delete items created before a date
+  penf content delete --before 2026-01-01 --confirm
+
+  # Combine filters
+  penf content delete --source document --status pending --confirm`,
+		Aliases: []string{"rm", "remove"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				// Single content item delete
+				return runContentDeleteSingle(cmd.Context(), deps, args[0])
+			} else if len(args) == 0 {
+				// Bulk delete
+				return runContentDeleteBulk(cmd.Context(), deps)
+			}
+			return fmt.Errorf("specify a single content ID or use filters for bulk delete")
+		},
+	}
+
+	cmd.Flags().StringVar(&contentStatus, "status", "", "Filter by processing state for bulk delete: pending, processing, complete, failed")
+	cmd.Flags().StringVar(&contentSource, "source", "", "Filter by source type for bulk delete: email, document, meeting, slack")
+	cmd.Flags().StringVar(&contentTenant, "tenant", "", "Filter by tenant ID (defaults to config tenant)")
+	cmd.Flags().StringVar(&contentBefore, "before", "", "Filter by items created before this date (YYYY-MM-DD)")
+	cmd.Flags().BoolVar(&contentConfirm, "confirm", false, "Confirm bulk delete operation (required for bulk delete)")
+
+	return cmd
+}
+
+// newContentStatsCommand creates the 'content stats' subcommand.
+func newContentStatsCommand(deps *ContentCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Show content statistics",
+		Long: `Show statistics about content items.
+
+Displays total counts, breakdowns by source type and processing state,
+storage usage, and processing completion metrics.
+
+Examples:
+  # Show content statistics
+  penf content stats
+
+  # Output as JSON
+  penf content stats -o json`,
+		Aliases: []string{"statistics"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runContentStats(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVar(&contentTenant, "tenant", "", "Tenant ID (defaults to config tenant)")
+
+	return cmd
+}
+
+func runContentDeleteSingle(ctx context.Context, deps *ContentCommandDeps, contentID string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := contentv1.NewContentProcessorServiceClient(conn)
+
+	// Delete the content item
+	resp, err := client.DeleteContentItem(ctx, &contentv1.DeleteContentItemRequest{
+		ContentId: contentID,
+	})
+	if err != nil {
+		return fmt.Errorf("deleting content item: %w", err)
+	}
+
+	if resp.Success {
+		fmt.Printf("Successfully deleted content item: %s\n", resp.ContentId)
+	} else {
+		fmt.Printf("Failed to delete content item: %s\n", resp.ContentId)
+	}
+
+	return nil
+}
+
+func runContentDeleteBulk(ctx context.Context, deps *ContentCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Require confirmation for bulk delete
+	if !contentConfirm {
+		return fmt.Errorf("bulk delete requires --confirm flag")
+	}
+
+	// Get tenant ID
+	tenantID := contentTenant
+	if tenantID == "" {
+		tenantID = cfg.TenantID
+	}
+	if tenantID == "" {
+		return fmt.Errorf("tenant ID required: set via --tenant flag or 'penf config set tenant_id <id>'")
+	}
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := contentv1.NewContentProcessorServiceClient(conn)
+
+	// Build request
+	req := &contentv1.DeleteContentItemsRequest{
+		TenantId: tenantID,
+		Confirm:  true,
+	}
+
+	// Apply filters
+	if contentSource != "" {
+		req.SourceType = &contentSource
+	}
+
+	if contentStatus != "" {
+		state, err := parseProcessingState(contentStatus)
+		if err != nil {
+			return err
+		}
+		req.State = &state
+	}
+
+	if contentBefore != "" {
+		beforeTime, err := time.Parse("2006-01-02", contentBefore)
+		if err != nil {
+			return fmt.Errorf("invalid before date format (use YYYY-MM-DD): %w", err)
+		}
+		before := beforeTime
+		req.Before = timestampProto(before)
+	}
+
+	// Execute bulk delete
+	resp, err := client.DeleteContentItems(ctx, req)
+	if err != nil {
+		return fmt.Errorf("bulk deleting content items: %w", err)
+	}
+
+	fmt.Printf("Successfully deleted %d content items.\n", resp.DeletedCount)
+
+	if len(resp.DeletedIds) > 0 && len(resp.DeletedIds) <= 20 {
+		fmt.Println("\nDeleted IDs:")
+		for _, id := range resp.DeletedIds {
+			fmt.Printf("  - %s\n", id)
+		}
+	}
+
+	return nil
+}
+
+func runContentStats(ctx context.Context, deps *ContentCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Get tenant ID
+	tenantID := contentTenant
+	if tenantID == "" {
+		tenantID = cfg.TenantID
+	}
+	if tenantID == "" {
+		return fmt.Errorf("tenant ID required: set via --tenant flag or 'penf config set tenant_id <id>'")
+	}
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := contentv1.NewContentProcessorServiceClient(conn)
+
+	// Get stats
+	stats, err := client.GetContentStats(ctx, &contentv1.GetContentStatsRequest{
+		TenantId: tenantID,
+	})
+	if err != nil {
+		return fmt.Errorf("getting content stats: %w", err)
+	}
+
+	// Output results
+	format := cfg.OutputFormat
+	if contentOutput != "" {
+		format = config.OutputFormat(contentOutput)
+	}
+
+	return outputContentStats(format, stats)
+}
+
+func outputContentStats(format config.OutputFormat, stats *contentv1.ContentStats) error {
+	switch format {
+	case config.OutputFormatJSON:
+		return outputContentJSON(stats)
+	case config.OutputFormatYAML:
+		return outputContentYAML(stats)
+	default:
+		return outputContentStatsText(stats)
+	}
+}
+
+func outputContentStatsText(stats *contentv1.ContentStats) error {
+	fmt.Println("Content Statistics:")
+	fmt.Println()
+	fmt.Printf("  \033[1mTenant ID:\033[0m     %s\n", stats.TenantId)
+	fmt.Printf("  \033[1mTotal Items:\033[0m   %d\n", stats.TotalCount)
+	fmt.Println()
+
+	// Count by source type
+	if len(stats.CountByType) > 0 {
+		fmt.Println("  \033[1mBy Source Type:\033[0m")
+		for sourceType, count := range stats.CountByType {
+			fmt.Printf("    %-12s %d\n", sourceType+":", count)
+		}
+		fmt.Println()
+	}
+
+	// Count by processing state
+	if len(stats.CountByState) > 0 {
+		fmt.Println("  \033[1mBy Processing State:\033[0m")
+		for state, count := range stats.CountByState {
+			fmt.Printf("    %-12s %d\n", state+":", count)
+		}
+		fmt.Println()
+	}
+
+	// Processing metrics
+	fmt.Println("  \033[1mProcessing Metrics:\033[0m")
+	fmt.Printf("    Embedded:    %d\n", stats.EmbeddedCount)
+	fmt.Printf("    Summarized:  %d\n", stats.SummarizedCount)
+	fmt.Printf("    Extracted:   %d\n", stats.ExtractedCount)
+	fmt.Println()
+
+	// Storage
+	fmt.Printf("  \033[1mTotal Storage:\033[0m %s\n", formatBytes(stats.TotalStorageBytes))
+	fmt.Println()
+
+	return nil
+}
+
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func timestampProto(t time.Time) *timestamppb.Timestamp {
+	return timestamppb.New(t)
+}

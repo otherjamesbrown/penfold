@@ -36,6 +36,15 @@ service ContentProcessorService {
   // ReprocessContent triggers reprocessing of an already-processed content item.
   // Useful for re-running processing after model updates or pipeline changes.
   rpc ReprocessContent(ReprocessContentRequest) returns (ReprocessContentResponse);
+
+  // DeleteContentItem removes a content item and all derived data.
+  rpc DeleteContentItem(DeleteContentItemRequest) returns (DeleteContentItemResponse);
+
+  // DeleteContentItems bulk deletes content items matching filters.
+  rpc DeleteContentItems(DeleteContentItemsRequest) returns (DeleteContentItemsResponse);
+
+  // GetContentStats returns content statistics.
+  rpc GetContentStats(GetContentStatsRequest) returns (ContentStats);
 }
 
 // =============================================================================
@@ -337,4 +346,87 @@ message ReprocessContentResponse {
 
   // Current processing status after request was submitted.
   ProcessingStatus status = 4;
+}
+
+// =============================================================================
+// Delete Messages
+// =============================================================================
+
+// DeleteContentItemRequest removes a content item.
+message DeleteContentItemRequest {
+  // Unique identifier of the content item to delete.
+  string content_id = 1;
+}
+
+// DeleteContentItemResponse returns the result of deleting a content item.
+message DeleteContentItemResponse {
+  // Whether the deletion was successful.
+  bool success = 1;
+
+  // The content_id that was deleted.
+  string content_id = 2;
+}
+
+// DeleteContentItemsRequest bulk deletes content items.
+message DeleteContentItemsRequest {
+  // Tenant identifier for filtering.
+  string tenant_id = 1;
+
+  // Optional filter by source type.
+  optional string source_type = 2;
+
+  // Optional filter by processing state.
+  optional ProcessingState state = 3;
+
+  // Optional filter for items created before this timestamp.
+  optional google.protobuf.Timestamp before = 4;
+
+  // Must be true to confirm bulk delete.
+  bool confirm = 5;
+}
+
+// DeleteContentItemsResponse returns the result of bulk delete.
+message DeleteContentItemsResponse {
+  // Number of items deleted.
+  int64 deleted_count = 1;
+
+  // List of deleted content item IDs.
+  repeated string deleted_ids = 2;
+}
+
+// =============================================================================
+// Stats Messages
+// =============================================================================
+
+// GetContentStatsRequest retrieves content statistics.
+message GetContentStatsRequest {
+  // Tenant identifier.
+  string tenant_id = 1;
+}
+
+// ContentStats provides content statistics.
+message ContentStats {
+  // Tenant identifier.
+  string tenant_id = 1;
+
+  // Total number of content items.
+  int64 total_count = 2;
+
+  // Count by source type (e.g., email: 100, document: 50).
+  map<string, int64> count_by_type = 3;
+
+  // Count by processing state (e.g., pending: 10, completed: 140).
+  map<string, int64> count_by_state = 4;
+
+  // Total storage in bytes.
+  int64 total_storage_bytes = 5;
+
+  // Number of items with embeddings.
+  int64 embedded_count = 6;
+
+  // Number of items with summaries.
+  int64 summarized_count = 7;
+
+  // Number of items with extracted entities.
+  int64 extracted_count = 8;
 }

@@ -27,6 +27,9 @@ const (
 	ContentProcessorService_GetContentItem_FullMethodName      = "/penfold.content.v1.ContentProcessorService/GetContentItem"
 	ContentProcessorService_ListContentItems_FullMethodName    = "/penfold.content.v1.ContentProcessorService/ListContentItems"
 	ContentProcessorService_ReprocessContent_FullMethodName    = "/penfold.content.v1.ContentProcessorService/ReprocessContent"
+	ContentProcessorService_DeleteContentItem_FullMethodName   = "/penfold.content.v1.ContentProcessorService/DeleteContentItem"
+	ContentProcessorService_DeleteContentItems_FullMethodName  = "/penfold.content.v1.ContentProcessorService/DeleteContentItems"
+	ContentProcessorService_GetContentStats_FullMethodName     = "/penfold.content.v1.ContentProcessorService/GetContentStats"
 )
 
 // ContentProcessorServiceClient is the client API for ContentProcessorService service.
@@ -52,6 +55,12 @@ type ContentProcessorServiceClient interface {
 	// ReprocessContent triggers reprocessing of an already-processed content item.
 	// Useful for re-running processing after model updates or pipeline changes.
 	ReprocessContent(ctx context.Context, in *ReprocessContentRequest, opts ...grpc.CallOption) (*ReprocessContentResponse, error)
+	// DeleteContentItem removes a content item and all derived data.
+	DeleteContentItem(ctx context.Context, in *DeleteContentItemRequest, opts ...grpc.CallOption) (*DeleteContentItemResponse, error)
+	// DeleteContentItems bulk deletes content items matching filters.
+	DeleteContentItems(ctx context.Context, in *DeleteContentItemsRequest, opts ...grpc.CallOption) (*DeleteContentItemsResponse, error)
+	// GetContentStats returns content statistics.
+	GetContentStats(ctx context.Context, in *GetContentStatsRequest, opts ...grpc.CallOption) (*ContentStats, error)
 }
 
 type contentProcessorServiceClient struct {
@@ -112,6 +121,36 @@ func (c *contentProcessorServiceClient) ReprocessContent(ctx context.Context, in
 	return out, nil
 }
 
+func (c *contentProcessorServiceClient) DeleteContentItem(ctx context.Context, in *DeleteContentItemRequest, opts ...grpc.CallOption) (*DeleteContentItemResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteContentItemResponse)
+	err := c.cc.Invoke(ctx, ContentProcessorService_DeleteContentItem_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *contentProcessorServiceClient) DeleteContentItems(ctx context.Context, in *DeleteContentItemsRequest, opts ...grpc.CallOption) (*DeleteContentItemsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteContentItemsResponse)
+	err := c.cc.Invoke(ctx, ContentProcessorService_DeleteContentItems_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *contentProcessorServiceClient) GetContentStats(ctx context.Context, in *GetContentStatsRequest, opts ...grpc.CallOption) (*ContentStats, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ContentStats)
+	err := c.cc.Invoke(ctx, ContentProcessorService_GetContentStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ContentProcessorServiceServer is the server API for ContentProcessorService service.
 // All implementations must embed UnimplementedContentProcessorServiceServer
 // for forward compatibility.
@@ -135,6 +174,12 @@ type ContentProcessorServiceServer interface {
 	// ReprocessContent triggers reprocessing of an already-processed content item.
 	// Useful for re-running processing after model updates or pipeline changes.
 	ReprocessContent(context.Context, *ReprocessContentRequest) (*ReprocessContentResponse, error)
+	// DeleteContentItem removes a content item and all derived data.
+	DeleteContentItem(context.Context, *DeleteContentItemRequest) (*DeleteContentItemResponse, error)
+	// DeleteContentItems bulk deletes content items matching filters.
+	DeleteContentItems(context.Context, *DeleteContentItemsRequest) (*DeleteContentItemsResponse, error)
+	// GetContentStats returns content statistics.
+	GetContentStats(context.Context, *GetContentStatsRequest) (*ContentStats, error)
 	mustEmbedUnimplementedContentProcessorServiceServer()
 }
 
@@ -159,6 +204,15 @@ func (UnimplementedContentProcessorServiceServer) ListContentItems(context.Conte
 }
 func (UnimplementedContentProcessorServiceServer) ReprocessContent(context.Context, *ReprocessContentRequest) (*ReprocessContentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReprocessContent not implemented")
+}
+func (UnimplementedContentProcessorServiceServer) DeleteContentItem(context.Context, *DeleteContentItemRequest) (*DeleteContentItemResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteContentItem not implemented")
+}
+func (UnimplementedContentProcessorServiceServer) DeleteContentItems(context.Context, *DeleteContentItemsRequest) (*DeleteContentItemsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteContentItems not implemented")
+}
+func (UnimplementedContentProcessorServiceServer) GetContentStats(context.Context, *GetContentStatsRequest) (*ContentStats, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetContentStats not implemented")
 }
 func (UnimplementedContentProcessorServiceServer) mustEmbedUnimplementedContentProcessorServiceServer() {
 }
@@ -272,6 +326,60 @@ func _ContentProcessorService_ReprocessContent_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ContentProcessorService_DeleteContentItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteContentItemRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContentProcessorServiceServer).DeleteContentItem(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContentProcessorService_DeleteContentItem_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContentProcessorServiceServer).DeleteContentItem(ctx, req.(*DeleteContentItemRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ContentProcessorService_DeleteContentItems_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteContentItemsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContentProcessorServiceServer).DeleteContentItems(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContentProcessorService_DeleteContentItems_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContentProcessorServiceServer).DeleteContentItems(ctx, req.(*DeleteContentItemsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ContentProcessorService_GetContentStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetContentStatsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContentProcessorServiceServer).GetContentStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContentProcessorService_GetContentStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContentProcessorServiceServer).GetContentStats(ctx, req.(*GetContentStatsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ContentProcessorService_ServiceDesc is the grpc.ServiceDesc for ContentProcessorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -298,6 +406,18 @@ var ContentProcessorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReprocessContent",
 			Handler:    _ContentProcessorService_ReprocessContent_Handler,
+		},
+		{
+			MethodName: "DeleteContentItem",
+			Handler:    _ContentProcessorService_DeleteContentItem_Handler,
+		},
+		{
+			MethodName: "DeleteContentItems",
+			Handler:    _ContentProcessorService_DeleteContentItems_Handler,
+		},
+		{
+			MethodName: "GetContentStats",
+			Handler:    _ContentProcessorService_GetContentStats_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

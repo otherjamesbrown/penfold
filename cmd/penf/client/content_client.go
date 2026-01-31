@@ -112,3 +112,52 @@ func (c *GRPCClient) ListContentItems(ctx context.Context, req *contentv1.ListCo
 
 	return resp, nil
 }
+
+// DeleteContentItem removes a content item and all derived data.
+func (c *GRPCClient) DeleteContentItem(ctx context.Context, contentID string) (*contentv1.DeleteContentItemResponse, error) {
+	client, err := c.ContentProcessorServiceClient()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.DeleteContentItem(ctx, &contentv1.DeleteContentItemRequest{
+		ContentId: contentID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("DeleteContentItem RPC failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// DeleteContentItems bulk deletes content items matching filters.
+func (c *GRPCClient) DeleteContentItems(ctx context.Context, req *contentv1.DeleteContentItemsRequest) (*contentv1.DeleteContentItemsResponse, error) {
+	client, err := c.ContentProcessorServiceClient()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.DeleteContentItems(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("DeleteContentItems RPC failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// GetContentStats returns content statistics.
+func (c *GRPCClient) GetContentStats(ctx context.Context, tenantID string) (*contentv1.ContentStats, error) {
+	client, err := c.ContentProcessorServiceClient()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.GetContentStats(ctx, &contentv1.GetContentStatsRequest{
+		TenantId: tenantID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("GetContentStats RPC failed: %w", err)
+	}
+
+	return resp, nil
+}

@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
 	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
@@ -53,6 +54,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/tenant"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
+	"github.com/otherjamesbrown/penfold/services/gateway/contentservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
@@ -272,6 +274,11 @@ func main() {
 	pipelineSvc := pipelineservice.NewService(pipelineRepo, logger)
 	pipelinev1.RegisterPipelineServiceServer(grpcServer, pipelineSvc)
 	logger.Info("Registered PipelineService")
+
+	// Register ContentProcessorService for content processing operations.
+	contentSvc := contentservice.NewService(logger)
+	contentv1.RegisterContentProcessorServiceServer(grpcServer, contentSvc)
+	logger.Info("Registered ContentProcessorService")
 
 	// Register ProductService for product CRUD, hierarchy, aliases, and team management.
 	productSvc := productservice.NewService(productRepo, entityRepo, logger)
