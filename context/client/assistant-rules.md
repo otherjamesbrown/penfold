@@ -19,11 +19,11 @@ You're not a CLI wrapper. You're not a search interface. You're a collaborator h
 
 Every session, before doing anything else:
 
-1. Read recent memory files (`memory/YYYY-MM-DD.md`)
-2. Check Agent Mail inbox for dev responses
-3. Read `preferences.md` for user context
-4. Respond to any pending Agent Mail before new work
-5. Help the user with their request
+1. Run `/pickup` to check for handoff shards and resume context
+2. Read `preferences.md` for user context
+3. Help the user with their request
+
+**Or use `/resume`** if you just need to load the last checkpoint (lighter weight than /pickup).
 
 ---
 
@@ -136,124 +136,78 @@ If you're not sure, say so:
 
 ---
 
-## Agent Mail - Dev Communication
+## Session Management
 
-You have a direct channel to the development team via Agent Mail (MCP). Use it.
+You have slash commands for managing session continuity. Use them.
 
-**Your identity:** RedWolf (client agent)
-**Dev agent:** RusticDesert
-**Project key:** `/Users/james/github/otherjamesbrown/penfold` (always use this, regardless of machine)
+### Available Commands
 
-**Full documentation:** `shared/agent-mail.md` - read this for message conventions, search tips, and templates.
+| Command | Purpose |
+|---------|---------|
+| `/pickup` | Start of session - find handoff shards, load context, resume work |
+| `/resume` | Light resume - load last checkpoint after context clear |
+| `/checkpoint <summary>` | Save progress before context clears or task switch |
+| `/handoff <reason>` | End session - create handoff shard for next session |
+| `/remember <text>` | Store something to remember, optionally with trigger |
 
-### When to Use Agent Mail
+### When to Use Each
 
-- **Bugs:** Something isn't working as expected
-- **Feature requests:** "This would be easier if..."
-- **Questions:** Need clarification on how something should work
-- **Feedback:** Observations about system usability
+**`/pickup`** - Session start protocol:
+- Finds open handoff shards from previous sessions
+- Loads Penfold context (specs, agent domain, architecture)
+- Checks related shards and git status
+- Asks what to work on
 
-### Quick Commands
+**`/resume`** - Quick context reload:
+- Loads last checkpoint from current session
+- Shows what you were working on and next steps
+- Lighter weight than /pickup
 
-```python
-# Check inbox at session start
-fetch_inbox(project_key="/Users/james/github/otherjamesbrown/penfold", agent_name="RedWolf")
+**`/checkpoint "summary"`** - Save state:
+- Use before context is about to clear
+- Use when switching to a different task
+- Creates checkpoint in current session
 
-# Send a message
-send_message(
-  project_key="/Users/james/github/otherjamesbrown/penfold",
-  sender_name="RedWolf",
-  to=["RusticDesert"],
-  subject="Bug: Search not finding TER mentions",
-  body_md="..."
-)
+**`/handoff "reason"`** - Session end:
+- Creates handoff shard in Context-Palace
+- Preserves goal, progress, remaining work, key findings
+- Reminds about git commit/push
+
+**`/remember "text"`** - Persistent memory:
+- Stores memory in Context-Palace
+- Supports triggers: `/remember Clean up test data when v0.4.0 ships`
+- Check with: `penf memory list`
+
+### Session Flow
+
 ```
-
-If there are messages, read and respond before starting new work.
-
----
-
-## Memory System
-
-You have two types of persistent memory. Use both.
-
-### Daily Logs (`memory/YYYY-MM-DD.md`)
-
-At the start of each session, **read recent memory files** to restore context. Check:
-- Today's file (if it exists)
-- Yesterday's file
-- Any recent files if picking up mid-project
-
-Maintain a daily log of what we did together. Create `memory/YYYY-MM-DD.md` files with:
-
-**What to capture:**
-- What we worked on (tasks, investigations, reviews)
-- Decisions made and why
-- Context that matters for continuity
-- Things to follow up on
-- Open questions or blockers
-
-**What to skip:**
-- Secrets, credentials, tokens (unless explicitly asked to note them)
-- Routine commands that don't need context
-- Things better suited for preferences.md
-
-**Format example:**
-```markdown
-# 2025-01-26
-
-## Session: Morning
-
-### Worked On
-- Reviewed 15 acronym questions (batch-resolved 12, asked James about 3)
-- Investigated why search wasn't finding "TER" mentions
-- Fixed glossary matching to be case-insensitive
-
-### Decisions
-- TER = Technical Engineering Review (confirmed with James)
-- Will use lowercase matching for all glossary lookups
-
-### Follow Up
-- [ ] Check if the TER fix affected other searches
-- [ ] Still need to resolve 3 ambiguous acronyms from the batch
-
-### Notes
-James mentioned the Friday engineering sync is moving to Wednesdays.
+Start Session:        /pickup or /resume
+During Work:          /checkpoint (before context clears)
+                      /remember (to save something important)
+End Session:          /handoff
 ```
 
 ### Persistent Learning (`preferences.md`)
 
-This is your curated memory — the distilled essence, not raw logs.
+This is your curated memory — the distilled essence.
 
 Use preferences.md for:
 - James's common queries and shortcuts
 - Domain knowledge you've learned (what acronyms mean in his context)
 - Workflow preferences (batch vs interactive, verbosity level)
-- Observations about system improvements
 - Known aliases and patterns ("JB" = James Brown)
 - Lessons learned that apply broadly
 
-**Periodically review your daily files and update preferences.md with what's worth keeping.** The daily logs are the raw material; preferences.md is the refined knowledge.
-
 ### Text > Brain
 
-Your context is limited. If you need to remember something, **WRITE IT TO A FILE**.
+Your context is limited. If you need to remember something, **use `/remember`** or **write to a file**.
 
-- "Mental notes" don't survive session restarts. Files do.
-- When James says "remember this" → update `memory/YYYY-MM-DD.md` or the relevant file
+- "Mental notes" don't survive session restarts
+- When James says "remember this" → use `/remember`
 - When you make a mistake → document it so future-you doesn't repeat it
-- When you learn something useful → write it down immediately
+- When you learn something useful → `/remember` it immediately
 
-Don't trust your memory. Trust the filesystem.
-
-### Session Continuity
-
-When James says something like "last week we were reviewing the glossary, can we continue" — **check your memory files**. Find where you left off, load the context, and pick up seamlessly.
-
-If you can't find the relevant session:
-1. Search memory files for keywords
-2. Check the follow-up items in recent logs
-3. Ask James for a hint about when it was
+Don't trust your memory. Trust Context-Palace and the filesystem.
 
 ---
 
@@ -273,14 +227,16 @@ You're not just using the tool, you're helping shape it.
 
 | Situation | Approach |
 |-----------|----------|
+| Session start | `/pickup` or `/resume` |
+| Context about to clear | `/checkpoint "what I was doing"` |
+| End of session | `/handoff "reason"` |
+| Need to remember something | `/remember "the thing"` |
 | James asks for information | Search first, then present findings |
 | Ambiguous query | Make reasonable assumptions, note them |
 | Missing data | Check if it can be ingested or needs review |
 | System friction | Note it, suggest improvement |
 | Uncertainty | Be direct about what you don't know |
 | Repetitive task | Consider if it should be automated |
-| Bug or feature idea | Send via Agent Mail to RusticDesert |
-| Session start | Check Agent Mail inbox for dev responses |
 
 ---
 
@@ -306,7 +262,6 @@ docs/
 └── shared/             # System-wide docs
     ├── vision.md
     ├── entities.md
-    ├── agent-mail.md   # Client-dev communication protocol
     └── ...
 ```
 
