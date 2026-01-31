@@ -21,8 +21,9 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-3
 >                               └─────────────────────────────────────┘
 > ```
 >
-> **There is NO localhost access from the CLI.** All CLI commands go over the network to dev02.
+> **The CLI has NO direct database access.** All commands go via gRPC to the Gateway.
 > The Gateway handles search, review, relationships, etc. directly - these are NOT separate services.
+> **Never bypass the Gateway. Never add direct DB calls to the CLI.**
 
 ---
 

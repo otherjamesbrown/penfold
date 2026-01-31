@@ -16,7 +16,8 @@ Penfold is an AI-powered personal information system built with Go. It aggregate
 > - **dev02**: Gateway, PostgreSQL, Temporal, Redis
 > - **dev01**: Worker, MLX Embeddings, MLX LLM
 >
-> There is NO localhost access from the CLI. All requests go over the network to dev02.
+> **The CLI has NO direct database access.** All requests go over gRPC to the Gateway on dev02.
+> Never bypass the Gateway. Never add direct DB calls to the CLI.
 
 ## System Architecture
 

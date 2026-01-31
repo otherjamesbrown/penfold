@@ -16,11 +16,12 @@
 > ```
 >
 > - **ALL CLI commands go over the network** to dev02.brown.chat:50051
+> - **The CLI has NO direct database access** - everything goes through the Gateway
 > - The Gateway handles search, review, relationships DIRECTLY (built-in services)
 > - There are NO separate Search/Review/Content/Relationship service processes
 > - Worker runs on dev01 for MLX access, connects to DB/Temporal on dev02
 >
-> **Never assume localhost access from CLI. Never try to bypass the Gateway.**
+> **Never assume localhost access from CLI. Never bypass the Gateway. Never add direct DB calls to CLI.**
 
 ---
 
