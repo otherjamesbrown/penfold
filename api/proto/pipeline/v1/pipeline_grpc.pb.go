@@ -22,11 +22,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PipelineService_GetStats_FullMethodName       = "/penfold.pipeline.v1.PipelineService/GetStats"
-	PipelineService_GetJob_FullMethodName         = "/penfold.pipeline.v1.PipelineService/GetJob"
-	PipelineService_ListJobs_FullMethodName       = "/penfold.pipeline.v1.PipelineService/ListJobs"
-	PipelineService_KickProcessing_FullMethodName = "/penfold.pipeline.v1.PipelineService/KickProcessing"
-	PipelineService_RetryFailed_FullMethodName    = "/penfold.pipeline.v1.PipelineService/RetryFailed"
+	PipelineService_GetStats_FullMethodName          = "/penfold.pipeline.v1.PipelineService/GetStats"
+	PipelineService_GetJob_FullMethodName            = "/penfold.pipeline.v1.PipelineService/GetJob"
+	PipelineService_ListJobs_FullMethodName          = "/penfold.pipeline.v1.PipelineService/ListJobs"
+	PipelineService_KickProcessing_FullMethodName    = "/penfold.pipeline.v1.PipelineService/KickProcessing"
+	PipelineService_RetryFailed_FullMethodName       = "/penfold.pipeline.v1.PipelineService/RetryFailed"
+	PipelineService_GetQueueStatus_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetQueueStatus"
+	PipelineService_GetPipelineHealth_FullMethodName = "/penfold.pipeline.v1.PipelineService/GetPipelineHealth"
+	PipelineService_GetContentTrace_FullMethodName   = "/penfold.pipeline.v1.PipelineService/GetContentTrace"
 )
 
 // PipelineServiceClient is the client API for PipelineService service.
@@ -45,6 +48,12 @@ type PipelineServiceClient interface {
 	KickProcessing(ctx context.Context, in *KickProcessingRequest, opts ...grpc.CallOption) (*KickProcessingResponse, error)
 	// RetryFailed retries failed pipeline items.
 	RetryFailed(ctx context.Context, in *RetryFailedRequest, opts ...grpc.CallOption) (*RetryFailedResponse, error)
+	// GetQueueStatus retrieves processing queue depths and rates.
+	GetQueueStatus(ctx context.Context, in *GetQueueStatusRequest, opts ...grpc.CallOption) (*GetQueueStatusResponse, error)
+	// GetPipelineHealth performs a comprehensive pipeline health check.
+	GetPipelineHealth(ctx context.Context, in *GetPipelineHealthRequest, opts ...grpc.CallOption) (*GetPipelineHealthResponse, error)
+	// GetContentTrace retrieves full processing history for a content item.
+	GetContentTrace(ctx context.Context, in *GetContentTraceRequest, opts ...grpc.CallOption) (*GetContentTraceResponse, error)
 }
 
 type pipelineServiceClient struct {
@@ -105,6 +114,36 @@ func (c *pipelineServiceClient) RetryFailed(ctx context.Context, in *RetryFailed
 	return out, nil
 }
 
+func (c *pipelineServiceClient) GetQueueStatus(ctx context.Context, in *GetQueueStatusRequest, opts ...grpc.CallOption) (*GetQueueStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetQueueStatusResponse)
+	err := c.cc.Invoke(ctx, PipelineService_GetQueueStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) GetPipelineHealth(ctx context.Context, in *GetPipelineHealthRequest, opts ...grpc.CallOption) (*GetPipelineHealthResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPipelineHealthResponse)
+	err := c.cc.Invoke(ctx, PipelineService_GetPipelineHealth_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) GetContentTrace(ctx context.Context, in *GetContentTraceRequest, opts ...grpc.CallOption) (*GetContentTraceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetContentTraceResponse)
+	err := c.cc.Invoke(ctx, PipelineService_GetContentTrace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PipelineServiceServer is the server API for PipelineService service.
 // All implementations must embed UnimplementedPipelineServiceServer
 // for forward compatibility.
@@ -121,6 +160,12 @@ type PipelineServiceServer interface {
 	KickProcessing(context.Context, *KickProcessingRequest) (*KickProcessingResponse, error)
 	// RetryFailed retries failed pipeline items.
 	RetryFailed(context.Context, *RetryFailedRequest) (*RetryFailedResponse, error)
+	// GetQueueStatus retrieves processing queue depths and rates.
+	GetQueueStatus(context.Context, *GetQueueStatusRequest) (*GetQueueStatusResponse, error)
+	// GetPipelineHealth performs a comprehensive pipeline health check.
+	GetPipelineHealth(context.Context, *GetPipelineHealthRequest) (*GetPipelineHealthResponse, error)
+	// GetContentTrace retrieves full processing history for a content item.
+	GetContentTrace(context.Context, *GetContentTraceRequest) (*GetContentTraceResponse, error)
 	mustEmbedUnimplementedPipelineServiceServer()
 }
 
@@ -145,6 +190,15 @@ func (UnimplementedPipelineServiceServer) KickProcessing(context.Context, *KickP
 }
 func (UnimplementedPipelineServiceServer) RetryFailed(context.Context, *RetryFailedRequest) (*RetryFailedResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RetryFailed not implemented")
+}
+func (UnimplementedPipelineServiceServer) GetQueueStatus(context.Context, *GetQueueStatusRequest) (*GetQueueStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetQueueStatus not implemented")
+}
+func (UnimplementedPipelineServiceServer) GetPipelineHealth(context.Context, *GetPipelineHealthRequest) (*GetPipelineHealthResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPipelineHealth not implemented")
+}
+func (UnimplementedPipelineServiceServer) GetContentTrace(context.Context, *GetContentTraceRequest) (*GetContentTraceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetContentTrace not implemented")
 }
 func (UnimplementedPipelineServiceServer) mustEmbedUnimplementedPipelineServiceServer() {}
 func (UnimplementedPipelineServiceServer) testEmbeddedByValue()                         {}
@@ -257,6 +311,60 @@ func _PipelineService_RetryFailed_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_GetQueueStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetQueueStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).GetQueueStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_GetQueueStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).GetQueueStatus(ctx, req.(*GetQueueStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_GetPipelineHealth_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPipelineHealthRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).GetPipelineHealth(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_GetPipelineHealth_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).GetPipelineHealth(ctx, req.(*GetPipelineHealthRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_GetContentTrace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetContentTraceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).GetContentTrace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_GetContentTrace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).GetContentTrace(ctx, req.(*GetContentTraceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PipelineService_ServiceDesc is the grpc.ServiceDesc for PipelineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -283,6 +391,18 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RetryFailed",
 			Handler:    _PipelineService_RetryFailed_Handler,
+		},
+		{
+			MethodName: "GetQueueStatus",
+			Handler:    _PipelineService_GetQueueStatus_Handler,
+		},
+		{
+			MethodName: "GetPipelineHealth",
+			Handler:    _PipelineService_GetPipelineHealth_Handler,
+		},
+		{
+			MethodName: "GetContentTrace",
+			Handler:    _PipelineService_GetContentTrace_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

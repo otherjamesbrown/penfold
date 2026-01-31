@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
+	"go.temporal.io/sdk/client"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -270,10 +272,9 @@ func main() {
 	logger.Info("Registered EntityService")
 
 	// Register PipelineService for pipeline stats and job tracking.
+	// Note: Will be initialized with Temporal client after it becomes available
 	pipelineRepo := pipeline.NewRepository(dbPool)
-	pipelineSvc := pipelineservice.NewService(pipelineRepo, logger)
-	pipelinev1.RegisterPipelineServiceServer(grpcServer, pipelineSvc)
-	logger.Info("Registered PipelineService")
+	var pipelineSvc *pipelineservice.Service
 
 	// Register ContentProcessorService for content processing operations.
 	contentSvc := contentservice.NewService(logger)
@@ -354,12 +355,14 @@ func main() {
 	logger.Info("Registered SearchService (database-backed)")
 
 	// Register WorkflowService for Temporal workflow management (optional).
+	var temporalClient client.Client
 	if cfg.Temporal.Enabled {
 		temporalCfg := &temporal.Config{
 			HostPort:  cfg.Temporal.HostPort,
 			Namespace: cfg.Temporal.Namespace,
 		}
-		temporalClient, err := temporal.NewClient(temporalCfg, temporal.WithLogger(logger))
+		var err error
+		temporalClient, err = temporal.NewClient(temporalCfg, temporal.WithLogger(logger))
 		if err != nil {
 			logger.Warn("Failed to connect to Temporal, WorkflowService will not be available",
 				logging.F("host_port", cfg.Temporal.HostPort),
@@ -395,6 +398,13 @@ func main() {
 	} else {
 		logger.Info("WorkflowService disabled (TEMPORAL_HOST_PORT not set or GATEWAY_TEMPORAL_ENABLED=false)")
 	}
+
+	// Now initialize PipelineService with all dependencies (including optional Temporal client).
+	// We need to get stdlib database handle from pgxpool for service_logs queries.
+	db := stdlib.OpenDBFromPool(dbPool)
+	pipelineSvc = pipelineservice.NewService(pipelineRepo, logger, temporalClient, db, cfg.Temporal.Namespace)
+	pipelinev1.RegisterPipelineServiceServer(grpcServer, pipelineSvc)
+	logger.Info("Registered PipelineService")
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()

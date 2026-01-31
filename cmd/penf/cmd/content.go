@@ -14,6 +14,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
+	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
+	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
 
@@ -97,6 +99,7 @@ JSON Output (for AI processing):
 	cmd.AddCommand(newContentShowCommand(deps))
 	cmd.AddCommand(newContentDeleteCommand(deps))
 	cmd.AddCommand(newContentStatsCommand(deps))
+	cmd.AddCommand(newContentTraceCommand(deps))
 
 	return cmd
 }
@@ -834,4 +837,141 @@ func formatBytes(bytes int64) string {
 
 func timestampProto(t time.Time) *timestamppb.Timestamp {
 	return timestamppb.New(t)
+}
+
+// newContentTraceCommand creates the 'content trace' subcommand.
+func newContentTraceCommand(deps *ContentCommandDeps) *cobra.Command {
+	var verbose bool
+	var outputFormat string
+
+	cmd := &cobra.Command{
+		Use:   "trace <content-id>",
+		Short: "Show processing timeline for content",
+		Long: `Show the full processing timeline for a content item.
+
+Displays all processing events from ingestion through completion,
+including timestamps, stages, and durations.
+
+Examples:
+  # Show processing trace
+  penf content trace em-gFo2YZi3
+
+  # Show with verbose details
+  penf content trace em-gFo2YZi3 --verbose
+
+  # Output as JSON
+  penf content trace em-gFo2YZi3 -o json`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runContentTrace(cmd.Context(), deps, args[0], verbose, outputFormat)
+		},
+	}
+
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Include detailed payloads and extra information")
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
+
+	return cmd
+}
+
+func runContentTrace(ctx context.Context, deps *ContentCommandDeps, contentID string, verbose bool, outputFormat string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Initialize gRPC client
+	grpcClient, err := func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
+		opts := client.DefaultOptions()
+		opts.Insecure = cfg.Insecure
+		opts.Debug = cfg.Debug
+		opts.ConnectTimeout = cfg.Timeout
+		opts.TenantID = cfg.TenantID
+
+		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+		defer cancel()
+
+		if err := grpcClient.Connect(ctx); err != nil {
+			return nil, fmt.Errorf("connecting to server: %w", err)
+		}
+		return grpcClient, nil
+	}(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	defer grpcClient.Close()
+
+	// Get content trace
+	resp, err := grpcClient.GetContentTrace(ctx, contentID, verbose)
+	if err != nil {
+		return fmt.Errorf("getting content trace: %w", err)
+	}
+
+	// Apply output format
+	format := cfg.OutputFormat
+	if outputFormat != "" {
+		format = config.OutputFormat(outputFormat)
+	}
+
+	if format == config.OutputFormatJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(resp)
+	}
+
+	return outputContentTraceText(resp, verbose)
+}
+
+func outputContentTraceText(resp *pipelinev1.GetContentTraceResponse, verbose bool) error {
+	if len(resp.Events) == 0 {
+		fmt.Printf("No trace events found for content: %s\n", resp.ContentId)
+		return nil
+	}
+
+	fmt.Printf("Content Trace: %s\n", resp.ContentId)
+	fmt.Println()
+
+	for _, event := range resp.Events {
+		timestamp := event.Timestamp.AsTime().Format("2006-01-02 15:04:05")
+
+		// Format stage with color
+		stageColor := "\033[36m" // Cyan
+		stage := strings.ToUpper(event.Stage)
+
+		// Color based on action
+		if event.Action == "failed" {
+			stageColor = "\033[31m" // Red
+		} else if event.Action == "completed" || event.Action == "complete" {
+			stageColor = "\033[32m" // Green
+		}
+
+		// Format duration if available
+		durationStr := ""
+		if event.DurationMs > 0 {
+			duration := time.Duration(event.DurationMs) * time.Millisecond
+			if duration < time.Second {
+				durationStr = fmt.Sprintf(" (%dms)", event.DurationMs)
+			} else {
+				durationStr = fmt.Sprintf(" (%.1fs)", duration.Seconds())
+			}
+		}
+
+		fmt.Printf("%s [%s%-12s\033[0m] %s%s\n",
+			timestamp,
+			stageColor,
+			stage,
+			event.Message,
+			durationStr)
+
+		// Show details in verbose mode
+		if verbose && len(event.Details) > 0 {
+			for key, value := range event.Details {
+				fmt.Printf("  %s: %s\n", key, value)
+			}
+		}
+	}
+
+	fmt.Println()
+	return nil
 }

@@ -3,8 +3,11 @@ package pipelineservice
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"time"
 
+	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -17,15 +20,24 @@ import (
 // Service implements the PipelineService gRPC server.
 type Service struct {
 	pipelinev1.UnimplementedPipelineServiceServer
-	repo   *pipeline.Repository
-	logger logging.Logger
+	repo           *pipeline.Repository
+	logger         logging.Logger
+	temporalClient client.Client
+	db             *sql.DB
+	namespace      string
 }
 
 // NewService creates a new pipeline service.
-func NewService(repo *pipeline.Repository, logger logging.Logger) *Service {
+func NewService(repo *pipeline.Repository, logger logging.Logger, temporalClient client.Client, db *sql.DB, namespace string) *Service {
+	if namespace == "" {
+		namespace = "default"
+	}
 	return &Service{
-		repo:   repo,
-		logger: logger,
+		repo:           repo,
+		logger:         logger,
+		temporalClient: temporalClient,
+		db:             db,
+		namespace:      namespace,
 	}
 }
 
@@ -264,4 +276,235 @@ func statsToProto(s *pipeline.PipelineStats) *pipelinev1.PipelineStats {
 		RecentJobs:        recentJobs,
 		Timestamp:         timestamppb.New(s.Timestamp),
 	}
+}
+
+// GetQueueStatus retrieves processing queue depths and rates.
+func (s *Service) GetQueueStatus(ctx context.Context, req *pipelinev1.GetQueueStatusRequest) (*pipelinev1.GetQueueStatusResponse, error) {
+	s.logger.Debug("GetQueueStatus called",
+		logging.F("stage", req.Stage),
+	)
+
+	if s.temporalClient == nil {
+		return nil, status.Error(codes.Unavailable, "Temporal client not available")
+	}
+
+	// Query Temporal for workflow counts
+	// For now, return mock data structure since we need to determine the exact workflow types
+	queues := []*pipelinev1.QueueStats{
+		{
+			Name:                   "embeddings",
+			PendingCount:           0,
+			ProcessingCount:        0,
+			RatePerMinute:          0.0,
+			OldestItemAgeSeconds:   0,
+			WorkerCount:            0,
+		},
+		{
+			Name:                   "entities",
+			PendingCount:           0,
+			ProcessingCount:        0,
+			RatePerMinute:          0.0,
+			OldestItemAgeSeconds:   0,
+			WorkerCount:            0,
+		},
+	}
+
+	// Filter by stage if provided
+	if req.Stage != "" {
+		filtered := make([]*pipelinev1.QueueStats, 0)
+		for _, q := range queues {
+			if q.Name == req.Stage {
+				filtered = append(filtered, q)
+			}
+		}
+		queues = filtered
+	}
+
+	return &pipelinev1.GetQueueStatusResponse{
+		Queues: queues,
+	}, nil
+}
+
+// GetPipelineHealth performs a comprehensive pipeline health check.
+func (s *Service) GetPipelineHealth(ctx context.Context, req *pipelinev1.GetPipelineHealthRequest) (*pipelinev1.GetPipelineHealthResponse, error) {
+	s.logger.Debug("GetPipelineHealth called")
+
+	var checks []*pipelinev1.HealthCheck
+	var issues []string
+	healthyCount := 0
+
+	// Check database
+	dbCheck := &pipelinev1.HealthCheck{
+		Name: "database",
+	}
+	if s.db != nil {
+		if err := s.db.PingContext(ctx); err != nil {
+			dbCheck.Healthy = false
+			dbCheck.Status = "UNHEALTHY"
+			dbCheck.Message = fmt.Sprintf("Database ping failed: %v", err)
+			issues = append(issues, "Database connection failed")
+		} else {
+			dbCheck.Healthy = true
+			dbCheck.Status = "HEALTHY"
+			dbCheck.Message = "Database connection OK"
+			healthyCount++
+		}
+	} else {
+		dbCheck.Healthy = false
+		dbCheck.Status = "UNAVAILABLE"
+		dbCheck.Message = "Database not configured"
+		issues = append(issues, "Database not configured")
+	}
+	checks = append(checks, dbCheck)
+
+	// Check Temporal
+	temporalCheck := &pipelinev1.HealthCheck{
+		Name: "temporal",
+	}
+	if s.temporalClient != nil {
+		// Try to get system info as health check
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		_, err := s.temporalClient.WorkflowService().GetSystemInfo(ctx, nil)
+		if err != nil {
+			temporalCheck.Healthy = false
+			temporalCheck.Status = "UNHEALTHY"
+			temporalCheck.Message = fmt.Sprintf("Temporal health check failed: %v", err)
+			issues = append(issues, "Temporal connection failed")
+		} else {
+			temporalCheck.Healthy = true
+			temporalCheck.Status = "HEALTHY"
+			temporalCheck.Message = "Temporal connection OK"
+			healthyCount++
+		}
+	} else {
+		temporalCheck.Healthy = false
+		temporalCheck.Status = "UNAVAILABLE"
+		temporalCheck.Message = "Temporal client not configured"
+		issues = append(issues, "Temporal not configured")
+	}
+	checks = append(checks, temporalCheck)
+
+	// Check pipeline repository
+	repoCheck := &pipelinev1.HealthCheck{
+		Name: "pipeline_repository",
+	}
+	if s.repo != nil {
+		repoCheck.Healthy = true
+		repoCheck.Status = "HEALTHY"
+		repoCheck.Message = "Pipeline repository initialized"
+		healthyCount++
+	} else {
+		repoCheck.Healthy = false
+		repoCheck.Status = "UNAVAILABLE"
+		repoCheck.Message = "Pipeline repository not initialized"
+		issues = append(issues, "Pipeline repository not initialized")
+	}
+	checks = append(checks, repoCheck)
+
+	// Determine overall status
+	var overallStatus string
+	totalChecks := len(checks)
+	if healthyCount == totalChecks {
+		overallStatus = "HEALTHY"
+	} else if healthyCount > 0 {
+		overallStatus = "DEGRADED"
+	} else {
+		overallStatus = "UNHEALTHY"
+	}
+
+	s.logger.Info("Pipeline health check completed",
+		logging.F("overall_status", overallStatus),
+		logging.F("healthy_checks", healthyCount),
+		logging.F("total_checks", totalChecks),
+	)
+
+	return &pipelinev1.GetPipelineHealthResponse{
+		OverallStatus: overallStatus,
+		Checks:        checks,
+		Issues:        issues,
+	}, nil
+}
+
+// GetContentTrace retrieves full processing history for a content item.
+func (s *Service) GetContentTrace(ctx context.Context, req *pipelinev1.GetContentTraceRequest) (*pipelinev1.GetContentTraceResponse, error) {
+	s.logger.Debug("GetContentTrace called",
+		logging.F("content_id", req.ContentId),
+		logging.F("verbose", req.Verbose),
+	)
+
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "Database not available")
+	}
+
+	// Query service_logs table for trace events
+	query := `
+		SELECT
+			timestamp,
+			level,
+			service,
+			message,
+			fields
+		FROM service_logs
+		WHERE trace_id = $1
+		ORDER BY timestamp ASC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, req.ContentId)
+	if err != nil {
+		s.logger.Error("Error querying trace events", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to query trace events: %v", err)
+	}
+	defer rows.Close()
+
+	var events []*pipelinev1.TraceEvent
+	for rows.Next() {
+		var (
+			timestamp time.Time
+			level     string
+			service   string
+			message   string
+			fields    sql.NullString
+		)
+
+		if err := rows.Scan(&timestamp, &level, &service, &message, &fields); err != nil {
+			s.logger.Error("Error scanning trace event", logging.Err(err))
+			continue
+		}
+
+		event := &pipelinev1.TraceEvent{
+			Timestamp: timestamppb.New(timestamp),
+			Stage:     service,
+			Action:    level,
+			Message:   message,
+			Details:   make(map[string]string),
+		}
+
+		// Parse fields if verbose mode is enabled
+		if req.Verbose && fields.Valid {
+			// Store raw JSONB for now
+			event.Details["fields"] = fields.String
+		}
+
+		events = append(events, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		s.logger.Error("Error iterating trace events", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to iterate trace events: %v", err)
+	}
+
+	s.logger.Info("Content trace retrieved",
+		logging.F("content_id", req.ContentId),
+		logging.F("event_count", len(events)),
+	)
+
+	return &pipelinev1.GetContentTraceResponse{
+		ContentId: req.ContentId,
+		Events:    events,
+	}, nil
 }

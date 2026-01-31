@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -71,6 +72,9 @@ Documentation:
 	cmd.AddCommand(newPipelineKickCmd(pipelineDeps))
 	cmd.AddCommand(newPipelineRetryCmd(pipelineDeps))
 	cmd.AddCommand(newPipelineWorkersCmd(pipelineDeps))
+	cmd.AddCommand(newPipelineLogsCmd(pipelineDeps))
+	cmd.AddCommand(newPipelineQueueCmd(pipelineDeps))
+	cmd.AddCommand(newPipelineHealthCmd(pipelineDeps))
 
 	return cmd
 }
@@ -829,6 +833,520 @@ func runPipelineWorkers(ctx context.Context, deps *PipelineCommandDeps, tenant s
 
 		fmt.Printf("  %-37s %-25s \033[34m%-11s\033[0m %s\n",
 			wf.WorkflowID, workflowType, wf.Status, startTime)
+	}
+
+	fmt.Println()
+	return nil
+}
+
+func newPipelineLogsCmd(deps *PipelineCommandDeps) *cobra.Command {
+	var contentID string
+	var tail bool
+	var since string
+	var level string
+	var service string
+	var outputFormat string
+	var limit int
+
+	cmd := &cobra.Command{
+		Use:   "logs [job-id]",
+		Short: "View processing logs for jobs and content",
+		Long: `View processing logs for ingest jobs and content items.
+
+Filter logs by job ID (trace_id), content ID, service, level, or time range.
+Use --tail to stream logs in real-time.
+
+Examples:
+  # Logs for ingest job
+  penf pipeline logs job-abc123
+
+  # Logs for content item
+  penf pipeline logs --content content-456
+
+  # Stream live logs for a job
+  penf pipeline logs job-abc123 --tail
+
+  # Logs from last hour
+  penf pipeline logs job-abc123 --since 1h
+
+  # Filter by level
+  penf pipeline logs job-abc123 --level error
+
+  # Filter by service
+  penf pipeline logs job-abc123 --service worker`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			jobID := ""
+			if len(args) > 0 {
+				jobID = args[0]
+			}
+			if jobID == "" && contentID == "" {
+				return fmt.Errorf("must provide either job-id or --content flag")
+			}
+			if jobID != "" && contentID != "" {
+				return fmt.Errorf("cannot specify both job-id and --content flag")
+			}
+			return runPipelineLogs(cmd.Context(), deps, jobID, contentID, tail, since, level, service, outputFormat, limit)
+		},
+	}
+
+	cmd.Flags().StringVar(&contentID, "content", "", "Filter by content ID")
+	cmd.Flags().BoolVar(&tail, "tail", false, "Stream logs in real-time")
+	cmd.Flags().StringVar(&since, "since", "15m", "Show logs since this time ago (e.g., 5m, 1h, 24h)")
+	cmd.Flags().StringVar(&level, "level", "", "Filter by log level (debug, info, warn, error)")
+	cmd.Flags().StringVar(&service, "service", "", "Filter by service name")
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
+	cmd.Flags().IntVarP(&limit, "limit", "n", 100, "Maximum number of log entries (not used with --tail)")
+
+	return cmd
+}
+
+func runPipelineLogs(ctx context.Context, deps *PipelineCommandDeps, jobID string, contentID string, tail bool, since string, level string, service string, outputFormat string, limit int) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Parse time duration
+	var sinceTime time.Time
+	if since != "" {
+		duration, err := time.ParseDuration(since)
+		if err != nil {
+			return fmt.Errorf("invalid --since duration: %w", err)
+		}
+		sinceTime = time.Now().Add(-duration)
+	}
+
+	// Validate log level if provided
+	if level != "" {
+		validLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
+		if !validLevels[level] {
+			return fmt.Errorf("invalid log level: %s (must be debug, info, warn, or error)", level)
+		}
+	}
+
+	// Initialize gRPC client
+	grpcClient, err := func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
+		opts := client.DefaultOptions()
+		opts.Insecure = cfg.Insecure
+		opts.Debug = cfg.Debug
+		opts.ConnectTimeout = cfg.Timeout
+		opts.TenantID = cfg.TenantID
+
+		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+		defer cancel()
+
+		if err := grpcClient.Connect(ctx); err != nil {
+			return nil, fmt.Errorf("connecting to server: %w", err)
+		}
+		return grpcClient, nil
+	}(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	defer grpcClient.Close()
+
+	// Build filter - use job ID or content ID as trace_id
+	traceID := jobID
+	if contentID != "" {
+		traceID = contentID
+	}
+
+	filter := client.LogFilter{
+		Service: service,
+		Level:   level,
+		Since:   sinceTime,
+		TraceID: traceID,
+	}
+
+	// Stream logs if --tail is specified
+	if tail {
+		fmt.Printf("Following logs for %s (press Ctrl+C to stop)...\n\n", traceID)
+
+		// For tail mode, start from now
+		filter.Since = time.Now()
+
+		err := grpcClient.StreamLogs(ctx, filter, 1000, func(entry client.LogEntry) {
+			if outputFormat == "json" {
+				enc := json.NewEncoder(os.Stdout)
+				_ = enc.Encode(entry)
+			} else {
+				outputPipelineLogEntry(entry)
+			}
+		})
+
+		if err != nil && ctx.Err() == nil {
+			return fmt.Errorf("streaming logs: %w", err)
+		}
+
+		fmt.Println("\nStopped following logs.")
+		return nil
+	}
+
+	// List logs
+	resp, err := grpcClient.ListLogs(ctx, filter, limit, 0, false)
+	if err != nil {
+		return fmt.Errorf("fetching logs: %w", err)
+	}
+
+	if outputFormat == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(resp)
+	}
+
+	return outputPipelineLogsText(resp, traceID)
+}
+
+func outputPipelineLogEntry(entry client.LogEntry) {
+	timestamp := entry.Timestamp.Format("2006-01-02 15:04:05")
+	levelColor := getLogLevelColorForPipeline(entry.Level)
+	levelStr := fmt.Sprintf("%-5s", strings.ToUpper(entry.Level))
+	serviceStr := fmt.Sprintf("%-10s", entry.Service)
+
+	fmt.Printf("%s  %s%s\033[0m  \033[36m%s\033[0m  %s\n",
+		timestamp, levelColor, levelStr, serviceStr, entry.Message)
+}
+
+func outputPipelineLogsText(resp *client.LogsResponse, traceID string) error {
+	if len(resp.Entries) == 0 {
+		fmt.Printf("No log entries found for %s.\n", traceID)
+		return nil
+	}
+
+	fmt.Printf("Logs for %s:\n\n", traceID)
+	fmt.Println("TIMESTAMP           LEVEL   SERVICE     MESSAGE")
+	fmt.Println("-------------------------------------------------------------------")
+
+	for _, entry := range resp.Entries {
+		outputPipelineLogEntry(entry)
+	}
+
+	if resp.Truncated {
+		fmt.Printf("\n(Showing %d entries, use --limit to see more)\n", len(resp.Entries))
+	}
+
+	return nil
+}
+
+func getLogLevelColorForPipeline(level string) string {
+	switch strings.ToLower(level) {
+	case "debug":
+		return "\033[90m" // Gray
+	case "info":
+		return "\033[32m" // Green
+	case "warn":
+		return "\033[33m" // Yellow
+	case "error":
+		return "\033[31m" // Red
+	default:
+		return ""
+	}
+}
+
+func newPipelineQueueCmd(deps *PipelineCommandDeps) *cobra.Command {
+	var stage string
+	var stuck bool
+	var outputFormat string
+
+	cmd := &cobra.Command{
+		Use:   "queue",
+		Short: "Show pipeline queue status",
+		Long: `Show processing queue depths and rates.
+
+Displays pending items, processing items, processing rates, and worker counts
+for each pipeline stage (embeddings, entities, keywords, etc.).
+
+Examples:
+  # Show all queues
+  penf pipeline queue
+
+  # Show specific stage
+  penf pipeline queue --stage embeddings
+
+  # Show stuck items (older than 5 minutes)
+  penf pipeline queue --stuck
+
+  # Output as JSON
+  penf pipeline queue -o json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPipelineQueue(cmd.Context(), deps, stage, stuck, outputFormat)
+		},
+	}
+
+	cmd.Flags().StringVar(&stage, "stage", "", "Filter by specific stage (embeddings, entities, keywords)")
+	cmd.Flags().BoolVar(&stuck, "stuck", false, "Show only items stuck > 5 minutes")
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
+
+	return cmd
+}
+
+func runPipelineQueue(ctx context.Context, deps *PipelineCommandDeps, stage string, stuck bool, outputFormat string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Initialize gRPC client
+	grpcClient, err := func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
+		opts := client.DefaultOptions()
+		opts.Insecure = cfg.Insecure
+		opts.Debug = cfg.Debug
+		opts.ConnectTimeout = cfg.Timeout
+		opts.TenantID = cfg.TenantID
+
+		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+		defer cancel()
+
+		if err := grpcClient.Connect(ctx); err != nil {
+			return nil, fmt.Errorf("connecting to server: %w", err)
+		}
+		return grpcClient, nil
+	}(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	defer grpcClient.Close()
+
+	// Get queue status
+	resp, err := grpcClient.GetQueueStatus(ctx, stage)
+	if err != nil {
+		return fmt.Errorf("getting queue status: %w", err)
+	}
+
+	// Filter stuck items if requested
+	queues := resp.Queues
+	if stuck {
+		var stuckQueues []*pipelinev1.QueueStats
+		for _, q := range queues {
+			if q.OldestItemAgeSeconds > 300 { // 5 minutes
+				stuckQueues = append(stuckQueues, q)
+			}
+		}
+		queues = stuckQueues
+	}
+
+	if outputFormat == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]interface{}{
+			"queues": queues,
+		})
+	}
+
+	return outputPipelineQueueText(queues, stuck)
+}
+
+func outputPipelineQueueText(queues []*pipelinev1.QueueStats, stuckOnly bool) error {
+	if len(queues) == 0 {
+		if stuckOnly {
+			fmt.Println("No stuck items found.")
+		} else {
+			fmt.Println("No queue data available.")
+		}
+		return nil
+	}
+
+	fmt.Println("Pipeline Queues:")
+	fmt.Println()
+	fmt.Println("QUEUE        PENDING  PROCESSING  RATE/MIN  OLDEST    WORKERS")
+	fmt.Println("-----        -------  ----------  --------  ------    -------")
+
+	var totalPending, totalProcessing int64
+	for _, q := range queues {
+		// Format oldest item age
+		oldest := "-"
+		if q.OldestItemAgeSeconds > 0 {
+			duration := time.Duration(q.OldestItemAgeSeconds) * time.Second
+			if duration < time.Minute {
+				oldest = fmt.Sprintf("%ds ago", int(duration.Seconds()))
+			} else if duration < time.Hour {
+				oldest = fmt.Sprintf("%dm ago", int(duration.Minutes()))
+			} else {
+				oldest = fmt.Sprintf("%dh ago", int(duration.Hours()))
+			}
+		}
+
+		// Color code based on status
+		nameColor := ""
+		if q.PendingCount > 100 {
+			nameColor = "\033[33m" // Yellow for high pending
+		}
+		if q.OldestItemAgeSeconds > 300 { // > 5 minutes
+			nameColor = "\033[31m" // Red for stuck
+		}
+
+		fmt.Printf("%s%-12s\033[0m %7d  %10d  %8.1f  %-9s %d\n",
+			nameColor,
+			q.Name,
+			q.PendingCount,
+			q.ProcessingCount,
+			q.RatePerMinute,
+			oldest,
+			q.WorkerCount)
+
+		totalPending += q.PendingCount
+		totalProcessing += q.ProcessingCount
+	}
+
+	fmt.Println()
+	fmt.Printf("Total: %d pending, %d processing\n", totalPending, totalProcessing)
+
+	return nil
+}
+
+func newPipelineHealthCmd(deps *PipelineCommandDeps) *cobra.Command {
+	var watch bool
+	var outputFormat string
+
+	cmd := &cobra.Command{
+		Use:   "health",
+		Short: "Check pipeline health",
+		Long: `Perform a comprehensive pipeline health check.
+
+Checks database connectivity, queue status, worker availability,
+and model availability. Provides actionable recommendations for issues.
+
+Examples:
+  # One-time health check
+  penf pipeline health
+
+  # Continuous monitoring (refresh every 5 seconds)
+  penf pipeline health --watch
+
+  # Output as JSON
+  penf pipeline health -o json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPipelineHealth(cmd.Context(), deps, watch, outputFormat)
+		},
+	}
+
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Continuously monitor health (refresh every 5s)")
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
+
+	return cmd
+}
+
+func runPipelineHealth(ctx context.Context, deps *PipelineCommandDeps, watch bool, outputFormat string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Initialize gRPC client
+	grpcClient, err := func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
+		opts := client.DefaultOptions()
+		opts.Insecure = cfg.Insecure
+		opts.Debug = cfg.Debug
+		opts.ConnectTimeout = cfg.Timeout
+		opts.TenantID = cfg.TenantID
+
+		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+		defer cancel()
+
+		if err := grpcClient.Connect(ctx); err != nil {
+			return nil, fmt.Errorf("connecting to server: %w", err)
+		}
+		return grpcClient, nil
+	}(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	defer grpcClient.Close()
+
+	// Watch mode - refresh periodically
+	if watch {
+		if outputFormat == "json" {
+			return fmt.Errorf("--watch mode not supported with JSON output")
+		}
+
+		fmt.Println("Monitoring pipeline health (press Ctrl+C to stop)...")
+		fmt.Println()
+
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		// Show initial health
+		if err := fetchAndDisplayHealth(ctx, grpcClient); err != nil {
+			return err
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				// Clear screen and show updated health
+				fmt.Print("\033[H\033[2J") // Clear screen
+				if err := fetchAndDisplayHealth(ctx, grpcClient); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	// One-time health check
+	resp, err := grpcClient.GetPipelineHealth(ctx)
+	if err != nil {
+		return fmt.Errorf("getting pipeline health: %w", err)
+	}
+
+	if outputFormat == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(resp)
+	}
+
+	return outputPipelineHealthText(resp)
+}
+
+func fetchAndDisplayHealth(ctx context.Context, grpcClient *client.GRPCClient) error {
+	resp, err := grpcClient.GetPipelineHealth(ctx)
+	if err != nil {
+		return fmt.Errorf("getting pipeline health: %w", err)
+	}
+
+	return outputPipelineHealthText(resp)
+}
+
+func outputPipelineHealthText(resp *pipelinev1.GetPipelineHealthResponse) error {
+	// Overall status with color
+	statusColor := "\033[32m" // Green
+	if resp.OverallStatus == "DEGRADED" {
+		statusColor = "\033[33m" // Yellow
+	} else if resp.OverallStatus == "UNHEALTHY" {
+		statusColor = "\033[31m" // Red
+	}
+
+	fmt.Printf("Pipeline Health: %s%s\033[0m\n", statusColor, resp.OverallStatus)
+	fmt.Println()
+
+	// Individual health checks
+	for _, check := range resp.Checks {
+		checkmark := "\033[31m✗\033[0m" // Red X
+		if check.Healthy {
+			checkmark = "\033[32m✓\033[0m" // Green checkmark
+		}
+
+		fmt.Printf("%s %s: %s\n", checkmark, check.Name, check.Status)
+		if check.Message != "" && check.Message != check.Status {
+			fmt.Printf("  %s\n", check.Message)
+		}
+	}
+
+	// Issues
+	if len(resp.Issues) > 0 {
+		fmt.Println()
+		fmt.Println("\033[1mIssues:\033[0m")
+		for _, issue := range resp.Issues {
+			fmt.Printf("  \033[33m⚠\033[0m  %s\n", issue)
+		}
 	}
 
 	fmt.Println()
