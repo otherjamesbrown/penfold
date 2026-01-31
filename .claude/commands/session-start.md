@@ -8,18 +8,8 @@ Resume work from a previous session using a handoff shard.
 
 Look for open handoff shards:
 
-```sql
--- Check for open handoff shards
-SELECT id, title, status, created_at FROM shards
-WHERE project = 'penfold'
-  AND title LIKE '%Handoff%'
-  AND status != 'closed'
-ORDER BY created_at DESC;
-```
-
-**Connection:**
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT id, title, status, created_at FROM shards WHERE project = 'penfold' AND title LIKE '%Handoff%' AND status IN ('open', 'in_progress') ORDER BY created_at DESC;"
 ```
 
 If no handoffs found, check all open work:

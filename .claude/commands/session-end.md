@@ -12,17 +12,8 @@ Optional: Brief description of why you're handing off (e.g., "end of day", "cont
 
 First, check if there's already an open handoff for this branch:
 
-```sql
--- Check for open handoff shards
-SELECT id, title, status FROM shards
-WHERE project = 'penfold'
-  AND title LIKE '%Handoff%'
-  AND status != 'closed';
-```
-
-**Connection:**
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT id, title, status FROM shards WHERE project = 'penfold' AND title LIKE '%Handoff%' AND status IN ('open', 'in_progress');"
 ```
 
 If existing handoff(s) found, ask the user whether to close them or update instead.
@@ -88,7 +79,7 @@ To resume in new session:
   /session-start
 
 Or manually:
-  SELECT * FROM shards WHERE title LIKE '%Handoff%' AND status != 'closed';
+  SELECT * FROM shards WHERE title LIKE '%Handoff%' AND status IN ('open', 'in_progress');
   SELECT * FROM shards WHERE id = 'pf-xxx';
 ```
 
