@@ -157,6 +157,8 @@ start_gateway() {
         GATEWAY_LLM_URL=http://dev01.brown.chat:8080 \
         GATEWAY_WORKER_HEALTH_URL=http://dev01.brown.chat:8085 \
         GATEWAY_AI_SERVICE_ADDR=dev01.brown.chat:50055 \
+        TEMPORAL_HOST_PORT=dev02.brown.chat:7233 \
+        GATEWAY_TEMPORAL_ENABLED=true \
         nohup ${GATEWAY_PATH} > ${GATEWAY_LOG} 2>&1 &"
 
     log_info "Waiting for gateway to start..."
@@ -324,6 +326,8 @@ rollback_deployment() {
             GATEWAY_LLM_URL=http://dev01.brown.chat:8080 \
             GATEWAY_WORKER_HEALTH_URL=http://dev01.brown.chat:8085 \
             GATEWAY_AI_SERVICE_ADDR=dev01.brown.chat:50055 \
+            TEMPORAL_HOST_PORT=dev02.brown.chat:7233 \
+            GATEWAY_TEMPORAL_ENABLED=true \
             nohup ${GATEWAY_PATH} > ${GATEWAY_LOG} 2>&1 &
             echo 'Rolled back to previous version'
         else
