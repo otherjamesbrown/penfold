@@ -81,7 +81,30 @@ For each shard, analyze:
    - Extract from shard content
    - Make implicit criteria explicit
 
-## Phase 3: Build Parallel Execution Plan
+## Phase 3: Check File Claims
+
+**Before planning work, check for conflicts with other sessions.**
+
+```sql
+-- Check if any files you need are already claimed
+SELECT file_path, claimed_by, shard_id, claimed_at
+FROM file_claims
+WHERE file_path IN (
+  'cmd/penf/cmd/pipeline.go',
+  'cmd/penf/cmd/content.go'
+  -- list files you plan to modify
+)
+AND released_at IS NULL;
+```
+
+If files are claimed:
+1. **Check the claiming shard** - is it still active?
+2. **Contact the owner** - coordinate or wait
+3. **Find alternative** - can this work use different files?
+
+If no conflicts, proceed to planning.
+
+## Phase 4: Build Parallel Execution Plan
 
 **Goal: Maximize parallelism. Start as much work as possible NOW.**
 
@@ -144,7 +167,7 @@ Work items can run in parallel if they:
 - Related CLI commands = 1 agent (share patterns)
 - Independent CLI command using existing RPC = 1 agent (can parallelize)
 
-## Phase 4: Create Implementation Shards
+## Phase 5: Create Implementation Shards and Claim Files
 
 Use heredoc with dollar-quoting for content with backticks:
 
@@ -188,7 +211,23 @@ $md$,
 EOSQL
 ```
 
-## Phase 5: Launch Sub-Agents in Parallel
+### Claim Files for Each Shard
+
+After creating each implementation shard, claim the files it will modify:
+
+```sql
+-- Claim files for the shard (shard_id from create_shard output)
+INSERT INTO file_claims (file_path, claimed_by, shard_id)
+VALUES
+  ('cmd/penf/cmd/pipeline.go', 'agent-penfdev', 'pf-xxxxx'),
+  ('cmd/penf/cmd/content.go', 'agent-penfdev', 'pf-xxxxx');
+```
+
+**Include file list in shard content** so sub-agents know what they own:
+- Sub-agents should ONLY modify files listed in their shard
+- If they discover additional files needed, they should request them
+
+## Phase 6: Launch Sub-Agents in Parallel
 
 **Launch ALL agents that can start NOW in a single message with multiple Task tool calls.**
 
@@ -211,6 +250,11 @@ You have been assigned shard pf-xxxxx.
 2. Claim the work:
    /Users/dev/bin/palace task claim pf-xxxxx
 
+## File Scope
+IMPORTANT: Only modify files listed in your shard's "Files to Modify" section.
+If you need to modify additional files, check if they're claimed by another shard.
+The orchestrator has claimed these files for your exclusive use.
+
 ## Implementation
 3. Read the existing code patterns mentioned in the shard
 4. Implement the changes described
@@ -221,7 +265,7 @@ You have been assigned shard pf-xxxxx.
 7. Log what you did:
    /Users/dev/bin/palace task progress pf-xxxxx "Implemented X, Y, Z"
 
-8. Close the shard:
+8. Close the shard (this releases file claims automatically):
    /Users/dev/bin/palace task close pf-xxxxx "Done: [summary]"
 
 Do not create a PR. Just implement and close the shard.
@@ -233,7 +277,7 @@ To launch agents in parallel, use multiple Task tool invocations in a SINGLE res
 
 Example: If cli-dev #1 and service-dev can both start NOW, invoke both Task tools in the same message.
 
-## Phase 6: Monitor and Coordinate
+## Phase 7: Monitor and Coordinate
 
 ### Check Progress
 
@@ -259,9 +303,56 @@ If a sub-agent fails:
    - Skip and continue with non-blocked shards?
    - Abort?
 
-## Phase 7: Report Results
+## Phase 8: Report Results and Close Shards
 
-When all shards are complete:
+When all implementation shards are complete:
+
+### Close the Original Feature Request Shards
+
+The original feature request shards (from Phase 1) should be closed:
+
+```sql
+-- Close the original feature request shard
+SELECT close_task('pf-original', 'Implemented: [summary of what was built]');
+```
+
+### Reply to the Original Requester
+
+If the feature request came from a message, reply to the sender:
+
+```sql
+SELECT send_message('penfold', 'agent-penfdev',
+  ARRAY['original-sender'],
+  'Re: [Original Subject]',
+  $md$Your feature request has been implemented.
+
+## What was built
+- [List of commands/features added]
+
+## How to get it
+[Include ONE of the following based on what changed:]
+
+**CLI update required:**
+Run `penf update` to get the latest version.
+
+**Gateway deployed:**
+Changes are live - no action needed.
+
+**Worker update:**
+Changes deployed to worker service - no action needed.
+
+## Usage examples
+```
+penf [new-command] --help
+penf [new-command] [args]
+```
+
+Let me know if you have questions or issues.
+$md$,
+  NULL, NULL, 'pf-original-message');
+```
+
+### Summary for User
 
 ```
 Implementation Complete
@@ -294,3 +385,5 @@ Next Steps:
 4. **Fresh context is good** - sub-agents focus without distraction
 5. **Sub-agents use palace CLI** - orchestrator uses psql for complex queries
 6. **No PRs** - just code changes, user decides when to commit
+7. **Claim files before work** - check file_claims to avoid conflicts with other sessions
+8. **Scoped file access** - sub-agents only modify files explicitly listed in their shard
