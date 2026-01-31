@@ -23,6 +23,8 @@ The penf CLI is released via GitHub Actions:
 5. Creates GitHub Release with binaries and checksums
 6. Users update with `penf update`
 
+**Note:** Only git push is required (SSH auth works). No `gh` CLI needed.
+
 ## Instructions
 
 ### Step 1: Check Current State
@@ -34,8 +36,8 @@ cat cmd/penf/VERSION
 # Ensure working directory is clean for VERSION file
 git status cmd/penf/VERSION
 
-# Check latest release on GitHub
-gh release list --limit 3
+# Check latest release on GitHub (no auth required)
+curl -s https://api.github.com/repos/otherjamesbrown/penfold/releases/latest | grep tag_name
 ```
 
 ### Step 2: Determine New Version
@@ -78,6 +80,8 @@ echo "<NEW_VERSION>" > cmd/penf/VERSION
 
 ### Step 5: Commit and Push
 
+Git push triggers the release (SSH auth is sufficient):
+
 ```bash
 git add cmd/penf/VERSION
 git commit -m "chore: release <NEW_VERSION>
@@ -88,40 +92,25 @@ git push
 
 ### Step 6: Monitor Release
 
-The push triggers GitHub Actions. Show the user how to monitor:
+The push triggers GitHub Actions automatically.
 
-```
-Release triggered for <NEW_VERSION>
+**View in browser:**
+https://github.com/otherjamesbrown/penfold/actions/workflows/auto-release.yml
 
-Monitor progress:
-  gh run list --workflow=auto-release.yml --limit 1
-  gh run watch
-
-Or view in browser:
-  https://github.com/otherjamesbrown/penfold/actions
-
-Once complete, update locally:
-  penf update
-```
-
-Optionally watch the workflow:
-
+**Or check via API (no auth):**
 ```bash
-# Get the run ID
-gh run list --workflow=auto-release.yml --limit 1 --json databaseId -q '.[0].databaseId'
+# Wait ~30 seconds, then check if tag was created
+curl -s https://api.github.com/repos/otherjamesbrown/penfold/tags | grep -A1 '"name"' | head -4
 
-# Watch it
-gh run watch <RUN_ID>
+# Check release status (~2-3 min after push)
+curl -s https://api.github.com/repos/otherjamesbrown/penfold/releases/latest | grep tag_name
 ```
 
 ### Step 7: Verify Release
 
-After workflow completes:
+After workflow completes (~2-3 minutes):
 
 ```bash
-# Check release exists
-gh release view <NEW_VERSION>
-
 # Update local CLI
 penf update
 
@@ -137,15 +126,21 @@ CLI Release: <NEW_VERSION>
 Previous: <OLD_VERSION>
 New:      <NEW_VERSION>
 
-GitHub Actions triggered. Release will be available in ~2-3 minutes.
+Pushed to main. GitHub Actions will:
+1. Create tag <NEW_VERSION>
+2. Build binaries (darwin/linux, arm64/amd64)
+3. Publish release
 
-Monitor: gh run watch
-Update:  penf update
+Monitor: https://github.com/otherjamesbrown/penfold/actions
 Release: https://github.com/otherjamesbrown/penfold/releases/tag/<NEW_VERSION>
+
+Update locally (after ~2-3 min):
+  penf update
 ```
 
 ## Notes
 
+- Only git push required - SSH auth is sufficient, no `gh` CLI needed
 - Only changes to `cmd/penf/VERSION` on main trigger the release
 - Pre-release versions (containing -alpha, -beta, -rc) are marked as prerelease
 - The workflow builds for: darwin-arm64, darwin-amd64, linux-amd64, linux-arm64
