@@ -4,123 +4,370 @@ A shared memory system for AI agents. Tasks, messages, logs, and data - all in o
 
 ---
 
-## What is Context-Palace?
+## Quick Reference
 
-Context-Palace replaces separate mail and task tracking systems with one unified database. Everything is a **shard** - tasks, messages, logs, configs, notes. Shards connect to each other via **edges** (relationships).
+```sql
+-- Check inbox
+SELECT * FROM unread_for('PROJECT', 'agent-NAME');
 
+-- Inbox summary (for triage)
+SELECT * FROM inbox_summary('PROJECT', 'agent-NAME');
+
+-- Check tasks
+SELECT * FROM tasks_for('PROJECT', 'agent-NAME');
+
+-- Send message
+SELECT send_message('PROJECT', 'agent-NAME', ARRAY['recipient'], 'Subject', 'Body');
+
+-- Reply to message
+SELECT send_message('PROJECT', 'agent-NAME', ARRAY['recipient'], 'Re: Subject', 'Body', NULL, NULL, 'PREFIX-original');
+
+-- Create task
+SELECT create_shard('PROJECT', 'Title', 'Description', 'task', 'agent-NAME');
+
+-- Claim task
+SELECT claim_task('PREFIX-xxx', 'agent-NAME');
+
+-- Close task
+SELECT close_task('PREFIX-xxx', 'Completed: summary');
+
+-- Add artifact to task (commit, URL, etc.)
+SELECT add_artifact('PREFIX-xxx', 'commit', 'abc123', 'Fixed the bug');
+SELECT * FROM get_artifacts('PREFIX-xxx');
+
+-- Mark messages read
+SELECT mark_read(ARRAY['PREFIX-xxx', 'PREFIX-yyy'], 'agent-NAME');
+
+-- Get thread
+SELECT * FROM get_thread('PREFIX-xxx');
 ```
-┌─────────────────────────────────────────────┐
-│              Context-Palace                 │
-│                                             │
-│  message ────discovered-from────► task      │
-│     │                              │        │
-│     └─────── replies-to ───────────┘        │
-│                                             │
-│  All shards. Same API. Same queries.        │
-└─────────────────────────────────────────────┘
-```
-
-**Use it for:**
-- Tasks and bugs
-- Messaging between agents
-- Logging actions
-- Storing configs and data
-- Anything you need to persist or share
 
 ---
 
-## Agent Identity
+## Common Mistakes
 
-### Your Name
+| You might try | Correct name | Notes |
+|---------------|--------------|-------|
+| `body` | `content` | Column for message/task text |
+| `shard_type` | `type` | Column for shard type |
+| `issues` table | `shards` table | Use `shards WHERE type='task'` or the `issues` view |
+| `tasks` table | `shards` table | Use `shards WHERE type='task'` or the `tasks` view |
+| `messages` table | `shards` table | Use `shards WHERE type='message'` or the `messages` view |
 
-You are **agent-penfdev** - use this consistently in all queries.
+**Convenience views exist:** `issues`, `tasks`, `messages`, `logs`, `docs` - these filter `shards` by type.
 
-Format: `agent-{name}` (e.g., `agent-cli`, `agent-backend`, `agent-rusticdesert`)
+---
 
-### Your Project
+## Schema Quick Reference
 
-You work on project **penfold** with ID prefix **pf-**.
+### shards table
+| Column | Type | Notes |
+|--------|------|-------|
+| id | text | e.g., `pf-a1b2c3` |
+| project | text | Project name |
+| title | text | Subject/title |
+| **content** | text | Body text (NOT `body`) |
+| **type** | text | `task`, `message`, `log`, `doc` (NOT `shard_type`) |
+| status | text | `open`, `in_progress`, `closed` |
+| priority | int | 0=critical, 1=high, 2=normal, 3=low |
+| creator | text | Who created it |
+| owner | text | Assigned to (for tasks) |
+| created_at | timestamptz | When created |
+| closed_at | timestamptz | When closed |
+| closed_reason | text | Why closed |
 
-Always include your project in queries to avoid mixing data with other projects.
+### Other tables
+| Table | Purpose |
+|-------|---------|
+| `labels` | Tags on shards (shard_id, label) |
+| `edges` | Relationships (from_id, to_id, edge_type) |
+| `read_receipts` | Read tracking (shard_id, agent_id, read_at) |
 
-### Bugs and Issues
+---
 
-Context-Palace is maintained by **agent-cxp**.
+## Helper Functions
 
-If you find bugs, have feature requests, or need help, send a message:
-
-```sql
-SELECT send_message(
-  'penfold',
-  'agent-penfdev',
-  ARRAY['agent-cxp'],
-  'Bug: Description of issue',
-  'Details of what went wrong...',
-  NULL,
-  'bug-report'
-);
-```
+| Function | Purpose |
+|----------|---------|
+| `unread_for(project, agent)` | Your unread messages |
+| `inbox_summary(project, agent)` | Triage view: counts by kind, urgent count |
+| `tasks_for(project, agent)` | Your assigned open tasks |
+| `ready_tasks(project)` | Open tasks not blocked |
+| `get_thread(shard_id)` | Conversation thread |
+| `send_message(project, sender, recipients[], subject, body, cc[], kind, reply_to)` | Send message with labels/edges |
+| `create_shard(project, title, content, type, creator, owner, priority)` | Create any shard |
+| `create_task_from(project, creator, source_id, title, desc, priority, owner)` | Task from bug report |
+| `claim_task(task_id, agent)` | Atomically claim a task |
+| `close_task(task_id, reason)` | Close task with reason |
+| `add_artifact(task_id, type, reference, description)` | Attach commit/URL/file to task |
+| `get_artifacts(task_id)` | List artifacts for a task |
+| `mark_read(shard_ids[], agent)` | Bulk mark as read |
+| `mark_all_read(project, agent)` | Clear inbox |
+| `link(from, to, type)` | Create edge |
+| `add_labels(shard_id, labels[])` | Add multiple labels |
 
 ---
 
 ## Connection
 
-SSL certificates must be installed in `~/.postgresql/` (see secrets repo).
-
 ```bash
-# Interactive
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full"
-
-# Single command
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SQL"
 ```
 
-No password - SSL certificate provides authentication.
+SSL certificates in `~/.postgresql/` provide authentication.
 
 ---
 
-## Core Concepts
+## Agent Identity
 
-| Concept | Description |
-|---------|-------------|
-| **Shard** | Everything is a shard - tasks, messages, logs, configs |
-| **Project** | Namespace separating data between projects (each has unique ID prefix) |
-| **Edge** | Relationship between shards (blocks, replies-to, relates-to) |
-| **Label** | Tags on shards (recipients, categories) |
+You are **[agent-YOURNAME]** working on project **[YOURPROJECT]** with prefix **[PREFIX]-**.
 
-### Projects and ID Prefixes
+Your project rules are in `[PREFIX]-rules` (fetch with `SELECT content FROM shards WHERE id = '[PREFIX]-rules'`).
 
-Each project has a unique ID prefix. Your project is **penfold** with prefix **pf-**.
+---
 
-| Project | Prefix | Example ID |
-|---------|--------|------------|
-| penfold | `pf` | `pf-a1b2c3` |
-| context-palace | `cp` | `cp-d4e5f6` |
+## Common Operations
 
-Register new projects:
+### Check Your Inbox
+
 ```sql
-INSERT INTO projects (name, prefix) VALUES ('my-project', 'mp');
+SELECT * FROM unread_for('PROJECT', 'agent-NAME');
 ```
 
-### Shard Types
+### Inbox Summary (Triage)
 
-| Type | Purpose |
+Get a quick overview before diving into individual messages:
+
+```sql
+SELECT * FROM inbox_summary('PROJECT', 'agent-NAME');
+```
+
+Returns:
+| Column | Description |
+|--------|-------------|
+| total_unread | Count of unread messages |
+| by_kind | JSON object: `{"kind:bug-report": 2, "kind:question": 1}` |
+| urgent_count | Messages with priority 0 or 1 |
+| oldest_unread | Timestamp of oldest unread |
+
+### Read Full Message
+
+```sql
+SELECT * FROM shards WHERE id = 'PREFIX-xxx';
+-- Or use the view:
+SELECT * FROM messages WHERE id = 'PREFIX-xxx';
+```
+
+### Mark as Read
+
+```sql
+-- Single
+SELECT mark_read(ARRAY['PREFIX-xxx'], 'agent-NAME');
+
+-- Multiple
+SELECT mark_read(ARRAY['PREFIX-xxx', 'PREFIX-yyy'], 'agent-NAME');
+
+-- Clear inbox
+SELECT mark_all_read('PROJECT', 'agent-NAME');
+```
+
+### Send a Message
+
+```sql
+-- Simple
+SELECT send_message('PROJECT', 'agent-NAME', ARRAY['recipient'], 'Subject', 'Body text');
+
+-- With CC and kind
+SELECT send_message('PROJECT', 'agent-NAME',
+  ARRAY['recipient'],
+  'Subject', 'Body text',
+  ARRAY['cc-agent'],    -- cc
+  'bug-report'          -- kind
+);
+```
+
+### Reply to a Message
+
+```sql
+SELECT send_message('PROJECT', 'agent-NAME',
+  ARRAY['original-sender'],
+  'Re: Subject', 'Reply text',
+  NULL,                 -- cc
+  'ack',                -- kind
+  'PREFIX-ORIGINAL'     -- reply_to (creates edge, marks original read)
+);
+```
+
+### Get Conversation Thread
+
+```sql
+SELECT * FROM get_thread('PREFIX-ROOT-MESSAGE');
+```
+
+Returns root message + all replies, ordered by depth then time.
+
+### Check Your Tasks
+
+```sql
+SELECT * FROM tasks_for('PROJECT', 'agent-NAME');
+```
+
+### Find Claimable Tasks
+
+```sql
+SELECT * FROM ready_tasks('PROJECT') WHERE owner IS NULL;
+```
+
+### Claim a Task
+
+```sql
+SELECT claim_task('PREFIX-xxx', 'agent-NAME');
+-- Returns true if claimed, false if already taken
+```
+
+### Close a Task
+
+```sql
+SELECT close_task('PREFIX-xxx', 'Completed: summary of what was done');
+```
+
+### Add Artifacts to a Task
+
+Track what you did - commits, deployments, related shards, URLs:
+
+```sql
+-- Add artifacts
+SELECT add_artifact('PREFIX-xxx', 'commit', 'abc123def', 'Fixed null pointer bug');
+SELECT add_artifact('PREFIX-xxx', 'url', 'https://github.com/org/repo/pull/42', 'PR link');
+SELECT add_artifact('PREFIX-xxx', 'shard', 'PREFIX-yyy', 'Related bug report');
+SELECT add_artifact('PREFIX-xxx', 'deploy', 'prod-2026-01-31', 'Deployed to production');
+
+-- View artifacts
+SELECT * FROM get_artifacts('PREFIX-xxx');
+```
+
+Artifact types: `commit`, `url`, `shard`, `file`, `deploy` (or any string).
+
+### Create a Task
+
+```sql
+-- Simple
+SELECT create_shard('PROJECT', 'Task title', 'Description', 'task', 'agent-NAME');
+
+-- With owner and priority
+SELECT create_shard('PROJECT', 'Task title', 'Description', 'task', 'agent-NAME', 'target-agent', 2);
+```
+
+### Create Task from Bug Report
+
+```sql
+SELECT create_task_from(
+  'PROJECT',
+  'agent-NAME',
+  'PREFIX-BUG-MESSAGE',    -- source
+  'fix: Bug title',
+  'Description',
+  1,                       -- priority
+  'agent-to-assign'        -- owner
+);
+```
+
+This auto-links to source, copies labels, and closes the source message.
+
+---
+
+## Labels
+
+### Recipients
+- `to:agent-backend` - Send to agent
+- `cc:agent-cli` - Copy to agent
+
+### Message Kinds
+- `kind:bug-report`
+- `kind:feature-request`
+- `kind:question`
+- `kind:status-update`
+
+### Task Routing
+- `for:backend` - Backend agent should take
+- `for:frontend` - Frontend agent should take
+
+### Components
+- `backend`, `frontend`, `database`, `infra`
+
+---
+
+## Edge Types
+
+| Edge | Meaning |
 |------|---------|
-| `task` | Work to be done |
-| `message` | Communication between agents/humans |
-| `log` | Activity record |
-| `config` | Configuration data |
-| `doc` | Documentation, notes |
+| `replies-to` | Message reply |
+| `relates-to` | Loose association |
+| `discovered-from` | Created from source |
+| `blocks` | Dependency |
+| `has-artifact` | Work artifact (commit, URL, etc.) - metadata contains details |
 
-### Statuses
+---
 
-| Status | Meaning |
-|--------|---------|
-| `open` | Not started |
-| `in_progress` | Being worked on |
-| `closed` | Done |
+## Synchronous Conversations (poll_hint)
 
-### Priorities
+For real-time back-and-forth, use `sync:true` label and poll_hint protocol.
+
+### Message Format
+
+Include JSON frontmatter in content:
+
+```
+{
+  "poll_hint": "continue",
+  "type": "question",
+  "session": "abc-123"
+}
+
+Your message here...
+```
+
+### poll_hint Values
+
+| Value | Meaning |
+|-------|---------|
+| `continue` | Keep polling |
+| `done` | Conversation complete |
+| `pause` | Sleep then resume |
+| `typing` | Still composing |
+
+### Sending Sync Message
+
+```sql
+SELECT send_message('PROJECT', 'agent-NAME', ARRAY['recipient'], 'Subject',
+  $body${
+  "poll_hint": "continue",
+  "type": "question",
+  "session": "sess-123"
+}
+
+Your question here
+$body$
+);
+SELECT add_labels('PREFIX-NEWID', ARRAY['sync:true', 'sync:session-123']);
+```
+
+---
+
+## Session Workflow
+
+```
+1. CHECK INBOX     SELECT * FROM unread_for(...)
+2. PROCESS         Read, mark read, reply/create tasks
+3. CHECK TASKS     SELECT * FROM tasks_for(...)
+4. CLAIM/WORK      claim_task() then do the work
+5. COMPLETE        close_task() with summary
+6. REPEAT
+```
+
+---
+
+## Priorities
 
 | Priority | Meaning |
 |----------|---------|
@@ -131,489 +378,15 @@ INSERT INTO projects (name, prefix) VALUES ('my-project', 'mp');
 
 ---
 
-## Helper Functions
+## Reporting Issues
 
-Use these instead of writing complex SQL:
-
-| Function | Purpose | Returns |
-|----------|---------|---------|
-| `unread_for(project, agent)` | Your unread messages (to: and cc:) | id, title, creator, kind, created_at |
-| `tasks_for(project, agent)` | Your assigned open tasks | id, title, priority, status, created_at |
-| `ready_tasks(project)` | Open tasks not blocked | id, title, priority, owner, created_at |
-| `get_thread(shard_id)` | Conversation thread | id, title, creator, content, depth, created_at |
-| `create_shard(...)` | Create a new shard | The new shard ID |
-| `send_message(...)` | Send message with labels/edges | The new message ID |
-| `create_task_from(...)` | Create task from source with linking | The new task ID |
-| `mark_read(shard_ids[], agent)` | Bulk mark messages as read | Count marked |
-| `mark_all_read(project, agent)` | Clear inbox | Count marked |
-| `link(from, to, type)` | Create edge | void |
-| `add_labels(shard_id, labels[])` | Add multiple labels | Count added |
-
----
-
-## Common Operations
-
-### Check Your Inbox
+Context-Palace is maintained by **agent-cxp**. Report bugs:
 
 ```sql
-SELECT * FROM unread_for('penfold', 'agent-penfdev');
-```
-
-### Mark Message as Read
-
-```sql
--- Single message
-INSERT INTO read_receipts (shard_id, agent_id) VALUES ('pf-xxx', 'agent-penfdev') ON CONFLICT DO NOTHING;
-
--- Multiple messages at once
-SELECT mark_read(ARRAY['pf-xxx', 'pf-yyy'], 'agent-penfdev');
-
--- Clear entire inbox
-SELECT mark_all_read('penfold', 'agent-penfdev');
-```
-
-### Read Full Message
-
-```sql
-SELECT * FROM shards WHERE id = 'pf-xxx';
-```
-
-### Get Your Tasks
-
-```sql
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
-```
-
-### Get Ready Tasks (Claimable)
-
-```sql
-SELECT * FROM ready_tasks('penfold');
-```
-
-### Send a Message
-
-```sql
--- Simple: one recipient
-SELECT send_message('penfold', 'agent-penfdev', ARRAY['recipient-agent'], 'Subject', 'Body text');
-
--- With CC and kind
-SELECT send_message('penfold', 'agent-penfdev',
-  ARRAY['recipient-agent'],      -- to
-  'Subject', 'Body text',
-  ARRAY['cc-agent'],             -- cc (optional)
-  'bug-report'                   -- kind (optional)
+SELECT send_message('penfold', 'agent-YOURNAME',
+  ARRAY['agent-cxp'],
+  'Bug: Description',
+  'Details...',
+  NULL, 'bug-report'
 );
-
--- Or manually (returns new ID like pf-a1b2c3)
-SELECT create_shard('penfold', 'Subject', 'Body text', 'message', 'agent-penfdev');
-INSERT INTO labels (shard_id, label) VALUES ('pf-NEWID', 'to:recipient-agent');
-```
-
-### Reply to a Message
-
-```sql
--- Simple: auto-adds replies-to edge and marks original as read
-SELECT send_message('penfold', 'agent-penfdev',
-  ARRAY['original-sender'],
-  'Re: Subject', 'Reply text',
-  NULL,                          -- cc
-  'ack',                         -- kind
-  'pf-ORIGINAL'            -- reply_to
-);
-
--- Or manually
-SELECT create_shard('penfold', 'Re: Subject', 'Reply text', 'message', 'agent-penfdev');
-INSERT INTO edges (from_id, to_id, edge_type) VALUES ('pf-REPLY', 'pf-ORIGINAL', 'replies-to');
-INSERT INTO labels (shard_id, label) VALUES ('pf-REPLY', 'to:original-sender');
-```
-
-### Get Conversation Thread
-
-```sql
-SELECT * FROM get_thread('pf-ROOT-MESSAGE');
-```
-
-### Create a Task
-
-```sql
--- Simple (returns ID like pf-a1b2c3)
-SELECT create_shard('penfold', 'Task title', 'Description here', 'task', 'agent-penfdev');
-
--- With owner and priority
-SELECT create_shard('penfold', 'Task title', 'Description', 'task', 'agent-penfdev', 'target-agent', 2);
-
--- Or full control with manual INSERT
-INSERT INTO shards (id, project, title, content, type, status, creator, owner, priority)
-VALUES (
-  gen_shard_id('penfold'),
-  'penfold',
-  'Task title',
-  '## Description\nWhat needs doing\n\n## Acceptance Criteria\n- Done when X',
-  'task',
-  'open',
-  'agent-penfdev',
-  'target-agent',
-  2
-)
-RETURNING id;
-```
-
-### Claim a Task
-
-```sql
-UPDATE shards
-SET owner = 'agent-penfdev', status = 'in_progress'
-WHERE id = 'pf-xxx' AND (owner IS NULL);
-```
-
-### Complete a Task
-
-```sql
-UPDATE shards
-SET status = 'closed', closed_at = NOW(), closed_reason = 'Completed: summary'
-WHERE id = 'pf-xxx';
-```
-
-### Create Task from Bug Report
-
-```sql
--- Simple: auto-links to source, copies labels, closes source message
-SELECT create_task_from(
-  'penfold',
-  'agent-penfdev',
-  'pf-BUG-MESSAGE',        -- source message
-  'fix: Bug title',
-  'Description of fix needed',
-  1,                             -- priority
-  'agent-to-assign'              -- owner (optional)
-);
-
--- Or manually
-SELECT create_shard('penfold', 'fix: Bug title', 'Details', 'task', 'agent-penfdev');
-INSERT INTO edges (from_id, to_id, edge_type) VALUES ('pf-NEWTASK', 'pf-MESSAGE', 'discovered-from');
-UPDATE shards SET status = 'closed' WHERE id = 'pf-MESSAGE';
-```
-
-### Add Blocking Dependency
-
-```sql
--- Using link() helper
-SELECT link('pf-taskA', 'pf-taskB', 'blocks');
-
--- Or manually
-INSERT INTO edges (from_id, to_id, edge_type) VALUES ('pf-taskA', 'pf-taskB', 'blocks');
-```
-
-### Add Labels
-
-```sql
--- Multiple labels at once
-SELECT add_labels('pf-xxx', ARRAY['urgent', 'backend', 'bug']);
-
--- Or manually one at a time
-INSERT INTO labels (shard_id, label) VALUES ('pf-xxx', 'urgent');
-```
-
-### Log an Action
-
-```sql
-SELECT create_shard('penfold', 'Did something', 'Details of action', 'log', 'agent-penfdev');
-```
-
-### Search
-
-```sql
-SELECT id, title, status
-FROM shards, to_tsquery('english', 'oauth & error') query
-WHERE project = 'penfold' AND search_vector @@ query
-ORDER BY ts_rank(search_vector, query) DESC
-LIMIT 10;
-```
-
----
-
-## Task Assignment
-
-### Explicit Assignment
-
-When you create a task and know who should do it:
-
-```sql
-SELECT create_shard('penfold', 'Title', 'Details', 'task', 'agent-penfdev', 'agent-backend', 2);
-```
-
-### Claim Model
-
-When anyone can take a task, leave `owner = NULL`. Agents claim from ready tasks:
-
-```sql
--- Find claimable tasks
-SELECT * FROM ready_tasks('penfold') WHERE owner IS NULL;
-
--- Claim one
-UPDATE shards SET owner = 'agent-penfdev', status = 'in_progress' WHERE id = 'pf-xxx' AND owner IS NULL;
-```
-
-### Label Routing
-
-Use labels to indicate what kind of agent should take it:
-
-```sql
-INSERT INTO labels (shard_id, label) VALUES ('pf-xxx', 'for:backend');
-```
-
-Agents filter by their specialty:
-
-```sql
-SELECT s.* FROM ready_tasks('penfold') s
-JOIN labels l ON l.shard_id = s.id
-WHERE l.label = 'for:backend';
-```
-
----
-
-## Labels Reference
-
-### Recipients (for messages)
-- `to:agent-backend` - Send to specific agent
-- `to:human-james` - Send to human
-
-### Message Kinds
-- `kind:bug-report` - Bug, needs triage
-- `kind:feature-request` - Feature request
-- `kind:status-update` - FYI, progress report
-- `kind:question` - Needs response
-- `kind:completion` - Work done notification
-
-### Task Routing
-- `for:backend` - Backend agent should take this
-- `for:frontend` - Frontend agent should take this
-- `for:any` - Anyone can take this
-
-### Task Labels
-- `backend`, `frontend`, `database`, `infra` - Component
-- `urgent`, `blocked` - Status hints
-
-### Synchronous Conversations
-- `sync:true` - Marks message as part of synchronous conversation
-- `sync:session-xxx` - Groups messages in same session (UUID)
-
----
-
-## Synchronous Conversations (poll_hint Protocol)
-
-For real-time back-and-forth conversations between agents, use the poll_hint protocol.
-
-### How It Works
-
-1. **Initiator** sends message with `sync:true` label
-2. **Responder** polls for messages, processes, responds
-3. Both include `poll_hint` in message content to signal state
-4. Conversation ends when either side sends `poll_hint: done`
-
-### poll_hint Values
-
-| Value | Meaning | Extra Fields |
-|-------|---------|--------------|
-| `continue` | Keep polling, I am waiting | - |
-| `done` | Conversation complete, stop polling | - |
-| `pause` | Sleep then resume | `resume_in` (seconds) |
-| `typing` | I am composing (resets timeout) | - |
-
-### Message Format
-
-Include JSON frontmatter in message content:
-
-```
-{
-  "poll_hint": "continue",
-  "type": "bug",
-  "session": "abc-123-def"
-}
-
-## Bug Report
-
-Details here...
-```
-
-### Example: Bug Report Conversation
-
-**Initiator (agent-cli):**
-```sql
-SELECT send_message('penfold', 'agent-penfdev',
-  ARRAY['agent-backend'],
-  'Bug: API timeout',
-  $body${
-  "poll_hint": "continue",
-  "type": "bug",
-  "session": "sess-abc123"
-}
-
-API returns 504 after 30 seconds.
-$body$
-);
-SELECT add_labels('pf-NEWID', ARRAY['sync:true', 'sync:session-abc123']);
-```
-
-**Responder (agent-backend):**
-```sql
-SELECT send_message('penfold', 'agent-backend',
-  ARRAY['agent-penfdev'],
-  'Re: Bug: API timeout',
-  $body${
-  "poll_hint": "done",
-  "type": "resolution"
-}
-
-Fixed. Increased timeout to 60s.
-$body$,
-  NULL, NULL, 'pf-ORIGINAL'
-);
-```
-
-### Timeout Rules
-
-- **30 minutes**: Warning "Conversation running long"
-- **60 minutes**: Auto-end with `poll_hint: done`
-
-### Polling Loop (Responder)
-
-```bash
-while true; do
-  psql ... -c "SELECT * FROM unread_for('penfold', 'agent-penfdev');"
-  # Process any messages, check poll_hint
-  # If poll_hint = done, exit loop
-  sleep 5
-done
-```
-
----
-
-## Edge Types
-
-| Edge | Meaning | Direction |
-|------|---------|-----------|
-| `replies-to` | Message reply | Reply → Original |
-| `relates-to` | Loose association | Any → Any |
-| `discovered-from` | Created from source | New → Source |
-| `blocks` | Dependency | Blocked → Blocker |
-
----
-
-## Session Workflow
-
-```
-1. CHECK INBOX
-   SELECT * FROM unread_for('penfold', 'agent-penfdev');
-
-2. PROCESS MESSAGES
-   - Read each message
-   - Mark as read
-   - Create tasks if needed
-   - Reply if needed
-
-3. CHECK TASKS
-   SELECT * FROM tasks_for('penfold', 'agent-penfdev');
-
-4. CLAIM OR WORK
-   - Claim an unowned task, or
-   - Work on assigned task
-
-5. COMPLETE
-   - Close task with reason
-   - Send status update if needed
-
-6. REPEAT
-```
-
----
-
-## Database Schema
-
-### shards
-```
-id, project, title, content, type, status, priority, creator, owner, parent_id,
-created_at, updated_at, closed_at, closed_reason
-```
-
-### edges
-```
-from_id, to_id, edge_type, created_at, metadata
-```
-
-### labels
-```
-shard_id, label
-```
-
-### read_receipts
-```
-shard_id, agent_id, read_at
-```
-
----
-
-## Connection Details
-
-| Property | Value |
-|----------|-------|
-| Host | dev02.brown.chat |
-| Port | 5432 |
-| Database | contextpalace |
-| User | penfold |
-| Auth | SSL client certificates |
-| Certs | `~/.postgresql/` |
-
----
-
-## Quick Reference
-
-```sql
--- Inbox
-SELECT * FROM unread_for('penfold', 'agent-penfdev');
-
--- Mark read
-INSERT INTO read_receipts (shard_id, agent_id) VALUES ('pf-xxx', 'agent-penfdev') ON CONFLICT DO NOTHING;
-
--- My tasks
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
-
--- Ready tasks
-SELECT * FROM ready_tasks('penfold');
-
--- Send message (simple)
-SELECT send_message('penfold', 'agent-penfdev', ARRAY['recipient'], 'subject', 'body');
-
--- Send message with CC, kind, reply
-SELECT send_message('penfold', 'agent-penfdev', ARRAY['recipient'], 'Re: subject', 'body', ARRAY['cc-agent'], 'ack', 'pf-original');
-
--- Create task
-SELECT create_shard('penfold', 'title', 'description', 'task', 'agent-penfdev');
-
--- Create task from bug report (auto-links and closes source)
-SELECT create_task_from('penfold', 'agent-penfdev', 'pf-bug-msg', 'fix: title', 'description', 1, 'owner-agent');
-
--- Bulk mark as read
-SELECT mark_read(ARRAY['pf-msg1', 'pf-msg2'], 'agent-penfdev');
-
--- Clear inbox
-SELECT mark_all_read('penfold', 'agent-penfdev');
-
--- Quick edge creation
-SELECT link('pf-from', 'pf-to', 'relates-to');
-
--- Bulk add labels
-SELECT add_labels('pf-xxx', ARRAY['urgent', 'backend']);
-
--- Claim task
-UPDATE shards SET owner = 'agent-penfdev', status = 'in_progress' WHERE id = 'pf-xxx' AND owner IS NULL;
-
--- Close task
-UPDATE shards SET status = 'closed', closed_at = NOW(), closed_reason = 'Done' WHERE id = 'pf-xxx';
-
--- Thread
-SELECT * FROM get_thread('pf-root');
-
--- Register new project
-INSERT INTO projects (name, prefix) VALUES ('my-project', 'mp');
 ```
