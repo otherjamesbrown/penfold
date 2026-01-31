@@ -182,3 +182,500 @@ func nullIfEmpty(s string) interface{} {
 	}
 	return s
 }
+
+// Shard represents a Context-Palace shard.
+type Shard struct {
+	ID         string     `json:"id"`
+	Project    string     `json:"project"`
+	Title      string     `json:"title"`
+	Content    string     `json:"content"`
+	Type       string     `json:"type"`         // memory, session, backlog, task, etc.
+	Status     string     `json:"status"`       // open, in_progress, closed
+	Owner      string     `json:"owner"`
+	Priority   int        `json:"priority"`     // 0=critical, 1=high, 2=normal, 3=low, 4=backlog
+	Creator    string     `json:"creator"`
+	ParentID   string     `json:"parent_id,omitempty"`
+	Labels     []string   `json:"labels,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	ClosedAt   *time.Time `json:"closed_at,omitempty"`
+	ClosedBy   string     `json:"closed_by,omitempty"`
+	Resolution string     `json:"resolution,omitempty"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+}
+
+// ShardOption is a functional option for creating shards.
+type ShardOption func(*shardOptions)
+
+type shardOptions struct {
+	owner    string
+	priority int
+	labels   []string
+}
+
+// WithOwner sets the owner of the shard.
+func WithOwner(owner string) ShardOption {
+	return func(opts *shardOptions) {
+		opts.owner = owner
+	}
+}
+
+// WithPriority sets the priority of the shard (0-4).
+func WithPriority(priority int) ShardOption {
+	return func(opts *shardOptions) {
+		opts.priority = priority
+	}
+}
+
+// WithLabels sets the labels for the shard.
+func WithLabels(labels ...string) ShardOption {
+	return func(opts *shardOptions) {
+		opts.labels = labels
+	}
+}
+
+// CreateShard creates a new shard in Context-Palace.
+func (c *Client) CreateShard(ctx context.Context, shardType, title, content string, opts ...ShardOption) (*Shard, error) {
+	options := &shardOptions{
+		priority: 2, // Default to normal priority
+	}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	query := `SELECT create_shard($1, $2, $3, $4, $5, $6, $7)`
+	var shardID string
+	err := c.db.QueryRowContext(ctx, query,
+		c.project,
+		title,
+		content,
+		shardType,
+		c.agent, // creator
+		nullIfEmpty(options.owner),
+		options.priority,
+	).Scan(&shardID)
+	if err != nil {
+		return nil, fmt.Errorf("creating shard: %w", err)
+	}
+
+	// Add labels if provided
+	if len(options.labels) > 0 {
+		labelQuery := `SELECT add_labels($1, $2)`
+		_, err = c.db.ExecContext(ctx, labelQuery, shardID, pq.Array(options.labels))
+		if err != nil {
+			return nil, fmt.Errorf("adding labels: %w", err)
+		}
+	}
+
+	// Fetch the created shard
+	return c.GetShard(ctx, shardID)
+}
+
+// GetShard retrieves a shard by ID.
+func (c *Client) GetShard(ctx context.Context, id string) (*Shard, error) {
+	query := `
+		SELECT s.id, s.project, s.title, s.content, s.type, s.status, s.owner,
+		       s.priority, s.creator, s.parent_id, s.created_at, s.updated_at,
+		       s.closed_at, s.closed_reason, s.expires_at,
+		       COALESCE(array_agg(l.label) FILTER (WHERE l.label IS NOT NULL), '{}') as labels
+		FROM shards s
+		LEFT JOIN labels l ON s.id = l.shard_id
+		WHERE s.id = $1
+		GROUP BY s.id
+	`
+
+	var shard Shard
+	var content, owner, parentID, resolution sql.NullString
+	var closedAt, expiresAt sql.NullTime
+	var priority sql.NullInt64
+
+	err := c.db.QueryRowContext(ctx, query, id).Scan(
+		&shard.ID,
+		&shard.Project,
+		&shard.Title,
+		&content,
+		&shard.Type,
+		&shard.Status,
+		&owner,
+		&priority,
+		&shard.Creator,
+		&parentID,
+		&shard.CreatedAt,
+		&shard.UpdatedAt,
+		&closedAt,
+		&resolution,
+		&expiresAt,
+		pq.Array(&shard.Labels),
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("shard not found: %s", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("querying shard: %w", err)
+	}
+
+	shard.Content = content.String
+	shard.Owner = owner.String
+	shard.ParentID = parentID.String
+	shard.Resolution = resolution.String
+	if priority.Valid {
+		shard.Priority = int(priority.Int64)
+	}
+	if closedAt.Valid {
+		shard.ClosedAt = &closedAt.Time
+	}
+	if expiresAt.Valid {
+		shard.ExpiresAt = &expiresAt.Time
+	}
+
+	return &shard, nil
+}
+
+// ListShardsOptions contains filters for listing shards.
+type ListShardsOptions struct {
+	Type     string
+	Status   string
+	Owner    string
+	Creator  string
+	Labels   []string
+	ParentID string
+	Limit    int
+}
+
+// ListShards retrieves shards matching the filter criteria.
+func (c *Client) ListShards(ctx context.Context, opts ListShardsOptions) ([]Shard, error) {
+	query := `
+		SELECT s.id, s.project, s.title, s.content, s.type, s.status, s.owner,
+		       s.priority, s.creator, s.parent_id, s.created_at, s.updated_at,
+		       s.closed_at, s.closed_reason, s.expires_at,
+		       COALESCE(array_agg(l.label) FILTER (WHERE l.label IS NOT NULL), '{}') as labels
+		FROM shards s
+		LEFT JOIN labels l ON s.id = l.shard_id
+		WHERE s.project = $1
+	`
+
+	args := []interface{}{c.project}
+	argCount := 1
+
+	if opts.Type != "" {
+		argCount++
+		query += fmt.Sprintf(" AND s.type = $%d", argCount)
+		args = append(args, opts.Type)
+	}
+
+	if opts.Status != "" {
+		argCount++
+		query += fmt.Sprintf(" AND s.status = $%d", argCount)
+		args = append(args, opts.Status)
+	}
+
+	if opts.Owner != "" {
+		argCount++
+		query += fmt.Sprintf(" AND s.owner = $%d", argCount)
+		args = append(args, opts.Owner)
+	}
+
+	if opts.Creator != "" {
+		argCount++
+		query += fmt.Sprintf(" AND s.creator = $%d", argCount)
+		args = append(args, opts.Creator)
+	}
+
+	if opts.ParentID != "" {
+		argCount++
+		query += fmt.Sprintf(" AND s.parent_id = $%d", argCount)
+		args = append(args, opts.ParentID)
+	}
+
+	query += " GROUP BY s.id"
+
+	// Filter by labels if provided
+	if len(opts.Labels) > 0 {
+		query += fmt.Sprintf(" HAVING array_agg(l.label) @> $%d", argCount+1)
+		args = append(args, pq.Array(opts.Labels))
+	}
+
+	query += " ORDER BY s.created_at DESC"
+
+	if opts.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", opts.Limit)
+	}
+
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying shards: %w", err)
+	}
+	defer rows.Close()
+
+	var shards []Shard
+	for rows.Next() {
+		var shard Shard
+		var content, owner, parentID, resolution sql.NullString
+		var closedAt, expiresAt sql.NullTime
+		var priority sql.NullInt64
+
+		err := rows.Scan(
+			&shard.ID,
+			&shard.Project,
+			&shard.Title,
+			&content,
+			&shard.Type,
+			&shard.Status,
+			&owner,
+			&priority,
+			&shard.Creator,
+			&parentID,
+			&shard.CreatedAt,
+			&shard.UpdatedAt,
+			&closedAt,
+			&resolution,
+			&expiresAt,
+			pq.Array(&shard.Labels),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scanning row: %w", err)
+		}
+
+		shard.Content = content.String
+		shard.Owner = owner.String
+		shard.ParentID = parentID.String
+		shard.Resolution = resolution.String
+		if priority.Valid {
+			shard.Priority = int(priority.Int64)
+		}
+		if closedAt.Valid {
+			shard.ClosedAt = &closedAt.Time
+		}
+		if expiresAt.Valid {
+			shard.ExpiresAt = &expiresAt.Time
+		}
+
+		shards = append(shards, shard)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating rows: %w", err)
+	}
+
+	return shards, nil
+}
+
+// UpdateOption is a functional option for updating shards.
+type UpdateOption func(*updateOptions)
+
+type updateOptions struct {
+	status    *string
+	title     *string
+	content   *string
+	priority  *int
+	owner     *string
+	expiresAt *time.Time
+}
+
+// WithStatus sets the status for update.
+func WithStatus(status string) UpdateOption {
+	return func(opts *updateOptions) {
+		opts.status = &status
+	}
+}
+
+// WithTitle sets the title for update.
+func WithTitle(title string) UpdateOption {
+	return func(opts *updateOptions) {
+		opts.title = &title
+	}
+}
+
+// WithContent sets the content for update.
+func WithContent(content string) UpdateOption {
+	return func(opts *updateOptions) {
+		opts.content = &content
+	}
+}
+
+// WithUpdatePriority sets the priority for update.
+func WithUpdatePriority(priority int) UpdateOption {
+	return func(opts *updateOptions) {
+		opts.priority = &priority
+	}
+}
+
+// WithUpdateOwner sets the owner for update.
+func WithUpdateOwner(owner string) UpdateOption {
+	return func(opts *updateOptions) {
+		opts.owner = &owner
+	}
+}
+
+// WithExpiresAt sets the expiration time for update.
+func WithExpiresAt(expiresAt time.Time) UpdateOption {
+	return func(opts *updateOptions) {
+		opts.expiresAt = &expiresAt
+	}
+}
+
+// UpdateShard updates a shard's fields.
+func (c *Client) UpdateShard(ctx context.Context, id string, opts ...UpdateOption) error {
+	options := &updateOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	updates := []string{}
+	args := []interface{}{id}
+	argCount := 1
+
+	if options.status != nil {
+		argCount++
+		updates = append(updates, fmt.Sprintf("status = $%d", argCount))
+		args = append(args, *options.status)
+	}
+
+	if options.title != nil {
+		argCount++
+		updates = append(updates, fmt.Sprintf("title = $%d", argCount))
+		args = append(args, *options.title)
+	}
+
+	if options.content != nil {
+		argCount++
+		updates = append(updates, fmt.Sprintf("content = $%d", argCount))
+		args = append(args, *options.content)
+	}
+
+	if options.priority != nil {
+		argCount++
+		updates = append(updates, fmt.Sprintf("priority = $%d", argCount))
+		args = append(args, *options.priority)
+	}
+
+	if options.owner != nil {
+		argCount++
+		updates = append(updates, fmt.Sprintf("owner = $%d", argCount))
+		args = append(args, *options.owner)
+	}
+
+	if options.expiresAt != nil {
+		argCount++
+		updates = append(updates, fmt.Sprintf("expires_at = $%d", argCount))
+		args = append(args, *options.expiresAt)
+	}
+
+	if len(updates) == 0 {
+		return fmt.Errorf("no fields to update")
+	}
+
+	query := fmt.Sprintf("UPDATE shards SET %s WHERE id = $1",
+		fmt.Sprintf("%s", updates[0]))
+	for i := 1; i < len(updates); i++ {
+		query = fmt.Sprintf("%s, %s", query, updates[i])
+	}
+
+	result, err := c.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("updating shard: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("getting rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("shard not found: %s", id)
+	}
+
+	return nil
+}
+
+// CloseShard closes a shard with a resolution.
+func (c *Client) CloseShard(ctx context.Context, id, resolution string) error {
+	query := `SELECT close_task($1, $2)`
+	_, err := c.db.ExecContext(ctx, query, id, resolution)
+	if err != nil {
+		return fmt.Errorf("closing shard: %w", err)
+	}
+
+	return nil
+}
+
+// SearchShards performs full-text search on shards.
+func (c *Client) SearchShards(ctx context.Context, query string, shardType string) ([]Shard, error) {
+	sqlQuery := `
+		SELECT s.id, s.project, s.title, s.content, s.type, s.status, s.owner,
+		       s.priority, s.creator, s.parent_id, s.created_at, s.updated_at,
+		       s.closed_at, s.closed_reason, s.expires_at,
+		       COALESCE(array_agg(l.label) FILTER (WHERE l.label IS NOT NULL), '{}') as labels
+		FROM shards s
+		LEFT JOIN labels l ON s.id = l.shard_id
+		WHERE s.project = $1
+		  AND s.search_vector @@ plainto_tsquery('english', $2)
+	`
+
+	args := []interface{}{c.project, query}
+
+	if shardType != "" {
+		sqlQuery += " AND s.type = $3"
+		args = append(args, shardType)
+	}
+
+	sqlQuery += " GROUP BY s.id ORDER BY ts_rank(s.search_vector, plainto_tsquery('english', $2)) DESC"
+
+	rows, err := c.db.QueryContext(ctx, sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("searching shards: %w", err)
+	}
+	defer rows.Close()
+
+	var shards []Shard
+	for rows.Next() {
+		var shard Shard
+		var content, owner, parentID, resolution sql.NullString
+		var closedAt, expiresAt sql.NullTime
+		var priority sql.NullInt64
+
+		err := rows.Scan(
+			&shard.ID,
+			&shard.Project,
+			&shard.Title,
+			&content,
+			&shard.Type,
+			&shard.Status,
+			&owner,
+			&priority,
+			&shard.Creator,
+			&parentID,
+			&shard.CreatedAt,
+			&shard.UpdatedAt,
+			&closedAt,
+			&resolution,
+			&expiresAt,
+			pq.Array(&shard.Labels),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scanning row: %w", err)
+		}
+
+		shard.Content = content.String
+		shard.Owner = owner.String
+		shard.ParentID = parentID.String
+		shard.Resolution = resolution.String
+		if priority.Valid {
+			shard.Priority = int(priority.Int64)
+		}
+		if closedAt.Valid {
+			shard.ClosedAt = &closedAt.Time
+		}
+		if expiresAt.Valid {
+			shard.ExpiresAt = &expiresAt.Time
+		}
+
+		shards = append(shards, shard)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating rows: %w", err)
+	}
+
+	return shards, nil
+}

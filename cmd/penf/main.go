@@ -702,6 +702,7 @@ func init() {
 	rootCmd.AddCommand(cmd.NewDebugCommand(nil))
 	rootCmd.AddCommand(cmd.NewPipelineCommand(nil))
 	rootCmd.AddCommand(cmd.NewGlossaryCommand(nil))
+	rootCmd.AddCommand(cmd.NewContentCommand(nil))
 	rootCmd.AddCommand(cmd.NewRelationshipCommand(nil))
 	rootCmd.AddCommand(cmd.NewProductCommand(nil))
 	rootCmd.AddCommand(cmd.NewProjectCommand(nil))
@@ -715,6 +716,9 @@ func init() {
 	rootCmd.AddCommand(cmd.NewTraceCommand(nil))
 	rootCmd.AddCommand(cmd.NewCertCommand())
 	rootCmd.AddCommand(cmd.NewContextCommand(nil))
+	rootCmd.AddCommand(cmd.NewMemoryCommand(nil))
+	rootCmd.AddCommand(cmd.NewBacklogCommand(nil))
+	rootCmd.AddCommand(cmd.NewSessionCommand(nil))
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)
