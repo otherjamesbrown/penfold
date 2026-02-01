@@ -93,7 +93,7 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 			COUNT(DISTINCT a.id) AS assertion_count,
 			s.failure_category,
 			s.failure_reason,
-			s.metadata
+			s.ingestion_metadata
 		FROM sources s
 		LEFT JOIN embeddings e ON s.id = e.source_id
 		LEFT JOIN assertions a ON s.id = a.source_id
@@ -182,7 +182,7 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 			COUNT(DISTINCT a.id) AS assertion_count,
 			s.failure_category,
 			s.failure_reason,
-			s.metadata
+			s.ingestion_metadata
 		FROM sources s
 		LEFT JOIN embeddings e ON s.id = e.source_id
 		LEFT JOIN assertions a ON s.id = a.source_id

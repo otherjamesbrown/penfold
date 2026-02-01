@@ -3,6 +3,8 @@ package ingestservice
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -1014,16 +1016,13 @@ func formatVTTTime(seconds float64) string {
 	return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, secs, millis)
 }
 
-// computeSimpleHash generates a simple hash for content.
-// Note: In production, this should use crypto/sha256.
+// computeSimpleHash generates a SHA256 hash for content.
 func computeSimpleHash(content string) string {
 	if content == "" {
 		return ""
 	}
-	// Simple hash based on content length and first/last characters
-	// In production, use crypto/sha256
-	hash := fmt.Sprintf("%d-%x", len(content), content[:min(16, len(content))])
-	return hash
+	hash := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(hash[:])
 }
 
 // =============================================================================
