@@ -9,7 +9,7 @@ This document defines how agents on the Penfold project use Context-Palace for c
 | Agent | Role | Responsibilities |
 |-------|------|------------------|
 | agent-penf | CLI/Frontend | Bug reports, feature requests, user-facing issues |
-| agent-penfdev | Backend | Task triage, implementation, spawning sub-agents |
+| agent-mycroft | Backend | Task triage, implementation, spawning sub-agents |
 | agent-cxp | Context-Palace | Manages Context-Palace itself - schema, functions, DX improvements |
 | human-james | Human | Oversight, prioritization, direction |
 
@@ -124,13 +124,13 @@ SELECT create_shard('penfold',
   'Implement: feature X',
   'Task content...',
   'task',
-  'agent-penfdev',
+  'agent-mycroft',
   'pf-message-id'  -- parent_id links to original message
 );
 
 -- When done, close task and reply to message
 SELECT close_task('pf-task-id', 'Completed: summary');
-SELECT send_message('penfold', 'agent-penfdev',
+SELECT send_message('penfold', 'agent-mycroft',
   ARRAY['requester'],
   'Re: Original Subject',
   'Your request has been implemented...',
@@ -146,8 +146,8 @@ SELECT send_message('penfold', 'agent-penfdev',
 ### Bug Report → Task
 
 1. **agent-penf** sends bug with JSON frontmatter + labels
-2. **agent-penfdev** parses, creates task with `parent_id` = bug shard
-3. **agent-penfdev** replies with task ID
+2. **agent-mycroft** parses, creates task with `parent_id` = bug shard
+3. **agent-mycroft** replies with task ID
 4. On completion, close task and reply to original bug
 
 ### Task Completion
@@ -197,7 +197,7 @@ INSERT INTO read_receipts (shard_id, agent_id) VALUES ('pf-xxx', 'agent-penf') O
 
 ### When Receiving an ACK
 
-agent-penfdev sends:
+agent-mycroft sends:
 ```json
 {
   "type": "ack",
@@ -214,7 +214,7 @@ agent-penfdev sends:
 
 ### When Receiving a Resolution
 
-agent-penfdev sends:
+agent-mycroft sends:
 ```json
 {
   "type": "resolution",
@@ -266,10 +266,10 @@ Edge: `INSERT INTO edges ... VALUES ('pf-VERIFY', 'pf-BUG', 'verifies')`
 
 | Edge | From → To | Added By |
 |------|-----------|----------|
-| `investigates` | investigation → bug | agent-penfdev |
-| `implements` | task → investigation | agent-penfdev |
-| `discovered-from` | task → bug | agent-penfdev |
-| `fixed-by` | bug → task | agent-penfdev |
+| `investigates` | investigation → bug | agent-mycroft |
+| `implements` | task → investigation | agent-mycroft |
+| `discovered-from` | task → bug | agent-mycroft |
+| `fixed-by` | bug → task | agent-mycroft |
 | `verifies` | verification → bug | agent-penf |
 | `relates-to` | new bug → original | agent-penf |
 | `replies-to` | reply → original | both |
@@ -310,8 +310,8 @@ AND released_at IS NULL;
 ```sql
 INSERT INTO file_claims (file_path, claimed_by, shard_id)
 VALUES
-  ('cmd/penf/cmd/pipeline.go', 'agent-penfdev', 'pf-task-id'),
-  ('cmd/penf/cmd/content.go', 'agent-penfdev', 'pf-task-id');
+  ('cmd/penf/cmd/pipeline.go', 'agent-mycroft', 'pf-task-id'),
+  ('cmd/penf/cmd/content.go', 'agent-mycroft', 'pf-task-id');
 ```
 
 **Release claims when task closes** (automatic via trigger on shard close, or manual):
@@ -334,7 +334,7 @@ If files are already claimed:
 ```json
 {
   "protocol_version": "1.2",
-  "agreed_by": ["agent-penf", "agent-penfdev", "agent-cxp"],
+  "agreed_by": ["agent-penf", "agent-mycroft", "agent-cxp"],
   "date": "2026-01-29",
   "docs": ["pf-eb8732", "pf-796c58"]
 }

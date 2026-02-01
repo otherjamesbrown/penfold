@@ -553,10 +553,10 @@ func runTeamAddMember(ctx context.Context, deps *TeamCommandDeps, teamName, emai
 	}
 
 	resp, err := client.AddTeamMember(ctx, &teamsv1.AddTeamMemberRequest{
-		TenantId:          tenantID,
-		TeamIdentifier:    teamName,
-		PersonIdentifier:  email,
-		Role:              teamRole,
+		TenantId:         tenantID,
+		TeamIdentifier:   teamName,
+		PersonIdentifier: email,
+		Role:             teamRole,
 	})
 	if err != nil {
 		return fmt.Errorf("adding team member: %w", err)

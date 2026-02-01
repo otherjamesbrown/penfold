@@ -42,10 +42,10 @@ func DefaultProcessDeps() *ProcessCommandDeps {
 
 // AcronymContext represents the full context needed for intelligent acronym processing.
 type AcronymContext struct {
-	Questions    []AcronymQuestion   `json:"questions"`
-	Glossary     []GlossaryEntry     `json:"glossary"`
-	Stats        AcronymStats        `json:"stats"`
-	Workflow     WorkflowGuidance    `json:"workflow"`
+	Questions []AcronymQuestion `json:"questions"`
+	Glossary  []GlossaryEntry   `json:"glossary"`
+	Stats     AcronymStats      `json:"stats"`
+	Workflow  WorkflowGuidance  `json:"workflow"`
 }
 
 // AcronymQuestion represents a single acronym question with context.
@@ -75,10 +75,10 @@ type AcronymStats struct {
 
 // WorkflowGuidance provides decision-making guidance for Claude.
 type WorkflowGuidance struct {
-	Actions          []WorkflowAction `json:"actions"`
-	AutoResolve      []string         `json:"auto_resolve_patterns"`
-	NeedsHumanInput  []string         `json:"needs_human_input"`
-	BatchResolveCmd  string           `json:"batch_resolve_command"`
+	Actions         []WorkflowAction `json:"actions"`
+	AutoResolve     []string         `json:"auto_resolve_patterns"`
+	NeedsHumanInput []string         `json:"needs_human_input"`
+	BatchResolveCmd string           `json:"batch_resolve_command"`
 }
 
 // WorkflowAction describes an available action.

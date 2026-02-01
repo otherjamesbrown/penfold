@@ -178,7 +178,7 @@ Use the `create_impl_shard()` helper which:
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" <<'EOSQL'
 SELECT create_impl_shard(
   'penfold',
-  'agent-penfdev',
+  'agent-mycroft',
   'cli-dev',  -- agent_type: cli-dev | service-dev | worker-dev | data-dev | ai-dev
   'Implement: [specific task]',
   $md$## Goal
@@ -254,10 +254,10 @@ If `create_impl_shard()` is not available, use manual creation:
 
 ```bash
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" <<'EOSQL'
-SELECT create_shard('penfold', 'Title', $md$Content$md$, 'task', 'agent-penfdev', 'pf-parent');
+SELECT create_shard('penfold', 'Title', $md$Content$md$, 'task', 'agent-mycroft', 'pf-parent');
 -- Then manually add edges and file claims:
 INSERT INTO edges (from_id, to_id, edge_type) VALUES ('pf-new', 'pf-dependency', 'blocked-by');
-INSERT INTO file_claims (file_path, claimed_by, shard_id) VALUES ('path/file.go', 'agent-penfdev', 'pf-new');
+INSERT INTO file_claims (file_path, claimed_by, shard_id) VALUES ('path/file.go', 'agent-mycroft', 'pf-new');
 EOSQL
 ```
 
@@ -467,7 +467,7 @@ SELECT close_task('pf-original', 'Implemented: [summary of what was built]');
 If the feature request came from a message, reply to the sender:
 
 ```sql
-SELECT send_message('penfold', 'agent-penfdev',
+SELECT send_message('penfold', 'agent-mycroft',
   ARRAY['original-sender'],
   'Re: [Original Subject]',
   $md$Your feature request has been implemented.

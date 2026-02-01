@@ -79,7 +79,7 @@ psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-ful
 ### Finding Work
 ```sql
 -- Get current feature shards ready to work on
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+SELECT * FROM tasks_for('penfold', 'agent-mycroft');
 
 -- Get all shards for a feature
 SELECT id, title, status FROM shards
@@ -92,13 +92,13 @@ SELECT * FROM shards WHERE id = 'pf-xxx';
 ### Working on Shards
 ```sql
 -- Claim work
-SELECT claim_task('pf-xxx', 'agent-penfdev');
+SELECT claim_task('pf-xxx', 'agent-mycroft');
 
 -- Complete work
 SELECT close_task('pf-xxx', 'Implementation complete: [summary]');
 
 -- Check newly available work
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+SELECT * FROM tasks_for('penfold', 'agent-mycroft');
 ```
 
 ### Progress Tracking
@@ -124,7 +124,7 @@ UPDATE shards SET content = 'BLOCKED: [error description]. Original: [original c
 WHERE id = 'pf-xxx';
 
 -- Create new shard for fix if needed
-SELECT create_shard('penfold', 'Fix: [issue]', 'Resolve blocking issue in pf-xxx', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Fix: [issue]', 'Resolve blocking issue in pf-xxx', 'task', 'agent-mycroft');
 ```
 
 ## Key Differences from tasks.md Workflow

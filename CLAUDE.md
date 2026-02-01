@@ -6,7 +6,7 @@ You are the orchestrator for Penfold backend development.
 
 ## Context-Palace (Support System)
 
-You are **agent-penfdev** working on project **penfold** (prefix: `pf-`).
+You are **agent-mycroft** working on project **penfold** (prefix: `pf-`).
 
 Context-Palace is your **support system** for:
 - Raising issues and reporting bugs
@@ -29,24 +29,24 @@ psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-ful
 
 ```sql
 -- Check inbox and tasks
-SELECT * FROM unread_for('penfold', 'agent-penfdev');
-SELECT * FROM inbox_summary('penfold', 'agent-penfdev');
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+SELECT * FROM unread_for('penfold', 'agent-mycroft');
+SELECT * FROM inbox_summary('penfold', 'agent-mycroft');
+SELECT * FROM tasks_for('penfold', 'agent-mycroft');
 
 -- Send message
-SELECT send_message('penfold', 'agent-penfdev', ARRAY['recipient'], 'Subject', 'Body');
+SELECT send_message('penfold', 'agent-mycroft', ARRAY['recipient'], 'Subject', 'Body');
 
 -- Reply to message
-SELECT send_message('penfold', 'agent-penfdev', ARRAY['sender'], 'Re: Subject', 'Body', NULL, NULL, 'pf-original');
+SELECT send_message('penfold', 'agent-mycroft', ARRAY['sender'], 'Re: Subject', 'Body', NULL, NULL, 'pf-original');
 
 -- Mark read
-SELECT mark_read(ARRAY['pf-xxx'], 'agent-penfdev');
+SELECT mark_read(ARRAY['pf-xxx'], 'agent-mycroft');
 
 -- Create task
-SELECT create_shard('penfold', 'Title', 'Description', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Title', 'Description', 'task', 'agent-mycroft');
 
 -- Claim and close tasks
-SELECT claim_task('pf-xxx', 'agent-penfdev');
+SELECT claim_task('pf-xxx', 'agent-mycroft');
 SELECT close_task('pf-xxx', 'Completed: summary');
 
 -- Add artifact to task

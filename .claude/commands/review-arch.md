@@ -471,5 +471,5 @@ After review, ask:
 
 If yes, create shards only for High/Critical issues:
 ```sql
-SELECT create_shard('penfold', 'arch: [brief description]', 'Details', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'arch: [brief description]', 'Details', 'task', 'agent-mycroft');
 ```

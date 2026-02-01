@@ -163,7 +163,7 @@ If issues are found that are simple to fix (broken links, typos, stale file refe
 
 For larger issues, create shards:
 ```sql
-SELECT create_shard('penfold', 'docs: [brief description]', 'Details', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'docs: [brief description]', 'Details', 'task', 'agent-mycroft');
 ```
 
 ### Output

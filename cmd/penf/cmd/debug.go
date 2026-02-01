@@ -70,13 +70,13 @@ type SystemInfo struct {
 
 // DebugCommandDeps holds the dependencies for debug commands.
 type DebugCommandDeps struct {
-	Config       *config.CLIConfig
-	GRPCClient   *client.GRPCClient
-	LoadConfig   func() (*config.CLIConfig, error)
-	InitClient   func(*config.CLIConfig) (*client.GRPCClient, error)
-	Version      string
-	Commit       string
-	BuildTime    string
+	Config     *config.CLIConfig
+	GRPCClient *client.GRPCClient
+	LoadConfig func() (*config.CLIConfig, error)
+	InitClient func(*config.CLIConfig) (*client.GRPCClient, error)
+	Version    string
+	Commit     string
+	BuildTime  string
 }
 
 // DefaultDebugDeps returns the default dependencies for production use.

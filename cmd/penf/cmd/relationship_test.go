@@ -575,12 +575,12 @@ func TestGetConfidenceColor(t *testing.T) {
 		confidence float64
 		wantColor  string
 	}{
-		{0.9, "\033[32m"},  // Green for high confidence.
-		{0.8, "\033[32m"},  // Green for high confidence.
-		{0.7, "\033[33m"},  // Yellow for medium.
-		{0.5, "\033[33m"},  // Yellow for medium.
-		{0.3, "\033[31m"},  // Red for low.
-		{0.0, "\033[31m"},  // Red for low.
+		{0.9, "\033[32m"}, // Green for high confidence.
+		{0.8, "\033[32m"}, // Green for high confidence.
+		{0.7, "\033[33m"}, // Yellow for medium.
+		{0.5, "\033[33m"}, // Yellow for medium.
+		{0.3, "\033[31m"}, // Red for low.
+		{0.0, "\033[31m"}, // Red for low.
 	}
 
 	for _, tt := range tests {

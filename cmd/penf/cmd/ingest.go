@@ -64,36 +64,36 @@ type IngestJob struct {
 
 // IngestStatusResponse represents overall ingestion status.
 type IngestStatusResponse struct {
-	TotalJobs       int          `json:"total_jobs" yaml:"total_jobs"`
-	PendingJobs     int          `json:"pending_jobs" yaml:"pending_jobs"`
-	ProcessingJobs  int          `json:"processing_jobs" yaml:"processing_jobs"`
-	CompletedJobs   int          `json:"completed_jobs" yaml:"completed_jobs"`
-	FailedJobs      int          `json:"failed_jobs" yaml:"failed_jobs"`
-	RecentJobs      []IngestJob  `json:"recent_jobs,omitempty" yaml:"recent_jobs,omitempty"`
-	ProcessingRate  float64      `json:"processing_rate" yaml:"processing_rate"`
-	LastUpdated     time.Time    `json:"last_updated" yaml:"last_updated"`
+	TotalJobs      int         `json:"total_jobs" yaml:"total_jobs"`
+	PendingJobs    int         `json:"pending_jobs" yaml:"pending_jobs"`
+	ProcessingJobs int         `json:"processing_jobs" yaml:"processing_jobs"`
+	CompletedJobs  int         `json:"completed_jobs" yaml:"completed_jobs"`
+	FailedJobs     int         `json:"failed_jobs" yaml:"failed_jobs"`
+	RecentJobs     []IngestJob `json:"recent_jobs,omitempty" yaml:"recent_jobs,omitempty"`
+	ProcessingRate float64     `json:"processing_rate" yaml:"processing_rate"`
+	LastUpdated    time.Time   `json:"last_updated" yaml:"last_updated"`
 }
 
 // GmailSyncStatus represents Gmail sync status.
 type GmailSyncStatus struct {
-	Connected       bool      `json:"connected" yaml:"connected"`
-	LastSyncAt      time.Time `json:"last_sync_at,omitempty" yaml:"last_sync_at,omitempty"`
-	NextSyncAt      time.Time `json:"next_sync_at,omitempty" yaml:"next_sync_at,omitempty"`
-	TotalEmails     int64     `json:"total_emails" yaml:"total_emails"`
-	SyncedEmails    int64     `json:"synced_emails" yaml:"synced_emails"`
-	SyncState       string    `json:"sync_state" yaml:"sync_state"`
-	Error           string    `json:"error,omitempty" yaml:"error,omitempty"`
+	Connected    bool      `json:"connected" yaml:"connected"`
+	LastSyncAt   time.Time `json:"last_sync_at,omitempty" yaml:"last_sync_at,omitempty"`
+	NextSyncAt   time.Time `json:"next_sync_at,omitempty" yaml:"next_sync_at,omitempty"`
+	TotalEmails  int64     `json:"total_emails" yaml:"total_emails"`
+	SyncedEmails int64     `json:"synced_emails" yaml:"synced_emails"`
+	SyncState    string    `json:"sync_state" yaml:"sync_state"`
+	Error        string    `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
 // GmailSyncHistoryEntry represents a Gmail sync history entry.
 type GmailSyncHistoryEntry struct {
-	ID          string    `json:"id" yaml:"id"`
-	StartedAt   time.Time `json:"started_at" yaml:"started_at"`
-	CompletedAt time.Time `json:"completed_at" yaml:"completed_at"`
-	EmailsAdded int       `json:"emails_added" yaml:"emails_added"`
-	EmailsUpdated int     `json:"emails_updated" yaml:"emails_updated"`
-	Status      string    `json:"status" yaml:"status"`
-	Error       string    `json:"error,omitempty" yaml:"error,omitempty"`
+	ID            string    `json:"id" yaml:"id"`
+	StartedAt     time.Time `json:"started_at" yaml:"started_at"`
+	CompletedAt   time.Time `json:"completed_at" yaml:"completed_at"`
+	EmailsAdded   int       `json:"emails_added" yaml:"emails_added"`
+	EmailsUpdated int       `json:"emails_updated" yaml:"emails_updated"`
+	Status        string    `json:"status" yaml:"status"`
+	Error         string    `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
 // IngestConfig represents ingestion configuration.
@@ -143,13 +143,13 @@ func DefaultIngestDeps() *IngestCommandDeps {
 
 // Ingest command flags.
 var (
-	ingestTenantID  string
-	ingestAsync     bool
-	ingestPriority  string
-	ingestTags      []string
-	ingestCategory  string
-	ingestOutput    string
-	ingestDryRun    bool
+	ingestTenantID string
+	ingestAsync    bool
+	ingestPriority string
+	ingestTags     []string
+	ingestCategory string
+	ingestOutput   string
+	ingestDryRun   bool
 )
 
 // NewIngestCommand creates the root ingest command with all subcommands.

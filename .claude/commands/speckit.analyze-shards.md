@@ -183,7 +183,7 @@ Output Markdown report with:
 
 **If ready for implementation:**
 - "Ready for `/speckit.implement-shards`"
-- "Start with `SELECT * FROM tasks_for('penfold', 'agent-penfdev');` to see available work"
+- "Start with `SELECT * FROM tasks_for('penfold', 'agent-mycroft');` to see available work"
 
 **Improvement suggestions:**
 - Missing shard creation commands
@@ -216,7 +216,7 @@ WHERE project = 'penfold' AND title ILIKE '%Gmail Integration%';
 SELECT * FROM shards WHERE id = 'pf-xxx';
 
 -- Check ready work
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+SELECT * FROM tasks_for('penfold', 'agent-mycroft');
 
 -- Validate dependencies (edges)
 SELECT e.from_id, e.to_id, e.edge_type, s.title

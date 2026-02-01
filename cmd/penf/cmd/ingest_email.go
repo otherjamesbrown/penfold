@@ -646,8 +646,8 @@ func emailToProtoRequest(email *eml.ParsedEmail, tenantID, sourceTag string, lab
 	// Attachment metadata (content not included - gateway handles storage)
 	for _, att := range email.Attachments {
 		req.Attachments = append(req.Attachments, &ingestv1.AttachmentMetadata{
-			Filename: att.Filename,
-			MimeType: att.MimeType,
+			Filename:  att.Filename,
+			MimeType:  att.MimeType,
 			SizeBytes: int64(att.Size),
 		})
 	}

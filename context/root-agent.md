@@ -231,10 +231,10 @@ Feature is complete when:
 
 ```sql
 -- Find available work
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+SELECT * FROM tasks_for('penfold', 'agent-mycroft');
 
 -- Check inbox and tasks
-SELECT * FROM inbox_summary('penfold', 'agent-penfdev');
+SELECT * FROM inbox_summary('penfold', 'agent-mycroft');
 ```
 
 ---
@@ -243,8 +243,8 @@ SELECT * FROM inbox_summary('penfold', 'agent-penfdev');
 
 | Task | SQL Command |
 |------|-------------|
-| Find work | `SELECT * FROM tasks_for('penfold', 'agent-penfdev');` |
-| Claim work | `SELECT claim_task('pf-xxx', 'agent-penfdev');` |
+| Find work | `SELECT * FROM tasks_for('penfold', 'agent-mycroft');` |
+| Claim work | `SELECT claim_task('pf-xxx', 'agent-mycroft');` |
 | Before ending | `git push` (no sync needed - DB is always live) |
 | Show shard | `SELECT * FROM shards WHERE id = 'pf-xxx';` |
 
@@ -308,7 +308,7 @@ Agents only write code for their domain. For cross-domain work:
 
 ```sql
 -- Create handoff shard
-SELECT create_shard('penfold', 'Handoff: description', 'Details', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Handoff: description', 'Details', 'task', 'agent-mycroft');
 -- Then assign
 UPDATE shards SET owner = 'target-agent' WHERE id = 'pf-xxx';
 ```

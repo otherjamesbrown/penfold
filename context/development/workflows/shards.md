@@ -45,29 +45,29 @@ psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-ful
 
 ```sql
 -- Find available work
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+SELECT * FROM tasks_for('penfold', 'agent-mycroft');
 
 -- Show shard details
 SELECT * FROM shards WHERE id = 'pf-xxx';
 
 -- Create new work
-SELECT create_shard('penfold', 'Title', 'Description', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Title', 'Description', 'task', 'agent-mycroft');
 
 -- Claim work (set status to in_progress)
-SELECT claim_task('pf-xxx', 'agent-penfdev');
+SELECT claim_task('pf-xxx', 'agent-mycroft');
 
 -- Complete work
 SELECT close_task('pf-xxx', 'Completed: summary');
 
 -- Add comment to shard
-SELECT send_message('penfold', 'agent-penfdev', ARRAY['agent-penfdev'], 'Comment', 'Body', NULL, NULL, 'pf-xxx');
+SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-mycroft'], 'Comment', 'Body', NULL, NULL, 'pf-xxx');
 ```
 
 ## Critical Rules
 
 1. **Find or create shard BEFORE writing code**
 2. **Assign agent when creating**: `UPDATE shards SET owner = 'cli-dev' WHERE id = 'pf-xxx';`
-3. **Update status when starting**: `SELECT claim_task('pf-xxx', 'agent-penfdev');`
+3. **Update status when starting**: `SELECT claim_task('pf-xxx', 'agent-mycroft');`
 4. **Reference shard in commits**: `feat(component): description [pf-xxx]`
 5. **Close with commit hash**: `SELECT close_task('pf-xxx', 'commit <hash>: summary');`
 6. **(No sync needed - always live in DB)**
@@ -78,12 +78,12 @@ When creating shards, always specify which agent should do the work:
 
 ```sql
 -- Create shard and assign agent
-SELECT create_shard('penfold', 'Fix search help text', 'Details here', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Fix search help text', 'Details here', 'task', 'agent-mycroft');
 -- Then assign
 UPDATE shards SET owner = 'cli-dev' WHERE id = 'pf-xxx';
 
 -- Or for investigation work
-SELECT create_shard('penfold', 'Investigate flaky test', 'Details here', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Investigate flaky test', 'Details here', 'task', 'agent-mycroft');
 UPDATE shards SET owner = 'debugger' WHERE id = 'pf-xxx';
 ```
 
@@ -134,15 +134,15 @@ If all related shards are closed (count = 0), suggest closing the parent group t
 
 ```sql
 -- Create parent task (the "group")
-SELECT create_shard('penfold', '[GROUP] Feature Name', 'Overview of the feature', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', '[GROUP] Feature Name', 'Overview of the feature', 'task', 'agent-mycroft');
 -- Returns: pf-parent
 
 -- Create child task and link
-SELECT create_shard('penfold', 'Sub-task 1', 'Details', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Sub-task 1', 'Details', 'task', 'agent-mycroft');
 SELECT link('pf-child1', 'pf-parent', 'relates-to');
 
 -- Create another child task and link
-SELECT create_shard('penfold', 'Sub-task 2', 'Details', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Sub-task 2', 'Details', 'task', 'agent-mycroft');
 SELECT link('pf-child2', 'pf-parent', 'relates-to');
 ```
 

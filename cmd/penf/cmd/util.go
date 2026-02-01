@@ -80,4 +80,3 @@ func connectToRedis(ctx context.Context, cfg *config.CLIConfig) (*redis.Client, 
 
 	return client, nil
 }
-

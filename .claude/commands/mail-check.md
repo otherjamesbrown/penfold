@@ -5,7 +5,7 @@ Check inbox for new messages and propose actions using Context-Palace.
 ## Configuration
 
 ```yaml
-AGENT_NAME: agent-penfdev
+AGENT_NAME: agent-mycroft
 PROJECT: penfold
 DB_HOST: dev02.brown.chat
 DB_NAME: contextpalace
@@ -293,12 +293,12 @@ SELECT link('<MESSAGE_ID>', '<TASK_ID>', 'fixed-by');
 ```sql
 SELECT create_task_from(
   'penfold',           -- project
-  'agent-penfdev',     -- creator
+  'agent-mycroft',     -- creator
   'pf-xxx',            -- source message ID
   'fix: <title>',      -- task title
   '<description>',     -- task description
   1,                   -- priority (0-3)
-  'agent-penfdev'      -- owner (optional)
+  'agent-mycroft'      -- owner (optional)
 );
 ```
 

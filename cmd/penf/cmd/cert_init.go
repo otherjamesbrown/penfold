@@ -16,10 +16,10 @@ import (
 )
 
 var (
-	certInitFromDir   string
-	certInitCADir     string
-	certInitName      string
-	certInitForce     bool
+	certInitFromDir        string
+	certInitCADir          string
+	certInitName           string
+	certInitForce          bool
 	certInitNonInteractive bool
 )
 

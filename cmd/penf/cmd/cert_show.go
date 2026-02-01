@@ -19,29 +19,29 @@ import (
 
 // CertInfo contains certificate information for display.
 type CertInfo struct {
-	Path       string    `json:"path" yaml:"path"`
-	Subject    string    `json:"subject" yaml:"subject"`
-	Issuer     string    `json:"issuer" yaml:"issuer"`
-	ValidFrom  time.Time `json:"valid_from" yaml:"valid_from"`
-	ValidTo    time.Time `json:"valid_to" yaml:"valid_to"`
-	ExpiresIn  string    `json:"expires_in" yaml:"expires_in"`
-	DaysUntil  int       `json:"days_until_expiry" yaml:"days_until_expiry"`
-	Serial     string    `json:"serial,omitempty" yaml:"serial,omitempty"`
-	KeyUsage   []string  `json:"key_usage,omitempty" yaml:"key_usage,omitempty"`
-	ExtKeyUsage []string `json:"ext_key_usage,omitempty" yaml:"ext_key_usage,omitempty"`
-	IsExpired  bool      `json:"is_expired" yaml:"is_expired"`
-	IsExpiring bool      `json:"is_expiring" yaml:"is_expiring"` // Within 30 days
+	Path        string    `json:"path" yaml:"path"`
+	Subject     string    `json:"subject" yaml:"subject"`
+	Issuer      string    `json:"issuer" yaml:"issuer"`
+	ValidFrom   time.Time `json:"valid_from" yaml:"valid_from"`
+	ValidTo     time.Time `json:"valid_to" yaml:"valid_to"`
+	ExpiresIn   string    `json:"expires_in" yaml:"expires_in"`
+	DaysUntil   int       `json:"days_until_expiry" yaml:"days_until_expiry"`
+	Serial      string    `json:"serial,omitempty" yaml:"serial,omitempty"`
+	KeyUsage    []string  `json:"key_usage,omitempty" yaml:"key_usage,omitempty"`
+	ExtKeyUsage []string  `json:"ext_key_usage,omitempty" yaml:"ext_key_usage,omitempty"`
+	IsExpired   bool      `json:"is_expired" yaml:"is_expired"`
+	IsExpiring  bool      `json:"is_expiring" yaml:"is_expiring"` // Within 30 days
 }
 
 // CertShowOutput contains the full output of cert show.
 type CertShowOutput struct {
-	ClientCert     *CertInfo `json:"client_cert,omitempty" yaml:"client_cert,omitempty"`
-	CACert         *CertInfo `json:"ca_cert,omitempty" yaml:"ca_cert,omitempty"`
-	ChainValid     bool      `json:"chain_valid" yaml:"chain_valid"`
-	ChainError     string    `json:"chain_error,omitempty" yaml:"chain_error,omitempty"`
-	Status         string    `json:"status" yaml:"status"`
-	StatusMessage  string    `json:"status_message" yaml:"status_message"`
-	TLSConfigured  bool      `json:"tls_configured" yaml:"tls_configured"`
+	ClientCert    *CertInfo `json:"client_cert,omitempty" yaml:"client_cert,omitempty"`
+	CACert        *CertInfo `json:"ca_cert,omitempty" yaml:"ca_cert,omitempty"`
+	ChainValid    bool      `json:"chain_valid" yaml:"chain_valid"`
+	ChainError    string    `json:"chain_error,omitempty" yaml:"chain_error,omitempty"`
+	Status        string    `json:"status" yaml:"status"`
+	StatusMessage string    `json:"status_message" yaml:"status_message"`
+	TLSConfigured bool      `json:"tls_configured" yaml:"tls_configured"`
 }
 
 // cert show command flags.
@@ -240,14 +240,14 @@ func certToInfo(path string, cert *x509.Certificate) *CertInfo {
 	daysUntil := int(cert.NotAfter.Sub(now).Hours() / 24)
 
 	info := &CertInfo{
-		Path:      shortenPath(path),
-		Subject:   formatDN(cert.Subject.String()),
-		Issuer:    formatDN(cert.Issuer.String()),
-		ValidFrom: cert.NotBefore,
-		ValidTo:   cert.NotAfter,
-		ExpiresIn: formatCertExpiry(cert.NotAfter.Sub(now)),
-		DaysUntil: daysUntil,
-		IsExpired: now.After(cert.NotAfter),
+		Path:       shortenPath(path),
+		Subject:    formatDN(cert.Subject.String()),
+		Issuer:     formatDN(cert.Issuer.String()),
+		ValidFrom:  cert.NotBefore,
+		ValidTo:    cert.NotAfter,
+		ExpiresIn:  formatCertExpiry(cert.NotAfter.Sub(now)),
+		DaysUntil:  daysUntil,
+		IsExpired:  now.After(cert.NotAfter),
 		IsExpiring: daysUntil <= expiryWarningDays && daysUntil > 0,
 	}
 

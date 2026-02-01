@@ -111,15 +111,15 @@ func runProductQuery(ctx context.Context, deps *ProductCommandDeps, queryStr str
 
 // ProductQueryResponse represents the JSON/YAML output for a query.
 type ProductQueryResponse struct {
-	Query     string            `json:"query" yaml:"query"`
-	Type      string            `json:"type" yaml:"type"`
-	Message   string            `json:"message" yaml:"message"`
-	Products  []ProductSummary  `json:"products,omitempty" yaml:"products,omitempty"`
-	Persons   []PersonInfo      `json:"persons,omitempty" yaml:"persons,omitempty"`
-	Teams     []TeamInfo        `json:"teams,omitempty" yaml:"teams,omitempty"`
-	Events    []EventInfo       `json:"events,omitempty" yaml:"events,omitempty"`
-	Hierarchy *HierarchyInfo    `json:"hierarchy,omitempty" yaml:"hierarchy,omitempty"`
-	QueriedAt time.Time         `json:"queried_at" yaml:"queried_at"`
+	Query     string           `json:"query" yaml:"query"`
+	Type      string           `json:"type" yaml:"type"`
+	Message   string           `json:"message" yaml:"message"`
+	Products  []ProductSummary `json:"products,omitempty" yaml:"products,omitempty"`
+	Persons   []PersonInfo     `json:"persons,omitempty" yaml:"persons,omitempty"`
+	Teams     []TeamInfo       `json:"teams,omitempty" yaml:"teams,omitempty"`
+	Events    []EventInfo      `json:"events,omitempty" yaml:"events,omitempty"`
+	Hierarchy *HierarchyInfo   `json:"hierarchy,omitempty" yaml:"hierarchy,omitempty"`
+	QueriedAt time.Time        `json:"queried_at" yaml:"queried_at"`
 }
 
 // ProductSummary provides product info for query results.
@@ -162,9 +162,9 @@ type EventInfo struct {
 
 // HierarchyInfo provides hierarchy info.
 type HierarchyInfo struct {
-	ID          int64          `json:"id" yaml:"id"`
-	Name        string         `json:"name" yaml:"name"`
-	ProductType string         `json:"product_type" yaml:"product_type"`
+	ID          int64            `json:"id" yaml:"id"`
+	Name        string           `json:"name" yaml:"name"`
+	ProductType string           `json:"product_type" yaml:"product_type"`
 	Children    []ProductSummary `json:"children,omitempty" yaml:"children,omitempty"`
 }
 

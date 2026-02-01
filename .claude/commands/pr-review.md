@@ -46,7 +46,7 @@ After displaying the summary, create a shard to track this PR review work:
    - Additions: +<ADDITIONS>, Deletions: -<DELETIONS>
    - CI Status: <PASS/FAIL>
    - URL: <PR_URL>',
-     'task', 'agent-penfdev');
+     'task', 'agent-mycroft');
    ```
 
    Note the returned shard ID (pf-xxx) for use in subsequent commands.

@@ -4,7 +4,7 @@
 
 ```sql
 -- Current available work
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+SELECT * FROM tasks_for('penfold', 'agent-mycroft');
 
 -- All open work
 SELECT id, title, status, owner FROM shards
@@ -53,11 +53,11 @@ WHERE project = 'penfold'
   AND status = 'in_progress';
 
 -- 2. Find existing shard or create new one
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+SELECT * FROM tasks_for('penfold', 'agent-mycroft');
 
 -- Create new shard
-SELECT create_shard('penfold', 'Title', 'Description', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Title', 'Description', 'task', 'agent-mycroft');
 
 -- 3. Claim the work
-SELECT claim_task('pf-xxx', 'agent-penfdev');
+SELECT claim_task('pf-xxx', 'agent-mycroft');
 ```

@@ -30,7 +30,7 @@ var processesTemplate string
 var acronymReviewTemplate string
 
 var (
-	initServerAddr string
+	initServerAddr     string
 	initNonInteractive bool
 )
 

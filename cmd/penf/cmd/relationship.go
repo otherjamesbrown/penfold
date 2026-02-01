@@ -34,14 +34,14 @@ const (
 type RelationshipType string
 
 const (
-	RelationshipTypeColleague   RelationshipType = "colleague"
-	RelationshipTypeReportsTo   RelationshipType = "reports_to"
-	RelationshipTypeMemberOf    RelationshipType = "member_of"
-	RelationshipTypeWorksOn     RelationshipType = "works_on"
-	RelationshipTypeDiscusses   RelationshipType = "discusses"
-	RelationshipTypeMentions    RelationshipType = "mentions"
-	RelationshipTypeLocatedAt   RelationshipType = "located_at"
-	RelationshipTypeRelatedTo   RelationshipType = "related_to"
+	RelationshipTypeColleague RelationshipType = "colleague"
+	RelationshipTypeReportsTo RelationshipType = "reports_to"
+	RelationshipTypeMemberOf  RelationshipType = "member_of"
+	RelationshipTypeWorksOn   RelationshipType = "works_on"
+	RelationshipTypeDiscusses RelationshipType = "discusses"
+	RelationshipTypeMentions  RelationshipType = "mentions"
+	RelationshipTypeLocatedAt RelationshipType = "located_at"
+	RelationshipTypeRelatedTo RelationshipType = "related_to"
 )
 
 // ConflictResolutionStrategy defines how to resolve relationship conflicts.
@@ -56,32 +56,32 @@ const (
 
 // Entity represents a node in the relationship graph.
 type Entity struct {
-	ID             string            `json:"id" yaml:"id"`
-	Name           string            `json:"name" yaml:"name"`
-	Type           EntityType        `json:"type" yaml:"type"`
-	Aliases        []string          `json:"aliases,omitempty" yaml:"aliases,omitempty"`
-	Confidence     float64           `json:"confidence" yaml:"confidence"`
-	SourceCount    int               `json:"source_count" yaml:"source_count"`
-	FirstSeen      time.Time         `json:"first_seen" yaml:"first_seen"`
-	LastSeen       time.Time         `json:"last_seen" yaml:"last_seen"`
-	Metadata       map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
-	RelationCount  int               `json:"relation_count" yaml:"relation_count"`
+	ID            string            `json:"id" yaml:"id"`
+	Name          string            `json:"name" yaml:"name"`
+	Type          EntityType        `json:"type" yaml:"type"`
+	Aliases       []string          `json:"aliases,omitempty" yaml:"aliases,omitempty"`
+	Confidence    float64           `json:"confidence" yaml:"confidence"`
+	SourceCount   int               `json:"source_count" yaml:"source_count"`
+	FirstSeen     time.Time         `json:"first_seen" yaml:"first_seen"`
+	LastSeen      time.Time         `json:"last_seen" yaml:"last_seen"`
+	Metadata      map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	RelationCount int               `json:"relation_count" yaml:"relation_count"`
 }
 
 // Relationship represents an edge in the relationship graph.
 type Relationship struct {
-	ID           string           `json:"id" yaml:"id"`
-	SourceID     string           `json:"source_id" yaml:"source_id"`
-	SourceName   string           `json:"source_name" yaml:"source_name"`
-	TargetID     string           `json:"target_id" yaml:"target_id"`
-	TargetName   string           `json:"target_name" yaml:"target_name"`
-	Type         RelationshipType `json:"type" yaml:"type"`
-	Confidence   float64          `json:"confidence" yaml:"confidence"`
-	Weight       float64          `json:"weight" yaml:"weight"`
-	Evidence     []string         `json:"evidence,omitempty" yaml:"evidence,omitempty"`
-	FirstSeen    time.Time        `json:"first_seen" yaml:"first_seen"`
-	LastSeen     time.Time        `json:"last_seen" yaml:"last_seen"`
-	SourceCount  int              `json:"source_count" yaml:"source_count"`
+	ID          string           `json:"id" yaml:"id"`
+	SourceID    string           `json:"source_id" yaml:"source_id"`
+	SourceName  string           `json:"source_name" yaml:"source_name"`
+	TargetID    string           `json:"target_id" yaml:"target_id"`
+	TargetName  string           `json:"target_name" yaml:"target_name"`
+	Type        RelationshipType `json:"type" yaml:"type"`
+	Confidence  float64          `json:"confidence" yaml:"confidence"`
+	Weight      float64          `json:"weight" yaml:"weight"`
+	Evidence    []string         `json:"evidence,omitempty" yaml:"evidence,omitempty"`
+	FirstSeen   time.Time        `json:"first_seen" yaml:"first_seen"`
+	LastSeen    time.Time        `json:"last_seen" yaml:"last_seen"`
+	SourceCount int              `json:"source_count" yaml:"source_count"`
 }
 
 // RelationshipConflict represents a detected conflict between relationships.

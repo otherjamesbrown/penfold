@@ -9,7 +9,7 @@ Send a synchronous message and wait for response using Context-Palace.
 ## Configuration
 
 ```yaml
-AGENT_NAME: agent-penfdev
+AGENT_NAME: agent-mycroft
 PROJECT: penfold
 POLL_INTERVAL: 5  # seconds
 MAX_DURATION: 3600  # 60 minutes

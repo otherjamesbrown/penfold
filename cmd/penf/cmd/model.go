@@ -118,11 +118,11 @@ var defaultModelCatalog = []ModelCatalogEntry{
 
 // ModelCommandDeps holds the dependencies for model commands.
 type ModelCommandDeps struct {
-	Config       *config.CLIConfig
-	LoadConfig   func() (*config.CLIConfig, error)
-	ConfigDir    string
-	SidecarDir   string
-	GatewayAddr  string // Gateway gRPC address for AI service
+	Config      *config.CLIConfig
+	LoadConfig  func() (*config.CLIConfig, error)
+	ConfigDir   string
+	SidecarDir  string
+	GatewayAddr string // Gateway gRPC address for AI service
 }
 
 // DefaultModelDeps returns the default dependencies for production use.
@@ -1323,15 +1323,15 @@ func resolveModelID(deps *ModelCommandDeps, model string) string {
 
 	// Map short names to full IDs.
 	shortNames := map[string]string{
-		"phi":       "mlx-community/Phi-3.5-mini-instruct-4bit",
-		"phi-3.5":   "mlx-community/Phi-3.5-mini-instruct-4bit",
-		"qwen-32b":  "mlx-community/Qwen2.5-32B-Instruct-4bit",
-		"qwen-7b":   "mlx-community/Qwen2.5-7B-Instruct-4bit",
-		"qwen":      "mlx-community/Qwen2.5-7B-Instruct-4bit",
-		"llama-3b":  "mlx-community/Llama-3.2-3B-Instruct-4bit",
-		"llama":     "mlx-community/Llama-3.2-3B-Instruct-4bit",
-		"gemma":     "mlx-community/gemma-2-9b-it-4bit",
-		"gemma-9b":  "mlx-community/gemma-2-9b-it-4bit",
+		"phi":      "mlx-community/Phi-3.5-mini-instruct-4bit",
+		"phi-3.5":  "mlx-community/Phi-3.5-mini-instruct-4bit",
+		"qwen-32b": "mlx-community/Qwen2.5-32B-Instruct-4bit",
+		"qwen-7b":  "mlx-community/Qwen2.5-7B-Instruct-4bit",
+		"qwen":     "mlx-community/Qwen2.5-7B-Instruct-4bit",
+		"llama-3b": "mlx-community/Llama-3.2-3B-Instruct-4bit",
+		"llama":    "mlx-community/Llama-3.2-3B-Instruct-4bit",
+		"gemma":    "mlx-community/gemma-2-9b-it-4bit",
+		"gemma-9b": "mlx-community/gemma-2-9b-it-4bit",
 	}
 
 	if fullID, ok := shortNames[strings.ToLower(model)]; ok {

@@ -357,7 +357,7 @@ func TestFormatAnalysisResponse_FullAnalysis(t *testing.T) {
 		ActionItems: []client.ActionItem{
 			{Description: "Complete review", Priority: "high", Assignee: "Bob", DueDate: "2024-10-25"},
 		},
-		Insights: []string{"Good progress overall", "Consider adding more tests"},
+		Insights:  []string{"Good progress overall", "Consider adding more tests"},
 		ModelUsed: "llama-3.1-8b",
 	}
 

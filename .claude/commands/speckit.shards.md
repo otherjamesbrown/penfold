@@ -116,14 +116,14 @@ psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-ful
 
 ```sql
 -- Create group shard for the feature
-SELECT create_shard('penfold', '[GROUP] Feature Name: Implementation', 'Overview', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', '[GROUP] Feature Name: Implementation', 'Overview', 'task', 'agent-mycroft');
 -- Returns: pf-group
 
 -- Create shards (create ALL shards first, then link)
-SELECT create_shard('penfold', 'Feature: Phase 1 - Setup', 'Detailed description', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Feature: Phase 1 - Setup', 'Detailed description', 'task', 'agent-mycroft');
 -- Returns: pf-setup
 
-SELECT create_shard('penfold', 'Feature: Phase 2 - Foundation', 'Description', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Feature: Phase 2 - Foundation', 'Description', 'task', 'agent-mycroft');
 -- Returns: pf-foundation
 
 -- Link shards to group
@@ -136,7 +136,7 @@ JOIN edges e ON s.id = e.from_id
 WHERE e.to_id = 'pf-group' AND e.edge_type = 'relates-to';
 
 -- Find available work
-SELECT * FROM tasks_for('penfold', 'agent-penfdev');
+SELECT * FROM tasks_for('penfold', 'agent-mycroft');
 ```
 
 ### Phase Organization

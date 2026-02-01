@@ -26,12 +26,12 @@ var (
 
 // OnboardingContext represents the full context for post-import review.
 type OnboardingContext struct {
-	Summary             OnboardingSummary       `json:"summary"`
-	NewPeople           []OnboardingPerson      `json:"new_people,omitempty"`
-	NewAcronyms         []OnboardingAcronym     `json:"new_acronyms,omitempty"`
-	UnresolvedMentions  []OnboardingMention     `json:"unresolved_mentions,omitempty"`
-	PotentialDuplicates []OnboardingDuplicate   `json:"potential_duplicates,omitempty"`
-	Workflow            OnboardingWorkflow      `json:"workflow"`
+	Summary             OnboardingSummary     `json:"summary"`
+	NewPeople           []OnboardingPerson    `json:"new_people,omitempty"`
+	NewAcronyms         []OnboardingAcronym   `json:"new_acronyms,omitempty"`
+	UnresolvedMentions  []OnboardingMention   `json:"unresolved_mentions,omitempty"`
+	PotentialDuplicates []OnboardingDuplicate `json:"potential_duplicates,omitempty"`
+	Workflow            OnboardingWorkflow    `json:"workflow"`
 }
 
 // OnboardingSummary provides counts for each category.
@@ -45,14 +45,14 @@ type OnboardingSummary struct {
 
 // OnboardingPerson represents an auto-created person needing review.
 type OnboardingPerson struct {
-	ID            int64    `json:"id"`
-	CanonicalName string   `json:"canonical_name"`
+	ID             int64    `json:"id"`
+	CanonicalName  string   `json:"canonical_name"`
 	EmailAddresses []string `json:"email_addresses,omitempty"`
-	Company       string   `json:"company,omitempty"`
-	AutoCreated   bool     `json:"auto_created"`
-	NeedsReview   bool     `json:"needs_review"`
-	SourceCount   int      `json:"source_count"`
-	FirstSeen     string   `json:"first_seen,omitempty"`
+	Company        string   `json:"company,omitempty"`
+	AutoCreated    bool     `json:"auto_created"`
+	NeedsReview    bool     `json:"needs_review"`
+	SourceCount    int      `json:"source_count"`
+	FirstSeen      string   `json:"first_seen,omitempty"`
 }
 
 // OnboardingAcronym represents an unknown acronym needing review.
@@ -67,10 +67,10 @@ type OnboardingAcronym struct {
 
 // OnboardingMention represents an unresolved mention.
 type OnboardingMention struct {
-	ID             int64                `json:"id"`
-	MentionedText  string               `json:"mentioned_text"`
-	ContextSnippet string               `json:"context_snippet"`
-	Candidates     []MentionCandidate   `json:"candidates,omitempty"`
+	ID             int64              `json:"id"`
+	MentionedText  string             `json:"mentioned_text"`
+	ContextSnippet string             `json:"context_snippet"`
+	Candidates     []MentionCandidate `json:"candidates,omitempty"`
 }
 
 // MentionCandidate represents a possible match for a mention.
@@ -83,8 +83,8 @@ type MentionCandidate struct {
 
 // OnboardingDuplicate represents a potential duplicate person.
 type OnboardingDuplicate struct {
-	PersonID       int64  `json:"person_id"`
-	CanonicalName  string `json:"canonical_name"`
+	PersonID       int64    `json:"person_id"`
+	CanonicalName  string   `json:"canonical_name"`
 	EmailAddresses []string `json:"email_addresses,omitempty"`
 	PotentialMatch struct {
 		PersonID       int64    `json:"person_id"`
@@ -424,12 +424,12 @@ func runOnboardingBatch(ctx context.Context, deps *ProcessCommandDeps, jsonInput
 
 // OnboardingBatchRequest represents a batch of onboarding actions.
 type OnboardingBatchRequest struct {
-	MergePeople         []MergePeopleAction    `json:"merge_people,omitempty"`
-	ConfirmPeople       []int64                `json:"confirm_people,omitempty"`
-	AcronymResolutions  []AcronymResolution    `json:"acronym_resolutions,omitempty"`
-	AcronymDismissals   []AcronymDismissal     `json:"acronym_dismissals,omitempty"`
-	MentionResolutions  []MentionResolution    `json:"mention_resolutions,omitempty"`
-	MentionDismissals   []MentionDismissal     `json:"mention_dismissals,omitempty"`
+	MergePeople        []MergePeopleAction `json:"merge_people,omitempty"`
+	ConfirmPeople      []int64             `json:"confirm_people,omitempty"`
+	AcronymResolutions []AcronymResolution `json:"acronym_resolutions,omitempty"`
+	AcronymDismissals  []AcronymDismissal  `json:"acronym_dismissals,omitempty"`
+	MentionResolutions []MentionResolution `json:"mention_resolutions,omitempty"`
+	MentionDismissals  []MentionDismissal  `json:"mention_dismissals,omitempty"`
 }
 
 // MergePeopleAction represents a people merge.

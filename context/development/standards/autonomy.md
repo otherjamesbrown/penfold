@@ -110,7 +110,7 @@ When work spans domains:
 
 ```sql
 -- Create handoff shard
-SELECT create_shard('penfold', 'Handoff: description', 'Details', 'task', 'agent-penfdev');
+SELECT create_shard('penfold', 'Handoff: description', 'Details', 'task', 'agent-mycroft');
 -- Then assign
 UPDATE shards SET owner = 'target-agent' WHERE id = 'pf-xxx';
 ```

@@ -613,12 +613,12 @@ func TestGetWorkflowStatusColor(t *testing.T) {
 		status WorkflowStatus
 		color  string
 	}{
-		{WorkflowStatusCompleted, "\033[32m"},  // Green
-		{WorkflowStatusRunning, "\033[34m"},    // Blue
-		{WorkflowStatusPending, "\033[33m"},    // Yellow
-		{WorkflowStatusFailed, "\033[31m"},     // Red
-		{WorkflowStatusCancelled, "\033[90m"},  // Gray
-		{WorkflowStatus("unknown"), ""},        // No color
+		{WorkflowStatusCompleted, "\033[32m"}, // Green
+		{WorkflowStatusRunning, "\033[34m"},   // Blue
+		{WorkflowStatusPending, "\033[33m"},   // Yellow
+		{WorkflowStatusFailed, "\033[31m"},    // Red
+		{WorkflowStatusCancelled, "\033[90m"}, // Gray
+		{WorkflowStatus("unknown"), ""},       // No color
 	}
 
 	for _, tc := range tests {

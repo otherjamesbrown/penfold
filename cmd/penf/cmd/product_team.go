@@ -778,4 +778,3 @@ func outputProductPeopleTableProto(productName string, people []*productv1.Produ
 	fmt.Println()
 	return nil
 }
-

@@ -149,7 +149,7 @@ When bugs or feature requests come through Agent Mail, they must be tracked in C
    - Sub-shards if the work naturally splits (e.g., fix + migration + tests)
 
    ```sql
-   SELECT create_shard('penfold', 'Bug: description', 'Details from report', 'task', 'agent-penfdev');
+   SELECT create_shard('penfold', 'Bug: description', 'Details from report', 'task', 'agent-mycroft');
    ```
 
 2. **Reply ASAP** with acknowledgment and tracking info:
@@ -236,7 +236,7 @@ bugs = search_messages(
 
 ```python
 # 1. Create shard(s) first via SQL
-# SELECT create_shard('penfold', 'Fix: <description>', 'Details', 'task', 'agent-penfdev');
+# SELECT create_shard('penfold', 'Fix: <description>', 'Details', 'task', 'agent-mycroft');
 
 # 2. Reply with shard ID(s)
 # IMPORTANT: Always specify `to` explicitly - see Troubleshooting
