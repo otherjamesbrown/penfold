@@ -4,6 +4,7 @@ package contextpalace
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -597,6 +598,148 @@ func (c *Client) CloseShard(ctx context.Context, id, resolution string) error {
 	}
 
 	return nil
+}
+
+// Message represents a Context-Palace message.
+type Message struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Creator   string    `json:"creator"`
+	Kind      string    `json:"kind,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// InboxSummary represents inbox statistics.
+type InboxSummary struct {
+	TotalUnread  int64                  `json:"total_unread"`
+	ByKind       map[string]int64       `json:"by_kind"`
+	UrgentCount  int64                  `json:"urgent_count"`
+	OldestUnread *time.Time             `json:"oldest_unread,omitempty"`
+}
+
+// SendMessageOptions contains optional parameters for sending messages.
+type SendMessageOptions struct {
+	CC      []string
+	Kind    string
+	ReplyTo string
+}
+
+// SendMessage sends a message using the send_message() function.
+func (c *Client) SendMessage(ctx context.Context, recipients []string, subject, body string, opts *SendMessageOptions) (string, error) {
+	if opts == nil {
+		opts = &SendMessageOptions{}
+	}
+
+	query := `SELECT send_message($1, $2, $3, $4, $5, $6, $7, $8)`
+
+	var messageID string
+	err := c.db.QueryRowContext(ctx, query,
+		c.project,
+		c.agent,
+		pq.Array(recipients),
+		subject,
+		body,
+		nullIfEmptyArray(opts.CC),
+		nullIfEmpty(opts.Kind),
+		nullIfEmpty(opts.ReplyTo),
+	).Scan(&messageID)
+	if err != nil {
+		return "", fmt.Errorf("sending message: %w", err)
+	}
+
+	return messageID, nil
+}
+
+// GetUnread retrieves unread messages for the current agent.
+func (c *Client) GetUnread(ctx context.Context) ([]Message, error) {
+	query := `SELECT * FROM unread_for($1, $2)`
+
+	rows, err := c.db.QueryContext(ctx, query, c.project, c.agent)
+	if err != nil {
+		return nil, fmt.Errorf("querying unread messages: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []Message
+	for rows.Next() {
+		var m Message
+		var kind sql.NullString
+		err := rows.Scan(&m.ID, &m.Title, &m.Creator, &kind, &m.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("scanning message: %w", err)
+		}
+		m.Kind = kind.String
+		messages = append(messages, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating messages: %w", err)
+	}
+
+	return messages, nil
+}
+
+// GetInboxSummary retrieves inbox statistics for the current agent.
+func (c *Client) GetInboxSummary(ctx context.Context) (*InboxSummary, error) {
+	query := `SELECT * FROM inbox_summary($1, $2)`
+
+	var summary InboxSummary
+	var byKindJSON []byte
+	var oldestUnread sql.NullTime
+
+	err := c.db.QueryRowContext(ctx, query, c.project, c.agent).Scan(
+		&summary.TotalUnread,
+		&byKindJSON,
+		&summary.UrgentCount,
+		&oldestUnread,
+	)
+	if err == sql.ErrNoRows {
+		return &InboxSummary{ByKind: make(map[string]int64)}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("querying inbox summary: %w", err)
+	}
+
+	// Parse by_kind JSON
+	summary.ByKind = make(map[string]int64)
+	if len(byKindJSON) > 0 {
+		// Parse the JSONB as a map
+		var byKindRaw map[string]interface{}
+		if err := json.Unmarshal(byKindJSON, &byKindRaw); err == nil {
+			for k, v := range byKindRaw {
+				if n, ok := v.(float64); ok {
+					summary.ByKind[k] = int64(n)
+				}
+			}
+		}
+	}
+
+	if oldestUnread.Valid {
+		summary.OldestUnread = &oldestUnread.Time
+	}
+
+	return &summary, nil
+}
+
+// MarkRead marks messages as read for the current agent.
+func (c *Client) MarkRead(ctx context.Context, shardIDs []string) (int, error) {
+	query := `SELECT mark_read($1, $2)`
+
+	var count int
+	err := c.db.QueryRowContext(ctx, query, pq.Array(shardIDs), c.agent).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("marking messages read: %w", err)
+	}
+
+	return count, nil
+}
+
+// nullIfEmptyArray returns nil if the slice is empty or nil.
+func nullIfEmptyArray(s []string) interface{} {
+	if len(s) == 0 {
+		return nil
+	}
+	return pq.Array(s)
 }
 
 // SearchShards performs full-text search on shards.
