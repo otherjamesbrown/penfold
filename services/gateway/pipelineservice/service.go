@@ -304,16 +304,17 @@ func statsToProto(s *pipeline.PipelineStats) *pipelinev1.PipelineStats {
 	}
 
 	return &pipelinev1.PipelineStats{
-		SourcesTotal:      s.SourcesTotal,
-		SourcesByStatus:   statusCountsToProto(s.SourcesByStatus),
-		EmbeddingsTotal:   s.EmbeddingsTotal,
-		EmbeddingsRecent:  s.EmbeddingsRecent,
-		AttachmentsTotal:  s.AttachmentsTotal,
-		AttachmentsByTier: statusCountsToProto(s.AttachmentsByTier),
-		JobsTotal:         s.JobsTotal,
-		JobsByStatus:      statusCountsToProto(s.JobsByStatus),
-		RecentJobs:        recentJobs,
-		Timestamp:         timestamppb.New(s.Timestamp),
+		SourcesTotal:               s.SourcesTotal,
+		SourcesByStatus:            statusCountsToProto(s.SourcesByStatus),
+		SourcesByFailureCategory:   statusCountsToProto(s.SourcesByFailureCategory),
+		EmbeddingsTotal:            s.EmbeddingsTotal,
+		EmbeddingsRecent:           s.EmbeddingsRecent,
+		AttachmentsTotal:           s.AttachmentsTotal,
+		AttachmentsByTier:          statusCountsToProto(s.AttachmentsByTier),
+		JobsTotal:                  s.JobsTotal,
+		JobsByStatus:               statusCountsToProto(s.JobsByStatus),
+		RecentJobs:                 recentJobs,
+		Timestamp:                  timestamppb.New(s.Timestamp),
 	}
 }
 

@@ -38,6 +38,13 @@ func (r *Repository) GetStats(ctx context.Context) (*PipelineStats, error) {
 		return nil, fmt.Errorf("counting sources by status: %w", err)
 	}
 
+	// Sources by failure category (for failed/rejected items)
+	stats.SourcesByFailureCategory, err = r.GetFailureCategoryCounts(ctx)
+	if err != nil {
+		// Don't fail if failure categories aren't populated yet - just log it
+		stats.SourcesByFailureCategory = []StatusCount{}
+	}
+
 	// Embeddings total (table might not exist)
 	err = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM embeddings").Scan(&stats.EmbeddingsTotal)
 	if err != nil {
@@ -299,4 +306,20 @@ func (r *Repository) ListDeletedSources(ctx context.Context, limit int) ([]Delet
 	}
 
 	return sources, rows.Err()
+}
+
+// GetFailureCategoryCounts retrieves counts of sources grouped by failure category.
+// Only includes sources with failed/rejected status that have a failure_category set.
+func (r *Repository) GetFailureCategoryCounts(ctx context.Context) ([]StatusCount, error) {
+	query := `
+		SELECT failure_category, COUNT(*)
+		FROM sources
+		WHERE is_deleted = false
+		  AND processing_status IN ('failed', 'rejected')
+		  AND failure_category IS NOT NULL
+		  AND failure_category != ''
+		GROUP BY failure_category
+		ORDER BY COUNT(*) DESC
+	`
+	return r.getStatusCounts(ctx, query)
 }

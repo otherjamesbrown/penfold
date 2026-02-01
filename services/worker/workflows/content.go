@@ -81,11 +81,26 @@ type (
 		ProcessingTimeMs int    `json:"processing_time_ms"`
 	}
 
-	// UpdateContentStatusInput is the input for the UpdateContentStatus activity.
-	UpdateContentStatusInput struct {
+	// ValidateContentInput is the input for the ValidateContent activity.
+	ValidateContentInput struct {
 		TenantID string `json:"tenant_id"`
 		SourceID int64  `json:"source_id"`
-		Status   string `json:"status"`
+	}
+
+	// ValidateContentOutput is the result of content validation.
+	ValidateContentOutput struct {
+		Valid           bool   `json:"valid"`
+		FailureCategory string `json:"failure_category,omitempty"`
+		FailureReason   string `json:"failure_reason,omitempty"`
+	}
+
+	// UpdateContentStatusInput is the input for the UpdateContentStatus activity.
+	UpdateContentStatusInput struct {
+		TenantID        string `json:"tenant_id"`
+		SourceID        int64  `json:"source_id"`
+		Status          string `json:"status"`
+		FailureCategory string `json:"failure_category,omitempty"`
+		FailureReason   string `json:"failure_reason,omitempty"`
 	}
 
 	// RollbackContentInput is the input for the RollbackContent compensation activity.
@@ -131,7 +146,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		status: ContentIngestionWorkflowStatus{
 			Stage:          "initializing",
 			StepsCompleted: 0,
-			TotalSteps:     7,
+			TotalSteps:     8, // Updated: validation + 7 existing steps
 			LastActivity:   "",
 			StartedAt:      workflow.Now(ctx),
 			LastUpdated:    workflow.Now(ctx),
@@ -219,11 +234,50 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		state.status.LastUpdated = workflow.Now(ctx)
 	}
 
+	// Step 0: Validate content (fail fast)
+	updateStatus("validating", "ValidateContent")
+	var validateOutput ValidateContentOutput
+	ctx0 := workflow.WithActivityOptions(ctx, fastOpts)
+	err := workflow.ExecuteActivity(ctx0, "ValidateContent", ValidateContentInput{
+		TenantID: input.TenantID,
+		SourceID: input.SourceID,
+	}).Get(ctx, &validateOutput)
+	if err != nil {
+		state.result.Status = "failed"
+		state.result.Error = fmt.Sprintf("validation_failed: %v", err)
+		state.status.ErrorMessage = state.result.Error
+		logger.Error("Content validation activity failed", "error", err)
+		return state.result, nil
+	}
+	if !validateOutput.Valid {
+		// Update status to "rejected" with failure info
+		logger.Info("Content validation failed, marking as rejected",
+			"category", validateOutput.FailureCategory,
+			"reason", validateOutput.FailureReason,
+		)
+		ctx0Update := workflow.WithActivityOptions(ctx, fastOpts)
+		err = workflow.ExecuteActivity(ctx0Update, "UpdateContentStatus", UpdateContentStatusInput{
+			TenantID:        input.TenantID,
+			SourceID:        input.SourceID,
+			Status:          "rejected",
+			FailureCategory: validateOutput.FailureCategory,
+			FailureReason:   validateOutput.FailureReason,
+		}).Get(ctx, nil)
+		if err != nil {
+			logger.Warn("Failed to update status to rejected", "error", err)
+		}
+		state.result.Status = "rejected"
+		state.result.Error = fmt.Sprintf("%s: %s", validateOutput.FailureCategory, validateOutput.FailureReason)
+		updateStatus("rejected", "")
+		return state.result, nil
+	}
+	state.status.StepsCompleted = 1
+
 	// Step 1: Fetch content
 	updateStatus("fetching_content", "FetchContent")
 	var fetchOutput FetchContentOutput
 	ctx1 := workflow.WithActivityOptions(ctx, fastOpts)
-	err := workflow.ExecuteActivity(ctx1, "FetchContent", FetchContentInput{
+	err = workflow.ExecuteActivity(ctx1, "FetchContent", FetchContentInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 	}).Get(ctx, &fetchOutput)
@@ -234,7 +288,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		logger.Error("Failed to fetch content", "error", err)
 		return state.result, nil
 	}
-	state.status.StepsCompleted = 1
+	state.status.StepsCompleted = 2
 
 	// Check for cancellation
 	if checkCancellation() {
@@ -272,7 +326,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		})
 		logger.Debug("Embedding generated", "embedding_id", embeddingID)
 	}
-	state.status.StepsCompleted = 2
+	state.status.StepsCompleted = 3
 
 	if checkCancellation() {
 		runCompensation(ctx)
@@ -306,7 +360,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		})
 		logger.Debug("Summary generated", "summary_id", summaryID)
 	}
-	state.status.StepsCompleted = 3
+	state.status.StepsCompleted = 4
 
 	if checkCancellation() {
 		runCompensation(ctx)
@@ -332,7 +386,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		state.result.EntityCount = entityCount
 		logger.Debug("Entities extracted", "count", entityCount)
 	}
-	state.status.StepsCompleted = 4
+	state.status.StepsCompleted = 5
 
 	if checkCancellation() {
 		runCompensation(ctx)
@@ -358,7 +412,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		state.result.ExtractedTopics = topics
 		logger.Debug("Topics extracted", "count", len(topics))
 	}
-	state.status.StepsCompleted = 5
+	state.status.StepsCompleted = 6
 
 	if checkCancellation() {
 		runCompensation(ctx)
@@ -390,7 +444,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 			"queued", mentionsOutput.QueuedForReview,
 		)
 	}
-	state.status.StepsCompleted = 6
+	state.status.StepsCompleted = 7
 
 	if checkCancellation() {
 		runCompensation(ctx)
@@ -430,14 +484,16 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	}
 
 	err = workflow.ExecuteActivity(ctx7, "UpdateContentStatus", UpdateContentStatusInput{
-		TenantID: input.TenantID,
-		SourceID: input.SourceID,
-		Status:   finalStatus,
+		TenantID:        input.TenantID,
+		SourceID:        input.SourceID,
+		Status:          finalStatus,
+		FailureCategory: "", // No failure for completed/failed status
+		FailureReason:   "", // Error is in state.result.Error
 	}).Get(ctx, nil)
 	if err != nil {
 		logger.Warn("Status update failed", "error", err)
 	}
-	state.status.StepsCompleted = 7
+	state.status.StepsCompleted = 8
 
 	updateStatus(finalStatus, "")
 	return state.result, nil

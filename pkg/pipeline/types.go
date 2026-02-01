@@ -36,16 +36,17 @@ type SourceStats struct {
 
 // PipelineStats contains overall pipeline statistics.
 type PipelineStats struct {
-	SourcesTotal      int64
-	SourcesByStatus   []StatusCount
-	EmbeddingsTotal   int64
-	EmbeddingsRecent  int64
-	AttachmentsTotal  int64
-	AttachmentsByTier []StatusCount
-	JobsTotal         int64
-	JobsByStatus      []StatusCount
-	RecentJobs        []JobSummary
-	Timestamp         time.Time
+	SourcesTotal              int64
+	SourcesByStatus           []StatusCount
+	SourcesByFailureCategory  []StatusCount
+	EmbeddingsTotal           int64
+	EmbeddingsRecent          int64
+	AttachmentsTotal          int64
+	AttachmentsByTier         []StatusCount
+	JobsTotal                 int64
+	JobsByStatus              []StatusCount
+	RecentJobs                []JobSummary
+	Timestamp                 time.Time
 }
 
 // JobFilter contains filter parameters for listing jobs.

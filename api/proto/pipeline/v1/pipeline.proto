@@ -59,6 +59,16 @@ message StatusCount {
   int64 count = 2;
 }
 
+// FailureCategory identifies why content failed validation or processing.
+enum FailureCategory {
+  FAILURE_CATEGORY_UNSPECIFIED = 0;
+  FAILURE_CATEGORY_EMPTY_CONTENT = 1;
+  FAILURE_CATEGORY_CORRUPT_FILE = 2;
+  FAILURE_CATEGORY_MALFORMED_STRUCTURE = 3;
+  FAILURE_CATEGORY_PROCESSING_ERROR = 4;
+  FAILURE_CATEGORY_UNSUPPORTED_FORMAT = 5;
+}
+
 // JobSummary represents summary information about an ingest job.
 message JobSummary {
   // Unique job identifier (UUID).
@@ -138,6 +148,9 @@ message PipelineStats {
 
   // When the stats were collected.
   google.protobuf.Timestamp timestamp = 10;
+
+  // Sources grouped by failure category (for failed/rejected items).
+  repeated StatusCount sources_by_failure_category = 11;
 }
 
 // =============================================================================

@@ -575,6 +575,39 @@ func (r *Repository) UpdateSourceStatus(ctx context.Context, tenantID string, so
 	return nil
 }
 
+// UpdateSourceStatusWithFailure updates the processing status and failure info of a source.
+func (r *Repository) UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string) error {
+	// Use default tenant if not specified or not a valid UUID
+	if tenantID == "" || tenantID == "default" {
+		tenantID = DefaultTenantID
+	}
+
+	query := `
+		UPDATE sources
+		SET processing_status = $3,
+		    failure_category = $4,
+		    failure_reason = $5,
+		    updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+	`
+
+	result, err := r.pool.Exec(ctx, query, sourceID, tenantID, status, failureCategory, failureReason)
+	if err != nil {
+		return fmt.Errorf("failed to update source %d status: %w", sourceID, err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("source not found: %d", sourceID)
+	}
+
+	r.logger.Debug("Source status updated with failure info",
+		logging.F("source_id", sourceID),
+		logging.F("status", status),
+		logging.F("failure_category", failureCategory))
+
+	return nil
+}
+
 // GetRemainingFilesForJob returns files that haven't been processed yet for a resumed job.
 // This requires the caller to provide the full file list and we filter out already processed files.
 func (r *Repository) GetRemainingFilesForJob(ctx context.Context, jobID string, allFiles []string) ([]string, error) {

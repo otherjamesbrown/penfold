@@ -74,6 +74,10 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 
 	// ContentIngestionWorkflow needs these activities
 	if r.activities != nil {
+		// ValidateContent - validates content before processing
+		w.RegisterActivityWithOptions(r.activities.ValidateContent, activity.RegisterOptions{
+			Name: "ValidateContent",
+		})
 		// FetchContent - fetches source content from database
 		w.RegisterActivityWithOptions(r.activities.FetchSource, activity.RegisterOptions{
 			Name: "FetchContent",
@@ -203,9 +207,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 	switch taskQueue {
 	case config.MainTaskQueue:
 		count := 0
-		// FetchContent, UpdateContentStatus
+		// ValidateContent, FetchContent, UpdateContentStatus
 		if r.activities != nil {
-			count += 2
+			count += 3
 		}
 		// GenerateContentEmbedding
 		if r.embeddingActivities != nil || r.activities != nil {

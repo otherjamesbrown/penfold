@@ -20,6 +20,14 @@ type ContentIngestionMockActivities struct {
 	mock.Mock
 }
 
+func (m *ContentIngestionMockActivities) ValidateContent(ctx context.Context, input ValidateContentInput) (*ValidateContentOutput, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ValidateContentOutput), args.Error(1)
+}
+
 func (m *ContentIngestionMockActivities) FetchContent(ctx context.Context, input FetchContentInput) (*FetchContentOutput, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
@@ -80,6 +88,9 @@ func (s *ContentIngestionWorkflowTestSuite) SetupTest() {
 	s.activities = &ContentIngestionMockActivities{}
 
 	// Register mock activities
+	s.env.RegisterActivityWithOptions(s.activities.ValidateContent, activity.RegisterOptions{
+		Name: "ValidateContent",
+	})
 	s.env.RegisterActivityWithOptions(s.activities.FetchContent, activity.RegisterOptions{
 		Name: "FetchContent",
 	})
@@ -113,6 +124,13 @@ func (s *ContentIngestionWorkflowTestSuite) AfterTest(suiteName, testName string
 // TestContentIngestionWorkflow_Success tests the happy path.
 func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Success() {
 	// Arrange
+	s.activities.On("ValidateContent", mock.Anything, ValidateContentInput{
+		TenantID: "tenant-123",
+		SourceID: 456,
+	}).Return(&ValidateContentOutput{
+		Valid: true,
+	}, nil)
+
 	s.activities.On("FetchContent", mock.Anything, FetchContentInput{
 		TenantID: "tenant-123",
 		SourceID: 456,
@@ -138,9 +156,11 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Success
 	})).Return([]string{"technology", "business", "innovation"}, nil)
 
 	s.activities.On("UpdateContentStatus", mock.Anything, UpdateContentStatusInput{
-		TenantID: "tenant-123",
-		SourceID: 456,
-		Status:   "completed",
+		TenantID:        "tenant-123",
+		SourceID:        456,
+		Status:          "completed",
+		FailureCategory: "",
+		FailureReason:   "",
 	}).Return(nil)
 
 	// Act
@@ -171,6 +191,10 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Success
 // TestContentIngestionWorkflow_FetchContentFails tests handling when FetchContent fails.
 func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_FetchContentFails() {
 	// Arrange
+	s.activities.On("ValidateContent", mock.Anything, mock.Anything).Return(&ValidateContentOutput{
+		Valid: true,
+	}, nil)
+
 	s.activities.On("FetchContent", mock.Anything, mock.Anything).Return(
 		nil,
 		temporal.NewNonRetryableApplicationError("content not found", "NotFoundError", nil),
@@ -199,6 +223,10 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_FetchCo
 // causes the workflow to mark the source as failed. Embedding is critical for search.
 func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_EmbeddingFailsMarksAsFailed() {
 	// Arrange
+	s.activities.On("ValidateContent", mock.Anything, mock.Anything).Return(&ValidateContentOutput{
+		Valid: true,
+	}, nil)
+
 	s.activities.On("FetchContent", mock.Anything, mock.Anything).Return(&FetchContentOutput{
 		ContentText: "Test content",
 		ContentType: "text/plain",
@@ -214,9 +242,11 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Embeddi
 	s.activities.On("ExtractTopics", mock.Anything, mock.Anything).Return([]string{"topic1"}, nil)
 	// Expect status to be "failed" because embedding is critical
 	s.activities.On("UpdateContentStatus", mock.Anything, UpdateContentStatusInput{
-		TenantID: "tenant-123",
-		SourceID: 456,
-		Status:   "failed",
+		TenantID:        "tenant-123",
+		SourceID:        456,
+		Status:          "failed",
+		FailureCategory: "",
+		FailureReason:   "",
 	}).Return(nil)
 
 	// Act
@@ -245,6 +275,10 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Embeddi
 // Since embedding is critical, the source should be marked as failed.
 func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_AllLLMOperationsFail() {
 	// Arrange
+	s.activities.On("ValidateContent", mock.Anything, mock.Anything).Return(&ValidateContentOutput{
+		Valid: true,
+	}, nil)
+
 	s.activities.On("FetchContent", mock.Anything, mock.Anything).Return(&FetchContentOutput{
 		ContentText: "Test content",
 		ContentType: "text/plain",
@@ -264,9 +298,11 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_AllLLMO
 	)
 	// Expect "failed" status because embedding failed
 	s.activities.On("UpdateContentStatus", mock.Anything, UpdateContentStatusInput{
-		TenantID: "tenant-123",
-		SourceID: 456,
-		Status:   "failed",
+		TenantID:        "tenant-123",
+		SourceID:        456,
+		Status:          "failed",
+		FailureCategory: "",
+		FailureReason:   "",
 	}).Return(nil)
 
 	// Act
@@ -295,6 +331,10 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_AllLLMO
 // TestContentIngestionWorkflow_QueryStatus tests the status query handler.
 func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_QueryStatus() {
 	// Arrange
+	s.activities.On("ValidateContent", mock.Anything, mock.Anything).Return(&ValidateContentOutput{
+		Valid: true,
+	}, nil)
+
 	s.activities.On("FetchContent", mock.Anything, mock.Anything).Return(&FetchContentOutput{
 		ContentText: "Test content",
 		ContentType: "text/plain",
@@ -324,13 +364,17 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_QuerySt
 	var status ContentIngestionWorkflowStatus
 	require.NoError(s.T(), result.Get(&status))
 	s.Equal("completed", status.Stage)
-	s.Equal(7, status.StepsCompleted)
-	s.Equal(7, status.TotalSteps)
+	s.Equal(8, status.StepsCompleted)
+	s.Equal(8, status.TotalSteps)
 }
 
 // TestContentIngestionWorkflow_CancellationSignal tests cancellation with signal.
 func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_CancellationSignal() {
 	// Arrange
+	s.activities.On("ValidateContent", mock.Anything, mock.Anything).Return(&ValidateContentOutput{
+		Valid: true,
+	}, nil)
+
 	var fetchCalled bool
 	s.activities.On("FetchContent", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		fetchCalled = true
@@ -376,6 +420,7 @@ func TestContentIngestionWorkflowTestSuite(t *testing.T) {
 // registerStandaloneActivities registers mock activity stubs for standalone tests.
 func registerStandaloneActivities(env *testsuite.TestWorkflowEnvironment) {
 	activities := &ContentIngestionMockActivities{}
+	env.RegisterActivityWithOptions(activities.ValidateContent, activity.RegisterOptions{Name: "ValidateContent"})
 	env.RegisterActivityWithOptions(activities.FetchContent, activity.RegisterOptions{Name: "FetchContent"})
 	env.RegisterActivityWithOptions(activities.GenerateContentEmbedding, activity.RegisterOptions{Name: "GenerateContentEmbedding"})
 	env.RegisterActivityWithOptions(activities.GenerateContentSummary, activity.RegisterOptions{Name: "GenerateContentSummary"})
@@ -390,6 +435,10 @@ func TestContentIngestionWorkflow_EmptyContent(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	registerStandaloneActivities(env)
+
+	env.OnActivity("ValidateContent", mock.Anything, mock.Anything).Return(&ValidateContentOutput{
+		Valid: true,
+	}, nil)
 
 	// Register activities that return empty content
 	env.OnActivity("FetchContent", mock.Anything, mock.Anything).Return(&FetchContentOutput{
@@ -423,6 +472,10 @@ func TestContentIngestionWorkflow_LargeContent(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	registerStandaloneActivities(env)
+
+	env.OnActivity("ValidateContent", mock.Anything, mock.Anything).Return(&ValidateContentOutput{
+		Valid: true,
+	}, nil)
 
 	// Generate large content
 	largeContent := make([]byte, 1024*1024) // 1MB
@@ -463,6 +516,10 @@ func TestContentIngestionWorkflow_RetryBehavior(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	registerStandaloneActivities(env)
+
+	env.OnActivity("ValidateContent", mock.Anything, mock.Anything).Return(&ValidateContentOutput{
+		Valid: true,
+	}, nil)
 
 	var fetchAttempts int
 	// Note: Using Times(1) for first call (fails), then a second call (succeeds)

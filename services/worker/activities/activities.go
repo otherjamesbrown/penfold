@@ -279,13 +279,33 @@ func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.Upd
 
 	tenantID := resolveTenantID(input.TenantID)
 
-	query := `
-		UPDATE sources
-		SET processing_status = $3, updated_at = NOW()
-		WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
-	`
+	// Build query based on whether failure info is provided
+	var query string
+	var args []interface{}
+	if input.FailureCategory != "" || input.FailureReason != "" {
+		query = `
+			UPDATE sources
+			SET processing_status = $3,
+			    failure_category = $4,
+			    failure_reason = $5,
+			    updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+		`
+		args = []interface{}{input.SourceID, tenantID, input.Status, input.FailureCategory, input.FailureReason}
+		logger.Info("Updating status with failure info",
+			logging.F("category", input.FailureCategory),
+			logging.F("reason", input.FailureReason),
+		)
+	} else {
+		query = `
+			UPDATE sources
+			SET processing_status = $3, updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+		`
+		args = []interface{}{input.SourceID, tenantID, input.Status}
+	}
 
-	result, err := a.db.Exec(ctx, query, input.SourceID, tenantID, input.Status)
+	result, err := a.db.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to update source %d status: %w", input.SourceID, err)
 	}

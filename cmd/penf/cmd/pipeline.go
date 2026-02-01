@@ -281,6 +281,12 @@ func outputPipelineStatsHuman(stats *pipelinev1.PipelineStats) error {
 			fmt.Printf("    %s%-12s\033[0m %d\n", color, sc.Status, sc.Count)
 		}
 	}
+	if len(stats.SourcesByFailureCategory) > 0 {
+		fmt.Println("  By Failure Category:")
+		for _, sc := range stats.SourcesByFailureCategory {
+			fmt.Printf("    %-20s %d\n", sc.Status, sc.Count)
+		}
+	}
 	fmt.Println()
 
 	// Embeddings

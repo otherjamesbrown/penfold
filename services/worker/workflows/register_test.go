@@ -78,24 +78,24 @@ func TestNewRegistrar(t *testing.T) {
 func TestWorkflowCount_MainQueue(t *testing.T) {
 	r := NewRegistrar()
 	count := r.WorkflowCount(config.MainTaskQueue)
-	// Currently no workflows registered for main queue
-	require.Equal(t, 0, count)
+	// ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow
+	require.Equal(t, 3, count)
 }
 
 // TestWorkflowCount_AIQueue verifies workflow count for AI queue.
 func TestWorkflowCount_AIQueue(t *testing.T) {
 	r := NewRegistrar()
 	count := r.WorkflowCount(config.AITaskQueue)
-	// Currently no workflows registered for AI queue
-	require.Equal(t, 0, count)
+	// AnalysisWorkflow
+	require.Equal(t, 1, count)
 }
 
 // TestWorkflowCount_EmailQueue verifies workflow count for email queue.
 func TestWorkflowCount_EmailQueue(t *testing.T) {
 	r := NewRegistrar()
 	count := r.WorkflowCount(config.EmailTaskQueue)
-	// EmailProcessingWorkflow is registered
-	require.Equal(t, 1, count)
+	// EmailProcessingWorkflow, GmailSyncWorkflow
+	require.Equal(t, 2, count)
 }
 
 // TestWorkflowCount_UnknownQueue verifies workflow count for unknown queue.
