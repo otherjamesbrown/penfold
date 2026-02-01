@@ -50,11 +50,13 @@ End with something like:
 
 ### Step 5: Claim the Handoff
 
-Once James decides to continue, mark it claimed:
+Once James decides to continue, mark it claimed using your agent identity from CLAUDE.md:
 
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT claim_task('pf-xxx', 'agent-penf');"
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT claim_task('pf-xxx', 'YOUR_AGENT_ID');"
 ```
+
+(Replace `YOUR_AGENT_ID` with your identity from the `My Identity` section in CLAUDE.md)
 
 ## No Handoff Found?
 

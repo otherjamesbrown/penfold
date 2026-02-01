@@ -32,6 +32,8 @@ Collect all relevant information from the current session:
 
 ### Step 3: Create Handoff Shard
 
+Use your agent identity from CLAUDE.md (`My Identity` section):
+
 ```sql
 SELECT create_shard('penfold',
   'Handoff: $BRIEF_SUMMARY',
@@ -54,7 +56,7 @@ SELECT create_shard('penfold',
 ## Architecture Notes
 <any relevant patterns>',
   'task',
-  'agent-penfdev');
+  'YOUR_AGENT_ID');
 ```
 
 ### Step 4: Add Penfold-Specific Context
