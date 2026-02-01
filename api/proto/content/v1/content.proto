@@ -126,6 +126,13 @@ message ContentItem {
 
   // Content hash for deduplication and change detection.
   string content_hash = 14;
+
+  // Failure category when state is REJECTED or FAILED.
+  // Values: empty_content, corrupt_file, malformed_structure, processing_error, unsupported_format
+  optional string failure_category = 15;
+
+  // Human-readable explanation of why content was rejected or failed.
+  optional string failure_reason = 16;
 }
 
 // ProcessingState represents the overall processing state of a content item.

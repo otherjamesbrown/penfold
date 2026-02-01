@@ -39,6 +39,8 @@ type ContentItemRecord struct {
 	UpdatedAt        time.Time
 	EmbeddingCount   int
 	AssertionCount   int
+	FailureCategory  *string
+	FailureReason    *string
 }
 
 // ListFilter represents filter criteria for listing content items.
@@ -86,7 +88,9 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 			s.created_at,
 			s.updated_at,
 			COUNT(DISTINCT e.id) AS embedding_count,
-			COUNT(DISTINCT a.id) AS assertion_count
+			COUNT(DISTINCT a.id) AS assertion_count,
+			s.failure_category,
+			s.failure_reason
 		FROM sources s
 		LEFT JOIN embeddings e ON s.id = e.source_id
 		LEFT JOIN assertions a ON s.id = a.source_id
@@ -106,6 +110,8 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 		&rec.UpdatedAt,
 		&rec.EmbeddingCount,
 		&rec.AssertionCount,
+		&rec.FailureCategory,
+		&rec.FailureReason,
 	)
 
 	if err == pgx.ErrNoRows {
@@ -160,7 +166,9 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 			s.created_at,
 			s.updated_at,
 			COUNT(DISTINCT e.id) AS embedding_count,
-			COUNT(DISTINCT a.id) AS assertion_count
+			COUNT(DISTINCT a.id) AS assertion_count,
+			s.failure_category,
+			s.failure_reason
 		FROM sources s
 		LEFT JOIN embeddings e ON s.id = e.source_id
 		LEFT JOIN assertions a ON s.id = a.source_id
@@ -197,6 +205,8 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 			&rec.UpdatedAt,
 			&rec.EmbeddingCount,
 			&rec.AssertionCount,
+			&rec.FailureCategory,
+			&rec.FailureReason,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan content item: %w", err)
@@ -692,7 +702,7 @@ func recordToProto(rec *ContentItemRecord) *contentv1.ContentItem {
 		return nil
 	}
 
-	return &contentv1.ContentItem{
+	item := &contentv1.ContentItem{
 		Id:         rec.ContentID,
 		SourceType: rec.SourceSystem,
 		SourceId:   fmt.Sprintf("%d", rec.ID),
@@ -705,6 +715,16 @@ func recordToProto(rec *ContentItemRecord) *contentv1.ContentItem {
 			"assertion_count": fmt.Sprintf("%d", rec.AssertionCount),
 		},
 	}
+
+	// Include failure info for rejected/failed items
+	if rec.FailureCategory != nil {
+		item.FailureCategory = rec.FailureCategory
+	}
+	if rec.FailureReason != nil {
+		item.FailureReason = rec.FailureReason
+	}
+
+	return item
 }
 
 // stateToDBStatus converts a proto ProcessingState to database status string.

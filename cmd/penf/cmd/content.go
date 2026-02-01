@@ -373,6 +373,14 @@ func outputContentItemText(item *contentv1.ContentItem, status *contentv1.Proces
 	fmt.Printf("  \033[1mSource ID:\033[0m    %s\n", item.SourceId)
 	fmt.Printf("  \033[1mTenant ID:\033[0m    %s\n", item.TenantId)
 	fmt.Printf("  \033[1mState:\033[0m        %s\n", formatProcessingState(item.State))
+
+	// Show failure info for rejected/failed items
+	if item.FailureCategory != nil && *item.FailureCategory != "" {
+		fmt.Printf("  \033[1mFailure:\033[0m      %s\n", *item.FailureCategory)
+	}
+	if item.FailureReason != nil && *item.FailureReason != "" {
+		fmt.Printf("  \033[1mReason:\033[0m       %s\n", *item.FailureReason)
+	}
 	fmt.Println()
 
 	// Metadata
