@@ -26,6 +26,9 @@ var (
 	meetingSource   string
 	meetingPlatform string
 	meetingDryRun   bool
+	meetingSeries   string
+	meetingTitle    string
+	meetingDate     string
 )
 
 // DefaultTenantID for single-tenant mode
@@ -69,6 +72,9 @@ Examples:
 	cmd.Flags().StringVarP(&meetingSource, "source", "s", "", "Source tag identifier (required)")
 	cmd.Flags().StringVar(&meetingPlatform, "platform", "webex", "Meeting platform: webex, teams, zoom, google_meet")
 	cmd.Flags().BoolVar(&meetingDryRun, "dry-run", false, "Preview import without persisting")
+	cmd.Flags().StringVar(&meetingSeries, "series", "", "Meeting series name (auto-created if not exists)")
+	cmd.Flags().StringVar(&meetingTitle, "title", "", "Override detected meeting title")
+	cmd.Flags().StringVar(&meetingDate, "date", "", "Override detected meeting date (YYYY-MM-DD)")
 
 	cmd.MarkFlagRequired("source")
 
@@ -76,6 +82,12 @@ Examples:
 	cmd.AddCommand(newResolveMeetingParticipantsCommand(deps))
 	// Add mentions subcommand
 	cmd.AddCommand(newExtractMeetingMentionsCommand(deps))
+	// Add series subcommand
+	// TODO: Temporarily disabled - meeting_series.go has build issues
+	// cmd.AddCommand(newMeetingSeriesCommand(DefaultMeetingSeriesDeps()))
+	// Add set-series and unset-series subcommands
+	cmd.AddCommand(newMeetingSetSeriesCommand(DefaultMeetingSeriesDeps()))
+	cmd.AddCommand(newMeetingUnsetSeriesCommand(DefaultMeetingSeriesDeps()))
 
 	return cmd
 }
@@ -368,7 +380,7 @@ func processMeetingViaGRPC(ctx context.Context, client ingestv1.IngestServiceCli
 	}
 
 	// Convert parsed meeting to proto request
-	req := meetingToProtoRequest(m, resolvedTenantID, sourceTag, platform, contentID)
+	req := meetingToProtoRequest(m, resolvedTenantID, sourceTag, platform, contentID, meetingSeries, meetingTitle, meetingDate)
 
 	// Call gRPC service
 	resp, err := client.IngestMeeting(ctx, req)
@@ -416,14 +428,23 @@ func generateMeetingID(m *meeting.Meeting, platform string) string {
 }
 
 // meetingToProtoRequest converts a parsed meeting to a proto IngestMeetingRequest.
-func meetingToProtoRequest(m *meeting.Meeting, tenantID, sourceTag, platform string, contentID string) *ingestv1.IngestMeetingRequest {
+func meetingToProtoRequest(m *meeting.Meeting, tenantID, sourceTag, platform string, contentID string, seriesName, titleOverride, dateOverride string) *ingestv1.IngestMeetingRequest {
+	// Use title override if provided
+	title := m.Title
+	if titleOverride != "" {
+		title = titleOverride
+	}
+
 	req := &ingestv1.IngestMeetingRequest{
 		TenantId:          tenantID,
 		ExternalMeetingId: generateMeetingID(m, platform),
-		Title:             m.Title,
+		Title:             title,
 		Platform:          platformToProto(platform),
 		Labels:            []string{sourceTag},
 		ContentId:         contentID,
+		SeriesName:        seriesName,
+		TitleOverride:     titleOverride,
+		DateOverride:      dateOverride,
 	}
 
 	// Set meeting times

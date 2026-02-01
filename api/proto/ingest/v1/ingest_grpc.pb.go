@@ -22,15 +22,22 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	IngestService_IngestEmail_FullMethodName       = "/penfold.ingest.v1.IngestService/IngestEmail"
-	IngestService_IngestAttachment_FullMethodName  = "/penfold.ingest.v1.IngestService/IngestAttachment"
-	IngestService_IngestMeeting_FullMethodName     = "/penfold.ingest.v1.IngestService/IngestMeeting"
-	IngestService_CreateIngestJob_FullMethodName   = "/penfold.ingest.v1.IngestService/CreateIngestJob"
-	IngestService_UpdateJobProgress_FullMethodName = "/penfold.ingest.v1.IngestService/UpdateJobProgress"
-	IngestService_CompleteIngestJob_FullMethodName = "/penfold.ingest.v1.IngestService/CompleteIngestJob"
-	IngestService_GetIngestJob_FullMethodName      = "/penfold.ingest.v1.IngestService/GetIngestJob"
-	IngestService_GetRemainingFiles_FullMethodName = "/penfold.ingest.v1.IngestService/GetRemainingFiles"
-	IngestService_RecordIngestError_FullMethodName = "/penfold.ingest.v1.IngestService/RecordIngestError"
+	IngestService_IngestEmail_FullMethodName        = "/penfold.ingest.v1.IngestService/IngestEmail"
+	IngestService_IngestAttachment_FullMethodName   = "/penfold.ingest.v1.IngestService/IngestAttachment"
+	IngestService_IngestMeeting_FullMethodName      = "/penfold.ingest.v1.IngestService/IngestMeeting"
+	IngestService_CreateIngestJob_FullMethodName    = "/penfold.ingest.v1.IngestService/CreateIngestJob"
+	IngestService_UpdateJobProgress_FullMethodName  = "/penfold.ingest.v1.IngestService/UpdateJobProgress"
+	IngestService_CompleteIngestJob_FullMethodName  = "/penfold.ingest.v1.IngestService/CompleteIngestJob"
+	IngestService_GetIngestJob_FullMethodName       = "/penfold.ingest.v1.IngestService/GetIngestJob"
+	IngestService_GetRemainingFiles_FullMethodName  = "/penfold.ingest.v1.IngestService/GetRemainingFiles"
+	IngestService_RecordIngestError_FullMethodName  = "/penfold.ingest.v1.IngestService/RecordIngestError"
+	IngestService_CreateSeries_FullMethodName       = "/penfold.ingest.v1.IngestService/CreateSeries"
+	IngestService_ListSeries_FullMethodName         = "/penfold.ingest.v1.IngestService/ListSeries"
+	IngestService_GetSeries_FullMethodName          = "/penfold.ingest.v1.IngestService/GetSeries"
+	IngestService_DeleteSeries_FullMethodName       = "/penfold.ingest.v1.IngestService/DeleteSeries"
+	IngestService_SetMeetingSeries_FullMethodName   = "/penfold.ingest.v1.IngestService/SetMeetingSeries"
+	IngestService_UnsetMeetingSeries_FullMethodName = "/penfold.ingest.v1.IngestService/UnsetMeetingSeries"
+	IngestService_ListMeetings_FullMethodName       = "/penfold.ingest.v1.IngestService/ListMeetings"
 )
 
 // IngestServiceClient is the client API for IngestService service.
@@ -57,6 +64,20 @@ type IngestServiceClient interface {
 	GetRemainingFiles(ctx context.Context, in *GetRemainingFilesRequest, opts ...grpc.CallOption) (*GetRemainingFilesResponse, error)
 	// RecordIngestError records a failed file during ingestion.
 	RecordIngestError(ctx context.Context, in *RecordIngestErrorRequest, opts ...grpc.CallOption) (*RecordIngestErrorResponse, error)
+	// CreateSeries creates a new meeting series.
+	CreateSeries(ctx context.Context, in *CreateSeriesRequest, opts ...grpc.CallOption) (*CreateSeriesResponse, error)
+	// ListSeries retrieves all meeting series.
+	ListSeries(ctx context.Context, in *ListSeriesRequest, opts ...grpc.CallOption) (*ListSeriesResponse, error)
+	// GetSeries retrieves a series by ID with its meetings.
+	GetSeries(ctx context.Context, in *GetSeriesRequest, opts ...grpc.CallOption) (*GetSeriesResponse, error)
+	// DeleteSeries deletes a series and orphans its meetings.
+	DeleteSeries(ctx context.Context, in *DeleteSeriesRequest, opts ...grpc.CallOption) (*DeleteSeriesResponse, error)
+	// SetMeetingSeries assigns a meeting to a series.
+	SetMeetingSeries(ctx context.Context, in *SetMeetingSeriesRequest, opts ...grpc.CallOption) (*SetMeetingSeriesResponse, error)
+	// UnsetMeetingSeries removes a meeting from its series.
+	UnsetMeetingSeries(ctx context.Context, in *UnsetMeetingSeriesRequest, opts ...grpc.CallOption) (*UnsetMeetingSeriesResponse, error)
+	// ListMeetings retrieves meetings with optional series filter.
+	ListMeetings(ctx context.Context, in *ListMeetingsRequest, opts ...grpc.CallOption) (*ListMeetingsResponse, error)
 }
 
 type ingestServiceClient struct {
@@ -157,6 +178,76 @@ func (c *ingestServiceClient) RecordIngestError(ctx context.Context, in *RecordI
 	return out, nil
 }
 
+func (c *ingestServiceClient) CreateSeries(ctx context.Context, in *CreateSeriesRequest, opts ...grpc.CallOption) (*CreateSeriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateSeriesResponse)
+	err := c.cc.Invoke(ctx, IngestService_CreateSeries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ingestServiceClient) ListSeries(ctx context.Context, in *ListSeriesRequest, opts ...grpc.CallOption) (*ListSeriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSeriesResponse)
+	err := c.cc.Invoke(ctx, IngestService_ListSeries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ingestServiceClient) GetSeries(ctx context.Context, in *GetSeriesRequest, opts ...grpc.CallOption) (*GetSeriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSeriesResponse)
+	err := c.cc.Invoke(ctx, IngestService_GetSeries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ingestServiceClient) DeleteSeries(ctx context.Context, in *DeleteSeriesRequest, opts ...grpc.CallOption) (*DeleteSeriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteSeriesResponse)
+	err := c.cc.Invoke(ctx, IngestService_DeleteSeries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ingestServiceClient) SetMeetingSeries(ctx context.Context, in *SetMeetingSeriesRequest, opts ...grpc.CallOption) (*SetMeetingSeriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetMeetingSeriesResponse)
+	err := c.cc.Invoke(ctx, IngestService_SetMeetingSeries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ingestServiceClient) UnsetMeetingSeries(ctx context.Context, in *UnsetMeetingSeriesRequest, opts ...grpc.CallOption) (*UnsetMeetingSeriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UnsetMeetingSeriesResponse)
+	err := c.cc.Invoke(ctx, IngestService_UnsetMeetingSeries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ingestServiceClient) ListMeetings(ctx context.Context, in *ListMeetingsRequest, opts ...grpc.CallOption) (*ListMeetingsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMeetingsResponse)
+	err := c.cc.Invoke(ctx, IngestService_ListMeetings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // IngestServiceServer is the server API for IngestService service.
 // All implementations must embed UnimplementedIngestServiceServer
 // for forward compatibility.
@@ -181,6 +272,20 @@ type IngestServiceServer interface {
 	GetRemainingFiles(context.Context, *GetRemainingFilesRequest) (*GetRemainingFilesResponse, error)
 	// RecordIngestError records a failed file during ingestion.
 	RecordIngestError(context.Context, *RecordIngestErrorRequest) (*RecordIngestErrorResponse, error)
+	// CreateSeries creates a new meeting series.
+	CreateSeries(context.Context, *CreateSeriesRequest) (*CreateSeriesResponse, error)
+	// ListSeries retrieves all meeting series.
+	ListSeries(context.Context, *ListSeriesRequest) (*ListSeriesResponse, error)
+	// GetSeries retrieves a series by ID with its meetings.
+	GetSeries(context.Context, *GetSeriesRequest) (*GetSeriesResponse, error)
+	// DeleteSeries deletes a series and orphans its meetings.
+	DeleteSeries(context.Context, *DeleteSeriesRequest) (*DeleteSeriesResponse, error)
+	// SetMeetingSeries assigns a meeting to a series.
+	SetMeetingSeries(context.Context, *SetMeetingSeriesRequest) (*SetMeetingSeriesResponse, error)
+	// UnsetMeetingSeries removes a meeting from its series.
+	UnsetMeetingSeries(context.Context, *UnsetMeetingSeriesRequest) (*UnsetMeetingSeriesResponse, error)
+	// ListMeetings retrieves meetings with optional series filter.
+	ListMeetings(context.Context, *ListMeetingsRequest) (*ListMeetingsResponse, error)
 	mustEmbedUnimplementedIngestServiceServer()
 }
 
@@ -217,6 +322,27 @@ func (UnimplementedIngestServiceServer) GetRemainingFiles(context.Context, *GetR
 }
 func (UnimplementedIngestServiceServer) RecordIngestError(context.Context, *RecordIngestErrorRequest) (*RecordIngestErrorResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RecordIngestError not implemented")
+}
+func (UnimplementedIngestServiceServer) CreateSeries(context.Context, *CreateSeriesRequest) (*CreateSeriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateSeries not implemented")
+}
+func (UnimplementedIngestServiceServer) ListSeries(context.Context, *ListSeriesRequest) (*ListSeriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListSeries not implemented")
+}
+func (UnimplementedIngestServiceServer) GetSeries(context.Context, *GetSeriesRequest) (*GetSeriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSeries not implemented")
+}
+func (UnimplementedIngestServiceServer) DeleteSeries(context.Context, *DeleteSeriesRequest) (*DeleteSeriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteSeries not implemented")
+}
+func (UnimplementedIngestServiceServer) SetMeetingSeries(context.Context, *SetMeetingSeriesRequest) (*SetMeetingSeriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetMeetingSeries not implemented")
+}
+func (UnimplementedIngestServiceServer) UnsetMeetingSeries(context.Context, *UnsetMeetingSeriesRequest) (*UnsetMeetingSeriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnsetMeetingSeries not implemented")
+}
+func (UnimplementedIngestServiceServer) ListMeetings(context.Context, *ListMeetingsRequest) (*ListMeetingsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListMeetings not implemented")
 }
 func (UnimplementedIngestServiceServer) mustEmbedUnimplementedIngestServiceServer() {}
 func (UnimplementedIngestServiceServer) testEmbeddedByValue()                       {}
@@ -401,6 +527,132 @@ func _IngestService_RecordIngestError_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IngestService_CreateSeries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateSeriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).CreateSeries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_CreateSeries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).CreateSeries(ctx, req.(*CreateSeriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IngestService_ListSeries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSeriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).ListSeries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_ListSeries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).ListSeries(ctx, req.(*ListSeriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IngestService_GetSeries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSeriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).GetSeries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_GetSeries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).GetSeries(ctx, req.(*GetSeriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IngestService_DeleteSeries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSeriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).DeleteSeries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_DeleteSeries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).DeleteSeries(ctx, req.(*DeleteSeriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IngestService_SetMeetingSeries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetMeetingSeriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).SetMeetingSeries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_SetMeetingSeries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).SetMeetingSeries(ctx, req.(*SetMeetingSeriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IngestService_UnsetMeetingSeries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnsetMeetingSeriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).UnsetMeetingSeries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_UnsetMeetingSeries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).UnsetMeetingSeries(ctx, req.(*UnsetMeetingSeriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IngestService_ListMeetings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMeetingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).ListMeetings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_ListMeetings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).ListMeetings(ctx, req.(*ListMeetingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // IngestService_ServiceDesc is the grpc.ServiceDesc for IngestService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -443,6 +695,34 @@ var IngestService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RecordIngestError",
 			Handler:    _IngestService_RecordIngestError_Handler,
+		},
+		{
+			MethodName: "CreateSeries",
+			Handler:    _IngestService_CreateSeries_Handler,
+		},
+		{
+			MethodName: "ListSeries",
+			Handler:    _IngestService_ListSeries_Handler,
+		},
+		{
+			MethodName: "GetSeries",
+			Handler:    _IngestService_GetSeries_Handler,
+		},
+		{
+			MethodName: "DeleteSeries",
+			Handler:    _IngestService_DeleteSeries_Handler,
+		},
+		{
+			MethodName: "SetMeetingSeries",
+			Handler:    _IngestService_SetMeetingSeries_Handler,
+		},
+		{
+			MethodName: "UnsetMeetingSeries",
+			Handler:    _IngestService_UnsetMeetingSeries_Handler,
+		},
+		{
+			MethodName: "ListMeetings",
+			Handler:    _IngestService_ListMeetings_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

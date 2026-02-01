@@ -50,6 +50,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/products"
 	"github.com/otherjamesbrown/penfold/pkg/projects"
 	"github.com/otherjamesbrown/penfold/pkg/relationships"
+	"github.com/otherjamesbrown/penfold/pkg/repository"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	"github.com/otherjamesbrown/penfold/pkg/sources"
 	"github.com/otherjamesbrown/penfold/pkg/temporal"
@@ -313,7 +314,8 @@ func main() {
 		}
 		return t.ID, nil
 	})
-	ingestSvc := ingestservice.NewService(ingestRepo, ingestTenantAdapter, logger)
+	seriesRepo := repository.NewSeriesRepository(dbPool)
+	ingestSvc := ingestservice.NewService(ingestRepo, ingestTenantAdapter, seriesRepo, logger)
 	ingestv1.RegisterIngestServiceServer(grpcServer, ingestSvc)
 	logger.Info("Registered IngestService")
 

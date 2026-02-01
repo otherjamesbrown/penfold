@@ -15,6 +15,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/contentid"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/repository"
 )
 
 // mockRepository implements just enough for testing content_id handling
@@ -90,12 +91,56 @@ func (m *mockTenantRepository) GetByRef(ctx context.Context, ref string) (*Tenan
 	return &Tenant{ID: ref}, nil
 }
 
+// mockSeriesRepository implements SeriesRepository for tests.
+type mockSeriesRepository struct{}
+
+func (m *mockSeriesRepository) Create(ctx context.Context, series *repository.MeetingSeries) error {
+	return nil
+}
+
+func (m *mockSeriesRepository) GetByID(ctx context.Context, id string) (*repository.MeetingSeries, error) {
+	return nil, nil
+}
+
+func (m *mockSeriesRepository) GetByName(ctx context.Context, name string) (*repository.MeetingSeries, error) {
+	return nil, nil
+}
+
+func (m *mockSeriesRepository) List(ctx context.Context) ([]*repository.MeetingSeries, error) {
+	return nil, nil
+}
+
+func (m *mockSeriesRepository) Delete(ctx context.Context, id string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockSeriesRepository) SetMeetingSeries(ctx context.Context, meetingID, seriesID string) error {
+	return nil
+}
+
+func (m *mockSeriesRepository) UnsetMeetingSeries(ctx context.Context, meetingID string) error {
+	return nil
+}
+
+func (m *mockSeriesRepository) GetMeetingsForSeries(ctx context.Context, seriesID string) ([]*repository.MeetingInfo, error) {
+	return nil, nil
+}
+
+func (m *mockSeriesRepository) CountMeetingsInSeries(ctx context.Context, seriesID string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockSeriesRepository) ListMeetings(ctx context.Context, seriesName string, limit int) ([]*repository.MeetingInfo, error) {
+	return nil, nil
+}
+
 // newTestService creates a service with a mock repository
 func newTestService() (*Service, *mockRepository) {
 	logger := testLogger()
 	repo := &mockRepository{}
 	tenantRepo := &mockTenantRepository{}
-	svc := NewService(repo, tenantRepo, logger)
+	seriesRepo := &mockSeriesRepository{}
+	svc := NewService(repo, tenantRepo, seriesRepo, logger)
 	return svc, repo
 }
 
@@ -483,7 +528,7 @@ func TestCreateIngestJob_TenantResolution(t *testing.T) {
 			return nil
 		}
 
-		svc := NewService(repo, tenantRepo, logger)
+		svc := NewService(repo, tenantRepo, &mockSeriesRepository{}, logger)
 
 		req := &ingestv1.CreateIngestJobRequest{
 			TenantId:   "akamai", // Slug, not UUID
@@ -518,7 +563,7 @@ func TestCreateIngestJob_TenantResolution(t *testing.T) {
 			return nil
 		}
 
-		svc := NewService(repo, tenantRepo, logger)
+		svc := NewService(repo, tenantRepo, &mockSeriesRepository{}, logger)
 
 		req := &ingestv1.CreateIngestJobRequest{
 			TenantId:   tenantUUID, // Already a UUID
@@ -544,7 +589,7 @@ func TestCreateIngestJob_TenantResolution(t *testing.T) {
 			},
 		}
 
-		svc := NewService(repo, tenantRepo, logger)
+		svc := NewService(repo, tenantRepo, &mockSeriesRepository{}, logger)
 
 		req := &ingestv1.CreateIngestJobRequest{
 			TenantId:   "unknown-tenant",
@@ -568,7 +613,7 @@ func TestCreateIngestJob_TenantResolution(t *testing.T) {
 		repo := &mockRepository{}
 		tenantRepo := &mockTenantRepository{}
 
-		svc := NewService(repo, tenantRepo, logger)
+		svc := NewService(repo, tenantRepo, &mockSeriesRepository{}, logger)
 
 		req := &ingestv1.CreateIngestJobRequest{
 			TenantId:   "", // Empty

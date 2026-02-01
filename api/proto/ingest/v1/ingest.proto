@@ -41,6 +41,27 @@ service IngestService {
 
   // RecordIngestError records a failed file during ingestion.
   rpc RecordIngestError(RecordIngestErrorRequest) returns (RecordIngestErrorResponse);
+
+  // CreateSeries creates a new meeting series.
+  rpc CreateSeries(CreateSeriesRequest) returns (CreateSeriesResponse);
+
+  // ListSeries retrieves all meeting series.
+  rpc ListSeries(ListSeriesRequest) returns (ListSeriesResponse);
+
+  // GetSeries retrieves a series by ID with its meetings.
+  rpc GetSeries(GetSeriesRequest) returns (GetSeriesResponse);
+
+  // DeleteSeries deletes a series and orphans its meetings.
+  rpc DeleteSeries(DeleteSeriesRequest) returns (DeleteSeriesResponse);
+
+  // SetMeetingSeries assigns a meeting to a series.
+  rpc SetMeetingSeries(SetMeetingSeriesRequest) returns (SetMeetingSeriesResponse);
+
+  // UnsetMeetingSeries removes a meeting from its series.
+  rpc UnsetMeetingSeries(UnsetMeetingSeriesRequest) returns (UnsetMeetingSeriesResponse);
+
+  // ListMeetings retrieves meetings with optional series filter.
+  rpc ListMeetings(ListMeetingsRequest) returns (ListMeetingsResponse);
 }
 
 // =============================================================================
@@ -383,6 +404,15 @@ message IngestMeetingRequest {
 
   // Content ID for unified tracing across CLI, Gateway, and Worker.
   string content_id = 19;
+
+  // Optional: assign to series (creates if not exists).
+  string series_name = 20;
+
+  // Optional: override detected title.
+  string title_override = 21;
+
+  // Optional: override detected date (YYYY-MM-DD).
+  string date_override = 22;
 }
 
 // IngestMeetingResponse returns the result of meeting ingestion.
@@ -407,6 +437,160 @@ message IngestMeetingResponse {
 
   // Content ID echoed back to confirm what was processed.
   string content_id = 7;
+
+  // Series ID if assigned.
+  string series_id = 8;
+
+  // True if series was auto-created.
+  bool series_created = 9;
+}
+
+// =============================================================================
+// Core Messages - Meeting Series
+// =============================================================================
+
+// MeetingSeries represents a collection of related meetings.
+message MeetingSeries {
+  // Series ID.
+  string id = 1;
+
+  // Series name.
+  string name = 2;
+
+  // Series description.
+  string description = 3;
+
+  // Project ID.
+  string project_id = 4;
+
+  // When the series was created.
+  string created_at = 5;
+
+  // When the series was last updated.
+  string updated_at = 6;
+
+  // Number of meetings in this series.
+  int32 meeting_count = 7;
+}
+
+// MeetingInfo represents summary information about a meeting.
+message MeetingInfo {
+  // Meeting ID.
+  string id = 1;
+
+  // Meeting title.
+  string title = 2;
+
+  // Meeting date.
+  string date = 3;
+
+  // Source platform.
+  string platform = 4;
+}
+
+// CreateSeriesRequest creates a new meeting series.
+message CreateSeriesRequest {
+  // Series name.
+  string name = 1;
+
+  // Series description.
+  string description = 2;
+}
+
+// CreateSeriesResponse returns the created series.
+message CreateSeriesResponse {
+  // The created series.
+  MeetingSeries series = 1;
+
+  // Whether the series was newly created or already existed.
+  bool created = 2;
+}
+
+// ListSeriesRequest retrieves all meeting series.
+message ListSeriesRequest {}
+
+// ListSeriesResponse returns all series.
+message ListSeriesResponse {
+  // All series.
+  repeated MeetingSeries series = 1;
+}
+
+// GetSeriesRequest retrieves a series by ID.
+message GetSeriesRequest {
+  // Series ID.
+  string id = 1;
+}
+
+// GetSeriesResponse returns the series with its meetings.
+message GetSeriesResponse {
+  // The series.
+  MeetingSeries series = 1;
+
+  // Meetings in this series.
+  repeated MeetingInfo meetings = 2;
+}
+
+// DeleteSeriesRequest deletes a series.
+message DeleteSeriesRequest {
+  // Series ID.
+  string id = 1;
+}
+
+// DeleteSeriesResponse returns the result of deletion.
+message DeleteSeriesResponse {
+  // Whether the series was deleted.
+  bool deleted = 1;
+
+  // Number of meetings orphaned (series_id set to null).
+  int32 orphaned_meetings = 2;
+}
+
+// SetMeetingSeriesRequest assigns a meeting to a series.
+message SetMeetingSeriesRequest {
+  // Meeting ID.
+  string meeting_id = 1;
+
+  // Series name (creates if not exists).
+  string series_name = 2;
+}
+
+// SetMeetingSeriesResponse returns the result of assignment.
+message SetMeetingSeriesResponse {
+  // Whether the meeting was updated.
+  bool updated = 1;
+
+  // Series ID assigned.
+  string series_id = 2;
+
+  // Whether the series was auto-created.
+  bool series_created = 3;
+}
+
+// UnsetMeetingSeriesRequest removes a meeting from its series.
+message UnsetMeetingSeriesRequest {
+  // Meeting ID.
+  string meeting_id = 1;
+}
+
+// UnsetMeetingSeriesResponse returns the result of removal.
+message UnsetMeetingSeriesResponse {
+  // Whether the meeting was updated.
+  bool updated = 1;
+}
+
+// ListMeetingsRequest retrieves meetings with optional series filter.
+message ListMeetingsRequest {
+  // Optional: Filter by series name.
+  string series_name = 1;
+
+  // Optional: Limit number of results (default: 50).
+  int32 limit = 2;
+}
+
+// ListMeetingsResponse returns matching meetings.
+message ListMeetingsResponse {
+  // Matching meetings.
+  repeated MeetingInfo meetings = 1;
 }
 
 // =============================================================================

@@ -21,6 +21,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/contentid"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/repository"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
@@ -76,15 +77,17 @@ type Service struct {
 	ingestv1.UnimplementedIngestServiceServer
 	repo           Repository
 	tenantRepo     TenantRepository
+	seriesRepo     repository.SeriesRepository
 	logger         logging.Logger
 	temporalClient client.Client // optional, for starting workflows
 }
 
 // NewService creates a new ingest service.
-func NewService(repo Repository, tenantRepo TenantRepository, logger logging.Logger) *Service {
+func NewService(repo Repository, tenantRepo TenantRepository, seriesRepo repository.SeriesRepository, logger logging.Logger) *Service {
 	return &Service{
 		repo:       repo,
 		tenantRepo: tenantRepo,
+		seriesRepo: seriesRepo,
 		logger:     logger.With(logging.F("component", "ingest_service")),
 	}
 }
@@ -408,6 +411,49 @@ func (s *Service) IngestMeeting(ctx context.Context, req *ingestv1.IngestMeeting
 	// Build meeting metadata
 	metadata := buildMeetingMetadata(req)
 
+	// Handle series assignment if series_name is provided
+	var seriesID string
+	var seriesCreated bool
+	if req.SeriesName != "" {
+		series, err := s.seriesRepo.GetByName(ctx, req.SeriesName)
+		if err != nil {
+			s.logger.Error("Error looking up series",
+				logging.Err(err),
+				logging.F("series_name", req.SeriesName),
+			)
+			return nil, status.Errorf(codes.Internal, "failed to lookup series: %v", err)
+		}
+
+		if series == nil {
+			// Series doesn't exist, create it
+			newSeries := &repository.MeetingSeries{
+				Name:        req.SeriesName,
+				Description: fmt.Sprintf("Auto-created from meeting ingest: %s", req.Title),
+			}
+			err = s.seriesRepo.Create(ctx, newSeries)
+			if err != nil {
+				s.logger.Error("Error creating series",
+					logging.Err(err),
+					logging.F("series_name", req.SeriesName),
+				)
+				return nil, status.Errorf(codes.Internal, "failed to create series: %v", err)
+			}
+			seriesID = newSeries.ID
+			seriesCreated = true
+			s.logger.Info("Created new meeting series",
+				logging.F("series_id", seriesID),
+				logging.F("series_name", req.SeriesName),
+			)
+		} else {
+			seriesID = series.ID
+			seriesCreated = false
+		}
+
+		// Add series_id to metadata so it's available to downstream processing
+		metadata["series_id"] = seriesID
+		metadata["series_name"] = req.SeriesName
+	}
+
 	// Check for duplicate meeting
 	externalID := fmt.Sprintf("meeting:%s", req.ExternalMeetingId)
 	isDup, existingID, reason, err := s.repo.CheckDuplicate(ctx, tenantID, externalID, transcriptHash)
@@ -463,6 +509,7 @@ func (s *Service) IngestMeeting(ctx context.Context, req *ingestv1.IngestMeeting
 		logging.F("transcript_segments", len(req.Transcript)),
 		logging.F("chat_messages", len(req.ChatMessages)),
 		logging.F("content_id", createdSource.ContentID),
+		logging.F("series_id", seriesID),
 	)
 
 	return &ingestv1.IngestMeetingResponse{
@@ -472,6 +519,8 @@ func (s *Service) IngestMeeting(ctx context.Context, req *ingestv1.IngestMeeting
 		TranscriptSegmentsCount: int32(len(req.Transcript)),
 		ChatMessagesCount:       int32(len(req.ChatMessages)),
 		ContentId:               createdSource.ContentID,
+		SeriesId:                seriesID,
+		SeriesCreated:           seriesCreated,
 	}, nil
 }
 
@@ -1170,5 +1219,339 @@ func platformToContentType(platform ingestv1.Platform) string {
 		return "meeting"
 	default:
 		return "unknown"
+	}
+}
+
+// =============================================================================
+// Series Management
+// =============================================================================
+
+// CreateSeries creates a new meeting series.
+func (s *Service) CreateSeries(ctx context.Context, req *ingestv1.CreateSeriesRequest) (*ingestv1.CreateSeriesResponse, error) {
+	s.logger.Debug("CreateSeries called",
+		logging.F("name", req.Name),
+	)
+
+	// Validate required fields
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "series name is required")
+	}
+
+	// Check if series with this name already exists
+	existing, err := s.seriesRepo.GetByName(ctx, req.Name)
+	if err != nil {
+		s.logger.Error("Error checking for existing series",
+			logging.Err(err),
+			logging.F("name", req.Name),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to check for existing series: %v", err)
+	}
+
+	// If series already exists, return it
+	if existing != nil {
+		s.logger.Debug("Series already exists",
+			logging.F("name", req.Name),
+			logging.F("id", existing.ID),
+		)
+		return &ingestv1.CreateSeriesResponse{
+			Series:  repoSeriesToProto(existing),
+			Created: false,
+		}, nil
+	}
+
+	// Create new series
+	series := &repository.MeetingSeries{
+		Name:        req.Name,
+		Description: req.Description,
+	}
+
+	if err := s.seriesRepo.Create(ctx, series); err != nil {
+		s.logger.Error("Error creating series",
+			logging.Err(err),
+			logging.F("name", req.Name),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to create series: %v", err)
+	}
+
+	s.logger.Info("Series created successfully",
+		logging.F("id", series.ID),
+		logging.F("name", series.Name),
+	)
+
+	return &ingestv1.CreateSeriesResponse{
+		Series:  repoSeriesToProto(series),
+		Created: true,
+	}, nil
+}
+
+// ListSeries retrieves all meeting series.
+func (s *Service) ListSeries(ctx context.Context, req *ingestv1.ListSeriesRequest) (*ingestv1.ListSeriesResponse, error) {
+	s.logger.Debug("ListSeries called")
+
+	series, err := s.seriesRepo.List(ctx)
+	if err != nil {
+		s.logger.Error("Error listing series", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list series: %v", err)
+	}
+
+	// Convert to proto format
+	protoSeries := make([]*ingestv1.MeetingSeries, len(series))
+	for i, s := range series {
+		protoSeries[i] = repoSeriesToProto(s)
+	}
+
+	return &ingestv1.ListSeriesResponse{
+		Series: protoSeries,
+	}, nil
+}
+
+// GetSeries retrieves a series by ID with its meetings.
+func (s *Service) GetSeries(ctx context.Context, req *ingestv1.GetSeriesRequest) (*ingestv1.GetSeriesResponse, error) {
+	s.logger.Debug("GetSeries called",
+		logging.F("id", req.Id),
+	)
+
+	// Validate required fields
+	if req.Id == "" {
+		return nil, status.Error(codes.InvalidArgument, "series id is required")
+	}
+
+	// Get series
+	series, err := s.seriesRepo.GetByID(ctx, req.Id)
+	if err != nil {
+		s.logger.Error("Error getting series",
+			logging.Err(err),
+			logging.F("id", req.Id),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to get series: %v", err)
+	}
+
+	if series == nil {
+		return nil, status.Errorf(codes.NotFound, "series not found: %s", req.Id)
+	}
+
+	// Get meetings for this series
+	meetings, err := s.seriesRepo.GetMeetingsForSeries(ctx, req.Id)
+	if err != nil {
+		s.logger.Error("Error getting meetings for series",
+			logging.Err(err),
+			logging.F("id", req.Id),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to get meetings for series: %v", err)
+	}
+
+	// Convert to proto format
+	protoMeetings := make([]*ingestv1.MeetingInfo, len(meetings))
+	for i, m := range meetings {
+		protoMeetings[i] = repoMeetingToProto(m)
+	}
+
+	return &ingestv1.GetSeriesResponse{
+		Series:   repoSeriesToProto(series),
+		Meetings: protoMeetings,
+	}, nil
+}
+
+// DeleteSeries deletes a series and orphans its meetings.
+func (s *Service) DeleteSeries(ctx context.Context, req *ingestv1.DeleteSeriesRequest) (*ingestv1.DeleteSeriesResponse, error) {
+	s.logger.Debug("DeleteSeries called",
+		logging.F("id", req.Id),
+	)
+
+	// Validate required fields
+	if req.Id == "" {
+		return nil, status.Error(codes.InvalidArgument, "series id is required")
+	}
+
+	// Delete the series
+	orphanedCount, err := s.seriesRepo.Delete(ctx, req.Id)
+	if err != nil {
+		// Check if series was not found
+		if strings.Contains(err.Error(), "not found") {
+			return &ingestv1.DeleteSeriesResponse{
+				Deleted:          false,
+				OrphanedMeetings: 0,
+			}, nil
+		}
+
+		s.logger.Error("Error deleting series",
+			logging.Err(err),
+			logging.F("id", req.Id),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to delete series: %v", err)
+	}
+
+	s.logger.Info("Series deleted successfully",
+		logging.F("id", req.Id),
+		logging.F("orphaned_meetings", orphanedCount),
+	)
+
+	return &ingestv1.DeleteSeriesResponse{
+		Deleted:          true,
+		OrphanedMeetings: int32(orphanedCount),
+	}, nil
+}
+
+// SetMeetingSeries assigns a meeting to a series.
+func (s *Service) SetMeetingSeries(ctx context.Context, req *ingestv1.SetMeetingSeriesRequest) (*ingestv1.SetMeetingSeriesResponse, error) {
+	s.logger.Debug("SetMeetingSeries called",
+		logging.F("meeting_id", req.MeetingId),
+		logging.F("series_name", req.SeriesName),
+	)
+
+	// Validate required fields
+	if req.MeetingId == "" {
+		return nil, status.Error(codes.InvalidArgument, "meeting_id is required")
+	}
+	if req.SeriesName == "" {
+		return nil, status.Error(codes.InvalidArgument, "series_name is required")
+	}
+
+	// Get or create the series
+	series, err := s.seriesRepo.GetByName(ctx, req.SeriesName)
+	if err != nil {
+		s.logger.Error("Error getting series by name",
+			logging.Err(err),
+			logging.F("series_name", req.SeriesName),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to get series: %v", err)
+	}
+
+	// Track if series was created
+	seriesCreated := false
+
+	// Create series if it doesn't exist
+	if series == nil {
+		series = &repository.MeetingSeries{
+			Name: req.SeriesName,
+		}
+		if err := s.seriesRepo.Create(ctx, series); err != nil {
+			s.logger.Error("Error creating series",
+				logging.Err(err),
+				logging.F("series_name", req.SeriesName),
+			)
+			return nil, status.Errorf(codes.Internal, "failed to create series: %v", err)
+		}
+		seriesCreated = true
+		s.logger.Info("Created new series",
+			logging.F("id", series.ID),
+			logging.F("name", series.Name),
+		)
+	}
+
+	// Assign meeting to series
+	if err := s.seriesRepo.SetMeetingSeries(ctx, req.MeetingId, series.ID); err != nil {
+		s.logger.Error("Error setting meeting series",
+			logging.Err(err),
+			logging.F("meeting_id", req.MeetingId),
+			logging.F("series_id", series.ID),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to set meeting series: %v", err)
+	}
+
+	s.logger.Info("Meeting assigned to series",
+		logging.F("meeting_id", req.MeetingId),
+		logging.F("series_id", series.ID),
+		logging.F("series_name", series.Name),
+	)
+
+	return &ingestv1.SetMeetingSeriesResponse{
+		Updated:       true,
+		SeriesId:      series.ID,
+		SeriesCreated: seriesCreated,
+	}, nil
+}
+
+// UnsetMeetingSeries removes a meeting from its series.
+func (s *Service) UnsetMeetingSeries(ctx context.Context, req *ingestv1.UnsetMeetingSeriesRequest) (*ingestv1.UnsetMeetingSeriesResponse, error) {
+	s.logger.Debug("UnsetMeetingSeries called",
+		logging.F("meeting_id", req.MeetingId),
+	)
+
+	// Validate required fields
+	if req.MeetingId == "" {
+		return nil, status.Error(codes.InvalidArgument, "meeting_id is required")
+	}
+
+	// Unset the meeting's series
+	if err := s.seriesRepo.UnsetMeetingSeries(ctx, req.MeetingId); err != nil {
+		s.logger.Error("Error unsetting meeting series",
+			logging.Err(err),
+			logging.F("meeting_id", req.MeetingId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to unset meeting series: %v", err)
+	}
+
+	s.logger.Info("Meeting removed from series",
+		logging.F("meeting_id", req.MeetingId),
+	)
+
+	return &ingestv1.UnsetMeetingSeriesResponse{}, nil
+}
+
+// ListMeetings retrieves meetings with optional series filter.
+func (s *Service) ListMeetings(ctx context.Context, req *ingestv1.ListMeetingsRequest) (*ingestv1.ListMeetingsResponse, error) {
+	s.logger.Debug("ListMeetings called",
+		logging.F("series_name", req.SeriesName),
+		logging.F("limit", req.Limit),
+	)
+
+	// Get meetings from repository
+	meetings, err := s.seriesRepo.ListMeetings(ctx, req.SeriesName, int(req.Limit))
+	if err != nil {
+		s.logger.Error("Error listing meetings",
+			logging.Err(err),
+			logging.F("series_name", req.SeriesName),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to list meetings: %v", err)
+	}
+
+	// Convert to proto format
+	protoMeetings := make([]*ingestv1.MeetingInfo, len(meetings))
+	for i, m := range meetings {
+		protoMeetings[i] = repoMeetingToProto(m)
+	}
+
+	s.logger.Info("Listed meetings successfully",
+		logging.F("count", len(meetings)),
+		logging.F("series_name", req.SeriesName),
+	)
+
+	return &ingestv1.ListMeetingsResponse{
+		Meetings: protoMeetings,
+	}, nil
+}
+
+// repoSeriesToProto converts repository.MeetingSeries to proto MeetingSeries.
+func repoSeriesToProto(s *repository.MeetingSeries) *ingestv1.MeetingSeries {
+	if s == nil {
+		return nil
+	}
+
+	proto := &ingestv1.MeetingSeries{
+		Id:          s.ID,
+		Name:        s.Name,
+		Description: s.Description,
+		CreatedAt:   s.CreatedAt.Format(time.RFC3339),
+	}
+
+	if s.ProjectID != nil {
+		proto.ProjectId = fmt.Sprintf("%d", *s.ProjectID)
+	}
+
+	return proto
+}
+
+// repoMeetingToProto converts repository.MeetingInfo to proto MeetingInfo.
+func repoMeetingToProto(m *repository.MeetingInfo) *ingestv1.MeetingInfo {
+	if m == nil {
+		return nil
+	}
+
+	return &ingestv1.MeetingInfo{
+		Id:       m.ID,
+		Title:    m.Title,
+		Date:     m.Date,
+		Platform: m.Platform,
 	}
 }

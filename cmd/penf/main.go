@@ -720,6 +720,7 @@ func init() {
 	rootCmd.AddCommand(cmd.NewBacklogCommand(nil))
 	rootCmd.AddCommand(cmd.NewSessionCommand(nil))
 	rootCmd.AddCommand(cmd.NewMessageCommand(nil))
+	rootCmd.AddCommand(cmd.NewMeetingCommand(nil))
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)

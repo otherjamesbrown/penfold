@@ -1,0 +1,121 @@
+// Meeting Series API Contract
+// Feature: 019-meeting-series
+// Date: 2026-02-01
+
+syntax = "proto3";
+
+package penfold.ingest.v1;
+
+option go_package = "github.com/otherjamesbrown/penfold/api/proto/ingest/v1;ingestv1";
+
+// =============================================================================
+// Messages
+// =============================================================================
+
+// MeetingSeries represents a recurring meeting series
+message MeetingSeries {
+  string id = 1;           // Unique ID with ms- prefix
+  string name = 2;         // Display name (unique)
+  string description = 3;  // Optional description
+  string project_id = 4;   // Optional project link
+  string created_at = 5;   // ISO8601 timestamp
+  string updated_at = 6;   // ISO8601 timestamp
+  int32 meeting_count = 7; // Number of meetings in series (for list/show)
+}
+
+// =============================================================================
+// Create Series
+// =============================================================================
+
+message CreateSeriesRequest {
+  string name = 1;         // Required: series name
+  string description = 2;  // Optional: description
+  string project_id = 3;   // Optional: project link
+}
+
+message CreateSeriesResponse {
+  MeetingSeries series = 1;
+  bool created = 2;        // true if created, false if already existed
+}
+
+// =============================================================================
+// List Series
+// =============================================================================
+
+message ListSeriesRequest {
+  // No filters for MVP
+}
+
+message ListSeriesResponse {
+  repeated MeetingSeries series = 1;
+}
+
+// =============================================================================
+// Get Series (show)
+// =============================================================================
+
+message GetSeriesRequest {
+  string id = 1;           // Series ID (ms-xxx)
+}
+
+message GetSeriesResponse {
+  MeetingSeries series = 1;
+  repeated MeetingInfo meetings = 2;  // Meetings in this series
+}
+
+// Lightweight meeting info for series show
+message MeetingInfo {
+  string id = 1;
+  string title = 2;
+  string date = 3;
+  string platform = 4;
+}
+
+// =============================================================================
+// Delete Series
+// =============================================================================
+
+message DeleteSeriesRequest {
+  string id = 1;           // Series ID to delete
+}
+
+message DeleteSeriesResponse {
+  bool deleted = 1;
+  int32 orphaned_meetings = 2;  // Number of meetings that were unlinked
+}
+
+// =============================================================================
+// Set/Unset Series on Meeting
+// =============================================================================
+
+message SetMeetingSeriesRequest {
+  string meeting_id = 1;   // Meeting ID
+  string series_name = 2;  // Series name (creates if not exists)
+}
+
+message SetMeetingSeriesResponse {
+  bool updated = 1;
+  string series_id = 2;    // The series ID that was linked
+  bool series_created = 3; // true if series was auto-created
+}
+
+message UnsetMeetingSeriesRequest {
+  string meeting_id = 1;   // Meeting ID
+}
+
+message UnsetMeetingSeriesResponse {
+  bool updated = 1;
+}
+
+// =============================================================================
+// Extensions to existing IngestMeetingRequest
+// =============================================================================
+
+// Add these fields to existing IngestMeetingRequest:
+// - string series_name = XX;  // Optional: assign to series (creates if not exists)
+// - string title_override = XX;  // Optional: override detected title
+// - string date_override = XX;   // Optional: override detected date (YYYY-MM-DD)
+
+// Add to existing IngestMeetingResponse:
+// - string series_id = XX;       // Series ID if assigned
+// - bool series_created = XX;    // true if series was auto-created
