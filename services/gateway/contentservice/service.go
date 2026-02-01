@@ -720,6 +720,10 @@ func stateToDBStatus(state contentv1.ProcessingState) string {
 		return "failed"
 	case contentv1.ProcessingState_PROCESSING_STATE_CANCELLED:
 		return "cancelled"
+	case contentv1.ProcessingState_PROCESSING_STATE_REJECTED:
+		return "rejected"
+	case contentv1.ProcessingState_PROCESSING_STATE_SKIPPED:
+		return "skipped"
 	default:
 		return "pending"
 	}
@@ -738,6 +742,10 @@ func dbStatusToState(status string) contentv1.ProcessingState {
 		return contentv1.ProcessingState_PROCESSING_STATE_FAILED
 	case "cancelled":
 		return contentv1.ProcessingState_PROCESSING_STATE_CANCELLED
+	case "rejected":
+		return contentv1.ProcessingState_PROCESSING_STATE_REJECTED
+	case "skipped":
+		return contentv1.ProcessingState_PROCESSING_STATE_SKIPPED
 	default:
 		return contentv1.ProcessingState_PROCESSING_STATE_PENDING
 	}

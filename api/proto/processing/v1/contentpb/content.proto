@@ -138,6 +138,12 @@ enum ProcessingState {
 
   // Processing was cancelled.
   PROCESSING_STATE_CANCELLED = 5;
+
+  // Content failed validation (empty, corrupt, malformed).
+  PROCESSING_STATE_REJECTED = 6;
+
+  // Content intentionally skipped (not processed by design).
+  PROCESSING_STATE_SKIPPED = 7;
 }
 
 // =============================================================================

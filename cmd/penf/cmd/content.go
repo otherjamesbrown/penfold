@@ -492,9 +492,13 @@ func parseProcessingState(state string) (contentv1.ProcessingState, error) {
 		return contentv1.ProcessingState_PROCESSING_STATE_FAILED, nil
 	case "cancelled":
 		return contentv1.ProcessingState_PROCESSING_STATE_CANCELLED, nil
+	case "rejected":
+		return contentv1.ProcessingState_PROCESSING_STATE_REJECTED, nil
+	case "skipped":
+		return contentv1.ProcessingState_PROCESSING_STATE_SKIPPED, nil
 	default:
 		return contentv1.ProcessingState_PROCESSING_STATE_UNSPECIFIED,
-			fmt.Errorf("invalid processing state: %s (must be: pending, processing, complete, failed, cancelled)", state)
+			fmt.Errorf("invalid processing state: %s (must be: pending, processing, complete, failed, cancelled, rejected, skipped)", state)
 	}
 }
 
@@ -510,6 +514,10 @@ func formatProcessingState(state contentv1.ProcessingState) string {
 		return "\033[31mFAILED\033[0m"
 	case contentv1.ProcessingState_PROCESSING_STATE_CANCELLED:
 		return "\033[90mCANCELLED\033[0m"
+	case contentv1.ProcessingState_PROCESSING_STATE_REJECTED:
+		return "\033[33mREJECTED\033[0m"
+	case contentv1.ProcessingState_PROCESSING_STATE_SKIPPED:
+		return "\033[90mSKIPPED\033[0m"
 	default:
 		return "UNSPECIFIED"
 	}
