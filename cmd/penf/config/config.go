@@ -171,10 +171,10 @@ func (c *ContextPalaceConfig) GetProject() string {
 	return c.Project
 }
 
-// GetAgent returns the agent name, defaulting to "agent-penfdev".
+// GetAgent returns the agent name, defaulting to "agent-mycroft".
 func (c *ContextPalaceConfig) GetAgent() string {
 	if c == nil || c.Agent == "" {
-		return "agent-penfdev"
+		return "agent-mycroft"
 	}
 	return c.Agent
 }

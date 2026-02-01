@@ -258,7 +258,7 @@ func runContextStatus(cmd *cobra.Command, deps *ContextCommandDeps) error {
 		fmt.Println("  user: penfold")
 		fmt.Println("  sslmode: verify-full")
 		fmt.Println("  project: penfold")
-		fmt.Println("  agent: agent-penfdev")
+		fmt.Println("  agent: agent-mycroft")
 		return nil
 	}
 
