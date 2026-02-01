@@ -352,6 +352,7 @@ func (r *seriesRepository) CountMeetingsInSeries(ctx context.Context, seriesID s
 }
 
 // ListMeetings retrieves meetings optionally filtered by series name.
+// Meetings are stored in the sources table with source_system in ('teams', 'zoom', 'google_meet', 'webex').
 // If seriesName is empty, returns all meetings.
 // If limit is 0 or negative, defaults to 50.
 func (r *seriesRepository) ListMeetings(ctx context.Context, seriesName string, limit int) ([]*MeetingInfo, error) {
@@ -362,25 +363,39 @@ func (r *seriesRepository) ListMeetings(ctx context.Context, seriesName string, 
 	var query string
 	var args []interface{}
 
+	// Meeting platforms stored in source_system
+	meetingPlatforms := "('teams', 'zoom', 'google_meet', 'webex')"
+
 	if seriesName == "" {
-		// List all meetings
-		query = `
-			SELECT id, title, meeting_date, platform
-			FROM meetings
-			ORDER BY meeting_date DESC
+		// List all meetings from sources table
+		query = fmt.Sprintf(`
+			SELECT
+				content_id,
+				COALESCE(ingestion_metadata->>'title', '') as title,
+				source_timestamp,
+				source_system
+			FROM sources
+			WHERE source_system IN %s
+				AND is_deleted = false
+			ORDER BY source_timestamp DESC NULLS LAST
 			LIMIT $1
-		`
+		`, meetingPlatforms)
 		args = []interface{}{limit}
 	} else {
-		// Filter by series name
-		query = `
-			SELECT m.id, m.title, m.meeting_date, m.platform
-			FROM meetings m
-			JOIN meeting_series s ON m.series_id = s.id
-			WHERE s.name = $1
-			ORDER BY m.meeting_date DESC
+		// Filter by series name from metadata
+		query = fmt.Sprintf(`
+			SELECT
+				content_id,
+				COALESCE(ingestion_metadata->>'title', '') as title,
+				source_timestamp,
+				source_system
+			FROM sources
+			WHERE source_system IN %s
+				AND is_deleted = false
+				AND ingestion_metadata->>'series_name' = $1
+			ORDER BY source_timestamp DESC NULLS LAST
 			LIMIT $2
-		`
+		`, meetingPlatforms)
 		args = []interface{}{seriesName, limit}
 	}
 
@@ -394,15 +409,17 @@ func (r *seriesRepository) ListMeetings(ctx context.Context, seriesName string, 
 	for rows.Next() {
 		m := &MeetingInfo{}
 		var meetingDate *time.Time
-		var id int64
+		var contentID *string
 
-		err := rows.Scan(&id, &m.Title, &meetingDate, &m.Platform)
+		err := rows.Scan(&contentID, &m.Title, &meetingDate, &m.Platform)
 		if err != nil {
 			return nil, fmt.Errorf("scan meeting: %w", err)
 		}
 
-		// Convert id to string
-		m.ID = fmt.Sprintf("%d", id)
+		// Use content_id as the meeting ID
+		if contentID != nil {
+			m.ID = *contentID
+		}
 
 		// Format date as string
 		if meetingDate != nil {
