@@ -60,6 +60,12 @@ service IngestService {
   // UnsetMeetingSeries removes a meeting from its series.
   rpc UnsetMeetingSeries(UnsetMeetingSeriesRequest) returns (UnsetMeetingSeriesResponse);
 
+  // UpdateMeeting updates meeting metadata.
+  rpc UpdateMeeting(UpdateMeetingRequest) returns (UpdateMeetingResponse);
+
+  // UpdateContent updates content metadata.
+  rpc UpdateContent(UpdateContentRequest) returns (UpdateContentResponse);
+
   // ListMeetings retrieves meetings with optional series filter.
   rpc ListMeetings(ListMeetingsRequest) returns (ListMeetingsResponse);
 }
@@ -576,6 +582,66 @@ message UnsetMeetingSeriesRequest {
 message UnsetMeetingSeriesResponse {
   // Whether the meeting was updated.
   bool updated = 1;
+}
+
+// UpdateMeetingRequest updates meeting metadata.
+message UpdateMeetingRequest {
+  // Meeting ID (content_id from sources table).
+  string meeting_id = 1;
+
+  // Optional: new title.
+  optional string title = 2;
+
+  // Optional: new date (YYYY-MM-DD or RFC3339).
+  optional string date = 3;
+
+  // Optional: series name (creates if not exists).
+  optional string series_name = 4;
+
+  // Optional: description/notes.
+  optional string description = 5;
+}
+
+// UpdateMeetingResponse returns the updated meeting.
+message UpdateMeetingResponse {
+  // Updated meeting info.
+  MeetingInfo meeting = 1;
+
+  // Series ID if assigned.
+  string series_id = 2;
+
+  // True if series was auto-created.
+  bool series_created = 3;
+}
+
+// UpdateContentRequest updates content metadata.
+message UpdateContentRequest {
+  // Content ID.
+  string content_id = 1;
+
+  // Optional: new title.
+  optional string title = 2;
+
+  // Optional: tags (replaces existing).
+  repeated string tags = 3;
+
+  // Optional: category.
+  optional string category = 4;
+}
+
+// UpdateContentResponse returns the updated content.
+message UpdateContentResponse {
+  // Content ID.
+  string content_id = 1;
+
+  // Updated title.
+  string title = 2;
+
+  // Updated tags.
+  repeated string tags = 3;
+
+  // Updated category.
+  string category = 4;
 }
 
 // ListMeetingsRequest retrieves meetings with optional series filter.

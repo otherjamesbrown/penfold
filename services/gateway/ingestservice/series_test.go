@@ -88,6 +88,14 @@ func (m *mockSeriesRepositoryWithState) ListMeetings(ctx context.Context, series
 	return nil, nil
 }
 
+func (m *mockSeriesRepositoryWithState) UpdateSourceMetadata(ctx context.Context, contentID string, updates map[string]interface{}) error {
+	return nil
+}
+
+func (m *mockSeriesRepositoryWithState) GetSourceByContentID(ctx context.Context, contentID string) (*repository.SourceInfo, error) {
+	return nil, nil
+}
+
 func TestIngestMeeting_WithSeriesName(t *testing.T) {
 	t.Run("creates new series when series_name provided and series doesn't exist", func(t *testing.T) {
 		logger := testLogger()

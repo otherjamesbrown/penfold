@@ -63,6 +63,7 @@ Examples:
 	cmd.AddCommand(newMeetingSeriesCommand(DefaultMeetingSeriesDeps()))
 	cmd.AddCommand(newMeetingSetSeriesCommand(DefaultMeetingSeriesDeps()))
 	cmd.AddCommand(newMeetingUnsetSeriesCommand(DefaultMeetingSeriesDeps()))
+	cmd.AddCommand(newMeetingUpdateCommand(DefaultMeetingSeriesDeps()))
 
 	return cmd
 }

@@ -1174,11 +1174,11 @@ func sourceSystemForPlatform(platform ingestv1.Platform) string {
 	case ingestv1.Platform_PLATFORM_GMAIL:
 		return storage.SourceSystemGmail
 	case ingestv1.Platform_PLATFORM_ZOOM:
-		return "zoom_meeting"
+		return "zoom"
 	case ingestv1.Platform_PLATFORM_GOOGLE_MEET:
 		return "google_meet"
 	case ingestv1.Platform_PLATFORM_TEAMS:
-		return "teams_meeting"
+		return "teams"
 	case ingestv1.Platform_PLATFORM_SLACK:
 		return "slack"
 	case ingestv1.Platform_PLATFORM_LOCAL:
@@ -1522,6 +1522,144 @@ func (s *Service) ListMeetings(ctx context.Context, req *ingestv1.ListMeetingsRe
 	}, nil
 }
 
+// UpdateMeeting updates meeting metadata fields.
+func (s *Service) UpdateMeeting(ctx context.Context, req *ingestv1.UpdateMeetingRequest) (*ingestv1.UpdateMeetingResponse, error) {
+	s.logger.Debug("UpdateMeeting called",
+		logging.F("meeting_id", req.MeetingId),
+	)
+
+	// Validate required fields
+	if req.MeetingId == "" {
+		return nil, status.Error(codes.InvalidArgument, "meeting_id is required")
+	}
+
+	// Verify meeting exists
+	source, err := s.seriesRepo.GetSourceByContentID(ctx, req.MeetingId)
+	if err != nil {
+		s.logger.Error("Error getting source",
+			logging.Err(err),
+			logging.F("meeting_id", req.MeetingId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to get meeting: %v", err)
+	}
+
+	if source == nil {
+		return nil, status.Errorf(codes.NotFound, "meeting not found: %s", req.MeetingId)
+	}
+
+	// Build updates map with only provided fields
+	updates := make(map[string]interface{})
+
+	if req.Title != nil && *req.Title != "" {
+		updates["title"] = *req.Title
+	}
+
+	if req.Date != nil && *req.Date != "" {
+		// Validate date format (YYYY-MM-DD or RFC3339)
+		dateStr := *req.Date
+		_, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			// Try RFC3339
+			_, err = time.Parse(time.RFC3339, dateStr)
+			if err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "invalid date format (use YYYY-MM-DD or RFC3339): %s", dateStr)
+			}
+		}
+		updates["date"] = dateStr
+	}
+
+	if req.Description != nil && *req.Description != "" {
+		updates["description"] = *req.Description
+	}
+
+	// Handle series assignment if series_name is provided
+	var seriesID string
+	var seriesCreated bool
+	if req.SeriesName != nil && *req.SeriesName != "" {
+		series, err := s.seriesRepo.GetByName(ctx, *req.SeriesName)
+		if err != nil {
+			s.logger.Error("Error looking up series",
+				logging.Err(err),
+				logging.F("series_name", *req.SeriesName),
+			)
+			return nil, status.Errorf(codes.Internal, "failed to lookup series: %v", err)
+		}
+
+		if series == nil {
+			// Series doesn't exist, create it
+			newSeries := &repository.MeetingSeries{
+				Name:        *req.SeriesName,
+				Description: fmt.Sprintf("Auto-created from meeting update: %s", req.MeetingId),
+			}
+			err = s.seriesRepo.Create(ctx, newSeries)
+			if err != nil {
+				s.logger.Error("Error creating series",
+					logging.Err(err),
+					logging.F("series_name", *req.SeriesName),
+				)
+				return nil, status.Errorf(codes.Internal, "failed to create series: %v", err)
+			}
+			seriesID = newSeries.ID
+			seriesCreated = true
+			s.logger.Info("Created new meeting series",
+				logging.F("series_id", seriesID),
+				logging.F("series_name", *req.SeriesName),
+			)
+		} else {
+			seriesID = series.ID
+			seriesCreated = false
+		}
+
+		// Add series_id to updates
+		updates["series_id"] = seriesID
+		updates["series_name"] = *req.SeriesName
+	}
+
+	// Update source metadata if there are any updates
+	if len(updates) > 0 {
+		if err := s.seriesRepo.UpdateSourceMetadata(ctx, req.MeetingId, updates); err != nil {
+			s.logger.Error("Error updating source metadata",
+				logging.Err(err),
+				logging.F("meeting_id", req.MeetingId),
+			)
+			return nil, status.Errorf(codes.Internal, "failed to update meeting: %v", err)
+		}
+	}
+
+	// Fetch updated source
+	updatedSource, err := s.seriesRepo.GetSourceByContentID(ctx, req.MeetingId)
+	if err != nil {
+		s.logger.Error("Error fetching updated source",
+			logging.Err(err),
+			logging.F("meeting_id", req.MeetingId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to fetch updated meeting: %v", err)
+	}
+
+	// Build MeetingInfo response
+	meetingInfo := &ingestv1.MeetingInfo{
+		Id:       updatedSource.ContentID,
+		Title:    updatedSource.Title,
+		Platform: updatedSource.Platform,
+	}
+
+	if updatedSource.Date != nil {
+		meetingInfo.Date = updatedSource.Date.Format(time.RFC3339)
+	}
+
+	s.logger.Info("Meeting updated successfully",
+		logging.F("meeting_id", req.MeetingId),
+		logging.F("series_id", seriesID),
+		logging.F("series_created", seriesCreated),
+	)
+
+	return &ingestv1.UpdateMeetingResponse{
+		Meeting:       meetingInfo,
+		SeriesId:      seriesID,
+		SeriesCreated: seriesCreated,
+	}, nil
+}
+
 // repoSeriesToProto converts repository.MeetingSeries to proto MeetingSeries.
 func repoSeriesToProto(s *repository.MeetingSeries) *ingestv1.MeetingSeries {
 	if s == nil {
@@ -1554,4 +1692,86 @@ func repoMeetingToProto(m *repository.MeetingInfo) *ingestv1.MeetingInfo {
 		Date:     m.Date,
 		Platform: m.Platform,
 	}
+}
+
+// UpdateContent updates content metadata.
+func (s *Service) UpdateContent(ctx context.Context, req *ingestv1.UpdateContentRequest) (*ingestv1.UpdateContentResponse, error) {
+	s.logger.Debug("UpdateContent called",
+		logging.F("content_id", req.ContentId),
+	)
+
+	// Validate required fields
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	// Verify content exists
+	source, err := s.seriesRepo.GetSourceByContentID(ctx, req.ContentId)
+	if err != nil {
+		s.logger.Error("Error getting source by content_id",
+			logging.Err(err),
+			logging.F("content_id", req.ContentId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to get source: %v", err)
+	}
+
+	if source == nil {
+		return nil, status.Errorf(codes.NotFound, "content not found: %s", req.ContentId)
+	}
+
+	// Build updates map with only provided fields
+	updates := make(map[string]interface{})
+
+	if req.Title != nil {
+		updates["title"] = *req.Title
+	}
+
+	if len(req.Tags) > 0 {
+		updates["tags"] = req.Tags
+	}
+
+	if req.Category != nil {
+		updates["category"] = *req.Category
+	}
+
+	// If no updates provided, return current state
+	if len(updates) == 0 {
+		return &ingestv1.UpdateContentResponse{
+			ContentId: req.ContentId,
+			Title:     source.Title,
+			Tags:      source.Tags,
+			Category:  source.Category,
+		}, nil
+	}
+
+	// Update source metadata
+	if err := s.seriesRepo.UpdateSourceMetadata(ctx, req.ContentId, updates); err != nil {
+		s.logger.Error("Error updating source metadata",
+			logging.Err(err),
+			logging.F("content_id", req.ContentId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to update source metadata: %v", err)
+	}
+
+	// Fetch updated source
+	updatedSource, err := s.seriesRepo.GetSourceByContentID(ctx, req.ContentId)
+	if err != nil {
+		s.logger.Error("Error fetching updated source",
+			logging.Err(err),
+			logging.F("content_id", req.ContentId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to fetch updated source: %v", err)
+	}
+
+	s.logger.Info("Content metadata updated",
+		logging.F("content_id", req.ContentId),
+		logging.F("updates", updates),
+	)
+
+	return &ingestv1.UpdateContentResponse{
+		ContentId: req.ContentId,
+		Title:     updatedSource.Title,
+		Tags:      updatedSource.Tags,
+		Category:  updatedSource.Category,
+	}, nil
 }

@@ -37,6 +37,8 @@ const (
 	IngestService_DeleteSeries_FullMethodName       = "/penfold.ingest.v1.IngestService/DeleteSeries"
 	IngestService_SetMeetingSeries_FullMethodName   = "/penfold.ingest.v1.IngestService/SetMeetingSeries"
 	IngestService_UnsetMeetingSeries_FullMethodName = "/penfold.ingest.v1.IngestService/UnsetMeetingSeries"
+	IngestService_UpdateMeeting_FullMethodName      = "/penfold.ingest.v1.IngestService/UpdateMeeting"
+	IngestService_UpdateContent_FullMethodName      = "/penfold.ingest.v1.IngestService/UpdateContent"
 	IngestService_ListMeetings_FullMethodName       = "/penfold.ingest.v1.IngestService/ListMeetings"
 )
 
@@ -76,6 +78,10 @@ type IngestServiceClient interface {
 	SetMeetingSeries(ctx context.Context, in *SetMeetingSeriesRequest, opts ...grpc.CallOption) (*SetMeetingSeriesResponse, error)
 	// UnsetMeetingSeries removes a meeting from its series.
 	UnsetMeetingSeries(ctx context.Context, in *UnsetMeetingSeriesRequest, opts ...grpc.CallOption) (*UnsetMeetingSeriesResponse, error)
+	// UpdateMeeting updates meeting metadata.
+	UpdateMeeting(ctx context.Context, in *UpdateMeetingRequest, opts ...grpc.CallOption) (*UpdateMeetingResponse, error)
+	// UpdateContent updates content metadata.
+	UpdateContent(ctx context.Context, in *UpdateContentRequest, opts ...grpc.CallOption) (*UpdateContentResponse, error)
 	// ListMeetings retrieves meetings with optional series filter.
 	ListMeetings(ctx context.Context, in *ListMeetingsRequest, opts ...grpc.CallOption) (*ListMeetingsResponse, error)
 }
@@ -238,6 +244,26 @@ func (c *ingestServiceClient) UnsetMeetingSeries(ctx context.Context, in *UnsetM
 	return out, nil
 }
 
+func (c *ingestServiceClient) UpdateMeeting(ctx context.Context, in *UpdateMeetingRequest, opts ...grpc.CallOption) (*UpdateMeetingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateMeetingResponse)
+	err := c.cc.Invoke(ctx, IngestService_UpdateMeeting_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ingestServiceClient) UpdateContent(ctx context.Context, in *UpdateContentRequest, opts ...grpc.CallOption) (*UpdateContentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateContentResponse)
+	err := c.cc.Invoke(ctx, IngestService_UpdateContent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *ingestServiceClient) ListMeetings(ctx context.Context, in *ListMeetingsRequest, opts ...grpc.CallOption) (*ListMeetingsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListMeetingsResponse)
@@ -284,6 +310,10 @@ type IngestServiceServer interface {
 	SetMeetingSeries(context.Context, *SetMeetingSeriesRequest) (*SetMeetingSeriesResponse, error)
 	// UnsetMeetingSeries removes a meeting from its series.
 	UnsetMeetingSeries(context.Context, *UnsetMeetingSeriesRequest) (*UnsetMeetingSeriesResponse, error)
+	// UpdateMeeting updates meeting metadata.
+	UpdateMeeting(context.Context, *UpdateMeetingRequest) (*UpdateMeetingResponse, error)
+	// UpdateContent updates content metadata.
+	UpdateContent(context.Context, *UpdateContentRequest) (*UpdateContentResponse, error)
 	// ListMeetings retrieves meetings with optional series filter.
 	ListMeetings(context.Context, *ListMeetingsRequest) (*ListMeetingsResponse, error)
 	mustEmbedUnimplementedIngestServiceServer()
@@ -340,6 +370,12 @@ func (UnimplementedIngestServiceServer) SetMeetingSeries(context.Context, *SetMe
 }
 func (UnimplementedIngestServiceServer) UnsetMeetingSeries(context.Context, *UnsetMeetingSeriesRequest) (*UnsetMeetingSeriesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UnsetMeetingSeries not implemented")
+}
+func (UnimplementedIngestServiceServer) UpdateMeeting(context.Context, *UpdateMeetingRequest) (*UpdateMeetingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateMeeting not implemented")
+}
+func (UnimplementedIngestServiceServer) UpdateContent(context.Context, *UpdateContentRequest) (*UpdateContentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateContent not implemented")
 }
 func (UnimplementedIngestServiceServer) ListMeetings(context.Context, *ListMeetingsRequest) (*ListMeetingsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListMeetings not implemented")
@@ -635,6 +671,42 @@ func _IngestService_UnsetMeetingSeries_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IngestService_UpdateMeeting_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateMeetingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).UpdateMeeting(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_UpdateMeeting_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).UpdateMeeting(ctx, req.(*UpdateMeetingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IngestService_UpdateContent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateContentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).UpdateContent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_UpdateContent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).UpdateContent(ctx, req.(*UpdateContentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _IngestService_ListMeetings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListMeetingsRequest)
 	if err := dec(in); err != nil {
@@ -719,6 +791,14 @@ var IngestService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UnsetMeetingSeries",
 			Handler:    _IngestService_UnsetMeetingSeries_Handler,
+		},
+		{
+			MethodName: "UpdateMeeting",
+			Handler:    _IngestService_UpdateMeeting_Handler,
+		},
+		{
+			MethodName: "UpdateContent",
+			Handler:    _IngestService_UpdateContent_Handler,
 		},
 		{
 			MethodName: "ListMeetings",

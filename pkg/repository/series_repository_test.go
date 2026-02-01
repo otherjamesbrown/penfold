@@ -536,3 +536,175 @@ func deleteTestMeeting(t *testing.T, pool *pgxpool.Pool, meetingID string) {
 		t.Logf("Warning: could not delete test meeting %s: %v", meetingID, err)
 	}
 }
+
+// Helper functions for creating and deleting test sources
+
+func createTestSource(t *testing.T, pool *pgxpool.Pool, title string) string {
+	t.Helper()
+	ctx := context.Background()
+
+	// Generate a short content ID (max 12 chars for varchar(12))
+	contentID := fmt.Sprintf("ts-%d", time.Now().UnixNano()%1000000000)
+
+	// Use test values for required fields
+	testTenantID := "00000000-0000-0000-0000-000000000001"
+	externalID := fmt.Sprintf("ext-%d", time.Now().UnixNano()%1000000)
+	// Content hash must be valid hex (SHA-256 is 64 chars)
+	contentHash := fmt.Sprintf("%064d", time.Now().UnixNano()%1000000000000000)
+
+	query := `
+		INSERT INTO sources (
+			tenant_id,
+			content_id,
+			external_id,
+			content_hash,
+			source_system,
+			source_timestamp,
+			ingestion_metadata,
+			is_deleted,
+			created_at,
+			updated_at
+		)
+		VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text, NOW(), jsonb_build_object('title', $6::text), false, NOW(), NOW())
+		RETURNING content_id
+	`
+
+	var id string
+	err := pool.QueryRow(ctx, query, testTenantID, contentID, externalID, contentHash, "teams", title).Scan(&id)
+	if err != nil {
+		t.Fatalf("Failed to create test source: %v", err)
+	}
+
+	return id
+}
+
+func deleteTestSource(t *testing.T, pool *pgxpool.Pool, contentID string) {
+	t.Helper()
+	ctx := context.Background()
+
+	query := `DELETE FROM sources WHERE content_id = $1`
+	_, err := pool.Exec(ctx, query, contentID)
+	if err != nil {
+		t.Logf("Warning: could not delete test source %s: %v", contentID, err)
+	}
+}
+
+func TestSeriesRepository_UpdateSourceMetadata(t *testing.T) {
+	pool := setupTestDB(t)
+	if pool == nil {
+		return
+	}
+	defer pool.Close()
+
+	repo := NewSeriesRepository(pool)
+	ctx := context.Background()
+
+	t.Run("updates title only", func(t *testing.T) {
+		contentID := createTestSource(t, pool, "Original Title")
+		defer deleteTestSource(t, pool, contentID)
+
+		updates := map[string]interface{}{
+			"title": "Updated Title",
+		}
+
+		err := repo.UpdateSourceMetadata(ctx, contentID, updates)
+		require.NoError(t, err)
+
+		// Verify update
+		source, err := repo.GetSourceByContentID(ctx, contentID)
+		require.NoError(t, err)
+		require.NotNil(t, source)
+		assert.Equal(t, "Updated Title", source.Title)
+	})
+
+	t.Run("updates multiple fields", func(t *testing.T) {
+		contentID := createTestSource(t, pool, "Original Title")
+		defer deleteTestSource(t, pool, contentID)
+
+		updates := map[string]interface{}{
+			"title":       "New Title",
+			"description": "New Description",
+			"category":    "New Category",
+		}
+
+		err := repo.UpdateSourceMetadata(ctx, contentID, updates)
+		require.NoError(t, err)
+
+		// Verify updates
+		source, err := repo.GetSourceByContentID(ctx, contentID)
+		require.NoError(t, err)
+		require.NotNil(t, source)
+		assert.Equal(t, "New Title", source.Title)
+		assert.Equal(t, "New Description", source.Description)
+		assert.Equal(t, "New Category", source.Category)
+	})
+
+	t.Run("handles empty updates map", func(t *testing.T) {
+		contentID := createTestSource(t, pool, "Test Title")
+		defer deleteTestSource(t, pool, contentID)
+
+		updates := map[string]interface{}{}
+
+		err := repo.UpdateSourceMetadata(ctx, contentID, updates)
+		require.NoError(t, err)
+	})
+
+	t.Run("returns error for non-existent source", func(t *testing.T) {
+		updates := map[string]interface{}{
+			"title": "Updated Title",
+		}
+
+		err := repo.UpdateSourceMetadata(ctx, "non-existent-id", updates)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+func TestSeriesRepository_GetSourceByContentID(t *testing.T) {
+	pool := setupTestDB(t)
+	if pool == nil {
+		return
+	}
+	defer pool.Close()
+
+	repo := NewSeriesRepository(pool)
+	ctx := context.Background()
+
+	t.Run("retrieves existing source", func(t *testing.T) {
+		contentID := createTestSource(t, pool, "Test Source Title")
+		defer deleteTestSource(t, pool, contentID)
+
+		source, err := repo.GetSourceByContentID(ctx, contentID)
+		require.NoError(t, err)
+		require.NotNil(t, source)
+		assert.Equal(t, contentID, source.ContentID)
+		assert.Equal(t, "Test Source Title", source.Title)
+		assert.Equal(t, "teams", source.Platform)
+	})
+
+	t.Run("returns nil for non-existent source", func(t *testing.T) {
+		source, err := repo.GetSourceByContentID(ctx, "non-existent-id")
+		require.NoError(t, err)
+		assert.Nil(t, source)
+	})
+
+	t.Run("retrieves source with metadata fields", func(t *testing.T) {
+		contentID := createTestSource(t, pool, "Test Source")
+		defer deleteTestSource(t, pool, contentID)
+
+		// Update with multiple metadata fields
+		updates := map[string]interface{}{
+			"description": "Test Description",
+			"category":    "Test Category",
+		}
+		err := repo.UpdateSourceMetadata(ctx, contentID, updates)
+		require.NoError(t, err)
+
+		// Retrieve and verify
+		source, err := repo.GetSourceByContentID(ctx, contentID)
+		require.NoError(t, err)
+		require.NotNil(t, source)
+		assert.Equal(t, "Test Description", source.Description)
+		assert.Equal(t, "Test Category", source.Category)
+	})
+}

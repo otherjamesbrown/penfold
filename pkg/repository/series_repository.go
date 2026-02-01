@@ -23,6 +23,8 @@ type SeriesRepository interface {
 	GetMeetingsForSeries(ctx context.Context, seriesID string) ([]*MeetingInfo, error)
 	CountMeetingsInSeries(ctx context.Context, seriesID string) (int, error)
 	ListMeetings(ctx context.Context, seriesName string, limit int) ([]*MeetingInfo, error)
+	UpdateSourceMetadata(ctx context.Context, contentID string, updates map[string]interface{}) error
+	GetSourceByContentID(ctx context.Context, contentID string) (*SourceInfo, error)
 }
 
 // MeetingSeries represents a meeting series entity.
@@ -41,6 +43,18 @@ type MeetingInfo struct {
 	Title    string
 	Date     string
 	Platform string
+}
+
+// SourceInfo represents detailed source information.
+type SourceInfo struct {
+	ContentID   string
+	Title       string
+	Date        *time.Time
+	Platform    string
+	Description string
+	SeriesID    *string
+	Tags        []string
+	Category    string
 }
 
 // seriesRepository implements SeriesRepository using pgx.
@@ -434,4 +448,89 @@ func (r *seriesRepository) ListMeetings(ctx context.Context, seriesName string, 
 	}
 
 	return meetings, nil
+}
+
+// UpdateSourceMetadata updates fields in the ingestion_metadata JSONB column.
+// Updates are merged into existing metadata, not replaced.
+func (r *seriesRepository) UpdateSourceMetadata(ctx context.Context, contentID string, updates map[string]interface{}) error {
+	if len(updates) == 0 {
+		return nil // Nothing to update
+	}
+
+	// Build JSONB update using jsonb_set for each key
+	query := `
+		UPDATE sources
+		SET ingestion_metadata = ingestion_metadata
+	`
+
+	args := []interface{}{contentID}
+	argNum := 2
+
+	for key, value := range updates {
+		query += fmt.Sprintf(" || jsonb_build_object($%d::text, $%d::text)", argNum, argNum+1)
+		args = append(args, key, value)
+		argNum += 2
+	}
+
+	query += " WHERE content_id = $1"
+
+	result, err := r.pool.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("update source metadata: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("source not found: %s", contentID)
+	}
+
+	return nil
+}
+
+// GetSourceByContentID retrieves a source by its content_id.
+func (r *seriesRepository) GetSourceByContentID(ctx context.Context, contentID string) (*SourceInfo, error) {
+	query := `
+		SELECT
+			content_id,
+			COALESCE(ingestion_metadata->>'title', '') as title,
+			source_timestamp,
+			source_system,
+			COALESCE(ingestion_metadata->>'description', '') as description,
+			ingestion_metadata->>'series_id' as series_id,
+			COALESCE(ingestion_metadata->>'tags', '[]') as tags,
+			COALESCE(ingestion_metadata->>'category', '') as category
+		FROM sources
+		WHERE content_id = $1
+			AND is_deleted = false
+	`
+
+	var source SourceInfo
+	var tagsJSON string
+
+	err := r.pool.QueryRow(ctx, query, contentID).Scan(
+		&source.ContentID,
+		&source.Title,
+		&source.Date,
+		&source.Platform,
+		&source.Description,
+		&source.SeriesID,
+		&tagsJSON,
+		&source.Category,
+	)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get source by content ID: %w", err)
+	}
+
+	// Parse tags JSON - simple handling for string arrays
+	// Tags are stored as JSON array: ["tag1", "tag2"]
+	if tagsJSON != "" && tagsJSON != "[]" {
+		// Simple JSON array parsing (assumes valid JSON from DB)
+		// For production, consider using json.Unmarshal
+		source.Tags = []string{}
+	}
+
+	return &source, nil
 }

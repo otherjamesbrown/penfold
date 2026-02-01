@@ -97,6 +97,7 @@ JSON Output (for AI processing):
 	// Add subcommands
 	cmd.AddCommand(newContentListCommand(deps))
 	cmd.AddCommand(newContentShowCommand(deps))
+	cmd.AddCommand(newContentUpdateCommand(deps))
 	cmd.AddCommand(newContentDeleteCommand(deps))
 	cmd.AddCommand(newContentStatsCommand(deps))
 	cmd.AddCommand(newContentTraceCommand(deps))
