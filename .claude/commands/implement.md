@@ -221,13 +221,17 @@ Add `penf [command]` command to [purpose].
 ## Files to Modify
 - cmd/penf/cmd/[file].go - Add command
 
+## Tests to Write
+- cmd/penf/cmd/[file]_test.go - Test [specific functions/behavior]
+
 ## Existing Code to Reference
 - cmd/penf/cmd/workflow.go - command pattern
-- cmd/penf/client/workflow_client.go - client pattern
+- cmd/penf/cmd/workflow_test.go - test pattern
 
 ## Acceptance Criteria
 - [ ] Command works: penf [command] --help
 - [ ] Code compiles: go build ./cmd/penf/...
+- [ ] Tests written and passing: go test ./cmd/penf/cmd/... -run [TestName]
 ```
 
 **service-dev template:**
@@ -239,14 +243,30 @@ Add [RPC name] RPC to [service].
 - api/proto/[service]/v1/[service].proto - Add RPC definition
 - services/gateway/[service]service/service.go - Add handler
 
+## Tests to Write
+- services/gateway/[service]service/service_test.go - Test [handler/validation logic]
+
 ## Existing Code to Reference
 - api/proto/pipeline/v1/pipeline.proto - RPC patterns
 - services/gateway/pipelineservice/service.go - handler patterns
+- services/gateway/ingestservice/service_test.go - test patterns
 
 ## Acceptance Criteria
 - [ ] Proto compiles: make proto
 - [ ] Gateway builds: go build ./services/gateway/...
+- [ ] Tests written and passing: go test ./services/gateway/[service]service/...
 ```
+
+**Skipping Tests (edge cases only):**
+
+Some code is genuinely hard to unit test (e.g., CLI output formatting, external API calls without mocks).
+If skipping tests, the shard MUST include:
+```
+## Tests Skipped (with justification)
+- [function/feature]: [Why it's hard to test, e.g., "requires live database connection"]
+```
+
+The orchestrator will review skipped tests and may request alternatives (integration tests, manual verification steps).
 
 ### Fallback: Manual Shard Creation
 
@@ -293,7 +313,7 @@ You have been assigned shard pf-xxxxx.
 
 ## File Scope
 
-IMPORTANT: Only modify files listed in your shard's "Files to Modify" section.
+IMPORTANT: Only modify files listed in your shard's "Files to Modify" and "Tests to Write" sections.
 The orchestrator has claimed these files for your exclusive use.
 
 ## Implementation
@@ -302,34 +322,42 @@ The orchestrator has claimed these files for your exclusive use.
 
 4. Implement the changes described in the shard
 
-5. **Verify your work compiles:**
+5. **WRITE TESTS for your changes:**
+   - Look at the "Tests to Write" section in your shard
+   - Follow existing test patterns in the codebase
+   - Test the core logic, edge cases, and error conditions
+   - If something is genuinely hard to test, document WHY in your completion message
+
+6. **Verify your work compiles:**
    ```bash
    go build ./...
    ```
 
-6. **Run relevant tests:**
+7. **Run your new tests AND existing tests:**
    ```bash
-   go test ./path/to/changed/...
+   go test ./path/to/changed/... -v
    ```
 
-7. **Test the feature works** (for CLI commands):
+   **IMPORTANT:** Do NOT report completion unless tests pass. If tests fail, fix them first.
+
+8. **Test the feature works** (for CLI commands):
    ```bash
    ./penf [new-command] --help
    ```
 
 ## Completion
 
-8. Log what you did:
+9. Log what you did (include tests written):
    ```bash
-   /Users/dev/bin/palace task progress pf-xxxxx "Implemented X, Y, Z"
+   /Users/dev/bin/palace task progress pf-xxxxx "Implemented X, added TestY and TestZ"
    ```
 
-9. Close the shard (this releases file claims automatically):
+10. Close the shard (this releases file claims automatically):
    ```bash
-   /Users/dev/bin/palace task close pf-xxxxx "Done: [summary of what was implemented]"
+   /Users/dev/bin/palace task close pf-xxxxx "Done: [feature] with tests [TestNames]"
    ```
 
-Do not create a PR. Just implement, verify, and close the shard.
+Do not create a PR. Just implement, write tests, verify, and close the shard.
 ```
 
 ### Example Sub-Agent Invocation
@@ -398,7 +426,7 @@ WHERE parent_id = 'pf-parent-feature' OR id IN ('pf-xxx', 'pf-yyy');
 
 ### Verify After Each Agent Completes
 
-**IMPORTANT:** After each sub-agent reports completion, verify the build:
+**IMPORTANT:** After each sub-agent reports completion, verify the build AND tests:
 
 ```bash
 # Always verify compilation
@@ -410,13 +438,25 @@ go build ./...
 # For gateway changes
 go build ./services/gateway/...
 
-# Run relevant tests
-go test ./path/to/changed/...
+# Run the tests (should include new tests from this change)
+go test ./path/to/changed/... -v
+```
+
+**CRITICAL: Verify tests were written:**
+```bash
+# Check for new/modified test files
+git diff --name-only | grep "_test.go"
+
+# If no test files appear, the agent did NOT write tests
+# Re-launch with explicit test requirements
 ```
 
 If verification fails:
 1. Check the shard for what was implemented
-2. Either fix directly (small issues) or re-launch agent with fix instructions
+2. If tests are missing: re-launch agent with explicit instruction to write tests
+3. If tests fail: either fix directly (small issues) or re-launch agent with fix instructions
+
+**Do NOT proceed to deployment if tests were not written** (unless the shard explicitly documents why tests were skipped).
 
 ### When Foundation Complete
 
@@ -526,17 +566,36 @@ Next Steps:
 ## Key Principles
 
 1. **NEVER write code yourself** - always delegate to sub-agents
-2. **Maximize parallelism** - launch all independent work simultaneously
-3. **Right-size agents** - not too granular, not too coarse
-4. **Fresh context is good** - sub-agents focus without distraction
-5. **Sub-agents use palace CLI** - orchestrator uses psql for complex queries
-6. **Verify after completion** - always run `go build` after each agent finishes
-7. **No PRs** - just code changes, user decides when to commit
-8. **Claim files before work** - check file_claims to avoid conflicts with other sessions
-9. **Scoped file access** - sub-agents only modify files explicitly listed in their shard
-10. **Use helpers** - prefer `create_impl_shard()` and `impl_status()` over raw SQL
+2. **ALWAYS require tests** - no code ships without tests (unless explicitly justified)
+3. **Maximize parallelism** - launch all independent work simultaneously
+4. **Right-size agents** - not too granular, not too coarse
+5. **Fresh context is good** - sub-agents focus without distraction
+6. **Sub-agents use palace CLI** - orchestrator uses psql for complex queries
+7. **Verify after completion** - always run `go build` AND `go test` after each agent finishes
+8. **Check for test files** - verify `_test.go` files were created/modified
+9. **No PRs** - just code changes, user decides when to commit
+10. **Claim files before work** - check file_claims to avoid conflicts with other sessions
+11. **Scoped file access** - sub-agents only modify files explicitly listed in their shard
+12. **Use helpers** - prefer `create_impl_shard()` and `impl_status()` over raw SQL
 
 ## Troubleshooting
+
+### Sub-agent didn't write tests
+This is a common issue. Re-launch the agent with explicit instructions:
+```
+You completed pf-xxxxx but did NOT write tests.
+
+Please add tests for [specific function/feature].
+
+Look at [existing_test_file.go] for patterns.
+
+Required tests:
+- Test[FunctionName]_Success - happy path
+- Test[FunctionName]_InvalidInput - error handling
+- Test[FunctionName]_EdgeCase - [specific edge case]
+
+Run: go test ./path/... -v -run Test[FunctionName]
+```
 
 ### Sub-agent didn't close shard
 ```bash
@@ -547,6 +606,12 @@ Next Steps:
 1. Check what the agent changed: `git diff`
 2. Fix small issues directly
 3. For larger issues, create a fix shard and launch another agent
+
+### Tests fail after agent completion
+1. Run tests with verbose output: `go test ./... -v`
+2. Check if it's a test bug or implementation bug
+3. If test is wrong, fix the test
+4. If implementation is wrong, re-launch agent with the failing test output
 
 ### File conflict with another session
 ```sql
