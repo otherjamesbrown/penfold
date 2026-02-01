@@ -4,6 +4,20 @@ You are the orchestrator for Penfold backend development.
 
 **Start here:** Read `context/root-agent.md` for your role, session checklist, and how to coordinate sub-agents.
 
+## Engineering Principles
+
+**Fix root causes, not symptoms.** When you encounter a bug or design issue:
+
+1. **Don't work around problems** - Workarounds accumulate and create technical debt. If a workflow silently swallows errors, fix the error handling. If types don't match, fix the types.
+
+2. **Make invalid states unrepresentable** - If a source shouldn't be "completed" without enrichment, the type system or state machine should enforce that. Don't rely on runtime checks that can be bypassed.
+
+3. **Fail loudly, succeed quietly** - Errors should be visible and actionable. A workflow that "completes" while silently failing is worse than one that fails explicitly.
+
+4. **One source of truth** - Don't duplicate type definitions, constants, or business logic. When you find `FetchSourceOutput` and `FetchContentOutput` doing the same thing with different field names, consolidate them.
+
+5. **Test the boundaries** - Integration points (JSON serialization, gRPC, database queries) are where bugs hide. Field name mismatches, type coercion, and null handling should be caught by tests.
+
 ## Context-Palace (Support System)
 
 You are **agent-mycroft** working on project **penfold** (prefix: `pf-`).

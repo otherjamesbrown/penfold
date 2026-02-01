@@ -117,9 +117,8 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Success
 		TenantID: "tenant-123",
 		SourceID: 456,
 	}).Return(&FetchContentOutput{
-		Content:     "Test document content for processing.",
+		ContentText: "Test document content for processing.",
 		ContentType: "text/plain",
-		Size:        100,
 	}, nil)
 
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(input GenerateEmbeddingInput) bool {
@@ -196,13 +195,13 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_FetchCo
 	s.Contains(result.Error, "fetch_content")
 }
 
-// TestContentIngestionWorkflow_EmbeddingFailsContinues tests graceful degradation.
-func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_EmbeddingFailsContinues() {
+// TestContentIngestionWorkflow_EmbeddingFailsMarksAsFailed tests that embedding failure
+// causes the workflow to mark the source as failed. Embedding is critical for search.
+func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_EmbeddingFailsMarksAsFailed() {
 	// Arrange
 	s.activities.On("FetchContent", mock.Anything, mock.Anything).Return(&FetchContentOutput{
-		Content:     "Test content",
+		ContentText: "Test content",
 		ContentType: "text/plain",
-		Size:        50,
 	}, nil)
 
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(
@@ -213,7 +212,12 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Embeddi
 	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
 	s.activities.On("ExtractEntities", mock.Anything, mock.Anything).Return(3, nil)
 	s.activities.On("ExtractTopics", mock.Anything, mock.Anything).Return([]string{"topic1"}, nil)
-	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+	// Expect status to be "failed" because embedding is critical
+	s.activities.On("UpdateContentStatus", mock.Anything, UpdateContentStatusInput{
+		TenantID: "tenant-123",
+		SourceID: 456,
+		Status:   "failed",
+	}).Return(nil)
 
 	// Act
 	s.env.ExecuteWorkflow(ContentIngestionWorkflow, pkgtemporal.ContentIngestionInput{
@@ -230,19 +234,20 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Embeddi
 
 	var result ContentIngestionResult
 	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
-	s.Equal("completed", result.Status)
+	s.Equal("failed", result.Status)
+	s.Contains(result.Error, "embedding_failed")
 	s.Nil(result.EmbeddingID) // Embedding failed
-	s.NotNil(result.SummaryID)
+	s.NotNil(result.SummaryID) // Other enrichments may succeed
 	s.Equal(3, result.EntityCount)
 }
 
 // TestContentIngestionWorkflow_AllLLMOperationsFail tests when all LLM operations fail.
+// Since embedding is critical, the source should be marked as failed.
 func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_AllLLMOperationsFail() {
 	// Arrange
 	s.activities.On("FetchContent", mock.Anything, mock.Anything).Return(&FetchContentOutput{
-		Content:     "Test content",
+		ContentText: "Test content",
 		ContentType: "text/plain",
-		Size:        50,
 	}, nil)
 
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(
@@ -257,7 +262,12 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_AllLLMO
 	s.activities.On("ExtractTopics", mock.Anything, mock.Anything).Return(
 		nil, temporal.NewApplicationError("failed", "Error"),
 	)
-	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+	// Expect "failed" status because embedding failed
+	s.activities.On("UpdateContentStatus", mock.Anything, UpdateContentStatusInput{
+		TenantID: "tenant-123",
+		SourceID: 456,
+		Status:   "failed",
+	}).Return(nil)
 
 	// Act
 	s.env.ExecuteWorkflow(ContentIngestionWorkflow, pkgtemporal.ContentIngestionInput{
@@ -268,13 +278,14 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_AllLLMO
 		JobID:       "job-001",
 	})
 
-	// Assert: Workflow still completes with minimal results
+	// Assert: Workflow completes but source is marked failed
 	require.True(s.T(), s.env.IsWorkflowCompleted())
 	require.NoError(s.T(), s.env.GetWorkflowError())
 
 	var result ContentIngestionResult
 	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
-	s.Equal("completed", result.Status)
+	s.Equal("failed", result.Status)
+	s.Contains(result.Error, "embedding_failed")
 	s.Nil(result.EmbeddingID)
 	s.Nil(result.SummaryID)
 	s.Equal(0, result.EntityCount)
@@ -285,9 +296,8 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_AllLLMO
 func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_QueryStatus() {
 	// Arrange
 	s.activities.On("FetchContent", mock.Anything, mock.Anything).Return(&FetchContentOutput{
-		Content:     "Test content",
+		ContentText: "Test content",
 		ContentType: "text/plain",
-		Size:        50,
 	}, nil)
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(100), nil)
 	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
@@ -325,9 +335,8 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Cancell
 	s.activities.On("FetchContent", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		fetchCalled = true
 	}).Return(&FetchContentOutput{
-		Content:     "Test content",
+		ContentText: "Test content",
 		ContentType: "text/plain",
-		Size:        50,
 	}, nil)
 
 	// Set up to send cancellation signal after fetch
@@ -384,9 +393,8 @@ func TestContentIngestionWorkflow_EmptyContent(t *testing.T) {
 
 	// Register activities that return empty content
 	env.OnActivity("FetchContent", mock.Anything, mock.Anything).Return(&FetchContentOutput{
-		Content:     "",
+		ContentText: "",
 		ContentType: "text/plain",
-		Size:        0,
 	}, nil)
 
 	env.OnActivity("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(100), nil)
@@ -424,9 +432,8 @@ func TestContentIngestionWorkflow_LargeContent(t *testing.T) {
 
 	var capturedContentSize int
 	env.OnActivity("FetchContent", mock.Anything, mock.Anything).Return(&FetchContentOutput{
-		Content:     string(largeContent),
+		ContentText: string(largeContent),
 		ContentType: "text/plain",
-		Size:        int64(len(largeContent)),
 	}, nil)
 
 	env.OnActivity("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(input GenerateEmbeddingInput) bool {
@@ -466,9 +473,8 @@ func TestContentIngestionWorkflow_RetryBehavior(t *testing.T) {
 	env.OnActivity("FetchContent", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		fetchAttempts++
 	}).Return(&FetchContentOutput{
-		Content:     "Retried content",
+		ContentText: "Retried content",
 		ContentType: "text/plain",
-		Size:        15,
 	}, nil)
 
 	env.OnActivity("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(100), nil)

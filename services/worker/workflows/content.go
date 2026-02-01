@@ -36,10 +36,11 @@ type (
 	}
 
 	// FetchContentOutput is the output from the FetchContent activity.
+	// Note: Field names must match FetchSourceOutput since the same activity implementation
+	// (Activities.FetchSource) is registered under both "FetchContent" and "FetchSource" names.
 	FetchContentOutput struct {
-		Content     string `json:"content"`
+		ContentText string `json:"content_text"`
 		ContentType string `json:"content_type"`
-		Size        int64  `json:"size"`
 	}
 
 	// ExtractEntitiesInput is the input for the ExtractEntities activity.
@@ -243,18 +244,22 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		return state.result, nil
 	}
 
-	// Step 2: Generate embedding
+	// Step 2: Generate embedding (CRITICAL - required for search)
 	updateStatus("generating_embedding", "GenerateEmbedding")
 	var embeddingID int64
+	var embeddingFailed bool
+	var embeddingError string
 	ctx2 := workflow.WithActivityOptions(ctx, embeddingOpts)
 	err = workflow.ExecuteActivity(ctx2, "GenerateContentEmbedding", GenerateEmbeddingInput{
 		TenantID:    input.TenantID,
 		SourceID:    input.SourceID,
-		Content:     fetchOutput.Content,
+		Content:     fetchOutput.ContentText,
 		ContentHash: input.ContentHash,
 	}).Get(ctx, &embeddingID)
 	if err != nil {
-		logger.Warn("Embedding generation failed, continuing", "error", err)
+		embeddingFailed = true
+		embeddingError = err.Error()
+		logger.Error("Embedding generation failed", "error", err)
 	} else {
 		state.result.EmbeddingID = &embeddingID
 		// Add compensation to delete embedding if later steps fail
@@ -285,7 +290,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 		JobID:    input.JobID,
-		Content:  fetchOutput.Content,
+		Content:  fetchOutput.ContentText,
 	}).Get(ctx, &summaryID)
 	if err != nil {
 		logger.Warn("Summary generation failed, continuing", "error", err)
@@ -319,7 +324,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 		JobID:    input.JobID,
-		Content:  fetchOutput.Content,
+		Content:  fetchOutput.ContentText,
 	}).Get(ctx, &entityCount)
 	if err != nil {
 		logger.Warn("Entity extraction failed, continuing", "error", err)
@@ -345,7 +350,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 		JobID:    input.JobID,
-		Content:  fetchOutput.Content,
+		Content:  fetchOutput.ContentText,
 	}).Get(ctx, &topics)
 	if err != nil {
 		logger.Warn("Topic extraction failed, continuing", "error", err)
@@ -372,7 +377,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		SourceID:    input.SourceID,
 		ContentID:   input.SourceID, // Use SourceID as ContentID for now
 		ContentType: input.SourceType,
-		Content:     fetchOutput.Content,
+		Content:     fetchOutput.ContentText,
 		JobID:       input.JobID,
 	}).Get(ctx, &mentionsOutput)
 	if err != nil {
@@ -396,29 +401,45 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	}
 
 	// Step 7: Update content status
+	// Embedding is critical - without it, the content can't be searched.
+	// If embedding failed, mark the source as failed so it can be retried.
 	updateStatus("updating_status", "UpdateContentStatus")
 	ctx7 := workflow.WithActivityOptions(ctx, fastOpts)
+
+	var finalStatus string
+	if embeddingFailed {
+		finalStatus = "failed"
+		state.result.Status = "failed"
+		state.result.Error = fmt.Sprintf("embedding_failed: %s", embeddingError)
+		state.status.ErrorMessage = state.result.Error
+		logger.Error("Content ingestion failed - embedding is required for search",
+			"source_id", input.SourceID,
+			"error", embeddingError,
+		)
+	} else {
+		finalStatus = "completed"
+		state.result.Status = "completed"
+		logger.Info("Content ingestion workflow completed",
+			"source_id", input.SourceID,
+			"embedding_id", state.result.EmbeddingID,
+			"summary_id", state.result.SummaryID,
+			"entity_count", state.result.EntityCount,
+			"topic_count", len(state.result.ExtractedTopics),
+			"mention_count", state.result.MentionCount,
+		)
+	}
+
 	err = workflow.ExecuteActivity(ctx7, "UpdateContentStatus", UpdateContentStatusInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
-		Status:   "completed",
+		Status:   finalStatus,
 	}).Get(ctx, nil)
 	if err != nil {
 		logger.Warn("Status update failed", "error", err)
 	}
 	state.status.StepsCompleted = 7
 
-	updateStatus("completed", "")
-	state.result.Status = "completed"
-	logger.Info("Content ingestion workflow completed",
-		"source_id", input.SourceID,
-		"embedding_id", state.result.EmbeddingID,
-		"summary_id", state.result.SummaryID,
-		"entity_count", state.result.EntityCount,
-		"topic_count", len(state.result.ExtractedTopics),
-		"mention_count", state.result.MentionCount,
-	)
-
+	updateStatus(finalStatus, "")
 	return state.result, nil
 }
 
