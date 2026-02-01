@@ -203,15 +203,38 @@ func (r *Repository) CountJobs(ctx context.Context, filter JobFilter) (int64, er
 	return count, nil
 }
 
-// KickPendingProcessing queues pending pipeline items for processing.
-// TODO: Actual implementation needed - this is a stub for compilation.
-func (r *Repository) KickPendingProcessing(ctx context.Context, limit int, sourceTag string) (int, error) {
-	// Stub implementation - needs to:
-	// 1. Find pending sources (processing_status = 'pending')
-	// 2. Optionally filter by source_tag via ingestion_metadata
-	// 3. Update processing_status to trigger workflow
-	// 4. Return count of queued items
-	return 0, fmt.Errorf("KickPendingProcessing not yet implemented")
+// KickPendingProcessing queries pending sources from the database.
+func (r *Repository) KickPendingProcessing(ctx context.Context, limit int, sourceTag string) ([]PendingSource, int, error) {
+	query := `
+		SELECT id, tenant_id, source_system, content_hash
+		FROM sources
+		WHERE processing_status = 'pending'
+		  AND is_deleted = false
+		  AND ($1 = '' OR ingestion_metadata->>'source_tag' = $1)
+		ORDER BY created_at ASC
+		LIMIT $2
+	`
+
+	rows, err := r.db.Query(ctx, query, sourceTag, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("querying pending sources: %w", err)
+	}
+	defer rows.Close()
+
+	var sources []PendingSource
+	for rows.Next() {
+		var s PendingSource
+		if err := rows.Scan(&s.ID, &s.TenantID, &s.SourceSystem, &s.ContentHash); err != nil {
+			return nil, 0, fmt.Errorf("scanning pending source: %w", err)
+		}
+		sources = append(sources, s)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterating pending sources: %w", err)
+	}
+
+	return sources, len(sources), nil
 }
 
 // RetryFailedItems retries failed pipeline items.

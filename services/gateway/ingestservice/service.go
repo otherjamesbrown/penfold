@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -17,6 +19,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/contentid"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
 // Repository defines the interface for ingest storage operations.
@@ -69,9 +72,10 @@ func NewTenantRepoAdapter(getByRefFn func(ctx context.Context, ref string) (stri
 // Service implements the IngestService gRPC server.
 type Service struct {
 	ingestv1.UnimplementedIngestServiceServer
-	repo       Repository
-	tenantRepo TenantRepository
-	logger     logging.Logger
+	repo           Repository
+	tenantRepo     TenantRepository
+	logger         logging.Logger
+	temporalClient client.Client // optional, for starting workflows
 }
 
 // NewService creates a new ingest service.
@@ -81,6 +85,12 @@ func NewService(repo Repository, tenantRepo TenantRepository, logger logging.Log
 		tenantRepo: tenantRepo,
 		logger:     logger.With(logging.F("component", "ingest_service")),
 	}
+}
+
+// SetTemporalClient sets the Temporal client for workflow operations.
+// This is optional and can be set after service creation.
+func (s *Service) SetTemporalClient(c client.Client) {
+	s.temporalClient = c
 }
 
 // resolveTenantID resolves a tenant reference (UUID or slug) to a UUID.
@@ -215,6 +225,34 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 		logging.F("message_id", req.MessageId),
 		logging.F("content_id", createdSource.ContentID),
 	)
+
+	// Start ContentIngestionWorkflow if Temporal client is available
+	if s.temporalClient != nil {
+		workflowID := pkgtemporal.GenerateIngestWorkflowID(tenantID, "email", strconv.FormatInt(createdSource.ID, 10))
+		input := pkgtemporal.ContentIngestionInput{
+			TenantID:    tenantID,
+			SourceID:    createdSource.ID,
+			SourceType:  "email",
+			ContentHash: req.ContentHash,
+		}
+		opts := client.StartWorkflowOptions{
+			ID:        workflowID,
+			TaskQueue: "penfold-main",
+		}
+		_, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "ContentIngestionWorkflow", input)
+		if err != nil {
+			s.logger.Warn("Failed to start workflow for source",
+				logging.F("source_id", createdSource.ID),
+				logging.Err(err),
+			)
+			// Don't fail ingestion, continue
+		} else {
+			s.logger.Info("Started ContentIngestionWorkflow",
+				logging.F("workflow_id", workflowID),
+				logging.F("source_id", createdSource.ID),
+			)
+		}
+	}
 
 	return &ingestv1.IngestEmailResponse{
 		SourceId:     fmt.Sprintf("%d", createdSource.ID),

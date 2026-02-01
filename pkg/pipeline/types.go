@@ -55,3 +55,11 @@ type JobFilter struct {
 	Status    string
 	SourceTag string
 }
+
+// PendingSource represents a source pending processing.
+type PendingSource struct {
+	ID           int64
+	TenantID     string
+	SourceSystem string
+	ContentHash  string
+}

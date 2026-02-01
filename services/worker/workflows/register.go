@@ -86,11 +86,11 @@ func (r *Registrar) registerCommonWorkflows(w worker.Worker) {
 func (r *Registrar) WorkflowCount(taskQueue string) int {
 	switch taskQueue {
 	case config.MainTaskQueue:
-		return 0 // Will increase as workflows are added
+		return 3 // ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow
 	case config.AITaskQueue:
-		return 0
+		return 1 // AnalysisWorkflow
 	case config.EmailTaskQueue:
-		return 1 // EmailProcessingWorkflow
+		return 2 // EmailProcessingWorkflow, GmailSyncWorkflow
 	default:
 		return 0
 	}

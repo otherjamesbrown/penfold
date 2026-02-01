@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 
 	"go.temporal.io/sdk/client"
@@ -15,6 +16,7 @@ import (
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
+	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
 // Service implements the PipelineService gRPC server.
@@ -134,25 +136,62 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 		limit = 100 // Default limit
 	}
 
-	// Call repository to queue pending items
-	count, err := s.repo.KickPendingProcessing(ctx, limit, req.SourceTag)
+	// Check if Temporal client is available
+	if s.temporalClient == nil {
+		return nil, status.Error(codes.Unavailable, "Temporal client not configured")
+	}
+
+	// Get pending sources from repository
+	sources, _, err := s.repo.KickPendingProcessing(ctx, limit, req.SourceTag)
 	if err != nil {
-		s.logger.Error("Error kicking pending processing", logging.Err(err))
-		return nil, status.Errorf(codes.Internal, "failed to kick processing: %v", err)
+		s.logger.Error("Error getting pending sources", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get pending sources: %v", err)
 	}
 
-	message := fmt.Sprintf("Queued %d pending items for processing", count)
+	// Start a workflow for each pending source
+	var startedCount int
+	for _, src := range sources {
+		workflowID := pkgtemporal.GenerateIngestWorkflowID(src.TenantID, src.SourceSystem, strconv.FormatInt(src.ID, 10))
+		input := pkgtemporal.ContentIngestionInput{
+			TenantID:    src.TenantID,
+			SourceID:    src.ID,
+			SourceType:  src.SourceSystem,
+			ContentHash: src.ContentHash,
+		}
+		opts := client.StartWorkflowOptions{
+			ID:        workflowID,
+			TaskQueue: "penfold-main",
+		}
+		_, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "ContentIngestionWorkflow", input)
+		if err != nil {
+			s.logger.Warn("Failed to start workflow for source",
+				logging.F("source_id", src.ID),
+				logging.F("workflow_id", workflowID),
+				logging.Err(err),
+			)
+			// Continue with other sources
+			continue
+		}
+		s.logger.Info("Started ContentIngestionWorkflow",
+			logging.F("workflow_id", workflowID),
+			logging.F("source_id", src.ID),
+		)
+		startedCount++
+	}
+
+	message := fmt.Sprintf("Started %d workflows for processing", startedCount)
 	if req.SourceTag != "" {
-		message = fmt.Sprintf("Queued %d pending items for processing (source_tag: %s)", count, req.SourceTag)
+		message = fmt.Sprintf("Started %d workflows for processing (source_tag: %s)", startedCount, req.SourceTag)
 	}
 
-	s.logger.Info("Pending items queued",
-		logging.F("queued_count", count),
+	s.logger.Info("Workflows started",
+		logging.F("started_count", startedCount),
+		logging.F("total_pending", len(sources)),
 		logging.F("source_tag", req.SourceTag),
 	)
 
 	return &pipelinev1.KickProcessingResponse{
-		QueuedCount: int64(count),
+		QueuedCount: int64(startedCount),
 		Message:     message,
 	}, nil
 }

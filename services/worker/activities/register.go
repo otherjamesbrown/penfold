@@ -72,10 +72,54 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	// Register common activities
 	r.registerCommonActivities(w)
 
-	// Main queue specific activities
-	// Add as they are implemented:
-	// w.RegisterActivity(r.activities.ProcessContent)
-	// w.RegisterActivity(r.activities.DiscoverRelationships)
+	// ContentIngestionWorkflow needs these activities
+	if r.activities != nil {
+		// FetchContent - fetches source content from database
+		w.RegisterActivityWithOptions(r.activities.FetchSource, activity.RegisterOptions{
+			Name: "FetchContent",
+		})
+		// UpdateContentStatus - updates source processing status
+		w.RegisterActivityWithOptions(r.activities.UpdateSourceStatus, activity.RegisterOptions{
+			Name: "UpdateContentStatus",
+		})
+	}
+
+	// Embedding activity for content processing
+	if r.embeddingActivities != nil {
+		w.RegisterActivityWithOptions(r.embeddingActivities.GenerateEmbedding, activity.RegisterOptions{
+			Name: "GenerateContentEmbedding",
+		})
+	} else if r.activities != nil {
+		w.RegisterActivityWithOptions(r.activities.GenerateEmbedding, activity.RegisterOptions{
+			Name: "GenerateContentEmbedding",
+		})
+	}
+
+	// Summary activity for content processing
+	if r.summarizationActivities != nil {
+		w.RegisterActivityWithOptions(r.summarizationActivities.GenerateSummary, activity.RegisterOptions{
+			Name: "GenerateContentSummary",
+		})
+	} else if r.activities != nil {
+		w.RegisterActivityWithOptions(r.activities.GenerateSummary, activity.RegisterOptions{
+			Name: "GenerateContentSummary",
+		})
+	}
+
+	// Extraction activities for content processing
+	if r.extractionActivities != nil {
+		w.RegisterActivityWithOptions(r.extractionActivities.ExtractEntities, activity.RegisterOptions{
+			Name: "ExtractEntities",
+		})
+		// Note: ExtractTopics not yet implemented, workflow will continue without it
+	}
+
+	// Mentions extraction for content processing
+	if r.mentionsActivities != nil {
+		w.RegisterActivityWithOptions(r.mentionsActivities.ExtractMentions, activity.RegisterOptions{
+			Name: "ExtractMentions",
+		})
+	}
 }
 
 // registerAIQueueActivities registers activities for the AI task queue.
@@ -158,7 +202,28 @@ func (r *Registrar) registerCommonActivities(w worker.Worker) {
 func (r *Registrar) ActivityCount(taskQueue string) int {
 	switch taskQueue {
 	case config.MainTaskQueue:
-		return 0 // Will increase as activities are added
+		count := 0
+		// FetchContent, UpdateContentStatus
+		if r.activities != nil {
+			count += 2
+		}
+		// GenerateContentEmbedding
+		if r.embeddingActivities != nil || r.activities != nil {
+			count += 1
+		}
+		// GenerateContentSummary
+		if r.summarizationActivities != nil || r.activities != nil {
+			count += 1
+		}
+		// ExtractEntities
+		if r.extractionActivities != nil {
+			count += 1
+		}
+		// ExtractMentions
+		if r.mentionsActivities != nil {
+			count += 1
+		}
+		return count
 	case config.AITaskQueue:
 		count := 0
 		// Count embedding activities

@@ -277,7 +277,8 @@ func main() {
 	var pipelineSvc *pipelineservice.Service
 
 	// Register ContentProcessorService for content processing operations.
-	contentSvc := contentservice.NewService(logger)
+	// Uses tenantRepo (created above) for tenant slug-to-UUID resolution.
+	contentSvc := contentservice.NewService(dbPool, tenantRepo, logger)
 	contentv1.RegisterContentProcessorServiceServer(grpcServer, contentSvc)
 	logger.Info("Registered ContentProcessorService")
 
@@ -405,6 +406,12 @@ func main() {
 	pipelineSvc = pipelineservice.NewService(pipelineRepo, logger, temporalClient, db, cfg.Temporal.Namespace)
 	pipelinev1.RegisterPipelineServiceServer(grpcServer, pipelineSvc)
 	logger.Info("Registered PipelineService")
+
+	// Set Temporal client on IngestService for automatic workflow starting
+	if temporalClient != nil {
+		ingestSvc.SetTemporalClient(temporalClient)
+		logger.Info("Temporal client configured for IngestService")
+	}
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()
