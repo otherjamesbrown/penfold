@@ -8,15 +8,15 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/activity"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // ContentActivities holds dependencies for content processing activities.
 type ContentActivities struct {
-	logger        zerolog.Logger
+	logger        logging.Logger
 	aiClient      AIClient
 	contentRepo   ContentRepository
 	embeddingRepo EmbeddingRepository
@@ -26,7 +26,7 @@ type ContentActivities struct {
 
 // NewContentActivities creates a new ContentActivities instance.
 func NewContentActivities(
-	logger zerolog.Logger,
+	logger logging.Logger,
 	aiClient AIClient,
 	contentRepo ContentRepository,
 	embeddingRepo EmbeddingRepository,
@@ -34,7 +34,7 @@ func NewContentActivities(
 	summaryRepo SummaryRepository,
 ) *ContentActivities {
 	return &ContentActivities{
-		logger:        logger.With().Str("component", "content_activities").Logger(),
+		logger:        logger.With(logging.F("component", "content_activities")),
 		aiClient:      aiClient,
 		contentRepo:   contentRepo,
 		embeddingRepo: embeddingRepo,
@@ -73,18 +73,18 @@ type ContentChunk struct {
 // ChunkContentActivity chunks content into smaller pieces for processing.
 // This is useful for handling large documents that exceed LLM context limits.
 func (a *ContentActivities) ChunkContentActivity(ctx context.Context, input ChunkContentInput) (*ChunkContentOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "ChunkContentActivity").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Int("content_length", len(input.Content)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "ChunkContentActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+		logging.F("content_length", len(input.Content)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting content chunking")
 
-	logger.Info().Msg("Chunking content")
+	logger.Info("Chunking content")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -127,11 +127,11 @@ func (a *ContentActivities) ChunkContentActivity(ctx context.Context, input Chun
 		TotalChars:  utf8.RuneCountInString(input.Content),
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Int("total_chunks", output.TotalChunks).
-		Int("total_chars", output.TotalChars).
-		Msg("Content chunking completed")
+	logger.Info("Content chunking completed",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("total_chunks", output.TotalChunks),
+		logging.F("total_chars", output.TotalChars),
+	)
 
 	return output, nil
 }
@@ -229,18 +229,18 @@ type ExtractEntitiesActivityOutput struct {
 // ExtractEntitiesActivity extracts named entities from content.
 // This activity identifies people, organizations, locations, dates, and other entities.
 func (a *ContentActivities) ExtractEntitiesActivity(ctx context.Context, input ExtractEntitiesActivityInput) (*ExtractEntitiesActivityOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "ExtractEntitiesActivity").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Int("content_length", len(input.Content)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "ExtractEntitiesActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+		logging.F("content_length", len(input.Content)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting entity extraction")
 
-	logger.Info().Msg("Extracting entities from content")
+	logger.Info("Extracting entities from content")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -280,7 +280,7 @@ func (a *ContentActivities) ExtractEntitiesActivity(ctx context.Context, input E
 
 	resp, err := a.aiClient.ExtractAssertions(ctx, req)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to extract entities from AI service")
+		logger.Error("Failed to extract entities from AI service", logging.Err(err))
 		return nil, fmt.Errorf("failed to extract entities: %w", err)
 	}
 
@@ -340,7 +340,7 @@ func (a *ContentActivities) ExtractEntitiesActivity(ctx context.Context, input E
 			}
 		}
 		if _, err := a.entityRepo.StoreEntities(ctx, input.TenantID, input.SourceID, entityPtrs); err != nil {
-			logger.Warn().Err(err).Msg("Failed to store entities")
+			logger.Warn("Failed to store entities", logging.Err(err))
 		}
 	}
 
@@ -350,11 +350,11 @@ func (a *ContentActivities) ExtractEntitiesActivity(ctx context.Context, input E
 		ModelUsed:   resp.ModelUsed,
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Int("entity_count", output.EntityCount).
-		Str("model_used", output.ModelUsed).
-		Msg("Entity extraction completed")
+	logger.Info("Entity extraction completed",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("entity_count", output.EntityCount),
+		logging.F("model_used", output.ModelUsed),
+	)
 
 	return output, nil
 }
@@ -406,18 +406,18 @@ type CategoryScore struct {
 // CategorizeContentActivity categorizes content into predefined or inferred categories.
 // This is useful for organizing and routing content.
 func (a *ContentActivities) CategorizeContentActivity(ctx context.Context, input CategorizeContentInput) (*CategorizeContentOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "CategorizeContentActivity").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Int("content_length", len(input.Content)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "CategorizeContentActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+		logging.F("content_length", len(input.Content)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting content categorization")
 
-	logger.Info().Msg("Categorizing content")
+	logger.Info("Categorizing content")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -456,7 +456,7 @@ func (a *ContentActivities) CategorizeContentActivity(ctx context.Context, input
 
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to categorize content")
+		logger.Error("Failed to categorize content", logging.Err(err))
 		return nil, fmt.Errorf("failed to categorize content: %w", err)
 	}
 
@@ -474,11 +474,11 @@ func (a *ContentActivities) CategorizeContentActivity(ctx context.Context, input
 		ModelUsed: resp.ModelUsed,
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Str("category", output.PrimaryCategory).
-		Float32("confidence", output.Confidence).
-		Msg("Content categorization completed")
+	logger.Info("Content categorization completed",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("category", output.PrimaryCategory),
+		logging.F("confidence", output.Confidence),
+	)
 
 	return output, nil
 }
@@ -533,18 +533,18 @@ type SummarizeContentOutput struct {
 // SummarizeContentActivity generates a summary of the content.
 // This activity uses an LLM to create concise summaries with key points.
 func (a *ContentActivities) SummarizeContentActivity(ctx context.Context, input SummarizeContentInput) (*SummarizeContentOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "SummarizeContentActivity").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Int("content_length", len(input.Content)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "SummarizeContentActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+		logging.F("content_length", len(input.Content)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting content summarization")
 
-	logger.Info().Msg("Summarizing content")
+	logger.Info("Summarizing content")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -590,7 +590,7 @@ func (a *ContentActivities) SummarizeContentActivity(ctx context.Context, input 
 
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to generate summary")
+		logger.Error("Failed to generate summary", logging.Err(err))
 		return nil, fmt.Errorf("failed to generate summary: %w", err)
 	}
 
@@ -608,7 +608,7 @@ func (a *ContentActivities) SummarizeContentActivity(ctx context.Context, input 
 			resp.ModelUsed,
 		)
 		if err != nil {
-			logger.Warn().Err(err).Msg("Failed to store summary")
+			logger.Warn("Failed to store summary", logging.Err(err))
 		}
 	}
 
@@ -621,12 +621,12 @@ func (a *ContentActivities) SummarizeContentActivity(ctx context.Context, input 
 		OutputTokens: resp.GetOutputTokens(),
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Int64("summary_id", summaryID).
-		Int("summary_length", len(resp.Summary)).
-		Int("key_points", len(resp.KeyPoints)).
-		Msg("Content summarization completed")
+	logger.Info("Content summarization completed",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("summary_id", summaryID),
+		logging.F("summary_length", len(resp.Summary)),
+		logging.F("key_points", len(resp.KeyPoints)),
+	)
 
 	return output, nil
 }
@@ -652,18 +652,18 @@ type GenerateEmbeddingsOutput struct {
 // GenerateEmbeddingsActivity generates embeddings for one or more content items.
 // This activity supports batch embedding generation for efficiency.
 func (a *ContentActivities) GenerateEmbeddingsActivity(ctx context.Context, input GenerateEmbeddingsInput) (*GenerateEmbeddingsOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "GenerateEmbeddingsActivity").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Int("content_count", len(input.Contents)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "GenerateEmbeddingsActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+		logging.F("content_count", len(input.Contents)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting embedding generation")
 
-	logger.Info().Msg("Generating embeddings")
+	logger.Info("Generating embeddings")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -715,7 +715,7 @@ func (a *ContentActivities) GenerateEmbeddingsActivity(ctx context.Context, inpu
 
 		resp, err := a.aiClient.GenerateEmbedding(ctx, req)
 		if err != nil {
-			logger.Warn().Err(err).Int("index", i).Msg("Failed to generate embedding")
+			logger.Warn("Failed to generate embedding", logging.Err(err), logging.F("index", i))
 			failureCount++
 			continue
 		}
@@ -735,7 +735,7 @@ func (a *ContentActivities) GenerateEmbeddingsActivity(ctx context.Context, inpu
 				resp.Dimensions,
 			)
 			if err != nil {
-				logger.Warn().Err(err).Int("index", i).Msg("Failed to store embedding")
+				logger.Warn("Failed to store embedding", logging.Err(err), logging.F("index", i))
 				failureCount++
 				continue
 			}
@@ -753,12 +753,12 @@ func (a *ContentActivities) GenerateEmbeddingsActivity(ctx context.Context, inpu
 		ModelUsed:    modelUsed,
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Int("success_count", successCount).
-		Int("failure_count", failureCount).
-		Int32("dimensions", dimensions).
-		Msg("Embedding generation completed")
+	logger.Info("Embedding generation completed",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("success_count", successCount),
+		logging.F("failure_count", failureCount),
+		logging.F("dimensions", dimensions),
+	)
 
 	return output, nil
 }

@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // StorageActivities holds dependencies for storage-related activities.
 type StorageActivities struct {
-	logger           zerolog.Logger
+	logger           logging.Logger
 	contentRepo      ContentRepository
 	embeddingRepo    EmbeddingRepository
 	relationshipRepo RelationshipRepository
@@ -21,13 +22,13 @@ type StorageActivities struct {
 
 // NewStorageActivities creates a new StorageActivities instance.
 func NewStorageActivities(
-	logger zerolog.Logger,
+	logger logging.Logger,
 	contentRepo ContentRepository,
 	embeddingRepo EmbeddingRepository,
 	relationshipRepo RelationshipRepository,
 ) *StorageActivities {
 	return &StorageActivities{
-		logger:           logger.With().Str("component", "storage_activities").Logger(),
+		logger:           logger.With(logging.F("component", "storage_activities")),
 		contentRepo:      contentRepo,
 		embeddingRepo:    embeddingRepo,
 		relationshipRepo: relationshipRepo,
@@ -54,18 +55,18 @@ type StoreContentOutput struct {
 // StoreContent stores processed content in the database.
 // This activity persists content that has been processed through the pipeline.
 func (a *StorageActivities) StoreContent(ctx context.Context, input StoreContentInput) (*StoreContentOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "StoreContent").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("source_type", input.SourceType).
-		Str("status", input.Status).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "StoreContent"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("source_type", input.SourceType),
+		logging.F("status", input.Status),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting content storage")
 
-	logger.Info().Msg("Storing content")
+	logger.Info("Storing content")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -85,7 +86,7 @@ func (a *StorageActivities) StoreContent(ctx context.Context, input StoreContent
 
 	// Check if repository is available
 	if a.contentRepo == nil {
-		logger.Warn().Msg("Content repository not configured")
+		logger.Warn("Content repository not configured")
 		return nil, temporal.NewApplicationErrorWithCause(
 			"content repository not configured",
 			"ConfigurationError",
@@ -109,14 +110,14 @@ func (a *StorageActivities) StoreContent(ctx context.Context, input StoreContent
 	startTime := time.Now()
 	contentID, err := a.contentRepo.StoreContent(ctx, content)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to store content")
+		logger.Error("Failed to store content", logging.Err(err))
 		return nil, fmt.Errorf("failed to store content: %w", err)
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Int64("content_id", contentID).
-		Msg("Content stored successfully")
+	logger.Info("Content stored successfully",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("content_id", contentID),
+	)
 
 	return &StoreContentOutput{ContentID: contentID}, nil
 }
@@ -138,19 +139,19 @@ type StoreEmbeddingOutput struct {
 // StoreEmbedding stores a pre-computed embedding vector in the database.
 // This activity is useful when embeddings are generated externally or need to be stored separately.
 func (a *StorageActivities) StoreEmbedding(ctx context.Context, input StoreEmbeddingInput) (*StoreEmbeddingOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "StoreEmbedding").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("model", input.Model).
-		Int32("dimensions", input.Dimensions).
-		Int("vector_length", len(input.Vector)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "StoreEmbedding"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("model", input.Model),
+		logging.F("dimensions", input.Dimensions),
+		logging.F("vector_length", len(input.Vector)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting embedding storage")
 
-	logger.Info().Msg("Storing embedding")
+	logger.Info("Storing embedding")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -176,7 +177,7 @@ func (a *StorageActivities) StoreEmbedding(ctx context.Context, input StoreEmbed
 
 	// Check if repository is available
 	if a.embeddingRepo == nil {
-		logger.Warn().Msg("Embedding repository not configured")
+		logger.Warn("Embedding repository not configured")
 		return nil, temporal.NewApplicationErrorWithCause(
 			"embedding repository not configured",
 			"ConfigurationError",
@@ -195,14 +196,14 @@ func (a *StorageActivities) StoreEmbedding(ctx context.Context, input StoreEmbed
 		input.Dimensions,
 	)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to store embedding")
+		logger.Error("Failed to store embedding", logging.Err(err))
 		return nil, fmt.Errorf("failed to store embedding: %w", err)
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Int64("embedding_id", embeddingID).
-		Msg("Embedding stored successfully")
+	logger.Info("Embedding stored successfully",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("embedding_id", embeddingID),
+	)
 
 	return &StoreEmbeddingOutput{EmbeddingID: embeddingID}, nil
 }
@@ -226,19 +227,19 @@ type StoreRelationshipOutput struct {
 // StoreRelationship stores a relationship between entities in the database.
 // This activity creates edges in the entity graph.
 func (a *StorageActivities) StoreRelationship(ctx context.Context, input StoreRelationshipInput) (*StoreRelationshipOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "StoreRelationship").
-		Str("tenant_id", input.TenantID).
-		Str("source_entity", input.SourceEntityID).
-		Str("target_entity", input.TargetEntityID).
-		Str("relation_type", input.RelationType).
-		Float32("confidence", input.Confidence).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "StoreRelationship"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_entity", input.SourceEntityID),
+		logging.F("target_entity", input.TargetEntityID),
+		logging.F("relation_type", input.RelationType),
+		logging.F("confidence", input.Confidence),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting relationship storage")
 
-	logger.Info().Msg("Storing relationship")
+	logger.Info("Storing relationship")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -267,7 +268,7 @@ func (a *StorageActivities) StoreRelationship(ctx context.Context, input StoreRe
 
 	// Check if repository is available
 	if a.relationshipRepo == nil {
-		logger.Warn().Msg("Relationship repository not configured")
+		logger.Warn("Relationship repository not configured")
 		return nil, temporal.NewApplicationErrorWithCause(
 			"relationship repository not configured",
 			"ConfigurationError",
@@ -290,14 +291,14 @@ func (a *StorageActivities) StoreRelationship(ctx context.Context, input StoreRe
 	startTime := time.Now()
 	relID, err := a.relationshipRepo.StoreRelationship(ctx, rel)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to store relationship")
+		logger.Error("Failed to store relationship", logging.Err(err))
 		return nil, fmt.Errorf("failed to store relationship: %w", err)
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Int64("relationship_id", relID).
-		Msg("Relationship stored successfully")
+	logger.Info("Relationship stored successfully",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("relationship_id", relID),
+	)
 
 	return &StoreRelationshipOutput{RelationshipID: relID}, nil
 }
@@ -327,16 +328,16 @@ type RelationshipResult struct {
 // StoreRelationshipBatch stores multiple relationships in a single activity.
 // This is more efficient than calling StoreRelationship multiple times.
 func (a *StorageActivities) StoreRelationshipBatch(ctx context.Context, input StoreRelationshipBatchInput) (*StoreRelationshipBatchOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "StoreRelationshipBatch").
-		Str("tenant_id", input.TenantID).
-		Int("batch_size", len(input.Relationships)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "StoreRelationshipBatch"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("batch_size", len(input.Relationships)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting batch relationship storage")
 
-	logger.Info().Msg("Storing relationships in batch")
+	logger.Info("Storing relationships in batch")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -386,11 +387,11 @@ func (a *StorageActivities) StoreRelationshipBatch(ctx context.Context, input St
 		// Store this relationship
 		output, err := a.StoreRelationship(ctx, rel)
 		if err != nil {
-			logger.Warn().
-				Str("source_entity", rel.SourceEntityID).
-				Str("target_entity", rel.TargetEntityID).
-				Err(err).
-				Msg("Failed to store relationship in batch")
+			logger.Warn("Failed to store relationship in batch",
+				logging.F("source_entity", rel.SourceEntityID),
+				logging.F("target_entity", rel.TargetEntityID),
+				logging.Err(err),
+			)
 
 			results[i] = RelationshipResult{
 				SourceEntityID: rel.SourceEntityID,
@@ -410,10 +411,10 @@ func (a *StorageActivities) StoreRelationshipBatch(ctx context.Context, input St
 		}
 	}
 
-	logger.Info().
-		Int("success_count", successCount).
-		Int("failure_count", failureCount).
-		Msg("Batch relationship storage completed")
+	logger.Info("Batch relationship storage completed",
+		logging.F("success_count", successCount),
+		logging.F("failure_count", failureCount),
+	)
 
 	return &StoreRelationshipBatchOutput{
 		SuccessCount: successCount,

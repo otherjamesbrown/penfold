@@ -6,15 +6,15 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 // TestNewActivities verifies that NewActivities creates a valid Activities instance.
 func TestNewActivities(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 
 	require.NotNil(t, acts)
@@ -22,7 +22,7 @@ func TestNewActivities(t *testing.T) {
 
 // TestFetchSource_NoDB verifies FetchSource returns error when database is not configured.
 func TestFetchSource_NoDB(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 
 	ctx := context.Background()
@@ -40,7 +40,7 @@ func TestFetchSource_NoDB(t *testing.T) {
 
 // TestGenerateEmbedding_NoDB verifies GenerateEmbedding returns error when database is not configured.
 func TestGenerateEmbedding_NoDB(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 
 	ctx := context.Background()
@@ -60,7 +60,7 @@ func TestGenerateEmbedding_NoDB(t *testing.T) {
 
 // TestGenerateSummary_Stub verifies GenerateSummary returns nil (stub pending AI integration).
 func TestGenerateSummary_Stub(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 
 	ctx := context.Background()
@@ -79,7 +79,7 @@ func TestGenerateSummary_Stub(t *testing.T) {
 
 // TestExtractAssertions_Stub verifies ExtractAssertions returns nil (stub pending AI integration).
 func TestExtractAssertions_Stub(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 
 	ctx := context.Background()
@@ -99,7 +99,7 @@ func TestExtractAssertions_Stub(t *testing.T) {
 // TestUpdateSourceStatus_NotImplemented verifies UpdateSourceStatus returns not implemented error.
 // TestUpdateSourceStatus_NoDB verifies UpdateSourceStatus returns error when database is not configured.
 func TestUpdateSourceStatus_NoDB(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 
 	ctx := context.Background()

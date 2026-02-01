@@ -6,30 +6,30 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 // SummarizationActivities holds dependencies for summarization-related activities.
 type SummarizationActivities struct {
-	logger      zerolog.Logger
+	logger      logging.Logger
 	aiClient    AIClient
 	summaryRepo SummaryRepository
 }
 
 // NewSummarizationActivities creates a new SummarizationActivities instance.
 func NewSummarizationActivities(
-	logger zerolog.Logger,
+	logger logging.Logger,
 	aiClient AIClient,
 	summaryRepo SummaryRepository,
 ) *SummarizationActivities {
 	return &SummarizationActivities{
-		logger:      logger.With().Str("component", "summarization_activities").Logger(),
+		logger:      logger.With(logging.F("component", "summarization_activities")),
 		aiClient:    aiClient,
 		summaryRepo: summaryRepo,
 	}
@@ -38,18 +38,18 @@ func NewSummarizationActivities(
 // GenerateSummary generates a summary for the given content using an LLM.
 // The summary includes both a text summary and extracted key points.
 func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input workflows.GenerateSummaryInput) (int64, error) {
-	logger := a.logger.With().
-		Str("activity", "GenerateSummary").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Int("content_length", len(input.Content)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "GenerateSummary"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+		logging.F("content_length", len(input.Content)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting summary generation")
 
-	logger.Info().Msg("Generating summary for content")
+	logger.Info("Generating summary for content")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -66,7 +66,7 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 
 	// Check if AI client is available
 	if a.aiClient == nil {
-		logger.Warn().Msg("AI client not configured")
+		logger.Warn("AI client not configured")
 		return 0, temporal.NewApplicationErrorWithCause(
 			"AI client not configured",
 			"ConfigurationError",
@@ -103,7 +103,7 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 			LatencyMs: time.Since(startTime).Milliseconds(),
 			Error:     err,
 		})
-		logger.Error().Err(err).Msg("Failed to generate summary from AI service")
+		logger.Error("Failed to generate summary from AI service", logging.Err(err))
 		return 0, fmt.Errorf("failed to generate summary: %w", err)
 	}
 
@@ -122,16 +122,16 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 	// Record heartbeat after AI call
 	activity.RecordHeartbeat(ctx, "summary generated, storing")
 
-	logger.Info().
-		Dur("ai_duration", time.Since(startTime)).
-		Int("summary_length", len(resp.Summary)).
-		Int("key_points", len(resp.KeyPoints)).
-		Str("model", resp.ModelUsed).
-		Msg("Summary generated successfully")
+	logger.Info("Summary generated successfully",
+		logging.F("ai_duration", time.Since(startTime)),
+		logging.F("summary_length", len(resp.Summary)),
+		logging.F("key_points", len(resp.KeyPoints)),
+		logging.F("model", resp.ModelUsed),
+	)
 
 	// Check if repository is available for storage
 	if a.summaryRepo == nil {
-		logger.Warn().Msg("Summary repository not configured, skipping storage")
+		logger.Warn("Summary repository not configured, skipping storage")
 		return 0, nil
 	}
 
@@ -146,14 +146,14 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 		resp.ModelUsed,
 	)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to store summary")
+		logger.Error("Failed to store summary", logging.Err(err))
 		return 0, fmt.Errorf("failed to store summary: %w", err)
 	}
 
-	logger.Info().
-		Dur("store_duration", time.Since(storeStart)).
-		Int64("summary_id", summaryID).
-		Msg("Summary stored successfully")
+	logger.Info("Summary stored successfully",
+		logging.F("store_duration", time.Since(storeStart)),
+		logging.F("summary_id", summaryID),
+	)
 
 	return summaryID, nil
 }
@@ -181,20 +181,20 @@ type GenerateSummaryOutput struct {
 
 // GenerateSummaryWithOptions generates a summary with custom options and returns detailed output.
 func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context, input GenerateSummaryWithOptionsInput) (*GenerateSummaryOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "GenerateSummaryWithOptions").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Int("content_length", len(input.Content)).
-		Int32("max_length", input.MaxLength).
-		Str("style", input.Style.String()).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "GenerateSummaryWithOptions"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+		logging.F("content_length", len(input.Content)),
+		logging.F("max_length", input.MaxLength),
+		logging.F("style", input.Style.String()),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting summary generation with options")
 
-	logger.Info().Msg("Generating summary with custom options")
+	logger.Info("Generating summary with custom options")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -211,7 +211,7 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 
 	// Check if AI client is available
 	if a.aiClient == nil {
-		logger.Warn().Msg("AI client not configured")
+		logger.Warn("AI client not configured")
 		return nil, temporal.NewApplicationErrorWithCause(
 			"AI client not configured",
 			"ConfigurationError",
@@ -264,7 +264,7 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 			LatencyMs: time.Since(startTime).Milliseconds(),
 			Error:     err,
 		})
-		logger.Error().Err(err).Msg("Failed to generate summary from AI service")
+		logger.Error("Failed to generate summary from AI service", logging.Err(err))
 		return nil, fmt.Errorf("failed to generate summary: %w", err)
 	}
 
@@ -282,12 +282,12 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 
 	activity.RecordHeartbeat(ctx, "summary generated, storing")
 
-	logger.Info().
-		Dur("ai_duration", time.Since(startTime)).
-		Int("summary_length", len(resp.Summary)).
-		Int("key_points", len(resp.KeyPoints)).
-		Str("model", resp.ModelUsed).
-		Msg("Summary generated successfully")
+	logger.Info("Summary generated successfully",
+		logging.F("ai_duration", time.Since(startTime)),
+		logging.F("summary_length", len(resp.Summary)),
+		logging.F("key_points", len(resp.KeyPoints)),
+		logging.F("model", resp.ModelUsed),
+	)
 
 	output := &GenerateSummaryOutput{
 		Summary:      resp.Summary,
@@ -309,14 +309,14 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 			resp.ModelUsed,
 		)
 		if err != nil {
-			logger.Error().Err(err).Msg("Failed to store summary")
+			logger.Error("Failed to store summary", logging.Err(err))
 			return nil, fmt.Errorf("failed to store summary: %w", err)
 		}
 		output.SummaryID = summaryID
-		logger.Info().
-			Dur("store_duration", time.Since(storeStart)).
-			Int64("summary_id", summaryID).
-			Msg("Summary stored successfully")
+		logger.Info("Summary stored successfully",
+			logging.F("store_duration", time.Since(storeStart)),
+			logging.F("summary_id", summaryID),
+		)
 	}
 
 	return output, nil

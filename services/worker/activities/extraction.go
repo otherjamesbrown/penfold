@@ -6,18 +6,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 // ExtractionActivities holds dependencies for extraction-related activities.
 type ExtractionActivities struct {
-	logger         zerolog.Logger
+	logger         logging.Logger
 	aiClient       AIClient
 	assertionRepo  AssertionRepository
 	entityRepo     EntityRepository
@@ -25,13 +25,13 @@ type ExtractionActivities struct {
 
 // NewExtractionActivities creates a new ExtractionActivities instance.
 func NewExtractionActivities(
-	logger zerolog.Logger,
+	logger logging.Logger,
 	aiClient AIClient,
 	assertionRepo AssertionRepository,
 	entityRepo EntityRepository,
 ) *ExtractionActivities {
 	return &ExtractionActivities{
-		logger:        logger.With().Str("component", "extraction_activities").Logger(),
+		logger:        logger.With(logging.F("component", "extraction_activities")),
 		aiClient:      aiClient,
 		assertionRepo: assertionRepo,
 		entityRepo:    entityRepo,
@@ -41,18 +41,18 @@ func NewExtractionActivities(
 // ExtractAssertions extracts assertions from the given content using an LLM.
 // Assertions are subject-predicate-object triples representing facts and claims.
 func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input workflows.ExtractAssertionsInput) (int, error) {
-	logger := a.logger.With().
-		Str("activity", "ExtractAssertions").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Int("content_length", len(input.Content)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "ExtractAssertions"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+		logging.F("content_length", len(input.Content)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting assertion extraction")
 
-	logger.Info().Msg("Extracting assertions from content")
+	logger.Info("Extracting assertions from content")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -69,7 +69,7 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 
 	// Check if AI client is available
 	if a.aiClient == nil {
-		logger.Warn().Msg("AI client not configured")
+		logger.Warn("AI client not configured")
 		return 0, temporal.NewApplicationErrorWithCause(
 			"AI client not configured",
 			"ConfigurationError",
@@ -107,7 +107,7 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 			LatencyMs: time.Since(startTime).Milliseconds(),
 			Error:     err,
 		})
-		logger.Error().Err(err).Msg("Failed to extract assertions from AI service")
+		logger.Error("Failed to extract assertions from AI service", logging.Err(err))
 		return 0, fmt.Errorf("failed to extract assertions: %w", err)
 	}
 
@@ -125,23 +125,23 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	// Record heartbeat after AI call
 	activity.RecordHeartbeat(ctx, "assertions extracted, processing results")
 
-	logger.Info().
-		Dur("ai_duration", time.Since(startTime)).
-		Int("assertions_found", len(resp.Assertions)).
-		Int32("total_found", resp.TotalFound).
-		Int32("filtered_count", resp.FilteredCount).
-		Str("model", resp.ModelUsed).
-		Msg("Assertions extracted successfully")
+	logger.Info("Assertions extracted successfully",
+		logging.F("ai_duration", time.Since(startTime)),
+		logging.F("assertions_found", len(resp.Assertions)),
+		logging.F("total_found", resp.TotalFound),
+		logging.F("filtered_count", resp.FilteredCount),
+		logging.F("model", resp.ModelUsed),
+	)
 
 	// If no assertions found, return early
 	if len(resp.Assertions) == 0 {
-		logger.Info().Msg("No assertions found in content")
+		logger.Info("No assertions found in content")
 		return 0, nil
 	}
 
 	// Check if repository is available for storage
 	if a.assertionRepo == nil {
-		logger.Warn().Msg("Assertion repository not configured, skipping storage")
+		logger.Warn("Assertion repository not configured, skipping storage")
 		return len(resp.Assertions), nil
 	}
 
@@ -162,14 +162,14 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	storeStart := time.Now()
 	count, err := a.assertionRepo.StoreAssertions(ctx, input.TenantID, input.SourceID, assertions, resp.ModelUsed)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to store assertions")
+		logger.Error("Failed to store assertions", logging.Err(err))
 		return 0, fmt.Errorf("failed to store assertions: %w", err)
 	}
 
-	logger.Info().
-		Dur("store_duration", time.Since(storeStart)).
-		Int("stored_count", count).
-		Msg("Assertions stored successfully")
+	logger.Info("Assertions stored successfully",
+		logging.F("store_duration", time.Since(storeStart)),
+		logging.F("stored_count", count),
+	)
 
 	return count, nil
 }
@@ -198,18 +198,18 @@ type ExtractedEntity struct {
 // ExtractEntities extracts named entities from the given content.
 // This identifies people, organizations, locations, dates, and other named entities.
 func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input ExtractEntitiesInput) (*ExtractEntitiesOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "ExtractEntities").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Int("content_length", len(input.Content)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "ExtractEntities"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+		logging.F("content_length", len(input.Content)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting entity extraction")
 
-	logger.Info().Msg("Extracting entities from content")
+	logger.Info("Extracting entities from content")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -226,7 +226,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 
 	// Check if AI client is available
 	if a.aiClient == nil {
-		logger.Warn().Msg("AI client not configured")
+		logger.Warn("AI client not configured")
 		return nil, temporal.NewApplicationErrorWithCause(
 			"AI client not configured",
 			"ConfigurationError",
@@ -266,7 +266,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 			LatencyMs: time.Since(startTime).Milliseconds(),
 			Error:     err,
 		})
-		logger.Error().Err(err).Msg("Failed to extract entities from AI service")
+		logger.Error("Failed to extract entities from AI service", logging.Err(err))
 		return nil, fmt.Errorf("failed to extract entities: %w", err)
 	}
 
@@ -327,24 +327,24 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 		tracing.AttrInt("entities.found", len(entities)),
 	)
 
-	logger.Info().
-		Dur("ai_duration", time.Since(startTime)).
-		Int("entities_found", len(entities)).
-		Str("model", resp.ModelUsed).
-		Msg("Entities extracted successfully")
+	logger.Info("Entities extracted successfully",
+		logging.F("ai_duration", time.Since(startTime)),
+		logging.F("entities_found", len(entities)),
+		logging.F("model", resp.ModelUsed),
+	)
 
 	// Check if repository is available for storage
 	if a.entityRepo != nil {
 		storeStart := time.Now()
 		count, err := a.entityRepo.StoreEntities(ctx, input.TenantID, input.SourceID, entities)
 		if err != nil {
-			logger.Error().Err(err).Msg("Failed to store entities")
+			logger.Error("Failed to store entities", logging.Err(err))
 			return nil, fmt.Errorf("failed to store entities: %w", err)
 		}
-		logger.Info().
-			Dur("store_duration", time.Since(storeStart)).
-			Int("stored_count", count).
-			Msg("Entities stored successfully")
+		logger.Info("Entities stored successfully",
+			logging.F("store_duration", time.Since(storeStart)),
+			logging.F("stored_count", count),
+		)
 	}
 
 	// Build output

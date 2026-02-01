@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/activity"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // AIModelSelector defines the interface for model selection.
@@ -92,7 +92,7 @@ type EscalationStatus struct {
 
 // AIActivities holds dependencies for AI coordination activities.
 type AIActivities struct {
-	logger            zerolog.Logger
+	logger            logging.Logger
 	aiClient          AIClient
 	modelSelector     AIModelSelector
 	escalationHandler EscalationHandler
@@ -100,13 +100,13 @@ type AIActivities struct {
 
 // NewAIActivities creates a new AIActivities instance.
 func NewAIActivities(
-	logger zerolog.Logger,
+	logger logging.Logger,
 	aiClient AIClient,
 	modelSelector AIModelSelector,
 	escalationHandler EscalationHandler,
 ) *AIActivities {
 	return &AIActivities{
-		logger:            logger.With().Str("component", "ai_activities").Logger(),
+		logger:            logger.With(logging.F("component", "ai_activities")),
 		aiClient:          aiClient,
 		modelSelector:     modelSelector,
 		escalationHandler: escalationHandler,
@@ -139,19 +139,19 @@ type ProcessWithAIOutput struct {
 // ProcessWithAIActivity processes content using an AI model.
 // This activity handles various AI tasks and manages model selection.
 func (a *AIActivities) ProcessWithAIActivity(ctx context.Context, input ProcessWithAIInput) (*ProcessWithAIOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "ProcessWithAIActivity").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Str("task", input.Task).
-		Int("content_length", len(input.Content)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "ProcessWithAIActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+		logging.F("task", input.Task),
+		logging.F("content_length", len(input.Content)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting AI processing")
 
-	logger.Info().Msg("Processing content with AI")
+	logger.Info("Processing content with AI")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -186,10 +186,13 @@ func (a *AIActivities) ProcessWithAIActivity(ctx context.Context, input ProcessW
 		}
 		selection, err := a.modelSelector.SelectModel(ctx, input.Task, *constraints)
 		if err != nil {
-			logger.Warn().Err(err).Msg("Failed to select model, using default")
+			logger.Warn("Failed to select model, using default", logging.Err(err))
 		} else {
 			modelID = selection.ModelID
-			logger.Debug().Str("selected_model", modelID).Str("reasoning", selection.Reasoning).Msg("Model selected")
+			logger.Debug("Model selected",
+				logging.F("selected_model", modelID),
+				logging.F("reasoning", selection.Reasoning),
+			)
 		}
 	}
 
@@ -214,18 +217,21 @@ func (a *AIActivities) ProcessWithAIActivity(ctx context.Context, input ProcessW
 	}
 
 	if err != nil {
-		logger.Error().Err(err).Str("task", input.Task).Msg("AI processing failed")
+		logger.Error("AI processing failed",
+			logging.F("task", input.Task),
+			logging.Err(err),
+		)
 		return nil, err
 	}
 
 	output.Duration = time.Since(startTime)
 
-	logger.Info().
-		Dur("duration", output.Duration).
-		Str("model_used", output.ModelUsed).
-		Int32("input_tokens", output.InputTokens).
-		Int32("output_tokens", output.OutputTokens).
-		Msg("AI processing completed")
+	logger.Info("AI processing completed",
+		logging.F("duration", output.Duration),
+		logging.F("model_used", output.ModelUsed),
+		logging.F("input_tokens", output.InputTokens),
+		logging.F("output_tokens", output.OutputTokens),
+	)
 
 	return output, nil
 }
@@ -378,16 +384,16 @@ type SelectModelOutput struct {
 // SelectModelActivity selects the best AI model for a given task.
 // This activity considers constraints like latency, cost, and quality.
 func (a *AIActivities) SelectModelActivity(ctx context.Context, input SelectModelInput) (*SelectModelOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "SelectModelActivity").
-		Str("tenant_id", input.TenantID).
-		Str("task", input.Task).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "SelectModelActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("task", input.Task),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting model selection")
 
-	logger.Info().Msg("Selecting AI model")
+	logger.Info("Selecting AI model")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -402,7 +408,7 @@ func (a *AIActivities) SelectModelActivity(ctx context.Context, input SelectMode
 	// Check if model selector is available
 	if a.modelSelector == nil {
 		// Return default model selection
-		logger.Debug().Msg("Model selector not configured, using defaults")
+		logger.Debug("Model selector not configured, using defaults")
 		return a.getDefaultModel(input.Task, input.Constraints)
 	}
 
@@ -410,7 +416,7 @@ func (a *AIActivities) SelectModelActivity(ctx context.Context, input SelectMode
 
 	selection, err := a.modelSelector.SelectModel(ctx, input.Task, input.Constraints)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Model selection failed, using defaults")
+		logger.Warn("Model selection failed, using defaults", logging.Err(err))
 		return a.getDefaultModel(input.Task, input.Constraints)
 	}
 
@@ -423,12 +429,12 @@ func (a *AIActivities) SelectModelActivity(ctx context.Context, input SelectMode
 		Reasoning:     selection.Reasoning,
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Str("model_id", output.ModelID).
-		Str("provider", output.Provider).
-		Bool("is_local", output.IsLocal).
-		Msg("Model selected")
+	logger.Info("Model selected",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("model_id", output.ModelID),
+		logging.F("provider", output.Provider),
+		logging.F("is_local", output.IsLocal),
+	)
 
 	return output, nil
 }
@@ -504,20 +510,20 @@ type EscalateRequestOutput struct {
 // EscalateRequestActivity escalates a request to a human or higher-tier system.
 // This activity is used when AI processing requires human intervention.
 func (a *AIActivities) EscalateRequestActivity(ctx context.Context, input EscalateRequestInput) (*EscalateRequestOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "EscalateRequestActivity").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Str("reason", input.Reason).
-		Str("priority", input.Priority).
-		Str("category", input.Category).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "EscalateRequestActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+		logging.F("reason", input.Reason),
+		logging.F("priority", input.Priority),
+		logging.F("category", input.Category),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting escalation")
 
-	logger.Info().Msg("Escalating request")
+	logger.Info("Escalating request")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -553,10 +559,10 @@ func (a *AIActivities) EscalateRequestActivity(ctx context.Context, input Escala
 	// Check if escalation handler is available
 	if a.escalationHandler == nil {
 		// Log the escalation for manual handling
-		logger.Warn().
-			Str("reason", input.Reason).
-			Str("details", input.Details).
-			Msg("Escalation handler not configured, logging escalation")
+		logger.Warn("Escalation handler not configured, logging escalation",
+			logging.F("reason", input.Reason),
+			logging.F("details", input.Details),
+		)
 
 		return &EscalateRequestOutput{
 			EscalationID: fmt.Sprintf("esc-%d-%d", input.SourceID, time.Now().UnixNano()),
@@ -576,7 +582,7 @@ func (a *AIActivities) EscalateRequestActivity(ctx context.Context, input Escala
 
 	resp, err := a.escalationHandler.Escalate(ctx, req)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to escalate request")
+		logger.Error("Failed to escalate request", logging.Err(err))
 		return nil, fmt.Errorf("failed to escalate request: %w", err)
 	}
 
@@ -586,11 +592,11 @@ func (a *AIActivities) EscalateRequestActivity(ctx context.Context, input Escala
 		AssignedTo:   resp.AssignedTo,
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Str("escalation_id", output.EscalationID).
-		Str("status", output.Status).
-		Msg("Request escalated")
+	logger.Info("Request escalated",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("escalation_id", output.EscalationID),
+		logging.F("status", output.Status),
+	)
 
 	return output, nil
 }

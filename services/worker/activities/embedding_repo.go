@@ -6,20 +6,21 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // PostgresEmbeddingRepository implements EmbeddingRepository using PostgreSQL.
 type PostgresEmbeddingRepository struct {
 	pool   *pgxpool.Pool
-	logger zerolog.Logger
+	logger logging.Logger
 }
 
 // NewPostgresEmbeddingRepository creates a new PostgreSQL embedding repository.
-func NewPostgresEmbeddingRepository(pool *pgxpool.Pool, logger zerolog.Logger) *PostgresEmbeddingRepository {
+func NewPostgresEmbeddingRepository(pool *pgxpool.Pool, logger logging.Logger) *PostgresEmbeddingRepository {
 	return &PostgresEmbeddingRepository{
 		pool:   pool,
-		logger: logger.With().Str("component", "embedding_repository").Logger(),
+		logger: logger.With(logging.F("component", "embedding_repository")),
 	}
 }
 
@@ -34,15 +35,15 @@ func (r *PostgresEmbeddingRepository) StoreEmbedding(
 	model string,
 	dimensions int32,
 ) (int64, error) {
-	logger := r.logger.With().
-		Str("tenant_id", tenantID).
-		Int64("source_id", sourceID).
-		Str("model", model).
-		Int32("dimensions", dimensions).
-		Int("vector_length", len(vector)).
-		Logger()
+	logger := r.logger.With(
+		logging.F("tenant_id", tenantID),
+		logging.F("source_id", sourceID),
+		logging.F("model", model),
+		logging.F("dimensions", dimensions),
+		logging.F("vector_length", len(vector)),
+	)
 
-	logger.Debug().Msg("Storing embedding")
+	logger.Debug("Storing embedding")
 
 	// Validate input
 	if tenantID == "" {
@@ -111,13 +112,13 @@ func (r *PostgresEmbeddingRepository) StoreEmbedding(
 	).Scan(&embeddingID)
 
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to store embedding")
+		logger.Error("Failed to store embedding", logging.Err(err))
 		return 0, fmt.Errorf("failed to store embedding: %w", err)
 	}
 
-	logger.Info().
-		Int64("embedding_id", embeddingID).
-		Msg("Embedding stored successfully")
+	logger.Info("Embedding stored successfully",
+		logging.F("embedding_id", embeddingID),
+	)
 
 	return embeddingID, nil
 }
@@ -129,12 +130,12 @@ func (r *PostgresEmbeddingRepository) GetEmbedding(
 	tenantID string,
 	embeddingID int64,
 ) (*Embedding, error) {
-	logger := r.logger.With().
-		Str("tenant_id", tenantID).
-		Int64("embedding_id", embeddingID).
-		Logger()
+	logger := r.logger.With(
+		logging.F("tenant_id", tenantID),
+		logging.F("embedding_id", embeddingID),
+	)
 
-	logger.Debug().Msg("Fetching embedding")
+	logger.Debug("Fetching embedding")
 
 	// Validate input
 	if tenantID == "" {
@@ -176,7 +177,7 @@ func (r *PostgresEmbeddingRepository) GetEmbedding(
 	)
 
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to fetch embedding")
+		logger.Error("Failed to fetch embedding", logging.Err(err))
 		return nil, fmt.Errorf("failed to fetch embedding: %w", err)
 	}
 
@@ -186,9 +187,9 @@ func (r *PostgresEmbeddingRepository) GetEmbedding(
 		vector[i] = float32(v)
 	}
 
-	logger.Info().
-		Int("vector_length", len(vector)).
-		Msg("Embedding fetched successfully")
+	logger.Info("Embedding fetched successfully",
+		logging.F("vector_length", len(vector)),
+	)
 
 	return &Embedding{
 		ID:         id,

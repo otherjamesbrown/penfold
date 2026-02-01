@@ -6,26 +6,26 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 // EmbeddingActivities holds dependencies for embedding-related activities.
 type EmbeddingActivities struct {
-	logger        zerolog.Logger
+	logger        logging.Logger
 	aiClient      AIClient
 	embeddingRepo EmbeddingRepository
 }
 
 // NewEmbeddingActivities creates a new EmbeddingActivities instance.
-func NewEmbeddingActivities(logger zerolog.Logger, aiClient AIClient, embeddingRepo EmbeddingRepository) *EmbeddingActivities {
+func NewEmbeddingActivities(logger logging.Logger, aiClient AIClient, embeddingRepo EmbeddingRepository) *EmbeddingActivities {
 	return &EmbeddingActivities{
-		logger:        logger.With().Str("component", "embedding_activities").Logger(),
+		logger:        logger.With(logging.F("component", "embedding_activities")),
 		aiClient:      aiClient,
 		embeddingRepo: embeddingRepo,
 	}
@@ -34,17 +34,17 @@ func NewEmbeddingActivities(logger zerolog.Logger, aiClient AIClient, embeddingR
 // GenerateEmbedding generates a vector embedding for the given content.
 // This activity calls the AI service to create embeddings and stores them in the database.
 func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workflows.GenerateEmbeddingInput) (int64, error) {
-	logger := a.logger.With().
-		Str("activity", "GenerateEmbedding").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Int("content_length", len(input.Content)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "GenerateEmbedding"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("content_length", len(input.Content)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting embedding generation")
 
-	logger.Info().Msg("Generating embedding for content")
+	logger.Info("Generating embedding for content")
 
 	// Check for cancellation before expensive operations
 	if ctx.Err() != nil {
@@ -61,7 +61,7 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 
 	// Check if AI client is available
 	if a.aiClient == nil {
-		logger.Warn().Msg("AI client not configured")
+		logger.Warn("AI client not configured")
 		return 0, temporal.NewApplicationErrorWithCause(
 			"AI client not configured",
 			"ConfigurationError",
@@ -93,7 +93,7 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 			LatencyMs: time.Since(startTime).Milliseconds(),
 			Error:     err,
 		})
-		logger.Error().Err(err).Msg("Failed to generate embedding from AI service")
+		logger.Error("Failed to generate embedding from AI service", logging.Err(err))
 		return 0, fmt.Errorf("failed to generate embedding: %w", err)
 	}
 
@@ -106,15 +106,15 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	// Record heartbeat after AI call
 	activity.RecordHeartbeat(ctx, "embedding generated, storing")
 
-	logger.Info().
-		Dur("ai_duration", time.Since(startTime)).
-		Int("dimensions", int(resp.Dimensions)).
-		Str("model", resp.ModelUsed).
-		Msg("Embedding generated successfully")
+	logger.Info("Embedding generated successfully",
+		logging.F("ai_duration", time.Since(startTime)),
+		logging.F("dimensions", int(resp.Dimensions)),
+		logging.F("model", resp.ModelUsed),
+	)
 
 	// Check if repository is available for storage
 	if a.embeddingRepo == nil {
-		logger.Warn().Msg("Embedding repository not configured, skipping storage")
+		logger.Warn("Embedding repository not configured, skipping storage")
 		// Return 0 to indicate no stored embedding, but operation was successful
 		return 0, nil
 	}
@@ -130,14 +130,14 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		resp.Dimensions,
 	)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to store embedding")
+		logger.Error("Failed to store embedding", logging.Err(err))
 		return 0, fmt.Errorf("failed to store embedding: %w", err)
 	}
 
-	logger.Info().
-		Dur("store_duration", time.Since(storeStart)).
-		Int64("embedding_id", embeddingID).
-		Msg("Embedding stored successfully")
+	logger.Info("Embedding stored successfully",
+		logging.F("store_duration", time.Since(storeStart)),
+		logging.F("embedding_id", embeddingID),
+	)
 
 	return embeddingID, nil
 }
@@ -172,13 +172,13 @@ type EmbeddingResult struct {
 // GenerateEmbeddingBatch generates embeddings for multiple content items in a single activity.
 // This reduces overhead for batch processing workflows.
 func (a *EmbeddingActivities) GenerateEmbeddingBatch(ctx context.Context, input GenerateEmbeddingBatchInput) (*GenerateEmbeddingBatchOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "GenerateEmbeddingBatch").
-		Str("tenant_id", input.TenantID).
-		Int("batch_size", len(input.Items)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "GenerateEmbeddingBatch"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("batch_size", len(input.Items)),
+	)
 
-	logger.Info().Msg("Starting batch embedding generation")
+	logger.Info("Starting batch embedding generation")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -217,10 +217,10 @@ func (a *EmbeddingActivities) GenerateEmbeddingBatch(ctx context.Context, input 
 		})
 
 		if err != nil {
-			logger.Warn().
-				Int64("source_id", item.SourceID).
-				Err(err).
-				Msg("Failed to generate embedding for item in batch")
+			logger.Warn("Failed to generate embedding for item in batch",
+				logging.F("source_id", item.SourceID),
+				logging.Err(err),
+			)
 
 			results[i] = EmbeddingResult{
 				SourceID: item.SourceID,
@@ -243,10 +243,10 @@ func (a *EmbeddingActivities) GenerateEmbeddingBatch(ctx context.Context, input 
 		}
 	}
 
-	logger.Info().
-		Int("success_count", successCount).
-		Int("failure_count", len(input.Items)-successCount).
-		Msg("Batch embedding generation completed")
+	logger.Info("Batch embedding generation completed",
+		logging.F("success_count", successCount),
+		logging.F("failure_count", len(input.Items)-successCount),
+	)
 
 	return &GenerateEmbeddingBatchOutput{Results: results}, nil
 }

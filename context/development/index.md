@@ -116,6 +116,7 @@ After reading the above, read your specific agent file:
 | Situation | Read |
 |-----------|------|
 | Writing Go code | `standards/go-patterns.md` |
+| Adding logging/observability | `standards/logging.md` |
 | Working on CLI/Gateway | `standards/architecture.md` |
 | Unsure what to work on | `workflows/priorities.md` |
 | Releasing CLI changes | `workflows/releases.md` |
@@ -124,6 +125,7 @@ After reading the above, read your specific agent file:
 | Deployment/connections | `../infrastructure.md` |
 | Writing tests | `standards/testing.md` |
 | Running tests | `/test.unit`, `/test.integration`, `/test.e2e` |
+| Debugging issues | `../agents/debugger.md` |
 
 ---
 
@@ -144,6 +146,7 @@ After reading the above, read your specific agent file:
 | Document | Purpose |
 |----------|---------|
 | `standards/go-patterns.md` | Lint-compliant patterns, error handling, HTTP patterns |
+| `standards/logging.md` | Logging patterns, observability, where to find logs |
 | `standards/architecture.md` | CLI→Gateway→DB flow, gRPC contracts, proto locations |
 | `standards/autonomy.md` | When to proceed vs ask, architecture coordination |
 | `standards/testing.md` | **MANDATORY** - test rules, no t.Skip on failure, mocks |

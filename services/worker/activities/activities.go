@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/activity"
 
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -22,16 +22,16 @@ const DefaultTenantID = "00000001-0000-0000-0000-000000000001"
 
 // Activities holds all activity implementations with their dependencies.
 type Activities struct {
-	logger       zerolog.Logger
+	logger       logging.Logger
 	db           *pgxpool.Pool
 	aiServiceURL string
 	httpClient   *http.Client
 }
 
 // NewActivities creates a new Activities instance with all dependencies injected.
-func NewActivities(logger zerolog.Logger) *Activities {
+func NewActivities(logger logging.Logger) *Activities {
 	return &Activities{
-		logger: logger.With().Str("component", "activities").Logger(),
+		logger: logger.With(logging.F("component", "activities")),
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
@@ -39,9 +39,9 @@ func NewActivities(logger zerolog.Logger) *Activities {
 }
 
 // NewActivitiesWithDB creates a new Activities instance with database and AI service.
-func NewActivitiesWithDB(logger zerolog.Logger, db *pgxpool.Pool, aiServiceURL string) *Activities {
+func NewActivitiesWithDB(logger logging.Logger, db *pgxpool.Pool, aiServiceURL string) *Activities {
 	return &Activities{
-		logger:       logger.With().Str("component", "activities").Logger(),
+		logger:       logger.With(logging.F("component", "activities")),
 		db:           db,
 		aiServiceURL: aiServiceURL,
 		httpClient: &http.Client{
@@ -70,14 +70,14 @@ func safeRecordHeartbeat(ctx context.Context, details ...interface{}) {
 
 // FetchSource fetches the source content from the database.
 func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourceInput) (*workflows.FetchSourceOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "FetchSource").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "FetchSource"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+	)
 
 	safeRecordHeartbeat(ctx, "fetching source")
-	logger.Info().Msg("Fetching source content")
+	logger.Info("Fetching source content")
 
 	if a.db == nil {
 		return nil, fmt.Errorf("database connection not configured")
@@ -94,14 +94,14 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 	var content, contentType string
 	err := a.db.QueryRow(ctx, query, input.SourceID, tenantID).Scan(&content, &contentType)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to fetch source from database")
+		logger.Error("Failed to fetch source from database", logging.Err(err))
 		return nil, fmt.Errorf("failed to fetch source %d: %w", input.SourceID, err)
 	}
 
-	logger.Info().
-		Int("content_length", len(content)).
-		Str("content_type", contentType).
-		Msg("Source content fetched successfully")
+	logger.Info("Source content fetched successfully",
+		logging.F("content_length", len(content)),
+		logging.F("content_type", contentType),
+	)
 
 	return &workflows.FetchSourceOutput{
 		ContentText: content,
@@ -130,14 +130,14 @@ type EmbeddingResponse struct {
 
 // GenerateEmbedding generates an embedding for the given content.
 func (a *Activities) GenerateEmbedding(ctx context.Context, input workflows.GenerateEmbeddingInput) (int64, error) {
-	logger := a.logger.With().
-		Str("activity", "GenerateEmbedding").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "GenerateEmbedding"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+	)
 
 	safeRecordHeartbeat(ctx, "generating embedding")
-	logger.Info().Msg("Generating embedding for content")
+	logger.Info("Generating embedding for content")
 
 	if a.db == nil {
 		return 0, fmt.Errorf("database connection not configured")
@@ -219,59 +219,59 @@ func (a *Activities) GenerateEmbedding(ctx context.Context, input workflows.Gene
 		return 0, fmt.Errorf("failed to store embedding: %w", err)
 	}
 
-	logger.Info().
-		Int64("embedding_id", embeddingID).
-		Int("dimensions", len(embedding)).
-		Msg("Embedding stored successfully")
+	logger.Info("Embedding stored successfully",
+		logging.F("embedding_id", embeddingID),
+		logging.F("dimensions", len(embedding)),
+	)
 
 	return embeddingID, nil
 }
 
 // GenerateSummary generates a summary for the given content using an LLM.
 func (a *Activities) GenerateSummary(ctx context.Context, input workflows.GenerateSummaryInput) (int64, error) {
-	logger := a.logger.With().
-		Str("activity", "GenerateSummary").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "GenerateSummary"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+	)
 
 	safeRecordHeartbeat(ctx, "generating summary")
-	logger.Info().Msg("Generating summary via LLM")
+	logger.Info("Generating summary via LLM")
 
 	// STUB: Skipped until AI service integration (Ollama/Gemini).
-	logger.Info().Msg("Summary generation skipped (AI service not connected)")
+	logger.Info("Summary generation skipped (AI service not connected)")
 	return 0, nil
 }
 
 // ExtractAssertions extracts assertions from the given content using an LLM.
 func (a *Activities) ExtractAssertions(ctx context.Context, input workflows.ExtractAssertionsInput) (int, error) {
-	logger := a.logger.With().
-		Str("activity", "ExtractAssertions").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("job_id", input.JobID).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "ExtractAssertions"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("job_id", input.JobID),
+	)
 
 	safeRecordHeartbeat(ctx, "extracting assertions")
-	logger.Info().Msg("Extracting assertions via LLM")
+	logger.Info("Extracting assertions via LLM")
 
 	// STUB: Skipped until AI service integration (Ollama/Gemini).
-	logger.Info().Msg("Assertion extraction skipped (AI service not connected)")
+	logger.Info("Assertion extraction skipped (AI service not connected)")
 	return 0, nil
 }
 
 // UpdateSourceStatus updates the processing status of a source.
 func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.UpdateSourceStatusInput) error {
-	logger := a.logger.With().
-		Str("activity", "UpdateSourceStatus").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("status", input.Status).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "UpdateSourceStatus"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("status", input.Status),
+	)
 
 	safeRecordHeartbeat(ctx, "updating source status")
-	logger.Info().Msg("Updating source status")
+	logger.Info("Updating source status")
 
 	if a.db == nil {
 		return fmt.Errorf("database connection not configured")
@@ -294,6 +294,6 @@ func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.Upd
 		return fmt.Errorf("source not found: %d", input.SourceID)
 	}
 
-	logger.Info().Msg("Source status updated successfully")
+	logger.Info("Source status updated successfully")
 	return nil
 }

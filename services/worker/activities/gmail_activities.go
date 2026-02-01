@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/activity"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	gmailv1 "github.com/otherjamesbrown/penfold/api/proto/gmailv1"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // GmailClient defines the interface for Gmail API operations.
@@ -85,19 +85,19 @@ type StoredAttachment struct {
 
 // GmailActivities holds dependencies for Gmail-related activities.
 type GmailActivities struct {
-	logger      zerolog.Logger
+	logger      logging.Logger
 	gmailClient GmailClient
 	emailRepo   EmailRepository
 }
 
 // NewGmailActivities creates a new GmailActivities instance.
 func NewGmailActivities(
-	logger zerolog.Logger,
+	logger logging.Logger,
 	gmailClient GmailClient,
 	emailRepo EmailRepository,
 ) *GmailActivities {
 	return &GmailActivities{
-		logger:      logger.With().Str("component", "gmail_activities").Logger(),
+		logger:      logger.With(logging.F("component", "gmail_activities")),
 		gmailClient: gmailClient,
 		emailRepo:   emailRepo,
 	}
@@ -128,18 +128,18 @@ type SyncEmailsOutput struct {
 // This is an async operation - it starts a sync job and returns the job ID.
 // Use GetSyncStatusActivity to poll for completion.
 func (a *GmailActivities) SyncEmailsActivity(ctx context.Context, input SyncEmailsInput) (*SyncEmailsOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "SyncEmailsActivity").
-		Str("tenant_id", input.TenantID).
-		Str("job_id", input.JobID).
-		Time("start_time", input.StartTime).
-		Time("end_time", input.EndTime).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "SyncEmailsActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("job_id", input.JobID),
+		logging.F("start_time", input.StartTime),
+		logging.F("end_time", input.EndTime),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting email sync")
 
-	logger.Info().Msg("Starting Gmail sync")
+	logger.Info("Starting Gmail sync")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -156,7 +156,7 @@ func (a *GmailActivities) SyncEmailsActivity(ctx context.Context, input SyncEmai
 
 	// Check if Gmail client is available
 	if a.gmailClient == nil {
-		logger.Warn().Msg("Gmail client not configured")
+		logger.Warn("Gmail client not configured")
 		return nil, NewConfigurationError("Gmail client not configured")
 	}
 
@@ -193,7 +193,7 @@ func (a *GmailActivities) SyncEmailsActivity(ctx context.Context, input SyncEmai
 
 	resp, err := a.gmailClient.SyncEmails(ctx, syncReq)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to start email sync")
+		logger.Error("Failed to start email sync", logging.Err(err))
 
 		// Check if error is retryable
 		if isGmailRetryableError(err) {
@@ -216,11 +216,11 @@ func (a *GmailActivities) SyncEmailsActivity(ctx context.Context, input SyncEmai
 		Message: resp.GetMessage(),
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Str("sync_id", output.SyncID).
-		Str("status", output.Status).
-		Msg("Gmail sync job started")
+	logger.Info("Gmail sync job started",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("sync_id", output.SyncID),
+		logging.F("status", output.Status),
+	)
 
 	return output, nil
 }
@@ -246,17 +246,17 @@ type ProcessEmailOutput struct {
 // ProcessEmailActivity processes a single email from Gmail.
 // This activity fetches the full email content and stores it in the database.
 func (a *GmailActivities) ProcessEmailActivity(ctx context.Context, input ProcessEmailInput) (*ProcessEmailOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "ProcessEmailActivity").
-		Str("tenant_id", input.TenantID).
-		Str("job_id", input.JobID).
-		Str("message_id", input.MessageID).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "ProcessEmailActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("job_id", input.JobID),
+		logging.F("message_id", input.MessageID),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting email processing")
 
-	logger.Info().Msg("Processing email")
+	logger.Info("Processing email")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -287,7 +287,7 @@ func (a *GmailActivities) ProcessEmailActivity(ctx context.Context, input Proces
 	}
 	email, err := a.gmailClient.GetEmail(ctx, getReq)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to fetch email from Gmail")
+		logger.Error("Failed to fetch email from Gmail", logging.Err(err))
 
 		if isGmailRetryableError(err) {
 			return nil, NewTemporaryErrorWithCause("failed to fetch email", err)
@@ -346,7 +346,7 @@ func (a *GmailActivities) ProcessEmailActivity(ctx context.Context, input Proces
 	if a.emailRepo != nil {
 		emailID, err = a.emailRepo.StoreEmail(ctx, processedEmail)
 		if err != nil {
-			logger.Error().Err(err).Msg("Failed to store email")
+			logger.Error("Failed to store email", logging.Err(err))
 			return nil, fmt.Errorf("failed to store email: %w", err)
 		}
 	}
@@ -367,12 +367,12 @@ func (a *GmailActivities) ProcessEmailActivity(ctx context.Context, input Proces
 		FromEmail:      fromAddress,
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Int64("email_id", emailID).
-		Bool("has_attachments", output.HasAttachments).
-		Int("attachment_count", len(attachmentIDs)).
-		Msg("Email processed successfully")
+	logger.Info("Email processed successfully",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("email_id", emailID),
+		logging.F("has_attachments", output.HasAttachments),
+		logging.F("attachment_count", len(attachmentIDs)),
+	)
 
 	return output, nil
 }
@@ -417,19 +417,19 @@ type AttachmentSummary struct {
 // Attachment content fetching is handled separately by the Gmail service.
 // This activity records the attachment metadata for tracking and later processing.
 func (a *GmailActivities) StoreAttachmentsActivity(ctx context.Context, input StoreAttachmentsInput) (*StoreAttachmentsOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "StoreAttachmentsActivity").
-		Str("tenant_id", input.TenantID).
-		Str("job_id", input.JobID).
-		Str("message_id", input.MessageID).
-		Int64("email_id", input.EmailID).
-		Int("attachment_count", len(input.Attachments)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "StoreAttachmentsActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("job_id", input.JobID),
+		logging.F("message_id", input.MessageID),
+		logging.F("email_id", input.EmailID),
+		logging.F("attachment_count", len(input.Attachments)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting attachment storage")
 
-	logger.Info().Msg("Storing attachment metadata")
+	logger.Info("Storing attachment metadata")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -494,7 +494,7 @@ func (a *GmailActivities) StoreAttachmentsActivity(ctx context.Context, input St
 			}
 			storedID, err = a.emailRepo.StoreAttachment(ctx, storedAtt)
 			if err != nil {
-				logger.Warn().Err(err).Str("attachment_id", attMeta.AttachmentID).Msg("Failed to store attachment")
+				logger.Warn("Failed to store attachment", logging.Err(err), logging.F("attachment_id", attMeta.AttachmentID))
 				output.Attachments = append(output.Attachments, AttachmentSummary{
 					AttachmentID: attMeta.AttachmentID,
 					FileName:     attMeta.FileName,
@@ -520,11 +520,11 @@ func (a *GmailActivities) StoreAttachmentsActivity(ctx context.Context, input St
 		output.ProcessedCount++
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Int("processed_count", output.ProcessedCount).
-		Int("failed_count", output.FailedCount).
-		Msg("Attachment storage completed")
+	logger.Info("Attachment storage completed",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("processed_count", output.ProcessedCount),
+		logging.F("failed_count", output.FailedCount),
+	)
 
 	return output, nil
 }
@@ -549,17 +549,17 @@ type ApplyPrivacyFilterOutput struct {
 // ApplyPrivacyFilterActivity applies privacy filtering to content.
 // This activity redacts PII, sensitive information, and ensures compliance.
 func (a *GmailActivities) ApplyPrivacyFilterActivity(ctx context.Context, input ApplyPrivacyFilterInput) (*ApplyPrivacyFilterOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "ApplyPrivacyFilterActivity").
-		Str("tenant_id", input.TenantID).
-		Str("content_type", input.ContentType).
-		Int("content_length", len(input.Content)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "ApplyPrivacyFilterActivity"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("content_type", input.ContentType),
+		logging.F("content_length", len(input.Content)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting privacy filtering")
 
-	logger.Info().Msg("Applying privacy filter")
+	logger.Info("Applying privacy filter")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -649,11 +649,11 @@ func (a *GmailActivities) ApplyPrivacyFilterActivity(ctx context.Context, input 
 		Warnings:        warnings,
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Int("redacted_count", redactedCount).
-		Strs("redacted_types", redactedTypes).
-		Msg("Privacy filter applied")
+	logger.Info("Privacy filter applied",
+		logging.F("duration", time.Since(startTime)),
+		logging.F("redacted_count", redactedCount),
+		logging.F("redacted_types", redactedTypes),
+	)
 
 	return output, nil
 }

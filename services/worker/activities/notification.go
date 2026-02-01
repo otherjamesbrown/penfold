@@ -6,21 +6,22 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // NotificationActivities holds dependencies for notification-related activities.
 type NotificationActivities struct {
-	logger       zerolog.Logger
+	logger       logging.Logger
 	notifyClient NotificationClient
 }
 
 // NewNotificationActivities creates a new NotificationActivities instance.
-func NewNotificationActivities(logger zerolog.Logger, notifyClient NotificationClient) *NotificationActivities {
+func NewNotificationActivities(logger logging.Logger, notifyClient NotificationClient) *NotificationActivities {
 	return &NotificationActivities{
-		logger:       logger.With().Str("component", "notification_activities").Logger(),
+		logger:       logger.With(logging.F("component", "notification_activities")),
 		notifyClient: notifyClient,
 	}
 }
@@ -48,18 +49,18 @@ type SendNotificationOutput struct {
 // SendNotification sends a notification via the configured notification client.
 // This activity supports multiple notification types (email, slack, webhook).
 func (a *NotificationActivities) SendNotification(ctx context.Context, input SendNotificationInput) (*SendNotificationOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "SendNotification").
-		Str("tenant_id", input.TenantID).
-		Str("type", input.Type).
-		Str("recipient", input.Recipient).
-		Str("priority", input.Priority).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "SendNotification"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("type", input.Type),
+		logging.F("recipient", input.Recipient),
+		logging.F("priority", input.Priority),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "preparing notification")
 
-	logger.Info().Msg("Sending notification")
+	logger.Info("Sending notification")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -73,7 +74,7 @@ func (a *NotificationActivities) SendNotification(ctx context.Context, input Sen
 
 	// Check if notification client is available
 	if a.notifyClient == nil {
-		logger.Warn().Msg("Notification client not configured")
+		logger.Warn("Notification client not configured")
 		return nil, temporal.NewApplicationErrorWithCause(
 			"notification client not configured",
 			"ConfigurationError",
@@ -98,7 +99,7 @@ func (a *NotificationActivities) SendNotification(ctx context.Context, input Sen
 
 	err := a.notifyClient.SendNotification(ctx, notification)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to send notification")
+		logger.Error("Failed to send notification", logging.Err(err))
 
 		if input.RetryOnFail {
 			// Return error to trigger retry
@@ -112,9 +113,9 @@ func (a *NotificationActivities) SendNotification(ctx context.Context, input Sen
 		}, nil
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Msg("Notification sent successfully")
+	logger.Info("Notification sent successfully",
+		logging.F("duration", time.Since(startTime)),
+	)
 
 	return &SendNotificationOutput{
 		Success:   true,
@@ -186,17 +187,17 @@ type SendBatchNotificationOutput struct {
 // SendBatchNotification sends multiple notifications in a single activity.
 // This is more efficient than calling SendNotification multiple times.
 func (a *NotificationActivities) SendBatchNotification(ctx context.Context, input SendBatchNotificationInput) (*SendBatchNotificationOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "SendBatchNotification").
-		Str("tenant_id", input.TenantID).
-		Int("batch_size", len(input.Notifications)).
-		Bool("stop_on_failure", input.StopOnFailure).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "SendBatchNotification"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("batch_size", len(input.Notifications)),
+		logging.F("stop_on_failure", input.StopOnFailure),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting batch notification")
 
-	logger.Info().Msg("Sending batch notifications")
+	logger.Info("Sending batch notifications")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -244,11 +245,11 @@ func (a *NotificationActivities) SendBatchNotification(ctx context.Context, inpu
 		// Send this notification
 		result, err := a.SendNotification(ctx, notif)
 		if err != nil {
-			logger.Warn().
-				Str("recipient", notif.Recipient).
-				Str("type", notif.Type).
-				Err(err).
-				Msg("Failed to send notification in batch")
+			logger.Warn("Failed to send notification in batch",
+				logging.F("recipient", notif.Recipient),
+				logging.F("type", notif.Type),
+				logging.Err(err),
+			)
 
 			results[i] = SendNotificationOutput{
 				Success: false,
@@ -281,10 +282,10 @@ func (a *NotificationActivities) SendBatchNotification(ctx context.Context, inpu
 		}
 	}
 
-	logger.Info().
-		Int("success_count", successCount).
-		Int("failure_count", failureCount).
-		Msg("Batch notification completed")
+	logger.Info("Batch notification completed",
+		logging.F("success_count", successCount),
+		logging.F("failure_count", failureCount),
+	)
 
 	return &SendBatchNotificationOutput{
 		SuccessCount: successCount,
@@ -306,15 +307,15 @@ type NotifyProcessingCompleteInput struct {
 // NotifyProcessingComplete sends a notification about processing completion.
 // This is a convenience activity for the common use case of notifying users about job completion.
 func (a *NotificationActivities) NotifyProcessingComplete(ctx context.Context, input NotifyProcessingCompleteInput) (*SendNotificationOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "NotifyProcessingComplete").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Str("source_type", input.SourceType).
-		Str("status", input.Status).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "NotifyProcessingComplete"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("source_type", input.SourceType),
+		logging.F("status", input.Status),
+	)
 
-	logger.Info().Msg("Sending processing completion notification")
+	logger.Info("Sending processing completion notification")
 
 	// Build subject and body based on status
 	var subject, body string

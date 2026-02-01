@@ -5,12 +5,12 @@ import (
 	"testing"
 
 	"github.com/nexus-rpc/sdk-go/nexus"
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/worker/config"
 )
 
@@ -71,7 +71,7 @@ var _ worker.Worker = (*mockWorker)(nil)
 
 // TestNewRegistrar_WithActivities verifies NewRegistrar creates a valid Registrar with activities.
 func TestNewRegistrar_WithActivities(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 	r := NewRegistrar(acts)
 
@@ -86,18 +86,18 @@ func TestNewRegistrar_NilActivities(t *testing.T) {
 
 // TestActivityCount_MainQueue verifies activity count for main queue.
 func TestActivityCount_MainQueue(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 	r := NewRegistrar(acts)
 
 	count := r.ActivityCount(config.MainTaskQueue)
-	// Currently no activities registered for main queue (besides common)
-	require.Equal(t, 0, count)
+	// FetchContent, UpdateContentStatus, GenerateContentEmbedding, GenerateContentSummary = 4
+	require.Equal(t, 4, count)
 }
 
 // TestActivityCount_AIQueue verifies activity count for AI queue.
 func TestActivityCount_AIQueue(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 	r := NewRegistrar(acts)
 
@@ -108,7 +108,7 @@ func TestActivityCount_AIQueue(t *testing.T) {
 
 // TestActivityCount_EmailQueue verifies activity count for email queue.
 func TestActivityCount_EmailQueue(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 	r := NewRegistrar(acts)
 
@@ -119,7 +119,7 @@ func TestActivityCount_EmailQueue(t *testing.T) {
 
 // TestActivityCount_UnknownQueue verifies activity count for unknown queue.
 func TestActivityCount_UnknownQueue(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 	r := NewRegistrar(acts)
 
@@ -130,7 +130,7 @@ func TestActivityCount_UnknownQueue(t *testing.T) {
 // TestRegistrar_RegisterAll_EmailQueue_WithActivities verifies registration with activities.
 func TestRegistrar_RegisterAll_EmailQueue_WithActivities(t *testing.T) {
 	w := newMockWorker()
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 	r := NewRegistrar(acts)
 
@@ -164,7 +164,7 @@ func TestRegistrar_RegisterAll_EmailQueue_NilActivities(t *testing.T) {
 // TestRegistrar_RegisterAll_AIQueue verifies registration for AI queue.
 func TestRegistrar_RegisterAll_AIQueue(t *testing.T) {
 	w := newMockWorker()
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 	r := NewRegistrar(acts)
 
@@ -182,7 +182,7 @@ func TestRegistrar_RegisterAll_AIQueue(t *testing.T) {
 // TestRegistrar_RegisterAll_MainQueue verifies registration for main queue.
 func TestRegistrar_RegisterAll_MainQueue(t *testing.T) {
 	w := newMockWorker()
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 	r := NewRegistrar(acts)
 
@@ -197,7 +197,7 @@ func TestRegistrar_RegisterAll_MainQueue(t *testing.T) {
 // TestRegistrar_RegisterAll_UnknownQueue verifies registration for unknown queue.
 func TestRegistrar_RegisterAll_UnknownQueue(t *testing.T) {
 	w := newMockWorker()
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 	r := NewRegistrar(acts)
 
@@ -210,7 +210,7 @@ func TestRegistrar_RegisterAll_UnknownQueue(t *testing.T) {
 // TestRegistrar_MultipleRegistrations verifies multiple registrations don't cause issues.
 func TestRegistrar_MultipleRegistrations(t *testing.T) {
 	w := newMockWorker()
-	logger := zerolog.Nop()
+	logger := logging.NewNopLogger()
 	acts := NewActivities(logger)
 	r := NewRegistrar(acts)
 

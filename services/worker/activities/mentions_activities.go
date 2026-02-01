@@ -7,17 +7,17 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/otherjamesbrown/penfold/pkg/mentions/resolver"
 )
 
 // MentionsActivities holds dependencies for mention extraction and resolution activities.
 type MentionsActivities struct {
-	logger   zerolog.Logger
+	logger   logging.Logger
 	db       *pgxpool.Pool
 	resolver *resolver.Resolver
 	repo     *mentions.PostgresRepository
@@ -25,13 +25,13 @@ type MentionsActivities struct {
 
 // NewMentionsActivities creates a new MentionsActivities instance.
 func NewMentionsActivities(
-	logger zerolog.Logger,
+	logger logging.Logger,
 	db *pgxpool.Pool,
 	res *resolver.Resolver,
 	repo *mentions.PostgresRepository,
 ) *MentionsActivities {
 	return &MentionsActivities{
-		logger:   logger.With().Str("component", "mentions_activities").Logger(),
+		logger:   logger.With(logging.F("component", "mentions_activities")),
 		db:       db,
 		resolver: res,
 		repo:     repo,
@@ -67,19 +67,19 @@ type ExtractMentionsOutput struct {
 //  3. Creates patterns for high-confidence resolutions
 //  4. Queues uncertain resolutions for human review
 func (a *MentionsActivities) ExtractMentions(ctx context.Context, input ExtractMentionsInput) (*ExtractMentionsOutput, error) {
-	logger := a.logger.With().
-		Str("activity", "ExtractMentions").
-		Str("tenant_id", input.TenantID).
-		Int64("source_id", input.SourceID).
-		Int64("content_id", input.ContentID).
-		Str("content_type", input.ContentType).
-		Int("content_length", len(input.Content)).
-		Logger()
+	logger := a.logger.With(
+		logging.F("activity", "ExtractMentions"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+		logging.F("content_id", input.ContentID),
+		logging.F("content_type", input.ContentType),
+		logging.F("content_length", len(input.Content)),
+	)
 
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting mention extraction")
 
-	logger.Info().Msg("Extracting and resolving mentions from content")
+	logger.Info("Extracting and resolving mentions from content")
 
 	// Check for cancellation
 	if ctx.Err() != nil {
@@ -96,7 +96,7 @@ func (a *MentionsActivities) ExtractMentions(ctx context.Context, input ExtractM
 
 	// Check if resolver is available
 	if a.resolver == nil {
-		logger.Warn().Msg("Resolver not configured, skipping mention extraction")
+		logger.Warn("Resolver not configured, skipping mention extraction")
 		return &ExtractMentionsOutput{}, nil
 	}
 
@@ -126,7 +126,7 @@ func (a *MentionsActivities) ExtractMentions(ctx context.Context, input ExtractM
 	startTime := time.Now()
 	result, err := a.resolver.ProcessBatch(ctx, tenantID, batch)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to process mentions through resolver")
+		logger.Error("Failed to process mentions through resolver", logging.Err(err))
 		return nil, fmt.Errorf("failed to process mentions: %w", err)
 	}
 
@@ -137,10 +137,10 @@ func (a *MentionsActivities) ExtractMentions(ctx context.Context, input ExtractM
 	if a.repo != nil && len(result.Resolutions) > 0 {
 		stored, err := a.storeMentions(ctx, tenantID, input.ContentID, result)
 		if err != nil {
-			logger.Error().Err(err).Msg("Failed to store mentions")
+			logger.Error("Failed to store mentions", logging.Err(err))
 			// Don't fail the activity - log and continue
 		} else {
-			logger.Info().Int("stored", stored).Msg("Mentions stored in database")
+			logger.Info("Mentions stored in database", logging.F("stored", stored))
 		}
 	}
 
@@ -154,14 +154,14 @@ func (a *MentionsActivities) ExtractMentions(ctx context.Context, input ExtractM
 		ProcessingTimeMs: int(time.Since(startTime).Milliseconds()),
 	}
 
-	logger.Info().
-		Str("trace_id", result.TraceID).
-		Int("mentions_found", output.MentionsFound).
-		Int("auto_resolved", output.AutoResolved).
-		Int("queued_for_review", output.QueuedForReview).
-		Int("new_entities", output.NewEntities).
-		Int("processing_time_ms", output.ProcessingTimeMs).
-		Msg("Mention extraction completed")
+	logger.Info("Mention extraction completed",
+		logging.F("trace_id", result.TraceID),
+		logging.F("mentions_found", output.MentionsFound),
+		logging.F("auto_resolved", output.AutoResolved),
+		logging.F("queued_for_review", output.QueuedForReview),
+		logging.F("new_entities", output.NewEntities),
+		logging.F("processing_time_ms", output.ProcessingTimeMs),
+	)
 
 	return output, nil
 }
@@ -191,10 +191,10 @@ func (a *MentionsActivities) storeMentions(ctx context.Context, tenantID string,
 		// Store the mention
 		mention, err := a.repo.CreateMention(ctx, input)
 		if err != nil {
-			a.logger.Warn().
-				Err(err).
-				Str("mention_text", res.MentionText).
-				Msg("Failed to store mention")
+			a.logger.Warn("Failed to store mention",
+				logging.Err(err),
+				logging.F("mention_text", res.MentionText),
+			)
 			continue
 		}
 
@@ -209,10 +209,10 @@ func (a *MentionsActivities) storeMentions(ctx context.Context, tenantID string,
 			}
 
 			if err := a.repo.UpdateMentionResolution(ctx, mention.ID, resolution); err != nil {
-				a.logger.Warn().
-					Err(err).
-					Int64("mention_id", mention.ID).
-					Msg("Failed to update mention resolution")
+				a.logger.Warn("Failed to update mention resolution",
+					logging.Err(err),
+					logging.F("mention_id", mention.ID),
+				)
 			}
 		}
 

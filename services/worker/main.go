@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
 
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/health"
@@ -93,24 +92,6 @@ func main() {
 	} else {
 		logger.Info("Langfuse not configured - tracing disabled (set LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY to enable)")
 	}
-
-	// Create zerolog logger for Temporal SDK and activities
-	zerologLevel := zerolog.InfoLevel
-	switch cfg.LogLevel {
-	case "debug":
-		zerologLevel = zerolog.DebugLevel
-	case "warn":
-		zerologLevel = zerolog.WarnLevel
-	case "error":
-		zerologLevel = zerolog.ErrorLevel
-	}
-	zerologger := zerolog.New(os.Stdout).
-		Level(zerologLevel).
-		With().
-		Timestamp().
-		Str("service_name", cfg.ServiceName).
-		Str("environment", cfg.Environment).
-		Logger()
 
 	// Initialize database pool if configured
 	var dbPool *pgxpool.Pool
@@ -201,12 +182,12 @@ func main() {
 	// Create activity and workflow registrars
 	var activityImpl *activities.Activities
 	if dbPool != nil {
-		activityImpl = activities.NewActivitiesWithDB(zerologger, dbPool, cfg.AIServiceURL)
+		activityImpl = activities.NewActivitiesWithDB(logger, dbPool, cfg.AIServiceURL)
 		logger.Info("Activities initialized with database connection",
 			logging.F("ai_service_url", cfg.AIServiceURL),
 		)
 	} else {
-		activityImpl = activities.NewActivities(zerologger)
+		activityImpl = activities.NewActivities(logger)
 		logger.Warn("Activities initialized without database - some activities will fail")
 	}
 	activityRegistrar := activities.NewRegistrar(activityImpl)
@@ -216,22 +197,22 @@ func main() {
 		// Create embedding repository if database is available
 		var embeddingRepo activities.EmbeddingRepository
 		if dbPool != nil {
-			embeddingRepo = activities.NewPostgresEmbeddingRepository(dbPool, zerologger)
+			embeddingRepo = activities.NewPostgresEmbeddingRepository(dbPool, logger)
 			logger.Info("Embedding repository initialized with database connection")
 		}
 
 		// Create embedding activities
-		embeddingActivities := activities.NewEmbeddingActivities(zerologger, aiClient, embeddingRepo)
+		embeddingActivities := activities.NewEmbeddingActivities(logger, aiClient, embeddingRepo)
 		activityRegistrar.WithEmbeddingActivities(embeddingActivities)
 		logger.Info("Embedding activities initialized with AI client")
 
 		// Create summarization activities
-		summarizationActivities := activities.NewSummarizationActivities(zerologger, aiClient, nil)
+		summarizationActivities := activities.NewSummarizationActivities(logger, aiClient, nil)
 		activityRegistrar.WithSummarizationActivities(summarizationActivities)
 		logger.Info("Summarization activities initialized with AI client")
 
 		// Create extraction activities
-		extractionActivities := activities.NewExtractionActivities(zerologger, aiClient, nil, nil)
+		extractionActivities := activities.NewExtractionActivities(logger, aiClient, nil, nil)
 		activityRegistrar.WithExtractionActivities(extractionActivities)
 		logger.Info("Extraction activities initialized with AI client")
 	}
@@ -275,7 +256,7 @@ func main() {
 		)
 
 		mentionsActivities := activities.NewMentionsActivities(
-			zerologger,
+			logger,
 			dbPool,
 			mentionResolver,
 			mentionsRepo,
