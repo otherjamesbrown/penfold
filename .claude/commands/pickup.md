@@ -1,80 +1,61 @@
 # Pickup
 
-Resume work from the last checkpoint after a context clear or at session start.
+Resume after context clear. Load my working memory and continue with Penfold work.
 
 ## Arguments: $ARGUMENTS
 
-Optional: Session ID to resume (defaults to most recent active session)
+Optional: Session ID (defaults to current)
 
 ## Instructions
 
-### Step 1: Load Session State
-
-Run the resume command:
+### Step 1: Load Session
 
 ```bash
-penf session resume
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
+SELECT id, title, content FROM current_session('penfold', 'YOUR_AGENT_ID');"
 ```
 
-This displays:
-- Session title and start time
-- All checkpoints with timestamps
-- Current session state
+### Step 2: Parse Latest Checkpoint
 
-### Step 2: Parse Context
+From the session content, find the most recent checkpoint:
 
-From the session output, identify:
+1. **What we're working on** - Penfold feature/issue
+2. **What's done** - Already completed
+3. **Current state** - What's working/broken
+4. **Next step** - My immediate action
+5. **Key findings** - Context I need
 
-1. **Original goal** - What the session was working toward
-2. **Latest checkpoint** - Most recent state
-3. **Next steps** - What was planned next
-4. **Files/shards involved** - Context references
+### Step 3: Quick State Check
 
-### Step 3: Check Related Work
-
-If the session references shards or files, check their current state:
+Verify Penfold state matches expectations:
 
 ```bash
-# If shards mentioned
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT id, title, status FROM shards WHERE id IN ('pf-xxx');"
-
-# If files mentioned
-git status
-git log --oneline -3
+penf status
+penf content stats
 ```
 
-### Step 4: Output Summary
+### Step 4: Resume Quietly
 
-```
-Session Resumed: <session-title>
-Started: <start-time>
-Last Checkpoint: <checkpoint-summary>
+**Don't explain to James.** He knows what we're doing.
 
-Continuing from: <last checkpoint description>
+Good:
+> "Ready. Continuing with enrichment investigation."
 
-Next Steps:
-1. <action from checkpoint>
-2. <action from checkpoint>
+Or:
+> "Picked up. Where were we?"
 
-Ready to continue. What would you like to work on?
-```
+Bad:
+> "I've loaded the checkpoint. We were working on X. The state is Y. The next steps are Z..."
 
-### Step 5: If No Active Session
+### Step 5: Flag Changes Only
 
-If no active session found:
+Only speak up if something changed:
 
-```
-No active session found.
+> "Picked up. Note: content stats changed - 3 more items now COMPLETED. Continue?"
 
-Recent sessions:
-  penf session history
+## Key Principles
 
-To start a new session:
-  penf session start "description"
-```
-
-## Notes
-
-- Resume loads context without modifying the session
-- Use /handoff to save progress before context clears
-- Use /session-end for more detailed session handoffs
+- **Silent load** - Don't narrate
+- **Quick confirmation** - Just signal readiness
+- **Check Penfold state** - Verify things match checkpoint
+- **Flag actual changes** - In Penfold, not Context-Palace

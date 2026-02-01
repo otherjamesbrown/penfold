@@ -1,71 +1,86 @@
 # Session Start
 
-Pick up where we left off. Find what matters, summarize it, and get to work.
+Welcome James back. Help him understand where we are with **Penfold development**.
 
 ## Instructions
 
-### Step 1: Find Recent Handoffs
+### Step 1: Get My Identity
+
+Read `My Identity` from CLAUDE.md to get your agent ID (e.g., `agent-penfold`).
+
+### Step 2: Load Recent Handoffs
+
+Get handoffs from the last 7 days:
 
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT id, title, status, created_at FROM shards WHERE project = 'penfold' AND title LIKE '%Handoff%' AND status IN ('open', 'in_progress') ORDER BY created_at DESC LIMIT 3;"
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
+SELECT id, title, created_at
+FROM shards
+WHERE project = 'penfold'
+  AND creator = 'YOUR_AGENT_ID'
+  AND title LIKE 'Handoff:%'
+  AND created_at > NOW() - INTERVAL '7 days'
+ORDER BY created_at DESC
+LIMIT 5;"
 ```
 
-If found, read the most recent one:
+Read them to understand the timeline:
 
 ```bash
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT content FROM shards WHERE id = 'pf-xxx';"
 ```
 
-### Step 2: Check for Waiting Messages
+### Step 3: Check Current Penfold State
+
+Get a snapshot of where things actually are:
 
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT id, title, creator, created_at FROM shards WHERE project = 'penfold' AND type = 'message' AND status = 'open' ORDER BY created_at DESC LIMIT 5;"
+penf status           # Connection/health
+penf content stats    # Content pipeline state
+penf health           # System health
 ```
 
-### Step 3: Summarize for James
-
-**Don't regurgitate the handoff.** Parse it and tell James what he needs to know:
-
-- **What were we doing?** (1 sentence)
-- **Where did we leave off?** (the key blocker or next step)
-- **What's changed since?** (any replies, deployments, new info)
-- **What can we do now?** (actionable options)
-
-Example good summary:
-> "Last session we were cleaning up test data but hit a blocker - ContentProcessorService wasn't deployed. Agent-penfdev said they'd deploy it. We should check if that's done, then we can delete the test data."
-
-Example bad summary:
-> "Session Goal: Review feature requests. Progress Made: [list of 10 things]. Remaining Work: [list of 5 things]..."
-
-**Be conversational.** James doesn't need a status report, he needs context to make a decision.
-
-### Step 4: Offer Clear Options
-
-End with something like:
-
-> "Want me to:
-> 1. Check if the deployment is done and continue?
-> 2. Work on something else?
-> 3. Show me more details about the handoff?"
-
-### Step 5: Claim the Handoff
-
-Once James decides to continue, mark it claimed using your agent identity from CLAUDE.md:
+### Step 4: Start a Session
 
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT claim_task('pf-xxx', 'YOUR_AGENT_ID');"
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
+SELECT start_session('penfold', 'YOUR_AGENT_ID', 'Session: DATE');"
 ```
 
-(Replace `YOUR_AGENT_ID` with your identity from the `My Identity` section in CLAUDE.md)
+### Step 5: Summarize for James (TIME-FRAMED, PENFOLD-FOCUSED)
 
-## No Handoff Found?
+**Focus on Penfold - what we're building, not dev tooling.**
 
-If no handoff exists, just say:
+Good example:
+> "On Friday we got the content pipeline working - emails now process through to COMPLETED state. But enrichment (embeddings, entity extraction) still isn't running.
+>
+> On Saturday we ingested 19 test emails and confirmed the issue - 0 embeddings generated. I mailed mycroft about it.
+>
+> Current state: 19 emails in Penfold, all COMPLETED, but no embeddings. The enrichment service might need deployment or config.
+>
+> Earlier in the week we were working on the `penf content delete` command - that's working now."
 
-> "No recent handoff found. What would you like to work on?"
+Bad example:
+> "There are 3 open shards in Context-Palace. You have 2 messages from mycroft. The session pf-xxx was created on Friday..."
 
-Then check for open tasks or messages that might need attention.
+**Key elements:**
+- What Penfold features we built/tested
+- Current state of content, pipeline, entities
+- What's working vs broken
+- What we were working on before (in case James wants to return to it)
 
-## Key Principle
+### Step 6: Offer Options
 
-**Add value, don't just relay information.** You've read the handoff - now help James understand what it means and what to do about it.
+```
+Want me to:
+1. Check if the enrichment issue is resolved?
+2. Continue testing the pipeline?
+3. Work on something else?
+```
+
+## Key Principles
+
+- **Penfold is the focus** - Content, entities, pipeline, CLI commands
+- **Context-Palace is just storage** - Don't report on shards/messages unless directly relevant
+- **Time-frame everything** - "On Friday...", "Earlier this week..."
+- **Show current state** - Run `penf` commands to see where things actually are

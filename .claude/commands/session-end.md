@@ -1,100 +1,104 @@
 # Session End
 
-Create a handoff shard to preserve context for resuming work in a new session.
+Consolidate today's **Penfold development work** into a handoff for future session-start.
 
 ## Arguments: $ARGUMENTS
 
-Optional: Brief description of why you're handing off (e.g., "end of day", "context full", "switching agents")
+Optional: Brief note (e.g., "end of day", "switching projects")
 
 ## Instructions
 
-### Step 1: Check for Existing Handoffs
-
-First, check if there's already an open handoff for this branch:
+### Step 1: Load Current Session
 
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "SELECT id, title, status FROM shards WHERE project = 'penfold' AND title LIKE '%Handoff%' AND status IN ('open', 'in_progress');"
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
+SELECT id, title, content, created_at FROM current_session('penfold', 'YOUR_AGENT_ID');"
 ```
 
-If existing handoff(s) found, ask the user whether to close them or update instead.
+### Step 2: Check Current Penfold State
 
-### Step 2: Gather Context
+Capture where things are now:
 
-Collect all relevant information from the current session:
+```bash
+penf status
+penf content stats
+penf health
+```
 
-1. **What was the goal?** - Original task/problem being worked on
-2. **What was done?** - Completed steps, commits made, files changed
-3. **What's blocking/remaining?** - Unfinished work, blockers, next steps
-4. **Key findings** - Root causes discovered, important decisions made
-5. **Related shards** - Any shards created or worked on this session
-6. **Agent domain** - Which agent domain this work belongs to (database-dev, ai-dev, etc.)
-7. **Architectural decisions** - Any patterns discovered relevant to context/ARCHITECTURE.md
+### Step 3: Create Handoff (PENFOLD-FOCUSED)
 
-### Step 3: Create Handoff Shard
+The handoff should capture **what we did with Penfold**, not Context-Palace activity.
 
-Use your agent identity from CLAUDE.md (`My Identity` section):
-
-```sql
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" <<'EOSQL'
 SELECT create_shard('penfold',
-  'Handoff: $BRIEF_SUMMARY',
-  '## Session Goal
-<goal>
+  'Handoff: BRIEF_PENFOLD_TOPIC - DATE',
+  $md$
+## Today (DAY, DATE)
 
-## Progress Made
-<completed steps>
+**Working on:** What Penfold feature/issue
 
-## Remaining Work
-<next steps>
+**What we did:**
+- Tested X command - working/broken
+- Built Y feature
+- Debugged Z issue
 
-## Key Findings
-<discoveries>
+**Current Penfold state:**
+- Content: X items, Y% with embeddings
+- Pipeline: working/broken/partial
+- Key issue: description
 
-## Related Shards
-- pf-xxx: description
-- pf-yyy: description
+## Earlier This Week
 
-## Architecture Notes
-<any relevant patterns>',
+**DAYNAME:** Brief note of what we worked on
+**DAYNAME:** Brief note (so James can go back if needed)
+
+## Blocked/Waiting
+
+- Issue X: waiting on mycroft to deploy enrichment service
+- Issue Y: needs investigation
+
+## What's Next
+
+When James runs /session-start:
+1. First priority
+2. Second if time
+$md$,
   'task',
   'YOUR_AGENT_ID');
+EOSQL
 ```
 
-### Step 4: Add Penfold-Specific Context
+### Step 4: Close Session
 
-Include relevant Penfold context in the handoff content:
-
-- **Current specification** (if working on specs/001-011)
-- **Implementation phase** (SpecKit → Implementation → Consolidation)
-- **Agent responsibilities** and domain boundaries
-- **Architecture implications** of the work
-- **Cross-agent dependencies** that might be affected
-
-### Step 5: Output Summary
-
-```
-Handoff Shard:    pf-xxx
-Branch:          $BRANCH_NAME
-Agent Domain:    $AGENT_DOMAIN (if applicable)
-Specification:   $CURRENT_SPEC (if applicable)
-
-To resume in new session:
-  /session-start
-
-Or manually:
-  SELECT * FROM shards WHERE title LIKE '%Handoff%' AND status IN ('open', 'in_progress');
-  SELECT * FROM shards WHERE id = 'pf-xxx';
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
+SELECT end_session('pf-SESSION-ID', 'Ended: BRIEF_SUMMARY');"
 ```
 
-### Step 6: Session Close Protocol
+### Step 5: Close Previous Handoff
 
-Remind about mandatory session close steps:
-
-```
-⚠️  BEFORE ENDING SESSION - MANDATORY:
-   git status              # Check what changed
-   git add <files>         # Stage changes
-   git commit -m "..."     # Commit with shard reference [pf-xxx]
-   git push                # MUST PUSH TO REMOTE
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
+UPDATE shards SET status = 'closed', closed_at = NOW(), closed_reason = 'Superseded by pf-NEW'
+WHERE id = 'pf-OLD-HANDOFF';"
 ```
 
-(No sync needed - shards are always live in Context-Palace)
+### Step 6: Git Reminder
+
+```
+Session ended. Handoff: pf-xxx
+
+Before closing:
+  git status && git add <files> && git commit -m "..." && git push
+
+Tomorrow: /session-start
+```
+
+## Key Principles
+
+- **Penfold is the subject** - What we built, tested, debugged in the actual product
+- **Include actual state** - Run `penf` commands and capture output
+- **Time-frame for context** - Dates help James reconstruct the timeline
+- **Track paused work** - Note what we set aside, not just current task
+- **Context-Palace is just the envelope** - The handoff is stored there, but it's about Penfold

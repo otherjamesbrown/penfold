@@ -1,68 +1,64 @@
 # Handoff
 
-Save a checkpoint of current work progress before context clears or when switching tasks.
+Save current Penfold work state before context clears. This is for ME to remember.
 
 ## Arguments: $ARGUMENTS
 
-Required: Brief description of current state (e.g., "Working on TLS bug fixes", "Debugging gateway connection")
+Optional: Brief note about current state
 
 ## Instructions
 
-### Step 1: Check Active Session
-
-First check if there's an active session:
+### Step 1: Get Current Session
 
 ```bash
-penf session context
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
+SELECT id, title FROM current_session('penfold', 'YOUR_AGENT_ID');"
 ```
 
-If no active session exists, start one first:
+If no session, create one:
 
 ```bash
-penf session start "$(echo $ARGUMENTS | head -c 50)"
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
+SELECT start_session('penfold', 'YOUR_AGENT_ID', 'Session: DATE');"
 ```
 
-### Step 2: Gather Context
+### Step 2: Capture Penfold State
 
-Before creating the checkpoint, summarize:
+What do I need to remember about the actual work?
 
-1. **What you were working on** - Current task/problem
-2. **What was accomplished** - Steps completed, findings
-3. **What's next** - Immediate next steps when resuming
-4. **Key decisions** - Any important choices made
+1. **What Penfold feature/issue** we're working on
+2. **What we tested/built** this cycle
+3. **Current state** - what's working, what's broken
+4. **Next step** - immediate action when resuming
+5. **Key findings** - root causes, decisions
 
-### Step 3: Create Checkpoint
-
-Run the checkpoint command with the user's description plus your context:
+### Step 3: Add Checkpoint
 
 ```bash
-penf session checkpoint "$ARGUMENTS
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" <<'EOSQL'
+SELECT add_checkpoint('pf-SESSION-ID', $md$
+## Checkpoint: TIME
 
-Working on: <task>
-Completed: <steps>
-Next: <immediate actions>
-Files changed: <list>"
+**Working on:** Penfold feature/issue
+**Did:** What got done
+**State:** What's working/broken
+**Next:** Immediate next step
+**Found:** Key discoveries
+$md$);
+EOSQL
 ```
 
 ### Step 4: Confirm
 
-Output:
-
 ```
 Checkpoint saved.
 
-Session: <session-id>
-Checkpoint: $ARGUMENTS
-
-To resume after context clear:
-  /pickup
-
-Or manually:
-  penf session resume
+Context can be cleared. Use /pickup to resume.
 ```
 
-## Notes
+## Key Principles
 
-- Checkpoints append to the current session's content
-- Multiple checkpoints can be made within one session
-- Use /pickup to load the checkpoint after context clears
+- **Quick and focused** - Working memory, not a report
+- **Penfold work** - What we're building/testing, not Context-Palace state
+- **For me, not James** - He knows what we're doing
+- **Clear next step** - I should know exactly what to do after /pickup
