@@ -379,14 +379,51 @@ func processMeetingViaGRPC(ctx context.Context, client ingestv1.IngestServiceCli
 	return resp, nil
 }
 
+// generateMeetingID creates a deterministic external meeting ID from meeting metadata.
+// Format: {platform}-{date}-{title-slug}
+// Example: teams-20251118-weekly-standup
+func generateMeetingID(m *meeting.Meeting, platform string) string {
+	var dateStr string
+	if !m.Date.IsZero() {
+		dateStr = m.Date.Format("20060102")
+	} else {
+		// Fallback: use hash of title if date is missing
+		dateStr = fmt.Sprintf("%x", strings.ToLower(m.Title))
+		if len(dateStr) > 8 {
+			dateStr = dateStr[:8]
+		}
+	}
+
+	// Slugify title: lowercase, replace non-alphanumeric with hyphens
+	titleSlug := strings.ToLower(m.Title)
+	titleSlug = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return '-'
+	}, titleSlug)
+	// Collapse multiple hyphens and trim
+	titleSlug = strings.Trim(titleSlug, "-")
+	for strings.Contains(titleSlug, "--") {
+		titleSlug = strings.ReplaceAll(titleSlug, "--", "-")
+	}
+	// Truncate if too long
+	if len(titleSlug) > 50 {
+		titleSlug = titleSlug[:50]
+	}
+
+	return fmt.Sprintf("%s-%s-%s", platform, dateStr, titleSlug)
+}
+
 // meetingToProtoRequest converts a parsed meeting to a proto IngestMeetingRequest.
 func meetingToProtoRequest(m *meeting.Meeting, tenantID, sourceTag, platform string, contentID string) *ingestv1.IngestMeetingRequest {
 	req := &ingestv1.IngestMeetingRequest{
-		TenantId:  tenantID,
-		Title:     m.Title,
-		Platform:  platformToProto(platform),
-		Labels:    []string{sourceTag},
-		ContentId: contentID,
+		TenantId:          tenantID,
+		ExternalMeetingId: generateMeetingID(m, platform),
+		Title:             m.Title,
+		Platform:          platformToProto(platform),
+		Labels:            []string{sourceTag},
+		ContentId:         contentID,
 	}
 
 	// Set meeting times
