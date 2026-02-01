@@ -38,6 +38,12 @@ service PipelineService {
 
   // GetContentTrace retrieves full processing history for a content item.
   rpc GetContentTrace(GetContentTraceRequest) returns (GetContentTraceResponse);
+
+  // ListDeletedSources lists soft-deleted sources.
+  rpc ListDeletedSources(ListDeletedSourcesRequest) returns (ListDeletedSourcesResponse);
+
+  // UndeleteSource restores a soft-deleted source.
+  rpc UndeleteSource(UndeleteSourceRequest) returns (UndeleteSourceResponse);
 }
 
 // =============================================================================
@@ -343,4 +349,59 @@ message TraceEvent {
 
   // Additional event details.
   map<string, string> details = 6;
+}
+
+// =============================================================================
+// Deleted Sources Messages
+// =============================================================================
+
+// ListDeletedSourcesRequest lists soft-deleted sources.
+message ListDeletedSourcesRequest {
+  // Maximum number of sources to return (default: 50).
+  int32 limit = 1;
+}
+
+// ListDeletedSourcesResponse contains the list of deleted sources.
+message ListDeletedSourcesResponse {
+  // The deleted sources.
+  repeated DeletedSource sources = 1;
+}
+
+// DeletedSource represents a soft-deleted source.
+message DeletedSource {
+  // Source ID.
+  int64 id = 1;
+
+  // Source system (e.g., "gmail", "manual_eml").
+  string source_system = 2;
+
+  // External ID from the source system.
+  string external_id = 3;
+
+  // When the source was deleted.
+  google.protobuf.Timestamp deleted_at = 4;
+
+  // Who deleted the source.
+  string deleted_by = 5;
+
+  // Reason for deletion.
+  string deletion_reason = 6;
+
+  // Processing status at time of deletion.
+  string processing_status = 7;
+}
+
+// UndeleteSourceRequest restores a soft-deleted source.
+message UndeleteSourceRequest {
+  // Source ID to restore.
+  int64 source_id = 1;
+}
+
+// UndeleteSourceResponse confirms the undelete operation.
+message UndeleteSourceResponse {
+  // Whether the operation succeeded.
+  bool success = 1;
+
+  // Human-readable message.
+  string message = 2;
 }

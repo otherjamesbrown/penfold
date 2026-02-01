@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -75,6 +76,8 @@ Documentation:
 	cmd.AddCommand(newPipelineLogsCmd(pipelineDeps))
 	cmd.AddCommand(newPipelineQueueCmd(pipelineDeps))
 	cmd.AddCommand(newPipelineHealthCmd(pipelineDeps))
+	cmd.AddCommand(newPipelineDeletedCmd(pipelineDeps))
+	cmd.AddCommand(newPipelineUndeleteCmd(pipelineDeps))
 
 	return cmd
 }
@@ -1350,5 +1353,175 @@ func outputPipelineHealthText(resp *pipelinev1.GetPipelineHealthResponse) error 
 	}
 
 	fmt.Println()
+	return nil
+}
+
+func newPipelineDeletedCmd(deps *PipelineCommandDeps) *cobra.Command {
+	var limit int
+	var outputFormat string
+
+	cmd := &cobra.Command{
+		Use:   "deleted",
+		Short: "List soft-deleted sources",
+		Long: `List sources that have been soft-deleted.
+
+These sources are excluded from normal pipeline operations but can be restored
+using the 'undelete' command.
+
+Examples:
+  # List deleted sources
+  penf pipeline deleted
+
+  # List more sources
+  penf pipeline deleted --limit=100
+
+  # Output as JSON
+  penf pipeline deleted -o json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPipelineDeleted(cmd.Context(), deps, limit, outputFormat)
+		},
+	}
+
+	cmd.Flags().IntVarP(&limit, "limit", "l", 50, "Maximum number of sources to show")
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
+
+	return cmd
+}
+
+func runPipelineDeleted(ctx context.Context, deps *PipelineCommandDeps, limit int, outputFormat string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectPipelineToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := pipelinev1.NewPipelineServiceClient(conn)
+
+	resp, err := client.ListDeletedSources(ctx, &pipelinev1.ListDeletedSourcesRequest{
+		Limit: int32(limit),
+	})
+	if err != nil {
+		return fmt.Errorf("listing deleted sources: %w", err)
+	}
+
+	if outputFormat == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(resp.Sources)
+	}
+
+	return outputDeletedSourcesHuman(resp.Sources)
+}
+
+func outputDeletedSourcesHuman(sources []*pipelinev1.DeletedSource) error {
+	if len(sources) == 0 {
+		fmt.Println("No deleted sources found.")
+		return nil
+	}
+
+	fmt.Printf("Deleted Sources (%d):\n\n", len(sources))
+	fmt.Println("ID      SOURCE          EXTERNAL_ID                              STATUS       DELETED_AT           DELETED_BY")
+	fmt.Println("------  --------------  ---------------------------------------  -----------  -------------------  ----------")
+
+	for _, src := range sources {
+		externalID := src.ExternalId
+		if len(externalID) > 39 {
+			externalID = externalID[:36] + "..."
+		}
+
+		deletedAt := "-"
+		if src.DeletedAt != nil {
+			deletedAt = src.DeletedAt.AsTime().Format("2006-01-02 15:04:05")
+		}
+
+		deletedBy := src.DeletedBy
+		if deletedBy == "" {
+			deletedBy = "-"
+		}
+
+		fmt.Printf("%-6d  %-14s  %-39s  %-11s  %-19s  %s\n",
+			src.Id, src.SourceSystem, externalID, src.ProcessingStatus, deletedAt, deletedBy)
+	}
+
+	fmt.Println()
+	fmt.Println("To restore a source: penf pipeline undelete <source-id>")
+
+	return nil
+}
+
+func newPipelineUndeleteCmd(deps *PipelineCommandDeps) *cobra.Command {
+	var outputFormat string
+
+	cmd := &cobra.Command{
+		Use:   "undelete <source-id>",
+		Short: "Restore a soft-deleted source",
+		Long: `Restore a soft-deleted source by its ID.
+
+The source will be restored to its previous processing status and will be
+included in normal pipeline operations again.
+
+Examples:
+  # Restore a deleted source
+  penf pipeline undelete 1234
+
+  # Output as JSON
+  penf pipeline undelete 1234 -o json`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sourceID, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid source ID: %s", args[0])
+			}
+			return runPipelineUndelete(cmd.Context(), deps, sourceID, outputFormat)
+		},
+	}
+
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
+
+	return cmd
+}
+
+func runPipelineUndelete(ctx context.Context, deps *PipelineCommandDeps, sourceID int64, outputFormat string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectPipelineToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := pipelinev1.NewPipelineServiceClient(conn)
+
+	resp, err := client.UndeleteSource(ctx, &pipelinev1.UndeleteSourceRequest{
+		SourceId: sourceID,
+	})
+	if err != nil {
+		return fmt.Errorf("undeleting source: %w", err)
+	}
+
+	if outputFormat == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(resp)
+	}
+
+	if resp.Success {
+		fmt.Printf("✓ %s\n", resp.Message)
+		fmt.Println("\nThe source will now appear in pipeline status and can be processed.")
+		fmt.Println("To kick processing: penf pipeline kick")
+	} else {
+		fmt.Printf("✗ Failed: %s\n", resp.Message)
+	}
+
 	return nil
 }

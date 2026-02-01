@@ -63,3 +63,14 @@ type PendingSource struct {
 	SourceSystem string
 	ContentHash  string
 }
+
+// DeletedSource represents a soft-deleted source.
+type DeletedSource struct {
+	ID               int64
+	SourceSystem     string
+	ExternalID       string
+	DeletedAt        *time.Time
+	DeletedBy        *string
+	DeletionReason   *string
+	ProcessingStatus string
+}

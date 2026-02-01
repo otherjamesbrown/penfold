@@ -22,14 +22,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PipelineService_GetStats_FullMethodName          = "/penfold.pipeline.v1.PipelineService/GetStats"
-	PipelineService_GetJob_FullMethodName            = "/penfold.pipeline.v1.PipelineService/GetJob"
-	PipelineService_ListJobs_FullMethodName          = "/penfold.pipeline.v1.PipelineService/ListJobs"
-	PipelineService_KickProcessing_FullMethodName    = "/penfold.pipeline.v1.PipelineService/KickProcessing"
-	PipelineService_RetryFailed_FullMethodName       = "/penfold.pipeline.v1.PipelineService/RetryFailed"
-	PipelineService_GetQueueStatus_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetQueueStatus"
-	PipelineService_GetPipelineHealth_FullMethodName = "/penfold.pipeline.v1.PipelineService/GetPipelineHealth"
-	PipelineService_GetContentTrace_FullMethodName   = "/penfold.pipeline.v1.PipelineService/GetContentTrace"
+	PipelineService_GetStats_FullMethodName           = "/penfold.pipeline.v1.PipelineService/GetStats"
+	PipelineService_GetJob_FullMethodName             = "/penfold.pipeline.v1.PipelineService/GetJob"
+	PipelineService_ListJobs_FullMethodName           = "/penfold.pipeline.v1.PipelineService/ListJobs"
+	PipelineService_KickProcessing_FullMethodName     = "/penfold.pipeline.v1.PipelineService/KickProcessing"
+	PipelineService_RetryFailed_FullMethodName        = "/penfold.pipeline.v1.PipelineService/RetryFailed"
+	PipelineService_GetQueueStatus_FullMethodName     = "/penfold.pipeline.v1.PipelineService/GetQueueStatus"
+	PipelineService_GetPipelineHealth_FullMethodName  = "/penfold.pipeline.v1.PipelineService/GetPipelineHealth"
+	PipelineService_GetContentTrace_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetContentTrace"
+	PipelineService_ListDeletedSources_FullMethodName = "/penfold.pipeline.v1.PipelineService/ListDeletedSources"
+	PipelineService_UndeleteSource_FullMethodName     = "/penfold.pipeline.v1.PipelineService/UndeleteSource"
 )
 
 // PipelineServiceClient is the client API for PipelineService service.
@@ -54,6 +56,10 @@ type PipelineServiceClient interface {
 	GetPipelineHealth(ctx context.Context, in *GetPipelineHealthRequest, opts ...grpc.CallOption) (*GetPipelineHealthResponse, error)
 	// GetContentTrace retrieves full processing history for a content item.
 	GetContentTrace(ctx context.Context, in *GetContentTraceRequest, opts ...grpc.CallOption) (*GetContentTraceResponse, error)
+	// ListDeletedSources lists soft-deleted sources.
+	ListDeletedSources(ctx context.Context, in *ListDeletedSourcesRequest, opts ...grpc.CallOption) (*ListDeletedSourcesResponse, error)
+	// UndeleteSource restores a soft-deleted source.
+	UndeleteSource(ctx context.Context, in *UndeleteSourceRequest, opts ...grpc.CallOption) (*UndeleteSourceResponse, error)
 }
 
 type pipelineServiceClient struct {
@@ -144,6 +150,26 @@ func (c *pipelineServiceClient) GetContentTrace(ctx context.Context, in *GetCont
 	return out, nil
 }
 
+func (c *pipelineServiceClient) ListDeletedSources(ctx context.Context, in *ListDeletedSourcesRequest, opts ...grpc.CallOption) (*ListDeletedSourcesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDeletedSourcesResponse)
+	err := c.cc.Invoke(ctx, PipelineService_ListDeletedSources_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) UndeleteSource(ctx context.Context, in *UndeleteSourceRequest, opts ...grpc.CallOption) (*UndeleteSourceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UndeleteSourceResponse)
+	err := c.cc.Invoke(ctx, PipelineService_UndeleteSource_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PipelineServiceServer is the server API for PipelineService service.
 // All implementations must embed UnimplementedPipelineServiceServer
 // for forward compatibility.
@@ -166,6 +192,10 @@ type PipelineServiceServer interface {
 	GetPipelineHealth(context.Context, *GetPipelineHealthRequest) (*GetPipelineHealthResponse, error)
 	// GetContentTrace retrieves full processing history for a content item.
 	GetContentTrace(context.Context, *GetContentTraceRequest) (*GetContentTraceResponse, error)
+	// ListDeletedSources lists soft-deleted sources.
+	ListDeletedSources(context.Context, *ListDeletedSourcesRequest) (*ListDeletedSourcesResponse, error)
+	// UndeleteSource restores a soft-deleted source.
+	UndeleteSource(context.Context, *UndeleteSourceRequest) (*UndeleteSourceResponse, error)
 	mustEmbedUnimplementedPipelineServiceServer()
 }
 
@@ -199,6 +229,12 @@ func (UnimplementedPipelineServiceServer) GetPipelineHealth(context.Context, *Ge
 }
 func (UnimplementedPipelineServiceServer) GetContentTrace(context.Context, *GetContentTraceRequest) (*GetContentTraceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetContentTrace not implemented")
+}
+func (UnimplementedPipelineServiceServer) ListDeletedSources(context.Context, *ListDeletedSourcesRequest) (*ListDeletedSourcesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDeletedSources not implemented")
+}
+func (UnimplementedPipelineServiceServer) UndeleteSource(context.Context, *UndeleteSourceRequest) (*UndeleteSourceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UndeleteSource not implemented")
 }
 func (UnimplementedPipelineServiceServer) mustEmbedUnimplementedPipelineServiceServer() {}
 func (UnimplementedPipelineServiceServer) testEmbeddedByValue()                         {}
@@ -365,6 +401,42 @@ func _PipelineService_GetContentTrace_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_ListDeletedSources_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDeletedSourcesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).ListDeletedSources(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_ListDeletedSources_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).ListDeletedSources(ctx, req.(*ListDeletedSourcesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_UndeleteSource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UndeleteSourceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).UndeleteSource(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_UndeleteSource_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).UndeleteSource(ctx, req.(*UndeleteSourceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PipelineService_ServiceDesc is the grpc.ServiceDesc for PipelineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -403,6 +475,14 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetContentTrace",
 			Handler:    _PipelineService_GetContentTrace_Handler,
+		},
+		{
+			MethodName: "ListDeletedSources",
+			Handler:    _PipelineService_ListDeletedSources_Handler,
+		},
+		{
+			MethodName: "UndeleteSource",
+			Handler:    _PipelineService_UndeleteSource_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

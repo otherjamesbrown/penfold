@@ -26,14 +26,14 @@ func (r *Repository) GetStats(ctx context.Context) (*PipelineStats, error) {
 		Timestamp: time.Now(),
 	}
 
-	// Sources total
-	err := r.db.QueryRow(ctx, "SELECT COUNT(*) FROM sources").Scan(&stats.SourcesTotal)
+	// Sources total (excluding deleted)
+	err := r.db.QueryRow(ctx, "SELECT COUNT(*) FROM sources WHERE is_deleted = false").Scan(&stats.SourcesTotal)
 	if err != nil {
 		return nil, fmt.Errorf("counting sources: %w", err)
 	}
 
-	// Sources by status
-	stats.SourcesByStatus, err = r.getStatusCounts(ctx, "SELECT processing_status, COUNT(*) FROM sources GROUP BY processing_status")
+	// Sources by status (excluding deleted)
+	stats.SourcesByStatus, err = r.getStatusCounts(ctx, "SELECT processing_status, COUNT(*) FROM sources WHERE is_deleted = false GROUP BY processing_status")
 	if err != nil {
 		return nil, fmt.Errorf("counting sources by status: %w", err)
 	}
@@ -247,4 +247,56 @@ func (r *Repository) RetryFailedItems(ctx context.Context, jobID string, stage s
 	// 2. Reset processing_status or retry flags
 	// 3. Return count of retried items
 	return 0, fmt.Errorf("RetryFailedItems not yet implemented")
+}
+
+// UndeleteSource restores a soft-deleted source by ID.
+func (r *Repository) UndeleteSource(ctx context.Context, sourceID int64) error {
+	result, err := r.db.Exec(ctx, `
+		UPDATE sources
+		SET is_deleted = false,
+		    deleted_at = NULL,
+		    deleted_by = NULL,
+		    deletion_reason = NULL,
+		    updated_at = NOW()
+		WHERE id = $1 AND is_deleted = true
+	`, sourceID)
+	if err != nil {
+		return fmt.Errorf("undeleting source: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("source %d not found or not deleted", sourceID)
+	}
+
+	return nil
+}
+
+// ListDeletedSources returns sources that have been soft-deleted.
+func (r *Repository) ListDeletedSources(ctx context.Context, limit int) ([]DeletedSource, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT id, source_system, external_id, deleted_at, deleted_by, deletion_reason, processing_status
+		FROM sources
+		WHERE is_deleted = true
+		ORDER BY deleted_at DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("querying deleted sources: %w", err)
+	}
+	defer rows.Close()
+
+	var sources []DeletedSource
+	for rows.Next() {
+		var s DeletedSource
+		if err := rows.Scan(&s.ID, &s.SourceSystem, &s.ExternalID, &s.DeletedAt, &s.DeletedBy, &s.DeletionReason, &s.ProcessingStatus); err != nil {
+			return nil, fmt.Errorf("scanning deleted source: %w", err)
+		}
+		sources = append(sources, s)
+	}
+
+	return sources, rows.Err()
 }

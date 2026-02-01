@@ -547,3 +547,74 @@ func (s *Service) GetContentTrace(ctx context.Context, req *pipelinev1.GetConten
 		Events:    events,
 	}, nil
 }
+
+// ListDeletedSources lists soft-deleted sources.
+func (s *Service) ListDeletedSources(ctx context.Context, req *pipelinev1.ListDeletedSourcesRequest) (*pipelinev1.ListDeletedSourcesResponse, error) {
+	s.logger.Debug("ListDeletedSources called",
+		logging.F("limit", req.Limit),
+	)
+
+	sources, err := s.repo.ListDeletedSources(ctx, int(req.Limit))
+	if err != nil {
+		s.logger.Error("Error listing deleted sources", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list deleted sources: %v", err)
+	}
+
+	protoSources := make([]*pipelinev1.DeletedSource, len(sources))
+	for i, src := range sources {
+		protoSources[i] = deletedSourceToProto(&src)
+	}
+
+	return &pipelinev1.ListDeletedSourcesResponse{
+		Sources: protoSources,
+	}, nil
+}
+
+// UndeleteSource restores a soft-deleted source.
+func (s *Service) UndeleteSource(ctx context.Context, req *pipelinev1.UndeleteSourceRequest) (*pipelinev1.UndeleteSourceResponse, error) {
+	s.logger.Info("UndeleteSource called",
+		logging.F("source_id", req.SourceId),
+	)
+
+	if req.SourceId <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "source_id is required")
+	}
+
+	err := s.repo.UndeleteSource(ctx, req.SourceId)
+	if err != nil {
+		s.logger.Error("Error undeleting source", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to undelete source: %v", err)
+	}
+
+	s.logger.Info("Source undeleted",
+		logging.F("source_id", req.SourceId),
+	)
+
+	return &pipelinev1.UndeleteSourceResponse{
+		Success: true,
+		Message: fmt.Sprintf("Source %d restored successfully", req.SourceId),
+	}, nil
+}
+
+// deletedSourceToProto converts a DeletedSource to proto format.
+func deletedSourceToProto(s *pipeline.DeletedSource) *pipelinev1.DeletedSource {
+	if s == nil {
+		return nil
+	}
+	proto := &pipelinev1.DeletedSource{
+		Id:               s.ID,
+		SourceSystem:     s.SourceSystem,
+		ExternalId:       s.ExternalID,
+		ProcessingStatus: s.ProcessingStatus,
+	}
+	if s.DeletedAt != nil {
+		proto.DeletedAt = timestamppb.New(*s.DeletedAt)
+	}
+	if s.DeletedBy != nil {
+		proto.DeletedBy = *s.DeletedBy
+	}
+	if s.DeletionReason != nil {
+		proto.DeletionReason = *s.DeletionReason
+	}
+	return proto
+}
