@@ -826,6 +826,39 @@ func buildEmailMetadata(req *ingestv1.IngestEmailRequest) map[string]interface{}
 		metadata["from_address"] = req.From.Address
 	}
 
+	// Store To recipients
+	if len(req.To) > 0 {
+		toAddrs := make([]map[string]string, len(req.To))
+		for i, addr := range req.To {
+			toAddrs[i] = map[string]string{"name": addr.Name, "address": addr.Address}
+		}
+		metadata["to"] = toAddrs
+	}
+
+	// Store Cc recipients
+	if len(req.Cc) > 0 {
+		ccAddrs := make([]map[string]string, len(req.Cc))
+		for i, addr := range req.Cc {
+			ccAddrs[i] = map[string]string{"name": addr.Name, "address": addr.Address}
+		}
+		metadata["cc"] = ccAddrs
+	}
+
+	// Store date (sent_at)
+	if req.SentAt != nil {
+		metadata["date"] = req.SentAt.AsTime().Format(time.RFC3339)
+	}
+
+	// Store message_id
+	if req.MessageId != "" {
+		metadata["message_id"] = req.MessageId
+	}
+
+	// Store references for threading
+	if len(req.References) > 0 {
+		metadata["references"] = req.References
+	}
+
 	// Store attachment metadata
 	if len(req.Attachments) > 0 {
 		attachments := make([]map[string]interface{}, len(req.Attachments))

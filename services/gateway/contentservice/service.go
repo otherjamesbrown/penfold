@@ -3,6 +3,7 @@ package contentservice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -41,6 +42,7 @@ type ContentItemRecord struct {
 	AssertionCount   int
 	FailureCategory  *string
 	FailureReason    *string
+	Metadata         map[string]interface{}
 }
 
 // ListFilter represents filter criteria for listing content items.
@@ -90,7 +92,8 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 			COUNT(DISTINCT e.id) AS embedding_count,
 			COUNT(DISTINCT a.id) AS assertion_count,
 			s.failure_category,
-			s.failure_reason
+			s.failure_reason,
+			s.metadata
 		FROM sources s
 		LEFT JOIN embeddings e ON s.id = e.source_id
 		LEFT JOIN assertions a ON s.id = a.source_id
@@ -99,6 +102,7 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 	`
 
 	var rec ContentItemRecord
+	var metadataJSON []byte
 	err := r.db.QueryRow(ctx, query, contentID).Scan(
 		&rec.ID,
 		&rec.TenantID,
@@ -112,6 +116,7 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 		&rec.AssertionCount,
 		&rec.FailureCategory,
 		&rec.FailureReason,
+		&metadataJSON,
 	)
 
 	if err == pgx.ErrNoRows {
@@ -119,6 +124,14 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get content item: %w", err)
+	}
+
+	// Parse metadata JSON
+	if len(metadataJSON) > 0 {
+		if err := json.Unmarshal(metadataJSON, &rec.Metadata); err != nil {
+			r.logger.Warn("Failed to parse metadata JSON", logging.Err(err), logging.F("content_id", contentID))
+			rec.Metadata = make(map[string]interface{})
+		}
 	}
 
 	return &rec, nil
@@ -168,7 +181,8 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 			COUNT(DISTINCT e.id) AS embedding_count,
 			COUNT(DISTINCT a.id) AS assertion_count,
 			s.failure_category,
-			s.failure_reason
+			s.failure_reason,
+			s.metadata
 		FROM sources s
 		LEFT JOIN embeddings e ON s.id = e.source_id
 		LEFT JOIN assertions a ON s.id = a.source_id
@@ -194,6 +208,7 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 	var results []*ContentItemRecord
 	for rows.Next() {
 		var rec ContentItemRecord
+		var metadataJSON []byte
 		err := rows.Scan(
 			&rec.ID,
 			&rec.TenantID,
@@ -207,9 +222,17 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 			&rec.AssertionCount,
 			&rec.FailureCategory,
 			&rec.FailureReason,
+			&metadataJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan content item: %w", err)
+		}
+		// Parse metadata JSON
+		if len(metadataJSON) > 0 {
+			if err := json.Unmarshal(metadataJSON, &rec.Metadata); err != nil {
+				r.logger.Warn("Failed to parse metadata JSON", logging.Err(err), logging.F("content_id", rec.ContentID))
+				rec.Metadata = make(map[string]interface{})
+			}
 		}
 		results = append(results, &rec)
 	}
@@ -702,6 +725,24 @@ func recordToProto(rec *ContentItemRecord) *contentv1.ContentItem {
 		return nil
 	}
 
+	// Build metadata map from source metadata
+	metadata := make(map[string]string)
+	for k, v := range rec.Metadata {
+		switch val := v.(type) {
+		case string:
+			metadata[k] = val
+		default:
+			// JSON encode complex values (arrays, objects)
+			if b, err := json.Marshal(val); err == nil {
+				metadata[k] = string(b)
+			}
+		}
+	}
+
+	// Add derived counts
+	metadata["embedding_count"] = fmt.Sprintf("%d", rec.EmbeddingCount)
+	metadata["assertion_count"] = fmt.Sprintf("%d", rec.AssertionCount)
+
 	item := &contentv1.ContentItem{
 		Id:         rec.ContentID,
 		SourceType: rec.SourceSystem,
@@ -710,10 +751,7 @@ func recordToProto(rec *ContentItemRecord) *contentv1.ContentItem {
 		State:      dbStatusToState(rec.ProcessingStatus),
 		CreatedAt:  timestamppb.New(rec.CreatedAt),
 		UpdatedAt:  timestamppb.New(rec.UpdatedAt),
-		Metadata: map[string]string{
-			"embedding_count": fmt.Sprintf("%d", rec.EmbeddingCount),
-			"assertion_count": fmt.Sprintf("%d", rec.AssertionCount),
-		},
+		Metadata:   metadata,
 	}
 
 	// Include failure info for rejected/failed items
