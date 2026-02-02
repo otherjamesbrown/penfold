@@ -1,12 +1,11 @@
 #!/bin/zsh
 #
-# Penfold Worker Deployment
+# Penfold Worker Deployment (launchd)
 # Cross-compiles and deploys worker to dev01 (Apple Silicon)
 #
 # Usage:
 #   ./scripts/deploy-worker.sh           # Build, deploy, and restart
 #   ./scripts/deploy-worker.sh --build   # Build only (no deploy)
-#   ./scripts/deploy-worker.sh --deploy  # Deploy only (skip build)
 #   ./scripts/deploy-worker.sh --status  # Check worker status
 #
 
@@ -24,40 +23,20 @@ NC='\033[0m'
 
 # Configuration
 WORKER_HOST="${WORKER_HOST:-dev01}"
-WORKER_PATH="/Users/james/penfold-worker"
-WORKER_LOG="/tmp/worker.log"
+BINARY_PATH="/opt/penfold/bin/penfold-worker"
+SERVICE_NAME="com.penfold.worker"
+PLIST_PATH="/Library/LaunchDaemons/${SERVICE_NAME}.plist"
 BUILD_OUTPUT="${PROJECT_ROOT}/services/worker/worker-darwin-arm64"
 
-# Load secrets if available
-SECRETS_FILE="${HOME}/github/otherjamesbrown/secrets/.env.penfold"
-if [[ -f "$SECRETS_FILE" ]]; then
-    source "$SECRETS_FILE"
-fi
-
-log_info() {
-    echo "${CYAN}[INFO]${NC} $1"
-}
-
-log_success() {
-    echo "${GREEN}[OK]${NC} $1"
-}
-
-log_error() {
-    echo "${RED}[ERROR]${NC} $1"
-}
-
-log_warn() {
-    echo "${YELLOW}[WARN]${NC} $1"
-}
+log_info() { echo "${CYAN}[INFO]${NC} $1"; }
+log_success() { echo "${GREEN}[OK]${NC} $1"; }
+log_error() { echo "${RED}[ERROR]${NC} $1"; }
+log_warn() { echo "${YELLOW}[WARN]${NC} $1"; }
 
 build_worker() {
     log_info "Building worker for Darwin arm64 (Apple Silicon)..."
-
     cd "${PROJECT_ROOT}/services/worker"
-
-    # Cross-compile for macOS ARM64
     GOOS=darwin GOARCH=arm64 go build -o worker-darwin-arm64 .
-
     if [[ -f "worker-darwin-arm64" ]]; then
         local size=$(ls -lh worker-darwin-arm64 | awk '{print $5}')
         log_success "Built worker-darwin-arm64 (${size})"
@@ -68,14 +47,20 @@ build_worker() {
     fi
 }
 
-check_worker_status() {
+check_status() {
     log_info "Checking worker status on ${WORKER_HOST}..."
 
-    # Check if process is running
-    local pid=$(ssh -o ConnectTimeout=5 "$WORKER_HOST" "pgrep -f penfold-worker" 2>/dev/null || true)
+    local launchctl_status=$(ssh -o ConnectTimeout=5 "$WORKER_HOST" "sudo launchctl list | grep ${SERVICE_NAME}" 2>/dev/null || echo "")
 
-    if [[ -n "$pid" ]]; then
-        log_success "Worker running (PID: ${pid})"
+    if [[ -n "$launchctl_status" ]]; then
+        local pid=$(echo "$launchctl_status" | awk '{print $1}')
+        local exit_code=$(echo "$launchctl_status" | awk '{print $2}')
+
+        if [[ "$pid" != "-" && "$exit_code" == "0" ]]; then
+            log_success "Service: running (PID: ${pid})"
+        else
+            log_warn "Service: not running (exit: ${exit_code})"
+        fi
 
         # Check health endpoint
         local health=$(ssh "$WORKER_HOST" "curl -s -o /dev/null -w '%{http_code}' http://localhost:8085/health" 2>/dev/null || echo "000")
@@ -85,206 +70,77 @@ check_worker_status() {
             log_warn "Health endpoint: HTTP ${health}"
         fi
 
-        # Show binary info
-        local binary_date=$(ssh "$WORKER_HOST" "stat -f '%Sm' -t '%Y-%m-%d %H:%M' ${WORKER_PATH} 2>/dev/null" || true)
-        if [[ -n "$binary_date" ]]; then
-            log_info "Binary modified: ${binary_date}"
-        fi
-
+        # Show recent logs
+        log_info "Recent logs:"
+        ssh "$WORKER_HOST" "tail -5 /var/log/penfold/worker.log" 2>/dev/null || true
         return 0
     else
-        log_warn "Worker not running on ${WORKER_HOST}"
+        log_warn "Service not loaded"
         return 1
     fi
-}
-
-stop_worker() {
-    log_info "Stopping worker on ${WORKER_HOST}..."
-
-    # Kill the go run process if running
-    ssh "$WORKER_HOST" "pkill -f 'go run services/worker'" 2>/dev/null || true
-    # Kill the compiled binary if running
-    ssh "$WORKER_HOST" "pkill -f penfold-worker" 2>/dev/null || true
-    sleep 2
-
-    # Verify stopped
-    if ssh "$WORKER_HOST" "pgrep -f penfold-worker" &>/dev/null; then
-        log_warn "Worker still running, sending SIGKILL..."
-        ssh "$WORKER_HOST" "pkill -9 -f penfold-worker" 2>/dev/null || true
-        sleep 1
-    fi
-
-    log_success "Worker stopped"
 }
 
 deploy_binary() {
-    log_info "Deploying worker to ${WORKER_HOST}:${WORKER_PATH}..."
+    log_info "Deploying binary to ${WORKER_HOST}:${BINARY_PATH}..."
 
     if [[ ! -f "$BUILD_OUTPUT" ]]; then
         log_error "Binary not found: ${BUILD_OUTPUT}"
-        log_info "Run with --build first or without flags to build and deploy"
         return 1
     fi
 
-    # Copy binary
-    scp "$BUILD_OUTPUT" "${WORKER_HOST}:${WORKER_PATH}"
-
-    # Make executable
-    ssh "$WORKER_HOST" "chmod +x ${WORKER_PATH}"
-
-    log_success "Binary deployed"
+    # Copy new binary
+    scp "$BUILD_OUTPUT" "${WORKER_HOST}:${BINARY_PATH}.new"
+    ssh "$WORKER_HOST" "chmod +x ${BINARY_PATH}.new"
+    log_success "Binary uploaded"
 }
 
-start_worker() {
-    log_info "Starting worker on ${WORKER_HOST}..."
-
-    # Build DATABASE_URL from components (same DB as gateway, but accessed from dev01)
-    # Using mTLS for database connection
-    local db_url="postgres://penfold@dev02.brown.chat:5432/penfold?sslmode=verify-full&sslcert=/Users/james/.postgresql/postgresql.crt&sslkey=/Users/james/.postgresql/postgresql.key&sslrootcert=/Users/james/.postgresql/root.crt"
-
-    # Start with environment variables
-    ssh "$WORKER_HOST" "WORKER_SERVICE_NAME=penfold-worker \
-        WORKER_ENVIRONMENT=dev \
-        WORKER_HTTP_PORT=8085 \
-        TEMPORAL_HOST_PORT=dev02.brown.chat:7233 \
-        TEMPORAL_NAMESPACE=default \
-        DATABASE_URL='${db_url}' \
-        AI_SERVICE_ADDR=localhost:50055 \
-        AI_SERVICE_URL=http://localhost:8081 \
-        LANGFUSE_HOST=http://dev02.brown.chat:3000 \
-        LANGFUSE_PUBLIC_KEY=pk-lf-penfold \
-        LANGFUSE_SECRET_KEY=sk-lf-penfold-secret \
-        nohup ${WORKER_PATH} > ${WORKER_LOG} 2>&1 &"
-
-    log_info "Waiting for worker to start..."
-    sleep 3
-
-    # Verify started
-    if ssh "$WORKER_HOST" "pgrep -f penfold-worker" &>/dev/null; then
-        log_success "Worker started"
-
-        # Wait for health endpoint
-        local attempts=0
-        while [[ $attempts -lt 10 ]]; do
-            local health=$(ssh "$WORKER_HOST" "curl -s -o /dev/null -w '%{http_code}' http://localhost:8085/health" 2>/dev/null || echo "000")
-            if [[ "$health" == "200" ]]; then
-                log_success "Health endpoint responding"
-                return 0
-            fi
-            ((attempts++))
-            sleep 1
-        done
-
-        log_warn "Worker started but health endpoint not responding yet"
-        log_info "Check logs: ssh ${WORKER_HOST} 'tail -50 ${WORKER_LOG}'"
-        return 0
-    else
-        log_error "Worker failed to start"
-        log_info "Check logs: ssh ${WORKER_HOST} 'tail -50 ${WORKER_LOG}'"
-        return 1
-    fi
-}
-
-show_logs() {
-    log_info "Recent worker logs:"
-    echo ""
-    ssh "$WORKER_HOST" "tail -30 ${WORKER_LOG}" 2>/dev/null || log_warn "Could not read logs"
-}
-
-backup_binary() {
-    log_info "Backing up current binary..."
+switch_version() {
+    log_info "Switching to new version..."
 
     ssh "$WORKER_HOST" "
-        if [[ -f ${WORKER_PATH} ]]; then
-            cp ${WORKER_PATH} ${WORKER_PATH}.backup
-            echo 'Backup created'
-        else
-            echo 'No existing binary'
+        sudo launchctl unload ${PLIST_PATH} 2>/dev/null || true
+        sleep 1
+        if [[ -f ${BINARY_PATH} ]]; then
+            mv ${BINARY_PATH} ${BINARY_PATH}.backup
         fi
-    " || true
+        mv ${BINARY_PATH}.new ${BINARY_PATH}
+        sudo launchctl load ${PLIST_PATH}
+    "
+    log_success "Version switched"
 }
 
-run_smoke_tests() {
-    log_info "Running smoke tests..."
+verify_health() {
+    log_info "Verifying health..."
 
-    local failures=0
+    local attempts=0
+    while [[ $attempts -lt 30 ]]; do
+        local health=$(ssh "$WORKER_HOST" "curl -s -o /dev/null -w '%{http_code}' http://localhost:8085/health" 2>/dev/null || echo "000")
+        if [[ "$health" == "200" ]]; then
+            log_success "Service healthy (attempt $((attempts+1)))"
+            return 0
+        fi
+        ((attempts++))
+        sleep 1
+    done
 
-    # Test 1: Health endpoint
-    log_info "  Test 1: Health endpoint"
-    local health=$(ssh "$WORKER_HOST" "curl -s -o /dev/null -w '%{http_code}' http://localhost:8085/health" 2>/dev/null || echo "000")
-    if [[ "$health" == "200" ]]; then
-        log_success "    Health endpoint: OK"
-    else
-        log_error "    Health endpoint: HTTP ${health}"
-        ((failures++))
-    fi
-
-    # Test 2: Check Temporal connection (via logs)
-    log_info "  Test 2: Temporal connection"
-    if ssh "$WORKER_HOST" "grep -q 'Connected to Temporal' ${WORKER_LOG}" 2>/dev/null; then
-        log_success "    Connected to Temporal"
-    else
-        log_warn "    Temporal connection not confirmed in logs"
-    fi
-
-    # Test 3: Check workers started
-    log_info "  Test 3: Task queue workers"
-    local queues_started=$(ssh "$WORKER_HOST" "grep -c 'Started Worker' ${WORKER_LOG}" 2>/dev/null || echo "0")
-    if [[ "$queues_started" -ge 3 ]]; then
-        log_success "    All task queue workers started (${queues_started})"
-    else
-        log_warn "    Only ${queues_started} task queue workers started"
-    fi
-
-    # Test 4: Check database connection
-    log_info "  Test 4: Database connection"
-    if ssh "$WORKER_HOST" "grep -q 'DATABASE_URL not configured' ${WORKER_LOG}" 2>/dev/null; then
-        log_error "    Database not configured"
-        ((failures++))
-    else
-        log_success "    Database configured"
-    fi
-
-    if [[ $failures -gt 0 ]]; then
-        log_error "Smoke tests failed with $failures critical failures"
-        return 1
-    fi
-
-    log_success "All critical smoke tests passed"
-    return 0
+    log_error "Health check failed after 30 attempts"
+    return 1
 }
 
-rollback_deployment() {
-    log_error "Rolling back deployment..."
-
-    local db_url="postgres://penfold@dev02.brown.chat:5432/penfold?sslmode=verify-full&sslcert=/Users/james/.postgresql/postgresql.crt&sslkey=/Users/james/.postgresql/postgresql.key&sslrootcert=/Users/james/.postgresql/root.crt"
+rollback() {
+    log_error "Rolling back to previous version..."
 
     ssh "$WORKER_HOST" "
-        pkill -f penfold-worker || true
-        sleep 2
-
-        if [[ -f ${WORKER_PATH}.backup ]]; then
-            mv ${WORKER_PATH}.backup ${WORKER_PATH}
-            WORKER_SERVICE_NAME=penfold-worker \
-            WORKER_ENVIRONMENT=dev \
-            WORKER_HTTP_PORT=8085 \
-            TEMPORAL_HOST_PORT=dev02.brown.chat:7233 \
-            TEMPORAL_NAMESPACE=default \
-            DATABASE_URL='${db_url}' \
-            AI_SERVICE_ADDR=localhost:50055 \
-            AI_SERVICE_URL=http://localhost:8081 \
-            LANGFUSE_HOST=http://dev02.brown.chat:3000 \
-            LANGFUSE_PUBLIC_KEY=pk-lf-penfold \
-            LANGFUSE_SECRET_KEY=sk-lf-penfold-secret \
-            nohup ${WORKER_PATH} > ${WORKER_LOG} 2>&1 &
-            echo 'Rolled back to previous version'
+        sudo launchctl unload ${PLIST_PATH} 2>/dev/null || true
+        if [[ -f ${BINARY_PATH}.backup ]]; then
+            mv ${BINARY_PATH}.backup ${BINARY_PATH}
+            sudo launchctl load ${PLIST_PATH}
+            echo 'Rollback complete'
         else
-            echo 'No backup available - manual intervention required'
+            echo 'No backup available!'
             exit 1
         fi
     "
-
-    log_warn "Rollback complete"
 }
 
 cmd_full_deploy() {
@@ -294,29 +150,20 @@ cmd_full_deploy() {
     build_worker
     echo ""
 
-    backup_binary
-    echo ""
-
-    stop_worker
-    echo ""
-
     deploy_binary
     echo ""
 
-    start_worker
+    switch_version
     echo ""
 
-    # Run smoke tests and rollback on failure
-    if ! run_smoke_tests; then
+    if ! verify_health; then
         echo ""
-        rollback_deployment
+        rollback
         exit 1
     fi
 
     echo ""
     echo "${GREEN}=== Deployment Complete ===${NC}"
-    echo ""
-    echo "All smoke tests passed. Deployment verified."
 }
 
 cmd_build_only() {
@@ -325,34 +172,12 @@ cmd_build_only() {
     build_worker
     echo ""
     echo "Binary ready at: ${BUILD_OUTPUT}"
-    echo "Deploy with: $0 --deploy"
-}
-
-cmd_deploy_only() {
-    echo "${CYAN}=== Deploying Worker ===${NC}"
-    echo ""
-
-    backup_binary
-    echo ""
-
-    stop_worker
-    echo ""
-
-    deploy_binary
-    echo ""
-
-    start_worker
-    echo ""
-
-    echo "${GREEN}=== Deployment Complete ===${NC}"
 }
 
 cmd_status() {
     echo "${CYAN}=== Worker Status ===${NC}"
     echo ""
-    check_worker_status
-    echo ""
-    show_logs
+    check_status
 }
 
 # Parse arguments
@@ -360,24 +185,16 @@ case "${1:-}" in
     --build)
         cmd_build_only
         ;;
-    --deploy)
-        cmd_deploy_only
-        ;;
     --status)
         cmd_status
         ;;
-    --logs)
-        show_logs
-        ;;
     --help|-h)
-        echo "Usage: $0 [--build|--deploy|--status|--logs]"
+        echo "Usage: $0 [--build|--status]"
         echo ""
         echo "Options:"
-        echo "  (no args)  Build, deploy, and restart worker"
+        echo "  (no args)  Build, deploy, and restart worker via launchd"
         echo "  --build    Build only (cross-compile for Darwin ARM64)"
-        echo "  --deploy   Deploy only (use existing binary)"
         echo "  --status   Check worker status and logs"
-        echo "  --logs     Show recent worker logs"
         echo ""
         echo "Environment:"
         echo "  WORKER_HOST  Target host (default: dev01)"

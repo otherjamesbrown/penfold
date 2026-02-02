@@ -1,0 +1,52 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Scrape systemd journal for penfold services
+  - job_name: journal
+    journal:
+      max_age: 12h
+      labels:
+        job: systemd-journal
+    relabel_configs:
+      - source_labels: ['__journal__systemd_unit']
+        target_label: 'unit'
+      - source_labels: ['__journal__hostname']
+        target_label: 'hostname'
+      - source_labels: ['__journal_syslog_identifier']
+        target_label: 'syslog_identifier'
+    pipeline_stages:
+      - match:
+          selector: '{unit=~"penfold-.*"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  msg: msg
+                  service: service_name
+            - labels:
+                level:
+                service:
+
+  # Scrape container logs
+  - job_name: containers
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          __path__: /var/lib/docker/containers/*/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            stream: stream
+            log: log
+      - output:
+          source: log

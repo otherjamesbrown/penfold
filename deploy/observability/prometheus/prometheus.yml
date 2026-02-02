@@ -1,0 +1,96 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ============ Penfold Services ============
+
+  # Penfold Gateway (dev02)
+  - job_name: 'penfold-gateway'
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+    metrics_path: /metrics
+
+  # Penfold AI Coordinator (dev02)
+  - job_name: 'penfold-ai-coordinator'
+    static_configs:
+      - targets: ['host.docker.internal:8090']
+    metrics_path: /metrics
+
+  # Penfold Worker (dev01)
+  - job_name: 'penfold-worker'
+    static_configs:
+      - targets: ['dev01.brown.chat:8085']
+    metrics_path: /metrics
+
+  # ============ Infrastructure ============
+
+  # Temporal Server
+  - job_name: 'temporal'
+    static_configs:
+      - targets: ['host.docker.internal:8233']
+    metrics_path: /metrics
+
+  # PostgreSQL (via postgres_exporter if installed)
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['host.docker.internal:9187']
+    metrics_path: /metrics
+
+  # ============ MLX Services (dev01) ============
+
+  # MLX LLM Server
+  - job_name: 'mlx-llm'
+    static_configs:
+      - targets: ['dev01.brown.chat:8080']
+    metrics_path: /metrics
+    scrape_timeout: 10s
+
+  # MLX Embeddings Server
+  - job_name: 'mlx-embeddings'
+    static_configs:
+      - targets: ['dev01.brown.chat:8081']
+    metrics_path: /metrics
+    scrape_timeout: 10s
+
+  # ============ Observability Stack ============
+
+  # Loki
+  - job_name: 'loki'
+    static_configs:
+      - targets: ['loki:3100']
+
+  # Promtail
+  - job_name: 'promtail'
+    static_configs:
+      - targets: ['promtail:9080']
+
+  # ============ Node Exporters ============
+
+  # Node exporter - dev02 (Linux)
+  - job_name: 'node-dev02'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+        labels:
+          instance: 'dev02'
+
+  # Node exporter - dev01 (macOS)
+  - job_name: 'node-dev01'
+    static_configs:
+      - targets: ['dev01.brown.chat:9100']
+        labels:
+          instance: 'dev01'

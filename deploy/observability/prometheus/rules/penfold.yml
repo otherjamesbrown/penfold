@@ -1,0 +1,129 @@
+groups:
+  - name: penfold-availability
+    rules:
+      # Service down alerts
+      - alert: PenfoldGatewayDown
+        expr: up{job="penfold-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: gateway
+        annotations:
+          summary: "Penfold Gateway is down"
+          description: "Gateway has been unreachable for more than 1 minute"
+
+      - alert: PenfoldAICoordinatorDown
+        expr: up{job="penfold-ai-coordinator"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: ai-coordinator
+        annotations:
+          summary: "Penfold AI Coordinator is down"
+          description: "AI Coordinator has been unreachable for more than 1 minute"
+
+      - alert: PenfoldWorkerDown
+        expr: up{job="penfold-worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: worker
+        annotations:
+          summary: "Penfold Worker is down"
+          description: "Worker has been unreachable for more than 2 minutes"
+
+  - name: penfold-performance
+    rules:
+      # High error rate (if metrics exposed)
+      - alert: HighErrorRate
+        expr: rate(penfold_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }} errors/second on {{ $labels.job }}"
+
+      # Go memory usage high
+      - alert: HighGoMemoryUsage
+        expr: go_memstats_alloc_bytes{job=~"penfold-.*"} > 500000000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Go memory usage"
+          description: "{{ $labels.job }} is using {{ humanize $value }} of memory"
+
+      # Too many goroutines
+      - alert: TooManyGoroutines
+        expr: go_goroutines{job=~"penfold-.*"} > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High goroutine count"
+          description: "{{ $labels.job }} has {{ $value }} goroutines"
+
+  - name: infrastructure
+    rules:
+      # Disk space low
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space < 10%"
+          description: "{{ $labels.instance }} has only {{ humanizePercentage $value }} disk space remaining"
+
+      # Disk space warning
+      - alert: DiskSpaceWarning
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space < 20%"
+          description: "{{ $labels.instance }} has only {{ humanizePercentage $value }} disk space remaining"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory usage > 90%"
+          description: "{{ $labels.instance }} memory usage is {{ humanizePercentage $value }}"
+
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU usage > 80%"
+          description: "{{ $labels.instance }} CPU usage is {{ humanize $value }}%"
+
+  - name: observability
+    rules:
+      # Prometheus target down
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus target down"
+          description: "{{ $labels.job }} target {{ $labels.instance }} is down"
+
+      # Loki not receiving logs
+      - alert: LokiNotReceivingLogs
+        expr: sum(rate(loki_distributor_lines_received_total[5m])) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Loki not receiving logs"
+          description: "No logs have been received by Loki in the last 10 minutes"

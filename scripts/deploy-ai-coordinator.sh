@@ -1,12 +1,12 @@
 #!/bin/zsh
 #
-# Penfold Gateway Deployment (systemd)
-# Cross-compiles and deploys gateway to dev02
+# Penfold AI Coordinator Deployment (systemd)
+# Cross-compiles and deploys AI coordinator to dev02
 #
 # Usage:
-#   ./scripts/deploy-gateway.sh           # Build, deploy, and restart
-#   ./scripts/deploy-gateway.sh --build   # Build only (no deploy)
-#   ./scripts/deploy-gateway.sh --status  # Check gateway status
+#   ./scripts/deploy-ai-coordinator.sh           # Build, deploy, and restart
+#   ./scripts/deploy-ai-coordinator.sh --build   # Build only (no deploy)
+#   ./scripts/deploy-ai-coordinator.sh --status  # Check status
 #
 
 set -e
@@ -22,23 +22,23 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration
-GATEWAY_HOST="${GATEWAY_HOST:-dev02}"
-BINARY_PATH="/opt/penfold/bin/penfold-gateway"
-SERVICE_NAME="penfold-gateway"
-BUILD_OUTPUT="${PROJECT_ROOT}/services/gateway/gateway-linux"
+AI_HOST="${AI_HOST:-dev02}"
+BINARY_PATH="/opt/penfold/bin/penfold-ai-coordinator"
+SERVICE_NAME="penfold-ai-coordinator"
+BUILD_OUTPUT="${PROJECT_ROOT}/services/ai/ai-coordinator-linux"
 
 log_info() { echo "${CYAN}[INFO]${NC} $1"; }
 log_success() { echo "${GREEN}[OK]${NC} $1"; }
 log_error() { echo "${RED}[ERROR]${NC} $1"; }
 log_warn() { echo "${YELLOW}[WARN]${NC} $1"; }
 
-build_gateway() {
-    log_info "Building gateway for Linux amd64..."
-    cd "${PROJECT_ROOT}/services/gateway"
-    GOOS=linux GOARCH=amd64 go build -o gateway-linux .
-    if [[ -f "gateway-linux" ]]; then
-        local size=$(ls -lh gateway-linux | awk '{print $5}')
-        log_success "Built gateway-linux (${size})"
+build_ai() {
+    log_info "Building AI coordinator for Linux amd64..."
+    cd "${PROJECT_ROOT}/services/ai"
+    GOOS=linux GOARCH=amd64 go build -o ai-coordinator-linux .
+    if [[ -f "ai-coordinator-linux" ]]; then
+        local size=$(ls -lh ai-coordinator-linux | awk '{print $5}')
+        log_success "Built ai-coordinator-linux (${size})"
         return 0
     else
         log_error "Build failed - no output file"
@@ -47,15 +47,15 @@ build_gateway() {
 }
 
 check_status() {
-    log_info "Checking gateway status on ${GATEWAY_HOST}..."
+    log_info "Checking AI coordinator status on ${AI_HOST}..."
 
-    local svc_status=$(ssh -o ConnectTimeout=5 "$GATEWAY_HOST" "systemctl is-active ${SERVICE_NAME}" 2>/dev/null || echo "unknown")
+    local svc_status=$(ssh -o ConnectTimeout=5 "$AI_HOST" "systemctl is-active ${SERVICE_NAME}" 2>/dev/null || echo "unknown")
 
     if [[ "$svc_status" == "active" ]]; then
         log_success "Service: active (running)"
 
         # Check health endpoint
-        local health=$(curl -s -o /dev/null -w "%{http_code}" "http://${GATEWAY_HOST}.brown.chat:8080/health" 2>/dev/null || echo "000")
+        local health=$(curl -s -o /dev/null -w "%{http_code}" "http://${AI_HOST}.brown.chat:8090/health" 2>/dev/null || echo "000")
         if [[ "$health" == "200" ]]; then
             log_success "Health endpoint: OK"
         else
@@ -64,16 +64,16 @@ check_status() {
 
         # Show recent logs
         log_info "Recent logs:"
-        ssh "$GATEWAY_HOST" "journalctl -u ${SERVICE_NAME} -n 5 --no-pager" 2>/dev/null || true
+        ssh "$AI_HOST" "journalctl -u ${SERVICE_NAME} -n 5 --no-pager" 2>/dev/null || true
         return 0
     else
-        log_warn "Service status: ${svc_status}"
+        log_warn "Service status: ${status}"
         return 1
     fi
 }
 
 deploy_binary() {
-    log_info "Deploying binary to ${GATEWAY_HOST}:${BINARY_PATH}..."
+    log_info "Deploying binary to ${AI_HOST}:${BINARY_PATH}..."
 
     if [[ ! -f "$BUILD_OUTPUT" ]]; then
         log_error "Binary not found: ${BUILD_OUTPUT}"
@@ -81,15 +81,15 @@ deploy_binary() {
     fi
 
     # Copy new binary
-    scp "$BUILD_OUTPUT" "${GATEWAY_HOST}:${BINARY_PATH}.new"
-    ssh "$GATEWAY_HOST" "chmod +x ${BINARY_PATH}.new"
+    scp "$BUILD_OUTPUT" "${AI_HOST}:${BINARY_PATH}.new"
+    ssh "$AI_HOST" "chmod +x ${BINARY_PATH}.new"
     log_success "Binary uploaded"
 }
 
 switch_version() {
     log_info "Switching to new version..."
 
-    ssh "$GATEWAY_HOST" "
+    ssh "$AI_HOST" "
         sudo systemctl stop ${SERVICE_NAME} || true
         sleep 1
         if [[ -f ${BINARY_PATH} ]]; then
@@ -106,9 +106,9 @@ verify_health() {
 
     local attempts=0
     while [[ $attempts -lt 30 ]]; do
-        local svc_status=$(ssh "$GATEWAY_HOST" "systemctl is-active ${SERVICE_NAME}" 2>/dev/null || echo "unknown")
+        local svc_status=$(ssh "$AI_HOST" "systemctl is-active ${SERVICE_NAME}" 2>/dev/null || echo "unknown")
         if [[ "$svc_status" == "active" ]]; then
-            local health=$(curl -s -o /dev/null -w "%{http_code}" "http://${GATEWAY_HOST}.brown.chat:8080/health" 2>/dev/null || echo "000")
+            local health=$(curl -s -o /dev/null -w "%{http_code}" "http://${AI_HOST}.brown.chat:8090/health" 2>/dev/null || echo "000")
             if [[ "$health" == "200" ]]; then
                 log_success "Service healthy (attempt $((attempts+1)))"
                 return 0
@@ -125,7 +125,7 @@ verify_health() {
 rollback() {
     log_error "Rolling back to previous version..."
 
-    ssh "$GATEWAY_HOST" "
+    ssh "$AI_HOST" "
         sudo systemctl stop ${SERVICE_NAME} || true
         if [[ -f ${BINARY_PATH}.backup ]]; then
             mv ${BINARY_PATH}.backup ${BINARY_PATH}
@@ -138,35 +138,11 @@ rollback() {
     "
 }
 
-run_smoke_tests() {
-    log_info "Running smoke tests..."
-
-    # Use verify script if available
-    if [[ -x "${SCRIPT_DIR}/verify-deployment.sh" ]]; then
-        if "${SCRIPT_DIR}/verify-deployment.sh" --gateway; then
-            log_success "Smoke tests passed"
-            return 0
-        else
-            log_error "Smoke tests failed"
-            return 1
-        fi
-    fi
-
-    # Fallback: basic health check
-    if curl -sf "http://${GATEWAY_HOST}.brown.chat:8080/health" > /dev/null; then
-        log_success "Basic health check passed"
-        return 0
-    fi
-
-    log_error "Basic health check failed"
-    return 1
-}
-
 cmd_full_deploy() {
-    echo "${CYAN}=== Penfold Gateway Deployment ===${NC}"
+    echo "${CYAN}=== Penfold AI Coordinator Deployment ===${NC}"
     echo ""
 
-    build_gateway
+    build_ai
     echo ""
 
     deploy_binary
@@ -182,26 +158,19 @@ cmd_full_deploy() {
     fi
 
     echo ""
-    if ! run_smoke_tests; then
-        echo ""
-        rollback
-        exit 1
-    fi
-
-    echo ""
     echo "${GREEN}=== Deployment Complete ===${NC}"
 }
 
 cmd_build_only() {
-    echo "${CYAN}=== Building Gateway ===${NC}"
+    echo "${CYAN}=== Building AI Coordinator ===${NC}"
     echo ""
-    build_gateway
+    build_ai
     echo ""
     echo "Binary ready at: ${BUILD_OUTPUT}"
 }
 
 cmd_status() {
-    echo "${CYAN}=== Gateway Status ===${NC}"
+    echo "${CYAN}=== AI Coordinator Status ===${NC}"
     echo ""
     check_status
 }
@@ -218,12 +187,12 @@ case "${1:-}" in
         echo "Usage: $0 [--build|--status]"
         echo ""
         echo "Options:"
-        echo "  (no args)  Build, deploy, and restart gateway via systemd"
+        echo "  (no args)  Build, deploy, and restart AI coordinator via systemd"
         echo "  --build    Build only (cross-compile for Linux)"
-        echo "  --status   Check gateway status and logs"
+        echo "  --status   Check status and logs"
         echo ""
         echo "Environment:"
-        echo "  GATEWAY_HOST  Target host (default: dev02)"
+        echo "  AI_HOST  Target host (default: dev02)"
         ;;
     "")
         cmd_full_deploy
