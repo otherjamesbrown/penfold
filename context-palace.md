@@ -8,38 +8,38 @@ A shared memory system for AI agents. Tasks, messages, logs, and data - all in o
 
 ```sql
 -- Check inbox
-SELECT * FROM unread_for('PROJECT', 'agent-NAME');
+SELECT * FROM unread_for('penfold', 'mycroft');
 
 -- Inbox summary (for triage)
-SELECT * FROM inbox_summary('PROJECT', 'agent-NAME');
+SELECT * FROM inbox_summary('penfold', 'mycroft');
 
 -- Check tasks
-SELECT * FROM tasks_for('PROJECT', 'agent-NAME');
+SELECT * FROM tasks_for('penfold', 'mycroft');
 
 -- Send message
-SELECT send_message('PROJECT', 'agent-NAME', ARRAY['recipient'], 'Subject', 'Body');
+SELECT send_message('penfold', 'mycroft', ARRAY['recipient'], 'Subject', 'Body');
 
 -- Reply to message
-SELECT send_message('PROJECT', 'agent-NAME', ARRAY['recipient'], 'Re: Subject', 'Body', NULL, NULL, 'PREFIX-original');
+SELECT send_message('penfold', 'mycroft', ARRAY['recipient'], 'Re: Subject', 'Body', NULL, NULL, 'pf-original');
 
 -- Create task
-SELECT create_shard('PROJECT', 'Title', 'Description', 'task', 'agent-NAME');
+SELECT create_shard('penfold', 'Title', 'Description', 'task', 'mycroft');
 
 -- Claim task
-SELECT claim_task('PREFIX-xxx', 'agent-NAME');
+SELECT claim_task('pf-xxx', 'mycroft');
 
 -- Close task
-SELECT close_task('PREFIX-xxx', 'Completed: summary');
+SELECT close_task('pf-xxx', 'Completed: summary');
 
 -- Add artifact to task (commit, URL, etc.)
-SELECT add_artifact('PREFIX-xxx', 'commit', 'abc123', 'Fixed the bug');
-SELECT * FROM get_artifacts('PREFIX-xxx');
+SELECT add_artifact('pf-xxx', 'commit', 'abc123', 'Fixed the bug');
+SELECT * FROM get_artifacts('pf-xxx');
 
 -- Mark messages read
-SELECT mark_read(ARRAY['PREFIX-xxx', 'PREFIX-yyy'], 'agent-NAME');
+SELECT mark_read(ARRAY['pf-xxx', 'pf-yyy'], 'mycroft');
 
 -- Get thread
-SELECT * FROM get_thread('PREFIX-xxx');
+SELECT * FROM get_thread('pf-xxx');
 ```
 
 ---
@@ -76,6 +76,17 @@ SELECT * FROM get_thread('PREFIX-xxx');
 | closed_at | timestamptz | When closed |
 | closed_reason | text | Why closed |
 | expires_at | timestamptz | Optional expiry (for memories) |
+| labels | text[] | Tags like `agent:cli-dev` |
+
+### file_claims table
+| Column | Type | Notes |
+|--------|------|-------|
+| file_path | text | Primary key - the file being claimed |
+| shard_id | text | FK to shards - the task claiming it |
+| session_id | text | Claude session ID |
+| agent_id | text | Agent holding the claim |
+| claimed_at | timestamptz | When claimed |
+| expires_at | timestamptz | Auto-expires (default 1 hour) |
 
 ### Other tables
 | Table | Purpose |
@@ -87,6 +98,8 @@ SELECT * FROM get_thread('PREFIX-xxx');
 ---
 
 ## Helper Functions
+
+All functions with agent parameters accept shorthand names (e.g., `mycroft` instead of `agent-mycroft`).
 
 | Function | Purpose |
 |----------|---------|
@@ -117,6 +130,13 @@ SELECT * FROM get_thread('PREFIX-xxx');
 | `close_stale_sessions(project, interval)` | Auto-close inactive sessions (default 24h) |
 | `backlog_for(project, agent)` | Get open backlog items for agent |
 | `create_backlog_item(project, owner, title, content, priority, depends_on[])` | Create backlog item with dependencies |
+| `claim_files(shard_id, session_id, agent_id, files[])` | Atomically claim files for parallel work |
+| `release_claims(shard_id)` | Release all file claims for a shard |
+| `check_conflicts(files[], my_shard_id)` | Find files claimed by other shards |
+| `cleanup_expired_claims()` | Remove expired file claims |
+| `extend_claims(shard_id, duration)` | Extend claim expiry (default 1 hour) |
+| `create_impl_shard(project, creator, agent_type, title, content, files[], depends_on[], parent_id)` | Create implementation shard with labels, dependencies, and file claims |
+| `impl_status(parent_id)` | View all child implementation shards with status |
 
 ---
 
@@ -140,7 +160,7 @@ Content with `backticks` and 'quotes' - no escaping needed.
 ```code
 Even code blocks work fine.
 ```
-$md$, 'task', 'agent-NAME');
+$md$, 'task', 'mycroft');
 EOSQL
 ```
 
@@ -151,9 +171,44 @@ EOSQL
 
 ## Agent Identity
 
-You are **[agent-YOURNAME]** working on project **[YOURPROJECT]** with prefix **[PREFIX]-**.
+You are **agent-NAME** working on project **PROJECT** with prefix **pf-**.
 
-Your project rules are in `[PREFIX]-rules` (fetch with `SELECT content FROM shards WHERE id = '[PREFIX]-rules'`).
+Your project rules are in `pf-rules` (fetch with `SELECT content FROM shards WHERE id = 'pf-rules'`).
+
+### Agent Name Shorthand
+
+All functions automatically add the `agent-` prefix if omitted:
+
+```sql
+-- These are equivalent:
+SELECT send_message('penfold', 'mycroft', ARRAY['cxp'], 'Subject', 'Body');
+SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-cxp'], 'Subject', 'Body');
+
+-- Works everywhere:
+SELECT * FROM unread_for('penfold', 'mycroft');
+SELECT claim_task('pf-xxx', 'cxp');
+SELECT * FROM tasks_for('penfold', 'mycroft');
+```
+
+---
+
+## Syncing This File
+
+To get the latest version with your values filled in:
+
+```bash
+# Create .palace.yaml in your working directory
+cat > .palace.yaml << 'EOF'
+project: yourproject
+agent: agent-yourname
+prefix: xx
+EOF
+
+# Run sync script
+palace-sync-docs
+```
+
+This fetches the latest documentation and replaces template values.
 
 ---
 
@@ -162,7 +217,7 @@ Your project rules are in `[PREFIX]-rules` (fetch with `SELECT content FROM shar
 ### Check Your Inbox
 
 ```sql
-SELECT * FROM unread_for('PROJECT', 'agent-NAME');
+SELECT * FROM unread_for('penfold', 'mycroft');
 ```
 
 ### Inbox Summary (Triage)
@@ -170,7 +225,7 @@ SELECT * FROM unread_for('PROJECT', 'agent-NAME');
 Get a quick overview before diving into individual messages:
 
 ```sql
-SELECT * FROM inbox_summary('PROJECT', 'agent-NAME');
+SELECT * FROM inbox_summary('penfold', 'mycroft');
 ```
 
 Returns:
@@ -184,32 +239,32 @@ Returns:
 ### Read Full Message
 
 ```sql
-SELECT * FROM shards WHERE id = 'PREFIX-xxx';
+SELECT * FROM shards WHERE id = 'pf-xxx';
 -- Or use the view:
-SELECT * FROM messages WHERE id = 'PREFIX-xxx';
+SELECT * FROM messages WHERE id = 'pf-xxx';
 ```
 
 ### Mark as Read
 
 ```sql
 -- Single
-SELECT mark_read(ARRAY['PREFIX-xxx'], 'agent-NAME');
+SELECT mark_read(ARRAY['pf-xxx'], 'mycroft');
 
 -- Multiple
-SELECT mark_read(ARRAY['PREFIX-xxx', 'PREFIX-yyy'], 'agent-NAME');
+SELECT mark_read(ARRAY['pf-xxx', 'pf-yyy'], 'mycroft');
 
 -- Clear inbox
-SELECT mark_all_read('PROJECT', 'agent-NAME');
+SELECT mark_all_read('penfold', 'mycroft');
 ```
 
 ### Send a Message
 
 ```sql
 -- Simple
-SELECT send_message('PROJECT', 'agent-NAME', ARRAY['recipient'], 'Subject', 'Body text');
+SELECT send_message('penfold', 'mycroft', ARRAY['recipient'], 'Subject', 'Body text');
 
 -- With CC and kind
-SELECT send_message('PROJECT', 'agent-NAME',
+SELECT send_message('penfold', 'mycroft',
   ARRAY['recipient'],
   'Subject', 'Body text',
   ARRAY['cc-agent'],    -- cc
@@ -220,19 +275,19 @@ SELECT send_message('PROJECT', 'agent-NAME',
 ### Reply to a Message
 
 ```sql
-SELECT send_message('PROJECT', 'agent-NAME',
+SELECT send_message('penfold', 'mycroft',
   ARRAY['original-sender'],
   'Re: Subject', 'Reply text',
   NULL,                 -- cc
   'ack',                -- kind
-  'PREFIX-ORIGINAL'     -- reply_to (creates edge, marks original read)
+  'pf-ORIGINAL'     -- reply_to (creates edge, marks original read)
 );
 ```
 
 ### Get Conversation Thread
 
 ```sql
-SELECT * FROM get_thread('PREFIX-ROOT-MESSAGE');
+SELECT * FROM get_thread('pf-ROOT-MESSAGE');
 ```
 
 Returns root message + all replies, ordered by depth then time.
@@ -240,26 +295,26 @@ Returns root message + all replies, ordered by depth then time.
 ### Check Your Tasks
 
 ```sql
-SELECT * FROM tasks_for('PROJECT', 'agent-NAME');
+SELECT * FROM tasks_for('penfold', 'mycroft');
 ```
 
 ### Find Claimable Tasks
 
 ```sql
-SELECT * FROM ready_tasks('PROJECT') WHERE owner IS NULL;
+SELECT * FROM ready_tasks('penfold') WHERE owner IS NULL;
 ```
 
 ### Claim a Task
 
 ```sql
-SELECT claim_task('PREFIX-xxx', 'agent-NAME');
+SELECT claim_task('pf-xxx', 'mycroft');
 -- Returns true if claimed, false if already taken
 ```
 
 ### Close a Task
 
 ```sql
-SELECT close_task('PREFIX-xxx', 'Completed: summary of what was done');
+SELECT close_task('pf-xxx', 'Completed: summary of what was done');
 ```
 
 ### Add Artifacts to a Task
@@ -268,13 +323,13 @@ Track what you did - commits, deployments, related shards, URLs:
 
 ```sql
 -- Add artifacts
-SELECT add_artifact('PREFIX-xxx', 'commit', 'abc123def', 'Fixed null pointer bug');
-SELECT add_artifact('PREFIX-xxx', 'url', 'https://github.com/org/repo/pull/42', 'PR link');
-SELECT add_artifact('PREFIX-xxx', 'shard', 'PREFIX-yyy', 'Related bug report');
-SELECT add_artifact('PREFIX-xxx', 'deploy', 'prod-2026-01-31', 'Deployed to production');
+SELECT add_artifact('pf-xxx', 'commit', 'abc123def', 'Fixed null pointer bug');
+SELECT add_artifact('pf-xxx', 'url', 'https://github.com/org/repo/pull/42', 'PR link');
+SELECT add_artifact('pf-xxx', 'shard', 'pf-yyy', 'Related bug report');
+SELECT add_artifact('pf-xxx', 'deploy', 'prod-2026-01-31', 'Deployed to production');
 
 -- View artifacts
-SELECT * FROM get_artifacts('PREFIX-xxx');
+SELECT * FROM get_artifacts('pf-xxx');
 ```
 
 Artifact types: `commit`, `url`, `shard`, `file`, `deploy` (or any string).
@@ -283,19 +338,19 @@ Artifact types: `commit`, `url`, `shard`, `file`, `deploy` (or any string).
 
 ```sql
 -- Simple
-SELECT create_shard('PROJECT', 'Task title', 'Description', 'task', 'agent-NAME');
+SELECT create_shard('penfold', 'Task title', 'Description', 'task', 'mycroft');
 
 -- With owner and priority
-SELECT create_shard('PROJECT', 'Task title', 'Description', 'task', 'agent-NAME', 'target-agent', 2);
+SELECT create_shard('penfold', 'Task title', 'Description', 'task', 'mycroft', 'target-agent', 2);
 ```
 
 ### Create Task from Bug Report
 
 ```sql
 SELECT create_task_from(
-  'PROJECT',
-  'agent-NAME',
-  'PREFIX-BUG-MESSAGE',    -- source
+  'penfold',
+  'mycroft',
+  'pf-BUG-MESSAGE',    -- source
   'fix: Bug title',
   'Description',
   1,                       -- priority
@@ -325,6 +380,9 @@ This auto-links to source, copies labels, and closes the source message.
 
 ### Components
 - `backend`, `frontend`, `database`, `infra`
+
+### Agent Types (for implementation shards)
+- `agent:cli-dev`, `agent:service-dev`, `agent:worker-dev`, `agent:data-dev`, `agent:ai-dev`
 
 ---
 
@@ -373,7 +431,7 @@ Your message here...
 ### Sending Sync Message
 
 ```sql
-SELECT send_message('PROJECT', 'agent-NAME', ARRAY['recipient'], 'Subject',
+SELECT send_message('penfold', 'mycroft', ARRAY['recipient'], 'Subject',
   $body${
   "poll_hint": "continue",
   "type": "question",
@@ -383,7 +441,7 @@ SELECT send_message('PROJECT', 'agent-NAME', ARRAY['recipient'], 'Subject',
 Your question here
 $body$
 );
-SELECT add_labels('PREFIX-NEWID', ARRAY['sync:true', 'sync:session-123']);
+SELECT add_labels('pf-NEWID', ARRAY['sync:true', 'sync:session-123']);
 ```
 
 ---
@@ -409,21 +467,21 @@ Memories are things to remember across sessions - reminders, pending actions, co
 
 ```sql
 -- Create a memory with trigger condition
-SELECT create_memory('PROJECT', 'agent-NAME',
+SELECT create_memory('penfold', 'mycroft',
   'Delete test data when content delete available',
   'content delete implemented',  -- trigger condition
-  'PREFIX-context-id',           -- optional context
+  'pf-context-id',           -- optional context
   NOW() + INTERVAL '7 days'      -- optional expiry
 );
 
 -- Check your memories
-SELECT * FROM memories_for('PROJECT', 'agent-NAME');
+SELECT * FROM memories_for('penfold', 'mycroft');
 
 -- Close a memory when triggered
-SELECT close_memory('PREFIX-xxx', 'Done: deleted test data');
+SELECT close_memory('pf-xxx', 'Done: deleted test data');
 
 -- Find expired memories (for cleanup)
-SELECT * FROM expired_memories('PROJECT');
+SELECT * FROM expired_memories('penfold');
 ```
 
 ### Sessions
@@ -432,20 +490,20 @@ Sessions track work with checkpoints.
 
 ```sql
 -- Start a session
-SELECT start_session('PROJECT', 'agent-NAME', 'Working on feature X');
+SELECT start_session('penfold', 'mycroft', 'Working on feature X');
 
 -- Add checkpoints as you work
-SELECT add_checkpoint('PREFIX-session-id', 'Completed auth module');
-SELECT add_checkpoint('PREFIX-session-id', 'Fixed TLS bugs');
+SELECT add_checkpoint('pf-session-id', 'Completed auth module');
+SELECT add_checkpoint('pf-session-id', 'Fixed TLS bugs');
 
 -- Get current session
-SELECT * FROM current_session('PROJECT', 'agent-NAME');
+SELECT * FROM current_session('penfold', 'mycroft');
 
 -- End session
-SELECT end_session('PREFIX-session-id', 'Feature X complete');
+SELECT end_session('pf-session-id', 'Feature X complete');
 
 -- Auto-close stale sessions (run periodically)
-SELECT close_stale_sessions('PROJECT', '24 hours');
+SELECT close_stale_sessions('penfold', '24 hours');
 ```
 
 ### Backlog
@@ -454,16 +512,67 @@ Backlog items are development work items with dependencies.
 
 ```sql
 -- Create backlog item
-SELECT create_backlog_item('PROJECT', 'agent-NAME',
+SELECT create_backlog_item('penfold', 'mycroft',
   'Implement caching layer',
   'Add Redis caching for API responses',
   2,                              -- priority
-  ARRAY['PREFIX-dependency-id']   -- depends on
+  ARRAY['pf-dependency-id']   -- depends on
 );
 
 -- Get your backlog
-SELECT * FROM backlog_for('PROJECT', 'agent-NAME');
+SELECT * FROM backlog_for('penfold', 'mycroft');
 ```
+
+### File Claims (Multi-Agent Coordination)
+
+Prevent conflicts when multiple agents work in parallel:
+
+```sql
+-- Claim files before editing
+SELECT claim_files('pf-task', 'session-123', 'mycroft',
+  ARRAY['cmd/app/main.go', 'pkg/service/handler.go']);
+
+-- Check if files are available
+SELECT * FROM check_conflicts(
+  ARRAY['pkg/service/handler.go', 'pkg/service/new.go'],
+  'pf-my-task'
+);
+
+-- Extend claims for long-running work
+SELECT extend_claims('pf-task', interval '2 hours');
+
+-- Release when done (auto-called by close_task)
+SELECT release_claims('pf-task');
+
+-- Cleanup expired claims
+SELECT cleanup_expired_claims();
+```
+
+Claims auto-expire after 1 hour and are auto-released when `close_task()` is called.
+
+### Implementation Workflow
+
+Create coordinated implementation shards with dependencies:
+
+```sql
+-- Create implementation shard with file claims and dependencies
+SELECT create_impl_shard(
+  'penfold',
+  'mycroft',
+  'cli-dev',                          -- agent_type label
+  'Implement pipeline command',
+  'Task description...',
+  ARRAY['cmd/app/pipeline.go'],       -- files to claim
+  ARRAY['pf-schema-task'],        -- blocked by these
+  'pf-parent-feature'             -- parent shard
+);
+
+-- Check implementation progress
+SELECT * FROM impl_status('pf-parent-feature');
+-- Returns: id, title, status, owner, agent_type, blocked_by[], files[]
+```
+
+Agent types: `cli-dev`, `service-dev`, `worker-dev`, `data-dev`, `ai-dev`
 
 ---
 
@@ -483,11 +592,11 @@ SELECT * FROM backlog_for('PROJECT', 'agent-NAME');
 Sub-agents can use the `palace` CLI instead of raw SQL for task operations:
 
 ```bash
-palace task get PREFIX-xxx        # Get task details
-palace task claim PREFIX-xxx      # Claim a task
-palace task progress PREFIX-xxx "note"   # Log progress
-palace task close PREFIX-xxx "summary"   # Close task
-palace artifact add PREFIX-xxx commit abc123 "description"
+palace task get pf-xxx        # Get task details
+palace task claim pf-xxx      # Claim a task
+palace task progress pf-xxx "note"   # Log progress
+palace task close pf-xxx "summary"   # Close task
+palace artifact add pf-xxx commit abc123 "description"
 ```
 
 Configure via environment or `~/.palace.yaml`:

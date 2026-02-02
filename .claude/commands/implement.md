@@ -474,9 +474,92 @@ If a sub-agent fails:
    - Skip and continue with non-blocked shards?
    - Abort?
 
-## Phase 8: Report Results and Close Shards
+## Phase 8: Commit, Push, and Deploy
 
-When all sub-agents have finished:
+**CRITICAL: Implementation is not complete until changes are deployed.**
+
+After all sub-agents complete and verification passes:
+
+### Step 1: Commit Changes
+
+```bash
+# Check what changed
+git status
+git diff --name-only
+
+# Stage and commit with descriptive message
+git add -A
+git commit -m "feat: [summary of changes]
+
+- [bullet point for each major change]
+- Added tests for [what was tested]
+
+Implements: pf-xxxxx, pf-yyyyy"
+```
+
+### Step 2: Push to Remote
+
+```bash
+git push origin HEAD
+```
+
+### Step 3: Deploy Based on What Changed
+
+Determine what needs deployment by checking which files changed:
+
+**If Gateway files changed** (`services/gateway/`):
+```bash
+./scripts/deploy-gateway.sh
+```
+
+**If Worker files changed** (`services/worker/`):
+```bash
+# SSH to dev01 and restart worker
+ssh dev01 "cd ~/penfold-worker && ./restart.sh"
+```
+
+**If CLI files changed** (`cmd/penf/`):
+```bash
+# Create and push a new version tag
+# Get current version
+git tag -l 'v*' | sort -V | tail -1
+
+# Bump version (e.g., v0.4.7 -> v0.4.8)
+git tag v0.4.X
+git push origin v0.4.X
+
+# GitHub Actions will build and release
+```
+
+**If Proto files changed** (`api/proto/`):
+- Gateway deployment will pick up the changes
+- CLI release will pick up the changes
+- Deploy both if both are affected
+
+### Step 4: Verify Deployment
+
+```bash
+# For gateway
+./scripts/verify-deployment.sh
+
+# For CLI (after GitHub Actions completes)
+penf version  # should show new version after `penf update`
+```
+
+### Deployment Decision Matrix
+
+| Files Changed | Action Required |
+|---------------|-----------------|
+| `services/gateway/**` | `./scripts/deploy-gateway.sh` |
+| `services/worker/**` | Restart worker on dev01 |
+| `cmd/penf/**` | Create git tag, push (triggers release) |
+| `api/proto/**` | Deploy gateway + release CLI |
+| `migrations/**` | Deploy gateway (runs migrations) |
+| `pkg/**` only | Deploy services that import the package |
+
+## Phase 9: Report Results and Close Shards
+
+When all sub-agents have finished AND deployment is complete:
 
 ### Verify All Implementation Shards Are Closed
 
@@ -557,26 +640,33 @@ Tests Added:
 - cmd/penf/pipeline_test.go
 - cmd/penf/content_test.go
 
-Next Steps:
-1. Review changes: git diff
-2. Run full test suite: make test
-3. Commit when ready: git add . && git commit
+Committed: [commit hash] "[commit message]"
+Pushed: origin/[branch]
+
+Deployed:
+- Gateway: ./scripts/deploy-gateway.sh ✓
+- CLI: v0.4.X tag pushed, GitHub Actions building
+
+Verification:
+- Gateway health: ✓
+- Smoke tests: ✓
 ```
 
 ## Key Principles
 
 1. **NEVER write code yourself** - always delegate to sub-agents
 2. **ALWAYS require tests** - no code ships without tests (unless explicitly justified)
-3. **Maximize parallelism** - launch all independent work simultaneously
-4. **Right-size agents** - not too granular, not too coarse
-5. **Fresh context is good** - sub-agents focus without distraction
-6. **Sub-agents use palace CLI** - orchestrator uses psql for complex queries
-7. **Verify after completion** - always run `go build` AND `go test` after each agent finishes
-8. **Check for test files** - verify `_test.go` files were created/modified
-9. **No PRs** - just code changes, user decides when to commit
-10. **Claim files before work** - check file_claims to avoid conflicts with other sessions
-11. **Scoped file access** - sub-agents only modify files explicitly listed in their shard
-12. **Use helpers** - prefer `create_impl_shard()` and `impl_status()` over raw SQL
+3. **ALWAYS commit, push, and deploy** - implementation isn't done until changes are live
+4. **Maximize parallelism** - launch all independent work simultaneously
+5. **Right-size agents** - not too granular, not too coarse
+6. **Fresh context is good** - sub-agents focus without distraction
+7. **Sub-agents use palace CLI** - orchestrator uses psql for complex queries
+8. **Verify after completion** - always run `go build` AND `go test` after each agent finishes
+9. **Check for test files** - verify `_test.go` files were created/modified
+10. **Deploy after verification** - gateway changes need `deploy-gateway.sh`, CLI needs version tag
+11. **Claim files before work** - check file_claims to avoid conflicts with other sessions
+12. **Scoped file access** - sub-agents only modify files explicitly listed in their shard
+13. **Use helpers** - prefer `create_impl_shard()` and `impl_status()` over raw SQL
 
 ## Troubleshooting
 

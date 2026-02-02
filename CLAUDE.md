@@ -132,3 +132,10 @@ penf glossary list             # Basic query works?
 | Gateway | services/gateway/ | dev02 |
 | Worker | services/worker/ | dev01 |
 | AI Service | services/ai/ | dev01 |
+
+## Active Technologies
+- Go 1.24 + Cobra (CLI), gRPC, Protocol Buffers, pgx (PostgreSQL) (019-meeting-series)
+- PostgreSQL 16+ with existing `meetings` table (019-meeting-series)
+
+## Recent Changes
+- 019-meeting-series: Added Go 1.24 + Cobra (CLI), gRPC, Protocol Buffers, pgx (PostgreSQL)
