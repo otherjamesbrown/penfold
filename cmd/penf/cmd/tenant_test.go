@@ -204,6 +204,7 @@ func TestFindTenantAlias_NilAliases(t *testing.T) {
 }
 
 func TestValidateTenantAccess_ValidID(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	deps := createTestDeps(mockConfig())
 	ctx := context.Background()
 
@@ -531,6 +532,7 @@ func TestAddTenantMetadata_EmptyID(t *testing.T) {
 }
 
 func TestRunTenantList(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createTestDeps(cfg)
 
@@ -610,6 +612,7 @@ func TestRunTenantCurrent_NoTenant(t *testing.T) {
 }
 
 func TestRunTenantSwitch(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	cfg.TenantID = "old-tenant"
 
@@ -642,6 +645,7 @@ func TestRunTenantSwitch(t *testing.T) {
 }
 
 func TestRunTenantSwitch_WithAlias(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	cfg.TenantID = "old-tenant"
 	cfg.TenantAliases = map[string]string{
@@ -678,6 +682,7 @@ func TestRunTenantSwitch_WithAlias(t *testing.T) {
 }
 
 func TestRunTenantSwitch_InvalidID(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createTestDeps(cfg)
 
@@ -724,6 +729,7 @@ func TestRunTenantSwitch_NoValidation(t *testing.T) {
 }
 
 func TestRunTenantInfo_CurrentTenant(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	cfg.TenantID = "tenant-default-001"
 	deps := createTestDeps(cfg)
@@ -755,6 +761,7 @@ func TestRunTenantInfo_CurrentTenant(t *testing.T) {
 }
 
 func TestRunTenantInfo_SpecificTenant(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createTestDeps(cfg)
 

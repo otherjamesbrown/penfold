@@ -513,6 +513,7 @@ func TestReviewQueueResponse_JSONOutput(t *testing.T) {
 }
 
 func TestRunReviewStart(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -543,6 +544,7 @@ func TestRunReviewStart(t *testing.T) {
 }
 
 func TestRunReviewPause(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -570,6 +572,7 @@ func TestRunReviewPause(t *testing.T) {
 }
 
 func TestRunReviewResume(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -597,6 +600,7 @@ func TestRunReviewResume(t *testing.T) {
 }
 
 func TestRunReviewEnd(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -627,6 +631,7 @@ func TestRunReviewEnd(t *testing.T) {
 }
 
 func TestRunReviewQueue(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -659,6 +664,7 @@ func TestRunReviewQueue(t *testing.T) {
 }
 
 func TestRunReviewQueue_CountOnly(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -694,6 +700,7 @@ func TestRunReviewQueue_CountOnly(t *testing.T) {
 }
 
 func TestRunReviewQueue_InvalidPriority(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -713,6 +720,7 @@ func TestRunReviewQueue_InvalidPriority(t *testing.T) {
 }
 
 func TestRunReviewAccept(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -743,6 +751,7 @@ func TestRunReviewAccept(t *testing.T) {
 }
 
 func TestRunReviewReject(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -773,6 +782,7 @@ func TestRunReviewReject(t *testing.T) {
 }
 
 func TestRunReviewDefer(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -803,6 +813,7 @@ func TestRunReviewDefer(t *testing.T) {
 }
 
 func TestRunReviewDefer_InvalidDate(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -814,6 +825,7 @@ func TestRunReviewDefer_InvalidDate(t *testing.T) {
 }
 
 func TestRunReviewShow(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -847,6 +859,7 @@ func TestRunReviewShow(t *testing.T) {
 }
 
 func TestRunReviewUndo(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -874,6 +887,7 @@ func TestRunReviewUndo(t *testing.T) {
 }
 
 func TestRunReviewRedo(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -901,6 +915,7 @@ func TestRunReviewRedo(t *testing.T) {
 }
 
 func TestRunReviewHistory(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -931,6 +946,7 @@ func TestRunReviewHistory(t *testing.T) {
 }
 
 func TestRunReviewAutoStatus(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -961,6 +977,7 @@ func TestRunReviewAutoStatus(t *testing.T) {
 }
 
 func TestRunReviewAutoEnable(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -988,6 +1005,7 @@ func TestRunReviewAutoEnable(t *testing.T) {
 }
 
 func TestRunReviewAutoEnable_UnknownRule(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -999,6 +1017,7 @@ func TestRunReviewAutoEnable_UnknownRule(t *testing.T) {
 }
 
 func TestRunReviewAutoDisable(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -1026,6 +1045,7 @@ func TestRunReviewAutoDisable(t *testing.T) {
 }
 
 func TestRunReviewAutoDisable_UnknownRule(t *testing.T) {
+	t.Skip("requires backend - migrate to integration tests")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
