@@ -55,21 +55,37 @@ cd services/worker && go build -o worker -ldflags="-s -w" .
 ```
 
 ### 6. Deploy Services
+
+**Gateway (dev02 - systemd):**
 ```bash
 # Copy binary to target host
 scp services/gateway/gateway-linux james@dev02.brown.chat:/tmp/penfold-gateway
 
-# On dev02: Stop old, start new
+# On dev02: Stop, update binary, start
 ssh james@dev02.brown.chat << 'EOF'
-pkill -f penfold-gateway || true
-sleep 2
-cd /tmp && PENFOLD_SERVICE_NAME=gateway \
-  PENFOLD_DB_HOST=localhost \
-  PENFOLD_DB_PORT=5432 \
-  PENFOLD_DB_USER=penfold \
-  PENFOLD_DB_PASSWORD=penfold2024 \
-  PENFOLD_DB_NAME=penfold \
-  nohup ./penfold-gateway > gateway.log 2>&1 &
+sudo systemctl stop penfold-gateway
+sudo mv /tmp/penfold-gateway /opt/penfold/bin/penfold-gateway
+sudo chmod +x /opt/penfold/bin/penfold-gateway
+sudo systemctl start penfold-gateway
+sudo systemctl status penfold-gateway
+EOF
+```
+
+**Worker (dev01 - launchd):**
+```bash
+# Build for Apple Silicon
+GOOS=darwin GOARCH=arm64 go build -o worker-darwin-arm64 -ldflags="-s -w" ./services/worker
+
+# Copy to dev01
+scp worker-darwin-arm64 james@dev01.brown.chat:/tmp/penfold-worker
+
+# On dev01: Stop, update binary, start
+ssh james@dev01.brown.chat << 'EOF'
+sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
+sudo mv /tmp/penfold-worker /opt/penfold/bin/penfold-worker
+sudo chmod +x /opt/penfold/bin/penfold-worker
+sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
+sudo launchctl list | grep penfold
 EOF
 ```
 
@@ -139,8 +155,11 @@ penf glossary list
 
 ### 9. Log Check
 ```bash
-# Check for errors in logs
-ssh dev02.brown.chat "tail -100 /tmp/gateway.log | grep -i error"
+# Gateway logs (systemd journal on dev02)
+ssh dev02.brown.chat "journalctl -u penfold-gateway --since '5 minutes ago' | grep -i error"
+
+# Worker logs (file on dev01)
+ssh dev01.brown.chat "tail -100 /var/log/penfold/worker.log | grep -i error"
 
 # Should show no critical errors
 ```
@@ -157,15 +176,29 @@ ssh dev02.brown.chat "tail -100 /tmp/gateway.log | grep -i error"
 If ANY smoke test fails:
 
 ### 1. Stop New Service
+
+**Gateway (dev02 - systemd):**
 ```bash
-ssh dev02.brown.chat "pkill -f penfold-gateway"
+ssh dev02.brown.chat "sudo systemctl stop penfold-gateway"
+```
+
+**Worker (dev01 - launchd):**
+```bash
+ssh dev01.brown.chat "sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist"
 ```
 
 ### 2. Restore Previous Binary
 ```bash
+# Gateway (dev02)
 ssh dev02.brown.chat << 'EOF'
-mv /tmp/penfold-gateway.backup /tmp/penfold-gateway
-# Restart with same command as deployment
+sudo mv /opt/penfold/bin/penfold-gateway.backup /opt/penfold/bin/penfold-gateway
+sudo systemctl start penfold-gateway
+EOF
+
+# Worker (dev01)
+ssh dev01.brown.chat << 'EOF'
+sudo mv /opt/penfold/bin/penfold-worker.backup /opt/penfold/bin/penfold-worker
+sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
 EOF
 ```
 
@@ -280,3 +313,86 @@ Copy this for each deployment:
 - Requires: PostgreSQL with pgvector
 - Port: 50053 (gRPC), 8082 (HTTP)
 - Note: NOT CURRENTLY DEPLOYED - implement or remove from gateway routing
+
+### AI Coordinator
+- Requires: MLX services (dev01)
+- Host: dev02.brown.chat (systemd)
+- Port: 50055 (gRPC), 8090 (HTTP)
+- Binary: `penfold-ai-coordinator`
+
+---
+
+## Service Management Reference
+
+### dev02 (Linux/systemd)
+
+```bash
+# Check status
+sudo systemctl status penfold-gateway
+sudo systemctl status penfold-ai-coordinator
+
+# Start/stop/restart
+sudo systemctl start penfold-gateway
+sudo systemctl stop penfold-gateway
+sudo systemctl restart penfold-gateway
+
+# Enable/disable auto-start
+sudo systemctl enable penfold-gateway
+sudo systemctl disable penfold-gateway
+
+# View logs
+journalctl -u penfold-gateway -f                    # Follow
+journalctl -u penfold-gateway -n 100                # Last 100 lines
+journalctl -u penfold-gateway --since "1 hour ago"  # Time-based
+journalctl -u penfold-gateway -p err                # Errors only
+
+# Reload after config change
+sudo systemctl daemon-reload
+sudo systemctl restart penfold-gateway
+```
+
+### dev01 (macOS/launchd)
+
+```bash
+# Check status
+sudo launchctl list | grep penfold
+
+# Start/stop
+sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
+sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
+
+# View logs
+tail -f /var/log/penfold/worker.log
+tail -f /var/log/penfold/worker.error.log
+
+# After editing plist
+sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
+sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
+```
+
+### Observability Stack (dev02)
+
+```bash
+# Manage
+cd ~/penfold/deploy/observability
+docker compose up -d
+docker compose down
+docker compose restart prometheus
+
+# Logs
+docker compose logs -f grafana
+
+# Access
+# Grafana: http://dev02.brown.chat:3001 (admin/penfold2024)
+# Prometheus: http://dev02.brown.chat:9090
+# Alertmanager: http://dev02.brown.chat:9094
+```
+
+---
+
+## See Also
+
+- [deploy/README.md](../../deploy/README.md) - Deployment configuration overview
+- [deploy/systemd/README.md](../../deploy/systemd/README.md) - Linux service details
+- [deploy/launchd/README.md](../../deploy/launchd/README.md) - macOS service details
+- [deploy/observability/README.md](../../deploy/observability/README.md) - Monitoring stack
