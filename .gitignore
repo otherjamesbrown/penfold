@@ -88,7 +88,10 @@ tmp/
 temp/
 # Build outputs
 bin/
+penf
 cmd/penf/penf
+gateway
+penfold-worker
 
 # Build artifacts
 main
