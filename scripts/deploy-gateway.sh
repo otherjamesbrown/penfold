@@ -201,21 +201,59 @@ apply_migrations() {
 
     cd "${PROJECT_ROOT}"
 
-    # Apply migrations using psql (goose format but manual application)
+    local db_host="${PENFOLD_DB_HOST:-dev02.brown.chat}"
+    local db_user="${PENFOLD_DB_USER:-penfold}"
+    local db_name="${PENFOLD_DB_NAME:-penfold}"
+
+    # Test connection first
+    PGPASSWORD="${DB_PASSWORD}" psql -h "$db_host" -U "$db_user" -d "$db_name" \
+        -c "SELECT 1" &>/dev/null || {
+            log_error "Cannot connect to database"
+            return 1
+        }
+
+    # Create schema_migrations table if it doesn't exist
+    PGPASSWORD="${DB_PASSWORD}" psql -h "$db_host" -U "$db_user" -d "$db_name" -q <<'EOF'
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ DEFAULT NOW()
+);
+EOF
+
+    local applied=0
+    local skipped=0
+
     for migration in migrations/*.sql; do
         local name=$(basename "$migration")
-        # Only apply UP section (before -- +goose Down)
-        log_info "  Checking: ${name}"
-        PGPASSWORD="${DB_PASSWORD}" psql -h "${PENFOLD_DB_HOST:-dev02.brown.chat}" \
-            -U "${PENFOLD_DB_USER:-penfold}" \
-            -d "${PENFOLD_DB_NAME:-penfold}" \
-            -c "SELECT 1" &>/dev/null || {
-                log_error "Cannot connect to database"
+
+        # Check if already applied
+        local exists=$(PGPASSWORD="${DB_PASSWORD}" psql -h "$db_host" -U "$db_user" -d "$db_name" \
+            -tAc "SELECT 1 FROM schema_migrations WHERE version = '${name}'" 2>/dev/null)
+
+        if [[ "$exists" == "1" ]]; then
+            log_info "  Skipping: ${name} (already applied)"
+            ((skipped++))
+        else
+            log_info "  Applying: ${name}"
+            if PGPASSWORD="${DB_PASSWORD}" psql -h "$db_host" -U "$db_user" -d "$db_name" \
+                -f "$migration" &>/dev/null; then
+                # Record successful migration
+                PGPASSWORD="${DB_PASSWORD}" psql -h "$db_host" -U "$db_user" -d "$db_name" -q \
+                    -c "INSERT INTO schema_migrations (version) VALUES ('${name}')" 2>/dev/null
+                log_success "  Applied: ${name}"
+                ((applied++))
+            else
+                log_error "  Failed: ${name}"
                 return 1
-            }
+            fi
+        fi
     done
 
-    log_success "Migrations verified"
+    if [[ $applied -gt 0 ]]; then
+        log_success "Applied ${applied} migration(s), skipped ${skipped}"
+    else
+        log_success "All ${skipped} migration(s) already applied"
+    fi
 }
 
 backup_binary() {
