@@ -74,8 +74,8 @@ type VersionInfo struct {
 // Default connection settings.
 const (
 	DefaultConnectTimeout    = 10 * time.Second
-	DefaultKeepaliveTime     = 30 * time.Second
-	DefaultKeepaliveTimeout  = 10 * time.Second
+	DefaultKeepaliveTime     = 5 * time.Minute // Must be >= gRPC server's MinTime (default 5 min)
+	DefaultKeepaliveTimeout  = 20 * time.Second
 	DefaultMaxRetries        = 3
 	DefaultInitialBackoff    = 100 * time.Millisecond
 	DefaultMaxBackoff        = 5 * time.Second
