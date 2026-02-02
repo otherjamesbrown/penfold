@@ -53,12 +53,16 @@ type TenantListResponse struct {
 // TenantCommandDeps holds the dependencies for tenant commands.
 // This allows for easier testing by injecting mock implementations.
 type TenantCommandDeps struct {
-	Config       *config.CLIConfig
-	GRPCClient   *client.GRPCClient
-	OutputFormat config.OutputFormat
-	LoadConfig   func() (*config.CLIConfig, error)
-	SaveConfig   func(*config.CLIConfig) error
-	InitClient   func(*config.CLIConfig) (*client.GRPCClient, error)
+	Config           *config.CLIConfig
+	TenantClient     *client.TenantClient
+	OutputFormat     config.OutputFormat
+	LoadConfig       func() (*config.CLIConfig, error)
+	SaveConfig       func(*config.CLIConfig) error
+	InitTenantClient func(*config.CLIConfig) (*client.TenantClient, error)
+	// Tenant client method overrides for testing
+	ListTenants      func(ctx context.Context, c *client.TenantClient, req *client.ListTenantsRequest) ([]*client.Tenant, int64, error)
+	GetTenant        func(ctx context.Context, c *client.TenantClient, id string, slug string) (*client.Tenant, error)
+	SetCurrentTenant func(ctx context.Context, c *client.TenantClient, tenantRef string) (*client.Tenant, bool, string, error)
 }
 
 // DefaultDeps returns the default dependencies for production use.
@@ -66,20 +70,40 @@ func DefaultDeps() *TenantCommandDeps {
 	return &TenantCommandDeps{
 		LoadConfig: config.LoadConfig,
 		SaveConfig: config.SaveConfig,
-		InitClient: func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
-			opts := client.DefaultOptions()
-			opts.Insecure = cfg.Insecure
-			opts.Debug = cfg.Debug
-			opts.ConnectTimeout = cfg.Timeout
+		InitTenantClient: func(cfg *config.CLIConfig) (*client.TenantClient, error) {
+			opts := &client.ClientOptions{
+				Insecure:       cfg.Insecure,
+				Debug:          cfg.Debug,
+				ConnectTimeout: cfg.Timeout,
+			}
 
-			grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
+			// Load TLS config if not in insecure mode.
+			if !cfg.Insecure {
+				tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
+				if err != nil {
+					return nil, fmt.Errorf("failed to load TLS config: %w", err)
+				}
+				opts.TLSConfig = tlsConfig
+			}
+
+			tenantClient := client.NewTenantClient(cfg.ServerAddress, opts)
 			ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 			defer cancel()
 
-			if err := grpcClient.Connect(ctx); err != nil {
-				return nil, fmt.Errorf("connecting to server: %w", err)
+			if err := tenantClient.Connect(ctx); err != nil {
+				return nil, fmt.Errorf("connecting to tenant service: %w", err)
 			}
-			return grpcClient, nil
+			return tenantClient, nil
+		},
+		// Default implementations call the actual client methods
+		ListTenants: func(ctx context.Context, c *client.TenantClient, req *client.ListTenantsRequest) ([]*client.Tenant, int64, error) {
+			return c.ListTenants(ctx, req)
+		},
+		GetTenant: func(ctx context.Context, c *client.TenantClient, id string, slug string) (*client.Tenant, error) {
+			return c.GetTenant(ctx, id, slug)
+		},
+		SetCurrentTenant: func(ctx context.Context, c *client.TenantClient, tenantRef string) (*client.Tenant, bool, string, error) {
+			return c.SetCurrentTenant(ctx, tenantRef)
 		},
 	}
 }
@@ -212,29 +236,24 @@ func runTenantList(ctx context.Context, deps *TenantCommandDeps, insecureFlag bo
 	// Get current tenant ID (from env or config).
 	currentTenantID := getCurrentTenantID(cfg)
 
-	// Create tenant client and fetch tenants from gRPC service.
-	opts := &client.ClientOptions{
-		Insecure:       cfg.Insecure,
-		Debug:          cfg.Debug,
-		ConnectTimeout: cfg.Timeout,
-	}
-	if !cfg.Insecure {
-		tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
-		if err != nil {
-			return fmt.Errorf("failed to load TLS config: %w", err)
-		}
-		opts.TLSConfig = tlsConfig
-	}
-	tenantClient := client.NewTenantClient(cfg.ServerAddress, opts)
-
-	if err := tenantClient.Connect(ctx); err != nil {
-		return fmt.Errorf("connecting to tenant service: %w", err)
+	// Create tenant client using injected dependency.
+	tenantClient, err := deps.InitTenantClient(cfg)
+	if err != nil {
+		return err
 	}
 	defer tenantClient.Close()
 
-	tenantList, totalCount, err := tenantClient.ListTenants(ctx, &client.ListTenantsRequest{
-		Limit: 100,
-	})
+	var tenantList []*client.Tenant
+	var totalCount int64
+	if deps.ListTenants != nil {
+		tenantList, totalCount, err = deps.ListTenants(ctx, tenantClient, &client.ListTenantsRequest{
+			Limit: 100,
+		})
+	} else {
+		tenantList, totalCount, err = tenantClient.ListTenants(ctx, &client.ListTenantsRequest{
+			Limit: 100,
+		})
+	}
 	if err != nil {
 		return fmt.Errorf("listing tenants: %w", err)
 	}
@@ -386,27 +405,19 @@ func runTenantShow(ctx context.Context, deps *TenantCommandDeps, tenantRef strin
 	// Resolve alias to tenant ID if applicable.
 	tenantID := resolveTenantAlias(cfg, tenantRef)
 
-	// Create tenant client and fetch tenant from gRPC service.
-	opts := &client.ClientOptions{
-		Insecure:       cfg.Insecure,
-		Debug:          cfg.Debug,
-		ConnectTimeout: cfg.Timeout,
-	}
-	if !cfg.Insecure {
-		tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
-		if err != nil {
-			return fmt.Errorf("failed to load TLS config: %w", err)
-		}
-		opts.TLSConfig = tlsConfig
-	}
-	tenantClient := client.NewTenantClient(cfg.ServerAddress, opts)
-
-	if err := tenantClient.Connect(ctx); err != nil {
-		return fmt.Errorf("connecting to tenant service: %w", err)
+	// Create tenant client using injected dependency.
+	tenantClient, err := deps.InitTenantClient(cfg)
+	if err != nil {
+		return err
 	}
 	defer tenantClient.Close()
 
-	tenant, err := tenantClient.GetTenant(ctx, "", tenantID)
+	var tenant *client.Tenant
+	if deps.GetTenant != nil {
+		tenant, err = deps.GetTenant(ctx, tenantClient, "", tenantID)
+	} else {
+		tenant, err = tenantClient.GetTenant(ctx, "", tenantID)
+	}
 	if err != nil {
 		return fmt.Errorf("getting tenant info: %w", err)
 	}
@@ -482,27 +493,20 @@ func validateTenantAccess(ctx context.Context, deps *TenantCommandDeps, tenantID
 		}
 	}
 
-	// Create tenant client and validate tenant via gRPC service.
-	opts := &client.ClientOptions{
-		Insecure:       cfg.Insecure,
-		Debug:          cfg.Debug,
-		ConnectTimeout: cfg.Timeout,
-	}
-	if !cfg.Insecure {
-		tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
-		if err != nil {
-			return fmt.Errorf("failed to load TLS config: %w", err)
-		}
-		opts.TLSConfig = tlsConfig
-	}
-	tenantClient := client.NewTenantClient(cfg.ServerAddress, opts)
-
-	if err := tenantClient.Connect(ctx); err != nil {
-		return fmt.Errorf("connecting to tenant service: %w", err)
+	// Create tenant client using injected dependency.
+	tenantClient, err := deps.InitTenantClient(cfg)
+	if err != nil {
+		return err
 	}
 	defer tenantClient.Close()
 
-	_, valid, errMsg, err := tenantClient.SetCurrentTenant(ctx, tenantID)
+	var valid bool
+	var errMsg string
+	if deps.SetCurrentTenant != nil {
+		_, valid, errMsg, err = deps.SetCurrentTenant(ctx, tenantClient, tenantID)
+	} else {
+		_, valid, errMsg, err = tenantClient.SetCurrentTenant(ctx, tenantID)
+	}
 	if err != nil {
 		return fmt.Errorf("validating tenant: %w", err)
 	}

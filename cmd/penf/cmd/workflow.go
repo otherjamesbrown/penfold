@@ -72,6 +72,13 @@ type WorkflowCommandDeps struct {
 	OutputFormat config.OutputFormat
 	LoadConfig   func() (*config.CLIConfig, error)
 	InitClient   func(*config.CLIConfig) (*client.GRPCClient, error)
+
+	// Optional function overrides for testing.
+	// If set, these are used instead of calling the actual client methods.
+	ListWorkflowsFn      func(context.Context, client.ListWorkflowsFilter) (*client.ListWorkflowsResult, error)
+	GetWorkflowStatusFn  func(context.Context, string, string) (*client.WorkflowStatusDetails, error)
+	CancelWorkflowFn     func(context.Context, string, string, string) (*client.CancelWorkflowResult, error)
+	TerminateWorkflowFn  func(context.Context, string, string, string) (*client.CancelWorkflowResult, error)
 }
 
 // DefaultWorkflowDeps returns the default dependencies for production use.
@@ -270,12 +277,16 @@ func runWorkflowList(ctx context.Context, deps *WorkflowCommandDeps) error {
 		}
 	}
 
-	// Initialize gRPC client.
-	grpcClient, err := deps.InitClient(cfg)
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+	var grpcClient *client.GRPCClient
+
+	// Initialize gRPC client only if not using mock.
+	if deps.ListWorkflowsFn == nil {
+		grpcClient, err = deps.InitClient(cfg)
+		if err != nil {
+			return fmt.Errorf("initializing client: %w", err)
+		}
+		defer grpcClient.Close()
 	}
-	defer grpcClient.Close()
 
 	// Map status string for API (normalize capitalization).
 	statusFilter := workflowStatus
@@ -306,7 +317,15 @@ func runWorkflowList(ctx context.Context, deps *WorkflowCommandDeps) error {
 		PageSize:     int32(workflowLimit),
 	}
 
-	result, err := grpcClient.ListWorkflows(ctx, filter)
+	var result *client.ListWorkflowsResult
+
+	// Use mock function if provided (for testing).
+	if deps.ListWorkflowsFn != nil {
+		result, err = deps.ListWorkflowsFn(ctx, filter)
+	} else {
+		result, err = grpcClient.ListWorkflows(ctx, filter)
+	}
+
 	if err != nil {
 		return fmt.Errorf("listing workflows: %w", err)
 	}
@@ -362,17 +381,28 @@ func runWorkflowStatus(ctx context.Context, deps *WorkflowCommandDeps, workflowI
 		return runWorkflowWatch(ctx, deps, workflowID, outputFormat)
 	}
 
-	// Initialize gRPC client.
-	grpcClient, err := deps.InitClient(cfg)
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-	defer grpcClient.Close()
+	var status *client.WorkflowStatusDetails
 
-	// Get workflow status from the service.
-	status, err := grpcClient.GetWorkflowStatus(ctx, workflowID, "")
-	if err != nil {
-		return fmt.Errorf("getting workflow status: %w", err)
+	// Use mock function if provided (for testing).
+	if deps.GetWorkflowStatusFn != nil {
+		var err error
+		status, err = deps.GetWorkflowStatusFn(ctx, workflowID, "")
+		if err != nil {
+			return fmt.Errorf("getting workflow status: %w", err)
+		}
+	} else {
+		// Initialize gRPC client.
+		grpcClient, err := deps.InitClient(cfg)
+		if err != nil {
+			return fmt.Errorf("initializing client: %w", err)
+		}
+		defer grpcClient.Close()
+
+		// Get workflow status from the service.
+		status, err = grpcClient.GetWorkflowStatus(ctx, workflowID, "")
+		if err != nil {
+			return fmt.Errorf("getting workflow status: %w", err)
+		}
 	}
 
 	// Convert to workflow format.
@@ -407,12 +437,16 @@ func runWorkflowWatch(ctx context.Context, deps *WorkflowCommandDeps, workflowID
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 
-	// Initialize gRPC client.
-	grpcClient, err := deps.InitClient(cfg)
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+	var grpcClient *client.GRPCClient
+
+	// Initialize gRPC client if not using mock.
+	if deps.GetWorkflowStatusFn == nil {
+		grpcClient, err = deps.InitClient(cfg)
+		if err != nil {
+			return fmt.Errorf("initializing client: %w", err)
+		}
+		defer grpcClient.Close()
 	}
-	defer grpcClient.Close()
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -424,7 +458,12 @@ func runWorkflowWatch(ctx context.Context, deps *WorkflowCommandDeps, workflowID
 		}
 
 		// Get workflow status from the service.
-		status, err := grpcClient.GetWorkflowStatus(ctx, workflowID, "")
+		var status *client.WorkflowStatusDetails
+		if deps.GetWorkflowStatusFn != nil {
+			status, err = deps.GetWorkflowStatusFn(ctx, workflowID, "")
+		} else {
+			status, err = grpcClient.GetWorkflowStatus(ctx, workflowID, "")
+		}
 		if err != nil {
 			return fmt.Errorf("getting workflow status: %w", err)
 		}
@@ -479,20 +518,35 @@ func runWorkflowCancel(ctx context.Context, deps *WorkflowCommandDeps, workflowI
 	}
 	deps.Config = cfg
 
-	// Initialize gRPC client.
-	grpcClient, err := deps.InitClient(cfg)
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-	defer grpcClient.Close()
-
 	var result *client.CancelWorkflowResult
+
+	// Use mock functions if provided (for testing).
 	if workflowForce {
-		fmt.Printf("Force terminating workflow %s...\n", workflowID)
-		result, err = grpcClient.TerminateWorkflow(ctx, workflowID, "", "Terminated via CLI (--force)")
+		fmt.Printf("Force cancelling workflow %s...\n", workflowID)
+		if deps.TerminateWorkflowFn != nil {
+			result, err = deps.TerminateWorkflowFn(ctx, workflowID, "", "Terminated via CLI (--force)")
+		} else {
+			// Initialize gRPC client.
+			grpcClient, err := deps.InitClient(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing client: %w", err)
+			}
+			defer grpcClient.Close()
+			result, err = grpcClient.TerminateWorkflow(ctx, workflowID, "", "Terminated via CLI (--force)")
+		}
 	} else {
 		fmt.Printf("Cancelling workflow %s...\n", workflowID)
-		result, err = grpcClient.CancelWorkflow(ctx, workflowID, "", "Cancelled via CLI")
+		if deps.CancelWorkflowFn != nil {
+			result, err = deps.CancelWorkflowFn(ctx, workflowID, "", "Cancelled via CLI")
+		} else {
+			// Initialize gRPC client.
+			grpcClient, err := deps.InitClient(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing client: %w", err)
+			}
+			defer grpcClient.Close()
+			result, err = grpcClient.CancelWorkflow(ctx, workflowID, "", "Cancelled via CLI")
+		}
 	}
 
 	if err != nil {

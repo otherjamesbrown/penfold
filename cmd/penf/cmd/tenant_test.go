@@ -32,6 +32,99 @@ func mockConfig() *config.CLIConfig {
 	}
 }
 
+// Mock data for tenant tests
+func getMockTenants() []*client.Tenant {
+	return []*client.Tenant{
+		{
+			Slug:        "tenant-default-001",
+			Name:        "Default Tenant",
+			Description: "The default development tenant",
+			IsActive:    true,
+			CreatedAt:   time.Now().Add(-90 * 24 * time.Hour),
+		},
+		{
+			Slug:        "tenant-acme-002",
+			Name:        "Acme Corp",
+			Description: "Acme Corporation tenant",
+			IsActive:    true,
+			CreatedAt:   time.Now().Add(-60 * 24 * time.Hour),
+		},
+		{
+			Slug:        "tenant-demo-003",
+			Name:        "Demo Tenant",
+			Description: "For demonstration purposes",
+			IsActive:    true,
+			CreatedAt:   time.Now().Add(-30 * 24 * time.Hour),
+		},
+	}
+}
+
+func getMockTenant(tenantRef string) *client.Tenant {
+	knownTenants := map[string]*client.Tenant{
+		"tenant-default-001": {
+			Slug:        "tenant-default-001",
+			Name:        "Default Tenant",
+			Description: "The default development tenant",
+			IsActive:    true,
+			CreatedAt:   time.Now().Add(-90 * 24 * time.Hour),
+		},
+		"tenant-acme-002": {
+			Slug:        "tenant-acme-002",
+			Name:        "Acme Corp",
+			Description: "Acme Corporation tenant",
+			IsActive:    true,
+			CreatedAt:   time.Now().Add(-60 * 24 * time.Hour),
+		},
+		"tenant-demo-003": {
+			Slug:        "tenant-demo-003",
+			Name:        "Demo Tenant",
+			Description: "For demonstration purposes",
+			IsActive:    true,
+			CreatedAt:   time.Now().Add(-30 * 24 * time.Hour),
+		},
+		"tenant-valid-123": {
+			Slug:        "tenant-valid-123",
+			Name:        "Valid Test Tenant",
+			IsActive:    true,
+			CreatedAt:   time.Now().Add(-30 * 24 * time.Hour),
+		},
+		"new-tenant-id": {
+			Slug:        "new-tenant-id",
+			Name:        "New Tenant",
+			IsActive:    true,
+			CreatedAt:   time.Now(),
+		},
+		"tenant-acme-resolved": {
+			Slug:        "tenant-acme-resolved",
+			Name:        "Acme Resolved",
+			IsActive:    true,
+			CreatedAt:   time.Now().Add(-45 * 24 * time.Hour),
+		},
+	}
+
+	if tenant, found := knownTenants[tenantRef]; found {
+		return tenant
+	}
+
+	return &client.Tenant{
+		Slug:     tenantRef,
+		Name:     "Unknown",
+		IsActive: false,
+	}
+}
+
+func isValidMockTenant(tenantRef string) bool {
+	validTenants := map[string]bool{
+		"tenant-default-001":   true,
+		"tenant-acme-002":      true,
+		"tenant-demo-003":      true,
+		"tenant-valid-123":     true,
+		"new-tenant-id":        true,
+		"tenant-acme-resolved": true,
+	}
+	return validTenants[tenantRef]
+}
+
 // createTestDeps creates test dependencies with mock implementations.
 func createTestDeps(cfg *config.CLIConfig) *TenantCommandDeps {
 	return &TenantCommandDeps{
@@ -45,8 +138,27 @@ func createTestDeps(cfg *config.CLIConfig) *TenantCommandDeps {
 			*cfg = *c
 			return nil
 		},
-		InitClient: func(c *config.CLIConfig) (*client.GRPCClient, error) {
-			return nil, nil
+		InitTenantClient: func(c *config.CLIConfig) (*client.TenantClient, error) {
+			// Return a dummy client - the actual methods are mocked via function injection
+			return &client.TenantClient{}, nil
+		},
+		// Mock tenant client methods
+		ListTenants: func(ctx context.Context, c *client.TenantClient, req *client.ListTenantsRequest) ([]*client.Tenant, int64, error) {
+			tenants := getMockTenants()
+			return tenants, int64(len(tenants)), nil
+		},
+		GetTenant: func(ctx context.Context, c *client.TenantClient, id string, slug string) (*client.Tenant, error) {
+			tenantRef := slug
+			if tenantRef == "" {
+				tenantRef = id
+			}
+			return getMockTenant(tenantRef), nil
+		},
+		SetCurrentTenant: func(ctx context.Context, c *client.TenantClient, tenantRef string) (*client.Tenant, bool, string, error) {
+			if isValidMockTenant(tenantRef) {
+				return getMockTenant(tenantRef), true, "", nil
+			}
+			return nil, false, "tenant not found or access denied", nil
 		},
 	}
 }
@@ -64,8 +176,27 @@ func createTestDepsWithSavedConfig(cfg *config.CLIConfig, savedConfig **config.C
 			*savedConfig = &cfgCopy
 			return nil
 		},
-		InitClient: func(c *config.CLIConfig) (*client.GRPCClient, error) {
-			return nil, nil
+		InitTenantClient: func(c *config.CLIConfig) (*client.TenantClient, error) {
+			// Return a dummy client - the actual methods are mocked via function injection
+			return &client.TenantClient{}, nil
+		},
+		// Mock tenant client methods
+		ListTenants: func(ctx context.Context, c *client.TenantClient, req *client.ListTenantsRequest) ([]*client.Tenant, int64, error) {
+			tenants := getMockTenants()
+			return tenants, int64(len(tenants)), nil
+		},
+		GetTenant: func(ctx context.Context, c *client.TenantClient, id string, slug string) (*client.Tenant, error) {
+			tenantRef := slug
+			if tenantRef == "" {
+				tenantRef = id
+			}
+			return getMockTenant(tenantRef), nil
+		},
+		SetCurrentTenant: func(ctx context.Context, c *client.TenantClient, tenantRef string) (*client.Tenant, bool, string, error) {
+			if isValidMockTenant(tenantRef) {
+				return getMockTenant(tenantRef), true, "", nil
+			}
+			return nil, false, "tenant not found or access denied", nil
 		},
 	}
 }

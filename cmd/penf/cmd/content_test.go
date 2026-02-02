@@ -68,8 +68,8 @@ func TestOutputContentTextYAML(t *testing.T) {
 		t.Fatalf("Failed to unmarshal YAML: %v", err)
 	}
 
-	if decoded["contentId"] != resp.ContentId {
-		t.Errorf("ContentId = %v, want %v", decoded["contentId"], resp.ContentId)
+	if decoded["contentid"] != resp.ContentId {
+		t.Errorf("ContentId = %v, want %v", decoded["contentid"], resp.ContentId)
 	}
 }
 

@@ -129,7 +129,7 @@ func TestWorkflowCommand_CancelSubcommand(t *testing.T) {
 
 func TestRunWorkflowList(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
 
 	// Reset global flags.
 	oldType := workflowType
@@ -168,7 +168,7 @@ func TestRunWorkflowList(t *testing.T) {
 
 func TestRunWorkflowList_JSONOutput(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
 
 	// Reset global flags.
 	oldOutput := workflowOutput
@@ -203,7 +203,7 @@ func TestRunWorkflowList_JSONOutput(t *testing.T) {
 
 func TestRunWorkflowList_YAMLOutput(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
 
 	oldOutput := workflowOutput
 	workflowOutput = "yaml"
@@ -236,7 +236,7 @@ func TestRunWorkflowList_YAMLOutput(t *testing.T) {
 
 func TestRunWorkflowList_WithStatusFilter(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
 
 	oldStatus := workflowStatus
 	oldOutput := workflowOutput
@@ -263,7 +263,7 @@ func TestRunWorkflowList_WithStatusFilter(t *testing.T) {
 
 func TestRunWorkflowList_InvalidStatusFilter(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
 
 	oldStatus := workflowStatus
 	workflowStatus = "invalid_status"
@@ -280,7 +280,7 @@ func TestRunWorkflowList_InvalidStatusFilter(t *testing.T) {
 
 func TestRunWorkflowList_InvalidOutputFormat(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
 
 	oldOutput := workflowOutput
 	workflowOutput = "invalid"
@@ -297,7 +297,7 @@ func TestRunWorkflowList_InvalidOutputFormat(t *testing.T) {
 
 func TestRunWorkflowStatus(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
 
 	// Reset global flags.
 	oldOutput := workflowOutput
@@ -331,7 +331,7 @@ func TestRunWorkflowStatus(t *testing.T) {
 
 func TestRunWorkflowStatus_JSONOutput(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
 
 	oldOutput := workflowOutput
 	workflowOutput = "json"
@@ -365,7 +365,7 @@ func TestRunWorkflowStatus_JSONOutput(t *testing.T) {
 
 func TestRunWorkflowStatus_NotFound(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
 
 	oldOutput := workflowOutput
 	workflowOutput = ""
@@ -383,7 +383,7 @@ func TestRunWorkflowStatus_NotFound(t *testing.T) {
 
 func TestRunWorkflowCancel(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
 
 	// Reset global flags.
 	oldForce := workflowForce
@@ -414,7 +414,7 @@ func TestRunWorkflowCancel(t *testing.T) {
 
 func TestRunWorkflowCancel_Force(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
 
 	oldForce := workflowForce
 	workflowForce = true
@@ -443,7 +443,10 @@ func TestRunWorkflowCancel_Force(t *testing.T) {
 
 func TestRunWorkflowCancel_NotFound(t *testing.T) {
 	cfg := mockWorkflowConfig()
-	deps := createWorkflowTestDeps(cfg)
+	deps, mock := createWorkflowTestDepsWithMocks(cfg)
+
+	// Set flag to simulate workflow not found.
+	mock.workflowNotFoundForCancel = true
 
 	ctx := context.Background()
 	err := runWorkflowCancel(ctx, deps, "invalid-id")
@@ -587,7 +590,7 @@ func TestOutputWorkflowList_EmptyList(t *testing.T) {
 }
 
 func TestOutputWorkflowStatus_Text(t *testing.T) {
-	workflow := getMockWorkflow("wf-test-001")
+	workflow := getMockWorkflow("wf-001")
 
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
@@ -604,7 +607,7 @@ func TestOutputWorkflowStatus_Text(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Contains(t, output, "Workflow:")
-	assert.Contains(t, output, "wf-test-001")
+	assert.Contains(t, output, "wf-001")
 	assert.Contains(t, output, "Steps:")
 }
 
