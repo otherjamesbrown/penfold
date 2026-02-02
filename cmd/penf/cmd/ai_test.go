@@ -134,52 +134,8 @@ func TestAICommand_AnalyzeSubcommand(t *testing.T) {
 	}
 }
 
-func TestRunAIQuery_ConnectionRequired(t *testing.T) {
-	cfg := mockAIConfig()
-	deps := createAITestDeps(cfg)
-
-	// Reset global flags.
-	oldOutput := aiOutput
-	oldVerbose := aiVerbose
-	oldModel := aiModel
-	aiOutput = ""
-	aiVerbose = false
-	aiModel = ""
-	defer func() {
-		aiOutput = oldOutput
-		aiVerbose = oldVerbose
-		aiModel = oldModel
-	}()
-
-	ctx := context.Background()
-	err := runAIQuery(ctx, deps, "What are the Q4 objectives?")
-
-	// Without a running server, we expect a connection error.
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "connecting to AI service")
-}
-
-func TestRunAIQuery_OutputFormatParsing(t *testing.T) {
-	cfg := mockAIConfig()
-	deps := createAITestDeps(cfg)
-
-	// Reset global flags.
-	oldOutput := aiOutput
-	oldVerbose := aiVerbose
-	aiOutput = "json"
-	aiVerbose = false
-	defer func() {
-		aiOutput = oldOutput
-		aiVerbose = oldVerbose
-	}()
-
-	ctx := context.Background()
-	err := runAIQuery(ctx, deps, "What are the Q4 objectives?")
-
-	// Without a running server, we expect a connection error (not a format error).
-	assert.Error(t, err)
-	assert.NotContains(t, err.Error(), "invalid output format")
-}
+// Note: Connection-requiring tests (TestRunAIQuery_ConnectionRequired, TestRunAIQuery_OutputFormatParsing)
+// have been moved to tests/integration/cli_ai_test.go where they will fail properly if the backend is down.
 
 func TestRunAIQuery_InvalidOutputFormat(t *testing.T) {
 	cfg := mockAIConfig()
@@ -199,27 +155,7 @@ func TestRunAIQuery_InvalidOutputFormat(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid output format")
 }
 
-func TestRunAISummarize_ConnectionRequired(t *testing.T) {
-	cfg := mockAIConfig()
-	deps := createAITestDeps(cfg)
-
-	// Reset global flags.
-	oldOutput := aiOutput
-	oldVerbose := aiVerbose
-	aiOutput = ""
-	aiVerbose = false
-	defer func() {
-		aiOutput = oldOutput
-		aiVerbose = oldVerbose
-	}()
-
-	ctx := context.Background()
-	err := runAISummarize(ctx, deps, "doc-123", "standard")
-
-	// Without a running server, we expect a connection error.
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "connecting to AI service")
-}
+// Note: TestRunAISummarize_ConnectionRequired moved to tests/integration/cli_ai_test.go
 
 func TestRunAISummarize_InvalidLength(t *testing.T) {
 	cfg := mockAIConfig()
@@ -239,52 +175,8 @@ func TestRunAISummarize_InvalidLength(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid summary length")
 }
 
-func TestRunAISummarize_AllLengthsValidation(t *testing.T) {
-	lengths := []string{"brief", "standard", "detailed"}
-
-	for _, length := range lengths {
-		t.Run(length+"_validation", func(t *testing.T) {
-			cfg := mockAIConfig()
-			deps := createAITestDeps(cfg)
-
-			oldOutput := aiOutput
-			aiOutput = ""
-			defer func() {
-				aiOutput = oldOutput
-			}()
-
-			ctx := context.Background()
-			err := runAISummarize(ctx, deps, "doc-123", length)
-
-			// Without a running server, we expect a connection error, not validation error.
-			if err != nil {
-				assert.NotContains(t, err.Error(), "invalid summary length")
-			}
-		})
-	}
-}
-
-func TestRunAIAnalyze_ConnectionRequired(t *testing.T) {
-	cfg := mockAIConfig()
-	deps := createAITestDeps(cfg)
-
-	// Reset global flags.
-	oldOutput := aiOutput
-	oldVerbose := aiVerbose
-	aiOutput = ""
-	aiVerbose = false
-	defer func() {
-		aiOutput = oldOutput
-		aiVerbose = oldVerbose
-	}()
-
-	ctx := context.Background()
-	err := runAIAnalyze(ctx, deps, "doc-123", "full")
-
-	// Without a running server, we expect a connection error.
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "connecting to AI service")
-}
+// Note: TestRunAISummarize_AllLengthsValidation and TestRunAIAnalyze_ConnectionRequired
+// moved to tests/integration/cli_ai_test.go
 
 func TestRunAIAnalyze_InvalidType(t *testing.T) {
 	cfg := mockAIConfig()
@@ -303,32 +195,7 @@ func TestRunAIAnalyze_InvalidType(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid analysis type")
 }
 
-func TestRunAIAnalyze_AllTypes(t *testing.T) {
-	analysisTypes := []string{"sentiment", "entities", "topics", "action", "full"}
-
-	for _, analysisType := range analysisTypes {
-		t.Run(analysisType+"_validation", func(t *testing.T) {
-			cfg := mockAIConfig()
-			deps := createAITestDeps(cfg)
-
-			oldOutput := aiOutput
-			aiOutput = ""
-			defer func() {
-				aiOutput = oldOutput
-			}()
-
-			// Test that the analysis type is valid (runAIAnalyze validates before connecting).
-			// We can't test full execution without a running server, but we can test validation.
-			ctx := context.Background()
-			err := runAIAnalyze(ctx, deps, "doc-123", analysisType)
-
-			// Expect connection error since no server is running, but not validation error.
-			if err != nil {
-				assert.NotContains(t, err.Error(), "invalid analysis type")
-			}
-		})
-	}
-}
+// Note: TestRunAIAnalyze_AllTypes moved to tests/integration/cli_ai_test.go
 
 // Note: Tests for executeAIQuery, executeAISummarize, executeAIAnalyze have been removed
 // because these mock functions were replaced with real gRPC calls. Integration tests
