@@ -222,12 +222,14 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 		outputTokens = result.OutputTokens
 	}
 
-	// Record tracing result
+	// Record tracing result with prompt/completion for Langfuse visibility
 	tracing.SetLLMResult(span, tracing.LLMResult{
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 		Model:        result.Model,
 		LatencyMs:    time.Since(startTime).Milliseconds(),
+		Prompt:       systemPrompt + "\n\n" + content,
+		Completion:   result.Content,
 	})
 
 	s.logger.Debug("GenerateSummary completed",
@@ -345,12 +347,14 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 		FilteredCount: int32(filteredCount),
 	}
 
-	// Record tracing result
+	// Record tracing result with prompt/completion for Langfuse visibility
 	tracing.SetLLMResult(span, tracing.LLMResult{
 		InputTokens:  result.InputTokens,
 		OutputTokens: result.OutputTokens,
 		Model:        result.Model,
 		LatencyMs:    time.Since(startTime).Milliseconds(),
+		Prompt:       systemPrompt + "\n\n" + userPrompt,
+		Completion:   result.Content,
 	})
 
 	s.logger.Debug("ExtractAssertions completed",
@@ -472,12 +476,14 @@ func (s *AIServer) ClassifyContent(ctx context.Context, req *aiv1.ClassifyConten
 		ModelUsed:       result.Model,
 	}
 
-	// Record tracing result
+	// Record tracing result with prompt/completion for Langfuse visibility
 	tracing.SetLLMResult(span, tracing.LLMResult{
 		InputTokens:  result.InputTokens,
 		OutputTokens: result.OutputTokens,
 		Model:        result.Model,
 		LatencyMs:    time.Since(startTime).Milliseconds(),
+		Prompt:       systemPrompt + "\n\n" + userPrompt,
+		Completion:   result.Content,
 	})
 
 	s.logger.Debug("ClassifyContent completed",
