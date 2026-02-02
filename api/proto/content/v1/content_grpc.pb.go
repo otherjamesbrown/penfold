@@ -22,14 +22,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ContentProcessorService_ProcessContent_FullMethodName      = "/penfold.content.v1.ContentProcessorService/ProcessContent"
-	ContentProcessorService_GetProcessingStatus_FullMethodName = "/penfold.content.v1.ContentProcessorService/GetProcessingStatus"
-	ContentProcessorService_GetContentItem_FullMethodName      = "/penfold.content.v1.ContentProcessorService/GetContentItem"
-	ContentProcessorService_ListContentItems_FullMethodName    = "/penfold.content.v1.ContentProcessorService/ListContentItems"
-	ContentProcessorService_ReprocessContent_FullMethodName    = "/penfold.content.v1.ContentProcessorService/ReprocessContent"
-	ContentProcessorService_DeleteContentItem_FullMethodName   = "/penfold.content.v1.ContentProcessorService/DeleteContentItem"
-	ContentProcessorService_DeleteContentItems_FullMethodName  = "/penfold.content.v1.ContentProcessorService/DeleteContentItems"
-	ContentProcessorService_GetContentStats_FullMethodName     = "/penfold.content.v1.ContentProcessorService/GetContentStats"
+	ContentProcessorService_ProcessContent_FullMethodName        = "/penfold.content.v1.ContentProcessorService/ProcessContent"
+	ContentProcessorService_GetProcessingStatus_FullMethodName   = "/penfold.content.v1.ContentProcessorService/GetProcessingStatus"
+	ContentProcessorService_GetContentItem_FullMethodName        = "/penfold.content.v1.ContentProcessorService/GetContentItem"
+	ContentProcessorService_ListContentItems_FullMethodName      = "/penfold.content.v1.ContentProcessorService/ListContentItems"
+	ContentProcessorService_ReprocessContent_FullMethodName      = "/penfold.content.v1.ContentProcessorService/ReprocessContent"
+	ContentProcessorService_DeleteContentItem_FullMethodName     = "/penfold.content.v1.ContentProcessorService/DeleteContentItem"
+	ContentProcessorService_DeleteContentItems_FullMethodName    = "/penfold.content.v1.ContentProcessorService/DeleteContentItems"
+	ContentProcessorService_GetContentStats_FullMethodName       = "/penfold.content.v1.ContentProcessorService/GetContentStats"
+	ContentProcessorService_GetContentText_FullMethodName        = "/penfold.content.v1.ContentProcessorService/GetContentText"
+	ContentProcessorService_ListAvailableInsights_FullMethodName = "/penfold.content.v1.ContentProcessorService/ListAvailableInsights"
+	ContentProcessorService_GetInsights_FullMethodName           = "/penfold.content.v1.ContentProcessorService/GetInsights"
 )
 
 // ContentProcessorServiceClient is the client API for ContentProcessorService service.
@@ -61,6 +64,12 @@ type ContentProcessorServiceClient interface {
 	DeleteContentItems(ctx context.Context, in *DeleteContentItemsRequest, opts ...grpc.CallOption) (*DeleteContentItemsResponse, error)
 	// GetContentStats returns content statistics.
 	GetContentStats(ctx context.Context, in *GetContentStatsRequest, opts ...grpc.CallOption) (*ContentStats, error)
+	// GetContentText retrieves the raw text content for a content item.
+	GetContentText(ctx context.Context, in *GetContentTextRequest, opts ...grpc.CallOption) (*GetContentTextResponse, error)
+	// ListAvailableInsights returns available insight types for a content item.
+	ListAvailableInsights(ctx context.Context, in *ListAvailableInsightsRequest, opts ...grpc.CallOption) (*ListAvailableInsightsResponse, error)
+	// GetInsights retrieves cached insights for a content item.
+	GetInsights(ctx context.Context, in *GetInsightsRequest, opts ...grpc.CallOption) (*GetInsightsResponse, error)
 }
 
 type contentProcessorServiceClient struct {
@@ -151,6 +160,36 @@ func (c *contentProcessorServiceClient) GetContentStats(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *contentProcessorServiceClient) GetContentText(ctx context.Context, in *GetContentTextRequest, opts ...grpc.CallOption) (*GetContentTextResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetContentTextResponse)
+	err := c.cc.Invoke(ctx, ContentProcessorService_GetContentText_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *contentProcessorServiceClient) ListAvailableInsights(ctx context.Context, in *ListAvailableInsightsRequest, opts ...grpc.CallOption) (*ListAvailableInsightsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAvailableInsightsResponse)
+	err := c.cc.Invoke(ctx, ContentProcessorService_ListAvailableInsights_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *contentProcessorServiceClient) GetInsights(ctx context.Context, in *GetInsightsRequest, opts ...grpc.CallOption) (*GetInsightsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetInsightsResponse)
+	err := c.cc.Invoke(ctx, ContentProcessorService_GetInsights_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ContentProcessorServiceServer is the server API for ContentProcessorService service.
 // All implementations must embed UnimplementedContentProcessorServiceServer
 // for forward compatibility.
@@ -180,6 +219,12 @@ type ContentProcessorServiceServer interface {
 	DeleteContentItems(context.Context, *DeleteContentItemsRequest) (*DeleteContentItemsResponse, error)
 	// GetContentStats returns content statistics.
 	GetContentStats(context.Context, *GetContentStatsRequest) (*ContentStats, error)
+	// GetContentText retrieves the raw text content for a content item.
+	GetContentText(context.Context, *GetContentTextRequest) (*GetContentTextResponse, error)
+	// ListAvailableInsights returns available insight types for a content item.
+	ListAvailableInsights(context.Context, *ListAvailableInsightsRequest) (*ListAvailableInsightsResponse, error)
+	// GetInsights retrieves cached insights for a content item.
+	GetInsights(context.Context, *GetInsightsRequest) (*GetInsightsResponse, error)
 	mustEmbedUnimplementedContentProcessorServiceServer()
 }
 
@@ -213,6 +258,15 @@ func (UnimplementedContentProcessorServiceServer) DeleteContentItems(context.Con
 }
 func (UnimplementedContentProcessorServiceServer) GetContentStats(context.Context, *GetContentStatsRequest) (*ContentStats, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetContentStats not implemented")
+}
+func (UnimplementedContentProcessorServiceServer) GetContentText(context.Context, *GetContentTextRequest) (*GetContentTextResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetContentText not implemented")
+}
+func (UnimplementedContentProcessorServiceServer) ListAvailableInsights(context.Context, *ListAvailableInsightsRequest) (*ListAvailableInsightsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAvailableInsights not implemented")
+}
+func (UnimplementedContentProcessorServiceServer) GetInsights(context.Context, *GetInsightsRequest) (*GetInsightsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetInsights not implemented")
 }
 func (UnimplementedContentProcessorServiceServer) mustEmbedUnimplementedContentProcessorServiceServer() {
 }
@@ -380,6 +434,60 @@ func _ContentProcessorService_GetContentStats_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ContentProcessorService_GetContentText_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetContentTextRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContentProcessorServiceServer).GetContentText(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContentProcessorService_GetContentText_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContentProcessorServiceServer).GetContentText(ctx, req.(*GetContentTextRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ContentProcessorService_ListAvailableInsights_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAvailableInsightsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContentProcessorServiceServer).ListAvailableInsights(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContentProcessorService_ListAvailableInsights_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContentProcessorServiceServer).ListAvailableInsights(ctx, req.(*ListAvailableInsightsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ContentProcessorService_GetInsights_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetInsightsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContentProcessorServiceServer).GetInsights(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContentProcessorService_GetInsights_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContentProcessorServiceServer).GetInsights(ctx, req.(*GetInsightsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ContentProcessorService_ServiceDesc is the grpc.ServiceDesc for ContentProcessorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -418,6 +526,18 @@ var ContentProcessorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetContentStats",
 			Handler:    _ContentProcessorService_GetContentStats_Handler,
+		},
+		{
+			MethodName: "GetContentText",
+			Handler:    _ContentProcessorService_GetContentText_Handler,
+		},
+		{
+			MethodName: "ListAvailableInsights",
+			Handler:    _ContentProcessorService_ListAvailableInsights_Handler,
+		},
+		{
+			MethodName: "GetInsights",
+			Handler:    _ContentProcessorService_GetInsights_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

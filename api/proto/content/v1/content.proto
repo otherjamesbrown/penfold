@@ -8,6 +8,7 @@ package penfold.content.v1;
 option go_package = "github.com/otherjamesbrown/penfold/api/proto/content/v1;contentv1";
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
 
 // =============================================================================
 // Service Definition
@@ -45,6 +46,15 @@ service ContentProcessorService {
 
   // GetContentStats returns content statistics.
   rpc GetContentStats(GetContentStatsRequest) returns (ContentStats);
+
+  // GetContentText retrieves the raw text content for a content item.
+  rpc GetContentText(GetContentTextRequest) returns (GetContentTextResponse);
+
+  // ListAvailableInsights returns available insight types for a content item.
+  rpc ListAvailableInsights(ListAvailableInsightsRequest) returns (ListAvailableInsightsResponse);
+
+  // GetInsights retrieves cached insights for a content item.
+  rpc GetInsights(GetInsightsRequest) returns (GetInsightsResponse);
 }
 
 // =============================================================================
@@ -442,4 +452,93 @@ message ContentStats {
 
   // Number of items with extracted entities.
   int64 extracted_count = 8;
+}
+
+// =============================================================================
+// Content Insights Messages
+// =============================================================================
+
+// GetContentTextRequest retrieves raw text content for a content item.
+message GetContentTextRequest {
+  // Unique identifier of the content item.
+  string content_id = 1;
+}
+
+// GetContentTextResponse contains the raw text content and metadata.
+message GetContentTextResponse {
+  // Unique identifier of the content item.
+  string content_id = 1;
+
+  // Type of content (email, meeting, document, etc.).
+  string content_type = 2;
+
+  // Raw text content (raw_content for emails/docs, transcript for meetings).
+  string text = 3;
+
+  // Timestamp when the content was created.
+  google.protobuf.Timestamp created_at = 4;
+
+  // Additional metadata (subject, participants, etc.).
+  map<string, string> metadata = 5;
+}
+
+// ListAvailableInsightsRequest retrieves available insight types for content.
+message ListAvailableInsightsRequest {
+  // Unique identifier of the content item.
+  string content_id = 1;
+}
+
+// ListAvailableInsightsResponse contains insight type availability status.
+message ListAvailableInsightsResponse {
+  // Unique identifier of the content item.
+  string content_id = 1;
+
+  // Type of content (email, meeting, document, etc.).
+  string content_type = 2;
+
+  // Insight types available for this content type.
+  repeated string available = 3;
+
+  // Insight types already extracted and cached.
+  repeated string extracted = 4;
+
+  // Insight types pending extraction.
+  repeated string pending = 5;
+}
+
+// GetInsightsRequest retrieves cached insights for a content item.
+message GetInsightsRequest {
+  // Unique identifier of the content item.
+  string content_id = 1;
+
+  // List of insight types to retrieve (e.g., "summary", "action_items").
+  // If empty, returns all available insights.
+  repeated string types = 2;
+
+  // Force refresh of insights (triggers async re-extraction).
+  bool refresh = 3;
+}
+
+// Insight represents a single extracted insight.
+message Insight {
+  // Type of insight (e.g., "summary", "action_items", "key_points").
+  string type = 1;
+
+  // Structured insight data (JSON format).
+  google.protobuf.Struct data = 2;
+
+  // Timestamp when this insight was extracted.
+  google.protobuf.Timestamp extracted_at = 3;
+
+  // Model version used for extraction.
+  string model_version = 4;
+}
+
+// GetInsightsResponse contains retrieved insights.
+message GetInsightsResponse {
+  // Unique identifier of the content item.
+  string content_id = 1;
+
+  // List of retrieved insights.
+  repeated Insight insights = 2;
 }

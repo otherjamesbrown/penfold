@@ -101,6 +101,8 @@ JSON Output (for AI processing):
 	cmd.AddCommand(newContentDeleteCommand(deps))
 	cmd.AddCommand(newContentStatsCommand(deps))
 	cmd.AddCommand(newContentTraceCommand(deps))
+	cmd.AddCommand(newContentTextCommand(deps))
+	cmd.AddCommand(newContentInsightsCommand(deps))
 
 	return cmd
 }
@@ -991,4 +993,323 @@ func outputContentTraceText(resp *pipelinev1.GetContentTraceResponse, verbose bo
 
 	fmt.Println()
 	return nil
+}
+
+// newContentTextCommand creates the 'content text' subcommand.
+func newContentTextCommand(deps *ContentCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "text <content-id>",
+		Short: "Display raw text content",
+		Long: `Display the raw text content of a content item.
+
+Shows the full text content with a header containing content type and created date.
+
+Examples:
+  # Display text content
+  penf content text mt-abc123
+
+  # Output as JSON
+  penf content text mt-abc123 --json`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runContentText(cmd.Context(), deps, args[0])
+		},
+	}
+
+	return cmd
+}
+
+// newContentInsightsCommand creates the 'content insights' subcommand.
+func newContentInsightsCommand(deps *ContentCommandDeps) *cobra.Command {
+	var insightTypes string
+	var allInsights bool
+	var refresh bool
+
+	cmd := &cobra.Command{
+		Use:   "insights <content-id>",
+		Short: "Display content insights",
+		Long: `Display extracted insights for a content item.
+
+Without flags, shows available insight types and their status.
+Use --type to retrieve specific insights, or --all for all extracted insights.
+
+Examples:
+  # Show available insights
+  penf content insights mt-abc123
+
+  # Get a specific insight type
+  penf content insights mt-abc123 --type summary
+
+  # Get multiple insight types
+  penf content insights mt-abc123 --type actions,decisions
+
+  # Get all extracted insights
+  penf content insights mt-abc123 --all
+
+  # Force refresh (triggers re-extraction)
+  penf content insights mt-abc123 --type summary --refresh
+
+  # Output as JSON
+  penf content insights mt-abc123 --type summary --json`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runContentInsights(cmd.Context(), deps, args[0], insightTypes, allInsights, refresh)
+		},
+	}
+
+	cmd.Flags().StringVar(&insightTypes, "type", "", "Comma-separated insight types to retrieve")
+	cmd.Flags().BoolVar(&allInsights, "all", false, "Get all available insights")
+	cmd.Flags().BoolVar(&refresh, "refresh", false, "Force re-extraction of insights")
+
+	return cmd
+}
+
+// runContentText executes the content text command.
+func runContentText(ctx context.Context, deps *ContentCommandDeps, contentID string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := contentv1.NewContentProcessorServiceClient(conn)
+
+	// Get content text
+	resp, err := client.GetContentText(ctx, &contentv1.GetContentTextRequest{
+		ContentId: contentID,
+	})
+	if err != nil {
+		return fmt.Errorf("getting content text: %w", err)
+	}
+
+	// Output results
+	format := cfg.OutputFormat
+	if contentOutput != "" {
+		format = config.OutputFormat(contentOutput)
+	}
+
+	return outputContentText(format, resp)
+}
+
+// runContentInsights executes the content insights command.
+func runContentInsights(ctx context.Context, deps *ContentCommandDeps, contentID string, insightTypes string, allInsights bool, refresh bool) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := contentv1.NewContentProcessorServiceClient(conn)
+
+	// If no type specified and not --all, show available insights (discovery mode)
+	if insightTypes == "" && !allInsights {
+		resp, err := client.ListAvailableInsights(ctx, &contentv1.ListAvailableInsightsRequest{
+			ContentId: contentID,
+		})
+		if err != nil {
+			return fmt.Errorf("listing available insights: %w", err)
+		}
+
+		format := cfg.OutputFormat
+		if contentOutput != "" {
+			format = config.OutputFormat(contentOutput)
+		}
+
+		return outputAvailableInsights(format, resp)
+	}
+
+	// Otherwise, get specific insights
+	req := &contentv1.GetInsightsRequest{
+		ContentId: contentID,
+		Refresh:   refresh,
+	}
+
+	// Parse types if specified
+	if insightTypes != "" {
+		types := strings.Split(insightTypes, ",")
+		for i := range types {
+			types[i] = strings.TrimSpace(types[i])
+		}
+		req.Types = types
+	}
+
+	resp, err := client.GetInsights(ctx, req)
+	if err != nil {
+		return fmt.Errorf("getting insights: %w", err)
+	}
+
+	// Output results
+	format := cfg.OutputFormat
+	if contentOutput != "" {
+		format = config.OutputFormat(contentOutput)
+	}
+
+	return outputInsights(format, resp)
+}
+
+// outputContentText outputs content text in the specified format.
+func outputContentText(format config.OutputFormat, resp *contentv1.GetContentTextResponse) error {
+	switch format {
+	case config.OutputFormatJSON:
+		return outputContentJSON(resp)
+	case config.OutputFormatYAML:
+		return outputContentYAML(resp)
+	default:
+		return outputContentTextText(resp)
+	}
+}
+
+// outputContentTextText outputs content text in text format.
+func outputContentTextText(resp *contentv1.GetContentTextResponse) error {
+	fmt.Printf("Content: %s (%s)\n", resp.ContentId, resp.ContentType)
+	fmt.Printf("Created: %s\n\n", resp.CreatedAt.AsTime().Format("2006-01-02 15:04:05"))
+
+	// Show metadata if available
+	if len(resp.Metadata) > 0 {
+		for key, value := range resp.Metadata {
+			fmt.Printf("%s: %s\n", strings.Title(key), value)
+		}
+		fmt.Println()
+	}
+
+	// Output the text content
+	fmt.Println(resp.Text)
+	fmt.Println()
+
+	return nil
+}
+
+// outputAvailableInsights outputs available insights in the specified format.
+func outputAvailableInsights(format config.OutputFormat, resp *contentv1.ListAvailableInsightsResponse) error {
+	switch format {
+	case config.OutputFormatJSON:
+		return outputContentJSON(resp)
+	case config.OutputFormatYAML:
+		return outputContentYAML(resp)
+	default:
+		return outputAvailableInsightsText(resp)
+	}
+}
+
+// outputAvailableInsightsText outputs available insights in text format.
+func outputAvailableInsightsText(resp *contentv1.ListAvailableInsightsResponse) error {
+	fmt.Printf("Content: %s (%s)\n", resp.ContentId, resp.ContentType)
+	fmt.Println()
+
+	if len(resp.Available) == 0 {
+		fmt.Println("No insights available for this content type.")
+		return nil
+	}
+
+	fmt.Println("Available Insights:")
+	fmt.Println("  TYPE          STATUS")
+	fmt.Println("  ----          ------")
+
+	// Create a map for quick status lookup
+	extractedMap := make(map[string]bool)
+	for _, t := range resp.Extracted {
+		extractedMap[t] = true
+	}
+
+	pendingMap := make(map[string]bool)
+	for _, t := range resp.Pending {
+		pendingMap[t] = true
+	}
+
+	// Display all available types with their status
+	for _, insightType := range resp.Available {
+		status := "available"
+		if extractedMap[insightType] {
+			status = "\033[32mextracted\033[0m"
+		} else if pendingMap[insightType] {
+			status = "\033[33mpending\033[0m"
+		}
+
+		fmt.Printf("  %-13s %s\n", insightType, status)
+	}
+
+	fmt.Println()
+	return nil
+}
+
+// outputInsights outputs insights in the specified format.
+func outputInsights(format config.OutputFormat, resp *contentv1.GetInsightsResponse) error {
+	switch format {
+	case config.OutputFormatJSON:
+		return outputContentJSON(resp)
+	case config.OutputFormatYAML:
+		return outputContentYAML(resp)
+	default:
+		return outputInsightsText(resp)
+	}
+}
+
+// outputInsightsText outputs insights in text format.
+func outputInsightsText(resp *contentv1.GetInsightsResponse) error {
+	if len(resp.Insights) == 0 {
+		fmt.Println("No insights found.")
+		return nil
+	}
+
+	for i, insight := range resp.Insights {
+		if i > 0 {
+			fmt.Println()
+			fmt.Println("---")
+			fmt.Println()
+		}
+
+		// Display insight type as header
+		fmt.Printf("\033[1m%s:\033[0m\n", strings.Title(strings.ReplaceAll(insight.Type, "_", " ")))
+
+		// Display the insight data
+		if insight.Data != nil {
+			displayInsightData(insight.Data.AsMap(), "  ")
+		}
+
+		// Display metadata
+		fmt.Println()
+		fmt.Printf("  Extracted: %s\n", insight.ExtractedAt.AsTime().Format("2006-01-02 15:04:05"))
+		if insight.ModelVersion != "" {
+			fmt.Printf("  Model: %s\n", insight.ModelVersion)
+		}
+	}
+
+	fmt.Println()
+	return nil
+}
+
+// displayInsightData recursively displays insight data as formatted text.
+func displayInsightData(data map[string]interface{}, indent string) {
+	for key, value := range data {
+		switch v := value.(type) {
+		case string:
+			fmt.Printf("%s%s: %s\n", indent, strings.Title(key), v)
+		case []interface{}:
+			fmt.Printf("%s%s:\n", indent, strings.Title(key))
+			for _, item := range v {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					displayInsightData(itemMap, indent+"  ")
+				} else {
+					fmt.Printf("%s  - %v\n", indent, item)
+				}
+			}
+		case map[string]interface{}:
+			fmt.Printf("%s%s:\n", indent, strings.Title(key))
+			displayInsightData(v, indent+"  ")
+		default:
+			fmt.Printf("%s%s: %v\n", indent, strings.Title(key), v)
+		}
+	}
 }

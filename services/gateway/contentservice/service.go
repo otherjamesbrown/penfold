@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
@@ -26,6 +27,9 @@ type Repository interface {
 	DeleteByContentID(ctx context.Context, contentID string) error
 	DeleteByFilters(ctx context.Context, tenantID string, sourceType, processingStatus *string) (int64, []string, error)
 	GetStats(ctx context.Context, tenantID string) (*StatsRecord, error)
+	GetContentText(ctx context.Context, contentID string) (*ContentTextRecord, error)
+	ListAvailableInsights(ctx context.Context, contentID string) (*InsightsAvailabilityRecord, error)
+	GetInsights(ctx context.Context, contentID string, types []string) ([]*InsightRecord, error)
 }
 
 // ContentItemRecord represents a content item from the database.
@@ -61,6 +65,32 @@ type StatsRecord struct {
 	CountByStatus     map[string]int64
 	EmbeddedCount     int64
 	TotalStorageBytes int64
+}
+
+// ContentTextRecord represents the raw content text and metadata.
+type ContentTextRecord struct {
+	ContentID   string
+	ContentType string
+	Text        string
+	CreatedAt   time.Time
+	Metadata    map[string]interface{}
+}
+
+// InsightsAvailabilityRecord represents available insights for a content item.
+type InsightsAvailabilityRecord struct {
+	ContentID   string
+	ContentType string
+	Available   []string
+	Extracted   []string
+	Pending     []string
+}
+
+// InsightRecord represents a single extracted insight.
+type InsightRecord struct {
+	Type          string
+	Data          map[string]interface{}
+	ExtractedAt   time.Time
+	ModelVersion  string
 }
 
 // repositoryImpl implements Repository using pgxpool.
@@ -422,6 +452,198 @@ func (r *repositoryImpl) GetStats(ctx context.Context, tenantID string) (*StatsR
 	return stats, nil
 }
 
+// GetContentText retrieves raw content text and metadata for a content item.
+func (r *repositoryImpl) GetContentText(ctx context.Context, contentID string) (*ContentTextRecord, error) {
+	query := `
+		SELECT
+			s.content_id,
+			s.source_system AS content_type,
+			COALESCE(s.raw_content, '') AS text,
+			s.created_at,
+			s.ingestion_metadata
+		FROM sources s
+		WHERE s.content_id = $1 AND (s.is_deleted IS NULL OR s.is_deleted = false)
+	`
+
+	var rec ContentTextRecord
+	var metadataJSON []byte
+	err := r.db.QueryRow(ctx, query, contentID).Scan(
+		&rec.ContentID,
+		&rec.ContentType,
+		&rec.Text,
+		&rec.CreatedAt,
+		&metadataJSON,
+	)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get content text: %w", err)
+	}
+
+	// Parse metadata JSON
+	if len(metadataJSON) > 0 {
+		if err := json.Unmarshal(metadataJSON, &rec.Metadata); err != nil {
+			r.logger.Warn("Failed to parse metadata JSON", logging.Err(err), logging.F("content_id", contentID))
+			rec.Metadata = make(map[string]interface{})
+		}
+	} else {
+		rec.Metadata = make(map[string]interface{})
+	}
+
+	return &rec, nil
+}
+
+// ListAvailableInsights retrieves available insights for a content item.
+func (r *repositoryImpl) ListAvailableInsights(ctx context.Context, contentID string) (*InsightsAvailabilityRecord, error) {
+	// First, get the content type from sources
+	var contentType string
+	err := r.db.QueryRow(ctx, `
+		SELECT source_system
+		FROM sources
+		WHERE content_id = $1 AND (is_deleted IS NULL OR is_deleted = false)
+	`, contentID).Scan(&contentType)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get content type: %w", err)
+	}
+
+	// Get available insight types from registry
+	availableQuery := `
+		SELECT insight_type
+		FROM insight_type_registry
+		WHERE content_type = $1
+		ORDER BY display_order
+	`
+	rows, err := r.db.Query(ctx, availableQuery, contentType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query available insights: %w", err)
+	}
+	defer rows.Close()
+
+	var available []string
+	for rows.Next() {
+		var insightType string
+		if err := rows.Scan(&insightType); err != nil {
+			return nil, fmt.Errorf("failed to scan insight type: %w", err)
+		}
+		available = append(available, insightType)
+	}
+	rows.Close()
+
+	// Get extracted insight types from content_insights
+	extractedQuery := `
+		SELECT insight_type
+		FROM content_insights
+		WHERE content_id = $1
+		ORDER BY extracted_at DESC
+	`
+	rows, err = r.db.Query(ctx, extractedQuery, contentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query extracted insights: %w", err)
+	}
+	defer rows.Close()
+
+	var extracted []string
+	extractedMap := make(map[string]bool)
+	for rows.Next() {
+		var insightType string
+		if err := rows.Scan(&insightType); err != nil {
+			return nil, fmt.Errorf("failed to scan extracted insight type: %w", err)
+		}
+		extracted = append(extracted, insightType)
+		extractedMap[insightType] = true
+	}
+	rows.Close()
+
+	// Calculate pending (available but not extracted)
+	var pending []string
+	for _, t := range available {
+		if !extractedMap[t] {
+			pending = append(pending, t)
+		}
+	}
+
+	return &InsightsAvailabilityRecord{
+		ContentID:   contentID,
+		ContentType: contentType,
+		Available:   available,
+		Extracted:   extracted,
+		Pending:     pending,
+	}, nil
+}
+
+// GetInsights retrieves cached insights for a content item.
+func (r *repositoryImpl) GetInsights(ctx context.Context, contentID string, types []string) ([]*InsightRecord, error) {
+	// Build query with optional type filter
+	query := `
+		SELECT
+			insight_type,
+			data,
+			extracted_at,
+			COALESCE(model_version, '') AS model_version
+		FROM content_insights
+		WHERE content_id = $1
+	`
+
+	args := []interface{}{contentID}
+
+	// Add type filter if specified
+	if len(types) > 0 {
+		query += " AND insight_type = ANY($2)"
+		args = append(args, types)
+	}
+
+	query += " ORDER BY extracted_at DESC"
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query insights: %w", err)
+	}
+	defer rows.Close()
+
+	var insights []*InsightRecord
+	for rows.Next() {
+		var rec InsightRecord
+		var dataJSON []byte
+		err := rows.Scan(
+			&rec.Type,
+			&dataJSON,
+			&rec.ExtractedAt,
+			&rec.ModelVersion,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan insight: %w", err)
+		}
+
+		// Parse data JSON
+		if len(dataJSON) > 0 {
+			if err := json.Unmarshal(dataJSON, &rec.Data); err != nil {
+				r.logger.Warn("Failed to parse insight data JSON",
+					logging.Err(err),
+					logging.F("content_id", contentID),
+					logging.F("insight_type", rec.Type),
+				)
+				rec.Data = make(map[string]interface{})
+			}
+		} else {
+			rec.Data = make(map[string]interface{})
+		}
+
+		insights = append(insights, &rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating insights: %w", err)
+	}
+
+	return insights, nil
+}
+
 // joinWhere joins WHERE clauses with AND.
 func joinWhere(clauses []string) string {
 	result := ""
@@ -715,6 +937,141 @@ func (s *Service) GetContentStats(ctx context.Context, req *contentv1.GetContent
 	}, nil
 }
 
+// GetContentText retrieves the raw text content for a content item.
+func (s *Service) GetContentText(ctx context.Context, req *contentv1.GetContentTextRequest) (*contentv1.GetContentTextResponse, error) {
+	s.logger.Debug("GetContentText called",
+		logging.F("content_id", req.ContentId),
+	)
+
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	rec, err := s.repo.GetContentText(ctx, req.ContentId)
+	if err != nil {
+		s.logger.Error("Failed to get content text",
+			logging.Err(err),
+			logging.F("content_id", req.ContentId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to get content text: %v", err)
+	}
+
+	if rec == nil {
+		return nil, status.Errorf(codes.NotFound, "content item not found: %s", req.ContentId)
+	}
+
+	// Convert metadata to string map
+	metadata := make(map[string]string)
+	for k, v := range rec.Metadata {
+		switch val := v.(type) {
+		case string:
+			metadata[k] = val
+		default:
+			// JSON encode complex values
+			if b, err := json.Marshal(val); err == nil {
+				metadata[k] = string(b)
+			}
+		}
+	}
+
+	return &contentv1.GetContentTextResponse{
+		ContentId:   rec.ContentID,
+		ContentType: rec.ContentType,
+		Text:        rec.Text,
+		CreatedAt:   timestamppb.New(rec.CreatedAt),
+		Metadata:    metadata,
+	}, nil
+}
+
+// ListAvailableInsights returns available insight types for a content item.
+func (s *Service) ListAvailableInsights(ctx context.Context, req *contentv1.ListAvailableInsightsRequest) (*contentv1.ListAvailableInsightsResponse, error) {
+	s.logger.Debug("ListAvailableInsights called",
+		logging.F("content_id", req.ContentId),
+	)
+
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	rec, err := s.repo.ListAvailableInsights(ctx, req.ContentId)
+	if err != nil {
+		s.logger.Error("Failed to list available insights",
+			logging.Err(err),
+			logging.F("content_id", req.ContentId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to list available insights: %v", err)
+	}
+
+	if rec == nil {
+		return nil, status.Errorf(codes.NotFound, "content item not found: %s", req.ContentId)
+	}
+
+	return &contentv1.ListAvailableInsightsResponse{
+		ContentId:   rec.ContentID,
+		ContentType: rec.ContentType,
+		Available:   rec.Available,
+		Extracted:   rec.Extracted,
+		Pending:     rec.Pending,
+	}, nil
+}
+
+// GetInsights retrieves cached insights for a content item.
+func (s *Service) GetInsights(ctx context.Context, req *contentv1.GetInsightsRequest) (*contentv1.GetInsightsResponse, error) {
+	s.logger.Debug("GetInsights called",
+		logging.F("content_id", req.ContentId),
+		logging.F("types", req.Types),
+		logging.F("refresh", req.Refresh),
+	)
+
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	// Note: refresh flag is for future use to trigger async re-extraction
+	// For now, we just return cached insights
+	if req.Refresh {
+		s.logger.Debug("Refresh requested but not implemented yet",
+			logging.F("content_id", req.ContentId),
+		)
+	}
+
+	insights, err := s.repo.GetInsights(ctx, req.ContentId, req.Types)
+	if err != nil {
+		s.logger.Error("Failed to get insights",
+			logging.Err(err),
+			logging.F("content_id", req.ContentId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to get insights: %v", err)
+	}
+
+	// Convert to proto
+	protoInsights := make([]*contentv1.Insight, len(insights))
+	for i, rec := range insights {
+		// Convert data map to protobuf Struct
+		dataStruct, err := convertToStruct(rec.Data)
+		if err != nil {
+			s.logger.Warn("Failed to convert insight data to Struct",
+				logging.Err(err),
+				logging.F("content_id", req.ContentId),
+				logging.F("insight_type", rec.Type),
+			)
+			dataStruct = &structpb.Struct{Fields: make(map[string]*structpb.Value)}
+		}
+
+		protoInsights[i] = &contentv1.Insight{
+			Type:          rec.Type,
+			Data:          dataStruct,
+			ExtractedAt:   timestamppb.New(rec.ExtractedAt),
+			ModelVersion:  rec.ModelVersion,
+		}
+	}
+
+	return &contentv1.GetInsightsResponse{
+		ContentId: req.ContentId,
+		Insights:  protoInsights,
+	}, nil
+}
+
 // =============================================================================
 // Conversion Helpers
 // =============================================================================
@@ -807,4 +1164,10 @@ func dbStatusToState(status string) contentv1.ProcessingState {
 	default:
 		return contentv1.ProcessingState_PROCESSING_STATE_PENDING
 	}
+}
+
+// convertToStruct converts a map[string]interface{} to protobuf Struct.
+func convertToStruct(data map[string]interface{}) (*structpb.Struct, error) {
+	// Use structpb.NewStruct for proper conversion
+	return structpb.NewStruct(data)
 }
