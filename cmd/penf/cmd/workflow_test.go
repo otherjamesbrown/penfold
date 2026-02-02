@@ -657,3 +657,127 @@ func TestDefaultWorkflowDeps(t *testing.T) {
 	assert.NotNil(t, deps.LoadConfig)
 	assert.NotNil(t, deps.InitClient)
 }
+
+// Mock helper functions for workflow tests.
+
+// getMockWorkflows returns mock workflows, filtered by type and status with limit.
+func getMockWorkflows(typeFilter, statusFilter string, limit int) []Workflow {
+	now := time.Now()
+	startTime1 := now.Add(-2 * time.Hour)
+	endTime1 := now.Add(-1 * time.Hour)
+	startTime2 := now.Add(-30 * time.Minute)
+
+	allWorkflows := []Workflow{
+		{
+			ID:          "wf-001",
+			Type:        "ingestion",
+			Name:        "Gmail Sync",
+			Status:      WorkflowStatusCompleted,
+			Progress:    100,
+			Message:     "Successfully synced 50 emails",
+			CreatedAt:   now.Add(-3 * time.Hour),
+			StartedAt:   &startTime1,
+			CompletedAt: &endTime1,
+			Steps: []WorkflowStep{
+				{Name: "Fetch", Status: WorkflowStatusCompleted, Message: "Fetched 50 items"},
+				{Name: "Process", Status: WorkflowStatusCompleted, Message: "Processed all items"},
+				{Name: "Store", Status: WorkflowStatusCompleted, Message: "Stored in database"},
+			},
+		},
+		{
+			ID:        "wf-002",
+			Type:      "enrichment",
+			Name:      "Meeting Enrichment",
+			Status:    WorkflowStatusRunning,
+			Progress:  60,
+			Message:   "Processing meeting transcripts",
+			CreatedAt: now.Add(-1 * time.Hour),
+			StartedAt: &startTime2,
+			Steps: []WorkflowStep{
+				{Name: "Extract", Status: WorkflowStatusCompleted, Message: "Extracted content"},
+				{Name: "Analyze", Status: WorkflowStatusRunning, Message: "Analyzing..."},
+				{Name: "Store", Status: WorkflowStatusPending, Message: ""},
+			},
+		},
+		{
+			ID:        "wf-003",
+			Type:      "ingestion",
+			Name:      "Calendar Sync",
+			Status:    WorkflowStatusPending,
+			Progress:  0,
+			Message:   "Queued for processing",
+			CreatedAt: now.Add(-10 * time.Minute),
+			Steps: []WorkflowStep{
+				{Name: "Fetch", Status: WorkflowStatusPending, Message: ""},
+				{Name: "Process", Status: WorkflowStatusPending, Message: ""},
+			},
+		},
+		{
+			ID:          "wf-004",
+			Type:        "analysis",
+			Name:        "Entity Extraction",
+			Status:      WorkflowStatusFailed,
+			Progress:    30,
+			Message:     "Failed to extract entities",
+			Error:       "timeout connecting to AI service",
+			CreatedAt:   now.Add(-4 * time.Hour),
+			StartedAt:   &startTime1,
+			CompletedAt: &endTime1,
+			Steps: []WorkflowStep{
+				{Name: "Prepare", Status: WorkflowStatusCompleted, Message: "Prepared data"},
+				{Name: "Extract", Status: WorkflowStatusFailed, Message: "Connection timeout"},
+			},
+		},
+	}
+
+	var filtered []Workflow
+	for _, wf := range allWorkflows {
+		// Apply type filter.
+		if typeFilter != "" && wf.Type != typeFilter {
+			continue
+		}
+		// Apply status filter.
+		if statusFilter != "" && string(wf.Status) != statusFilter {
+			continue
+		}
+		filtered = append(filtered, wf)
+	}
+
+	if limit > 0 && len(filtered) > limit {
+		return filtered[:limit]
+	}
+	return filtered
+}
+
+// getMockWorkflow returns a specific workflow by ID.
+func getMockWorkflow(id string) *Workflow {
+	workflows := getMockWorkflows("", "", 100)
+	for _, wf := range workflows {
+		if wf.ID == id {
+			return &wf
+		}
+	}
+
+	// For test-specific IDs, return a mock workflow.
+	if id == "wf-test-123" {
+		now := time.Now()
+		startTime := now.Add(-15 * time.Minute)
+		return &Workflow{
+			ID:        "wf-test-123",
+			Type:      "test",
+			Name:      "Test Workflow",
+			Status:    WorkflowStatusRunning,
+			Progress:  50,
+			Message:   "Test in progress",
+			CreatedAt: now.Add(-20 * time.Minute),
+			StartedAt: &startTime,
+			Steps: []WorkflowStep{
+				{Name: "Step 1", Status: WorkflowStatusCompleted, Message: "Done"},
+				{Name: "Step 2", Status: WorkflowStatusRunning, Message: "In progress"},
+				{Name: "Step 3", Status: WorkflowStatusPending, Message: ""},
+			},
+		}
+	}
+
+	return nil
+}

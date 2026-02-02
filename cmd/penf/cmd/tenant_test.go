@@ -869,3 +869,95 @@ func TestTenantCommand_CurrentAliases(t *testing.T) {
 		t.Error("current command should have 'whoami' alias")
 	}
 }
+
+// Mock helper functions for tenant tests.
+
+// getMockTenantList returns a list of mock tenants, marking the current one.
+func getMockTenantList(currentID string) []TenantInfo {
+	tenants := []TenantInfo{
+		{
+			ID:          "tenant-default-001",
+			Name:        "Default Tenant",
+			Description: "The default development tenant",
+			CreatedAt:   time.Now().Add(-90 * 24 * time.Hour),
+			Status:      "active",
+			Role:        "admin",
+			IsCurrent:   false,
+		},
+		{
+			ID:          "tenant-acme-002",
+			Name:        "Acme Corp",
+			Description: "Acme Corporation tenant",
+			CreatedAt:   time.Now().Add(-60 * 24 * time.Hour),
+			Status:      "active",
+			Role:        "member",
+			IsCurrent:   false,
+		},
+		{
+			ID:          "tenant-demo-003",
+			Name:        "Demo Tenant",
+			Description: "For demonstration purposes",
+			CreatedAt:   time.Now().Add(-30 * 24 * time.Hour),
+			Status:      "active",
+			Role:        "viewer",
+			IsCurrent:   false,
+		},
+	}
+
+	// Mark the current tenant.
+	for i := range tenants {
+		if tenants[i].ID == currentID {
+			tenants[i].IsCurrent = true
+			break
+		}
+	}
+
+	return tenants
+}
+
+// getMockTenantInfo returns mock tenant information for a given ID.
+func getMockTenantInfo(id string) TenantInfo {
+	knownTenants := map[string]TenantInfo{
+		"tenant-default-001": {
+			ID:          "tenant-default-001",
+			Name:        "Default Tenant",
+			Description: "The default development tenant",
+			CreatedAt:   time.Now().Add(-90 * 24 * time.Hour),
+			Status:      "active",
+			Role:        "admin",
+			IsCurrent:   true,
+		},
+		"tenant-acme-002": {
+			ID:          "tenant-acme-002",
+			Name:        "Acme Corp",
+			Description: "Acme Corporation tenant",
+			CreatedAt:   time.Now().Add(-60 * 24 * time.Hour),
+			Status:      "active",
+			Role:        "member",
+			IsCurrent:   false,
+		},
+		"tenant-demo-003": {
+			ID:          "tenant-demo-003",
+			Name:        "Demo Tenant",
+			Description: "For demonstration purposes",
+			CreatedAt:   time.Now().Add(-30 * 24 * time.Hour),
+			Status:      "active",
+			Role:        "viewer",
+			IsCurrent:   false,
+		},
+	}
+
+	if info, found := knownTenants[id]; found {
+		return info
+	}
+
+	// Return unknown tenant info for unrecognized IDs.
+	return TenantInfo{
+		ID:          id,
+		Name:        "Unknown",
+		Description: "",
+		Status:      "unknown",
+		Role:        "",
+		IsCurrent:   false,
+	}
+}

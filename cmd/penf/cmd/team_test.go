@@ -10,8 +10,8 @@ import (
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
 
-// mockConfig creates a mock configuration for testing.
-func mockConfig() *config.CLIConfig {
+// mockTeamConfig creates a mock configuration for team testing.
+func mockTeamConfig() *config.CLIConfig {
 	return &config.CLIConfig{
 		ServerAddress: "localhost:50051",
 		Timeout:       30 * time.Second,
@@ -55,7 +55,7 @@ func TestGetTenantIDForTeam(t *testing.T) {
 		os.Unsetenv("PENF_TENANT_ID")
 		teamTenant = "tenant-from-flag"
 
-		cfg := mockConfig()
+		cfg := mockTeamConfig()
 		cfg.TenantID = "tenant-from-config"
 		deps := createTeamTestDeps(cfg)
 
@@ -77,7 +77,7 @@ func TestGetTenantIDForTeam(t *testing.T) {
 		teamTenant = ""
 		os.Setenv("PENF_TENANT_ID", "tenant-from-env")
 
-		cfg := mockConfig()
+		cfg := mockTeamConfig()
 		cfg.TenantID = "tenant-from-config"
 		deps := createTeamTestDeps(cfg)
 
@@ -99,7 +99,7 @@ func TestGetTenantIDForTeam(t *testing.T) {
 		teamTenant = ""
 		os.Unsetenv("PENF_TENANT_ID")
 
-		cfg := mockConfig()
+		cfg := mockTeamConfig()
 		cfg.TenantID = "tenant-from-config"
 		deps := createTeamTestDeps(cfg)
 
@@ -118,7 +118,7 @@ func TestGetTenantIDForTeam(t *testing.T) {
 		teamTenant = ""
 		os.Unsetenv("PENF_TENANT_ID")
 
-		cfg := mockConfig()
+		cfg := mockTeamConfig()
 		cfg.TenantID = ""
 		deps := createTeamTestDeps(cfg)
 
@@ -145,7 +145,7 @@ func TestGetTenantIDForTeam(t *testing.T) {
 
 // TestNewTeamCommand tests command structure and subcommands.
 func TestNewTeamCommand(t *testing.T) {
-	cfg := mockConfig()
+	cfg := mockTeamConfig()
 	deps := createTeamTestDeps(cfg)
 	cmd := NewTeamCommand(deps)
 
@@ -201,7 +201,7 @@ func TestNewTeamCommand_WithNilDeps(t *testing.T) {
 
 // TestNewTeamCommand_Aliases tests command aliases.
 func TestNewTeamCommand_Aliases(t *testing.T) {
-	cfg := mockConfig()
+	cfg := mockTeamConfig()
 	deps := createTeamTestDeps(cfg)
 	cmd := NewTeamCommand(deps)
 
@@ -296,7 +296,7 @@ func TestTeamList_RequiresTenant(t *testing.T) {
 	teamTenant = ""
 	os.Unsetenv("PENF_TENANT_ID")
 
-	cfg := mockConfig()
+	cfg := mockTeamConfig()
 	cfg.TenantID = ""
 	deps := createTeamTestDeps(cfg)
 
@@ -335,7 +335,7 @@ func TestGetTeamOutputFormat(t *testing.T) {
 
 	t.Run("uses flag when provided", func(t *testing.T) {
 		teamOutput = "json"
-		cfg := mockConfig()
+		cfg := mockTeamConfig()
 		cfg.OutputFormat = config.OutputFormatText
 
 		format := getTeamOutputFormat(cfg)
@@ -348,7 +348,7 @@ func TestGetTeamOutputFormat(t *testing.T) {
 
 	t.Run("uses config when no flag", func(t *testing.T) {
 		teamOutput = ""
-		cfg := mockConfig()
+		cfg := mockTeamConfig()
 		cfg.OutputFormat = config.OutputFormatYAML
 
 		format := getTeamOutputFormat(cfg)
@@ -395,7 +395,7 @@ func TestTeamTruncateString(t *testing.T) {
 
 // TestTeamCommandPersistentFlags tests that persistent flags are available.
 func TestTeamCommandPersistentFlags(t *testing.T) {
-	cfg := mockConfig()
+	cfg := mockTeamConfig()
 	deps := createTeamTestDeps(cfg)
 	cmd := NewTeamCommand(deps)
 
@@ -424,7 +424,7 @@ func TestTeamCommandPersistentFlags(t *testing.T) {
 
 // TestTeamCreateCommand_Flags tests create command flags.
 func TestTeamCreateCommand_Flags(t *testing.T) {
-	cfg := mockConfig()
+	cfg := mockTeamConfig()
 	deps := createTeamTestDeps(cfg)
 	cmd := NewTeamCommand(deps)
 
@@ -442,7 +442,7 @@ func TestTeamCreateCommand_Flags(t *testing.T) {
 
 // TestTeamAddMemberCommand_Flags tests add-member command flags.
 func TestTeamAddMemberCommand_Flags(t *testing.T) {
-	cfg := mockConfig()
+	cfg := mockTeamConfig()
 	deps := createTeamTestDeps(cfg)
 	cmd := NewTeamCommand(deps)
 
@@ -471,7 +471,7 @@ func TestTeamAddMemberCommand_Flags(t *testing.T) {
 
 // TestTeamDeleteCommand_Flags tests delete command flags.
 func TestTeamDeleteCommand_Flags(t *testing.T) {
-	cfg := mockConfig()
+	cfg := mockTeamConfig()
 	deps := createTeamTestDeps(cfg)
 	cmd := NewTeamCommand(deps)
 

@@ -628,7 +628,7 @@ func TestRunRelationshipList(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runRelationshipList(context.Background(), deps)
+	err := runRelationshipList(context.Background(), deps, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -650,7 +650,7 @@ func TestRunRelationshipShow(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runRelationshipShow(context.Background(), deps, "rel-001")
+	err := runRelationshipShow(context.Background(), deps, "rel-001", false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -674,7 +674,7 @@ func TestRunRelationshipSearch(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runRelationshipSearch(context.Background(), deps, "Alice")
+	err := runRelationshipSearch(context.Background(), deps, "Alice", false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -699,7 +699,7 @@ func TestRunEntityList(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runEntityList(context.Background(), deps)
+	err := runEntityList(context.Background(), deps, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -721,7 +721,7 @@ func TestRunEntityShow(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runEntityShow(context.Background(), deps, "ent-alice")
+	err := runEntityShow(context.Background(), deps, "ent-alice", false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -738,7 +738,7 @@ func TestRunEntityShow_NotFound(t *testing.T) {
 	// Reset global flags.
 	relationshipOutput = ""
 
-	err := runEntityShow(context.Background(), deps, "ent-nonexistent")
+	err := runEntityShow(context.Background(), deps, "ent-nonexistent", false)
 
 	if err == nil {
 		t.Error("expected error for nonexistent entity")
@@ -758,7 +758,7 @@ func TestRunEntityMerge(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runEntityMerge(context.Background(), deps, "ent-1", "ent-2")
+	err := runEntityMerge(context.Background(), deps, "ent-1", "ent-2", false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -777,7 +777,7 @@ func TestRunNetworkGraph(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runNetworkGraph(context.Background(), deps)
+	err := runNetworkGraph(context.Background(), deps, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -812,7 +812,7 @@ func TestRunNetworkCentral(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runNetworkCentral(context.Background(), deps)
+	err := runNetworkCentral(context.Background(), deps, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -834,7 +834,7 @@ func TestRunNetworkClusters(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runNetworkClusters(context.Background(), deps)
+	err := runNetworkClusters(context.Background(), deps, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -857,7 +857,7 @@ func TestRunConflictList(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runConflictList(context.Background(), deps)
+	err := runConflictList(context.Background(), deps, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -879,7 +879,7 @@ func TestRunConflictShow(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runConflictShow(context.Background(), deps, "conf-001")
+	err := runConflictShow(context.Background(), deps, "conf-001", false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -896,7 +896,7 @@ func TestRunConflictShow_NotFound(t *testing.T) {
 	// Reset global flags.
 	relationshipOutput = ""
 
-	err := runConflictShow(context.Background(), deps, "conf-nonexistent")
+	err := runConflictShow(context.Background(), deps, "conf-nonexistent", false)
 
 	if err == nil {
 		t.Error("expected error for nonexistent conflict")
@@ -916,7 +916,7 @@ func TestRunConflictResolve(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runConflictResolve(context.Background(), deps, "conf-001", ConflictStrategyMerge)
+	err := runConflictResolve(context.Background(), deps, "conf-001", ConflictStrategyMerge, false)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -930,7 +930,7 @@ func TestRunConflictResolve_InvalidStrategy(t *testing.T) {
 	cfg := mockConfig()
 	deps := createRelationshipTestDeps(cfg)
 
-	err := runConflictResolve(context.Background(), deps, "conf-001", ConflictResolutionStrategy("invalid"))
+	err := runConflictResolve(context.Background(), deps, "conf-001", ConflictResolutionStrategy("invalid"), false)
 
 	if err == nil {
 		t.Error("expected error for invalid strategy")
@@ -1203,5 +1203,362 @@ func TestConflictStrategyConstants(t *testing.T) {
 		if string(s) == "" {
 			t.Error("conflict strategy constant should not be empty")
 		}
+	}
+}
+
+// =============================================================================
+// Mock Helper Functions
+// =============================================================================
+
+// getMockRelationships returns mock relationships filtered by the given parameters.
+func getMockRelationships(limit int, minConfidence float64, typeFilter string) []Relationship {
+	// Sample relationships
+	allRelationships := []Relationship{
+		{
+			ID:          "rel-001",
+			SourceID:    "person-001",
+			SourceName:  "Alice Smith",
+			TargetID:    "person-002",
+			TargetName:  "Bob Jones",
+			Type:        RelationshipTypeColleague,
+			Confidence:  0.95,
+			Weight:      1.0,
+			Evidence:    []string{"email-001", "meeting-001"},
+			FirstSeen:   time.Now().Add(-30 * 24 * time.Hour),
+			LastSeen:    time.Now().Add(-1 * time.Hour),
+			SourceCount: 5,
+		},
+		{
+			ID:          "rel-002",
+			SourceID:    "person-002",
+			SourceName:  "Bob Jones",
+			TargetID:    "person-003",
+			TargetName:  "Carol White",
+			Type:        RelationshipTypeReportsTo,
+			Confidence:  0.85,
+			Weight:      1.0,
+			Evidence:    []string{"org-chart-001"},
+			FirstSeen:   time.Now().Add(-60 * 24 * time.Hour),
+			LastSeen:    time.Now().Add(-7 * 24 * time.Hour),
+			SourceCount: 2,
+		},
+		{
+			ID:          "rel-003",
+			SourceID:    "person-001",
+			SourceName:  "Alice Smith",
+			TargetID:    "project-001",
+			TargetName:  "Project Alpha",
+			Type:        RelationshipTypeWorksOn,
+			Confidence:  0.92,
+			Weight:      1.0,
+			Evidence:    []string{"meeting-002", "email-002"},
+			FirstSeen:   time.Now().Add(-14 * 24 * time.Hour),
+			LastSeen:    time.Now().Add(-1 * 24 * time.Hour),
+			SourceCount: 3,
+		},
+		{
+			ID:          "rel-004",
+			SourceID:    "person-003",
+			SourceName:  "Carol White",
+			TargetID:    "team-001",
+			TargetName:  "Engineering Team",
+			Type:        RelationshipTypeMemberOf,
+			Confidence:  0.98,
+			Weight:      1.0,
+			Evidence:    []string{"org-chart-001"},
+			FirstSeen:   time.Now().Add(-90 * 24 * time.Hour),
+			LastSeen:    time.Now(),
+			SourceCount: 1,
+		},
+		{
+			ID:          "rel-005",
+			SourceID:    "person-001",
+			SourceName:  "Alice Smith",
+			TargetID:    "person-003",
+			TargetName:  "Carol White",
+			Type:        RelationshipTypeColleague,
+			Confidence:  0.75,
+			Weight:      0.8,
+			Evidence:    []string{"meeting-003"},
+			FirstSeen:   time.Now().Add(-7 * 24 * time.Hour),
+			LastSeen:    time.Now().Add(-2 * 24 * time.Hour),
+			SourceCount: 1,
+		},
+	}
+
+	// Apply filters
+	var filtered []Relationship
+	for _, r := range allRelationships {
+		// Confidence filter
+		if minConfidence > 0 && r.Confidence < minConfidence {
+			continue
+		}
+
+		// Type filter
+		if typeFilter != "" && string(r.Type) != typeFilter {
+			continue
+		}
+
+		filtered = append(filtered, r)
+	}
+
+	// Apply limit
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+
+	return filtered
+}
+
+// getMockRelationshipByID returns a mock relationship by ID.
+func getMockRelationshipByID(id string) *Relationship {
+	// Check for known IDs
+	relationships := getMockRelationships(100, 0, "")
+	for _, r := range relationships {
+		if r.ID == id {
+			return &r
+		}
+	}
+
+	// Return a fallback relationship with the requested ID
+	return &Relationship{
+		ID:          id,
+		SourceID:    "unknown-source",
+		SourceName:  "Unknown Source",
+		TargetID:    "unknown-target",
+		TargetName:  "Unknown Target",
+		Type:        RelationshipTypeRelatedTo,
+		Confidence:  0.5,
+		Weight:      1.0,
+		FirstSeen:   time.Now(),
+		LastSeen:    time.Now(),
+		SourceCount: 0,
+	}
+}
+
+// searchMockRelationships searches mock relationships by query string.
+func searchMockRelationships(query string, limit int, minConfidence float64) []Relationship {
+	allRelationships := getMockRelationships(100, minConfidence, "")
+
+	var results []Relationship
+	queryLower := strings.ToLower(query)
+
+	for _, r := range allRelationships {
+		// Search in source and target names
+		if strings.Contains(strings.ToLower(r.SourceName), queryLower) ||
+			strings.Contains(strings.ToLower(r.TargetName), queryLower) {
+			results = append(results, r)
+		}
+	}
+
+	// Apply limit
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results
+}
+
+// getMockEntities returns mock entities filtered by parameters.
+func getMockEntities(limit int, minConfidence float64, typeFilter string) []Entity {
+	allEntities := []Entity{
+		{
+			ID:            "person-001",
+			Name:          "Alice Smith",
+			Type:          EntityTypePerson,
+			Aliases:       []string{"A. Smith"},
+			Confidence:    0.95,
+			SourceCount:   10,
+			FirstSeen:     time.Now().Add(-90 * 24 * time.Hour),
+			LastSeen:      time.Now().Add(-1 * time.Hour),
+			RelationCount: 5,
+		},
+		{
+			ID:            "person-002",
+			Name:          "Bob Jones",
+			Type:          EntityTypePerson,
+			Confidence:    0.90,
+			SourceCount:   8,
+			FirstSeen:     time.Now().Add(-60 * 24 * time.Hour),
+			LastSeen:      time.Now().Add(-2 * time.Hour),
+			RelationCount: 4,
+		},
+		{
+			ID:            "org-001",
+			Name:          "Acme Corp",
+			Type:          EntityTypeOrganization,
+			Confidence:    0.98,
+			SourceCount:   15,
+			FirstSeen:     time.Now().Add(-180 * 24 * time.Hour),
+			LastSeen:      time.Now(),
+			RelationCount: 10,
+		},
+		{
+			ID:            "project-001",
+			Name:          "Project Alpha",
+			Type:          EntityTypeProject,
+			Confidence:    0.85,
+			SourceCount:   5,
+			FirstSeen:     time.Now().Add(-30 * 24 * time.Hour),
+			LastSeen:      time.Now().Add(-1 * 24 * time.Hour),
+			RelationCount: 3,
+		},
+		{
+			ID:            "topic-001",
+			Name:          "Machine Learning",
+			Type:          EntityTypeTopic,
+			Confidence:    0.75,
+			SourceCount:   20,
+			FirstSeen:     time.Now().Add(-120 * 24 * time.Hour),
+			LastSeen:      time.Now().Add(-5 * time.Hour),
+			RelationCount: 8,
+		},
+	}
+
+	var filtered []Entity
+	for _, e := range allEntities {
+		if minConfidence > 0 && e.Confidence < minConfidence {
+			continue
+		}
+		if typeFilter != "" && string(e.Type) != typeFilter {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+
+	return filtered
+}
+
+// getMockEntityByID returns a mock entity by ID.
+func getMockEntityByID(id string) *Entity {
+	entities := getMockEntities(100, 0, "")
+	for _, e := range entities {
+		if e.ID == id {
+			return &e
+		}
+	}
+	return &Entity{
+		ID:         id,
+		Name:       "Unknown Entity",
+		Type:       EntityTypePerson,
+		Confidence: 0.5,
+		FirstSeen:  time.Now(),
+		LastSeen:   time.Now(),
+	}
+}
+
+// getMockCentralEntities returns mock entities ranked by centrality.
+func getMockCentralEntities(limit int) []Entity {
+	entities := getMockEntities(100, 0, "")
+	// Sort by relation count (centrality proxy)
+	for i := 0; i < len(entities)-1; i++ {
+		for j := i + 1; j < len(entities); j++ {
+			if entities[j].RelationCount > entities[i].RelationCount {
+				entities[i], entities[j] = entities[j], entities[i]
+			}
+		}
+	}
+	if limit > 0 && len(entities) > limit {
+		entities = entities[:limit]
+	}
+	return entities
+}
+
+// getMockClusters returns mock network clusters.
+func getMockClusters(limits ...int) []NetworkCluster {
+	limit := 0
+	if len(limits) > 0 {
+		limit = limits[0]
+	}
+	clusters := []NetworkCluster{
+		{
+			ID:          "cluster-001",
+			Name:        "Engineering Team",
+			EntityCount: 15,
+			TopEntities: getMockEntities(3, 0, ""),
+			Density:     0.75,
+		},
+		{
+			ID:          "cluster-002",
+			Name:        "Sales Team",
+			EntityCount: 10,
+			TopEntities: getMockEntities(3, 0, ""),
+			Density:     0.60,
+		},
+		{
+			ID:          "cluster-003",
+			Name:        "Leadership",
+			EntityCount: 5,
+			TopEntities: getMockEntities(3, 0, ""),
+			Density:     0.90,
+		},
+	}
+
+	if limit > 0 && len(clusters) > limit {
+		clusters = clusters[:limit]
+	}
+	return clusters
+}
+
+// getMockConflicts returns mock relationship conflicts.
+func getMockConflicts(limit int, statuses ...string) []RelationshipConflict {
+	status := ""
+	if len(statuses) > 0 {
+		status = statuses[0]
+	}
+	conflicts := []RelationshipConflict{
+		{
+			ID:              "conflict-001",
+			Type:            "duplicate",
+			Description:     "Possible duplicate relationship detected",
+			Relationships:   getMockRelationships(2, 0, ""),
+			SuggestedAction: "merge",
+			CreatedAt:       time.Now().Add(-24 * time.Hour),
+			Status:          "open",
+		},
+		{
+			ID:              "conflict-002",
+			Type:            "contradiction",
+			Description:     "Contradicting relationships found",
+			Relationships:   getMockRelationships(2, 0, ""),
+			SuggestedAction: "review",
+			CreatedAt:       time.Now().Add(-48 * time.Hour),
+			Status:          "resolved",
+		},
+	}
+
+	var filtered []RelationshipConflict
+	for _, c := range conflicts {
+		if status != "" && c.Status != status {
+			continue
+		}
+		filtered = append(filtered, c)
+	}
+
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+	return filtered
+}
+
+// getMockConflictByID returns a mock conflict by ID.
+func getMockConflictByID(id string) *RelationshipConflict {
+	conflicts := getMockConflicts(100, "")
+	for _, c := range conflicts {
+		if c.ID == id {
+			return &c
+		}
+	}
+	return &RelationshipConflict{
+		ID:              id,
+		Type:            "unknown",
+		Description:     "Unknown conflict",
+		SuggestedAction: "review",
+		CreatedAt:       time.Now(),
+		Status:          "open",
 	}
 }

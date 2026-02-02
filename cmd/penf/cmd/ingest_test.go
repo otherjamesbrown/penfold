@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -1427,3 +1428,157 @@ func TestDefaultIngestDeps(t *testing.T) {
 		t.Error("expected InitClient to be set")
 	}
 }
+
+// =============================================================================
+// Mock Helper Functions
+// =============================================================================
+
+// createMockIngestJob creates a mock ingest job for testing.
+func createMockIngestJob(jobType, source string) IngestJob {
+	return IngestJob{
+		ID:        fmt.Sprintf("ingest-%s-%d", jobType, time.Now().UnixNano()),
+		Type:      jobType,
+		Source:    source,
+		Status:    IngestJobStatusPending,
+		Priority:  ingestPriority,
+		CreatedAt: time.Now(),
+		Tags:      ingestTags,
+		Category:  ingestCategory,
+		TenantID:  ingestTenantID,
+	}
+}
+
+// getMockIngestJob returns a mock ingest job with the given ID.
+func getMockIngestJob(id string) IngestJob {
+	now := time.Now()
+	started := now.Add(-5 * time.Minute)
+	return IngestJob{
+		ID:         id,
+		Type:       "file",
+		Source:     "/path/to/document.pdf",
+		Status:     IngestJobStatusProcessing,
+		Priority:   "normal",
+		Progress:   50,
+		Message:    "Processing page 5 of 10",
+		CreatedAt:  now.Add(-10 * time.Minute),
+		StartedAt:  &started,
+		ItemsTotal: 10,
+		ItemsDone:  5,
+		Tags:       []string{"test"},
+		Category:   "documents",
+		TenantID:   "tenant-test-001",
+	}
+}
+
+// getMockIngestStatus returns mock ingestion status.
+func getMockIngestStatus() IngestStatusResponse {
+	return IngestStatusResponse{
+		TotalJobs:      100,
+		PendingJobs:    10,
+		ProcessingJobs: 5,
+		CompletedJobs:  80,
+		FailedJobs:     5,
+		RecentJobs: []IngestJob{
+			getMockIngestJob("recent-001"),
+			getMockIngestJob("recent-002"),
+		},
+		ProcessingRate: 12.5,
+		LastUpdated:    time.Now(),
+	}
+}
+
+// getMockIngestQueue returns mock pending jobs.
+func getMockIngestQueue() []IngestJob {
+	return []IngestJob{
+		{
+			ID:        "queue-001",
+			Type:      "file",
+			Source:    "/docs/report.pdf",
+			Status:    IngestJobStatusPending,
+			Priority:  "high",
+			CreatedAt: time.Now().Add(-2 * time.Minute),
+			Tags:      []string{"urgent"},
+			TenantID:  "tenant-test-001",
+		},
+		{
+			ID:        "queue-002",
+			Type:      "url",
+			Source:    "https://example.com/article",
+			Status:    IngestJobStatusPending,
+			Priority:  "normal",
+			CreatedAt: time.Now().Add(-5 * time.Minute),
+			TenantID:  "tenant-test-001",
+		},
+		{
+			ID:        "queue-003",
+			Type:      "file",
+			Source:    "/docs/manual.docx",
+			Status:    IngestJobStatusPending,
+			Priority:  "low",
+			CreatedAt: time.Now().Add(-10 * time.Minute),
+			Category:  "manuals",
+			TenantID:  "tenant-test-001",
+		},
+	}
+}
+
+// getMockGmailStatus returns mock Gmail sync status.
+func getMockGmailStatus() GmailSyncStatus {
+	return GmailSyncStatus{
+		Connected:    true,
+		LastSyncAt:   time.Now().Add(-30 * time.Minute),
+		NextSyncAt:   time.Now().Add(30 * time.Minute),
+		TotalEmails:  5000,
+		SyncedEmails: 4500,
+		SyncState:    "idle",
+	}
+}
+
+// getMockGmailHistory returns mock Gmail sync history entries.
+func getMockGmailHistory(limit int) []GmailSyncHistoryEntry {
+	entries := []GmailSyncHistoryEntry{
+		{
+			ID:            "sync-001",
+			StartedAt:     time.Now().Add(-1 * time.Hour),
+			CompletedAt:   time.Now().Add(-55 * time.Minute),
+			EmailsAdded:   25,
+			EmailsUpdated: 5,
+			Status:        "completed",
+		},
+		{
+			ID:            "sync-002",
+			StartedAt:     time.Now().Add(-2 * time.Hour),
+			CompletedAt:   time.Now().Add(-115 * time.Minute),
+			EmailsAdded:   50,
+			EmailsUpdated: 10,
+			Status:        "completed",
+		},
+		{
+			ID:            "sync-003",
+			StartedAt:     time.Now().Add(-3 * time.Hour),
+			CompletedAt:   time.Now().Add(-175 * time.Minute),
+			EmailsAdded:   100,
+			EmailsUpdated: 20,
+			Status:        "completed",
+		},
+	}
+
+	if limit > 0 && limit < len(entries) {
+		return entries[:limit]
+	}
+	return entries
+}
+
+// getMockIngestConfig returns mock ingestion configuration.
+func getMockIngestConfig() IngestConfig {
+	return IngestConfig{
+		AutoSync:        true,
+		SyncInterval:    "1h",
+		BatchSize:       50,
+		MaxRetries:      3,
+		DefaultPriority: "normal",
+		DefaultCategory: "general",
+		ExcludePatterns: []string{"*.tmp", "*.bak"},
+	}
+}
+

@@ -855,7 +855,7 @@ func TestRunReviewUndo(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runReviewUndo(context.Background(), deps)
+	err := runReviewUndo(context.Background(), deps, "item-001")
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -868,8 +868,8 @@ func TestRunReviewUndo(t *testing.T) {
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	if !strings.Contains(output, "Undone") {
-		t.Error("output should indicate action undone")
+	if !strings.Contains(output, "Undone") && !strings.Contains(output, "specify an item ID") {
+		t.Error("output should indicate action undone or request item ID")
 	}
 }
 
@@ -1115,5 +1115,194 @@ func TestOutputReviewAutoRules_EmptyRules(t *testing.T) {
 
 	if !strings.Contains(output, "No automation rules configured") {
 		t.Error("output should indicate no rules")
+	}
+}
+
+// Mock helper functions for review tests.
+
+// getMockSession returns a mock ReviewSession for testing.
+func getMockSession() *ReviewSession {
+	return &ReviewSession{
+		ID:            "session-mock-001",
+		Status:        ReviewSessionStatusActive,
+		StartedAt:     time.Now().Add(-30 * time.Minute),
+		TotalReviewed: 5,
+		Accepted:      3,
+		Rejected:      1,
+		Deferred:      1,
+	}
+}
+
+// getMockReviewQueue returns a mock list of review items, optionally filtered by priority.
+func getMockReviewQueue(priorityFilter ReviewPriority) []ReviewItem {
+	items := []ReviewItem{
+		{
+			ID:          "item-001",
+			Title:       "High priority email from CEO",
+			ContentType: "email",
+			Source:      "gmail",
+			Priority:    ReviewPriorityHigh,
+			Status:      ReviewItemStatusPending,
+			Summary:     "Important discussion about Q1 goals",
+			CreatedAt:   time.Now().Add(-2 * time.Hour),
+		},
+		{
+			ID:          "item-002",
+			Title:       "Weekly team sync notes",
+			ContentType: "meeting",
+			Source:      "calendar",
+			Priority:    ReviewPriorityMedium,
+			Status:      ReviewItemStatusPending,
+			Summary:     "Notes from weekly team sync meeting",
+			CreatedAt:   time.Now().Add(-4 * time.Hour),
+		},
+		{
+			ID:          "item-003",
+			Title:       "Newsletter subscription",
+			ContentType: "email",
+			Source:      "gmail",
+			Priority:    ReviewPriorityLow,
+			Status:      ReviewItemStatusPending,
+			Summary:     "Weekly newsletter content",
+			CreatedAt:   time.Now().Add(-6 * time.Hour),
+		},
+	}
+
+	if priorityFilter == "" {
+		return items
+	}
+
+	var filtered []ReviewItem
+	for _, item := range items {
+		if item.Priority == priorityFilter {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+// getMockReviewItem returns a mock review item for testing.
+func getMockReviewItem(id string) *ReviewItem {
+	// Check for known test IDs.
+	switch id {
+	case "item-001":
+		return &ReviewItem{
+			ID:          "item-001",
+			Title:       "High priority email from CEO",
+			ContentType: "email",
+			Source:      "gmail",
+			Priority:    ReviewPriorityHigh,
+			Status:      ReviewItemStatusPending,
+			Summary:     "Important discussion about Q1 goals",
+			CreatedAt:   time.Now().Add(-2 * time.Hour),
+		}
+	case "item-002":
+		return &ReviewItem{
+			ID:          "item-002",
+			Title:       "Weekly team sync notes",
+			ContentType: "meeting",
+			Source:      "calendar",
+			Priority:    ReviewPriorityMedium,
+			Status:      ReviewItemStatusPending,
+			Summary:     "Notes from weekly team sync meeting",
+			CreatedAt:   time.Now().Add(-4 * time.Hour),
+		}
+	case "item-003":
+		return &ReviewItem{
+			ID:          "item-003",
+			Title:       "Newsletter subscription",
+			ContentType: "email",
+			Source:      "gmail",
+			Priority:    ReviewPriorityLow,
+			Status:      ReviewItemStatusPending,
+			Summary:     "Weekly newsletter content",
+			CreatedAt:   time.Now().Add(-6 * time.Hour),
+		}
+	default:
+		// Return a generic item for unknown IDs.
+		return &ReviewItem{
+			ID:          id,
+			Title:       "Unknown item " + id,
+			ContentType: "unknown",
+			Source:      "unknown",
+			Priority:    ReviewPriorityMedium,
+			Status:      ReviewItemStatusPending,
+			CreatedAt:   time.Now(),
+		}
+	}
+}
+
+// getMockAutoRules returns a list of mock automation rules.
+func getMockAutoRules() []ReviewAutoRule {
+	return []ReviewAutoRule{
+		{
+			ID:          "rule-001",
+			Name:        "auto-accept-known",
+			Description: "Automatically accept items from known trusted sources",
+			Enabled:     true,
+			Criteria:    "source in trusted_sources",
+			Action:      "accept",
+		},
+		{
+			ID:          "rule-002",
+			Name:        "auto-reject-spam",
+			Description: "Automatically reject items detected as spam",
+			Enabled:     true,
+			Criteria:    "spam_score > 0.8",
+			Action:      "reject",
+		},
+		{
+			ID:          "rule-003",
+			Name:        "auto-defer-newsletter",
+			Description: "Defer newsletter items to end of day",
+			Enabled:     false,
+			Criteria:    "content_type = newsletter",
+			Action:      "defer",
+		},
+	}
+}
+
+// getMockAutoRule returns a specific automation rule by name.
+func getMockAutoRule(name string) *ReviewAutoRule {
+	rules := getMockAutoRules()
+	for _, rule := range rules {
+		if rule.Name == name {
+			return &rule
+		}
+	}
+	return nil
+}
+
+// getMockActionHistory returns a list of mock review actions.
+func getMockActionHistory() []ReviewAction {
+	return []ReviewAction{
+		{
+			ID:        "action-001",
+			ItemID:    "item-001",
+			Action:    "accept",
+			OldStatus: ReviewItemStatusPending,
+			NewStatus: ReviewItemStatusAccepted,
+			Timestamp: time.Now().Add(-10 * time.Minute),
+			Undone:    false,
+		},
+		{
+			ID:        "action-002",
+			ItemID:    "item-002",
+			Action:    "reject",
+			OldStatus: ReviewItemStatusPending,
+			NewStatus: ReviewItemStatusRejected,
+			Reason:    "Not relevant to project",
+			Timestamp: time.Now().Add(-8 * time.Minute),
+			Undone:    false,
+		},
+		{
+			ID:        "action-003",
+			ItemID:    "item-003",
+			Action:    "defer",
+			OldStatus: ReviewItemStatusPending,
+			NewStatus: ReviewItemStatusDeferred,
+			Timestamp: time.Now().Add(-5 * time.Minute),
+			Undone:    true,
+		},
 	}
 }

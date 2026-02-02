@@ -1867,3 +1867,54 @@ func TestRunAdvancedSearch_InvalidSortOrder(t *testing.T) {
 	// Reset.
 	advancedSortSpec = ""
 }
+
+// Mock helper functions for search tests.
+
+// getMockSearchHistory returns mock search history entries for testing.
+func getMockSearchHistory(limit int) []SearchHistoryEntry {
+	allEntries := []SearchHistoryEntry{
+		{
+			Query:       "project status",
+			Mode:        "hybrid",
+			ResultCount: 15,
+			QueryTimeMs: 45.2,
+			SearchedAt:  time.Now().Add(-10 * time.Minute),
+			Filters:     "type:meeting",
+		},
+		{
+			Query:       "budget review",
+			Mode:        "semantic",
+			ResultCount: 8,
+			QueryTimeMs: 32.1,
+			SearchedAt:  time.Now().Add(-30 * time.Minute),
+		},
+		{
+			Query:       "Q1 planning",
+			Mode:        "keyword",
+			ResultCount: 23,
+			QueryTimeMs: 18.5,
+			SearchedAt:  time.Now().Add(-1 * time.Hour),
+			Filters:     "source:email",
+		},
+		{
+			Query:       "team updates",
+			Mode:        "hybrid",
+			ResultCount: 12,
+			QueryTimeMs: 28.9,
+			SearchedAt:  time.Now().Add(-2 * time.Hour),
+		},
+		{
+			Query:       "client meeting",
+			Mode:        "semantic",
+			ResultCount: 5,
+			QueryTimeMs: 41.3,
+			SearchedAt:  time.Now().Add(-3 * time.Hour),
+			Filters:     "type:meeting,date:last_week",
+		},
+	}
+
+	if limit >= len(allEntries) {
+		return allEntries
+	}
+	return allEntries[:limit]
+}

@@ -655,3 +655,82 @@ func TestDefaultLogsDeps(t *testing.T) {
 	assert.NotNil(t, deps.LoadConfig)
 	assert.NotNil(t, deps.InitClient)
 }
+
+// =============================================================================
+// Mock Helper Functions
+// =============================================================================
+
+// getMockLogs returns mock log entries filtered by the query.
+func getMockLogs(query LogQuery) []LogEntry {
+	// Create sample log entries
+	allEntries := []LogEntry{
+		{
+			Timestamp: time.Now().Add(-5 * time.Minute),
+			Level:     LogLevelInfo,
+			Service:   "gateway",
+			Message:   "Connection established successfully",
+			Fields:    map[string]string{"client_ip": "192.168.1.1"},
+		},
+		{
+			Timestamp: time.Now().Add(-4 * time.Minute),
+			Level:     LogLevelDebug,
+			Service:   "gateway",
+			Message:   "Processing request",
+			Fields:    map[string]string{"method": "GET", "path": "/api/v1/health"},
+		},
+		{
+			Timestamp: time.Now().Add(-3 * time.Minute),
+			Level:     LogLevelError,
+			Service:   "ai_service",
+			Message:   "Failed to generate embedding",
+			Fields:    map[string]string{"error": "timeout"},
+		},
+		{
+			Timestamp: time.Now().Add(-2 * time.Minute),
+			Level:     LogLevelWarn,
+			Service:   "worker",
+			Message:   "Slow query detected",
+			Fields:    map[string]string{"duration": "5.2s"},
+		},
+		{
+			Timestamp: time.Now().Add(-1 * time.Minute),
+			Level:     LogLevelError,
+			Service:   "gateway",
+			Message:   "Connection timeout",
+			Fields:    map[string]string{"client_ip": "192.168.1.2"},
+		},
+	}
+
+	// Apply filters
+	var filtered []LogEntry
+	for _, entry := range allEntries {
+		// Service filter
+		if query.Service != "" && entry.Service != query.Service {
+			continue
+		}
+
+		// Level filter
+		if query.Level != "" {
+			minLevel := LogLevel(query.Level)
+			if !logLevelMatches(entry.Level, minLevel) {
+				continue
+			}
+		}
+
+		// Contains filter (case-insensitive)
+		if query.Contains != "" {
+			if !strings.Contains(strings.ToLower(entry.Message), strings.ToLower(query.Contains)) {
+				continue
+			}
+		}
+
+		filtered = append(filtered, entry)
+	}
+
+	// Apply limit
+	if query.Limit > 0 && len(filtered) > query.Limit {
+		filtered = filtered[:query.Limit]
+	}
+
+	return filtered
+}
