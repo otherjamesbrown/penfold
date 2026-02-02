@@ -152,6 +152,8 @@ start_worker() {
         AI_SERVICE_ADDR=localhost:50055 \
         AI_SERVICE_URL=http://localhost:8081 \
         LANGFUSE_HOST=http://dev02.brown.chat:3000 \
+        LANGFUSE_PUBLIC_KEY=pk-lf-penfold \
+        LANGFUSE_SECRET_KEY=sk-lf-penfold-secret \
         nohup ${WORKER_PATH} > ${WORKER_LOG} 2>&1 &"
 
     log_info "Waiting for worker to start..."
@@ -272,6 +274,8 @@ rollback_deployment() {
             AI_SERVICE_ADDR=localhost:50055 \
             AI_SERVICE_URL=http://localhost:8081 \
             LANGFUSE_HOST=http://dev02.brown.chat:3000 \
+            LANGFUSE_PUBLIC_KEY=pk-lf-penfold \
+            LANGFUSE_SECRET_KEY=sk-lf-penfold-secret \
             nohup ${WORKER_PATH} > ${WORKER_LOG} 2>&1 &
             echo 'Rolled back to previous version'
         else
