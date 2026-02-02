@@ -514,8 +514,20 @@ Determine what needs deployment by checking which files changed:
 
 **If Worker files changed** (`services/worker/`):
 ```bash
-# SSH to dev01 and restart worker
-ssh dev01 "cd ~/penfold-worker && ./restart.sh"
+# Build for Apple Silicon
+GOOS=darwin GOARCH=arm64 go build -o worker-darwin-arm64 -ldflags="-s -w" ./services/worker
+
+# Copy to dev01
+scp worker-darwin-arm64 james@dev01.brown.chat:/tmp/penfold-worker
+
+# SSH to dev01 and restart via launchd
+ssh james@dev01.brown.chat << 'EOF'
+sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
+sudo mv /tmp/penfold-worker /opt/penfold/bin/penfold-worker
+sudo chmod +x /opt/penfold/bin/penfold-worker
+sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
+sudo launchctl list | grep penfold
+EOF
 ```
 
 **If CLI files changed** (`cmd/penf/`):
@@ -551,11 +563,13 @@ penf version  # should show new version after `penf update`
 | Files Changed | Action Required |
 |---------------|-----------------|
 | `services/gateway/**` | `./scripts/deploy-gateway.sh` |
-| `services/worker/**` | Restart worker on dev01 |
+| `services/worker/**` | Build arm64 binary, deploy to dev01 via launchd |
 | `cmd/penf/**` | Create git tag, push (triggers release) |
 | `api/proto/**` | Deploy gateway + release CLI |
 | `migrations/**` | Deploy gateway (runs migrations) |
 | `pkg/**` only | Deploy services that import the package |
+
+See [deploy/README.md](../../deploy/README.md) for detailed service management commands.
 
 ## Phase 9: Report Results and Close Shards
 
