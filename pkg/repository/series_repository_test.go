@@ -658,6 +658,31 @@ func TestSeriesRepository_UpdateSourceMetadata(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
+
+	t.Run("updates tags with string array", func(t *testing.T) {
+		contentID := createTestSource(t, pool, "Test Title")
+		defer deleteTestSource(t, pool, contentID)
+
+		// Pass a []string for tags (this was causing the bug)
+		updates := map[string]interface{}{
+			"tags": []string{"test-tag", "another-tag"},
+		}
+
+		err := repo.UpdateSourceMetadata(ctx, contentID, updates)
+		require.NoError(t, err)
+
+		// Verify the tags were stored correctly by querying the database directly
+		var tagsJSON string
+		err = pool.QueryRow(ctx,
+			"SELECT COALESCE(ingestion_metadata->>'tags', '[]') FROM sources WHERE content_id = $1",
+			contentID,
+		).Scan(&tagsJSON)
+		require.NoError(t, err)
+
+		// The tags should be stored as a JSON array
+		assert.Contains(t, tagsJSON, "test-tag")
+		assert.Contains(t, tagsJSON, "another-tag")
+	})
 }
 
 func TestSeriesRepository_GetSourceByContentID(t *testing.T) {

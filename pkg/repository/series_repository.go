@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -467,9 +468,23 @@ func (r *seriesRepository) UpdateSourceMetadata(ctx context.Context, contentID s
 	argNum := 2
 
 	for key, value := range updates {
-		query += fmt.Sprintf(" || jsonb_build_object($%d::text, $%d::text)", argNum, argNum+1)
-		args = append(args, key, value)
-		argNum += 2
+		// Convert non-string values to JSON and cast to JSONB for proper parsing
+		switch v := value.(type) {
+		case string:
+			// String values can be passed directly as text
+			query += fmt.Sprintf(" || jsonb_build_object($%d::text, $%d::text)", argNum, argNum+1)
+			args = append(args, key, v)
+			argNum += 2
+		default:
+			// Marshal arrays, maps, etc. to JSON and cast to JSONB
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				return fmt.Errorf("marshal value for key %s: %w", key, err)
+			}
+			query += fmt.Sprintf(" || jsonb_build_object($%d::text, $%d::jsonb)", argNum, argNum+1)
+			args = append(args, key, string(jsonBytes))
+			argNum += 2
+		}
 	}
 
 	query += " WHERE content_id = $1"
