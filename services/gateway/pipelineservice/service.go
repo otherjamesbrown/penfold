@@ -481,6 +481,10 @@ func (s *Service) GetContentTrace(ctx context.Context, req *pipelinev1.GetConten
 		return nil, status.Error(codes.Unavailable, "Database not available")
 	}
 
+	// Add timeout to prevent hanging
+	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	// Query service_logs table for trace events
 	query := `
 		SELECT
@@ -494,8 +498,15 @@ func (s *Service) GetContentTrace(ctx context.Context, req *pipelinev1.GetConten
 		ORDER BY timestamp ASC
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, req.ContentId)
+	rows, err := s.db.QueryContext(queryCtx, query, req.ContentId)
 	if err != nil {
+		// Check if timeout occurred
+		if queryCtx.Err() == context.DeadlineExceeded {
+			s.logger.Warn("Content trace query timed out",
+				logging.F("content_id", req.ContentId),
+			)
+			return nil, status.Error(codes.DeadlineExceeded, "query timed out")
+		}
 		s.logger.Error("Error querying trace events", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to query trace events: %v", err)
 	}

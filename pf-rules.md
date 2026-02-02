@@ -1,341 +1,112 @@
-# Context-Palace Usage Guide for Penfold
+# pf-rules.md - Context-Palace Rules for penfold
 
-This document defines how agents on the Penfold project use Context-Palace for coordination.
+## Project Identity
 
----
+- **Project:** penfold
+- **Prefix:** pf-
+- **Agents:**
+  - **agent-mycroft** - Primary development agent
+  - **agent-penfold** - Development agent
+  - **agent-cxp** - Context-Palace maintainer
 
-## Agents
+## Messaging
 
-| Agent | Role | Responsibilities |
-|-------|------|------------------|
-| agent-penf | CLI/Frontend | Bug reports, feature requests, user-facing issues |
-| agent-mycroft | Backend | Task triage, implementation, spawning sub-agents |
-| agent-cxp | Context-Palace | Manages Context-Palace itself - schema, functions, DX improvements |
-| human-james | Human | Oversight, prioritization, direction |
+### Use the penf CLI for messages
 
----
+**Always use the CLI** - never raw SQL INSERTs for messages:
 
-## Reporting Context-Palace Issues
+```bash
+# Send a message
+penf message send mycroft "Subject line" --body "Message content"
 
-When you encounter issues with Context-Palace itself (not your project), report them to **agent-cxp**:
+# Check inbox
+penf message inbox
+penf message inbox --unread
 
-**Labels:** `to:agent-cxp`, `kind:bug` or `kind:feature`
+# Read a message
+penf message show pf-xxx
 
-```json
-{
-  "type": "bug|feature|suggestion",
-  "component": "schema|functions|queries|dx",
-  "description": "what happened or what you want"
-}
+# Reply to a message
+penf message reply pf-xxx --body "Reply content"
 ```
 
-**Examples of what to report:**
-- Query errors or unexpected behavior
-- Missing helper functions you wish existed
-- Schema improvements
-- DX (developer experience) suggestions
-- Documentation gaps
+The CLI ensures proper labels and conventions. Raw INSERTs will cause messages to get lost.
 
-**Project:** Use your own project prefix (e.g., `pf-xxx` for penfold). Agent-cxp monitors all projects.
+### Who to contact
 
----
+| Topic | Send to |
+|-------|---------|
+| Penfold feature requests | mycroft |
+| Penfold bugs | mycroft |
+| Context-Palace issues | cxp |
+| Infrastructure issues | cxp |
 
-## Message Types & Formats
+## Message → Task Workflow
 
-### Bug Reports
+Messages are for communication. Tasks are for trackable work.
 
-**Labels:** `kind:bug`, `component:<name>`, `severity:<level>`
+### When you receive a message that requires work:
 
-```json
-{
-  "type": "bug",
-  "component": "gateway|cli|worker|search|ingest|ai",
-  "severity": "blocking|high|medium|low",
-  "command": "the command that failed",
-  "error": "error message",
-  "version": "v0.x.x",
-  "reproduces": "always|sometimes|once",
-  "blocking_work": "pf-xxx or null"
-}
+1. **Read and acknowledge** the message
+2. **Discuss with user** if clarification needed
+3. **Create task(s)** linked to the message
+4. **Claim the task** with `penf task claim pf-xxx`
+5. **Work the task** and close when done
+6. **Reply to original message** to confirm completion
+
+## File Claims (Multi-Agent Coordination)
+
+When multiple Claude sessions work in parallel, use file_claims to prevent conflicts.
+
+```bash
+# Or via SQL:
+SELECT claim_files('pf-xxx', 'session-id', 'mycroft', ARRAY['file1.go', 'file2.go']);
+SELECT * FROM check_conflicts(ARRAY['file1.go'], 'my-shard-id');
 ```
 
-Then markdown body with context, steps to reproduce, expected vs actual.
+Claims are automatically released by close_task().
 
-### Feature Requests
+### Rules
 
-**Labels:** `kind:feature`, `component:<name>`
+- Claim files BEFORE reading or writing
+- If claim fails, STOP and report conflict
+- Claims expire after 1 hour (extend if needed)
 
-```json
-{
-  "type": "feature",
-  "component": "cli",
-  "priority": "high|normal|low",
-  "use_case": "one-line summary"
-}
+## Task Conventions
+
+### Priority
+
+| Priority | Use for |
+|----------|---------|
+| 0 (Critical) | Production down, security issues |
+| 1 (High) | Blocking other work, user-facing bugs |
+| 2 (Normal) | Standard features and fixes |
+| 3 (Low) | Nice-to-haves, cleanup |
+
+### Naming
+
+- Bug fixes: `fix: description`
+- Features: `feat: description`
+- Refactoring: `refactor: description`
+- Documentation: `docs: description`
+
+## Session Start Checklist
+
+```bash
+# 1. Check inbox
+penf message inbox --unread
+
+# 2. Check tasks
+penf task list
+
+# 3. Process messages before starting new work
+# 4. Check file_claims for conflicts
 ```
 
-### Status Updates
+## Component Labels
 
-**Labels:** `kind:status`
-
-```json
-{
-  "type": "status",
-  "related_task": "pf-xxx",
-  "status": "blocked|in_progress|testing|done",
-  "blockers": ["list of blockers if any"]
-}
-```
-
-### RFCs / Proposals
-
-**Labels:** `kind:rfc`
-
-Freeform markdown. Use for protocol discussions, architecture decisions.
-
----
-
-## Priority Mapping
-
-| Severity | Priority | Meaning |
-|----------|----------|---------|
-| blocking | P0 | Drop everything |
-| high | P1 | Do today |
-| medium | P2 | This week |
-| low | P3 | Backlog |
-
----
-
-## Workflows
-
-### Message → Task Workflow
-
-Messages are for **communication**. Tasks are for **work**.
-
-When a message requests work:
-1. Create a **task** shard with `parent_id` pointing to the message
-2. The task tracks the work item
-3. Close the task when work is done
-4. Reply to the **message** (not the task) to communicate completion
-
-```sql
--- Create task from message
-SELECT create_shard('penfold',
-  'Implement: feature X',
-  'Task content...',
-  'task',
-  'agent-mycroft',
-  'pf-message-id'  -- parent_id links to original message
-);
-
--- When done, close task and reply to message
-SELECT close_task('pf-task-id', 'Completed: summary');
-SELECT send_message('penfold', 'agent-mycroft',
-  ARRAY['requester'],
-  'Re: Original Subject',
-  'Your request has been implemented...',
-  NULL, NULL,
-  'pf-message-id'  -- reply to the message, not the task
-);
-```
-
-**Key distinction:**
-- `parent_id` = structural relationship (task belongs to message)
-- `replies-to` edge = conversational threading
-
-### Bug Report → Task
-
-1. **agent-penf** sends bug with JSON frontmatter + labels
-2. **agent-mycroft** parses, creates task with `parent_id` = bug shard
-3. **agent-mycroft** replies with task ID
-4. On completion, close task and reply to original bug
-
-### Task Completion
-
-1. Agent completes work
-2. Agent closes task: `SELECT close_task('pf-xxx', 'Done: summary')`
-3. Agent sends status update to reporter (reply to original message)
-
-### Message Threading
-
-- Use `replies-to` edge to link replies to original
-- Use `get_thread('pf-xxx')` to view full conversation
-- Use `parent_id` to link tasks to their originating messages
-
----
-
-## Edge Types
-
-| Edge | Use |
-|------|-----|
-| `replies-to` | Message reply chains |
-| `discovered-from` | Task created from bug/message |
-| `blocks` | Task dependency |
-| `relates-to` | Loose association |
-
----
-
-## Session Workflow
-
-```sql
--- 1. Check inbox
-SELECT * FROM unread_for('penfold', 'agent-penf');
-
--- 2. Check tasks
-SELECT * FROM tasks_for('penfold', 'agent-penf');
-
--- 3. Check claimable tasks
-SELECT * FROM ready_tasks('penfold');
-
--- 4. Mark messages read after processing
-INSERT INTO read_receipts (shard_id, agent_id) VALUES ('pf-xxx', 'agent-penf') ON CONFLICT DO NOTHING;
-```
-
----
-
-## Verification Workflow (agent-penf)
-
-### When Receiving an ACK
-
-agent-mycroft sends:
-```json
-{
-  "type": "ack",
-  "investigation": "pf-xxx",
-  "tasks": ["pf-yyy"],
-  "priority": 1
-}
-```
-
-**My action:**
-1. Mark ACK as read
-2. Note task ID(s) for tracking
-3. No reply needed unless additional info
-
-### When Receiving a Resolution
-
-agent-mycroft sends:
-```json
-{
-  "type": "resolution",
-  "bug": "pf-xxx",
-  "fixed_by": ["pf-yyy"],
-  "summary": "what was done",
-  "verify": "penf team add Test"
-}
-```
-
-**My action:**
-1. Run the verification command
-2. Reply with verification result
-
-**If fixed:**
-```json
-{
-  "type": "verification",
-  "bug": "pf-xxx",
-  "status": "confirmed",
-  "tested": "penf team add Test"
-}
-```
-Label: `kind:verification`
-Edge: `INSERT INTO edges ... VALUES ('pf-VERIFY', 'pf-BUG', 'verifies')`
-
-**If NOT fixed:**
-```json
-{
-  "type": "verification",
-  "bug": "pf-xxx",
-  "status": "failed",
-  "tested": "penf team add Test",
-  "error": "still getting error"
-}
-```
-
-### Regression / Partial Fix Handling
-
-| Situation | Action |
-|-----------|--------|
-| Same symptom returns | Reply to thread, no new bug |
-| Distinct new issue | New bug with `kind:regression`, edge `relates-to` original |
-| Partial fix | Verify original fixed, new bug with `kind:partial` for revealed issue |
-
----
-
-## Edge Types (Complete)
-
-| Edge | From → To | Added By |
-|------|-----------|----------|
-| `investigates` | investigation → bug | agent-mycroft |
-| `implements` | task → investigation | agent-mycroft |
-| `discovered-from` | task → bug | agent-mycroft |
-| `fixed-by` | bug → task | agent-mycroft |
-| `verifies` | verification → bug | agent-penf |
-| `relates-to` | new bug → original | agent-penf |
-| `replies-to` | reply → original | both |
-| `extends` | doc addition → doc | both |
-
----
-
-## File Claims (Multi-Session Coordination)
-
-When multiple agents/sessions work in parallel, use `file_claims` to prevent conflicts.
-
-### Schema
-
-```sql
-CREATE TABLE file_claims (
-  id SERIAL PRIMARY KEY,
-  file_path TEXT NOT NULL,
-  claimed_by TEXT NOT NULL,      -- agent identifier
-  shard_id TEXT REFERENCES shards(id),  -- task being worked
-  claimed_at TIMESTAMPTZ DEFAULT NOW(),
-  released_at TIMESTAMPTZ,       -- NULL = active claim
-  UNIQUE(file_path, shard_id)
-);
-```
-
-### Workflow
-
-**Before starting work:**
-```sql
--- Check for conflicts
-SELECT file_path, claimed_by, shard_id
-FROM file_claims
-WHERE file_path IN ('cmd/penf/cmd/pipeline.go', 'cmd/penf/cmd/content.go')
-AND released_at IS NULL;
-```
-
-**Claim files when creating implementation shards:**
-```sql
-INSERT INTO file_claims (file_path, claimed_by, shard_id)
-VALUES
-  ('cmd/penf/cmd/pipeline.go', 'agent-mycroft', 'pf-task-id'),
-  ('cmd/penf/cmd/content.go', 'agent-mycroft', 'pf-task-id');
-```
-
-**Release claims when task closes** (automatic via trigger on shard close, or manual):
-```sql
-UPDATE file_claims SET released_at = NOW()
-WHERE shard_id = 'pf-task-id' AND released_at IS NULL;
-```
-
-### Conflict Resolution
-
-If files are already claimed:
-1. Check if the claiming shard is still active
-2. Contact the owner to coordinate
-3. Wait for release, or find alternative approach
-
----
-
-## Protocol Version
-
-```json
-{
-  "protocol_version": "1.2",
-  "agreed_by": ["agent-penf", "agent-mycroft", "agent-cxp"],
-  "date": "2026-01-29",
-  "docs": ["pf-eb8732", "pf-796c58"]
-}
-```
+- `cli` - CLI commands (cmd/penf/)
+- `gateway` - Gateway service
+- `worker` - Worker service
+- `database` - Schema, migrations
+- `infra` - Infrastructure, deployment
