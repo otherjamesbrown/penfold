@@ -37,6 +37,8 @@ type (
 	GenerateEmbeddingInput struct {
 		TenantID    string `json:"tenant_id"`
 		SourceID    int64  `json:"source_id"`
+		// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+		ContentID   string `json:"content_id,omitempty"`
 		Content     string `json:"content"`
 		ContentHash string `json:"content_hash"`
 	}
@@ -45,6 +47,8 @@ type (
 	GenerateSummaryInput struct {
 		TenantID string `json:"tenant_id"`
 		SourceID int64  `json:"source_id"`
+		// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+		ContentID string `json:"content_id,omitempty"`
 		JobID    string `json:"job_id"`
 		Content  string `json:"content"`
 	}
@@ -53,6 +57,8 @@ type (
 	ExtractAssertionsInput struct {
 		TenantID string `json:"tenant_id"`
 		SourceID int64  `json:"source_id"`
+		// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+		ContentID string `json:"content_id,omitempty"`
 		JobID    string `json:"job_id"`
 		Content  string `json:"content"`
 	}
@@ -119,6 +125,7 @@ func EmailProcessingWorkflow(ctx workflow.Context, input EmailProcessingInput) (
 	err = workflow.ExecuteActivity(ctx2, "GenerateEmbedding", GenerateEmbeddingInput{
 		TenantID:    input.TenantID,
 		SourceID:    input.SourceID,
+		ContentID:   input.ContentID,
 		Content:     emailContext,
 		ContentHash: input.ContentHash,
 	}).Get(ctx, &embeddingID)
@@ -134,10 +141,11 @@ func EmailProcessingWorkflow(ctx workflow.Context, input EmailProcessingInput) (
 	var summaryID int64
 	ctx3 := workflow.WithActivityOptions(ctx, llmOpts)
 	err = workflow.ExecuteActivity(ctx3, "GenerateSummary", GenerateSummaryInput{
-		TenantID: input.TenantID,
-		SourceID: input.SourceID,
-		JobID:    input.JobID,
-		Content:  emailContext,
+		TenantID:  input.TenantID,
+		SourceID:  input.SourceID,
+		ContentID: input.ContentID,
+		JobID:     input.JobID,
+		Content:   emailContext,
 	}).Get(ctx, &summaryID)
 	if err != nil {
 		logger.Warn("Summary generation failed, continuing", "error", err)
@@ -150,10 +158,11 @@ func EmailProcessingWorkflow(ctx workflow.Context, input EmailProcessingInput) (
 	var assertionCount int
 	ctx4 := workflow.WithActivityOptions(ctx, llmOpts)
 	err = workflow.ExecuteActivity(ctx4, "ExtractAssertions", ExtractAssertionsInput{
-		TenantID: input.TenantID,
-		SourceID: input.SourceID,
-		JobID:    input.JobID,
-		Content:  emailContext,
+		TenantID:  input.TenantID,
+		SourceID:  input.SourceID,
+		ContentID: input.ContentID,
+		JobID:     input.JobID,
+		Content:   emailContext,
 	}).Get(ctx, &assertionCount)
 	if err != nil {
 		logger.Warn("Assertion extraction failed, continuing", "error", err)

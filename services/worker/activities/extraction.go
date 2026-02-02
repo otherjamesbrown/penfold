@@ -82,10 +82,13 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	activity.RecordHeartbeat(ctx, "calling AI service for assertion extraction")
 
 	// Start LLM call trace
-	// Note: ContentID uses source_id for now; will be updated when content ID propagation is complete
+	contentID := input.ContentID
+	if contentID == "" {
+		contentID = fmt.Sprintf("%d", input.SourceID)
+	}
 	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.extract_assertions", tracing.LLMCallOptions{
 		TenantID:  input.TenantID,
-		ContentID: fmt.Sprintf("%d", input.SourceID),
+		ContentID: contentID,
 		TaskType:  "extract",
 	})
 	defer llmSpan.End()
@@ -178,8 +181,10 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 type ExtractEntitiesInput struct {
 	TenantID string `json:"tenant_id"`
 	SourceID int64  `json:"source_id"`
-	JobID    string `json:"job_id"`
-	Content  string `json:"content"`
+	// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+	ContentID string `json:"content_id,omitempty"`
+	JobID     string `json:"job_id"`
+	Content   string `json:"content"`
 }
 
 // ExtractEntitiesOutput is the output from the ExtractEntities activity.
@@ -241,10 +246,13 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 	activity.RecordHeartbeat(ctx, "calling AI service for entity extraction")
 
 	// Start LLM call trace
-	// Note: ContentID uses source_id for now; will be updated when content ID propagation is complete
+	contentID := input.ContentID
+	if contentID == "" {
+		contentID = fmt.Sprintf("%d", input.SourceID)
+	}
 	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.extract_entities", tracing.LLMCallOptions{
 		TenantID:  input.TenantID,
-		ContentID: fmt.Sprintf("%d", input.SourceID),
+		ContentID: contentID,
 		TaskType:  "extract",
 	})
 	defer llmSpan.End()

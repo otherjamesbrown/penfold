@@ -79,10 +79,13 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 	activity.RecordHeartbeat(ctx, "calling AI service for summary generation")
 
 	// Start LLM call trace
-	// Note: ContentID uses source_id for now; will be updated when content ID propagation is complete
+	contentID := input.ContentID
+	if contentID == "" {
+		contentID = fmt.Sprintf("%d", input.SourceID)
+	}
 	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.summarize", tracing.LLMCallOptions{
 		TenantID:  input.TenantID,
-		ContentID: fmt.Sprintf("%d", input.SourceID),
+		ContentID: contentID,
 		TaskType:  "summarize",
 	})
 	defer llmSpan.End()
@@ -162,6 +165,8 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 type GenerateSummaryWithOptionsInput struct {
 	TenantID  string            `json:"tenant_id"`
 	SourceID  int64             `json:"source_id"`
+	// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+	ContentID string            `json:"content_id,omitempty"`
 	JobID     string            `json:"job_id"`
 	Content   string            `json:"content"`
 	MaxLength int32             `json:"max_length,omitempty"`
@@ -235,11 +240,14 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 	activity.RecordHeartbeat(ctx, "calling AI service")
 
 	// Start LLM call trace
-	// Note: ContentID uses source_id for now; will be updated when content ID propagation is complete
+	contentID := input.ContentID
+	if contentID == "" {
+		contentID = fmt.Sprintf("%d", input.SourceID)
+	}
 	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.summarize", tracing.LLMCallOptions{
 		Model:     input.Model,
 		TenantID:  input.TenantID,
-		ContentID: fmt.Sprintf("%d", input.SourceID),
+		ContentID: contentID,
 		TaskType:  "summarize",
 	})
 	defer llmSpan.End()

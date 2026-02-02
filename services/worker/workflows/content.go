@@ -47,8 +47,10 @@ type (
 	ExtractEntitiesInput struct {
 		TenantID string `json:"tenant_id"`
 		SourceID int64  `json:"source_id"`
-		JobID    string `json:"job_id"`
-		Content  string `json:"content"`
+		// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+		ContentID string `json:"content_id,omitempty"`
+		JobID     string `json:"job_id"`
+		Content   string `json:"content"`
 	}
 
 	// ExtractTopicsInput is the input for the ExtractTopics activity.
@@ -64,11 +66,13 @@ type (
 		TenantID    string `json:"tenant_id"`
 		SourceID    int64  `json:"source_id"`
 		ContentID   int64  `json:"content_id"`
-		ContentType string `json:"content_type"`
-		Content     string `json:"content"`
-		ProjectID   *int64 `json:"project_id,omitempty"`
-		Subject     string `json:"subject,omitempty"`
-		JobID       string `json:"job_id,omitempty"`
+		// ContentTraceID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+		ContentTraceID string `json:"content_trace_id,omitempty"`
+		ContentType    string `json:"content_type"`
+		Content        string `json:"content"`
+		ProjectID      *int64 `json:"project_id,omitempty"`
+		Subject        string `json:"subject,omitempty"`
+		JobID          string `json:"job_id,omitempty"`
 	}
 
 	// ExtractMentionsOutput is the output from the ExtractMentions activity.
@@ -307,6 +311,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	err = workflow.ExecuteActivity(ctx2, "GenerateContentEmbedding", GenerateEmbeddingInput{
 		TenantID:    input.TenantID,
 		SourceID:    input.SourceID,
+		ContentID:   input.ContentID,
 		Content:     fetchOutput.ContentText,
 		ContentHash: input.ContentHash,
 	}).Get(ctx, &embeddingID)
@@ -341,10 +346,11 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	var summaryID int64
 	ctx3 := workflow.WithActivityOptions(ctx, llmOpts)
 	err = workflow.ExecuteActivity(ctx3, "GenerateContentSummary", GenerateSummaryInput{
-		TenantID: input.TenantID,
-		SourceID: input.SourceID,
-		JobID:    input.JobID,
-		Content:  fetchOutput.ContentText,
+		TenantID:  input.TenantID,
+		SourceID:  input.SourceID,
+		ContentID: input.ContentID,
+		JobID:     input.JobID,
+		Content:   fetchOutput.ContentText,
 	}).Get(ctx, &summaryID)
 	if err != nil {
 		logger.Warn("Summary generation failed, continuing", "error", err)
@@ -375,10 +381,11 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	var entityCount int
 	ctx4 := workflow.WithActivityOptions(ctx, llmOpts)
 	err = workflow.ExecuteActivity(ctx4, "ExtractEntities", ExtractEntitiesInput{
-		TenantID: input.TenantID,
-		SourceID: input.SourceID,
-		JobID:    input.JobID,
-		Content:  fetchOutput.ContentText,
+		TenantID:  input.TenantID,
+		SourceID:  input.SourceID,
+		ContentID: input.ContentID,
+		JobID:     input.JobID,
+		Content:   fetchOutput.ContentText,
 	}).Get(ctx, &entityCount)
 	if err != nil {
 		logger.Warn("Entity extraction failed, continuing", "error", err)
@@ -427,12 +434,13 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	var mentionsOutput ExtractMentionsOutput
 	ctx6 := workflow.WithActivityOptions(ctx, llmOpts)
 	err = workflow.ExecuteActivity(ctx6, "ExtractMentions", ExtractMentionsInput{
-		TenantID:    input.TenantID,
-		SourceID:    input.SourceID,
-		ContentID:   input.SourceID, // Use SourceID as ContentID for now
-		ContentType: input.SourceType,
-		Content:     fetchOutput.ContentText,
-		JobID:       input.JobID,
+		TenantID:       input.TenantID,
+		SourceID:       input.SourceID,
+		ContentID:      input.SourceID, // Use SourceID as ContentID for now
+		ContentTraceID: input.ContentID,
+		ContentType:    input.SourceType,
+		Content:        fetchOutput.ContentText,
+		JobID:          input.JobID,
 	}).Get(ctx, &mentionsOutput)
 	if err != nil {
 		logger.Warn("Mention extraction failed, continuing", "error", err)

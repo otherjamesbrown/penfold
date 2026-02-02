@@ -63,6 +63,7 @@ type PendingSource struct {
 	TenantID     string
 	SourceSystem string
 	ContentHash  string
+	ContentID    string
 }
 
 // DeletedSource represents a soft-deleted source.

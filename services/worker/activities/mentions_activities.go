@@ -13,6 +13,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/otherjamesbrown/penfold/pkg/mentions/resolver"
+	"github.com/otherjamesbrown/penfold/pkg/tracing"
 )
 
 // MentionsActivities holds dependencies for mention extraction and resolution activities.
@@ -43,11 +44,13 @@ type ExtractMentionsInput struct {
 	TenantID    string  `json:"tenant_id"`
 	SourceID    int64   `json:"source_id"`
 	ContentID   int64   `json:"content_id"`
-	ContentType string  `json:"content_type"` // email, meeting, document
-	Content     string  `json:"content"`
-	ProjectID   *int64  `json:"project_id,omitempty"`
-	Subject     string  `json:"subject,omitempty"`
-	JobID       string  `json:"job_id,omitempty"`
+	// ContentTraceID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+	ContentTraceID string  `json:"content_trace_id,omitempty"`
+	ContentType    string  `json:"content_type"` // email, meeting, document
+	Content        string  `json:"content"`
+	ProjectID      *int64  `json:"project_id,omitempty"`
+	Subject        string  `json:"subject,omitempty"`
+	JobID          string  `json:"job_id,omitempty"`
 }
 
 // ExtractMentionsOutput is the output from the ExtractMentions activity.
@@ -122,13 +125,41 @@ func (a *MentionsActivities) ExtractMentions(ctx context.Context, input ExtractM
 	// Record heartbeat before LLM processing
 	activity.RecordHeartbeat(ctx, "calling LLM resolver")
 
+	// Get content ID for tracing with fallback to source ID
+	contentID := input.ContentTraceID
+	if contentID == "" {
+		contentID = fmt.Sprintf("%d", input.SourceID)
+	}
+
+	// Start LLM call trace for mention resolution
+	ctx, llmSpan := tracing.StartLLMCall(ctx, "mention_resolution", tracing.LLMCallOptions{
+		TenantID:  input.TenantID,
+		ContentID: contentID,
+		TaskType:  "extract-mentions",
+	})
+	defer llmSpan.End()
+
 	// Process the batch through the 4-stage resolver
 	startTime := time.Now()
 	result, err := a.resolver.ProcessBatch(ctx, tenantID, batch)
 	if err != nil {
+		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
+			LatencyMs: time.Since(startTime).Milliseconds(),
+			Error:     err,
+		})
 		logger.Error("Failed to process mentions through resolver", logging.Err(err))
 		return nil, fmt.Errorf("failed to process mentions: %w", err)
 	}
+
+	// Record success metrics
+	tracing.SetLLMResult(llmSpan, tracing.LLMResult{
+		LatencyMs: time.Since(startTime).Milliseconds(),
+	})
+	tracing.SetAttributes(llmSpan,
+		tracing.AttrInt("mentions.found", len(result.Resolutions)),
+		tracing.AttrInt("mentions.auto_resolved", result.AutoResolved),
+		tracing.AttrInt("mentions.queued_for_review", result.QueuedForReview),
+	)
 
 	// Record heartbeat after LLM processing
 	activity.RecordHeartbeat(ctx, "storing resolved mentions")

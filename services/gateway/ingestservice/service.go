@@ -237,6 +237,7 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 		input := pkgtemporal.ContentIngestionInput{
 			TenantID:    tenantID,
 			SourceID:    createdSource.ID,
+			ContentID:   createdSource.ContentID,
 			SourceType:  "email",
 			ContentHash: req.ContentHash,
 		}
@@ -255,6 +256,7 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 			s.logger.Info("Started ContentIngestionWorkflow",
 				logging.F("workflow_id", workflowID),
 				logging.F("source_id", createdSource.ID),
+				logging.F("content_id", createdSource.ContentID),
 			)
 		}
 	}

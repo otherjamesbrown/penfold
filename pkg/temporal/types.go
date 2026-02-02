@@ -6,6 +6,8 @@ import "time"
 type EmailProcessingInput struct {
 	TenantID    string    `json:"tenant_id"`
 	SourceID    int64     `json:"source_id"`
+	// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+	ContentID   string    `json:"content_id,omitempty"`
 	MessageID   string    `json:"message_id"`
 	ThreadID    string    `json:"thread_id"`
 	FromEmail   string    `json:"from_email"`
@@ -83,6 +85,8 @@ type NetworkStats struct {
 type ContentIngestionInput struct {
 	TenantID    string `json:"tenant_id"`
 	SourceID    int64  `json:"source_id"`
+	// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+	ContentID   string `json:"content_id,omitempty"`
 	SourceType  string `json:"source_type"`
 	ContentHash string `json:"content_hash"`
 	JobID       string `json:"job_id"`

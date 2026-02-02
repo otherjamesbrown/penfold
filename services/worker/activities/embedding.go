@@ -74,11 +74,14 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	activity.RecordHeartbeat(ctx, "calling AI service")
 
 	// Start embedding trace span
-	// Note: ContentID uses source_id for now; will be updated when content ID propagation is complete
+	contentID := input.ContentID
+	if contentID == "" {
+		contentID = fmt.Sprintf("%d", input.SourceID)
+	}
 	ctx, embSpan := tracing.StartEmbedding(ctx, "ai.embedding", tracing.EmbeddingOptions{
 		System:    tracing.AISystemMLX,
 		TenantID:  input.TenantID,
-		ContentID: fmt.Sprintf("%d", input.SourceID),
+		ContentID: contentID,
 	})
 	defer embSpan.End()
 
@@ -146,12 +149,16 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 // This is an optimization for batch processing scenarios.
 type GenerateEmbeddingBatchInput struct {
 	TenantID string           `json:"tenant_id"`
-	Items    []EmbeddingInput `json:"items"`
+	// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+	ContentID string           `json:"content_id,omitempty"`
+	Items     []EmbeddingInput `json:"items"`
 }
 
 // EmbeddingInput represents a single item for embedding generation.
 type EmbeddingInput struct {
-	SourceID    int64  `json:"source_id"`
+	SourceID int64  `json:"source_id"`
+	// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
+	ContentID   string `json:"content_id,omitempty"`
 	Content     string `json:"content"`
 	ContentHash string `json:"content_hash"`
 }

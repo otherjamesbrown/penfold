@@ -155,6 +155,7 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 		input := pkgtemporal.ContentIngestionInput{
 			TenantID:    src.TenantID,
 			SourceID:    src.ID,
+			ContentID:   src.ContentID,
 			SourceType:  src.SourceSystem,
 			ContentHash: src.ContentHash,
 		}
@@ -175,6 +176,7 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 		s.logger.Info("Started ContentIngestionWorkflow",
 			logging.F("workflow_id", workflowID),
 			logging.F("source_id", src.ID),
+			logging.F("content_id", src.ContentID),
 		)
 		startedCount++
 	}
