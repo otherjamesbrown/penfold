@@ -1426,6 +1426,15 @@ func getMockEntities(limit int, minConfidence float64, typeFilter string) []Enti
 		filtered = append(filtered, e)
 	}
 
+	// Sort by relation count (descending).
+	for i := 0; i < len(filtered)-1; i++ {
+		for j := i + 1; j < len(filtered); j++ {
+			if filtered[j].RelationCount > filtered[i].RelationCount {
+				filtered[i], filtered[j] = filtered[j], filtered[i]
+			}
+		}
+	}
+
 	if limit > 0 && len(filtered) > limit {
 		filtered = filtered[:limit]
 	}
@@ -1441,14 +1450,7 @@ func getMockEntityByID(id string) *Entity {
 			return &e
 		}
 	}
-	return &Entity{
-		ID:         id,
-		Name:       "Unknown Entity",
-		Type:       EntityTypePerson,
-		Confidence: 0.5,
-		FirstSeen:  time.Now(),
-		LastSeen:   time.Now(),
-	}
+	return nil
 }
 
 // getMockCentralEntities returns mock entities ranked by centrality.
@@ -1553,12 +1555,5 @@ func getMockConflictByID(id string) *RelationshipConflict {
 			return &c
 		}
 	}
-	return &RelationshipConflict{
-		ID:              id,
-		Type:            "unknown",
-		Description:     "Unknown conflict",
-		SuggestedAction: "review",
-		CreatedAt:       time.Now(),
-		Status:          "open",
-	}
+	return nil
 }
