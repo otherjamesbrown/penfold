@@ -1,0 +1,33 @@
+[Unit]
+Description=Penfold AI Coordinator Service
+Documentation=https://github.com/otherjamesbrown/penfold
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=james
+Group=james
+EnvironmentFile=/etc/penfold/ai-coordinator.env
+ExecStart=/opt/penfold/bin/penfold-ai-coordinator
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=penfold-ai-coordinator
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

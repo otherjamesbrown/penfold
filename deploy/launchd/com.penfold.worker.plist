@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.penfold.worker</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/penfold/bin/penfold-worker</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>WORKER_SERVICE_NAME</key>
+        <string>penfold-worker</string>
+        <key>WORKER_ENVIRONMENT</key>
+        <string>dev</string>
+        <key>WORKER_HTTP_PORT</key>
+        <string>8085</string>
+        <key>TEMPORAL_HOST_PORT</key>
+        <string>dev02.brown.chat:7233</string>
+        <key>TEMPORAL_NAMESPACE</key>
+        <string>default</string>
+        <key>DATABASE_URL</key>
+        <string>postgres://penfold@dev02.brown.chat:5432/penfold?sslmode=verify-full&amp;sslcert=/Users/james/.postgresql/postgresql.crt&amp;sslkey=/Users/james/.postgresql/postgresql.key&amp;sslrootcert=/Users/james/.postgresql/root.crt</string>
+        <key>AI_SERVICE_ADDR</key>
+        <string>dev02.brown.chat:50055</string>
+        <key>AI_SERVICE_URL</key>
+        <string>http://dev01.brown.chat:8081</string>
+        <key>LANGFUSE_HOST</key>
+        <string>http://dev02.brown.chat:3000</string>
+        <key>LANGFUSE_PUBLIC_KEY</key>
+        <string>pk-lf-penfold</string>
+        <key>LANGFUSE_SECRET_KEY</key>
+        <string>sk-lf-penfold-secret</string>
+    </dict>
+
+    <key>UserName</key>
+    <string>james</string>
+
+    <key>GroupName</key>
+    <string>staff</string>
+
+    <key>WorkingDirectory</key>
+    <string>/opt/penfold</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/penfold/worker.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/log/penfold/worker.error.log</string>
+
+    <key>HardResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
+    </dict>
+
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
+    </dict>
+</dict>
+</plist>

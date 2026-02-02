@@ -1,0 +1,37 @@
+[Unit]
+Description=Penfold Gateway Service
+Documentation=https://github.com/otherjamesbrown/penfold
+After=network.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=james
+Group=james
+EnvironmentFile=/etc/penfold/gateway.env
+ExecStart=/opt/penfold/bin/penfold-gateway
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=penfold-gateway
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/penfold /var/log/penfold
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Allow reading TLS certs from home directory
+ReadOnlyPaths=/home/james/.penfold /home/james/.postgresql
+
+[Install]
+WantedBy=multi-user.target
