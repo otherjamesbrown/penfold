@@ -55,6 +55,9 @@ service ContentProcessorService {
 
   // GetInsights retrieves cached insights for a content item.
   rpc GetInsights(GetInsightsRequest) returns (GetInsightsResponse);
+
+  // GetContentTrace retrieves Langfuse traces associated with a content item.
+  rpc GetContentTrace(GetContentTraceRequest) returns (GetContentTraceResponse);
 }
 
 // =============================================================================
@@ -541,4 +544,86 @@ message GetInsightsResponse {
 
   // List of retrieved insights.
   repeated Insight insights = 2;
+}
+
+// =============================================================================
+// Langfuse Trace Messages
+// =============================================================================
+
+// GetContentTraceRequest retrieves Langfuse traces for a content item.
+message GetContentTraceRequest {
+  // Unique identifier of the content item.
+  string content_id = 1;
+
+  // Optional Langfuse environment filter (e.g., "production", "development").
+  optional string environment = 2;
+}
+
+// LangfuseTrace represents a Langfuse trace associated with content processing.
+message LangfuseTrace {
+  // Unique trace identifier from Langfuse.
+  string trace_id = 1;
+
+  // Name/description of the trace.
+  string name = 2;
+
+  // Timestamp when the trace started.
+  google.protobuf.Timestamp start_time = 3;
+
+  // Timestamp when the trace ended.
+  optional google.protobuf.Timestamp end_time = 4;
+
+  // Status of the trace (e.g., "completed", "error").
+  string status = 5;
+
+  // List of observations (generations, spans) within the trace.
+  repeated LangfuseObservation observations = 6;
+}
+
+// LangfuseObservation represents a single observation within a trace.
+message LangfuseObservation {
+  // Unique observation identifier.
+  string id = 1;
+
+  // Type of observation: "GENERATION", "SPAN", etc.
+  string type = 2;
+
+  // Name/description of the observation.
+  string name = 3;
+
+  // Model used for generation (if applicable).
+  optional string model = 4;
+
+  // Timestamp when the observation started.
+  google.protobuf.Timestamp start_time = 5;
+
+  // Timestamp when the observation ended.
+  optional google.protobuf.Timestamp end_time = 6;
+
+  // Number of input tokens (for LLM generations).
+  optional int32 input_tokens = 7;
+
+  // Number of output tokens (for LLM generations).
+  optional int32 output_tokens = 8;
+
+  // Total tokens (input + output).
+  optional int32 total_tokens = 9;
+
+  // Status of the observation.
+  string status = 10;
+
+  // Error message if observation failed.
+  optional string error = 11;
+}
+
+// GetContentTraceResponse contains Langfuse traces for a content item.
+message GetContentTraceResponse {
+  // Unique identifier of the content item.
+  string content_id = 1;
+
+  // List of traces associated with this content item.
+  repeated LangfuseTrace traces = 2;
+
+  // URL to view traces in the Langfuse UI.
+  string langfuse_url = 3;
 }

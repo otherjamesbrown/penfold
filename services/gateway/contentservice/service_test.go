@@ -12,6 +12,7 @@ import (
 
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/services/gateway/internal/langfuse"
 )
 
 // MockRepository is a mock implementation of Repository interface.
@@ -81,9 +82,10 @@ func (m *MockRepository) GetInsights(ctx context.Context, contentID string, type
 func newTestService(repo Repository) *Service {
 	logger := logging.NewLogger(nil)
 	return &Service{
-		repo:       repo,
-		tenantRepo: nil, // Not needed for these tests
-		logger:     logger,
+		repo:           repo,
+		tenantRepo:     nil, // Not needed for these tests
+		logger:         logger,
+		langfuseClient: nil, // Not needed for these tests
 	}
 }
 
@@ -413,5 +415,71 @@ func TestConversionHelpers(t *testing.T) {
 		assert.Equal(t, contentv1.ProcessingState_PROCESSING_STATE_REJECTED, dbStatusToState("rejected"))
 		assert.Equal(t, contentv1.ProcessingState_PROCESSING_STATE_SKIPPED, dbStatusToState("skipped"))
 		assert.Equal(t, contentv1.ProcessingState_PROCESSING_STATE_PENDING, dbStatusToState("unknown"))
+	})
+}
+
+// MockLangfuseClient is a mock implementation of the Langfuse client.
+type MockLangfuseClient struct {
+	mock.Mock
+}
+
+func (m *MockLangfuseClient) GetTracesByContentID(ctx context.Context, contentID, environment string) ([]langfuse.Trace, error) {
+	args := m.Called(ctx, contentID, environment)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]langfuse.Trace), args.Error(1)
+}
+
+func (m *MockLangfuseClient) GetObservations(ctx context.Context, traceID string) ([]langfuse.Observation, error) {
+	args := m.Called(ctx, traceID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]langfuse.Observation), args.Error(1)
+}
+
+func (m *MockLangfuseClient) BuildFilterURL(contentID string) string {
+	args := m.Called(contentID)
+	return args.String(0)
+}
+
+// TestGetContentTrace tests the GetContentTrace handler.
+func TestGetContentTrace(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Success_NotConfigured", func(t *testing.T) {
+		mockRepo := new(MockRepository)
+		svc := newTestService(mockRepo)
+		// langfuseClient is nil, so should return empty response
+
+		req := &contentv1.GetContentTraceRequest{
+			ContentId: "test-content-id",
+		}
+
+		resp, err := svc.GetContentTrace(ctx, req)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, "test-content-id", resp.ContentId)
+		assert.Empty(t, resp.Traces)
+		assert.Equal(t, "", resp.LangfuseUrl)
+	})
+
+	t.Run("MissingContentID", func(t *testing.T) {
+		mockRepo := new(MockRepository)
+		svc := newTestService(mockRepo)
+
+		req := &contentv1.GetContentTraceRequest{
+			ContentId: "",
+		}
+
+		resp, err := svc.GetContentTrace(ctx, req)
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		st, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
 	})
 }

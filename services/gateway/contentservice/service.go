@@ -18,6 +18,7 @@ import (
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tenant"
+	"github.com/otherjamesbrown/penfold/services/gateway/internal/langfuse"
 )
 
 // Repository defines the interface for content storage operations.
@@ -659,17 +660,19 @@ func joinWhere(clauses []string) string {
 // Service implements the ContentProcessorService gRPC server.
 type Service struct {
 	contentv1.UnimplementedContentProcessorServiceServer
-	repo       Repository
-	tenantRepo *tenant.Repository
-	logger     logging.Logger
+	repo          Repository
+	tenantRepo    *tenant.Repository
+	logger        logging.Logger
+	langfuseClient *langfuse.Client
 }
 
 // NewService creates a new content service.
-func NewService(db *pgxpool.Pool, tenantRepo *tenant.Repository, logger logging.Logger) *Service {
+func NewService(db *pgxpool.Pool, tenantRepo *tenant.Repository, logger logging.Logger, langfuseClient *langfuse.Client) *Service {
 	return &Service{
-		repo:       newRepository(db, logger),
-		tenantRepo: tenantRepo,
-		logger:     logger,
+		repo:           newRepository(db, logger),
+		tenantRepo:     tenantRepo,
+		logger:         logger,
+		langfuseClient: langfuseClient,
 	}
 }
 
@@ -1170,4 +1173,126 @@ func dbStatusToState(status string) contentv1.ProcessingState {
 func convertToStruct(data map[string]interface{}) (*structpb.Struct, error) {
 	// Use structpb.NewStruct for proper conversion
 	return structpb.NewStruct(data)
+}
+
+// GetContentTrace retrieves Langfuse traces associated with a content item.
+func (s *Service) GetContentTrace(ctx context.Context, req *contentv1.GetContentTraceRequest) (*contentv1.GetContentTraceResponse, error) {
+	s.logger.Debug("GetContentTrace called",
+		logging.F("content_id", req.ContentId),
+		logging.F("environment", req.Environment),
+	)
+
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	// Check if Langfuse is configured
+	if s.langfuseClient == nil {
+		// Return empty response if Langfuse is not configured
+		s.logger.Debug("Langfuse not configured, returning empty trace response",
+			logging.F("content_id", req.ContentId),
+		)
+		return &contentv1.GetContentTraceResponse{
+			ContentId:   req.ContentId,
+			Traces:      []*contentv1.LangfuseTrace{},
+			LangfuseUrl: "",
+		}, nil
+	}
+
+	// Get environment filter
+	environment := ""
+	if req.Environment != nil {
+		environment = *req.Environment
+	}
+
+	// Query Langfuse API for traces
+	traces, err := s.langfuseClient.GetTracesByContentID(ctx, req.ContentId, environment)
+	if err != nil {
+		s.logger.Error("Failed to get Langfuse traces",
+			logging.Err(err),
+			logging.F("content_id", req.ContentId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to get traces: %v", err)
+	}
+
+	// Convert traces to proto format
+	protoTraces := make([]*contentv1.LangfuseTrace, len(traces))
+	for i, trace := range traces {
+		// Get observations for this trace
+		observations, err := s.langfuseClient.GetObservations(ctx, trace.ID)
+		if err != nil {
+			s.logger.Warn("Failed to get observations for trace",
+				logging.Err(err),
+				logging.F("trace_id", trace.ID),
+			)
+			observations = []langfuse.Observation{}
+		}
+
+		// Convert observations to proto
+		protoObservations := make([]*contentv1.LangfuseObservation, len(observations))
+		for j, obs := range observations {
+			protoObs := &contentv1.LangfuseObservation{
+				Id:        obs.ID,
+				Type:      obs.Type,
+				Name:      obs.Name,
+				StartTime: timestamppb.New(obs.StartTime),
+				Status:    obs.Level,
+			}
+
+			// Add optional fields
+			if obs.EndTime != nil {
+				protoObs.EndTime = timestamppb.New(*obs.EndTime)
+			}
+			if obs.Model != nil {
+				protoObs.Model = obs.Model
+			}
+			if obs.StatusMessage != nil {
+				protoObs.Error = obs.StatusMessage
+			}
+
+			// Token counts - check both old and new field names
+			if obs.PromptTokens != nil {
+				inputTokens := int32(*obs.PromptTokens)
+				protoObs.InputTokens = &inputTokens
+			} else if obs.UsageDetails.Input != nil {
+				inputTokens := int32(*obs.UsageDetails.Input)
+				protoObs.InputTokens = &inputTokens
+			}
+
+			if obs.CompletionTokens != nil {
+				outputTokens := int32(*obs.CompletionTokens)
+				protoObs.OutputTokens = &outputTokens
+			} else if obs.UsageDetails.Output != nil {
+				outputTokens := int32(*obs.UsageDetails.Output)
+				protoObs.OutputTokens = &outputTokens
+			}
+
+			if obs.TotalTokens != nil {
+				totalTokens := int32(*obs.TotalTokens)
+				protoObs.TotalTokens = &totalTokens
+			} else if obs.UsageDetails.Total != nil {
+				totalTokens := int32(*obs.UsageDetails.Total)
+				protoObs.TotalTokens = &totalTokens
+			}
+
+			protoObservations[j] = protoObs
+		}
+
+		protoTraces[i] = &contentv1.LangfuseTrace{
+			TraceId:      trace.ID,
+			Name:         trace.Name,
+			StartTime:    timestamppb.New(trace.Timestamp),
+			Status:       "completed", // Langfuse traces don't have explicit status
+			Observations: protoObservations,
+		}
+	}
+
+	// Build Langfuse UI URL
+	langfuseURL := s.langfuseClient.BuildFilterURL(req.ContentId)
+
+	return &contentv1.GetContentTraceResponse{
+		ContentId:   req.ContentId,
+		Traces:      protoTraces,
+		LangfuseUrl: langfuseURL,
+	}, nil
 }

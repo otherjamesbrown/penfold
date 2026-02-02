@@ -861,6 +861,8 @@ func timestampProto(t time.Time) *timestamppb.Timestamp {
 func newContentTraceCommand(deps *ContentCommandDeps) *cobra.Command {
 	var verbose bool
 	var outputFormat string
+	var traceSource string
+	var traceEnv string
 
 	cmd := &cobra.Command{
 		Use:   "trace <content-id>",
@@ -870,9 +872,21 @@ func newContentTraceCommand(deps *ContentCommandDeps) *cobra.Command {
 Displays all processing events from ingestion through completion,
 including timestamps, stages, and durations.
 
+By default, shows both pipeline events and Langfuse AI traces merged chronologically.
+Use --source to filter to a specific trace source.
+
 Examples:
-  # Show processing trace
+  # Show all traces (pipeline + Langfuse)
   penf content trace em-gFo2YZi3
+
+  # Show only pipeline events
+  penf content trace em-gFo2YZi3 --source pipeline
+
+  # Show only Langfuse AI traces
+  penf content trace em-gFo2YZi3 --source langfuse
+
+  # Filter Langfuse by environment
+  penf content trace em-gFo2YZi3 --source langfuse --env production
 
   # Show with verbose details
   penf content trace em-gFo2YZi3 --verbose
@@ -881,17 +895,19 @@ Examples:
   penf content trace em-gFo2YZi3 -o json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runContentTrace(cmd.Context(), deps, args[0], verbose, outputFormat)
+			return runContentTrace(cmd.Context(), deps, args[0], verbose, outputFormat, traceSource, traceEnv)
 		},
 	}
 
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Include detailed payloads and extra information")
 	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
+	cmd.Flags().StringVar(&traceSource, "source", "all", "Trace source: pipeline, langfuse, all")
+	cmd.Flags().StringVar(&traceEnv, "env", "", "Langfuse environment filter")
 
 	return cmd
 }
 
-func runContentTrace(ctx context.Context, deps *ContentCommandDeps, contentID string, verbose bool, outputFormat string) error {
+func runContentTrace(ctx context.Context, deps *ContentCommandDeps, contentID string, verbose bool, outputFormat string, source string, env string) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
@@ -905,29 +921,87 @@ func runContentTrace(ctx context.Context, deps *ContentCommandDeps, contentID st
 	}
 	defer conn.Close()
 
-	// Get content trace via PipelineService
-	client := pipelinev1.NewPipelineServiceClient(conn)
-	resp, err := client.GetContentTrace(ctx, &pipelinev1.GetContentTraceRequest{
-		ContentId: contentID,
-		Verbose:   verbose,
-	})
-	if err != nil {
-		return fmt.Errorf("getting content trace: %w", err)
-	}
-
 	// Apply output format
 	format := cfg.OutputFormat
 	if outputFormat != "" {
 		format = config.OutputFormat(outputFormat)
 	}
 
-	if format == config.OutputFormatJSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(resp)
+	// Validate source parameter
+	source = strings.ToLower(source)
+	if source != "pipeline" && source != "langfuse" && source != "all" {
+		return fmt.Errorf("invalid source: %s (must be: pipeline, langfuse, all)", source)
 	}
 
-	return outputContentTraceText(resp, verbose)
+	// Fetch traces based on source parameter
+	var pipelineResp *pipelinev1.GetContentTraceResponse
+	var langfuseResp *contentv1.GetContentTraceResponse
+	var pipelineErr, langfuseErr error
+
+	// Fetch pipeline trace if requested
+	if source == "pipeline" || source == "all" {
+		pipelineClient := pipelinev1.NewPipelineServiceClient(conn)
+		pipelineResp, pipelineErr = pipelineClient.GetContentTrace(ctx, &pipelinev1.GetContentTraceRequest{
+			ContentId: contentID,
+			Verbose:   verbose,
+		})
+		if pipelineErr != nil && source == "pipeline" {
+			return fmt.Errorf("getting pipeline trace: %w", pipelineErr)
+		}
+		if pipelineErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: pipeline trace unavailable: %v\n", pipelineErr)
+		}
+	}
+
+	// Fetch Langfuse trace if requested
+	if source == "langfuse" || source == "all" {
+		contentClient := contentv1.NewContentProcessorServiceClient(conn)
+		req := &contentv1.GetContentTraceRequest{
+			ContentId: contentID,
+		}
+		if env != "" {
+			req.Environment = &env
+		}
+		langfuseResp, langfuseErr = contentClient.GetContentTrace(ctx, req)
+		if langfuseErr != nil && source == "langfuse" {
+			return fmt.Errorf("getting Langfuse trace: %w", langfuseErr)
+		}
+		if langfuseErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Langfuse trace unavailable: %v\n", langfuseErr)
+		}
+	}
+
+	// Handle case where both sources failed
+	if (pipelineErr != nil || pipelineResp == nil) && (langfuseErr != nil || langfuseResp == nil) {
+		return fmt.Errorf("no trace data available for content: %s", contentID)
+	}
+
+	// Output based on format and source combination
+	if format == config.OutputFormatJSON {
+		result := map[string]interface{}{
+			"content_id": contentID,
+		}
+		if pipelineResp != nil {
+			result["pipeline"] = pipelineResp
+		}
+		if langfuseResp != nil {
+			result["langfuse"] = langfuseResp
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}
+
+	// Text output
+	if source == "all" && pipelineResp != nil && langfuseResp != nil {
+		return outputContentTraceMerged(pipelineResp, langfuseResp, verbose)
+	} else if source == "langfuse" || (source == "all" && pipelineResp == nil && langfuseResp != nil) {
+		return outputLangfuseTraceText(langfuseResp, verbose)
+	} else if pipelineResp != nil {
+		return outputContentTraceText(pipelineResp, verbose)
+	}
+
+	return fmt.Errorf("no trace data to display")
 }
 
 func outputContentTraceText(resp *pipelinev1.GetContentTraceResponse, verbose bool) error {
@@ -938,9 +1012,11 @@ func outputContentTraceText(resp *pipelinev1.GetContentTraceResponse, verbose bo
 
 	fmt.Printf("Content Trace: %s\n", resp.ContentId)
 	fmt.Println()
+	fmt.Println("Pipeline Events:")
+	fmt.Println("───────────────")
 
 	for _, event := range resp.Events {
-		timestamp := event.Timestamp.AsTime().Format("2006-01-02 15:04:05")
+		timestamp := event.Timestamp.AsTime().Format("15:04:05")
 
 		// Format stage with color
 		stageColor := "\033[36m" // Cyan
@@ -981,6 +1057,247 @@ func outputContentTraceText(resp *pipelinev1.GetContentTraceResponse, verbose bo
 
 	fmt.Println()
 	return nil
+}
+
+func outputLangfuseTraceText(resp *contentv1.GetContentTraceResponse, verbose bool) error {
+	if len(resp.Traces) == 0 {
+		fmt.Printf("No Langfuse traces found for content: %s\n", resp.ContentId)
+		return nil
+	}
+
+	fmt.Printf("Content Trace: %s\n", resp.ContentId)
+	fmt.Println()
+	fmt.Println("Langfuse AI Traces:")
+	fmt.Println("──────────────────")
+
+	for _, trace := range resp.Traces {
+		fmt.Printf("\nTrace: %s (%s)\n", trace.Name, trace.Status)
+
+		if len(trace.Observations) == 0 {
+			fmt.Println("  No observations recorded")
+			continue
+		}
+
+		for _, obs := range trace.Observations {
+			timestamp := obs.StartTime.AsTime().Format("15:04:05")
+
+			// Format observation type with color
+			obsColor := "\033[36m" // Cyan
+			if obs.Status == "ERROR" {
+				obsColor = "\033[31m" // Red
+			} else if obs.Status == "COMPLETED" {
+				obsColor = "\033[32m" // Green
+			}
+
+			// Format duration if available
+			durationStr := ""
+			if obs.EndTime != nil {
+				duration := obs.EndTime.AsTime().Sub(obs.StartTime.AsTime())
+				if duration < time.Second {
+					durationStr = fmt.Sprintf("  %dms", duration.Milliseconds())
+				} else {
+					durationStr = fmt.Sprintf("  %.1fs", duration.Seconds())
+				}
+			}
+
+			// Format model info
+			modelStr := ""
+			if obs.Model != nil && *obs.Model != "" {
+				modelStr = fmt.Sprintf("  %s", *obs.Model)
+			}
+
+			// Format token counts
+			tokenStr := ""
+			if obs.TotalTokens != nil && *obs.TotalTokens > 0 {
+				tokenStr = fmt.Sprintf("  %s tokens", formatNumber(int64(*obs.TotalTokens)))
+			}
+
+			fmt.Printf("%s  [%s%-11s\033[0m]  %s%s%s%s\n",
+				timestamp,
+				obsColor,
+				obs.Type,
+				obs.Name,
+				modelStr,
+				tokenStr,
+				durationStr)
+
+			// Show error in verbose mode
+			if verbose && obs.Error != nil && *obs.Error != "" {
+				fmt.Printf("    Error: %s\n", *obs.Error)
+			}
+
+			// Show token breakdown in verbose mode
+			if verbose && obs.InputTokens != nil && obs.OutputTokens != nil {
+				fmt.Printf("    Tokens: %d in, %d out\n", *obs.InputTokens, *obs.OutputTokens)
+			}
+		}
+	}
+
+	if resp.LangfuseUrl != "" {
+		fmt.Printf("\nLangfuse: %s\n", resp.LangfuseUrl)
+	}
+
+	fmt.Println()
+	return nil
+}
+
+// mergedEvent represents a single event from either pipeline or Langfuse traces.
+type mergedEvent struct {
+	timestamp time.Time
+	source    string // "pipeline" or "langfuse"
+	stage     string
+	message   string
+	duration  *time.Duration
+	color     string
+	details   map[string]string
+	error     *string
+}
+
+func outputContentTraceMerged(pipelineResp *pipelinev1.GetContentTraceResponse, langfuseResp *contentv1.GetContentTraceResponse, verbose bool) error {
+	fmt.Printf("Content: %s\n", pipelineResp.ContentId)
+	fmt.Println()
+	fmt.Println("Processing Timeline:")
+	fmt.Println("───────────────────")
+
+	var events []mergedEvent
+
+	// Add pipeline events
+	for _, event := range pipelineResp.Events {
+		stage := strings.ToUpper(event.Stage)
+		color := "\033[36m" // Cyan
+
+		if event.Action == "failed" {
+			color = "\033[31m" // Red
+		} else if event.Action == "completed" || event.Action == "complete" {
+			color = "\033[32m" // Green
+		}
+
+		var duration *time.Duration
+		if event.DurationMs > 0 {
+			d := time.Duration(event.DurationMs) * time.Millisecond
+			duration = &d
+		}
+
+		events = append(events, mergedEvent{
+			timestamp: event.Timestamp.AsTime(),
+			source:    "pipeline",
+			stage:     stage,
+			message:   event.Message,
+			duration:  duration,
+			color:     color,
+			details:   event.Details,
+		})
+	}
+
+	// Add Langfuse observations
+	for _, trace := range langfuseResp.Traces {
+		for _, obs := range trace.Observations {
+			color := "\033[36m" // Cyan
+			if obs.Status == "ERROR" {
+				color = "\033[31m" // Red
+			} else if obs.Status == "COMPLETED" {
+				color = "\033[32m" // Green
+			}
+
+			message := obs.Name
+			if obs.Model != nil && *obs.Model != "" {
+				message += fmt.Sprintf("  %s", *obs.Model)
+			}
+			if obs.TotalTokens != nil && *obs.TotalTokens > 0 {
+				message += fmt.Sprintf("  %s tokens", formatNumber(int64(*obs.TotalTokens)))
+			}
+
+			var duration *time.Duration
+			if obs.EndTime != nil {
+				d := obs.EndTime.AsTime().Sub(obs.StartTime.AsTime())
+				duration = &d
+			}
+
+			events = append(events, mergedEvent{
+				timestamp: obs.StartTime.AsTime(),
+				source:    "langfuse",
+				stage:     obs.Type,
+				message:   message,
+				duration:  duration,
+				color:     color,
+				error:     obs.Error,
+			})
+		}
+	}
+
+	// Sort events by timestamp
+	sortMergedEvents(events)
+
+	// Display merged timeline
+	for _, event := range events {
+		timestamp := event.timestamp.Format("15:04:05")
+		durationStr := ""
+		if event.duration != nil {
+			if *event.duration < time.Second {
+				durationStr = fmt.Sprintf("  %dms", event.duration.Milliseconds())
+			} else {
+				durationStr = fmt.Sprintf("  %.1fs", event.duration.Seconds())
+			}
+		}
+
+		fmt.Printf("%s  [%-8s]  %s%-12s\033[0m  %s%s\n",
+			timestamp,
+			event.source,
+			event.color,
+			event.stage,
+			event.message,
+			durationStr)
+
+		// Show details in verbose mode
+		if verbose && len(event.details) > 0 {
+			for key, value := range event.details {
+				fmt.Printf("    %s: %s\n", key, value)
+			}
+		}
+
+		// Show error in verbose mode
+		if verbose && event.error != nil && *event.error != "" {
+			fmt.Printf("    Error: %s\n", *event.error)
+		}
+	}
+
+	if langfuseResp.LangfuseUrl != "" {
+		fmt.Printf("\nLangfuse: %s\n", langfuseResp.LangfuseUrl)
+	}
+
+	fmt.Println()
+	return nil
+}
+
+// sortMergedEvents sorts merged events by timestamp in place.
+func sortMergedEvents(events []mergedEvent) {
+	// Simple insertion sort - good enough for small event lists
+	for i := 1; i < len(events); i++ {
+		key := events[i]
+		j := i - 1
+		for j >= 0 && events[j].timestamp.After(key.timestamp) {
+			events[j+1] = events[j]
+			j--
+		}
+		events[j+1] = key
+	}
+}
+
+// formatNumber formats a number with thousands separators.
+func formatNumber(n int64) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+
+	var result string
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result += ","
+		}
+		result += string(c)
+	}
+	return result
 }
 
 // newContentTextCommand creates the 'content text' subcommand.

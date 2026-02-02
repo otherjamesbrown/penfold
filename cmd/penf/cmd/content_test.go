@@ -411,3 +411,154 @@ func findCommand(parent interface{ Commands() []*cobra.Command }, name string) i
 	}
 	return nil
 }
+
+// TestSortMergedEvents tests the sortMergedEvents function.
+func TestSortMergedEvents(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []mergedEvent
+		expected []string // timestamps as strings for easy comparison
+	}{
+		{
+			name: "already sorted",
+			input: []mergedEvent{
+				{timestamp: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC), source: "pipeline"},
+				{timestamp: time.Date(2026, 1, 1, 10, 1, 0, 0, time.UTC), source: "langfuse"},
+				{timestamp: time.Date(2026, 1, 1, 10, 2, 0, 0, time.UTC), source: "pipeline"},
+			},
+			expected: []string{"10:00", "10:01", "10:02"},
+		},
+		{
+			name: "reverse order",
+			input: []mergedEvent{
+				{timestamp: time.Date(2026, 1, 1, 10, 2, 0, 0, time.UTC), source: "pipeline"},
+				{timestamp: time.Date(2026, 1, 1, 10, 1, 0, 0, time.UTC), source: "langfuse"},
+				{timestamp: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC), source: "pipeline"},
+			},
+			expected: []string{"10:00", "10:01", "10:02"},
+		},
+		{
+			name: "mixed order",
+			input: []mergedEvent{
+				{timestamp: time.Date(2026, 1, 1, 10, 1, 0, 0, time.UTC), source: "pipeline"},
+				{timestamp: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC), source: "langfuse"},
+				{timestamp: time.Date(2026, 1, 1, 10, 3, 0, 0, time.UTC), source: "pipeline"},
+				{timestamp: time.Date(2026, 1, 1, 10, 2, 0, 0, time.UTC), source: "langfuse"},
+			},
+			expected: []string{"10:00", "10:01", "10:02", "10:03"},
+		},
+		{
+			name:     "empty slice",
+			input:    []mergedEvent{},
+			expected: []string{},
+		},
+		{
+			name: "single element",
+			input: []mergedEvent{
+				{timestamp: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC), source: "pipeline"},
+			},
+			expected: []string{"10:00"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sortMergedEvents(tc.input)
+
+			if len(tc.input) != len(tc.expected) {
+				t.Fatalf("Length mismatch: got %d, want %d", len(tc.input), len(tc.expected))
+			}
+
+			for i, event := range tc.input {
+				got := event.timestamp.Format("15:04")
+				if got != tc.expected[i] {
+					t.Errorf("Position %d: got %s, want %s", i, got, tc.expected[i])
+				}
+			}
+		})
+	}
+}
+
+// TestFormatNumber tests the formatNumber function.
+func TestFormatNumber(t *testing.T) {
+	tests := []struct {
+		input    int64
+		expected string
+	}{
+		{0, "0"},
+		{1, "1"},
+		{99, "99"},
+		{100, "100"},
+		{999, "999"},
+		{1000, "1,000"},
+		{1234, "1,234"},
+		{12345, "12,345"},
+		{123456, "123,456"},
+		{1234567, "1,234,567"},
+		{1234567890, "1,234,567,890"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.expected, func(t *testing.T) {
+			got := formatNumber(tc.input)
+			if got != tc.expected {
+				t.Errorf("formatNumber(%d) = %s, want %s", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+// TestNewContentTraceCommand tests the content trace command creation.
+func TestNewContentTraceCommand(t *testing.T) {
+	deps := DefaultContentDeps()
+	cmd := newContentTraceCommand(deps)
+
+	if cmd == nil {
+		t.Fatal("newContentTraceCommand returned nil")
+	}
+
+	if cmd.Use != "trace <content-id>" {
+		t.Errorf("Use = %v, want 'trace <content-id>'", cmd.Use)
+	}
+
+	if cmd.Short == "" {
+		t.Error("Short description should not be empty")
+	}
+
+	// Check that flags are registered
+	sourceFlag := cmd.Flags().Lookup("source")
+	if sourceFlag == nil {
+		t.Error("--source flag should be registered")
+	}
+	if sourceFlag.DefValue != "all" {
+		t.Errorf("--source default = %v, want 'all'", sourceFlag.DefValue)
+	}
+
+	envFlag := cmd.Flags().Lookup("env")
+	if envFlag == nil {
+		t.Error("--env flag should be registered")
+	}
+
+	verboseFlag := cmd.Flags().Lookup("verbose")
+	if verboseFlag == nil {
+		t.Error("--verbose flag should be registered")
+	}
+
+	outputFlag := cmd.Flags().Lookup("output")
+	if outputFlag == nil {
+		t.Error("--output flag should be registered")
+	}
+
+	// Test that command requires exactly one argument
+	if err := cmd.Args(cmd, []string{}); err == nil {
+		t.Error("Command should require an argument")
+	}
+
+	if err := cmd.Args(cmd, []string{"em-abc123"}); err != nil {
+		t.Errorf("Command should accept one argument: %v", err)
+	}
+
+	if err := cmd.Args(cmd, []string{"em-abc123", "extra"}); err == nil {
+		t.Error("Command should not accept two arguments")
+	}
+}

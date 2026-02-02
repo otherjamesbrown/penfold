@@ -59,6 +59,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/services/gateway/contentservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/internal/langfuse"
 	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
 	"github.com/otherjamesbrown/penfold/services/gateway/ingestservice"
@@ -279,7 +280,17 @@ func main() {
 
 	// Register ContentProcessorService for content processing operations.
 	// Uses tenantRepo (created above) for tenant slug-to-UUID resolution.
-	contentSvc := contentservice.NewService(dbPool, tenantRepo, logger)
+	// Create Langfuse client if configured.
+	var langfuseClient *langfuse.Client
+	if cfg.Langfuse.Host != "" && cfg.Langfuse.PublicKey != "" && cfg.Langfuse.SecretKey != "" {
+		langfuseClient = langfuse.NewClient(cfg.Langfuse.Host, cfg.Langfuse.PublicKey, cfg.Langfuse.SecretKey)
+		logger.Info("Langfuse client configured",
+			logging.F("host", cfg.Langfuse.Host),
+		)
+	} else {
+		logger.Info("Langfuse not configured (tracing will not be available)")
+	}
+	contentSvc := contentservice.NewService(dbPool, tenantRepo, logger, langfuseClient)
 	contentv1.RegisterContentProcessorServiceServer(grpcServer, contentSvc)
 	logger.Info("Registered ContentProcessorService")
 

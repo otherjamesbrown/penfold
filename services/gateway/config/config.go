@@ -72,6 +72,9 @@ type GatewayConfig struct {
 
 	// Temporal contains Temporal workflow engine configuration.
 	Temporal TemporalConfig
+
+	// Langfuse contains Langfuse observability platform configuration.
+	Langfuse LangfuseConfig
 }
 
 // TemporalConfig holds Temporal connection configuration.
@@ -84,6 +87,18 @@ type TemporalConfig struct {
 
 	// Enabled controls whether workflow operations are available.
 	Enabled bool
+}
+
+// LangfuseConfig holds Langfuse API configuration.
+type LangfuseConfig struct {
+	// Host is the Langfuse server URL (e.g., https://dev02.brown.chat:3000)
+	Host string
+
+	// PublicKey is the Langfuse public API key
+	PublicKey string
+
+	// SecretKey is the Langfuse secret API key
+	SecretKey string
 }
 
 // AuthConfig holds authentication configuration for the gateway.
@@ -486,6 +501,17 @@ func loadGatewayEnv(cfg *GatewayConfig) {
 		case "none", "request", "require":
 			cfg.TLS.ClientAuth = v
 		}
+	}
+
+	// Langfuse configuration
+	if v := os.Getenv("LANGFUSE_HOST"); v != "" {
+		cfg.Langfuse.Host = v
+	}
+	if v := os.Getenv("LANGFUSE_PUBLIC_KEY"); v != "" {
+		cfg.Langfuse.PublicKey = v
+	}
+	if v := os.Getenv("LANGFUSE_SECRET_KEY"); v != "" {
+		cfg.Langfuse.SecretKey = v
 	}
 }
 
