@@ -15,7 +15,6 @@ import (
 
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
-	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
 
@@ -899,30 +898,19 @@ func runContentTrace(ctx context.Context, deps *ContentCommandDeps, contentID st
 	}
 	deps.Config = cfg
 
-	// Initialize gRPC client
-	grpcClient, err := func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
-		opts := client.DefaultOptions()
-		opts.Insecure = cfg.Insecure
-		opts.Debug = cfg.Debug
-		opts.ConnectTimeout = cfg.Timeout
-		opts.TenantID = cfg.TenantID
-
-		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
-		defer cancel()
-
-		if err := grpcClient.Connect(ctx); err != nil {
-			return nil, fmt.Errorf("connecting to server: %w", err)
-		}
-		return grpcClient, nil
-	}(cfg)
+	// Use connectToGateway for proper TLS handling (same as other content commands)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+		return err
 	}
-	defer grpcClient.Close()
+	defer conn.Close()
 
-	// Get content trace
-	resp, err := grpcClient.GetContentTrace(ctx, contentID, verbose)
+	// Get content trace via PipelineService
+	client := pipelinev1.NewPipelineServiceClient(conn)
+	resp, err := client.GetContentTrace(ctx, &pipelinev1.GetContentTraceRequest{
+		ContentId: contentID,
+		Verbose:   verbose,
+	})
 	if err != nil {
 		return fmt.Errorf("getting content trace: %w", err)
 	}
