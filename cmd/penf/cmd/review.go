@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
 	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
@@ -553,13 +551,13 @@ func runReviewStart(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	conn, err := connectToReviewGateway(cfg)
+	grpcClient, err := deps.InitClient(cfg)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer grpcClient.Close()
 
-	client := reviewv1.NewReviewServiceClient(conn)
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
 
 	resp, err := client.StartSession(ctx, &reviewv1.StartSessionRequest{})
 	if err != nil {
@@ -587,13 +585,13 @@ func runReviewPause(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	conn, err := connectToReviewGateway(cfg)
+	grpcClient, err := deps.InitClient(cfg)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer grpcClient.Close()
 
-	client := reviewv1.NewReviewServiceClient(conn)
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
 
 	resp, err := client.PauseSession(ctx, &reviewv1.PauseSessionRequest{})
 	if err != nil {
@@ -618,13 +616,13 @@ func runReviewResume(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	conn, err := connectToReviewGateway(cfg)
+	grpcClient, err := deps.InitClient(cfg)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer grpcClient.Close()
 
-	client := reviewv1.NewReviewServiceClient(conn)
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
 
 	resp, err := client.ResumeSession(ctx, &reviewv1.ResumeSessionRequest{})
 	if err != nil {
@@ -649,13 +647,13 @@ func runReviewEnd(ctx context.Context, deps *ReviewCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	conn, err := connectToReviewGateway(cfg)
+	grpcClient, err := deps.InitClient(cfg)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer grpcClient.Close()
 
-	client := reviewv1.NewReviewServiceClient(conn)
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
 
 	resp, err := client.EndSession(ctx, &reviewv1.EndSessionRequest{})
 	if err != nil {
@@ -706,13 +704,13 @@ func runReviewQueue(ctx context.Context, deps *ReviewCommandDeps) error {
 		}
 	}
 
-	conn, err := connectToReviewGateway(cfg)
+	grpcClient, err := deps.InitClient(cfg)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer grpcClient.Close()
 
-	client := reviewv1.NewReviewServiceClient(conn)
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
 
 	req := &reviewv1.ListReviewItemsRequest{
 		Statuses: []reviewv1.ReviewStatus{reviewv1.ReviewStatus_REVIEW_STATUS_PENDING},
@@ -770,13 +768,13 @@ func runReviewAccept(ctx context.Context, deps *ReviewCommandDeps, itemID string
 	}
 	deps.Config = cfg
 
-	conn, err := connectToReviewGateway(cfg)
+	grpcClient, err := deps.InitClient(cfg)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer grpcClient.Close()
 
-	client := reviewv1.NewReviewServiceClient(conn)
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
 
 	// Validate itemID is a valid ID
 	if _, err := strconv.ParseInt(itemID, 10, 64); err != nil {
@@ -807,13 +805,13 @@ func runReviewReject(ctx context.Context, deps *ReviewCommandDeps, itemID string
 	}
 	deps.Config = cfg
 
-	conn, err := connectToReviewGateway(cfg)
+	grpcClient, err := deps.InitClient(cfg)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer grpcClient.Close()
 
-	client := reviewv1.NewReviewServiceClient(conn)
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
 
 	// Validate itemID is a valid ID
 	if _, err := strconv.ParseInt(itemID, 10, 64); err != nil {
@@ -857,13 +855,13 @@ func runReviewDefer(ctx context.Context, deps *ReviewCommandDeps, itemID string,
 		deferredTo = &t
 	}
 
-	conn, err := connectToReviewGateway(cfg)
+	grpcClient, err := deps.InitClient(cfg)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer grpcClient.Close()
 
-	client := reviewv1.NewReviewServiceClient(conn)
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
 
 	// Validate itemID is a valid ID
 	if _, err := strconv.ParseInt(itemID, 10, 64); err != nil {
@@ -908,13 +906,13 @@ func runReviewShow(ctx context.Context, deps *ReviewCommandDeps, itemID string) 
 		}
 	}
 
-	conn, err := connectToReviewGateway(cfg)
+	grpcClient, err := deps.InitClient(cfg)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer grpcClient.Close()
 
-	client := reviewv1.NewReviewServiceClient(conn)
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
 
 	resp, err := client.GetReviewItem(ctx, &reviewv1.GetReviewItemRequest{
 		Id: itemID,
@@ -942,13 +940,13 @@ func runReviewUndo(ctx context.Context, deps *ReviewCommandDeps, itemID string) 
 		return nil
 	}
 
-	conn, err := connectToReviewGateway(cfg)
+	grpcClient, err := deps.InitClient(cfg)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer grpcClient.Close()
 
-	client := reviewv1.NewReviewServiceClient(conn)
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
 
 	resp, err := client.UndoAction(ctx, &reviewv1.UndoActionRequest{
 		Id: itemID,
@@ -1008,13 +1006,13 @@ func runReviewHistory(ctx context.Context, deps *ReviewCommandDeps) error {
 		}
 	}
 
-	conn, err := connectToReviewGateway(cfg)
+	grpcClient, err := deps.InitClient(cfg)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer grpcClient.Close()
 
-	client := reviewv1.NewReviewServiceClient(conn)
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
 
 	resp, err := client.GetSessionHistory(ctx, &reviewv1.GetSessionHistoryRequest{
 		Limit: 10,
@@ -1096,24 +1094,6 @@ func runReviewAutoDisable(ctx context.Context, deps *ReviewCommandDeps, ruleName
 	fmt.Println("This feature will be available in a future release.")
 
 	return nil
-}
-
-// connectToReviewGateway creates a gRPC connection to the gateway service for review operations.
-func connectToReviewGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
-	defer cancel()
-
-	opts := []grpc.DialOption{
-		grpc.WithBlock(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	}
-
-	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to gateway at %s: %w", cfg.ServerAddress, err)
-	}
-
-	return conn, nil
 }
 
 // protoSessionToLocal converts a proto ReviewSession to the local ReviewSession type.

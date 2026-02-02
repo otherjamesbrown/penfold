@@ -5,18 +5,277 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 
+	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
 
-// createReviewTestDeps creates test dependencies for review commands.
+const bufSize = 1024 * 1024
+
+var testListener *bufconn.Listener
+
+// mockReviewServiceServer is a mock implementation of reviewv1.ReviewServiceServer.
+type mockReviewServiceServer struct {
+	reviewv1.UnimplementedReviewServiceServer
+}
+
+func (m *mockReviewServiceServer) StartSession(ctx context.Context, req *reviewv1.StartSessionRequest) (*reviewv1.StartSessionResponse, error) {
+	session := &reviewv1.ReviewSession{
+		Id:            "session-mock-001",
+		Status:        reviewv1.SessionStatus_SESSION_STATUS_ACTIVE,
+		StartedAt:     timestamppb.Now(),
+		TotalReviewed: 0,
+		ApprovedCount: 0,
+		RejectedCount: 0,
+		DeferredCount: 0,
+	}
+	return &reviewv1.StartSessionResponse{
+		Session:               session,
+		PreviousSessionEnded:  false,
+	}, nil
+}
+
+func (m *mockReviewServiceServer) PauseSession(ctx context.Context, req *reviewv1.PauseSessionRequest) (*reviewv1.PauseSessionResponse, error) {
+	now := timestamppb.Now()
+	session := &reviewv1.ReviewSession{
+		Id:            "session-mock-001",
+		Status:        reviewv1.SessionStatus_SESSION_STATUS_PAUSED,
+		StartedAt:     timestamppb.New(time.Now().Add(-30 * time.Minute)),
+		PausedAt:      now,
+		TotalReviewed: 5,
+		ApprovedCount: 3,
+		RejectedCount: 1,
+		DeferredCount: 1,
+	}
+	return &reviewv1.PauseSessionResponse{
+		Session: session,
+	}, nil
+}
+
+func (m *mockReviewServiceServer) ResumeSession(ctx context.Context, req *reviewv1.ResumeSessionRequest) (*reviewv1.ResumeSessionResponse, error) {
+	session := &reviewv1.ReviewSession{
+		Id:            "session-mock-001",
+		Status:        reviewv1.SessionStatus_SESSION_STATUS_ACTIVE,
+		StartedAt:     timestamppb.New(time.Now().Add(-45 * time.Minute)),
+		TotalReviewed: 5,
+		ApprovedCount: 3,
+		RejectedCount: 1,
+		DeferredCount: 1,
+	}
+	return &reviewv1.ResumeSessionResponse{
+		Session: session,
+	}, nil
+}
+
+func (m *mockReviewServiceServer) EndSession(ctx context.Context, req *reviewv1.EndSessionRequest) (*reviewv1.EndSessionResponse, error) {
+	now := timestamppb.Now()
+	session := &reviewv1.ReviewSession{
+		Id:                     "session-mock-001",
+		Status:                 reviewv1.SessionStatus_SESSION_STATUS_ENDED,
+		StartedAt:              timestamppb.New(time.Now().Add(-60 * time.Minute)),
+		EndedAt:                now,
+		TotalReviewed:          10,
+		ApprovedCount:          5,
+		RejectedCount:          3,
+		DeferredCount:          2,
+		ActiveDurationSeconds:  3600,
+	}
+	return &reviewv1.EndSessionResponse{
+		Session: session,
+	}, nil
+}
+
+func (m *mockReviewServiceServer) ListReviewItems(ctx context.Context, req *reviewv1.ListReviewItemsRequest) (*reviewv1.ListReviewItemsResponse, error) {
+	items := []*reviewv1.ReviewItem{
+		{
+			Id:             "item-001",
+			ContentSummary: "High priority email from CEO",
+			ContentType:    "email",
+			Source:         "gmail",
+			Priority:       reviewv1.Priority_PRIORITY_HIGH,
+			Status:         reviewv1.ReviewStatus_REVIEW_STATUS_PENDING,
+			CreatedAt:      timestamppb.New(time.Now().Add(-2 * time.Hour)),
+		},
+		{
+			Id:             "item-002",
+			ContentSummary: "Weekly team sync notes",
+			ContentType:    "meeting",
+			Source:         "calendar",
+			Priority:       reviewv1.Priority_PRIORITY_MEDIUM,
+			Status:         reviewv1.ReviewStatus_REVIEW_STATUS_PENDING,
+			CreatedAt:      timestamppb.New(time.Now().Add(-4 * time.Hour)),
+		},
+		{
+			Id:             "item-003",
+			ContentSummary: "Newsletter subscription",
+			ContentType:    "email",
+			Source:         "gmail",
+			Priority:       reviewv1.Priority_PRIORITY_LOW,
+			Status:         reviewv1.ReviewStatus_REVIEW_STATUS_PENDING,
+			CreatedAt:      timestamppb.New(time.Now().Add(-6 * time.Hour)),
+		},
+	}
+
+	// Filter by priority if specified
+	if len(req.Priorities) > 0 {
+		var filtered []*reviewv1.ReviewItem
+		for _, item := range items {
+			for _, priority := range req.Priorities {
+				if item.Priority == priority {
+					filtered = append(filtered, item)
+					break
+				}
+			}
+		}
+		items = filtered
+	}
+
+	totalCount := int64(len(items))
+	return &reviewv1.ListReviewItemsResponse{
+		Items:      items,
+		TotalCount: &totalCount,
+	}, nil
+}
+
+func (m *mockReviewServiceServer) GetReviewItem(ctx context.Context, req *reviewv1.GetReviewItemRequest) (*reviewv1.GetReviewItemResponse, error) {
+	item := &reviewv1.ReviewItem{
+		Id:             req.Id,
+		ContentSummary: "High priority email from CEO",
+		ContentType:    "email",
+		Source:         "gmail",
+		Priority:       reviewv1.Priority_PRIORITY_HIGH,
+		Status:         reviewv1.ReviewStatus_REVIEW_STATUS_PENDING,
+		CreatedAt:      timestamppb.New(time.Now().Add(-2 * time.Hour)),
+	}
+	return &reviewv1.GetReviewItemResponse{
+		Item: item,
+	}, nil
+}
+
+func (m *mockReviewServiceServer) ApproveItem(ctx context.Context, req *reviewv1.ApproveItemRequest) (*reviewv1.ApproveItemResponse, error) {
+	item := &reviewv1.ReviewItem{
+		Id:             req.Id,
+		ContentSummary: "High priority email from CEO",
+		ContentType:    "email",
+		Source:         "gmail",
+		Priority:       reviewv1.Priority_PRIORITY_HIGH,
+		Status:         reviewv1.ReviewStatus_REVIEW_STATUS_APPROVED,
+		CreatedAt:      timestamppb.New(time.Now().Add(-2 * time.Hour)),
+	}
+	return &reviewv1.ApproveItemResponse{
+		Item: item,
+	}, nil
+}
+
+func (m *mockReviewServiceServer) RejectItem(ctx context.Context, req *reviewv1.RejectItemRequest) (*reviewv1.RejectItemResponse, error) {
+	item := &reviewv1.ReviewItem{
+		Id:             req.Id,
+		ContentSummary: "High priority email from CEO",
+		ContentType:    "email",
+		Source:         "gmail",
+		Priority:       reviewv1.Priority_PRIORITY_HIGH,
+		Status:         reviewv1.ReviewStatus_REVIEW_STATUS_REJECTED,
+		CreatedAt:      timestamppb.New(time.Now().Add(-2 * time.Hour)),
+	}
+	return &reviewv1.RejectItemResponse{
+		Item: item,
+	}, nil
+}
+
+func (m *mockReviewServiceServer) UndoAction(ctx context.Context, req *reviewv1.UndoActionRequest) (*reviewv1.UndoActionResponse, error) {
+	action := &reviewv1.ReviewAction{
+		ActionType:      reviewv1.ActionType_ACTION_TYPE_APPROVE,
+		PreviousStatus:  reviewv1.ReviewStatus_REVIEW_STATUS_PENDING,
+		NewStatus:       reviewv1.ReviewStatus_REVIEW_STATUS_APPROVED,
+	}
+	return &reviewv1.UndoActionResponse{
+		UndoneAction: action,
+		CanUndoMore:  false,
+	}, nil
+}
+
+func (m *mockReviewServiceServer) GetSessionHistory(ctx context.Context, req *reviewv1.GetSessionHistoryRequest) (*reviewv1.GetSessionHistoryResponse, error) {
+	sessions := []*reviewv1.ReviewSession{
+		{
+			Id:            "session-001",
+			Status:        reviewv1.SessionStatus_SESSION_STATUS_ENDED,
+			StartedAt:     timestamppb.New(time.Now().Add(-2 * time.Hour)),
+			EndedAt:       timestamppb.New(time.Now().Add(-1 * time.Hour)),
+			TotalReviewed: 10,
+			ApprovedCount: 5,
+			RejectedCount: 3,
+			DeferredCount: 2,
+		},
+	}
+	return &reviewv1.GetSessionHistoryResponse{
+		Sessions: sessions,
+	}, nil
+}
+
+// setupMockServer creates an in-memory gRPC server for testing.
+func setupMockServer(t *testing.T) (*grpc.ClientConn, func()) {
+	lis := bufconn.Listen(bufSize)
+
+	s := grpc.NewServer()
+	reviewv1.RegisterReviewServiceServer(s, &mockReviewServiceServer{})
+
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			t.Logf("Server exited with error: %v", err)
+		}
+	}()
+
+	bufDialer := func(context.Context, string) (net.Conn, error) {
+		return lis.Dial()
+	}
+
+	ctx := context.Background()
+	conn, err := grpc.DialContext(ctx, "bufnet",
+		grpc.WithContextDialer(bufDialer),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("Failed to dial bufnet: %v", err)
+	}
+
+	cleanup := func() {
+		conn.Close()
+		s.Stop()
+		lis.Close()
+	}
+
+	return conn, cleanup
+}
+
+// mockGRPCClientWithConn wraps a grpc.ClientConn for testing.
+type mockGRPCClientWithConn struct {
+	conn *grpc.ClientConn
+}
+
+func (m *mockGRPCClientWithConn) GetConnection() *grpc.ClientConn {
+	return m.conn
+}
+
+func (m *mockGRPCClientWithConn) Close() error {
+	if m.conn != nil {
+		return m.conn.Close()
+	}
+	return nil
+}
+
+// createReviewTestDeps creates test dependencies for review commands without backend.
 func createReviewTestDeps(cfg *config.CLIConfig) *ReviewCommandDeps {
 	return &ReviewCommandDeps{
 		Config:       cfg,
@@ -25,9 +284,38 @@ func createReviewTestDeps(cfg *config.CLIConfig) *ReviewCommandDeps {
 			return cfg, nil
 		},
 		InitClient: func(c *config.CLIConfig) (*client.GRPCClient, error) {
+			// Return nil for tests that don't need backend
 			return nil, nil
 		},
 	}
+}
+
+// createReviewTestDepsWithMockService creates test dependencies with a working mock service.
+func createReviewTestDepsWithMockService(t *testing.T, cfg *config.CLIConfig) (*ReviewCommandDeps, func()) {
+	conn, cleanup := setupMockServer(t)
+
+	deps := &ReviewCommandDeps{
+		Config:       cfg,
+		OutputFormat: cfg.OutputFormat,
+		LoadConfig: func() (*config.CLIConfig, error) {
+			return cfg, nil
+		},
+		InitClient: func(c *config.CLIConfig) (*client.GRPCClient, error) {
+			// Return a mock client with the in-memory connection
+			// Note: This is a limitation - client.GRPCClient is a concrete type,
+			// not an interface, so we can't properly inject the mock connection.
+			// These tests will need architectural changes to support proper mocking.
+			_ = conn // Keep reference to prevent cleanup
+			return (*client.GRPCClient)(nil), nil
+		},
+	}
+
+	// Custom cleanup that includes deps cleanup
+	depsCleanup := func() {
+		cleanup()
+	}
+
+	return deps, depsCleanup
 }
 
 func TestNewReviewCommand(t *testing.T) {
@@ -513,9 +801,10 @@ func TestReviewQueueResponse_JSONOutput(t *testing.T) {
 }
 
 func TestRunReviewStart(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - needs refactoring to support dependency injection of service client")
 	cfg := mockConfig()
-	deps := createReviewTestDeps(cfg)
+	deps, cleanup := createReviewTestDepsWithMockService(t, cfg)
+	defer cleanup()
 
 	// Capture stdout.
 	oldStdout := os.Stdout
@@ -544,7 +833,7 @@ func TestRunReviewStart(t *testing.T) {
 }
 
 func TestRunReviewPause(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -572,7 +861,7 @@ func TestRunReviewPause(t *testing.T) {
 }
 
 func TestRunReviewResume(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -600,7 +889,7 @@ func TestRunReviewResume(t *testing.T) {
 }
 
 func TestRunReviewEnd(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -631,7 +920,7 @@ func TestRunReviewEnd(t *testing.T) {
 }
 
 func TestRunReviewQueue(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -664,7 +953,7 @@ func TestRunReviewQueue(t *testing.T) {
 }
 
 func TestRunReviewQueue_CountOnly(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -700,7 +989,7 @@ func TestRunReviewQueue_CountOnly(t *testing.T) {
 }
 
 func TestRunReviewQueue_InvalidPriority(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -720,7 +1009,7 @@ func TestRunReviewQueue_InvalidPriority(t *testing.T) {
 }
 
 func TestRunReviewAccept(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -751,7 +1040,7 @@ func TestRunReviewAccept(t *testing.T) {
 }
 
 func TestRunReviewReject(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -782,7 +1071,7 @@ func TestRunReviewReject(t *testing.T) {
 }
 
 func TestRunReviewDefer(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -813,7 +1102,7 @@ func TestRunReviewDefer(t *testing.T) {
 }
 
 func TestRunReviewDefer_InvalidDate(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -825,7 +1114,7 @@ func TestRunReviewDefer_InvalidDate(t *testing.T) {
 }
 
 func TestRunReviewShow(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -859,7 +1148,7 @@ func TestRunReviewShow(t *testing.T) {
 }
 
 func TestRunReviewUndo(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -887,7 +1176,7 @@ func TestRunReviewUndo(t *testing.T) {
 }
 
 func TestRunReviewRedo(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -915,7 +1204,7 @@ func TestRunReviewRedo(t *testing.T) {
 }
 
 func TestRunReviewHistory(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -946,7 +1235,7 @@ func TestRunReviewHistory(t *testing.T) {
 }
 
 func TestRunReviewAutoStatus(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -977,7 +1266,7 @@ func TestRunReviewAutoStatus(t *testing.T) {
 }
 
 func TestRunReviewAutoEnable(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -1005,7 +1294,7 @@ func TestRunReviewAutoEnable(t *testing.T) {
 }
 
 func TestRunReviewAutoEnable_UnknownRule(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -1017,7 +1306,7 @@ func TestRunReviewAutoEnable_UnknownRule(t *testing.T) {
 }
 
 func TestRunReviewAutoDisable(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
@@ -1045,7 +1334,7 @@ func TestRunReviewAutoDisable(t *testing.T) {
 }
 
 func TestRunReviewAutoDisable_UnknownRule(t *testing.T) {
-	t.Skip("requires backend - migrate to integration tests")
+	t.Skip("requires gRPC backend - architectural limitation: client.GRPCClient is a concrete type, preventing proper mocking. Needs interface refactoring or move to integration tests.")
 	cfg := mockConfig()
 	deps := createReviewTestDeps(cfg)
 
