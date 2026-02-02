@@ -650,6 +650,7 @@ func (s *Service) AnalyzeByID(ctx context.Context, req *aiv1.AnalyzeByIDRequest)
 // =============================================================================
 
 // getContentByID fetches content from the database by ID.
+// Supports both numeric source IDs (e.g., "1569") and content_id format (e.g., "em-Hp44vxPl").
 func (s *Service) getContentByID(ctx context.Context, contentID string) (string, string, error) {
 	// Try to parse as numeric ID first (for sources table)
 	if id, err := strconv.ParseInt(contentID, 10, 64); err == nil && s.sourcesRepo != nil {
@@ -667,7 +668,26 @@ func (s *Service) getContentByID(ctx context.Context, contentID string) (string,
 		return source.RawContent, contentType, nil
 	}
 
-	// Try search_documents table
+	// Try sources table by content_id column (e.g., "em-Hp44vxPl", "mt-abc123")
+	if s.db != nil {
+		var content string
+		var contentType *string
+		err := s.db.QueryRow(ctx, `
+			SELECT raw_content, content_type
+			FROM sources
+			WHERE content_id = $1 AND is_deleted = false
+			LIMIT 1
+		`, contentID).Scan(&content, &contentType)
+		if err == nil {
+			ct := "document"
+			if contentType != nil {
+				ct = *contentType
+			}
+			return content, ct, nil
+		}
+	}
+
+	// Try search_documents table as fallback
 	if s.db != nil {
 		var content, contentType string
 		err := s.db.QueryRow(ctx, `
