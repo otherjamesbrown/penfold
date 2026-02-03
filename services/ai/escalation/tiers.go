@@ -140,8 +140,8 @@ func DefaultTierConfig() *TierConfig {
 			{
 				Level:          TierLevelLocal,
 				Name:           "Local",
-				Models:         []string{"mlx-community/Qwen2.5-32B-Instruct-4bit", "mxbai-embed-large-v1"},
-				PreferredModel: "mlx-community/Qwen2.5-32B-Instruct-4bit",
+				Models:         []string{"mlx-community/Qwen2.5-7B-Instruct-4bit", "mxbai-embed-large-v1"},
+				PreferredModel: "mlx-community/Qwen2.5-7B-Instruct-4bit",
 				CostMultiplier: 0.0,
 				Capabilities:   []string{"embedding", "summarization", "extraction", "classification"},
 				MaxLatency:     500 * time.Millisecond,

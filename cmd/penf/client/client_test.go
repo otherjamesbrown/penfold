@@ -562,11 +562,11 @@ func TestDefaultConstants(t *testing.T) {
 	if DefaultConnectTimeout != 10*time.Second {
 		t.Errorf("DefaultConnectTimeout = %v, want 10s", DefaultConnectTimeout)
 	}
-	if DefaultKeepaliveTime != 30*time.Second {
-		t.Errorf("DefaultKeepaliveTime = %v, want 30s", DefaultKeepaliveTime)
+	if DefaultKeepaliveTime != 5*time.Minute {
+		t.Errorf("DefaultKeepaliveTime = %v, want 5m", DefaultKeepaliveTime)
 	}
-	if DefaultKeepaliveTimeout != 10*time.Second {
-		t.Errorf("DefaultKeepaliveTimeout = %v, want 10s", DefaultKeepaliveTimeout)
+	if DefaultKeepaliveTimeout != 20*time.Second {
+		t.Errorf("DefaultKeepaliveTimeout = %v, want 20s", DefaultKeepaliveTimeout)
 	}
 	if DefaultMaxRetries != 3 {
 		t.Errorf("DefaultMaxRetries = %v, want 3", DefaultMaxRetries)

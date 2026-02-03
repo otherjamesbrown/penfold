@@ -29,7 +29,7 @@ const (
 const (
 	DefaultServerAddress        = "localhost:50051"
 	DefaultSearchServiceAddress = "localhost:50053"
-	DefaultTimeout              = 30 * time.Second
+	DefaultTimeout              = 10 * time.Minute
 	DefaultOutputFormat         = OutputFormatText
 	DefaultConfigDir            = ".penf"
 	DefaultConfigFile           = "config.yaml"

@@ -99,7 +99,7 @@ func main() {
 		DefaultEmbeddingModel: cfg.DefaultEmbeddingModel,
 		DefaultLLMModel:       cfg.DefaultLLMModel,
 		EmbeddingDimensions:   cfg.EmbeddingDimensions,
-		Timeout:               120 * time.Second,
+		Timeout:               10 * time.Minute,
 	})
 	defer func() { _ = mlxBackend.Close() }()
 

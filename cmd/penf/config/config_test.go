@@ -41,8 +41,8 @@ func TestDefaultConstants(t *testing.T) {
 	if DefaultServerAddress != "localhost:50051" {
 		t.Errorf("DefaultServerAddress = %v, want localhost:50051", DefaultServerAddress)
 	}
-	if DefaultTimeout != 30*time.Second {
-		t.Errorf("DefaultTimeout = %v, want 30s", DefaultTimeout)
+	if DefaultTimeout != 10*time.Minute {
+		t.Errorf("DefaultTimeout = %v, want 10m", DefaultTimeout)
 	}
 	if DefaultOutputFormat != OutputFormatText {
 		t.Errorf("DefaultOutputFormat = %v, want text", DefaultOutputFormat)

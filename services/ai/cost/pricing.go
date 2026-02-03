@@ -88,7 +88,7 @@ func NewPricingTable() *PricingTable {
 func (pt *PricingTable) loadDefaultPricing() {
 	// Local models (MLX via vllm-mlx) - free
 	localModels := []string{
-		"mlx-community/Qwen2.5-32B-Instruct-4bit",
+		"mlx-community/Qwen2.5-7B-Instruct-4bit",
 		"mxbai-embed-large-v1",
 	}
 	for _, model := range localModels {

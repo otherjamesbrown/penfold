@@ -6,7 +6,7 @@ Self-hosted Langfuse instance for tracing and visualizing Penfold's AI operation
 
 ```bash
 # On dev02.brown.chat
-cd /opt/langfuse
+cd ~/langfuse
 docker compose up -d
 ```
 
@@ -45,11 +45,11 @@ LANGFUSE_HOST=http://dev02.brown.chat:3000
 
 ```bash
 # Copy files to dev02
-scp -r deploy/langfuse dev02.brown.chat:/opt/
+scp -r deploy/langfuse james@dev02.brown.chat:~/langfuse
 
 # SSH to dev02 and start
-ssh dev02.brown.chat
-cd /opt/langfuse
+ssh james@dev02.brown.chat
+cd ~/langfuse
 docker compose up -d
 
 # Check status

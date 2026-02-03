@@ -194,7 +194,7 @@ func main() {
 	var aiClient *ai.Client
 	if cfg.AIServiceAddr != "" {
 		var err error
-		aiClient, err = ai.NewClient(cfg.AIServiceAddr, ai.WithInsecure(), ai.WithRequestTimeout(2*time.Minute))
+		aiClient, err = ai.NewClient(cfg.AIServiceAddr, ai.WithInsecure(), ai.WithRequestTimeout(10*time.Minute))
 		if err != nil {
 			logger.Warn("Failed to connect to AI service, gateway will operate without AI capabilities",
 				logging.F("addr", cfg.AIServiceAddr),

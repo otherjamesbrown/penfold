@@ -197,9 +197,12 @@ func (c *AIClient) Query(ctx context.Context, req *QueryRequest) (*QueryResponse
 		protoReq.Temperature = &req.Temperature
 	}
 
-	// Execute the query with timeout.
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
+	// Apply a default timeout only if the parent context has no deadline.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
+	}
 
 	resp, err := client.Query(ctx, protoReq)
 	if err != nil {
@@ -294,9 +297,12 @@ func (c *AIClient) Summarize(ctx context.Context, req *SummarizeRequest) (*Summa
 		protoReq.Model = &req.Model
 	}
 
-	// Execute with timeout.
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
+	// Apply a default timeout only if the parent context has no deadline.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
+	}
 
 	resp, err := client.SummarizeByID(ctx, protoReq)
 	if err != nil {
@@ -428,9 +434,12 @@ func (c *AIClient) Analyze(ctx context.Context, req *AnalyzeRequest) (*AnalyzeRe
 		protoReq.AnalysisType = aiv1.AnalysisType_ANALYSIS_TYPE_FULL
 	}
 
-	// Execute with timeout.
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
+	// Apply a default timeout only if the parent context has no deadline.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
+	}
 
 	resp, err := client.AnalyzeByID(ctx, protoReq)
 	if err != nil {

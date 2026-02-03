@@ -61,7 +61,7 @@ const (
 	DefaultHTTPPort                 = 8090
 	DefaultGeminiDefaultModel       = "gemini-1.5-pro"
 	DefaultEmbeddingModel           = "mxbai-embed-large-v1"
-	DefaultLLMModel                 = "mlx-community/Qwen2.5-32B-Instruct-4bit"
+	DefaultLLMModel                 = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 	DefaultMLXEmbeddingsURL         = "http://localhost:8081"
 	DefaultMLXLLMURL                = "http://localhost:8080"
 	DefaultEmbeddingDimensions      = 1024

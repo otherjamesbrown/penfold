@@ -646,13 +646,13 @@ func RegisterDefaultModels(selector *ModelSelector, mlxLLMURL, mlxEmbeddingsURL,
 		return err
 	}
 
-	// Local MLX LLM (Qwen 2.5 32B)
+	// Local MLX LLM (Qwen 2.5 7B)
 	if err := selector.RegisterModel(&ModelConfig{
-		ModelID:  "Qwen2.5-32B-Instruct-4bit",
+		ModelID:  "Qwen2.5-7B-Instruct-4bit",
 		Provider: ModelProviderMLX,
 		Endpoint: mlxLLMURL,
 		Capabilities: &ModelCapabilities{
-			ModelID:         "Qwen2.5-32B-Instruct-4bit",
+			ModelID:         "Qwen2.5-7B-Instruct-4bit",
 			Provider:        ModelProviderMLX,
 			IsLocal:         true,
 			SupportedTasks:  []TaskType{TaskTypeSummarization, TaskTypeExtraction, TaskTypeClassification},

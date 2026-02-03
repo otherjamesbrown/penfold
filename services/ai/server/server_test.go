@@ -109,7 +109,7 @@ func testConfig() *config.Config {
 		MLXEmbeddingsURL:        "http://localhost:8081",
 		GeminiDefaultModel:      "gemini-1.5-pro",
 		DefaultEmbeddingModel:   "mxbai-embed-large-v1",
-		DefaultLLMModel:         "mlx-community/Qwen2.5-32B-Instruct-4bit",
+		DefaultLLMModel:         "mlx-community/Qwen2.5-7B-Instruct-4bit",
 		EmbeddingDimensions:     1024,
 		LogLevel:                "info",
 		Environment:             "dev",

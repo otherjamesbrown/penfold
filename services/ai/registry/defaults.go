@@ -19,10 +19,10 @@ func DefaultModels(mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint string) []*ModelC
 	return []*ModelConfig{
 		// MLX Models (via vllm-mlx)
 		{
-			ID:        "mlx/Qwen2.5-32B-Instruct-4bit",
-			Name:      "Qwen 2.5 32B Instruct",
+			ID:        "mlx/Qwen2.5-7B-Instruct-4bit",
+			Name:      "Qwen 2.5 7B Instruct",
 			Provider:  ProviderMLX,
-			ModelName: "mlx-community/Qwen2.5-32B-Instruct-4bit",
+			ModelName: "mlx-community/Qwen2.5-7B-Instruct-4bit",
 			Endpoint:  mlxLLMURL,
 			Capabilities: ModelCapabilities{
 				Capabilities:            []Capability{CapabilityChat, CapabilityCompletion, CapabilitySummarization, CapabilityExtraction, CapabilityClassification, CapabilityCodeGeneration},

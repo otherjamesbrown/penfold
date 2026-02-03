@@ -39,7 +39,7 @@ type MLXConfig struct {
 	DefaultEmbeddingModel string
 
 	// DefaultLLMModel is the default model for LLM completions.
-	// Default: mlx-community/Qwen2.5-32B-Instruct-4bit
+	// Default: mlx-community/Qwen2.5-7B-Instruct-4bit
 	DefaultLLMModel string
 
 	// EmbeddingDimensions is the expected dimension of embedding vectors.
@@ -57,7 +57,7 @@ func DefaultMLXConfig() *MLXConfig {
 		EmbeddingsURL:         "http://localhost:8081",
 		LLMURL:                "http://localhost:8080",
 		DefaultEmbeddingModel: "mxbai-embed-large-v1",
-		DefaultLLMModel:       "mlx-community/Qwen2.5-32B-Instruct-4bit",
+		DefaultLLMModel:       "mlx-community/Qwen2.5-7B-Instruct-4bit",
 		EmbeddingDimensions:   1024,
 		Timeout:               120 * time.Second,
 	}
@@ -81,7 +81,7 @@ func NewMLXBackend(config *MLXConfig) *MLXBackend {
 		config.DefaultEmbeddingModel = "mxbai-embed-large-v1"
 	}
 	if config.DefaultLLMModel == "" {
-		config.DefaultLLMModel = "mlx-community/Qwen2.5-32B-Instruct-4bit"
+		config.DefaultLLMModel = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 	}
 	if config.EmbeddingDimensions == 0 {
 		config.EmbeddingDimensions = 1024

@@ -633,7 +633,7 @@ func TestDefaultModels(t *testing.T) {
 	}
 
 	expectedIDs := []string{
-		"mlx/Qwen2.5-32B-Instruct-4bit",
+		"mlx/Qwen2.5-7B-Instruct-4bit",
 		"mlx/mxbai-embed-large-v1",
 		"gemini/gemini-pro",
 		"gemini/gemini-1.5-pro",

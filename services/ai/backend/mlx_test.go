@@ -18,7 +18,7 @@ func TestNewMLXBackend(t *testing.T) {
 		if be.defaultEmbeddingModel != "mxbai-embed-large-v1" {
 			t.Errorf("expected default embedding model, got %s", be.defaultEmbeddingModel)
 		}
-		if be.defaultLLMModel != "mlx-community/Qwen2.5-32B-Instruct-4bit" {
+		if be.defaultLLMModel != "mlx-community/Qwen2.5-7B-Instruct-4bit" {
 			t.Errorf("expected default LLM model, got %s", be.defaultLLMModel)
 		}
 	})
