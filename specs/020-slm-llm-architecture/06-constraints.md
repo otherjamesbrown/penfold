@@ -6,11 +6,11 @@
 
 | Resource | Specification |
 |----------|--------------|
-| Chip | Apple M-series (Apple Silicon) |
-| Unified Memory | Shared between CPU, GPU, and Neural Engine |
+| Chip | Apple M4 |
+| Unified Memory | 32GB — shared between CPU, GPU, and Neural Engine |
 | Role | Worker service, AI service, MLX model inference |
 
-**Memory constraint**: Apple Silicon uses unified memory shared between the OS, applications, and GPU (used for ML inference). Running a 7B model (4-bit quantized) requires ~4-5GB of GPU memory. A 32B model requires ~18-20GB, potentially leaving insufficient memory for other services.
+**Memory constraint**: Apple Silicon uses unified memory shared between the OS, applications, and GPU (used for ML inference). With 32GB total, running a 7B model (4-bit quantized, ~5GB) leaves plenty of headroom. A 32B model (~19GB) fits but leaves ~13GB for the OS, Worker service, AI service, and other processes.
 
 **Key tradeoff**: Model size directly competes with system memory for Worker, AI service, PostgreSQL connections, and Temporal client.
 

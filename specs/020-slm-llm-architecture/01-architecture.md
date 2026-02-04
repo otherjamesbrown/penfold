@@ -122,7 +122,7 @@ Glossary, Questions, Review, Mentions, Entities, Products, Projects, Teams, Tena
 | Component | Machine | OS | Architecture | Deploy Method |
 |-----------|---------|------|--------------|---------------|
 | Gateway | dev02 | Ubuntu Linux | AMD64 | systemd service |
-| Worker | dev01 | macOS | Apple Silicon (M-series) | launchd plist |
+| Worker | dev01 | macOS | Apple M4, 32GB | launchd plist |
 | AI Service | dev01 | macOS | Apple Silicon | launchd plist |
 | MLX Server | dev01 | macOS | Apple Silicon | Runs locally |
 | PostgreSQL | dev02 | Ubuntu Linux | AMD64 | System service |

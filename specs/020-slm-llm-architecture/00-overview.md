@@ -216,4 +216,10 @@ The knowledge base improves over time:
 | `04-ai-services.md` | AI stack, backends, routing, embeddings |
 | `05-content-pipeline.md` | Ingestion, processing, enrichment, search |
 | `06-constraints.md` | Hardware, cost, and operational constraints |
-| `guide.md` | The comprehensive SLM/LLM architecture design guide |
+| `design.md` | The core SLM/LLM architecture design narrative |
+| `model-selection.md` | 7B vs 14B vs 32B tradeoffs on Apple Silicon |
+| `prompt-engineering.md` | SLM vs LLM prompt rules, examples, validation |
+| `test-data-validation.md` | Analysis of 267 emails and 18 transcripts |
+| `cost-model.md` | Per-email cost breakdowns, batch economics |
+| `implementation.md` | What exists, what needs building, design principles |
+| `README.md` | Orientation guide for external AI advisors |

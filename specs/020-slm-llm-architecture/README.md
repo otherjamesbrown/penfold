@@ -40,7 +40,17 @@ Read them in order. Each builds on the previous.
 
 | File | What It Covers |
 |------|---------------|
-| `guide.md` | **The comprehensive design guide.** ~2,400 lines. Covers the collaboration philosophy, SLM vs LLM capabilities, the 6-stage pipeline design, content-type handling (emails, transcripts, Slack), chunking strategies, 7B vs 14B vs 32B model tradeoffs, real test data validation, knowledge feedback loops, assertion lifecycle tracking, session bootstrap, and worked examples. |
+| `design.md` | **The core design narrative.** ~1,900 lines. Covers the collaboration philosophy, SLM vs LLM capabilities, the 6-stage pipeline (stages 0-5 in detail), content-type handling (emails, transcripts, Slack), knowledge feedback loops, assertion lifecycle and golden thread tracking, session bootstrap, progressive availability, and a worked end-to-end example. |
+
+### Reference documents (supporting detail):
+
+| File | What It Covers |
+|------|---------------|
+| `model-selection.md` | 7B vs 14B vs 32B tradeoffs on the M4 Mac Mini, hardware reality, task-based selection strategies, benchmark guidance |
+| `prompt-engineering.md` | SLM vs LLM prompt rules, example prompts, output validation, quality tracking |
+| `test-data-validation.md` | Analysis of 267 real emails and 18 transcripts — file size vs text size, does the design hold up |
+| `cost-model.md` | Per-email cost breakdowns, batch processing economics, SLM throughput estimates |
+| `implementation.md` | What exists in the codebase, what needs building, what gets modified, design principles, FAQ |
 
 ## Key Design Concepts
 
@@ -59,7 +69,7 @@ These are the ideas that matter most. If you only have time to understand a few 
 ## Important Context
 
 - **This is a real project**, not a thought experiment. There is working code, a deployed system, and real test data (267 emails, 18 meeting transcripts). The design needs to be practical.
-- **Hardware is fixed**: One Mac Mini (Apple Silicon, unified memory shared between OS and GPU) and one Linux server (no GPU). We can't add machines.
+- **Hardware is fixed**: One Mac Mini M4 (32GB unified memory, shared between OS and GPU) and one Linux server (no GPU). We can't add machines.
 - **The user interacts through Claude Code** (an AI coding assistant), not through a GUI or CLI directly. Claude translates natural language into `penf` CLI commands. The CLI is designed for AI consumption, not human ergonomics.
 - **PostgreSQL is the database**. We are not adopting a graph database. If you think we should, make the case, but understand we have 27 migrations and a working system on PostgreSQL + pgvector already.
 - **Privacy matters**: Local models are preferred for content processing. Remote LLMs are used selectively, not as the default path.
