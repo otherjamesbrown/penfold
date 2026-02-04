@@ -299,6 +299,59 @@ func (s *Service) GetModelStatus(ctx context.Context, req *aiv1.GetModelStatusRe
 	return resp, nil
 }
 
+// ClassifyContent proxies to AI service to classify content into categories.
+func (s *Service) ClassifyContent(ctx context.Context, req *aiv1.ClassifyContentRequest) (*aiv1.ClassifyContentResponse, error) {
+	s.logger.Debug("ClassifyContent called",
+		logging.F("content_length", len(req.GetContent())),
+		logging.F("categories", req.GetCategories()),
+	)
+
+	if err := s.checkClient(); err != nil {
+		s.logger.Warn("ClassifyContent: AI service unavailable")
+		return nil, err
+	}
+
+	resp, err := s.aiClient.ClassifyContent(ctx, req)
+	if err != nil {
+		s.logger.Error("ClassifyContent failed", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to classify content: %v", err)
+	}
+
+	s.logger.Debug("ClassifyContent completed",
+		logging.F("model_used", resp.GetModelUsed()),
+		logging.F("classification_count", len(resp.GetClassifications())),
+	)
+	return resp, nil
+}
+
+// TriageContent proxies to AI service to triage content (category + importance).
+func (s *Service) TriageContent(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+	s.logger.Debug("TriageContent called",
+		logging.F("content_length", len(req.GetContent())),
+		logging.F("subject", req.GetSubject()),
+		logging.F("source_id", req.GetSourceId()),
+	)
+
+	if err := s.checkClient(); err != nil {
+		s.logger.Warn("TriageContent: AI service unavailable")
+		return nil, err
+	}
+
+	resp, err := s.aiClient.TriageContent(ctx, req)
+	if err != nil {
+		s.logger.Error("TriageContent failed", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to triage content: %v", err)
+	}
+
+	s.logger.Debug("TriageContent completed",
+		logging.F("category", resp.GetCategory()),
+		logging.F("importance", resp.GetImportance()),
+		logging.F("model_used", resp.GetModelUsed()),
+		logging.F("retries", resp.GetRetries()),
+	)
+	return resp, nil
+}
+
 // =============================================================================
 // AI Operations (CLI-facing)
 // =============================================================================

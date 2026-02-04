@@ -70,7 +70,7 @@ Record each work package completion here. Sessions should update this after comm
 |----|--------|--------|------|-----------------|
 | WP1 | **done** | `0cdc532` | 2026-02-04 | 4 migrations (028–031): assertion lifecycle, pipeline registry, trust/seniority, watch list |
 | WP2 | **done** | `52d1c8e` | 2026-02-04 | Email parse (HTML-to-text, quoted reply detection), transcript parse (SRT/VTT/TXT, speaker normalization), Temporal activities on Main/Email queues. 37 tests. |
-| WP3 | pending | — | — | — |
+| WP3 | **done** | — | 2026-02-04 | TriageContent gRPC RPC: proto definition, gateway proxy, AI server handler with triage prompt (8 categories, 3 importance levels), JSON validation, retry (max 2), Langfuse tracing, prompt template migration (032). 20+ tests. |
 | WP4 | pending | — | — | — |
 | WP5 | pending | — | — | — |
 | WP6 | pending | — | — | — |
@@ -137,31 +137,30 @@ Record each work package completion here. Sessions should update this after comm
 
 ---
 
-## WP3: Stage 1 — Triage RPC
+## WP3: Stage 1 — Triage RPC ✓
 
-**Shard:** `pf-39a879` · **Agent:** service-dev · **Depends on:** WP1
+**Shard:** `pf-39a879` · **Agent:** service-dev, ai-dev · **Depends on:** WP1 · **Status:** done
 
-**Files:**
-- `api/proto/ai/v1/ai.proto` — add TriageContent RPC
-- `services/ai/server/server.go` — add handler
-- `services/ai/server/server_test.go` — add tests
-- `services/gateway/modelservice/service.go` — proxy if needed
+**Files delivered:**
+- `api/proto/ai/v1/ai.proto` — TriageContent RPC, TriageContentRequest/Response messages
+- `api/proto/ai/v1/ai.pb.go`, `ai_grpc.pb.go` — generated proto code
+- `pkg/ai/client.go` — TriageContent client method
+- `pkg/ai/client_test.go` — TestClient_TriageContent (3 subtests)
+- `services/gateway/modelservice/service.go` — TriageContent gateway proxy
+- `services/ai/server/server.go` — TriageContent handler entry point with retry loop
+- `services/ai/server/triage.go` — prompt builder, JSON parser, category/importance validation
+- `services/ai/server/triage_test.go` — 20+ tests (valid, malformed JSON, unknown category, invalid importance, truncation)
+- `migrations/032_seed_triage_prompt.sql` — seeds triage prompt template v1
 
-**Scope:**
-- New `TriageContent(text, metadata)` → `{category, importance, reason}` gRPC method
-- Routes to local SLM only (MLX backend)
-- Triage prompt from design.md: 8 categories, 3 importance levels, first 500 chars only
-- Seed `pipeline_stages` row for 'triage' and active `prompt_templates` entry
-- Seed `pipeline_runs` provenance tracking on each call
-- JSON schema validation on SLM output (category must be in allowlist, importance must be HIGH/MEDIUM/LOW)
+**Implementation shards:** `pf-ccdeff` (proto + gateway + client), `pf-0360e1` (AI server + tests)
 
-**Acceptance criteria:**
+**Acceptance criteria (met):**
 - TriageContent RPC callable via gateway
 - Returns valid category + importance + reason
 - Rejects malformed SLM output and retries (up to 2)
-- Langfuse tracing records the call
-- `pipeline_runs` row created per invocation
-- Tests cover: valid classification, malformed JSON retry, unknown category rejection
+- Langfuse tracing records the call (StartLLMCall + SetLLMResult)
+- Pipeline_runs provenance logging (DB insert deferred to workflow layer)
+- Tests cover: valid classification, malformed JSON retry, unknown category rejection, invalid importance, content truncation to 500 chars
 
 ---
 

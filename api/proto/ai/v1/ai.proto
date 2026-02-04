@@ -32,6 +32,15 @@ service AICoordinatorService {
   // Returns classification labels with confidence scores.
   rpc ClassifyContent(ClassifyContentRequest) returns (ClassifyContentResponse);
 
+  // TriageContent classifies content into categories and importance levels.
+  // Used for initial email/content triage with SLM (8 categories, 3 importance levels).
+  rpc TriageContent(TriageContentRequest) returns (TriageContentResponse);
+
+  // ExtractEntities performs two-pass entity extraction (NER + semantic) from content.
+  // Stage 2a extracts people, dates, projects, organisations.
+  // Stage 2b extracts action_items, decisions, risks.
+  rpc ExtractEntities(ExtractEntitiesRequest) returns (ExtractEntitiesResponse);
+
   // GetModelStatus checks the availability and health of AI models.
   // Returns information about loaded models and their capabilities.
   rpc GetModelStatus(GetModelStatusRequest) returns (GetModelStatusResponse);
@@ -304,6 +313,133 @@ message ClassifyContentResponse {
 
   // The model that was actually used for classification.
   string model_used = 3;
+}
+
+// =============================================================================
+// Content Triage Messages
+// =============================================================================
+
+// TriageContentRequest contains content to triage (category + importance).
+message TriageContentRequest {
+  // The content to triage (first ~500 characters recommended).
+  string content = 1;
+
+  // Optional email subject for additional context.
+  optional string subject = 2;
+
+  // Optional sender for additional context.
+  optional string sender = 3;
+
+  // The model to use for triage.
+  // If not specified, the default SLM will be used.
+  optional string model = 4;
+
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 5;
+
+  // Optional source ID for pipeline_runs provenance tracking.
+  optional int64 source_id = 6;
+}
+
+// TriageContentResponse contains the triage classification results.
+message TriageContentResponse {
+  // Category classification.
+  // One of: PROJECT_UPDATE, CUSTOMER, RISK_ISSUE, ACTION_REQUEST,
+  // DECISION, INTERNAL_COMMS, PERSONAL, OTHER
+  string category = 1;
+
+  // Importance level.
+  // One of: HIGH, MEDIUM, LOW
+  string importance = 2;
+
+  // Brief explanation for the classification.
+  string reason = 3;
+
+  // The model that was actually used for triage.
+  string model_used = 4;
+
+  // Number of input tokens processed.
+  optional int32 input_tokens = 5;
+
+  // Number of output tokens generated.
+  optional int32 output_tokens = 6;
+
+  // Number of retries needed to get a valid response.
+  int32 retries = 7;
+}
+
+// =============================================================================
+// Entity Extraction Messages
+// =============================================================================
+
+// ExtractEntitiesRequest contains content for two-pass entity extraction.
+message ExtractEntitiesRequest {
+  // The content to extract entities from.
+  string content = 1;
+
+  // Triage category from Stage 1 (used for quality gate).
+  // If RISK_ISSUE and extraction finds 0 risks, re-runs with focused prompt.
+  optional string triage_category = 2;
+
+  // The model to use for extraction.
+  optional string model = 3;
+
+  // Optional tenant identifier.
+  optional string tenant_id = 4;
+
+  // Optional source ID for provenance tracking.
+  optional int64 source_id = 5;
+}
+
+// PersonEntity represents a person extracted from content.
+message PersonEntity {
+  string name = 1;
+  string role = 2;  // Role/title if stated
+}
+
+// DateEntity represents a date or deadline extracted from content.
+message DateEntity {
+  string date = 1;
+  string context = 2;  // What the date relates to
+}
+
+// ActionItemEntity represents an explicit action item.
+message ActionItemEntity {
+  string assignee = 1;
+  string action = 2;
+  string due = 3;
+}
+
+// RiskEntity represents a risk from the quality gate re-run.
+// Used when triage=RISK_ISSUE triggers focused extraction.
+message RiskEntity {
+  string description = 1;
+  string severity_hint = 2;
+  string owner_hint = 3;
+}
+
+// ExtractEntitiesResponse contains the merged extraction results.
+message ExtractEntitiesResponse {
+  // Stage 2a: NER results
+  repeated PersonEntity people = 1;
+  repeated DateEntity dates = 2;
+  repeated string projects = 3;
+  repeated string organisations = 4;
+
+  // Stage 2b: Semantic results
+  repeated ActionItemEntity action_items = 5;
+  repeated string decisions = 6;
+  repeated string risks = 7;
+
+  // Quality gate results (only populated if re-run triggered)
+  repeated RiskEntity detailed_risks = 8;
+  bool quality_gate_triggered = 9;
+
+  // Metadata
+  string model_used = 10;
+  optional int32 input_tokens = 11;
+  optional int32 output_tokens = 12;
+  int32 retries = 13;
 }
 
 // =============================================================================

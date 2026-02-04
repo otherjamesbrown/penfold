@@ -27,6 +27,8 @@ const (
 	AICoordinatorService_GenerateSummary_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/GenerateSummary"
 	AICoordinatorService_ExtractAssertions_FullMethodName = "/penfold.ai.v1.AICoordinatorService/ExtractAssertions"
 	AICoordinatorService_ClassifyContent_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/ClassifyContent"
+	AICoordinatorService_TriageContent_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/TriageContent"
+	AICoordinatorService_ExtractEntities_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/ExtractEntities"
 	AICoordinatorService_GetModelStatus_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/GetModelStatus"
 	AICoordinatorService_ListModels_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/ListModels"
 	AICoordinatorService_RegisterModel_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/RegisterModel"
@@ -59,6 +61,13 @@ type AICoordinatorServiceClient interface {
 	// ClassifyContent categorizes content into predefined or dynamic categories.
 	// Returns classification labels with confidence scores.
 	ClassifyContent(ctx context.Context, in *ClassifyContentRequest, opts ...grpc.CallOption) (*ClassifyContentResponse, error)
+	// TriageContent classifies content into categories and importance levels.
+	// Used for initial email/content triage with SLM (8 categories, 3 importance levels).
+	TriageContent(ctx context.Context, in *TriageContentRequest, opts ...grpc.CallOption) (*TriageContentResponse, error)
+	// ExtractEntities performs two-pass entity extraction (NER + semantic) from content.
+	// Stage 2a extracts people, dates, projects, organisations.
+	// Stage 2b extracts action_items, decisions, risks.
+	ExtractEntities(ctx context.Context, in *ExtractEntitiesRequest, opts ...grpc.CallOption) (*ExtractEntitiesResponse, error)
 	// GetModelStatus checks the availability and health of AI models.
 	// Returns information about loaded models and their capabilities.
 	GetModelStatus(ctx context.Context, in *GetModelStatusRequest, opts ...grpc.CallOption) (*GetModelStatusResponse, error)
@@ -133,6 +142,26 @@ func (c *aICoordinatorServiceClient) ClassifyContent(ctx context.Context, in *Cl
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ClassifyContentResponse)
 	err := c.cc.Invoke(ctx, AICoordinatorService_ClassifyContent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) TriageContent(ctx context.Context, in *TriageContentRequest, opts ...grpc.CallOption) (*TriageContentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TriageContentResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_TriageContent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) ExtractEntities(ctx context.Context, in *ExtractEntitiesRequest, opts ...grpc.CallOption) (*ExtractEntitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExtractEntitiesResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_ExtractEntities_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -259,6 +288,13 @@ type AICoordinatorServiceServer interface {
 	// ClassifyContent categorizes content into predefined or dynamic categories.
 	// Returns classification labels with confidence scores.
 	ClassifyContent(context.Context, *ClassifyContentRequest) (*ClassifyContentResponse, error)
+	// TriageContent classifies content into categories and importance levels.
+	// Used for initial email/content triage with SLM (8 categories, 3 importance levels).
+	TriageContent(context.Context, *TriageContentRequest) (*TriageContentResponse, error)
+	// ExtractEntities performs two-pass entity extraction (NER + semantic) from content.
+	// Stage 2a extracts people, dates, projects, organisations.
+	// Stage 2b extracts action_items, decisions, risks.
+	ExtractEntities(context.Context, *ExtractEntitiesRequest) (*ExtractEntitiesResponse, error)
 	// GetModelStatus checks the availability and health of AI models.
 	// Returns information about loaded models and their capabilities.
 	GetModelStatus(context.Context, *GetModelStatusRequest) (*GetModelStatusResponse, error)
@@ -310,6 +346,12 @@ func (UnimplementedAICoordinatorServiceServer) ExtractAssertions(context.Context
 }
 func (UnimplementedAICoordinatorServiceServer) ClassifyContent(context.Context, *ClassifyContentRequest) (*ClassifyContentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ClassifyContent not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) TriageContent(context.Context, *TriageContentRequest) (*TriageContentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TriageContent not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) ExtractEntities(context.Context, *ExtractEntitiesRequest) (*ExtractEntitiesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExtractEntities not implemented")
 }
 func (UnimplementedAICoordinatorServiceServer) GetModelStatus(context.Context, *GetModelStatusRequest) (*GetModelStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetModelStatus not implemented")
@@ -430,6 +472,42 @@ func _AICoordinatorService_ClassifyContent_Handler(srv interface{}, ctx context.
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AICoordinatorServiceServer).ClassifyContent(ctx, req.(*ClassifyContentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_TriageContent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TriageContentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).TriageContent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_TriageContent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).TriageContent(ctx, req.(*TriageContentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_ExtractEntities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExtractEntitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).ExtractEntities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_ExtractEntities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).ExtractEntities(ctx, req.(*ExtractEntitiesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -636,6 +714,14 @@ var AICoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ClassifyContent",
 			Handler:    _AICoordinatorService_ClassifyContent_Handler,
+		},
+		{
+			MethodName: "TriageContent",
+			Handler:    _AICoordinatorService_TriageContent_Handler,
+		},
+		{
+			MethodName: "ExtractEntities",
+			Handler:    _AICoordinatorService_ExtractEntities_Handler,
 		},
 		{
 			MethodName: "GetModelStatus",

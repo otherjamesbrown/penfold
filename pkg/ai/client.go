@@ -211,6 +211,27 @@ func (c *Client) ClassifyContent(ctx context.Context, req *aiv1.ClassifyContentR
 	return resp, nil
 }
 
+// TriageContent classifies content into categories and importance levels.
+func (c *Client) TriageContent(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+
+	// Apply request timeout if configured
+	if c.options.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.options.requestTimeout)
+		defer cancel()
+	}
+
+	resp, err := c.client.TriageContent(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("triage content failed: %w", err)
+	}
+
+	return resp, nil
+}
+
 // ListModels returns all registered models with optional filtering.
 func (c *Client) ListModels(ctx context.Context, req *aiv1.ListModelsRequest) (*aiv1.ListModelsResponse, error) {
 	if req == nil {

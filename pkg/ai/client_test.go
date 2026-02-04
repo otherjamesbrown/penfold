@@ -24,6 +24,7 @@ type mockAIServer struct {
 	generateSummaryFunc    func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error)
 	extractAssertionsFunc  func(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error)
 	classifyContentFunc    func(ctx context.Context, req *aiv1.ClassifyContentRequest) (*aiv1.ClassifyContentResponse, error)
+	triageContentFunc      func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error)
 	getModelStatusFunc     func(ctx context.Context, req *aiv1.GetModelStatusRequest) (*aiv1.GetModelStatusResponse, error)
 
 	// Call counters for retry testing
@@ -85,6 +86,23 @@ func (m *mockAIServer) ClassifyContent(ctx context.Context, req *aiv1.ClassifyCo
 		},
 		Primary:   &aiv1.Classification{Label: "work", Confidence: 0.9},
 		ModelUsed: "test-model",
+	}, nil
+}
+
+func (m *mockAIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+	if m.triageContentFunc != nil {
+		return m.triageContentFunc(ctx, req)
+	}
+	inputTokens := int32(50)
+	outputTokens := int32(20)
+	return &aiv1.TriageContentResponse{
+		Category:     "PROJECT_UPDATE",
+		Importance:   "HIGH",
+		Reason:       "Content contains project status information",
+		ModelUsed:    "test-model",
+		InputTokens:  &inputTokens,
+		OutputTokens: &outputTokens,
+		Retries:      0,
 	}, nil
 }
 
@@ -527,5 +545,53 @@ func TestClient_ClassifyContent(t *testing.T) {
 		assert.NotNil(t, resp)
 		assert.NotEmpty(t, resp.Classifications)
 		assert.Equal(t, "work", resp.Primary.Label)
+	})
+}
+
+func TestClient_TriageContent(t *testing.T) {
+	mock := &mockAIServer{}
+	server, addr := startTestServer(t, mock)
+	defer server.Stop()
+
+	client, err := NewClient(addr)
+	require.NoError(t, err)
+	defer client.Close()
+
+	t.Run("nil request returns error", func(t *testing.T) {
+		_, err := client.TriageContent(context.Background(), nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "request is required")
+	})
+
+	t.Run("successful triage", func(t *testing.T) {
+		subject := "Q4 Project Status"
+		sender := "john@example.com"
+		sourceID := int64(123)
+
+		resp, err := client.TriageContent(context.Background(), &aiv1.TriageContentRequest{
+			Content:  "The project is on track and we've completed all major milestones for Q4.",
+			Subject:  &subject,
+			Sender:   &sender,
+			SourceId: &sourceID,
+		})
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, "PROJECT_UPDATE", resp.Category)
+		assert.Equal(t, "HIGH", resp.Importance)
+		assert.NotEmpty(t, resp.Reason)
+		assert.Equal(t, "test-model", resp.ModelUsed)
+		assert.NotNil(t, resp.InputTokens)
+		assert.NotNil(t, resp.OutputTokens)
+		assert.Equal(t, int32(0), resp.Retries)
+	})
+
+	t.Run("triage with minimal context", func(t *testing.T) {
+		resp, err := client.TriageContent(context.Background(), &aiv1.TriageContentRequest{
+			Content: "Quick update on the project status.",
+		})
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.NotEmpty(t, resp.Category)
+		assert.NotEmpty(t, resp.Importance)
 	})
 }

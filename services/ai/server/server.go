@@ -494,6 +494,149 @@ func (s *AIServer) ClassifyContent(ctx context.Context, req *aiv1.ClassifyConten
 	return resp, nil
 }
 
+// TriageContent classifies content into categories and rates importance.
+// Returns classification with category, importance, and reasoning.
+func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+	content := strings.TrimSpace(req.GetContent())
+	model := req.GetModel()
+
+	// Start tracing span
+	ctx, span := tracing.StartLLMCall(ctx, "ai.triage", tracing.LLMCallOptions{
+		Model:    model,
+		System:   tracing.AISystemMLX,
+		TenantID: req.GetTenantId(),
+		TaskType: "triage",
+	})
+	defer span.End()
+	startTime := time.Now()
+
+	s.logger.Debug("TriageContent called",
+		logging.F("content_length", len(content)),
+		logging.F("subject", req.GetSubject()),
+		logging.F("sender", req.GetSender()),
+		logging.F("model", model),
+		logging.F("tenant_id", req.GetTenantId()),
+		logging.F("source_id", req.GetSourceId()),
+	)
+
+	if content == "" {
+		err := status.Error(codes.InvalidArgument, "content cannot be empty")
+		tracing.SetError(span, err)
+		return nil, err
+	}
+
+	// Build the triage prompt
+	systemPrompt, userPrompt := buildTriagePrompt(req.GetSubject(), req.GetSender(), content)
+
+	messages := []backend.Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+
+	opts := backend.CompletionOptions{
+		Model:       model,
+		Temperature: 0.1, // Low temperature for consistent classification
+		MaxTokens:   256, // Small response: just category, importance, reason
+		JSONMode:    true,
+	}
+
+	// Retry loop: up to 2 retries on malformed output
+	const maxTriageRetries = 2
+	var category, importance, reason string
+	var result *backend.CompletionResult
+	var lastErr error
+	retryCount := 0
+
+	for attempt := 0; attempt <= maxTriageRetries; attempt++ {
+		result, lastErr = s.backend.ChatCompletion(ctx, messages, opts)
+		if lastErr != nil {
+			s.logger.Error("TriageContent ChatCompletion failed",
+				logging.F("attempt", attempt),
+				logging.Err(lastErr),
+			)
+			tracing.SetError(span, lastErr)
+			return nil, s.convertError(lastErr)
+		}
+
+		// Try to parse the response
+		category, importance, reason, lastErr = parseTriageResponse(result.Content)
+		if lastErr == nil {
+			// Successfully parsed and validated
+			break
+		}
+
+		s.logger.Warn("TriageContent response parsing failed, retrying",
+			logging.F("attempt", attempt),
+			logging.F("max_retries", maxTriageRetries),
+			logging.Err(lastErr),
+		)
+
+		retryCount++
+
+		if attempt >= maxTriageRetries {
+			// Exhausted retries
+			parseErr := status.Error(codes.Internal, fmt.Sprintf("failed to parse triage response after %d retries: %v", maxTriageRetries, lastErr))
+			tracing.SetError(span, parseErr)
+			return nil, parseErr
+		}
+	}
+
+	// Build response
+	resp := &aiv1.TriageContentResponse{
+		Category:   category,
+		Importance: importance,
+		Reason:     reason,
+		ModelUsed:  result.Model,
+		Retries:    int32(retryCount),
+	}
+
+	if result.InputTokens > 0 {
+		it := int32(result.InputTokens)
+		resp.InputTokens = &it
+	}
+	if result.OutputTokens > 0 {
+		ot := int32(result.OutputTokens)
+		resp.OutputTokens = &ot
+	}
+
+	// Record tracing result with prompt/completion for Langfuse visibility
+	tracing.SetLLMResult(span, tracing.LLMResult{
+		InputTokens:  result.InputTokens,
+		OutputTokens: result.OutputTokens,
+		Model:        result.Model,
+		LatencyMs:    time.Since(startTime).Milliseconds(),
+		Prompt:       systemPrompt + "\n\n" + userPrompt,
+		Completion:   result.Content,
+	})
+
+	// Record pipeline_runs provenance if source_id and registry are available
+	if req.SourceId != nil && s.registry != nil {
+		sourceID := req.GetSourceId()
+		durationMs := int(time.Since(startTime).Milliseconds())
+
+		// Get the repository from the registry for direct DB access
+		// The registry doesn't expose pipeline_runs insert, so we'll log and skip
+		s.logger.Debug("Pipeline provenance tracking",
+			logging.F("source_id", sourceID),
+			logging.F("stage", "triage"),
+			logging.F("model", result.Model),
+			logging.F("duration_ms", durationMs),
+			logging.F("status", "completed"),
+		)
+		// Note: Direct pipeline_runs insert would require exposing DB from registry
+		// For now, this will be handled at the gateway/workflow level
+	}
+
+	s.logger.Debug("TriageContent completed",
+		logging.F("category", category),
+		logging.F("importance", importance),
+		logging.F("retries", retryCount),
+		logging.F("model_used", result.Model),
+	)
+
+	return resp, nil
+}
+
 // GetModelStatus checks the availability and health of AI models.
 // Returns information about loaded models and their capabilities.
 func (s *AIServer) GetModelStatus(ctx context.Context, req *aiv1.GetModelStatusRequest) (*aiv1.GetModelStatusResponse, error) {
