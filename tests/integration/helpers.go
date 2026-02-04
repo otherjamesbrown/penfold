@@ -16,35 +16,50 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// IntegrationTestTenantID is the tenant ID for integration tests.
+// Different from E2E tests to allow both to run without conflicts.
+const IntegrationTestTenantID = "00000000-0000-0000-0000-000000000002"
+
 // TestDB holds the database connection for integration tests.
 type TestDB struct {
-	Pool *pgxpool.Pool
-	Name string
+	Pool     *pgxpool.Pool
+	Name     string
+	TenantID string
 }
 
 // SetupTestDB creates a connection to the test database.
+// Uses the production database with tenant isolation.
 // It reads configuration from environment variables:
 //   - PENFOLD_DB_HOST (default: dev02.brown.chat)
 //   - PENFOLD_DB_PORT (default: 5432)
 //   - PENFOLD_DB_USER (default: penfold)
-//   - PENFOLD_DB_PASSWORD (required)
-//   - PENFOLD_DB_NAME (default: penfold_test_integration)
+//   - PENFOLD_DB_NAME (default: penfold - uses production DB with tenant isolation)
 func SetupTestDB(t *testing.T) *TestDB {
 	t.Helper()
 
 	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
 	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
 	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
-	password := os.Getenv("PENFOLD_DB_PASSWORD")
-	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold_test_integration")
+	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold") // Use production DB with tenant isolation
 
-	if password == "" {
-		t.Skip("PENFOLD_DB_PASSWORD not set - skipping integration test")
+	// Build connection string with SSL cert auth
+	// Certs are expected in ~/.postgresql/ (standard libpq location)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("failed to get home directory: %v", err)
+	}
+	sslCert := filepath.Join(homeDir, ".postgresql", "postgresql.crt")
+	sslKey := filepath.Join(homeDir, ".postgresql", "postgresql.key")
+	sslRootCert := filepath.Join(homeDir, ".postgresql", "root.crt")
+
+	// Check if SSL certs exist
+	if _, err := os.Stat(sslCert); os.IsNotExist(err) {
+		t.Skip("SSL certs not found in ~/.postgresql/ - skipping integration test")
 	}
 
 	connStr := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		user, password, host, port, dbName,
+		"postgres://%s@%s:%s/%s?sslmode=verify-full&sslcert=%s&sslkey=%s&sslrootcert=%s",
+		user, host, port, dbName, sslCert, sslKey, sslRootCert,
 	)
 
 	ctx := context.Background()
@@ -56,8 +71,9 @@ func SetupTestDB(t *testing.T) *TestDB {
 	require.NoError(t, err, "failed to ping test database")
 
 	testDB := &TestDB{
-		Pool: pool,
-		Name: dbName,
+		Pool:     pool,
+		Name:     dbName,
+		TenantID: IntegrationTestTenantID,
 	}
 
 	// Register cleanup
@@ -68,23 +84,25 @@ func SetupTestDB(t *testing.T) *TestDB {
 	return testDB
 }
 
-// TruncateAllTables truncates all user tables in the database.
-// This is used to reset state between tests.
-func (db *TestDB) TruncateAllTables(t *testing.T) {
+// CleanupTestTenant deletes all data for the integration test tenant only.
+// This preserves other tenants' data in the shared database.
+func (db *TestDB) CleanupTestTenant(t *testing.T) {
 	t.Helper()
 
 	ctx := context.Background()
 
-	// Get all table names from the public schema
+	// Find all tables with a tenant_id column (except tenants itself)
 	rows, err := db.Pool.Query(ctx, `
-		SELECT tablename
-		FROM pg_tables
-		WHERE schemaname = 'public'
-		AND tablename NOT LIKE 'pg_%'
-		AND tablename NOT LIKE 'sql_%'
-		AND tablename != 'schema_migrations'
+		SELECT DISTINCT c.table_name
+		FROM information_schema.columns c
+		JOIN information_schema.tables t ON c.table_name = t.table_name
+		WHERE c.table_schema = 'public'
+		AND t.table_schema = 'public'
+		AND t.table_type = 'BASE TABLE'
+		AND c.column_name = 'tenant_id'
+		AND c.table_name != 'tenants'
 	`)
-	require.NoError(t, err, "failed to query table names")
+	require.NoError(t, err, "failed to query tenant tables")
 	defer rows.Close()
 
 	var tables []string
@@ -95,18 +113,21 @@ func (db *TestDB) TruncateAllTables(t *testing.T) {
 		tables = append(tables, tableName)
 	}
 
-	if len(tables) == 0 {
-		return
-	}
-
-	// Truncate all tables with CASCADE
+	// Delete test tenant's data from each table
 	for _, table := range tables {
-		_, err := db.Pool.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table))
+		_, err := db.Pool.Exec(ctx, fmt.Sprintf(
+			"DELETE FROM %s WHERE tenant_id = $1", table), db.TenantID)
 		if err != nil {
-			// Log but don't fail - some tables might have constraints
-			t.Logf("warning: could not truncate %s: %v", table, err)
+			// Log but continue - some tables might have FK constraints
+			t.Logf("warning: could not clean %s: %v", table, err)
 		}
 	}
+}
+
+// TruncateAllTables is deprecated - use CleanupTestTenant instead.
+// This method only cleans up the integration test tenant's data, not all data.
+func (db *TestDB) TruncateAllTables(t *testing.T) {
+	db.CleanupTestTenant(t)
 }
 
 // TruncateTables truncates specific tables.
@@ -188,8 +209,22 @@ func RequireEnv(t *testing.T, key string) string {
 	return value
 }
 
+// EnsureTenantExists creates the integration test tenant if it doesn't exist.
+func (db *TestDB) EnsureTenantExists(t *testing.T) {
+	t.Helper()
+
+	ctx := context.Background()
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO tenants (id, name, display_name, slug, owner_email, created_at, updated_at)
+		VALUES ($1, 'integration_test', 'Integration Test Tenant', 'integration-test', 'integration-test@example.com', NOW(), NOW())
+		ON CONFLICT (id) DO NOTHING
+	`, db.TenantID)
+	require.NoError(t, err, "failed to ensure tenant exists")
+}
+
 // FixtureLoader returns a fixture loader for the Acme Corp fixtures.
+// Uses the integration test tenant ID.
 func (db *TestDB) FixtureLoader() *testfixtures.Loader {
 	fixtureDir := filepath.Join("..", "fixtures", "acme-corp")
-	return testfixtures.NewLoader(db.Pool, fixtureDir)
+	return testfixtures.NewLoaderWithTenant(db.Pool, fixtureDir, db.TenantID)
 }

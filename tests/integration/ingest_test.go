@@ -16,6 +16,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/contentid"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/repository"
 	"github.com/otherjamesbrown/penfold/pkg/tenant"
 	"github.com/otherjamesbrown/penfold/services/gateway/ingestservice"
 )
@@ -728,7 +729,8 @@ func setupIngestService(t *testing.T, db *TestDB) (*ingestservice.Service, strin
 		return t.ID, nil
 	})
 
-	svc := ingestservice.NewService(ingestRepo, tenantAdapter, logger)
+	seriesRepo := repository.NewSeriesRepository(db.Pool)
+	svc := ingestservice.NewService(ingestRepo, tenantAdapter, seriesRepo, logger)
 
 	return svc, created.ID
 }
@@ -760,7 +762,8 @@ func TestIngestService_TenantResolution(t *testing.T) {
 		}
 		return t.ID, nil
 	})
-	svc := ingestservice.NewService(ingestRepo, tenantAdapter, logger)
+	seriesRepo := repository.NewSeriesRepository(db.Pool)
+	svc := ingestservice.NewService(ingestRepo, tenantAdapter, seriesRepo, logger)
 
 	t.Run("CreateIngestJob resolves tenant slug to UUID", func(t *testing.T) {
 		req := &ingestv1.CreateIngestJobRequest{

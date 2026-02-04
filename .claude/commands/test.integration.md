@@ -10,31 +10,32 @@ If not provided, runs all integration tests.
 ## Prerequisites
 
 Integration tests require:
-- `PENFOLD_DB_PASSWORD` environment variable set
+- PostgreSQL SSL certs in `~/.postgresql/` (postgresql.crt, postgresql.key, root.crt)
 - PostgreSQL accessible at dev02.brown.chat
 - Test database `penfold_test_integration` with migrations applied
 
+To set up SSL certs, copy from dev01:
+```bash
+mkdir -p ~/.postgresql
+scp dev01:~/.postgresql/postgresql.crt ~/.postgresql/
+scp dev01:~/.postgresql/postgresql.key ~/.postgresql/
+scp dev01:~/.postgresql/root.crt ~/.postgresql/
+chmod 600 ~/.postgresql/postgresql.key
+```
+
 ## Instructions
 
-### Step 1: Check Prerequisites
+### Step 1: Check Prerequisites and Run Tests
 
 ```bash
-if [ -z "$PENFOLD_DB_PASSWORD" ]; then
-    echo "❌ PENFOLD_DB_PASSWORD not set"
-    echo "Run: source ~/github/otherjamesbrown/secrets/.env.penfold"
+# Check SSL certs exist
+if [ ! -f ~/.postgresql/postgresql.crt ]; then
+    echo "❌ SSL certs not found in ~/.postgresql/"
+    echo "Copy from dev01: scp dev01:~/.postgresql/{postgresql.crt,postgresql.key,root.crt} ~/.postgresql/"
     exit 1
 fi
-```
+echo "✅ SSL certificates found"
 
-### Step 2: Set Test Database
-
-```bash
-export PENFOLD_DB_NAME=penfold_test_integration
-```
-
-### Step 3: Run Tests with JSON Output
-
-```bash
 # Build test pattern
 if [ -n "$ARGUMENTS" ]; then
     RUN_FLAG="-run $ARGUMENTS"
@@ -42,17 +43,18 @@ else
     RUN_FLAG=""
 fi
 
-go test -tags=integration -json $RUN_FLAG ./tests/integration/... 2>&1 | tee /tmp/test-integration.json
+# Run tests (uses SSL cert auth configured in helpers.go)
+PENFOLD_DB_NAME=penfold_test_integration go test -tags=integration -json $RUN_FLAG ./tests/integration/... 2>&1 | tee /tmp/test-integration.json
 ```
 
-### Step 4: Parse and Categorize Results
+### Step 2: Parse and Categorize Results
 
 Parse JSON output (same format as unit tests):
 - **Passed**: Action="pass" with Test name
 - **Failed**: Action="fail" with Test name
 - **Skipped**: Action="skip" with Test name (usually missing DB credentials)
 
-### Step 5: Present Structured Summary
+### Step 3: Present Structured Summary
 
 ```
 ## Integration Test Results
@@ -67,7 +69,7 @@ Parse JSON output (same format as unit tests):
 **Duration**: X.XXs
 ```
 
-### Step 6: Show Failures First
+### Step 4: Show Failures First
 
 ```
 ### ❌ Failed Tests
@@ -79,7 +81,7 @@ Parse JSON output (same format as unit tests):
 
 Include relevant output lines for debugging.
 
-### Step 7: Show Skipped Tests
+### Step 5: Show Skipped Tests
 
 ```
 ### ⏭️ Skipped Tests
@@ -89,7 +91,7 @@ Include relevant output lines for debugging.
 | TestDatabaseConnection | PENFOLD_DB_PASSWORD not set |
 ```
 
-### Step 8: Show Passed Tests
+### Step 6: Show Passed Tests
 
 ```
 ### ✅ Passed Tests
@@ -99,7 +101,7 @@ Include relevant output lines for debugging.
 - TestPeopleQuery
 ```
 
-### Step 9: Database Diagnostics (if failures)
+### Step 7: Database Diagnostics (if failures)
 
 If tests fail, provide diagnostic commands:
 
