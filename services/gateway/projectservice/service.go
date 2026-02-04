@@ -174,12 +174,15 @@ func (s *Service) ListProjects(ctx context.Context, req *projectv1.ListProjectsR
 	}
 
 	filter := projects.ProjectFilter{
-		TenantID:    req.Filter.TenantId,
-		NameSearch:  req.Filter.NameSearch,
-		Keyword:     req.Filter.Keyword,
-		JiraProject: req.Filter.JiraProject,
-		Limit:       int(req.Filter.Limit),
-		Offset:      int(req.Filter.Offset),
+		TenantID:          req.Filter.TenantId,
+		NameSearch:        req.Filter.NameSearch,
+		Keyword:           req.Filter.Keyword,
+		JiraProject:       req.Filter.JiraProject,
+		Status:            req.Filter.Status,
+		SortBy:            req.Filter.SortBy,
+		AlwaysIncludeNames: req.Filter.AlwaysIncludeNames,
+		Limit:             int(req.Filter.Limit),
+		Offset:            int(req.Filter.Offset),
 	}
 
 	projectsList, err := s.repo.List(ctx, filter)
@@ -197,6 +200,41 @@ func (s *Service) ListProjects(ctx context.Context, req *projectv1.ListProjectsR
 		Projects:   protoProjects,
 		TotalCount: int64(len(projectsList)),
 	}, nil
+}
+
+// GetProjectContext retrieves comprehensive project context for drill-down.
+func (s *Service) GetProjectContext(ctx context.Context, req *projectv1.GetProjectContextRequest) (*projectv1.GetProjectContextResponse, error) {
+	s.logger.Debug("GetProjectContext called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("name", req.Name),
+	)
+
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+
+	projectContext, err := s.repo.GetProjectContext(ctx, req.TenantId, req.Name)
+	if err != nil {
+		if errors.Is(err, pferrors.ErrNotFound) {
+			return nil, status.Errorf(codes.NotFound, "project not found: %s", req.Name)
+		}
+		s.logger.Error("Error getting project context", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get project context: %v", err)
+	}
+
+	resp := &projectv1.GetProjectContextResponse{
+		Project:            projectToProto(projectContext.Project),
+		RecentMeetingCount: projectContext.RecentMeetingCount,
+		OpenActionCount:    projectContext.OpenActionCount,
+		RiskCount:          projectContext.RiskCount,
+		RecentDecisions:    projectContext.RecentDecisions,
+	}
+
+	if projectContext.LastActivity != nil {
+		resp.LastActivity = projectContext.LastActivity.Format("2006-01-02T15:04:05Z07:00")
+	}
+
+	return resp, nil
 }
 
 // ==================== Member Management ====================
@@ -385,6 +423,7 @@ func projectToProto(p *projects.Project) *projectv1.Project {
 		Name:         p.Name,
 		Keywords:     p.Keywords,
 		JiraProjects: p.JiraProjects,
+		Status:       p.Status,
 		CreatedAt:    timestamppb.New(p.CreatedAt),
 		UpdatedAt:    timestamppb.New(p.UpdatedAt),
 	}

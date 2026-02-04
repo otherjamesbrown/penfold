@@ -19,6 +19,7 @@ import (
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
+	"github.com/otherjamesbrown/penfold/cmd/penf/contextpalace"
 )
 
 // PipelineCommandDeps holds the dependencies for pipeline commands.
@@ -84,6 +85,8 @@ Documentation:
 
 func newPipelineStatusCmd(deps *PipelineCommandDeps) *cobra.Command {
 	var outputFormat string
+	var sinceLastSession bool
+	var since string
 
 	cmd := &cobra.Command{
 		Use:   "status",
@@ -92,13 +95,23 @@ func newPipelineStatusCmd(deps *PipelineCommandDeps) *cobra.Command {
   - Sources by processing status (pending, processing, completed, failed)
   - Embeddings count and recent rate
   - Attachments by tier (auto_process, auto_skip, pending_review)
-  - Recent ingest jobs`,
+  - Recent ingest jobs
+
+Flags:
+  --since-last-session: Show stats since the last closed session
+  --since: Show stats since a specific timestamp (e.g., "2h", "yesterday", ISO timestamp)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPipelineStatus(cmd.Context(), deps, outputFormat)
+			// Validate mutual exclusivity
+			if sinceLastSession && since != "" {
+				return fmt.Errorf("cannot specify both --since-last-session and --since flags")
+			}
+			return runPipelineStatus(cmd.Context(), deps, outputFormat, sinceLastSession, since)
 		},
 	}
 
 	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
+	cmd.Flags().BoolVar(&sinceLastSession, "since-last-session", false, "Show stats since the last closed session")
+	cmd.Flags().StringVar(&since, "since", "", "Show stats since this time (e.g., '2h', 'yesterday', ISO timestamp)")
 	return cmd
 }
 
@@ -133,6 +146,57 @@ func newPipelineJobsCmd(deps *PipelineCommandDeps) *cobra.Command {
 	cmd.Flags().IntVarP(&limit, "limit", "l", 10, "Maximum number of jobs to show")
 	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
 	return cmd
+}
+
+// filterJobsSince filters jobs created at or after the given timestamp.
+func filterJobsSince(jobs []*pipelinev1.JobSummary, sinceTime time.Time) []*pipelinev1.JobSummary {
+	var filtered []*pipelinev1.JobSummary
+	for _, job := range jobs {
+		if job.CreatedAt != nil {
+			jobTime := job.CreatedAt.AsTime()
+			if jobTime.Equal(sinceTime) || jobTime.After(sinceTime) {
+				filtered = append(filtered, job)
+			}
+		}
+	}
+	return filtered
+}
+
+// parseTimeFilter parses a time filter string (relative or absolute).
+func parseTimeFilter(filter string) (time.Time, error) {
+	// Try parsing as duration (e.g., "2h", "30m")
+	if duration, err := time.ParseDuration(filter); err == nil {
+		return time.Now().Add(-duration), nil
+	}
+
+	// Try parsing as ISO timestamp
+	if t, err := time.Parse(time.RFC3339, filter); err == nil {
+		return t, nil
+	}
+
+	// Try parsing common formats
+	formats := []string{
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+	for _, format := range formats {
+		if t, err := time.Parse(format, filter); err == nil {
+			return t, nil
+		}
+	}
+
+	// Handle relative keywords
+	now := time.Now()
+	switch strings.ToLower(filter) {
+	case "today":
+		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()), nil
+	case "yesterday":
+		yesterday := now.AddDate(0, 0, -1)
+		return time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 0, 0, 0, 0, yesterday.Location()), nil
+	}
+
+	return time.Time{}, fmt.Errorf("invalid time filter: %s (use duration like '2h', ISO timestamp, or 'yesterday')", filter)
 }
 
 // connectPipelineToGateway creates a gRPC connection to the gateway service.
@@ -170,12 +234,60 @@ func connectPipelineToGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
 
 // Command execution functions
 
-func runPipelineStatus(ctx context.Context, deps *PipelineCommandDeps, outputFormat string) error {
+func runPipelineStatus(ctx context.Context, deps *PipelineCommandDeps, outputFormat string, sinceLastSession bool, since string) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 	deps.Config = cfg
+
+	// Resolve timestamp filter
+	var sinceTime *time.Time
+	var sinceSource string
+	var sessionID string
+	var sessionTitle string
+
+	if sinceLastSession {
+		// Query Context-Palace for last closed session
+		if cfg.ContextPalace == nil || !cfg.ContextPalace.IsConfigured() {
+			return fmt.Errorf("Context-Palace not configured (required for --since-last-session)")
+		}
+
+		cpClient, err := contextpalace.NewClient(cfg.ContextPalace)
+		if err != nil {
+			return fmt.Errorf("connecting to Context-Palace: %w", err)
+		}
+		defer cpClient.Close()
+
+		sessions, err := cpClient.ListShards(ctx, contextpalace.ListShardsOptions{
+			Type:   "session",
+			Status: "closed",
+			Limit:  1,
+		})
+		if err != nil {
+			return fmt.Errorf("querying last closed session: %w", err)
+		}
+
+		if len(sessions) == 0 {
+			fmt.Println("No closed sessions found. Showing full pipeline stats.")
+		} else {
+			session := sessions[0]
+			if session.ClosedAt != nil {
+				sinceTime = session.ClosedAt
+				sinceSource = "last_session"
+				sessionID = session.ID
+				sessionTitle = session.Title
+			}
+		}
+	} else if since != "" {
+		// Parse manual timestamp
+		parsedTime, err := parseTimeFilter(since)
+		if err != nil {
+			return fmt.Errorf("parsing --since value: %w", err)
+		}
+		sinceTime = &parsedTime
+		sinceSource = "manual"
+	}
 
 	conn, err := connectPipelineToGateway(cfg)
 	if err != nil {
@@ -191,9 +303,9 @@ func runPipelineStatus(ctx context.Context, deps *PipelineCommandDeps, outputFor
 	}
 
 	if outputFormat == "json" {
-		return outputPipelineStatsJSON(resp.Stats)
+		return outputPipelineStatsJSON(resp.Stats, sinceTime, sinceSource, sessionID)
 	}
-	return outputPipelineStatsHuman(resp.Stats)
+	return outputPipelineStatsHuman(resp.Stats, sinceTime, sinceSource, sessionID, sessionTitle)
 }
 
 func runPipelineJob(ctx context.Context, deps *PipelineCommandDeps, jobID string, outputFormat string) error {
@@ -252,14 +364,38 @@ func runPipelineJobs(ctx context.Context, deps *PipelineCommandDeps, limit int, 
 
 // Output functions
 
-func outputPipelineStatsJSON(stats *pipelinev1.PipelineStats) error {
+func outputPipelineStatsJSON(stats *pipelinev1.PipelineStats, sinceTime *time.Time, sinceSource, sessionID string) error {
+	output := map[string]interface{}{
+		"stats": stats,
+	}
+
+	if sinceTime != nil {
+		output["since"] = sinceTime.Format(time.RFC3339)
+		output["since_source"] = sinceSource
+		if sessionID != "" {
+			output["session_id"] = sessionID
+		}
+
+		// Filter recent jobs by timestamp
+		filteredJobs := filterJobsSince(stats.RecentJobs, *sinceTime)
+		output["jobs_since"] = filteredJobs
+	}
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(stats)
+	return enc.Encode(output)
 }
 
-func outputPipelineStatsHuman(stats *pipelinev1.PipelineStats) error {
-	fmt.Println("Pipeline Status")
+func outputPipelineStatsHuman(stats *pipelinev1.PipelineStats, sinceTime *time.Time, sinceSource, sessionID, sessionTitle string) error {
+	// Header with since info
+	if sinceTime != nil {
+		fmt.Printf("Pipeline Status (since %s)\n", sinceTime.Format("2006-01-02 15:04:05"))
+		if sessionID != "" {
+			fmt.Printf("Session: %s \"%s\"\n", sessionID, sessionTitle)
+		}
+	} else {
+		fmt.Println("Pipeline Status")
+	}
 	fmt.Println("=" + fmt.Sprintf("%49s", "="))
 	if stats.Timestamp != nil {
 		fmt.Printf("  Timestamp: %s\n\n", stats.Timestamp.AsTime().Format(time.RFC3339))
@@ -346,6 +482,29 @@ func outputPipelineStatsHuman(stats *pipelinev1.PipelineStats) error {
 			}
 			fmt.Printf("  %s  %s%-12s\033[0m %5d   %8d\n",
 				job.Id, statusColor, job.Status, job.TotalFiles, job.ImportedCount)
+		}
+	}
+
+	// Jobs since filter
+	if sinceTime != nil {
+		filteredJobs := filterJobsSince(stats.RecentJobs, *sinceTime)
+		fmt.Println()
+		fmt.Printf("Jobs since %s\n", sinceTime.Format("2006-01-02 15:04:05"))
+		fmt.Println("-" + fmt.Sprintf("%49s", "-"))
+		if len(filteredJobs) == 0 {
+			fmt.Println("  No jobs since this time")
+		} else {
+			fmt.Println("  ID                                    STATUS       FILES   IMPORTED")
+			for _, job := range filteredJobs {
+				statusColor := "\033[32m"
+				if job.Status == "failed" {
+					statusColor = "\033[31m"
+				} else if job.Status == "in_progress" {
+					statusColor = "\033[33m"
+				}
+				fmt.Printf("  %s  %s%-12s\033[0m %5d   %8d\n",
+					job.Id, statusColor, job.Status, job.TotalFiles, job.ImportedCount)
+			}
 		}
 	}
 

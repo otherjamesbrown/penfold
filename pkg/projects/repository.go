@@ -93,7 +93,7 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*Project, error) {
 	query := `
 		SELECT
 			id, tenant_id, name, description, keywords, jira_projects,
-			created_at, updated_at
+			status, created_at, updated_at
 		FROM projects
 		WHERE id = $1
 	`
@@ -105,7 +105,7 @@ func (r *Repository) GetByName(ctx context.Context, tenantID, name string) (*Pro
 	query := `
 		SELECT
 			id, tenant_id, name, description, keywords, jira_projects,
-			created_at, updated_at
+			status, created_at, updated_at
 		FROM projects
 		WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
 	`
@@ -214,14 +214,34 @@ func (r *Repository) List(ctx context.Context, filter ProjectFilter) ([]*Project
 		argIdx++
 	}
 
-	query := fmt.Sprintf(`
+	// Status filter (unless always-include names are provided, handled separately)
+	if filter.Status != "" && len(filter.AlwaysIncludeNames) == 0 {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", argIdx))
+		args = append(args, filter.Status)
+		argIdx++
+	}
+
+	// Build ORDER BY clause
+	orderBy := "name"
+	switch filter.SortBy {
+	case "activity":
+		// Sort by most recent activity (updated_at descending)
+		orderBy = "updated_at DESC, name"
+	case "created":
+		orderBy = "created_at DESC, name"
+	case "name", "":
+		orderBy = "name"
+	}
+
+	// Build main query
+	baseQuery := fmt.Sprintf(`
 		SELECT
 			id, tenant_id, name, description, keywords, jira_projects,
-			created_at, updated_at
+			status, created_at, updated_at
 		FROM projects
 		WHERE %s
-		ORDER BY name
-	`, strings.Join(conditions, " AND "))
+		ORDER BY %s
+	`, strings.Join(conditions, " AND "), orderBy)
 
 	// Enforce default limits
 	limit := 100
@@ -230,18 +250,164 @@ func (r *Repository) List(ctx context.Context, filter ProjectFilter) ([]*Project
 	} else if filter.Limit > 1000 {
 		limit = 1000
 	}
-	query += fmt.Sprintf(" LIMIT %d", limit)
-	if filter.Offset > 0 {
-		query += fmt.Sprintf(" OFFSET %d", filter.Offset)
+
+	// Handle always-include logic
+	var projects []*Project
+	if len(filter.AlwaysIncludeNames) > 0 {
+		// First, get projects matching the filter
+		mainQuery := baseQuery + fmt.Sprintf(" LIMIT %d", limit)
+		if filter.Offset > 0 {
+			mainQuery += fmt.Sprintf(" OFFSET %d", filter.Offset)
+		}
+
+		rows, err := r.pool.Query(ctx, mainQuery, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list projects: %w", err)
+		}
+		projects, err = r.scanProjects(rows)
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		// Now fetch always-include projects
+		alwaysIncludeQuery := `
+			SELECT
+				id, tenant_id, name, description, keywords, jira_projects,
+				status, created_at, updated_at
+			FROM projects
+			WHERE tenant_id = $1 AND LOWER(name) = ANY($2)
+		`
+		lowerNames := make([]string, len(filter.AlwaysIncludeNames))
+		for i, name := range filter.AlwaysIncludeNames {
+			lowerNames[i] = strings.ToLower(name)
+		}
+
+		alwaysRows, err := r.pool.Query(ctx, alwaysIncludeQuery, filter.TenantID, lowerNames)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch always-include projects: %w", err)
+		}
+		alwaysProjects, err := r.scanProjects(alwaysRows)
+		alwaysRows.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		// Merge, avoiding duplicates
+		projectMap := make(map[int64]*Project)
+		for _, p := range projects {
+			projectMap[p.ID] = p
+		}
+		for _, p := range alwaysProjects {
+			if _, exists := projectMap[p.ID]; !exists {
+				projects = append(projects, p)
+			}
+		}
+	} else {
+		// Standard query without always-include
+		query := baseQuery + fmt.Sprintf(" LIMIT %d", limit)
+		if filter.Offset > 0 {
+			query += fmt.Sprintf(" OFFSET %d", filter.Offset)
+		}
+
+		rows, err := r.pool.Query(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list projects: %w", err)
+		}
+		defer rows.Close()
+
+		projects, err = r.scanProjects(rows)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	return projects, nil
+}
+
+// GetProjectContext retrieves comprehensive project context for drill-down.
+func (r *Repository) GetProjectContext(ctx context.Context, tenantID, identifier string) (*ProjectContext, error) {
+	// First resolve the project
+	project, err := r.Resolve(ctx, tenantID, identifier)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list projects: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
 
-	return r.scanProjects(rows)
+	context := &ProjectContext{
+		Project: project,
+	}
+
+	// Query recent meeting count
+	meetingQuery := `
+		SELECT COUNT(*)
+		FROM sources
+		WHERE tenant_id = $1
+		  AND source_type = 'meeting'
+		  AND content::jsonb->>'project' = $2
+		  AND created_at > NOW() - INTERVAL '30 days'
+	`
+	if err := r.pool.QueryRow(ctx, meetingQuery, tenantID, project.Name).Scan(&context.RecentMeetingCount); err != nil {
+		r.logger.Debug("Failed to get meeting count", logging.Err(err))
+	}
+
+	// Query open action count (from triage with assertion_type='action' and status not 'completed')
+	actionQuery := `
+		SELECT COUNT(*)
+		FROM triage
+		WHERE tenant_id = $1
+		  AND assertion_type = 'action'
+		  AND status != 'completed'
+		  AND content::jsonb->>'project' = $2
+	`
+	if err := r.pool.QueryRow(ctx, actionQuery, tenantID, project.Name).Scan(&context.OpenActionCount); err != nil {
+		r.logger.Debug("Failed to get action count", logging.Err(err))
+	}
+
+	// Query risk count
+	riskQuery := `
+		SELECT COUNT(*)
+		FROM triage
+		WHERE tenant_id = $1
+		  AND assertion_type = 'risk'
+		  AND content::jsonb->>'project' = $2
+	`
+	if err := r.pool.QueryRow(ctx, riskQuery, tenantID, project.Name).Scan(&context.RiskCount); err != nil {
+		r.logger.Debug("Failed to get risk count", logging.Err(err))
+	}
+
+	// Query recent decisions
+	decisionQuery := `
+		SELECT content::jsonb->>'text'
+		FROM triage
+		WHERE tenant_id = $1
+		  AND assertion_type = 'decision'
+		  AND content::jsonb->>'project' = $2
+		ORDER BY created_at DESC
+		LIMIT 5
+	`
+	rows, err := r.pool.Query(ctx, decisionQuery, tenantID, project.Name)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var decision *string
+			if err := rows.Scan(&decision); err == nil && decision != nil {
+				context.RecentDecisions = append(context.RecentDecisions, *decision)
+			}
+		}
+	}
+
+	// Get last activity timestamp
+	activityQuery := `
+		SELECT MAX(created_at)
+		FROM sources
+		WHERE tenant_id = $1
+		  AND content::jsonb->>'project' = $2
+	`
+	if err := r.pool.QueryRow(ctx, activityQuery, tenantID, project.Name).Scan(&context.LastActivity); err != nil {
+		r.logger.Debug("Failed to get last activity", logging.Err(err))
+	}
+
+	return context, nil
 }
 
 // ==================== Project Member Operations ====================
@@ -350,6 +516,7 @@ func (r *Repository) scanProject(ctx context.Context, query string, args ...any)
 		&p.Description,
 		&p.Keywords,
 		&p.JiraProjects,
+		&p.Status,
 		&p.CreatedAt,
 		&p.UpdatedAt,
 	)
@@ -373,6 +540,7 @@ func (r *Repository) scanProjects(rows pgx.Rows) ([]*Project, error) {
 			&p.Description,
 			&p.Keywords,
 			&p.JiraProjects,
+			&p.Status,
 			&p.CreatedAt,
 			&p.UpdatedAt,
 		)

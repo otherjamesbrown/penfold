@@ -40,6 +40,7 @@ const (
 	IngestService_UpdateMeeting_FullMethodName      = "/penfold.ingest.v1.IngestService/UpdateMeeting"
 	IngestService_UpdateContent_FullMethodName      = "/penfold.ingest.v1.IngestService/UpdateContent"
 	IngestService_ListMeetings_FullMethodName       = "/penfold.ingest.v1.IngestService/ListMeetings"
+	IngestService_GetMeetingRecap_FullMethodName    = "/penfold.ingest.v1.IngestService/GetMeetingRecap"
 )
 
 // IngestServiceClient is the client API for IngestService service.
@@ -84,6 +85,8 @@ type IngestServiceClient interface {
 	UpdateContent(ctx context.Context, in *UpdateContentRequest, opts ...grpc.CallOption) (*UpdateContentResponse, error)
 	// ListMeetings retrieves meetings with optional series filter.
 	ListMeetings(ctx context.Context, in *ListMeetingsRequest, opts ...grpc.CallOption) (*ListMeetingsResponse, error)
+	// GetMeetingRecap retrieves a meeting recap with summary and key points.
+	GetMeetingRecap(ctx context.Context, in *GetMeetingRecapRequest, opts ...grpc.CallOption) (*GetMeetingRecapResponse, error)
 }
 
 type ingestServiceClient struct {
@@ -274,6 +277,16 @@ func (c *ingestServiceClient) ListMeetings(ctx context.Context, in *ListMeetings
 	return out, nil
 }
 
+func (c *ingestServiceClient) GetMeetingRecap(ctx context.Context, in *GetMeetingRecapRequest, opts ...grpc.CallOption) (*GetMeetingRecapResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMeetingRecapResponse)
+	err := c.cc.Invoke(ctx, IngestService_GetMeetingRecap_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // IngestServiceServer is the server API for IngestService service.
 // All implementations must embed UnimplementedIngestServiceServer
 // for forward compatibility.
@@ -316,6 +329,8 @@ type IngestServiceServer interface {
 	UpdateContent(context.Context, *UpdateContentRequest) (*UpdateContentResponse, error)
 	// ListMeetings retrieves meetings with optional series filter.
 	ListMeetings(context.Context, *ListMeetingsRequest) (*ListMeetingsResponse, error)
+	// GetMeetingRecap retrieves a meeting recap with summary and key points.
+	GetMeetingRecap(context.Context, *GetMeetingRecapRequest) (*GetMeetingRecapResponse, error)
 	mustEmbedUnimplementedIngestServiceServer()
 }
 
@@ -379,6 +394,9 @@ func (UnimplementedIngestServiceServer) UpdateContent(context.Context, *UpdateCo
 }
 func (UnimplementedIngestServiceServer) ListMeetings(context.Context, *ListMeetingsRequest) (*ListMeetingsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListMeetings not implemented")
+}
+func (UnimplementedIngestServiceServer) GetMeetingRecap(context.Context, *GetMeetingRecapRequest) (*GetMeetingRecapResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMeetingRecap not implemented")
 }
 func (UnimplementedIngestServiceServer) mustEmbedUnimplementedIngestServiceServer() {}
 func (UnimplementedIngestServiceServer) testEmbeddedByValue()                       {}
@@ -725,6 +743,24 @@ func _IngestService_ListMeetings_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IngestService_GetMeetingRecap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMeetingRecapRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).GetMeetingRecap(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_GetMeetingRecap_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).GetMeetingRecap(ctx, req.(*GetMeetingRecapRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // IngestService_ServiceDesc is the grpc.ServiceDesc for IngestService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -803,6 +839,10 @@ var IngestService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListMeetings",
 			Handler:    _IngestService_ListMeetings_Handler,
+		},
+		{
+			MethodName: "GetMeetingRecap",
+			Handler:    _IngestService_GetMeetingRecap_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

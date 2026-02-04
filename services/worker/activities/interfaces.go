@@ -35,16 +35,47 @@ type EmbeddingRepository interface {
 
 	// GetEmbedding fetches an embedding by ID.
 	GetEmbedding(ctx context.Context, tenantID string, embeddingID int64) (*Embedding, error)
+
+	// StoreMultiLevelEmbedding stores an embedding with entity type and representation type.
+	StoreMultiLevelEmbedding(ctx context.Context, input *MultiLevelEmbeddingInput) (int64, error)
+
+	// GetEmbeddingsForSource returns all embeddings for a source, optionally filtered by representation type.
+	// Pass empty string for representationType to get all embeddings.
+	GetEmbeddingsForSource(ctx context.Context, tenantID string, sourceID int64, representationType string) ([]*Embedding, error)
+
+	// GetStaleEmbeddings returns source IDs with embeddings from an older model/version.
+	GetStaleEmbeddings(ctx context.Context, tenantID string, currentModel string, currentVersion string, limit int) ([]int64, error)
+
+	// DeleteEmbeddingsForSource deletes all embeddings for a source (for re-embedding).
+	DeleteEmbeddingsForSource(ctx context.Context, tenantID string, sourceID int64) error
+}
+
+// MultiLevelEmbeddingInput contains all fields for storing a multi-level embedding.
+type MultiLevelEmbeddingInput struct {
+	TenantID           string
+	SourceID           int64
+	EntityType         string  // "source" or "assertion"
+	EntityID           int64   // source_id or assertion_id
+	RepresentationType string  // "content", "summary", "action_item", "decision", "risk"
+	Vector             []float32
+	Model              string
+	ModelVersion       string
+	TextContent        string // The text that was embedded
+	ContentHash        string // SHA-256 for deduplication
 }
 
 // Embedding represents a stored embedding vector.
 type Embedding struct {
-	ID         int64
-	SourceID   int64
-	TenantID   string
-	Vector     []float32
-	Model      string
-	Dimensions int32
+	ID                 int64
+	SourceID           int64
+	TenantID           string
+	EntityType         string
+	EntityID           int64
+	RepresentationType string
+	Vector             []float32
+	Model              string
+	ModelVersion       string
+	Dimensions         int32
 }
 
 // SummaryRepository defines the interface for summary data access.

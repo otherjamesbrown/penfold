@@ -721,6 +721,7 @@ func init() {
 	rootCmd.AddCommand(cmd.NewSessionCommand(nil))
 	rootCmd.AddCommand(cmd.NewMessageCommand(nil))
 	rootCmd.AddCommand(cmd.NewMeetingCommand(nil))
+	rootCmd.AddCommand(cmd.NewReminderCommand(nil))
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)

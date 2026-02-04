@@ -104,6 +104,10 @@ Related Commands:
 func newProjectListCommand(deps *ProjectCommandDeps) *cobra.Command {
 	var nameSearch string
 	var keyword string
+	var statusFilter string
+	var sortBy string
+	var limit int32
+	var alwaysInclude []string
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -114,8 +118,12 @@ Shows project names, descriptions, and keyword counts.
 Use --output json for programmatic access to full project details.
 
 Filtering Options:
-  --name    Search by name (partial match)
-  --keyword Filter by keyword (projects containing this keyword)
+  --name            Search by name (partial match)
+  --keyword         Filter by keyword (projects containing this keyword)
+  --status          Filter by status ("active", "archived")
+  --sort            Sort by: "name", "activity", "created" (default: "name")
+  --limit           Maximum number of results (default: 100)
+  --always-include  Always include these project names (can be repeated)
 
 Examples:
   # List all projects (table format)
@@ -127,6 +135,12 @@ Examples:
   # Filter by keyword
   penf project list --keyword "tiktok"
 
+  # List active projects sorted by activity
+  penf project list --status active --sort activity --limit 3
+
+  # Always include a specific project even if filtered
+  penf project list --status active --always-include "MTC 2026"
+
   # List as JSON for programmatic use
   penf project list --output json
 
@@ -134,12 +148,16 @@ Examples:
   penf project list --output yaml`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runProjectList(cmd.Context(), deps, nameSearch, keyword)
+			return runProjectList(cmd.Context(), deps, nameSearch, keyword, statusFilter, sortBy, limit, alwaysInclude)
 		},
 	}
 
 	cmd.Flags().StringVar(&nameSearch, "name", "", "Search by name (partial match)")
 	cmd.Flags().StringVar(&keyword, "keyword", "", "Filter by keyword")
+	cmd.Flags().StringVar(&statusFilter, "status", "", "Filter by status (active, archived)")
+	cmd.Flags().StringVar(&sortBy, "sort", "", "Sort by: name, activity, created")
+	cmd.Flags().Int32Var(&limit, "limit", 0, "Maximum number of results")
+	cmd.Flags().StringSliceVar(&alwaysInclude, "always-include", nil, "Always include these project names (can be repeated)")
 
 	return cmd
 }
@@ -301,7 +319,7 @@ func getTenantIDForProject(deps *ProjectCommandDeps) string {
 // ==================== Command Execution Functions ====================
 
 // runProjectList executes the project list command via gRPC.
-func runProjectList(ctx context.Context, deps *ProjectCommandDeps, nameSearch, keyword string) error {
+func runProjectList(ctx context.Context, deps *ProjectCommandDeps, nameSearch, keyword, statusFilter, sortBy string, limit int32, alwaysInclude []string) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
@@ -318,9 +336,13 @@ func runProjectList(ctx context.Context, deps *ProjectCommandDeps, nameSearch, k
 	tenantID := getTenantIDForProject(deps)
 
 	filter := &projectv1.ProjectFilter{
-		TenantId:   tenantID,
-		NameSearch: nameSearch,
-		Keyword:    keyword,
+		TenantId:          tenantID,
+		NameSearch:        nameSearch,
+		Keyword:           keyword,
+		Status:            statusFilter,
+		SortBy:            sortBy,
+		Limit:             limit,
+		AlwaysIncludeNames: alwaysInclude,
 	}
 
 	resp, err := client.ListProjects(ctx, &projectv1.ListProjectsRequest{Filter: filter})

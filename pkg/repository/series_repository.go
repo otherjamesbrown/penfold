@@ -13,6 +13,17 @@ import (
 )
 
 // SeriesRepository provides database operations for meeting series.
+// MeetingListFilters represents filters for listing meetings.
+type MeetingListFilters struct {
+	SeriesName             string
+	Since                  *time.Time
+	ParticipantEmail       string
+	ExcludeParticipantEmail string
+	HasChanges             bool
+	ProjectIDs             []int64
+	Limit                  int
+}
+
 type SeriesRepository interface {
 	Create(ctx context.Context, series *MeetingSeries) error
 	GetByID(ctx context.Context, id string) (*MeetingSeries, error)
@@ -24,8 +35,10 @@ type SeriesRepository interface {
 	GetMeetingsForSeries(ctx context.Context, seriesID string) ([]*MeetingInfo, error)
 	CountMeetingsInSeries(ctx context.Context, seriesID string) (int, error)
 	ListMeetings(ctx context.Context, seriesName string, limit int) ([]*MeetingInfo, error)
+	ListMeetingsWithFilters(ctx context.Context, filters MeetingListFilters) ([]*MeetingInfo, error)
 	UpdateSourceMetadata(ctx context.Context, contentID string, updates map[string]interface{}) error
 	GetSourceByContentID(ctx context.Context, contentID string) (*SourceInfo, error)
+	GetMeetingRecap(ctx context.Context, seriesName, sourceID string, mostRecent bool) (*MeetingRecapInfo, error)
 }
 
 // MeetingSeries represents a meeting series entity.
@@ -56,6 +69,16 @@ type SourceInfo struct {
 	SeriesID    *string
 	Tags        []string
 	Category    string
+}
+
+// MeetingRecapInfo represents a meeting recap with extracted information.
+type MeetingRecapInfo struct {
+	Meeting          *MeetingInfo
+	Summary          string
+	KeyDecisions     []string
+	ActionItems      []string
+	Risks            []string
+	ParticipantCount int
 }
 
 // seriesRepository implements SeriesRepository using pgx.
@@ -449,6 +472,243 @@ func (r *seriesRepository) ListMeetings(ctx context.Context, seriesName string, 
 	}
 
 	return meetings, nil
+}
+
+// ListMeetingsWithFilters retrieves meetings with advanced filtering.
+func (r *seriesRepository) ListMeetingsWithFilters(ctx context.Context, filters MeetingListFilters) ([]*MeetingInfo, error) {
+	limit := filters.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+
+	// Meeting platforms stored in source_system
+	meetingPlatforms := "('teams', 'zoom', 'google_meet', 'webex')"
+
+	// Build dynamic query with filters
+	query := fmt.Sprintf(`
+		SELECT
+			content_id,
+			COALESCE(ingestion_metadata->>'title', '') as title,
+			source_timestamp,
+			source_system
+		FROM sources
+		WHERE source_system IN %s
+			AND is_deleted = false
+	`, meetingPlatforms)
+
+	args := []interface{}{}
+	argNum := 1
+
+	// Add series filter
+	if filters.SeriesName != "" {
+		query += fmt.Sprintf(" AND ingestion_metadata->>'series_name' = $%d", argNum)
+		args = append(args, filters.SeriesName)
+		argNum++
+	}
+
+	// Add since filter
+	if filters.Since != nil {
+		query += fmt.Sprintf(" AND source_timestamp >= $%d", argNum)
+		args = append(args, *filters.Since)
+		argNum++
+	}
+
+	// Add participant filter
+	if filters.ParticipantEmail != "" {
+		query += fmt.Sprintf(" AND $%d = ANY(participant_emails)", argNum)
+		args = append(args, filters.ParticipantEmail)
+		argNum++
+	}
+
+	// Add exclude participant filter
+	if filters.ExcludeParticipantEmail != "" {
+		query += fmt.Sprintf(" AND NOT ($%d = ANY(participant_emails))", argNum)
+		args = append(args, filters.ExcludeParticipantEmail)
+		argNum++
+	}
+
+	// Add has_changes filter (stub for now - will be implemented when pipeline is ready)
+	if filters.HasChanges {
+		// TODO: Join with extraction_runs or check metadata for assertion changes
+		// For now, this is a no-op stub
+	}
+
+	// Add project filter (stub for now - need to understand project association)
+	if len(filters.ProjectIDs) > 0 {
+		// TODO: Join with project associations once schema is defined
+		// For now, this is a no-op stub
+	}
+
+	query += " ORDER BY source_timestamp DESC NULLS LAST"
+	query += fmt.Sprintf(" LIMIT $%d", argNum)
+	args = append(args, limit)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list meetings with filters: %w", err)
+	}
+	defer rows.Close()
+
+	var meetings []*MeetingInfo
+	for rows.Next() {
+		m := &MeetingInfo{}
+		var meetingDate *time.Time
+		var contentID *string
+
+		err := rows.Scan(&contentID, &m.Title, &meetingDate, &m.Platform)
+		if err != nil {
+			return nil, fmt.Errorf("scan meeting: %w", err)
+		}
+
+		if contentID != nil {
+			m.ID = *contentID
+		}
+
+		if meetingDate != nil {
+			m.Date = meetingDate.Format(time.RFC3339)
+		}
+
+		meetings = append(meetings, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate meetings: %w", err)
+	}
+
+	return meetings, nil
+}
+
+// GetMeetingRecap retrieves a meeting recap with extracted information.
+func (r *seriesRepository) GetMeetingRecap(ctx context.Context, seriesName, sourceID string, mostRecent bool) (*MeetingRecapInfo, error) {
+	var query string
+	var args []interface{}
+
+	meetingPlatforms := "('teams', 'zoom', 'google_meet', 'webex')"
+
+	if sourceID != "" {
+		// Get specific meeting by source ID (content_id)
+		query = fmt.Sprintf(`
+			SELECT
+				content_id,
+				COALESCE(ingestion_metadata->>'title', '') as title,
+				source_timestamp,
+				source_system,
+				ingestion_metadata,
+				array_length(participant_emails, 1) as participant_count
+			FROM sources
+			WHERE content_id = $1
+				AND source_system IN %s
+				AND is_deleted = false
+		`, meetingPlatforms)
+		args = []interface{}{sourceID}
+	} else if seriesName != "" && mostRecent {
+		// Get most recent meeting in series
+		query = fmt.Sprintf(`
+			SELECT
+				content_id,
+				COALESCE(ingestion_metadata->>'title', '') as title,
+				source_timestamp,
+				source_system,
+				ingestion_metadata,
+				array_length(participant_emails, 1) as participant_count
+			FROM sources
+			WHERE ingestion_metadata->>'series_name' = $1
+				AND source_system IN %s
+				AND is_deleted = false
+			ORDER BY source_timestamp DESC NULLS LAST
+			LIMIT 1
+		`, meetingPlatforms)
+		args = []interface{}{seriesName}
+	} else {
+		return nil, fmt.Errorf("must provide either source_id or (series_name with most_recent)")
+	}
+
+	var contentID *string
+	var title string
+	var meetingDate *time.Time
+	var platform string
+	var metadata []byte
+	var participantCount *int
+
+	err := r.pool.QueryRow(ctx, query, args...).Scan(
+		&contentID,
+		&title,
+		&meetingDate,
+		&platform,
+		&metadata,
+		&participantCount,
+	)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get meeting recap: %w", err)
+	}
+
+	// Build meeting info
+	meeting := &MeetingInfo{
+		Title:    title,
+		Platform: platform,
+	}
+	if contentID != nil {
+		meeting.ID = *contentID
+	}
+	if meetingDate != nil {
+		meeting.Date = meetingDate.Format(time.RFC3339)
+	}
+
+	// Parse metadata for summary, decisions, action items, risks
+	var metadataMap map[string]interface{}
+	if err := json.Unmarshal(metadata, &metadataMap); err != nil {
+		return nil, fmt.Errorf("parse meeting metadata: %w", err)
+	}
+
+	recap := &MeetingRecapInfo{
+		Meeting:          meeting,
+		KeyDecisions:     []string{},
+		ActionItems:      []string{},
+		Risks:            []string{},
+		ParticipantCount: 0,
+	}
+
+	if participantCount != nil {
+		recap.ParticipantCount = *participantCount
+	}
+
+	// Extract summary from metadata (may be from triage output)
+	if summary, ok := metadataMap["summary"].(string); ok {
+		recap.Summary = summary
+	}
+
+	// Extract key decisions
+	if decisions, ok := metadataMap["key_decisions"].([]interface{}); ok {
+		for _, d := range decisions {
+			if ds, ok := d.(string); ok {
+				recap.KeyDecisions = append(recap.KeyDecisions, ds)
+			}
+		}
+	}
+
+	// Extract action items
+	if actions, ok := metadataMap["action_items"].([]interface{}); ok {
+		for _, a := range actions {
+			if as, ok := a.(string); ok {
+				recap.ActionItems = append(recap.ActionItems, as)
+			}
+		}
+	}
+
+	// Extract risks
+	if risks, ok := metadataMap["risks"].([]interface{}); ok {
+		for _, r := range risks {
+			if rs, ok := r.(string); ok {
+				recap.Risks = append(recap.Risks, rs)
+			}
+		}
+	}
+
+	return recap, nil
 }
 
 // UpdateSourceMetadata updates fields in the ingestion_metadata JSONB column.

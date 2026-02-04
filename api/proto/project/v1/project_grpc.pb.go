@@ -27,6 +27,7 @@ const (
 	ProjectService_UpdateProject_FullMethodName       = "/penfold.project.v1.ProjectService/UpdateProject"
 	ProjectService_DeleteProject_FullMethodName       = "/penfold.project.v1.ProjectService/DeleteProject"
 	ProjectService_ListProjects_FullMethodName        = "/penfold.project.v1.ProjectService/ListProjects"
+	ProjectService_GetProjectContext_FullMethodName   = "/penfold.project.v1.ProjectService/GetProjectContext"
 	ProjectService_ListProjectMembers_FullMethodName  = "/penfold.project.v1.ProjectService/ListProjectMembers"
 	ProjectService_AddProjectMember_FullMethodName    = "/penfold.project.v1.ProjectService/AddProjectMember"
 	ProjectService_RemoveProjectMember_FullMethodName = "/penfold.project.v1.ProjectService/RemoveProjectMember"
@@ -48,6 +49,8 @@ type ProjectServiceClient interface {
 	DeleteProject(ctx context.Context, in *DeleteProjectRequest, opts ...grpc.CallOption) (*DeleteProjectResponse, error)
 	// ListProjects lists projects with optional filtering.
 	ListProjects(ctx context.Context, in *ListProjectsRequest, opts ...grpc.CallOption) (*ListProjectsResponse, error)
+	// GetProjectContext retrieves comprehensive project context for drill-down.
+	GetProjectContext(ctx context.Context, in *GetProjectContextRequest, opts ...grpc.CallOption) (*GetProjectContextResponse, error)
 	// Member management
 	// ListProjectMembers lists members (people and teams) for a project.
 	ListProjectMembers(ctx context.Context, in *ListProjectMembersRequest, opts ...grpc.CallOption) (*ListProjectMembersResponse, error)
@@ -115,6 +118,16 @@ func (c *projectServiceClient) ListProjects(ctx context.Context, in *ListProject
 	return out, nil
 }
 
+func (c *projectServiceClient) GetProjectContext(ctx context.Context, in *GetProjectContextRequest, opts ...grpc.CallOption) (*GetProjectContextResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetProjectContextResponse)
+	err := c.cc.Invoke(ctx, ProjectService_GetProjectContext_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *projectServiceClient) ListProjectMembers(ctx context.Context, in *ListProjectMembersRequest, opts ...grpc.CallOption) (*ListProjectMembersResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListProjectMembersResponse)
@@ -161,6 +174,8 @@ type ProjectServiceServer interface {
 	DeleteProject(context.Context, *DeleteProjectRequest) (*DeleteProjectResponse, error)
 	// ListProjects lists projects with optional filtering.
 	ListProjects(context.Context, *ListProjectsRequest) (*ListProjectsResponse, error)
+	// GetProjectContext retrieves comprehensive project context for drill-down.
+	GetProjectContext(context.Context, *GetProjectContextRequest) (*GetProjectContextResponse, error)
 	// Member management
 	// ListProjectMembers lists members (people and teams) for a project.
 	ListProjectMembers(context.Context, *ListProjectMembersRequest) (*ListProjectMembersResponse, error)
@@ -192,6 +207,9 @@ func (UnimplementedProjectServiceServer) DeleteProject(context.Context, *DeleteP
 }
 func (UnimplementedProjectServiceServer) ListProjects(context.Context, *ListProjectsRequest) (*ListProjectsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListProjects not implemented")
+}
+func (UnimplementedProjectServiceServer) GetProjectContext(context.Context, *GetProjectContextRequest) (*GetProjectContextResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetProjectContext not implemented")
 }
 func (UnimplementedProjectServiceServer) ListProjectMembers(context.Context, *ListProjectMembersRequest) (*ListProjectMembersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListProjectMembers not implemented")
@@ -313,6 +331,24 @@ func _ProjectService_ListProjects_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProjectService_GetProjectContext_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetProjectContextRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectServiceServer).GetProjectContext(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectService_GetProjectContext_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectServiceServer).GetProjectContext(ctx, req.(*GetProjectContextRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ProjectService_ListProjectMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListProjectMembersRequest)
 	if err := dec(in); err != nil {
@@ -393,6 +429,10 @@ var ProjectService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListProjects",
 			Handler:    _ProjectService_ListProjects_Handler,
+		},
+		{
+			MethodName: "GetProjectContext",
+			Handler:    _ProjectService_GetProjectContext_Handler,
 		},
 		{
 			MethodName: "ListProjectMembers",

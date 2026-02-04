@@ -241,6 +241,8 @@ func runSessionCheckpoint(cmd *cobra.Command, deps *SessionCommandDeps, message 
 
 // newSessionResumeCommand creates the 'session resume' subcommand.
 func newSessionResumeCommand(deps *SessionCommandDeps) *cobra.Command {
+	var lastClosed bool
+
 	cmd := &cobra.Command{
 		Use:   "resume",
 		Short: "Resume the current session (load checkpoints)",
@@ -251,19 +253,21 @@ allowing you to resume work from where you left off.
 
 Examples:
   penf session resume
-  penf session resume -o json`,
+  penf session resume -o json
+  penf session resume --last-closed`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSessionResume(cmd, deps)
+			return runSessionResume(cmd, deps, lastClosed)
 		},
 	}
 
 	cmd.Flags().StringVarP(&sessionOutputFormat, "output", "o", "", "Output format: text, json, yaml")
+	cmd.Flags().BoolVar(&lastClosed, "last-closed", false, "Resume the most recently closed session instead of active")
 
 	return cmd
 }
 
-// runSessionResume loads the current session.
-func runSessionResume(cmd *cobra.Command, deps *SessionCommandDeps) error {
+// runSessionResume loads the current session or last closed session.
+func runSessionResume(cmd *cobra.Command, deps *SessionCommandDeps, lastClosed bool) error {
 	cfg := deps.Config
 	if cfg == nil {
 		var err error
@@ -286,12 +290,24 @@ func runSessionResume(cmd *cobra.Command, deps *SessionCommandDeps) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), cfg.Timeout)
 	defer cancel()
 
-	shard, err := getActiveSession(ctx, cpClient, cfg.ContextPalace.GetAgent())
-	if err != nil {
-		return err
+	var shard *contextpalace.Shard
+	if lastClosed {
+		shard, err = getLastClosedSession(ctx, cpClient, cfg.ContextPalace.GetAgent())
+		if err != nil {
+			return err
+		}
+	} else {
+		shard, err = getActiveSession(ctx, cpClient, cfg.ContextPalace.GetAgent())
+		if err != nil {
+			return err
+		}
 	}
 
-	return outputSession(cmd, cfg, shard, "Session resumed")
+	message := "Session resumed"
+	if lastClosed {
+		message = "Last closed session"
+	}
+	return outputSession(cmd, cfg, shard, message)
 }
 
 // newSessionEndCommand creates the 'session end' subcommand.
@@ -387,8 +403,8 @@ Examples:
 
 // runSessionContext shows the current session.
 func runSessionContext(cmd *cobra.Command, deps *SessionCommandDeps) error {
-	// This is the same as resume
-	return runSessionResume(cmd, deps)
+	// This is the same as resume (always active session)
+	return runSessionResume(cmd, deps, false)
 }
 
 // newSessionHistoryCommand creates the 'session history' subcommand.
@@ -478,6 +494,25 @@ func getActiveSession(ctx context.Context, client *contextpalace.Client, agent s
 
 	if len(sessions) == 0 {
 		return nil, fmt.Errorf("no active session found (start one with 'penf session start')")
+	}
+
+	return &sessions[0], nil
+}
+
+// getLastClosedSession finds the most recently closed session for an agent.
+func getLastClosedSession(ctx context.Context, client *contextpalace.Client, agent string) (*contextpalace.Shard, error) {
+	sessions, err := client.ListShards(ctx, contextpalace.ListShardsOptions{
+		Type:   "session",
+		Status: "closed",
+		Owner:  agent,
+		Limit:  1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("finding closed sessions: %w", err)
+	}
+
+	if len(sessions) == 0 {
+		return nil, fmt.Errorf("no previous sessions found")
 	}
 
 	return &sessions[0], nil

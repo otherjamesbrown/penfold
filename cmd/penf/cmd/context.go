@@ -47,6 +47,8 @@ across CLI sessions.`,
 
 	cmd.AddCommand(newContextHistoryCommand(deps))
 	cmd.AddCommand(newContextStatusCommand(deps))
+	cmd.AddCommand(newContextMorningCommand(deps))
+	cmd.AddCommand(newContextProjectCommand(deps))
 
 	return cmd
 }
@@ -288,4 +290,210 @@ func runContextStatus(cmd *cobra.Command, deps *ContextCommandDeps) error {
 
 	fmt.Printf("Connection: \033[32mOK\033[0m\n")
 	return nil
+}
+
+// newContextMorningCommand creates the context morning subcommand.
+func newContextMorningCommand(deps *ContextCommandDeps) *cobra.Command {
+	var outputFormat string
+
+	cmd := &cobra.Command{
+		Use:   "morning",
+		Short: "Display the morning briefing playbook",
+		Long: `Read the briefing playbook from Context-Palace and output it.
+
+The morning briefing playbook is a markdown document that Claude follows
+at the start of each session. If no stored playbook exists, outputs the
+default playbook.
+
+Examples:
+  penf context morning
+  penf context morning -o json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runContextMorning(cmd, deps, outputFormat)
+		},
+	}
+
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "", "Output format: text, json, yaml")
+
+	return cmd
+}
+
+// runContextMorning retrieves and displays the morning briefing playbook.
+func runContextMorning(cmd *cobra.Command, deps *ContextCommandDeps, outputFmt string) error {
+	cfg := deps.Config
+	if cfg == nil {
+		var err error
+		cfg, err = deps.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("loading configuration: %w", err)
+		}
+	}
+
+	if cfg.ContextPalace == nil || !cfg.ContextPalace.IsConfigured() {
+		return fmt.Errorf("Context-Palace not configured")
+	}
+
+	cpClient, err := contextpalace.NewClient(cfg.ContextPalace)
+	if err != nil {
+		return fmt.Errorf("connecting to Context-Palace: %w", err)
+	}
+	defer cpClient.Close()
+
+	ctx, cancel := context.WithTimeout(cmd.Context(), cfg.Timeout)
+	defer cancel()
+
+	// Query for stored playbook
+	shards, err := cpClient.ListShards(ctx, contextpalace.ListShardsOptions{
+		Type:   "briefing_playbook",
+		Status: "open",
+		Owner:  cfg.ContextPalace.GetAgent(),
+		Limit:  1,
+	})
+	if err != nil {
+		return fmt.Errorf("querying playbook: %w", err)
+	}
+
+	var playbook string
+	var source string
+	var playbookID string
+
+	if len(shards) > 0 {
+		playbook = shards[0].Content
+		source = "stored"
+		playbookID = shards[0].ID
+	} else {
+		playbook = getDefaultPlaybook()
+		source = "default"
+	}
+
+	// Output based on format
+	format := cfg.OutputFormat
+	if outputFmt != "" {
+		format = config.OutputFormat(outputFmt)
+	}
+
+	switch format {
+	case config.OutputFormatJSON:
+		return outputMorningJSON(playbookID, playbook, source)
+	case config.OutputFormatYAML:
+		return outputMorningYAML(playbookID, playbook, source)
+	default:
+		return outputMorningText(playbook, source)
+	}
+}
+
+// outputMorningJSON outputs playbook as JSON.
+func outputMorningJSON(id, content, source string) error {
+	result := map[string]interface{}{
+		"playbook": map[string]string{
+			"id":      id,
+			"content": content,
+		},
+		"source": source,
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
+}
+
+// outputMorningYAML outputs playbook as YAML.
+func outputMorningYAML(id, content, source string) error {
+	result := map[string]interface{}{
+		"playbook": map[string]string{
+			"id":      id,
+			"content": content,
+		},
+		"source": source,
+	}
+	enc := yaml.NewEncoder(os.Stdout)
+	return enc.Encode(result)
+}
+
+// outputMorningText outputs playbook in human-readable format.
+func outputMorningText(playbook, source string) error {
+	if source == "stored" {
+		fmt.Println("Morning Briefing Playbook (stored):")
+	} else {
+		fmt.Println("Morning Briefing Playbook (default):")
+	}
+	fmt.Println()
+	fmt.Println(strings.TrimSpace(playbook))
+	return nil
+}
+
+// getDefaultPlaybook returns the default morning briefing playbook.
+func getDefaultPlaybook() string {
+	return `# Morning Briefing
+
+Follow these steps in order. Run each command, read the output, and summarise
+conversationally. Skip steps that return empty results. Don't dump raw data —
+give me highlights and ask where I want to drill in.
+
+## 1. Last session
+
+Run: ` + "`penf session resume --last-closed --format json`" + `
+
+Remind me briefly what we covered last time. If no session exists, say so and
+move on.
+
+## 2. Overnight processing
+
+Run: ` + "`penf pipeline status --since-last-session --format json`" + `
+
+Tell me how many emails and meetings were processed overnight. If there are
+watch list changes or seniority escalations, flag them specifically.
+
+## 3. My meetings yesterday
+
+Run: ` + "`penf meetings list --participant me --since yesterday --format json`" + `
+
+Tell me how many meetings I had. If any have assertion changes (new risks,
+decisions, actions), flag those by name. Offer to recap any of them or drill
+into the associated projects.
+
+## 4. Meetings I wasn't in
+
+Run: ` + "`penf meetings list --not-participant me --has-changes --projects active --since yesterday --format json`" + `
+
+If any meetings come back, tell me about them — especially if senior people
+attended or assertions changed. If none, skip this step entirely.
+
+## 5. Reminders
+
+Run: ` + "`penf reminders list --due --format json`" + `
+
+Surface any due reminders. If there are none, skip.
+
+## 6. Projects
+
+Show me the top 3 most active projects. Always include MTC 2026 even if
+it's not in the top 3.
+
+Run: ` + "`penf projects list --status active --sort activity --limit 3 --always-include \"MTC 2026\" --format json`" + `
+
+Tell me which have changes and which are quiet.
+
+## 7. Daily standup recap
+
+Run: ` + "`penf meetings recap --series \"Daily Standup\" --most-recent --format json`" + `
+
+Give me a brief recap of yesterday's standup so I remember what the team is
+working on.
+
+## 8. Upcoming meetings
+
+Run: ` + "`penf calendar upcoming --hours 4 --format json`" + `
+
+If I have a meeting coming up, offer to prep me with context on the associated
+product or project. If calendar integration isn't available, skip.
+
+## 9. Ask me
+
+Present a short summary of the highlights and ask: "Where do you want to start?"
+
+Offer specific options based on what came up:
+- Recap a specific meeting
+- Drill into a project
+- Follow up on a reminder
+- Prep for an upcoming meeting`
 }

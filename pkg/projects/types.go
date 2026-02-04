@@ -12,6 +12,7 @@ type Project struct {
 	Description  *string   `json:"description,omitempty"`
 	Keywords     []string  `json:"keywords,omitempty"`
 	JiraProjects []string  `json:"jira_projects,omitempty"`
+	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -31,10 +32,23 @@ type ProjectMember struct {
 
 // ProjectFilter contains filtering options for project queries.
 type ProjectFilter struct {
-	TenantID    string
-	NameSearch  string
-	Keyword     string
-	JiraProject string
-	Limit       int
-	Offset      int
+	TenantID          string
+	NameSearch        string
+	Keyword           string
+	JiraProject       string
+	Status            string
+	SortBy            string
+	AlwaysIncludeNames []string
+	Limit             int
+	Offset            int
+}
+
+// ProjectContext represents comprehensive project context for drill-down.
+type ProjectContext struct {
+	Project             *Project  `json:"project"`
+	RecentMeetingCount  int32     `json:"recent_meeting_count"`
+	OpenActionCount     int32     `json:"open_action_count"`
+	RiskCount           int32     `json:"risk_count"`
+	RecentDecisions     []string  `json:"recent_decisions"`
+	LastActivity        *time.Time `json:"last_activity,omitempty"`
 }

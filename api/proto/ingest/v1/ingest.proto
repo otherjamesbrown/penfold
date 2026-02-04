@@ -68,6 +68,9 @@ service IngestService {
 
   // ListMeetings retrieves meetings with optional series filter.
   rpc ListMeetings(ListMeetingsRequest) returns (ListMeetingsResponse);
+
+  // GetMeetingRecap retrieves a meeting recap with summary and key points.
+  rpc GetMeetingRecap(GetMeetingRecapRequest) returns (GetMeetingRecapResponse);
 }
 
 // =============================================================================
@@ -651,12 +654,66 @@ message ListMeetingsRequest {
 
   // Optional: Limit number of results (default: 50).
   int32 limit = 2;
+
+  // Optional: Filter meetings since this timestamp.
+  google.protobuf.Timestamp since = 3;
+
+  // Optional: Filter by participant email (meetings this person attended).
+  string participant_email = 4;
+
+  // Optional: Exclude meetings with this participant.
+  string exclude_participant_email = 5;
+
+  // Optional: Only include meetings with assertion changes.
+  bool has_changes = 6;
+
+  // Optional: Filter to meetings linked to these project IDs.
+  repeated int64 project_ids = 7;
 }
 
 // ListMeetingsResponse returns matching meetings.
 message ListMeetingsResponse {
   // Matching meetings.
   repeated MeetingInfo meetings = 1;
+}
+
+// MeetingRecap represents a meeting summary with extracted key points.
+message MeetingRecap {
+  // Meeting information.
+  MeetingInfo meeting = 1;
+
+  // Summary of the meeting.
+  string summary = 2;
+
+  // Key decisions made.
+  repeated string key_decisions = 3;
+
+  // Action items identified.
+  repeated string action_items = 4;
+
+  // Risks flagged.
+  repeated string risks = 5;
+
+  // Number of participants.
+  int32 participant_count = 6;
+}
+
+// GetMeetingRecapRequest retrieves a meeting recap.
+message GetMeetingRecapRequest {
+  // Optional: Filter by series name (with most_recent).
+  string series_name = 1;
+
+  // Optional: Get specific meeting by source ID.
+  string source_id = 2;
+
+  // Optional: Get most recent in series.
+  bool most_recent = 3;
+}
+
+// GetMeetingRecapResponse returns the meeting recap.
+message GetMeetingRecapResponse {
+  // Meeting recap.
+  MeetingRecap recap = 1;
 }
 
 // =============================================================================

@@ -30,6 +30,9 @@ service ProjectService {
   // ListProjects lists projects with optional filtering.
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
 
+  // GetProjectContext retrieves comprehensive project context for drill-down.
+  rpc GetProjectContext(GetProjectContextRequest) returns (GetProjectContextResponse);
+
   // Member management
   // ListProjectMembers lists members (people and teams) for a project.
   rpc ListProjectMembers(ListProjectMembersRequest) returns (ListProjectMembersResponse);
@@ -70,6 +73,9 @@ message Project {
 
   // When the project was last updated.
   google.protobuf.Timestamp updated_at = 8;
+
+  // Project status: "active" or "archived".
+  string status = 9;
 }
 
 // ProjectInput represents input for creating or updating a project.
@@ -106,6 +112,15 @@ message ProjectFilter {
 
   // Pagination offset.
   int32 offset = 6;
+
+  // Filter by project status (e.g., "active", "archived").
+  string status = 7;
+
+  // Sort order: "name", "activity", "created" (default: "name").
+  string sort_by = 8;
+
+  // Always include projects with these names (overrides status filter).
+  repeated string always_include_names = 9;
 }
 
 // =============================================================================
@@ -270,4 +285,38 @@ message RemoveProjectMemberRequest {
 message RemoveProjectMemberResponse {
   // Whether the removal was successful.
   bool success = 1;
+}
+
+// =============================================================================
+// Project Context Messages
+// =============================================================================
+
+// GetProjectContextRequest requests comprehensive project context.
+message GetProjectContextRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Project name or ID.
+  string name = 2;
+}
+
+// GetProjectContextResponse returns comprehensive project drill-down data.
+message GetProjectContextResponse {
+  // The project.
+  Project project = 1;
+
+  // Number of recent meetings associated with this project.
+  int32 recent_meeting_count = 2;
+
+  // Number of open action items.
+  int32 open_action_count = 3;
+
+  // Number of identified risks.
+  int32 risk_count = 4;
+
+  // Recent decisions (summary text).
+  repeated string recent_decisions = 5;
+
+  // Last activity timestamp (ISO 8601).
+  string last_activity = 6;
 }

@@ -1496,10 +1496,41 @@ func (s *Service) ListMeetings(ctx context.Context, req *ingestv1.ListMeetingsRe
 	s.logger.Debug("ListMeetings called",
 		logging.F("series_name", req.SeriesName),
 		logging.F("limit", req.Limit),
+		logging.F("participant_email", req.ParticipantEmail),
+		logging.F("exclude_participant_email", req.ExcludeParticipantEmail),
+		logging.F("has_changes", req.HasChanges),
 	)
 
-	// Get meetings from repository
-	meetings, err := s.seriesRepo.ListMeetings(ctx, req.SeriesName, int(req.Limit))
+	// Check if we need to use the new filter-based method
+	useFilters := req.Since != nil || req.ParticipantEmail != "" ||
+		req.ExcludeParticipantEmail != "" || req.HasChanges || len(req.ProjectIds) > 0
+
+	var meetings []*repository.MeetingInfo
+	var err error
+
+	if useFilters {
+		// Build filters struct
+		filters := repository.MeetingListFilters{
+			SeriesName:              req.SeriesName,
+			ParticipantEmail:        req.ParticipantEmail,
+			ExcludeParticipantEmail: req.ExcludeParticipantEmail,
+			HasChanges:              req.HasChanges,
+			ProjectIDs:              req.ProjectIds,
+			Limit:                   int(req.Limit),
+		}
+
+		if req.Since != nil {
+			sinceTime := req.Since.AsTime()
+			filters.Since = &sinceTime
+		}
+
+		// Use filtered query
+		meetings, err = s.seriesRepo.ListMeetingsWithFilters(ctx, filters)
+	} else {
+		// Use simple query for backwards compatibility
+		meetings, err = s.seriesRepo.ListMeetings(ctx, req.SeriesName, int(req.Limit))
+	}
+
 	if err != nil {
 		s.logger.Error("Error listing meetings",
 			logging.Err(err),
@@ -1521,6 +1552,53 @@ func (s *Service) ListMeetings(ctx context.Context, req *ingestv1.ListMeetingsRe
 
 	return &ingestv1.ListMeetingsResponse{
 		Meetings: protoMeetings,
+	}, nil
+}
+
+// GetMeetingRecap retrieves a meeting recap with summary and key points.
+func (s *Service) GetMeetingRecap(ctx context.Context, req *ingestv1.GetMeetingRecapRequest) (*ingestv1.GetMeetingRecapResponse, error) {
+	s.logger.Debug("GetMeetingRecap called",
+		logging.F("series_name", req.SeriesName),
+		logging.F("source_id", req.SourceId),
+		logging.F("most_recent", req.MostRecent),
+	)
+
+	// Validate that we have either source_id or (series_name with most_recent)
+	if req.SourceId == "" && (req.SeriesName == "" || !req.MostRecent) {
+		return nil, status.Error(codes.InvalidArgument, "must provide either source_id or (series_name with most_recent=true)")
+	}
+
+	// Get recap from repository
+	recap, err := s.seriesRepo.GetMeetingRecap(ctx, req.SeriesName, req.SourceId, req.MostRecent)
+	if err != nil {
+		s.logger.Error("Error getting meeting recap",
+			logging.Err(err),
+			logging.F("series_name", req.SeriesName),
+			logging.F("source_id", req.SourceId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to get meeting recap: %v", err)
+	}
+
+	if recap == nil {
+		return nil, status.Error(codes.NotFound, "meeting not found")
+	}
+
+	// Convert to proto format
+	protoRecap := &ingestv1.MeetingRecap{
+		Meeting:          repoMeetingToProto(recap.Meeting),
+		Summary:          recap.Summary,
+		KeyDecisions:     recap.KeyDecisions,
+		ActionItems:      recap.ActionItems,
+		Risks:            recap.Risks,
+		ParticipantCount: int32(recap.ParticipantCount),
+	}
+
+	s.logger.Info("Retrieved meeting recap successfully",
+		logging.F("meeting_id", recap.Meeting.ID),
+	)
+
+	return &ingestv1.GetMeetingRecapResponse{
+		Recap: protoRecap,
 	}, nil
 }
 

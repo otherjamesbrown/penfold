@@ -92,6 +92,14 @@ func (m *mockSeriesRepositoryWithState) UpdateSourceMetadata(ctx context.Context
 	return nil
 }
 
+func (m *mockSeriesRepositoryWithState) ListMeetingsWithFilters(ctx context.Context, filters repository.MeetingListFilters) ([]*repository.MeetingInfo, error) {
+	return nil, nil
+}
+
+func (m *mockSeriesRepositoryWithState) GetMeetingRecap(ctx context.Context, seriesName, sourceID string, mostRecent bool) (*repository.MeetingRecapInfo, error) {
+	return nil, nil
+}
+
 func (m *mockSeriesRepositoryWithState) GetSourceByContentID(ctx context.Context, contentID string) (*repository.SourceInfo, error) {
 	return nil, nil
 }
