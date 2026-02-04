@@ -73,7 +73,7 @@ Record each work package completion here. Sessions should update this after comm
 | WP3 | **done** | `45d46b8` | 2026-02-04 | TriageContent gRPC RPC: proto definition, gateway proxy, AI server handler with triage prompt (8 categories, 3 importance levels), JSON validation, retry (max 2), Langfuse tracing, prompt template migration (032). 20+ tests. |
 | WP4 | **done** | `f72b4b6` | 2026-02-04 | Two-pass extraction (NER + semantic) with chunking, merge dedup, quality gate. ExtractEntities RPC on AI service + gateway proxy + worker activity. 30+ tests. |
 | WP5 | **done** | `b67e52b` | 2026-02-04 | Context package repository (7 query methods: risks, actions, decisions, events, glossary, project resolution), context builder activity (person resolution via fuzzy name, project resolution via exact/keyword, token budgets per content type, tail truncation), EntityLookupInterface + EntityResolverInterface. 26 tests. |
-| WP6 | **done** | _pending_ | 2026-02-04 | DeepAnalyze RPC (proto + AI server handler + client), structured prompt with `<untrusted_content>` wrapping, model selection by triage category/importance (Pro vs Flash), context_excerpt validation, worker activity with proto conversion, context builder activity with token-budgeted assembly. 30+ tests. |
+| WP6 | **done** | `2908da3` | 2026-02-04 | DeepAnalyze RPC (proto + AI server handler + client), structured prompt with `<untrusted_content>` wrapping, model selection by triage category/importance (Pro vs Flash), context_excerpt validation, worker activity with proto conversion, context builder activity with token-budgeted assembly. 30+ tests. |
 | WP7 | pending | — | — | — |
 | WP8 | pending | — | — | — |
 | WP9 | pending | — | — | — |
