@@ -28,6 +28,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/worker/activities"
 	"github.com/otherjamesbrown/penfold/services/worker/config"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 )
@@ -302,7 +303,9 @@ func main() {
 	// Register Temporal connection health check
 	healthChecker.RegisterCheck("temporal_connection", func(ctx context.Context) error {
 		// Check if we can reach Temporal by describing the namespace
-		_, err := temporalClient.WorkflowService().DescribeNamespace(ctx, nil)
+		_, err := temporalClient.WorkflowService().DescribeNamespace(ctx, &workflowservice.DescribeNamespaceRequest{
+			Namespace: cfg.TemporalNamespace,
+		})
 		if err != nil {
 			return fmt.Errorf("temporal connection check failed: %w", err)
 		}
