@@ -149,6 +149,9 @@ type AIClient interface {
 
 	// ExtractAssertions extracts assertions from content.
 	ExtractAssertions(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error)
+
+	// ExtractEntities performs two-pass entity extraction from content.
+	ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error)
 }
 
 // NotificationClient defines the interface for sending notifications.

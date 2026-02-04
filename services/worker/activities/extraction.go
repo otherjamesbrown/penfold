@@ -4,6 +4,7 @@ package activities
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -182,26 +183,63 @@ type ExtractEntitiesInput struct {
 	TenantID string `json:"tenant_id"`
 	SourceID int64  `json:"source_id"`
 	// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
-	ContentID string `json:"content_id,omitempty"`
-	JobID     string `json:"job_id"`
-	Content   string `json:"content"`
+	ContentID      string `json:"content_id,omitempty"`
+	JobID          string `json:"job_id"`
+	Content        string `json:"content"`
+	TriageCategory string `json:"triage_category,omitempty"` // From Stage 1 triage
 }
 
 // ExtractEntitiesOutput is the output from the ExtractEntities activity.
 type ExtractEntitiesOutput struct {
-	EntityCount int               `json:"entity_count"`
-	Entities    []ExtractedEntity `json:"entities"`
+	People               []PersonResult     `json:"people"`
+	Dates                []DateResult       `json:"dates"`
+	Projects             []string           `json:"projects"`
+	Organisations        []string           `json:"organisations"`
+	ActionItems          []ActionItemResult `json:"action_items"`
+	Decisions            []string           `json:"decisions"`
+	Risks                []string           `json:"risks"`
+	DetailedRisks        []DetailedRisk     `json:"detailed_risks,omitempty"`
+	QualityGateTriggered bool               `json:"quality_gate_triggered"`
+	ModelUsed            string             `json:"model_used"`
+}
+
+// PersonResult represents a person extracted from content.
+type PersonResult struct {
+	Name string `json:"name"`
+	Role string `json:"role,omitempty"`
+}
+
+// DateResult represents a date or deadline extracted from content.
+type DateResult struct {
+	Date    string `json:"date"`
+	Context string `json:"context,omitempty"`
+}
+
+// ActionItemResult represents an action item extracted from content.
+type ActionItemResult struct {
+	Assignee string `json:"assignee,omitempty"`
+	Action   string `json:"action"`
+	Due      string `json:"due,omitempty"`
+}
+
+// DetailedRisk represents a detailed risk from the quality gate re-run.
+type DetailedRisk struct {
+	Description  string `json:"description"`
+	SeverityHint string `json:"severity_hint,omitempty"`
+	OwnerHint    string `json:"owner_hint,omitempty"`
 }
 
 // ExtractedEntity represents an entity extracted from content.
+// DEPRECATED: Use the structured fields in ExtractEntitiesOutput instead.
 type ExtractedEntity struct {
 	Name       string  `json:"name"`
 	Type       string  `json:"type"`
 	Confidence float32 `json:"confidence"`
 }
 
-// ExtractEntities extracts named entities from the given content.
-// This identifies people, organizations, locations, dates, and other named entities.
+// ExtractEntities performs two-pass entity extraction with chunking support.
+// For content under 6K chars, makes a single RPC call.
+// For content over 6K chars, splits into chunks, calls RPC for each, and merges results.
 func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input ExtractEntitiesInput) (*ExtractEntitiesOutput, error) {
 	logger := a.logger.With(
 		logging.F("activity", "ExtractEntities"),
@@ -211,8 +249,8 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 		logging.F("content_length", len(input.Content)),
 	)
 
-	// Record initial heartbeat
-	activity.RecordHeartbeat(ctx, "starting entity extraction")
+	// Record initial heartbeat (safe - checks if in activity context)
+	recordHeartbeat(ctx, "starting entity extraction")
 
 	logger.Info("Extracting entities from content")
 
@@ -239,11 +277,8 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 		)
 	}
 
-	// For entity extraction, we use the assertion extraction as a proxy
-	// since the AI service doesn't have a dedicated NER endpoint yet.
-	// In a real implementation, this would call a dedicated NER model.
 	startTime := time.Now()
-	activity.RecordHeartbeat(ctx, "calling AI service for entity extraction")
+	contentRunes := []rune(input.Content)
 
 	// Start LLM call trace
 	contentID := input.ContentID
@@ -257,121 +292,295 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 	})
 	defer llmSpan.End()
 
-	// Use assertion extraction to identify entities as subjects/objects
-	minConfidence := float32(0.6)
-	maxAssertions := int32(50) // Extract more to get diverse entities
+	var results []*aiv1.ExtractEntitiesResponse
 
-	assertionReq := &aiv1.AssertionRequest{
-		Content:       input.Content,
-		MinConfidence: &minConfidence,
-		MaxAssertions: &maxAssertions,
-		TenantId:      &input.TenantID,
+	if len(contentRunes) <= 6000 {
+		// Single call for short content
+		recordHeartbeat(ctx, "calling AI service for entity extraction (single call)")
+		logger.Info("Content under 6K chars, making single RPC call")
+
+		req := &aiv1.ExtractEntitiesRequest{
+			Content:  input.Content,
+			TenantId: optString(input.TenantID),
+		}
+		if input.TriageCategory != "" {
+			req.TriageCategory = optString(input.TriageCategory)
+		}
+
+		resp, err := a.aiClient.ExtractEntities(ctx, req)
+		if err != nil {
+			tracing.SetLLMResult(llmSpan, tracing.LLMResult{
+				LatencyMs: time.Since(startTime).Milliseconds(),
+				Error:     err,
+			})
+			logger.Error("Failed to extract entities from AI service", logging.Err(err))
+			return nil, fmt.Errorf("failed to extract entities: %w", err)
+		}
+		results = append(results, resp)
+	} else {
+		// Chunked extraction for long content
+		recordHeartbeat(ctx, "calling AI service for entity extraction (chunked)")
+		logger.Info("Content over 6K chars, splitting into chunks",
+			logging.F("content_runes", len(contentRunes)),
+		)
+
+		chunks := splitIntoChunks(input.Content, 1500, 200)
+		logger.Info("Content split into chunks", logging.F("chunk_count", len(chunks)))
+
+		for i, chunk := range chunks {
+			// Check for cancellation between chunks
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+
+			recordHeartbeat(ctx, fmt.Sprintf("extracting entities from chunk %d/%d", i+1, len(chunks)))
+
+			req := &aiv1.ExtractEntitiesRequest{
+				Content:  chunk.Content,
+				TenantId: optString(input.TenantID),
+			}
+			// Only pass triage_category on first chunk for quality gate
+			if i == 0 && input.TriageCategory != "" {
+				req.TriageCategory = optString(input.TriageCategory)
+			}
+
+			resp, err := a.aiClient.ExtractEntities(ctx, req)
+			if err != nil {
+				logger.Error("Failed to extract entities from chunk",
+					logging.Err(err),
+					logging.F("chunk_index", i),
+					logging.F("chunk_length", len(chunk.Content)),
+				)
+				return nil, fmt.Errorf("failed to extract entities from chunk %d: %w", i, err)
+			}
+			results = append(results, resp)
+		}
 	}
 
-	resp, err := a.aiClient.ExtractAssertions(ctx, assertionReq)
-	if err != nil {
-		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     err,
-		})
-		logger.Error("Failed to extract entities from AI service", logging.Err(err))
-		return nil, fmt.Errorf("failed to extract entities: %w", err)
-	}
+	// Record heartbeat after AI calls
+	recordHeartbeat(ctx, "merging extraction results")
 
-	// Record heartbeat after AI call
-	activity.RecordHeartbeat(ctx, "entities extracted, processing results")
+	// Merge results from all chunks
+	output := mergeExtractionResults(results)
 
-	// Record LLM result for entity extraction
+	// Record LLM result for tracing
 	tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-		Model:     resp.ModelUsed,
+		Model:     output.ModelUsed,
 		LatencyMs: time.Since(startTime).Milliseconds(),
 	})
 
-	// Extract unique entities from subjects and objects
-	entityMap := make(map[string]*Entity)
-	for _, assertion := range resp.Assertions {
-		// Add subject as potential entity
-		if assertion.Subject != "" {
-			key := assertion.Subject
-			if existing, ok := entityMap[key]; ok {
-				// Update confidence if higher
-				if assertion.Confidence > existing.Confidence {
-					existing.Confidence = assertion.Confidence
-				}
-			} else {
-				entityMap[key] = &Entity{
-					Name:       assertion.Subject,
-					Type:       inferEntityType(assertion.Subject, assertion.GetCategory()),
-					Confidence: assertion.Confidence,
-				}
-			}
-		}
-
-		// Add object as potential entity
-		if assertion.Object != "" {
-			key := assertion.Object
-			if existing, ok := entityMap[key]; ok {
-				if assertion.Confidence > existing.Confidence {
-					existing.Confidence = assertion.Confidence
-				}
-			} else {
-				entityMap[key] = &Entity{
-					Name:       assertion.Object,
-					Type:       inferEntityType(assertion.Object, assertion.GetCategory()),
-					Confidence: assertion.Confidence,
-				}
-			}
-		}
-	}
-
-	// Convert map to slice
-	entities := make([]*Entity, 0, len(entityMap))
-	for _, e := range entityMap {
-		entities = append(entities, e)
-	}
-
-	// Add entity count to trace
+	// Add extraction counts to trace
 	tracing.SetAttributes(llmSpan,
-		tracing.AttrInt("entities.found", len(entities)),
+		tracing.AttrInt("entities.people", len(output.People)),
+		tracing.AttrInt("entities.dates", len(output.Dates)),
+		tracing.AttrInt("entities.projects", len(output.Projects)),
+		tracing.AttrInt("entities.organisations", len(output.Organisations)),
+		tracing.AttrInt("entities.action_items", len(output.ActionItems)),
+		tracing.AttrInt("entities.decisions", len(output.Decisions)),
+		tracing.AttrInt("entities.risks", len(output.Risks)),
+		tracing.AttrBool("quality_gate_triggered", output.QualityGateTriggered),
 	)
 
 	logger.Info("Entities extracted successfully",
 		logging.F("ai_duration", time.Since(startTime)),
-		logging.F("entities_found", len(entities)),
-		logging.F("model", resp.ModelUsed),
+		logging.F("people", len(output.People)),
+		logging.F("dates", len(output.Dates)),
+		logging.F("projects", len(output.Projects)),
+		logging.F("organisations", len(output.Organisations)),
+		logging.F("action_items", len(output.ActionItems)),
+		logging.F("decisions", len(output.Decisions)),
+		logging.F("risks", len(output.Risks)),
+		logging.F("quality_gate_triggered", output.QualityGateTriggered),
+		logging.F("model", output.ModelUsed),
 	)
-
-	// Check if repository is available for storage
-	if a.entityRepo != nil {
-		storeStart := time.Now()
-		count, err := a.entityRepo.StoreEntities(ctx, input.TenantID, input.SourceID, entities)
-		if err != nil {
-			logger.Error("Failed to store entities", logging.Err(err))
-			return nil, fmt.Errorf("failed to store entities: %w", err)
-		}
-		logger.Info("Entities stored successfully",
-			logging.F("store_duration", time.Since(storeStart)),
-			logging.F("stored_count", count),
-		)
-	}
-
-	// Build output
-	output := &ExtractEntitiesOutput{
-		EntityCount: len(entities),
-		Entities:    make([]ExtractedEntity, len(entities)),
-	}
-	for i, e := range entities {
-		output.Entities[i] = ExtractedEntity{
-			Name:       e.Name,
-			Type:       e.Type,
-			Confidence: e.Confidence,
-		}
-	}
 
 	return output, nil
 }
 
+// mergeExtractionResults merges extraction results from multiple chunks.
+// Deduplicates entities using case-insensitive matching where appropriate.
+func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *ExtractEntitiesOutput {
+	if len(results) == 0 {
+		return &ExtractEntitiesOutput{
+			People:               []PersonResult{},
+			Dates:                []DateResult{},
+			Projects:             []string{},
+			Organisations:        []string{},
+			ActionItems:          []ActionItemResult{},
+			Decisions:            []string{},
+			Risks:                []string{},
+			DetailedRisks:        []DetailedRisk{},
+			QualityGateTriggered: false,
+			ModelUsed:            "",
+		}
+	}
+
+	// Use first result's model and quality gate status
+	modelUsed := results[0].ModelUsed
+	qualityGateTriggered := false
+
+	// People: deduplicate by case-insensitive name
+	peopleMap := make(map[string]PersonResult)
+	for _, result := range results {
+		if result.QualityGateTriggered {
+			qualityGateTriggered = true
+		}
+		for _, p := range result.People {
+			key := normalizeString(p.Name)
+			if existing, ok := peopleMap[key]; !ok || len(p.Role) > len(existing.Role) {
+				// Keep the one with more role info
+				peopleMap[key] = PersonResult{Name: p.Name, Role: p.Role}
+			}
+		}
+	}
+	people := make([]PersonResult, 0, len(peopleMap))
+	for _, p := range peopleMap {
+		people = append(people, p)
+	}
+
+	// Dates: deduplicate by date string (case-insensitive)
+	datesMap := make(map[string]DateResult)
+	for _, result := range results {
+		for _, d := range result.Dates {
+			key := normalizeString(d.Date)
+			if existing, ok := datesMap[key]; !ok || len(d.Context) > len(existing.Context) {
+				// Keep the one with more context info
+				datesMap[key] = DateResult{Date: d.Date, Context: d.Context}
+			}
+		}
+	}
+	dates := make([]DateResult, 0, len(datesMap))
+	for _, d := range datesMap {
+		dates = append(dates, d)
+	}
+
+	// Projects: deduplicate by case-insensitive match
+	projectsSet := make(map[string]string)
+	for _, result := range results {
+		for _, proj := range result.Projects {
+			key := normalizeString(proj)
+			if _, ok := projectsSet[key]; !ok {
+				projectsSet[key] = proj
+			}
+		}
+	}
+	projects := make([]string, 0, len(projectsSet))
+	for _, proj := range projectsSet {
+		projects = append(projects, proj)
+	}
+
+	// Organisations: deduplicate by case-insensitive match
+	orgsSet := make(map[string]string)
+	for _, result := range results {
+		for _, org := range result.Organisations {
+			key := normalizeString(org)
+			if _, ok := orgsSet[key]; !ok {
+				orgsSet[key] = org
+			}
+		}
+	}
+	organisations := make([]string, 0, len(orgsSet))
+	for _, org := range orgsSet {
+		organisations = append(organisations, org)
+	}
+
+	// ActionItems: deduplicate by composite key (action + assignee, case-insensitive)
+	actionItemsMap := make(map[string]ActionItemResult)
+	for _, result := range results {
+		for _, ai := range result.ActionItems {
+			// Use composite key: action + assignee
+			key := normalizeString(ai.Action) + "|" + normalizeString(ai.Assignee)
+			if existing, ok := actionItemsMap[key]; !ok || len(ai.Due) > len(existing.Due) {
+				// Keep the one with more due info
+				actionItemsMap[key] = ActionItemResult{
+					Assignee: ai.Assignee,
+					Action:   ai.Action,
+					Due:      ai.Due,
+				}
+			}
+		}
+	}
+	actionItems := make([]ActionItemResult, 0, len(actionItemsMap))
+	for _, ai := range actionItemsMap {
+		actionItems = append(actionItems, ai)
+	}
+
+	// Decisions: deduplicate by exact string (case-insensitive)
+	decisionsSet := make(map[string]string)
+	for _, result := range results {
+		for _, dec := range result.Decisions {
+			key := normalizeString(dec)
+			if _, ok := decisionsSet[key]; !ok {
+				decisionsSet[key] = dec
+			}
+		}
+	}
+	decisions := make([]string, 0, len(decisionsSet))
+	for _, dec := range decisionsSet {
+		decisions = append(decisions, dec)
+	}
+
+	// Risks: deduplicate by exact string (case-insensitive)
+	risksSet := make(map[string]string)
+	for _, result := range results {
+		for _, risk := range result.Risks {
+			key := normalizeString(risk)
+			if _, ok := risksSet[key]; !ok {
+				risksSet[key] = risk
+			}
+		}
+	}
+	risks := make([]string, 0, len(risksSet))
+	for _, risk := range risksSet {
+		risks = append(risks, risk)
+	}
+
+	// DetailedRisks: deduplicate by description (case-insensitive)
+	detailedRisksMap := make(map[string]DetailedRisk)
+	for _, result := range results {
+		for _, dr := range result.DetailedRisks {
+			key := normalizeString(dr.Description)
+			if existing, ok := detailedRisksMap[key]; !ok || len(dr.SeverityHint) > len(existing.SeverityHint) {
+				// Keep the one with more detail
+				detailedRisksMap[key] = DetailedRisk{
+					Description:  dr.Description,
+					SeverityHint: dr.SeverityHint,
+					OwnerHint:    dr.OwnerHint,
+				}
+			}
+		}
+	}
+	detailedRisks := make([]DetailedRisk, 0, len(detailedRisksMap))
+	for _, dr := range detailedRisksMap {
+		detailedRisks = append(detailedRisks, dr)
+	}
+
+	return &ExtractEntitiesOutput{
+		People:               people,
+		Dates:                dates,
+		Projects:             projects,
+		Organisations:        organisations,
+		ActionItems:          actionItems,
+		Decisions:            decisions,
+		Risks:                risks,
+		DetailedRisks:        detailedRisks,
+		QualityGateTriggered: qualityGateTriggered,
+		ModelUsed:            modelUsed,
+	}
+}
+
+// normalizeString converts a string to lowercase and trims whitespace for deduplication.
+func normalizeString(s string) string {
+	return strings.TrimSpace(strings.ToLower(s))
+}
+
+// optString returns a pointer to the given string (for proto optional fields).
+func optString(s string) *string {
+	return &s
+}
+
 // inferEntityType attempts to infer the entity type from the name and category.
+// DEPRECATED: Used by old assertion-based extraction logic.
 func inferEntityType(name, category string) string {
 	// Use category as a hint if available
 	switch category {
@@ -393,6 +602,16 @@ func inferEntityType(name, category string) string {
 
 	// Default to unknown - a proper NER model would classify this
 	return "unknown"
+}
+
+// recordHeartbeat safely records an activity heartbeat, only if in an activity context.
+// This allows the function to be called in tests without panicking.
+func recordHeartbeat(ctx context.Context, details ...interface{}) {
+	defer func() {
+		// Recover from panic if not in activity context
+		_ = recover()
+	}()
+	activity.RecordHeartbeat(ctx, details...)
 }
 
 // Ensure ExtractionActivities implements required interfaces at compile time.

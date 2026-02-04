@@ -232,6 +232,27 @@ func (c *Client) TriageContent(ctx context.Context, req *aiv1.TriageContentReque
 	return resp, nil
 }
 
+// ExtractEntities performs two-pass entity extraction from content.
+func (c *Client) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+
+	// Apply request timeout if configured
+	if c.options.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.options.requestTimeout)
+		defer cancel()
+	}
+
+	resp, err := c.client.ExtractEntities(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("extract entities failed: %w", err)
+	}
+
+	return resp, nil
+}
+
 // ListModels returns all registered models with optional filtering.
 func (c *Client) ListModels(ctx context.Context, req *aiv1.ListModelsRequest) (*aiv1.ListModelsResponse, error) {
 	if req == nil {

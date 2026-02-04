@@ -17,19 +17,20 @@ People are the most connected entity type. They appear as:
 
 **Key fields**: canonical_name, primary_email, account_type (person/role/distribution/bot/external_service), is_internal, confidence score, needs_review flag
 
-**Seniority and Trust** (see `00-overview.md` — collaboration philosophy):
+**Seniority and Trust** (see `00-overview.md` — collaboration philosophy, `design.md` — concrete implementation):
 
-People carry two weighting signals that affect how the system surfaces information:
+People carry two weighting signals that affect how the system surfaces information. These are **separate signals used for different purposes** — they are never combined into a single numeric weight.
 
-| Signal | Source | Purpose |
-|--------|--------|---------|
-| **seniority_tier** (1-7) | Organizational fact (title/level) | Weights assertions by organizational authority. A VP flagging a risk surfaces differently than an IC. Detects escalation signals (senior person enters a previously junior discussion). |
-| **trust_level** (0-5) | Human-assigned, subjective | "When this person says it's an issue, I believe them." Can be domain-specific via trust_domains. Private to the user. |
+| Signal | Source | Purpose | Used by |
+|--------|--------|---------|---------|
+| **seniority_tier** (1-7) | Organizational fact (title/level) | Escalation detection: a senior person entering a previously junior discussion is an organizational signal. | Stage 4 context (visible to LLM), seniority escalation queries, briefing ordering (tier 3) |
+| **trust_level** (0-5) | Human-assigned, subjective | "When this person says it's an issue, I believe them." | Briefing ordering (tier 2), Stage 4 participant context (visible to LLM) |
+| **trust_domains** (text[]) | Human-assigned | Domain-specific trust: e.g. `['technical-risk', 'timeline']`. When set, trust applies only to matching assertion types. | Briefing ordering (refines trust_level applicability), Stage 4 context |
 
-These are **different axes**. A trusted senior IC may carry more weight than an unfamiliar VP. The system uses both:
-- Assertion weight at extraction time (who said this?)
-- Peripheral change detection (who just got involved?)
-- Briefing assembly (who are the most senior/trusted people in this discussion?)
+These are **different axes**. A trusted senior IC may carry more weight than an unfamiliar VP. A VP you don't trust joining a discussion is still an escalation signal. The system uses them separately:
+- **Seniority** → escalation detection (who just got involved?), Stage 4 participant context (observable org fact)
+- **Trust** → briefing ordering (which assertions surface first?), Stage 4 participant context (LLM can reference trust in observations)
+- **Briefing priority tiers**: watched items → trusted source → senior source → everything else (see `design.md` for the full query)
 
 **Aliases**: Each person can have multiple identifiers:
 - Email addresses (multiple)
@@ -53,7 +54,7 @@ Product (top-level)
     └── Feature
 ```
 
-**Key fields**: name, product_type (product/sub_product/feature), parent_id, status (active/beta/sunset/deprecated)
+**Key fields**: name, product_type (product/sub_product/feature), parent_id, status (active/beta/sunset/deprecated/archived)
 
 **Relationships**:
 - Products have **team associations** with context labels
@@ -65,7 +66,9 @@ Product (top-level)
 
 Projects are time-bounded initiatives or programs.
 
-**Key fields**: name, description, keywords (text array for matching), jira_projects (text array for integration), status
+**Key fields**: name, description, keywords (text array for matching), jira_projects (text array for integration), status (active/archived)
+
+**Note:** The `projects` table currently has no `status` column in the schema. This needs to be added — see `07-session-bootstrap.md` for the migration. Archived projects are excluded from morning bootstrap and Stage 4 context but remain searchable and drillable on demand.
 
 **Relationships**:
 - Project members (people or teams) with roles
@@ -169,8 +172,11 @@ Patterns can be:
 
 ### Candidate Scoring
 
+Resolution is **project-scoped first**. When processing content about project MTC, candidates with high affinity to MTC rank above candidates from other projects. This prevents cross-project ambiguity (e.g., "JB" in an MTC email resolves to the JB most associated with MTC, not the most globally frequent JB).
+
 | Factor | Weight | Description |
 |--------|--------|-------------|
+| Project affinity | Highest | Candidate's affinity to the content's resolved project |
 | Historical pattern | High | Previously resolved same way |
 | Alias match | High | Direct alias match |
 | Name similarity | Medium | Fuzzy match to canonical name |

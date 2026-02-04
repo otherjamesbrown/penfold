@@ -110,12 +110,12 @@ The solution separates **personality** from **memory**:
 | Layer | Source | What It Contains | When It Changes |
 |-------|--------|-----------------|-----------------|
 | **Personality** | CLAUDE.md | How to behave, what the system is, when to prompt the human, how to interpret trust/seniority | When the system design changes |
-| **Memory** | `penf context morning` | Watch list, recent changes, active projects, trusted people, last session summary | Every day, every session |
+| **Memory** | `penf context morning` | Project index with change counts, per-project watch lists, last session summary | Every day, every session |
 | **Depth** | `penf` queries on demand | Full assertion history, golden thread, complete briefings | Real-time |
 
-**Session bootstrap**: Claude's first action every session is `penf context morning`, which returns a structured briefing: what you're tracking, what changed since last session, who matters, what needs your input. Claude reconstructs its working memory from the database.
+**Session bootstrap**: Claude's first action every session is `penf context morning`, which returns a project index: which projects have activity, with change counts for risks, decisions, and action items. The user picks a project to focus on, and Claude loads that project's full context. Claude reconstructs its working memory from the database, scoped to the project the user cares about right now.
 
-**Going deeper**: The bootstrap is a summary — enough to start the conversation. When the human asks about a specific risk, Claude queries `penf assertion briefing --root-id 101` for the full golden thread: origin, lifecycle events, key people, escalation chain, linked content.
+**Going deeper**: The bootstrap is a project-level summary — enough to pick where to focus. When the human drills into a project, Claude loads its risks, actions, and decisions. For a specific risk, Claude queries `penf assertion briefing --root-id 101` for the full golden thread: origin, lifecycle events, key people, escalation chain, linked content.
 
 **Session persistence**: At session end, Claude persists what it learned that isn't already captured: `penf context session-end --summary "..."`. This loads next morning as part of the bootstrap.
 
@@ -130,6 +130,7 @@ The SLM/LLM architecture is designed around this collaboration model:
 3. **The human curates through conversation** — via Claude Code, the human manages their spotlight, adds context, and makes priority decisions in natural language.
 4. **Change detection is proactive** — the AI monitors the periphery and surfaces changes worth human attention, especially changes in seniority profile or assertion frequency.
 5. **Briefings assemble on demand** — when the spotlight moves, the system assembles full context instantly because it's been tracking everything all along.
+6. **Projects are the primary scope** — the user works project/product-first. Morning briefings, drill-downs, watch lists, and Stage 4 context are all project-scoped by default. Cross-project queries (e.g., "what's Sara involved in?") are the exception, not the norm.
 
 ---
 
@@ -145,13 +146,21 @@ Users ask questions in natural language. Claude Code translates that into approp
 
 **Example interaction:**
 
-> **Human:** "What's happening with my watched risks this week?"
+> **Human:** "Morning. What's going on?"
 >
-> **Claude:** "VxLAN had 3 new mentions — two passing, one substantive. The substantive one was in Thursday's TER where Sarah Chen (VP Engineering) said she wants a mitigation plan by end of month. That's new — she wasn't involved before. The other two risks on your watch list are quiet."
+> **Claude:** "MTC has 2 risk updates and a new action item. CLIC has 1 escalation and 2 actions due this week. OSL is quiet. Where do you want to start?"
+>
+> **Human:** "MTC."
+>
+> **Claude:** "VxLAN had 3 new mentions — two passing, one substantive. The substantive one was in Thursday's TER where Sarah Chen (VP Engineering) said she wants a mitigation plan by end of month. That's new — she wasn't involved before. There's also a new SLO risk from Melissa. Your CDN capacity item is stale — 8 days quiet."
 >
 > **Human:** "OK, escalate VxLAN to critical. And that CDN capacity one — I talked to Mike offline, he says it's handled. Add that note and drop it from my watch list."
 >
 > **Claude:** *Updates via penf commands. The offline context is now in the system.*
+>
+> **Human:** "Now what's Dan involved in across all projects?"
+>
+> **Claude:** *Pivots to person view — the exception that cuts across project boundaries.*
 
 The CLI (`penf`) is optimized for AI consumption:
 - Commands support `--format json` for structured output
@@ -193,7 +202,7 @@ The knowledge base improves over time:
 | **Product Knowledge** — product history, teams, decisions, timeline | Tier 2 | Partial |
 | **Question Resolution** — review queue for AI questions | Tier 2 | Implemented |
 | **Risk & Assertion Tracking** — RAID lifecycle with human spotlight | Tier 2 | Designed |
-| **Daily Review & Triage** — prioritized daily digest with bidirectional prompting | Tier 3 | Planned |
+| **Daily Review & Triage** — project-scoped daily digest with bidirectional prompting | Tier 3 | Planned |
 
 ## Content Types Processed
 

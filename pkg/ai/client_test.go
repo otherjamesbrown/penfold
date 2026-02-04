@@ -25,6 +25,7 @@ type mockAIServer struct {
 	extractAssertionsFunc  func(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error)
 	classifyContentFunc    func(ctx context.Context, req *aiv1.ClassifyContentRequest) (*aiv1.ClassifyContentResponse, error)
 	triageContentFunc      func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error)
+	extractEntitiesFunc    func(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error)
 	getModelStatusFunc     func(ctx context.Context, req *aiv1.GetModelStatusRequest) (*aiv1.GetModelStatusResponse, error)
 
 	// Call counters for retry testing
@@ -103,6 +104,35 @@ func (m *mockAIServer) TriageContent(ctx context.Context, req *aiv1.TriageConten
 		InputTokens:  &inputTokens,
 		OutputTokens: &outputTokens,
 		Retries:      0,
+	}, nil
+}
+
+func (m *mockAIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error) {
+	if m.extractEntitiesFunc != nil {
+		return m.extractEntitiesFunc(ctx, req)
+	}
+	inputTokens := int32(100)
+	outputTokens := int32(80)
+	return &aiv1.ExtractEntitiesResponse{
+		People: []*aiv1.PersonEntity{
+			{Name: "Alice Smith", Role: "Engineer"},
+		},
+		Dates: []*aiv1.DateEntity{
+			{Date: "January 15th", Context: "project deadline"},
+		},
+		Projects:      []string{"Project Alpha"},
+		Organisations: []string{"Acme Corp"},
+		ActionItems: []*aiv1.ActionItemEntity{
+			{Assignee: "Bob", Action: "Review PR", Due: "next week"},
+		},
+		Decisions:            []string{"Approved budget"},
+		Risks:                []string{"Potential delay"},
+		DetailedRisks:        []*aiv1.RiskEntity{},
+		QualityGateTriggered: false,
+		ModelUsed:            "test-model",
+		InputTokens:          &inputTokens,
+		OutputTokens:         &outputTokens,
+		Retries:              0,
 	}, nil
 }
 
@@ -593,5 +623,54 @@ func TestClient_TriageContent(t *testing.T) {
 		assert.NotNil(t, resp)
 		assert.NotEmpty(t, resp.Category)
 		assert.NotEmpty(t, resp.Importance)
+	})
+}
+
+func TestClient_ExtractEntities(t *testing.T) {
+	mock := &mockAIServer{}
+	server, addr := startTestServer(t, mock)
+	defer server.Stop()
+
+	client, err := NewClient(addr)
+	require.NoError(t, err)
+	defer client.Close()
+
+	t.Run("nil request returns error", func(t *testing.T) {
+		_, err := client.ExtractEntities(context.Background(), nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "request is required")
+	})
+
+	t.Run("successful entity extraction", func(t *testing.T) {
+		triageCategory := "PROJECT_UPDATE"
+		sourceID := int64(456)
+
+		resp, err := client.ExtractEntities(context.Background(), &aiv1.ExtractEntitiesRequest{
+			Content:        "Alice Smith is the engineer working on Project Alpha at Acme Corp. The deadline is January 15th. Bob should review the PR next week. We approved the budget. There is a potential delay.",
+			TriageCategory: &triageCategory,
+			SourceId:       &sourceID,
+		})
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.NotEmpty(t, resp.People)
+		assert.NotEmpty(t, resp.Dates)
+		assert.NotEmpty(t, resp.Projects)
+		assert.NotEmpty(t, resp.Organisations)
+		assert.NotEmpty(t, resp.ActionItems)
+		assert.NotEmpty(t, resp.Decisions)
+		assert.NotEmpty(t, resp.Risks)
+		assert.Equal(t, "test-model", resp.ModelUsed)
+		assert.NotNil(t, resp.InputTokens)
+		assert.NotNil(t, resp.OutputTokens)
+		assert.Equal(t, int32(0), resp.Retries)
+	})
+
+	t.Run("extraction with minimal content", func(t *testing.T) {
+		resp, err := client.ExtractEntities(context.Background(), &aiv1.ExtractEntitiesRequest{
+			Content: "Simple content with no entities.",
+		})
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.NotEmpty(t, resp.ModelUsed)
 	})
 }

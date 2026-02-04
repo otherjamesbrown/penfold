@@ -27,7 +27,7 @@ The example values in the format template act as few-shot guidance. The model se
 
 **1. Provide context, not just content.** The LLM's value is in reasoning, so give it material to reason about. The Stage 3 enrichment output (resolved entities, glossary expansions, relevant background) is as important as the content itself.
 
-**2. Separate facts from analysis.** Tell the LLM what's already been extracted (Stage 2 output) and ask it to focus on what requires reasoning. "The following entities have already been extracted and verified. Focus your analysis on: connections between entities, implied actions, and strategic significance."
+**2. Separate verified from preliminary.** Stage 2a output (entities, dates, projects) is verified by Stage 3 database resolution — present it as fact. Stage 2b output (action items, decisions, risks) is preliminary SLM extraction that may contain misclassifications or omissions — present it as a starting point for the LLM to verify and refine. "The following entities have been extracted and resolved against the knowledge base. The following action items, risks, and decisions were extracted by a smaller model — verify these are correct, refine descriptions, and add any that were missed. Then focus on: connections between entities, implied actions, and strategic significance."
 
 **3. Be specific about what "analysis" means.** "Analyse this email" is vague. "Identify how this email relates to the three active risks listed in the background context" is specific. The LLM produces better output when the reasoning task is clearly scoped.
 

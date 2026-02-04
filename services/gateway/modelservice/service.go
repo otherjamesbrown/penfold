@@ -352,6 +352,40 @@ func (s *Service) TriageContent(ctx context.Context, req *aiv1.TriageContentRequ
 	return resp, nil
 }
 
+// ExtractEntities proxies to AI service to extract entities from content.
+func (s *Service) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error) {
+	s.logger.Debug("ExtractEntities called",
+		logging.F("content_length", len(req.GetContent())),
+		logging.F("triage_category", req.GetTriageCategory()),
+		logging.F("source_id", req.GetSourceId()),
+	)
+
+	if err := s.checkClient(); err != nil {
+		s.logger.Warn("ExtractEntities: AI service unavailable")
+		return nil, err
+	}
+
+	resp, err := s.aiClient.ExtractEntities(ctx, req)
+	if err != nil {
+		s.logger.Error("ExtractEntities failed", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to extract entities: %v", err)
+	}
+
+	s.logger.Debug("ExtractEntities completed",
+		logging.F("people_count", len(resp.GetPeople())),
+		logging.F("dates_count", len(resp.GetDates())),
+		logging.F("projects_count", len(resp.GetProjects())),
+		logging.F("organisations_count", len(resp.GetOrganisations())),
+		logging.F("action_items_count", len(resp.GetActionItems())),
+		logging.F("decisions_count", len(resp.GetDecisions())),
+		logging.F("risks_count", len(resp.GetRisks())),
+		logging.F("quality_gate_triggered", resp.GetQualityGateTriggered()),
+		logging.F("model_used", resp.GetModelUsed()),
+		logging.F("retries", resp.GetRetries()),
+	)
+	return resp, nil
+}
+
 // =============================================================================
 // AI Operations (CLI-facing)
 // =============================================================================

@@ -148,13 +148,10 @@ Let's walk through each stage in detail.
 - Remove timing markers and formatting artefacts that don't carry meaning.
 - Detect platform-specific patterns (Webex auto-transcription artefacts, Teams speaker identification format, etc.).
 
-### For Slack messages
+### For Slack messages (future)
 
-- Parse JSON export format (Slack exports as JSON with message arrays).
-- Extract: sender, timestamp, channel, thread_ts (identifies threads), reactions, mentions.
-- Expand user IDs to names if a user mapping is available.
-- Handle message types: regular messages, thread replies, bot messages, file shares, channel joins.
-- Reconstruct thread structure using thread_ts grouping.
+- Parse JSON export format, group by thread_ts, treat each thread as a short document.
+- See "Handling Slack Messages" section below for the sketch. Detailed design deferred until real export data is available.
 
 ### What you get out of Stage 0
 
@@ -424,8 +421,14 @@ The prompt structure uses explicit delimiters to separate trusted instructions f
 ```
 You are analysing business content for a knowledge management system.
 
-## Already Extracted (verified)
-{Stage 2 + Stage 3 output - entities, dates, action items}
+## Entities and Dates (verified — resolved against knowledge base)
+{Stage 2a NER output + Stage 3 resolution: people with person_ids,
+ dates, projects with product_ids, organisations}
+
+## Preliminary Extraction (from SLM — verify and refine)
+{Stage 2b output: action items, decisions, risks. These were extracted
+ by a 7B model and may contain misclassifications, vague descriptions,
+ or omissions. Treat as a starting point, not as verified fact.}
 
 ## Background Context
 {relevant context pulled from Penfold's knowledge base}
@@ -443,23 +446,31 @@ from the content.
 
 ## Analysis Required
 
-1. SENTIMENT: Overall sentiment score (-1.0 to 1.0) with confidence.
+1. VERIFY PRELIMINARY EXTRACTION: Review the action items, decisions,
+   and risks extracted above. For each one:
+   - Confirm it is correctly classified (a risk is actually a risk,
+     not a passing observation)
+   - Refine vague descriptions into specific, actionable statements
+   - Remove any that are not supported by the content
+   - Add any that the SLM missed
+
+2. SENTIMENT: Overall sentiment score (-1.0 to 1.0) with confidence.
    Consider business communication norms - diplomatic language often
    masks negative sentiment. "Areas to watch" often means problems.
 
-2. TOPIC MAPPING: How does this content relate to the known projects
+3. TOPIC MAPPING: How does this content relate to the known projects
    and products listed in the background context? Identify specific
    connections, not general themes.
 
-3. RISK & ISSUE IDENTIFICATION: Are any new risks or issues raised
-   that aren't in the background context? Are any existing risks
-   being updated or escalated?
+4. RISK & ISSUE IDENTIFICATION: Beyond what was already extracted,
+   are any new risks or issues raised that aren't in the background
+   context? Are any existing risks being updated or escalated?
 
-4. IMPLICIT ACTION ITEMS: Beyond the explicitly stated action items
-   (already extracted above), are there implied actions? Things that
-   need to happen but weren't directly assigned?
+5. IMPLICIT ACTION ITEMS: Beyond the explicitly stated action items,
+   are there implied actions? Things that need to happen but weren't
+   directly assigned?
 
-5. STRATEGIC INSIGHTS: What should the reader take away from this
+6. STRATEGIC INSIGHTS: What should the reader take away from this
    content? What's the significance in the context of the active
    projects and known risks?
 
@@ -682,47 +693,57 @@ Week 2, Meeting 2:
 
 ### What gets loaded as context for each content type
 
-The context package for Stage 4 should be different depending on what we're processing:
+The context package for Stage 4 should be different depending on what we're processing. Each section has a **token budget** to prevent context from crowding out the actual content as the knowledge base grows.
 
-**For a meeting transcript (most context-heavy):**
+The codebase already has a tiered context system (`pkg/enrichment/extraction/context.go`) with per-element token estimates. The Stage 4 context assembly extends this with an aggregate cap per content type. Within each section, items are prioritised so the most relevant context fits within the budget — watched items first, then by severity/recency.
+
+| Content type | Total context budget | Content budget | Rationale |
+|-------------|---------------------|---------------|-----------|
+| Meeting transcript | ~3,000 tokens | ~4,000 tokens (segment summaries) | Meetings need the most context; content arrives pre-summarised |
+| Email | ~2,000 tokens | ~2,000 tokens (full text or thread summaries) | Most emails are short; context can be generous |
+| Slack thread | ~1,000 tokens | ~1,000 tokens | Slack threads are short; lightweight context is sufficient |
+
+**For a meeting transcript (most context-heavy, ~3,000 token budget):**
 ```
 Context package:
-1. Meeting series info (if this is a recurring meeting)
-   - Previous meetings in the series
-   - Previous meeting summaries (from content_insights)
-2. Active assertions for the project
-   - Open risks (is_current=true, type='risk')
-   - Open action items (status='open', type='action')
-   - Recent decisions (last 30 days, type='decision')
-3. Product timeline events (last 60 days)
+1. Meeting series info (if this is a recurring meeting)       ~200 tokens
+   - Previous meeting summary (most recent only)
+2. Active assertions for the project                          ~1,200 tokens
+   - Watched risks first, then by severity (max 10 risks)
+   - Open action items by due date (max 10 actions)
+   - Recent decisions, last 30 days (max 5 decisions)
+3. Product timeline events (last 60 days, max 10)             ~400 tokens
    - Milestones, releases, changes
-4. Participant context
-   - Role of each speaker (from people table)
-   - What they own (action items assigned to them)
-   - Their recent activity (mentions in other content)
-5. Glossary terms relevant to the project
+4. Participant context                                        ~600 tokens
+   - Role and seniority of each speaker (max 15 people)
+   - Action items they own (max 2 per person)
+5. Glossary terms relevant to the project (max 20)            ~400 tokens
 ```
 
-**For an email:**
+**For an email (~2,000 token budget):**
 ```
 Context package:
-1. Thread history (previous emails in this thread, already processed)
+1. Thread history (previous emails in thread, max 5)          ~500 tokens
    - Their summaries and extracted data
-2. Active assertions for resolved products/projects
-   - Focus on risks and open actions
-3. Sender context
-   - Who is this person, what do they own, what projects are they on
-4. Glossary terms
+2. Active assertions for resolved products/projects           ~800 tokens
+   - Watched risks first, then by severity (max 8 risks)
+   - Open action items by due date (max 8 actions)
+3. Sender context                                             ~200 tokens
+   - Role, seniority, active projects
+4. Glossary terms (max 15)                                    ~300 tokens
 ```
 
-**For Slack messages:**
+**For Slack messages (~1,000 token budget):**
 ```
 Context package:
-1. Channel context (what project/team is this channel for)
-2. Active assertions for that project
-3. Recent thread history (if this is a continuing thread)
-4. Participant context (lightweight - just roles)
+1. Channel context (mapped project/team)                      ~100 tokens
+2. Active assertions for that project                         ~500 tokens
+   - Watched risks first (max 5 risks, max 5 actions)
+3. Recent thread history (if continuing thread, max 3)        ~300 tokens
+4. Participant context (roles only, max 8 people)             ~100 tokens
 ```
+
+If any section exceeds its budget, items are dropped from the tail (lowest priority). If the aggregate exceeds the total budget, sections are truncated in reverse order (glossary first, then timeline events, then assertions). The content itself is never truncated to make room for context — context serves the content, not the other way around.
 
 ### People: where we need to be careful
 
@@ -796,6 +817,8 @@ When the pipeline reaches Stage 3 and needs to build a context package, here's w
 
 ```sql
 -- Active risks for the resolved projects (project-scoped, no cross-project bleed)
+-- Budget: ~1,200 tokens shared with action items and decisions
+-- Priority: watched items first, then by severity, then recency
 SELECT a.description, a.severity, a.source_quote,
        p.canonical_name AS owner_name,
        pr.name AS project_name
@@ -807,16 +830,23 @@ WHERE a.type IN ('risk', 'issue')
   AND a.project_id IN (:resolved_project_ids)
 ORDER BY
   CASE a.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2
-       WHEN 'medium' THEN 3 ELSE 4 END;
+       WHEN 'medium' THEN 3 ELSE 4 END,
+  a.created_at DESC
+LIMIT 10;
 
 -- Open action items for the resolved projects
+-- Priority: nearest due date first, then most recent
 SELECT a.description, a.due_date, a.status,
        p.canonical_name AS assignee_name
 FROM assertions a
-JOIN people p ON a.assignee_person_id = p.id
+LEFT JOIN people p ON a.assignee_person_id = p.id
 WHERE a.type = 'action'
   AND a.status = 'open'
-  AND a.project_id IN (:resolved_project_ids);
+  AND a.project_id IN (:resolved_project_ids)
+ORDER BY
+  a.due_date ASC NULLS LAST,
+  a.created_at DESC
+LIMIT 10;
 
 -- Recent decisions for the project
 SELECT a.description, a.rationale,
@@ -827,7 +857,7 @@ WHERE a.type = 'decision'
   AND a.project_id IN (:resolved_project_ids)
   AND a.created_at > now() - interval '60 days'
 ORDER BY a.created_at DESC
-LIMIT 10;
+LIMIT 5;
 
 -- Recent product timeline events
 SELECT pe.title, pe.description, pe.event_type, pe.occurred_at
@@ -835,14 +865,17 @@ FROM product_events pe
 WHERE pe.product_id IN (:resolved_product_ids)
   AND pe.occurred_at > now() - interval '90 days'
 ORDER BY pe.occurred_at DESC
-LIMIT 15;
+LIMIT 10;
 
 -- Glossary terms for context
 SELECT g.term, g.expansion, g.definition
 FROM glossary g
 WHERE g.term IN (:extracted_acronyms)
-  OR g.linked_entity_id IN (:resolved_product_ids);
+  OR g.linked_entity_id IN (:resolved_product_ids)
+LIMIT 20;
 ```
+
+All queries have explicit limits. These limits correspond to the per-section token budgets defined above. If the knowledge base grows beyond what the budgets allow, the least important items are dropped — not the content under analysis.
 
 This is what gets assembled into the "Background Context" section of the Stage 4 prompt. The richer this context is, the better the LLM's analysis. And the context gets richer over time because Stage 4.5 keeps feeding findings back in.
 
@@ -1263,12 +1296,136 @@ When you're done with MTC, you say "now CLIC" and get a fresh project-scoped rev
 
 This is the radar model in action: the AI tracked everything, the human focused the spotlight, and the daily review reflects both — organised around the projects that structure your work.
 
+### How trust and seniority flow through the pipeline
+
+Trust and seniority are **separate signals used for different purposes**. They are never combined into a single weight. Seniority is an organisational fact that drives escalation detection. Trust is a human judgment that drives assertion ordering. A VP you don't trust joining a discussion is still an escalation signal. A trusted IC raising a risk quietly should surface highly even though they're junior.
+
+#### Schema additions to people
+
+```sql
+ALTER TABLE people ADD COLUMN seniority_tier SMALLINT;      -- 1-7, NULL if unknown
+ALTER TABLE people ADD COLUMN trust_level SMALLINT;          -- 0-5, NULL if unset (human-assigned)
+ALTER TABLE people ADD COLUMN trust_domains TEXT[];           -- e.g. ARRAY['technical-risk', 'timeline']
+```
+
+`seniority_tier` is an organisational fact derived from title — it can be set during entity creation or enrichment. `trust_level` and `trust_domains` are only set by the human, never by the pipeline.
+
+#### Briefing ordering: priority tiers, not numeric scores
+
+When assembling a project-scoped briefing, assertions are ordered by priority tier:
+
+```
+Tier 1: Watched items              (explicit human attention — always first)
+Tier 2: Trusted source assertions  (trust_level >= 3 for the person who raised/owns it)
+Tier 3: Senior source assertions   (seniority_tier >= 5 for the person who raised/owns it)
+Tier 4: Everything else            (by recency)
+```
+
+Within each tier, sort by severity (critical > high > medium > low), then by recency (most recent first). An assertion can only appear in one tier — the highest it qualifies for.
+
+The query for a project's assertion briefing:
+
+```sql
+SELECT
+  a.id,
+  a.type,
+  a.description,
+  a.severity,
+  a.lifecycle_event,
+  p.canonical_name AS owner_name,
+  p.seniority_tier,
+  p.trust_level,
+  w.id IS NOT NULL AS is_watched,
+  CASE
+    WHEN w.id IS NOT NULL THEN 1                        -- watched
+    WHEN p.trust_level >= 3 THEN 2                      -- trusted source
+    WHEN p.seniority_tier >= 5 THEN 3                   -- senior source
+    ELSE 4                                              -- everything else
+  END AS priority_tier
+FROM assertions a
+JOIN people p ON p.id = a.owner_person_id
+LEFT JOIN watch_list w ON w.assertion_root_id = a.assertion_root_id
+  AND w.user_id = :user_id
+WHERE a.project_id = :project_id
+  AND a.is_current = true
+ORDER BY
+  priority_tier ASC,
+  CASE a.severity
+    WHEN 'critical' THEN 1
+    WHEN 'high' THEN 2
+    WHEN 'medium' THEN 3
+    WHEN 'low' THEN 4
+    ELSE 5
+  END ASC,
+  a.updated_at DESC;
+```
+
+If `trust_domains` is set, trust applies only when the assertion type matches a trust domain. For example, if `trust_domains = ARRAY['technical-risk']` and the assertion type is `risk`, trust applies. If the assertion type is `action_item`, it doesn't — the person falls through to the seniority or default tier. The domain matching is a refinement; if `trust_domains` is NULL, trust applies to all assertion types.
+
+#### Seniority escalation detection
+
+A seniority escalation occurs when the maximum seniority of people involved in a discussion increases — "a VP just joined a previously junior conversation." This is detected by comparing the seniority profile of participants in new content against the historical seniority profile for that assertion.
+
+```sql
+-- Detect seniority escalations for assertions updated in the last processing batch
+WITH assertion_historical_seniority AS (
+  -- Max seniority of anyone previously involved with this assertion
+  SELECT
+    ar.assertion_root_id,
+    MAX(p.seniority_tier) AS previous_max_seniority
+  FROM assertion_references ar
+  JOIN sources s ON s.id = ar.source_id
+  JOIN content_mentions cm ON cm.source_id = s.id
+  JOIN people p ON p.id = cm.person_id
+  WHERE ar.source_id != :current_source_id   -- exclude current content
+  GROUP BY ar.assertion_root_id
+),
+assertion_current_seniority AS (
+  -- Max seniority of people in the current content
+  SELECT
+    ar.assertion_root_id,
+    MAX(p.seniority_tier) AS current_max_seniority
+  FROM assertion_references ar
+  JOIN sources s ON s.id = ar.source_id
+  JOIN content_mentions cm ON cm.source_id = s.id
+  JOIN people p ON p.id = cm.person_id
+  WHERE ar.source_id = :current_source_id
+  GROUP BY ar.assertion_root_id
+)
+SELECT
+  cur.assertion_root_id,
+  hist.previous_max_seniority,
+  cur.current_max_seniority
+FROM assertion_current_seniority cur
+JOIN assertion_historical_seniority hist
+  ON hist.assertion_root_id = cur.assertion_root_id
+WHERE cur.current_max_seniority > hist.previous_max_seniority;
+```
+
+When this query returns results, Stage 4.5 creates a peripheral alert: "Seniority escalation on Risk #101 — VP Engineering (tier 6) now involved, previously max tier was 4 (Senior Engineer)." This surfaces in the next daily review regardless of whether the assertion is on the watch list, because seniority escalation is an organisational signal the human may not have visibility into.
+
+#### What the LLM sees in Stage 4
+
+Stage 4 receives both seniority and trust in the participant context. Since Penfold is single-user, there is no multi-tenant privacy concern — trust is the user's own signal and the LLM benefits from seeing it. This allows the LLM to make richer observations: "someone you trust raised this risk" or "a trusted engineer disagrees with the VP's assessment."
+
+The participant context in the Stage 4 prompt:
+
+```
+Participant context:
+- Michael Merideth: VP Engineering (seniority: 6), active on MTC, CLIC
+- Dan Spataro: Senior Engineer (seniority: 4), DRI for VxLAN remediation, trusted (level: 4, domains: technical-risk)
+- Melissa General: Director (seniority: 5), active on MTC
+```
+
+The LLM uses this to make better observations ("a VP made this decision," "your trusted engineer flagged this as a concern"). The ordering and highlighting of those observations in the briefing is still controlled by the priority tier logic above — the LLM observes and classifies, the tiers determine presentation order.
+
 ### Timeline queries for products
 
 The `product_events` table now becomes a view into the assertion lifecycle, filtered to a specific product:
 
 ```sql
 -- Complete timeline for CLIC product
+-- Combines product_events (milestones, etc.) with assertion lifecycle events
 SELECT
   COALESCE(pe.occurred_at, a.created_at) AS event_date,
   COALESCE(pe.event_type, a.type) AS event_type,
@@ -1279,11 +1436,13 @@ SELECT
 FROM product_events pe
 LEFT JOIN assertions a ON a.project_id IN (
     SELECT pr.id FROM projects pr WHERE pr.product_id = :product_id
-  ) AND a.is_current = false  -- historical versions show the arc
-JOIN people p ON COALESCE(a.owner_person_id, pe.recorded_by) IS NOT NULL
+  )
+LEFT JOIN people p ON p.id = COALESCE(a.owner_person_id, pe.recorded_by)
 WHERE pe.product_id = :product_id
 ORDER BY event_date;
 ```
+
+Note: the LEFT JOIN on assertions includes all versions (current and historical) so the full lifecycle arc is visible — raised, escalated, resolved. The LEFT JOIN on people ensures events without an owner still appear in the timeline.
 
 This gives you a unified timeline: milestones, risks raised and resolved, decisions made, all in chronological order for a single product.
 
@@ -1549,137 +1708,25 @@ This catches the worst cases without adding a quality scoring model, confidence 
 
 ---
 
-## Handling Slack Messages
+## Handling Slack Messages (Future — Sketch Only)
 
-Slack is different again. Instead of one long document, you have potentially hundreds of short messages, threaded conversations, reactions, and channel context.
+> **Note:** Slack is a future content source. Emails and meeting transcripts are v1. This section is an intentional sketch — the detailed design (conversation clustering heuristics, reaction handling, edit/delete semantics, unthreaded message grouping) will be developed when real Slack export data is available to validate against, the same way the email design was validated against 267 real emails.
 
-### The Slack challenge
+### Core approach
 
-- **Volume:** A busy channel can have 200+ messages per day.
-- **Context dependence:** "I agree" means nothing without knowing what it's responding to.
-- **Threads:** Slack threads are conversations within conversations.
-- **Signal-to-noise:** A lot of Slack is social, reactions, "+1", emoji responses.
-- **Fragmentation:** One person's thought might be split across 5 short messages.
+- **Threads become documents.** Group messages by `thread_ts`. Each thread is treated like a short email through Stages 1-5.
+- **Unthreaded messages are grouped by time window** and participant continuity, then triaged as a batch.
+- **Ingestion uses Slack Export format** (JSON files per channel per day), not the Slack API. Exports are complete snapshots with full threading, reactions, and user metadata.
+- **Channels map to projects** via manual configuration (e.g., `#mtc-project → MTC 2026`). Unmapped channels rely on Stage 2 extraction to identify project references.
+- **Reactions, edits, and deletes** need design attention when real data is available. The current assumption is that reactions are stored as metadata and interpreted by the LLM in context, not by automation.
 
-### The Slack pipeline
+### What needs real data to validate
 
-```
-Slack messages (batch of messages from a channel or time period)
-       |
-       v
-   Stage 0: Parse and Structure
-   (code only)
-   - Group messages into threads (using thread_ts)
-   - Separate top-level messages from thread replies
-   - Expand user IDs to names
-   - Identify message types (regular, bot, system, file_share)
-   - Filter out system messages (joins, leaves, topic changes)
-   - Concatenate rapid-fire messages from same user
-     (messages within 60 seconds, same person -> merge into one)
-       |
-       v
-   Stage 0.5: Thread Assembly
-   (code only)
-   - Each thread becomes one "document":
-     "Channel: #mtc-project, Thread started by Dan Spataro
-      Dan: {first message}
-      Mike: {reply 1}
-      Dan: {reply 2}
-      ..."
-   - Standalone messages (no thread) get grouped by time window
-     (e.g., messages within 30 minutes that seem related)
-       |
-       v
-   Stage 1: Triage per Thread
-   (SLM)
-   - Classify each assembled thread
-   - Most threads will be PERSONAL or OTHER -> skip
-   - Project discussions, decisions, risk flags -> continue
-       |
-       v
-   Stage 2-5: Same as email pipeline
-   (each thread treated like a short email)
-```
-
-### Grouping unthreaded messages
-
-Not everyone uses Slack threads. In busy channels, you'll often see:
-
-```
-10:15 Dan: Anyone looked at the VxLAN vulnerability report?
-10:16 Mike: Yeah, it's concerning. Affects the PLT in CLIC
-10:17 Dan: We need to prioritise a fix
-10:18 Sarah: I can take a look this afternoon
-10:22 Alex: Unrelated - has anyone seen the new laptop policy?
-10:23 Dave: @Alex yeah it's on the intranet
-```
-
-Stage 0.5 needs to group the related messages (10:15-10:18 = one conversation about VxLAN, 10:22-10:23 = separate conversation about laptop policy). This is done by:
-
-1. **Time gap detection:** Messages more than 5 minutes apart are likely different conversations.
-2. **Participant continuity:** If the same people are talking, it's likely the same conversation.
-3. **SLM verification:** For ambiguous cases, show the SLM a block of messages and ask "how many distinct conversations are in this block, and where do they split?"
-
-This last step is a good SLM task - it's classification/segmentation, not reasoning.
-
-### Handling high-volume channels
-
-For channels with 200+ messages/day, you don't want to process every message individually. The batching strategy:
-
-1. Collect all messages from a time period (e.g., one day).
-2. Group into threads and conversation clusters (Stage 0).
-3. Triage the threads/clusters in a single batch SLM call:
-
-```
-Below are summaries of 15 Slack threads from #mtc-project today.
-For each, classify as PROJECT/RISK/ACTION/SOCIAL/OTHER and rate importance.
-
-1. "Dan asks about VxLAN vulnerability, team discusses fix timeline" (5 messages)
-2. "Lunch plans for Thursday" (3 messages)
-3. "Deployment schedule for next sprint" (12 messages)
-...
-```
-
-One SLM call triages all 15 threads. Only the important ones proceed to extraction.
-
-### Ingestion mechanism
-
-Slack is a future content source (emails and transcripts are v1). When implemented, ingestion will use the **Slack Export** format (JSON files per channel per day) rather than the Slack API directly. Reasons:
-
-- Slack API rate limits (tier 3/4) make real-time ingestion fragile for high-volume channels.
-- Exports are a complete snapshot — no pagination, no missed messages.
-- The user can control what's imported (specific channels, date ranges) rather than ingesting everything.
-- Export format is well-documented JSON with full threading, reactions, and user metadata.
-
-For ongoing ingestion (not just historical), a Slack bot or webhook listener could feed new messages into the same pipeline. This is a v2 concern — the export-based path covers the initial use case.
-
-### Channel-to-project mapping
-
-Channels map to projects/products via a `channel_mappings` configuration (manual, not inferred):
-
-```
-#mtc-project     → product: MTC 2026
-#clic-eng        → product: CLIC
-#general         → no mapping (triage determines project per-thread)
-```
-
-Mapped channels get their project context injected into Stage 3 automatically — the enrichment step knows which project's assertions, glossary, and people to load. Unmapped channels rely on Stage 2 extraction to identify project references, same as emails.
-
-Channel mappings are seeded during setup and updated manually. Automatic discovery ("this channel mostly talks about CLIC") is possible but not worth building for v1.
-
-### Reactions as signal
-
-Slack reactions carry lightweight signal but are unreliable as structured data. The approach:
-
-- **Store reactions as metadata** on the message, not as separate entities. `reactions: [{emoji: "white_check_mark", users: ["dan"], count: 1}]`
-- **Surface in Stage 4 context** when processing a thread. The LLM can interpret `:white_check_mark:` on an action item as a completion signal, or multiple `:eyes:` as heightened attention. This is reasoning work — exactly what the remote LLM is for.
-- **Don't build reaction-specific logic.** No "if check_mark then mark action complete" automation. Reactions are ambiguous (`:+1:` could mean "I agree", "I saw this", or "good job"). Let the LLM interpret them in context.
-
-### Edits and deletes
-
-Slack messages can be edited or deleted after posting. In the export format, edits appear as updated message text (no edit history). Deletes appear as absent messages.
-
-Handle this the same way as email reprocessing: the idempotency key `(source_id, assertion_type, extracted_text_hash)` means reprocessing an edited message creates new assertions if the content changed materially, and deduplicates if it didn't. Deleted messages are simply absent from the next export — existing assertions from that message remain (they were true at the time they were extracted).
+- Conversation clustering for unthreaded messages (time gaps, participant continuity, SLM verification)
+- Signal-to-noise ratio in real channels (what percentage is social/noise vs actionable?)
+- High-volume channel batching strategy (how to triage 200+ messages/day efficiently)
+- Whether rapid-fire message concatenation (same person, <60s apart) is sufficient or loses context
+- Reaction semantics (does `:white_check_mark:` reliably mean completion in this org's culture?)
 
 ---
 
@@ -1872,6 +1919,210 @@ Several workflow patterns handle partial failure:
 The MLX inference server on Apple Silicon is **effectively single-threaded for inference**. The Go HTTP client in `services/ai/backend/mlx.go` issues requests concurrently (no client-side serialisation), but the MLX server processes one inference request at a time — additional requests block at the HTTP level until the current inference completes.
 
 This means concurrent Temporal activities calling the MLX backend will queue naturally. To avoid excessive queuing and wasted activity slots, the worker's `MaxConcurrentActivities` should be set to a low value (e.g., 3-4) for task queues that route to SLM/embedding work. This keeps the Temporal worker from scheduling more MLX-bound activities than the server can handle in a reasonable time.
+
+---
+
+## Pipeline Introspection, Prompts, and Reprocessing
+
+The pipeline (Stages 0–5) is the heart of the system. Claude+Penf needs to be able to inspect every stage, understand what it does, see the prompts that drive it, update those prompts when needed, and reason about the impact of changes. This section defines how that works.
+
+### The pipeline registry
+
+Every pipeline stage is registered in the database with metadata that makes it self-describing:
+
+```sql
+CREATE TABLE pipeline_stages (
+    stage TEXT PRIMARY KEY,          -- 'parse', 'segment', 'triage', 'extract_ner', 'extract_semantic', 'resolve', 'analyze', 'persist', 'embed'
+    display_name TEXT NOT NULL,      -- 'Stage 2b: Semantic Extraction'
+    description TEXT NOT NULL,       -- what this stage does, in plain language
+    stage_type TEXT NOT NULL,        -- 'code_only', 'slm', 'llm', 'embedding'
+    model_dependent BOOLEAN NOT NULL,-- true if output changes when model/prompt changes
+    has_prompt BOOLEAN NOT NULL,     -- true if this stage uses a prompt template
+    depends_on TEXT[],               -- stages that must complete before this one
+    downstream TEXT[],               -- stages that consume this stage's output
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+Seed data:
+
+| stage | display_name | stage_type | model_dependent | has_prompt | depends_on | downstream |
+|-------|-------------|------------|-----------------|------------|------------|------------|
+| `parse` | Stage 0: Parse | code_only | false | false | — | segment, triage |
+| `segment` | Stage 0.5: Topic Segmentation | slm | true | true | parse | triage |
+| `triage` | Stage 1: Triage | slm | true | true | parse | extract_ner, extract_semantic |
+| `extract_ner` | Stage 2a: NER Extraction | slm | true | true | triage | resolve |
+| `extract_semantic` | Stage 2b: Semantic Extraction | slm | true | true | triage | resolve |
+| `resolve` | Stage 3: Entity Resolution | code_only | false | false | extract_ner, extract_semantic | analyze |
+| `analyze` | Stage 4: Deep Analysis | llm | true | true | resolve | persist |
+| `persist` | Stage 4.5: Persist Results | code_only | false | false | analyze | embed |
+| `embed` | Stage 5: Embed and Index | embedding | true | false | persist | — |
+
+The `description` field is written for Claude — it explains what the stage does, what kind of output it produces, and what knobs are available. This is what `penf pipeline describe --stage extract_semantic` returns. It should read like a briefing, not like API documentation.
+
+Example description for `extract_semantic`:
+
+> Extracts action items, decisions, and risks from content using the SLM. Runs on content that passed triage (not LOW/PERSONAL). Input is the full content body (or per-chunk for long content). Output is structured JSON with action_items, decisions, and risks arrays. A quality gate checks consistency with the Stage 1 triage classification — if triage said RISK_ISSUE but this stage found zero risks, the stage re-runs with a focused risk-only prompt. Output is preliminary and may contain misclassifications; Stage 4 verifies and refines it for high-importance content.
+
+### Prompt templates in the database
+
+Stages that use prompts (`has_prompt = true`) store their prompt templates versioned in the database:
+
+```sql
+CREATE TABLE prompt_templates (
+    id BIGSERIAL PRIMARY KEY,
+    stage TEXT NOT NULL REFERENCES pipeline_stages(stage),
+    version INT NOT NULL,
+    content TEXT NOT NULL,            -- the prompt template, with {placeholders}
+    description TEXT,                 -- what changed in this version and why
+    is_active BOOLEAN DEFAULT false,
+    created_by TEXT,                  -- 'agent-mycroft', 'james'
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(stage, version)
+);
+```
+
+Only one version per stage is active at a time. The pipeline service fetches the active prompt on each call (cached with a short TTL so updates take effect without restart).
+
+Prompt templates use `{placeholder}` syntax for variable substitution. The placeholders available depend on the stage — `{content}`, `{subject}`, `{sender}`, `{first_500_chars}`, `{background_context}`, etc. The pipeline_stages description documents which placeholders each stage supports.
+
+### CLI for prompt management
+
+```
+penf pipeline prompt show <stage>                    # display the active prompt template
+penf pipeline prompt history <stage>                 # list all versions with dates and descriptions
+penf pipeline prompt diff <stage> <v1> <v2>          # show diff between two versions
+penf pipeline prompt update <stage> --file <path>    # create new version from file, activate it
+    --description "narrowed risk extraction scope"
+penf pipeline prompt rollback <stage>                # revert to previous version
+penf pipeline prompt export <stage> [--version N]    # write prompt to file (for review, git, etc.)
+```
+
+For stages where `has_prompt = false` (parse, resolve, persist, embed), the `prompt` subcommands are not available — those stages are configured through code or model selection, not prompt templates.
+
+### Pipeline describe and status
+
+```
+penf pipeline describe                              # overview of all stages
+penf pipeline describe --stage <stage>              # detailed description, current model, prompt version
+penf pipeline status                                # current model/prompt versions, processing health
+penf pipeline history --source <id>                 # all stage runs for a specific source
+```
+
+`penf pipeline describe --stage extract_semantic` outputs:
+
+```
+Stage: extract_semantic (Stage 2b: Semantic Extraction)
+Type: slm (model-dependent)
+Description: Extracts action items, decisions, and risks from content...
+Model: qwen2.5-7b (local MLX)
+Prompt: v3 (2026-01-15) — "narrowed risk extraction to exclude hypotheticals"
+Depends on: triage (Stage 1)
+Downstream: resolve (Stage 3)
+Sources processed: 412 total
+  v3 (current): 324
+  v2: 71
+  v1: 17
+```
+
+`penf pipeline describe --stage embed` outputs:
+
+```
+Stage: embed (Stage 5: Embed and Index)
+Type: embedding (model-dependent)
+Description: Generates vector embeddings for semantic search...
+Model: nomic-embed-text v1.5 (local MLX)
+Prompt: n/a (embedding stage — no prompt template)
+Depends on: persist (Stage 4.5)
+Downstream: none (terminal stage)
+Sources processed: 500 total, all current
+```
+
+Claude gets the same information in machine-readable form via `--json` flags, so it can reason about version skew and propose targeted actions.
+
+### Provenance tracking
+
+Every stage execution is recorded so we know exactly what produced each result:
+
+```sql
+CREATE TABLE pipeline_runs (
+    id BIGSERIAL PRIMARY KEY,
+    source_id BIGINT NOT NULL,       -- which content item
+    stage TEXT NOT NULL REFERENCES pipeline_stages(stage),
+    model_id TEXT,                    -- 'qwen2.5-7b', 'gemini-2.0-flash', null for code-only
+    prompt_version INT,              -- which prompt_templates.version was used (null for no-prompt stages)
+    config_hash TEXT,                -- hash of relevant config (glossary version, entity list, etc.)
+    status TEXT NOT NULL,            -- 'completed', 'failed', 'superseded'
+    created_at TIMESTAMPTZ DEFAULT now(),
+    duration_ms INT
+);
+```
+
+When a stage is reprocessed for a source, the previous run is marked `superseded` and a new run is created. This preserves full history — you can always see what the old triage classification was before a prompt change.
+
+### Reprocessing
+
+Model upgrades apply to new content only by default. Targeted reprocessing is manual and selective, driven by conversation between the user and Claude.
+
+**Which stages are stable vs model-dependent:**
+
+| Stage | Type | Reprocessing behaviour |
+|-------|------|----------------------|
+| Stage 0 (Parse) | Stable | Never reprocessed — deterministic code |
+| Stage 0.5 (Segment) | Model-dependent | Reprocess only if segmentation logic changes |
+| Stage 1 (Triage) | Model-dependent | Reprocess if prompt changes or model upgrades |
+| Stage 2a (NER) | Model-dependent | Reprocess if prompt changes |
+| Stage 2b (Semantic) | Model-dependent | Reprocess if prompt changes |
+| Stage 3 (Resolve) | Mostly stable | Code-only, but results change if the glossary or entity list changes |
+| Stage 4 (Analyze) | Model-dependent | Reprocess selectively — expensive (remote LLM) |
+| Stage 4.5 (Persist) | Stable | Deterministic given inputs — reprocessing means re-running Stage 4 |
+| Stage 5 (Embed) | Model-dependent | Must regenerate all embeddings if embedding model changes |
+
+**The reprocessing policy:**
+
+1. **Don't reprocess automatically on model upgrade.** Historical content was processed and acted on. Reprocessing produces a second version of truth. New content benefits from the better model going forward.
+2. **Embedding model change is the exception.** If the embedding model changes, all embeddings must be regenerated or search quality degrades across old and new content. This is mechanical, not judgment-based.
+3. **Prompt fixes are targeted.** If a prompt bug is discovered (e.g., all "FYI" emails misclassified as ACTION_REQUEST), reprocess the affected subset. Manual, scoped, discussed with the user before executing.
+4. **Cold start enrichment is selective.** Re-running Stage 4 on high-importance historical content with better context (more glossary, more entity history) is valuable. This is the existing cold start design, applied selectively.
+
+**CLI for reprocessing:**
+
+```
+penf pipeline reprocess --stage <stage> --dry-run    # show what would be affected
+penf pipeline reprocess --stage <stage> --all         # reprocess everything through this stage
+penf pipeline reprocess --stage <stage> --filter "importance=HIGH" --since 2026-01-01
+penf pipeline reprocess --stage <stage> --source <id> # reprocess one item
+penf pipeline reprocess --stage embed --all           # regenerate all embeddings
+```
+
+The `--dry-run` flag is critical. It outputs impact analysis that Claude uses to have an informed conversation with the user:
+
+```
+Reprocessing Stage 2b (extract_semantic) for sources on prompt v2:
+  Affected sources: 71
+  Current triage breakdown: 8 HIGH, 41 MEDIUM, 22 LOW
+  Downstream impact:
+    - Stage 3 (resolve): 49 sources need re-enrichment
+    - Stage 4 (analyze): 15 sources would need re-analysis (remote LLM)
+    - Stage 5 (embed): 0 affected (embeddings don't depend on extraction output)
+  Estimated: 71 SLM calls (local), 15 LLM calls (remote, if Stage 4 reprocessed too)
+```
+
+With `--json`, Claude gets this as structured data and can reason about tradeoffs: "71 sources are on the old extraction prompt. 8 are HIGH importance. Want me to reprocess just those 8 first and compare the results?"
+
+### Session context integration
+
+When Claude bootstraps a session (`penf context morning`), pipeline health is included automatically:
+
+```
+Pipeline:
+  Model: qwen2.5-7b | Prompts: triage v3, extract_ner v2, extract_semantic v3, analyze v1
+  Version skew: 88 sources on older triage prompt (v2: 71, v1: 17)
+  Embeddings: all current (nomic-embed-text v1.5)
+  Last processing: 2 hours ago | Queue: 3 sources pending
+```
+
+This means Claude starts every session knowing whether there's a version skew worth raising, without the user having to ask.
 
 ---
 

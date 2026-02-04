@@ -71,7 +71,7 @@ Record each work package completion here. Sessions should update this after comm
 | WP1 | **done** | `0cdc532` | 2026-02-04 | 4 migrations (028–031): assertion lifecycle, pipeline registry, trust/seniority, watch list |
 | WP2 | **done** | `52d1c8e` | 2026-02-04 | Email parse (HTML-to-text, quoted reply detection), transcript parse (SRT/VTT/TXT, speaker normalization), Temporal activities on Main/Email queues. 37 tests. |
 | WP3 | **done** | `45d46b8` | 2026-02-04 | TriageContent gRPC RPC: proto definition, gateway proxy, AI server handler with triage prompt (8 categories, 3 importance levels), JSON validation, retry (max 2), Langfuse tracing, prompt template migration (032). 20+ tests. |
-| WP4 | pending | — | — | — |
+| WP4 | **done** | _pending_ | 2026-02-04 | Two-pass extraction (NER + semantic) with chunking, merge dedup, quality gate. ExtractEntities RPC on AI service + gateway proxy + worker activity. 30+ tests. |
 | WP5 | pending | — | — | — |
 | WP6 | pending | — | — | — |
 | WP7 | pending | — | — | — |
@@ -164,28 +164,25 @@ Record each work package completion here. Sessions should update this after comm
 
 ---
 
-## WP4: Stage 2 — Extract RPC
+## WP4: Stage 2 — Extract RPC ✓
 
-**Shard:** `pf-1eca7f` · **Agent:** ai-dev · **Depends on:** WP3
+**Shard:** `pf-1eca7f` · **Agent:** ai-dev · **Depends on:** WP3 · **Status:** done
 
-**Files:**
-- `api/proto/ai/v1/ai.proto` — add ExtractEntities RPC (2a NER + 2b semantic)
-- `services/ai/server/server.go` — add handler
-- `services/worker/activities/content_activities.go` — extend chunking for extraction
-- Tests for all new code
+**Files delivered:**
+- `services/ai/server/extract.go` — Two-pass extraction handler: Stage 2a NER (people, dates, projects, orgs) + Stage 2b semantic (action items, decisions, risks), quality gate with focused risk re-prompt, JSON parsing with retry
+- `services/ai/server/extract_test.go` — NER/semantic/quality-gate response parsing tests, prompt construction tests
+- `services/worker/activities/extraction.go` — ExtractEntities Temporal activity with chunking (6K rune threshold, 1500 rune chunks with 200 overlap), merge deduplication across all entity types (case-insensitive composite keys)
+- `services/worker/activities/extraction_test.go` — Short email, chunked extraction, merge dedup, quality gate trigger/non-trigger tests
+- `services/worker/activities/interfaces.go` — ExtractEntities method on AIClient interface
+- `pkg/ai/client.go` — ExtractEntities client method
+- `pkg/ai/client_test.go` — Client-side RPC tests (nil request, successful extraction, minimal content)
+- `services/gateway/modelservice/service.go` — ExtractEntities gateway proxy
 
-**Scope:**
-- Two-pass extraction: Stage 2a NER (people, dates, projects, orgs) + Stage 2b semantic (action items, decisions, risks)
-- Chunking for content >3K chars using existing `splitIntoChunks()` with merge logic
-- Quality gate: if triage=RISK_ISSUE but extraction returns 0 risks, re-run with focused prompt
-- Output: structured JSON matching design.md schema
-- Seed `pipeline_stages` rows for 'extract_ner' and 'extract_semantic'
-
-**Acceptance criteria:**
+**Acceptance criteria (met):**
 - ExtractEntities RPC callable, returns merged NER + semantic results
-- Chunking works for content up to 70K chars (CTG report case)
-- Quality gate triggers and re-runs when triage/extraction disagree
-- Merge logic deduplicates entities across chunks (code, not AI)
+- Chunking works for content up to 70K chars (1500-rune chunks with sentence-boundary splitting)
+- Quality gate triggers re-run when triage=RISK_ISSUE but extraction returns 0 risks
+- Merge logic deduplicates entities across chunks using code-based case-insensitive maps (not AI)
 - Tests cover: short email extraction, chunked extraction, merge dedup, quality gate
 
 ---

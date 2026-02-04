@@ -50,6 +50,7 @@ Read them in order. Each builds on the previous.
 | `prompt-engineering.md` | SLM vs LLM prompt rules, example prompts, output validation, quality tracking |
 | `test-data-validation.md` | Analysis of 267 real emails and 18 transcripts — file size vs text size, does the design hold up |
 | `cost-model.md` | Per-email cost breakdowns, batch processing economics, SLM throughput estimates |
+| `07-session-bootstrap.md` | Session bootstrap specification — `penf context morning` response format, failure modes, staleness, size constraints, drill-down commands |
 | `implementation.md` | What exists in the codebase, what needs building, what gets modified, design principles, FAQ |
 
 ## Key Design Concepts
