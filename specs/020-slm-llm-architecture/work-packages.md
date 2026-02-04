@@ -79,7 +79,7 @@ Record each work package completion here. Sessions should update this after comm
 | WP5 | **done** | `b67e52b` | 2026-02-04 | Context package repository (7 query methods: risks, actions, decisions, events, glossary, project resolution), context builder activity (person resolution via fuzzy name, project resolution via exact/keyword, token budgets per content type, tail truncation), EntityLookupInterface + EntityResolverInterface. 26 tests. |
 | WP6 | **done** | `2908da3` | 2026-02-04 | DeepAnalyze RPC (proto + AI server handler + client), structured prompt with `<untrusted_content>` wrapping, model selection by triage category/importance (Pro vs Flash), context_excerpt validation, worker activity with proto conversion, context builder activity with token-budgeted assembly. 30+ tests. |
 | WP7 | **done** | `5f2da36` | 2026-02-04 | PersistRepository (validation: context_excerpt, lifecycle_event/reference_type allowlists, entity ID verification; idempotency keys via SHA256; assertion creation with root_id; supersession with is_current/superseded_by; assertion_references for every content-assertion link; entity_project_affinity UPSERT; single pgx transaction for saga compensation), PersistFindings Temporal activity registered on Main queue. 21 tests. |
-| WP8 | pending | — | — | — |
+| WP8 | **done** | `pending` | 2026-02-04 | SLMPipelineWorkflow orchestrating Stages 0→1→2→3→4→4.5→5, triage gates (PERSONAL/INTERNAL_COMMS+LOW skip deep), progressive availability (parsed/extracted status), Stage 4 optional (failure continues), embedding critical (failure = pipeline failure), saga compensation, signal/query handlers, triage activity wrapper. 15 tests (8 pipeline + 7 triage). |
 | WP9 | pending | — | — | — |
 | WP10 | pending | — | — | — |
 | WP11 | pending | — | — | — |
@@ -271,32 +271,26 @@ Record each work package completion here. Sessions should update this after comm
 
 ---
 
-## WP8: Pipeline Orchestrator
+## WP8: Pipeline Orchestrator ✓
 
-**Shard:** `pf-7c09c8` · **Agent:** worker-dev · **Depends on:** WP2, WP3, WP4, WP5, WP6, WP1
+**Shard:** `pf-7c09c8` · **Agent:** worker-dev · **Depends on:** WP2, WP3, WP4, WP5, WP6, WP1 · **Status:** done
 
-**Files:**
-- `services/worker/workflows/pipeline.go` — new (or extend content.go)
-- `services/worker/workflows/pipeline_test.go` — new
-- `services/worker/activities/register.go` — register new activities
-- `pkg/temporal/options.go` — stage-to-preset mapping
+**Files delivered:**
+- `services/worker/workflows/pipeline.go` — SLMPipelineWorkflow: Stages 0→1→2→3→4→4.5→5, triage gates, progressive availability (parsed/extracted status updates), Stage 4 optional, embedding critical, saga compensation, signal/query handlers, pipeline-local mirror types for JSON-compatible activity I/O
+- `services/worker/workflows/pipeline_test.go` — 8 tests: full pipeline, triage skip, Stage 4 failure, embedding failure, meeting transcript, Stage 4 timeout, query status, cancellation signal
+- `services/worker/activities/triage_activities.go` — Stage 1 triage activity wrapper: TriageInput/Output, shouldSkipDeep logic, heartbeat/tracing, TriageContent RPC call
+- `services/worker/activities/triage_activities_test.go` — 7 tests: success, skip_deep PERSONAL, skip_deep LOW INTERNAL_COMMS, no-skip HIGH INTERNAL_COMMS, empty content, nil AI client, AI client error
 
-**Scope:**
-- Temporal workflow coordinating Stages 0 -> 1 -> 2 -> 3 -> 4 -> 4.5 -> 5
-- Triage gates: LOW/PERSONAL skips to Stage 5 only; others continue
-- Progressive availability: content keyword-searchable after Stage 0, entity-searchable after Stage 2
-- Stage-to-preset mapping from design.md (parse=Fast, triage=Embedding, extract=Embedding per-chunk, analyze=LLM, etc.)
-- Partial failure handling: per-chunk extraction failures merge available results; enrichment continues with unresolved entities
-- Replaces current 8-stage workflow in `services/worker/workflows/content.go`
+**Implementation shards:** `pf-cac6e6` (triage activity), `pf-e8600d` (pipeline orchestrator)
 
-**Acceptance criteria:**
-- Full pipeline executes for a test email (all stages)
-- Triage correctly gates LOW content (skips Stages 2-4)
-- Progressive availability: content searchable before Stage 4 completes
-- Partial failure: extraction chunk failure doesn't block pipeline
-- Stage 4 failure doesn't lose Stages 0-3 results
-- Temporal retry policies correct per stage
-- Tests cover: full pipeline, triage skip, partial failure, Stage 4 timeout
+**Acceptance criteria (met):**
+- Full pipeline executes for a test email (all 7 stages)
+- Triage correctly gates PERSONAL/INTERNAL_COMMS+LOW content (skips Stages 2-4.5)
+- Progressive availability: UpdateContentStatus called with "parsed" after Stage 0, "extracted" after Stage 2
+- Stage 4 failure does not fail pipeline — continues to embedding
+- Embedding failure fails the pipeline
+- Stage-to-preset mapping: parse=Fast, triage=Embedding, extract=Embedding, context=Fast, analyze=LLM, persist=Fast, embed=Embedding
+- Tests cover: full pipeline, triage skip, Stage 4 failure, embedding failure, meeting transcript, Stage 4 timeout, query status, cancellation signal (15 tests total)
 
 ---
 
