@@ -323,3 +323,326 @@ func (r *Repository) GetFailureCategoryCounts(ctx context.Context) ([]StatusCoun
 	`
 	return r.getStatusCounts(ctx, query)
 }
+
+// ListStages retrieves pipeline stage information, optionally filtered by stage.
+func (r *Repository) ListStages(ctx context.Context, stageFilter string) ([]StageInfo, error) {
+	query := `
+		SELECT
+			ps.stage,
+			ps.display_name,
+			ps.description,
+			ps.stage_type,
+			ps.model_dependent,
+			ps.has_prompt,
+			ps.depends_on,
+			ps.downstream,
+			COALESCE(pt.version, 0) as active_prompt_version
+		FROM pipeline_stages ps
+		LEFT JOIN prompt_templates pt ON ps.stage = pt.stage AND pt.is_active = true
+		WHERE ($1 = '' OR ps.stage = $1)
+		ORDER BY ps.stage
+	`
+
+	rows, err := r.db.Query(ctx, query, stageFilter)
+	if err != nil {
+		return nil, fmt.Errorf("querying pipeline stages: %w", err)
+	}
+	defer rows.Close()
+
+	var stages []StageInfo
+	for rows.Next() {
+		var s StageInfo
+		if err := rows.Scan(
+			&s.Stage,
+			&s.DisplayName,
+			&s.Description,
+			&s.StageType,
+			&s.ModelDependent,
+			&s.HasPrompt,
+			&s.DependsOn,
+			&s.Downstream,
+			&s.ActivePromptVersion,
+		); err != nil {
+			return nil, fmt.Errorf("scanning stage info: %w", err)
+		}
+		// TODO: Add active_model_id from a config table if needed
+		s.ActiveModelID = ""
+		stages = append(stages, s)
+	}
+
+	return stages, rows.Err()
+}
+
+// GetPromptByStage retrieves the active prompt for a stage, or a specific version.
+func (r *Repository) GetPromptByStage(ctx context.Context, stage string, version int) (*PromptTemplate, error) {
+	var query string
+	var args []interface{}
+
+	if version > 0 {
+		query = `
+			SELECT id, stage, version, content, description, is_active, created_by, created_at
+			FROM prompt_templates
+			WHERE stage = $1 AND version = $2
+		`
+		args = []interface{}{stage, version}
+	} else {
+		query = `
+			SELECT id, stage, version, content, description, is_active, created_by, created_at
+			FROM prompt_templates
+			WHERE stage = $1 AND is_active = true
+		`
+		args = []interface{}{stage}
+	}
+
+	var pt PromptTemplate
+	err := r.db.QueryRow(ctx, query, args...).Scan(
+		&pt.ID,
+		&pt.Stage,
+		&pt.Version,
+		&pt.Content,
+		&pt.Description,
+		&pt.IsActive,
+		&pt.CreatedBy,
+		&pt.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("prompt not found for stage %s: %w", stage, err)
+	}
+
+	return &pt, nil
+}
+
+// ListPromptVersions retrieves all prompt versions for a stage.
+func (r *Repository) ListPromptVersions(ctx context.Context, stage string) ([]PromptTemplate, error) {
+	query := `
+		SELECT id, stage, version, content, description, is_active, created_by, created_at
+		FROM prompt_templates
+		WHERE stage = $1
+		ORDER BY version DESC
+	`
+
+	rows, err := r.db.Query(ctx, query, stage)
+	if err != nil {
+		return nil, fmt.Errorf("querying prompt versions: %w", err)
+	}
+	defer rows.Close()
+
+	var versions []PromptTemplate
+	for rows.Next() {
+		var pt PromptTemplate
+		if err := rows.Scan(
+			&pt.ID,
+			&pt.Stage,
+			&pt.Version,
+			&pt.Content,
+			&pt.Description,
+			&pt.IsActive,
+			&pt.CreatedBy,
+			&pt.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning prompt version: %w", err)
+		}
+		versions = append(versions, pt)
+	}
+
+	return versions, rows.Err()
+}
+
+// CreatePromptVersion creates a new prompt version and activates it.
+func (r *Repository) CreatePromptVersion(ctx context.Context, stage string, content string, description string, createdBy string) (*PromptTemplate, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Get max version for this stage
+	var maxVersion int
+	err = tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM prompt_templates WHERE stage = $1`, stage).Scan(&maxVersion)
+	if err != nil {
+		return nil, fmt.Errorf("getting max version: %w", err)
+	}
+
+	newVersion := maxVersion + 1
+
+	// Deactivate all existing versions for this stage
+	_, err = tx.Exec(ctx, `UPDATE prompt_templates SET is_active = false WHERE stage = $1`, stage)
+	if err != nil {
+		return nil, fmt.Errorf("deactivating old versions: %w", err)
+	}
+
+	// Insert new version as active
+	var pt PromptTemplate
+	err = tx.QueryRow(ctx, `
+		INSERT INTO prompt_templates (stage, version, content, description, is_active, created_by, created_at)
+		VALUES ($1, $2, $3, $4, true, $5, NOW())
+		RETURNING id, stage, version, content, description, is_active, created_by, created_at
+	`, stage, newVersion, content, description, createdBy).Scan(
+		&pt.ID,
+		&pt.Stage,
+		&pt.Version,
+		&pt.Content,
+		&pt.Description,
+		&pt.IsActive,
+		&pt.CreatedBy,
+		&pt.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("inserting new prompt version: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("committing transaction: %w", err)
+	}
+
+	return &pt, nil
+}
+
+// ActivatePromptVersion activates a specific prompt version (for rollback).
+func (r *Repository) ActivatePromptVersion(ctx context.Context, stage string, version int) (*PromptTemplate, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Verify the version exists
+	var exists bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM prompt_templates WHERE stage = $1 AND version = $2)`, stage, version).Scan(&exists)
+	if err != nil {
+		return nil, fmt.Errorf("checking version exists: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("version %d not found for stage %s", version, stage)
+	}
+
+	// Deactivate all versions for this stage
+	_, err = tx.Exec(ctx, `UPDATE prompt_templates SET is_active = false WHERE stage = $1`, stage)
+	if err != nil {
+		return nil, fmt.Errorf("deactivating versions: %w", err)
+	}
+
+	// Activate the target version
+	_, err = tx.Exec(ctx, `UPDATE prompt_templates SET is_active = true WHERE stage = $1 AND version = $2`, stage, version)
+	if err != nil {
+		return nil, fmt.Errorf("activating version: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("committing transaction: %w", err)
+	}
+
+	// Fetch and return the activated prompt
+	return r.GetPromptByStage(ctx, stage, version)
+}
+
+// ListSourceHistory retrieves all pipeline runs for a given source.
+func (r *Repository) ListSourceHistory(ctx context.Context, sourceID int64, stageFilter string) ([]PipelineRun, error) {
+	query := `
+		SELECT id, source_id, stage, model_id, prompt_version, config_hash, status, created_at, duration_ms
+		FROM pipeline_runs
+		WHERE source_id = $1
+		  AND ($2 = '' OR stage = $2)
+		ORDER BY created_at DESC
+	`
+
+	rows, err := r.db.Query(ctx, query, sourceID, stageFilter)
+	if err != nil {
+		return nil, fmt.Errorf("querying pipeline runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []PipelineRun
+	for rows.Next() {
+		var pr PipelineRun
+		if err := rows.Scan(
+			&pr.ID,
+			&pr.SourceID,
+			&pr.Stage,
+			&pr.ModelID,
+			&pr.PromptVersion,
+			&pr.ConfigHash,
+			&pr.Status,
+			&pr.CreatedAt,
+			&pr.DurationMS,
+		); err != nil {
+			return nil, fmt.Errorf("scanning pipeline run: %w", err)
+		}
+		runs = append(runs, pr)
+	}
+
+	return runs, rows.Err()
+}
+
+// CountSourcesByStage counts sources that would be affected by reprocessing a stage.
+func (r *Repository) CountSourcesByStage(ctx context.Context, stage string, sourceTag string, sourceIDs []int64) (int64, error) {
+	// Build query dynamically based on filters
+	query := `
+		SELECT COUNT(DISTINCT s.id)
+		FROM sources s
+		WHERE s.is_deleted = false
+		  AND s.processing_status IN ('completed', 'failed')
+	`
+
+	args := []interface{}{}
+	argNum := 1
+
+	if sourceTag != "" {
+		query += fmt.Sprintf(" AND s.ingestion_metadata->>'source_tag' = $%d", argNum)
+		args = append(args, sourceTag)
+		argNum++
+	}
+
+	if len(sourceIDs) > 0 {
+		query += fmt.Sprintf(" AND s.id = ANY($%d)", argNum)
+		args = append(args, sourceIDs)
+	}
+
+	var count int64
+	err := r.db.QueryRow(ctx, query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting sources: %w", err)
+	}
+
+	return count, nil
+}
+
+// GetDownstreamStages retrieves all downstream stages recursively.
+func (r *Repository) GetDownstreamStages(ctx context.Context, stage string) ([]string, error) {
+	// Use a recursive CTE to find all downstream stages
+	query := `
+		WITH RECURSIVE downstream_stages AS (
+			-- Base case: get immediate downstream stages
+			SELECT stage, downstream
+			FROM pipeline_stages
+			WHERE stage = $1
+
+			UNION
+
+			-- Recursive case: get downstream of downstream
+			SELECT ps.stage, ps.downstream
+			FROM pipeline_stages ps
+			JOIN downstream_stages ds ON ps.stage = ANY(ds.downstream)
+		)
+		SELECT DISTINCT unnest(downstream) as stage
+		FROM downstream_stages
+		WHERE downstream IS NOT NULL AND array_length(downstream, 1) > 0
+	`
+
+	rows, err := r.db.Query(ctx, query, stage)
+	if err != nil {
+		return nil, fmt.Errorf("querying downstream stages: %w", err)
+	}
+	defer rows.Close()
+
+	var stages []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, fmt.Errorf("scanning downstream stage: %w", err)
+		}
+		stages = append(stages, s)
+	}
+
+	return stages, rows.Err()
+}

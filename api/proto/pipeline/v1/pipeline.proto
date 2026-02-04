@@ -44,6 +44,30 @@ service PipelineService {
 
   // UndeleteSource restores a soft-deleted source.
   rpc UndeleteSource(UndeleteSourceRequest) returns (UndeleteSourceResponse);
+
+  // DescribePipeline retrieves pipeline stage registry information.
+  rpc DescribePipeline(DescribePipelineRequest) returns (DescribePipelineResponse);
+
+  // GetPrompt retrieves the active prompt for a stage or a specific version.
+  rpc GetPrompt(GetPromptRequest) returns (GetPromptResponse);
+
+  // ListPromptVersions lists all prompt versions for a stage.
+  rpc ListPromptVersions(ListPromptVersionsRequest) returns (ListPromptVersionsResponse);
+
+  // UpdatePrompt creates a new prompt version and sets it as active.
+  rpc UpdatePrompt(UpdatePromptRequest) returns (UpdatePromptResponse);
+
+  // RollbackPrompt activates a previous prompt version.
+  rpc RollbackPrompt(RollbackPromptRequest) returns (RollbackPromptResponse);
+
+  // ExportPrompt exports prompt templates as portable JSON.
+  rpc ExportPrompt(ExportPromptRequest) returns (ExportPromptResponse);
+
+  // GetSourceHistory retrieves pipeline execution history for a source.
+  rpc GetSourceHistory(GetSourceHistoryRequest) returns (GetSourceHistoryResponse);
+
+  // ReprocessDryRun calculates the impact of reprocessing a stage.
+  rpc ReprocessDryRun(ReprocessDryRunRequest) returns (ReprocessDryRunResponse);
 }
 
 // =============================================================================
@@ -417,4 +441,239 @@ message UndeleteSourceResponse {
 
   // Human-readable message.
   string message = 2;
+}
+
+// =============================================================================
+// Pipeline Introspection Messages
+// =============================================================================
+
+// StageInfo contains information about a pipeline stage.
+message StageInfo {
+  // Stage identifier (e.g., "parse", "triage", "extract_ner").
+  string stage = 1;
+
+  // Display name (e.g., "Stage 1: Triage").
+  string display_name = 2;
+
+  // Description of what this stage does.
+  string description = 3;
+
+  // Stage type (e.g., "code_only", "slm", "llm", "embedding").
+  string stage_type = 4;
+
+  // Whether output changes when model/prompt changes.
+  bool model_dependent = 5;
+
+  // Whether this stage uses a prompt template.
+  bool has_prompt = 6;
+
+  // Stages that must complete before this one.
+  repeated string depends_on = 7;
+
+  // Stages that consume this stage's output.
+  repeated string downstream = 8;
+
+  // Active prompt version (0 if no prompt).
+  int32 active_prompt_version = 9;
+
+  // Active model ID (empty if code-only).
+  string active_model_id = 10;
+}
+
+// DescribePipelineRequest requests pipeline stage information.
+message DescribePipelineRequest {
+  // Optional: filter by specific stage.
+  string stage = 1;
+}
+
+// DescribePipelineResponse contains pipeline stage information.
+message DescribePipelineResponse {
+  // List of pipeline stages.
+  repeated StageInfo stages = 1;
+}
+
+// PromptTemplate represents a versioned prompt template.
+message PromptTemplate {
+  // Unique template ID.
+  int64 id = 1;
+
+  // Stage this prompt is for.
+  string stage = 2;
+
+  // Version number.
+  int32 version = 3;
+
+  // Prompt template content.
+  string content = 4;
+
+  // Description of changes in this version.
+  string description = 5;
+
+  // Whether this is the active version.
+  bool is_active = 6;
+
+  // Who created this version.
+  string created_by = 7;
+
+  // When this version was created.
+  google.protobuf.Timestamp created_at = 8;
+}
+
+// GetPromptRequest requests a prompt template.
+message GetPromptRequest {
+  // Stage to get prompt for (required).
+  string stage = 1;
+
+  // Optional: specific version (0 = active version).
+  int32 version = 2;
+}
+
+// GetPromptResponse contains the requested prompt.
+message GetPromptResponse {
+  // The prompt template.
+  PromptTemplate prompt = 1;
+}
+
+// ListPromptVersionsRequest lists all versions for a stage.
+message ListPromptVersionsRequest {
+  // Stage to list versions for (required).
+  string stage = 1;
+}
+
+// ListPromptVersionsResponse contains all prompt versions.
+message ListPromptVersionsResponse {
+  // All versions for the stage, ordered by version desc.
+  repeated PromptTemplate versions = 1;
+}
+
+// UpdatePromptRequest creates a new prompt version.
+message UpdatePromptRequest {
+  // Stage to update prompt for (required).
+  string stage = 1;
+
+  // New prompt content (required).
+  string content = 2;
+
+  // Description of changes (optional).
+  string description = 3;
+
+  // Who is making this change (optional).
+  string created_by = 4;
+}
+
+// UpdatePromptResponse confirms the prompt update.
+message UpdatePromptResponse {
+  // The newly created prompt version.
+  PromptTemplate prompt = 1;
+
+  // Success message.
+  string message = 2;
+}
+
+// RollbackPromptRequest activates a previous version.
+message RollbackPromptRequest {
+  // Stage to rollback (required).
+  string stage = 1;
+
+  // Version to activate (required).
+  int32 version = 2;
+}
+
+// RollbackPromptResponse confirms the rollback.
+message RollbackPromptResponse {
+  // The activated prompt version.
+  PromptTemplate prompt = 1;
+
+  // Success message.
+  string message = 2;
+}
+
+// ExportPromptRequest exports prompts.
+message ExportPromptRequest {
+  // Optional: filter by stage (empty = all stages).
+  string stage = 1;
+
+  // Optional: specific version (0 = active version only).
+  int32 version = 2;
+}
+
+// ExportPromptResponse contains exported prompts as JSON.
+message ExportPromptResponse {
+  // JSON-encoded array of prompt templates.
+  string json = 1;
+}
+
+// PipelineRun represents a single pipeline execution.
+message PipelineRun {
+  // Unique run ID.
+  int64 id = 1;
+
+  // Source ID that was processed.
+  int64 source_id = 2;
+
+  // Pipeline stage.
+  string stage = 3;
+
+  // Model used (empty for code-only stages).
+  string model_id = 4;
+
+  // Prompt version used (0 for no-prompt stages).
+  int32 prompt_version = 5;
+
+  // Config hash.
+  string config_hash = 6;
+
+  // Run status (completed, failed, superseded).
+  string status = 7;
+
+  // When the run started.
+  google.protobuf.Timestamp created_at = 8;
+
+  // Duration in milliseconds.
+  int64 duration_ms = 9;
+}
+
+// GetSourceHistoryRequest requests pipeline history for a source.
+message GetSourceHistoryRequest {
+  // Source ID to get history for (required).
+  int64 source_id = 1;
+
+  // Optional: filter by stage.
+  string stage = 2;
+}
+
+// GetSourceHistoryResponse contains pipeline execution history.
+message GetSourceHistoryResponse {
+  // Source ID.
+  int64 source_id = 1;
+
+  // All pipeline runs for this source.
+  repeated PipelineRun runs = 2;
+}
+
+// ReprocessDryRunRequest calculates reprocessing impact.
+message ReprocessDryRunRequest {
+  // Stage to reprocess (required).
+  string stage = 1;
+
+  // Optional: filter by source tag.
+  string source_tag = 2;
+
+  // Optional: limit to specific source IDs.
+  repeated int64 source_ids = 3;
+}
+
+// ReprocessDryRunResponse contains impact calculation.
+message ReprocessDryRunResponse {
+  // Stages that would be affected (including requested stage).
+  repeated string affected_stages = 1;
+
+  // Number of sources that would be reprocessed.
+  int64 source_count = 2;
+
+  // Estimated processing time in seconds (rough estimate).
+  int64 estimated_duration_seconds = 3;
+
+  // Human-readable summary.
+  string message = 4;
 }

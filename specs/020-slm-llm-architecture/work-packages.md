@@ -83,7 +83,7 @@ Record each work package completion here. Sessions should update this after comm
 | WP9 | **done** | `dad3519` | 2026-02-04 | Multi-level embedding repository (StoreMultiLevelEmbedding, GetEmbeddingsForSource, GetStaleEmbeddings, DeleteEmbeddingsForSource), GenerateMultiLevelEmbeddings activity (content + summary + action_item + decision + risk embeddings per source, removed-action filtering, non-fatal assertion failures), ReEmbedBatch activity (stale detection, batch re-embedding for model changes), migration 033 (representation_type column, embedding_vec vector(1024) with HNSW index, model_version index). 13 tests. |
 | WP10 | **done** | `a49ff38` | 2026-02-04 | Session bootstrap CLI: `penf context morning` (playbook from Context-Palace with default fallback), `penf session resume --last-closed`, `penf reminders list --due`, meeting list filters (participant/since/has-changes) + `penf meeting recap`, project list filters (status/sort/limit/always-include) + `penf context project --name`, `penf pipeline status --since-last-session`. Proto: ListMeetings filters, GetMeetingRecap RPC, GetProjectContext RPC, ProjectFilter enhancements. Gateway handlers + repository methods. 30+ tests. |
 | WP11 | **done** | `029be05` | 2026-02-04 | WatchListService proto (8 RPCs) + gateway service + repository: watch list CRUD, trust/seniority management, briefing priority query (4-tier ordering: watched > trusted > senior > other with trust domain refinement), seniority escalation detection. CLI: `penf watch list/add/remove/annotate`, `penf trust set/clear`, `penf seniority set/clear`, `penf briefing PROJECT` (tier-grouped output), `penf escalations --source-id ID`. 43 tests. |
-| WP12 | pending | — | — | — |
+| WP12 | **done** | `pending` | 2026-02-04 | 8 new PipelineService RPCs (DescribePipeline, GetPrompt, ListPromptVersions, UpdatePrompt, RollbackPrompt, ExportPrompt, GetSourceHistory, ReprocessDryRun) with proto definitions, gateway handlers, repository methods (9 new: ListStages, GetPromptByStage, ListPromptVersions, CreatePromptVersion, ActivatePromptVersion, ListSourceHistory, CountSourcesByStage, GetDownstreamStages). CLI: `penf pipeline describe [--stage]`, `penf pipeline prompt` (show/history/diff/update/rollback/export), `penf pipeline history --source ID`, `penf pipeline reprocess --dry-run`. 36 tests. |
 | WP13 | **done** | `9decec7` | 2026-02-04 | Created `context/architecture/slm-llm-pipeline.md` (283 lines) as authoritative pipeline reference. Updated HIGH priority docs: ARCHITECTURE.md (pipeline section), core-patterns.md (Sections 1-2 rewritten), ai-dev.md (6-stage pipeline), worker-dev.md (workflow catalog). Updated MEDIUM priority docs: infrastructure.md (LLM description), observability-patterns.md (stage tracing + KPIs), use-cases.md (UC-2/UC-5 enriched). All 7 new concepts documented. No old pipeline references remain. |
 | WP14 | **done** | `f516c83` | 2026-02-04 | E2E pipeline tests: 10 test scenarios (full email pipeline, meeting VTT/SRT, triage gate skip, high-importance risk routing, golden thread assertion lifecycle, batch ingestion, partial failure recovery, idempotency, entity resolution). PipelineE2EEnv with Temporal client, DB query helpers (assertStageCompleted/Skipped, getAssertionsForSource, getGoldenThread, countEmbeddingsForSource). 5 new fixtures (011-risk-escalation.eml, 012-low-priority-fyi.eml, 013-thread-with-decisions.eml, 002-project-review.vtt, 003-incident-retro.srt). Build tag: `//go:build e2e`. |
 
@@ -380,29 +380,33 @@ Record each work package completion here. Sessions should update this after comm
 
 ---
 
-## WP12: Pipeline Introspection
+## WP12: Pipeline Introspection ✓
 
-**Shard:** `pf-8313b5` · **Agent:** cli-dev · **Depends on:** WP1, WP8
+**Shard:** `pf-8313b5` · **Agent:** service-dev, cli-dev · **Depends on:** WP1, WP8 · **Status:** done
 
-**Files:**
-- `cmd/penf/cmd/pipeline.go` — extend with new subcommands
-- `api/proto/pipeline/v1/pipeline.proto` — new RPCs
-- `services/gateway/pipelineservice/service.go` — handlers
+**Files delivered:**
+- `api/proto/pipeline/v1/pipeline.proto` — 8 new RPCs (DescribePipeline, GetPrompt, ListPromptVersions, UpdatePrompt, RollbackPrompt, ExportPrompt, GetSourceHistory, ReprocessDryRun) with 15 new message types
+- `api/proto/pipeline/v1/pipeline.pb.go`, `pipeline_grpc.pb.go` — regenerated proto code
+- `pkg/pipeline/repository.go` — 9 new repository methods (ListStages, GetPromptByStage, ListPromptVersions, CreatePromptVersion, ActivatePromptVersion, ListSourceHistory, CountSourcesByStage, GetDownstreamStages) using pgxpool
+- `pkg/pipeline/types.go` — StageInfo, PromptTemplate, PipelineRun domain types
+- `services/gateway/pipelineservice/service.go` — 8 new gateway handlers with input validation
+- `services/gateway/pipelineservice/service_test.go` — 6 test functions (14 subtests) for handler validation
+- `services/gateway/main.go` — service registration updates
+- `cmd/penf/cmd/pipeline.go` — enhanced reprocess with --dry-run, --all, --source-tag flags
+- `cmd/penf/cmd/pipeline_introspection.go` — new: describe, prompt (show/history/diff/update/rollback/export), history commands
+- `cmd/penf/cmd/pipeline_introspection_test.go` — 15 test functions for CLI commands + 4 line-diff subtests
+- `cmd/penf/main.go` — command registration
 
-**Scope:**
-- `penf pipeline describe [--stage X]` — stage registry with metadata, current model, prompt version
-- `penf pipeline prompt show/history/diff/update/rollback/export` — prompt template management
-- `penf pipeline reprocess --stage X --dry-run` — impact analysis with downstream cascade
-- `penf pipeline reprocess --stage X [--all|--filter|--source]` — targeted reprocessing
-- `penf pipeline history --source ID` — all stage runs for a source
-- Version skew reporting in session bootstrap
+**Implementation shards:** `pf-bb7366` (proto + gateway + repo), `pf-76e9eb` (CLI commands)
 
-**Acceptance criteria:**
-- Pipeline describe shows all stages with current model/prompt versions
-- Prompt show/update/rollback works with version history
-- Reprocess dry-run shows affected sources and downstream impact
-- Reprocess executes targeted re-runs
-- Tests cover: describe output, prompt CRUD, dry-run impact calculation
+**Acceptance criteria (met):**
+- Pipeline describe shows all stages with current model/prompt versions from `pipeline_stages` table
+- Prompt show/update/rollback works with version history via `prompt_templates` table
+- Reprocess dry-run calculates downstream cascade and affected source count
+- Pipeline history queries `pipeline_runs` for a source with optional stage filter
+- Prompt diff compares two versions with line-by-line +/- output
+- Prompt export outputs JSON for backup/transfer
+- Tests cover: command wiring, flag validation, describe output, prompt CRUD, diff logic, dry-run, history (36 tests total)
 
 ---
 

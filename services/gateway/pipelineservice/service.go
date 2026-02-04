@@ -4,6 +4,7 @@ package pipelineservice
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -629,6 +630,356 @@ func deletedSourceToProto(s *pipeline.DeletedSource) *pipelinev1.DeletedSource {
 	}
 	if s.DeletionReason != nil {
 		proto.DeletionReason = *s.DeletionReason
+	}
+	return proto
+}
+
+// DescribePipeline retrieves pipeline stage registry information.
+func (s *Service) DescribePipeline(ctx context.Context, req *pipelinev1.DescribePipelineRequest) (*pipelinev1.DescribePipelineResponse, error) {
+	s.logger.Debug("DescribePipeline called",
+		logging.F("stage", req.Stage),
+	)
+
+	stages, err := s.repo.ListStages(ctx, req.Stage)
+	if err != nil {
+		s.logger.Error("Error listing stages", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list stages: %v", err)
+	}
+
+	protoStages := make([]*pipelinev1.StageInfo, len(stages))
+	for i, stage := range stages {
+		protoStages[i] = stageInfoToProto(&stage)
+	}
+
+	return &pipelinev1.DescribePipelineResponse{
+		Stages: protoStages,
+	}, nil
+}
+
+// GetPrompt retrieves the active prompt for a stage or a specific version.
+func (s *Service) GetPrompt(ctx context.Context, req *pipelinev1.GetPromptRequest) (*pipelinev1.GetPromptResponse, error) {
+	s.logger.Debug("GetPrompt called",
+		logging.F("stage", req.Stage),
+		logging.F("version", req.Version),
+	)
+
+	if req.Stage == "" {
+		return nil, status.Error(codes.InvalidArgument, "stage is required")
+	}
+
+	prompt, err := s.repo.GetPromptByStage(ctx, req.Stage, int(req.Version))
+	if err != nil {
+		s.logger.Error("Error getting prompt", logging.Err(err))
+		return nil, status.Errorf(codes.NotFound, "prompt not found: %v", err)
+	}
+
+	return &pipelinev1.GetPromptResponse{
+		Prompt: promptTemplateToProto(prompt),
+	}, nil
+}
+
+// ListPromptVersions lists all prompt versions for a stage.
+func (s *Service) ListPromptVersions(ctx context.Context, req *pipelinev1.ListPromptVersionsRequest) (*pipelinev1.ListPromptVersionsResponse, error) {
+	s.logger.Debug("ListPromptVersions called",
+		logging.F("stage", req.Stage),
+	)
+
+	if req.Stage == "" {
+		return nil, status.Error(codes.InvalidArgument, "stage is required")
+	}
+
+	versions, err := s.repo.ListPromptVersions(ctx, req.Stage)
+	if err != nil {
+		s.logger.Error("Error listing prompt versions", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list versions: %v", err)
+	}
+
+	protoVersions := make([]*pipelinev1.PromptTemplate, len(versions))
+	for i, v := range versions {
+		protoVersions[i] = promptTemplateToProto(&v)
+	}
+
+	return &pipelinev1.ListPromptVersionsResponse{
+		Versions: protoVersions,
+	}, nil
+}
+
+// UpdatePrompt creates a new prompt version and sets it as active.
+func (s *Service) UpdatePrompt(ctx context.Context, req *pipelinev1.UpdatePromptRequest) (*pipelinev1.UpdatePromptResponse, error) {
+	s.logger.Info("UpdatePrompt called",
+		logging.F("stage", req.Stage),
+		logging.F("created_by", req.CreatedBy),
+	)
+
+	if req.Stage == "" {
+		return nil, status.Error(codes.InvalidArgument, "stage is required")
+	}
+	if req.Content == "" {
+		return nil, status.Error(codes.InvalidArgument, "content is required")
+	}
+
+	prompt, err := s.repo.CreatePromptVersion(ctx, req.Stage, req.Content, req.Description, req.CreatedBy)
+	if err != nil {
+		s.logger.Error("Error creating prompt version", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to create prompt version: %v", err)
+	}
+
+	s.logger.Info("Prompt version created",
+		logging.F("stage", req.Stage),
+		logging.F("version", prompt.Version),
+	)
+
+	return &pipelinev1.UpdatePromptResponse{
+		Prompt:  promptTemplateToProto(prompt),
+		Message: fmt.Sprintf("Created version %d for stage %s", prompt.Version, prompt.Stage),
+	}, nil
+}
+
+// RollbackPrompt activates a previous prompt version.
+func (s *Service) RollbackPrompt(ctx context.Context, req *pipelinev1.RollbackPromptRequest) (*pipelinev1.RollbackPromptResponse, error) {
+	s.logger.Info("RollbackPrompt called",
+		logging.F("stage", req.Stage),
+		logging.F("version", req.Version),
+	)
+
+	if req.Stage == "" {
+		return nil, status.Error(codes.InvalidArgument, "stage is required")
+	}
+	if req.Version <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "version must be positive")
+	}
+
+	prompt, err := s.repo.ActivatePromptVersion(ctx, req.Stage, int(req.Version))
+	if err != nil {
+		s.logger.Error("Error rolling back prompt", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to rollback prompt: %v", err)
+	}
+
+	s.logger.Info("Prompt rolled back",
+		logging.F("stage", req.Stage),
+		logging.F("version", req.Version),
+	)
+
+	return &pipelinev1.RollbackPromptResponse{
+		Prompt:  promptTemplateToProto(prompt),
+		Message: fmt.Sprintf("Activated version %d for stage %s", prompt.Version, prompt.Stage),
+	}, nil
+}
+
+// ExportPrompt exports prompt templates as portable JSON.
+func (s *Service) ExportPrompt(ctx context.Context, req *pipelinev1.ExportPromptRequest) (*pipelinev1.ExportPromptResponse, error) {
+	s.logger.Debug("ExportPrompt called",
+		logging.F("stage", req.Stage),
+		logging.F("version", req.Version),
+	)
+
+	var prompts []pipeline.PromptTemplate
+	var err error
+
+	if req.Stage != "" {
+		if req.Version > 0 {
+			// Export specific version
+			prompt, err := s.repo.GetPromptByStage(ctx, req.Stage, int(req.Version))
+			if err != nil {
+				s.logger.Error("Error getting prompt", logging.Err(err))
+				return nil, status.Errorf(codes.NotFound, "prompt not found: %v", err)
+			}
+			prompts = []pipeline.PromptTemplate{*prompt}
+		} else {
+			// Export active version for this stage
+			prompt, err := s.repo.GetPromptByStage(ctx, req.Stage, 0)
+			if err != nil {
+				s.logger.Error("Error getting prompt", logging.Err(err))
+				return nil, status.Errorf(codes.NotFound, "prompt not found: %v", err)
+			}
+			prompts = []pipeline.PromptTemplate{*prompt}
+		}
+	} else {
+		// Export all active versions for all stages
+		stages, err := s.repo.ListStages(ctx, "")
+		if err != nil {
+			s.logger.Error("Error listing stages", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to list stages: %v", err)
+		}
+
+		for _, stage := range stages {
+			if stage.HasPrompt {
+				prompt, err := s.repo.GetPromptByStage(ctx, stage.Stage, 0)
+				if err != nil {
+					// Skip stages without active prompts
+					continue
+				}
+				prompts = append(prompts, *prompt)
+			}
+		}
+	}
+
+	// Convert to JSON (using a simple struct for export format)
+	type ExportedPrompt struct {
+		Stage       string `json:"stage"`
+		Version     int    `json:"version"`
+		Content     string `json:"content"`
+		Description string `json:"description,omitempty"`
+	}
+
+	exported := make([]ExportedPrompt, len(prompts))
+	for i, p := range prompts {
+		exported[i] = ExportedPrompt{
+			Stage:   p.Stage,
+			Version: p.Version,
+			Content: p.Content,
+		}
+		if p.Description != nil {
+			exported[i].Description = *p.Description
+		}
+	}
+
+	jsonBytes, err := json.Marshal(exported)
+	if err != nil {
+		s.logger.Error("Error marshaling prompts to JSON", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to export prompts: %v", err)
+	}
+
+	return &pipelinev1.ExportPromptResponse{
+		Json: string(jsonBytes),
+	}, nil
+}
+
+// GetSourceHistory retrieves pipeline execution history for a source.
+func (s *Service) GetSourceHistory(ctx context.Context, req *pipelinev1.GetSourceHistoryRequest) (*pipelinev1.GetSourceHistoryResponse, error) {
+	s.logger.Debug("GetSourceHistory called",
+		logging.F("source_id", req.SourceId),
+		logging.F("stage", req.Stage),
+	)
+
+	if req.SourceId <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "source_id is required")
+	}
+
+	runs, err := s.repo.ListSourceHistory(ctx, req.SourceId, req.Stage)
+	if err != nil {
+		s.logger.Error("Error getting source history", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get source history: %v", err)
+	}
+
+	protoRuns := make([]*pipelinev1.PipelineRun, len(runs))
+	for i, run := range runs {
+		protoRuns[i] = pipelineRunToProto(&run)
+	}
+
+	return &pipelinev1.GetSourceHistoryResponse{
+		SourceId: req.SourceId,
+		Runs:     protoRuns,
+	}, nil
+}
+
+// ReprocessDryRun calculates the impact of reprocessing a stage.
+func (s *Service) ReprocessDryRun(ctx context.Context, req *pipelinev1.ReprocessDryRunRequest) (*pipelinev1.ReprocessDryRunResponse, error) {
+	s.logger.Debug("ReprocessDryRun called",
+		logging.F("stage", req.Stage),
+		logging.F("source_tag", req.SourceTag),
+	)
+
+	if req.Stage == "" {
+		return nil, status.Error(codes.InvalidArgument, "stage is required")
+	}
+
+	// Get downstream stages
+	downstreamStages, err := s.repo.GetDownstreamStages(ctx, req.Stage)
+	if err != nil {
+		s.logger.Error("Error getting downstream stages", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get downstream stages: %v", err)
+	}
+
+	// Include the requested stage in affected stages
+	affectedStages := append([]string{req.Stage}, downstreamStages...)
+
+	// Count sources that would be affected
+	sourceCount, err := s.repo.CountSourcesByStage(ctx, req.Stage, req.SourceTag, req.SourceIds)
+	if err != nil {
+		s.logger.Error("Error counting sources", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to count sources: %v", err)
+	}
+
+	// Estimate duration (rough estimate: 2 seconds per source per stage)
+	estimatedDuration := sourceCount * int64(len(affectedStages)) * 2
+
+	message := fmt.Sprintf("Reprocessing stage %s would affect %d stage(s) and %d source(s)", req.Stage, len(affectedStages), sourceCount)
+	if req.SourceTag != "" {
+		message += fmt.Sprintf(" (filtered by source_tag: %s)", req.SourceTag)
+	}
+
+	return &pipelinev1.ReprocessDryRunResponse{
+		AffectedStages:           affectedStages,
+		SourceCount:              sourceCount,
+		EstimatedDurationSeconds: estimatedDuration,
+		Message:                  message,
+	}, nil
+}
+
+// Helper conversion functions
+
+func stageInfoToProto(s *pipeline.StageInfo) *pipelinev1.StageInfo {
+	if s == nil {
+		return nil
+	}
+	return &pipelinev1.StageInfo{
+		Stage:                s.Stage,
+		DisplayName:          s.DisplayName,
+		Description:          s.Description,
+		StageType:            s.StageType,
+		ModelDependent:       s.ModelDependent,
+		HasPrompt:            s.HasPrompt,
+		DependsOn:            s.DependsOn,
+		Downstream:           s.Downstream,
+		ActivePromptVersion:  int32(s.ActivePromptVersion),
+		ActiveModelId:        s.ActiveModelID,
+	}
+}
+
+func promptTemplateToProto(pt *pipeline.PromptTemplate) *pipelinev1.PromptTemplate {
+	if pt == nil {
+		return nil
+	}
+	proto := &pipelinev1.PromptTemplate{
+		Id:        pt.ID,
+		Stage:     pt.Stage,
+		Version:   int32(pt.Version),
+		Content:   pt.Content,
+		IsActive:  pt.IsActive,
+		CreatedAt: timestamppb.New(pt.CreatedAt),
+	}
+	if pt.Description != nil {
+		proto.Description = *pt.Description
+	}
+	if pt.CreatedBy != nil {
+		proto.CreatedBy = *pt.CreatedBy
+	}
+	return proto
+}
+
+func pipelineRunToProto(pr *pipeline.PipelineRun) *pipelinev1.PipelineRun {
+	if pr == nil {
+		return nil
+	}
+	proto := &pipelinev1.PipelineRun{
+		Id:        pr.ID,
+		SourceId:  pr.SourceID,
+		Stage:     pr.Stage,
+		Status:    pr.Status,
+		CreatedAt: timestamppb.New(pr.CreatedAt),
+	}
+	if pr.ModelID != nil {
+		proto.ModelId = *pr.ModelID
+	}
+	if pr.PromptVersion != nil {
+		proto.PromptVersion = int32(*pr.PromptVersion)
+	}
+	if pr.ConfigHash != nil {
+		proto.ConfigHash = *pr.ConfigHash
+	}
+	if pr.DurationMS != nil {
+		proto.DurationMs = int64(*pr.DurationMS)
 	}
 	return proto
 }

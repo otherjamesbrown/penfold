@@ -32,6 +32,14 @@ const (
 	PipelineService_GetContentTrace_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetContentTrace"
 	PipelineService_ListDeletedSources_FullMethodName = "/penfold.pipeline.v1.PipelineService/ListDeletedSources"
 	PipelineService_UndeleteSource_FullMethodName     = "/penfold.pipeline.v1.PipelineService/UndeleteSource"
+	PipelineService_DescribePipeline_FullMethodName   = "/penfold.pipeline.v1.PipelineService/DescribePipeline"
+	PipelineService_GetPrompt_FullMethodName          = "/penfold.pipeline.v1.PipelineService/GetPrompt"
+	PipelineService_ListPromptVersions_FullMethodName = "/penfold.pipeline.v1.PipelineService/ListPromptVersions"
+	PipelineService_UpdatePrompt_FullMethodName       = "/penfold.pipeline.v1.PipelineService/UpdatePrompt"
+	PipelineService_RollbackPrompt_FullMethodName     = "/penfold.pipeline.v1.PipelineService/RollbackPrompt"
+	PipelineService_ExportPrompt_FullMethodName       = "/penfold.pipeline.v1.PipelineService/ExportPrompt"
+	PipelineService_GetSourceHistory_FullMethodName   = "/penfold.pipeline.v1.PipelineService/GetSourceHistory"
+	PipelineService_ReprocessDryRun_FullMethodName    = "/penfold.pipeline.v1.PipelineService/ReprocessDryRun"
 )
 
 // PipelineServiceClient is the client API for PipelineService service.
@@ -60,6 +68,22 @@ type PipelineServiceClient interface {
 	ListDeletedSources(ctx context.Context, in *ListDeletedSourcesRequest, opts ...grpc.CallOption) (*ListDeletedSourcesResponse, error)
 	// UndeleteSource restores a soft-deleted source.
 	UndeleteSource(ctx context.Context, in *UndeleteSourceRequest, opts ...grpc.CallOption) (*UndeleteSourceResponse, error)
+	// DescribePipeline retrieves pipeline stage registry information.
+	DescribePipeline(ctx context.Context, in *DescribePipelineRequest, opts ...grpc.CallOption) (*DescribePipelineResponse, error)
+	// GetPrompt retrieves the active prompt for a stage or a specific version.
+	GetPrompt(ctx context.Context, in *GetPromptRequest, opts ...grpc.CallOption) (*GetPromptResponse, error)
+	// ListPromptVersions lists all prompt versions for a stage.
+	ListPromptVersions(ctx context.Context, in *ListPromptVersionsRequest, opts ...grpc.CallOption) (*ListPromptVersionsResponse, error)
+	// UpdatePrompt creates a new prompt version and sets it as active.
+	UpdatePrompt(ctx context.Context, in *UpdatePromptRequest, opts ...grpc.CallOption) (*UpdatePromptResponse, error)
+	// RollbackPrompt activates a previous prompt version.
+	RollbackPrompt(ctx context.Context, in *RollbackPromptRequest, opts ...grpc.CallOption) (*RollbackPromptResponse, error)
+	// ExportPrompt exports prompt templates as portable JSON.
+	ExportPrompt(ctx context.Context, in *ExportPromptRequest, opts ...grpc.CallOption) (*ExportPromptResponse, error)
+	// GetSourceHistory retrieves pipeline execution history for a source.
+	GetSourceHistory(ctx context.Context, in *GetSourceHistoryRequest, opts ...grpc.CallOption) (*GetSourceHistoryResponse, error)
+	// ReprocessDryRun calculates the impact of reprocessing a stage.
+	ReprocessDryRun(ctx context.Context, in *ReprocessDryRunRequest, opts ...grpc.CallOption) (*ReprocessDryRunResponse, error)
 }
 
 type pipelineServiceClient struct {
@@ -170,6 +194,86 @@ func (c *pipelineServiceClient) UndeleteSource(ctx context.Context, in *Undelete
 	return out, nil
 }
 
+func (c *pipelineServiceClient) DescribePipeline(ctx context.Context, in *DescribePipelineRequest, opts ...grpc.CallOption) (*DescribePipelineResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DescribePipelineResponse)
+	err := c.cc.Invoke(ctx, PipelineService_DescribePipeline_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) GetPrompt(ctx context.Context, in *GetPromptRequest, opts ...grpc.CallOption) (*GetPromptResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPromptResponse)
+	err := c.cc.Invoke(ctx, PipelineService_GetPrompt_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) ListPromptVersions(ctx context.Context, in *ListPromptVersionsRequest, opts ...grpc.CallOption) (*ListPromptVersionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPromptVersionsResponse)
+	err := c.cc.Invoke(ctx, PipelineService_ListPromptVersions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) UpdatePrompt(ctx context.Context, in *UpdatePromptRequest, opts ...grpc.CallOption) (*UpdatePromptResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdatePromptResponse)
+	err := c.cc.Invoke(ctx, PipelineService_UpdatePrompt_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) RollbackPrompt(ctx context.Context, in *RollbackPromptRequest, opts ...grpc.CallOption) (*RollbackPromptResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RollbackPromptResponse)
+	err := c.cc.Invoke(ctx, PipelineService_RollbackPrompt_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) ExportPrompt(ctx context.Context, in *ExportPromptRequest, opts ...grpc.CallOption) (*ExportPromptResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExportPromptResponse)
+	err := c.cc.Invoke(ctx, PipelineService_ExportPrompt_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) GetSourceHistory(ctx context.Context, in *GetSourceHistoryRequest, opts ...grpc.CallOption) (*GetSourceHistoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSourceHistoryResponse)
+	err := c.cc.Invoke(ctx, PipelineService_GetSourceHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) ReprocessDryRun(ctx context.Context, in *ReprocessDryRunRequest, opts ...grpc.CallOption) (*ReprocessDryRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReprocessDryRunResponse)
+	err := c.cc.Invoke(ctx, PipelineService_ReprocessDryRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PipelineServiceServer is the server API for PipelineService service.
 // All implementations must embed UnimplementedPipelineServiceServer
 // for forward compatibility.
@@ -196,6 +300,22 @@ type PipelineServiceServer interface {
 	ListDeletedSources(context.Context, *ListDeletedSourcesRequest) (*ListDeletedSourcesResponse, error)
 	// UndeleteSource restores a soft-deleted source.
 	UndeleteSource(context.Context, *UndeleteSourceRequest) (*UndeleteSourceResponse, error)
+	// DescribePipeline retrieves pipeline stage registry information.
+	DescribePipeline(context.Context, *DescribePipelineRequest) (*DescribePipelineResponse, error)
+	// GetPrompt retrieves the active prompt for a stage or a specific version.
+	GetPrompt(context.Context, *GetPromptRequest) (*GetPromptResponse, error)
+	// ListPromptVersions lists all prompt versions for a stage.
+	ListPromptVersions(context.Context, *ListPromptVersionsRequest) (*ListPromptVersionsResponse, error)
+	// UpdatePrompt creates a new prompt version and sets it as active.
+	UpdatePrompt(context.Context, *UpdatePromptRequest) (*UpdatePromptResponse, error)
+	// RollbackPrompt activates a previous prompt version.
+	RollbackPrompt(context.Context, *RollbackPromptRequest) (*RollbackPromptResponse, error)
+	// ExportPrompt exports prompt templates as portable JSON.
+	ExportPrompt(context.Context, *ExportPromptRequest) (*ExportPromptResponse, error)
+	// GetSourceHistory retrieves pipeline execution history for a source.
+	GetSourceHistory(context.Context, *GetSourceHistoryRequest) (*GetSourceHistoryResponse, error)
+	// ReprocessDryRun calculates the impact of reprocessing a stage.
+	ReprocessDryRun(context.Context, *ReprocessDryRunRequest) (*ReprocessDryRunResponse, error)
 	mustEmbedUnimplementedPipelineServiceServer()
 }
 
@@ -235,6 +355,30 @@ func (UnimplementedPipelineServiceServer) ListDeletedSources(context.Context, *L
 }
 func (UnimplementedPipelineServiceServer) UndeleteSource(context.Context, *UndeleteSourceRequest) (*UndeleteSourceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UndeleteSource not implemented")
+}
+func (UnimplementedPipelineServiceServer) DescribePipeline(context.Context, *DescribePipelineRequest) (*DescribePipelineResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DescribePipeline not implemented")
+}
+func (UnimplementedPipelineServiceServer) GetPrompt(context.Context, *GetPromptRequest) (*GetPromptResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPrompt not implemented")
+}
+func (UnimplementedPipelineServiceServer) ListPromptVersions(context.Context, *ListPromptVersionsRequest) (*ListPromptVersionsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPromptVersions not implemented")
+}
+func (UnimplementedPipelineServiceServer) UpdatePrompt(context.Context, *UpdatePromptRequest) (*UpdatePromptResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdatePrompt not implemented")
+}
+func (UnimplementedPipelineServiceServer) RollbackPrompt(context.Context, *RollbackPromptRequest) (*RollbackPromptResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RollbackPrompt not implemented")
+}
+func (UnimplementedPipelineServiceServer) ExportPrompt(context.Context, *ExportPromptRequest) (*ExportPromptResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExportPrompt not implemented")
+}
+func (UnimplementedPipelineServiceServer) GetSourceHistory(context.Context, *GetSourceHistoryRequest) (*GetSourceHistoryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSourceHistory not implemented")
+}
+func (UnimplementedPipelineServiceServer) ReprocessDryRun(context.Context, *ReprocessDryRunRequest) (*ReprocessDryRunResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReprocessDryRun not implemented")
 }
 func (UnimplementedPipelineServiceServer) mustEmbedUnimplementedPipelineServiceServer() {}
 func (UnimplementedPipelineServiceServer) testEmbeddedByValue()                         {}
@@ -437,6 +581,150 @@ func _PipelineService_UndeleteSource_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_DescribePipeline_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DescribePipelineRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).DescribePipeline(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_DescribePipeline_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).DescribePipeline(ctx, req.(*DescribePipelineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_GetPrompt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPromptRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).GetPrompt(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_GetPrompt_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).GetPrompt(ctx, req.(*GetPromptRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_ListPromptVersions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPromptVersionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).ListPromptVersions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_ListPromptVersions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).ListPromptVersions(ctx, req.(*ListPromptVersionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_UpdatePrompt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdatePromptRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).UpdatePrompt(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_UpdatePrompt_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).UpdatePrompt(ctx, req.(*UpdatePromptRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_RollbackPrompt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RollbackPromptRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).RollbackPrompt(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_RollbackPrompt_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).RollbackPrompt(ctx, req.(*RollbackPromptRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_ExportPrompt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportPromptRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).ExportPrompt(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_ExportPrompt_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).ExportPrompt(ctx, req.(*ExportPromptRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_GetSourceHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSourceHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).GetSourceHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_GetSourceHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).GetSourceHistory(ctx, req.(*GetSourceHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_ReprocessDryRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReprocessDryRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).ReprocessDryRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_ReprocessDryRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).ReprocessDryRun(ctx, req.(*ReprocessDryRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PipelineService_ServiceDesc is the grpc.ServiceDesc for PipelineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -483,6 +771,38 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UndeleteSource",
 			Handler:    _PipelineService_UndeleteSource_Handler,
+		},
+		{
+			MethodName: "DescribePipeline",
+			Handler:    _PipelineService_DescribePipeline_Handler,
+		},
+		{
+			MethodName: "GetPrompt",
+			Handler:    _PipelineService_GetPrompt_Handler,
+		},
+		{
+			MethodName: "ListPromptVersions",
+			Handler:    _PipelineService_ListPromptVersions_Handler,
+		},
+		{
+			MethodName: "UpdatePrompt",
+			Handler:    _PipelineService_UpdatePrompt_Handler,
+		},
+		{
+			MethodName: "RollbackPrompt",
+			Handler:    _PipelineService_RollbackPrompt_Handler,
+		},
+		{
+			MethodName: "ExportPrompt",
+			Handler:    _PipelineService_ExportPrompt_Handler,
+		},
+		{
+			MethodName: "GetSourceHistory",
+			Handler:    _PipelineService_GetSourceHistory_Handler,
+		},
+		{
+			MethodName: "ReprocessDryRun",
+			Handler:    _PipelineService_ReprocessDryRun_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

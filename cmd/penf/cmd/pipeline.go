@@ -79,6 +79,9 @@ Documentation:
 	cmd.AddCommand(newPipelineHealthCmd(pipelineDeps))
 	cmd.AddCommand(newPipelineDeletedCmd(pipelineDeps))
 	cmd.AddCommand(newPipelineUndeleteCmd(pipelineDeps))
+	cmd.AddCommand(newPipelineDescribeCmd(pipelineDeps))
+	cmd.AddCommand(newPipelinePromptCmd(pipelineDeps))
+	cmd.AddCommand(newPipelineHistoryCmd(pipelineDeps))
 
 	return cmd
 }
@@ -606,6 +609,9 @@ func newPipelineReprocessCmd(deps *PipelineCommandDeps) *cobra.Command {
 	var confirm bool
 	var outputFormat string
 	var reason string
+	var dryRun bool
+	var all bool
+	var sourceTag string
 
 	cmd := &cobra.Command{
 		Use:   "reprocess <content-id>",
@@ -631,10 +637,20 @@ Examples:
   penf pipeline reprocess content-123 --stage=embeddings
 
   # Reprocess with a reason
-  penf pipeline reprocess content-123 --reason="Updated to new model"`,
-		Args: cobra.ExactArgs(1),
+  penf pipeline reprocess content-123 --reason="Updated to new model"
+
+  # Dry-run to see impact
+  penf pipeline reprocess --stage triage --dry-run
+
+  # Dry-run for specific source tag
+  penf pipeline reprocess --stage triage --dry-run --source-tag gmail-import`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPipelineReprocess(cmd.Context(), deps, args[0], stage, reason, outputFormat)
+			contentID := ""
+			if len(args) > 0 {
+				contentID = args[0]
+			}
+			return runPipelineReprocess(cmd.Context(), deps, contentID, stage, reason, outputFormat, dryRun, all, sourceTag)
 		},
 	}
 
@@ -642,11 +658,14 @@ Examples:
 	cmd.Flags().BoolVar(&confirm, "confirm", false, "Required for bulk operations (future: --source, --all flags)")
 	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
 	cmd.Flags().StringVar(&reason, "reason", "Manual reprocess via CLI", "Reason for reprocessing (for audit trail)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Calculate impact without executing")
+	cmd.Flags().BoolVar(&all, "all", false, "Reprocess all sources (for bulk operations)")
+	cmd.Flags().StringVar(&sourceTag, "source-tag", "", "Filter by source tag")
 
 	return cmd
 }
 
-func runPipelineReprocess(ctx context.Context, deps *PipelineCommandDeps, contentID string, stage string, reason string, outputFormat string) error {
+func runPipelineReprocess(ctx context.Context, deps *PipelineCommandDeps, contentID string, stage string, reason string, outputFormat string, dryRun bool, all bool, sourceTag string) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
@@ -658,6 +677,38 @@ func runPipelineReprocess(ctx context.Context, deps *PipelineCommandDeps, conten
 		return err
 	}
 	defer conn.Close()
+
+	// If dry-run, call ReprocessDryRun
+	if dryRun {
+		if stage == "" {
+			return fmt.Errorf("--stage is required for dry-run")
+		}
+
+		pipelineClient := pipelinev1.NewPipelineServiceClient(conn)
+
+		req := &pipelinev1.ReprocessDryRunRequest{
+			Stage:     stage,
+			SourceTag: sourceTag,
+		}
+
+		resp, err := pipelineClient.ReprocessDryRun(ctx, req)
+		if err != nil {
+			return fmt.Errorf("running dry-run: %w", err)
+		}
+
+		if outputFormat == "json" {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(resp)
+		}
+
+		return outputReprocessDryRunHuman(resp, stage)
+	}
+
+	// Otherwise, call ReprocessContent
+	if contentID == "" {
+		return fmt.Errorf("content-id is required (use --dry-run to see impact without content-id)")
+	}
 
 	// Create content processor client directly from connection
 	contentClient := contentv1.NewContentProcessorServiceClient(conn)
@@ -1687,6 +1738,42 @@ func runPipelineUndelete(ctx context.Context, deps *PipelineCommandDeps, sourceI
 	} else {
 		fmt.Printf("✗ Failed: %s\n", resp.Message)
 	}
+
+	return nil
+}
+
+func outputReprocessDryRunHuman(resp *pipelinev1.ReprocessDryRunResponse, stage string) error {
+	fmt.Printf("Reprocess Dry Run: Stage %s\n", stage)
+	fmt.Println("================================")
+
+	if len(resp.AffectedStages) > 0 {
+		fmt.Println("Downstream stages that would re-run:")
+		for _, s := range resp.AffectedStages {
+			fmt.Printf("  - %s\n", s)
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("Affected sources: %d\n", resp.SourceCount)
+
+	if resp.EstimatedDurationSeconds > 0 {
+		duration := resp.EstimatedDurationSeconds
+		if duration < 60 {
+			fmt.Printf("Estimated duration: %d seconds\n", duration)
+		} else if duration < 3600 {
+			fmt.Printf("Estimated duration: %.1f minutes\n", float64(duration)/60)
+		} else {
+			fmt.Printf("Estimated duration: %.1f hours\n", float64(duration)/3600)
+		}
+	}
+
+	if resp.Message != "" {
+		fmt.Println()
+		fmt.Println(resp.Message)
+	}
+
+	fmt.Println()
+	fmt.Printf("To execute: penf pipeline reprocess --stage %s --all\n", stage)
 
 	return nil
 }

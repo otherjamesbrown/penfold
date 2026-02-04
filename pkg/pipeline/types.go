@@ -76,3 +76,42 @@ type DeletedSource struct {
 	DeletionReason   *string
 	ProcessingStatus string
 }
+
+// StageInfo contains information about a pipeline stage.
+type StageInfo struct {
+	Stage                string
+	DisplayName          string
+	Description          string
+	StageType            string
+	ModelDependent       bool
+	HasPrompt            bool
+	DependsOn            []string
+	Downstream           []string
+	ActivePromptVersion  int
+	ActiveModelID        string
+}
+
+// PromptTemplate represents a versioned prompt template.
+type PromptTemplate struct {
+	ID          int64
+	Stage       string
+	Version     int
+	Content     string
+	Description *string
+	IsActive    bool
+	CreatedBy   *string
+	CreatedAt   time.Time
+}
+
+// PipelineRun represents a single pipeline execution.
+type PipelineRun struct {
+	ID            int64
+	SourceID      int64
+	Stage         string
+	ModelID       *string
+	PromptVersion *int
+	ConfigHash    *string
+	Status        string
+	CreatedAt     time.Time
+	DurationMS    *int
+}
