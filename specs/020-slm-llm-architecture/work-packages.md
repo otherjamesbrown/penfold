@@ -73,7 +73,7 @@ Record each work package completion here. Sessions should update this after comm
 | WP3 | **done** | `45d46b8` | 2026-02-04 | TriageContent gRPC RPC: proto definition, gateway proxy, AI server handler with triage prompt (8 categories, 3 importance levels), JSON validation, retry (max 2), Langfuse tracing, prompt template migration (032). 20+ tests. |
 | WP4 | **done** | `f72b4b6` | 2026-02-04 | Two-pass extraction (NER + semantic) with chunking, merge dedup, quality gate. ExtractEntities RPC on AI service + gateway proxy + worker activity. 30+ tests. |
 | WP5 | **done** | `b67e52b` | 2026-02-04 | Context package repository (7 query methods: risks, actions, decisions, events, glossary, project resolution), context builder activity (person resolution via fuzzy name, project resolution via exact/keyword, token budgets per content type, tail truncation), EntityLookupInterface + EntityResolverInterface. 26 tests. |
-| WP6 | pending | — | — | — |
+| WP6 | **done** | _pending_ | 2026-02-04 | DeepAnalyze RPC (proto + AI server handler + client), structured prompt with `<untrusted_content>` wrapping, model selection by triage category/importance (Pro vs Flash), context_excerpt validation, worker activity with proto conversion, context builder activity with token-budgeted assembly. 30+ tests. |
 | WP7 | pending | — | — | — |
 | WP8 | pending | — | — | — |
 | WP9 | pending | — | — | — |
@@ -209,29 +209,30 @@ Record each work package completion here. Sessions should update this after comm
 
 ---
 
-## WP6: Stage 4 — Deep Analysis
+## WP6: Stage 4 — Deep Analysis ✓
 
-**Shard:** `pf-964bd7` · **Agent:** ai-dev · **Depends on:** WP4, WP1
+**Shard:** `pf-964bd7` · **Agent:** ai-dev, service-dev, worker-dev · **Depends on:** WP4, WP1 · **Status:** done
 
-**Files:**
-- `services/ai/server/server.go` — restructure analysis handler
-- `services/ai/router/router.go` — extend routing to consider triage metadata
-- `services/ai/registry/routing.go` — update model selection
+**Files delivered:**
+- `api/proto/ai/v1/ai.proto` — DeepAnalyze RPC definition, DeepAnalyzeRequest/Response messages, 10 new message types (DeepSentiment, TopicMapping, VerifiedActionItem, VerifiedDecision, RiskReference, ImplicitActionItem)
+- `api/proto/ai/v1/ai.pb.go`, `ai_grpc.pb.go` — regenerated proto code
+- `services/ai/server/analyze.go` — DeepAnalyze handler: structured prompt construction (4 sections with `<untrusted_content>` wrapping), model selection by triage category+importance, JSON response parsing with context_excerpt validation, retry logic (max 2), Langfuse tracing
+- `services/ai/server/analyze_test.go` — prompt construction, model selection (14 combinations), response parsing (valid/malformed/missing excerpts)
+- `pkg/ai/client.go` — DeepAnalyze client method with 60s extended timeout
+- `pkg/ai/client_test.go` — 3 client test cases
+- `services/worker/activities/analysis.go` — DeepAnalyze Temporal activity with domain types, proto conversion helpers
+- `services/worker/activities/analysis_test.go` — 5 test cases (success, empty content, no client, client error, proto conversion)
+- `services/worker/activities/interfaces.go` — Extended AIClient interface with DeepAnalyze method
 
-**Scope:**
-- Restructured Stage 4 prompt from design.md: verified entities + preliminary extraction + background context + untrusted content with `<untrusted_content>` delimiters
-- Model selection based on triage category + importance (RISK_ISSUE -> Pro, PROJECT_UPDATE+HIGH -> Pro, MEDIUM -> Flash, etc.)
-- Extend `DefaultModelSelector` to accept triage metadata in routing decision
-- Output: verified assertions, sentiment, topic mapping, risk references with `lifecycle_change`, `context_excerpts`
-- Replaces current `buildAnalysisPrompt()` / 8000-char truncation
+**Implementation shards:** `pf-d50e75` (proto + AI server + client), `pf-c79afe` (worker activity)
 
-**Acceptance criteria:**
+**Acceptance criteria (met):**
 - Analysis prompt includes resolved entities, SLM extraction, background context
-- Model routing respects triage metadata (not just request type)
-- Content is NOT truncated — full text or pre-processed summaries sent
-- Output includes mandatory `context_excerpt` for every assertion
-- Langfuse traces capture full prompt/completion
-- Tests cover: prompt construction, model routing by triage, output schema validation
+- Model routing respects triage metadata: RISK_ISSUE→Pro, CUSTOMER+HIGH→Pro, PROJECT_UPDATE+HIGH→Pro, MEDIUM→Flash, LOW→Flash
+- Content is NOT truncated — full text sent within `<untrusted_content>` delimiters
+- Output includes mandatory `context_excerpt` for every assertion (parser validates)
+- Langfuse traces capture full prompt/completion via tracing.StartLLMCall/SetLLMResult
+- Tests cover: prompt construction, model routing by triage (14 cases), output schema validation, context_excerpt enforcement
 
 ---
 

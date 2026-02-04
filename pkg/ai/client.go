@@ -253,6 +253,29 @@ func (c *Client) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitiesR
 	return resp, nil
 }
 
+// DeepAnalyze performs Stage 4 deep analysis using a remote LLM.
+func (c *Client) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+
+	// Apply request timeout if configured (or use extended timeout for deep analysis)
+	timeout := c.options.requestTimeout
+	if timeout == 0 || timeout < 60*time.Second {
+		timeout = 60 * time.Second // Deep analysis may take longer
+	}
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	resp, err := c.client.DeepAnalyze(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("deep analyze failed: %w", err)
+	}
+
+	return resp, nil
+}
+
 // ListModels returns all registered models with optional filtering.
 func (c *Client) ListModels(ctx context.Context, req *aiv1.ListModelsRequest) (*aiv1.ListModelsResponse, error) {
 	if req == nil {

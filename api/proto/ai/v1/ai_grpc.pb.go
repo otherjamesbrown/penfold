@@ -29,6 +29,7 @@ const (
 	AICoordinatorService_ClassifyContent_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/ClassifyContent"
 	AICoordinatorService_TriageContent_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/TriageContent"
 	AICoordinatorService_ExtractEntities_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/ExtractEntities"
+	AICoordinatorService_DeepAnalyze_FullMethodName       = "/penfold.ai.v1.AICoordinatorService/DeepAnalyze"
 	AICoordinatorService_GetModelStatus_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/GetModelStatus"
 	AICoordinatorService_ListModels_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/ListModels"
 	AICoordinatorService_RegisterModel_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/RegisterModel"
@@ -68,6 +69,10 @@ type AICoordinatorServiceClient interface {
 	// Stage 2a extracts people, dates, projects, organisations.
 	// Stage 2b extracts action_items, decisions, risks.
 	ExtractEntities(ctx context.Context, in *ExtractEntitiesRequest, opts ...grpc.CallOption) (*ExtractEntitiesResponse, error)
+	// DeepAnalyze performs Stage 4 deep analysis using remote LLM.
+	// Takes pre-processed input from pipeline stages and sends structured prompt to LLM.
+	// Content is wrapped in <untrusted_content> delimiters per security model.
+	DeepAnalyze(ctx context.Context, in *DeepAnalyzeRequest, opts ...grpc.CallOption) (*DeepAnalyzeResponse, error)
 	// GetModelStatus checks the availability and health of AI models.
 	// Returns information about loaded models and their capabilities.
 	GetModelStatus(ctx context.Context, in *GetModelStatusRequest, opts ...grpc.CallOption) (*GetModelStatusResponse, error)
@@ -162,6 +167,16 @@ func (c *aICoordinatorServiceClient) ExtractEntities(ctx context.Context, in *Ex
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExtractEntitiesResponse)
 	err := c.cc.Invoke(ctx, AICoordinatorService_ExtractEntities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) DeepAnalyze(ctx context.Context, in *DeepAnalyzeRequest, opts ...grpc.CallOption) (*DeepAnalyzeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeepAnalyzeResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_DeepAnalyze_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -295,6 +310,10 @@ type AICoordinatorServiceServer interface {
 	// Stage 2a extracts people, dates, projects, organisations.
 	// Stage 2b extracts action_items, decisions, risks.
 	ExtractEntities(context.Context, *ExtractEntitiesRequest) (*ExtractEntitiesResponse, error)
+	// DeepAnalyze performs Stage 4 deep analysis using remote LLM.
+	// Takes pre-processed input from pipeline stages and sends structured prompt to LLM.
+	// Content is wrapped in <untrusted_content> delimiters per security model.
+	DeepAnalyze(context.Context, *DeepAnalyzeRequest) (*DeepAnalyzeResponse, error)
 	// GetModelStatus checks the availability and health of AI models.
 	// Returns information about loaded models and their capabilities.
 	GetModelStatus(context.Context, *GetModelStatusRequest) (*GetModelStatusResponse, error)
@@ -352,6 +371,9 @@ func (UnimplementedAICoordinatorServiceServer) TriageContent(context.Context, *T
 }
 func (UnimplementedAICoordinatorServiceServer) ExtractEntities(context.Context, *ExtractEntitiesRequest) (*ExtractEntitiesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExtractEntities not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) DeepAnalyze(context.Context, *DeepAnalyzeRequest) (*DeepAnalyzeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeepAnalyze not implemented")
 }
 func (UnimplementedAICoordinatorServiceServer) GetModelStatus(context.Context, *GetModelStatusRequest) (*GetModelStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetModelStatus not implemented")
@@ -508,6 +530,24 @@ func _AICoordinatorService_ExtractEntities_Handler(srv interface{}, ctx context.
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AICoordinatorServiceServer).ExtractEntities(ctx, req.(*ExtractEntitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_DeepAnalyze_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeepAnalyzeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).DeepAnalyze(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_DeepAnalyze_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).DeepAnalyze(ctx, req.(*DeepAnalyzeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -722,6 +762,10 @@ var AICoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExtractEntities",
 			Handler:    _AICoordinatorService_ExtractEntities_Handler,
+		},
+		{
+			MethodName: "DeepAnalyze",
+			Handler:    _AICoordinatorService_DeepAnalyze_Handler,
 		},
 		{
 			MethodName: "GetModelStatus",

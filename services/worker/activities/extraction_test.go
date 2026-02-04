@@ -18,6 +18,7 @@ type mockAIClient struct {
 	extractAssertionsFn  func(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error)
 	generateEmbeddingFn  func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error)
 	generateSummaryFn    func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error)
+	deepAnalyzeFn        func(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error)
 }
 
 func (m *mockAIClient) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error) {
@@ -46,6 +47,13 @@ func (m *mockAIClient) GenerateSummary(ctx context.Context, req *aiv1.SummaryReq
 		return m.generateSummaryFn(ctx, req)
 	}
 	return &aiv1.SummaryResponse{}, nil
+}
+
+func (m *mockAIClient) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error) {
+	if m.deepAnalyzeFn != nil {
+		return m.deepAnalyzeFn(ctx, req)
+	}
+	return &aiv1.DeepAnalyzeResponse{}, nil
 }
 
 func TestExtractEntities_ShortContent(t *testing.T) {

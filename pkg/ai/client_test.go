@@ -26,6 +26,7 @@ type mockAIServer struct {
 	classifyContentFunc    func(ctx context.Context, req *aiv1.ClassifyContentRequest) (*aiv1.ClassifyContentResponse, error)
 	triageContentFunc      func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error)
 	extractEntitiesFunc    func(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error)
+	deepAnalyzeFunc        func(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error)
 	getModelStatusFunc     func(ctx context.Context, req *aiv1.GetModelStatusRequest) (*aiv1.GetModelStatusResponse, error)
 
 	// Call counters for retry testing
@@ -133,6 +134,68 @@ func (m *mockAIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEnt
 		InputTokens:          &inputTokens,
 		OutputTokens:         &outputTokens,
 		Retries:              0,
+	}, nil
+}
+
+func (m *mockAIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error) {
+	if m.deepAnalyzeFunc != nil {
+		return m.deepAnalyzeFunc(ctx, req)
+	}
+	inputTokens := int32(500)
+	outputTokens := int32(300)
+	return &aiv1.DeepAnalyzeResponse{
+		Summary: "This is a deep analysis summary",
+		Sentiment: &aiv1.DeepSentiment{
+			Score:       0.3,
+			Label:       "neutral",
+			Confidence:  0.85,
+			Indicators:  []string{"balanced tone", "factual content"},
+			Explanation: "Content maintains a professional and balanced tone",
+		},
+		TopicMappings: []*aiv1.TopicMapping{
+			{
+				Topic:          "project status",
+				RelatedProject: "Project Alpha",
+				Relationship:   "provides update on progress",
+				Confidence:     0.9,
+			},
+		},
+		VerifiedActionItems: []*aiv1.VerifiedActionItem{
+			{
+				Description:    "Review the PR",
+				Assignee:       "Bob",
+				Due:            "next week",
+				Priority:       "high",
+				ContextExcerpt: "Bob should review the PR next week",
+				Status:         "confirmed",
+			},
+		},
+		VerifiedDecisions: []*aiv1.VerifiedDecision{
+			{
+				Description:    "Approved budget",
+				ContextExcerpt: "We approved the budget for Q1",
+				Status:         "confirmed",
+			},
+		},
+		RiskReferences: []*aiv1.RiskReference{
+			{
+				Description:    "Potential delay in delivery",
+				Significance:   "primary",
+				ContextExcerpt: "There is a potential delay in delivery",
+				IsNew:          true,
+			},
+		},
+		StrategicInsights: []string{"Project is on track but requires attention to timeline"},
+		ImplicitActionItems: []*aiv1.ImplicitActionItem{
+			{
+				Description:    "Update project timeline",
+				Reasoning:      "Delay mentioned requires timeline adjustment",
+				ContextExcerpt: "potential delay in delivery",
+			},
+		},
+		ModelUsed:    "gemini-1.5-pro",
+		InputTokens:  &inputTokens,
+		OutputTokens: &outputTokens,
 	}, nil
 }
 
@@ -668,6 +731,80 @@ func TestClient_ExtractEntities(t *testing.T) {
 	t.Run("extraction with minimal content", func(t *testing.T) {
 		resp, err := client.ExtractEntities(context.Background(), &aiv1.ExtractEntitiesRequest{
 			Content: "Simple content with no entities.",
+		})
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.NotEmpty(t, resp.ModelUsed)
+	})
+}
+
+func TestClient_DeepAnalyze(t *testing.T) {
+	mock := &mockAIServer{}
+	server, addr := startTestServer(t, mock)
+	defer server.Stop()
+
+	client, err := NewClient(addr)
+	require.NoError(t, err)
+	defer client.Close()
+
+	t.Run("nil request returns error", func(t *testing.T) {
+		_, err := client.DeepAnalyze(context.Background(), nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "request is required")
+	})
+
+	t.Run("successful deep analysis", func(t *testing.T) {
+		resp, err := client.DeepAnalyze(context.Background(), &aiv1.DeepAnalyzeRequest{
+			Content: "Alice Smith is working on Project Alpha at Acme Corp. Bob should review the PR next week. We approved the budget for Q1. There is a potential delay in delivery.",
+			VerifiedPeople: []*aiv1.PersonEntity{
+				{Name: "Alice Smith", Role: "Engineer"},
+				{Name: "Bob", Role: "Reviewer"},
+			},
+			VerifiedProjects: []string{"Project Alpha"},
+			PreliminaryActionItems: []*aiv1.ActionItemEntity{
+				{Assignee: "Bob", Action: "Review PR", Due: "next week"},
+			},
+			BackgroundContext: "Project Alpha is a critical initiative for Q1 2024",
+			TriageCategory:    "PROJECT_UPDATE",
+			TriageImportance:  "HIGH",
+		})
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.NotEmpty(t, resp.Summary)
+		assert.NotNil(t, resp.Sentiment)
+		assert.NotEmpty(t, resp.TopicMappings)
+		assert.NotEmpty(t, resp.VerifiedActionItems)
+		assert.NotEmpty(t, resp.VerifiedDecisions)
+		assert.NotEmpty(t, resp.RiskReferences)
+		assert.NotEmpty(t, resp.StrategicInsights)
+		assert.NotEmpty(t, resp.ImplicitActionItems)
+		assert.Equal(t, "gemini-1.5-pro", resp.ModelUsed)
+		assert.NotNil(t, resp.InputTokens)
+		assert.NotNil(t, resp.OutputTokens)
+
+		// Verify sentiment structure
+		assert.Equal(t, float32(0.3), resp.Sentiment.Score)
+		assert.Equal(t, "neutral", resp.Sentiment.Label)
+		assert.Greater(t, resp.Sentiment.Confidence, float32(0))
+
+		// Verify action item has required context_excerpt
+		assert.NotEmpty(t, resp.VerifiedActionItems[0].ContextExcerpt)
+
+		// Verify decision has required context_excerpt
+		assert.NotEmpty(t, resp.VerifiedDecisions[0].ContextExcerpt)
+
+		// Verify risk has required context_excerpt
+		assert.NotEmpty(t, resp.RiskReferences[0].ContextExcerpt)
+
+		// Verify implicit action item has required context_excerpt
+		assert.NotEmpty(t, resp.ImplicitActionItems[0].ContextExcerpt)
+	})
+
+	t.Run("deep analysis with minimal content", func(t *testing.T) {
+		resp, err := client.DeepAnalyze(context.Background(), &aiv1.DeepAnalyzeRequest{
+			Content:          "Simple project update.",
+			TriageCategory:   "OTHER",
+			TriageImportance: "LOW",
 		})
 		require.NoError(t, err)
 		assert.NotNil(t, resp)

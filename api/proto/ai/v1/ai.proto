@@ -41,6 +41,11 @@ service AICoordinatorService {
   // Stage 2b extracts action_items, decisions, risks.
   rpc ExtractEntities(ExtractEntitiesRequest) returns (ExtractEntitiesResponse);
 
+  // DeepAnalyze performs Stage 4 deep analysis using remote LLM.
+  // Takes pre-processed input from pipeline stages and sends structured prompt to LLM.
+  // Content is wrapped in <untrusted_content> delimiters per security model.
+  rpc DeepAnalyze(DeepAnalyzeRequest) returns (DeepAnalyzeResponse);
+
   // GetModelStatus checks the availability and health of AI models.
   // Returns information about loaded models and their capabilities.
   rpc GetModelStatus(GetModelStatusRequest) returns (GetModelStatusResponse);
@@ -440,6 +445,109 @@ message ExtractEntitiesResponse {
   optional int32 input_tokens = 11;
   optional int32 output_tokens = 12;
   int32 retries = 13;
+}
+
+// =============================================================================
+// Deep Analysis Messages (Stage 4)
+// =============================================================================
+
+// DeepAnalyzeRequest contains pre-processed input for Stage 4 deep analysis.
+message DeepAnalyzeRequest {
+  // Clean text from Stage 0
+  string content = 1;
+
+  // Stage 2 NER extraction results (verified entities)
+  repeated PersonEntity verified_people = 2;
+  repeated DateEntity verified_dates = 3;
+  repeated string verified_projects = 4;
+  repeated string verified_organisations = 5;
+
+  // Stage 2 semantic extraction results (preliminary, needs verification)
+  repeated ActionItemEntity preliminary_action_items = 6;
+  repeated string preliminary_decisions = 7;
+  repeated string preliminary_risks = 8;
+
+  // Stage 3 resolved context (background knowledge from KB)
+  string background_context = 9;
+
+  // Triage metadata for model selection
+  string triage_category = 10;  // e.g., RISK_ISSUE, PROJECT_UPDATE
+  string triage_importance = 11;  // HIGH, MEDIUM, LOW
+
+  // Metadata
+  optional string model = 12;
+  optional string tenant_id = 13;
+  optional int64 source_id = 14;
+  optional string content_id = 15;
+}
+
+// DeepAnalyzeResponse contains the Stage 4 analysis results.
+message DeepAnalyzeResponse {
+  string summary = 1;
+  DeepSentiment sentiment = 2;
+  repeated TopicMapping topic_mappings = 3;
+  repeated VerifiedActionItem verified_action_items = 4;
+  repeated VerifiedDecision verified_decisions = 5;
+  repeated RiskReference risk_references = 6;
+  repeated string strategic_insights = 7;
+  repeated ImplicitActionItem implicit_action_items = 8;
+
+  string model_used = 9;
+  optional int32 input_tokens = 10;
+  optional int32 output_tokens = 11;
+}
+
+// DeepSentiment contains business-context-aware sentiment analysis.
+message DeepSentiment {
+  float score = 1;        // -1.0 to 1.0
+  string label = 2;       // positive, negative, neutral, mixed
+  float confidence = 3;
+  repeated string indicators = 4;
+  string explanation = 5;  // Business context explanation
+}
+
+// TopicMapping connects content to known projects/products.
+message TopicMapping {
+  string topic = 1;
+  string related_project = 2;  // Resolved product/project name
+  string relationship = 3;     // How content relates to this topic
+  float confidence = 4;
+}
+
+// VerifiedActionItem represents an action item verified/refined by LLM.
+message VerifiedActionItem {
+  string description = 1;
+  string assignee = 2;
+  string due = 3;
+  string priority = 4;      // high, medium, low
+  string context_excerpt = 5;  // Direct quote from content (REQUIRED)
+  string status = 6;        // confirmed, refined, removed, new
+}
+
+// VerifiedDecision represents a decision verified/refined by LLM.
+message VerifiedDecision {
+  string description = 1;
+  string context_excerpt = 2;  // Direct quote from content (REQUIRED)
+  string status = 3;  // confirmed, refined, removed, new
+}
+
+// RiskReference connects content to existing or new risks.
+message RiskReference {
+  optional int64 root_id = 1;          // If matching existing risk
+  string description = 2;
+  optional string lifecycle_change = 3; // escalated, de_escalated, assigned, decided, deferred, resolved
+  string significance = 4;             // primary, secondary, passing
+  string context_excerpt = 5;          // Direct quote from content (REQUIRED)
+  optional string severity_change = 6;
+  optional string owner_change = 7;
+  bool is_new = 8;
+}
+
+// ImplicitActionItem represents an inferred action not explicitly stated.
+message ImplicitActionItem {
+  string description = 1;
+  string reasoning = 2;      // Why this is inferred
+  string context_excerpt = 3;  // Supporting quote from content (REQUIRED)
 }
 
 // =============================================================================
