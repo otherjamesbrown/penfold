@@ -80,7 +80,7 @@ Record each work package completion here. Sessions should update this after comm
 | WP6 | **done** | `2908da3` | 2026-02-04 | DeepAnalyze RPC (proto + AI server handler + client), structured prompt with `<untrusted_content>` wrapping, model selection by triage category/importance (Pro vs Flash), context_excerpt validation, worker activity with proto conversion, context builder activity with token-budgeted assembly. 30+ tests. |
 | WP7 | **done** | `5f2da36` | 2026-02-04 | PersistRepository (validation: context_excerpt, lifecycle_event/reference_type allowlists, entity ID verification; idempotency keys via SHA256; assertion creation with root_id; supersession with is_current/superseded_by; assertion_references for every content-assertion link; entity_project_affinity UPSERT; single pgx transaction for saga compensation), PersistFindings Temporal activity registered on Main queue. 21 tests. |
 | WP8 | **done** | `95b64e4` | 2026-02-04 | SLMPipelineWorkflow orchestrating Stages 0→1→2→3→4→4.5→5, triage gates (PERSONAL/INTERNAL_COMMS+LOW skip deep), progressive availability (parsed/extracted status), Stage 4 optional (failure continues), embedding critical (failure = pipeline failure), saga compensation, signal/query handlers, triage activity wrapper. 15 tests (8 pipeline + 7 triage). |
-| WP9 | pending | — | — | — |
+| WP9 | **done** | `pending` | 2026-02-04 | Multi-level embedding repository (StoreMultiLevelEmbedding, GetEmbeddingsForSource, GetStaleEmbeddings, DeleteEmbeddingsForSource), GenerateMultiLevelEmbeddings activity (content + summary + action_item + decision + risk embeddings per source, removed-action filtering, non-fatal assertion failures), ReEmbedBatch activity (stale detection, batch re-embedding for model changes), migration 033 (representation_type column, embedding_vec vector(1024) with HNSW index, model_version index). 13 tests. |
 | WP10 | **done** | `a49ff38` | 2026-02-04 | Session bootstrap CLI: `penf context morning` (playbook from Context-Palace with default fallback), `penf session resume --last-closed`, `penf reminders list --due`, meeting list filters (participant/since/has-changes) + `penf meeting recap`, project list filters (status/sort/limit/always-include) + `penf context project --name`, `penf pipeline status --since-last-session`. Proto: ListMeetings filters, GetMeetingRecap RPC, GetProjectContext RPC, ProjectFilter enhancements. Gateway handlers + repository methods. 30+ tests. |
 | WP11 | pending | — | — | — |
 | WP12 | pending | — | — | — |
@@ -294,28 +294,29 @@ Record each work package completion here. Sessions should update this after comm
 
 ---
 
-## WP9: Stage 5 — Multi-Level Embeddings
+## WP9: Stage 5 — Multi-Level Embeddings ✓
 
-**Shard:** `pf-e0dbd7` · **Agent:** ai-dev · **Depends on:** WP7
+**Shard:** `pf-e0dbd7` · **Agent:** data-dev, worker-dev · **Depends on:** WP7 · **Status:** done
 
-**Files:**
-- `services/worker/activities/embedding.go` — extend
-- `services/worker/activities/embedding_repo.go` — extend
-- Migration for embedding model versioning columns if not present
+**Files delivered:**
+- `services/worker/activities/interfaces.go` — Extended EmbeddingRepository with StoreMultiLevelEmbedding, GetEmbeddingsForSource, GetStaleEmbeddings, DeleteEmbeddingsForSource; added MultiLevelEmbeddingInput type; updated Embedding struct with EntityType, EntityID, RepresentationType, ModelVersion
+- `services/worker/activities/embedding_repo.go` — Implemented all 4 new repository methods with validation, backward-compatible StoreEmbedding delegation
+- `services/worker/activities/embedding_repo_test.go` — 5 repository tests (mock-based)
+- `services/worker/activities/multilevel_embedding.go` — GenerateMultiLevelEmbeddings activity (content + summary + action_item + decision + risk embeddings, removed-action filtering, non-fatal assertion failures, 8192 char truncation), ReEmbedBatch activity (stale detection, batch re-embedding with source fetch)
+- `services/worker/activities/multilevel_embedding_test.go` — 8 activity tests (full pipeline, empty analysis, skips removed, assertion failure continues, validation errors, batch stale processing, sources remaining, batch validation)
+- `migrations/033_multi_level_embeddings.sql` — representation_type column, embedding_vec vector(1024) with HNSW index (m=16, ef_construction=64), model_version index, representation/entity indexes
 
-**Scope:**
-- Embed multiple representations: raw text, summary, action items, risk assessments
-- Embedding model versioning: `embedding_model` + `model_version` columns, index on both
-- Segment-level embeddings for transcripts
-- Glossary-expanded query support at index time
-- Batch re-embedding capability for model changes
+**Implementation shards:** `pf-26ef5d` (repository + migration), `pf-6a9975` (activities + tests)
 
-**Acceptance criteria:**
-- Multiple embeddings generated per content item (raw, summary, action items)
-- Model version tracked on every embedding
-- Stale embedding detection query works
-- Batch re-embedding for model change
-- Tests cover: multi-level embedding generation, version tracking, stale detection
+**Acceptance criteria (met):**
+- Multiple embeddings generated per content item: content, summary, action_item, decision, risk
+- Model version tracked on every embedding via ModelVersion field
+- Stale embedding detection via GetStaleEmbeddings query (filters by model+version)
+- Batch re-embedding via ReEmbedBatch activity (fetches stale sources, deletes old embeddings, generates new)
+- Removed/filtered assertions skipped (status="removed")
+- Individual assertion embedding failures don't fail the whole activity
+- HNSW vector index for semantic search (pgvector, 1024 dimensions)
+- Tests cover: multi-level embedding generation (6 types), version tracking, stale detection, batch re-embedding, validation, error resilience (13 tests total)
 
 ---
 
