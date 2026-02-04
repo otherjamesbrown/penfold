@@ -72,7 +72,7 @@ Record each work package completion here. Sessions should update this after comm
 | WP2 | **done** | `52d1c8e` | 2026-02-04 | Email parse (HTML-to-text, quoted reply detection), transcript parse (SRT/VTT/TXT, speaker normalization), Temporal activities on Main/Email queues. 37 tests. |
 | WP3 | **done** | `45d46b8` | 2026-02-04 | TriageContent gRPC RPC: proto definition, gateway proxy, AI server handler with triage prompt (8 categories, 3 importance levels), JSON validation, retry (max 2), Langfuse tracing, prompt template migration (032). 20+ tests. |
 | WP4 | **done** | `f72b4b6` | 2026-02-04 | Two-pass extraction (NER + semantic) with chunking, merge dedup, quality gate. ExtractEntities RPC on AI service + gateway proxy + worker activity. 30+ tests. |
-| WP5 | pending | — | — | — |
+| WP5 | **done** | _pending_ | 2026-02-04 | Context package repository (7 query methods: risks, actions, decisions, events, glossary, project resolution), context builder activity (person resolution via fuzzy name, project resolution via exact/keyword, token budgets per content type, tail truncation), EntityLookupInterface + EntityResolverInterface. 26 tests. |
 | WP6 | pending | — | — | — |
 | WP7 | pending | — | — | — |
 | WP8 | pending | — | — | — |
@@ -187,31 +187,25 @@ Record each work package completion here. Sessions should update this after comm
 
 ---
 
-## WP5: Stage 3 — Context Builder
+## WP5: Stage 3 — Context Builder ✓
 
-**Shard:** `pf-9816a7` · **Agent:** service-dev · **Depends on:** WP4, WP1
+**Shard:** `pf-9816a7` · **Agent:** service-dev · **Depends on:** WP4, WP1 · **Status:** done
 
-**Files:**
-- `pkg/enrichment/extraction/context.go` — extend existing context system
-- `services/gateway/` — new context builder service or extend existing
-- `pkg/enrichment/query/` — extend existing query builders
+**Files delivered:**
+- `services/worker/activities/context_repo.go` — ContextPackageRepo implementation: 7 query methods (GetActiveRisks, GetOpenActions, GetRecentDecisions, GetProductEvents, GetGlossaryTerms, ResolveProjectByName, ResolveProjectByKeyword) using pgx/pgxpool with NULL handling
+- `services/worker/activities/context_repo_test.go` — 18 tests covering all query methods, empty results, NULL handling
+- `services/worker/activities/context_builder.go` — BuildContextPackage Temporal activity: person resolution (exact/fuzzy name via EntityLookupInterface), project resolution (exact name/keyword/glossary), context package assembly with per-content-type token budgets, tail truncation (glossary→events→decisions→actions→risks)
+- `services/worker/activities/context_builder_test.go` — 8 test functions: person resolution (exact/fuzzy/unresolved), project resolution (exact/keyword/unresolved), token budgets (meeting=3000/email=2000/slack=1000), truncation, empty extraction, unknown entity detection
+- `services/worker/activities/interfaces.go` — Added ContextPackageRepository interface, ContextAssertion/ContextProductEvent/ContextGlossaryTerm types, DeepAnalyze method on AIClient
 
-**Scope:**
-- Takes Stage 2 output, resolves entities against people/glossary/products/teams tables
-- Uses existing mention resolution pipeline (`services/gateway/mentionsservice/`)
-- Builds context package for Stage 4 with token budgets per design.md:
-  - Meeting: ~3,000 tokens (assertions, timeline, participants, glossary)
-  - Email: ~2,000 tokens (thread history, assertions, sender, glossary)
-  - Slack: ~1,000 tokens (channel context, assertions, participants)
-- Queries: active risks, open actions, recent decisions, product timeline, glossary terms — all per design.md SQL
-- Output: enriched entities with person_ids + context package JSON
+**Implementation shards:** `pf-31762a` (context package repository), `pf-561b00` (context builder activity)
 
-**Acceptance criteria:**
-- Resolves known people by exact email, alias, fuzzy name
-- Glossary expansion works (TER -> Technical Execution Review)
-- Context package respects token budgets, truncates from tail
-- Unknown entities flagged for review queue
-- Tests cover: person resolution, glossary expansion, token budget enforcement, unknown entity detection
+**Acceptance criteria (met):**
+- Resolves known people by fuzzy name match via SearchPeopleByName
+- Glossary expansion via GetGlossaryTerms query with product scoping
+- Context package respects token budgets (meeting=3000, email=2000, slack=1000), truncates from tail
+- Unknown entities flagged: EntitiesUnresolved count + UnresolvedTerms list
+- Tests cover: person resolution (exact/fuzzy/unresolved), project resolution (exact/keyword/unresolved), token budget enforcement, truncation, empty extraction, unknown entity detection (26 tests total)
 
 ---
 

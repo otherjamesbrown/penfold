@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"time"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 )
@@ -152,6 +153,9 @@ type AIClient interface {
 
 	// ExtractEntities performs two-pass entity extraction from content.
 	ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error)
+
+	// DeepAnalyze performs Stage 4 deep analysis using a remote LLM.
+	DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error)
 }
 
 // NotificationClient defines the interface for sending notifications.
@@ -176,4 +180,51 @@ type NotificationResult struct {
 	Success   bool
 	MessageID string
 	Error     string
+}
+
+// ContextPackageRepository provides data access for Stage 3 context assembly.
+type ContextPackageRepository interface {
+	// GetActiveRisks returns active risks/issues for the given projects, ordered by severity.
+	GetActiveRisks(ctx context.Context, projectIDs []int64, limit int) ([]ContextAssertion, error)
+	// GetOpenActions returns open action items for the given projects, ordered by due date.
+	GetOpenActions(ctx context.Context, projectIDs []int64, limit int) ([]ContextAssertion, error)
+	// GetRecentDecisions returns recent decisions for the given projects.
+	GetRecentDecisions(ctx context.Context, projectIDs []int64, days int, limit int) ([]ContextAssertion, error)
+	// GetProductEvents returns recent product timeline events.
+	GetProductEvents(ctx context.Context, productIDs []int64, days int, limit int) ([]ContextProductEvent, error)
+	// GetGlossaryTerms returns glossary expansions for the given terms.
+	GetGlossaryTerms(ctx context.Context, terms []string, productIDs []int64, limit int) ([]ContextGlossaryTerm, error)
+	// ResolveProjectByName resolves a project/product name to an ID.
+	ResolveProjectByName(ctx context.Context, tenantID string, name string) (*int64, error)
+	// ResolveProjectByKeyword resolves a project by keyword match.
+	ResolveProjectByKeyword(ctx context.Context, tenantID string, keyword string) (*int64, error)
+}
+
+// ContextAssertion is a simplified assertion for context packages.
+type ContextAssertion struct {
+	Description   string
+	Severity      string // For risks
+	Status        string // For actions
+	DueDate       *time.Time // For actions
+	OwnerName     string
+	AssigneeName  string
+	DecisionMaker string // For decisions
+	Rationale     string // For decisions
+	ProjectName   string
+	SourceQuote   string
+}
+
+// ContextProductEvent is a product timeline event for context packages.
+type ContextProductEvent struct {
+	Title       string
+	Description string
+	EventType   string
+	OccurredAt  time.Time
+}
+
+// ContextGlossaryTerm is a glossary term for context packages.
+type ContextGlossaryTerm struct {
+	Term       string
+	Expansion  string
+	Definition string
 }
