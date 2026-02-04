@@ -239,4 +239,4 @@ All LLM calls are traced through Langfuse for observability:
 8. **No bidirectional prompting**: The AI only responds to queries — it doesn't proactively surface items that need human attention (new risks from senior people, stale items, pattern changes)
 9. **No human annotation**: No mechanism to capture offline context, gut feel, or verbal commitments that the AI can't observe from content
 
-These limitations are what the SLM/LLM architecture guide (`guide.md`) proposes to address, grounded in the Human + AI Collaboration model described in `00-overview.md`.
+These limitations are what the SLM/LLM architecture guide (`design.md`) proposes to address, grounded in the Human + AI Collaboration model described in `00-overview.md`.

@@ -107,12 +107,17 @@ Penfold is a multi-service Go application with 4 main services communicating via
 - `ListWorkflows` / `GetWorkflowStatus` / `CancelWorkflow` / `TerminateWorkflow`
 - Activity I/O types: FetchSource, GenerateEmbedding, GenerateSummary, ExtractAssertions, UpdateSourceStatus, StoreResults
 
-### Context API (proposed — see `guide.md` and `00-overview.md`)
-- `ContextMorning` — Session bootstrap: returns watch list, recent changes, active projects, trusted people, last session summary. Claude's first call every session.
+### Context API (proposed — see `design.md` and `00-overview.md`)
+
+All context commands are **project-scoped by default**. The morning bootstrap returns a project index; drill-down commands require a project. Cross-project queries (e.g., person-pivot) are explicit opt-in.
+
+- `ContextMorning` — Session bootstrap: returns a project index with change counts (risks, decisions, actions per project). Claude's first call every session.
+- `ContextProject --project PROJECT` — Project drill-down: returns watched risks, new risks, open actions, recent decisions, and key people for the specified project.
 - `ContextSessionEnd` — Persist session summary for next session bootstrap.
-- `AssertionBriefing` — Full golden thread for an assertion: origin, lifecycle, people, escalation, linked content. On-demand depth when the spotlight moves.
-- `WatchListManage` — Add/remove/annotate items on the human's watch list.
-- `PeripheralChanges` — Query for pattern changes on non-spotlight items (seniority shifts, frequency changes, stale items).
+- `AssertionBriefing --root-id ID` — Full golden thread for an assertion: origin, lifecycle, people, escalation, linked content. On-demand depth when the spotlight moves.
+- `WatchListManage --project PROJECT` — Add/remove/annotate items on the human's watch list. Items are scoped to a project.
+- `PeripheralChanges --project PROJECT` — Query for pattern changes on non-spotlight items within a project (seniority shifts, frequency changes, stale items).
+- `PersonContext --person PERSON` — Cross-project exception: returns all projects and activity for a specific person.
 
 ### Other Services (39 proto files total)
 Glossary, Questions, Review, Mentions, Entities, Products, Projects, Teams, Tenants, Relationships, Logs, Search, Content, Ingest, Pipeline, Intelligence, Email (Gmail), Orchestration, Processing

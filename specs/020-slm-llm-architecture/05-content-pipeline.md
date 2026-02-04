@@ -215,9 +215,32 @@ Failed processing is captured in the dead_letter_items table:
 - Resolution tracking (retry_succeeded, manually_fixed, ignored, auto_expired)
 - Batch association for grouped failures
 
+## Current → Proposed Pipeline Mapping
+
+The proposed pipeline (`design.md`) restructures processing around the SLM/LLM split. This table maps each current stage to its proposed equivalent:
+
+| Current Pipeline | Proposed Pipeline | What Changes |
+|---|---|---|
+| 1. Validate | Pre-pipeline (unchanged) | Runs before Stage 0, same fail-fast validation |
+| 2. Fetch Content | Pre-pipeline (unchanged) | Runs before Stage 0, same content retrieval |
+| 3. Generate Embedding | **Stage 5** (Embed and Index) | Moved to end of pipeline. Content is searchable via keyword/full-text immediately; embeddings generated after analysis so summaries and action items get their own embeddings too |
+| 4. Generate Summary | **Stage 4** (Deep Analysis) | Subsumed — summary is one output of remote LLM analysis, alongside sentiment, risk mapping, and strategic insights |
+| 5. Extract Entities | **Stage 2a/2b** (Extract) | Split into NER (2a: people, dates, projects, orgs) and semantic (2b: action items, decisions, risks). Uses SLM instead of single LLM call |
+| 6. Extract Topics | **Stage 1** (Triage) + **Stage 0.5** (Segment) | Topic extraction replaced by classification/importance rating (Stage 1). Topic segmentation (Stage 0.5) applies to transcripts only |
+| 7. Extract Mentions | **Stage 3** (Enrich with Context) | Mention resolution becomes part of a broader enrichment step that also resolves glossary terms, products, and teams |
+| 8. Update Status | Post-pipeline (unchanged) | Runs after Stage 5, same status tracking with tracing |
+| — | **Stage 0** (Parse) — NEW | Deterministic parsing: HTML stripping, header extraction, quoted reply separation, format detection. No AI |
+| — | **Stage 4.5** (Persist Findings) — NEW | Feedback loop: writes extracted risks, decisions, and action items back to the knowledge base as assertions |
+
+**Key structural changes:**
+- Embedding moves from early (stage 3) to late (stage 5) — content is keyword-searchable immediately, embeddings cover richer representations after analysis.
+- A single "do everything" LLM call is replaced by SLM extraction (cheap, fast, every item) followed by LLM analysis (expensive, only when warranted). ~50-70% of content never reaches the remote LLM.
+- Entity resolution (current stage 7) runs before the LLM (proposed stage 3) so the LLM receives resolved context, not raw text.
+- The knowledge base feedback loop (stage 4.5) is entirely new — previous pipeline was read-only.
+
 ## Proposed Pipeline Improvements
 
-The SLM/LLM architecture guide (`guide.md`) proposes significant enhancements, all grounded in the Human + AI Collaboration model (see `00-overview.md`):
+The SLM/LLM architecture guide (`design.md`) proposes significant enhancements, all grounded in the Human + AI Collaboration model (see `00-overview.md`):
 
 1. **Tiered processing**: Route cheap tasks (classification, extraction) to local SLM, expensive tasks (deep analysis, synthesis) to remote LLM
 2. **Progressive availability**: Content becomes searchable after embedding (stage 3) rather than waiting for full pipeline
