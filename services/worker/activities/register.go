@@ -19,6 +19,7 @@ type Registrar struct {
 	summarizationActivities  *SummarizationActivities
 	extractionActivities     *ExtractionActivities
 	mentionsActivities       *MentionsActivities
+	parseActivities          *ParseActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -49,6 +50,12 @@ func (r *Registrar) WithSummarizationActivities(sa *SummarizationActivities) *Re
 // WithExtractionActivities adds extraction activities to the registrar.
 func (r *Registrar) WithExtractionActivities(ea *ExtractionActivities) *Registrar {
 	r.extractionActivities = ea
+	return r
+}
+
+// WithParseActivities adds parse activities to the registrar.
+func (r *Registrar) WithParseActivities(pa *ParseActivities) *Registrar {
+	r.parseActivities = pa
 	return r
 }
 
@@ -124,6 +131,16 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 			Name: "ExtractMentions",
 		})
 	}
+
+	// Parse activities for content processing (Stage 0, deterministic)
+	if r.parseActivities != nil {
+		w.RegisterActivityWithOptions(r.parseActivities.ParseEmail, activity.RegisterOptions{
+			Name: "ParseEmail",
+		})
+		w.RegisterActivityWithOptions(r.parseActivities.ParseTranscript, activity.RegisterOptions{
+			Name: "ParseTranscript",
+		})
+	}
 }
 
 // registerAIQueueActivities registers activities for the AI task queue.
@@ -191,6 +208,13 @@ func (r *Registrar) registerEmailQueueActivities(w worker.Worker) {
 		})
 	}
 
+	// Parse activities for email processing (Stage 0, deterministic)
+	if r.parseActivities != nil {
+		w.RegisterActivityWithOptions(r.parseActivities.ParseEmail, activity.RegisterOptions{
+			Name: "ParseEmail",
+		})
+	}
+
 	// Also register AI activities since email processing needs them
 	r.registerAIQueueActivities(w)
 }
@@ -227,6 +251,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.mentionsActivities != nil {
 			count += 1
 		}
+		// ParseEmail, ParseTranscript
+		if r.parseActivities != nil {
+			count += 2
+		}
 		return count
 	case config.AITaskQueue:
 		count := 0
@@ -254,6 +282,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		return count
 	case config.EmailTaskQueue:
 		count := 2 // FetchSource, UpdateSourceStatus
+		// ParseEmail
+		if r.parseActivities != nil {
+			count += 1
+		}
 		// Add AI activities count
 		count += r.ActivityCount(config.AITaskQueue)
 		return count
