@@ -158,10 +158,10 @@ curl -s -o /dev/null -w "%{http_code}" http://dev02.brown.chat:9090 2>/dev/null 
 
 ```bash
 echo "--- LLM Server ---"
-ssh dev01 "curl -s http://localhost:8080/v1/models" 2>&1 | jq .model 2>/dev/null || echo "LLM server not running"
+ssh dev01 "curl -s http://localhost:8080/v1/models" 2>&1 | jq -r '.data[0].id // "not running"' 2>/dev/null || echo "LLM server not running"
 
 echo "--- Embedding Server ---"
-ssh dev01 "curl -s http://localhost:8081/v1/models" 2>&1 | jq .model 2>/dev/null || echo "Embedding server not running"
+ssh dev01 "curl -s http://localhost:8081/health" 2>&1 | jq -r '.model // "not running"' 2>/dev/null || echo "Embedding server not running"
 ```
 
 ### Step 9: Present Health Summary
