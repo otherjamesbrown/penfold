@@ -72,7 +72,7 @@ Record each work package completion here. Sessions should update this after comm
 | WP2 | **done** | `52d1c8e` | 2026-02-04 | Email parse (HTML-to-text, quoted reply detection), transcript parse (SRT/VTT/TXT, speaker normalization), Temporal activities on Main/Email queues. 37 tests. |
 | WP3 | **done** | `45d46b8` | 2026-02-04 | TriageContent gRPC RPC: proto definition, gateway proxy, AI server handler with triage prompt (8 categories, 3 importance levels), JSON validation, retry (max 2), Langfuse tracing, prompt template migration (032). 20+ tests. |
 | WP4 | **done** | `f72b4b6` | 2026-02-04 | Two-pass extraction (NER + semantic) with chunking, merge dedup, quality gate. ExtractEntities RPC on AI service + gateway proxy + worker activity. 30+ tests. |
-| WP5 | **done** | _pending_ | 2026-02-04 | Context package repository (7 query methods: risks, actions, decisions, events, glossary, project resolution), context builder activity (person resolution via fuzzy name, project resolution via exact/keyword, token budgets per content type, tail truncation), EntityLookupInterface + EntityResolverInterface. 26 tests. |
+| WP5 | **done** | `b67e52b` | 2026-02-04 | Context package repository (7 query methods: risks, actions, decisions, events, glossary, project resolution), context builder activity (person resolution via fuzzy name, project resolution via exact/keyword, token budgets per content type, tail truncation), EntityLookupInterface + EntityResolverInterface. 26 tests. |
 | WP6 | pending | — | — | — |
 | WP7 | pending | — | — | — |
 | WP8 | pending | — | — | — |
