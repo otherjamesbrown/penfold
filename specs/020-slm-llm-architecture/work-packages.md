@@ -69,7 +69,7 @@ Record each work package completion here. Sessions should update this after comm
 | WP | Status | Commit | Date | Changes Summary |
 |----|--------|--------|------|-----------------|
 | WP1 | **done** | `0cdc532` | 2026-02-04 | 4 migrations (028–031): assertion lifecycle, pipeline registry, trust/seniority, watch list |
-| WP2 | pending | — | — | — |
+| WP2 | **done** | `52d1c8e` | 2026-02-04 | Email parse (HTML-to-text, quoted reply detection), transcript parse (SRT/VTT/TXT, speaker normalization), Temporal activities on Main/Email queues. 37 tests. |
 | WP3 | pending | — | — | — |
 | WP4 | pending | — | — | — |
 | WP5 | pending | — | — | — |
@@ -113,27 +113,27 @@ Record each work package completion here. Sessions should update this after comm
 
 ---
 
-## WP2: Stage 0 — Parse
+## WP2: Stage 0 — Parse ✓
 
-**Shard:** `pf-ac4ca3` · **Agent:** worker-dev · **Depends on:** nothing
+**Shard:** `pf-ac4ca3` · **Agent:** worker-dev · **Depends on:** nothing · **Status:** done
 
-**Files:**
-- `services/worker/activities/parse_activities.go` — new
-- `services/worker/activities/parse_activities_test.go` — new
-- `pkg/enrichment/handlers/` — existing thread/email handlers
+**Files delivered:**
+- `pkg/parse/email.go` — HTML-to-text (x/net/html tokenizer), quoted reply detection (Gmail/Outlook/standard), whitespace normalization
+- `pkg/parse/email_test.go` — 18 tests
+- `pkg/parse/transcript.go` — SRT parser, VTT/TXT delegation via pkg/ingest/meeting, speaker name normalization, format auto-detection, same-speaker merging
+- `pkg/parse/transcript_test.go` — 10 test functions (19 sub-tests)
+- `services/worker/activities/parse_activities.go` — ParseEmail + ParseTranscript Temporal activities
+- `services/worker/activities/parse_activities_test.go` — 9 tests
+- `services/worker/activities/register.go` — WithParseActivities builder, registered on Main + Email queues
 
-**Scope:**
-- Email: HTML stripping (jaytaylor/html2text or stdlib), header extraction, quoted reply detection and separation, attachment MIME flagging
-- Transcripts: VTT/SRT format parsing (extend existing `cmd/penf/cmd/ingest_meeting.go` patterns), speaker label normalization (strip pronouns like "Sara Weisman (she/her)"), timing marker removal
-- Output: clean text body, structured metadata, thread/conversation structure
-- All deterministic code, no AI calls
+**Implementation shards:** `pf-c439f2` (email), `pf-d8e2c6` (transcript), `pf-eb042d` (activities)
 
-**Acceptance criteria:**
+**Acceptance criteria (met):**
 - Processes test emails: MIME to clean text extraction
-- Quoted reply stripping reduces long threads to new content only
-- VTT format overhead stripped (timestamps, entry numbers)
-- Speaker names normalized
-- Tests cover: HTML stripping, quoted reply detection, VTT parsing, edge cases
+- Quoted reply stripping reduces long threads to new content only (Gmail, Outlook, standard `>` quoting)
+- VTT/SRT format overhead stripped (timestamps, entry numbers)
+- Speaker names normalized ("Sara Weisman (she/her)" → "Sara Weisman")
+- Tests cover: HTML stripping, quoted reply detection, VTT/SRT/TXT parsing, speaker normalization, format detection, edge cases
 
 ---
 
