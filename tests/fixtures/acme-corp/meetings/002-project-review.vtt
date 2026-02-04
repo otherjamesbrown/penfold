@@ -1,0 +1,82 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:08.500
+Lisa Chang: Good afternoon everyone. Welcome to the Project Alpha quarterly review. Let's dive right in.
+
+00:00:08.500 --> 00:00:22.300
+Lisa Chang: Sarah, can you start with the product roadmap update and where we stand against our Q1 OKRs?
+
+00:00:22.300 --> 00:00:45.800
+Sarah Chen: Thanks Lisa. So we've made significant progress on the MVP, but we're facing some critical challenges. The original timeline we discussed at TER last month is no longer realistic.
+
+00:00:45.800 --> 00:00:58.200
+Sarah Chen: We're tracking about three weeks behind schedule, primarily due to infrastructure dependencies that weren't fully scoped.
+
+00:00:58.200 --> 00:01:12.400
+John Smith: Sarah, before we go further, let me jump in on the technical side. Emily and Mike have been working through the gRPC migration blockers.
+
+00:01:12.400 --> 00:01:28.900
+John Smith: The reality is we underestimated the K8s complexity. Rob's team hit a major S3 permissions issue that cascaded into a P0 incident last week.
+
+00:01:28.900 --> 00:01:41.200
+Emily Watson: Right, and that incident blocked our entire staging environment for 48 hours. We couldn't deploy or test anything during that window.
+
+00:01:41.200 --> 00:01:58.700
+Michael Brown: The API v3 design is solid, but we need the infrastructure stable before we can migrate the backend services. It's a hard dependency.
+
+00:01:58.700 --> 00:02:15.300
+Lisa Chang: Okay, so timeline risk is confirmed. What about budget? David, you've been tracking the financials.
+
+00:02:15.300 --> 00:02:34.800
+David Park: We're projecting a 35% budget overrun if we maintain current scope. That's roughly $450K over our Q1 allocation. The unplanned EKS resources are the primary driver.
+
+00:02:34.800 --> 00:02:48.200
+Sarah Chen: This is what I flagged in my escalation email. We need to make some hard decisions today about scope and resources.
+
+00:02:48.200 --> 00:02:59.500
+Lisa Chang: Agreed. Let's talk mitigation. I'm proposing we cut the Portal Redesign integration from the MVP.
+
+00:02:59.500 --> 00:03:14.800
+Sarah Chen: That would work. Kevin and Rachel's UX work can shift to Q2 without breaking anything. It removes the frontend dependency.
+
+00:03:14.800 --> 00:03:29.400
+John Smith: DECISION: We're officially descoping Portal Redesign from Project Alpha Q1 MVP. Emily, that unblocks your team, correct?
+
+00:03:29.400 --> 00:03:38.900
+Emily Watson: Yes, completely. We can focus on the core dashboard components and the API integration with Mike's services.
+
+00:03:38.900 --> 00:03:54.200
+David Park: DECISION: I'm reassigning Mike and Rob to Project Alpha full-time for the next six weeks. API v3 moves to Q2.
+
+00:03:54.200 --> 00:04:08.700
+Michael Brown: That gives us the backend capacity we need. Rob, can you commit to stabilizing the K8s environment as your top priority?
+
+00:04:08.700 --> 00:04:18.300
+Robert Taylor: Absolutely. The S3 issue is resolved, and I've got the RDS connection pooling sorted. We're in good shape.
+
+00:04:18.300 --> 00:04:35.500
+Lisa Chang: ACTION ITEM: Rob to complete infrastructure stability audit by Friday. Mike to finalize gRPC migration plan by next Tuesday.
+
+00:04:35.500 --> 00:04:51.200
+Sarah Chen: With these changes, I'm proposing a revised MVP date of April 15. That gives us buffer and still hits our Enterprise Suite dependencies.
+
+00:04:51.200 --> 00:05:03.900
+John Smith: DECISION: New Project Alpha MVP target date is April 15, 2026. Three week extension with descoped Portal integration.
+
+00:05:03.900 --> 00:05:18.400
+David Park: I'll update the WBR deck and make sure Marcus and the sales team are aligned on the new timeline.
+
+00:05:18.400 --> 00:05:32.800
+Lisa Chang: Perfect. ACTION ITEM: David to send updated timeline communication to stakeholders by EOD tomorrow.
+
+00:05:32.800 --> 00:05:44.200
+Lisa Chang: Anything else we need to cover before we wrap? This was productive.
+
+00:05:44.200 --> 00:05:56.500
+Sarah Chen: Just one thing - can we add a standing Project Alpha checkpoint to the weekly WBR? I want to make sure we have executive visibility.
+
+00:05:56.500 --> 00:06:08.700
+John Smith: DECISION: Adding Project Alpha to weekly WBR agenda starting next Tuesday. Sarah will DRI the status updates.
+
+00:06:08.700 --> 00:06:17.900
+Lisa Chang: Excellent. Thanks everyone. Let's execute on these decisions and regroup next week.

@@ -1,0 +1,37 @@
+From: john.smith@acme.com
+To: sarah.chen@acme.com
+Cc: marcus.r@acme.com, lisa.chang@acme.com, emily.watson@acme.com
+Subject: RE: Project Alpha MVP Status
+Date: Thu, 23 Jan 2026 16:20:00 -0800
+Message-ID: <test-013@acme.com>
+In-Reply-To: <test-001@acme.com>
+References: <test-001@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Sarah,
+
+Following up on your concerns from yesterday's discussion and this morning's TER. After meeting with David and Lisa, we've made the following decisions to get Project Alpha back on track:
+
+**DECISION 1: Scope Reduction**
+We're cutting the Portal Redesign integration from the Q1 MVP. Kevin and Rachel's UX work will shift to Q2. This removes the frontend dependency that was blocking Emily's team and eliminates approximately $120K in projected overrun.
+
+**DECISION 2: Resource Reallocation**
+Lisa is reassigning Mike and Rob to Project Alpha full-time for the next 6 weeks. API v3 work will be postponed until Q2. This gives us the backend and DevOps capacity we need without hiring.
+
+**DECISION 3: Revised Timeline**
+New MVP target: April 15, 2026. This gives us an extra two weeks buffer while still hitting our Q2 commitments. I've already synced with Marcus - the Enterprise Suite dependencies can accommodate this shift.
+
+**DECISION 4: Weekly Executive Updates**
+Starting next Tuesday, we'll add a standing Project Alpha checkpoint to the WBR agenda. David will DRI the status reporting to keep stakeholders aligned.
+
+The gRPC migration that Marcus mentioned is now unblocked. Jessica confirmed the data pipeline work won't be impacted by these changes.
+
+Let's sync at tomorrow's standup to make sure everyone's aligned on the new plan.
+
+Thanks,
+John
+
+---
+John Smith
+VP Engineering
+Acme Corp

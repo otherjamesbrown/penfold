@@ -1,0 +1,91 @@
+1
+00:00:00,000 --> 00:00:09,500
+Daniel Thompson: Alright team, let's get started with the blameless retrospective for last week's P0 incident. Thanks everyone for joining.
+
+2
+00:00:09,500 --> 00:00:24,800
+Daniel Thompson: For context, we had a production outage on January 18th that lasted approximately 3 hours and affected 60% of our enterprise customers.
+
+3
+00:00:24,800 --> 00:00:39,200
+Robert Taylor: I'll walk through the timeline. At 2:47 PM PST, we started seeing elevated error rates on the API gateway. By 3:15 PM we had complete service degradation.
+
+4
+00:00:39,200 --> 00:00:54,700
+Robert Taylor: Root cause was a misconfigured S3 bucket policy that got deployed during a routine infrastructure update. The K8s pods couldn't access session data.
+
+5
+00:00:54,700 --> 00:01:08,300
+Lisa Chang: When did we first detect the issue? Were our monitoring alerts working as expected?
+
+6
+00:01:08,300 --> 00:01:23,900
+Daniel Thompson: We got the first PagerDuty alert at 2:52 PM, about 5 minutes after the initial symptoms. Our SLO monitoring caught it, but we lost valuable response time.
+
+7
+00:01:23,900 --> 00:01:38,400
+Michael Brown: The War Room was established at 3:10 PM. I led the incident response with Rob, Dan, and Emily on the bridge.
+
+8
+00:01:38,400 --> 00:01:54,200
+Emily Watson: From the application side, we saw cascading failures across all microservices. The gRPC connections were timing out because they couldn't validate sessions.
+
+9
+00:01:54,200 --> 00:02:09,800
+Robert Taylor: Once we identified the S3 policy issue, the fix was straightforward. I rolled back the infrastructure change at 4:35 PM and services started recovering immediately.
+
+10
+00:02:09,800 --> 00:02:24,500
+Robert Taylor: Full recovery was confirmed at 5:47 PM. Total customer-facing downtime was 3 hours exactly.
+
+11
+00:02:24,500 --> 00:02:39,700
+Lisa Chang: What's our action plan to prevent this from happening again? I want to focus on process improvements, not blame.
+
+12
+00:02:39,700 --> 00:02:56,300
+Daniel Thompson: ACTION ITEM: Implement mandatory CI/CD validation for all infrastructure changes. No S3, RDS, or EKS policies can be deployed without automated testing.
+
+13
+00:02:56,300 --> 00:03:11,800
+Robert Taylor: ACTION ITEM: I'm adding pre-production validation steps to our deployment runbooks. We should have caught this in staging before it hit prod.
+
+14
+00:03:11,800 --> 00:03:27,200
+Michael Brown: ACTION ITEM: Update our incident response playbook to include faster rollback procedures. 3 hours is too long for a config issue.
+
+15
+00:03:27,200 --> 00:03:42,900
+Emily Watson: We also need better observability. It took us 23 minutes to identify the root cause. That's unacceptable for a P0.
+
+16
+00:03:42,900 --> 00:03:58,400
+Daniel Thompson: ACTION ITEM: I'll work with Jessica's data team to enhance our infrastructure monitoring. We need better correlation between K8s events and S3 access patterns.
+
+17
+00:03:58,400 --> 00:04:13,700
+Lisa Chang: Dan, can you own the ADR for these infrastructure changes? I want this documented before we implement.
+
+18
+00:04:13,700 --> 00:04:28,200
+Daniel Thompson: Absolutely. I'll have the RFC drafted by next TER. We'll review it with the architecture guild before rolling out the new validation pipeline.
+
+19
+00:04:28,200 --> 00:04:43,500
+Lisa Chang: Good. One more thing - customer communication. How did we handle the incident notifications?
+
+20
+00:04:43,500 --> 00:04:59,800
+Sarah Chen: I coordinated with Marcus and the sales team. We sent status updates every 30 minutes through our status page and directly to affected enterprise accounts.
+
+21
+00:04:59,800 --> 00:05:15,200
+Sarah Chen: Post-incident, we sent detailed root cause analysis reports to all impacted customers. No escalations so far, but we're offering SLA credits proactively.
+
+22
+00:05:15,200 --> 00:05:30,400
+Lisa Chang: That's the right approach. Thanks for managing that Sarah. Alright team, let's execute on these action items and prevent this from happening again.
+
+23
+00:05:30,400 --> 00:05:42,900
+Daniel Thompson: I'll send the full incident report and action item tracker to the team by EOD. Thanks everyone for the constructive discussion.

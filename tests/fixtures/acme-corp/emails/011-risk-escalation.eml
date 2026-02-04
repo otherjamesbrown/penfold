@@ -1,0 +1,30 @@
+From: sarah.chen@acme.com
+To: john.smith@acme.com, david.park@acme.com
+Cc: lisa.chang@acme.com, emily.watson@acme.com
+Subject: URGENT: Project Alpha Budget and Timeline Risks
+Date: Wed, 22 Jan 2026 14:30:00 -0800
+Message-ID: <test-011@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+John, David,
+
+We need to address critical risks on Project Alpha immediately. After reviewing the Q1 OKR projections and yesterday's TER discussion, I'm escalating three major concerns:
+
+**Budget Overrun**: We're tracking 35% over budget due to unplanned infrastructure costs. The K8s migration required additional EKS resources that weren't scoped in the original SOW. Current burn rate puts us at $450K over by EOQ.
+
+**Timeline Slip**: The MVP target date of March 31 is no longer achievable. Emily's team is blocked on the gRPC migration that Mike's working on, and we lost two weeks when Rob had to rebuild the staging environment after the S3 permissions issue escalated to a P0.
+
+**Resource Shortage**: We need at least two more backend engineers to hit even a revised Q2 deadline. Lisa's team is maxed out, and Jessica can't be pulled from the data pipeline work without impacting our ARR commitments.
+
+This is becoming a Tiger Team situation. I recommend we schedule an emergency WBR tomorrow to discuss mitigation options:
+1. Cut scope to absolute MVP (defer Portal Redesign integration)
+2. Reallocate resources from lower-priority projects
+3. Extend timeline to Q2 and reset stakeholder expectations
+
+Marcus has already flagged this to the sales team as it affects the Enterprise Suite launch dependencies.
+
+We cannot let this slip further without executive visibility.
+
+Sarah Chen
+Product Manager
+Acme Corp
