@@ -24,7 +24,17 @@ fi
 echo "Credentials loaded"
 ```
 
-### Step 2: Determine What to Build
+### Step 2: Capture Current CLI Version
+
+Read and store the current CLI version before any changes:
+
+```bash
+cd ~/github/otherjamesbrown/penfold
+OLD_VERSION=$(cat cmd/penf/VERSION)
+echo "Current CLI version: $OLD_VERSION"
+```
+
+### Step 3: Determine What to Build
 
 Parse `$ARGUMENTS` to determine scope:
 - `gateway` — Gateway only
@@ -33,7 +43,7 @@ Parse `$ARGUMENTS` to determine scope:
 - `cli` — CLI only
 - `all` or empty — All services
 
-### Step 3: Build Services
+### Step 4: Build Services
 
 Run builds from the repo root (`~/github/otherjamesbrown/penfold`). Build all requested services in parallel where possible.
 
@@ -65,14 +75,9 @@ go build -o cmd/penf/penf ./cmd/penf/
 echo "CLI built: cmd/penf/penf"
 ```
 
-**Note:** This builds the CLI locally but does NOT release it. For a GitHub release (so users can `penf update`), you must:
-1. Bump version in `cmd/penf/VERSION`
-2. Commit and push to main
-3. GitHub Actions `auto-release.yml` automatically creates the release
-
 If any build fails, stop and report the error. Do not proceed to deployment.
 
-### Step 4: Present Build Summary
+### Step 5: Present Build Summary
 
 ```
 ## Build Results
@@ -85,7 +90,7 @@ If any build fails, stop and report the error. Do not proceed to deployment.
 | CLI              | local           | cmd/penf/penf                       | ...    |
 ```
 
-### Step 5: Deploy Services
+### Step 6: Deploy Services
 
 Deploy using manual commands (the deploy scripts have aggressive smoke tests that may roll back on unrelated pre-existing issues).
 
@@ -112,7 +117,7 @@ ssh dev01 "sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
 
 **Note:** The deploy scripts (`./scripts/deploy-*.sh`) exist but have aggressive smoke tests that may trigger rollback on pre-existing bugs unrelated to the deployment. Use the manual commands above for reliable deployment.
 
-### Step 6: Post-Deploy Verification
+### Step 7: Post-Deploy Verification
 
 After all deploys complete, run a quick health check:
 
@@ -130,7 +135,7 @@ ssh dev01 "curl -s http://localhost:8085/health"
 penf status
 ```
 
-### Step 7: Present Deploy Summary
+### Step 8: Present Deploy Summary
 
 ```
 ## Deploy Results
@@ -151,14 +156,78 @@ penf status
 | CLI (penf)       | penf status                           | ...    |
 ```
 
-### Step 8: Recommendations
+### Step 9: Increment CLI Version and Publish Release
 
-- If all healthy: "All services deployed and healthy. Run `/penf.health` for detailed diagnostics or `/test.unit` to start testing."
+After successful deployment, increment the CLI patch version and trigger a GitHub release.
+
+**Increment the patch version:**
+
+Read current version, increment patch number, write new version:
+```bash
+cd ~/github/otherjamesbrown/penfold
+OLD_VERSION=$(cat cmd/penf/VERSION)
+# Parse version: vX.Y.Z -> increment Z
+NEW_VERSION=$(echo "$OLD_VERSION" | awk -F. '{print $1"."$2"."$3+1}')
+echo "$NEW_VERSION" > cmd/penf/VERSION
+echo "Version incremented: $OLD_VERSION -> $NEW_VERSION"
+```
+
+**Commit and push to trigger GitHub Actions:**
+```bash
+cd ~/github/otherjamesbrown/penfold
+git add cmd/penf/VERSION
+git commit -m "chore: bump CLI version to $NEW_VERSION
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+git push origin main
+```
+
+The `auto-release.yml` workflow will automatically:
+1. Detect the VERSION file change
+2. Create a git tag for the new version
+3. Trigger the release workflow to build and publish binaries
+
+**Verify the workflow started:**
+```bash
+# Check GitHub Actions status
+gh run list --workflow=auto-release.yml --limit 1
+```
+
+### Step 10: Present Final Summary
+
+Present a complete summary including CLI version change:
+
+```
+## Deployment Complete
+
+### Services Deployed
+
+| Service          | Host   | Status  |
+|------------------|--------|---------|
+| Gateway          | dev02  | healthy |
+| AI Coordinator   | dev02  | healthy |
+| Worker           | dev01  | healthy |
+
+### CLI Release
+
+| Item             | Value           |
+|------------------|-----------------|
+| Previous Version | vX.Y.Z          |
+| New Version      | vX.Y.Z+1        |
+| Release Status   | GitHub Action triggered / pending |
+
+Users can update with: `penf update`
+```
+
+### Step 11: Recommendations
+
+- If all healthy: "All services deployed and CLI release triggered. Run `/penf.health` for detailed diagnostics."
 - If any unhealthy: Show the failing service logs:
   - Gateway: `ssh dev02 "journalctl -u penfold-gateway -n 30 --no-pager"`
   - AI Coordinator: `ssh dev02 "journalctl -u penfold-ai-coordinator -n 30 --no-pager"`
   - Worker: `ssh dev01 "tail -30 /var/log/penfold/worker.log"`
 - If deploy failed: "Rollback available — previous binaries saved as .backup on each host."
+- If version bump failed: "CLI release not triggered. Manually bump cmd/penf/VERSION and push."
 
 ## Service Locations Reference
 
