@@ -1,0 +1,140 @@
+// Package activities provides activity implementations for the Temporal worker.
+package activities
+
+import (
+	"context"
+	"fmt"
+
+	"go.temporal.io/sdk/temporal"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
+)
+
+// PersistActivities holds dependencies for Stage 4.5 persistence activities.
+type PersistActivities struct {
+	logger     logging.Logger
+	repository PersistRepository
+}
+
+// NewPersistActivities creates a new PersistActivities instance.
+func NewPersistActivities(
+	logger logging.Logger,
+	repository PersistRepository,
+) *PersistActivities {
+	return &PersistActivities{
+		logger:     logger.With(logging.F("component", "persist_activities")),
+		repository: repository,
+	}
+}
+
+// PersistFindingsActivityInput is the input for the PersistFindings activity.
+type PersistFindingsActivityInput struct {
+	TenantID       string             `json:"tenant_id"`
+	SourceID       int64              `json:"source_id"`
+	ThreadID       *int64             `json:"thread_id,omitempty"`
+	ProjectID      *int64             `json:"project_id,omitempty"`
+	Analysis       *DeepAnalyzeOutput `json:"analysis"`
+	ResolvedPeople map[string]int64   `json:"resolved_people,omitempty"`
+}
+
+// PersistFindingsActivityOutput is the output from the PersistFindings activity.
+type PersistFindingsActivityOutput struct {
+	AssertionsCreated    int `json:"assertions_created"`
+	AssertionsSuperseded int `json:"assertions_superseded"`
+	ReferencesCreated    int `json:"references_created"`
+	ReviewItemsCreated   int `json:"review_items_created"`
+	AffinityUpdates      int `json:"affinity_updates"`
+}
+
+// PersistFindings persists findings from Stage 4 deep analysis to the database.
+// It validates the input, calls the repository to persist the data in a transaction,
+// and returns statistics about the persisted records.
+func (a *PersistActivities) PersistFindings(ctx context.Context, input PersistFindingsActivityInput) (*PersistFindingsActivityOutput, error) {
+	logger := a.logger.With(
+		logging.F("activity", "PersistFindings"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+	)
+
+	// Record initial heartbeat
+	recordHeartbeat(ctx, "starting persist findings")
+
+	logger.Info("Starting persist findings")
+
+	// Check for cancellation
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	// Validate input
+	if input.Analysis == nil {
+		return nil, temporal.NewApplicationError(
+			"analysis is required",
+			"ValidationError",
+		)
+	}
+
+	if input.SourceID <= 0 {
+		return nil, temporal.NewApplicationError(
+			"source_id must be positive",
+			"ValidationError",
+		)
+	}
+
+	// Check if repository is available
+	if a.repository == nil {
+		logger.Warn("Persist repository not configured")
+		return nil, temporal.NewApplicationErrorWithCause(
+			"persist repository not configured",
+			"ConfigurationError",
+			nil,
+		)
+	}
+
+	// Build repository input from activity input
+	repoInput := &PersistFindingsInput{
+		TenantID:       input.TenantID,
+		SourceID:       input.SourceID,
+		ThreadID:       input.ThreadID,
+		ProjectID:      input.ProjectID,
+		Analysis:       input.Analysis,
+		ResolvedPeople: input.ResolvedPeople,
+	}
+
+	// Call repository to persist findings
+	repoOutput, err := a.repository.PersistFindings(ctx, repoInput)
+	if err != nil {
+		logger.Error("Failed to persist findings", logging.Err(err))
+		return nil, temporal.NewApplicationError(
+			fmt.Sprintf("failed to persist findings: %v", err),
+			"PersistenceError",
+		)
+	}
+
+	// Build activity output
+	output := &PersistFindingsActivityOutput{
+		AssertionsCreated:    repoOutput.AssertionsCreated,
+		AssertionsSuperseded: repoOutput.AssertionsSuperseded,
+		ReferencesCreated:    repoOutput.ReferencesCreated,
+		ReviewItemsCreated:   repoOutput.ReviewItemsCreated,
+		AffinityUpdates:      repoOutput.AffinityUpdates,
+	}
+
+	// Record heartbeat after processing
+	recordHeartbeat(ctx, "persist findings complete")
+
+	logger.Info("Persist findings completed successfully",
+		logging.F("assertions_created", output.AssertionsCreated),
+		logging.F("assertions_superseded", output.AssertionsSuperseded),
+		logging.F("references_created", output.ReferencesCreated),
+		logging.F("review_items_created", output.ReviewItemsCreated),
+		logging.F("affinity_updates", output.AffinityUpdates),
+	)
+
+	return output, nil
+}
+
+// Ensure PersistActivities implements required interfaces at compile time.
+var _ interface {
+	PersistFindings(ctx context.Context, input PersistFindingsActivityInput) (*PersistFindingsActivityOutput, error)
+} = (*PersistActivities)(nil)

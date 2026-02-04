@@ -20,6 +20,7 @@ type Registrar struct {
 	extractionActivities     *ExtractionActivities
 	mentionsActivities       *MentionsActivities
 	parseActivities          *ParseActivities
+	persistActivities        *PersistActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -56,6 +57,12 @@ func (r *Registrar) WithExtractionActivities(ea *ExtractionActivities) *Registra
 // WithParseActivities adds parse activities to the registrar.
 func (r *Registrar) WithParseActivities(pa *ParseActivities) *Registrar {
 	r.parseActivities = pa
+	return r
+}
+
+// WithPersistActivities adds persist activities to the registrar.
+func (r *Registrar) WithPersistActivities(pa *PersistActivities) *Registrar {
+	r.persistActivities = pa
 	return r
 }
 
@@ -139,6 +146,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 		w.RegisterActivityWithOptions(r.parseActivities.ParseTranscript, activity.RegisterOptions{
 			Name: "ParseTranscript",
+		})
+	}
+
+	// Persist activities for Stage 4.5 (persistence)
+	if r.persistActivities != nil {
+		w.RegisterActivityWithOptions(r.persistActivities.PersistFindings, activity.RegisterOptions{
+			Name: "PersistFindings",
 		})
 	}
 }
@@ -254,6 +268,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// ParseEmail, ParseTranscript
 		if r.parseActivities != nil {
 			count += 2
+		}
+		// PersistFindings
+		if r.persistActivities != nil {
+			count += 1
 		}
 		return count
 	case config.AITaskQueue:

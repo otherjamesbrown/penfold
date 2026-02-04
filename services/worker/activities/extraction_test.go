@@ -18,6 +18,7 @@ type mockAIClient struct {
 	extractAssertionsFn  func(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error)
 	generateEmbeddingFn  func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error)
 	generateSummaryFn    func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error)
+	triageContentFn      func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error)
 	deepAnalyzeFn        func(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error)
 }
 
@@ -47,6 +48,13 @@ func (m *mockAIClient) GenerateSummary(ctx context.Context, req *aiv1.SummaryReq
 		return m.generateSummaryFn(ctx, req)
 	}
 	return &aiv1.SummaryResponse{}, nil
+}
+
+func (m *mockAIClient) TriageContent(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+	if m.triageContentFn != nil {
+		return m.triageContentFn(ctx, req)
+	}
+	return &aiv1.TriageContentResponse{}, nil
 }
 
 func (m *mockAIClient) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error) {

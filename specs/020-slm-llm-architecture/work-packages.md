@@ -14,6 +14,7 @@ Phase 6: WP7 (Persist) + WP11 (Watch/Trust)       — parallel
 Phase 7: WP9 (Embeddings)                         — after WP7
 Phase 8: WP8 (Orchestrator) + WP12 (Introspection) — parallel
 Phase 9: WP13 (Documentation)                       — after WP8, WP10
+Phase 10: WP14 (E2E Tests)                            — after WP8
 ```
 
 ## Dependency Graph
@@ -42,6 +43,8 @@ WP11 (Watch/Trust) ←─ WP10 ────────────────�
 WP12 (Introspection) ← WP1,WP8 ──────────────────┘
 
 WP13 (Documentation) ← WP8,WP10
+
+WP14 (E2E Tests) ←──── WP8
 ```
 
 ## Shard Reference
@@ -61,6 +64,7 @@ WP13 (Documentation) ← WP8,WP10
 | `pf-d5b341` | WP11: Watch List + Trust/Seniority | cli-dev | WP10, WP1 |
 | `pf-8313b5` | WP12: Pipeline Introspection | cli-dev | WP1, WP8 |
 | `pf-2f4d11` | WP13: Documentation Update | general-purpose | WP8, WP10 |
+| `pf-26405d` | WP14: E2E Pipeline Tests | testing-dev | WP8 |
 
 ## Completion Log
 
@@ -74,13 +78,14 @@ Record each work package completion here. Sessions should update this after comm
 | WP4 | **done** | `f72b4b6` | 2026-02-04 | Two-pass extraction (NER + semantic) with chunking, merge dedup, quality gate. ExtractEntities RPC on AI service + gateway proxy + worker activity. 30+ tests. |
 | WP5 | **done** | `b67e52b` | 2026-02-04 | Context package repository (7 query methods: risks, actions, decisions, events, glossary, project resolution), context builder activity (person resolution via fuzzy name, project resolution via exact/keyword, token budgets per content type, tail truncation), EntityLookupInterface + EntityResolverInterface. 26 tests. |
 | WP6 | **done** | `2908da3` | 2026-02-04 | DeepAnalyze RPC (proto + AI server handler + client), structured prompt with `<untrusted_content>` wrapping, model selection by triage category/importance (Pro vs Flash), context_excerpt validation, worker activity with proto conversion, context builder activity with token-budgeted assembly. 30+ tests. |
-| WP7 | pending | — | — | — |
+| WP7 | **done** | `pending` | 2026-02-04 | PersistRepository (validation: context_excerpt, lifecycle_event/reference_type allowlists, entity ID verification; idempotency keys via SHA256; assertion creation with root_id; supersession with is_current/superseded_by; assertion_references for every content-assertion link; entity_project_affinity UPSERT; single pgx transaction for saga compensation), PersistFindings Temporal activity registered on Main queue. 21 tests. |
 | WP8 | pending | — | — | — |
 | WP9 | pending | — | — | — |
 | WP10 | pending | — | — | — |
 | WP11 | pending | — | — | — |
 | WP12 | pending | — | — | — |
 | WP13 | pending | — | — | — |
+| WP14 | pending | — | — | — |
 
 ---
 
@@ -438,3 +443,125 @@ Document 7 new concepts currently missing from `/context/`:
 - New `slm-llm-pipeline.md` exists as authoritative reference
 - All 7 new concepts documented in at least one `context/` file
 - Documentation is concise and actionable (not a copy of design.md)
+
+---
+
+## WP14: E2E Pipeline Tests
+
+**Shard:** `pf-26405d` · **Agent:** testing-dev · **Depends on:** WP8
+
+**Files:**
+- `tests/e2e/slm_pipeline_test.go` — new: full pipeline E2E tests
+- `tests/e2e/slm_pipeline_helpers_test.go` — new: pipeline-specific helpers (stage polling, assertion verification)
+- `tests/fixtures/acme-corp/emails/011-risk-escalation.eml` — new: high-importance risk email (triggers full Stage 2-4)
+- `tests/fixtures/acme-corp/emails/012-low-priority-fyi.eml` — new: LOW/PERSONAL email (triggers triage skip)
+- `tests/fixtures/acme-corp/emails/013-thread-with-decisions.eml` — new: multi-decision email for golden thread
+- `tests/fixtures/acme-corp/meetings/002-project-review.vtt` — new: VTT transcript with risks, actions, decisions
+- `tests/fixtures/acme-corp/meetings/003-incident-retro.srt` — new: SRT transcript for format coverage
+
+**Scope:**
+
+True end-to-end tests that send real content through the full SLM/LLM pipeline with **no mocks**. All tests use the `e2e` build tag and require real services: PostgreSQL (dev02), Temporal, AI service (local SLM), and Gateway.
+
+### Test Scenarios
+
+**1. Full email pipeline (happy path)**
+- Ingest `001-project-update.eml` via CLI or Temporal signal
+- Wait for pipeline workflow to complete (poll `pipeline_runs` table)
+- Verify each stage executed: Stage 0 (parsed text stored), Stage 1 (triage category+importance), Stage 2 (entities extracted — people, projects, glossary terms), Stage 3 (context package built with resolved entities), Stage 4 (assertions created with `context_excerpt`), Stage 4.5 (assertions persisted, `assertion_references` created), Stage 5 (embeddings generated)
+- Assert: source status = completed, pipeline_runs has entries for all stages
+
+**2. Meeting transcript pipeline**
+- Ingest `002-project-review.vtt` transcript
+- Verify Stage 0 strips VTT timestamps and normalizes speakers
+- Verify Stage 2 extracts people mentioned in transcript
+- Verify Stage 3 resolves speakers against `people` table (fuzzy match)
+- Verify Stage 4 produces assertions (risks, decisions, action items from meeting)
+- Assert: assertions have correct `source_type = 'meeting'`
+
+**3. Triage gate — LOW content skips Stages 2-4**
+- Ingest `012-low-priority-fyi.eml` (content designed to triage as LOW or PERSONAL)
+- Verify Stage 1 returns LOW or PERSONAL category
+- Verify Stages 2-4 are NOT executed (no pipeline_runs entries)
+- Verify Stage 5 still generates embeddings (content is searchable)
+- Assert: source is searchable but has no assertions
+
+**4. High-importance risk escalation**
+- Ingest `011-risk-escalation.eml` (designed to triage as RISK_ISSUE + HIGH)
+- Verify triage routes to RISK_ISSUE category
+- Verify Stage 2 quality gate triggers (risk extraction re-run with focused prompt)
+- Verify Stage 4 uses Pro model (not Flash)
+- Verify assertions include `lifecycle_event` and `context_excerpt`
+- Assert: at least one risk assertion persisted with `assertion_references`
+
+**5. Golden thread — assertion lifecycle across documents**
+- Ingest `001-project-update.eml` first (creates initial risk assertion)
+- Then ingest `013-thread-with-decisions.eml` (references same risk)
+- Verify second ingestion creates assertion with `assertion_root_id` pointing to original
+- Verify `lifecycle_event` reflects progression (e.g., raised → mitigated)
+- Assert: querying by `assertion_root_id` returns full lifecycle chain
+
+**6. Entity resolution accuracy**
+- Seed acme-corp fixtures (people, glossary, projects, teams)
+- Ingest `001-project-update.eml` (mentions "John Smith", "Sarah Chen", "TER", "Project Alpha")
+- Verify Stage 3 resolves: people → existing `people` rows (by email or fuzzy name), glossary → "TER" expands to "Technical Execution Review", projects → "Project Alpha" matched
+- Verify unresolved entities flagged in context output
+- Assert: resolved entity counts > 0, person_ids populated
+
+**7. Batch ingestion — multiple emails**
+- Ingest all 10 acme-corp emails in sequence
+- Verify all 10 complete the pipeline (no hangs, no deadlocks)
+- Verify cross-document entity resolution is consistent (same person gets same person_id)
+- Assert: 10 sources completed, assertions deduplicated across documents
+
+**8. Partial failure recovery**
+- Requires: ability to inject failure (kill AI service mid-pipeline, or use a fixture that causes Stage 4 timeout)
+- Ingest email, interrupt Stage 4
+- Verify Stages 0-3 results are preserved (not rolled back)
+- Verify source is marked as partially failed (not completed, not fully failed)
+- Verify re-triggering pipeline resumes from failed stage
+- Assert: `pipeline_runs` shows completed stages + failed stage
+
+**9. Idempotency — duplicate ingestion**
+- Ingest `001-project-update.eml` twice with same content
+- Verify second ingestion is detected as duplicate (same `message_id` or `content_hash`)
+- Assert: no duplicate assertions, no duplicate embeddings
+
+**10. SRT transcript format**
+- Ingest `003-incident-retro.srt` (SRT format)
+- Verify Stage 0 correctly strips SRT timestamps and entry numbers
+- Verify pipeline completes identically to VTT (format-agnostic after Stage 0)
+
+### Environment Requirements
+
+```
+Services required:
+  - PostgreSQL on dev02 (penfold_test_e2e database)
+  - Temporal server (docker-compose or dev01)
+  - AI service with local SLM (Qwen 7B or similar)
+  - Gateway service (proxies AI RPCs)
+
+Environment variables:
+  - PENFOLD_DB_PASSWORD (required, skip if absent)
+  - TEMPORAL_HOST (default: localhost:7233)
+  - AI_SERVICE_URL (default: localhost:8080)
+  - GATEWAY_URL (default: localhost:9090)
+```
+
+### Helpers
+
+- `waitForPipelineComplete(sourceID, timeout)` — polls `pipeline_runs` until all expected stages complete or timeout
+- `assertStageCompleted(sourceID, stageName)` — checks `pipeline_runs` for stage entry with status=completed
+- `assertStageSkipped(sourceID, stageName)` — verifies no `pipeline_runs` entry exists for stage
+- `getAssertionsForSource(sourceID)` — queries assertions table joined with `assertion_references`
+- `getGoldenThread(rootID)` — queries assertion lifecycle chain by `assertion_root_id`
+- `countEmbeddingsForSource(sourceID)` — counts embeddings generated for source
+
+**Acceptance criteria:**
+- All 10 test scenarios pass with real services (no mocks)
+- Tests use `//go:build e2e` tag, skip gracefully when services unavailable
+- Each test is independent (clean slate via `TruncateAllTables` + fixture reload)
+- Tests complete within 5 minutes total (individual test timeout: 60s)
+- Pipeline stage verification uses DB queries, not Temporal internal state
+- At least 5 new fixture files added for targeted test scenarios
+- Tests are runnable via `go test -tags=e2e -timeout 5m ./tests/e2e/... -run TestSLMPipeline`

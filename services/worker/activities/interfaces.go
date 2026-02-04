@@ -154,6 +154,9 @@ type AIClient interface {
 	// ExtractEntities performs two-pass entity extraction from content.
 	ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error)
 
+	// TriageContent classifies content into categories and importance levels (Stage 1).
+	TriageContent(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error)
+
 	// DeepAnalyze performs Stage 4 deep analysis using a remote LLM.
 	DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error)
 }
@@ -227,4 +230,35 @@ type ContextGlossaryTerm struct {
 	Term       string
 	Expansion  string
 	Definition string
+}
+
+// PersistRepository defines the interface for Stage 4.5 persistence operations.
+type PersistRepository interface {
+	// PersistFindings validates and writes all findings from Stage 4 output in a single transaction.
+	// Returns the IDs of created/updated assertions and any compensation function for rollback.
+	PersistFindings(ctx context.Context, input *PersistFindingsInput) (*PersistFindingsOutput, error)
+}
+
+// PersistFindingsInput is the input for persisting Stage 4 analysis findings.
+type PersistFindingsInput struct {
+	TenantID   string
+	SourceID   int64
+	ThreadID   *int64
+	ProjectID  *int64
+	Analysis   *DeepAnalyzeOutput // From Stage 4
+	// Resolved person IDs from Stage 3
+	ResolvedPeople map[string]int64 // name -> person_id
+}
+
+// PersistFindingsOutput is the output from persisting findings.
+type PersistFindingsOutput struct {
+	AssertionsCreated    int
+	AssertionsSuperseded int
+	ReferencesCreated    int
+	ReviewItemsCreated   int
+	AffinityUpdates      int
+	// For saga compensation
+	CreatedAssertionIDs []int64
+	CreatedReferenceIDs []int64
+	CreatedReviewIDs    []int64
 }
