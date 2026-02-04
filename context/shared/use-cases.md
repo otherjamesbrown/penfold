@@ -105,7 +105,9 @@ Knowledge workers are drowning in email, meetings, and notifications. Penfold's 
 - Automatic transcript ingestion from Webex, Teams, Zoom
 - Speaker identification and participant resolution
 - Topic extraction and categorization
-- Action item detection (future)
+- Action item detection via SLM extraction (Stage 2)
+- Multi-stage SLM/LLM pipeline: triage → extract → deep analysis
+- Risk and assertion lifecycle tracking with golden thread
 
 **CLI:** `penf ingest meeting ./transcripts/`, `penf search "pricing change" --type=meeting`
 
@@ -165,6 +167,8 @@ Knowledge workers are drowning in email, meetings, and notifications. Penfold's 
 - Configurable rules for auto-accept/reject
 - Undo/redo support for review actions
 - Session tracking and history
+- Session bootstrap integration (penf context morning) for project-first briefings
+- Radar model: AI tracks periphery, human focuses spotlight
 
 **CLI:** `penf review start`, `penf review queue`
 

@@ -126,6 +126,23 @@ Temporal worker executing durable workflows and activities.
 | `relationship/v1` | Relationship service API |
 | `workflow/v1` | Workflow management API |
 
+## Content Processing Pipeline
+
+Penfold processes content through a 6-stage SLM/LLM pipeline that matches each task to the right model:
+
+| Stage | Name | Model | Purpose |
+|-------|------|-------|---------|
+| 0 | Parse | None (libraries) | Strip HTML, extract headers, detect format |
+| 1 | Triage | SLM | Classify content, rate importance, gate further processing |
+| 2 | Extract | SLM | Pull entities, dates, action items, risks from text |
+| 3 | Context | Code + DB | Match extractions to known people, products, glossary |
+| 4 | Deep Analysis | Remote LLM | Sentiment, insights, risk mapping, synthesis |
+| 5 | Embed | SLM | Generate vector embeddings, update search index |
+
+**Key principle:** SLMs handle extraction (cheap, fast, every piece of content). LLMs handle reasoning (expensive, slow, only when warranted). ~50-70% of content never reaches the LLM.
+
+> **Full reference:** [SLM/LLM Pipeline](architecture/slm-llm-pipeline.md) — stages, triage gates, context building, assertion lifecycle, trust/seniority weighting, session bootstrap.
+
 ## Detailed Pattern Documentation
 
 Architecture patterns are documented in detail in separate files:

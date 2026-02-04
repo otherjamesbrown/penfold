@@ -2,33 +2,45 @@
 
 > **Note**: Code examples are from the original Python implementation for reference. Go implementations are in the respective service directories.
 
-## 1. Phased Pipeline Processing
+## 1. SLM/LLM Content Processing Pipeline
 
-**Pattern**: Multi-phase processing pipeline with dependency management and status tracking
+**Pattern**: 6-stage pipeline splitting work between local SLMs (classification, extraction) and remote LLMs (reasoning, synthesis)
 
-**Key Components**:
-- Database entities for tracking processing jobs with status and progress
-- Idempotency keys for job reliability
-- Error handling with detailed error capture
-- Progress tracking with estimated completion times
+**Stages**:
+- **Stage 0 (Parse)**: No AI — library-based HTML stripping, header extraction, format detection
+- **Stage 1 (Triage)**: SLM classifies content and rates importance. LOW/PERSONAL content stops here (~50-70% filtered)
+- **Stage 2 (Extract)**: SLM extracts entities, dates, action items, risks. Split into 2a (NER) and 2b (semantic)
+- **Stage 3 (Context)**: Code + DB lookups resolve extracted names to entity IDs (people, products, glossary)
+- **Stage 4 (Deep Analysis)**: Remote LLM receives clean text + extracted entities + resolved context + background knowledge. Produces sentiment, strategic insights, risk mapping
+- **Stage 5 (Embed)**: SLM generates multi-level embeddings (raw text, summary, action items)
 
-**Go Implementation**: `services/worker/workflows/`
+**Key principle**: If the answer is in the text, use the SLM. If it requires reasoning, use the LLM.
+
+**Go Implementation**: `services/worker/workflows/`, `services/worker/activities/`
+
+**Full reference**: [SLM/LLM Pipeline](slm-llm-pipeline.md)
 
 ## 2. Multi-Modal AI Processing
 
-**Pattern**: Tiered AI processing with confidence scoring and manual fallbacks
+**Pattern**: Tiered AI processing with model selection matched to task complexity
 
-**Implementation Details**:
-- Local-first approach with cloud escalation
-- Confidence scoring for all AI decisions
+**SLM (Local, Stages 1-2)**:
+- Classification into fixed category set (7 categories)
+- Structured extraction of explicitly stated facts
+- Short summarisation, structured JSON output
+- Model: Qwen2.5-32B on Apple Silicon (dev01)
+
+**LLM (Remote, Stage 4)**:
+- Cross-context reasoning (connecting email to meeting risks)
+- Nuanced business sentiment (decoding corporate euphemism)
+- Strategic synthesis and insight generation
+- Model: Gemini Pro for high-importance, Gemini Flash for standard
+
+**Quality controls**:
+- Confidence scoring for entity resolution (Stage 3)
+- Quality gates between stages (e.g., RISK_ISSUE triage + zero risks extracted → re-run)
 - Manual review queues for low-confidence results
-- Version control for AI-generated content
-
-**Key Components**:
-- Confidence thresholds with user warnings
-- Manual correction interfaces
-- AI feedback collection for continuous improvement
-- Ensemble processing for model comparison
+- Langfuse instrumentation for prompt quality tracking
 
 ## 3. Entity Resolution with Provisional States
 

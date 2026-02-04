@@ -226,7 +226,7 @@ Use hostnames in all configs for portability. IPs may change.
 | Service | Port | Co-located Access | Notes |
 |---------|------|-------------------|-------|
 | MLX Embeddings | 8081 | `localhost:8081` | Apple Silicon required |
-| MLX LLM Server | 8080 | `localhost:8080` | Qwen2.5-32B for mention resolution |
+| MLX LLM Server | 8080 | `localhost:8080` | Qwen2.5-32B — SLM for pipeline Stages 1-2 (Triage, Extract) and mention resolution |
 | Worker | 8085 | - | Health endpoint only |
 
 **Embeddings Sidecar:**

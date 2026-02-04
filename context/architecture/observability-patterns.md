@@ -19,8 +19,9 @@
 **Pattern**: Distributed tracing for content flow through multiple agent boundaries
 
 **Implementation Details**:
-- Content flow tracking through extraction → categorization → storage
+- Content flow tracking through pipeline stages: Parse → Triage → Extract → Context → DeepAnalysis → Embed
 - Multi-stage processing timeline visualization
+- Per-stage metrics with Langfuse instrumentation for SLM/LLM calls
 - Bottleneck identification and performance analysis
 - End-to-end success rate tracking
 
@@ -54,6 +55,10 @@
 | Relationship validation rate | 80% |
 | Email processing | <30 minutes |
 | Meeting analysis | <60 minutes |
+| Triage accuracy | 90% |
+| SLM extraction precision | 85% |
+| Stage skip rate | 50-70% |
+| LLM usage rate | 30-50% |
 
 ## 17. TimescaleDB Time-Series Storage
 

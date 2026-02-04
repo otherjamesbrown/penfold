@@ -19,7 +19,7 @@ Owns the intelligence layer: how Penfold understands, retrieves, and correlates 
 | Embeddings | MLX sidecar, caching | `pkg/embeddings/` |
 | LLM Integration | Model selection, ensemble, escalation | `services/ai/` |
 | Correlations | Entity linking, relationship discovery | `services/relationship/` |
-| Content Processing | 4-step pipeline activities | `services/worker/activities/` |
+| Content Processing | 6-stage SLM/LLM pipeline activities | `services/worker/activities/` |
 | Query Understanding | Parsing, temporal extraction | `services/search/query/` |
 
 ### Does NOT Handle → Handoff
@@ -34,15 +34,20 @@ Owns the intelligence layer: how Penfold understands, retrieves, and correlates 
 
 ## Core Patterns
 
-### 4-Step Content Pipeline
+### 6-Stage SLM/LLM Pipeline
 
 ```go
-// services/worker/activities/content.go
-// Step 1: Fetch content from source
-// Step 2: Generate embedding (MLX) - can parallel with Step 3
-// Step 3: Generate summary (LLM)
-// Step 4: Extract assertions/entities (LLM)
+// services/worker/activities/
+// Stage 0: Parse      (no AI — libraries only: HTML strip, header extract, format detect)
+// Stage 1: Triage     (SLM — classify, rate importance, gate further processing)
+// Stage 2: Extract    (SLM — entities, dates, action items, risks; split into 2a NER + 2b semantic)
+// Stage 3: Context    (code — DB lookups: entity resolution, glossary expansion, product matching)
+// Stage 4: Analysis   (LLM — sentiment, insights, risk mapping with project-scoped context)
+// Stage 4.5: Persist  (code — validate and store assertions, update knowledge base)
+// Stage 5: Embed      (SLM — multi-level vector embeddings: raw text, summary, actions)
 ```
+
+> **Full reference:** [SLM/LLM Pipeline](../architecture/slm-llm-pipeline.md)
 
 ### Hybrid Search (RRF Fusion)
 

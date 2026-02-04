@@ -129,10 +129,12 @@ func TestExampleWorkflow(t *testing.T) {
 
 | Workflow | Purpose | Key Activities |
 |----------|---------|----------------|
-| `ContentIngestionWorkflow` | Process new content | Fetch, Embed, Summarize, Extract |
+| `ContentIngestionWorkflow` | Process new content | Parse, Triage, Extract, ContextBuild, DeepAnalysis, Embed |
 | `EmailSyncWorkflow` | Gmail synchronization | FetchEmails, ProcessBatch |
 | `DailyReviewWorkflow` | Daily review generation | GatherContent, Prioritize, Format |
 | `RelationshipDiscoveryWorkflow` | Entity correlation | FindMentions, ScoreRelationships |
+
+> **Pipeline details:** The ContentIngestionWorkflow implements the 6-stage SLM/LLM pipeline. See [SLM/LLM Pipeline](../architecture/slm-llm-pipeline.md) for stage details, triage gates, and context building.
 
 ## Quality Gates
 
