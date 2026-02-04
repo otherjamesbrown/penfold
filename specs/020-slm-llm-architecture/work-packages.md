@@ -68,7 +68,7 @@ Record each work package completion here. Sessions should update this after comm
 
 | WP | Status | Commit | Date | Changes Summary |
 |----|--------|--------|------|-----------------|
-| WP1 | **done** | (next) | 2026-02-04 | 4 migrations (028–031): assertion lifecycle, pipeline registry, trust/seniority, watch list |
+| WP1 | **done** | `0cdc532` | 2026-02-04 | 4 migrations (028–031): assertion lifecycle, pipeline registry, trust/seniority, watch list |
 | WP2 | pending | — | — | — |
 | WP3 | pending | — | — | — |
 | WP4 | pending | — | — | — |
