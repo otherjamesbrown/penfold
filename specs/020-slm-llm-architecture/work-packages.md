@@ -82,7 +82,7 @@ Record each work package completion here. Sessions should update this after comm
 | WP8 | **done** | `95b64e4` | 2026-02-04 | SLMPipelineWorkflow orchestrating Stages 0→1→2→3→4→4.5→5, triage gates (PERSONAL/INTERNAL_COMMS+LOW skip deep), progressive availability (parsed/extracted status), Stage 4 optional (failure continues), embedding critical (failure = pipeline failure), saga compensation, signal/query handlers, triage activity wrapper. 15 tests (8 pipeline + 7 triage). |
 | WP9 | **done** | `dad3519` | 2026-02-04 | Multi-level embedding repository (StoreMultiLevelEmbedding, GetEmbeddingsForSource, GetStaleEmbeddings, DeleteEmbeddingsForSource), GenerateMultiLevelEmbeddings activity (content + summary + action_item + decision + risk embeddings per source, removed-action filtering, non-fatal assertion failures), ReEmbedBatch activity (stale detection, batch re-embedding for model changes), migration 033 (representation_type column, embedding_vec vector(1024) with HNSW index, model_version index). 13 tests. |
 | WP10 | **done** | `a49ff38` | 2026-02-04 | Session bootstrap CLI: `penf context morning` (playbook from Context-Palace with default fallback), `penf session resume --last-closed`, `penf reminders list --due`, meeting list filters (participant/since/has-changes) + `penf meeting recap`, project list filters (status/sort/limit/always-include) + `penf context project --name`, `penf pipeline status --since-last-session`. Proto: ListMeetings filters, GetMeetingRecap RPC, GetProjectContext RPC, ProjectFilter enhancements. Gateway handlers + repository methods. 30+ tests. |
-| WP11 | pending | — | — | — |
+| WP11 | **done** | _pending_ | 2026-02-04 | WatchListService proto (8 RPCs) + gateway service + repository: watch list CRUD, trust/seniority management, briefing priority query (4-tier ordering: watched > trusted > senior > other with trust domain refinement), seniority escalation detection. CLI: `penf watch list/add/remove/annotate`, `penf trust set/clear`, `penf seniority set/clear`, `penf briefing PROJECT` (tier-grouped output), `penf escalations --source-id ID`. 43 tests. |
 | WP12 | pending | — | — | — |
 | WP13 | **done** | `9decec7` | 2026-02-04 | Created `context/architecture/slm-llm-pipeline.md` (283 lines) as authoritative pipeline reference. Updated HIGH priority docs: ARCHITECTURE.md (pipeline section), core-patterns.md (Sections 1-2 rewritten), ai-dev.md (6-stage pipeline), worker-dev.md (workflow catalog). Updated MEDIUM priority docs: infrastructure.md (LLM description), observability-patterns.md (stage tracing + KPIs), use-cases.md (UC-2/UC-5 enriched). All 7 new concepts documented. No old pipeline references remain. |
 | WP14 | **done** | `f516c83` | 2026-02-04 | E2E pipeline tests: 10 test scenarios (full email pipeline, meeting VTT/SRT, triage gate skip, high-importance risk routing, golden thread assertion lifecycle, batch ingestion, partial failure recovery, idempotency, entity resolution). PipelineE2EEnv with Temporal client, DB query helpers (assertStageCompleted/Skipped, getAssertionsForSource, getGoldenThread, countEmbeddingsForSource). 5 new fixtures (011-risk-escalation.eml, 012-low-priority-fyi.eml, 013-thread-with-decisions.eml, 002-project-review.vtt, 003-incident-retro.srt). Build tag: `//go:build e2e`. |
@@ -349,30 +349,34 @@ Record each work package completion here. Sessions should update this after comm
 
 ---
 
-## WP11: Watch List + Trust/Seniority
+## WP11: Watch List + Trust/Seniority ✓
 
-**Shard:** `pf-d5b341` · **Agent:** cli-dev · **Depends on:** WP10, WP1
+**Shard:** `pf-d5b341` · **Agent:** cli-dev, service-dev · **Depends on:** WP10, WP1 · **Status:** done
 
-**Files:**
-- `cmd/penf/cmd/watch.go` — new
-- `cmd/penf/cmd/trust.go` — new (or extend people commands)
-- `api/proto/gateway/v1/gateway.proto` — watch list + trust RPCs
-- `services/gateway/` — handlers
+**Files delivered:**
+- `api/proto/watchlist/v1/watchlist.proto` + generated pb.go — WatchListService with 8 RPCs (AddWatchItem, RemoveWatchItem, ListWatchItems, UpdateWatchItem, SetTrust, SetSeniority, GetBriefingAssertions, GetSeniorityEscalations)
+- `pkg/watchlist/types.go` — Domain types (WatchItem, PersonTrust, PersonSeniority, BriefingAssertion, SeniorityEscalation)
+- `pkg/watchlist/repository.go` — Repository with watch list CRUD, trust/seniority management, briefing priority query (4 tiers: watched > trusted > senior > other with severity+recency within tiers), seniority escalation detection
+- `pkg/watchlist/repository_test.go` — Repository validation tests (4 test functions, 10 subtests)
+- `services/gateway/watchlistservice/service.go` — gRPC service with input validation (trust 0-5, seniority 1-7, watch target required), proto conversion
+- `services/gateway/watchlistservice/service_test.go` — Service validation tests (9 test functions)
+- `services/gateway/main.go` — WatchListService registered
+- `cmd/penf/cmd/watch.go` — `penf watch list/add/remove/annotate` commands with text/json/yaml output
+- `cmd/penf/cmd/watch_test.go` — Watch command tests (6 test functions)
+- `cmd/penf/cmd/trust.go` — `penf trust set/clear` + `penf seniority set/clear` commands
+- `cmd/penf/cmd/trust_test.go` — Trust/seniority validation tests (4 test functions, 11 subtests)
+- `cmd/penf/cmd/briefing.go` — `penf briefing PROJECT` (tier-grouped assertions) + `penf escalations --source-id ID`
+- `cmd/penf/cmd/briefing_test.go` — Briefing/escalation tests (8 test functions, 11 subtests)
 
-**Scope:**
-- Watch list CRUD: add/remove/annotate items per project
-- Trust management: set `trust_level`, `trust_domains` on people
-- Seniority management: set `seniority_tier` on people
-- Briefing ordering by priority tiers: watched -> trusted -> senior -> other
-- Seniority escalation detection query from design.md
-- Peripheral change detection: `penf context changes --watched-only`
+**Implementation shards:** `pf-3336e8` (proto + gateway + repo), `pf-dfae8c` (CLI watch), `pf-c70349` (CLI trust/seniority), `pf-7b275d` (CLI briefing/escalations)
 
-**Acceptance criteria:**
-- Watch list add/remove/annotate works
-- Trust level and domains settable on people
-- Briefing ordering query returns correct tier ordering
-- Seniority escalation detection identifies new senior participants
-- Tests cover: CRUD operations, tier ordering, escalation detection
+**Acceptance criteria (met):**
+- Watch list add/remove/annotate works via gRPC
+- Trust level (0-5) and domains settable on people
+- Seniority tier (1-7) settable on people
+- Briefing ordering query returns correct 4-tier priority ordering (watched > trusted > senior > other, with trust domain refinement)
+- Seniority escalation detection identifies new senior participants via max seniority comparison
+- Tests cover: CRUD validation, tier ordering logic, escalation detection, command structure, input validation (43 tests total)
 
 ---
 

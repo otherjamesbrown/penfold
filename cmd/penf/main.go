@@ -707,6 +707,8 @@ func init() {
 	rootCmd.AddCommand(cmd.NewProductCommand(nil))
 	rootCmd.AddCommand(cmd.NewProjectCommand(nil))
 	rootCmd.AddCommand(cmd.NewTeamCommand(nil))
+	rootCmd.AddCommand(cmd.NewTrustCommand(nil))
+	rootCmd.AddCommand(cmd.NewSeniorityCommand(nil))
 	rootCmd.AddCommand(cmd.NewProcessCommand(nil))
 	rootCmd.AddCommand(cmd.NewInitCommand())
 	rootCmd.AddCommand(cmd.NewUpdateCommand(version))
@@ -722,6 +724,9 @@ func init() {
 	rootCmd.AddCommand(cmd.NewMessageCommand(nil))
 	rootCmd.AddCommand(cmd.NewMeetingCommand(nil))
 	rootCmd.AddCommand(cmd.NewReminderCommand(nil))
+	rootCmd.AddCommand(cmd.NewWatchCommand(nil))
+	rootCmd.AddCommand(cmd.NewBriefingCommand(nil))
+	rootCmd.AddCommand(cmd.NewEscalationsCommand(nil))
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)

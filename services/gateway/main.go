@@ -36,6 +36,7 @@ import (
 	searchv1 "github.com/otherjamesbrown/penfold/api/proto/search/v1"
 	teamsv1 "github.com/otherjamesbrown/penfold/api/proto/teams/v1"
 	tenantv1 "github.com/otherjamesbrown/penfold/api/proto/tenant/v1"
+	watchlistv1 "github.com/otherjamesbrown/penfold/api/proto/watchlist/v1"
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
@@ -55,6 +56,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/sources"
 	"github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/pkg/tenant"
+	"github.com/otherjamesbrown/penfold/pkg/watchlist"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/services/gateway/contentservice"
@@ -77,6 +79,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
 	"github.com/otherjamesbrown/penfold/services/gateway/teamsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/tenantservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/watchlistservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/workflowservice"
 )
 
@@ -311,6 +314,12 @@ func main() {
 	teamsSvc := teamsservice.NewService(entityRepo, tenantRepo, logger)
 	teamsv1.RegisterTeamsServiceServer(grpcServer, teamsSvc)
 	logger.Info("Registered TeamsService")
+
+	// Register WatchListService for watch list, trust/seniority, and briefing queries.
+	watchlistRepo := watchlist.NewRepository(dbPool, logger)
+	watchlistSvc := watchlistservice.NewService(watchlistRepo, logger)
+	watchlistv1.RegisterWatchListServiceServer(grpcServer, watchlistSvc)
+	logger.Info("Registered WatchListService")
 
 	// Register IngestService for email and meeting ingestion.
 	// Uses tenantRepo (created above) for tenant slug-to-UUID resolution.
