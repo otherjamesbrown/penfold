@@ -5,6 +5,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -27,7 +28,7 @@ type E2EEnv struct {
 	DB         *pgxpool.Pool
 	DBName     string
 	TenantID   string
-	LLMURL     string
+	GatewayURL string
 	FixtureDir string
 	CLI        *CLIRunner
 	t          *testing.T
@@ -36,7 +37,7 @@ type E2EEnv struct {
 // SetupE2EEnvironment creates the E2E test environment.
 // It requires:
 //   - Database connection with SSL certs (same as integration tests)
-//   - Local LLM server running at LLM_URL
+//   - Gateway accessible with LLM service healthy
 func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	t.Helper()
 
@@ -45,7 +46,7 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
 	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
 	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold") // Use production DB with tenant isolation
-	llmURL := getEnvOrDefault("LLM_URL", "http://dev01.brown.chat:8080")
+	gatewayURL := getEnvOrDefault("GATEWAY_URL", "http://dev02.brown.chat:8080")
 
 	// Build connection string with SSL cert auth
 	// Certs are expected in ~/.postgresql/ (standard libpq location)
@@ -88,7 +89,7 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	cli.SetEnv("DB_SSLCERT", sslCert)
 	cli.SetEnv("DB_SSLKEY", sslKey)
 	cli.SetEnv("DB_SSLROOTCERT", sslRootCert)
-	cli.SetEnv("LLM_URL", llmURL)
+	cli.SetEnv("GATEWAY_URL", gatewayURL)
 
 	// Redis configuration (CLI uses REDIS_* env vars)
 	redisHost := getEnvOrDefault("PENFOLD_REDIS_HOST", "localhost")
@@ -106,16 +107,16 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 		DB:         pool,
 		DBName:     dbName,
 		TenantID:   TestTenantID,
-		LLMURL:     llmURL,
+		GatewayURL: gatewayURL,
 		FixtureDir: fixtureDir,
 		CLI:        cli,
 		t:          t,
 	}
 
-	// Check LLM availability
-	if !env.LLMAvailable() {
+	// Check gateway and LLM availability
+	if !env.GatewayLLMAvailable() {
 		pool.Close()
-		t.Skip("Local LLM not available - skipping E2E test")
+		t.Skip("Gateway LLM service not available - skipping E2E test")
 	}
 
 	// Register cleanup
@@ -126,12 +127,22 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	return env
 }
 
-// LLMAvailable checks if the local LLM server is running.
-func (env *E2EEnv) LLMAvailable() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// gatewayHealthResponse represents the gateway health endpoint response.
+type gatewayHealthResponse struct {
+	Status   string `json:"status"`
+	Services []struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	} `json:"services"`
+}
+
+// GatewayLLMAvailable checks if the gateway is available and the LLM service is healthy.
+// This allows E2E tests to run from any machine that can reach the gateway.
+func (env *E2EEnv) GatewayLLMAvailable() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, env.LLMURL+"/v1/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, env.GatewayURL+"/health", nil)
 	if err != nil {
 		return false
 	}
@@ -142,7 +153,29 @@ func (env *E2EEnv) LLMAvailable() bool {
 	}
 	defer resp.Body.Close()
 
-	return resp.StatusCode == http.StatusOK
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	var health gatewayHealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		return false
+	}
+
+	// Check that the overall status is healthy and LLM service is available
+	if health.Status != "healthy" {
+		return false
+	}
+
+	// Verify LLM service is healthy
+	for _, svc := range health.Services {
+		if svc.Name == "llm" {
+			return svc.Status == "healthy"
+		}
+	}
+
+	// LLM service not registered in gateway (might not be configured)
+	return false
 }
 
 // EnsureTenantExists creates the test tenant if it doesn't exist.
