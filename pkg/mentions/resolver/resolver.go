@@ -82,6 +82,7 @@ func (r *Resolver) ProcessBatch(ctx context.Context, tenantID string, batch Reso
 	}
 
 	// Stage 1: Extraction + Understanding
+	r.heartbeat("stage 1: extraction + understanding")
 	understanding, err := r.executeStage1(ctx, batch, traceID)
 	if err != nil {
 		r.failTrace(traceID, err.Error())
@@ -97,6 +98,7 @@ func (r *Resolver) ProcessBatch(ctx context.Context, tenantID string, batch Reso
 	}
 
 	// Stage 2: Cross-Mention Reasoning
+	r.heartbeat("stage 2: cross-mention reasoning")
 	relationships, err := r.executeStage2(ctx, understanding, batch, traceID)
 	if err != nil {
 		r.failTrace(traceID, err.Error())
@@ -105,6 +107,7 @@ func (r *Resolver) ProcessBatch(ctx context.Context, tenantID string, batch Reso
 	}
 
 	// Gather candidates (code-based)
+	r.heartbeat("gathering candidates")
 	candidates, err := r.gatherer.GatherCandidates(ctx, tenantID, understanding, relationships, batch.ProjectID)
 	if err != nil {
 		r.failTrace(traceID, err.Error())
@@ -113,6 +116,7 @@ func (r *Resolver) ProcessBatch(ctx context.Context, tenantID string, batch Reso
 	}
 
 	// Stage 3: Entity Matching
+	r.heartbeat("stage 3: entity matching")
 	matching, err := r.executeStage3(ctx, understanding, relationships, candidates, traceID)
 	if err != nil {
 		r.failTrace(traceID, err.Error())
@@ -121,6 +125,7 @@ func (r *Resolver) ProcessBatch(ctx context.Context, tenantID string, batch Reso
 	}
 
 	// Stage 4: Verification (for uncertain resolutions)
+	r.heartbeat("stage 4: verification")
 	verifiedResolutions := r.executeStage4(ctx, matching.Resolutions, batch, traceID)
 
 	// Apply resolutions
@@ -140,6 +145,20 @@ func (r *Resolver) ProcessBatch(ctx context.Context, tenantID string, batch Reso
 
 	result.ProcessingTimeMs = int(time.Since(start).Milliseconds())
 	return result, nil
+}
+
+// SetHeartbeat sets a heartbeat callback for the next ProcessBatch call.
+// This allows callers (e.g., Temporal activities) to inject liveness signals
+// without the resolver depending on Temporal directly.
+func (r *Resolver) SetHeartbeat(fn HeartbeatFunc) {
+	r.config.Heartbeat = fn
+}
+
+// heartbeat signals liveness if a heartbeat function is configured.
+func (r *Resolver) heartbeat(stage string) {
+	if r.config.Heartbeat != nil {
+		r.config.Heartbeat(stage)
+	}
 }
 
 // startTrace initializes a new trace.

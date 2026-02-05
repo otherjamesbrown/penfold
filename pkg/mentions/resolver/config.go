@@ -4,6 +4,10 @@ import (
 	"time"
 )
 
+// HeartbeatFunc is a callback invoked between resolver stages to signal liveness.
+// The string argument describes the current stage for diagnostics.
+type HeartbeatFunc func(stage string)
+
 // Config holds configuration for the resolver.
 type Config struct {
 	// LLM provider configuration
@@ -17,6 +21,10 @@ type Config struct {
 
 	// Tracing
 	TraceLevel TraceLevel `json:"trace_level"`
+
+	// Heartbeat is called between pipeline stages to signal liveness.
+	// When running inside a Temporal activity, set this to activity.RecordHeartbeat.
+	Heartbeat HeartbeatFunc `json:"-"`
 }
 
 // LLMConfig configures the LLM provider.

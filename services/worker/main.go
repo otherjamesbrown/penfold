@@ -300,7 +300,7 @@ func main() {
 			Provider:   "vllm",
 			Model:      llmModel,
 			BaseURL:    llmURL,
-			Timeout:    120 * time.Second,
+			Timeout:    150 * time.Second,
 			MaxRetries: 2,
 		}
 

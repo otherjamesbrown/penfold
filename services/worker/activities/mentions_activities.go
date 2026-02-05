@@ -125,6 +125,14 @@ func (a *MentionsActivities) ExtractMentions(ctx context.Context, input ExtractM
 	// Record heartbeat before LLM processing
 	activity.RecordHeartbeat(ctx, "calling LLM resolver")
 
+	// Wire heartbeat into the resolver so it signals liveness between each
+	// of the 4 LLM stages. Without this, the 90s heartbeat timeout can expire
+	// during multi-stage resolution (4 stages * 30s+ each = >90s).
+	a.resolver.SetHeartbeat(func(stage string) {
+		activity.RecordHeartbeat(ctx, stage)
+	})
+	defer a.resolver.SetHeartbeat(nil) // clear after use
+
 	// Get content ID for tracing with fallback to source ID
 	contentID := input.ContentTraceID
 	if contentID == "" {
