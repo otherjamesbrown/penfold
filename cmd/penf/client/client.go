@@ -10,6 +10,7 @@ import (
 	"time"
 
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
+	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
@@ -547,4 +548,30 @@ func convertHealthCheckResponse(resp *gatewaypb.HealthCheckResponse) *SystemStat
 	status.Services = append([]ServiceHealth{gatewayService}, status.Services...)
 
 	return status
+}
+
+// ConnectFromConfig creates and connects a GRPCClient using CLIConfig.
+// This is the canonical way to create a connected client from CLI commands.
+func ConnectFromConfig(cfg *config.CLIConfig) (*GRPCClient, error) {
+	opts := DefaultOptions()
+	opts.Insecure = cfg.Insecure
+	opts.Debug = cfg.Debug
+	opts.TenantID = cfg.TenantID
+
+	if !cfg.Insecure && cfg.TLS.Enabled {
+		tlsConfig, err := LoadClientTLSConfig(&cfg.TLS)
+		if err != nil {
+			return nil, fmt.Errorf("loading TLS config: %w", err)
+		}
+		opts.TLSConfig = tlsConfig
+	}
+
+	c := NewGRPCClient(cfg.ServerAddress, opts)
+	ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
+	defer cancel()
+
+	if err := c.Connect(ctx); err != nil {
+		return nil, fmt.Errorf("connecting to server: %w", err)
+	}
+	return c, nil
 }

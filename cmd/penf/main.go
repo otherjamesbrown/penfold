@@ -971,37 +971,16 @@ func initClient() error {
 		return nil
 	}
 
-	opts := client.DefaultOptions()
-	opts.Insecure = cfg.Insecure
-	opts.Debug = cfg.Debug
-	// Keep the default ConnectTimeout (10s) - don't use cfg.Timeout (10min)
-	// for connection establishment, as that causes long hangs on failures.
-
-	// Load TLS configuration if not running in insecure mode.
-	if !cfg.Insecure && cfg.TLS.Enabled {
-		tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
-		if err != nil {
-			return fmt.Errorf("loading TLS config: %w", err)
-		}
-		opts.TLSConfig = tlsConfig
+	// Override tenant ID from environment if set.
+	if envTenant := getTenantID(); envTenant != "" {
+		cfg.TenantID = envTenant
 	}
 
-	// Add tenant ID to default metadata if configured.
-	tenantID := getTenantID()
-	if tenantID != "" {
-		opts.TenantID = tenantID
+	c, err := client.ConnectFromConfig(cfg)
+	if err != nil {
+		return err
 	}
-
-	grpcClient = client.NewGRPCClient(cfg.ServerAddress, opts)
-
-	// Create context with timeout for connection (use short timeout for fast fail).
-	ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
-	defer cancel()
-
-	if err := grpcClient.Connect(ctx); err != nil {
-		return fmt.Errorf("connecting to server: %w", err)
-	}
-
+	grpcClient = c
 	return nil
 }
 

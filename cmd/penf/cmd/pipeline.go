@@ -1118,23 +1118,8 @@ func runPipelineWorkers(ctx context.Context, deps *PipelineCommandDeps, tenant s
 	}
 	deps.Config = cfg
 
-	// Initialize gRPC client using workflow patterns
-	grpcClient, err := func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
-		opts := client.DefaultOptions()
-		opts.Insecure = cfg.Insecure
-		opts.Debug = cfg.Debug
-		opts.TenantID = cfg.TenantID
-		// Keep the default ConnectTimeout (10s) for fast failure detection.
-
-		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-		ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
-		defer cancel()
-
-		if err := grpcClient.Connect(ctx); err != nil {
-			return nil, fmt.Errorf("connecting to server: %w", err)
-		}
-		return grpcClient, nil
-	}(cfg)
+	// Initialize gRPC client
+	grpcClient, err := client.ConnectFromConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("initializing client: %w", err)
 	}
@@ -1284,22 +1269,7 @@ func runPipelineLogs(ctx context.Context, deps *PipelineCommandDeps, jobID strin
 	}
 
 	// Initialize gRPC client
-	grpcClient, err := func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
-		opts := client.DefaultOptions()
-		opts.Insecure = cfg.Insecure
-		opts.Debug = cfg.Debug
-		opts.TenantID = cfg.TenantID
-		// Keep the default ConnectTimeout (10s) for fast failure detection.
-
-		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-		ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
-		defer cancel()
-
-		if err := grpcClient.Connect(ctx); err != nil {
-			return nil, fmt.Errorf("connecting to server: %w", err)
-		}
-		return grpcClient, nil
-	}(cfg)
+	grpcClient, err := client.ConnectFromConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("initializing client: %w", err)
 	}
@@ -1451,22 +1421,7 @@ func runPipelineQueue(ctx context.Context, deps *PipelineCommandDeps, stage stri
 	deps.Config = cfg
 
 	// Initialize gRPC client
-	grpcClient, err := func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
-		opts := client.DefaultOptions()
-		opts.Insecure = cfg.Insecure
-		opts.Debug = cfg.Debug
-		opts.TenantID = cfg.TenantID
-		// Keep the default ConnectTimeout (10s) for fast failure detection.
-
-		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-		ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
-		defer cancel()
-
-		if err := grpcClient.Connect(ctx); err != nil {
-			return nil, fmt.Errorf("connecting to server: %w", err)
-		}
-		return grpcClient, nil
-	}(cfg)
+	grpcClient, err := client.ConnectFromConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("initializing client: %w", err)
 	}
@@ -1601,22 +1556,7 @@ func runPipelineHealth(ctx context.Context, deps *PipelineCommandDeps, watch boo
 	deps.Config = cfg
 
 	// Initialize gRPC client
-	grpcClient, err := func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
-		opts := client.DefaultOptions()
-		opts.Insecure = cfg.Insecure
-		opts.Debug = cfg.Debug
-		opts.TenantID = cfg.TenantID
-		// Keep the default ConnectTimeout (10s) for fast failure detection.
-
-		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-		ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
-		defer cancel()
-
-		if err := grpcClient.Connect(ctx); err != nil {
-			return nil, fmt.Errorf("connecting to server: %w", err)
-		}
-		return grpcClient, nil
-	}(cfg)
+	grpcClient, err := client.ConnectFromConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("initializing client: %w", err)
 	}

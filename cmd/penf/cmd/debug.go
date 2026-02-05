@@ -83,23 +83,7 @@ type DebugCommandDeps struct {
 func DefaultDebugDeps() *DebugCommandDeps {
 	return &DebugCommandDeps{
 		LoadConfig: config.LoadConfig,
-		InitClient: func(cfg *config.CLIConfig) (*client.GRPCClient, error) {
-			opts := client.DefaultOptions()
-			opts.Insecure = cfg.Insecure
-			opts.Debug = cfg.Debug
-			opts.TenantID = cfg.TenantID
-			// Keep the default ConnectTimeout (10s) - don't use cfg.Timeout (10min)
-			// for connection establishment, as that causes long hangs on failures.
-
-			grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-			ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
-			defer cancel()
-
-			if err := grpcClient.Connect(ctx); err != nil {
-				return nil, fmt.Errorf("connecting to server: %w", err)
-			}
-			return grpcClient, nil
-		},
+		InitClient: client.ConnectFromConfig,
 		Version:   "dev",
 		Commit:    "unknown",
 		BuildTime: "unknown",
