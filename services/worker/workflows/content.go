@@ -53,14 +53,6 @@ type (
 		Content   string `json:"content"`
 	}
 
-	// ExtractTopicsInput is the input for the ExtractTopics activity.
-	ExtractTopicsInput struct {
-		TenantID string `json:"tenant_id"`
-		SourceID int64  `json:"source_id"`
-		JobID    string `json:"job_id"`
-		Content  string `json:"content"`
-	}
-
 	// ExtractMentionsInput is the input for the ExtractMentions activity.
 	ExtractMentionsInput struct {
 		TenantID    string `json:"tenant_id"`
@@ -441,22 +433,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		return state.result, nil
 	}
 
-	// Step 5: Extract topics via LLM
-	// TODO: ExtractTopics activity not yet implemented — skip to avoid
-	// scheduling a doomed activity that wastes concurrency slots and
-	// generates log noise (ActivityNotRegisteredError).
-	logger.Debug("Skipping topic extraction (activity not yet implemented)")
-	state.status.StepsCompleted = 6
-
-	if checkCancellation() {
-		runCompensation(ctx)
-		state.result.Status = "cancelled"
-		state.result.Error = state.cancelReason
-		logger.Info("Workflow cancelled after topic extraction")
-		return state.result, nil
-	}
-
-	// Step 6: Extract and resolve mentions via LLM
+	// Step 5: Extract and resolve mentions via LLM
 	updateStatus("extracting_mentions", "ExtractMentions")
 	var mentionsOutput ExtractMentionsOutput
 	ctx6 := workflow.WithActivityOptions(ctx, llmOpts)
@@ -513,7 +490,6 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 			"embedding_id", state.result.EmbeddingID,
 			"summary_id", state.result.SummaryID,
 			"entity_count", state.result.EntityCount,
-			"topic_count", len(state.result.ExtractedTopics),
 			"mention_count", state.result.MentionCount,
 		)
 	}

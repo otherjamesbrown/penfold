@@ -129,7 +129,6 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.extractionActivities.ExtractEntities, activity.RegisterOptions{
 			Name: "ExtractEntities",
 		})
-		// Note: ExtractTopics not yet implemented, workflow will continue without it
 	}
 
 	// Mentions extraction for content processing

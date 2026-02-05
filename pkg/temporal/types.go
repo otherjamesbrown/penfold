@@ -101,7 +101,6 @@ type ContentIngestionResult struct {
 	SummaryID       *int64   `json:"summary_id,omitempty"`
 	EntityCount     int      `json:"entity_count"`
 	MentionCount    int      `json:"mention_count"`
-	ExtractedTopics []string `json:"extracted_topics,omitempty"`
 }
 
 // DailyReviewInput is the input for daily review workflows.
