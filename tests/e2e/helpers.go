@@ -18,10 +18,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// TestTenantID is the default tenant ID for E2E tests.
+// Must match testfixtures.DefaultTestTenantID.
+const TestTenantID = "00000000-0000-0000-0000-000000000001"
+
 // E2EEnv holds the test environment for E2E tests.
 type E2EEnv struct {
 	DB         *pgxpool.Pool
 	DBName     string
+	TenantID   string
 	LLMURL     string
 	FixtureDir string
 	CLI        *CLIRunner
@@ -30,7 +35,7 @@ type E2EEnv struct {
 
 // SetupE2EEnvironment creates the E2E test environment.
 // It requires:
-//   - Database connection (same as integration tests)
+//   - Database connection with SSL certs (same as integration tests)
 //   - Local LLM server running at LLM_URL
 func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	t.Helper()
@@ -39,17 +44,27 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
 	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
 	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
-	password := os.Getenv("PENFOLD_DB_PASSWORD")
-	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold_test_e2e")
-	llmURL := getEnvOrDefault("LLM_URL", "http://localhost:8080")
+	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold") // Use production DB with tenant isolation
+	llmURL := getEnvOrDefault("LLM_URL", "http://dev01.brown.chat:8080")
 
-	if password == "" {
-		t.Skip("PENFOLD_DB_PASSWORD not set - skipping E2E test")
+	// Build connection string with SSL cert auth
+	// Certs are expected in ~/.postgresql/ (standard libpq location)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("failed to get home directory: %v", err)
+	}
+	sslCert := filepath.Join(homeDir, ".postgresql", "postgresql.crt")
+	sslKey := filepath.Join(homeDir, ".postgresql", "postgresql.key")
+	sslRootCert := filepath.Join(homeDir, ".postgresql", "root.crt")
+
+	// Check if SSL certs exist
+	if _, err := os.Stat(sslCert); os.IsNotExist(err) {
+		t.Skip("SSL certs not found in ~/.postgresql/ - skipping E2E test")
 	}
 
 	connStr := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		user, password, host, port, dbName,
+		"postgres://%s@%s:%s/%s?sslmode=verify-full&sslcert=%s&sslkey=%s&sslrootcert=%s",
+		user, host, port, dbName, sslCert, sslKey, sslRootCert,
 	)
 
 	ctx := context.Background()
@@ -68,8 +83,11 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	cli.SetEnv("DB_HOST", host)
 	cli.SetEnv("DB_PORT", port)
 	cli.SetEnv("DB_USER", user)
-	cli.SetEnv("DB_PASSWORD", password)
 	cli.SetEnv("DB_NAME", dbName)
+	cli.SetEnv("DB_SSLMODE", "verify-full")
+	cli.SetEnv("DB_SSLCERT", sslCert)
+	cli.SetEnv("DB_SSLKEY", sslKey)
+	cli.SetEnv("DB_SSLROOTCERT", sslRootCert)
 	cli.SetEnv("LLM_URL", llmURL)
 
 	// Redis configuration (CLI uses REDIS_* env vars)
@@ -78,12 +96,16 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	cli.SetEnv("REDIS_HOST", redisHost)
 	cli.SetEnv("REDIS_PORT", redisPort)
 
+	// Set test tenant ID for CLI commands
+	cli.SetEnv("PENF_TENANT_ID", TestTenantID)
+
 	// Use absolute path for fixtures (CLI runs from project root)
 	fixtureDir := filepath.Join(cli.WorkDir, "tests", "fixtures", "acme-corp")
 
 	env := &E2EEnv{
 		DB:         pool,
 		DBName:     dbName,
+		TenantID:   TestTenantID,
 		LLMURL:     llmURL,
 		FixtureDir: fixtureDir,
 		CLI:        cli,
@@ -123,10 +145,26 @@ func (env *E2EEnv) LLMAvailable() bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// EnsureTenantExists creates the test tenant if it doesn't exist.
+func (env *E2EEnv) EnsureTenantExists() error {
+	ctx := context.Background()
+	_, err := env.DB.Exec(ctx, `
+		INSERT INTO tenants (id, name, display_name, slug, owner_email, created_at, updated_at)
+		VALUES ($1, 'test_tenant', 'Test Tenant', 'test', 'test@example.com', NOW(), NOW())
+		ON CONFLICT (id) DO NOTHING
+	`, env.TenantID)
+	return err
+}
+
 // LoadFixture loads the Acme Corp fixture data into the database.
 func (env *E2EEnv) LoadFixture(name string) error {
 	if name != "acme-corp" {
 		return fmt.Errorf("unknown fixture: %s", name)
+	}
+
+	// Ensure tenant exists before loading fixtures
+	if err := env.EnsureTenantExists(); err != nil {
+		return fmt.Errorf("ensure tenant exists: %w", err)
 	}
 
 	loader := testfixtures.NewLoader(env.DB, env.FixtureDir)
@@ -138,20 +176,24 @@ func (env *E2EEnv) FixtureLoader() *testfixtures.Loader {
 	return testfixtures.NewLoader(env.DB, env.FixtureDir)
 }
 
-// TruncateAllTables truncates all user tables.
-func (env *E2EEnv) TruncateAllTables() error {
+// CleanupTestTenant deletes all data for the test tenant only.
+// This preserves other tenants' data in the shared database.
+func (env *E2EEnv) CleanupTestTenant() error {
 	ctx := context.Background()
 
+	// Find all tables with a tenant_id column (except tenants itself)
 	rows, err := env.DB.Query(ctx, `
-		SELECT tablename
-		FROM pg_tables
-		WHERE schemaname = 'public'
-		AND tablename NOT LIKE 'pg_%'
-		AND tablename NOT LIKE 'sql_%'
-		AND tablename != 'schema_migrations'
+		SELECT DISTINCT c.table_name
+		FROM information_schema.columns c
+		JOIN information_schema.tables t ON c.table_name = t.table_name
+		WHERE c.table_schema = 'public'
+		AND t.table_schema = 'public'
+		AND t.table_type = 'BASE TABLE'
+		AND c.column_name = 'tenant_id'
+		AND c.table_name != 'tenants'
 	`)
 	if err != nil {
-		return err
+		return fmt.Errorf("querying tenant tables: %w", err)
 	}
 	defer rows.Close()
 
@@ -164,15 +206,23 @@ func (env *E2EEnv) TruncateAllTables() error {
 		tables = append(tables, tableName)
 	}
 
+	// Delete test tenant's data from each table
 	for _, table := range tables {
-		_, err := env.DB.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table))
+		_, err := env.DB.Exec(ctx, fmt.Sprintf(
+			"DELETE FROM %s WHERE tenant_id = $1", table), env.TenantID)
 		if err != nil {
-			// Log but continue - some tables might have constraints
-			env.t.Logf("warning: could not truncate %s: %v", table, err)
+			// Log but continue - some tables might have FK constraints
+			env.t.Logf("warning: could not clean %s: %v", table, err)
 		}
 	}
 
 	return nil
+}
+
+// TruncateAllTables is deprecated - use CleanupTestTenant instead.
+// This method only cleans up the test tenant's data, not all data.
+func (env *E2EEnv) TruncateAllTables() error {
+	return env.CleanupTestTenant()
 }
 
 // LoadYAMLFile loads and parses a YAML file.

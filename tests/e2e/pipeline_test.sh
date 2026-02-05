@@ -73,19 +73,28 @@ build_penf() {
     return 1
 }
 
-# Clear database tables
+# E2E Test Tenant ID - must match tests/e2e/helpers.go TestTenantID
+E2E_TENANT_ID="00000000-0000-0000-0000-000000000001"
+
+# Clear database tables for test tenant only
 clear_database() {
     log_section "Database Setup"
-    log_info "Clearing database tables..."
+    log_info "Clearing test tenant data (${E2E_TENANT_ID})..."
 
     local result
-    result=$(ssh -o StrictHostKeyChecking=no dev02 "docker exec -i penfold-postgres psql -U penfold -d penfold -c 'TRUNCATE sources, source_attachments, ingest_jobs, ingest_errors CASCADE'" 2>&1)
+    # Delete only the test tenant's data, not all data
+    result=$(ssh -o StrictHostKeyChecking=no dev02 "docker exec -i penfold-postgres psql -U penfold -d penfold -c \"
+        DELETE FROM ingest_errors WHERE tenant_id = '${E2E_TENANT_ID}';
+        DELETE FROM source_attachments WHERE tenant_id = '${E2E_TENANT_ID}';
+        DELETE FROM ingest_jobs WHERE tenant_id = '${E2E_TENANT_ID}';
+        DELETE FROM sources WHERE tenant_id = '${E2E_TENANT_ID}';
+    \"" 2>&1)
 
     if [[ $? -eq 0 ]]; then
-        log_pass "Database cleared"
+        log_pass "Test tenant data cleared"
         return 0
     else
-        log_fail "Failed to clear database: $result"
+        log_fail "Failed to clear test tenant data: $result"
         return 1
     fi
 }

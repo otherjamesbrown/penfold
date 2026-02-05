@@ -277,17 +277,24 @@ func (l *Loader) LoadGlossary(ctx context.Context) error {
 	return nil
 }
 
-// TruncateAll truncates all fixture-related tables.
-func (l *Loader) TruncateAll(ctx context.Context) error {
+// CleanupAll deletes all fixture-related data for the loader's tenant.
+// This preserves other tenants' data in the shared database.
+func (l *Loader) CleanupAll(ctx context.Context) error {
 	tables := []string{"glossary", "products", "projects", "people", "teams"}
 	for _, table := range tables {
-		_, err := l.db.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table))
+		_, err := l.db.Exec(ctx, fmt.Sprintf(
+			"DELETE FROM %s WHERE tenant_id = $1", table), l.tenantID)
 		if err != nil {
-			// Table might not exist, continue
+			// Table might not exist or no tenant_id column, continue
 			continue
 		}
 	}
 	return nil
+}
+
+// TruncateAll is deprecated - use CleanupAll instead.
+func (l *Loader) TruncateAll(ctx context.Context) error {
+	return l.CleanupAll(ctx)
 }
 
 // LoadYAMLFile is a generic helper to load any YAML file.

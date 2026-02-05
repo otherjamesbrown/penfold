@@ -130,33 +130,41 @@ func (db *TestDB) TruncateAllTables(t *testing.T) {
 	db.CleanupTestTenant(t)
 }
 
-// TruncateTables truncates specific tables.
-// Tables that don't exist are silently skipped with a warning.
-func (db *TestDB) TruncateTables(t *testing.T, tables ...string) {
+// CleanupTables deletes test tenant's data from specific tables.
+// Tables that don't exist or don't have tenant_id are silently skipped.
+func (db *TestDB) CleanupTables(t *testing.T, tables ...string) {
 	t.Helper()
 
 	ctx := context.Background()
 	for _, table := range tables {
-		// Check if table exists first
-		var exists bool
+		// Check if table has tenant_id column
+		var hasTenantID bool
 		err := db.Pool.QueryRow(ctx, `
 			SELECT EXISTS (
-				SELECT 1 FROM information_schema.tables
-				WHERE table_name = $1
+				SELECT 1 FROM information_schema.columns
+				WHERE table_name = $1 AND column_name = 'tenant_id'
 			)
-		`, table).Scan(&exists)
+		`, table).Scan(&hasTenantID)
 		if err != nil {
-			t.Logf("Warning: could not check if table %s exists: %v", table, err)
+			t.Logf("Warning: could not check table %s: %v", table, err)
 			continue
 		}
-		if !exists {
-			t.Logf("Warning: table %s does not exist, skipping truncate", table)
+		if !hasTenantID {
+			t.Logf("Warning: table %s has no tenant_id column, skipping", table)
 			continue
 		}
 
-		_, err = db.Pool.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table))
-		require.NoError(t, err, "failed to truncate table %s", table)
+		_, err = db.Pool.Exec(ctx, fmt.Sprintf(
+			"DELETE FROM %s WHERE tenant_id = $1", table), db.TenantID)
+		if err != nil {
+			t.Logf("Warning: could not clean %s: %v", table, err)
+		}
 	}
+}
+
+// TruncateTables is deprecated - use CleanupTables instead.
+func (db *TestDB) TruncateTables(t *testing.T, tables ...string) {
+	db.CleanupTables(t, tables...)
 }
 
 // Exec executes a SQL statement.

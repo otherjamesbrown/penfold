@@ -15,16 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// getGatewayAddr returns the gateway address from environment or default.
-func getGatewayAddr() string {
-	addr := os.Getenv("GATEWAY_ADDR")
-	if addr == "" {
-		addr = "localhost:50051"
-	}
-	return addr
-}
-
 // runCLI executes the penf CLI with the given arguments and returns stdout, stderr, and error.
+// Uses the default config file (~/.penf/config.yaml) which has mTLS settings.
 func runCLI(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
 
@@ -32,10 +24,7 @@ func runCLI(t *testing.T, args ...string) (string, string, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "penf", args...)
-	cmd.Env = append(os.Environ(),
-		"PENF_SERVER_ADDRESS="+getGatewayAddr(),
-		"PENF_INSECURE=true",
-	)
+	cmd.Env = os.Environ()
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout

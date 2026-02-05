@@ -29,12 +29,29 @@ func connectToDatabase(ctx context.Context, cfg *config.CLIConfig) (*pgxpool.Poo
 		host := getEnvOrDefault("DB_HOST", "localhost")
 		port := getEnvOrDefault("DB_PORT", "5432")
 		user := getEnvOrDefault("DB_USER", "penfold")
-		pass := getEnvOrDefault("DB_PASSWORD", "")
+		pass := os.Getenv("DB_PASSWORD")
 		dbname := getEnvOrDefault("DB_NAME", "penfold")
 		sslmode := getEnvOrDefault("DB_SSLMODE", "prefer")
 
-		connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-			host, port, user, pass, dbname, sslmode)
+		// Start with base connection string
+		if pass != "" {
+			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+				host, port, user, pass, dbname, sslmode)
+		} else {
+			connStr = fmt.Sprintf("host=%s port=%s user=%s dbname=%s sslmode=%s",
+				host, port, user, dbname, sslmode)
+		}
+
+		// Add SSL cert paths if provided (for cert-based auth)
+		if sslcert := os.Getenv("DB_SSLCERT"); sslcert != "" {
+			connStr += fmt.Sprintf(" sslcert=%s", sslcert)
+		}
+		if sslkey := os.Getenv("DB_SSLKEY"); sslkey != "" {
+			connStr += fmt.Sprintf(" sslkey=%s", sslkey)
+		}
+		if sslrootcert := os.Getenv("DB_SSLROOTCERT"); sslrootcert != "" {
+			connStr += fmt.Sprintf(" sslrootcert=%s", sslrootcert)
+		}
 	}
 
 	poolCfg, err := pgxpool.ParseConfig(connStr)
