@@ -85,6 +85,39 @@ type (
 		ProcessingTimeMs int    `json:"processing_time_ms"`
 	}
 
+	// ExtractEntitiesOutput is the output from the ExtractEntities activity.
+	// This matches the activities.ExtractEntitiesOutput structure for JSON deserialization.
+	ExtractEntitiesOutput struct {
+		People               []PersonExtracted  `json:"people"`
+		Dates                []DateExtracted    `json:"dates"`
+		Projects             []string           `json:"projects"`
+		Organisations        []string           `json:"organisations"`
+		ActionItems          []ActionExtracted  `json:"action_items"`
+		Decisions            []string           `json:"decisions"`
+		Risks                []string           `json:"risks"`
+		QualityGateTriggered bool               `json:"quality_gate_triggered"`
+		ModelUsed            string             `json:"model_used"`
+	}
+
+	// PersonExtracted represents a person from entity extraction.
+	PersonExtracted struct {
+		Name string `json:"name"`
+		Role string `json:"role,omitempty"`
+	}
+
+	// DateExtracted represents a date from entity extraction.
+	DateExtracted struct {
+		Date    string `json:"date"`
+		Context string `json:"context,omitempty"`
+	}
+
+	// ActionExtracted represents an action item from entity extraction.
+	ActionExtracted struct {
+		Assignee string `json:"assignee,omitempty"`
+		Action   string `json:"action"`
+		Due      string `json:"due,omitempty"`
+	}
+
 	// ValidateContentInput is the input for the ValidateContent activity.
 	ValidateContentInput struct {
 		TenantID string `json:"tenant_id"`
@@ -378,7 +411,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 
 	// Step 4: Extract entities via LLM
 	updateStatus("extracting_entities", "ExtractEntities")
-	var entityCount int
+	var entityOutput *ExtractEntitiesOutput
 	ctx4 := workflow.WithActivityOptions(ctx, llmOpts)
 	err = workflow.ExecuteActivity(ctx4, "ExtractEntities", ExtractEntitiesInput{
 		TenantID:  input.TenantID,
@@ -386,10 +419,15 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		ContentID: input.ContentID,
 		JobID:     input.JobID,
 		Content:   fetchOutput.ContentText,
-	}).Get(ctx, &entityCount)
+	}).Get(ctx, &entityOutput)
 	if err != nil {
 		logger.Warn("Entity extraction failed, continuing", "error", err)
-	} else {
+	} else if entityOutput != nil {
+		// Count total entities extracted
+		entityCount := len(entityOutput.People) + len(entityOutput.Dates) +
+			len(entityOutput.Projects) + len(entityOutput.Organisations) +
+			len(entityOutput.ActionItems) + len(entityOutput.Decisions) +
+			len(entityOutput.Risks)
 		state.result.EntityCount = entityCount
 		logger.Debug("Entities extracted", "count", entityCount)
 	}

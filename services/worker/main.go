@@ -162,7 +162,7 @@ func main() {
 		var err error
 		aiClient, err = ai.NewClient(cfg.AIServiceAddr,
 			ai.WithInsecure(),
-			ai.WithRequestTimeout(60*time.Second),
+			ai.WithRequestTimeout(120*time.Second),
 			ai.WithMaxRetries(3),
 		)
 		if err != nil {

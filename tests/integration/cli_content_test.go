@@ -158,3 +158,104 @@ func TestCLI_ContentList_Limit(t *testing.T) {
 	require.NoError(t, err, "content list with limit should succeed. stderr: %s", stderr)
 	t.Logf("Content list with limit output: %s", stdout)
 }
+
+// =============================================================================
+// Write Command Tests (Phase 2)
+// =============================================================================
+
+// TestCLI_ContentDelete_NotFound tests error handling for non-existent content.
+func TestCLI_ContentDelete_NotFound(t *testing.T) {
+	db := SetupTestDB(t)
+	EnsureAcmeCorpFixtures(t, db)
+
+	_, stderr, err := runCLI(t, "content", "delete", "nonexistent-content-xyz789")
+
+	require.Error(t, err, "content delete for non-existent content should fail")
+	assert.True(t,
+		strings.Contains(stderr, "not found") || strings.Contains(stderr, "error") || strings.Contains(stderr, "Error"),
+		"stderr should indicate content not found: %s", stderr)
+}
+
+// TestCLI_ContentDelete_MissingConfirm tests that bulk delete requires --confirm flag.
+func TestCLI_ContentDelete_MissingConfirm(t *testing.T) {
+	db := SetupTestDB(t)
+	EnsureAcmeCorpFixtures(t, db)
+
+	_, stderr, err := runCLI(t, "content", "delete", "--status", "failed")
+
+	require.Error(t, err, "content bulk delete without --confirm should fail")
+	assert.True(t,
+		strings.Contains(stderr, "confirm") || strings.Contains(stderr, "--confirm") || strings.Contains(stderr, "required"),
+		"stderr should indicate --confirm required: %s", stderr)
+}
+
+// TestCLI_ContentUpdate_NotFound tests error handling for updating non-existent content.
+func TestCLI_ContentUpdate_NotFound(t *testing.T) {
+	db := SetupTestDB(t)
+	EnsureAcmeCorpFixtures(t, db)
+
+	_, stderr, err := runCLI(t, "content", "update", "nonexistent-content-xyz789", "--title", "New Title")
+
+	require.Error(t, err, "content update for non-existent content should fail")
+	assert.True(t,
+		strings.Contains(stderr, "not found") || strings.Contains(stderr, "error") || strings.Contains(stderr, "Error"),
+		"stderr should indicate content not found: %s", stderr)
+}
+
+// TestCLI_ContentUpdate_MissingFlags tests error handling when no update flags are provided.
+func TestCLI_ContentUpdate_MissingFlags(t *testing.T) {
+	db := SetupTestDB(t)
+	EnsureAcmeCorpFixtures(t, db)
+
+	// First get a content ID
+	type ContentListResponse struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+	}
+	result, _, err := runCLIWithJSON[ContentListResponse](t, "content", "list")
+	if err != nil {
+		t.Skip("Skipping - could not parse content list response")
+	}
+
+	if len(result.Items) == 0 {
+		t.Skip("Skipping - no content in test data")
+	}
+
+	contentID := result.Items[0].ID
+
+	_, stderr, err := runCLI(t, "content", "update", contentID)
+
+	require.Error(t, err, "content update without flags should fail")
+	assert.True(t,
+		strings.Contains(stderr, "flag") || strings.Contains(stderr, "required") || strings.Contains(stderr, "at least"),
+		"stderr should indicate missing flags: %s", stderr)
+}
+
+// TestCLI_ContentUpdate_WithContent tests updating content metadata when content exists.
+func TestCLI_ContentUpdate_WithContent(t *testing.T) {
+	db := SetupTestDB(t)
+	EnsureAcmeCorpFixtures(t, db)
+
+	// First get a content ID
+	type ContentListResponse struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+	}
+	result, _, err := runCLIWithJSON[ContentListResponse](t, "content", "list")
+	if err != nil {
+		t.Skip("Skipping - could not parse content list response")
+	}
+
+	if len(result.Items) == 0 {
+		t.Skip("Skipping - no content in test data")
+	}
+
+	contentID := result.Items[0].ID
+	newTitle := "Updated Title " + uniqueTestID()
+
+	stdout, stderr, err := runCLI(t, "content", "update", contentID, "--title", newTitle)
+	require.NoError(t, err, "content update should succeed. stderr: %s", stderr)
+	t.Logf("Content update output: %s", stdout)
+}

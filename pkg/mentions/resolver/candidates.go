@@ -61,6 +61,11 @@ func (g *CandidateGatherer) gatherForMention(
 ) ([]CandidateWithHints, error) {
 	var candidates []CandidateWithHints
 
+	// If EntityLookup is nil, return empty candidates (no matching possible)
+	if g.lookup == nil {
+		return candidates, nil
+	}
+
 	// Look up candidates based on entity type
 	var baseCandidates []mentions.Candidate
 	var err error

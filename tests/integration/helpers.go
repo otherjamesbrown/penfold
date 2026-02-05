@@ -344,3 +344,22 @@ func assertJSONArrayNotEmpty(t *testing.T, stdout string, arrayKey string) {
 	require.True(t, ok, "key %s should be an array", arrayKey)
 	assert.NotEmpty(t, arr, "array %s should not be empty", arrayKey)
 }
+
+// uniqueTestID generates a unique test identifier to avoid collisions between test runs.
+func uniqueTestID() string {
+	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+// cleanupGlossaryTerm removes a glossary term created during testing.
+// Errors are ignored since cleanup is best-effort.
+func cleanupGlossaryTerm(t *testing.T, term string) {
+	t.Helper()
+	_, _, _ = runCLI(t, "glossary", "remove", term)
+}
+
+// cleanupMeetingSeries removes a meeting series created during testing.
+// Errors are ignored since cleanup is best-effort.
+func cleanupMeetingSeries(t *testing.T, seriesID string) {
+	t.Helper()
+	_, _, _ = runCLI(t, "meeting", "series", "delete", seriesID)
+}
