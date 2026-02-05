@@ -117,7 +117,7 @@ func (p *VLLMProvider) Complete(ctx context.Context, req CompletionRequest) (*Co
 	if req.MaxTokens > 0 {
 		chatReq.MaxTokens = req.MaxTokens
 	} else {
-		chatReq.MaxTokens = 2048
+		chatReq.MaxTokens = 4096
 	}
 
 	// Marshal request
@@ -169,9 +169,10 @@ func (p *VLLMProvider) Complete(ctx context.Context, req CompletionRequest) (*Co
 
 	latency := time.Since(start)
 	return &CompletionResponse{
-		Content:   chatResp.Choices[0].Message.Content,
-		LatencyMs: int(latency.Milliseconds()),
-		Model:     chatResp.Model,
+		Content:      chatResp.Choices[0].Message.Content,
+		FinishReason: chatResp.Choices[0].FinishReason,
+		LatencyMs:    int(latency.Milliseconds()),
+		Model:        chatResp.Model,
 		TokensUsed: TokenUsage{
 			Prompt:     chatResp.Usage.PromptTokens,
 			Completion: chatResp.Usage.CompletionTokens,
@@ -200,6 +201,15 @@ func (p *VLLMProvider) CompleteStructured(ctx context.Context, req CompletionReq
 				return err // retrying a saturated server won't help
 			}
 			continue
+		}
+
+		// Check for token limit truncation before attempting JSON parse
+		if resp.FinishReason == "length" {
+			return &LLMError{
+				Code:    ErrTokenLimit,
+				Message: fmt.Sprintf("response truncated: hit max_tokens limit (%d completion tokens used)", resp.TokensUsed.Completion),
+				Details: resp.Content,
+			}
 		}
 
 		// Clean up the response - sometimes LLMs wrap JSON in markdown

@@ -109,10 +109,11 @@ func (p *AIProvider) Complete(ctx context.Context, req CompletionRequest) (*Comp
 	tokenUsage.Total = tokenUsage.Prompt + tokenUsage.Completion
 
 	return &CompletionResponse{
-		Content:    resp.GetSummary(),
-		LatencyMs:  int(latency.Milliseconds()),
-		Model:      resp.GetModelUsed(),
-		TokensUsed: tokenUsage,
+		Content:      resp.GetSummary(),
+		FinishReason: resp.GetFinishReason(),
+		LatencyMs:    int(latency.Milliseconds()),
+		Model:        resp.GetModelUsed(),
+		TokensUsed:   tokenUsage,
 	}, nil
 }
 

@@ -57,6 +57,10 @@ type CompletionResponse struct {
 
 	// Model is the actual model used (may differ from requested).
 	Model string `json:"model"`
+
+	// FinishReason indicates why the model stopped generating.
+	// "stop" = natural end, "length" = hit max_tokens limit.
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 // TokenUsage tracks token consumption.

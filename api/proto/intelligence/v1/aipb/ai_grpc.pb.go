@@ -6,9 +6,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: intelligence/v1/aipb/ai.proto
+// source: aipb/ai.proto
 
-package aiv1
+package aipb
 
 import (
 	context "context"
@@ -301,5 +301,5 @@ var AICoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "intelligence/v1/aipb/ai.proto",
+	Metadata: "aipb/ai.proto",
 }

@@ -349,6 +349,7 @@ func (b *OpenAIBackend) ChatCompletion(ctx context.Context, messages []Message, 
 		Model:        chatResp.Model,
 		InputTokens:  chatResp.Usage.PromptTokens,
 		OutputTokens: chatResp.Usage.CompletionTokens,
+		FinishReason: chatResp.Choices[0].FinishReason,
 	}, nil
 }
 

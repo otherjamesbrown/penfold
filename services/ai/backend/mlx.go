@@ -322,6 +322,7 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 		Model:        chatResp.Model,
 		InputTokens:  chatResp.Usage.PromptTokens,
 		OutputTokens: chatResp.Usage.CompletionTokens,
+		FinishReason: chatResp.Choices[0].FinishReason,
 	}, nil
 }
 

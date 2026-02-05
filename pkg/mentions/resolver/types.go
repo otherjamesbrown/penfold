@@ -228,4 +228,5 @@ const (
 	ErrParseFailure   LLMErrorCode = "parse_failure"
 	ErrInvalidSchema  LLMErrorCode = "invalid_schema"
 	ErrContentTooLong LLMErrorCode = "content_too_long"
+	ErrTokenLimit     LLMErrorCode = "token_limit"
 )

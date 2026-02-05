@@ -377,11 +377,20 @@ func (b *GeminiBackend) ChatCompletion(ctx context.Context, messages []Message, 
 		outputTokens = genResp.UsageMetadata.CandidatesTokenCount
 	}
 
+	// Normalize Gemini's finish reason to OpenAI-compatible format
+	finishReason := candidate.FinishReason
+	if finishReason == "MAX_TOKENS" {
+		finishReason = "length"
+	} else if finishReason == "STOP" {
+		finishReason = "stop"
+	}
+
 	return &CompletionResult{
 		Content:      content,
 		Model:        model,
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
+		FinishReason: finishReason,
 	}, nil
 }
 

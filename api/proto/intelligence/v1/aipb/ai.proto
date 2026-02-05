@@ -134,6 +134,10 @@ message SummaryResponse {
 
   // Token count of the generated summary.
   optional int32 output_tokens = 5;
+
+  // Why the model stopped generating: "stop" (natural), "length" (hit token limit).
+  // Empty if not reported by the backend.
+  optional string finish_reason = 6;
 }
 
 // =============================================================================

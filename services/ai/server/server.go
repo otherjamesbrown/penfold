@@ -221,6 +221,9 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 		resp.OutputTokens = &ot
 		outputTokens = result.OutputTokens
 	}
+	if result.FinishReason != "" {
+		resp.FinishReason = &result.FinishReason
+	}
 
 	// Record tracing result with prompt/completion for Langfuse visibility
 	tracing.SetLLMResult(span, tracing.LLMResult{

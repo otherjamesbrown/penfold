@@ -83,4 +83,8 @@ type CompletionResult struct {
 
 	// OutputTokens is the number of output tokens.
 	OutputTokens int
+
+	// FinishReason indicates why the model stopped generating.
+	// "stop" = natural end, "length" = hit max_tokens limit.
+	FinishReason string
 }
