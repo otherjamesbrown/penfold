@@ -26,6 +26,10 @@ import (
 // Different from E2E tests to allow both to run without conflicts.
 const IntegrationTestTenantID = "00000000-0000-0000-0000-000000000002"
 
+// DefaultTestTenantID is the database default tenant used by repositories
+// that don't explicitly specify tenant_id. This matches the schema default.
+const DefaultTestTenantID = "00000001-0000-0000-0000-000000000001"
+
 // TestDB holds the database connection for integration tests.
 type TestDB struct {
 	Pool     *pgxpool.Pool
@@ -90,8 +94,9 @@ func SetupTestDB(t *testing.T) *TestDB {
 	return testDB
 }
 
-// CleanupTestTenant deletes all data for the integration test tenant only.
-// This preserves other tenants' data in the shared database.
+// CleanupTestTenant deletes all test data from all tenant-scoped tables.
+// Deletes data for both IntegrationTestTenantID and DefaultTestTenantID.
+// This preserves production tenants' data in the shared database.
 func (db *TestDB) CleanupTestTenant(t *testing.T) {
 	t.Helper()
 
@@ -119,13 +124,19 @@ func (db *TestDB) CleanupTestTenant(t *testing.T) {
 		tables = append(tables, tableName)
 	}
 
+	// Clean both test tenants: the explicit integration test tenant and
+	// the default tenant used by repositories without explicit tenant_id.
+	tenantIDs := []string{IntegrationTestTenantID, DefaultTestTenantID}
+
 	// Delete test tenant's data from each table
 	for _, table := range tables {
-		_, err := db.Pool.Exec(ctx, fmt.Sprintf(
-			"DELETE FROM %s WHERE tenant_id = $1", table), db.TenantID)
-		if err != nil {
-			// Log but continue - some tables might have FK constraints
-			t.Logf("warning: could not clean %s: %v", table, err)
+		for _, tenantID := range tenantIDs {
+			_, err := db.Pool.Exec(ctx, fmt.Sprintf(
+				"DELETE FROM %s WHERE tenant_id = $1", table), tenantID)
+			if err != nil {
+				// Log but continue - some tables might have FK constraints
+				t.Logf("warning: could not clean %s for tenant %s: %v", table, tenantID, err)
+			}
 		}
 	}
 }
@@ -136,12 +147,18 @@ func (db *TestDB) TruncateAllTables(t *testing.T) {
 	db.CleanupTestTenant(t)
 }
 
-// CleanupTables deletes test tenant's data from specific tables.
+// CleanupTables deletes test data from specific tables.
+// Deletes data for both IntegrationTestTenantID and DefaultTestTenantID.
 // Tables that don't exist or don't have tenant_id are silently skipped.
 func (db *TestDB) CleanupTables(t *testing.T, tables ...string) {
 	t.Helper()
 
 	ctx := context.Background()
+
+	// Clean both test tenants: the explicit integration test tenant and
+	// the default tenant used by repositories without explicit tenant_id.
+	tenantIDs := []string{IntegrationTestTenantID, DefaultTestTenantID}
+
 	for _, table := range tables {
 		// Check if table has tenant_id column
 		var hasTenantID bool
@@ -160,10 +177,12 @@ func (db *TestDB) CleanupTables(t *testing.T, tables ...string) {
 			continue
 		}
 
-		_, err = db.Pool.Exec(ctx, fmt.Sprintf(
-			"DELETE FROM %s WHERE tenant_id = $1", table), db.TenantID)
-		if err != nil {
-			t.Logf("Warning: could not clean %s: %v", table, err)
+		for _, tenantID := range tenantIDs {
+			_, err = db.Pool.Exec(ctx, fmt.Sprintf(
+				"DELETE FROM %s WHERE tenant_id = $1", table), tenantID)
+			if err != nil {
+				t.Logf("Warning: could not clean %s for tenant %s: %v", table, tenantID, err)
+			}
 		}
 	}
 }
@@ -261,8 +280,14 @@ func EnsureAcmeCorpFixtures(t *testing.T, db *TestDB) {
 		// Ensure tenant exists first
 		db.EnsureTenantExists(t)
 
-		// Load fixtures using the loader
+		// Cleanup any existing test data before loading fixtures
+		// This ensures idempotency across test runs
 		loader := db.FixtureLoader()
+		if err := loader.CleanupAll(ctx); err != nil {
+			t.Logf("Warning: cleanup before fixture load: %v", err)
+		}
+
+		// Load fixtures using the loader
 		fixturesErr = loader.LoadAcmeCorp(ctx)
 		if fixturesErr == nil {
 			fixturesLoaded = true

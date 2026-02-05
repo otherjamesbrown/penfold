@@ -19,25 +19,17 @@ Based on arguments and available prerequisites:
 
 ```bash
 MODE="${ARGUMENTS:-quick}"
-
-# Check what's available
-HAS_DB=false
-HAS_LLM=false
-HAS_GEMINI=false
-
-if [ -n "$PENFOLD_DB_PASSWORD" ]; then
-    HAS_DB=true
-fi
-
-LLM_URL="${LLM_URL:-http://localhost:8080}"
-if curl -s "$LLM_URL/v1/models" > /dev/null 2>&1; then
-    HAS_LLM=true
-fi
-
-if [ -n "$GEMINI_API_KEY" ]; then
-    HAS_GEMINI=true
-fi
 ```
+
+**Run `/penf.health` to check system readiness.** This verifies:
+- PostgreSQL (dev02) - database connectivity and migrations
+- Gateway (dev02) - API endpoint health
+- AI Coordinator (dev02) - AI service availability
+- Worker (dev01) - background job processing
+- LLM Server (dev01) - model inference
+- Embedding Server (dev01) - vector embeddings
+
+Set `SYSTEM_HEALTHY=true` only if all critical services (DB, Gateway, LLM) are responding.
 
 ### Step 2: Run Tests Based on Mode
 
@@ -51,14 +43,11 @@ go test -short -json ./pkg/... 2>&1 | tee /tmp/test-unit.json
 # Unit tests
 go test -short -json ./pkg/... 2>&1 | tee /tmp/test-unit.json
 
-# Integration tests (if DB available)
-if [ "$HAS_DB" = true ]; then
+# Integration + E2E tests (if system is healthy)
+if [ "$SYSTEM_HEALTHY" = true ]; then
     export PENFOLD_DB_NAME=penfold_test_integration
     go test -tags=integration -json ./tests/integration/... 2>&1 | tee /tmp/test-integration.json
-fi
 
-# E2E tests (if DB + LLM available)
-if [ "$HAS_DB" = true ] && [ "$HAS_LLM" = true ]; then
     export PENFOLD_DB_NAME=penfold_test_e2e
     go test -tags=e2e -json -timeout 5m ./tests/e2e/... 2>&1 | tee /tmp/test-e2e.json
 fi
@@ -66,8 +55,8 @@ fi
 
 **All mode**:
 ```bash
-# Everything above plus...
-if [ "$HAS_GEMINI" = true ]; then
+# Everything above plus live tests (incurs API costs)
+if [ "$SYSTEM_HEALTHY" = true ]; then
     go test -tags=live -json -timeout 2m ./tests/live/... 2>&1 | tee /tmp/test-live.json
 fi
 ```
@@ -142,17 +131,23 @@ If a test passed on retry or has inconsistent results:
 **Overall**: 74.2%
 ```
 
-### Step 8: Prerequisites Status
+### Step 8: System Health Status
+
+Include the health check results from Step 1:
 
 ```
-### 🔧 Environment
+### 🔧 System Health
 
-| Prerequisite | Status |
-|--------------|--------|
-| Database (dev02) | ✅ Connected |
-| LLM (localhost:8080) | ✅ Available |
-| Gemini API | ⏭️ Not configured |
-| Gmail OAuth | ⏭️ Not configured |
+| Service | Host | Status |
+|---------|------|--------|
+| PostgreSQL | dev02 | ✅ / ❌ |
+| Gateway | dev02 | ✅ / ❌ |
+| AI Coordinator | dev02 | ✅ / ❌ |
+| Worker | dev01 | ✅ / ❌ |
+| LLM Server | dev01 | ✅ / ❌ |
+| Embedding Server | dev01 | ✅ / ❌ |
+
+For detailed diagnostics, run: `/penf.health`
 ```
 
 ### Step 9: Recommendations
@@ -163,16 +158,15 @@ Based on results:
 ### 📋 Recommended Actions
 
 1. **Fix Unit Test Failures** (blocking)
-   - `pkg/config`: Update DSN format test expectation
-   - `pkg/ingest/storage`: Remove deprecated Metadata field
+   - Address any failing tests before proceeding
 
 2. **Investigate E2E Timeout**
-   - Check LLM server load: `curl localhost:8080/v1/models`
+   - Check system health: `/penf.health`
    - Consider increasing timeout for LLM tests
 
 3. **Increase Coverage**
-   - `pkg/search` is below 80% target
-   - Run: `go test -coverprofile=coverage.out ./pkg/search/...`
+   - Identify packages below 80% target
+   - Run: `go test -coverprofile=coverage.out ./pkg/<package>/...`
 ```
 
 ### Step 10: Quick Commands

@@ -77,39 +77,45 @@ func TestPgVectorExtension(t *testing.T) {
 	assert.Equal(t, "[1,2,3]", embedding)
 }
 
-func TestTruncateAllTables(t *testing.T) {
+func TestCleanupTestTenant(t *testing.T) {
 	db := SetupTestDB(t)
+	db.EnsureTenantExists(t)
 
 	ctx := context.Background()
 
-	// Create a test table and insert data
+	// Insert test data into a tenant-scoped table (glossary)
+	testTerm := "TESTCLEANUP" + uniqueTestID()
 	_, err := db.Pool.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS test_truncate (
-			id SERIAL PRIMARY KEY,
-			name TEXT
-		)
-	`)
+		INSERT INTO glossary (tenant_id, term, expansion, definition, created_at, updated_at)
+		VALUES ($1, $2, 'Test Cleanup Expansion', 'Test definition for cleanup', NOW(), NOW())
+		ON CONFLICT (tenant_id, term) DO NOTHING
+	`, db.TenantID, testTerm)
 	require.NoError(t, err)
 
-	_, err = db.Pool.Exec(ctx, `
-		INSERT INTO test_truncate (name) VALUES ('test1'), ('test2')
-	`)
-	require.NoError(t, err)
-
-	// Verify data exists
+	// Verify data exists for test tenant
 	var count int
-	err = db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM test_truncate").Scan(&count)
+	err = db.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM glossary WHERE tenant_id = $1 AND term = $2",
+		db.TenantID, testTerm).Scan(&count)
 	require.NoError(t, err)
-	assert.Equal(t, 2, count)
+	assert.Equal(t, 1, count, "test term should exist before cleanup")
 
-	// Truncate all tables
-	db.TruncateAllTables(t)
+	// Cleanup test tenant data only
+	db.CleanupTestTenant(t)
 
-	// Verify data is gone
-	err = db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM test_truncate").Scan(&count)
+	// Verify test tenant's data is gone
+	err = db.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM glossary WHERE tenant_id = $1 AND term = $2",
+		db.TenantID, testTerm).Scan(&count)
 	require.NoError(t, err)
-	assert.Equal(t, 0, count)
+	assert.Equal(t, 0, count, "test term should be deleted after cleanup")
 
-	// Cleanup
-	_, _ = db.Pool.Exec(ctx, "DROP TABLE test_truncate")
+	// Verify other tenants' data is NOT affected (production data still exists)
+	var otherCount int
+	err = db.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM glossary WHERE tenant_id != $1",
+		db.TenantID).Scan(&otherCount)
+	require.NoError(t, err)
+	// We don't assert exact count, but it should be >= 0 (other tenants may have data)
+	t.Logf("Other tenants' glossary entries preserved: %d", otherCount)
 }

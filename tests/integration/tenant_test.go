@@ -13,10 +13,11 @@ import (
 
 func TestTenantRepository_Create(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "tenants")
-
 	repo := tenant.NewRepository(db.Pool)
 	ctx := context.Background()
+
+	// Use unique IDs for each test run to avoid conflicts
+	testID := uniqueTestID()
 
 	tests := []struct {
 		name    string
@@ -26,7 +27,8 @@ func TestTenantRepository_Create(t *testing.T) {
 		{
 			name: "create simple tenant",
 			input: tenant.TenantInput{
-				Name:        "Acme Corp",
+				Name:        "Acme Corp " + testID,
+				Slug:        "acme-" + testID,
 				Description: "Test tenant for Acme Corporation",
 			},
 			wantErr: false,
@@ -34,8 +36,8 @@ func TestTenantRepository_Create(t *testing.T) {
 		{
 			name: "create tenant with custom slug",
 			input: tenant.TenantInput{
-				Name:        "Beta Corp",
-				Slug:        "beta-tenant",
+				Name:        "Beta Corp " + testID,
+				Slug:        "beta-" + testID,
 				Description: "Tenant with custom slug",
 			},
 			wantErr: false,
@@ -43,7 +45,8 @@ func TestTenantRepository_Create(t *testing.T) {
 		{
 			name: "create tenant with settings",
 			input: tenant.TenantInput{
-				Name:     "Gamma Inc",
+				Name:     "Gamma Inc " + testID,
+				Slug:     "gamma-" + testID,
 				Settings: ptrStr(`{"theme": "dark", "timezone": "UTC"}`),
 			},
 			wantErr: false,
@@ -62,24 +65,33 @@ func TestTenantRepository_Create(t *testing.T) {
 			assert.Equal(t, tt.input.Name, created.Name)
 			assert.True(t, created.IsActive)
 			assert.NotEmpty(t, created.Slug)
+
+			// Cleanup after test
+			t.Cleanup(func() {
+				_ = repo.Delete(ctx, created.ID, "test cleanup")
+			})
 		})
 	}
 }
 
 func TestTenantRepository_CreateDuplicate(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "tenants")
-
 	repo := tenant.NewRepository(db.Pool)
 	ctx := context.Background()
 
-	// Create first tenant
+	testID := uniqueTestID()
+
+	// Create first tenant with unique slug
 	input := tenant.TenantInput{
 		Name: "Duplicate Test Corp",
-		Slug: "duplicate-test",
+		Slug: "dup-test-" + testID,
 	}
-	_, err := repo.Create(ctx, input)
+	created, err := repo.Create(ctx, input)
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = repo.Delete(ctx, created.ID, "test cleanup")
+	})
 
 	// Attempt to create duplicate with same slug
 	_, err = repo.Create(ctx, input)
@@ -89,18 +101,23 @@ func TestTenantRepository_CreateDuplicate(t *testing.T) {
 
 func TestTenantRepository_Get(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "tenants")
-
 	repo := tenant.NewRepository(db.Pool)
 	ctx := context.Background()
 
-	// Create a tenant
+	testID := uniqueTestID()
+
+	// Create a tenant with unique name
 	input := tenant.TenantInput{
-		Name:        "Get Test Corp",
+		Name:        "Get Test Corp " + testID,
+		Slug:        "get-test-" + testID,
 		Description: "Test tenant for get operations",
 	}
 	created, err := repo.Create(ctx, input)
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = repo.Delete(ctx, created.ID, "test cleanup")
+	})
 
 	tests := []struct {
 		name    string
@@ -136,18 +153,23 @@ func TestTenantRepository_Get(t *testing.T) {
 
 func TestTenantRepository_GetBySlug(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "tenants")
-
 	repo := tenant.NewRepository(db.Pool)
 	ctx := context.Background()
 
+	testID := uniqueTestID()
+	testSlug := "slug-test-" + testID
+
 	// Create a tenant with known slug
 	input := tenant.TenantInput{
-		Name: "Slug Test Corp",
-		Slug: "slug-test-corp",
+		Name: "Slug Test Corp " + testID,
+		Slug: testSlug,
 	}
 	created, err := repo.Create(ctx, input)
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = repo.Delete(ctx, created.ID, "test cleanup")
+	})
 
 	tests := []struct {
 		name    string
@@ -156,7 +178,7 @@ func TestTenantRepository_GetBySlug(t *testing.T) {
 	}{
 		{
 			name:    "get by valid slug",
-			slug:    "slug-test-corp",
+			slug:    testSlug,
 			wantNil: false,
 		},
 		{
@@ -175,7 +197,7 @@ func TestTenantRepository_GetBySlug(t *testing.T) {
 			} else {
 				assert.NotNil(t, result)
 				assert.Equal(t, created.ID, result.ID)
-				assert.Equal(t, "slug-test-corp", result.Slug)
+				assert.Equal(t, testSlug, result.Slug)
 			}
 		})
 	}
@@ -183,18 +205,23 @@ func TestTenantRepository_GetBySlug(t *testing.T) {
 
 func TestTenantRepository_GetByRef(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "tenants")
-
 	repo := tenant.NewRepository(db.Pool)
 	ctx := context.Background()
 
+	testID := uniqueTestID()
+	testSlug := "ref-test-" + testID
+
 	// Create a tenant
 	input := tenant.TenantInput{
-		Name: "Ref Test Corp",
-		Slug: "ref-test-corp",
+		Name: "Ref Test Corp " + testID,
+		Slug: testSlug,
 	}
 	created, err := repo.Create(ctx, input)
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = repo.Delete(ctx, created.ID, "test cleanup")
+	})
 
 	tests := []struct {
 		name    string
@@ -208,7 +235,7 @@ func TestTenantRepository_GetByRef(t *testing.T) {
 		},
 		{
 			name:    "get by slug",
-			ref:     "ref-test-corp",
+			ref:     testSlug,
 			wantNil: false,
 		},
 		{
@@ -234,23 +261,31 @@ func TestTenantRepository_GetByRef(t *testing.T) {
 
 func TestTenantRepository_List(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "tenants")
-
 	repo := tenant.NewRepository(db.Pool)
 	ctx := context.Background()
 
-	// Create multiple tenants
+	testID := uniqueTestID()
+	var createdIDs []string
+
+	// Create multiple tenants with unique names
 	tenants := []tenant.TenantInput{
-		{Name: "Alpha Corp"},
-		{Name: "Beta Corp"},
-		{Name: "Gamma Corp"},
-		{Name: "Delta Corp"},
+		{Name: "Alpha Corp " + testID, Slug: "alpha-" + testID},
+		{Name: "Beta Corp " + testID, Slug: "beta-" + testID},
+		{Name: "Gamma Corp " + testID, Slug: "gamma-" + testID},
+		{Name: "Delta Corp " + testID, Slug: "delta-" + testID},
 	}
 
 	for _, input := range tenants {
-		_, err := repo.Create(ctx, input)
+		created, err := repo.Create(ctx, input)
 		require.NoError(t, err)
+		createdIDs = append(createdIDs, created.ID)
 	}
+
+	t.Cleanup(func() {
+		for _, id := range createdIDs {
+			_ = repo.Delete(ctx, id, "test cleanup")
+		}
+	})
 
 	// Deactivate one tenant for testing
 	list, _, err := repo.List(ctx, tenant.TenantFilter{Limit: 1})
@@ -298,20 +333,25 @@ func TestTenantRepository_List(t *testing.T) {
 
 func TestTenantRepository_Update(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "tenants")
-
 	repo := tenant.NewRepository(db.Pool)
 	ctx := context.Background()
 
-	// Create a tenant
+	testID := uniqueTestID()
+
+	// Create a tenant with unique name
 	created, err := repo.Create(ctx, tenant.TenantInput{
-		Name:        "Update Test Corp",
+		Name:        "Update Test Corp " + testID,
+		Slug:        "update-test-" + testID,
 		Description: "Original description",
 	})
 	require.NoError(t, err)
 
+	t.Cleanup(func() {
+		_ = repo.Delete(ctx, created.ID, "test cleanup")
+	})
+
 	// Update the tenant
-	newName := "Updated Corp"
+	newName := "Updated Corp " + testID
 	newDesc := "Updated description"
 	updated, err := repo.Update(ctx, created.ID, tenant.TenantInput{
 		Name:        newName,
@@ -327,13 +367,11 @@ func TestTenantRepository_Update(t *testing.T) {
 
 func TestTenantRepository_UpdateNonExistent(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "tenants")
-
 	repo := tenant.NewRepository(db.Pool)
 	ctx := context.Background()
 
 	// Attempt to update non-existent tenant
-	_, err := repo.Update(ctx, "00000000-0000-0000-0000-000000000000", tenant.TenantInput{
+	_, err := repo.Update(ctx, "00000000-0000-0000-0000-999999999999", tenant.TenantInput{
 		Name: "Should Fail",
 	})
 	assert.Error(t, err)
@@ -341,14 +379,15 @@ func TestTenantRepository_UpdateNonExistent(t *testing.T) {
 
 func TestTenantRepository_Delete(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "tenants")
-
 	repo := tenant.NewRepository(db.Pool)
 	ctx := context.Background()
 
-	// Create a tenant
+	testID := uniqueTestID()
+
+	// Create a tenant with unique name
 	created, err := repo.Create(ctx, tenant.TenantInput{
-		Name: "Delete Test Corp",
+		Name: "Delete Test Corp " + testID,
+		Slug: "delete-test-" + testID,
 	})
 	require.NoError(t, err)
 
@@ -369,13 +408,11 @@ func TestTenantRepository_Delete(t *testing.T) {
 
 func TestTenantRepository_DeleteNonExistent(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "tenants")
-
 	repo := tenant.NewRepository(db.Pool)
 	ctx := context.Background()
 
 	// Attempt to delete non-existent tenant
-	err := repo.Delete(ctx, "00000000-0000-0000-0000-000000000000", "test")
+	err := repo.Delete(ctx, "00000000-0000-0000-0000-999999999999", "test")
 	assert.Error(t, err)
 }
 

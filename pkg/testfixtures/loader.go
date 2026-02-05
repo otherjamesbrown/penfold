@@ -79,6 +79,8 @@ func (l *Loader) LoadTeams(ctx context.Context) error {
 }
 
 // LoadTeamsWithoutLeads loads teams without setting lead_id (to avoid circular FK dependency).
+// Uses auto-generated IDs to avoid conflicts with production data.
+// Always call CleanupAll() before loading to ensure idempotency.
 func (l *Loader) LoadTeamsWithoutLeads(ctx context.Context) error {
 	path := filepath.Join(l.fixtureDir, "teams.yaml")
 	data, err := os.ReadFile(path)
@@ -92,15 +94,12 @@ func (l *Loader) LoadTeamsWithoutLeads(ctx context.Context) error {
 	}
 
 	for _, team := range file.Teams {
-		// Use only columns that exist in the teams table schema:
-		// id, tenant_id, name, description, created_at, updated_at
+		// Don't specify ID - let the database auto-generate it to avoid
+		// conflicts with production data (tables use global IDs, not tenant-scoped).
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO teams (id, tenant_id, name, description)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (id) DO UPDATE SET
-				name = EXCLUDED.name,
-				description = EXCLUDED.description
-		`, team.ID, l.tenantID, team.Name, team.Description)
+			INSERT INTO teams (tenant_id, name, description)
+			VALUES ($1, $2, $3)
+		`, l.tenantID, team.Name, team.Description)
 		if err != nil {
 			return fmt.Errorf("insert team %s: %w", team.Name, err)
 		}
@@ -120,6 +119,8 @@ func (l *Loader) UpdateTeamLeads(ctx context.Context) error {
 }
 
 // LoadPeople loads people from people.yaml.
+// Uses auto-generated IDs to avoid conflicts with production data.
+// Always call CleanupAll() before loading to ensure idempotency.
 func (l *Loader) LoadPeople(ctx context.Context) error {
 	path := filepath.Join(l.fixtureDir, "people.yaml")
 	data, err := os.ReadFile(path)
@@ -136,13 +137,12 @@ func (l *Loader) LoadPeople(ctx context.Context) error {
 		// Note: primary_email is a generated column (email_addresses[1]), so we
 		// insert into email_addresses instead. The email from fixture becomes the
 		// first element of the array.
+		// We don't specify ID - let the database auto-generate it to avoid
+		// conflicts with production data (tables use global IDs, not tenant-scoped).
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO people (id, tenant_id, canonical_name, email_addresses)
-			VALUES ($1, $2, $3, ARRAY[$4])
-			ON CONFLICT (id) DO UPDATE SET
-				canonical_name = EXCLUDED.canonical_name,
-				email_addresses = EXCLUDED.email_addresses
-		`, person.ID, l.tenantID, person.CanonicalName, person.Email)
+			INSERT INTO people (tenant_id, canonical_name, email_addresses)
+			VALUES ($1, $2, ARRAY[$3])
+		`, l.tenantID, person.CanonicalName, person.Email)
 		if err != nil {
 			return fmt.Errorf("insert person %s: %w", person.CanonicalName, err)
 		}
@@ -152,6 +152,8 @@ func (l *Loader) LoadPeople(ctx context.Context) error {
 }
 
 // LoadProjects loads projects from projects.yaml.
+// Uses auto-generated IDs to avoid conflicts with production data.
+// Always call CleanupAll() before loading to ensure idempotency.
 func (l *Loader) LoadProjects(ctx context.Context) error {
 	path := filepath.Join(l.fixtureDir, "projects.yaml")
 	data, err := os.ReadFile(path)
@@ -165,14 +167,12 @@ func (l *Loader) LoadProjects(ctx context.Context) error {
 	}
 
 	for _, project := range file.Projects {
-		// Use minimal columns that are guaranteed to exist
+		// Don't specify ID - let the database auto-generate it to avoid
+		// conflicts with production data (tables use global IDs, not tenant-scoped).
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO projects (id, tenant_id, name, description)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (id) DO UPDATE SET
-				name = EXCLUDED.name,
-				description = EXCLUDED.description
-		`, project.ID, l.tenantID, project.Name, project.Description)
+			INSERT INTO projects (tenant_id, name, description)
+			VALUES ($1, $2, $3)
+		`, l.tenantID, project.Name, project.Description)
 		if err != nil {
 			return fmt.Errorf("insert project %s: %w", project.Name, err)
 		}
@@ -182,6 +182,7 @@ func (l *Loader) LoadProjects(ctx context.Context) error {
 }
 
 // LoadProducts loads products from products.yaml.
+// Uses auto-generated IDs and ON CONFLICT for idempotency.
 func (l *Loader) LoadProducts(ctx context.Context) error {
 	path := filepath.Join(l.fixtureDir, "products.yaml")
 	data, err := os.ReadFile(path)
@@ -195,14 +196,14 @@ func (l *Loader) LoadProducts(ctx context.Context) error {
 	}
 
 	for _, product := range file.Products {
-		// Use minimal columns that are guaranteed to exist
+		// Use ON CONFLICT on (tenant_id, name) for idempotency.
+		// ID is auto-generated to avoid conflicts with production data.
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO products (id, tenant_id, name, description)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (id) DO UPDATE SET
-				name = EXCLUDED.name,
+			INSERT INTO products (tenant_id, name, description)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (tenant_id, name) DO UPDATE SET
 				description = EXCLUDED.description
-		`, product.ID, l.tenantID, product.Name, product.Description)
+		`, l.tenantID, product.Name, product.Description)
 		if err != nil {
 			return fmt.Errorf("insert product %s: %w", product.Name, err)
 		}
@@ -259,8 +260,8 @@ func (l *Loader) LoadGlossary(ctx context.Context) error {
 		}
 
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO glossary (term, expansion, definition, context, aliases, linked_entity_type, linked_entity_id)
-			VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
+			INSERT INTO glossary (tenant_id, term, expansion, definition, context, aliases, linked_entity_type, linked_entity_id)
+			VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8)
 			ON CONFLICT (tenant_id, term) DO UPDATE SET
 				expansion = EXCLUDED.expansion,
 				definition = EXCLUDED.definition,
@@ -268,7 +269,7 @@ func (l *Loader) LoadGlossary(ctx context.Context) error {
 				aliases = EXCLUDED.aliases,
 				linked_entity_type = EXCLUDED.linked_entity_type,
 				linked_entity_id = EXCLUDED.linked_entity_id
-		`, term.Term, expansion, definition, contextJSON, aliasesJSON, term.LinkedEntityType, term.LinkedEntityID)
+		`, l.tenantID, term.Term, expansion, definition, contextJSON, aliasesJSON, term.LinkedEntityType, term.LinkedEntityID)
 		if err != nil {
 			return fmt.Errorf("insert glossary term %s: %w", term.Term, err)
 		}

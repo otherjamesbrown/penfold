@@ -80,10 +80,9 @@ run_tests() {
         source "$HOME/github/otherjamesbrown/secrets/.env.penfold"
     fi
 
-    # Set test database for integration/e2e
-    if [[ "$test_type" == "integration" || "$test_type" == "e2e" ]]; then
-        export PENFOLD_DB_NAME="penfold_test_integration"
-    fi
+    # Integration and E2E tests use the production database with tenant isolation.
+    # Do NOT set PENFOLD_DB_NAME - let it default to 'penfold'.
+    # Tests use IntegrationTestTenantID/E2ETestTenantID to isolate test data.
 
     cd "$PROJECT_ROOT"
 

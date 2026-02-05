@@ -13,17 +13,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// setupTestTenant creates a test tenant and returns its ID
+// setupTestTenant creates or retrieves a test tenant and returns its ID.
+// Uses a unique slug per test run to avoid conflicts.
 func setupTestTenant(t *testing.T, db *TestDB) string {
 	t.Helper()
 	repo := tenant.NewRepository(db.Pool)
 	ctx := context.Background()
 
+	// Use a unique slug for this test run
+	slug := "project-test-" + uniqueTestID()
+
 	created, err := repo.Create(ctx, tenant.TenantInput{
 		Name: "Project Test Tenant",
-		Slug: "project-test-tenant",
+		Slug: slug,
 	})
 	require.NoError(t, err)
+
+	// Register cleanup to delete this tenant after test
+	t.Cleanup(func() {
+		_ = repo.Delete(ctx, created.ID, "test cleanup")
+	})
+
 	return created.ID
 }
 
