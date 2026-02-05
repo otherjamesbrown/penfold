@@ -54,6 +54,14 @@ func (m *mockWorker) RegisterNexusService(*nexus.Service) {
 	// No-op for testing
 }
 
+func (m *mockWorker) RegisterDynamicActivity(handler interface{}, opts activity.DynamicRegisterOptions) {
+	// No-op for testing
+}
+
+func (m *mockWorker) RegisterDynamicWorkflow(handler interface{}, opts workflow.DynamicRegisterOptions) {
+	// No-op for testing
+}
+
 func (m *mockWorker) Start() error {
 	return nil
 }

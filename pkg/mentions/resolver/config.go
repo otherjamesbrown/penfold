@@ -57,7 +57,7 @@ func DefaultConfig() Config {
 			Provider:                "mlx",
 			Model:                   "mistral-7b-instruct-v0.2",
 			BaseURL:                 "http://localhost:8081",
-			Timeout:                 30 * time.Second,
+			Timeout:                 120 * time.Second,
 			MaxRetries:              2,
 			EscalateOnLowConfidence: false,
 			EscalationThreshold:     0.7,
@@ -85,7 +85,7 @@ func (c *Config) Validate() error {
 		c.LLM.BaseURL = "http://localhost:8081"
 	}
 	if c.LLM.Timeout == 0 {
-		c.LLM.Timeout = 30 * time.Second
+		c.LLM.Timeout = 120 * time.Second
 	}
 	if c.LLM.MaxRetries == 0 {
 		c.LLM.MaxRetries = 2

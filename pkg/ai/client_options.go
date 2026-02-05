@@ -39,7 +39,7 @@ type ClientOption func(*ClientOptions)
 func defaultOptions() *ClientOptions {
 	return &ClientOptions{
 		connectTimeout: 10 * time.Second,
-		requestTimeout: 30 * time.Second,
+		requestTimeout: 120 * time.Second,
 		maxRetries:     3,
 		retryBackoff:   100 * time.Millisecond,
 		useTLS:         false,

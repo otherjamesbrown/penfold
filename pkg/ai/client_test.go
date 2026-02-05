@@ -511,7 +511,7 @@ func TestClientOptions(t *testing.T) {
 	t.Run("default options", func(t *testing.T) {
 		opts := defaultOptions()
 		assert.Equal(t, 10*time.Second, opts.connectTimeout)
-		assert.Equal(t, 30*time.Second, opts.requestTimeout)
+		assert.Equal(t, 120*time.Second, opts.requestTimeout)
 		assert.Equal(t, 3, opts.maxRetries)
 		assert.Equal(t, 100*time.Millisecond, opts.retryBackoff)
 		assert.False(t, opts.useTLS)

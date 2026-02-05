@@ -442,21 +442,10 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	}
 
 	// Step 5: Extract topics via LLM
-	updateStatus("extracting_topics", "ExtractTopics")
-	var topics []string
-	ctx5 := workflow.WithActivityOptions(ctx, llmOpts)
-	err = workflow.ExecuteActivity(ctx5, "ExtractTopics", ExtractTopicsInput{
-		TenantID: input.TenantID,
-		SourceID: input.SourceID,
-		JobID:    input.JobID,
-		Content:  fetchOutput.ContentText,
-	}).Get(ctx, &topics)
-	if err != nil {
-		logger.Warn("Topic extraction failed, continuing", "error", err)
-	} else {
-		state.result.ExtractedTopics = topics
-		logger.Debug("Topics extracted", "count", len(topics))
-	}
+	// TODO: ExtractTopics activity not yet implemented — skip to avoid
+	// scheduling a doomed activity that wastes concurrency slots and
+	// generates log noise (ActivityNotRegisteredError).
+	logger.Debug("Skipping topic extraction (activity not yet implemented)")
 	state.status.StepsCompleted = 6
 
 	if checkCancellation() {

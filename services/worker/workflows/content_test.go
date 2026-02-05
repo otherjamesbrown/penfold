@@ -46,9 +46,12 @@ func (m *ContentIngestionMockActivities) GenerateContentSummary(ctx context.Cont
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *ContentIngestionMockActivities) ExtractEntities(ctx context.Context, input ExtractEntitiesInput) (int, error) {
+func (m *ContentIngestionMockActivities) ExtractEntities(ctx context.Context, input ExtractEntitiesInput) (*ExtractEntitiesOutput, error) {
 	args := m.Called(ctx, input)
-	return args.Get(0).(int), args.Error(1)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ExtractEntitiesOutput), args.Error(1)
 }
 
 func (m *ContentIngestionMockActivities) ExtractTopics(ctx context.Context, input ExtractTopicsInput) ([]string, error) {
@@ -149,11 +152,13 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Success
 
 	s.activities.On("ExtractEntities", mock.Anything, mock.MatchedBy(func(input ExtractEntitiesInput) bool {
 		return input.TenantID == "tenant-123"
-	})).Return(5, nil)
+	})).Return(&ExtractEntitiesOutput{
+		People:        []PersonExtracted{{Name: "A"}, {Name: "B"}, {Name: "C"}, {Name: "D"}, {Name: "E"}},
+		ModelUsed:     "test-model",
+	}, nil)
 
-	s.activities.On("ExtractTopics", mock.Anything, mock.MatchedBy(func(input ExtractTopicsInput) bool {
-		return input.TenantID == "tenant-123"
-	})).Return([]string{"technology", "business", "innovation"}, nil)
+	// ExtractTopics not yet implemented — workflow skips it
+	s.activities.On("ExtractTopics", mock.Anything, mock.Anything).Maybe()
 
 	s.activities.On("UpdateContentStatus", mock.Anything, UpdateContentStatusInput{
 		TenantID:        "tenant-123",
@@ -185,7 +190,7 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Success
 	s.NotNil(result.SummaryID)
 	s.Equal(int64(2001), *result.SummaryID)
 	s.Equal(5, result.EntityCount)
-	s.Equal([]string{"technology", "business", "innovation"}, result.ExtractedTopics)
+	s.Nil(result.ExtractedTopics) // ExtractTopics not yet implemented
 }
 
 // TestContentIngestionWorkflow_FetchContentFails tests handling when FetchContent fails.
@@ -238,8 +243,12 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_Embeddi
 	)
 
 	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
-	s.activities.On("ExtractEntities", mock.Anything, mock.Anything).Return(3, nil)
-	s.activities.On("ExtractTopics", mock.Anything, mock.Anything).Return([]string{"topic1"}, nil)
+	s.activities.On("ExtractEntities", mock.Anything, mock.Anything).Return(&ExtractEntitiesOutput{
+		People:    []PersonExtracted{{Name: "A"}, {Name: "B"}, {Name: "C"}},
+		ModelUsed: "test-model",
+	}, nil)
+	// ExtractTopics not yet implemented — workflow skips it
+	s.activities.On("ExtractTopics", mock.Anything, mock.Anything).Maybe()
 	// Expect status to be "failed" because embedding is critical
 	s.activities.On("UpdateContentStatus", mock.Anything, UpdateContentStatusInput{
 		TenantID:        "tenant-123",
@@ -291,11 +300,10 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_AllLLMO
 		int64(0), temporal.NewApplicationError("failed", "Error"),
 	)
 	s.activities.On("ExtractEntities", mock.Anything, mock.Anything).Return(
-		0, temporal.NewApplicationError("failed", "Error"),
-	)
-	s.activities.On("ExtractTopics", mock.Anything, mock.Anything).Return(
 		nil, temporal.NewApplicationError("failed", "Error"),
 	)
+	// ExtractTopics not yet implemented — workflow skips it
+	s.activities.On("ExtractTopics", mock.Anything, mock.Anything).Maybe()
 	// Expect "failed" status because embedding failed
 	s.activities.On("UpdateContentStatus", mock.Anything, UpdateContentStatusInput{
 		TenantID:        "tenant-123",
@@ -341,8 +349,12 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_QuerySt
 	}, nil)
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(100), nil)
 	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
-	s.activities.On("ExtractEntities", mock.Anything, mock.Anything).Return(2, nil)
-	s.activities.On("ExtractTopics", mock.Anything, mock.Anything).Return([]string{"topic"}, nil)
+	s.activities.On("ExtractEntities", mock.Anything, mock.Anything).Return(&ExtractEntitiesOutput{
+		People:    []PersonExtracted{{Name: "A"}, {Name: "B"}},
+		ModelUsed: "test-model",
+	}, nil)
+	// ExtractTopics not yet implemented — workflow skips it
+	s.activities.On("ExtractTopics", mock.Anything, mock.Anything).Maybe()
 	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
 
 	// Act
@@ -448,8 +460,8 @@ func TestContentIngestionWorkflow_EmptyContent(t *testing.T) {
 
 	env.OnActivity("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(100), nil)
 	env.OnActivity("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
-	env.OnActivity("ExtractEntities", mock.Anything, mock.Anything).Return(0, nil)
-	env.OnActivity("ExtractTopics", mock.Anything, mock.Anything).Return([]string{}, nil)
+	env.OnActivity("ExtractEntities", mock.Anything, mock.Anything).Return(&ExtractEntitiesOutput{}, nil)
+	env.OnActivity("ExtractTopics", mock.Anything, mock.Anything).Maybe()
 	env.OnActivity("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
 
 	env.ExecuteWorkflow(ContentIngestionWorkflow, pkgtemporal.ContentIngestionInput{
@@ -495,8 +507,8 @@ func TestContentIngestionWorkflow_LargeContent(t *testing.T) {
 	})).Return(int64(100), nil)
 
 	env.OnActivity("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
-	env.OnActivity("ExtractEntities", mock.Anything, mock.Anything).Return(10, nil)
-	env.OnActivity("ExtractTopics", mock.Anything, mock.Anything).Return([]string{"topic1", "topic2"}, nil)
+	env.OnActivity("ExtractEntities", mock.Anything, mock.Anything).Return(&ExtractEntitiesOutput{}, nil)
+	env.OnActivity("ExtractTopics", mock.Anything, mock.Anything).Maybe()
 	env.OnActivity("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
 
 	env.ExecuteWorkflow(ContentIngestionWorkflow, pkgtemporal.ContentIngestionInput{
@@ -536,8 +548,8 @@ func TestContentIngestionWorkflow_RetryBehavior(t *testing.T) {
 
 	env.OnActivity("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(100), nil)
 	env.OnActivity("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
-	env.OnActivity("ExtractEntities", mock.Anything, mock.Anything).Return(1, nil)
-	env.OnActivity("ExtractTopics", mock.Anything, mock.Anything).Return([]string{"retry"}, nil)
+	env.OnActivity("ExtractEntities", mock.Anything, mock.Anything).Return(&ExtractEntitiesOutput{}, nil)
+	env.OnActivity("ExtractTopics", mock.Anything, mock.Anything).Maybe()
 	env.OnActivity("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
 
 	env.ExecuteWorkflow(ContentIngestionWorkflow, pkgtemporal.ContentIngestionInput{
