@@ -216,17 +216,18 @@ func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, erro
 	var terms []*Term
 	for rows.Next() {
 		var term Term
-		var createdBy sql.NullString
+		var definition, source, createdBy sql.NullString
+		var contextRaw, aliasesRaw []byte
 		err := rows.Scan(
 			&term.ID,
 			&term.TenantID,
 			&term.Term,
 			&term.Expansion,
-			&term.Definition,
-			&term.Context,
-			&term.Aliases,
+			&definition,
+			&contextRaw,
+			&aliasesRaw,
 			&term.ExpandInSearch,
-			&term.Source,
+			&source,
 			&term.CreatedAt,
 			&term.UpdatedAt,
 			&createdBy,
@@ -236,8 +237,38 @@ func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, erro
 		if err != nil {
 			return nil, fmt.Errorf("scan glossary term: %w", err)
 		}
+		if definition.Valid {
+			term.Definition = definition.String
+		}
+		if source.Valid {
+			term.Source = source.String
+		}
 		if createdBy.Valid {
 			term.CreatedBy = &createdBy.String
+		}
+		// Handle context - can be array, string, or null
+		if len(contextRaw) > 0 {
+			if contextRaw[0] == '[' {
+				json.Unmarshal(contextRaw, &term.Context)
+			} else if contextRaw[0] == '"' {
+				var singleContext string
+				json.Unmarshal(contextRaw, &singleContext)
+				if singleContext != "" {
+					term.Context = []string{singleContext}
+				}
+			}
+		}
+		// Handle aliases similarly
+		if len(aliasesRaw) > 0 {
+			if aliasesRaw[0] == '[' {
+				json.Unmarshal(aliasesRaw, &term.Aliases)
+			} else if aliasesRaw[0] == '"' {
+				var singleAlias string
+				json.Unmarshal(aliasesRaw, &singleAlias)
+				if singleAlias != "" {
+					term.Aliases = []string{singleAlias}
+				}
+			}
 		}
 		terms = append(terms, &term)
 	}
