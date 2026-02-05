@@ -10,13 +10,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
-	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 )
 
@@ -377,38 +373,6 @@ func parseEntityID(s string) (int64, error) {
 	return id, nil
 }
 
-// connectToGateway creates a gRPC connection to the gateway service.
-func connectToGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
-	defer cancel()
-
-	opts := []grpc.DialOption{
-		grpc.WithBlock(),
-	}
-
-	if cfg.Insecure {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	} else if cfg.TLS.Enabled {
-		tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
-		if err != nil {
-			return nil, fmt.Errorf("loading TLS config: %w", err)
-		}
-		if tlsConfig != nil {
-			opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
-		} else {
-			opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		}
-	} else {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	}
-
-	conn, err := grpc.DialContext(ctx, cfg.ServerAddress, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to gateway at %s: %w", cfg.ServerAddress, err)
-	}
-
-	return conn, nil
-}
 
 // Command execution functions
 

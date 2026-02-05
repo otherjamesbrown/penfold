@@ -116,7 +116,11 @@ type ImplicitActionOutput struct {
 // DeepAnalyze performs Stage 4 deep analysis using a remote LLM.
 // Takes pre-processed input from pipeline stages and calls the DeepAnalyze RPC.
 func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input DeepAnalyzeInput) (*DeepAnalyzeOutput, error) {
-	logger := a.logger.With(
+	// Set trace_id in context for log correlation
+	if input.ContentID != "" {
+		ctx = context.WithValue(ctx, logging.TraceIDKey, input.ContentID)
+	}
+	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "DeepAnalyze"),
 		logging.F("tenant_id", input.TenantID),
 		logging.F("source_id", input.SourceID),

@@ -45,7 +45,11 @@ func NewExtractionActivities(
 // ExtractAssertions extracts assertions from the given content using an LLM.
 // Assertions are subject-predicate-object triples representing facts and claims.
 func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input workflows.ExtractAssertionsInput) (int, error) {
-	logger := a.logger.With(
+	// Set trace_id in context for log correlation
+	if input.ContentID != "" {
+		ctx = context.WithValue(ctx, logging.TraceIDKey, input.ContentID)
+	}
+	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "ExtractAssertions"),
 		logging.F("tenant_id", input.TenantID),
 		logging.F("source_id", input.SourceID),
@@ -244,7 +248,11 @@ type ExtractedEntity struct {
 // For content under 6K chars, makes a single RPC call.
 // For content over 6K chars, splits into chunks, calls RPC for each, and merges results.
 func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input ExtractEntitiesInput) (*ExtractEntitiesOutput, error) {
-	logger := a.logger.With(
+	// Set trace_id in context for log correlation
+	if input.ContentID != "" {
+		ctx = context.WithValue(ctx, logging.TraceIDKey, input.ContentID)
+	}
+	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "ExtractEntities"),
 		logging.F("tenant_id", input.TenantID),
 		logging.F("source_id", input.SourceID),

@@ -712,3 +712,31 @@ func (r *Repository) CreateRun(ctx context.Context, input PipelineRunInput) erro
 	`, input.SourceID, input.Stage, input.ModelID, input.PromptVersion, input.ConfigHash, input.Status, input.DurationMS)
 	return err
 }
+
+// CountSummaries returns the count of content items with summaries.
+func (r *Repository) CountSummaries(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM content_insights
+		WHERE insight_type = 'summary'
+	`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting summaries: %w", err)
+	}
+	return count, nil
+}
+
+// CountExtracted returns the count of unique sources with extracted assertions.
+func (r *Repository) CountExtracted(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT source_id)
+		FROM assertions
+		WHERE is_deleted = false
+	`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting extracted sources: %w", err)
+	}
+	return count, nil
+}

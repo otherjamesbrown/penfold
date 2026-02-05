@@ -36,7 +36,11 @@ func NewEmbeddingActivities(logger logging.Logger, aiClient AIClient, embeddingR
 // GenerateEmbedding generates a vector embedding for the given content.
 // This activity calls the AI service to create embeddings and stores them in the database.
 func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workflows.GenerateEmbeddingInput) (int64, error) {
-	logger := a.logger.With(
+	// Set trace_id in context for log correlation
+	if input.ContentID != "" {
+		ctx = context.WithValue(ctx, logging.TraceIDKey, input.ContentID)
+	}
+	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "GenerateEmbedding"),
 		logging.F("tenant_id", input.TenantID),
 		logging.F("source_id", input.SourceID),
@@ -196,7 +200,11 @@ type EmbeddingResult struct {
 // GenerateEmbeddingBatch generates embeddings for multiple content items in a single activity.
 // This reduces overhead for batch processing workflows.
 func (a *EmbeddingActivities) GenerateEmbeddingBatch(ctx context.Context, input GenerateEmbeddingBatchInput) (*GenerateEmbeddingBatchOutput, error) {
-	logger := a.logger.With(
+	// Set trace_id in context for log correlation (for batch operations)
+	if input.ContentID != "" {
+		ctx = context.WithValue(ctx, logging.TraceIDKey, input.ContentID)
+	}
+	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "GenerateEmbeddingBatch"),
 		logging.F("tenant_id", input.TenantID),
 		logging.F("batch_size", len(input.Items)),

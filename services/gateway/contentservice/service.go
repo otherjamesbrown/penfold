@@ -1006,6 +1006,26 @@ func (s *Service) GetContentStats(ctx context.Context, req *contentv1.GetContent
 		return nil, status.Errorf(codes.Internal, "failed to get content stats: %v", err)
 	}
 
+	// Get summary count
+	summarizedCount, err := s.pipelineRepo.CountSummaries(ctx)
+	if err != nil {
+		s.logger.Error("Failed to count summaries",
+			logging.Err(err),
+			logging.F("tenant_id", req.TenantId),
+		)
+		summarizedCount = 0
+	}
+
+	// Get extraction count
+	extractedCount, err := s.pipelineRepo.CountExtracted(ctx)
+	if err != nil {
+		s.logger.Error("Failed to count extracted sources",
+			logging.Err(err),
+			logging.F("tenant_id", req.TenantId),
+		)
+		extractedCount = 0
+	}
+
 	return &contentv1.ContentStats{
 		TenantId:          req.TenantId,
 		TotalCount:        stats.TotalCount,
@@ -1013,8 +1033,8 @@ func (s *Service) GetContentStats(ctx context.Context, req *contentv1.GetContent
 		CountByState:      stats.CountByStatus,
 		TotalStorageBytes: stats.TotalStorageBytes,
 		EmbeddedCount:     stats.EmbeddedCount,
-		SummarizedCount:   0, // Not tracked yet
-		ExtractedCount:    0, // Not tracked yet
+		SummarizedCount:   summarizedCount,
+		ExtractedCount:    extractedCount,
 	}, nil
 }
 

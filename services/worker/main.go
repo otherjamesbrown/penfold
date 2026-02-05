@@ -111,6 +111,23 @@ func main() {
 			os.Exit(1)
 		}
 		logger.Info("Connected to database")
+
+		// Initialize DB log sink for async log persistence.
+		logsRepo := logs.NewRepository(dbPool)
+		logWriter := &logWriterAdapter{repo: logsRepo}
+		dbSink := logging.NewDBSink(logging.DBSinkConfig{
+			Writer:        logWriter,
+			BufferSize:    1000,
+			BatchSize:     100,
+			FlushInterval: 2 * time.Second,
+		})
+		defer dbSink.Close()
+
+		// Recreate logger with DB sink attached.
+		logCfg.Sinks = []logging.Sink{dbSink}
+		logger = logging.NewLogger(logCfg)
+		logging.SetGlobal(logger)
+		logger.Info("DB log sink initialized")
 	} else {
 		logger.Warn("DATABASE_URL not configured - activities requiring database will fail")
 	}
@@ -214,13 +231,29 @@ func main() {
 		activityRegistrar.WithEmbeddingActivities(embeddingActivities)
 		logger.Info("Embedding activities initialized with AI client")
 
+		// Create summary repository if database is available
+		var summaryRepo activities.SummaryRepository
+		if dbPool != nil {
+			summaryRepo = activities.NewPostgresSummaryRepository(dbPool, logger)
+			logger.Info("Summary repository initialized with database connection")
+		}
+
 		// Create summarization activities
-		summarizationActivities := activities.NewSummarizationActivities(logger, aiClient, nil)
+		summarizationActivities := activities.NewSummarizationActivities(logger, aiClient, summaryRepo)
 		activityRegistrar.WithSummarizationActivities(summarizationActivities)
 		logger.Info("Summarization activities initialized with AI client")
 
+		// Create assertion and entity repositories if database is available
+		var assertionRepo activities.AssertionRepository
+		var entityRepo activities.EntityRepository
+		if dbPool != nil {
+			assertionRepo = activities.NewPostgresAssertionRepository(dbPool, logger)
+			entityRepo = activities.NewPostgresEntityRepository(dbPool, logger)
+			logger.Info("Assertion and entity repositories initialized with database connection")
+		}
+
 		// Create extraction activities
-		extractionActivities := activities.NewExtractionActivities(logger, aiClient, nil, nil, pipelineRepo)
+		extractionActivities := activities.NewExtractionActivities(logger, aiClient, assertionRepo, entityRepo, pipelineRepo)
 		activityRegistrar.WithExtractionActivities(extractionActivities)
 		logger.Info("Extraction activities initialized with AI client")
 	}

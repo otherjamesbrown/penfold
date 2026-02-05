@@ -1010,7 +1010,9 @@ func runPipelineWorkers(ctx context.Context, deps *PipelineCommandDeps, tenant s
 		PageSize: 100, // Get more workers
 	}
 
-	result, err := grpcClient.ListWorkflows(ctx, filter)
+	rpcCtx, rpcCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer rpcCancel()
+	result, err := grpcClient.ListWorkflows(rpcCtx, filter)
 	if err != nil {
 		return fmt.Errorf("listing workflows: %w", err)
 	}
@@ -1335,7 +1337,9 @@ func runPipelineQueue(ctx context.Context, deps *PipelineCommandDeps, stage stri
 	defer grpcClient.Close()
 
 	// Get queue status
-	resp, err := grpcClient.GetQueueStatus(ctx, stage)
+	rpcCtx, rpcCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer rpcCancel()
+	resp, err := grpcClient.GetQueueStatus(rpcCtx, stage)
 	if err != nil {
 		return fmt.Errorf("getting queue status: %w", err)
 	}
@@ -1514,7 +1518,9 @@ func runPipelineHealth(ctx context.Context, deps *PipelineCommandDeps, watch boo
 	}
 
 	// One-time health check
-	resp, err := grpcClient.GetPipelineHealth(ctx)
+	rpcCtx, rpcCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer rpcCancel()
+	resp, err := grpcClient.GetPipelineHealth(rpcCtx)
 	if err != nil {
 		return fmt.Errorf("getting pipeline health: %w", err)
 	}
@@ -1529,7 +1535,9 @@ func runPipelineHealth(ctx context.Context, deps *PipelineCommandDeps, watch boo
 }
 
 func fetchAndDisplayHealth(ctx context.Context, grpcClient *client.GRPCClient) error {
-	resp, err := grpcClient.GetPipelineHealth(ctx)
+	rpcCtx, rpcCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer rpcCancel()
+	resp, err := grpcClient.GetPipelineHealth(rpcCtx)
 	if err != nil {
 		return fmt.Errorf("getting pipeline health: %w", err)
 	}

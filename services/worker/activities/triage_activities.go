@@ -58,7 +58,11 @@ type TriageOutput struct {
 // Triage performs Stage 1 content triage using an SLM.
 // Classifies content into categories and importance levels.
 func (a *TriageActivities) Triage(ctx context.Context, input TriageInput) (*TriageOutput, error) {
-	logger := a.logger.With(
+	// Set trace_id in context for log correlation
+	if input.ContentID != "" {
+		ctx = context.WithValue(ctx, logging.TraceIDKey, input.ContentID)
+	}
+	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "Triage"),
 		logging.F("tenant_id", input.TenantID),
 		logging.F("source_id", input.SourceID),

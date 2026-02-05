@@ -5,6 +5,7 @@ package logging
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"time"
@@ -47,6 +48,9 @@ type Config struct {
 
 	// Output sets the writer for logs (defaults to os.Stdout).
 	Output io.Writer
+
+	// Sinks are optional log sinks for async persistence.
+	Sinks []Sink
 }
 
 // DefaultConfig returns a Config with sensible defaults for development.
@@ -105,6 +109,8 @@ type logger struct {
 	zl          zerolog.Logger
 	serviceName string
 	environment string
+	sinks       []Sink
+	tenantID    string // Optional tenant context
 }
 
 // NewLogger creates a new Logger with the given configuration.
@@ -151,6 +157,7 @@ func NewLogger(cfg *Config) Logger {
 		zl:          zl,
 		serviceName: cfg.ServiceName,
 		environment: cfg.Environment,
+		sinks:       cfg.Sinks,
 	}
 }
 
@@ -181,6 +188,9 @@ func (l *logger) Debug(msg string, fields ...Field) {
 	event := l.zl.Debug()
 	event = addFields(event, fields)
 	event.Msg(msg)
+
+	// Send to sinks
+	l.sendToSinks("debug", msg, fields)
 }
 
 // Info logs an info message.
@@ -188,6 +198,9 @@ func (l *logger) Info(msg string, fields ...Field) {
 	event := l.zl.Info()
 	event = addFields(event, fields)
 	event.Msg(msg)
+
+	// Send to sinks
+	l.sendToSinks("info", msg, fields)
 }
 
 // Warn logs a warning message.
@@ -195,6 +208,9 @@ func (l *logger) Warn(msg string, fields ...Field) {
 	event := l.zl.Warn()
 	event = addFields(event, fields)
 	event.Msg(msg)
+
+	// Send to sinks
+	l.sendToSinks("warn", msg, fields)
 }
 
 // Error logs an error message.
@@ -202,6 +218,9 @@ func (l *logger) Error(msg string, fields ...Field) {
 	event := l.zl.Error()
 	event = addFields(event, fields)
 	event.Msg(msg)
+
+	// Send to sinks
+	l.sendToSinks("error", msg, fields)
 }
 
 // With returns a new logger with additional fields.
@@ -214,6 +233,8 @@ func (l *logger) With(fields ...Field) Logger {
 		zl:          ctx.Logger(),
 		serviceName: l.serviceName,
 		environment: l.environment,
+		sinks:       l.sinks,
+		tenantID:    l.tenantID,
 	}
 }
 
@@ -235,6 +256,8 @@ func (l *logger) WithContext(ctx context.Context) Logger {
 		zl:          newLogger.Logger(),
 		serviceName: l.serviceName,
 		environment: l.environment,
+		sinks:       l.sinks,
+		tenantID:    l.tenantID,
 	}
 }
 
@@ -286,6 +309,47 @@ func addFieldToContext(ctx zerolog.Context, f Field) zerolog.Context {
 		return ctx.Time(f.Key, v)
 	default:
 		return ctx.Interface(f.Key, v)
+	}
+}
+
+// sendToSinks sends a log entry to all configured sinks.
+func (l *logger) sendToSinks(level, msg string, fields []Field) {
+	if len(l.sinks) == 0 {
+		return
+	}
+
+	// Convert fields to map[string]string
+	fieldMap := make(map[string]string)
+	var traceID string
+	for _, f := range fields {
+		if f.Key == "trace_id" {
+			if tid, ok := f.Value.(string); ok {
+				traceID = tid
+			}
+		}
+		// Convert all field values to strings for storage
+		fieldMap[f.Key] = fmt.Sprint(f.Value)
+	}
+
+	// Extract trace_id from zerolog context if not in fields
+	if traceID == "" {
+		// Try to extract from zerolog context - this is best-effort
+		// The zerolog.Logger doesn't expose context values, so we rely on fields
+	}
+
+	entry := LogEntry{
+		TenantID:  l.tenantID,
+		Timestamp: time.Now(),
+		Level:     level,
+		Service:   l.serviceName,
+		Message:   msg,
+		Fields:    fieldMap,
+		TraceID:   traceID,
+		Caller:    getCaller(3), // Skip sendToSinks, Debug/Info/Warn/Error, and the actual caller
+	}
+
+	for _, sink := range l.sinks {
+		sink.Write(entry)
 	}
 }
 

@@ -731,7 +731,9 @@ func runReviewQueue(ctx context.Context, deps *ReviewCommandDeps) error {
 		req.Priorities = []reviewv1.Priority{protoPriority}
 	}
 
-	resp, err := client.ListReviewItems(ctx, req)
+	rpcCtx, rpcCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer rpcCancel()
+	resp, err := client.ListReviewItems(rpcCtx, req)
 	if err != nil {
 		return fmt.Errorf("listing review items: %w", err)
 	}

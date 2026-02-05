@@ -12,10 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
-	"github.com/otherjamesbrown/penfold/pkg/db"
-	"github.com/otherjamesbrown/penfold/pkg/mentions/audit"
-	"github.com/otherjamesbrown/penfold/pkg/mentions/resolver"
 )
 
 // Audit command flags
@@ -186,42 +184,30 @@ Examples:
 
 // runAuditTraces lists resolution traces.
 func runAuditTraces(ctx context.Context, deps *AuditCommandDeps) error {
-	_, err := deps.LoadConfig()
+	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	dbCfg := db.ConfigFromEnv()
-	pool, err := db.Connect(ctx, dbCfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connect to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := audit.NewPostgresRepository(pool)
+	auditClient := client.NewAuditClient(conn)
 
-	filter := audit.TraceFilter{
-		TenantID:       getTenantID(),
-		Limit:          auditLimit,
-		HadCorrections: auditHadCorrections,
-	}
-
-	if auditContentID > 0 {
-		filter.ContentID = &auditContentID
-	}
-	if auditContentType != "" {
-		filter.ContentType = auditContentType
-	}
+	var since *time.Time
 	if auditSince != "" {
-		since, err := parseDuration(auditSince)
+		duration, err := parseDuration(auditSince)
 		if err != nil {
 			return fmt.Errorf("invalid duration: %w", err)
 		}
-		t := time.Now().Add(-since)
-		filter.Since = &t
+		t := time.Now().Add(-duration)
+		since = &t
 	}
 
-	traces, err := repo.ListTraces(ctx, filter)
+	traces, _, err := auditClient.ListTraces(ctx, getTenantID(), auditContentID, auditContentType, since, auditHadCorrections, int32(auditLimit), 0)
 	if err != nil {
 		return fmt.Errorf("list traces: %w", err)
 	}
@@ -243,21 +229,20 @@ func runAuditTraces(ctx context.Context, deps *AuditCommandDeps) error {
 
 // runAuditTrace shows details of a specific trace.
 func runAuditTrace(ctx context.Context, deps *AuditCommandDeps, traceID string) error {
-	_, err := deps.LoadConfig()
+	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	dbCfg := db.ConfigFromEnv()
-	pool, err := db.Connect(ctx, dbCfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connect to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := audit.NewPostgresRepository(pool)
+	auditClient := client.NewAuditClient(conn)
 
-	detail, err := repo.GetTraceDetail(ctx, traceID, auditShowLLMCalls)
+	detail, err := auditClient.GetTrace(ctx, traceID, auditShowLLMCalls)
 	if err != nil {
 		return fmt.Errorf("get trace: %w", err)
 	}
@@ -274,35 +259,30 @@ func runAuditTrace(ctx context.Context, deps *AuditCommandDeps, traceID string) 
 
 // runAuditCorrections lists corrections.
 func runAuditCorrections(ctx context.Context, deps *AuditCommandDeps) error {
-	_, err := deps.LoadConfig()
+	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	dbCfg := db.ConfigFromEnv()
-	pool, err := db.Connect(ctx, dbCfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connect to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := audit.NewPostgresRepository(pool)
+	auditClient := client.NewAuditClient(conn)
 
-	filter := audit.TraceFilter{
-		TenantID: getTenantID(),
-		Limit:    auditLimit,
-	}
-
+	var since *time.Time
 	if auditSince != "" {
-		since, err := parseDuration(auditSince)
+		duration, err := parseDuration(auditSince)
 		if err != nil {
 			return fmt.Errorf("invalid duration: %w", err)
 		}
-		t := time.Now().Add(-since)
-		filter.Since = &t
+		t := time.Now().Add(-duration)
+		since = &t
 	}
 
-	corrections, err := repo.GetCorrections(ctx, filter)
+	corrections, _, err := auditClient.ListCorrections(ctx, getTenantID(), since, int32(auditLimit), 0)
 	if err != nil {
 		return fmt.Errorf("get corrections: %w", err)
 	}
@@ -323,7 +303,7 @@ func runAuditCorrections(ctx context.Context, deps *AuditCommandDeps) error {
 }
 
 // outputTracesTable outputs traces as a table.
-func outputTracesTable(traces []audit.TraceSummary) error {
+func outputTracesTable(traces []client.TraceSummary) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tCONTENT\tSTATUS\tMENTIONS\tRESULT\tMODEL\tDURATION\tSTARTED")
 	fmt.Fprintln(w, "--\t-------\t------\t--------\t------\t-----\t--------\t-------")
@@ -357,7 +337,7 @@ func outputTracesTable(traces []audit.TraceSummary) error {
 }
 
 // outputTraceDetail outputs trace detail.
-func outputTraceDetail(detail *audit.TraceDetail, stageFilter int, showDecisions, showLLMCalls bool) error {
+func outputTraceDetail(detail *client.TraceDetail, stageFilter int, showDecisions, showLLMCalls bool) error {
 	t := detail.Trace
 
 	fmt.Printf("Trace: %s\n", t.ID)
@@ -370,24 +350,24 @@ func outputTraceDetail(detail *audit.TraceDetail, stageFilter int, showDecisions
 	fmt.Printf("Status: %s\n", t.Status)
 	fmt.Printf("Duration: %dms\n", t.DurationMs)
 	fmt.Printf("Outcome: %d auto-resolved, %d queued for review\n", t.AutoResolved, t.QueuedForReview)
-	if t.NewEntitiesSuggested > 0 {
-		fmt.Printf("New entities suggested: %d\n", t.NewEntitiesSuggested)
+	if detail.NewEntitiesSuggested > 0 {
+		fmt.Printf("New entities suggested: %d\n", detail.NewEntitiesSuggested)
 	}
 	fmt.Println()
 
 	// Show stages
 	fmt.Println("Stages:")
 	for _, s := range detail.Stages {
-		if stageFilter > 0 && s.StageNumber != stageFilter {
+		if stageFilter > 0 && s.StageNumber != int32(stageFilter) {
 			continue
 		}
 
 		statusIcon := "✓"
-		if s.Status == resolver.StageStatusFailed {
+		if s.Status == "failed" {
 			statusIcon = "✗"
-		} else if s.Status == resolver.StageStatusSkipped {
+		} else if s.Status == "skipped" {
 			statusIcon = "○"
-		} else if s.Status == resolver.StageStatusInProgress {
+		} else if s.Status == "in_progress" {
 			statusIcon = "◐"
 		}
 
@@ -408,7 +388,11 @@ func outputTraceDetail(detail *audit.TraceDetail, stageFilter int, showDecisions
 		fmt.Println()
 		fmt.Println("Decisions:")
 		for i, d := range detail.Decisions {
-			fmt.Printf("\n#%d [Stage %d] %s \"%s\"", i+1, *d.StageID, strings.ToUpper(string(d.DecisionType)), d.MentionedText)
+			stageIDStr := "unknown"
+			if d.StageID != nil {
+				stageIDStr = fmt.Sprintf("%d", *d.StageID)
+			}
+			fmt.Printf("\n#%d [Stage %s] %s \"%s\"", i+1, stageIDStr, strings.ToUpper(d.DecisionType), d.MentionedText)
 			if d.ChosenOption != "" {
 				fmt.Printf(" → %s", d.ChosenOption)
 			}
@@ -444,7 +428,7 @@ func outputTraceDetail(detail *audit.TraceDetail, stageFilter int, showDecisions
 }
 
 // outputCorrectionsTable outputs corrections as a table.
-func outputCorrectionsTable(corrections []audit.Decision) error {
+func outputCorrectionsTable(corrections []client.Decision) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "TRACE\tMENTION\tDECISION\tCHOSEN\tCONF\tNOTE")
 	fmt.Fprintln(w, "-----\t-------\t--------\t------\t----\t----")
@@ -454,8 +438,12 @@ func outputCorrectionsTable(corrections []audit.Decision) error {
 		if len(note) > 40 {
 			note = note[:40] + "..."
 		}
+		traceIDShort := c.TraceID
+		if len(traceIDShort) > 12 {
+			traceIDShort = traceIDShort[:12] + "..."
+		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%.2f\t%s\n",
-			c.TraceID[:12]+"...", c.MentionedText, c.DecisionType, c.ChosenOption, c.Confidence, note)
+			traceIDShort, c.MentionedText, c.DecisionType, c.ChosenOption, c.Confidence, note)
 	}
 
 	return w.Flush()
@@ -662,35 +650,30 @@ Examples:
 
 // runAuditComparisonsList lists model comparisons.
 func runAuditComparisonsList(ctx context.Context, deps *AuditCommandDeps) error {
-	_, err := deps.LoadConfig()
+	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	dbCfg := db.ConfigFromEnv()
-	pool, err := db.Connect(ctx, dbCfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connect to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := audit.NewPostgresRepository(pool)
+	auditClient := client.NewAuditClient(conn)
 
-	filter := audit.ComparisonFilter{
-		TenantID: getTenantID(),
-		Limit:    auditLimit,
-	}
-
+	var since *time.Time
 	if auditSince != "" {
-		since, err := parseDuration(auditSince)
+		duration, err := parseDuration(auditSince)
 		if err != nil {
 			return fmt.Errorf("invalid duration: %w", err)
 		}
-		t := time.Now().Add(-since)
-		filter.Since = &t
+		t := time.Now().Add(-duration)
+		since = &t
 	}
 
-	comparisons, err := repo.ListComparisons(ctx, filter)
+	comparisons, _, err := auditClient.ListComparisons(ctx, getTenantID(), since, int32(auditLimit), 0)
 	if err != nil {
 		return fmt.Errorf("list comparisons: %w", err)
 	}
@@ -712,21 +695,20 @@ func runAuditComparisonsList(ctx context.Context, deps *AuditCommandDeps) error 
 
 // runAuditComparisonShow shows details of a specific comparison.
 func runAuditComparisonShow(ctx context.Context, deps *AuditCommandDeps, comparisonID string) error {
-	_, err := deps.LoadConfig()
+	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	dbCfg := db.ConfigFromEnv()
-	pool, err := db.Connect(ctx, dbCfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connect to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := audit.NewPostgresRepository(pool)
+	auditClient := client.NewAuditClient(conn)
 
-	detail, err := repo.GetComparisonDetail(ctx, comparisonID)
+	detail, err := auditClient.GetComparison(ctx, comparisonID)
 	if err != nil {
 		return fmt.Errorf("get comparison: %w", err)
 	}
@@ -743,21 +725,20 @@ func runAuditComparisonShow(ctx context.Context, deps *AuditCommandDeps, compari
 
 // runAuditModelsStats shows model statistics.
 func runAuditModelsStats(ctx context.Context, deps *AuditCommandDeps) error {
-	_, err := deps.LoadConfig()
+	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	dbCfg := db.ConfigFromEnv()
-	pool, err := db.Connect(ctx, dbCfg)
+	conn, err := connectToGateway(cfg)
 	if err != nil {
-		return fmt.Errorf("connect to database: %w", err)
+		return err
 	}
-	defer pool.Close()
+	defer conn.Close()
 
-	repo := audit.NewPostgresRepository(pool)
+	auditClient := client.NewAuditClient(conn)
 
-	stats, err := repo.GetModelStats(ctx, getTenantID(), auditDaysSince)
+	stats, err := auditClient.GetModelStats(ctx, getTenantID(), int32(auditDaysSince))
 	if err != nil {
 		return fmt.Errorf("get model stats: %w", err)
 	}
@@ -778,7 +759,7 @@ func runAuditModelsStats(ctx context.Context, deps *AuditCommandDeps) error {
 }
 
 // outputComparisonsTable outputs comparisons as a table.
-func outputComparisonsTable(comparisons []audit.ComparisonSummary) error {
+func outputComparisonsTable(comparisons []client.ComparisonSummary) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tCONTENT\tMODELS\tDECISIONS\tDIVERGENT\tSTARTED")
 	fmt.Fprintln(w, "--\t-------\t------\t---------\t---------\t-------")
@@ -813,7 +794,7 @@ func outputComparisonsTable(comparisons []audit.ComparisonSummary) error {
 }
 
 // outputComparisonDetail outputs comparison detail.
-func outputComparisonDetail(detail *audit.ComparisonDetail) error {
+func outputComparisonDetail(detail *client.ComparisonDetail) error {
 	c := detail.Comparison
 
 	fmt.Printf("Comparison: %s\n", c.ID)
@@ -823,8 +804,8 @@ func outputComparisonDetail(detail *audit.ComparisonDetail) error {
 		fmt.Printf("Content: %s #%d\n", c.ContentType, c.ContentID)
 	}
 	fmt.Printf("Models: %s\n", strings.Join(c.Models, ", "))
-	fmt.Printf("Purpose: %s\n", c.Purpose)
-	fmt.Printf("Initiated by: %s\n", c.InitiatedBy)
+	fmt.Printf("Purpose: %s\n", detail.Purpose)
+	fmt.Printf("Initiated by: %s\n", detail.InitiatedBy)
 	fmt.Println()
 	fmt.Printf("Results:\n")
 	fmt.Printf("  Total decisions: %d\n", c.TotalDecisions)
@@ -835,7 +816,7 @@ func outputComparisonDetail(detail *audit.ComparisonDetail) error {
 	// Show decisions
 	decisions := detail.Decisions
 	if auditShowDivergences {
-		var divergent []audit.ComparisonDecision
+		var divergent []client.ComparisonDecision
 		for _, d := range decisions {
 			if !d.IsUnanimous {
 				divergent = append(divergent, d)
@@ -845,7 +826,7 @@ func outputComparisonDetail(detail *audit.ComparisonDetail) error {
 	}
 
 	if auditMention != "" {
-		var filtered []audit.ComparisonDecision
+		var filtered []client.ComparisonDecision
 		for _, d := range decisions {
 			if strings.Contains(strings.ToLower(d.MentionedText), strings.ToLower(auditMention)) {
 				filtered = append(filtered, d)
@@ -892,7 +873,7 @@ func outputComparisonDetail(detail *audit.ComparisonDetail) error {
 }
 
 // outputModelStatsTable outputs model statistics as a table.
-func outputModelStatsTable(stats []audit.ModelStats) error {
+func outputModelStatsTable(stats []client.ModelStats) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "MODEL\tCOMPARISONS\tDECISIONS\tCORRECT\tACCURACY\tAVG CONF")
 	fmt.Fprintln(w, "-----\t-----------\t---------\t-------\t--------\t--------")

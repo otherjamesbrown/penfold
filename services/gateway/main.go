@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	auditv1 "github.com/otherjamesbrown/penfold/api/proto/audit/v1"
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
@@ -46,6 +47,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/logs"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
+	"github.com/otherjamesbrown/penfold/pkg/mentions/audit"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/products"
@@ -59,6 +61,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/watchlist"
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
+	"github.com/otherjamesbrown/penfold/services/gateway/auditservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/contentservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/internal/langfuse"
@@ -82,6 +85,30 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/watchlistservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/workflowservice"
 )
+
+// logWriterAdapter adapts logs.Repository to logging.LogWriter.
+type logWriterAdapter struct {
+	repo     *logs.Repository
+	tenantID string
+}
+
+func (a *logWriterAdapter) WriteBatch(ctx context.Context, entries []logging.LogEntry) error {
+	inputs := make([]logs.EntryInput, len(entries))
+	for i, entry := range entries {
+		inputs[i] = logs.EntryInput{
+			TenantID:  entry.TenantID,
+			Timestamp: entry.Timestamp,
+			Level:     logs.Level(entry.Level),
+			Service:   entry.Service,
+			Message:   entry.Message,
+			Fields:    entry.Fields,
+			TraceID:   entry.TraceID,
+			Caller:    entry.Caller,
+		}
+	}
+	_, err := a.repo.CreateBatch(ctx, inputs)
+	return err
+}
 
 func main() {
 	// Load configuration.
@@ -142,6 +169,24 @@ func main() {
 		logging.F("host", cfg.Base.Database.Host),
 		logging.F("database", cfg.Base.Database.Name),
 	)
+
+	// Initialize DB log sink for async log persistence.
+	// Create adapter from logging.LogWriter to logs.Repository.
+	logsRepo := logs.NewRepository(dbPool)
+	logWriter := &logWriterAdapter{repo: logsRepo, tenantID: ""}
+	dbSink := logging.NewDBSink(logging.DBSinkConfig{
+		Writer:        logWriter,
+		BufferSize:    1000,
+		BatchSize:     100,
+		FlushInterval: 2 * time.Second,
+	})
+	defer dbSink.Close()
+
+	// Recreate logger with DB sink attached.
+	logCfg.Sinks = []logging.Sink{dbSink}
+	logger = logging.NewLogger(logCfg)
+	logging.SetGlobal(logger)
+	logger.Info("DB log sink initialized")
 
 	// Initialize metrics.
 	m := metrics.NewMetrics(cfg.Base.ServiceName, "penfold")
@@ -267,6 +312,12 @@ func main() {
 	mentionsv1.RegisterMentionsServiceServer(grpcServer, mentionsSvc)
 	logger.Info("Registered MentionsService")
 
+	// Register AuditService for viewing resolution traces and corrections.
+	auditRepo := audit.NewPostgresRepository(dbPool)
+	auditSvc := auditservice.NewService(auditRepo, logger)
+	auditv1.RegisterAuditServiceServer(grpcServer, auditSvc)
+	logger.Info("Registered AuditService")
+
 	// Register EntityService for bulk entity seeding.
 	// Note: tenantRepo is created here to allow tenant resolution in EntityService and later services.
 	tenantRepo := tenant.NewRepository(dbPool)
@@ -367,7 +418,7 @@ func main() {
 	logger.Info("Registered RelationshipService")
 
 	// Register LogsService for centralized log viewing.
-	logsRepo := logs.NewRepository(dbPool)
+	// logsRepo already created above for DB sink
 	logsSvc := logsservice.NewService(logsRepo, logger)
 	logsv1.RegisterLogsServiceServer(grpcServer, logsSvc)
 	logger.Info("Registered LogsService")

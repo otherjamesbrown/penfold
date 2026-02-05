@@ -110,8 +110,12 @@ func NewContextBuilderActivities(
 // BuildContextPackage builds a context package from extraction output.
 // This is Stage 3: resolve entities and assemble context for Stage 4.
 func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, input BuildContextInput) (*BuildContextOutput, error) {
+	// Set trace_id in context for log correlation
+	if input.ContentID != "" {
+		ctx = context.WithValue(ctx, logging.TraceIDKey, input.ContentID)
+	}
 	startTime := time.Now()
-	logger := a.logger.With(
+	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "BuildContextPackage"),
 		logging.F("tenant_id", input.TenantID),
 		logging.F("source_id", input.SourceID),

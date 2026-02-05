@@ -54,8 +54,11 @@ type PersistFindingsActivityOutput struct {
 // It validates the input, calls the repository to persist the data in a transaction,
 // and returns statistics about the persisted records.
 func (a *PersistActivities) PersistFindings(ctx context.Context, input PersistFindingsActivityInput) (*PersistFindingsActivityOutput, error) {
+	// Set trace_id in context for log correlation
+	// Note: PersistFindingsActivityInput doesn't have ContentID, so we use source_id
+	ctx = context.WithValue(ctx, logging.TraceIDKey, fmt.Sprintf("source-%d", input.SourceID))
 	startTime := time.Now()
-	logger := a.logger.With(
+	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "PersistFindings"),
 		logging.F("tenant_id", input.TenantID),
 		logging.F("source_id", input.SourceID),
