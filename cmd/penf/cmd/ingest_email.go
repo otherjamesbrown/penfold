@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -277,9 +276,8 @@ func runIngestEmail(ctx context.Context, deps *IngestCommandDeps, path string) e
 	// Create or resume job via gRPC
 	jobID := emailResumeJob
 	if jobID == "" {
-		jobID = uuid.New().String()
 		// Create job record via gRPC
-		_, err := client.CreateIngestJob(ctx, &ingestv1.CreateIngestJobRequest{
+		resp, err := client.CreateIngestJob(ctx, &ingestv1.CreateIngestJobRequest{
 			TenantId:   tenantID,
 			Name:       fmt.Sprintf("Email ingest: %s", emailSource),
 			Platform:   ingestv1.Platform_PLATFORM_LOCAL,
@@ -293,6 +291,8 @@ func runIngestEmail(ctx context.Context, deps *IngestCommandDeps, path string) e
 		if err != nil {
 			return fmt.Errorf("creating ingest job: %w", err)
 		}
+		// Use the job ID returned by the gateway
+		jobID = resp.Job.Id
 	}
 
 	// Initialize progress tracking
