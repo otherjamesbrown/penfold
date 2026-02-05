@@ -9,6 +9,12 @@ If not provided, runs all unit tests in `./pkg/...`
 
 ## Instructions
 
+### Step 0: Run Health Check
+
+Before running tests, verify infrastructure is healthy:
+
+**Run `/penf.health` first.** This ensures the development environment is ready.
+
 ### Step 1: Run Tests with JSON Output
 
 ```bash

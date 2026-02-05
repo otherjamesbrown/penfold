@@ -25,6 +25,12 @@ chmod 600 ~/.postgresql/postgresql.key
 
 ## Instructions
 
+### Step 0: Run Health Check
+
+Before running tests, verify infrastructure is healthy:
+
+**Run `/penf.health` first.** If any critical services are down (PostgreSQL, Gateway), fix those before proceeding.
+
 ### Step 1: Check Prerequisites and Run Tests
 
 ```bash

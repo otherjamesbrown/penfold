@@ -17,6 +17,12 @@ Live tests require cloud API credentials:
 
 ## Instructions
 
+### Step 0: Run Health Check
+
+Before running tests, verify infrastructure is healthy:
+
+**Run `/penf.health` first.** If any critical services are down (Gateway, AI Coordinator), fix those before proceeding.
+
 ### Step 1: Check Prerequisites
 
 ```bash

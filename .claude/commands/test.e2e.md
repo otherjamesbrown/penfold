@@ -19,6 +19,12 @@ E2E tests require:
 
 ## Instructions
 
+### Step 0: Run Health Check
+
+Before running tests, verify infrastructure is healthy:
+
+**Run `/penf.health` first.** If any critical services are down (PostgreSQL, Gateway, LLM), fix those before proceeding.
+
 ### Step 1: Check Prerequisites
 
 ```bash
