@@ -133,6 +133,19 @@ penf glossary list             # Basic query works?
 | Worker | services/worker/ | dev01 |
 | AI Service | services/ai/ | dev01 |
 
+## Testing
+
+| Type | Command | Docs |
+|------|---------|------|
+| Unit | `go test ./pkg/...` | `docs/testing-framework/README.md` |
+| Integration | `go test -tags=integration ./tests/integration/...` | `docs/testing-framework/LOCAL-SETUP.md` |
+| E2E | `go test -tags=e2e -timeout 15m ./tests/e2e/...` | `docs/testing-framework/LOCAL-SETUP.md` |
+
+**Quick references:**
+- `docs/testing-framework/FIXTURES-GUIDE.md` - Test data schemas and loading
+- `docs/testing-framework/TROUBLESHOOTING.md` - Error → Solution mappings
+- `context/architecture/testing-patterns.md` - Patterns and best practices
+
 ## Active Technologies
 - Go 1.24 + Cobra (CLI), gRPC, Protocol Buffers, pgx (PostgreSQL) (019-meeting-series)
 - PostgreSQL 16+ with existing `meetings` table (019-meeting-series)
