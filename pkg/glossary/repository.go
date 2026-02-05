@@ -2,6 +2,7 @@ package glossary
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -215,6 +216,7 @@ func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, erro
 	var terms []*Term
 	for rows.Next() {
 		var term Term
+		var createdBy sql.NullString
 		err := rows.Scan(
 			&term.ID,
 			&term.TenantID,
@@ -227,12 +229,15 @@ func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, erro
 			&term.Source,
 			&term.CreatedAt,
 			&term.UpdatedAt,
-			&term.CreatedBy,
+			&createdBy,
 			&term.LinkedEntityType,
 			&term.LinkedEntityID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan glossary term: %w", err)
+		}
+		if createdBy.Valid {
+			term.CreatedBy = &createdBy.String
 		}
 		terms = append(terms, &term)
 	}
