@@ -192,9 +192,12 @@ func (p *VLLMProvider) CompleteStructured(ctx context.Context, req CompletionReq
 		resp, err := p.Complete(ctx, req)
 		if err != nil {
 			lastErr = err
-			// Don't retry on context cancellation
+			// Don't retry on context cancellation or timeouts
 			if ctx.Err() != nil {
 				return err
+			}
+			if llmErr, ok := err.(*LLMError); ok && llmErr.Code == ErrTimeout {
+				return err // retrying a saturated server won't help
 			}
 			continue
 		}
