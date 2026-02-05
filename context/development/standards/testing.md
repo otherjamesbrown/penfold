@@ -94,6 +94,15 @@ Every service that has database operations MUST have integration tests.
 | gateway/mentionsservice | Exists | ✅ |
 | search/* | Exists | ✅ |
 
+**CLI Integration Tests:**
+| Command Group | Integration Test | Test Count | Status |
+|--------------|-----------------|------------|--------|
+| `penf glossary` | `tests/integration/cli_glossary_test.go` | 12 | ✅ |
+| `penf meeting` | `tests/integration/cli_meeting_test.go` | 10 | ✅ |
+| `penf content` | `tests/integration/cli_content_test.go` | 10 | ✅ |
+| `penf process mentions/acronyms` | `tests/integration/cli_mentions_test.go` | 5 | ✅ |
+| `penf ai` | `tests/integration/cli_ai_test.go` | 10 | ✅ |
+
 ### Rule 4: E2E Tests Must Be Deterministic
 
 E2E tests must:

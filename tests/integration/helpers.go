@@ -5,13 +5,19 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/otherjamesbrown/penfold/pkg/testfixtures"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -235,4 +241,106 @@ func (db *TestDB) EnsureTenantExists(t *testing.T) {
 func (db *TestDB) FixtureLoader() *testfixtures.Loader {
 	fixtureDir := filepath.Join("..", "fixtures", "acme-corp")
 	return testfixtures.NewLoaderWithTenant(db.Pool, fixtureDir, db.TenantID)
+}
+
+// Fixture loading state - ensures Acme Corp fixtures are loaded only once per test run.
+var (
+	fixturesOnce   sync.Once
+	fixturesErr    error
+	fixturesLoaded bool
+)
+
+// EnsureAcmeCorpFixtures loads Acme Corp fixtures exactly once per test run.
+// Subsequent calls return immediately. Uses sync.Once for thread safety.
+func EnsureAcmeCorpFixtures(t *testing.T, db *TestDB) {
+	t.Helper()
+
+	fixturesOnce.Do(func() {
+		ctx := context.Background()
+
+		// Ensure tenant exists first
+		db.EnsureTenantExists(t)
+
+		// Load fixtures using the loader
+		loader := db.FixtureLoader()
+		fixturesErr = loader.LoadAcmeCorp(ctx)
+		if fixturesErr == nil {
+			fixturesLoaded = true
+			t.Logf("Acme Corp fixtures loaded successfully for tenant %s", db.TenantID)
+		}
+	})
+
+	if fixturesErr != nil {
+		t.Fatalf("Failed to load Acme Corp fixtures: %v", fixturesErr)
+	}
+}
+
+// runCLI executes the penf CLI with the given arguments and returns stdout, stderr, and error.
+// Uses the default config file (~/.penf/config.yaml) which has mTLS settings.
+func runCLI(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "penf", args...)
+	cmd.Env = os.Environ()
+
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+// runCLIWithJSON executes the penf CLI and parses the JSON output into the given type.
+// It automatically adds -o json to the arguments.
+func runCLIWithJSON[T any](t *testing.T, args ...string) (T, string, error) {
+	t.Helper()
+
+	var result T
+
+	// Add JSON output flag
+	argsWithJSON := append(args, "-o", "json")
+	stdout, stderr, err := runCLI(t, argsWithJSON...)
+	if err != nil {
+		return result, stderr, err
+	}
+
+	// Parse JSON
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		return result, stderr, fmt.Errorf("failed to parse JSON: %w\nstdout: %s", err, stdout)
+	}
+
+	return result, stderr, nil
+}
+
+// assertJSONContains verifies that the JSON output contains all specified keys.
+func assertJSONContains(t *testing.T, stdout string, keys ...string) {
+	t.Helper()
+
+	var data map[string]any
+	err := json.Unmarshal([]byte(stdout), &data)
+	require.NoError(t, err, "output should be valid JSON")
+
+	for _, key := range keys {
+		assert.Contains(t, data, key, "JSON should contain key: %s", key)
+	}
+}
+
+// assertJSONArrayNotEmpty verifies that a JSON array at the given key is not empty.
+func assertJSONArrayNotEmpty(t *testing.T, stdout string, arrayKey string) {
+	t.Helper()
+
+	var data map[string]any
+	err := json.Unmarshal([]byte(stdout), &data)
+	require.NoError(t, err, "output should be valid JSON")
+
+	val, ok := data[arrayKey]
+	require.True(t, ok, "JSON should contain key: %s", arrayKey)
+
+	arr, ok := val.([]any)
+	require.True(t, ok, "key %s should be an array", arrayKey)
+	assert.NotEmpty(t, arr, "array %s should not be empty", arrayKey)
 }

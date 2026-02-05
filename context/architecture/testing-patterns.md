@@ -156,16 +156,27 @@ func RequireGeminiAPIKey(t *testing.T) string {
 ```
 tests/
 ├── integration/
-│   ├── helpers.go          # SetupTestDB, TruncateAllTables
-│   └── *_test.go
+│   ├── helpers.go          # SetupTestDB, EnsureAcmeCorpFixtures, runCLI
+│   ├── cli_ai_test.go      # AI command tests
+│   ├── cli_glossary_test.go # Glossary command tests (12 tests)
+│   ├── cli_meeting_test.go  # Meeting command tests (10 tests)
+│   ├── cli_content_test.go  # Content command tests (10 tests)
+│   ├── cli_mentions_test.go # Process mentions/acronyms tests (5 tests)
+│   └── *_test.go           # Service integration tests
 ├── e2e/
 │   ├── helpers.go          # SetupE2EEnvironment
 │   ├── assertions.go       # AssertMentionResolved, etc.
 │   ├── llm_client.go       # OpenAI-compatible client
 │   └── *_test.go
-└── live/
-    ├── helpers.go          # RequireGeminiAPIKey, etc.
-    └── *_test.go
+├── live/
+│   ├── helpers.go          # RequireGeminiAPIKey, etc.
+│   └── *_test.go
+└── fixtures/
+    └── acme-corp/          # Test fixtures (60+ glossary terms, 20 people)
+        ├── glossary.yaml
+        ├── people.yaml
+        ├── teams.yaml
+        └── projects.yaml
 
 pkg/testfixtures/           # Shared across all test tiers
 ├── types.go
@@ -173,7 +184,53 @@ pkg/testfixtures/           # Shared across all test tiers
 └── validate_test.go
 ```
 
-## 7. CI/CD Test Execution
+## 7. CLI Integration Test Pattern
+
+**Pattern**: Test CLI commands against real backend with fixture data
+
+```go
+//go:build integration
+
+func TestCLI_GlossaryList(t *testing.T) {
+    db := SetupTestDB(t)
+    EnsureAcmeCorpFixtures(t, db)  // Loads once per test run via sync.Once
+
+    stdout, stderr, err := runCLI(t, "glossary", "list")
+
+    require.NoError(t, err, "glossary list should succeed. stderr: %s", stderr)
+    assert.Contains(t, stdout, "TER", "should list TER term")
+}
+
+func TestCLI_GlossaryList_JSONOutput(t *testing.T) {
+    db := SetupTestDB(t)
+    EnsureAcmeCorpFixtures(t, db)
+
+    // Test JSON output format
+    stdout, stderr, err := runCLI(t, "glossary", "list", "-o", "json")
+    require.NoError(t, err, "should succeed. stderr: %s", stderr)
+
+    var terms []GlossaryTerm
+    err = json.Unmarshal([]byte(stdout), &terms)
+    require.NoError(t, err, "should be valid JSON")
+    assert.NotEmpty(t, terms, "should return terms")
+}
+```
+
+**Helper Functions** (`helpers.go`):
+- `runCLI(t, args...)` - Executes `penf` CLI with timeout
+- `runCLIWithJSON[T](t, args...)` - Parses JSON output into typed struct
+- `EnsureAcmeCorpFixtures(t, db)` - One-time fixture loading via `sync.Once`
+- `assertJSONContains(t, stdout, keys...)` - Verify JSON has expected keys
+- `assertJSONArrayNotEmpty(t, stdout, key)` - Verify JSON array not empty
+
+**Key Points**:
+- Tests run against real backend (Gateway + PostgreSQL)
+- Fixtures loaded once per test run for performance
+- Tests use tenant isolation (`00000000-0000-0000-0000-000000000002`)
+- Known backend bugs handled with `t.Skip()` + explanation
+- Conditional tests skip when expected data doesn't exist
+
+## 8. CI/CD Test Execution
 
 **Pattern**: Progressive test execution based on trigger
 
@@ -200,7 +257,7 @@ e2e-tests:
   run: go test -tags=e2e ./tests/e2e/...
 ```
 
-## 8. Flaky Test Quarantine
+## 9. Flaky Test Quarantine
 
 **Pattern**: Isolate flaky tests with dedicated build tag
 

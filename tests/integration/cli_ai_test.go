@@ -4,35 +4,13 @@
 package integration
 
 import (
-	"context"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// runCLI executes the penf CLI with the given arguments and returns stdout, stderr, and error.
-// Uses the default config file (~/.penf/config.yaml) which has mTLS settings.
-func runCLI(t *testing.T, args ...string) (string, string, error) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "penf", args...)
-	cmd.Env = os.Environ()
-
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	return stdout.String(), stderr.String(), err
-}
 
 // TestCLI_AIQuery_Success tests the full AI query flow through the CLI.
 func TestCLI_AIQuery_Success(t *testing.T) {
