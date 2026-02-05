@@ -28,6 +28,10 @@
         <string>dev02.brown.chat:50055</string>
         <key>AI_SERVICE_URL</key>
         <string>http://dev01.brown.chat:8081</string>
+        <key>WORKER_MAX_CONCURRENT_ACTIVITIES</key>
+        <string>3</string>
+        <key>WORKER_MAX_CONCURRENT_WORKFLOWS</key>
+        <string>5</string>
         <key>LANGFUSE_HOST</key>
         <string>http://dev02.brown.chat:3000</string>
         <key>LANGFUSE_PUBLIC_KEY</key>

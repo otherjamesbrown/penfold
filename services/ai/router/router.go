@@ -134,7 +134,7 @@ type RouterConfig struct {
 // DefaultRouterConfig returns a RouterConfig with sensible defaults.
 func DefaultRouterConfig() *RouterConfig {
 	return &RouterConfig{
-		DefaultTimeout:       30 * time.Second,
+		DefaultTimeout:       120 * time.Second,
 		MaxQueueSize:         100,
 		HealthCheckInterval:  30 * time.Second,
 		CircuitBreakerConfig: DefaultCircuitBreakerConfig(),

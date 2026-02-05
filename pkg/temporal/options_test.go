@@ -53,14 +53,14 @@ func TestEmbeddingActivityOptions(t *testing.T) {
 func TestLLMActivityOptions(t *testing.T) {
 	opts := LLMActivityOptions()
 
-	if opts.StartToCloseTimeout != 2*time.Minute {
-		t.Errorf("expected StartToCloseTimeout 2m, got %v", opts.StartToCloseTimeout)
+	if opts.StartToCloseTimeout != 3*time.Minute {
+		t.Errorf("expected StartToCloseTimeout 3m, got %v", opts.StartToCloseTimeout)
 	}
-	if opts.ScheduleToCloseTimeout != 5*time.Minute {
-		t.Errorf("expected ScheduleToCloseTimeout 5m, got %v", opts.ScheduleToCloseTimeout)
+	if opts.ScheduleToCloseTimeout != 10*time.Minute {
+		t.Errorf("expected ScheduleToCloseTimeout 10m, got %v", opts.ScheduleToCloseTimeout)
 	}
-	if opts.HeartbeatTimeout != 15*time.Second {
-		t.Errorf("expected HeartbeatTimeout 15s, got %v", opts.HeartbeatTimeout)
+	if opts.HeartbeatTimeout != 90*time.Second {
+		t.Errorf("expected HeartbeatTimeout 90s, got %v", opts.HeartbeatTimeout)
 	}
 	if opts.RetryPolicy == nil {
 		t.Fatal("expected RetryPolicy to be set")

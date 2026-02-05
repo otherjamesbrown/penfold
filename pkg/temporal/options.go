@@ -49,19 +49,19 @@ func EmbeddingActivityOptions() workflow.ActivityOptions {
 }
 
 // LLMActivityOptions returns activity options suitable for LLM operations
-// (cloud API calls, typically 30-60 seconds).
+// (local MLX inference, typically 11-65 seconds).
 //
 // Configuration:
-//   - 2 minute start-to-close timeout
-//   - 5 minute schedule-to-close timeout (allows for retries)
-//   - 15 second heartbeat interval
+//   - 3 minute start-to-close timeout
+//   - 10 minute schedule-to-close timeout (allows for retries)
+//   - 90 second heartbeat interval (AI calls take 11-65s)
 //   - 2 retries with exponential backoff (5s, 10s)
 //   - Fewer retries because LLM operations are expensive
 func LLMActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
-		StartToCloseTimeout:    2 * time.Minute,
-		ScheduleToCloseTimeout: 5 * time.Minute,
-		HeartbeatTimeout:       15 * time.Second,
+		StartToCloseTimeout:    3 * time.Minute,
+		ScheduleToCloseTimeout: 10 * time.Minute,
+		HeartbeatTimeout:       90 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    5 * time.Second,
 			BackoffCoefficient: 2.0,
