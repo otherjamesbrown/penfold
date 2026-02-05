@@ -273,7 +273,8 @@ func (r *ComparisonRunner) compareResults(models []string, results []modelResult
 				SuggestNew: resolution.Decision == resolver.DecisionTypeSuggestNewEntity,
 			}
 			if resolution.ResolvedTo != nil {
-				md.EntityID = &resolution.ResolvedTo.EntityID
+				eid := resolution.ResolvedTo.EntityID.Int64()
+				md.EntityID = &eid
 				md.EntityName = resolution.ResolvedTo.EntityName
 			}
 			mentionMap[resolution.MentionText] = append(mentionMap[resolution.MentionText], md)

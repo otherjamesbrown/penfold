@@ -241,7 +241,7 @@ func (a *MentionsActivities) storeMentions(ctx context.Context, tenantID string,
 		if res.ResolvedTo != nil && res.Decision == resolver.DecisionTypeResolve {
 			resolution := mentions.ResolutionInput{
 				MentionID:       mention.ID,
-				EntityID:        res.ResolvedTo.EntityID,
+				EntityID:        res.ResolvedTo.EntityID.Int64(),
 				Source:          mapResolutionSource(res),
 				TranscriptError: res.IsTranscription,
 				ResolvedBy:      "system",

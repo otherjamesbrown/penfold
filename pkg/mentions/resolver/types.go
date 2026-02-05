@@ -2,10 +2,45 @@
 package resolver
 
 import (
+	"encoding/json"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 )
+
+// FlexInt64 is an int64 that can unmarshal from both JSON numbers and strings.
+// Small LLMs frequently return numeric IDs as quoted strings (e.g., "123" instead of 123).
+type FlexInt64 int64
+
+func (f *FlexInt64) UnmarshalJSON(data []byte) error {
+	// Try number first
+	var n int64
+	if err := json.Unmarshal(data, &n); err == nil {
+		*f = FlexInt64(n)
+		return nil
+	}
+	// Try string
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return fmt.Errorf("FlexInt64: cannot parse %q as int64: %w", s, err)
+		}
+		*f = FlexInt64(n)
+		return nil
+	}
+	return fmt.Errorf("FlexInt64: cannot unmarshal %s", string(data))
+}
+
+func (f FlexInt64) MarshalJSON() ([]byte, error) {
+	return json.Marshal(int64(f))
+}
+
+func (f FlexInt64) Int64() int64 {
+	return int64(f)
+}
 
 // TraceLevel controls the amount of detail stored in traces.
 type TraceLevel string
@@ -149,7 +184,7 @@ type Resolution struct {
 // ResolvedEntity represents the entity a mention was resolved to.
 type ResolvedEntity struct {
 	EntityType mentions.EntityType `json:"entity_type"`
-	EntityID   int64               `json:"entity_id"`
+	EntityID   FlexInt64           `json:"entity_id"`
 	EntityName string              `json:"entity_name"`
 	Term       string              `json:"term,omitempty"`       // For term type
 	Expansion  string              `json:"expansion,omitempty"`  // For term type
@@ -157,10 +192,10 @@ type ResolvedEntity struct {
 
 // AlternativeEntity represents an alternative that was considered.
 type AlternativeEntity struct {
-	EntityID        int64   `json:"entity_id"`
-	EntityName      string  `json:"entity_name"`
-	Confidence      float32 `json:"confidence"`
-	RejectionReason string  `json:"rejection_reason"`
+	EntityID        FlexInt64 `json:"entity_id"`
+	EntityName      string    `json:"entity_name"`
+	Confidence      float32   `json:"confidence"`
+	RejectionReason string    `json:"rejection_reason"`
 }
 
 // NewEntitySuggestion suggests creating a new entity.
