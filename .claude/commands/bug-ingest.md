@@ -44,35 +44,70 @@ ORDER BY s.created_at;
 "
 ```
 
-### Step 2: Analyze Each Message
+### Step 2: Analyze Each Message and Split Into Discrete Issues
 
-For each message, determine if it's a bug report (vs feature request, question, status update).
-Only process messages that describe bugs or broken behavior.
+For each message:
+1. Determine if it contains bug reports (vs feature requests, questions, status updates)
+2. **Split multi-issue messages into discrete bugs.** A single message may report multiple
+   independent issues. Each distinct symptom/problem gets its own investigation shard.
 
-### Step 3: Create Investigation Shards
+**Example:** A message saying "review queue fails with timeout, reprocess --all not implemented,
+and reprocess returns empty job ID" is **3 separate bugs**, not one.
 
-For each confirmed bug, create an investigation shard:
+**How to identify discrete issues:**
+- Different symptoms (timeout vs missing flag vs empty response)
+- Different components (gateway RPC vs CLI flag vs API behavior)
+- Could be fixed independently by different agents
+- Would get separate root causes
+
+Skip items that are feature requests, questions, or status updates.
+
+### Step 3: Create Investigation Shards (One Per Issue)
+
+Create one investigation shard per discrete issue, NOT per message.
+All shards from the same message link back to the same original message ID.
 
 ```bash
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
-SELECT create_task_from('penfold', 'agent-mycroft', 'pf-BUG-ID',
-  'investigate: [short title]',
-  'Investigate bug reported by [creator]. [summary of symptoms]',
+SELECT create_task_from('penfold', 'agent-mycroft', 'pf-MESSAGE-ID',
+  'investigate: [specific issue title]',
+  'Investigate bug reported by [creator]. [specific symptom from message]',
   1, 'agent-mycroft');
 "
 ```
 
+Repeat for each discrete issue found in the message. Example for a 3-issue message:
+```sql
+-- Issue 1
+SELECT create_task_from('penfold', 'agent-mycroft', 'pf-1c9c0b',
+  'investigate: review queue connection timeout',
+  'ReviewService RPC cannot connect - context deadline exceeded on connect', 1, 'agent-mycroft');
+-- Issue 2
+SELECT create_task_from('penfold', 'agent-mycroft', 'pf-1c9c0b',
+  'investigate: reprocess --all not implemented',
+  'reprocess --all flag shows as future in help, not functional', 1, 'agent-mycroft');
+-- Issue 3
+SELECT create_task_from('penfold', 'agent-mycroft', 'pf-1c9c0b',
+  'investigate: reprocess returns empty job ID',
+  'reprocess command returns but Job ID is empty', 1, 'agent-mycroft');
+```
+
 ### Step 4: Acknowledge to Penfold
 
-Reply to each bug report with an acknowledgment:
+Send **one ack per message** (not per issue). List the issues identified:
 
 ```bash
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
 SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-penfold'],
   'Re: [original subject]',
   \$body\${\"poll_hint\":\"continue\",\"type\":\"ack\"}
-Investigating. Will update when resolved.\$body\$,
-  NULL, 'ack', 'pf-BUG-ID');
+Investigating N issues from your report:
+1. [issue title]
+2. [issue title]
+3. [issue title]
+
+Will update as each is resolved.\$body\$,
+  NULL, 'ack', 'pf-MESSAGE-ID');
 "
 ```
 
@@ -80,7 +115,7 @@ Investigating. Will update when resolved.\$body\$,
 
 ```bash
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
-SELECT mark_read(ARRAY['pf-bug1', 'pf-bug2'], 'agent-mycroft');
+SELECT mark_read(ARRAY['pf-msg1', 'pf-msg2'], 'agent-mycroft');
 "
 ```
 
@@ -89,14 +124,18 @@ SELECT mark_read(ARRAY['pf-bug1', 'pf-bug2'], 'agent-mycroft');
 ```
 BUG PIPELINE - Phase 1: Ingest
 ════════════════════════════════
-Bugs found: N
+Messages: N (containing M discrete issues)
 
-# | Bug ID    | Title                    | Investigation
-──┼───────────┼──────────────────────────┼─────────────
-1 | pf-xxxxxx | [title]                  | pf-inv-aaa
-2 | pf-yyyyyy | [title]                  | pf-inv-bbb
+Message pf-xxxxxx: "[title]" (from agent-penfold)
+  #1 | pf-inv-aaa | [issue title]
+  #2 | pf-inv-bbb | [issue title]
+  #3 | pf-inv-ccc | [issue title]
 
-Acks sent to agent-penfold.
+Message pf-yyyyyy: "[title]" (from agent-penfold)
+  #4 | pf-inv-ddd | [issue title]
+
+Acks sent: N messages acknowledged
+Investigations created: M
 Launching debuggers...
 ```
 
@@ -391,31 +430,49 @@ SELECT * FROM bug;
 
 ### Step 5c: Reply to Penfold
 
+**Group replies by original message.** If one message contained 3 issues, send ONE resolution
+reply covering all resolved issues from that message (not 3 separate replies).
+
+Wait until ALL issues from a message are resolved before replying. If some issues from a
+message are still in progress, hold the reply until the full batch completes.
+
 ```bash
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
 SELECT send_message('penfold', 'agent-mycroft',
   ARRAY['agent-penfold'],
-  'Resolved: [bug title]',
+  'Resolved: [original message subject]',
   \$body\${\"poll_hint\":\"done\",\"type\":\"resolution\"}
 
-## Resolved: [title]
+## Resolved: [original message subject]
 
-### What Was Done
+### Issues Fixed
+
+**1. [issue title]**
 [summary from implementation agent]
+- Investigation: pf-inv-aaa (closed)
+- Fix: pf-fix-aaa (closed)
+
+**2. [issue title]**
+[summary from implementation agent]
+- Investigation: pf-inv-bbb (closed)
+- Fix: pf-fix-bbb (closed)
+
+**3. [issue title]**
+[summary from implementation agent]
+- Investigation: pf-inv-ccc (closed)
+- Fix: pf-fix-ccc (closed)
 
 ### Verification
 - Build: passing
-- Tests: passing (new regression test added)
-
-### Shards
-- Investigation: pf-inv-xxx (closed)
-- Fix: pf-fix-xxx (closed)
+- Tests: passing (regression tests added)
 
 -- agent-mycroft
 \$body\$,
-  NULL, 'resolution', 'pf-ORIGINAL-BUG-ID');
+  NULL, 'resolution', 'pf-ORIGINAL-MESSAGE-ID');
 "
 ```
+
+For single-issue messages, the reply is the same but with just one item under "Issues Fixed".
 
 ### Step 5d: Close Investigation Shards
 
