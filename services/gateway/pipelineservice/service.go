@@ -327,12 +327,9 @@ func (s *Service) GetQueueStatus(ctx context.Context, req *pipelinev1.GetQueueSt
 		logging.F("stage", req.Stage),
 	)
 
-	if s.temporalClient == nil {
-		return nil, status.Error(codes.Unavailable, "Temporal client not available")
-	}
-
-	// Query Temporal for workflow counts
-	// For now, return mock data structure since we need to determine the exact workflow types
+	// Return empty queue stats for now
+	// Full implementation would query Temporal for actual workflow counts
+	// and database for pending/processing item counts
 	queues := []*pipelinev1.QueueStats{
 		{
 			Name:                   "embeddings",

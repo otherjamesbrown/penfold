@@ -705,9 +705,18 @@ func runPipelineReprocess(ctx context.Context, deps *PipelineCommandDeps, conten
 		return outputReprocessDryRunHuman(resp, stage)
 	}
 
-	// Otherwise, call ReprocessContent
+	// Handle --all flag for bulk reprocessing
+	if all {
+		if contentID != "" {
+			return fmt.Errorf("cannot specify both content-id and --all flag")
+		}
+
+		return runBulkReprocess(ctx, conn, cfg, sourceTag, stage, reason, outputFormat)
+	}
+
+	// Otherwise, call ReprocessContent for single item
 	if contentID == "" {
-		return fmt.Errorf("content-id is required (use --dry-run to see impact without content-id)")
+		return fmt.Errorf("content-id is required (use --all to reprocess all content, or --dry-run to see impact)")
 	}
 
 	// Create content processor client directly from connection
@@ -739,6 +748,133 @@ func runPipelineReprocess(ctx context.Context, deps *PipelineCommandDeps, conten
 		return outputReprocessJSON(resp)
 	}
 	return outputReprocessHuman(resp)
+}
+
+// runBulkReprocess reprocesses all content items matching filters.
+func runBulkReprocess(ctx context.Context, conn *grpc.ClientConn, cfg *config.CLIConfig, sourceTag string, stage string, reason string, outputFormat string) error {
+	contentClient := contentv1.NewContentProcessorServiceClient(conn)
+
+	// Use tenant ID from config
+	tenantID := cfg.TenantID
+	if tenantID == "" {
+		return fmt.Errorf("tenant_id not configured")
+	}
+
+	// Build filter for listing content
+	listReq := &contentv1.ListContentItemsRequest{
+		TenantId: tenantID,
+		PageSize: 100, // Process in batches of 100
+	}
+
+	// Optional source type filter from source tag
+	if sourceTag != "" {
+		listReq.SourceType = &sourceTag
+	}
+
+	fmt.Printf("Querying content items for tenant %s", tenantID)
+	if sourceTag != "" {
+		fmt.Printf(" (source_tag: %s)", sourceTag)
+	}
+	fmt.Println("...")
+
+	// Get all content items
+	var allContentIDs []string
+	var pageToken string
+	for {
+		listReq.PageToken = pageToken
+		resp, err := contentClient.ListContentItems(ctx, listReq)
+		if err != nil {
+			return fmt.Errorf("listing content items: %w", err)
+		}
+
+		for _, item := range resp.Items {
+			allContentIDs = append(allContentIDs, item.Id)
+		}
+
+		if resp.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.NextPageToken
+	}
+
+	if len(allContentIDs) == 0 {
+		fmt.Println("No content items found to reprocess.")
+		return nil
+	}
+
+	fmt.Printf("Found %d content items to reprocess.\n", len(allContentIDs))
+
+	// Build stage filter if provided
+	var stagesToReprocess []contentv1.ProcessingStage
+	if stage != "" {
+		stageEnum, err := parseProcessingStage(stage)
+		if err != nil {
+			return err
+		}
+		stagesToReprocess = []contentv1.ProcessingStage{stageEnum}
+	}
+
+	// Reprocess each content item
+	successCount := 0
+	failCount := 0
+	var jobIDs []string
+
+	for i, contentID := range allContentIDs {
+		req := &contentv1.ReprocessContentRequest{
+			ContentId:          contentID,
+			Reason:             reason,
+			StagesToReprocess:  stagesToReprocess,
+		}
+
+		resp, err := contentClient.ReprocessContent(ctx, req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to reprocess %s: %v\n", contentID, err)
+			failCount++
+			continue
+		}
+
+		successCount++
+		if resp.JobId != "" {
+			jobIDs = append(jobIDs, resp.JobId)
+		}
+
+		// Show progress every 10 items
+		if (i+1)%10 == 0 || i == len(allContentIDs)-1 {
+			fmt.Printf("Progress: %d/%d reprocessed (%d succeeded, %d failed)\n", i+1, len(allContentIDs), successCount, failCount)
+		}
+	}
+
+	fmt.Println()
+	fmt.Printf("Bulk reprocess complete: %d succeeded, %d failed\n", successCount, failCount)
+
+	if outputFormat == "json" {
+		result := map[string]interface{}{
+			"total_count":   len(allContentIDs),
+			"success_count": successCount,
+			"fail_count":    failCount,
+			"job_ids":       jobIDs,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}
+
+	if len(jobIDs) > 0 {
+		fmt.Printf("\nJob IDs (first 10): %v\n", jobIDs[:min(10, len(jobIDs))])
+		if len(jobIDs) > 10 {
+			fmt.Printf("... and %d more\n", len(jobIDs)-10)
+		}
+	}
+
+	return nil
+}
+
+// min returns the minimum of two integers.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func parseProcessingStage(stage string) (contentv1.ProcessingStage, error) {

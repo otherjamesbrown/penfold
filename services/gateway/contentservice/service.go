@@ -867,7 +867,7 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		ID:        workflowID,
 		TaskQueue: "penfold-main",
 	}
-	_, err = s.temporalClient.ExecuteWorkflow(ctx, opts, "ContentIngestionWorkflow", input)
+	workflowRun, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "ContentIngestionWorkflow", input)
 	if err != nil {
 		s.logger.Error("Failed to start workflow",
 			logging.F("source_id", source.ID),
@@ -877,8 +877,12 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		return nil, status.Errorf(codes.Internal, "failed to start reprocessing workflow: %v", err)
 	}
 
+	// Get the run ID to use as job ID
+	jobID := workflowRun.GetRunID()
+
 	s.logger.Info("Started ContentIngestionWorkflow for reprocessing",
 		logging.F("workflow_id", workflowID),
+		logging.F("run_id", jobID),
 		logging.F("source_id", source.ID),
 		logging.F("content_id", source.ContentID),
 		logging.F("reason", req.Reason),
@@ -886,8 +890,10 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 
 	return &contentv1.ReprocessContentResponse{
 		ContentId: req.ContentId,
+		JobId:     jobID,
 		Status: &contentv1.ProcessingStatus{
 			ContentId: req.ContentId,
+			JobId:     jobID,
 			State:     contentv1.ProcessingState_PROCESSING_STATE_PENDING,
 		},
 	}, nil
