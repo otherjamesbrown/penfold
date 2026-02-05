@@ -357,6 +357,9 @@ The orchestrator has claimed these files for your exclusive use.
    /Users/dev/bin/palace task close pf-xxxxx "Done: [feature] with tests [TestNames]"
    ```
 
+CRITICAL: Do NOT run git add, git commit, git push, or any git write commands.
+Only modify files. The orchestrator will handle all git operations.
+
 Do not create a PR. Just implement, write tests, verify, and close the shard.
 ```
 
@@ -487,8 +490,11 @@ After all sub-agents complete and verification passes:
 git status
 git diff --name-only
 
-# Stage and commit with descriptive message
-git add -A
+# CRITICAL: Do NOT use git add -A or git add .
+# This captures ALL dirty files including changes from other agent sessions.
+# Stage ONLY files that YOUR sub-agents modified (from shard file lists).
+git add path/to/file1.go path/to/file2.go path/to/file3_test.go
+
 git commit -m "feat: [summary of changes]
 
 - [bullet point for each major change]
