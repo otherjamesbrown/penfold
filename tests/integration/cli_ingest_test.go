@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,7 +46,9 @@ func TestCLI_IngestQueue_JSONOutput(t *testing.T) {
 	stdout, stderr, err := runCLI(t, "ingest", "queue", "--output", "json")
 
 	require.NoError(t, err, "ingest queue with JSON output should succeed. stderr: %s", stderr)
-	assert.Contains(t, stdout, "{", "output should be JSON")
+	// Queue may return an empty array [] or an object {} depending on whether there are items
+	assert.True(t, strings.Contains(stdout, "{") || strings.Contains(stdout, "["),
+		"output should be JSON (object or array)")
 
 	t.Logf("Queue JSON output: %s", stdout)
 }
