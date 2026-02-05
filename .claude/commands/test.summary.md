@@ -24,12 +24,9 @@ MODE="${ARGUMENTS:-quick}"
 **Run `/penf.health` to check system readiness.** This verifies:
 - PostgreSQL (dev02) - database connectivity and migrations
 - Gateway (dev02) - API endpoint health
-- AI Coordinator (dev02) - AI service availability
-- Worker (dev01) - background job processing
-- LLM Server (dev01) - model inference
-- Embedding Server (dev01) - vector embeddings
+- Worker (dev01) - background job processing (for E2E pipeline tests)
 
-Set `SYSTEM_HEALTHY=true` only if all critical services (DB, Gateway, LLM) are responding.
+Set `SYSTEM_HEALTHY=true` if DB and Gateway are responding. E2E tests go through the Gateway API, not directly to LLM.
 
 ### Step 2: Run Tests Based on Mode
 
@@ -138,14 +135,11 @@ Include the health check results from Step 1:
 ```
 ### 🔧 System Health
 
-| Service | Host | Status |
-|---------|------|--------|
-| PostgreSQL | dev02 | ✅ / ❌ |
-| Gateway | dev02 | ✅ / ❌ |
-| AI Coordinator | dev02 | ✅ / ❌ |
-| Worker | dev01 | ✅ / ❌ |
-| LLM Server | dev01 | ✅ / ❌ |
-| Embedding Server | dev01 | ✅ / ❌ |
+| Service | Host | Status | Required For |
+|---------|------|--------|--------------|
+| PostgreSQL | dev02 | ✅ / ❌ | All tests |
+| Gateway | dev02 | ✅ / ❌ | Integration, E2E |
+| Worker | dev01 | ✅ / ❌ | E2E (pipeline processing) |
 
 For detailed diagnostics, run: `/penf.health`
 ```

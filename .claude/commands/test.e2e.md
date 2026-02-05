@@ -1,21 +1,21 @@
 # Run E2E Tests
 
-Execute end-to-end tests (database + LLM) with structured output.
+Execute end-to-end tests with structured output. E2E tests validate complete workflows through the Gateway API.
 
 ## Arguments: $ARGUMENTS
 
-Optional: Specific test pattern (e.g., `TestMentionResolution.*`, `TestEnvironment`)
+Optional: Specific test pattern (e.g., `TestSLMPipeline.*`, `TestEnvironment`)
 If not provided, runs all E2E tests.
 
 ## Prerequisites
 
 E2E tests require:
-- `PENFOLD_DB_PASSWORD` environment variable set
+- PostgreSQL SSL certs in `~/.postgresql/`
 - PostgreSQL accessible at dev02.brown.chat
-- Test database `penfold_test_e2e` with migrations applied
-- Local LLM server running at http://localhost:8080 (vLLM-MLX with Qwen)
+- Gateway service running on dev02
+- Worker service running on dev01 (for pipeline processing)
 
-**Note**: E2E tests should be run on dev01 where the LLM server is available.
+**Note**: E2E tests call the Gateway API, which routes to backend services. They do NOT require direct LLM access from the test machine.
 
 ## Instructions
 
@@ -23,31 +23,31 @@ E2E tests require:
 
 Before running tests, verify infrastructure is healthy:
 
-**Run `/penf.health` first.** If any critical services are down (PostgreSQL, Gateway, LLM), fix those before proceeding.
+**Run `/penf.health` first.** If critical services are down (PostgreSQL, Gateway, Worker), fix those before proceeding.
 
 ### Step 1: Check Prerequisites
 
 ```bash
-# Check database credentials
-if [ -z "$PENFOLD_DB_PASSWORD" ]; then
-    echo "❌ PENFOLD_DB_PASSWORD not set"
-    echo "Run: source ~/github/otherjamesbrown/secrets/.env.penfold"
+# Check SSL certs exist
+if [ ! -f ~/.postgresql/postgresql.crt ]; then
+    echo "❌ SSL certs not found in ~/.postgresql/"
+    echo "Copy from dev01: scp dev01:~/.postgresql/{postgresql.crt,postgresql.key,root.crt} ~/.postgresql/"
     exit 1
 fi
+echo "✅ SSL certificates found"
 
-# Check LLM availability
-LLM_URL="${LLM_URL:-http://localhost:8080}"
-if ! curl -s "$LLM_URL/v1/models" > /dev/null 2>&1; then
-    echo "⚠️  LLM server not available at $LLM_URL"
-    echo "Start with: launchctl load ~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist"
+# Check Gateway is reachable
+if ! penf health > /dev/null 2>&1; then
+    echo "⚠️  Gateway not reachable"
+    echo "Check: penf health"
 fi
 ```
 
 ### Step 2: Set Test Environment
 
 ```bash
-export PENFOLD_DB_NAME=penfold_test_e2e
-export LLM_URL="${LLM_URL:-http://localhost:8080}"
+# E2E tests use the main penfold database with tenant isolation
+# No special database needed - tests use E2E test tenant
 ```
 
 ### Step 3: Run Tests with JSON Output
@@ -68,9 +68,9 @@ go test -tags=e2e -json -timeout 5m $RUN_FLAG ./tests/e2e/... 2>&1 | tee /tmp/te
 Parse JSON output:
 - **Passed**: Action="pass" with Test name
 - **Failed**: Action="fail" with Test name
-- **Skipped**: Action="skip" (missing DB or LLM)
+- **Skipped**: Action="skip" (missing prerequisites)
 
-Note: E2E tests may have longer durations due to LLM inference.
+Note: E2E tests may have longer durations due to pipeline processing time.
 
 ### Step 5: Present Structured Summary
 
@@ -83,8 +83,8 @@ Note: E2E tests may have longer durations due to LLM inference.
 | ❌ Failed | Y |
 | ⏭️ Skipped | Z |
 
-**Database**: penfold_test_e2e @ dev02.brown.chat
-**LLM**: Qwen2.5-32B @ localhost:8080
+**Gateway**: dev02.brown.chat
+**Worker**: dev01 (pipeline processing)
 **Duration**: X.XXs
 ```
 
@@ -127,31 +127,31 @@ E2E test durations matter:
 | TestGlossaryLookup | 8.7s |
 ```
 
-### Step 9: LLM Diagnostics (if failures)
+### Step 9: Pipeline Diagnostics (if failures)
 
 ```
-### 🔧 LLM Diagnostics
+### 🔧 Pipeline Diagnostics
 
-Check LLM server:
-  curl -s http://localhost:8080/v1/models | jq .
+Check Worker service (on dev01):
+  ssh dev01 "systemctl --user status penfold-worker"
+  ssh dev01 "journalctl --user -u penfold-worker -n 50"
 
-Test LLM inference:
-  curl -s http://localhost:8080/v1/chat/completions \
-    -H "Content-Type: application/json" \
-    -d '{"model":"qwen2.5-32b-instruct","messages":[{"role":"user","content":"Say hello"}]}'
+Check Temporal workflows:
+  penf pipeline status
 
-Start LLM server:
-  launchctl load ~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist
+Check source processing status:
+  psql -h dev02.brown.chat -U penfold -d penfold -c \
+    "SELECT processing_status, COUNT(*) FROM sources GROUP BY processing_status"
 
-Check LLM logs:
-  tail -f /tmp/mlx-llm-server.log
+Check for stuck workflows:
+  penf pipeline list --status=running
 ```
 
 ### Step 10: Recommendations
 
-- If LLM tests slow: "Consider running on dev01 for better LLM performance"
+- If timeout waiting for processing: "Worker may not be running. Check: ssh dev01 systemctl --user status penfold-worker"
 - If all pass: "E2E tests passing. Full system validation complete."
-- If DB tests pass but LLM fail: "Database layer working. Check LLM server status."
+- If ingest works but processing fails: "Gateway working. Check Worker service on dev01."
 
 ## Performance Target
 
