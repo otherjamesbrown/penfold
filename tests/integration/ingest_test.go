@@ -44,6 +44,9 @@ func TestIngestRepository_CreateSource(t *testing.T) {
 	repo := storage.NewRepository(db.Pool, logger)
 	ctx := context.Background()
 
+	// Use unique identifiers to avoid conflicts across test runs
+	testID := uniqueTestID()
+
 	tests := []struct {
 		name    string
 		source  *storage.EmailSource
@@ -54,7 +57,7 @@ func TestIngestRepository_CreateSource(t *testing.T) {
 			source: &storage.EmailSource{
 				TenantID:        tenantID,
 				SourceSystem:    storage.SourceSystemManualEML,
-				ExternalID:      "msg-001@test.com",
+				ExternalID:      "msg-001-" + testID + "@test.com",
 				ContentHash:     testHexHash(),
 				RawContent:      "Subject: Test\n\nThis is a test email.",
 				ContentType:     "message/rfc822",
@@ -68,14 +71,14 @@ func TestIngestRepository_CreateSource(t *testing.T) {
 			source: &storage.EmailSource{
 				TenantID:     tenantID,
 				SourceSystem: storage.SourceSystemGmail,
-				ExternalID:   "msg-002@test.com",
+				ExternalID:   "msg-002-" + testID + "@test.com",
 				ContentHash:  testHexHash(),
 				RawContent:   "Subject: Gmail Test\n\nTest email from Gmail.",
 				ContentType:  "message/rfc822",
 				ContentSize:  50,
 				Metadata: map[string]interface{}{
 					"subject":   "Gmail Test",
-					"thread_id": "thread-123",
+					"thread_id": "thread-123-" + testID,
 					"labels":    []string{"INBOX", "IMPORTANT"},
 				},
 				SourceTimestamp: time.Now(),
@@ -87,7 +90,7 @@ func TestIngestRepository_CreateSource(t *testing.T) {
 			source: &storage.EmailSource{
 				TenantID:     tenantID,
 				SourceSystem: storage.SourceSystemManualEML,
-				ExternalID:   "msg-003@test.com",
+				ExternalID:   "msg-003-" + testID + "@test.com",
 				ContentHash:  testHexHash(),
 				RawContent:   "Subject: Team Update\n\nProject update for the team.",
 				ContentType:  "message/rfc822",
@@ -106,12 +109,12 @@ func TestIngestRepository_CreateSource(t *testing.T) {
 			source: &storage.EmailSource{
 				TenantID:        tenantID,
 				SourceSystem:    storage.SourceSystemManualEML,
-				ExternalID:      "msg-004@test.com",
+				ExternalID:      "msg-004-" + testID + "@test.com",
 				ContentHash:     testHexHash(),
 				RawContent:      "Subject: Traced Email\n\nEmail with content ID.",
 				ContentType:     "message/rfc822",
 				ContentSize:     45,
-				ContentID:       "em-abc123",
+				ContentID:       "em-" + testID[len(testID)-8:], // content_id max 12 chars
 				SourceTimestamp: time.Now(),
 			},
 			wantErr: false,
@@ -741,13 +744,20 @@ func TestIngestService_TenantResolution(t *testing.T) {
 
 	ctx := context.Background()
 
+	// Use unique slug to avoid conflicts across test runs
+	testID := uniqueTestID()
+
 	// Create tenant repository to get both UUID and slug
 	tenantRepo := tenant.NewRepository(db.Pool)
 	created, err := tenantRepo.Create(ctx, tenant.TenantInput{
-		Name: "Tenant Resolution Test",
-		Slug: "tenant-res-test",
+		Name: "Tenant Resolution Test " + testID,
+		Slug: "tenant-res-test-" + testID,
 	})
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = tenantRepo.Delete(ctx, created.ID, "test cleanup")
+	})
 
 	// Create service with real repositories
 	logger := logging.NewNopLogger()

@@ -262,9 +262,9 @@ func TestProjectRepository_Resolve(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			name:       "resolve by ID",
-			identifier: "1",
-			wantErr:    true, // ID won't match unless it's actually 1
+			name:       "resolve by non-existent ID",
+			identifier: "999999999",
+			wantErr:    true, // This ID should never exist
 		},
 		{
 			name:       "resolve by name",

@@ -295,40 +295,46 @@ func TestTenantRepository_List(t *testing.T) {
 	_, err = repo.Update(ctx, list[0].ID, tenant.TenantInput{IsActive: &inactive})
 	require.NoError(t, err)
 
-	tests := []struct {
-		name      string
-		filter    tenant.TenantFilter
-		wantCount int
-	}{
-		{
-			name:      "list all tenants",
-			filter:    tenant.TenantFilter{},
-			wantCount: 4,
-		},
-		{
-			name:      "list active tenants only",
-			filter:    tenant.TenantFilter{IsActive: ptrBool(true)},
-			wantCount: 3,
-		},
-		{
-			name:      "list with search",
-			filter:    tenant.TenantFilter{Search: "Alpha"},
-			wantCount: 1,
-		},
-		{
-			name:      "list with limit",
-			filter:    tenant.TenantFilter{Limit: 2},
-			wantCount: 2,
-		},
-	}
+	// Note: We can't test exact counts because tenants table is shared across all tests.
+	// Instead, verify that our created tenants appear in results when filtered.
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			results, _, err := repo.List(ctx, tt.filter)
-			require.NoError(t, err)
-			assert.Len(t, results, tt.wantCount)
-		})
-	}
+	t.Run("list all tenants includes our created ones", func(t *testing.T) {
+		results, _, err := repo.List(ctx, tenant.TenantFilter{})
+		require.NoError(t, err)
+		// Should include at least our 4 created tenants
+		assert.GreaterOrEqual(t, len(results), 4)
+
+		// Verify our test tenants are in the results
+		slugs := make(map[string]bool)
+		for _, r := range results {
+			slugs[r.Slug] = true
+		}
+		assert.True(t, slugs["alpha-"+testID], "alpha tenant should be in results")
+		assert.True(t, slugs["beta-"+testID], "beta tenant should be in results")
+	})
+
+	t.Run("list active tenants only", func(t *testing.T) {
+		results, _, err := repo.List(ctx, tenant.TenantFilter{IsActive: ptrBool(true)})
+		require.NoError(t, err)
+		// All results should be active
+		for _, r := range results {
+			assert.True(t, r.IsActive, "all results should be active")
+		}
+	})
+
+	t.Run("list with search finds our tenant", func(t *testing.T) {
+		// Search for our unique testID to find only our tenants
+		results, _, err := repo.List(ctx, tenant.TenantFilter{Search: "Alpha Corp " + testID})
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+		assert.Equal(t, "Alpha Corp "+testID, results[0].Name)
+	})
+
+	t.Run("list with limit", func(t *testing.T) {
+		results, _, err := repo.List(ctx, tenant.TenantFilter{Limit: 2})
+		require.NoError(t, err)
+		assert.Len(t, results, 2)
+	})
 }
 
 func TestTenantRepository_Update(t *testing.T) {

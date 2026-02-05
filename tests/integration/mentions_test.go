@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/stretchr/testify/assert"
@@ -310,13 +311,16 @@ func TestMentionsRepository_GetPatternsByText(t *testing.T) {
 	repo := mentions.NewPostgresRepository(db.Pool)
 	ctx := context.Background()
 
-	tenantID := "test-tenant"
+	// Use unique tenant ID and pattern text to avoid conflicts across test runs
+	testID := uniqueTestID()
+	tenantID := "test-tenant-" + testID
+	patternText := "John Smith " + testID
 
 	// Create patterns with same text but different scopes
 	pattern1 := &mentions.MentionPattern{
 		TenantID:         tenantID,
 		EntityType:       mentions.EntityTypePerson,
-		PatternText:      "John Smith",
+		PatternText:      patternText,
 		ResolvedEntityID: int64Ptr(1),
 		TimesSeen:        5,
 		TimesLinked:      3,
@@ -327,7 +331,7 @@ func TestMentionsRepository_GetPatternsByText(t *testing.T) {
 	pattern2 := &mentions.MentionPattern{
 		TenantID:         tenantID,
 		EntityType:       mentions.EntityTypePerson,
-		PatternText:      "John Smith",
+		PatternText:      patternText,
 		ResolvedEntityID: int64Ptr(1),
 		ProjectID:        int64Ptr(100),
 		TimesSeen:        2,
@@ -337,7 +341,7 @@ func TestMentionsRepository_GetPatternsByText(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get patterns by text
-	patterns, err := repo.GetPatternsByText(ctx, tenantID, mentions.EntityTypePerson, "John Smith")
+	patterns, err := repo.GetPatternsByText(ctx, tenantID, mentions.EntityTypePerson, patternText)
 	require.NoError(t, err)
 	assert.Len(t, patterns, 2)
 
@@ -352,14 +356,16 @@ func TestMentionsRepository_ListPatterns(t *testing.T) {
 	repo := mentions.NewPostgresRepository(db.Pool)
 	ctx := context.Background()
 
-	tenantID := "test-tenant"
+	// Use unique tenant ID to avoid conflicts across test runs
+	testID := uniqueTestID()
+	tenantID := "test-tenant-" + testID
 
-	// Create various patterns
+	// Create various patterns with unique names
 	patterns := []mentions.MentionPattern{
-		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, PatternText: "Alice", TimesSeen: 10, TimesLinked: 5},
-		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, PatternText: "Bob", TimesSeen: 8, TimesLinked: 3},
-		{TenantID: tenantID, EntityType: mentions.EntityTypeCompany, PatternText: "Acme", TimesSeen: 15, TimesLinked: 10},
-		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, PatternText: "Charlie", ProjectID: int64Ptr(1), TimesSeen: 5, TimesLinked: 2},
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, PatternText: "Alice " + testID, TimesSeen: 10, TimesLinked: 5},
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, PatternText: "Bob " + testID, TimesSeen: 8, TimesLinked: 3},
+		{TenantID: tenantID, EntityType: mentions.EntityTypeCompany, PatternText: "Acme " + testID, TimesSeen: 15, TimesLinked: 10},
+		{TenantID: tenantID, EntityType: mentions.EntityTypePerson, PatternText: "Charlie " + testID, ProjectID: int64Ptr(1), TimesSeen: 5, TimesLinked: 2},
 	}
 
 	for i := range patterns {
@@ -554,24 +560,29 @@ func TestMentionsRepository_IncrementAffinityMentionCount(t *testing.T) {
 	repo := mentions.NewPostgresRepository(db.Pool)
 	ctx := context.Background()
 
-	tenantID := "test-tenant"
+	// Use unique tenant ID and entity/project IDs to avoid conflicts
+	testID := uniqueTestID()
+	tenantID := "test-tenant-" + testID
+	// Use timestamp-based IDs to avoid collisions with other test runs
+	entityID := int64(time.Now().UnixNano() % 1000000)
+	projectID := int64(time.Now().UnixNano()%1000000 + 1000000)
 
 	// Increment for non-existent affinity (should create)
-	err := repo.IncrementAffinityMentionCount(ctx, tenantID, mentions.EntityTypePerson, 1, 100)
+	err := repo.IncrementAffinityMentionCount(ctx, tenantID, mentions.EntityTypePerson, entityID, projectID)
 	require.NoError(t, err)
 
 	// Verify it was created
-	affinity, err := repo.GetAffinity(ctx, tenantID, mentions.EntityTypePerson, 1, 100)
+	affinity, err := repo.GetAffinity(ctx, tenantID, mentions.EntityTypePerson, entityID, projectID)
 	require.NoError(t, err)
 	assert.NotNil(t, affinity)
 	assert.Equal(t, 1, affinity.MentionCount)
 	assert.Equal(t, float32(0.5), affinity.AffinityScore) // Default score
 
 	// Increment again
-	err = repo.IncrementAffinityMentionCount(ctx, tenantID, mentions.EntityTypePerson, 1, 100)
+	err = repo.IncrementAffinityMentionCount(ctx, tenantID, mentions.EntityTypePerson, entityID, projectID)
 	require.NoError(t, err)
 
-	affinity, err = repo.GetAffinity(ctx, tenantID, mentions.EntityTypePerson, 1, 100)
+	affinity, err = repo.GetAffinity(ctx, tenantID, mentions.EntityTypePerson, entityID, projectID)
 	require.NoError(t, err)
 	assert.Equal(t, 2, affinity.MentionCount)
 	assert.Greater(t, affinity.AffinityScore, float32(0.5)) // Score should increase

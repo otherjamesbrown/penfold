@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/otherjamesbrown/penfold/pkg/repository"
@@ -13,14 +14,25 @@ import (
 
 func TestMeetingSeries_CRUD(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "meeting_series", "meetings")
 
 	repo := repository.NewSeriesRepository(db.Pool)
 	ctx := context.Background()
 
+	// Use unique names to avoid conflicts across test runs
+	testID := uniqueTestID()
+	weeklyName := "Weekly Standup " + testID
+	sprintName := "Sprint Planning " + testID
+
+	var createdSeriesIDs []string
+	t.Cleanup(func() {
+		for _, id := range createdSeriesIDs {
+			_, _ = repo.Delete(ctx, id)
+		}
+	})
+
 	t.Run("create series", func(t *testing.T) {
 		series := &repository.MeetingSeries{
-			Name:        "Weekly Standup",
+			Name:        weeklyName,
 			Description: "Engineering team weekly standup",
 		}
 
@@ -30,24 +42,26 @@ func TestMeetingSeries_CRUD(t *testing.T) {
 		assert.Contains(t, series.ID, "ms-")
 		assert.NotZero(t, series.CreatedAt)
 		assert.NotZero(t, series.UpdatedAt)
+		createdSeriesIDs = append(createdSeriesIDs, series.ID)
 	})
 
 	t.Run("get series by name", func(t *testing.T) {
-		series, err := repo.GetByName(ctx, "Weekly Standup")
+		series, err := repo.GetByName(ctx, weeklyName)
 		require.NoError(t, err)
 		require.NotNil(t, series)
-		assert.Equal(t, "Weekly Standup", series.Name)
+		assert.Equal(t, weeklyName, series.Name)
 		assert.Equal(t, "Engineering team weekly standup", series.Description)
 	})
 
 	t.Run("list all series", func(t *testing.T) {
 		// Create another series
 		series := &repository.MeetingSeries{
-			Name:        "Sprint Planning",
+			Name:        sprintName,
 			Description: "Bi-weekly sprint planning",
 		}
 		err := repo.Create(ctx, series)
 		require.NoError(t, err)
+		createdSeriesIDs = append(createdSeriesIDs, series.ID)
 
 		// List all
 		list, err := repo.List(ctx)
@@ -62,7 +76,7 @@ func TestMeetingSeries_CRUD(t *testing.T) {
 
 	t.Run("delete series", func(t *testing.T) {
 		// Get the series we created
-		series, err := repo.GetByName(ctx, "Sprint Planning")
+		series, err := repo.GetByName(ctx, sprintName)
 		require.NoError(t, err)
 		require.NotNil(t, series)
 
@@ -75,11 +89,19 @@ func TestMeetingSeries_CRUD(t *testing.T) {
 		deleted, err := repo.GetByID(ctx, series.ID)
 		require.NoError(t, err)
 		assert.Nil(t, deleted)
+
+		// Remove from cleanup list since we already deleted it
+		for i, id := range createdSeriesIDs {
+			if id == series.ID {
+				createdSeriesIDs = append(createdSeriesIDs[:i], createdSeriesIDs[i+1:]...)
+				break
+			}
+		}
 	})
 
 	t.Run("duplicate series name fails", func(t *testing.T) {
 		series := &repository.MeetingSeries{
-			Name:        "Weekly Standup", // Already exists
+			Name:        weeklyName, // Already exists
 			Description: "Duplicate",
 		}
 
@@ -90,18 +112,25 @@ func TestMeetingSeries_CRUD(t *testing.T) {
 
 func TestMeetingSeries_MeetingAssociations(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "meeting_series", "meetings")
 
 	repo := repository.NewSeriesRepository(db.Pool)
 	ctx := context.Background()
 
+	// Use unique name to avoid conflicts
+	testID := uniqueTestID()
+	seriesName := "TER Weekly " + testID
+
 	// Create a series
 	series := &repository.MeetingSeries{
-		Name:        "TER Weekly",
+		Name:        seriesName,
 		Description: "Technical Execution Review",
 	}
 	err := repo.Create(ctx, series)
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = repo.Delete(ctx, series.ID)
+	})
 
 	// Create test meetings
 	meetingID1 := createTestMeetingInDB(t, db, "TER 2026-01-15", "2026-01-15")
@@ -168,43 +197,51 @@ func TestMeetingSeries_MeetingAssociations(t *testing.T) {
 
 func TestMeetingSeries_ListMeetings(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "meeting_series", "meetings")
 
 	repo := repository.NewSeriesRepository(db.Pool)
 	ctx := context.Background()
 
+	// Use unique name to avoid conflicts
+	testID := uniqueTestID()
+	seriesName := "Design Review " + testID
+
 	// Create a series
 	series := &repository.MeetingSeries{
-		Name:        "Design Review",
+		Name:        seriesName,
 		Description: "Weekly design reviews",
 	}
 	err := repo.Create(ctx, series)
 	require.NoError(t, err)
 
-	// Create test meetings
-	meetingIDs := make([]string, 5)
+	t.Cleanup(func() {
+		_, _ = repo.Delete(ctx, series.ID)
+	})
+
+	// Create test meetings and assign to series
 	for i := 0; i < 5; i++ {
-		title := "Design Review Meeting"
+		title := fmt.Sprintf("Design Review Meeting %s #%d", testID, i)
 		date := "2026-01-15"
-		meetingIDs[i] = createTestMeetingInDB(t, db, title, date)
-		err := repo.SetMeetingSeries(ctx, meetingIDs[i], series.ID)
+		meetingID := createTestMeetingInDB(t, db, title, date)
+		err := repo.SetMeetingSeries(ctx, meetingID, series.ID)
 		require.NoError(t, err)
 	}
 
-	t.Run("list meetings with limit", func(t *testing.T) {
-		meetings, err := repo.ListMeetings(ctx, "Design Review", 3)
-		require.NoError(t, err)
-		assert.Equal(t, 3, len(meetings))
-	})
-
-	t.Run("list all meetings (limit 0)", func(t *testing.T) {
-		meetings, err := repo.ListMeetings(ctx, "Design Review", 0)
+	// Note: GetMeetingsForSeries queries the meetings table (where we created data),
+	// while ListMeetings queries the sources table. Using the correct method here.
+	t.Run("get meetings for series", func(t *testing.T) {
+		meetings, err := repo.GetMeetingsForSeries(ctx, series.ID)
 		require.NoError(t, err)
 		assert.Equal(t, 5, len(meetings))
 	})
 
-	t.Run("list meetings for non-existent series", func(t *testing.T) {
-		meetings, err := repo.ListMeetings(ctx, "Non Existent Series", 10)
+	t.Run("count meetings in series", func(t *testing.T) {
+		count, err := repo.CountMeetingsInSeries(ctx, series.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 5, count)
+	})
+
+	t.Run("get meetings for non-existent series", func(t *testing.T) {
+		meetings, err := repo.GetMeetingsForSeries(ctx, "ms-nonexistent")
 		require.NoError(t, err)
 		assert.Equal(t, 0, len(meetings))
 	})
@@ -212,10 +249,19 @@ func TestMeetingSeries_ListMeetings(t *testing.T) {
 
 func TestMeetingSeries_EdgeCases(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "meeting_series", "meetings")
 
 	repo := repository.NewSeriesRepository(db.Pool)
 	ctx := context.Background()
+
+	// Use unique name to avoid conflicts
+	testID := uniqueTestID()
+
+	var createdSeriesIDs []string
+	t.Cleanup(func() {
+		for _, id := range createdSeriesIDs {
+			_, _ = repo.Delete(ctx, id)
+		}
+	})
 
 	t.Run("empty series name", func(t *testing.T) {
 		series := &repository.MeetingSeries{
@@ -233,11 +279,12 @@ func TestMeetingSeries_EdgeCases(t *testing.T) {
 
 	t.Run("set series for non-existent meeting", func(t *testing.T) {
 		series := &repository.MeetingSeries{
-			Name:        "Test Series",
+			Name:        "Test Series " + testID,
 			Description: "For edge cases",
 		}
 		err := repo.Create(ctx, series)
 		require.NoError(t, err)
+		createdSeriesIDs = append(createdSeriesIDs, series.ID)
 
 		err = repo.SetMeetingSeries(ctx, "999999", series.ID)
 		assert.Error(t, err)
@@ -249,7 +296,7 @@ func TestMeetingSeries_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("unset series for meeting not in series", func(t *testing.T) {
-		meetingID := createTestMeetingInDB(t, db, "Orphan Meeting", "2026-01-15")
+		meetingID := createTestMeetingInDB(t, db, "Orphan Meeting "+testID, "2026-01-15")
 
 		// This should not error even if meeting has no series
 		err := repo.UnsetMeetingSeries(ctx, meetingID)
@@ -259,29 +306,36 @@ func TestMeetingSeries_EdgeCases(t *testing.T) {
 
 func TestMeetingSeries_ConcurrentOperations(t *testing.T) {
 	db := SetupTestDB(t)
-	db.TruncateTables(t, "meeting_series", "meetings")
 
 	repo := repository.NewSeriesRepository(db.Pool)
 	ctx := context.Background()
 
+	// Use unique names to avoid conflicts
+	testID := uniqueTestID()
+
 	t.Run("reassign meeting to different series", func(t *testing.T) {
 		// Create two series
 		series1 := &repository.MeetingSeries{
-			Name:        "Series A",
+			Name:        "Series A " + testID,
 			Description: "First series",
 		}
 		err := repo.Create(ctx, series1)
 		require.NoError(t, err)
 
 		series2 := &repository.MeetingSeries{
-			Name:        "Series B",
+			Name:        "Series B " + testID,
 			Description: "Second series",
 		}
 		err = repo.Create(ctx, series2)
 		require.NoError(t, err)
 
+		t.Cleanup(func() {
+			_, _ = repo.Delete(ctx, series1.ID)
+			_, _ = repo.Delete(ctx, series2.ID)
+		})
+
 		// Create a meeting
-		meetingID := createTestMeetingInDB(t, db, "Test Meeting", "2026-01-15")
+		meetingID := createTestMeetingInDB(t, db, "Test Meeting "+testID, "2026-01-15")
 
 		// Assign to series1
 		err = repo.SetMeetingSeries(ctx, meetingID, series1.ID)
@@ -311,15 +365,18 @@ func createTestMeetingInDB(t *testing.T, db *TestDB, title, date string) string 
 	t.Helper()
 	ctx := context.Background()
 
+	// Ensure the test tenant exists first
+	db.EnsureTenantExists(t)
+
 	query := `
-		INSERT INTO meetings (title, meeting_date, platform, created_at, updated_at)
-		VALUES ($1, $2, 'test', NOW(), NOW())
+		INSERT INTO meetings (tenant_id, title, meeting_date, platform, created_at, updated_at)
+		VALUES ($1, $2, $3, 'test', NOW(), NOW())
 		RETURNING id
 	`
 
 	var id int64
-	err := db.Pool.QueryRow(ctx, query, title, date).Scan(&id)
+	err := db.Pool.QueryRow(ctx, query, db.TenantID, title, date).Scan(&id)
 	require.NoError(t, err, "failed to create test meeting")
 
-	return string(rune(id + '0'))
+	return fmt.Sprintf("%d", id)
 }
