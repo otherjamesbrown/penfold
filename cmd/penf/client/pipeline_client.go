@@ -64,6 +64,25 @@ func (c *GRPCClient) GetPipelineHealth(ctx context.Context) (*pipelinev1.GetPipe
 	return resp, nil
 }
 
+// GetStats retrieves pipeline statistics including source counts, embeddings, and jobs.
+func (c *GRPCClient) GetStats(ctx context.Context, tenantID string) (*pipelinev1.GetStatsResponse, error) {
+	client, err := c.PipelineServiceClient()
+	if err != nil {
+		return nil, err
+	}
+
+	req := &pipelinev1.GetStatsRequest{
+		TenantId: tenantID,
+	}
+
+	resp, err := client.GetStats(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("GetStats RPC failed: %w", err)
+	}
+
+	return resp, nil
+}
+
 // GetContentTrace retrieves full processing history for a content item.
 func (c *GRPCClient) GetContentTrace(ctx context.Context, contentID string, verbose bool) (*pipelinev1.GetContentTraceResponse, error) {
 	client, err := c.PipelineServiceClient()

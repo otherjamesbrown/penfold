@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -409,6 +410,8 @@ PowerShell:
 var (
 	healthWatch         bool
 	healthWatchInterval time.Duration
+	healthExtended      bool
+	healthFunctional    bool
 )
 
 // healthCmd checks system health status.
@@ -418,7 +421,18 @@ var healthCmd = &cobra.Command{
 	Long: `Check the health status of the Penfold system.
 
 Displays the status of all services, database connections, and queue depths.
-Use --json for machine-readable output or --watch for continuous monitoring.`,
+
+Flags:
+  --extended, -e   Include pipeline statistics (sources, embeddings, jobs by status)
+  --functional, -f Run functional inference tests (actual embedding/LLM calls)
+  --watch, -w      Continuously monitor health status
+  --json           Output as JSON for machine processing
+
+Examples:
+  penf health                # Basic health check
+  penf health -e             # Include pipeline stats
+  penf health -e -f          # Full check with inference tests
+  penf health -w             # Watch mode`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Initialize client.
 		if err := initClient(); err != nil {
@@ -435,6 +449,45 @@ Use --json for machine-readable output or --watch for continuous monitoring.`,
 	},
 }
 
+// ExtendedHealthStatus combines system status with pipeline stats and functional tests.
+type ExtendedHealthStatus struct {
+	*client.SystemStatus
+	Pipeline    *PipelineStats    `json:"pipeline,omitempty"`
+	Functional  *FunctionalTests  `json:"functional,omitempty"`
+	WorkerIdle  *WorkerIdleStatus `json:"worker_idle,omitempty"`
+}
+
+// PipelineStats holds pipeline statistics from GetStats.
+type PipelineStats struct {
+	SourcesTotal      int64            `json:"sources_total"`
+	SourcesByStatus   map[string]int64 `json:"sources_by_status"`
+	EmbeddingsTotal   int64            `json:"embeddings_total"`
+	EmbeddingsRecent  int64            `json:"embeddings_recent"`
+	JobsTotal         int64            `json:"jobs_total"`
+	JobsByStatus      map[string]int64 `json:"jobs_by_status"`
+}
+
+// FunctionalTests holds results of functional inference tests.
+type FunctionalTests struct {
+	Embeddings *FunctionalTestResult `json:"embeddings,omitempty"`
+	LLM        *FunctionalTestResult `json:"llm,omitempty"`
+}
+
+// FunctionalTestResult holds a single functional test result.
+type FunctionalTestResult struct {
+	Healthy   bool    `json:"healthy"`
+	LatencyMs float64 `json:"latency_ms"`
+	Message   string  `json:"message,omitempty"`
+	Error     string  `json:"error,omitempty"`
+}
+
+// WorkerIdleStatus tracks if the worker is idle while items are pending.
+type WorkerIdleStatus struct {
+	IsIdle       bool  `json:"is_idle"`
+	PendingCount int64 `json:"pending_count"`
+	Message      string `json:"message"`
+}
+
 // runHealthOnce performs a single health check and outputs results.
 func runHealthOnce(ctx context.Context) error {
 	// Create context with timeout.
@@ -446,7 +499,309 @@ func runHealthOnce(ctx context.Context) error {
 		return fmt.Errorf("failed to get status: %w", err)
 	}
 
-	return outputStatus(status)
+	// If no extended or functional flags, just output basic status.
+	if !healthExtended && !healthFunctional {
+		return outputStatus(status)
+	}
+
+	// Build extended status.
+	extStatus := &ExtendedHealthStatus{
+		SystemStatus: status,
+	}
+
+	// Fetch pipeline stats if extended.
+	if healthExtended {
+		pipelineStats, workerIdle, err := fetchPipelineStats(checkCtx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to get pipeline stats: %v\n", err)
+		} else {
+			extStatus.Pipeline = pipelineStats
+			extStatus.WorkerIdle = workerIdle
+		}
+	}
+
+	// Run functional tests if requested.
+	if healthFunctional {
+		extStatus.Functional = runFunctionalTests(checkCtx)
+	}
+
+	return outputExtendedStatus(extStatus)
+}
+
+// fetchPipelineStats fetches pipeline statistics via gRPC.
+func fetchPipelineStats(ctx context.Context) (*PipelineStats, *WorkerIdleStatus, error) {
+	resp, err := grpcClient.GetStats(ctx, cfg.TenantID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	stats := resp.GetStats()
+	if stats == nil {
+		return nil, nil, fmt.Errorf("empty stats response")
+	}
+
+	pStats := &PipelineStats{
+		SourcesTotal:     stats.GetSourcesTotal(),
+		SourcesByStatus:  make(map[string]int64),
+		EmbeddingsTotal:  stats.GetEmbeddingsTotal(),
+		EmbeddingsRecent: stats.GetEmbeddingsRecent(),
+		JobsTotal:        stats.GetJobsTotal(),
+		JobsByStatus:     make(map[string]int64),
+	}
+
+	for _, sc := range stats.GetSourcesByStatus() {
+		pStats.SourcesByStatus[sc.GetStatus()] = sc.GetCount()
+	}
+
+	for _, jc := range stats.GetJobsByStatus() {
+		pStats.JobsByStatus[jc.GetStatus()] = jc.GetCount()
+	}
+
+	// Check for worker idle condition.
+	var workerIdle *WorkerIdleStatus
+	pendingCount := pStats.SourcesByStatus["pending"]
+	// If there are pending items but no recent embeddings, worker may be idle.
+	if pendingCount > 0 && pStats.EmbeddingsRecent == 0 {
+		workerIdle = &WorkerIdleStatus{
+			IsIdle:       true,
+			PendingCount: pendingCount,
+			Message:      fmt.Sprintf("Worker may be idle: %d pending items but no embeddings in last hour", pendingCount),
+		}
+	}
+
+	return pStats, workerIdle, nil
+}
+
+// runFunctionalTests executes actual inference calls to verify ML services.
+func runFunctionalTests(ctx context.Context) *FunctionalTests {
+	tests := &FunctionalTests{}
+
+	// Get service URLs from config or environment.
+	embeddingsURL := os.Getenv("GATEWAY_EMBEDDINGS_URL")
+	if embeddingsURL == "" {
+		embeddingsURL = "http://dev01.brown.chat:8081"
+	}
+
+	llmURL := os.Getenv("GATEWAY_LLM_URL")
+	if llmURL == "" {
+		llmURL = "http://dev01.brown.chat:8080"
+	}
+
+	// Test embeddings.
+	tests.Embeddings = testEmbeddings(ctx, embeddingsURL)
+
+	// Test LLM.
+	tests.LLM = testLLM(ctx, llmURL)
+
+	return tests
+}
+
+// testEmbeddings sends a test embedding request.
+func testEmbeddings(ctx context.Context, baseURL string) *FunctionalTestResult {
+	url := baseURL + "/v1/embeddings"
+	payload := `{"input": "test"}`
+
+	start := time.Now()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(payload))
+	if err != nil {
+		return &FunctionalTestResult{Healthy: false, Error: err.Error()}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	latency := time.Since(start)
+
+	if err != nil {
+		return &FunctionalTestResult{Healthy: false, LatencyMs: float64(latency.Milliseconds()), Error: err.Error()}
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return &FunctionalTestResult{
+			Healthy:   false,
+			LatencyMs: float64(latency.Milliseconds()),
+			Error:     fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
+		}
+	}
+
+	// Parse response to get embedding dimensions.
+	var embResp struct {
+		Data []struct {
+			Embedding []float64 `json:"embedding"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &embResp) == nil && len(embResp.Data) > 0 {
+		dims := len(embResp.Data[0].Embedding)
+		return &FunctionalTestResult{
+			Healthy:   true,
+			LatencyMs: float64(latency.Milliseconds()),
+			Message:   fmt.Sprintf("%d dimensions", dims),
+		}
+	}
+
+	return &FunctionalTestResult{Healthy: true, LatencyMs: float64(latency.Milliseconds())}
+}
+
+// testLLM sends a test chat completion request.
+func testLLM(ctx context.Context, baseURL string) *FunctionalTestResult {
+	url := baseURL + "/v1/chat/completions"
+	payload := `{"messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 5}`
+
+	start := time.Now()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(payload))
+	if err != nil {
+		return &FunctionalTestResult{Healthy: false, Error: err.Error()}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	latency := time.Since(start)
+
+	if err != nil {
+		return &FunctionalTestResult{Healthy: false, LatencyMs: float64(latency.Milliseconds()), Error: err.Error()}
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return &FunctionalTestResult{
+			Healthy:   false,
+			LatencyMs: float64(latency.Milliseconds()),
+			Error:     fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
+		}
+	}
+
+	// Parse response to get completion.
+	var chatResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(body, &chatResp) == nil && len(chatResp.Choices) > 0 {
+		content := chatResp.Choices[0].Message.Content
+		if len(content) > 20 {
+			content = content[:20] + "..."
+		}
+		return &FunctionalTestResult{
+			Healthy:   true,
+			LatencyMs: float64(latency.Milliseconds()),
+			Message:   fmt.Sprintf("response: %q", content),
+		}
+	}
+
+	return &FunctionalTestResult{Healthy: true, LatencyMs: float64(latency.Milliseconds())}
+}
+
+// outputExtendedStatus outputs the extended health status.
+func outputExtendedStatus(status *ExtendedHealthStatus) error {
+	format := cfg.OutputFormat
+	if outputFormat != "" {
+		format = config.OutputFormat(outputFormat)
+	}
+
+	switch format {
+	case config.OutputFormatJSON:
+		return outputJSON(status)
+	case config.OutputFormatYAML:
+		return outputYAML(status)
+	default:
+		return outputExtendedHealthHuman(status)
+	}
+}
+
+// outputExtendedHealthHuman outputs extended health status in human-readable format.
+func outputExtendedHealthHuman(status *ExtendedHealthStatus) error {
+	// First output the base health info.
+	if err := outputHealthHuman(status.SystemStatus); err != nil {
+		return err
+	}
+
+	// Pipeline stats.
+	if status.Pipeline != nil {
+		p := status.Pipeline
+		fmt.Println("Pipeline:")
+		fmt.Printf("  Sources: %d total\n", p.SourcesTotal)
+		if len(p.SourcesByStatus) > 0 {
+			fmt.Print("    ")
+			parts := make([]string, 0, len(p.SourcesByStatus))
+			for status, count := range p.SourcesByStatus {
+				color := "\033[0m"
+				if status == "completed" {
+					color = "\033[32m"
+				} else if status == "failed" || status == "rejected" {
+					color = "\033[31m"
+				} else if status == "pending" {
+					color = "\033[33m"
+				}
+				parts = append(parts, fmt.Sprintf("%s%s: %d\033[0m", color, status, count))
+			}
+			fmt.Println(strings.Join(parts, ", "))
+		}
+		fmt.Printf("  Embeddings: %d total, %d in last hour\n", p.EmbeddingsTotal, p.EmbeddingsRecent)
+		fmt.Printf("  Jobs: %d total\n", p.JobsTotal)
+		if len(p.JobsByStatus) > 0 {
+			fmt.Print("    ")
+			parts := make([]string, 0, len(p.JobsByStatus))
+			for status, count := range p.JobsByStatus {
+				color := "\033[0m"
+				if status == "completed" {
+					color = "\033[32m"
+				} else if status == "failed" {
+					color = "\033[31m"
+				} else if status == "pending" || status == "in_progress" {
+					color = "\033[33m"
+				}
+				parts = append(parts, fmt.Sprintf("%s%s: %d\033[0m", color, status, count))
+			}
+			fmt.Println(strings.Join(parts, ", "))
+		}
+		fmt.Println()
+	}
+
+	// Worker idle warning.
+	if status.WorkerIdle != nil && status.WorkerIdle.IsIdle {
+		fmt.Printf("\033[33m⚠ %s\033[0m\n", status.WorkerIdle.Message)
+		fmt.Println("  Run 'penf pipeline kick' to start processing.")
+		fmt.Println()
+	}
+
+	// Functional tests.
+	if status.Functional != nil {
+		fmt.Println("Functional Tests:")
+		f := status.Functional
+		if f.Embeddings != nil {
+			statusStr := "\033[32m✓\033[0m"
+			if !f.Embeddings.Healthy {
+				statusStr = "\033[31m✗\033[0m"
+			}
+			detail := f.Embeddings.Message
+			if f.Embeddings.Error != "" {
+				detail = f.Embeddings.Error
+			}
+			fmt.Printf("  %s Embeddings: %.0fms %s\n", statusStr, f.Embeddings.LatencyMs, detail)
+		}
+		if f.LLM != nil {
+			statusStr := "\033[32m✓\033[0m"
+			if !f.LLM.Healthy {
+				statusStr = "\033[31m✗\033[0m"
+			}
+			detail := f.LLM.Message
+			if f.LLM.Error != "" {
+				detail = f.LLM.Error
+			}
+			fmt.Printf("  %s LLM: %.0fms %s\n", statusStr, f.LLM.LatencyMs, detail)
+		}
+		fmt.Println()
+	}
+
+	return nil
 }
 
 // runHealthWatch performs continuous health monitoring.
@@ -681,6 +1036,8 @@ func init() {
 	// Health command flags.
 	healthCmd.Flags().BoolVarP(&healthWatch, "watch", "w", false, "Continuously monitor health status")
 	healthCmd.Flags().DurationVar(&healthWatchInterval, "interval", 5*time.Second, "Watch interval (default 5s)")
+	healthCmd.Flags().BoolVarP(&healthExtended, "extended", "e", false, "Include pipeline stats and database counts")
+	healthCmd.Flags().BoolVarP(&healthFunctional, "functional", "f", false, "Run functional inference tests (embeddings, LLM)")
 
 	// Health subcommands.
 	healthCmd.AddCommand(cmd.NewHealthLocalCommand())
