@@ -549,8 +549,11 @@ func (s *Service) CreateIngestJob(ctx context.Context, req *ingestv1.CreateInges
 		options[k] = v
 	}
 
-	// Map platform to source tag
-	sourceTag := platformToSourceTag(req.Platform)
+	// Use metadata source_tag if provided, otherwise derive from platform
+	sourceTag := req.Metadata["source_tag"]
+	if sourceTag == "" {
+		sourceTag = platformToSourceTag(req.Platform)
+	}
 
 	job := &storage.IngestJob{
 		ID:             jobID,
