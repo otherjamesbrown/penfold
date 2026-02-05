@@ -293,3 +293,19 @@ type PersistFindingsOutput struct {
 	CreatedReferenceIDs []int64
 	CreatedReviewIDs    []int64
 }
+
+// PipelineRepository defines the interface for pipeline run recording.
+type PipelineRepository interface {
+	CreateRun(ctx context.Context, input PipelineRunInput) error
+}
+
+// PipelineRunInput contains the data needed to record a pipeline run.
+type PipelineRunInput struct {
+	SourceID      int64
+	Stage         string
+	ModelID       string
+	PromptVersion int
+	ConfigHash    string
+	Status        string
+	DurationMS    int
+}

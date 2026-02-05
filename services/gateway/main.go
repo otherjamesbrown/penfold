@@ -294,6 +294,7 @@ func main() {
 		logger.Info("Langfuse not configured (tracing will not be available)")
 	}
 	contentSvc := contentservice.NewService(dbPool, tenantRepo, logger, langfuseClient)
+	contentSvc.SetPipelineRepo(pipelineRepo)
 	contentv1.RegisterContentProcessorServiceServer(grpcServer, contentSvc)
 	logger.Info("Registered ContentProcessorService")
 
@@ -433,6 +434,9 @@ func main() {
 	if temporalClient != nil {
 		ingestSvc.SetTemporalClient(temporalClient)
 		logger.Info("Temporal client configured for IngestService")
+
+		contentSvc.SetTemporalClient(temporalClient)
+		logger.Info("Temporal client configured for ContentService")
 	}
 
 	// Start HTTP server for health checks and metrics.

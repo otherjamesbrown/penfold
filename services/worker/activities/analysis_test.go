@@ -97,7 +97,7 @@ func TestDeepAnalyze_Success(t *testing.T) {
 		},
 	}
 
-	activities := NewAnalysisActivities(logger, mockClient)
+	activities := NewAnalysisActivities(logger, mockClient, nil)
 
 	input := DeepAnalyzeInput{
 		TenantID:         "test-tenant",
@@ -172,7 +172,7 @@ func TestDeepAnalyze_Success(t *testing.T) {
 func TestDeepAnalyze_EmptyContent(t *testing.T) {
 	logger := logging.NewNopLogger()
 	mockClient := &mockAIClient{}
-	activities := NewAnalysisActivities(logger, mockClient)
+	activities := NewAnalysisActivities(logger, mockClient, nil)
 
 	input := DeepAnalyzeInput{
 		TenantID:         "test-tenant",
@@ -192,7 +192,7 @@ func TestDeepAnalyze_EmptyContent(t *testing.T) {
 
 func TestDeepAnalyze_NoAIClient(t *testing.T) {
 	logger := logging.NewNopLogger()
-	activities := NewAnalysisActivities(logger, nil)
+	activities := NewAnalysisActivities(logger, nil, nil)
 
 	input := DeepAnalyzeInput{
 		TenantID:         "test-tenant",
@@ -220,7 +220,7 @@ func TestDeepAnalyze_AIClientError(t *testing.T) {
 		},
 	}
 
-	activities := NewAnalysisActivities(logger, mockClient)
+	activities := NewAnalysisActivities(logger, mockClient, nil)
 
 	input := DeepAnalyzeInput{
 		TenantID:         "test-tenant",
@@ -302,7 +302,7 @@ func TestDeepAnalyze_ProtoConversion(t *testing.T) {
 		},
 	}
 
-	activities := NewAnalysisActivities(logger, mockClient)
+	activities := NewAnalysisActivities(logger, mockClient, nil)
 
 	input := DeepAnalyzeInput{
 		TenantID:         "test-tenant",

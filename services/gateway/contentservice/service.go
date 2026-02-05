@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -17,7 +19,9 @@ import (
 
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/tenant"
+	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/services/gateway/internal/langfuse"
 )
 
@@ -660,9 +664,11 @@ func joinWhere(clauses []string) string {
 // Service implements the ContentProcessorService gRPC server.
 type Service struct {
 	contentv1.UnimplementedContentProcessorServiceServer
-	repo          Repository
-	tenantRepo    *tenant.Repository
-	logger        logging.Logger
+	repo           Repository
+	tenantRepo     *tenant.Repository
+	pipelineRepo   *pipeline.Repository
+	temporalClient client.Client
+	logger         logging.Logger
 	langfuseClient *langfuse.Client
 }
 
@@ -674,6 +680,16 @@ func NewService(db *pgxpool.Pool, tenantRepo *tenant.Repository, logger logging.
 		logger:         logger,
 		langfuseClient: langfuseClient,
 	}
+}
+
+// SetPipelineRepo sets the pipeline repository (for reprocessing).
+func (s *Service) SetPipelineRepo(repo *pipeline.Repository) {
+	s.pipelineRepo = repo
+}
+
+// SetTemporalClient sets the Temporal client (for workflow execution).
+func (s *Service) SetTemporalClient(client client.Client) {
+	s.temporalClient = client
 }
 
 // resolveTenantID resolves a tenant reference (UUID or slug) to a UUID.
@@ -802,7 +818,7 @@ func (s *Service) ListContentItems(ctx context.Context, req *contentv1.ListConte
 
 // ReprocessContent triggers reprocessing of an already-processed content item.
 func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.ReprocessContentRequest) (*contentv1.ReprocessContentResponse, error) {
-	s.logger.Debug("ReprocessContent called",
+	s.logger.Info("ReprocessContent called",
 		logging.F("content_id", req.ContentId),
 		logging.F("reason", req.Reason),
 	)
@@ -811,8 +827,70 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		return nil, status.Error(codes.InvalidArgument, "content_id is required")
 	}
 
-	// TODO: Implement reprocessing logic
-	return nil, status.Error(codes.Unimplemented, "ReprocessContent not yet implemented")
+	// Check if pipeline repository is available
+	if s.pipelineRepo == nil {
+		return nil, status.Error(codes.Unavailable, "pipeline repository not configured")
+	}
+
+	// Check if Temporal client is available
+	if s.temporalClient == nil {
+		return nil, status.Error(codes.Unavailable, "Temporal client not configured")
+	}
+
+	// Look up source by content_id
+	source, err := s.pipelineRepo.GetSourceByContentID(ctx, req.ContentId)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, status.Errorf(codes.NotFound, "content not found: %s", req.ContentId)
+		}
+		s.logger.Error("Error getting source by content_id", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get source: %v", err)
+	}
+
+	// Reset processing_status to 'pending' for this specific source
+	err = s.pipelineRepo.ResetSourceStatus(ctx, source.ID)
+	if err != nil {
+		s.logger.Error("Error resetting processing status", logging.Err(err), logging.F("source_id", source.ID))
+		return nil, status.Errorf(codes.Internal, "failed to reset processing status: %v", err)
+	}
+
+	// Start ContentIngestionWorkflow via Temporal
+	workflowID := pkgtemporal.GenerateIngestWorkflowID(source.TenantID, source.SourceSystem, strconv.FormatInt(source.ID, 10))
+	input := pkgtemporal.ContentIngestionInput{
+		TenantID:    source.TenantID,
+		SourceID:    source.ID,
+		ContentID:   source.ContentID,
+		SourceType:  source.SourceSystem,
+		ContentHash: source.ContentHash,
+	}
+	opts := client.StartWorkflowOptions{
+		ID:        workflowID,
+		TaskQueue: "penfold-main",
+	}
+	_, err = s.temporalClient.ExecuteWorkflow(ctx, opts, "ContentIngestionWorkflow", input)
+	if err != nil {
+		s.logger.Error("Failed to start workflow",
+			logging.F("source_id", source.ID),
+			logging.F("workflow_id", workflowID),
+			logging.Err(err),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to start reprocessing workflow: %v", err)
+	}
+
+	s.logger.Info("Started ContentIngestionWorkflow for reprocessing",
+		logging.F("workflow_id", workflowID),
+		logging.F("source_id", source.ID),
+		logging.F("content_id", source.ContentID),
+		logging.F("reason", req.Reason),
+	)
+
+	return &contentv1.ReprocessContentResponse{
+		ContentId: req.ContentId,
+		Status: &contentv1.ProcessingStatus{
+			ContentId: req.ContentId,
+			State:     contentv1.ProcessingState_PROCESSING_STATE_PENDING,
+		},
+	}, nil
 }
 
 // DeleteContentItem removes a content item and all derived data.

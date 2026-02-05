@@ -95,7 +95,7 @@ func TestExtractEntities_ShortContent(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID: "test-tenant",
@@ -144,7 +144,7 @@ func TestExtractEntities_MediumContent(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID: "test-tenant",
@@ -204,7 +204,7 @@ func TestExtractEntities_LongContent(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID: "test-tenant",
@@ -228,7 +228,7 @@ func TestExtractEntities_LongContent(t *testing.T) {
 func TestExtractEntities_EmptyContent(t *testing.T) {
 	logger := logging.NewNopLogger()
 	mockClient := &mockAIClient{}
-	activities := NewExtractionActivities(logger, mockClient, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID: "test-tenant",
@@ -245,7 +245,7 @@ func TestExtractEntities_EmptyContent(t *testing.T) {
 
 func TestExtractEntities_NoAIClient(t *testing.T) {
 	logger := logging.NewNopLogger()
-	activities := NewExtractionActivities(logger, nil, nil, nil)
+	activities := NewExtractionActivities(logger, nil, nil, nil, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID: "test-tenant",
@@ -296,7 +296,7 @@ func TestExtractEntities_MergeDedup(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID: "test-tenant",
@@ -344,7 +344,7 @@ func TestExtractEntities_QualityGate(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID:       "test-tenant",
@@ -382,7 +382,7 @@ func TestExtractEntities_QualityGateNotTriggered(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID:       "test-tenant",

@@ -20,14 +20,16 @@ type EmbeddingActivities struct {
 	logger        logging.Logger
 	aiClient      AIClient
 	embeddingRepo EmbeddingRepository
+	pipelineRepo  PipelineRepository
 }
 
 // NewEmbeddingActivities creates a new EmbeddingActivities instance.
-func NewEmbeddingActivities(logger logging.Logger, aiClient AIClient, embeddingRepo EmbeddingRepository) *EmbeddingActivities {
+func NewEmbeddingActivities(logger logging.Logger, aiClient AIClient, embeddingRepo EmbeddingRepository, pipelineRepo PipelineRepository) *EmbeddingActivities {
 	return &EmbeddingActivities{
 		logger:        logger.With(logging.F("component", "embedding_activities")),
 		aiClient:      aiClient,
 		embeddingRepo: embeddingRepo,
+		pipelineRepo:  pipelineRepo,
 	}
 }
 
@@ -141,6 +143,21 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		logging.F("store_duration", time.Since(storeStart)),
 		logging.F("embedding_id", embeddingID),
 	)
+
+	// Record pipeline run for provenance tracking (Stage 5: embed)
+	if a.pipelineRepo != nil {
+		durationMS := int(time.Since(startTime).Milliseconds())
+		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+			SourceID:   input.SourceID,
+			Stage:      "embed",
+			ModelID:    resp.ModelUsed,
+			Status:     "completed",
+			DurationMS: durationMS,
+		})
+		if runErr != nil {
+			logger.Warn("Failed to record pipeline run", logging.Err(runErr))
+		}
+	}
 
 	return embeddingID, nil
 }

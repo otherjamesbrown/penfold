@@ -35,7 +35,7 @@ func TestTriage_Success(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient)
+	activities := NewTriageActivities(logger, mockClient, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -75,7 +75,7 @@ func TestTriage_SkipDeep_Personal(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient)
+	activities := NewTriageActivities(logger, mockClient, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -111,7 +111,7 @@ func TestTriage_SkipDeep_LowInternalComms(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient)
+	activities := NewTriageActivities(logger, mockClient, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -148,7 +148,7 @@ func TestTriage_NoSkip_HighInternalComms(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient)
+	activities := NewTriageActivities(logger, mockClient, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -173,7 +173,7 @@ func TestTriage_NoSkip_HighInternalComms(t *testing.T) {
 func TestTriage_EmptyContent(t *testing.T) {
 	logger := logging.NewNopLogger()
 	mockClient := &mockAIClient{}
-	activities := NewTriageActivities(logger, mockClient)
+	activities := NewTriageActivities(logger, mockClient, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -191,7 +191,7 @@ func TestTriage_EmptyContent(t *testing.T) {
 
 func TestTriage_NilAIClient(t *testing.T) {
 	logger := logging.NewNopLogger()
-	activities := NewTriageActivities(logger, nil)
+	activities := NewTriageActivities(logger, nil, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -217,7 +217,7 @@ func TestTriage_AIClientError(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient)
+	activities := NewTriageActivities(logger, mockClient, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",

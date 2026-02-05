@@ -22,6 +22,7 @@ type ExtractionActivities struct {
 	aiClient       AIClient
 	assertionRepo  AssertionRepository
 	entityRepo     EntityRepository
+	pipelineRepo   PipelineRepository
 }
 
 // NewExtractionActivities creates a new ExtractionActivities instance.
@@ -30,12 +31,14 @@ func NewExtractionActivities(
 	aiClient AIClient,
 	assertionRepo AssertionRepository,
 	entityRepo EntityRepository,
+	pipelineRepo PipelineRepository,
 ) *ExtractionActivities {
 	return &ExtractionActivities{
 		logger:        logger.With(logging.F("component", "extraction_activities")),
 		aiClient:      aiClient,
 		assertionRepo: assertionRepo,
 		entityRepo:    entityRepo,
+		pipelineRepo:  pipelineRepo,
 	}
 }
 
@@ -393,6 +396,35 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 		logging.F("quality_gate_triggered", output.QualityGateTriggered),
 		logging.F("model", output.ModelUsed),
 	)
+
+	// Record pipeline run for provenance tracking
+	// Note: This covers both extract_ner and extract_semantic stages in one call
+	// The actual pipeline has separate stages, but they run together in this activity
+	if a.pipelineRepo != nil {
+		durationMS := int(time.Since(startTime).Milliseconds())
+		// Record as extract_ner stage (primary extraction stage)
+		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+			SourceID:   input.SourceID,
+			Stage:      "extract_ner",
+			ModelID:    output.ModelUsed,
+			Status:     "completed",
+			DurationMS: durationMS,
+		})
+		if runErr != nil {
+			logger.Warn("Failed to record pipeline run for extract_ner", logging.Err(runErr))
+		}
+		// Also record extract_semantic since this activity does both
+		runErr = a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+			SourceID:   input.SourceID,
+			Stage:      "extract_semantic",
+			ModelID:    output.ModelUsed,
+			Status:     "completed",
+			DurationMS: durationMS,
+		})
+		if runErr != nil {
+			logger.Warn("Failed to record pipeline run for extract_semantic", logging.Err(runErr))
+		}
+	}
 
 	return output, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -86,6 +87,7 @@ type ContextBuilderActivities struct {
 	entityResolver EntityResolverInterface
 	entityRepo     EntityLookupInterface
 	contextRepo    ContextPackageRepository
+	pipelineRepo   PipelineRepository
 }
 
 // NewContextBuilderActivities creates a new ContextBuilderActivities instance.
@@ -94,18 +96,21 @@ func NewContextBuilderActivities(
 	entityResolver EntityResolverInterface,
 	entityRepo EntityLookupInterface,
 	contextRepo ContextPackageRepository,
+	pipelineRepo PipelineRepository,
 ) *ContextBuilderActivities {
 	return &ContextBuilderActivities{
 		logger:         logger.With(logging.F("component", "context_builder_activities")),
 		entityResolver: entityResolver,
 		entityRepo:     entityRepo,
 		contextRepo:    contextRepo,
+		pipelineRepo:   pipelineRepo,
 	}
 }
 
 // BuildContextPackage builds a context package from extraction output.
 // This is Stage 3: resolve entities and assemble context for Stage 4.
 func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, input BuildContextInput) (*BuildContextOutput, error) {
+	startTime := time.Now()
 	logger := a.logger.With(
 		logging.F("activity", "BuildContextPackage"),
 		logging.F("tenant_id", input.TenantID),
@@ -184,6 +189,21 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 		logging.F("recent_decisions", len(contextPackage.RecentDecisions)),
 		logging.F("product_events", len(contextPackage.ProductEvents)),
 		logging.F("glossary_terms", len(contextPackage.GlossaryTerms)))
+
+	// Record pipeline run for provenance tracking (Stage 3: resolve)
+	if a.pipelineRepo != nil {
+		durationMS := int(time.Since(startTime).Milliseconds())
+		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+			SourceID:   input.SourceID,
+			Stage:      "resolve",
+			ModelID:    "", // code-only stage
+			Status:     "completed",
+			DurationMS: durationMS,
+		})
+		if runErr != nil {
+			logger.Warn("Failed to record pipeline run", logging.Err(runErr))
+		}
+	}
 
 	return output, nil
 }

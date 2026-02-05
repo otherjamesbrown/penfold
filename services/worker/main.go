@@ -193,6 +193,13 @@ func main() {
 	}
 	activityRegistrar := activities.NewRegistrar(activityImpl)
 
+	// Create pipeline repository if database is available (for run provenance tracking)
+	var pipelineRepo activities.PipelineRepository
+	if dbPool != nil {
+		pipelineRepo = activities.NewPipelineRepository(dbPool)
+		logger.Info("Pipeline repository initialized for provenance tracking")
+	}
+
 	// Initialize AIClient-based activities if AI client is available
 	if aiClient != nil {
 		// Create embedding repository if database is available
@@ -203,7 +210,7 @@ func main() {
 		}
 
 		// Create embedding activities
-		embeddingActivities := activities.NewEmbeddingActivities(logger, aiClient, embeddingRepo)
+		embeddingActivities := activities.NewEmbeddingActivities(logger, aiClient, embeddingRepo, pipelineRepo)
 		activityRegistrar.WithEmbeddingActivities(embeddingActivities)
 		logger.Info("Embedding activities initialized with AI client")
 
@@ -213,7 +220,7 @@ func main() {
 		logger.Info("Summarization activities initialized with AI client")
 
 		// Create extraction activities
-		extractionActivities := activities.NewExtractionActivities(logger, aiClient, nil, nil)
+		extractionActivities := activities.NewExtractionActivities(logger, aiClient, nil, nil, pipelineRepo)
 		activityRegistrar.WithExtractionActivities(extractionActivities)
 		logger.Info("Extraction activities initialized with AI client")
 	}

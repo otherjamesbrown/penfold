@@ -15,18 +15,21 @@ import (
 
 // AnalysisActivities holds dependencies for analysis-related activities.
 type AnalysisActivities struct {
-	logger   logging.Logger
-	aiClient AIClient
+	logger       logging.Logger
+	aiClient     AIClient
+	pipelineRepo PipelineRepository
 }
 
 // NewAnalysisActivities creates a new AnalysisActivities instance.
 func NewAnalysisActivities(
 	logger logging.Logger,
 	aiClient AIClient,
+	pipelineRepo PipelineRepository,
 ) *AnalysisActivities {
 	return &AnalysisActivities{
-		logger:   logger.With(logging.F("component", "analysis_activities")),
-		aiClient: aiClient,
+		logger:       logger.With(logging.F("component", "analysis_activities")),
+		aiClient:     aiClient,
+		pipelineRepo: pipelineRepo,
 	}
 }
 
@@ -212,6 +215,21 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input DeepAnalyzeI
 		logging.F("implicit_actions", len(output.ImplicitActions)),
 		logging.F("model", output.ModelUsed),
 	)
+
+	// Record pipeline run for provenance tracking (Stage 4: analyze)
+	if a.pipelineRepo != nil {
+		durationMS := int(time.Since(startTime).Milliseconds())
+		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+			SourceID:   input.SourceID,
+			Stage:      "analyze",
+			ModelID:    output.ModelUsed,
+			Status:     "completed",
+			DurationMS: durationMS,
+		})
+		if runErr != nil {
+			logger.Warn("Failed to record pipeline run", logging.Err(runErr))
+		}
+	}
 
 	return output, nil
 }

@@ -1187,6 +1187,7 @@ func runPipelineLogs(ctx context.Context, deps *PipelineCommandDeps, jobID strin
 		// For tail mode, start from now
 		filter.Since = time.Now()
 
+		// StreamLogs uses context for cancellation, no timeout needed
 		err := grpcClient.StreamLogs(ctx, filter, 1000, func(entry client.LogEntry) {
 			if outputFormat == "json" {
 				enc := json.NewEncoder(os.Stdout)
@@ -1204,8 +1205,10 @@ func runPipelineLogs(ctx context.Context, deps *PipelineCommandDeps, jobID strin
 		return nil
 	}
 
-	// List logs
-	resp, err := grpcClient.ListLogs(ctx, filter, limit, 0, false)
+	// List logs with RPC timeout
+	rpcCtx, rpcCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer rpcCancel()
+	resp, err := grpcClient.ListLogs(rpcCtx, filter, limit, 0, false)
 	if err != nil {
 		return fmt.Errorf("fetching logs: %w", err)
 	}

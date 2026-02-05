@@ -4,6 +4,7 @@ package activities
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.temporal.io/sdk/temporal"
 
@@ -12,18 +13,21 @@ import (
 
 // PersistActivities holds dependencies for Stage 4.5 persistence activities.
 type PersistActivities struct {
-	logger     logging.Logger
-	repository PersistRepository
+	logger       logging.Logger
+	repository   PersistRepository
+	pipelineRepo PipelineRepository
 }
 
 // NewPersistActivities creates a new PersistActivities instance.
 func NewPersistActivities(
 	logger logging.Logger,
 	repository PersistRepository,
+	pipelineRepo PipelineRepository,
 ) *PersistActivities {
 	return &PersistActivities{
-		logger:     logger.With(logging.F("component", "persist_activities")),
-		repository: repository,
+		logger:       logger.With(logging.F("component", "persist_activities")),
+		repository:   repository,
+		pipelineRepo: pipelineRepo,
 	}
 }
 
@@ -50,6 +54,7 @@ type PersistFindingsActivityOutput struct {
 // It validates the input, calls the repository to persist the data in a transaction,
 // and returns statistics about the persisted records.
 func (a *PersistActivities) PersistFindings(ctx context.Context, input PersistFindingsActivityInput) (*PersistFindingsActivityOutput, error) {
+	startTime := time.Now()
 	logger := a.logger.With(
 		logging.F("activity", "PersistFindings"),
 		logging.F("tenant_id", input.TenantID),
@@ -130,6 +135,21 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input PersistFi
 		logging.F("review_items_created", output.ReviewItemsCreated),
 		logging.F("affinity_updates", output.AffinityUpdates),
 	)
+
+	// Record pipeline run for provenance tracking (Stage 4.5: persist)
+	if a.pipelineRepo != nil {
+		durationMS := int(time.Since(startTime).Milliseconds())
+		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+			SourceID:   input.SourceID,
+			Stage:      "persist",
+			ModelID:    "", // code-only stage
+			Status:     "completed",
+			DurationMS: durationMS,
+		})
+		if runErr != nil {
+			logger.Warn("Failed to record pipeline run", logging.Err(runErr))
+		}
+	}
 
 	return output, nil
 }

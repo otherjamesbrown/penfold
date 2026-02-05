@@ -245,15 +245,61 @@ func (r *Repository) KickPendingProcessing(ctx context.Context, limit int, sourc
 }
 
 // RetryFailedItems retries failed pipeline items.
-// TODO: Actual implementation needed - this is a stub for compilation.
 func (r *Repository) RetryFailedItems(ctx context.Context, jobID string, stage string) (int, error) {
-	// Stub implementation - needs to:
-	// 1. Find failed items by:
-	//    - job_id (from ingest_jobs + sources)
-	//    - stage (embedding vs attachment failures)
-	// 2. Reset processing_status or retry flags
-	// 3. Return count of retried items
-	return 0, fmt.Errorf("RetryFailedItems not yet implemented")
+	// Reset processing_status to 'pending' for failed items
+	result, err := r.db.Exec(ctx, `
+		UPDATE sources
+		SET processing_status = 'pending',
+		    updated_at = NOW()
+		WHERE processing_status = 'failed'
+		  AND is_deleted = false
+		  AND ($1 = '' OR ingest_job_id = $1)
+	`, jobID)
+	if err != nil {
+		return 0, fmt.Errorf("resetting failed items: %w", err)
+	}
+
+	return int(result.RowsAffected()), nil
+}
+
+// GetSourceByContentID retrieves a pending source by content_id.
+func (r *Repository) GetSourceByContentID(ctx context.Context, contentID string) (*PendingSource, error) {
+	var src PendingSource
+	err := r.db.QueryRow(ctx, `
+		SELECT id,
+		       tenant_id,
+		       source_system,
+		       COALESCE(content_hash, '') AS content_hash,
+		       COALESCE(content_id, '') AS content_id
+		FROM sources
+		WHERE content_id = $1
+		  AND is_deleted = false
+	`, contentID).Scan(&src.ID, &src.TenantID, &src.SourceSystem, &src.ContentHash, &src.ContentID)
+	if err != nil {
+		return nil, fmt.Errorf("getting source by content_id: %w", err)
+	}
+
+	return &src, nil
+}
+
+// ResetSourceStatus resets a specific source's processing status to pending.
+func (r *Repository) ResetSourceStatus(ctx context.Context, sourceID int64) error {
+	result, err := r.db.Exec(ctx, `
+		UPDATE sources
+		SET processing_status = 'pending',
+		    updated_at = NOW()
+		WHERE id = $1
+		  AND is_deleted = false
+	`, sourceID)
+	if err != nil {
+		return fmt.Errorf("resetting source status: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("source not found or already deleted")
+	}
+
+	return nil
 }
 
 // UndeleteSource restores a soft-deleted source by ID.
@@ -645,4 +691,24 @@ func (r *Repository) GetDownstreamStages(ctx context.Context, stage string) ([]s
 	}
 
 	return stages, rows.Err()
+}
+
+// PipelineRunInput contains the data needed to record a pipeline run.
+type PipelineRunInput struct {
+	SourceID      int64
+	Stage         string // 'triage', 'extract_ner', 'extract_semantic', 'resolve', 'analyze', 'persist', 'embed'
+	ModelID       string // 'qwen2.5-7b', 'gemini-2.0-flash', '' for code-only
+	PromptVersion int    // which prompt version, 0 for no-prompt stages
+	ConfigHash    string // hash of relevant config
+	Status        string // 'completed', 'failed'
+	DurationMS    int    // how long this stage took
+}
+
+// CreateRun records a pipeline run for provenance tracking.
+func (r *Repository) CreateRun(ctx context.Context, input PipelineRunInput) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO pipeline_runs (source_id, stage, model_id, prompt_version, config_hash, status, duration_ms)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, 0), NULLIF($5, ''), $6, $7)
+	`, input.SourceID, input.Stage, input.ModelID, input.PromptVersion, input.ConfigHash, input.Status, input.DurationMS)
+	return err
 }

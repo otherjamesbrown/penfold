@@ -141,6 +141,7 @@ func TestBuildContext_PersonResolution(t *testing.T) {
 				nil,
 				entityLookup,
 				nil,
+				nil,
 			)
 
 			input := BuildContextInput{
@@ -250,6 +251,7 @@ func TestBuildContext_ProjectResolution(t *testing.T) {
 				nil,
 				entityLookup,
 				contextRepo,
+				nil,
 			)
 
 			input := BuildContextInput{
@@ -279,7 +281,7 @@ func TestBuildContext_TokenBudget_Meeting(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, nil, nil, nil)
+	activities := NewContextBuilderActivities(logger, nil, nil, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -302,7 +304,7 @@ func TestBuildContext_TokenBudget_Email(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, nil, nil, nil)
+	activities := NewContextBuilderActivities(logger, nil, nil, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -325,7 +327,7 @@ func TestBuildContext_TokenBudget_Slack(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, nil, nil, nil)
+	activities := NewContextBuilderActivities(logger, nil, nil, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -391,7 +393,7 @@ func TestBuildContext_TokenBudget_Truncation(t *testing.T) {
 		},
 	}
 
-	activities := NewContextBuilderActivities(logger, nil, entityLookup, contextRepo)
+	activities := NewContextBuilderActivities(logger, nil, entityLookup, contextRepo, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -428,7 +430,7 @@ func TestBuildContext_EmptyExtraction(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, nil, nil, nil)
+	activities := NewContextBuilderActivities(logger, nil, nil, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -473,7 +475,7 @@ func TestBuildContext_UnknownEntities(t *testing.T) {
 		glossaryTerms:     []ContextGlossaryTerm{}, // Empty - no glossary matches
 	}
 
-	activities := NewContextBuilderActivities(logger, nil, entityLookup, contextRepo)
+	activities := NewContextBuilderActivities(logger, nil, entityLookup, contextRepo, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",

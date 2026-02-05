@@ -15,18 +15,21 @@ import (
 
 // TriageActivities holds dependencies for triage-related activities.
 type TriageActivities struct {
-	logger   logging.Logger
-	aiClient AIClient
+	logger       logging.Logger
+	aiClient     AIClient
+	pipelineRepo PipelineRepository
 }
 
 // NewTriageActivities creates a new TriageActivities instance.
 func NewTriageActivities(
 	logger logging.Logger,
 	aiClient AIClient,
+	pipelineRepo PipelineRepository,
 ) *TriageActivities {
 	return &TriageActivities{
-		logger:   logger.With(logging.F("component", "triage_activities")),
-		aiClient: aiClient,
+		logger:       logger.With(logging.F("component", "triage_activities")),
+		aiClient:     aiClient,
+		pipelineRepo: pipelineRepo,
 	}
 }
 
@@ -172,6 +175,22 @@ func (a *TriageActivities) Triage(ctx context.Context, input TriageInput) (*Tria
 		logging.F("skip_deep", output.SkipDeep),
 		logging.F("model", output.ModelUsed),
 	)
+
+	// Record pipeline run for provenance tracking
+	if a.pipelineRepo != nil {
+		durationMS := int(time.Since(startTime).Milliseconds())
+		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+			SourceID:   input.SourceID,
+			Stage:      "triage",
+			ModelID:    output.ModelUsed,
+			Status:     "completed",
+			DurationMS: durationMS,
+		})
+		if runErr != nil {
+			logger.Warn("Failed to record pipeline run", logging.Err(runErr))
+			// Don't fail the activity if run recording fails
+		}
+	}
 
 	return output, nil
 }

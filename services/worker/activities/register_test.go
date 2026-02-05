@@ -51,6 +51,14 @@ func (m *mockWorker) RegisterActivityWithOptions(a interface{}, opts activity.Re
 	m.registeredActivities = append(m.registeredActivities, name)
 }
 
+func (m *mockWorker) RegisterDynamicActivity(a interface{}, options activity.DynamicRegisterOptions) {
+	// No-op for testing
+}
+
+func (m *mockWorker) RegisterDynamicWorkflow(w interface{}, options workflow.DynamicRegisterOptions) {
+	// No-op for testing
+}
+
 func (m *mockWorker) RegisterNexusService(*nexus.Service) {
 	// No-op for testing
 }

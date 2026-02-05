@@ -51,7 +51,7 @@ func TestPersistFindings_Success(t *testing.T) {
 		},
 	}
 
-	activities := NewPersistActivities(logger, mockRepo)
+	activities := NewPersistActivities(logger, mockRepo, nil)
 
 	threadID := int64(456)
 	projectID := int64(789)
@@ -110,7 +110,7 @@ func TestPersistFindings_Success(t *testing.T) {
 func TestPersistFindings_NilAnalysis(t *testing.T) {
 	logger := logging.NewNopLogger()
 	mockRepo := &mockPersistRepository{}
-	activities := NewPersistActivities(logger, mockRepo)
+	activities := NewPersistActivities(logger, mockRepo, nil)
 
 	input := PersistFindingsActivityInput{
 		TenantID: "test-tenant",
@@ -127,7 +127,7 @@ func TestPersistFindings_NilAnalysis(t *testing.T) {
 func TestPersistFindings_InvalidSourceID(t *testing.T) {
 	logger := logging.NewNopLogger()
 	mockRepo := &mockPersistRepository{}
-	activities := NewPersistActivities(logger, mockRepo)
+	activities := NewPersistActivities(logger, mockRepo, nil)
 
 	input := PersistFindingsActivityInput{
 		TenantID: "test-tenant",
@@ -145,7 +145,7 @@ func TestPersistFindings_InvalidSourceID(t *testing.T) {
 
 func TestPersistFindings_NilRepository(t *testing.T) {
 	logger := logging.NewNopLogger()
-	activities := NewPersistActivities(logger, nil)
+	activities := NewPersistActivities(logger, nil, nil)
 
 	input := PersistFindingsActivityInput{
 		TenantID: "test-tenant",
@@ -171,7 +171,7 @@ func TestPersistFindings_RepositoryError(t *testing.T) {
 		},
 	}
 
-	activities := NewPersistActivities(logger, mockRepo)
+	activities := NewPersistActivities(logger, mockRepo, nil)
 
 	input := PersistFindingsActivityInput{
 		TenantID: "test-tenant",
@@ -214,7 +214,7 @@ func TestPersistFindings_EmptyAnalysis(t *testing.T) {
 		},
 	}
 
-	activities := NewPersistActivities(logger, mockRepo)
+	activities := NewPersistActivities(logger, mockRepo, nil)
 
 	input := PersistFindingsActivityInput{
 		TenantID: "test-tenant",
