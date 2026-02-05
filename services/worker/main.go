@@ -20,6 +20,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/logs"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/otherjamesbrown/penfold/pkg/mentions/resolver"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
@@ -34,6 +35,29 @@ import (
 )
 
 const version = "0.1.0"
+
+// logWriterAdapter adapts logs.Repository to logging.LogWriter.
+type logWriterAdapter struct {
+	repo *logs.Repository
+}
+
+func (a *logWriterAdapter) WriteBatch(ctx context.Context, entries []logging.LogEntry) error {
+	inputs := make([]logs.EntryInput, len(entries))
+	for i, entry := range entries {
+		inputs[i] = logs.EntryInput{
+			TenantID:  entry.TenantID,
+			Timestamp: entry.Timestamp,
+			Level:     logs.Level(entry.Level),
+			Service:   entry.Service,
+			Message:   entry.Message,
+			Fields:    entry.Fields,
+			TraceID:   entry.TraceID,
+			Caller:    entry.Caller,
+		}
+	}
+	_, err := a.repo.CreateBatch(ctx, inputs)
+	return err
+}
 
 // workerManager manages multiple Temporal workers for different task queues.
 type workerManager struct {
