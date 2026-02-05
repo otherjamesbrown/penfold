@@ -9,6 +9,7 @@ from typing import List, Union
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from prometheus_fastapi_instrumentator import Instrumentator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +21,9 @@ app = FastAPI(
     description="Embedding generation service using mlx-embeddings",
     version="1.0.0",
 )
+
+# Prometheus metrics - exposes /metrics endpoint
+Instrumentator().instrument(app).expose(app)
 
 # Model instance (lazy loaded)
 _model = None
