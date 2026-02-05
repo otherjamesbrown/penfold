@@ -10,11 +10,35 @@
 | `private key has group access` | Key permissions | `chmod 600 ~/.postgresql/postgresql.key` |
 | `Local LLM not available` | No LLM server | `ssh -L 8080:localhost:8080 dev01` or start server |
 | `test timed out` | Slow test | Add `-timeout 15m` flag |
-| `duplicate key value` | Stale fixtures | Clean tenant data (see below) |
+| `duplicate key value` | Fixed test data | Use `uniqueTestID()` (see below) |
 | `cannot unmarshal string into []string` | Backend bug | Add skip: `if strings.Contains(stderr, "cannot unmarshal") { t.Skip(...) }` |
 | `executable not found: penf` | CLI not installed | `go install ./cmd/penf` |
 
+## Duplicate Key Violations
+
+**Why this happens**: Integration tests run against the production database with tenant isolation. Tables without `tenant_id` (e.g., `meeting_series`, `tenants`) don't get cleaned up between runs.
+
+**Fix**: Make tests self-contained using `uniqueTestID()`:
+
+```go
+// BAD - fails on second run
+series := &repository.MeetingSeries{Name: "Weekly Standup"}
+
+// GOOD - unique per run
+testID := uniqueTestID()
+series := &repository.MeetingSeries{Name: "Weekly Standup " + testID}
+```
+
+**Tables requiring unique identifiers** (no `tenant_id` column):
+- `meeting_series` - use unique names
+- `tenants` - use unique slugs
+
+**Tables with tenant isolation** (cleanup works):
+- `glossary`, `projects`, `people`, `teams`, `products`, `sources`, etc.
+
 ## Clean Test Data
+
+For tables with `tenant_id`, cleanup happens automatically. For manual cleanup:
 
 ```bash
 # Clean integration test tenant

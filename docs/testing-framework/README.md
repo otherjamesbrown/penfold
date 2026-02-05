@@ -438,9 +438,47 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 
 ### Database Testing
 - Use `t.Cleanup()` for automatic resource cleanup
-- Truncate tables between tests for isolation
 - Load fixtures via `pkg/testfixtures` loader
-- Never use production database for tests
+- **Make tests self-contained** (see below)
+
+### Self-Contained Tests (Important)
+
+Integration tests run against the **production database** with tenant isolation. However, not all tables have a `tenant_id` column (e.g., `meeting_series`, `tenants`), so cleanup between test runs is incomplete.
+
+**Problem**: Tests with fixed names/slugs fail on subsequent runs due to duplicate key violations.
+
+**Solution**: Use `uniqueTestID()` for any data that persists:
+
+```go
+func TestMeetingSeries_CRUD(t *testing.T) {
+    db := SetupTestDB(t)
+    repo := repository.NewSeriesRepository(db.Pool)
+    ctx := context.Background()
+
+    // Use unique names to avoid conflicts across test runs
+    testID := uniqueTestID()
+    seriesName := "Weekly Standup " + testID
+
+    series := &repository.MeetingSeries{Name: seriesName}
+    err := repo.Create(ctx, series)
+    require.NoError(t, err)
+
+    // Clean up after test
+    t.Cleanup(func() {
+        _, _ = repo.Delete(ctx, series.ID)
+    })
+}
+```
+
+**When to use `uniqueTestID()`**:
+- Tenant slugs and names
+- Meeting series names
+- Any field with a unique constraint
+- External IDs that persist
+
+**When cleanup works** (no `uniqueTestID()` needed):
+- Data in tables with `tenant_id` column (cleaned by `CleanupTables`)
+- Data created and deleted within the same test
 
 ### Flaky Test Quarantine
 ```go
