@@ -38,6 +38,10 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-3
 | **Worker** | dev01.brown.chat | - | 8085 | Deployed |
 | **MLX Embeddings** | dev01.brown.chat | - | 8081 | Deployed |
 | **MLX LLM Server** | dev01.brown.chat | - | 8080 | Deployed |
+| **mlx-lm-exporter** | dev01.brown.chat | - | 9101 | Deployed |
+| **node_exporter** | dev01.brown.chat | - | 9100 | Deployed |
+| **promtail** | dev01.brown.chat | - | 9080 | Deployed |
+| **postgres_exporter** | dev02.brown.chat | - | 9187 | Deployed |
 | **Agent Mail** | dev02.brown.chat | - | 8765 | Deployed |
 | **AI Service** | dev01.brown.chat | 50055 | 8086 | Code exists |
 | Gmail Connector | (not deployed) | 50056 | 8087 | Code exists |
@@ -190,7 +194,7 @@ Use hostnames in all configs for portability. IPs may change.
 │  ┌──────────────────────────┐                 │                             │
 │  │  MLX LLM Server          │                 │                             │
 │  │  localhost:8080          │                 │                             │
-│  │  Qwen2.5-32B-Instruct    │                 │                             │
+│  │  Qwen2.5-7B-Instruct     │                 │                             │
 │  └──────────────────────────┘                 │                             │
 └───────────────────────────────────────────────┼─────────────────────────────┘
                                                 │
@@ -225,9 +229,12 @@ Use hostnames in all configs for portability. IPs may change.
 
 | Service | Port | Co-located Access | Notes |
 |---------|------|-------------------|-------|
-| MLX Embeddings | 8081 | `localhost:8081` | Apple Silicon required |
-| MLX LLM Server | 8080 | `localhost:8080` | Qwen2.5-32B — SLM for pipeline Stages 1-2 (Triage, Extract) and mention resolution |
-| Worker | 8085 | - | Health endpoint only |
+| MLX Embeddings | 8081 | `localhost:8081` | Apple Silicon required, `/metrics` for Prometheus |
+| MLX LLM Server | 8080 | `localhost:8080` | Qwen2.5-7B — SLM for pipeline Stages 1-2 (Triage, Extract) and mention resolution |
+| mlx-lm-exporter | 9101 | `localhost:9101` | Prometheus metrics for MLX LLM Server |
+| Worker | 8085 | - | Health endpoint + `/metrics` |
+| node_exporter | 9100 | `localhost:9100` | System metrics |
+| promtail | 9080 | `localhost:9080` | Log shipping to Loki |
 
 **Embeddings Sidecar:**
 ```bash
@@ -250,13 +257,13 @@ launchctl list | grep penfold.mlx-embeddings
 penfold-go-pipeline/sidecar
 
 # Model
-mlx-community/Qwen2.5-32B-Instruct-4bit
+mlx-community/Qwen2.5-7B-Instruct-4bit
 
 # Managed by launchd (auto-restarts on reboot)
 launchctl list | grep penfold.mlx-llm-server
 
 # Manual start (if not using launchd)
-.venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-32B-Instruct-4bit --port 8080 --host 0.0.0.0
+.venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-7B-Instruct-4bit --port 8080 --host 0.0.0.0
 ```
 
 **Launchd Services (dev01):**
@@ -288,7 +295,7 @@ PENFOLD_DB_NAME=penfold
 PENFOLD_TEMPORAL_HOST=dev02.brown.chat:7233
 AI_SERVICE_URL=http://localhost:8081  # MLX embeddings (local to dev01)
 LLM_URL=http://localhost:8080         # MLX LLM server (local to dev01)
-LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
+LLM_MODEL=mlx-community/Qwen2.5-7B-Instruct-4bit
 ```
 
 **AI Service (dev01):**
@@ -311,7 +318,7 @@ AI_HTTP_PORT=8086               # HTTP health/metrics port
 AI_MLX_EMBEDDINGS_URL=http://localhost:8081
 AI_MLX_LLM_URL=http://localhost:8080
 AI_DEFAULT_EMBEDDING_MODEL=mxbai-embed-large-v1
-AI_DEFAULT_LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
+AI_DEFAULT_LLM_MODEL=mlx-community/Qwen2.5-7B-Instruct-4bit
 ```
 
 ### dev02.brown.chat
@@ -330,6 +337,9 @@ AI_DEFAULT_LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
 | Langfuse Redis | 6380 | langfuse-redis | Langfuse cache |
 | Langfuse ClickHouse | 8123 | langfuse-clickhouse | Trace storage |
 | Langfuse MinIO | 9092 | langfuse-minio | Blob storage |
+| Prometheus | 9090 | prometheus | Metrics collection |
+| Loki | 3100 | loki | Log aggregation |
+| Grafana | 3001 | grafana | Dashboards (internal 3000→3001) |
 
 **Gateway Environment:**
 ```bash
@@ -471,7 +481,7 @@ cd penfold-go-pipeline/sidecar
 .venv/bin/uvicorn app:app --host 0.0.0.0 --port 8081 &
 
 # 4. Start LLM Server on dev01 (for mention resolution)
-.venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-32B-Instruct-4bit --port 8080 --host 0.0.0.0 &
+.venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-7B-Instruct-4bit --port 8080 --host 0.0.0.0 &
 
 # 5. Start Worker on dev01
 PENFOLD_DB_HOST=dev02.brown.chat \
@@ -602,13 +612,24 @@ Complete inventory of Penfold Go services with their default configurations.
 | Langfuse Redis | langfuse-redis | 6380 | `redis-cli ping` |
 | Langfuse ClickHouse | langfuse-clickhouse | 8123 | HTTP |
 | Langfuse MinIO | langfuse-minio | 9092 | HTTP |
+| Prometheus | prometheus | 9090 | HTTP `/targets`, `/metrics` |
+| Loki | loki | 3100 | HTTP `/ready`, `/loki/api/v1/labels` |
+| Grafana | grafana | 3001 | HTTP (UI port 3000 mapped to 3001) |
 
 ### ML Sidecars (Python on dev01)
 
-| Service | Manager | Port | Model | Health Check |
-|---------|---------|------|-------|--------------|
-| MLX Embeddings | launchd | 8081 | mxbai-embed-large-v1 | `/health` |
-| MLX LLM Server | launchd | 8080 | Qwen2.5-32B-Instruct-4bit | `/v1/models` |
+| Service | Manager | Port | Model/Purpose | Health Check |
+|---------|---------|------|---------------|--------------|
+| MLX Embeddings | launchd | 8081 | mxbai-embed-large-v1 | `/health`, `/metrics` |
+| MLX LLM Server | launchd | 8080 | Qwen2.5-7B-Instruct-4bit | `/v1/models` |
+| mlx-lm-exporter | nohup | 9101 | Prometheus metrics for LLM | `/health`, `/metrics` |
+
+### Observability Sidecars (dev01)
+
+| Service | Manager | Port | Purpose | Health Check |
+|---------|---------|------|---------|--------------|
+| node_exporter | nohup | 9100 | System metrics | `/metrics` |
+| promtail | nohup | 9080 | Log shipping to Loki | `/ready` |
 
 ### Environment Variables Reference
 
@@ -630,7 +651,9 @@ TEMPORAL_HOST_PORT=dev02.brown.chat:7233
 TEMPORAL_NAMESPACE=default
 AI_SERVICE_URL=http://localhost:8081  # MLX embeddings
 LLM_URL=http://localhost:8080         # MLX LLM server
-LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
+LLM_MODEL=mlx-community/Qwen2.5-7B-Instruct-4bit
+WORKER_MAX_CONCURRENT_ACTIVITIES=1  # Limit concurrent activities per queue worker
+WORKER_MAX_CONCURRENT_WORKFLOWS=10  # Limit concurrent workflow executions
 ```
 
 #### Database (`PENFOLD_DB_*`)
@@ -640,5 +663,212 @@ PENFOLD_DB_PORT=5432
 PENFOLD_DB_USER=penfold
 PENFOLD_DB_PASSWORD=<see secrets>
 PENFOLD_DB_NAME=penfold
+```
+
+---
+
+## Rate Limits
+
+Rate limiting protects the LLM server from OOM crashes when processing multiple sources concurrently.
+
+### Temporal Worker Concurrency
+
+The Worker creates **separate workers for each task queue**, each with its own concurrency limit:
+
+| Setting | Default | Current | Scope |
+|---------|---------|---------|-------|
+| `WORKER_MAX_CONCURRENT_ACTIVITIES` | 10 | **1** | Per queue worker |
+| `WORKER_MAX_CONCURRENT_WORKFLOWS` | 10 | 10 | Per queue worker |
+
+**Task Queues:**
+- `penfold-main` - General workflows, content ingestion
+- `penfold-ai` - AI-intensive operations
+- `penfold-email` - Email processing (includes AI activities)
+
+**Effective Total**: With 3 queues × 1 concurrent activity = **3 max concurrent activities globally**.
+
+**Why concurrency=1?** The Qwen2.5-7B-Instruct-4bit model requires ~4-5GB VRAM at 4-bit quantization. While smaller than the 32B model, we keep concurrency=1 to ensure consistent response times and avoid memory pressure during concurrent requests.
+
+### Activity-Level Limits
+
+Activities use different timeout/retry profiles defined in `pkg/temporal/options.go`:
+
+| Activity Type | Timeout | Heartbeat | Retries | Use Case |
+|---------------|---------|-----------|---------|----------|
+| `FastActivityOptions()` | 30s | - | 3 | DB queries, status updates |
+| `EmbeddingActivityOptions()` | 30s | 10s | 3 | MLX embeddings, SLM calls |
+| `LLMActivityOptions()` | 2min | 15s | 2 | LLM deep analysis |
+| `BatchActivityOptions()` | 5min | 30s | 2 | Batch processing |
+
+### LLM-Specific Activities
+
+Activities that call the MLX LLM Server (`:8080`):
+
+| Activity | Queue | Timeout | Description |
+|----------|-------|---------|-------------|
+| `Triage` | penfold-main | 30s | Content classification (via AI Coordinator) |
+| `ExtractEntities` | penfold-main | 30s | Entity extraction (via AI Coordinator) |
+| `DeepAnalyze` | penfold-main | 2min | Full LLM analysis |
+| `ExtractMentions` | penfold-main | 30s | Direct vLLM-MLX call |
+| `GenerateSummary` | penfold-ai | 30s | Summary generation |
+
+**Note:** Activities on `penfold-main` all compete for the single concurrent slot, ensuring sequential LLM access.
+
+### Configuration Location
+
+| Setting | File | Host |
+|---------|------|------|
+| Worker concurrency | `~/Library/LaunchAgents/com.penfold.worker.plist` | dev01 |
+| Activity timeouts | `pkg/temporal/options.go` | Codebase |
+| Activity registration | `services/worker/activities/register.go` | Codebase |
+
+### Changing Concurrency
+
+```bash
+# On dev01 - update plist
+ssh dev01 "plutil -replace EnvironmentVariables.WORKER_MAX_CONCURRENT_ACTIVITIES -string '2' ~/Library/LaunchAgents/com.penfold.worker.plist"
+
+# Restart worker (kill and launchd restarts it)
+ssh dev01 "pkill -f penfold-worker"
+
+# Or use nohup if launchctl isn't working over SSH
+ssh dev01 "nohup /opt/penfold/bin/penfold-worker > ~/penfold-worker.log 2>&1 &"
+```
+
+### Monitoring
+
+```bash
+# Check active workflows
+penf pipeline list --status=running
+
+# Check Temporal UI for activity queue depth
+open http://dev02.brown.chat:8088
+
+# Watch worker logs for concurrent activity
+ssh dev01 "tail -f ~/penfold-worker.log | grep -E 'Starting|Completed|activity'"
+```
+
+### Observability Stack
+
+Metrics and logs are collected on dev02:
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| Prometheus | http://dev02.brown.chat:9090 | Metrics collection and queries |
+| Loki | http://dev02.brown.chat:3100 | Log aggregation |
+| Grafana | http://dev02.brown.chat:3001 | Dashboards and visualization |
+
+#### Prometheus Targets (12 total)
+
+**dev01 (Apple Silicon):**
+
+| Target | Port | Source | Metrics |
+|--------|------|--------|---------|
+| penfold-worker | 8085 | Native | Request counts, latency, Temporal activity metrics |
+| mlx-embeddings | 8081 | Native | Request counts, latency (prometheus-fastapi-instrumentator) |
+| mlx-llm | 9101 | [mlx-lm-exporter](https://github.com/otherjamesbrown/mlx-lm-exporter) | LLM up/down, request counts, token usage, latency |
+| node-dev01 | 9100 | node_exporter | CPU, memory, disk, network |
+
+**dev02 (Intel):**
+
+| Target | Port | Source | Metrics |
+|--------|------|--------|---------|
+| penfold-gateway | 8080 | Native | gRPC request counts, latency |
+| penfold-ai-coordinator | 8090 | Native | AI service metrics |
+| postgresql | 9187 | postgres_exporter | DB connections, queries, replication |
+| temporal | 8233 | Native | Workflow counts, task queue depth, latency |
+| prometheus | 9090 | Self | Scrape stats |
+| loki | 3100 | Native | Ingestion rate, storage |
+| promtail | 9080 | Native | Log shipping stats |
+| node-dev02 | 9100 | node_exporter | CPU, memory, disk, network |
+
+#### Loki Log Sources
+
+**dev01 (via promtail on port 9080):**
+
+| Job | Log File | Description |
+|-----|----------|-------------|
+| penfold-worker | `/Users/james/penfold-worker.log` | Worker activity logs |
+| mlx-llm | `/tmp/mlx-llm-server.log` | vLLM-MLX server logs |
+| mlx-embeddings | `/tmp/mlx-embeddings.log` | Embedding service logs |
+| mlx-lm-exporter | `/tmp/mlx-lm-exporter.log` | Metrics exporter logs |
+| node-exporter | `/tmp/node_exporter.log` | Node exporter logs |
+
+**dev02 (via promtail in Docker):**
+
+| Job | Source | Description |
+|-----|--------|-------------|
+| docker | `/var/lib/docker/containers/*/*.log` | All container logs |
+| systemd-journal | journald | System service logs |
+
+#### Exporter Processes (dev01)
+
+These run via nohup (not launchd, due to SSH domain issues):
+
+```bash
+# node_exporter
+nohup /opt/homebrew/opt/node_exporter/bin/node_exporter > /tmp/node_exporter.log 2>&1 &
+
+# mlx-lm-exporter (proxies to mlx-lm on 8080)
+cd ~/github/otherjamesbrown/mlx-lm-exporter
+nohup .venv/bin/python mlx_lm_exporter.py --mlx-server http://localhost:8080 --port 9101 > /tmp/mlx-lm-exporter.log 2>&1 &
+
+# promtail
+nohup /opt/homebrew/opt/promtail/bin/promtail -config.file=/tmp/promtail-config.yaml > /tmp/promtail.log 2>&1 &
+```
+
+#### Quick Access
+
+```bash
+# Prometheus - check targets
+open http://dev02.brown.chat:9090/targets
+
+# Grafana - dashboards
+open http://dev02.brown.chat:3001
+
+# Query Loki logs
+curl -s "http://dev02.brown.chat:3100/loki/api/v1/query_range" \
+  --data-urlencode 'query={job="penfold-worker"}' \
+  --data-urlencode 'limit=100'
+
+# Check all targets health
+curl -s http://dev02.brown.chat:9090/api/v1/targets | \
+  jq '.data.activeTargets | map({job: .labels.job, health: .health})'
+```
+
+#### Example Grafana Queries
+
+```promql
+# MLX LLM request rate
+rate(mlx_lm_request_total[5m])
+
+# MLX LLM token throughput
+rate(mlx_lm_tokens_total[5m])
+
+# Worker activity duration
+histogram_quantile(0.95, rate(temporal_activity_execution_latency_bucket[5m]))
+
+# Embedding request latency
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="mlx-embeddings"}[5m]))
+```
+
+### Troubleshooting OOM
+
+If the LLM server crashes with OOM:
+
+1. **Check vLLM-MLX logs**: `ssh dev01 "tail -50 /tmp/mlx-llm-server.log"`
+2. **Reduce model size**: Switch from 32B to 7B model
+3. **Reduce concurrency**: Set `WORKER_MAX_CONCURRENT_ACTIVITIES=1`
+4. **Check GPU memory**: `ssh dev01 "ioreg -l | grep CurrentPowerState"` (Mac)
+
+**Recovery steps:**
+```bash
+# 1. Restart vLLM-MLX with smaller model
+ssh dev01 "pkill -f mlx_lm.server"
+ssh dev01 "cd ~/github/otherjamesbrown/penfold/penfold-go-pipeline/sidecar && nohup .venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-7B-Instruct-4bit --port 8080 --host 0.0.0.0 > /tmp/mlx-llm-server.log 2>&1 &"
+
+# 2. Restart worker
+ssh dev01 "pkill -f penfold-worker"
+# Worker auto-restarts via launchd, or start manually with nohup
 ```
 

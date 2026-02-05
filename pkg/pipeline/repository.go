@@ -213,7 +213,7 @@ func (r *Repository) CountJobs(ctx context.Context, filter JobFilter) (int64, er
 // KickPendingProcessing queries pending sources from the database.
 func (r *Repository) KickPendingProcessing(ctx context.Context, limit int, sourceTag string) ([]PendingSource, int, error) {
 	query := `
-		SELECT id, tenant_id, source_system, content_hash, content_id
+		SELECT id, tenant_id, source_system, COALESCE(content_hash, ''), COALESCE(content_id, '')
 		FROM sources
 		WHERE processing_status = 'pending'
 		  AND is_deleted = false

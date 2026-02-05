@@ -144,7 +144,46 @@ ORDER BY stage_name, status;
 " 2>&1
 ```
 
-### Step 7: Observability Stack (optional)
+### Step 7: Worker Activity Check
+
+Check if the worker is idle while there's pending work. This catches cases where health endpoints pass but no actual processing is happening.
+
+```bash
+echo "--- Worker Activity Check ---"
+source ~/github/otherjamesbrown/secrets/.env.penfold
+
+# Get seconds since last activity and pending count
+RESULT=$(PGPASSWORD="$PENFOLD_DB_PASSWORD" psql -h dev02.brown.chat -U penfold -d penfold -t -c "
+SELECT
+  COALESCE(EXTRACT(EPOCH FROM (NOW() - MAX(updated_at)))::int, 9999) as idle_seconds,
+  COUNT(*) FILTER (WHERE processing_status = 'pending') as pending_count
+FROM sources;" 2>&1)
+
+IDLE_SECONDS=$(echo "$RESULT" | awk '{print $1}')
+PENDING_COUNT=$(echo "$RESULT" | awk '{print $3}')
+
+# Threshold: 5 minutes (300 seconds) of inactivity with pending items is concerning
+if [ "$IDLE_SECONDS" -gt 300 ] && [ "$PENDING_COUNT" -gt 0 ]; then
+  IDLE_MINS=$((IDLE_SECONDS / 60))
+  echo "⚠️ WORKER IDLE: No activity for ${IDLE_MINS}m while ${PENDING_COUNT} items pending"
+  echo "   Recommendation: Run 'penf pipeline kick' to start processing"
+else
+  echo "✅ Worker activity OK (idle ${IDLE_SECONDS}s, ${PENDING_COUNT} pending)"
+fi
+```
+
+Also check the worker log timestamp directly:
+```bash
+# Get last log entry timestamp from worker
+LAST_LOG=$(ssh dev01 "tail -1 ~/penfold-worker.log 2>/dev/null" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' | head -1)
+if [ -n "$LAST_LOG" ]; then
+  echo "   Last worker log: $LAST_LOG"
+fi
+```
+
+### Step 8: Observability Stack (optional)
+
+Note: Step numbers 9-13 follow below (Process Audit, Stuck Docker, Functional Tests, Summary, Recommendations).
 
 ```bash
 echo "--- Grafana ---"
@@ -164,7 +203,80 @@ echo "--- Embedding Server ---"
 ssh dev01 "curl -s http://localhost:8081/health" 2>&1 | jq -r '.model // "not running"' 2>/dev/null || echo "Embedding server not running"
 ```
 
-### Step 9: Present Health Summary
+### Step 9: Process Age Audit
+
+Check for stale or rogue processes that may interfere with services. Flag any penfold-related process running longer than 24 hours.
+
+**dev01 processes:**
+```bash
+echo "--- dev01 Process Audit ---"
+ssh dev01 "ps -eo pid,etime,command | grep -E 'penfold|mlx_lm|uvicorn.*8081' | grep -v grep" 2>&1
+```
+
+**dev02 processes:**
+```bash
+echo "--- dev02 Process Audit ---"
+ssh dev02 "ps -eo pid,etime,command | grep -E 'penfold-(gateway|ai)' | grep -v grep" 2>&1
+```
+
+Parse the `etime` column:
+- Format `MM:SS` = minutes (OK)
+- Format `HH:MM:SS` = hours (check if > 24h)
+- Format `D-HH:MM:SS` = days (⚠️ STALE - flag for review)
+
+Any process with uptime > 1 day should be flagged as potentially stale.
+
+### Step 10: Stuck Docker Processes
+
+Check for orphaned docker processes that may be consuming resources.
+
+```bash
+echo "--- Stuck Docker Processes (dev02) ---"
+ssh dev02 "ps -eo pid,etime,command | grep 'docker run' | grep -v grep | awk '\$2 ~ /-/ {print \"⚠️ STUCK (\" \$2 \"):\", \$0}'" 2>&1
+```
+
+Any docker process running for days (format `D-HH:MM:SS`) is likely stuck and should be killed.
+
+### Step 11: Functional Inference Test
+
+Health endpoints can pass while actual inference fails. Test real inference directly against MLX servers on dev01.
+
+**LLM inference test (direct to MLX on dev01):**
+```bash
+echo "--- Functional LLM Inference Test ---"
+# Get the actual model name from the server
+MODEL=$(ssh dev01 "curl -s http://localhost:8080/v1/models" 2>&1 | jq -r '.data[0].id // "unknown"')
+RESULT=$(ssh dev01 "curl -s -X POST http://localhost:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Say OK\"}],\"max_tokens\":5}' \
+  --max-time 30" 2>&1)
+
+if echo "$RESULT" | jq -e '.choices[0].message.content' > /dev/null 2>&1; then
+  echo "✅ LLM Inference OK ($MODEL): $(echo "$RESULT" | jq -r '.choices[0].message.content')"
+else
+  echo "❌ LLM Inference FAILED: $RESULT"
+fi
+```
+
+**Embedding test (direct to embedding server on dev01):**
+```bash
+echo "--- Functional Embedding Test ---"
+RESULT=$(ssh dev01 "curl -s -X POST http://localhost:8081/v1/embeddings \
+  -H 'Content-Type: application/json' \
+  -d '{\"input\":\"test\"}' \
+  --max-time 10" 2>&1)
+
+if echo "$RESULT" | jq -e '.data[0].embedding' > /dev/null 2>&1; then
+  DIM=$(echo "$RESULT" | jq '.data[0].embedding | length')
+  echo "✅ Embeddings OK: ${DIM} dimensions"
+else
+  echo "❌ Embeddings FAILED: $RESULT"
+fi
+```
+
+Note: The AI Coordinator on dev02 uses gRPC, not HTTP REST. These tests verify the underlying MLX services are working. If these pass but pipeline processing fails, check the AI Coordinator logs for gRPC errors.
+
+### Step 12: Present Health Summary
 
 Compile all checks into a single summary table.
 
@@ -195,6 +307,40 @@ Compile all checks into a single summary table.
 | LLM Server       | dev01  | ...    | ...          |
 | Embedding Server | dev01  | ...    | ...          |
 
+### Functional Tests
+
+| Test             | Status | Details                    |
+|------------------|--------|----------------------------|
+| LLM Inference    | ...    | Response or error message  |
+| Embeddings       | ...    | Dimensions or error        |
+
+### Process Audit
+
+| Host   | Process              | Uptime   | Status |
+|--------|----------------------|----------|--------|
+| dev01  | penfold-worker       | ...      | ...    |
+| dev01  | mlx_lm.server        | ...      | ...    |
+| dev01  | embeddings (uvicorn) | ...      | ...    |
+| dev02  | penfold-gateway      | ...      | ...    |
+| dev02  | penfold-ai-coord     | ...      | ...    |
+
+Flag any process with uptime > 1 day as ⚠️ STALE for review.
+Flag any unexpected penfold process (e.g., /tmp/penfold-*) as ⚠️ ROGUE.
+
+### Stuck Docker Processes
+
+List any docker processes running > 1 day, or "None found".
+
+### Worker Activity
+
+| Metric              | Value  | Status |
+|---------------------|--------|--------|
+| Time since activity | ...    | ...    |
+| Pending items       | ...    | ...    |
+
+Flag ⚠️ IDLE if > 5 minutes since last activity AND pending items > 0.
+This catches the case where health endpoints pass but no actual work is being processed.
+
 ### Database Counts
 
 | Table            | Count |
@@ -218,7 +364,7 @@ Compile all checks into a single summary table.
 | Prometheus | http://dev02.brown.chat:9090   | ...    |
 ```
 
-### Step 10: Recommendations
+### Step 13: Recommendations
 
 Based on results:
 
@@ -227,3 +373,9 @@ Based on results:
 - If pending migrations: "Pending migrations found — run `penf migrate up` to apply."
 - If LLM not running: "LLM server not running on dev01. Start with: `ssh dev01 'launchctl load ~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist'`"
 - If errors found: List the errors and suggest investigation steps.
+- If stale process found: "Stale process detected: `kill <PID>` or investigate why it wasn't restarted."
+- If rogue process found (e.g., `/tmp/penfold-*`): "Rogue process detected. Kill with: `ssh devXX 'kill <PID>'` and check why it was started outside normal deployment."
+- If stuck docker processes: "Stuck docker processes found. Clean up with: `ssh dev02 'docker ps -a | grep -E \"days ago|weeks ago\" | awk \"{print \\$1}\" | xargs docker rm -f'`"
+- If functional inference fails but health passes: "AI Coordinator health passes but inference fails. Check AI coordinator logs: `ssh dev01 'tail -100 /tmp/penfold-ai*.log | grep ERR'` or restart the service."
+- If embeddings fail: "Embeddings not working. Check embedding server: `ssh dev01 'curl -s http://localhost:8081/health'`"
+- If worker idle with pending items: "Worker idle but items pending. Run `penf pipeline kick` to start processing. If this happens frequently, check if workflows are completing or failing silently."
