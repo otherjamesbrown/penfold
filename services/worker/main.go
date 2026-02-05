@@ -289,7 +289,7 @@ func main() {
 	}
 	llmModel := os.Getenv("LLM_MODEL")
 	if llmModel == "" {
-		llmModel = "mlx-community/Qwen2.5-32B-Instruct-4bit"
+		llmModel = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 	}
 
 	// Initialize mentions activities if database is available
