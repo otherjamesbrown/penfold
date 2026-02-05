@@ -128,11 +128,11 @@ func DefaultSearchDeps() *SearchCommandDeps {
 			opts := client.DefaultOptions()
 			opts.Insecure = cfg.Insecure
 			opts.Debug = cfg.Debug
-			opts.ConnectTimeout = cfg.Timeout
 			opts.TenantID = cfg.TenantID
+			// Keep the default ConnectTimeout (10s) for fast failure detection.
 
 			grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+			ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
 			defer cancel()
 
 			if err := grpcClient.Connect(ctx); err != nil {
@@ -144,8 +144,8 @@ func DefaultSearchDeps() *SearchCommandDeps {
 			opts := client.DefaultOptions()
 			opts.Insecure = cfg.Insecure
 			opts.Debug = cfg.Debug
-			opts.ConnectTimeout = cfg.Timeout
 			opts.TenantID = cfg.TenantID
+			// Keep the default ConnectTimeout (10s) for fast failure detection.
 
 			// Load TLS config if not insecure
 			if !cfg.Insecure && cfg.TLS.Enabled {
@@ -157,7 +157,7 @@ func DefaultSearchDeps() *SearchCommandDeps {
 			}
 
 			searchClient := client.NewSearchClient(cfg.GetSearchServiceAddress(), opts)
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+			ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
 			defer cancel()
 
 			if err := searchClient.Connect(ctx); err != nil {

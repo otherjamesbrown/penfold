@@ -56,11 +56,21 @@ func DefaultAIDeps() *AICommandDeps {
 			opts := client.DefaultOptions()
 			opts.Insecure = cfg.Insecure
 			opts.Debug = cfg.Debug
-			opts.ConnectTimeout = cfg.Timeout
 			opts.TenantID = cfg.TenantID
+			// Keep the default ConnectTimeout (10s) - don't use cfg.Timeout (10min)
+			// for connection establishment, as that causes long hangs on failures.
+
+			// Load TLS config if not in insecure mode.
+			if !cfg.Insecure {
+				tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
+				if err != nil {
+					return nil, fmt.Errorf("loading TLS config: %w", err)
+				}
+				opts.TLSConfig = tlsConfig
+			}
 
 			grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+			ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
 			defer cancel()
 
 			if err := grpcClient.Connect(ctx); err != nil {
@@ -265,8 +275,8 @@ func runAIQuery(ctx context.Context, deps *AICommandDeps, question string) error
 	clientOpts := client.DefaultOptions()
 	clientOpts.Insecure = cfg.Insecure
 	clientOpts.Debug = cfg.Debug
-	clientOpts.ConnectTimeout = cfg.Timeout
 	clientOpts.TenantID = cfg.TenantID
+	// Keep the default ConnectTimeout (10s) for fast failure detection.
 
 	// Load TLS config if not in insecure mode.
 	if !cfg.Insecure && cfg.TLS.Enabled {
@@ -280,7 +290,9 @@ func runAIQuery(ctx context.Context, deps *AICommandDeps, question string) error
 	// Connect to AI service via gateway.
 	aiClient := client.NewAIClient(cfg.ServerAddress, clientOpts)
 
-	if err := aiClient.Connect(ctx); err != nil {
+	connectCtx, cancel := context.WithTimeout(context.Background(), clientOpts.ConnectTimeout)
+	defer cancel()
+	if err := aiClient.Connect(connectCtx); err != nil {
 		return fmt.Errorf("connecting to AI service: %w", err)
 	}
 	defer aiClient.Close()
@@ -354,8 +366,8 @@ func runAISummarize(ctx context.Context, deps *AICommandDeps, contentID, length 
 	clientOpts := client.DefaultOptions()
 	clientOpts.Insecure = cfg.Insecure
 	clientOpts.Debug = cfg.Debug
-	clientOpts.ConnectTimeout = cfg.Timeout
 	clientOpts.TenantID = cfg.TenantID
+	// Keep the default ConnectTimeout (10s) for fast failure detection.
 
 	// Load TLS config if not in insecure mode.
 	if !cfg.Insecure && cfg.TLS.Enabled {
@@ -369,7 +381,9 @@ func runAISummarize(ctx context.Context, deps *AICommandDeps, contentID, length 
 	// Connect to AI service via gateway.
 	aiClient := client.NewAIClient(cfg.ServerAddress, clientOpts)
 
-	if err := aiClient.Connect(ctx); err != nil {
+	connectCtx, cancel := context.WithTimeout(context.Background(), clientOpts.ConnectTimeout)
+	defer cancel()
+	if err := aiClient.Connect(connectCtx); err != nil {
 		return fmt.Errorf("connecting to AI service: %w", err)
 	}
 	defer aiClient.Close()
@@ -446,8 +460,8 @@ func runAIAnalyze(ctx context.Context, deps *AICommandDeps, contentID, analysisT
 	clientOpts := client.DefaultOptions()
 	clientOpts.Insecure = cfg.Insecure
 	clientOpts.Debug = cfg.Debug
-	clientOpts.ConnectTimeout = cfg.Timeout
 	clientOpts.TenantID = cfg.TenantID
+	// Keep the default ConnectTimeout (10s) for fast failure detection.
 
 	// Load TLS config if not in insecure mode.
 	if !cfg.Insecure && cfg.TLS.Enabled {
@@ -461,7 +475,9 @@ func runAIAnalyze(ctx context.Context, deps *AICommandDeps, contentID, analysisT
 	// Connect to AI service via gateway.
 	aiClient := client.NewAIClient(cfg.ServerAddress, clientOpts)
 
-	if err := aiClient.Connect(ctx); err != nil {
+	connectCtx, cancel := context.WithTimeout(context.Background(), clientOpts.ConnectTimeout)
+	defer cancel()
+	if err := aiClient.Connect(connectCtx); err != nil {
 		return fmt.Errorf("connecting to AI service: %w", err)
 	}
 	defer aiClient.Close()

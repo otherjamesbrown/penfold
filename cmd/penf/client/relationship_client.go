@@ -75,6 +75,8 @@ func (c *RelationshipClient) buildDialOptions() []grpc.DialOption {
 			Timeout:             3 * time.Second,
 			PermitWithoutStream: true,
 		}),
+		// Block on dial to detect connection failures early.
+		grpc.WithBlock(),
 	}
 
 	if c.options.Insecure {

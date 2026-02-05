@@ -35,7 +35,7 @@ func TestCLI_RelationshipList_WithFilters(t *testing.T) {
 	stdout, stderr, err := runCLI(t, "relationship", "list",
 		"--type", "mentions",
 		"--limit", "10",
-		"--min-confidence", "0.5")
+		"--confidence-min", "0.5")
 
 	require.NoError(t, err, "relationship list with filters should succeed. stderr: %s", stderr)
 

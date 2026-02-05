@@ -79,6 +79,8 @@ func (c *SearchClient) buildDialOptions() []grpc.DialOption {
 		grpc.WithDefaultCallOptions(
 			grpc.WaitForReady(true),
 		),
+		// Block on dial to detect connection failures early.
+		grpc.WithBlock(),
 	}
 
 	// Configure credentials.

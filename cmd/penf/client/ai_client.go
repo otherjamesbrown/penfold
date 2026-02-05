@@ -78,6 +78,10 @@ func (c *AIClient) buildDialOptions() []grpc.DialOption {
 		grpc.WithDefaultCallOptions(
 			grpc.WaitForReady(true),
 		),
+		// Block on dial to detect connection failures early.
+		// Without this, DialContext returns immediately and connection happens lazily,
+		// which can cause confusing hangs when the server is unreachable.
+		grpc.WithBlock(),
 	}
 
 	// Configure credentials.

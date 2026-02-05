@@ -32,11 +32,11 @@ func DefaultMeetingSeriesDeps() *MeetingSeriesCommandDeps {
 			opts := client.DefaultOptions()
 			opts.Insecure = cfg.Insecure
 			opts.Debug = cfg.Debug
-			opts.ConnectTimeout = cfg.Timeout
 			opts.TenantID = cfg.TenantID
+			// Keep the default ConnectTimeout (10s) for fast failure detection.
 
 			grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+			ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
 			defer cancel()
 
 			if err := grpcClient.Connect(ctx); err != nil {

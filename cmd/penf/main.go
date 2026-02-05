@@ -619,7 +619,8 @@ func initClient() error {
 	opts := client.DefaultOptions()
 	opts.Insecure = cfg.Insecure
 	opts.Debug = cfg.Debug
-	opts.ConnectTimeout = cfg.Timeout
+	// Keep the default ConnectTimeout (10s) - don't use cfg.Timeout (10min)
+	// for connection establishment, as that causes long hangs on failures.
 
 	// Load TLS configuration if not running in insecure mode.
 	if !cfg.Insecure && cfg.TLS.Enabled {
@@ -638,8 +639,8 @@ func initClient() error {
 
 	grpcClient = client.NewGRPCClient(cfg.ServerAddress, opts)
 
-	// Create context with timeout for connection.
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	// Create context with timeout for connection (use short timeout for fast fail).
+	ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
 	defer cancel()
 
 	if err := grpcClient.Connect(ctx); err != nil {

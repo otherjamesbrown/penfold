@@ -987,11 +987,11 @@ func runPipelineWorkers(ctx context.Context, deps *PipelineCommandDeps, tenant s
 		opts := client.DefaultOptions()
 		opts.Insecure = cfg.Insecure
 		opts.Debug = cfg.Debug
-		opts.ConnectTimeout = cfg.Timeout
 		opts.TenantID = cfg.TenantID
+		// Keep the default ConnectTimeout (10s) for fast failure detection.
 
 		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
 		defer cancel()
 
 		if err := grpcClient.Connect(ctx); err != nil {
@@ -1150,11 +1150,11 @@ func runPipelineLogs(ctx context.Context, deps *PipelineCommandDeps, jobID strin
 		opts := client.DefaultOptions()
 		opts.Insecure = cfg.Insecure
 		opts.Debug = cfg.Debug
-		opts.ConnectTimeout = cfg.Timeout
 		opts.TenantID = cfg.TenantID
+		// Keep the default ConnectTimeout (10s) for fast failure detection.
 
 		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
 		defer cancel()
 
 		if err := grpcClient.Connect(ctx); err != nil {
@@ -1314,11 +1314,11 @@ func runPipelineQueue(ctx context.Context, deps *PipelineCommandDeps, stage stri
 		opts := client.DefaultOptions()
 		opts.Insecure = cfg.Insecure
 		opts.Debug = cfg.Debug
-		opts.ConnectTimeout = cfg.Timeout
 		opts.TenantID = cfg.TenantID
+		// Keep the default ConnectTimeout (10s) for fast failure detection.
 
 		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
 		defer cancel()
 
 		if err := grpcClient.Connect(ctx); err != nil {
@@ -1462,11 +1462,11 @@ func runPipelineHealth(ctx context.Context, deps *PipelineCommandDeps, watch boo
 		opts := client.DefaultOptions()
 		opts.Insecure = cfg.Insecure
 		opts.Debug = cfg.Debug
-		opts.ConnectTimeout = cfg.Timeout
 		opts.TenantID = cfg.TenantID
+		// Keep the default ConnectTimeout (10s) for fast failure detection.
 
 		grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
 		defer cancel()
 
 		if err := grpcClient.Connect(ctx); err != nil {

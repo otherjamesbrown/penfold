@@ -76,11 +76,21 @@ func DefaultLogsDeps() *LogsCommandDeps {
 			opts := client.DefaultOptions()
 			opts.Insecure = cfg.Insecure
 			opts.Debug = cfg.Debug
-			opts.ConnectTimeout = cfg.Timeout
 			opts.TenantID = cfg.TenantID
+			// Keep the default ConnectTimeout (10s) - don't use cfg.Timeout (10min)
+			// for connection establishment, as that causes long hangs on failures.
+
+			// Load TLS config if not in insecure mode.
+			if !cfg.Insecure {
+				tlsConfig, err := client.LoadClientTLSConfig(&cfg.TLS)
+				if err != nil {
+					return nil, fmt.Errorf("loading TLS config: %w", err)
+				}
+				opts.TLSConfig = tlsConfig
+			}
 
 			grpcClient := client.NewGRPCClient(cfg.ServerAddress, opts)
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+			ctx, cancel := context.WithTimeout(context.Background(), opts.ConnectTimeout)
 			defer cancel()
 
 			if err := grpcClient.Connect(ctx); err != nil {
