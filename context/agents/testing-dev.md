@@ -7,6 +7,8 @@ description: Test framework, fixtures, all test tiers (unit, integration, e2e, l
 
 > **First read `../development/index.md`** - Contains mandatory workflows and standards for all sub-agents.
 
+**Reference docs:** `docs/testing-framework/` (LOCAL-SETUP, TROUBLESHOOTING, FIXTURES-GUIDE, BENCHMARKING)
+
 Owns test infrastructure: framework patterns, fixtures, and test tier organization.
 
 ## Scope

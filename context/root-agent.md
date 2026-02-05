@@ -259,6 +259,7 @@ SELECT * FROM inbox_summary('penfold', 'agent-mycroft');
 | Unsure whether to ask user | `development/standards/autonomy.md` |
 | Writing Go code | `development/standards/go-patterns.md` |
 | Working on CLI/Gateway | `development/standards/architecture.md` |
+| Writing/running tests | `docs/testing-framework/` |
 | Spawning domain agent | `agents/<agent>.md` |
 | Understanding system design | `ARCHITECTURE.md` |
 | Deployment/connections | `infrastructure.md` |
