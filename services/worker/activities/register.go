@@ -21,6 +21,9 @@ type Registrar struct {
 	mentionsActivities       *MentionsActivities
 	parseActivities          *ParseActivities
 	persistActivities        *PersistActivities
+	triageActivities         *TriageActivities
+	contextBuilderActivities *ContextBuilderActivities
+	analysisActivities       *AnalysisActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -63,6 +66,24 @@ func (r *Registrar) WithParseActivities(pa *ParseActivities) *Registrar {
 // WithPersistActivities adds persist activities to the registrar.
 func (r *Registrar) WithPersistActivities(pa *PersistActivities) *Registrar {
 	r.persistActivities = pa
+	return r
+}
+
+// WithTriageActivities adds triage activities to the registrar.
+func (r *Registrar) WithTriageActivities(ta *TriageActivities) *Registrar {
+	r.triageActivities = ta
+	return r
+}
+
+// WithContextBuilderActivities adds context builder activities to the registrar.
+func (r *Registrar) WithContextBuilderActivities(cba *ContextBuilderActivities) *Registrar {
+	r.contextBuilderActivities = cba
+	return r
+}
+
+// WithAnalysisActivities adds analysis activities to the registrar.
+func (r *Registrar) WithAnalysisActivities(aa *AnalysisActivities) *Registrar {
+	r.analysisActivities = aa
 	return r
 }
 
@@ -127,7 +148,7 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	// Extraction activities for content processing
 	if r.extractionActivities != nil {
 		w.RegisterActivityWithOptions(r.extractionActivities.ExtractEntities, activity.RegisterOptions{
-			Name: "ExtractEntities",
+			Name: "ExtractEntitiesActivity",
 		})
 	}
 
@@ -152,6 +173,27 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.persistActivities != nil {
 		w.RegisterActivityWithOptions(r.persistActivities.PersistFindings, activity.RegisterOptions{
 			Name: "PersistFindings",
+		})
+	}
+
+	// Triage activities for Stage 1 (triage)
+	if r.triageActivities != nil {
+		w.RegisterActivityWithOptions(r.triageActivities.Triage, activity.RegisterOptions{
+			Name: "Triage",
+		})
+	}
+
+	// Context builder activities for Stage 3 (context assembly)
+	if r.contextBuilderActivities != nil {
+		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildContextPackage, activity.RegisterOptions{
+			Name: "BuildContextPackage",
+		})
+	}
+
+	// Analysis activities for Stage 4 (deep analysis)
+	if r.analysisActivities != nil {
+		w.RegisterActivityWithOptions(r.analysisActivities.DeepAnalyze, activity.RegisterOptions{
+			Name: "DeepAnalyze",
 		})
 	}
 }
@@ -192,7 +234,7 @@ func (r *Registrar) registerAIQueueActivities(w worker.Worker) {
 			Name: "ExtractAssertions",
 		})
 		w.RegisterActivityWithOptions(r.extractionActivities.ExtractEntities, activity.RegisterOptions{
-			Name: "ExtractEntities",
+			Name: "ExtractEntitiesActivity",
 		})
 	} else if r.activities != nil {
 		// Fallback to legacy activities
@@ -270,6 +312,18 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// PersistFindings
 		if r.persistActivities != nil {
+			count += 1
+		}
+		// Triage
+		if r.triageActivities != nil {
+			count += 1
+		}
+		// BuildContextPackage
+		if r.contextBuilderActivities != nil {
+			count += 1
+		}
+		// DeepAnalyze
+		if r.analysisActivities != nil {
 			count += 1
 		}
 		return count

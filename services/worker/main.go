@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/otherjamesbrown/penfold/pkg/ai"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/logs"
@@ -241,6 +242,11 @@ func main() {
 		logger.Info("Pipeline repository initialized for provenance tracking")
 	}
 
+	// Create parse activities (Stage 0, deterministic - no DB or AI needed)
+	parseActivities := activities.NewParseActivities(logger)
+	activityRegistrar.WithParseActivities(parseActivities)
+	logger.Info("Parse activities initialized (Stage 0)")
+
 	// Initialize AIClient-based activities if AI client is available
 	if aiClient != nil {
 		// Create embedding repository if database is available
@@ -280,6 +286,48 @@ func main() {
 		extractionActivities := activities.NewExtractionActivities(logger, aiClient, assertionRepo, entityRepo, pipelineRepo)
 		activityRegistrar.WithExtractionActivities(extractionActivities)
 		logger.Info("Extraction activities initialized with AI client")
+
+		// Create triage activities (Stage 1)
+		triageActivities := activities.NewTriageActivities(logger, aiClient, pipelineRepo)
+		activityRegistrar.WithTriageActivities(triageActivities)
+		logger.Info("Triage activities initialized with AI client (Stage 1)")
+
+		// Create analysis activities (Stage 4)
+		analysisActivities := activities.NewAnalysisActivities(logger, aiClient, pipelineRepo)
+		activityRegistrar.WithAnalysisActivities(analysisActivities)
+		logger.Info("Analysis activities initialized with AI client (Stage 4)")
+	}
+
+	// Initialize context builder activities if database is available (Stage 3)
+	if dbPool != nil {
+		// Create entity repository for both resolution and lookups
+		entityRepo := entities.NewRepository(dbPool, logger)
+		entityResolver := entities.NewResolver(entityRepo)
+
+		// Create context package repository
+		contextRepo := activities.NewContextPackageRepo(dbPool, logger)
+
+		// Create context builder activities
+		contextBuilderActivities := activities.NewContextBuilderActivities(
+			logger,
+			entityResolver,
+			entityRepo, // entityRepo implements EntityLookupInterface
+			contextRepo,
+			pipelineRepo,
+		)
+		activityRegistrar.WithContextBuilderActivities(contextBuilderActivities)
+		logger.Info("Context builder activities initialized with database (Stage 3)")
+	}
+
+	// Initialize persist activities if database is available (Stage 4.5)
+	if dbPool != nil {
+		// Create persist repository
+		persistRepo := activities.NewPersistRepo(dbPool, logger)
+
+		// Create persist activities
+		persistActivities := activities.NewPersistActivities(logger, persistRepo, pipelineRepo)
+		activityRegistrar.WithPersistActivities(persistActivities)
+		logger.Info("Persist activities initialized with database (Stage 4.5)")
 	}
 
 	// Initialize mentions activities if database and AI client are available
