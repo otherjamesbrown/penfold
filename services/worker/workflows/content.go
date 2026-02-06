@@ -39,8 +39,9 @@ type (
 	// Note: Field names must match FetchSourceOutput since the same activity implementation
 	// (Activities.FetchSource) is registered under both "FetchContent" and "FetchSource" names.
 	FetchContentOutput struct {
-		ContentText string `json:"content_text"`
-		ContentType string `json:"content_type"`
+		ContentText        string   `json:"content_text"`
+		ContentType        string   `json:"content_type"`
+		ParticipantEmails  []string `json:"participant_emails,omitempty"`
 	}
 
 	// ExtractEntitiesInput is the input for the ExtractEntities activity.

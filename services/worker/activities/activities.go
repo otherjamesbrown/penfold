@@ -92,14 +92,15 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 	tenantID := resolveTenantID(input.TenantID)
 
 	query := `
-		SELECT raw_content, source_system, ingestion_metadata
+		SELECT raw_content, source_system, ingestion_metadata, participant_emails
 		FROM sources
 		WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
 	`
 
 	var content, sourceSystem string
 	var metadataJSON []byte
-	err := a.db.QueryRow(ctx, query, input.SourceID, tenantID).Scan(&content, &sourceSystem, &metadataJSON)
+	var participantEmails []string
+	err := a.db.QueryRow(ctx, query, input.SourceID, tenantID).Scan(&content, &sourceSystem, &metadataJSON, &participantEmails)
 	if err != nil {
 		logger.Error("Failed to fetch source from database", logging.Err(err))
 		return nil, fmt.Errorf("failed to fetch source %d: %w", input.SourceID, err)
@@ -128,14 +129,16 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 		logging.F("content_length", len(content)),
 		logging.F("content_type", contentType),
 		logging.F("source_system", sourceSystem),
+		logging.F("participant_count", len(participantEmails)),
 	)
 
 	return &workflows.FetchSourceOutput{
-		ContentText: content,
-		ContentType: contentType,
-		Subject:     subject,
-		SenderEmail: senderEmail,
-		SenderName:  senderName,
+		ContentText:       content,
+		ContentType:       contentType,
+		Subject:           subject,
+		SenderEmail:       senderEmail,
+		SenderName:        senderName,
+		ParticipantEmails: participantEmails,
 	}, nil
 }
 

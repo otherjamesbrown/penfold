@@ -109,7 +109,7 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 
 	// Step 1: Resolve people
 	recordHeartbeat(ctx, "resolving people entities")
-	resolvedPeople, unresolvedPeople := a.resolvePeople(ctx, input.TenantID, input.Extraction.People, input.SenderEmail, input.SenderName)
+	resolvedPeople, unresolvedPeople := a.resolvePeople(ctx, input.TenantID, input.Extraction.People, input.SenderEmail, input.SenderName, input.ParticipantEmails)
 	output.ResolvedPeople = resolvedPeople
 	output.EntitiesResolved = len(resolvedPeople)
 	output.EntitiesUnresolved = unresolvedPeople
@@ -168,14 +168,15 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 	return output, nil
 }
 
-// resolvePeople resolves people from extraction output.
-func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID string, people []workflows.PersonResult, senderEmail, senderName string) ([]workflows.ResolvedPerson, int) {
+// resolvePeople resolves people from extraction output and structured participant emails.
+func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID string, people []workflows.PersonResult, senderEmail, senderName string, participantEmails []string) ([]workflows.ResolvedPerson, int) {
 	var resolved []workflows.ResolvedPerson
 	unresolvedCount := 0
+	seenEmails := make(map[string]bool)
 
-	// If we have sender email, resolve it first
+	// If we have sender email, resolve or create it first
 	if senderEmail != "" && a.entityResolver != nil {
-		result, err := a.entityResolver.Resolve(ctx, tenantID, senderEmail)
+		result, err := a.entityResolver.ResolveOrCreate(ctx, tenantID, senderEmail, senderName)
 		if err == nil && result != nil {
 			resolved = append(resolved, workflows.ResolvedPerson{
 				Name:       result.Person.CanonicalName,
@@ -186,10 +187,34 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 				Department: result.Person.Department,
 				IsInternal: result.Person.IsInternal,
 			})
+			seenEmails[senderEmail] = true
 		}
 	}
 
-	// Resolve extracted people
+	// Process participant_emails array (From/To/Cc from email headers)
+	// These are reliable structured data, so we create person records for them
+	if a.entityResolver != nil {
+		for _, email := range participantEmails {
+			if email == "" || seenEmails[email] {
+				continue
+			}
+			result, err := a.entityResolver.ResolveOrCreate(ctx, tenantID, email, "")
+			if err == nil && result != nil {
+				resolved = append(resolved, workflows.ResolvedPerson{
+					Name:       result.Person.CanonicalName,
+					PersonID:   &result.Person.ID,
+					Confidence: result.Confidence,
+					Source:     result.Source,
+					Title:      result.Person.Title,
+					Department: result.Person.Department,
+					IsInternal: result.Person.IsInternal,
+				})
+				seenEmails[email] = true
+			}
+		}
+	}
+
+	// Resolve extracted people (from LLM - names only, fuzzy match)
 	for _, person := range people {
 		rp := a.resolvePerson(ctx, tenantID, person)
 		if rp.PersonID != nil {
@@ -202,7 +227,9 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 	return resolved, unresolvedCount
 }
 
-// resolvePerson resolves a single person from extraction.
+// resolvePerson resolves a single person from extraction via fuzzy name matching.
+// NOTE: For name-only extractions (no email), we use fuzzy matching to find existing people.
+// Person creation from structured data (email headers) happens via participant_emails processing.
 func (a *ContextBuilderActivities) resolvePerson(ctx context.Context, tenantID string, person workflows.PersonResult) workflows.ResolvedPerson {
 	rp := workflows.ResolvedPerson{
 		Name:       person.Name,

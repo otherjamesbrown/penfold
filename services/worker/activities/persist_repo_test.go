@@ -536,12 +536,36 @@ func TestAcronymDetection(t *testing.T) {
 		assert.Contains(t, matches, "SLA")
 	})
 
-	t.Run("acronym pattern rejects too-long tokens", func(t *testing.T) {
-		matches := acronymPattern.FindAllString("TOOLONG is not matched", -1)
-		// "TOOLONG" is 7 chars, should not match the 2-5 pattern
-		for _, m := range matches {
-			assert.NotEqual(t, "TOOLONG", m)
+	t.Run("acronym pattern matches pure uppercase", func(t *testing.T) {
+		text := "Discussed CLIC, TRR, NLB, ECMP, PACE, PLT, PMO, FPM, DRI, MTC, ETG acronyms"
+		matches := acronymPattern.FindAllString(text, -1)
+		expected := []string{"CLIC", "TRR", "NLB", "ECMP", "PACE", "PLT", "PMO", "FPM", "DRI", "MTC", "ETG"}
+		for _, exp := range expected {
+			assert.Contains(t, matches, exp, "Should match pure uppercase acronym %s", exp)
 		}
+	})
+
+	t.Run("acronym pattern matches mixed-case acronyms", func(t *testing.T) {
+		text := "We use IaaS and the SteerCo approved PostgreSQL"
+		matches := acronymPattern.FindAllString(text, -1)
+		assert.Contains(t, matches, "IaaS", "Should match mixed-case IaaS")
+		assert.Contains(t, matches, "SteerCo", "Should match mixed-case SteerCo")
+		assert.Contains(t, matches, "PostgreSQL", "Should match mixed-case PostgreSQL")
+	})
+
+	t.Run("acronym pattern matches digit-containing acronyms", func(t *testing.T) {
+		text := "FY26 budget and EC2 instance and R2D2 reference"
+		matches := acronymPattern.FindAllString(text, -1)
+		assert.Contains(t, matches, "FY26", "Should match fiscal year with digits")
+		assert.Contains(t, matches, "EC2", "Should match cloud service with digit")
+		assert.Contains(t, matches, "R2D2", "Should match acronym with multiple digits")
+	})
+
+	t.Run("acronym pattern accepts longer acronyms", func(t *testing.T) {
+		text := "TOOLONG and VERYLONGACRONYM are matched now"
+		matches := acronymPattern.FindAllString(text, -1)
+		assert.Contains(t, matches, "TOOLONG", "Should match acronyms longer than 5 chars")
+		assert.Contains(t, matches, "VERYLONGACRONYM", "Should match very long acronyms")
 	})
 
 	t.Run("skips when reviewQueue is nil", func(t *testing.T) {

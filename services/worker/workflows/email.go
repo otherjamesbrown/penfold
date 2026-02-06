@@ -29,11 +29,12 @@ type (
 
 	// FetchSourceOutput is the output from the FetchSource activity.
 	FetchSourceOutput struct {
-		ContentText string `json:"content_text"`
-		ContentType string `json:"content_type"`
-		Subject     string `json:"subject,omitempty"`
-		SenderEmail string `json:"sender_email,omitempty"`
-		SenderName  string `json:"sender_name,omitempty"`
+		ContentText        string   `json:"content_text"`
+		ContentType        string   `json:"content_type"`
+		Subject            string   `json:"subject,omitempty"`
+		SenderEmail        string   `json:"sender_email,omitempty"`
+		SenderName         string   `json:"sender_name,omitempty"`
+		ParticipantEmails  []string `json:"participant_emails,omitempty"`
 	}
 
 	// GenerateEmbeddingInput is the input for the GenerateEmbedding activity.

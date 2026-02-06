@@ -564,6 +564,63 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_Cancellation() {
 	s.Contains(result.Error, "User requested cancellation")
 }
 
+// TestSLMPipeline_TriageValidationFailure tests that triage validation errors
+// (e.g., empty content) properly reject the source instead of leaving it pending.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_TriageValidationFailure() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    800,
+		ContentID:   "em-test08",
+		JobID:       "job-800",
+		ContentType: "email",
+		ContentHash: "hash800",
+		BodyText:    "\r\n",
+		Subject:     "Calendar Placeholder",
+		SenderEmail: "calendar@example.com",
+	}
+
+	// Stage 0: Parse returns nearly empty content
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 800
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "",
+		NewContent: "",
+	}, nil)
+
+	// UpdateContentStatus: parsed
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed"
+	})).Return(nil)
+
+	// Stage 1: Triage FAILS with validation error (empty content)
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 800
+	})).Return(
+		nil, temporal.NewApplicationError("content is empty after parsing", "ValidationError"),
+	)
+
+	// UpdateContentStatus: rejected with empty_content category
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "rejected" && in.FailureCategory == "empty_content"
+	})).Return(nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("rejected", result.Status)
+	s.Contains(result.Error, "empty_content")
+
+	// Verify no further stages were executed
+	s.activities.AssertNotCalled(s.T(), "ExtractEntitiesActivity", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "BuildContextPackage", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "DeepAnalyze", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "GenerateContentEmbedding", mock.Anything, mock.Anything)
+}
+
 func TestSLMPipelineTestSuite(t *testing.T) {
 	suite.Run(t, new(SLMPipelineTestSuite))
 }

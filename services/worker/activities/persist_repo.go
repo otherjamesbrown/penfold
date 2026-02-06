@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -663,8 +662,12 @@ var commonAcronymExclusions = map[string]bool{
 	"TODO": true, "DONE": true, "NONE": true, "NULL": true,
 }
 
-// acronymPattern matches uppercase tokens 2-5 chars long.
-var acronymPattern = regexp.MustCompile(`\b([A-Z]{2,5})\b`)
+// acronymPattern matches potential acronyms including:
+// - Pure uppercase: API, JWT, SLA, CLIC, TRR
+// - Mixed-case: IaaS, SteerCo, PostgreSQL
+// - With digits: FY26, S3
+// Pattern: 2+ uppercase letters with optional lowercase/digits
+var acronymPattern = regexp.MustCompile(`\b([A-Z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[A-Z]{2,}[a-z]*)\b`)
 
 // detectAndCreateAcronymQuestions scans analysis text for uppercase acronyms and
 // creates review queue items for unknown ones. Best-effort: errors are logged, not returned.
@@ -686,17 +689,7 @@ func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input
 			if commonAcronymExclusions[match] {
 				continue
 			}
-			// Check all letters are uppercase (redundant with regex but safe)
-			allUpper := true
-			for _, ch := range match {
-				if !unicode.IsUpper(ch) {
-					allUpper = false
-					break
-				}
-			}
-			if !allUpper {
-				continue
-			}
+			// Pattern now accepts mixed-case (IaaS, SteerCo) and digits (FY26)
 			if _, seen := candidates[match]; !seen {
 				// Store a snippet of context around the acronym
 				idx := strings.Index(text, match)

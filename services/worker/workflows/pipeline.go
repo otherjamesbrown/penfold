@@ -28,11 +28,12 @@ type PipelineInput struct {
 	ContentHash string `json:"content_hash,omitempty"`
 
 	// Email-specific fields
-	BodyText    string `json:"body_text,omitempty"`
-	BodyHTML    string `json:"body_html,omitempty"`
-	Subject     string `json:"subject,omitempty"`
-	SenderEmail string `json:"sender_email,omitempty"`
-	SenderName  string `json:"sender_name,omitempty"`
+	BodyText          string   `json:"body_text,omitempty"`
+	BodyHTML          string   `json:"body_html,omitempty"`
+	Subject           string   `json:"subject,omitempty"`
+	SenderEmail       string   `json:"sender_email,omitempty"`
+	SenderName        string   `json:"sender_name,omitempty"`
+	ParticipantEmails []string `json:"participant_emails,omitempty"`
 
 	// Meeting-specific fields
 	TranscriptContent string `json:"transcript_content,omitempty"`
@@ -178,16 +179,17 @@ type DetailedRisk struct {
 
 // BuildContextInput is the input for the BuildContextPackage activity.
 type BuildContextInput struct {
-	TenantID    string                 `json:"tenant_id"`
-	SourceID    int64                  `json:"source_id"`
-	ContentID   string                 `json:"content_id,omitempty"`
-	JobID       string                 `json:"job_id"`
-	ContentType string                 `json:"content_type"`
-	Extraction  *SLMPipelineExtractEntitiesOutput `json:"extraction"`
-	SenderEmail string                 `json:"sender_email,omitempty"`
-	SenderName  string                 `json:"sender_name,omitempty"`
-	Subject     string                 `json:"subject,omitempty"`
-	ThreadID    string                 `json:"thread_id,omitempty"`
+	TenantID          string                            `json:"tenant_id"`
+	SourceID          int64                             `json:"source_id"`
+	ContentID         string                            `json:"content_id,omitempty"`
+	JobID             string                            `json:"job_id"`
+	ContentType       string                            `json:"content_type"`
+	Extraction        *SLMPipelineExtractEntitiesOutput `json:"extraction"`
+	SenderEmail       string                            `json:"sender_email,omitempty"`
+	SenderName        string                            `json:"sender_name,omitempty"`
+	Subject           string                            `json:"subject,omitempty"`
+	ThreadID          string                            `json:"thread_id,omitempty"`
+	ParticipantEmails []string                          `json:"participant_emails,omitempty"`
 }
 
 // BuildContextOutput is the output from the BuildContextPackage activity.
@@ -506,6 +508,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		input.Subject = fetchOut.Subject
 		input.SenderEmail = fetchOut.SenderEmail
 		input.SenderName = fetchOut.SenderName
+		input.ParticipantEmails = fetchOut.ParticipantEmails
 	}
 
 	var parsedContent string
@@ -624,10 +627,21 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		ContentType: input.ContentType,
 	}).Get(ctx, &triageOutput)
 	if err != nil {
-		state.result.Status = "failed"
-		state.result.Error = fmt.Sprintf("triage: %v", err)
+		// Update status to "rejected" with failure info
+		logger.Info("Triage failed, marking as rejected",
+			"error", err,
+		)
+		ctxTriageUpdate := workflow.WithActivityOptions(ctx, fastOpts)
+		_ = workflow.ExecuteActivity(ctxTriageUpdate, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+			TenantID:        input.TenantID,
+			SourceID:        input.SourceID,
+			Status:          "rejected",
+			FailureCategory: "empty_content",
+			FailureReason:   err.Error(),
+		}).Get(ctx, nil)
+		state.result.Status = "rejected"
+		state.result.Error = fmt.Sprintf("empty_content: %s", err.Error())
 		state.status.ErrorMessage = state.result.Error
-		logger.Error("Stage 1 Triage failed", "error", err)
 		return state.result, nil
 	}
 
@@ -785,15 +799,16 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		contextOutput = &BuildContextOutput{}
 		ctxContext := workflow.WithActivityOptions(ctx, fastOpts)
 		err = workflow.ExecuteActivity(ctxContext, pkgtemporal.ActivityBuildContextPackage, BuildContextInput{
-			TenantID:    input.TenantID,
-			SourceID:    input.SourceID,
-			ContentID:   input.ContentID,
-			JobID:       input.JobID,
-			ContentType: input.ContentType,
-			Extraction:  extractOutput,
-			SenderEmail: input.SenderEmail,
-			SenderName:  input.SenderName,
-			Subject:     input.Subject,
+			TenantID:          input.TenantID,
+			SourceID:          input.SourceID,
+			ContentID:         input.ContentID,
+			JobID:             input.JobID,
+			ContentType:       input.ContentType,
+			Extraction:        extractOutput,
+			SenderEmail:       input.SenderEmail,
+			SenderName:        input.SenderName,
+			Subject:           input.Subject,
+			ParticipantEmails: input.ParticipantEmails,
 		}).Get(ctx, contextOutput)
 		if err != nil {
 			logger.Warn("pipeline stage failed (non-blocking)",

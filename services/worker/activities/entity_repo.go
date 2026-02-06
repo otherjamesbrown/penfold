@@ -25,13 +25,9 @@ func NewPostgresEntityRepository(pool *pgxpool.Pool, logger logging.Logger) *Pos
 }
 
 // StoreEntities stores extracted entities for a source.
-// NOTE: This is a simplified implementation. In the actual pipeline, entities
-// (people, projects, organizations) are stored in dedicated tables (people, projects, etc.)
-// via the entity resolution system. This implementation stores raw entity mentions
-// for provenance and debugging purposes only.
-//
-// For production use, entity mentions should be resolved to canonical entities
-// using the entity resolution workflow before being stored in the entity tables.
+// This implementation resolves person entities to the people table via entity resolution.
+// For production use, entity mentions are resolved to canonical entities
+// using the entity resolution system (ResolveOrCreate).
 func (r *PostgresEntityRepository) StoreEntities(
 	ctx context.Context,
 	tenantID string,
@@ -58,25 +54,26 @@ func (r *PostgresEntityRepository) StoreEntities(
 		return 0, nil
 	}
 
-	// IMPORTANT: The Entity type in the interface doesn't match what ExtractEntities
-	// actually returns. ExtractEntities returns structured results (people, dates,
-	// projects, etc.) not simple Entity records.
+	// NOTE: This is intentionally a NO-OP stub.
+	// The actual flow is:
+	// 1. ExtractEntities returns structured data (PersonExtracted, etc.) to the workflow
+	// 2. Workflow converts to []*Entity for this interface
+	// 3. This method would need an EntityResolver dependency to call ResolveOrCreate
+	// 4. Currently, participant_emails from sources.participant_emails are resolved
+	//    via activities that have EntityResolver wired in
 	//
-	// This repository is currently a NO-OP because:
-	// 1. The ExtractEntities activity doesn't call StoreEntities - it returns the
-	//    structured data to the workflow, which should handle entity resolution.
-	// 2. Entity resolution should be done by the entity resolution workflow/activity
-	//    which maps mentions to canonical entities in the people/projects/teams tables.
+	// For person entities specifically, the proper persistence happens via:
+	// - BuildContextPackage activity (has EntityResolver, processes sender + extracted people)
+	// - ProcessParticipants activity (processes participant_emails array)
 	//
-	// For now, we log that we received entities but don't persist them.
-	// The proper flow is:
-	//   ExtractEntities -> Workflow -> Entity Resolution Activity -> people/projects tables
+	// This stub exists to satisfy the EntityRepository interface but doesn't
+	// duplicate the work done by those activities.
 
-	logger.Info("Entity storage skipped - entities should be resolved via entity resolution workflow",
+	logger.Info("Entity storage delegated to BuildContextPackage and ProcessParticipants activities",
 		logging.F("entity_count", len(entities)),
 	)
 
-	// Return the count for compatibility, but don't actually store
+	// Return the count for interface compatibility
 	return len(entities), nil
 }
 

@@ -502,3 +502,132 @@ func TestBuildContext_UnknownEntities(t *testing.T) {
 		t.Errorf("Expected unresolved term 'UnknownProject', got %v", output.UnresolvedTerms)
 	}
 }
+
+func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	tests := []struct {
+		name                 string
+		senderEmail          string
+		senderName           string
+		participantEmails    []string
+		extraction           *ExtractEntitiesOutput
+		expectedPeople       int
+		expectedSources      []string
+		verifyDeduplication  bool
+	}{
+		{
+			name:              "participant emails only",
+			participantEmails: []string{"alice@example.com", "bob@example.com"},
+			extraction:        &ExtractEntitiesOutput{},
+			expectedPeople:    2,
+			expectedSources:   []string{"auto_created", "auto_created"},
+		},
+		{
+			name:              "sender + participants",
+			senderEmail:       "alice@example.com",
+			senderName:        "Alice Smith",
+			participantEmails: []string{"bob@example.com", "carol@example.com"},
+			extraction:        &ExtractEntitiesOutput{},
+			expectedPeople:    3,
+			expectedSources:   []string{"auto_created", "auto_created", "auto_created"},
+		},
+		{
+			name:               "deduplication: sender in participants",
+			senderEmail:        "alice@example.com",
+			senderName:         "Alice Smith",
+			participantEmails:  []string{"alice@example.com", "bob@example.com"},
+			extraction:         &ExtractEntitiesOutput{},
+			expectedPeople:     2,
+			expectedSources:    []string{"auto_created", "auto_created"},
+			verifyDeduplication: true,
+		},
+		{
+			name:        "participants + extracted people",
+			senderEmail: "alice@example.com",
+			participantEmails: []string{"bob@example.com"},
+			extraction: &ExtractEntitiesOutput{
+				People: []PersonResult{
+					{Name: "Carol Davis", Role: "PM"},
+				},
+			},
+			expectedPeople:  2, // bob created, carol unresolved (no fuzzy match)
+			expectedSources: []string{"auto_created"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callCount := make(map[string]int)
+
+			entityResolver := &mockEntityResolver{
+				resolveOrCreateFunc: func(ctx context.Context, tenantID, email, displayName string) (*entities.ResolutionResult, error) {
+					callCount[email]++
+					// Simulate creating a new person for each unique email
+					return &entities.ResolutionResult{
+						Person: &entities.Person{
+							ID:            int64(100 + len(callCount)),
+							CanonicalName: displayName,
+							PrimaryEmail:  email,
+							IsInternal:    false,
+							Confidence:    0.7,
+						},
+						Confidence: 0.7,
+						Source:     "auto_created",
+						IsNew:      true,
+					}, nil
+				},
+			}
+
+			entityLookup := &mockEntityLookup{
+				searchPeopleByNameFunc: func(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error) {
+					// No fuzzy matches
+					return nil, nil
+				},
+			}
+
+			activities := NewContextBuilderActivities(
+				logger,
+				entityResolver,
+				entityLookup,
+				&mockContextPackageRepo{},
+				nil,
+			)
+
+			input := BuildContextInput{
+				TenantID:          "test-tenant",
+				SourceID:          1,
+				ContentType:       "email",
+				SenderEmail:       tt.senderEmail,
+				SenderName:        tt.senderName,
+				ParticipantEmails: tt.participantEmails,
+				Extraction:        tt.extraction,
+			}
+
+			output, err := activities.BuildContextPackage(ctx, input)
+			if err != nil {
+				t.Fatalf("BuildContextPackage failed: %v", err)
+			}
+
+			if len(output.ResolvedPeople) != tt.expectedPeople {
+				t.Errorf("Expected %d resolved people, got %d", tt.expectedPeople, len(output.ResolvedPeople))
+			}
+
+			for i, expectedSource := range tt.expectedSources {
+				if i < len(output.ResolvedPeople) && output.ResolvedPeople[i].Source != expectedSource {
+					t.Errorf("Person %d: expected source %s, got %s", i, expectedSource, output.ResolvedPeople[i].Source)
+				}
+			}
+
+			// Verify deduplication: each email should be called at most once
+			if tt.verifyDeduplication {
+				for email, count := range callCount {
+					if count > 1 {
+						t.Errorf("Email %s was processed %d times, expected 1 (deduplication failed)", email, count)
+					}
+				}
+			}
+		})
+	}
+}
