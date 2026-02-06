@@ -81,6 +81,16 @@ type NetworkStats struct {
 	Density            float64 `json:"density"`
 }
 
+// SLMPipelineInput is the input for starting the SLM pipeline workflow.
+// The workflow fetches content and metadata from the database via FetchSource.
+type SLMPipelineInput struct {
+	TenantID    string `json:"tenant_id"`
+	SourceID    int64  `json:"source_id"`
+	ContentID   string `json:"content_id,omitempty"`
+	ContentHash string `json:"content_hash,omitempty"`
+	JobID       string `json:"job_id"`
+}
+
 // ContentIngestionInput is the input for content ingestion workflows.
 type ContentIngestionInput struct {
 	TenantID    string `json:"tenant_id"`

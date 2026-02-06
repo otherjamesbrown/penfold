@@ -236,11 +236,10 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 		// Use the actual source system to generate a consistent workflow ID.
 		// This prevents duplicate workflows when KickProcessing also starts workflows.
 		workflowID := pkgtemporal.GenerateIngestWorkflowID(tenantID, emailSource.SourceSystem, strconv.FormatInt(createdSource.ID, 10))
-		input := pkgtemporal.ContentIngestionInput{
+		input := pkgtemporal.SLMPipelineInput{
 			TenantID:    tenantID,
 			SourceID:    createdSource.ID,
 			ContentID:   createdSource.ContentID,
-			SourceType:  emailSource.SourceSystem,
 			ContentHash: req.ContentHash,
 		}
 		opts := client.StartWorkflowOptions{

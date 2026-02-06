@@ -856,11 +856,10 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 
 	// Start ContentIngestionWorkflow via Temporal
 	workflowID := pkgtemporal.GenerateIngestWorkflowID(source.TenantID, source.SourceSystem, strconv.FormatInt(source.ID, 10))
-	input := pkgtemporal.ContentIngestionInput{
+	input := pkgtemporal.SLMPipelineInput{
 		TenantID:    source.TenantID,
 		SourceID:    source.ID,
 		ContentID:   source.ContentID,
-		SourceType:  source.SourceSystem,
 		ContentHash: source.ContentHash,
 	}
 	opts := client.StartWorkflowOptions{

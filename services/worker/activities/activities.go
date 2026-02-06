@@ -86,27 +86,63 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 	tenantID := resolveTenantID(input.TenantID)
 
 	query := `
-		SELECT raw_content, content_type
+		SELECT raw_content, source_system, ingestion_metadata
 		FROM sources
 		WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
 	`
 
-	var content, contentType string
-	err := a.db.QueryRow(ctx, query, input.SourceID, tenantID).Scan(&content, &contentType)
+	var content, sourceSystem string
+	var metadataJSON []byte
+	err := a.db.QueryRow(ctx, query, input.SourceID, tenantID).Scan(&content, &sourceSystem, &metadataJSON)
 	if err != nil {
 		logger.Error("Failed to fetch source from database", logging.Err(err))
 		return nil, fmt.Errorf("failed to fetch source %d: %w", input.SourceID, err)
 	}
 
+	contentType := mapSourceSystemToContentType(sourceSystem)
+
+	// Extract email metadata fields from ingestion_metadata JSONB
+	var subject, senderEmail, senderName string
+	if len(metadataJSON) > 0 {
+		var metadata map[string]interface{}
+		if jsonErr := json.Unmarshal(metadataJSON, &metadata); jsonErr == nil {
+			if v, ok := metadata["subject"].(string); ok {
+				subject = v
+			}
+			if v, ok := metadata["from_address"].(string); ok {
+				senderEmail = v
+			}
+			if v, ok := metadata["from_name"].(string); ok {
+				senderName = v
+			}
+		}
+	}
+
 	logger.Info("Source content fetched successfully",
 		logging.F("content_length", len(content)),
 		logging.F("content_type", contentType),
+		logging.F("source_system", sourceSystem),
 	)
 
 	return &workflows.FetchSourceOutput{
 		ContentText: content,
 		ContentType: contentType,
+		Subject:     subject,
+		SenderEmail: senderEmail,
+		SenderName:  senderName,
 	}, nil
+}
+
+// mapSourceSystemToContentType maps a source_system value to a logical content type.
+func mapSourceSystemToContentType(sourceSystem string) string {
+	switch sourceSystem {
+	case "gmail", "manual_eml", "embedded_email":
+		return "email"
+	case "meeting_transcript", "zoom", "google_meet", "teams":
+		return "meeting"
+	default:
+		return sourceSystem
+	}
 }
 
 // EmbeddingRequest is the request format for the embedding service.

@@ -153,11 +153,10 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 	var startedCount int
 	for _, src := range sources {
 		workflowID := pkgtemporal.GenerateIngestWorkflowID(src.TenantID, src.SourceSystem, strconv.FormatInt(src.ID, 10))
-		input := pkgtemporal.ContentIngestionInput{
+		input := pkgtemporal.SLMPipelineInput{
 			TenantID:    src.TenantID,
 			SourceID:    src.ID,
 			ContentID:   src.ContentID,
-			SourceType:  src.SourceSystem,
 			ContentHash: src.ContentHash,
 		}
 		opts := client.StartWorkflowOptions{

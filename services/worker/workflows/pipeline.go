@@ -355,6 +355,35 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// ==================== Stage 0: Parse ====================
 	updateStatus("parsing", "Parse")
+
+	// If ContentType is empty, the workflow was started with SLMPipelineInput
+	// (minimal contract). Fetch content and metadata from the database.
+	if input.ContentType == "" {
+		var fetchOut FetchSourceOutput
+		ctxFetch := workflow.WithActivityOptions(ctx, fastOpts)
+		err := workflow.ExecuteActivity(ctxFetch, "FetchContent", FetchSourceInput{
+			TenantID: input.TenantID,
+			SourceID: input.SourceID,
+		}).Get(ctx, &fetchOut)
+		if err != nil {
+			state.result.Status = "failed"
+			state.result.Error = fmt.Sprintf("fetch_source: %v", err)
+			state.status.ErrorMessage = state.result.Error
+			logger.Error("FetchSource failed", "error", err)
+			ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
+			_ = workflow.ExecuteActivity(ctxFail, "UpdateContentStatus", UpdateContentStatusInput{
+				TenantID: input.TenantID, SourceID: input.SourceID,
+				Status: "failed", FailureCategory: "fetch", FailureReason: err.Error(),
+			}).Get(ctx, nil)
+			return state.result, nil
+		}
+		input.ContentType = fetchOut.ContentType
+		input.BodyText = fetchOut.ContentText
+		input.Subject = fetchOut.Subject
+		input.SenderEmail = fetchOut.SenderEmail
+		input.SenderName = fetchOut.SenderName
+	}
+
 	var parsedContent string
 
 	switch input.ContentType {
@@ -402,6 +431,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.result.Status = "failed"
 		state.result.Error = fmt.Sprintf("unsupported content_type: %s", input.ContentType)
 		state.status.ErrorMessage = state.result.Error
+		logger.Error("Unsupported content type", "content_type", input.ContentType)
+		ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
+		_ = workflow.ExecuteActivity(ctxFail, "UpdateContentStatus", UpdateContentStatusInput{
+			TenantID: input.TenantID, SourceID: input.SourceID,
+			Status: "failed", FailureCategory: "unsupported_type",
+			FailureReason: state.result.Error,
+		}).Get(ctx, nil)
 		return state.result, nil
 	}
 
