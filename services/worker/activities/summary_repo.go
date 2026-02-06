@@ -116,5 +116,40 @@ func (r *PostgresSummaryRepository) StoreSummary(
 	return sourceID, nil
 }
 
+// DeleteSummary deletes a summary by source ID.
+// Used for saga compensation when downstream workflow stages fail.
+// Summaries are stored in content_insights with content_id = "src-<sourceID>".
+func (r *PostgresSummaryRepository) DeleteSummary(
+	ctx context.Context,
+	sourceID int64,
+) error {
+	logger := r.logger.With(
+		logging.F("source_id", sourceID),
+	)
+
+	logger.Debug("Deleting summary by source ID")
+
+	if sourceID <= 0 {
+		return fmt.Errorf("invalid source_id: %d", sourceID)
+	}
+
+	contentID := fmt.Sprintf("src-%d", sourceID)
+
+	query := `DELETE FROM content_insights WHERE content_id = $1 AND insight_type = 'summary'`
+
+	result, err := r.pool.Exec(ctx, query, contentID)
+	if err != nil {
+		logger.Error("Failed to delete summary", logging.Err(err))
+		return fmt.Errorf("failed to delete summary for source %d: %w", sourceID, err)
+	}
+
+	rowsAffected := result.RowsAffected()
+	logger.Info("Summary deleted",
+		logging.F("rows_affected", rowsAffected),
+	)
+
+	return nil
+}
+
 // Ensure PostgresSummaryRepository implements the SummaryRepository interface at compile time.
 var _ SummaryRepository = (*PostgresSummaryRepository)(nil)

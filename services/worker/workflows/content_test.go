@@ -96,7 +96,7 @@ func (s *ContentIngestionWorkflowTestSuite) SetupTest() {
 		Name: "GenerateContentSummary",
 	})
 	s.env.RegisterActivityWithOptions(s.activities.ExtractEntities, activity.RegisterOptions{
-		Name: "ExtractEntities",
+		Name: "ExtractEntitiesActivity",
 	})
 	s.env.RegisterActivityWithOptions(s.activities.UpdateContentStatus, activity.RegisterOptions{
 		Name: "UpdateContentStatus",
@@ -414,7 +414,7 @@ func registerStandaloneActivities(env *testsuite.TestWorkflowEnvironment) {
 	env.RegisterActivityWithOptions(activities.FetchContent, activity.RegisterOptions{Name: "FetchContent"})
 	env.RegisterActivityWithOptions(activities.GenerateContentEmbedding, activity.RegisterOptions{Name: "GenerateContentEmbedding"})
 	env.RegisterActivityWithOptions(activities.GenerateContentSummary, activity.RegisterOptions{Name: "GenerateContentSummary"})
-	env.RegisterActivityWithOptions(activities.ExtractEntities, activity.RegisterOptions{Name: "ExtractEntities"})
+	env.RegisterActivityWithOptions(activities.ExtractEntities, activity.RegisterOptions{Name: "ExtractEntitiesActivity"})
 	env.RegisterActivityWithOptions(activities.UpdateContentStatus, activity.RegisterOptions{Name: "UpdateContentStatus"})
 	env.RegisterActivityWithOptions(activities.DeleteEmbedding, activity.RegisterOptions{Name: "DeleteEmbedding"})
 	env.RegisterActivityWithOptions(activities.DeleteSummary, activity.RegisterOptions{Name: "DeleteSummary"})
@@ -437,7 +437,7 @@ func TestContentIngestionWorkflow_EmptyContent(t *testing.T) {
 
 	env.OnActivity("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(100), nil)
 	env.OnActivity("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
-	env.OnActivity("ExtractEntities", mock.Anything, mock.Anything).Return(&ExtractEntitiesOutput{}, nil)
+	env.OnActivity("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&ExtractEntitiesOutput{}, nil)
 	env.OnActivity("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
 
 	env.ExecuteWorkflow(ContentIngestionWorkflow, pkgtemporal.ContentIngestionInput{
@@ -483,7 +483,7 @@ func TestContentIngestionWorkflow_LargeContent(t *testing.T) {
 	})).Return(int64(100), nil)
 
 	env.OnActivity("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
-	env.OnActivity("ExtractEntities", mock.Anything, mock.Anything).Return(&ExtractEntitiesOutput{}, nil)
+	env.OnActivity("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&ExtractEntitiesOutput{}, nil)
 	env.OnActivity("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
 
 	env.ExecuteWorkflow(ContentIngestionWorkflow, pkgtemporal.ContentIngestionInput{
@@ -523,7 +523,7 @@ func TestContentIngestionWorkflow_RetryBehavior(t *testing.T) {
 
 	env.OnActivity("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(100), nil)
 	env.OnActivity("GenerateContentSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
-	env.OnActivity("ExtractEntities", mock.Anything, mock.Anything).Return(&ExtractEntitiesOutput{}, nil)
+	env.OnActivity("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&ExtractEntitiesOutput{}, nil)
 	env.OnActivity("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
 
 	env.ExecuteWorkflow(ContentIngestionWorkflow, pkgtemporal.ContentIngestionInput{

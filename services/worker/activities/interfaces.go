@@ -85,6 +85,9 @@ type Embedding struct {
 type SummaryRepository interface {
 	// StoreSummary stores a generated summary for a source.
 	StoreSummary(ctx context.Context, tenantID string, sourceID int64, summary string, keyPoints []string, model string) (int64, error)
+
+	// DeleteSummary deletes a summary by source ID (for saga compensation).
+	DeleteSummary(ctx context.Context, sourceID int64) error
 }
 
 // Summary represents a stored summary.

@@ -330,7 +330,49 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 	return output, nil
 }
 
+// DeleteSummary deletes a summary by source ID.
+// This is a compensation activity used by the saga pattern when downstream stages fail.
+func (a *SummarizationActivities) DeleteSummary(ctx context.Context, summaryID int64) error {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "DeleteSummary"),
+		logging.F("summary_id", summaryID),
+	)
+
+	activity.RecordHeartbeat(ctx, "deleting summary")
+
+	logger.Info("Deleting summary for saga compensation")
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	if summaryID <= 0 {
+		return temporal.NewApplicationError(
+			fmt.Sprintf("invalid summary_id: %d", summaryID),
+			"ValidationError",
+		)
+	}
+
+	if a.summaryRepo == nil {
+		logger.Warn("Summary repository not configured")
+		return temporal.NewApplicationErrorWithCause(
+			"summary repository not configured",
+			"ConfigurationError",
+			nil,
+		)
+	}
+
+	if err := a.summaryRepo.DeleteSummary(ctx, summaryID); err != nil {
+		logger.Error("Failed to delete summary", logging.Err(err))
+		return fmt.Errorf("failed to delete summary: %w", err)
+	}
+
+	logger.Info("Summary deleted successfully")
+	return nil
+}
+
 // Ensure SummarizationActivities implements required interfaces at compile time.
 var _ interface {
 	GenerateSummary(ctx context.Context, input workflows.GenerateSummaryInput) (int64, error)
+	DeleteSummary(ctx context.Context, summaryID int64) error
 } = (*SummarizationActivities)(nil)

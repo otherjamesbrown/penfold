@@ -400,7 +400,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	updateStatus("extracting_entities", "ExtractEntities")
 	var entityOutput *ExtractEntitiesOutput
 	ctx4 := workflow.WithActivityOptions(ctx, llmOpts)
-	err = workflow.ExecuteActivity(ctx4, "ExtractEntities", ExtractEntitiesInput{
+	err = workflow.ExecuteActivity(ctx4, "ExtractEntitiesActivity", ExtractEntitiesInput{
 		TenantID:  input.TenantID,
 		SourceID:  input.SourceID,
 		ContentID: input.ContentID,

@@ -137,10 +137,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
-	// Summary activity for content processing
+	// Summary activities for content processing
 	if r.summarizationActivities != nil {
 		w.RegisterActivityWithOptions(r.summarizationActivities.GenerateSummary, activity.RegisterOptions{
 			Name: "GenerateContentSummary",
+		})
+		w.RegisterActivityWithOptions(r.summarizationActivities.DeleteSummary, activity.RegisterOptions{
+			Name: "DeleteSummary",
 		})
 	} else if r.activities != nil {
 		w.RegisterActivityWithOptions(r.activities.GenerateSummary, activity.RegisterOptions{
@@ -299,8 +302,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		} else if r.activities != nil {
 			count += 1
 		}
-		// GenerateContentSummary
-		if r.summarizationActivities != nil || r.activities != nil {
+		// GenerateContentSummary, DeleteSummary
+		if r.summarizationActivities != nil {
+			count += 2
+		} else if r.activities != nil {
 			count += 1
 		}
 		// ExtractEntities
