@@ -362,7 +362,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	if input.ContentType == "" {
 		var fetchOut FetchSourceOutput
 		ctxFetch := workflow.WithActivityOptions(ctx, fastOpts)
-		err := workflow.ExecuteActivity(ctxFetch, "FetchContent", FetchSourceInput{
+		err := workflow.ExecuteActivity(ctxFetch, pkgtemporal.ActivityFetchContent, FetchSourceInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 		}).Get(ctx, &fetchOut)
@@ -372,7 +372,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			state.status.ErrorMessage = state.result.Error
 			logger.Error("FetchSource failed", "error", err)
 			ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
-			_ = workflow.ExecuteActivity(ctxFail, "UpdateContentStatus", UpdateContentStatusInput{
+			_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 				TenantID: input.TenantID, SourceID: input.SourceID,
 				Status: "failed", FailureCategory: "fetch", FailureReason: err.Error(),
 			}).Get(ctx, nil)
@@ -391,7 +391,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	case "email":
 		var parseOutput pipelineParseEmailOutput
 		ctxParse := workflow.WithActivityOptions(ctx, fastOpts)
-		err := workflow.ExecuteActivity(ctxParse, "ParseEmail", pipelineParseEmailInput{
+		err := workflow.ExecuteActivity(ctxParse, pkgtemporal.ActivityParseEmail, pipelineParseEmailInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 			BodyText: input.BodyText,
@@ -413,7 +413,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	case "meeting":
 		var parseOutput pipelineParseTranscriptOutput
 		ctxParse := workflow.WithActivityOptions(ctx, fastOpts)
-		err := workflow.ExecuteActivity(ctxParse, "ParseTranscript", pipelineParseTranscriptInput{
+		err := workflow.ExecuteActivity(ctxParse, pkgtemporal.ActivityParseTranscript, pipelineParseTranscriptInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 			Content:  input.TranscriptContent,
@@ -434,7 +434,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.status.ErrorMessage = state.result.Error
 		logger.Error("Unsupported content type", "content_type", input.ContentType)
 		ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
-		_ = workflow.ExecuteActivity(ctxFail, "UpdateContentStatus", UpdateContentStatusInput{
+		_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID: input.TenantID, SourceID: input.SourceID,
 			Status: "failed", FailureCategory: "unsupported_type",
 			FailureReason: state.result.Error,
@@ -447,7 +447,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Progressive availability: mark as "parsed" (keyword-searchable)
 	ctxStatus := workflow.WithActivityOptions(ctx, fastOpts)
-	_ = workflow.ExecuteActivity(ctxStatus, "UpdateContentStatus", UpdateContentStatusInput{
+	_ = workflow.ExecuteActivity(ctxStatus, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 		Status:   "parsed",
@@ -463,7 +463,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	updateStatus("triaging", "Triage")
 	var triageOutput pipelineTriageOutput
 	ctxTriage := workflow.WithActivityOptions(ctx, embeddingOpts)
-	err := workflow.ExecuteActivity(ctxTriage, "Triage", pipelineTriageInput{
+	err := workflow.ExecuteActivity(ctxTriage, pkgtemporal.ActivityTriage, pipelineTriageInput{
 		TenantID:    input.TenantID,
 		SourceID:    input.SourceID,
 		ContentID:   input.ContentID,
@@ -511,7 +511,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		updateStatus("extracting", "ExtractEntities")
 		extractOutput = &pipelineExtractOutput{}
 		ctxExtract := workflow.WithActivityOptions(ctx, embeddingOpts)
-		err = workflow.ExecuteActivity(ctxExtract, "ExtractEntitiesActivity", pipelineExtractInput{
+		err = workflow.ExecuteActivity(ctxExtract, pkgtemporal.ActivityExtractEntitiesActivity, pipelineExtractInput{
 			TenantID:  input.TenantID,
 			SourceID:  input.SourceID,
 			ContentID: input.ContentID,
@@ -525,7 +525,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
 		var assertionCount int
 		ctxAssertions := workflow.WithActivityOptions(ctx, embeddingOpts)
-		err = workflow.ExecuteActivity(ctxAssertions, "ExtractAssertions", ExtractAssertionsInput{
+		err = workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
 			TenantID:  input.TenantID,
 			SourceID:  input.SourceID,
 			ContentID: input.ContentID,
@@ -544,7 +544,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		// Progressive availability: mark as "extracted" (entity-searchable)
 		ctxStatus2 := workflow.WithActivityOptions(ctx, fastOpts)
-		_ = workflow.ExecuteActivity(ctxStatus2, "UpdateContentStatus", UpdateContentStatusInput{
+		_ = workflow.ExecuteActivity(ctxStatus2, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 			Status:   "extracted",
@@ -560,7 +560,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		updateStatus("building_context", "BuildContextPackage")
 		contextOutput = &pipelineContextOutput{}
 		ctxContext := workflow.WithActivityOptions(ctx, fastOpts)
-		err = workflow.ExecuteActivity(ctxContext, "BuildContextPackage", pipelineContextInput{
+		err = workflow.ExecuteActivity(ctxContext, pkgtemporal.ActivityBuildContextPackage, pipelineContextInput{
 			TenantID:    input.TenantID,
 			SourceID:    input.SourceID,
 			ContentID:   input.ContentID,
@@ -588,7 +588,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		var analyzeOutput *pipelineAnalyzeOutput
 		ctxAnalyze := workflow.WithActivityOptions(ctx, llmOpts)
 		analyzeOutput = &pipelineAnalyzeOutput{}
-		err = workflow.ExecuteActivity(ctxAnalyze, "DeepAnalyze", pipelineAnalyzeInput{
+		err = workflow.ExecuteActivity(ctxAnalyze, pkgtemporal.ActivityDeepAnalyze, pipelineAnalyzeInput{
 			TenantID:          input.TenantID,
 			SourceID:          input.SourceID,
 			ContentID:         input.ContentID,
@@ -639,7 +639,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 			var persistOutput pipelinePersistOutput
 			ctxPersist := workflow.WithActivityOptions(ctx, fastOpts)
-			err = workflow.ExecuteActivity(ctxPersist, "PersistFindings", pipelinePersistInput{
+			err = workflow.ExecuteActivity(ctxPersist, pkgtemporal.ActivityPersistFindings, pipelinePersistInput{
 				TenantID:       input.TenantID,
 				SourceID:       input.SourceID,
 				ProjectID:      projectID,
@@ -671,7 +671,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	updateStatus("embedding", "GenerateEmbedding")
 	var embeddingID int64
 	ctxEmbed := workflow.WithActivityOptions(ctx, embeddingOpts)
-	err = workflow.ExecuteActivity(ctxEmbed, "GenerateContentEmbedding", GenerateEmbeddingInput{
+	err = workflow.ExecuteActivity(ctxEmbed, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
 		TenantID:    input.TenantID,
 		SourceID:    input.SourceID,
 		ContentID:   input.ContentID,
@@ -687,7 +687,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		// Update status to failed
 		ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
-		_ = workflow.ExecuteActivity(ctxFail, "UpdateContentStatus", UpdateContentStatusInput{
+		_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 			Status:   "failed",
@@ -702,7 +702,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	compensations = append(compensations, func(ctx workflow.Context) error {
 		return workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, fastOpts),
-			"DeleteEmbedding",
+			pkgtemporal.ActivityDeleteEmbedding,
 			embeddingID,
 		).Get(ctx, nil)
 	})
@@ -715,7 +715,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Final status update
 	ctxComplete := workflow.WithActivityOptions(ctx, fastOpts)
-	_ = workflow.ExecuteActivity(ctxComplete, "UpdateContentStatus", UpdateContentStatusInput{
+	_ = workflow.ExecuteActivity(ctxComplete, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 		Status:   "completed",

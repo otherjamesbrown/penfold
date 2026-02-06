@@ -5,6 +5,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/worker"
 
+	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/services/worker/config"
 )
 
@@ -111,102 +112,102 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.activities != nil {
 		// ValidateContent - validates content before processing
 		w.RegisterActivityWithOptions(r.activities.ValidateContent, activity.RegisterOptions{
-			Name: "ValidateContent",
+			Name: pkgtemporal.ActivityValidateContent,
 		})
 		// FetchContent - fetches source content from database
 		w.RegisterActivityWithOptions(r.activities.FetchSource, activity.RegisterOptions{
-			Name: "FetchContent",
+			Name: pkgtemporal.ActivityFetchContent,
 		})
 		// UpdateContentStatus - updates source processing status
 		w.RegisterActivityWithOptions(r.activities.UpdateSourceStatus, activity.RegisterOptions{
-			Name: "UpdateContentStatus",
+			Name: pkgtemporal.ActivityUpdateContentStatus,
 		})
 	}
 
 	// Embedding activities for content processing
 	if r.embeddingActivities != nil {
 		w.RegisterActivityWithOptions(r.embeddingActivities.GenerateEmbedding, activity.RegisterOptions{
-			Name: "GenerateContentEmbedding",
+			Name: pkgtemporal.ActivityGenerateContentEmbedding,
 		})
 		w.RegisterActivityWithOptions(r.embeddingActivities.DeleteEmbedding, activity.RegisterOptions{
-			Name: "DeleteEmbedding",
+			Name: pkgtemporal.ActivityDeleteEmbedding,
 		})
 	} else if r.activities != nil {
 		w.RegisterActivityWithOptions(r.activities.GenerateEmbedding, activity.RegisterOptions{
-			Name: "GenerateContentEmbedding",
+			Name: pkgtemporal.ActivityGenerateContentEmbedding,
 		})
 	}
 
 	// Summary activities for content processing
 	if r.summarizationActivities != nil {
 		w.RegisterActivityWithOptions(r.summarizationActivities.GenerateSummary, activity.RegisterOptions{
-			Name: "GenerateContentSummary",
+			Name: pkgtemporal.ActivityGenerateContentSummary,
 		})
 		w.RegisterActivityWithOptions(r.summarizationActivities.DeleteSummary, activity.RegisterOptions{
-			Name: "DeleteSummary",
+			Name: pkgtemporal.ActivityDeleteSummary,
 		})
 	} else if r.activities != nil {
 		w.RegisterActivityWithOptions(r.activities.GenerateSummary, activity.RegisterOptions{
-			Name: "GenerateContentSummary",
+			Name: pkgtemporal.ActivityGenerateContentSummary,
 		})
 	}
 
 	// Extraction activities for content processing
 	if r.extractionActivities != nil {
 		w.RegisterActivityWithOptions(r.extractionActivities.ExtractEntities, activity.RegisterOptions{
-			Name: "ExtractEntitiesActivity",
+			Name: pkgtemporal.ActivityExtractEntitiesActivity,
 		})
 		w.RegisterActivityWithOptions(r.extractionActivities.ExtractAssertions, activity.RegisterOptions{
-			Name: "ExtractAssertions",
+			Name: pkgtemporal.ActivityExtractAssertions,
 		})
 	} else if r.activities != nil {
 		w.RegisterActivityWithOptions(r.activities.ExtractAssertions, activity.RegisterOptions{
-			Name: "ExtractAssertions",
+			Name: pkgtemporal.ActivityExtractAssertions,
 		})
 	}
 
 	// Mentions extraction for content processing
 	if r.mentionsActivities != nil {
 		w.RegisterActivityWithOptions(r.mentionsActivities.ExtractMentions, activity.RegisterOptions{
-			Name: "ExtractMentions",
+			Name: pkgtemporal.ActivityExtractMentions,
 		})
 	}
 
 	// Parse activities for content processing (Stage 0, deterministic)
 	if r.parseActivities != nil {
 		w.RegisterActivityWithOptions(r.parseActivities.ParseEmail, activity.RegisterOptions{
-			Name: "ParseEmail",
+			Name: pkgtemporal.ActivityParseEmail,
 		})
 		w.RegisterActivityWithOptions(r.parseActivities.ParseTranscript, activity.RegisterOptions{
-			Name: "ParseTranscript",
+			Name: pkgtemporal.ActivityParseTranscript,
 		})
 	}
 
 	// Persist activities for Stage 4.5 (persistence)
 	if r.persistActivities != nil {
 		w.RegisterActivityWithOptions(r.persistActivities.PersistFindings, activity.RegisterOptions{
-			Name: "PersistFindings",
+			Name: pkgtemporal.ActivityPersistFindings,
 		})
 	}
 
 	// Triage activities for Stage 1 (triage)
 	if r.triageActivities != nil {
 		w.RegisterActivityWithOptions(r.triageActivities.Triage, activity.RegisterOptions{
-			Name: "Triage",
+			Name: pkgtemporal.ActivityTriage,
 		})
 	}
 
 	// Context builder activities for Stage 3 (context assembly)
 	if r.contextBuilderActivities != nil {
 		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildContextPackage, activity.RegisterOptions{
-			Name: "BuildContextPackage",
+			Name: pkgtemporal.ActivityBuildContextPackage,
 		})
 	}
 
 	// Analysis activities for Stage 4 (deep analysis)
 	if r.analysisActivities != nil {
 		w.RegisterActivityWithOptions(r.analysisActivities.DeepAnalyze, activity.RegisterOptions{
-			Name: "DeepAnalyze",
+			Name: pkgtemporal.ActivityDeepAnalyze,
 		})
 	}
 }
@@ -216,50 +217,50 @@ func (r *Registrar) registerAIQueueActivities(w worker.Worker) {
 	// AI-intensive activities using AIClient (preferred)
 	if r.embeddingActivities != nil {
 		w.RegisterActivityWithOptions(r.embeddingActivities.GenerateEmbedding, activity.RegisterOptions{
-			Name: "GenerateEmbedding",
+			Name: pkgtemporal.ActivityGenerateEmbedding,
 		})
 		w.RegisterActivityWithOptions(r.embeddingActivities.GenerateEmbeddingBatch, activity.RegisterOptions{
-			Name: "GenerateEmbeddingBatch",
+			Name: pkgtemporal.ActivityGenerateEmbeddingBatch,
 		})
 	} else if r.activities != nil {
 		// Fallback to legacy activities if AIClient-based activities not configured
 		w.RegisterActivityWithOptions(r.activities.GenerateEmbedding, activity.RegisterOptions{
-			Name: "GenerateEmbedding",
+			Name: pkgtemporal.ActivityGenerateEmbedding,
 		})
 	}
 
 	if r.summarizationActivities != nil {
 		w.RegisterActivityWithOptions(r.summarizationActivities.GenerateSummary, activity.RegisterOptions{
-			Name: "GenerateSummary",
+			Name: pkgtemporal.ActivityGenerateSummary,
 		})
 		w.RegisterActivityWithOptions(r.summarizationActivities.GenerateSummaryWithOptions, activity.RegisterOptions{
-			Name: "GenerateSummaryWithOptions",
+			Name: pkgtemporal.ActivityGenerateSummaryWithOptions,
 		})
 	} else if r.activities != nil {
 		// Fallback to legacy activities
 		w.RegisterActivityWithOptions(r.activities.GenerateSummary, activity.RegisterOptions{
-			Name: "GenerateSummary",
+			Name: pkgtemporal.ActivityGenerateSummary,
 		})
 	}
 
 	if r.extractionActivities != nil {
 		w.RegisterActivityWithOptions(r.extractionActivities.ExtractAssertions, activity.RegisterOptions{
-			Name: "ExtractAssertions",
+			Name: pkgtemporal.ActivityExtractAssertions,
 		})
 		w.RegisterActivityWithOptions(r.extractionActivities.ExtractEntities, activity.RegisterOptions{
-			Name: "ExtractEntitiesActivity",
+			Name: pkgtemporal.ActivityExtractEntitiesActivity,
 		})
 	} else if r.activities != nil {
 		// Fallback to legacy activities
 		w.RegisterActivityWithOptions(r.activities.ExtractAssertions, activity.RegisterOptions{
-			Name: "ExtractAssertions",
+			Name: pkgtemporal.ActivityExtractAssertions,
 		})
 	}
 
 	// Mentions extraction activity (LLM-driven, so registered with AI queue)
 	if r.mentionsActivities != nil {
 		w.RegisterActivityWithOptions(r.mentionsActivities.ExtractMentions, activity.RegisterOptions{
-			Name: "ExtractMentions",
+			Name: pkgtemporal.ActivityExtractMentions,
 		})
 	}
 }
@@ -269,17 +270,17 @@ func (r *Registrar) registerEmailQueueActivities(w worker.Worker) {
 	// Email processing activities
 	if r.activities != nil {
 		w.RegisterActivityWithOptions(r.activities.FetchSource, activity.RegisterOptions{
-			Name: "FetchSource",
+			Name: pkgtemporal.ActivityFetchSource,
 		})
 		w.RegisterActivityWithOptions(r.activities.UpdateSourceStatus, activity.RegisterOptions{
-			Name: "UpdateSourceStatus",
+			Name: pkgtemporal.ActivityUpdateSourceStatus,
 		})
 	}
 
 	// Parse activities for email processing (Stage 0, deterministic)
 	if r.parseActivities != nil {
 		w.RegisterActivityWithOptions(r.parseActivities.ParseEmail, activity.RegisterOptions{
-			Name: "ParseEmail",
+			Name: pkgtemporal.ActivityParseEmail,
 		})
 	}
 

@@ -108,7 +108,7 @@ func EmailProcessingWorkflow(ctx workflow.Context, input EmailProcessingInput) (
 	// Step 1: Fetch source content from database
 	var fetchOutput FetchSourceOutput
 	ctx1 := workflow.WithActivityOptions(ctx, fastOpts)
-	err := workflow.ExecuteActivity(ctx1, "FetchSource", FetchSourceInput{
+	err := workflow.ExecuteActivity(ctx1, pkgtemporal.ActivityFetchSource, FetchSourceInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 	}).Get(ctx, &fetchOutput)
@@ -125,7 +125,7 @@ func EmailProcessingWorkflow(ctx workflow.Context, input EmailProcessingInput) (
 	// Step 2: Generate embedding (can run in parallel with LLM if desired, but keep sequential for simplicity)
 	var embeddingID int64
 	ctx2 := workflow.WithActivityOptions(ctx, embeddingOpts)
-	err = workflow.ExecuteActivity(ctx2, "GenerateEmbedding", GenerateEmbeddingInput{
+	err = workflow.ExecuteActivity(ctx2, pkgtemporal.ActivityGenerateEmbedding, GenerateEmbeddingInput{
 		TenantID:    input.TenantID,
 		SourceID:    input.SourceID,
 		ContentID:   input.ContentID,
@@ -143,7 +143,7 @@ func EmailProcessingWorkflow(ctx workflow.Context, input EmailProcessingInput) (
 	// Step 3: Generate summary via LLM
 	var summaryID int64
 	ctx3 := workflow.WithActivityOptions(ctx, llmOpts)
-	err = workflow.ExecuteActivity(ctx3, "GenerateSummary", GenerateSummaryInput{
+	err = workflow.ExecuteActivity(ctx3, pkgtemporal.ActivityGenerateSummary, GenerateSummaryInput{
 		TenantID:  input.TenantID,
 		SourceID:  input.SourceID,
 		ContentID: input.ContentID,
@@ -160,7 +160,7 @@ func EmailProcessingWorkflow(ctx workflow.Context, input EmailProcessingInput) (
 	// Step 4: Extract assertions via LLM
 	var assertionCount int
 	ctx4 := workflow.WithActivityOptions(ctx, llmOpts)
-	err = workflow.ExecuteActivity(ctx4, "ExtractAssertions", ExtractAssertionsInput{
+	err = workflow.ExecuteActivity(ctx4, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
 		TenantID:  input.TenantID,
 		SourceID:  input.SourceID,
 		ContentID: input.ContentID,
@@ -176,7 +176,7 @@ func EmailProcessingWorkflow(ctx workflow.Context, input EmailProcessingInput) (
 
 	// Step 5: Update source status
 	ctx5 := workflow.WithActivityOptions(ctx, fastOpts)
-	err = workflow.ExecuteActivity(ctx5, "UpdateSourceStatus", UpdateSourceStatusInput{
+	err = workflow.ExecuteActivity(ctx5, pkgtemporal.ActivityUpdateSourceStatus, UpdateSourceStatusInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 		Status:   "completed",
