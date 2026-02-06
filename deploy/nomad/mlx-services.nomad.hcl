@@ -3,7 +3,7 @@ job "penfold-mlx" {
   type        = "service"
 
   constraint {
-    attribute = "${meta.apple-silicon}"
+    attribute = "${meta.apple_silicon}"
     value     = "true"
   }
 
@@ -14,13 +14,16 @@ job "penfold-mlx" {
     count = 1
 
     network {
-      port "http" { static = 8081 }
+      port "http" {
+        static       = 8081
+        host_network = "default"
+      }
     }
 
     restart {
-      attempts = 3
+      attempts = 5
       delay    = "30s"
-      interval = "5m"
+      interval = "10m"
       mode     = "fail"
     }
 
@@ -39,19 +42,6 @@ job "penfold-mlx" {
         PATH = "/Users/james/github/otherjamesbrown/penfold/penfold-go-pipeline/sidecar/.venv/bin:/usr/local/bin:/usr/bin:/bin"
       }
 
-      service {
-        name = "penfold-mlx-embeddings"
-        port = "http"
-
-        check {
-          name     = "http-health"
-          type     = "http"
-          path     = "/health"
-          interval = "10s"
-          timeout  = "5s"
-        }
-      }
-
       resources {
         cpu    = 1000
         memory = 4096
@@ -65,13 +55,16 @@ job "penfold-mlx" {
     count = 1
 
     network {
-      port "http" { static = 8080 }
+      port "http" {
+        static       = 8080
+        host_network = "default"
+      }
     }
 
     restart {
-      attempts = 3
+      attempts = 5
       delay    = "30s"
-      interval = "5m"
+      interval = "10m"
       mode     = "fail"
     }
 
@@ -84,19 +77,6 @@ job "penfold-mlx" {
           "-c",
           "exec /Users/james/github/otherjamesbrown/penfold/penfold-go-pipeline/sidecar/.venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-7B-Instruct-4bit --port 8080 --host 0.0.0.0",
         ]
-      }
-
-      service {
-        name = "penfold-mlx-llm"
-        port = "http"
-
-        check {
-          name     = "http-health"
-          type     = "http"
-          path     = "/health"
-          interval = "10s"
-          timeout  = "5s"
-        }
       }
 
       resources {
@@ -112,13 +92,16 @@ job "penfold-mlx" {
     count = 1
 
     network {
-      port "http" { static = 9101 }
+      port "http" {
+        static       = 9101
+        host_network = "default"
+      }
     }
 
     restart {
-      attempts = 3
+      attempts = 5
       delay    = "30s"
-      interval = "5m"
+      interval = "10m"
       mode     = "fail"
     }
 
@@ -129,21 +112,8 @@ job "penfold-mlx" {
         command = "/bin/sh"
         args = [
           "-c",
-          "exec /usr/bin/python3 /Users/james/github/otherjamesbrown/mlx-lm-exporter/mlx_lm_exporter.py --mlx-server http://localhost:8080 --port 9101",
+          "exec /Users/james/github/otherjamesbrown/penfold/penfold-go-pipeline/sidecar/.venv/bin/python3 /Users/james/github/otherjamesbrown/mlx-lm-exporter/mlx_lm_exporter.py --mlx-server http://localhost:8080 --port 9101",
         ]
-      }
-
-      service {
-        name = "penfold-mlx-exporter"
-        port = "http"
-
-        check {
-          name     = "http-health"
-          type     = "http"
-          path     = "/metrics"
-          interval = "15s"
-          timeout  = "5s"
-        }
       }
 
       resources {

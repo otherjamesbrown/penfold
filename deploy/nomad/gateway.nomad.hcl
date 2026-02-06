@@ -40,8 +40,9 @@ job "penfold-gateway" {
       }
 
       service {
-        name = "penfold-gateway"
-        port = "http"
+        name     = "penfold-gateway"
+        port     = "http"
+        provider = "nomad"
 
         check {
           name     = "http-health"
@@ -53,8 +54,9 @@ job "penfold-gateway" {
       }
 
       service {
-        name = "penfold-gateway-grpc"
-        port = "grpc"
+        name     = "penfold-gateway-grpc"
+        port     = "grpc"
+        provider = "nomad"
       }
 
       resources {

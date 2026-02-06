@@ -92,10 +92,10 @@ deploy_binary() {
         return 1
     fi
 
-    # Copy new binary
+    # Copy new binary and ad-hoc sign for macOS Gatekeeper
     scp "$BUILD_OUTPUT" "${WORKER_HOST}:${BINARY_PATH}.new"
-    ssh "$WORKER_HOST" "chmod +x ${BINARY_PATH}.new && mv ${BINARY_PATH}.new ${BINARY_PATH}"
-    log_success "Binary uploaded"
+    ssh "$WORKER_HOST" "chmod +x ${BINARY_PATH}.new && codesign --force --sign - ${BINARY_PATH}.new && mv ${BINARY_PATH}.new ${BINARY_PATH}"
+    log_success "Binary uploaded and signed"
 }
 
 check_status() {

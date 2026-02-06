@@ -40,8 +40,9 @@ job "penfold-ai-coordinator" {
       }
 
       service {
-        name = "penfold-ai-coordinator"
-        port = "http"
+        name     = "penfold-ai-coordinator"
+        port     = "http"
+        provider = "nomad"
 
         check {
           name     = "http-health"
@@ -53,8 +54,9 @@ job "penfold-ai-coordinator" {
       }
 
       service {
-        name = "penfold-ai-coordinator-grpc"
-        port = "grpc"
+        name     = "penfold-ai-coordinator-grpc"
+        port     = "grpc"
+        provider = "nomad"
       }
 
       resources {

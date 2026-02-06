@@ -3,7 +3,7 @@ job "penfold-worker" {
   type        = "service"
 
   constraint {
-    attribute = "${meta.apple-silicon}"
+    attribute = "${meta.apple_silicon}"
     value     = "true"
   }
 
@@ -11,7 +11,7 @@ job "penfold-worker" {
     max_parallel     = 1
     canary           = 1
     min_healthy_time = "10s"
-    healthy_deadline = "60s"
+    healthy_deadline = "3m"
     auto_revert      = true
     auto_promote     = true
   }
@@ -20,7 +20,10 @@ job "penfold-worker" {
     count = 1
 
     network {
-      port "http" { static = 8085 }
+      port "http" {
+        static       = 8085
+        host_network = "default"
+      }
     }
 
     restart {
@@ -39,8 +42,9 @@ job "penfold-worker" {
       }
 
       service {
-        name = "penfold-worker"
-        port = "http"
+        name     = "penfold-worker"
+        port     = "http"
+        provider = "nomad"
 
         check {
           name     = "http-health"
