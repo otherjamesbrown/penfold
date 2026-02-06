@@ -435,8 +435,8 @@ func (r *Repository) ListEntities(ctx context.Context, filter ListEntitiesFilter
 func (r *Repository) getPeopleEntities(ctx context.Context, filter ListEntitiesFilter) ([]Entity, int64, error) {
 	query := `
 		SELECT
-			p.id, p.canonical_name, p.primary_email, p.title, p.department,
-			p.confidence, p.created_at, p.updated_at,
+			p.id, p.canonical_name, p.primary_email, p.job_title, p.department,
+			p.confidence_score, p.created_at, p.updated_at,
 			COUNT(DISTINCT pa.id) as alias_count,
 			COUNT(DISTINCT tm.team_id) + COUNT(DISTINCT pm.project_id) as relation_count
 		FROM people p
@@ -464,7 +464,7 @@ func (r *Repository) getPeopleEntities(ctx context.Context, filter ListEntitiesF
 	}
 
 	if filter.MinConfidence > 0 {
-		query += fmt.Sprintf(` AND p.confidence >= $%d`, argNum)
+		query += fmt.Sprintf(` AND p.confidence_score >= $%d`, argNum)
 		args = append(args, filter.MinConfidence)
 		argNum++
 	}
@@ -480,33 +480,39 @@ func (r *Repository) getPeopleEntities(ctx context.Context, filter ListEntitiesF
 	var entities []Entity
 	for rows.Next() {
 		var id int64
-		var canonicalName, primaryEmail string
-		var title, department *string
-		var confidence float64
+		var canonicalName string
+		var primaryEmail *string
+		var jobTitle, department *string
+		var confidence *float64
 		var createdAt, updatedAt time.Time
 		var aliasCount, relationCount int
 
-		if err := rows.Scan(&id, &canonicalName, &primaryEmail, &title, &department,
+		if err := rows.Scan(&id, &canonicalName, &primaryEmail, &jobTitle, &department,
 			&confidence, &createdAt, &updatedAt, &aliasCount, &relationCount); err != nil {
 			return nil, 0, fmt.Errorf("scan people entity: %w", err)
 		}
 
-		metadata := map[string]string{
-			"email": primaryEmail,
+		metadata := map[string]string{}
+		if primaryEmail != nil && *primaryEmail != "" {
+			metadata["email"] = *primaryEmail
 		}
-		if title != nil && *title != "" {
-			metadata["title"] = *title
+		if jobTitle != nil && *jobTitle != "" {
+			metadata["title"] = *jobTitle
 		}
 		if department != nil && *department != "" {
 			metadata["department"] = *department
 		}
 
+		conf := 0.0
+		if confidence != nil {
+			conf = *confidence
+		}
 		entities = append(entities, Entity{
 			ID:            fmt.Sprintf("ent-person-%d", id),
 			Name:          canonicalName,
 			Type:          EntityTypePerson,
 			CanonicalName: canonicalName,
-			Confidence:    confidence,
+			Confidence:    conf,
 			SourceCount:   aliasCount,
 			FirstSeen:     createdAt,
 			LastSeen:      updatedAt,
