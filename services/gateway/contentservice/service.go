@@ -671,11 +671,10 @@ func (r *repositoryImpl) GetAssertions(ctx context.Context, contentID string, as
 			a.description,
 			a.source_quote,
 			a.confidence,
-			er.model_id AS extraction_model,
+			a.extraction_model,
 			a.created_at
 		FROM assertions a
 		INNER JOIN sources s ON a.source_id = s.id
-		LEFT JOIN extraction_runs er ON a.extraction_run_id = er.id
 		WHERE s.content_id = $1 AND (s.is_deleted IS NULL OR s.is_deleted = false)
 	`
 
