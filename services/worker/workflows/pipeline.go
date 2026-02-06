@@ -356,6 +356,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// ==================== Stage 0: Parse ====================
 	updateStatus("parsing", "Parse")
+	parseStage := stageByStatus("parsing")
+	logger.Info("pipeline stage starting",
+		"source_id", input.SourceID,
+		"stage", parseStage.Name,
+		"stage_number", parseStage.Number,
+		"total_steps", state.status.TotalSteps,
+	)
+	parseStart := workflow.Now(ctx)
 
 	// If ContentType is empty, the workflow was started with SLMPipelineInput
 	// (minimal contract). Fetch content and metadata from the database.
@@ -409,6 +417,15 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		} else {
 			parsedContent = parseOutput.CleanBody
 		}
+		logger.Info("pipeline stage completed",
+			"source_id", input.SourceID,
+			"stage", parseStage.Name,
+			"stage_number", parseStage.Number,
+			"duration_ms", workflow.Now(ctx).Sub(parseStart).Milliseconds(),
+			"status", "completed",
+			"content_length", len(parsedContent),
+			"is_reply", parseOutput.IsReply,
+		)
 
 	case "meeting":
 		var parseOutput pipelineParseTranscriptOutput
@@ -427,6 +444,15 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			return state.result, nil
 		}
 		parsedContent = parseOutput.CleanText
+		logger.Info("pipeline stage completed",
+			"source_id", input.SourceID,
+			"stage", parseStage.Name,
+			"stage_number", parseStage.Number,
+			"duration_ms", workflow.Now(ctx).Sub(parseStart).Milliseconds(),
+			"status", "completed",
+			"content_length", len(parsedContent),
+			"speaker_count", len(parseOutput.Speakers),
+		)
 
 	default:
 		state.result.Status = "failed"
@@ -461,6 +487,15 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// ==================== Stage 1: Triage ====================
 	updateStatus("triaging", "Triage")
+	triageStage := stageByStatus("triaging")
+	logger.Info("pipeline stage starting",
+		"source_id", input.SourceID,
+		"stage", triageStage.Name,
+		"stage_number", triageStage.Number,
+		"total_steps", state.status.TotalSteps,
+	)
+	triageStart := workflow.Now(ctx)
+
 	var triageOutput pipelineTriageOutput
 	ctxTriage := workflow.WithActivityOptions(ctx, embeddingOpts)
 	err := workflow.ExecuteActivity(ctxTriage, pkgtemporal.ActivityTriage, pipelineTriageInput{
@@ -481,6 +516,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
+	logger.Info("pipeline stage completed",
+		"source_id", input.SourceID,
+		"stage", triageStage.Name,
+		"stage_number", triageStage.Number,
+		"duration_ms", workflow.Now(ctx).Sub(triageStart).Milliseconds(),
+		"status", "completed",
+		"category", triageOutput.Category,
+		"importance", triageOutput.Importance,
+		"confidence", triageOutput.Confidence,
+		"skip_deep", triageOutput.SkipDeep,
+		"model_used", triageOutput.ModelUsed,
+	)
+
 	state.result.Category = triageOutput.Category
 	state.result.Importance = triageOutput.Importance
 	state.result.SkipDeep = triageOutput.SkipDeep
@@ -495,10 +543,17 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Triage gate: skip Stages 2-4.5 for LOW/PERSONAL content
 	if triageOutput.SkipDeep {
-		logger.Info("Triage gate: skipping deep processing",
-			"category", triageOutput.Category,
-			"importance", triageOutput.Importance,
-		)
+		// Log skip for each deep processing stage
+		for _, s := range pkgtemporal.SLMPipelineStages {
+			if s.SkipWhenLow {
+				logger.Info("pipeline stage skipped",
+					"source_id", input.SourceID,
+					"stage", s.Name,
+					"stage_number", s.Number,
+					"reason", "skip_deep",
+				)
+			}
+		}
 		state.status.TotalSteps = pkgtemporal.SkipDeepTotalSteps()
 	}
 
@@ -509,6 +564,15 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	if !triageOutput.SkipDeep {
 		// Stage 2: Extract
 		updateStatus("extracting", "ExtractEntities")
+		extractStage := stageByStatus("extracting")
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", extractStage.Name,
+			"stage_number", extractStage.Number,
+			"total_steps", state.status.TotalSteps,
+		)
+		extractStart := workflow.Now(ctx)
+
 		extractOutput = &pipelineExtractOutput{}
 		ctxExtract := workflow.WithActivityOptions(ctx, embeddingOpts)
 		err = workflow.ExecuteActivity(ctxExtract, pkgtemporal.ActivityExtractEntitiesActivity, pipelineExtractInput{
@@ -518,27 +582,46 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			JobID:     input.JobID,
 			Content:   parsedContent,
 		}).Get(ctx, extractOutput)
-		if err != nil {
-			logger.Warn("Stage 2 Extract failed, continuing with empty extraction", "error", err)
-			extractOutput = &pipelineExtractOutput{}
-		}
+
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
 		var assertionCount int
 		ctxAssertions := workflow.WithActivityOptions(ctx, embeddingOpts)
-		err = workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
+		err2 := workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
 			TenantID:  input.TenantID,
 			SourceID:  input.SourceID,
 			ContentID: input.ContentID,
 			JobID:     input.JobID,
 			Content:   parsedContent,
 		}).Get(ctx, &assertionCount)
-		if err != nil {
-			logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err)
+		if err2 != nil {
+			logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err2)
 			assertionCount = 0
-		} else {
-			logger.Info("Assertions extracted", "count", assertionCount)
 		}
 		state.result.AssertionsCreated = assertionCount
+
+		if err != nil {
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", extractStage.Name,
+				"stage_number", extractStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(extractStart).Milliseconds(),
+				"status", "failed",
+				"error", err.Error(),
+			)
+			extractOutput = &pipelineExtractOutput{}
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", extractStage.Name,
+				"stage_number", extractStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(extractStart).Milliseconds(),
+				"status", "completed",
+				"people_count", len(extractOutput.People),
+				"action_items_count", len(extractOutput.ActionItems),
+				"assertions_created", assertionCount,
+				"model_used", extractOutput.ModelUsed,
+			)
+		}
 
 		state.status.StepsCompleted = 3
 
@@ -558,6 +641,15 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		// Stage 3: Context
 		updateStatus("building_context", "BuildContextPackage")
+		contextStage := stageByStatus("building_context")
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", contextStage.Name,
+			"stage_number", contextStage.Number,
+			"total_steps", state.status.TotalSteps,
+		)
+		contextStart := workflow.Now(ctx)
+
 		contextOutput = &pipelineContextOutput{}
 		ctxContext := workflow.WithActivityOptions(ctx, fastOpts)
 		err = workflow.ExecuteActivity(ctxContext, pkgtemporal.ActivityBuildContextPackage, pipelineContextInput{
@@ -572,8 +664,26 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			Subject:     input.Subject,
 		}).Get(ctx, contextOutput)
 		if err != nil {
-			logger.Warn("Stage 3 Context failed, continuing without context", "error", err)
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", contextStage.Name,
+				"stage_number", contextStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(contextStart).Milliseconds(),
+				"status", "failed",
+				"error", err.Error(),
+			)
 			contextOutput = &pipelineContextOutput{}
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", contextStage.Name,
+				"stage_number", contextStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(contextStart).Milliseconds(),
+				"status", "completed",
+				"entities_resolved", contextOutput.EntitiesResolved,
+				"entities_unresolved", contextOutput.EntitiesUnresolved,
+				"tokens_used", contextOutput.TokensUsed,
+			)
 		}
 		state.status.StepsCompleted = 4
 
@@ -585,6 +695,15 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		// Stage 4: Deep Analysis (optional — failure does NOT block pipeline)
 		updateStatus("analyzing", "DeepAnalyze")
+		analyzeStage := stageByStatus("analyzing")
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", analyzeStage.Name,
+			"stage_number", analyzeStage.Number,
+			"total_steps", state.status.TotalSteps,
+		)
+		analyzeStart := workflow.Now(ctx)
+
 		var analyzeOutput *pipelineAnalyzeOutput
 		ctxAnalyze := workflow.WithActivityOptions(ctx, llmOpts)
 		analyzeOutput = &pipelineAnalyzeOutput{}
@@ -601,8 +720,25 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			BackgroundContext: "", // Context package content assembled by activity
 		}).Get(ctx, analyzeOutput)
 		if err != nil {
-			logger.Warn("Stage 4 DeepAnalyze failed, continuing to embedding", "error", err)
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", analyzeStage.Name,
+				"stage_number", analyzeStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(analyzeStart).Milliseconds(),
+				"status", "failed",
+				"error", err.Error(),
+			)
 			analyzeOutput = nil // Skip persist if analysis failed
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", analyzeStage.Name,
+				"stage_number", analyzeStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(analyzeStart).Milliseconds(),
+				"status", "completed",
+				"model_used", analyzeOutput.ModelUsed,
+				"has_summary", analyzeOutput.Summary != "",
+			)
 		}
 		state.status.StepsCompleted = 5
 
@@ -615,6 +751,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		// Stage 4.5: Persist Findings (only if Stage 4 succeeded)
 		if analyzeOutput != nil {
 			updateStatus("persisting", "PersistFindings")
+			persistStage := stageByStatus("persisting")
+			logger.Info("pipeline stage starting",
+				"source_id", input.SourceID,
+				"stage", persistStage.Name,
+				"stage_number", persistStage.Number,
+				"total_steps", state.status.TotalSteps,
+			)
+			persistStart := workflow.Now(ctx)
 
 			// Build resolved people map from context output
 			resolvedPeople := make(map[string]int64)
@@ -647,10 +791,23 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				ResolvedPeople: resolvedPeople,
 			}).Get(ctx, &persistOutput)
 			if err != nil {
-				logger.Warn("Stage 4.5 PersistFindings failed", "error", err)
+				logger.Warn("pipeline stage failed (non-blocking)",
+					"source_id", input.SourceID,
+					"stage", persistStage.Name,
+					"stage_number", persistStage.Number,
+					"duration_ms", workflow.Now(ctx).Sub(persistStart).Milliseconds(),
+					"status", "failed",
+					"error", err.Error(),
+				)
 			} else {
-				logger.Info("Findings persisted",
+				logger.Info("pipeline stage completed",
+					"source_id", input.SourceID,
+					"stage", persistStage.Name,
+					"stage_number", persistStage.Number,
+					"duration_ms", workflow.Now(ctx).Sub(persistStart).Milliseconds(),
+					"status", "completed",
 					"assertions_created", persistOutput.AssertionsCreated,
+					"assertions_superseded", persistOutput.AssertionsSuperseded,
 					"references_created", persistOutput.ReferencesCreated,
 				)
 				state.result.AssertionsCreated += persistOutput.AssertionsCreated
@@ -669,6 +826,15 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// ==================== Stage 5: Embed ====================
 	// Embedding is critical — failure means pipeline failure.
 	updateStatus("embedding", "GenerateEmbedding")
+	embedStage := stageByStatus("embedding")
+	logger.Info("pipeline stage starting",
+		"source_id", input.SourceID,
+		"stage", embedStage.Name,
+		"stage_number", embedStage.Number,
+		"total_steps", state.status.TotalSteps,
+	)
+	embedStart := workflow.Now(ctx)
+
 	var embeddingID int64
 	ctxEmbed := workflow.WithActivityOptions(ctx, embeddingOpts)
 	err = workflow.ExecuteActivity(ctxEmbed, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
@@ -695,6 +861,15 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		return state.result, nil
 	}
+
+	logger.Info("pipeline stage completed",
+		"source_id", input.SourceID,
+		"stage", embedStage.Name,
+		"stage_number", embedStage.Number,
+		"duration_ms", workflow.Now(ctx).Sub(embedStart).Milliseconds(),
+		"status", "completed",
+		"embedding_id", embeddingID,
+	)
 
 	state.result.EmbeddingID = &embeddingID
 
@@ -733,6 +908,17 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	)
 
 	return state.result, nil
+}
+
+// stageByStatus returns the Stage metadata for a given StatusName.
+// If not found, returns a minimal Stage with the status name.
+func stageByStatus(statusName string) pkgtemporal.Stage {
+	for _, s := range pkgtemporal.SLMPipelineStages {
+		if s.StatusName == statusName {
+			return s
+		}
+	}
+	return pkgtemporal.Stage{Name: statusName, StatusName: statusName}
 }
 
 // Ensure temporal package is used to avoid import errors during development.
