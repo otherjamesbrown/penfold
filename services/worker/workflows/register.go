@@ -38,7 +38,12 @@ func (r *Registrar) registerMainQueueWorkflows(w worker.Worker) {
 	// Register common workflows
 	r.registerCommonWorkflows(w)
 
-	// Content ingestion workflow
+	// SLM pipeline workflow (primary ingestion path)
+	w.RegisterWorkflowWithOptions(SLMPipelineWorkflow, workflow.RegisterOptions{
+		Name: "SLMPipelineWorkflow",
+	})
+
+	// Content ingestion workflow (legacy)
 	w.RegisterWorkflowWithOptions(ContentIngestionWorkflow, workflow.RegisterOptions{
 		Name: "ContentIngestionWorkflow",
 	})
@@ -86,7 +91,7 @@ func (r *Registrar) registerCommonWorkflows(w worker.Worker) {
 func (r *Registrar) WorkflowCount(taskQueue string) int {
 	switch taskQueue {
 	case config.MainTaskQueue:
-		return 3 // ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow
+		return 4 // SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow
 	case config.AITaskQueue:
 		return 1 // AnalysisWorkflow
 	case config.EmailTaskQueue:
