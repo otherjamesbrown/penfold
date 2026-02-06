@@ -74,20 +74,23 @@ type activityPersonResult struct {
 }
 
 type activityDateResult struct {
-	Date    string `json:"date"`
-	Context string `json:"context,omitempty"`
+	Date       string `json:"date"`
+	Context    string `json:"context,omitempty"`
+	IsDeadline bool   `json:"is_deadline,omitempty"`
 }
 
 type activityActionItemResult struct {
 	Assignee string `json:"assignee,omitempty"`
 	Action   string `json:"action"`
 	Due      string `json:"due,omitempty"`
+	Priority string `json:"priority,omitempty"`
 }
 
 type activityDetailedRisk struct {
 	Description  string `json:"description"`
 	SeverityHint string `json:"severity_hint,omitempty"`
 	OwnerHint    string `json:"owner_hint,omitempty"`
+	Impact       string `json:"impact,omitempty"`
 }
 
 type activityExtractEntitiesOutput struct {
@@ -243,7 +246,7 @@ type activityPersistFindingsActivityOutput struct {
 func TestContract_ParseEmail_Input(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
 		// Populate workflow type with all fields
-		workflow := pipelineParseEmailInput{
+		workflow := ParseEmailInput{
 			TenantID: "tenant-123",
 			SourceID: 42,
 			BodyText: "Hello world",
@@ -280,7 +283,7 @@ func TestContract_ParseEmail_Input(t *testing.T) {
 		require.NoError(t, err)
 
 		// Unmarshal into workflow type
-		var workflow pipelineParseEmailInput
+		var workflow ParseEmailInput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -295,7 +298,7 @@ func TestContract_ParseEmail_Input(t *testing.T) {
 // TestContract_ParseEmail_Output tests JSON round-trip between workflow and activity ParseEmail output types.
 func TestContract_ParseEmail_Output(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
-		workflow := pipelineParseEmailOutput{
+		workflow := ParseEmailOutput{
 			CleanBody:     "Clean text",
 			NewContent:    "New content",
 			QuotedContent: "Quoted reply",
@@ -326,7 +329,7 @@ func TestContract_ParseEmail_Output(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelineParseEmailOutput
+		var workflow ParseEmailOutput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -340,7 +343,7 @@ func TestContract_ParseEmail_Output(t *testing.T) {
 // TestContract_ParseTranscript_Input tests JSON round-trip for ParseTranscript input types.
 func TestContract_ParseTranscript_Input(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
-		workflow := pipelineParseTranscriptInput{
+		workflow := ParseTranscriptInput{
 			TenantID: "tenant-789",
 			SourceID: 101,
 			Content:  "00:00:01.000 --> 00:00:05.000\nSpeaker: Hello",
@@ -371,7 +374,7 @@ func TestContract_ParseTranscript_Input(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelineParseTranscriptInput
+		var workflow ParseTranscriptInput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -385,7 +388,7 @@ func TestContract_ParseTranscript_Input(t *testing.T) {
 // TestContract_ParseTranscript_Output tests JSON round-trip for ParseTranscript output types.
 func TestContract_ParseTranscript_Output(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
-		workflow := pipelineParseTranscriptOutput{
+		workflow := ParseTranscriptOutput{
 			CleanText:  "Speaker A: Hello world",
 			Speakers:   []string{"Speaker A", "Speaker B"},
 			DurationMs: 30000,
@@ -416,7 +419,7 @@ func TestContract_ParseTranscript_Output(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelineParseTranscriptOutput
+		var workflow ParseTranscriptOutput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -430,7 +433,7 @@ func TestContract_ParseTranscript_Output(t *testing.T) {
 // TestContract_Triage_Input tests JSON round-trip for Triage input types.
 func TestContract_Triage_Input(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
-		workflow := pipelineTriageInput{
+		workflow := TriageInput{
 			TenantID:    "tenant-111",
 			SourceID:    303,
 			ContentID:   "em-abc123",
@@ -473,7 +476,7 @@ func TestContract_Triage_Input(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelineTriageInput
+		var workflow TriageInput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -491,7 +494,7 @@ func TestContract_Triage_Input(t *testing.T) {
 // TestContract_Triage_Output tests JSON round-trip for Triage output types.
 func TestContract_Triage_Output(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
-		workflow := pipelineTriageOutput{
+		workflow := TriageOutput{
 			Category:   "RISK_ISSUE",
 			Importance: "HIGH",
 			Reason:     "Critical risk identified",
@@ -528,7 +531,7 @@ func TestContract_Triage_Output(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelineTriageOutput
+		var workflow TriageOutput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -544,7 +547,7 @@ func TestContract_Triage_Output(t *testing.T) {
 // TestContract_ExtractEntities_Input tests JSON round-trip for ExtractEntities input types.
 func TestContract_ExtractEntities_Input(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
-		workflow := pipelineExtractInput{
+		workflow := SLMPipelineExtractEntitiesInput{
 			TenantID:  "tenant-333",
 			SourceID:  505,
 			ContentID: "em-def456",
@@ -565,9 +568,7 @@ func TestContract_ExtractEntities_Input(t *testing.T) {
 		assert.Equal(t, workflow.ContentID, activity.ContentID)
 		assert.Equal(t, workflow.JobID, activity.JobID)
 		assert.Equal(t, workflow.Content, activity.Content)
-
-		// TODO: fix mismatch - activity has extra TriageCategory field not in workflow type
-		// This means activity can't receive triage_category from workflow JSON
+		assert.Equal(t, workflow.TriageCategory, activity.TriageCategory)
 	})
 
 	t.Run("ActivityToWorkflow", func(t *testing.T) {
@@ -583,7 +584,7 @@ func TestContract_ExtractEntities_Input(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelineExtractInput
+		var workflow SLMPipelineExtractEntitiesInput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -593,35 +594,33 @@ func TestContract_ExtractEntities_Input(t *testing.T) {
 		assert.Equal(t, activity.ContentID, workflow.ContentID)
 		assert.Equal(t, activity.JobID, workflow.JobID)
 		assert.Equal(t, activity.Content, workflow.Content)
-
-		// TODO: fix mismatch - workflow type is missing TriageCategory field
-		// activity.TriageCategory is lost in this direction
+		assert.Equal(t, activity.TriageCategory, workflow.TriageCategory)
 	})
 }
 
 // TestContract_ExtractEntities_Output tests JSON round-trip for ExtractEntities output types.
 func TestContract_ExtractEntities_Output(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
-		workflow := pipelineExtractOutput{
-			People: []pipelinePersonResult{
+		workflow := SLMPipelineExtractEntitiesOutput{
+			People: []PersonResult{
 				{Name: "Alice Smith", Role: "engineer"},
 				{Name: "Bob Jones", Role: "manager"},
 			},
-			Dates: []pipelineDateResult{
+			Dates: []DateResult{
 				{Date: "2026-03-15", Context: "delivery deadline", IsDeadline: true},
 				{Date: "2026-04-01", Context: "review date", IsDeadline: false},
 			},
 			Projects:      []string{"Project Alpha", "Project Beta"},
 			Organisations: []string{"Acme Corp", "Beta Inc"},
-			ActionItems: []pipelineActionItemResult{
-				{Description: "Fix bug #123", Assignee: "Alice", Due: "2026-02-10", Priority: "high"},
-				{Description: "Update docs", Assignee: "Bob", Due: "2026-02-15", Priority: "medium"},
+			ActionItems: []ActionItemResult{
+				{Action: "Fix bug #123", Assignee: "Alice", Due: "2026-02-10", Priority: "high"},
+				{Action: "Update docs", Assignee: "Bob", Due: "2026-02-15", Priority: "medium"},
 			},
 			Decisions: []string{"Decision A", "Decision B"},
 			Risks:     []string{"Risk 1", "Risk 2"},
-			DetailedRisks: []pipelineDetailedRisk{
-				{Description: "Database latency", Severity: "high", Owner: "Alice", Impact: "performance degradation"},
-				{Description: "API rate limits", Severity: "medium", Owner: "Bob", Impact: "service disruption"},
+			DetailedRisks: []DetailedRisk{
+				{Description: "Database latency", SeverityHint: "high", OwnerHint: "Alice", Impact: "performance degradation"},
+				{Description: "API rate limits", SeverityHint: "medium", OwnerHint: "Bob", Impact: "service disruption"},
 			},
 			QualityGateTriggered: true,
 			ModelUsed:            "llama-3.2-3b",
@@ -641,46 +640,38 @@ func TestContract_ExtractEntities_Output(t *testing.T) {
 			assert.Equal(t, workflow.People[i].Role, activity.People[i].Role)
 		}
 
-		// Dates: Date and Context match
+		// Dates: all fields match
 		assert.Equal(t, len(workflow.Dates), len(activity.Dates))
 		for i := range workflow.Dates {
 			assert.Equal(t, workflow.Dates[i].Date, activity.Dates[i].Date)
 			assert.Equal(t, workflow.Dates[i].Context, activity.Dates[i].Context)
-			// TODO: fix mismatch - pipelineDateResult.IsDeadline (json:"is_deadline") is MISSING from activity DateResult
-			// workflow.Dates[i].IsDeadline is lost
+			assert.Equal(t, workflow.Dates[i].IsDeadline, activity.Dates[i].IsDeadline)
 		}
 
 		// Projects and Organisations: exact match
 		assert.Equal(t, workflow.Projects, activity.Projects)
 		assert.Equal(t, workflow.Organisations, activity.Organisations)
 
-		// ActionItems: field name mismatch
+		// ActionItems: all fields match (consolidated to use Action field name)
 		assert.Equal(t, len(workflow.ActionItems), len(activity.ActionItems))
 		for i := range workflow.ActionItems {
-			// TODO: fix mismatch - pipelineActionItemResult.Description (json:"description") vs ActionItemResult.Action (json:"action")
-			// These are DIFFERENT field names! Description doesn't map to Action.
-			// workflow.ActionItems[i].Description is lost, and activity.Action is empty from workflow JSON
-
+			assert.Equal(t, workflow.ActionItems[i].Action, activity.ActionItems[i].Action)
 			assert.Equal(t, workflow.ActionItems[i].Assignee, activity.ActionItems[i].Assignee)
 			assert.Equal(t, workflow.ActionItems[i].Due, activity.ActionItems[i].Due)
-			// TODO: fix mismatch - pipelineActionItemResult.Priority is MISSING from activity ActionItemResult
-			// workflow.ActionItems[i].Priority is lost
+			assert.Equal(t, workflow.ActionItems[i].Priority, activity.ActionItems[i].Priority)
 		}
 
 		// Decisions and Risks: exact match
 		assert.Equal(t, workflow.Decisions, activity.Decisions)
 		assert.Equal(t, workflow.Risks, activity.Risks)
 
-		// DetailedRisks: field name mismatches
+		// DetailedRisks: all fields match (consolidated to use SeverityHint/OwnerHint field names)
 		assert.Equal(t, len(workflow.DetailedRisks), len(activity.DetailedRisks))
 		for i := range workflow.DetailedRisks {
 			assert.Equal(t, workflow.DetailedRisks[i].Description, activity.DetailedRisks[i].Description)
-			// TODO: fix mismatch - pipelineDetailedRisk.Severity (json:"severity") vs DetailedRisk.SeverityHint (json:"severity_hint")
-			// workflow.Severity doesn't map to activity.SeverityHint
-			// TODO: fix mismatch - pipelineDetailedRisk.Owner (json:"owner") vs DetailedRisk.OwnerHint (json:"owner_hint")
-			// workflow.Owner doesn't map to activity.OwnerHint
-			// TODO: fix mismatch - pipelineDetailedRisk.Impact is MISSING from activity DetailedRisk
-			// workflow.DetailedRisks[i].Impact is lost
+			assert.Equal(t, workflow.DetailedRisks[i].SeverityHint, activity.DetailedRisks[i].SeverityHint)
+			assert.Equal(t, workflow.DetailedRisks[i].OwnerHint, activity.DetailedRisks[i].OwnerHint)
+			assert.Equal(t, workflow.DetailedRisks[i].Impact, activity.DetailedRisks[i].Impact)
 		}
 
 		// Top-level fields
@@ -713,7 +704,7 @@ func TestContract_ExtractEntities_Output(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelineExtractOutput
+		var workflow SLMPipelineExtractEntitiesOutput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -724,45 +715,38 @@ func TestContract_ExtractEntities_Output(t *testing.T) {
 			assert.Equal(t, activity.People[i].Role, workflow.People[i].Role)
 		}
 
-		// Dates: Date and Context match
+		// Dates: all fields match
 		assert.Equal(t, len(activity.Dates), len(workflow.Dates))
 		for i := range activity.Dates {
 			assert.Equal(t, activity.Dates[i].Date, workflow.Dates[i].Date)
 			assert.Equal(t, activity.Dates[i].Context, workflow.Dates[i].Context)
-			// TODO: fix mismatch - workflow expects IsDeadline but activity doesn't have it
-			// workflow.Dates[i].IsDeadline will be zero-value (false)
+			assert.Equal(t, activity.Dates[i].IsDeadline, workflow.Dates[i].IsDeadline)
 		}
 
 		// Projects and Organisations: exact match
 		assert.Equal(t, activity.Projects, workflow.Projects)
 		assert.Equal(t, activity.Organisations, workflow.Organisations)
 
-		// ActionItems: field name mismatch
+		// ActionItems: all fields match
 		assert.Equal(t, len(activity.ActionItems), len(workflow.ActionItems))
 		for i := range activity.ActionItems {
-			// TODO: fix mismatch - activity.Action (json:"action") doesn't map to workflow.Description (json:"description")
-			// activity.ActionItems[i].Action is lost, workflow.Description is empty
-
+			assert.Equal(t, activity.ActionItems[i].Action, workflow.ActionItems[i].Action)
 			assert.Equal(t, activity.ActionItems[i].Assignee, workflow.ActionItems[i].Assignee)
 			assert.Equal(t, activity.ActionItems[i].Due, workflow.ActionItems[i].Due)
-			// TODO: fix mismatch - workflow expects Priority but activity doesn't have it
-			// workflow.ActionItems[i].Priority will be empty string
+			assert.Equal(t, activity.ActionItems[i].Priority, workflow.ActionItems[i].Priority)
 		}
 
 		// Decisions and Risks: exact match
 		assert.Equal(t, activity.Decisions, workflow.Decisions)
 		assert.Equal(t, activity.Risks, workflow.Risks)
 
-		// DetailedRisks: field name mismatches
+		// DetailedRisks: all fields match
 		assert.Equal(t, len(activity.DetailedRisks), len(workflow.DetailedRisks))
 		for i := range activity.DetailedRisks {
 			assert.Equal(t, activity.DetailedRisks[i].Description, workflow.DetailedRisks[i].Description)
-			// TODO: fix mismatch - activity.SeverityHint (json:"severity_hint") doesn't map to workflow.Severity (json:"severity")
-			// activity.SeverityHint is lost, workflow.Severity is empty
-			// TODO: fix mismatch - activity.OwnerHint (json:"owner_hint") doesn't map to workflow.Owner (json:"owner")
-			// activity.OwnerHint is lost, workflow.Owner is empty
-			// TODO: fix mismatch - workflow expects Impact but activity doesn't have it
-			// workflow.DetailedRisks[i].Impact will be empty string
+			assert.Equal(t, activity.DetailedRisks[i].SeverityHint, workflow.DetailedRisks[i].SeverityHint)
+			assert.Equal(t, activity.DetailedRisks[i].OwnerHint, workflow.DetailedRisks[i].OwnerHint)
+			assert.Equal(t, activity.DetailedRisks[i].Impact, workflow.DetailedRisks[i].Impact)
 		}
 
 		// Top-level fields
@@ -774,13 +758,13 @@ func TestContract_ExtractEntities_Output(t *testing.T) {
 // TestContract_BuildContext_Input tests JSON round-trip for BuildContextPackage input types.
 func TestContract_BuildContext_Input(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
-		extractOutput := &pipelineExtractOutput{
-			People:    []pipelinePersonResult{{Name: "Dave", Role: "lead"}},
+		extractOutput := &SLMPipelineExtractEntitiesOutput{
+			People:    []PersonResult{{Name: "Dave", Role: "lead"}},
 			Projects:  []string{"Delta"},
 			ModelUsed: "test-model",
 		}
 
-		workflow := pipelineContextInput{
+		workflow := BuildContextInput{
 			TenantID:    "tenant-555",
 			SourceID:    707,
 			ContentID:   "em-jkl012",
@@ -811,7 +795,7 @@ func TestContract_BuildContext_Input(t *testing.T) {
 		assert.Equal(t, workflow.Subject, activity.Subject)
 		assert.Equal(t, workflow.ThreadID, activity.ThreadID)
 
-		// Extraction field: workflow uses *pipelineExtractOutput, activity uses *ExtractEntitiesOutput
+		// Extraction field: workflow uses *SLMPipelineExtractEntitiesOutput, activity uses *ExtractEntitiesOutput
 		// JSON round-trip works for shared fields, but mismatched fields are lost (see ExtractEntities_Output tests)
 		assert.NotNil(t, activity.Extraction)
 		assert.Equal(t, len(workflow.Extraction.People), len(activity.Extraction.People))
@@ -841,7 +825,7 @@ func TestContract_BuildContext_Input(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelineContextInput
+		var workflow BuildContextInput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -869,15 +853,15 @@ func TestContract_BuildContext_Output(t *testing.T) {
 		personID := int64(100)
 		projectID := int64(200)
 
-		workflow := pipelineContextOutput{
-			ResolvedPeople: []pipelineResolvedPerson{
+		workflow := BuildContextOutput{
+			ResolvedPeople: []ResolvedPerson{
 				{Name: "Frank", PersonID: &personID, Confidence: 0.95, Source: "exact_match"},
 			},
-			ResolvedProjects: []pipelineResolvedProject{
+			ResolvedProjects: []ResolvedProject{
 				{Name: "Zeta", ProjectID: &projectID, Source: "keyword"},
 			},
 			UnresolvedTerms:    []string{"TLA", "FLA"},
-			ContextPackage:     map[string]interface{}{"key": "value"}, // interface{} allows any JSON
+			ContextPackage:     &ContextPackage{TotalTokensUsed: 500, TokenBudget: 2000},
 			TokensUsed:         500,
 			TokenBudget:        2000,
 			EntitiesResolved:   1,
@@ -891,25 +875,21 @@ func TestContract_BuildContext_Output(t *testing.T) {
 		err = json.Unmarshal(data, &activity)
 		require.NoError(t, err)
 
-		// ResolvedPeople: partial match
+		// ResolvedPeople: all fields match
 		assert.Equal(t, len(workflow.ResolvedPeople), len(activity.ResolvedPeople))
 		for i := range workflow.ResolvedPeople {
 			assert.Equal(t, workflow.ResolvedPeople[i].Name, activity.ResolvedPeople[i].Name)
 			assert.Equal(t, workflow.ResolvedPeople[i].PersonID, activity.ResolvedPeople[i].PersonID)
 			assert.Equal(t, workflow.ResolvedPeople[i].Confidence, activity.ResolvedPeople[i].Confidence)
 			assert.Equal(t, workflow.ResolvedPeople[i].Source, activity.ResolvedPeople[i].Source)
-			// TODO: fix mismatch - pipelineResolvedPerson missing: Role, Title, Department, IsInternal
-			// These fields exist in activity.ResolvedPerson but not in workflow type
 		}
 
-		// ResolvedProjects: partial match
+		// ResolvedProjects: all fields match
 		assert.Equal(t, len(workflow.ResolvedProjects), len(activity.ResolvedProjects))
 		for i := range workflow.ResolvedProjects {
 			assert.Equal(t, workflow.ResolvedProjects[i].Name, activity.ResolvedProjects[i].Name)
 			assert.Equal(t, workflow.ResolvedProjects[i].ProjectID, activity.ResolvedProjects[i].ProjectID)
 			assert.Equal(t, workflow.ResolvedProjects[i].Source, activity.ResolvedProjects[i].Source)
-			// TODO: fix mismatch - pipelineResolvedProject missing: Expansion
-			// This field exists in activity.ResolvedProject but not in workflow type
 		}
 
 		// Other fields
@@ -919,8 +899,7 @@ func TestContract_BuildContext_Output(t *testing.T) {
 		assert.Equal(t, workflow.EntitiesResolved, activity.EntitiesResolved)
 		assert.Equal(t, workflow.EntitiesUnresolved, activity.EntitiesUnresolved)
 
-		// ContextPackage: workflow uses interface{}, activity uses *ContextPackage
-		// JSON round-trip works because interface{} can hold any unmarshaled JSON
+		// ContextPackage: both sides now use concrete *ContextPackage
 		assert.NotNil(t, activity.ContextPackage)
 	})
 
@@ -958,29 +937,30 @@ func TestContract_BuildContext_Output(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelineContextOutput
+		var workflow BuildContextOutput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
-		// ResolvedPeople: workflow receives subset of fields
+		// ResolvedPeople: all fields match
 		assert.Equal(t, len(activity.ResolvedPeople), len(workflow.ResolvedPeople))
 		for i := range activity.ResolvedPeople {
 			assert.Equal(t, activity.ResolvedPeople[i].Name, workflow.ResolvedPeople[i].Name)
 			assert.Equal(t, activity.ResolvedPeople[i].PersonID, workflow.ResolvedPeople[i].PersonID)
 			assert.Equal(t, activity.ResolvedPeople[i].Confidence, workflow.ResolvedPeople[i].Confidence)
 			assert.Equal(t, activity.ResolvedPeople[i].Source, workflow.ResolvedPeople[i].Source)
-			// TODO: fix mismatch - activity fields Role, Title, Department, IsInternal are lost
-			// workflow.ResolvedPeople[i] doesn't have these fields
+			assert.Equal(t, activity.ResolvedPeople[i].Role, workflow.ResolvedPeople[i].Role)
+			assert.Equal(t, activity.ResolvedPeople[i].Title, workflow.ResolvedPeople[i].Title)
+			assert.Equal(t, activity.ResolvedPeople[i].Department, workflow.ResolvedPeople[i].Department)
+			assert.Equal(t, activity.ResolvedPeople[i].IsInternal, workflow.ResolvedPeople[i].IsInternal)
 		}
 
-		// ResolvedProjects: workflow receives subset of fields
+		// ResolvedProjects: all fields match
 		assert.Equal(t, len(activity.ResolvedProjects), len(workflow.ResolvedProjects))
 		for i := range activity.ResolvedProjects {
 			assert.Equal(t, activity.ResolvedProjects[i].Name, workflow.ResolvedProjects[i].Name)
 			assert.Equal(t, activity.ResolvedProjects[i].ProjectID, workflow.ResolvedProjects[i].ProjectID)
 			assert.Equal(t, activity.ResolvedProjects[i].Source, workflow.ResolvedProjects[i].Source)
-			// TODO: fix mismatch - activity.Expansion is lost
-			// workflow.ResolvedProjects[i] doesn't have Expansion field
+			assert.Equal(t, activity.ResolvedProjects[i].Expansion, workflow.ResolvedProjects[i].Expansion)
 		}
 
 		// Other fields
@@ -990,7 +970,7 @@ func TestContract_BuildContext_Output(t *testing.T) {
 		assert.Equal(t, activity.EntitiesResolved, workflow.EntitiesResolved)
 		assert.Equal(t, activity.EntitiesUnresolved, workflow.EntitiesUnresolved)
 
-		// ContextPackage: workflow uses interface{}, so unmarshaling works
+		// ContextPackage: both sides now use concrete types
 		assert.NotNil(t, workflow.ContextPackage)
 	})
 }
@@ -998,13 +978,13 @@ func TestContract_BuildContext_Output(t *testing.T) {
 // TestContract_DeepAnalyze_Input tests JSON round-trip for DeepAnalyze input types.
 func TestContract_DeepAnalyze_Input(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
-		extractResult := &pipelineExtractOutput{
-			People:    []pipelinePersonResult{{Name: "Henry"}},
+		extractResult := &SLMPipelineExtractEntitiesOutput{
+			People:    []PersonResult{{Name: "Henry"}},
 			Projects:  []string{"Theta"},
 			ModelUsed: "test-model",
 		}
 
-		workflow := pipelineAnalyzeInput{
+		workflow := DeepAnalyzeInput{
 			TenantID:          "tenant-777",
 			SourceID:          909,
 			ContentID:         "em-pqr678",
@@ -1035,7 +1015,7 @@ func TestContract_DeepAnalyze_Input(t *testing.T) {
 		assert.Equal(t, workflow.TriageImportance, activity.TriageImportance)
 		assert.Equal(t, workflow.BackgroundContext, activity.BackgroundContext)
 
-		// ExtractionResult: workflow uses *pipelineExtractOutput, activity uses *ExtractEntitiesOutput
+		// ExtractionResult: workflow uses *SLMPipelineExtractEntitiesOutput, activity uses *ExtractEntitiesOutput
 		// Same mismatch as BuildContext input (see ExtractEntities_Output tests)
 		assert.NotNil(t, activity.ExtractionResult)
 		assert.Equal(t, len(workflow.ExtractionResult.People), len(activity.ExtractionResult.People))
@@ -1065,7 +1045,7 @@ func TestContract_DeepAnalyze_Input(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelineAnalyzeInput
+		var workflow DeepAnalyzeInput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -1090,16 +1070,19 @@ func TestContract_DeepAnalyze_Input(t *testing.T) {
 // TestContract_DeepAnalyze_Output tests JSON round-trip for DeepAnalyze output types.
 func TestContract_DeepAnalyze_Output(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
-		// Workflow uses interface{} for most fields - can hold any JSON value
-		workflow := pipelineAnalyzeOutput{
-			Summary:           "Test summary",
-			Sentiment:         map[string]interface{}{"score": 0.5, "label": "neutral"},
-			TopicMappings:     []interface{}{map[string]interface{}{"topic": "A"}},
-			VerifiedActions:   []interface{}{map[string]interface{}{"description": "Action 1"}},
-			VerifiedDecisions: []interface{}{map[string]interface{}{"description": "Decision 1"}},
-			RiskReferences:    []interface{}{map[string]interface{}{"description": "Risk 1"}},
+		// Now that workflow and activity share the same concrete types, this test verifies
+		// JSON round-trip still works correctly with the canonical types.
+		workflow := DeepAnalyzeOutput{
+			Summary: "Test summary",
+			Sentiment: &SentimentOutput{
+				Score: 0.5, Label: "neutral", Confidence: 0.8, Indicators: []string{"ok"},
+			},
+			TopicMappings:     []TopicMappingOutput{{Topic: "A", RelatedProject: "P1", Confidence: 0.9}},
+			VerifiedActions:   []VerifiedActionOutput{{Description: "Action 1", Priority: "high"}},
+			VerifiedDecisions: []VerifiedDecisionOutput{{Description: "Decision 1", Status: "confirmed"}},
+			RiskReferences:    []RiskReferenceOutput{{Description: "Risk 1", Significance: "primary"}},
 			Insights:          []string{"Insight 1", "Insight 2"},
-			ImplicitActions:   []interface{}{map[string]interface{}{"description": "Implicit 1"}},
+			ImplicitActions:   []ImplicitActionOutput{{Description: "Implicit 1", Reasoning: "inferred"}},
 			ModelUsed:         "gemini-2.0-flash",
 		}
 
@@ -1110,16 +1093,12 @@ func TestContract_DeepAnalyze_Output(t *testing.T) {
 		err = json.Unmarshal(data, &activity)
 		require.NoError(t, err)
 
-		// Summary, Insights, ModelUsed: exact match
+		// All fields now match exactly since both sides share the same types
 		assert.Equal(t, workflow.Summary, activity.Summary)
 		assert.Equal(t, workflow.Insights, activity.Insights)
 		assert.Equal(t, workflow.ModelUsed, activity.ModelUsed)
-
-		// TODO: fix mismatch - workflow uses interface{} types, activity uses concrete types
-		// Unmarshaling from interface{} (which holds map[string]interface{}) into concrete types works
-		// but the types don't match structurally
-		// Workflow → Activity direction: interface{} → concrete type (works in JSON)
 		assert.NotNil(t, activity.Sentiment)
+		assert.Equal(t, float32(0.5), activity.Sentiment.Score)
 		assert.NotEmpty(t, activity.TopicMappings)
 		assert.NotEmpty(t, activity.VerifiedActions)
 		assert.NotEmpty(t, activity.VerifiedDecisions)
@@ -1173,7 +1152,7 @@ func TestContract_DeepAnalyze_Output(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelineAnalyzeOutput
+		var workflow DeepAnalyzeOutput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -1182,17 +1161,29 @@ func TestContract_DeepAnalyze_Output(t *testing.T) {
 		assert.Equal(t, activity.Insights, workflow.Insights)
 		assert.Equal(t, activity.ModelUsed, workflow.ModelUsed)
 
-		// TODO: fix mismatch - activity uses concrete types, workflow uses interface{}
-		// Activity → Workflow direction: concrete types serialize to JSON, interface{} accepts anything
-		// This direction works (concrete → interface{}), but workflow can't access typed fields
-		assert.NotNil(t, workflow.Sentiment)
-		assert.NotNil(t, workflow.TopicMappings)
-		assert.NotNil(t, workflow.VerifiedActions)
-		assert.NotNil(t, workflow.VerifiedDecisions)
-		assert.NotNil(t, workflow.RiskReferences)
-		assert.NotNil(t, workflow.ImplicitActions)
+		// Deep analysis fields: concrete types round-trip correctly
+		require.NotNil(t, workflow.Sentiment)
+		assert.Equal(t, activity.Sentiment.Score, workflow.Sentiment.Score)
+		assert.Equal(t, activity.Sentiment.Label, workflow.Sentiment.Label)
+		assert.Equal(t, activity.Sentiment.Confidence, workflow.Sentiment.Confidence)
 
-		// Workflow receives JSON but stores as interface{} - can't access fields without type assertion
+		require.Len(t, workflow.TopicMappings, 1)
+		assert.Equal(t, activity.TopicMappings[0].Topic, workflow.TopicMappings[0].Topic)
+		assert.Equal(t, activity.TopicMappings[0].RelatedProject, workflow.TopicMappings[0].RelatedProject)
+
+		require.Len(t, workflow.VerifiedActions, 1)
+		assert.Equal(t, activity.VerifiedActions[0].Description, workflow.VerifiedActions[0].Description)
+		assert.Equal(t, activity.VerifiedActions[0].Assignee, workflow.VerifiedActions[0].Assignee)
+
+		require.Len(t, workflow.VerifiedDecisions, 1)
+		assert.Equal(t, activity.VerifiedDecisions[0].Description, workflow.VerifiedDecisions[0].Description)
+
+		require.Len(t, workflow.RiskReferences, 1)
+		assert.Equal(t, activity.RiskReferences[0].Description, workflow.RiskReferences[0].Description)
+		assert.Equal(t, *activity.RiskReferences[0].RootID, *workflow.RiskReferences[0].RootID)
+
+		require.Len(t, workflow.ImplicitActions, 1)
+		assert.Equal(t, activity.ImplicitActions[0].Description, workflow.ImplicitActions[0].Description)
 	})
 }
 
@@ -1202,13 +1193,13 @@ func TestContract_PersistFindings_Input(t *testing.T) {
 		threadID := int64(1000)
 		projectID := int64(2000)
 
-		analysis := &pipelineAnalyzeOutput{
+		analysis := &DeepAnalyzeOutput{
 			Summary:   "Workflow analysis",
 			Insights:  []string{"Insight W"},
 			ModelUsed: "test-model",
 		}
 
-		workflow := pipelinePersistInput{
+		workflow := PersistFindingsInput{
 			TenantID:       "tenant-999",
 			SourceID:       1111,
 			ThreadID:       &threadID,
@@ -1231,7 +1222,7 @@ func TestContract_PersistFindings_Input(t *testing.T) {
 		assert.Equal(t, workflow.ProjectID, activity.ProjectID)
 		assert.Equal(t, workflow.ResolvedPeople, activity.ResolvedPeople)
 
-		// Analysis: workflow uses *pipelineAnalyzeOutput, activity uses *DeepAnalyzeOutput
+		// Analysis: workflow uses *DeepAnalyzeOutput, activity uses *DeepAnalyzeOutput
 		// Same mismatch as DeepAnalyze output (workflow uses interface{}, activity uses concrete types)
 		assert.NotNil(t, activity.Analysis)
 		assert.Equal(t, workflow.Analysis.Summary, activity.Analysis.Summary)
@@ -1260,7 +1251,7 @@ func TestContract_PersistFindings_Input(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelinePersistInput
+		var workflow PersistFindingsInput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 
@@ -1281,7 +1272,7 @@ func TestContract_PersistFindings_Input(t *testing.T) {
 // TestContract_PersistFindings_Output tests JSON round-trip for PersistFindings output types.
 func TestContract_PersistFindings_Output(t *testing.T) {
 	t.Run("WorkflowToActivity", func(t *testing.T) {
-		workflow := pipelinePersistOutput{
+		workflow := PersistFindingsOutput{
 			AssertionsCreated:    10,
 			AssertionsSuperseded: 2,
 			ReferencesCreated:    5,
@@ -1316,7 +1307,7 @@ func TestContract_PersistFindings_Output(t *testing.T) {
 		data, err := json.Marshal(activity)
 		require.NoError(t, err)
 
-		var workflow pipelinePersistOutput
+		var workflow PersistFindingsOutput
 		err = json.Unmarshal(data, &workflow)
 		require.NoError(t, err)
 

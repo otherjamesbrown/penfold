@@ -9,6 +9,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 // PersistActivities holds dependencies for Stage 4.5 persistence activities.
@@ -38,29 +39,10 @@ func NewPersistActivities(
 	}
 }
 
-// PersistFindingsActivityInput is the input for the PersistFindings activity.
-type PersistFindingsActivityInput struct {
-	TenantID       string             `json:"tenant_id"`
-	SourceID       int64              `json:"source_id"`
-	ThreadID       *int64             `json:"thread_id,omitempty"`
-	ProjectID      *int64             `json:"project_id,omitempty"`
-	Analysis       *DeepAnalyzeOutput `json:"analysis"`
-	ResolvedPeople map[string]int64   `json:"resolved_people,omitempty"`
-}
-
-// PersistFindingsActivityOutput is the output from the PersistFindings activity.
-type PersistFindingsActivityOutput struct {
-	AssertionsCreated    int `json:"assertions_created"`
-	AssertionsSuperseded int `json:"assertions_superseded"`
-	ReferencesCreated    int `json:"references_created"`
-	ReviewItemsCreated   int `json:"review_items_created"`
-	AffinityUpdates      int `json:"affinity_updates"`
-}
-
 // PersistFindings persists findings from Stage 4 deep analysis to the database.
 // It validates the input, calls the repository to persist the data in a transaction,
 // and returns statistics about the persisted records.
-func (a *PersistActivities) PersistFindings(ctx context.Context, input PersistFindingsActivityInput) (*PersistFindingsActivityOutput, error) {
+func (a *PersistActivities) PersistFindings(ctx context.Context, input workflows.PersistFindingsInput) (*workflows.PersistFindingsOutput, error) {
 	// Set trace_id in context for log correlation
 	// Note: PersistFindingsActivityInput doesn't have ContentID, so we use source_id
 	ctx = context.WithValue(ctx, logging.TraceIDKey, fmt.Sprintf("source-%d", input.SourceID))
@@ -127,7 +109,7 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input PersistFi
 	}
 
 	// Build activity output
-	output := &PersistFindingsActivityOutput{
+	output := &workflows.PersistFindingsOutput{
 		AssertionsCreated:    repoOutput.AssertionsCreated,
 		AssertionsSuperseded: repoOutput.AssertionsSuperseded,
 		ReferencesCreated:    repoOutput.ReferencesCreated,
@@ -166,5 +148,5 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input PersistFi
 
 // Ensure PersistActivities implements required interfaces at compile time.
 var _ interface {
-	PersistFindings(ctx context.Context, input PersistFindingsActivityInput) (*PersistFindingsActivityOutput, error)
+	PersistFindings(ctx context.Context, input workflows.PersistFindingsInput) (*workflows.PersistFindingsOutput, error)
 } = (*PersistActivities)(nil)

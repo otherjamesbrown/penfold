@@ -198,57 +198,6 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	return count, nil
 }
 
-// ExtractEntitiesInput is the input for the ExtractEntities activity.
-type ExtractEntitiesInput struct {
-	TenantID string `json:"tenant_id"`
-	SourceID int64  `json:"source_id"`
-	// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
-	ContentID      string `json:"content_id,omitempty"`
-	JobID          string `json:"job_id"`
-	Content        string `json:"content"`
-	TriageCategory string `json:"triage_category,omitempty"` // From Stage 1 triage
-}
-
-// ExtractEntitiesOutput is the output from the ExtractEntities activity.
-type ExtractEntitiesOutput struct {
-	People               []PersonResult     `json:"people"`
-	Dates                []DateResult       `json:"dates"`
-	Projects             []string           `json:"projects"`
-	Organisations        []string           `json:"organisations"`
-	ActionItems          []ActionItemResult `json:"action_items"`
-	Decisions            []string           `json:"decisions"`
-	Risks                []string           `json:"risks"`
-	DetailedRisks        []DetailedRisk     `json:"detailed_risks,omitempty"`
-	QualityGateTriggered bool               `json:"quality_gate_triggered"`
-	ModelUsed            string             `json:"model_used"`
-}
-
-// PersonResult represents a person extracted from content.
-type PersonResult struct {
-	Name string `json:"name"`
-	Role string `json:"role,omitempty"`
-}
-
-// DateResult represents a date or deadline extracted from content.
-type DateResult struct {
-	Date    string `json:"date"`
-	Context string `json:"context,omitempty"`
-}
-
-// ActionItemResult represents an action item extracted from content.
-type ActionItemResult struct {
-	Assignee string `json:"assignee,omitempty"`
-	Action   string `json:"action"`
-	Due      string `json:"due,omitempty"`
-}
-
-// DetailedRisk represents a detailed risk from the quality gate re-run.
-type DetailedRisk struct {
-	Description  string `json:"description"`
-	SeverityHint string `json:"severity_hint,omitempty"`
-	OwnerHint    string `json:"owner_hint,omitempty"`
-}
-
 // ExtractedEntity represents an entity extracted from content.
 // DEPRECATED: Use the structured fields in ExtractEntitiesOutput instead.
 type ExtractedEntity struct {
@@ -257,10 +206,40 @@ type ExtractedEntity struct {
 	Confidence float32 `json:"confidence"`
 }
 
+// Type aliases for backward compatibility with code not yet migrated to workflows package.
+type (
+	DeepAnalyzeInput                 = workflows.DeepAnalyzeInput
+	DeepAnalyzeOutput                = workflows.DeepAnalyzeOutput
+	ExtractEntitiesInput             = workflows.SLMPipelineExtractEntitiesInput
+	ExtractEntitiesOutput            = workflows.SLMPipelineExtractEntitiesOutput
+	PersonResult                     = workflows.PersonResult
+	DateResult                       = workflows.DateResult
+	ActionItemResult                 = workflows.ActionItemResult
+	DetailedRisk                     = workflows.DetailedRisk
+	VerifiedActionOutput             = workflows.VerifiedActionOutput
+	VerifiedDecisionOutput           = workflows.VerifiedDecisionOutput
+	RiskReferenceOutput              = workflows.RiskReferenceOutput
+	ImplicitActionOutput             = workflows.ImplicitActionOutput
+	SentimentOutput                  = workflows.SentimentOutput
+	TopicMappingOutput               = workflows.TopicMappingOutput
+	ParseEmailInput                  = workflows.ParseEmailInput
+	ParseEmailOutput                 = workflows.ParseEmailOutput
+	ParseTranscriptInput             = workflows.ParseTranscriptInput
+	ParseTranscriptOutput            = workflows.ParseTranscriptOutput
+	TriageInput                      = workflows.TriageInput
+	TriageOutput                     = workflows.TriageOutput
+	BuildContextInput                = workflows.BuildContextInput
+	BuildContextOutput               = workflows.BuildContextOutput
+	ResolvedPerson                   = workflows.ResolvedPerson
+	ResolvedProject                  = workflows.ResolvedProject
+	PersistFindingsActivityInput     = workflows.PersistFindingsInput
+	PersistFindingsActivityOutput    = workflows.PersistFindingsOutput
+)
+
 // ExtractEntities performs two-pass entity extraction with chunking support.
 // For content under 6K chars, makes a single RPC call.
 // For content over 6K chars, splits into chunks, calls RPC for each, and merges results.
-func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input ExtractEntitiesInput) (*ExtractEntitiesOutput, error) {
+func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workflows.SLMPipelineExtractEntitiesInput) (*workflows.SLMPipelineExtractEntitiesOutput, error) {
 	// Set trace_id in context for log correlation
 	if input.ContentID != "" {
 		ctx = context.WithValue(ctx, logging.TraceIDKey, input.ContentID)
@@ -452,17 +431,17 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input Extrac
 
 // mergeExtractionResults merges extraction results from multiple chunks.
 // Deduplicates entities using case-insensitive matching where appropriate.
-func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *ExtractEntitiesOutput {
+func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *workflows.SLMPipelineExtractEntitiesOutput {
 	if len(results) == 0 {
-		return &ExtractEntitiesOutput{
-			People:               []PersonResult{},
-			Dates:                []DateResult{},
+		return &workflows.SLMPipelineExtractEntitiesOutput{
+			People:               []workflows.PersonResult{},
+			Dates:                []workflows.DateResult{},
 			Projects:             []string{},
 			Organisations:        []string{},
-			ActionItems:          []ActionItemResult{},
+			ActionItems:          []workflows.ActionItemResult{},
 			Decisions:            []string{},
 			Risks:                []string{},
-			DetailedRisks:        []DetailedRisk{},
+			DetailedRisks:        []workflows.DetailedRisk{},
 			QualityGateTriggered: false,
 			ModelUsed:            "",
 		}
@@ -473,7 +452,7 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *ExtractEnt
 	qualityGateTriggered := false
 
 	// People: deduplicate by case-insensitive name
-	peopleMap := make(map[string]PersonResult)
+	peopleMap := make(map[string]workflows.PersonResult)
 	for _, result := range results {
 		if result.QualityGateTriggered {
 			qualityGateTriggered = true
@@ -482,27 +461,27 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *ExtractEnt
 			key := normalizeString(p.Name)
 			if existing, ok := peopleMap[key]; !ok || len(p.Role) > len(existing.Role) {
 				// Keep the one with more role info
-				peopleMap[key] = PersonResult{Name: p.Name, Role: p.Role}
+				peopleMap[key] = workflows.PersonResult{Name: p.Name, Role: p.Role}
 			}
 		}
 	}
-	people := make([]PersonResult, 0, len(peopleMap))
+	people := make([]workflows.PersonResult, 0, len(peopleMap))
 	for _, p := range peopleMap {
 		people = append(people, p)
 	}
 
 	// Dates: deduplicate by date string (case-insensitive)
-	datesMap := make(map[string]DateResult)
+	datesMap := make(map[string]workflows.DateResult)
 	for _, result := range results {
 		for _, d := range result.Dates {
 			key := normalizeString(d.Date)
 			if existing, ok := datesMap[key]; !ok || len(d.Context) > len(existing.Context) {
 				// Keep the one with more context info
-				datesMap[key] = DateResult{Date: d.Date, Context: d.Context}
+				datesMap[key] = workflows.DateResult{Date: d.Date, Context: d.Context}
 			}
 		}
 	}
-	dates := make([]DateResult, 0, len(datesMap))
+	dates := make([]workflows.DateResult, 0, len(datesMap))
 	for _, d := range datesMap {
 		dates = append(dates, d)
 	}
@@ -538,14 +517,14 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *ExtractEnt
 	}
 
 	// ActionItems: deduplicate by composite key (action + assignee, case-insensitive)
-	actionItemsMap := make(map[string]ActionItemResult)
+	actionItemsMap := make(map[string]workflows.ActionItemResult)
 	for _, result := range results {
 		for _, ai := range result.ActionItems {
 			// Use composite key: action + assignee
 			key := normalizeString(ai.Action) + "|" + normalizeString(ai.Assignee)
 			if existing, ok := actionItemsMap[key]; !ok || len(ai.Due) > len(existing.Due) {
 				// Keep the one with more due info
-				actionItemsMap[key] = ActionItemResult{
+				actionItemsMap[key] = workflows.ActionItemResult{
 					Assignee: ai.Assignee,
 					Action:   ai.Action,
 					Due:      ai.Due,
@@ -553,7 +532,7 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *ExtractEnt
 			}
 		}
 	}
-	actionItems := make([]ActionItemResult, 0, len(actionItemsMap))
+	actionItems := make([]workflows.ActionItemResult, 0, len(actionItemsMap))
 	for _, ai := range actionItemsMap {
 		actionItems = append(actionItems, ai)
 	}
@@ -589,13 +568,13 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *ExtractEnt
 	}
 
 	// DetailedRisks: deduplicate by description (case-insensitive)
-	detailedRisksMap := make(map[string]DetailedRisk)
+	detailedRisksMap := make(map[string]workflows.DetailedRisk)
 	for _, result := range results {
 		for _, dr := range result.DetailedRisks {
 			key := normalizeString(dr.Description)
 			if existing, ok := detailedRisksMap[key]; !ok || len(dr.SeverityHint) > len(existing.SeverityHint) {
 				// Keep the one with more detail
-				detailedRisksMap[key] = DetailedRisk{
+				detailedRisksMap[key] = workflows.DetailedRisk{
 					Description:  dr.Description,
 					SeverityHint: dr.SeverityHint,
 					OwnerHint:    dr.OwnerHint,
@@ -603,12 +582,12 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *ExtractEnt
 			}
 		}
 	}
-	detailedRisks := make([]DetailedRisk, 0, len(detailedRisksMap))
+	detailedRisks := make([]workflows.DetailedRisk, 0, len(detailedRisksMap))
 	for _, dr := range detailedRisksMap {
 		detailedRisks = append(detailedRisks, dr)
 	}
 
-	return &ExtractEntitiesOutput{
+	return &workflows.SLMPipelineExtractEntitiesOutput{
 		People:               people,
 		Dates:                dates,
 		Projects:             projects,
@@ -670,5 +649,5 @@ func recordHeartbeat(ctx context.Context, details ...interface{}) {
 // Ensure ExtractionActivities implements required interfaces at compile time.
 var _ interface {
 	ExtractAssertions(ctx context.Context, input workflows.ExtractAssertionsInput) (int, error)
-	ExtractEntities(ctx context.Context, input ExtractEntitiesInput) (*ExtractEntitiesOutput, error)
+	ExtractEntities(ctx context.Context, input workflows.SLMPipelineExtractEntitiesInput) (*workflows.SLMPipelineExtractEntitiesOutput, error)
 } = (*ExtractionActivities)(nil)

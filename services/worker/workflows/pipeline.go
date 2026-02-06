@@ -67,37 +67,42 @@ type PipelineStatus struct {
 	CompensationRan bool      `json:"compensation_ran,omitempty"`
 }
 
-// Pipeline activity input/output types (JSON-compatible with activities package types).
+// Pipeline activity input/output types (canonical types shared with activities package).
 
-type pipelineParseEmailInput struct {
+// ParseEmailInput is the input for the ParseEmail activity.
+type ParseEmailInput struct {
 	TenantID string `json:"tenant_id"`
 	SourceID int64  `json:"source_id"`
 	BodyText string `json:"body_text"`
 	BodyHTML string `json:"body_html"`
 }
 
-type pipelineParseEmailOutput struct {
+// ParseEmailOutput is the output from the ParseEmail activity.
+type ParseEmailOutput struct {
 	CleanBody     string `json:"clean_body"`
 	NewContent    string `json:"new_content"`
 	QuotedContent string `json:"quoted_content"`
 	IsReply       bool   `json:"is_reply"`
 }
 
-type pipelineParseTranscriptInput struct {
+// ParseTranscriptInput is the input for the ParseTranscript activity.
+type ParseTranscriptInput struct {
 	TenantID string `json:"tenant_id"`
 	SourceID int64  `json:"source_id"`
 	Content  string `json:"content"`
 	Format   string `json:"format,omitempty"`
 }
 
-type pipelineParseTranscriptOutput struct {
+// ParseTranscriptOutput is the output from the ParseTranscript activity.
+type ParseTranscriptOutput struct {
 	CleanText  string   `json:"clean_text"`
 	Speakers   []string `json:"speakers"`
 	DurationMs int      `json:"duration_ms"`
 	Format     string   `json:"format"`
 }
 
-type pipelineTriageInput struct {
+// TriageInput is the input for the Triage activity.
+type TriageInput struct {
 	TenantID    string `json:"tenant_id"`
 	SourceID    int64  `json:"source_id"`
 	ContentID   string `json:"content_id,omitempty"`
@@ -108,7 +113,8 @@ type pipelineTriageInput struct {
 	ContentType string `json:"content_type"`
 }
 
-type pipelineTriageOutput struct {
+// TriageOutput is the output from the Triage activity.
+type TriageOutput struct {
 	Category   string  `json:"category"`
 	Importance string  `json:"importance"`
 	Reason     string  `json:"reason"`
@@ -117,91 +123,143 @@ type pipelineTriageOutput struct {
 	SkipDeep   bool    `json:"skip_deep"`
 }
 
-type pipelineExtractInput struct {
-	TenantID  string `json:"tenant_id"`
-	SourceID  int64  `json:"source_id"`
-	ContentID string `json:"content_id,omitempty"`
-	JobID     string `json:"job_id"`
-	Content   string `json:"content"`
+// SLMPipelineExtractEntitiesInput is the input for the ExtractEntities activity (pipeline version with TriageCategory).
+type SLMPipelineExtractEntitiesInput struct {
+	TenantID       string `json:"tenant_id"`
+	SourceID       int64  `json:"source_id"`
+	ContentID      string `json:"content_id,omitempty"`
+	JobID          string `json:"job_id"`
+	Content        string `json:"content"`
+	TriageCategory string `json:"triage_category,omitempty"`
 }
 
-// pipelineExtractOutput mirrors activities.ExtractEntitiesOutput.
-type pipelineExtractOutput struct {
-	People               []pipelinePersonResult     `json:"people"`
-	Dates                []pipelineDateResult       `json:"dates"`
-	Projects             []string                   `json:"projects"`
-	Organisations        []string                   `json:"organisations"`
-	ActionItems          []pipelineActionItemResult `json:"action_items"`
-	Decisions            []string                   `json:"decisions"`
-	Risks                []string                   `json:"risks"`
-	DetailedRisks        []pipelineDetailedRisk     `json:"detailed_risks,omitempty"`
-	QualityGateTriggered bool                       `json:"quality_gate_triggered"`
-	ModelUsed            string                     `json:"model_used"`
+// SLMPipelineExtractEntitiesOutput is the output from the ExtractEntities activity (pipeline version with DetailedRisks).
+type SLMPipelineExtractEntitiesOutput struct {
+	People               []PersonResult     `json:"people"`
+	Dates                []DateResult       `json:"dates"`
+	Projects             []string           `json:"projects"`
+	Organisations        []string           `json:"organisations"`
+	ActionItems          []ActionItemResult `json:"action_items"`
+	Decisions            []string           `json:"decisions"`
+	Risks                []string           `json:"risks"`
+	DetailedRisks        []DetailedRisk     `json:"detailed_risks,omitempty"`
+	QualityGateTriggered bool               `json:"quality_gate_triggered"`
+	ModelUsed            string             `json:"model_used"`
 }
 
-type pipelinePersonResult struct {
+// PersonResult represents a person extracted from content.
+type PersonResult struct {
 	Name string `json:"name"`
 	Role string `json:"role,omitempty"`
 }
 
-type pipelineDateResult struct {
-	Date        string `json:"date"`
-	Context     string `json:"context,omitempty"`
-	IsDeadline  bool   `json:"is_deadline,omitempty"`
+// DateResult represents a date or deadline extracted from content.
+type DateResult struct {
+	Date       string `json:"date"`
+	Context    string `json:"context,omitempty"`
+	IsDeadline bool   `json:"is_deadline,omitempty"`
 }
 
-type pipelineActionItemResult struct {
-	Description string `json:"description"`
-	Assignee    string `json:"assignee,omitempty"`
-	Due         string `json:"due,omitempty"`
-	Priority    string `json:"priority,omitempty"`
+// ActionItemResult represents an action item extracted from content.
+type ActionItemResult struct {
+	Assignee string `json:"assignee,omitempty"`
+	Action   string `json:"action"`
+	Due      string `json:"due,omitempty"`
+	Priority string `json:"priority,omitempty"`
 }
 
-type pipelineDetailedRisk struct {
-	Description string `json:"description"`
-	Severity    string `json:"severity,omitempty"`
-	Owner       string `json:"owner,omitempty"`
-	Impact      string `json:"impact,omitempty"`
+// DetailedRisk represents a detailed risk from the quality gate re-run.
+type DetailedRisk struct {
+	Description  string `json:"description"`
+	SeverityHint string `json:"severity_hint,omitempty"`
+	OwnerHint    string `json:"owner_hint,omitempty"`
+	Impact       string `json:"impact,omitempty"`
 }
 
-type pipelineContextInput struct {
+// BuildContextInput is the input for the BuildContextPackage activity.
+type BuildContextInput struct {
 	TenantID    string                 `json:"tenant_id"`
 	SourceID    int64                  `json:"source_id"`
 	ContentID   string                 `json:"content_id,omitempty"`
 	JobID       string                 `json:"job_id"`
 	ContentType string                 `json:"content_type"`
-	Extraction  *pipelineExtractOutput `json:"extraction"`
+	Extraction  *SLMPipelineExtractEntitiesOutput `json:"extraction"`
 	SenderEmail string                 `json:"sender_email,omitempty"`
 	SenderName  string                 `json:"sender_name,omitempty"`
 	Subject     string                 `json:"subject,omitempty"`
 	ThreadID    string                 `json:"thread_id,omitempty"`
 }
 
-type pipelineContextOutput struct {
-	ResolvedPeople     []pipelineResolvedPerson  `json:"resolved_people"`
-	ResolvedProjects   []pipelineResolvedProject `json:"resolved_projects"`
-	UnresolvedTerms    []string                  `json:"unresolved_terms"`
-	ContextPackage     interface{}               `json:"context_package"` // Opaque for workflow
-	TokensUsed         int                       `json:"tokens_used"`
-	TokenBudget        int                       `json:"token_budget"`
-	EntitiesResolved   int                       `json:"entities_resolved"`
-	EntitiesUnresolved int                       `json:"entities_unresolved"`
+// BuildContextOutput is the output from the BuildContextPackage activity.
+type BuildContextOutput struct {
+	ResolvedPeople     []ResolvedPerson `json:"resolved_people"`
+	ResolvedProjects   []ResolvedProject `json:"resolved_projects"`
+	UnresolvedTerms    []string         `json:"unresolved_terms"`
+	ContextPackage     *ContextPackage  `json:"context_package"`
+	TokensUsed         int              `json:"tokens_used"`
+	TokenBudget        int              `json:"token_budget"`
+	EntitiesResolved   int              `json:"entities_resolved"`
+	EntitiesUnresolved int              `json:"entities_unresolved"`
 }
 
-type pipelineResolvedPerson struct {
+// ResolvedPerson represents a person resolved from extraction.
+type ResolvedPerson struct {
 	Name       string  `json:"name"`
 	PersonID   *int64  `json:"person_id,omitempty"`
 	Confidence float32 `json:"confidence"`
 	Source     string  `json:"source"`
+	Role       string  `json:"role,omitempty"`
+	Title      string  `json:"title,omitempty"`
+	Department string  `json:"department,omitempty"`
+	IsInternal bool    `json:"is_internal"`
 }
 
-type pipelineResolvedProject struct {
+// ResolvedProject represents a project resolved from extraction.
+type ResolvedProject struct {
 	Name      string `json:"name"`
 	ProjectID *int64 `json:"project_id,omitempty"`
-	Source    string  `json:"source"`
+	Expansion string `json:"expansion,omitempty"`
+	Source    string `json:"source"`
 }
 
-type pipelineAnalyzeInput struct {
+// ContextPackage is the assembled context for Stage 4.
+type ContextPackage struct {
+	ActiveRisks        []ContextAssertion    `json:"active_risks,omitempty"`
+	OpenActions        []ContextAssertion    `json:"open_actions,omitempty"`
+	RecentDecisions    []ContextAssertion    `json:"recent_decisions,omitempty"`
+	ProductEvents      []ContextProductEvent `json:"product_events,omitempty"`
+	GlossaryTerms      []ContextGlossaryTerm `json:"glossary_terms,omitempty"`
+	ParticipantContext []ResolvedPerson      `json:"participant_context,omitempty"`
+	TotalTokensUsed    int                   `json:"total_tokens_used"`
+	TokenBudget        int                   `json:"token_budget"`
+}
+
+// ContextAssertion represents an assertion in the context package.
+type ContextAssertion struct {
+	ID         int64   `json:"id"`
+	Subject    string  `json:"subject"`
+	Predicate  string  `json:"predicate"`
+	Object     string  `json:"object"`
+	Confidence float32 `json:"confidence"`
+	SourceText string  `json:"source_text,omitempty"`
+}
+
+// ContextProductEvent represents a product event in the context package.
+type ContextProductEvent struct {
+	EventType   string `json:"event_type"`
+	Description string `json:"description"`
+	Timestamp   string `json:"timestamp"`
+}
+
+// ContextGlossaryTerm represents a glossary term in the context package.
+type ContextGlossaryTerm struct {
+	Term       string `json:"term"`
+	Definition string `json:"definition"`
+	Category   string `json:"category,omitempty"`
+}
+
+// DeepAnalyzeInput is the input for the DeepAnalyze activity.
+type DeepAnalyzeInput struct {
 	TenantID          string                 `json:"tenant_id"`
 	SourceID          int64                  `json:"source_id"`
 	ContentID         string                 `json:"content_id,omitempty"`
@@ -210,38 +268,95 @@ type pipelineAnalyzeInput struct {
 	ContentType       string                 `json:"content_type"`
 	TriageCategory    string                 `json:"triage_category"`
 	TriageImportance  string                 `json:"triage_importance"`
-	ExtractionResult  *pipelineExtractOutput `json:"extraction_result"`
+	ExtractionResult  *SLMPipelineExtractEntitiesOutput `json:"extraction_result"`
 	BackgroundContext string                 `json:"background_context,omitempty"`
 }
 
-type pipelineAnalyzeOutput struct {
-	Summary           string      `json:"summary"`
-	Sentiment         interface{} `json:"sentiment"`
-	TopicMappings     interface{} `json:"topic_mappings"`
-	VerifiedActions   interface{} `json:"verified_action_items"`
-	VerifiedDecisions interface{} `json:"verified_decisions"`
-	RiskReferences    interface{} `json:"risk_references"`
-	Insights          []string    `json:"strategic_insights"`
-	ImplicitActions   interface{} `json:"implicit_action_items"`
-	ModelUsed         string      `json:"model_used"`
+// DeepAnalyzeOutput is the output from the DeepAnalyze activity.
+type DeepAnalyzeOutput struct {
+	Summary           string                   `json:"summary"`
+	Sentiment         *SentimentOutput         `json:"sentiment"`
+	TopicMappings     []TopicMappingOutput     `json:"topic_mappings"`
+	VerifiedActions   []VerifiedActionOutput   `json:"verified_action_items"`
+	VerifiedDecisions []VerifiedDecisionOutput `json:"verified_decisions"`
+	RiskReferences    []RiskReferenceOutput    `json:"risk_references"`
+	Insights          []string                 `json:"strategic_insights"`
+	ImplicitActions   []ImplicitActionOutput   `json:"implicit_action_items"`
+	ModelUsed         string                   `json:"model_used"`
 }
 
-type pipelinePersistInput struct {
-	TenantID       string               `json:"tenant_id"`
-	SourceID       int64                `json:"source_id"`
-	ThreadID       *int64               `json:"thread_id,omitempty"`
-	ProjectID      *int64               `json:"project_id,omitempty"`
-	Analysis       *pipelineAnalyzeOutput `json:"analysis"`
-	ResolvedPeople map[string]int64     `json:"resolved_people,omitempty"`
+// SentimentOutput represents business-context-aware sentiment analysis.
+type SentimentOutput struct {
+	Score       float32  `json:"score"`
+	Label       string   `json:"label"`
+	Confidence  float32  `json:"confidence"`
+	Indicators  []string `json:"indicators"`
+	Explanation string   `json:"explanation"`
 }
 
-type pipelinePersistOutput struct {
+// TopicMappingOutput connects content to known projects/products.
+type TopicMappingOutput struct {
+	Topic          string  `json:"topic"`
+	RelatedProject string  `json:"related_project"`
+	Relationship   string  `json:"relationship"`
+	Confidence     float32 `json:"confidence"`
+}
+
+// VerifiedActionOutput represents an action item verified/refined by LLM.
+type VerifiedActionOutput struct {
+	Description    string `json:"description"`
+	Assignee       string `json:"assignee"`
+	Due            string `json:"due"`
+	Priority       string `json:"priority"`
+	ContextExcerpt string `json:"context_excerpt"`
+	Status         string `json:"status"`
+}
+
+// VerifiedDecisionOutput represents a decision verified/refined by LLM.
+type VerifiedDecisionOutput struct {
+	Description    string `json:"description"`
+	ContextExcerpt string `json:"context_excerpt"`
+	Status         string `json:"status"`
+}
+
+// RiskReferenceOutput connects content to existing or new risks.
+type RiskReferenceOutput struct {
+	RootID          *int64  `json:"root_id,omitempty"`
+	Description     string  `json:"description"`
+	LifecycleChange *string `json:"lifecycle_change,omitempty"`
+	Significance    string  `json:"significance"`
+	ContextExcerpt  string  `json:"context_excerpt"`
+	SeverityChange  *string `json:"severity_change,omitempty"`
+	OwnerChange     *string `json:"owner_change,omitempty"`
+	IsNew           bool    `json:"is_new"`
+}
+
+// ImplicitActionOutput represents an inferred action not explicitly stated.
+type ImplicitActionOutput struct {
+	Description    string `json:"description"`
+	Reasoning      string `json:"reasoning"`
+	ContextExcerpt string `json:"context_excerpt"`
+}
+
+// PersistFindingsInput is the input for the PersistFindings activity.
+type PersistFindingsInput struct {
+	TenantID       string             `json:"tenant_id"`
+	SourceID       int64              `json:"source_id"`
+	ThreadID       *int64             `json:"thread_id,omitempty"`
+	ProjectID      *int64             `json:"project_id,omitempty"`
+	Analysis       *DeepAnalyzeOutput `json:"analysis"`
+	ResolvedPeople map[string]int64   `json:"resolved_people,omitempty"`
+}
+
+// PersistFindingsOutput is the output from the PersistFindings activity.
+type PersistFindingsOutput struct {
 	AssertionsCreated    int `json:"assertions_created"`
 	AssertionsSuperseded int `json:"assertions_superseded"`
 	ReferencesCreated    int `json:"references_created"`
 	ReviewItemsCreated   int `json:"review_items_created"`
 	AffinityUpdates      int `json:"affinity_updates"`
 }
+
 
 // pipelineState maintains the internal state of the pipeline workflow.
 type pipelineState struct {
@@ -397,9 +512,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	switch input.ContentType {
 	case "email":
-		var parseOutput pipelineParseEmailOutput
+		var parseOutput ParseEmailOutput
 		ctxParse := workflow.WithActivityOptions(ctx, fastOpts)
-		err := workflow.ExecuteActivity(ctxParse, pkgtemporal.ActivityParseEmail, pipelineParseEmailInput{
+		err := workflow.ExecuteActivity(ctxParse, pkgtemporal.ActivityParseEmail, ParseEmailInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 			BodyText: input.BodyText,
@@ -428,9 +543,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 
 	case "meeting":
-		var parseOutput pipelineParseTranscriptOutput
+		var parseOutput ParseTranscriptOutput
 		ctxParse := workflow.WithActivityOptions(ctx, fastOpts)
-		err := workflow.ExecuteActivity(ctxParse, pkgtemporal.ActivityParseTranscript, pipelineParseTranscriptInput{
+		err := workflow.ExecuteActivity(ctxParse, pkgtemporal.ActivityParseTranscript, ParseTranscriptInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 			Content:  input.TranscriptContent,
@@ -496,9 +611,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	)
 	triageStart := workflow.Now(ctx)
 
-	var triageOutput pipelineTriageOutput
+	var triageOutput TriageOutput
 	ctxTriage := workflow.WithActivityOptions(ctx, embeddingOpts)
-	err := workflow.ExecuteActivity(ctxTriage, pkgtemporal.ActivityTriage, pipelineTriageInput{
+	err := workflow.ExecuteActivity(ctxTriage, pkgtemporal.ActivityTriage, TriageInput{
 		TenantID:    input.TenantID,
 		SourceID:    input.SourceID,
 		ContentID:   input.ContentID,
@@ -558,8 +673,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}
 
 	// ==================== Stages 2-4.5: Deep Processing ====================
-	var extractOutput *pipelineExtractOutput
-	var contextOutput *pipelineContextOutput
+	var extractOutput *SLMPipelineExtractEntitiesOutput
+	var contextOutput *BuildContextOutput
 
 	if !triageOutput.SkipDeep {
 		// Stage 2: Extract
@@ -573,9 +688,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 		extractStart := workflow.Now(ctx)
 
-		extractOutput = &pipelineExtractOutput{}
+		extractOutput = &SLMPipelineExtractEntitiesOutput{}
 		ctxExtract := workflow.WithActivityOptions(ctx, embeddingOpts)
-		err = workflow.ExecuteActivity(ctxExtract, pkgtemporal.ActivityExtractEntitiesActivity, pipelineExtractInput{
+		err = workflow.ExecuteActivity(ctxExtract, pkgtemporal.ActivityExtractEntitiesActivity, SLMPipelineExtractEntitiesInput{
 			TenantID:  input.TenantID,
 			SourceID:  input.SourceID,
 			ContentID: input.ContentID,
@@ -608,7 +723,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"status", "failed",
 				"error", err.Error(),
 			)
-			extractOutput = &pipelineExtractOutput{}
+			extractOutput = &SLMPipelineExtractEntitiesOutput{}
 		} else {
 			logger.Info("pipeline stage completed",
 				"source_id", input.SourceID,
@@ -650,9 +765,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 		contextStart := workflow.Now(ctx)
 
-		contextOutput = &pipelineContextOutput{}
+		contextOutput = &BuildContextOutput{}
 		ctxContext := workflow.WithActivityOptions(ctx, fastOpts)
-		err = workflow.ExecuteActivity(ctxContext, pkgtemporal.ActivityBuildContextPackage, pipelineContextInput{
+		err = workflow.ExecuteActivity(ctxContext, pkgtemporal.ActivityBuildContextPackage, BuildContextInput{
 			TenantID:    input.TenantID,
 			SourceID:    input.SourceID,
 			ContentID:   input.ContentID,
@@ -672,7 +787,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"status", "failed",
 				"error", err.Error(),
 			)
-			contextOutput = &pipelineContextOutput{}
+			contextOutput = &BuildContextOutput{}
 		} else {
 			logger.Info("pipeline stage completed",
 				"source_id", input.SourceID,
@@ -704,10 +819,10 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 		analyzeStart := workflow.Now(ctx)
 
-		var analyzeOutput *pipelineAnalyzeOutput
+		var analyzeOutput *DeepAnalyzeOutput
 		ctxAnalyze := workflow.WithActivityOptions(ctx, llmOpts)
-		analyzeOutput = &pipelineAnalyzeOutput{}
-		err = workflow.ExecuteActivity(ctxAnalyze, pkgtemporal.ActivityDeepAnalyze, pipelineAnalyzeInput{
+		analyzeOutput = &DeepAnalyzeOutput{}
+		err = workflow.ExecuteActivity(ctxAnalyze, pkgtemporal.ActivityDeepAnalyze, DeepAnalyzeInput{
 			TenantID:          input.TenantID,
 			SourceID:          input.SourceID,
 			ContentID:         input.ContentID,
@@ -781,9 +896,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				}
 			}
 
-			var persistOutput pipelinePersistOutput
+			var persistOutput PersistFindingsOutput
 			ctxPersist := workflow.WithActivityOptions(ctx, fastOpts)
-			err = workflow.ExecuteActivity(ctxPersist, pkgtemporal.ActivityPersistFindings, pipelinePersistInput{
+			err = workflow.ExecuteActivity(ctxPersist, pkgtemporal.ActivityPersistFindings, PersistFindingsInput{
 				TenantID:       input.TenantID,
 				SourceID:       input.SourceID,
 				ProjectID:      projectID,
