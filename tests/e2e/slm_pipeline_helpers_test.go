@@ -83,7 +83,7 @@ func terminateTestWorkflows(t *testing.T, c client.Client) {
 		// or SLMPipeline workflows (which E2E tests trigger via pipeline kick)
 		if strings.HasPrefix(wfID, "e2e-") ||
 			strings.HasPrefix(wfID, "slm-pipeline-") ||
-			strings.HasPrefix(wfID, "ingestion-") {
+			strings.HasPrefix(wfID, "ingest-") {
 			err := c.TerminateWorkflow(ctx, wfID, runID, "E2E test cleanup")
 			if err != nil {
 				t.Logf("warning: could not terminate workflow %s: %v", wfID, err)

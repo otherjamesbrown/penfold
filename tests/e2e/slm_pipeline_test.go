@@ -249,10 +249,12 @@ func TestSLMPipeline_FullEmailPipeline(t *testing.T) {
 	err = waitForProcessingComplete(t, env, sourceID, 90*time.Second)
 	require.NoError(t, err, "pipeline should complete")
 
-	// Step 4: Verify all stages completed
-	assertStageCompleted(t, env, sourceID, "parse")
-	assertStageCompleted(t, env, sourceID, "triage")
+	// Step 4: Verify recorded pipeline stages completed
+	// Note: parse and triage run but don't record to pipeline_runs.
+	// The worker records: embed, extract_ner, extract_semantic.
 	assertStageCompleted(t, env, sourceID, "embed")
+	assertStageCompleted(t, env, sourceID, "extract_ner")
+	assertStageCompleted(t, env, sourceID, "extract_semantic")
 
 	// Verify source status
 	var status string
@@ -319,8 +321,7 @@ Marcus: I have some concerns about the deadline.`
 	err = waitForProcessingComplete(t, env, sourceID, 60*time.Second)
 	require.NoError(t, err)
 
-	assertStageCompleted(t, env, sourceID, "parse")
-	assertStageCompleted(t, env, sourceID, "triage")
+	assertStageCompleted(t, env, sourceID, "embed")
 }
 
 // TestSLMPipeline_TriageGateLOW tests that LOW importance content skips deep processing.
@@ -370,9 +371,8 @@ Facilities`
 	err = waitForProcessingComplete(t, env, sourceID, 60*time.Second)
 	require.NoError(t, err)
 
-	// Verify parse and triage ran
-	assertStageCompleted(t, env, sourceID, "parse")
-	assertStageCompleted(t, env, sourceID, "triage")
+	// Verify pipeline stages recorded (embed always runs)
+	assertStageCompleted(t, env, sourceID, "embed")
 
 	// Check if deep processing was skipped (depends on triage result)
 	// Note: The actual skip behavior depends on the LLM's triage decision
@@ -384,14 +384,11 @@ Facilities`
 
 	if err == nil && skipDeep {
 		t.Log("Triage correctly identified as LOW importance - deep processing skipped")
-		assertStageSkipped(t, env, sourceID, "extract")
-		assertStageSkipped(t, env, sourceID, "analyze")
+		assertStageSkipped(t, env, sourceID, "extract_ner")
+		assertStageSkipped(t, env, sourceID, "extract_semantic")
 	} else {
 		t.Log("Triage did not skip deep processing (LLM may have classified differently)")
 	}
-
-	// Embedding should always run
-	assertStageCompleted(t, env, sourceID, "embed")
 }
 
 // TestSLMPipeline_HighImportanceRisk tests routing for high-importance risk content.
@@ -447,10 +444,10 @@ Recommended action: Immediate hotfix deployment
 	err = waitForProcessingComplete(t, env, sourceID, 90*time.Second)
 	require.NoError(t, err)
 
-	// Verify all stages ran (HIGH importance should not skip)
-	assertStageCompleted(t, env, sourceID, "parse")
-	assertStageCompleted(t, env, sourceID, "triage")
+	// Verify recorded pipeline stages (HIGH importance should not skip)
 	assertStageCompleted(t, env, sourceID, "embed")
+	assertStageCompleted(t, env, sourceID, "extract_ner")
+	assertStageCompleted(t, env, sourceID, "extract_semantic")
 
 	// Check for assertions
 	assertions, err := getAssertionsForSource(env, sourceID)
@@ -759,7 +756,6 @@ Marcus: The outage began at 2:15 AM UTC.`
 	err = waitForProcessingComplete(t, env, sourceID, 60*time.Second)
 	require.NoError(t, err)
 
-	assertStageCompleted(t, env, sourceID, "parse")
 	assertStageCompleted(t, env, sourceID, "embed")
 }
 
@@ -814,10 +810,10 @@ The MVP (Minimum Viable Product) scope is now finalized.
 	err = waitForProcessingComplete(t, env, sourceID, 90*time.Second)
 	require.NoError(t, err)
 
-	// Verify context building ran (entity resolution)
-	assertStageCompleted(t, env, sourceID, "parse")
-	assertStageCompleted(t, env, sourceID, "triage")
+	// Verify recorded pipeline stages completed
 	assertStageCompleted(t, env, sourceID, "embed")
+	assertStageCompleted(t, env, sourceID, "extract_ner")
+	assertStageCompleted(t, env, sourceID, "extract_semantic")
 
 	// Verify glossary terms were available
 	var glossaryCount int
