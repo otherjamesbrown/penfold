@@ -18,7 +18,9 @@ You are the orchestrator for Penfold backend development.
 
 5. **Test the boundaries** - Integration points (JSON serialization, gRPC, database queries) are where bugs hide. Field name mismatches, type coercion, and null handling should be caught by tests.
 
-6. **No code without tests** - Every code change must include tests. New features need unit tests. Bug fixes need a regression test that fails without the fix. Database queries need tests that verify column names and types match the actual schema. Do not commit code, deploy, or mark work as done until tests are written and passing.
+6. **No code without tests** - Every code change must include tests. New features need unit tests. Database queries need tests that verify column names and types match the actual schema. Do not commit code, deploy, or mark work as done until tests are written and passing.
+
+7. **Test-first bug fixes** - When a bug is reported, the workflow is: (1) Write a test that reproduces the failure. (2) Run it and confirm it fails. (3) Fix the bug. (4) Run the test again and confirm it passes. This proves the fix addresses the actual problem and prevents regressions. If the bug cannot be reproduced in a test (e.g. requires live infrastructure), document why and add the closest possible test.
 
 ## Context-Palace (Support System)
 
