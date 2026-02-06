@@ -20,7 +20,7 @@ var (
 
 // ModelConfig represents a fully configured model ready for use.
 type ModelConfig struct {
-	// ModelID is the unique identifier (e.g., "Qwen2.5-32B", "gemini-1.5-pro").
+	// ModelID is the unique identifier (e.g., "Qwen2.5-32B", "gemini-2.5-pro").
 	ModelID string
 
 	// Provider is the model provider (e.g., "mlx", "gemini").
@@ -695,12 +695,12 @@ func RegisterDefaultModels(selector *ModelSelector, mlxLLMURL, mlxEmbeddingsURL,
 
 		// Gemini Pro for complex tasks
 		if err := selector.RegisterModel(&ModelConfig{
-			ModelID:  "gemini-1.5-pro",
+			ModelID:  "gemini-2.5-pro",
 			Provider: ModelProviderGemini,
 			Endpoint: "https://generativelanguage.googleapis.com/v1beta",
 			APIKey:   geminiAPIKey,
 			Capabilities: &ModelCapabilities{
-				ModelID:         "gemini-1.5-pro",
+				ModelID:         "gemini-2.5-pro",
 				Provider:        ModelProviderGemini,
 				IsLocal:         false,
 				SupportedTasks:  []TaskType{TaskTypeSummarization, TaskTypeExtraction, TaskTypeClassification},
@@ -718,12 +718,12 @@ func RegisterDefaultModels(selector *ModelSelector, mlxLLMURL, mlxEmbeddingsURL,
 
 		// Gemini Flash for faster cloud tasks
 		if err := selector.RegisterModel(&ModelConfig{
-			ModelID:  "gemini-1.5-flash",
+			ModelID:  "gemini-2.0-flash",
 			Provider: ModelProviderGemini,
 			Endpoint: "https://generativelanguage.googleapis.com/v1beta",
 			APIKey:   geminiAPIKey,
 			Capabilities: &ModelCapabilities{
-				ModelID:         "gemini-1.5-flash",
+				ModelID:         "gemini-2.0-flash",
 				Provider:        ModelProviderGemini,
 				IsLocal:         false,
 				SupportedTasks:  []TaskType{TaskTypeSummarization, TaskTypeExtraction, TaskTypeClassification},

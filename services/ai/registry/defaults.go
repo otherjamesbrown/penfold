@@ -135,10 +135,10 @@ func DefaultModels(mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint string) []*ModelC
 			UpdatedAt: now,
 		},
 		{
-			ID:        "gemini/gemini-1.5-pro",
-			Name:      "Gemini 1.5 Pro",
+			ID:        "gemini/gemini-2.5-pro",
+			Name:      "Gemini 2.5 Pro",
 			Provider:  ProviderGemini,
-			ModelName: "gemini-1.5-pro",
+			ModelName: "gemini-2.5-pro",
 			Endpoint:  geminiEndpoint,
 			Capabilities: ModelCapabilities{
 				Capabilities:            []Capability{CapabilityChat, CapabilityCompletion, CapabilitySummarization, CapabilityExtraction, CapabilityClassification, CapabilityVision},

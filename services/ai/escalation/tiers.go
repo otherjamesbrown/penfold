@@ -153,8 +153,8 @@ func DefaultTierConfig() *TierConfig {
 			{
 				Level:          TierLevelCloudStandard,
 				Name:           "Cloud Standard",
-				Models:         []string{"gemini-1.5-flash", "gemini-1.0-pro", "text-embedding-004"},
-				PreferredModel: "gemini-1.5-flash",
+				Models:         []string{"gemini-2.0-flash", "gemini-2.5-pro", "text-embedding-004"},
+				PreferredModel: "gemini-2.0-flash",
 				CostMultiplier: 1.0,
 				Capabilities:   []string{"embedding", "summarization", "extraction", "classification", "chat"},
 				MaxLatency:     2 * time.Second,
@@ -166,8 +166,8 @@ func DefaultTierConfig() *TierConfig {
 			{
 				Level:          TierLevelCloudPremium,
 				Name:           "Cloud Premium",
-				Models:         []string{"gemini-1.5-pro", "gemini-2.0-pro", "claude-3-opus"},
-				PreferredModel: "gemini-1.5-pro",
+				Models:         []string{"gemini-2.5-pro", "gemini-2.0-pro", "claude-3-opus"},
+				PreferredModel: "gemini-2.5-pro",
 				CostMultiplier: 10.0,
 				Capabilities:   []string{"embedding", "summarization", "extraction", "classification", "chat", "reasoning", "code_generation"},
 				MaxLatency:     10 * time.Second,

@@ -107,7 +107,7 @@ func testConfig() *config.Config {
 		HTTPPort:                8090,
 		MLXLLMURL:               "http://localhost:8080",
 		MLXEmbeddingsURL:        "http://localhost:8081",
-		GeminiDefaultModel:      "gemini-1.5-pro",
+		GeminiDefaultModel:      "gemini-2.5-pro",
 		DefaultEmbeddingModel:   "mxbai-embed-large-v1",
 		DefaultLLMModel:         "mlx-community/Qwen2.5-7B-Instruct-4bit",
 		EmbeddingDimensions:     1024,

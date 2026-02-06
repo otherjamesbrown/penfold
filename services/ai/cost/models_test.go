@@ -234,7 +234,7 @@ func TestCostFilter(t *testing.T) {
 		TenantID:     "tenant-1",
 		StartTime:    now.Add(-24 * time.Hour),
 		EndTime:      now,
-		Models:       []string{"gemini-1.5-pro"},
+		Models:       []string{"gemini-2.5-pro"},
 		Providers:    []string{"gemini"},
 		RequestTypes: []string{"summary"},
 		Operations:   []string{"daily-review"},

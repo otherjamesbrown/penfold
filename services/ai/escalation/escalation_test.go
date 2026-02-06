@@ -87,7 +87,7 @@ func TestTierRegistry(t *testing.T) {
 		}
 
 		// Test that cloud premium model is still in premium tier
-		level, err = registry.GetTierForModel("gemini-1.5-pro")
+		level, err = registry.GetTierForModel("gemini-2.5-pro")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

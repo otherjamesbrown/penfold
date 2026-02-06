@@ -264,7 +264,7 @@ func TestFullAIPipeline(t *testing.T) {
 
 		resp := &router.Response{
 			RequestID:      req.ID,
-			ModelUsed:      "gemini-1.5-flash",
+			ModelUsed:      "gemini-2.0-flash",
 			ProviderUsed:   "gemini",
 			TokensUsed:     500,
 			ProcessingTime: 100 * time.Millisecond,
@@ -276,7 +276,7 @@ func TestFullAIPipeline(t *testing.T) {
 		}
 
 		// Verify cost estimation
-		estimate := costTracker.EstimateCost("test-tenant", "gemini-1.5-flash", 1000, 500)
+		estimate := costTracker.EstimateCost("test-tenant", "gemini-2.0-flash", 1000, 500)
 		if estimate.EstimatedCost <= 0 {
 			t.Error("Expected positive estimated cost for cloud model")
 		}

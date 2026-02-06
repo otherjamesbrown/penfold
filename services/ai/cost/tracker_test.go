@@ -48,7 +48,7 @@ func TestCostTracker_TrackRequestWithTokens(t *testing.T) {
 		ctx,
 		"tenant-1",
 		"req-123",
-		"gemini-1.5-flash",
+		"gemini-2.0-flash",
 		"gemini",
 		"summary",
 		"daily-review",
@@ -72,7 +72,7 @@ func TestCostTracker_EstimateCost(t *testing.T) {
 	tracker := NewCostTracker(nil, logger)
 
 	// Test cloud model
-	estimate := tracker.EstimateCost("tenant-1", "gemini-1.5-flash", 1000, 500)
+	estimate := tracker.EstimateCost("tenant-1", "gemini-2.0-flash", 1000, 500)
 	if estimate == nil {
 		t.Fatal("Expected estimate to be returned")
 	}
@@ -176,7 +176,7 @@ func TestCostTracker_TrackRequest(t *testing.T) {
 
 	resp := &router.Response{
 		RequestID:      "req-123",
-		ModelUsed:      "gemini-1.5-flash",
+		ModelUsed:      "gemini-2.0-flash",
 		ProviderUsed:   "gemini",
 		TokensUsed:     100,
 		ProcessingTime: 500 * time.Millisecond,

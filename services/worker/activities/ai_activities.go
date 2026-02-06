@@ -462,8 +462,8 @@ func (a *AIActivities) getDefaultModel(task string, constraints ModelConstraints
 			}, nil
 		}
 		return &SelectModelOutput{
-			ModelID:   "gemini-1.5-flash",
-			ModelName: "Gemini 1.5 Flash",
+			ModelID:   "gemini-2.0-flash",
+			ModelName: "Gemini 2.0 Flash",
 			Provider:  "gemini",
 			IsLocal:   false,
 			Reasoning: "Default cloud LLM for text tasks",
@@ -479,8 +479,8 @@ func (a *AIActivities) getDefaultModel(task string, constraints ModelConstraints
 			}, nil
 		}
 		return &SelectModelOutput{
-			ModelID:   "gemini-1.5-flash",
-			ModelName: "Gemini 1.5 Flash",
+			ModelID:   "gemini-2.0-flash",
+			ModelName: "Gemini 2.0 Flash",
 			Provider:  "gemini",
 			IsLocal:   false,
 			Reasoning: "Default cloud model",

@@ -103,15 +103,15 @@ func (pt *PricingTable) loadDefaultPricing() {
 	}
 
 	// Google Gemini models
-	pt.pricing["gemini-1.5-pro"] = &ModelPricing{
-		Model:           "gemini-1.5-pro",
+	pt.pricing["gemini-2.5-pro"] = &ModelPricing{
+		Model:           "gemini-2.5-pro",
 		Provider:        "gemini",
 		InputCostPer1K:  0.00125, // $1.25 per 1M input tokens
 		OutputCostPer1K: 0.005,   // $5.00 per 1M output tokens
 		IsLocal:         false,
 	}
-	pt.pricing["gemini-1.5-flash"] = &ModelPricing{
-		Model:           "gemini-1.5-flash",
+	pt.pricing["gemini-2.0-flash"] = &ModelPricing{
+		Model:           "gemini-2.0-flash",
 		Provider:        "gemini",
 		InputCostPer1K:  0.000075, // $0.075 per 1M input tokens
 		OutputCostPer1K: 0.0003,   // $0.30 per 1M output tokens

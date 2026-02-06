@@ -193,7 +193,7 @@ func (m *mockAIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeReq
 				ContextExcerpt: "potential delay in delivery",
 			},
 		},
-		ModelUsed:    "gemini-1.5-pro",
+		ModelUsed:    "gemini-2.5-pro",
 		InputTokens:  &inputTokens,
 		OutputTokens: &outputTokens,
 	}, nil
@@ -778,7 +778,7 @@ func TestClient_DeepAnalyze(t *testing.T) {
 		assert.NotEmpty(t, resp.RiskReferences)
 		assert.NotEmpty(t, resp.StrategicInsights)
 		assert.NotEmpty(t, resp.ImplicitActionItems)
-		assert.Equal(t, "gemini-1.5-pro", resp.ModelUsed)
+		assert.Equal(t, "gemini-2.5-pro", resp.ModelUsed)
 		assert.NotNil(t, resp.InputTokens)
 		assert.NotNil(t, resp.OutputTokens)
 

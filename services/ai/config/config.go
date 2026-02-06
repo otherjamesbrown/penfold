@@ -59,7 +59,7 @@ const (
 	DefaultServiceName              = "ai-coordinator"
 	DefaultGRPCPort                 = 50051
 	DefaultHTTPPort                 = 8090
-	DefaultGeminiDefaultModel       = "gemini-1.5-pro"
+	DefaultGeminiDefaultModel       = "gemini-2.5-pro"
 	DefaultEmbeddingModel           = "mxbai-embed-large-v1"
 	DefaultLLMModel                 = "gemini-2.0-flash"
 	DefaultMLXEmbeddingsURL         = "http://localhost:8081"

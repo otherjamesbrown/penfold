@@ -13,13 +13,13 @@ func TestNewPricingTable(t *testing.T) {
 	}
 
 	// Check that default models are loaded
-	pricing := pt.GetPricing("gemini-1.5-pro", "")
+	pricing := pt.GetPricing("gemini-2.5-pro", "")
 	if pricing == nil {
-		t.Fatal("Expected gemini-1.5-pro pricing to exist")
+		t.Fatal("Expected gemini-2.5-pro pricing to exist")
 	}
 
 	if pricing.InputCostPer1K <= 0 {
-		t.Error("Expected positive input cost for gemini-1.5-pro")
+		t.Error("Expected positive input cost for gemini-2.5-pro")
 	}
 
 	// Check local model using dynamic MLX discovery
@@ -105,18 +105,18 @@ func TestPricingTable_TenantOverride(t *testing.T) {
 	pt := NewPricingTable()
 
 	// Get base pricing
-	basePricing := pt.GetPricing("gemini-1.5-pro", "")
+	basePricing := pt.GetPricing("gemini-2.5-pro", "")
 	baseInputCost := basePricing.InputCostPer1K
 
 	// Add tenant override with 50% discount
 	pt.SetOverride(&TenantPricingOverride{
 		TenantID:        "premium-tenant",
-		Model:           "gemini-1.5-pro",
+		Model:           "gemini-2.5-pro",
 		DiscountPercent: 50,
 	})
 
 	// Get tenant-specific pricing
-	tenantPricing := pt.GetPricing("gemini-1.5-pro", "premium-tenant")
+	tenantPricing := pt.GetPricing("gemini-2.5-pro", "premium-tenant")
 
 	expectedCost := baseInputCost * 0.5
 	if tenantPricing.InputCostPer1K != expectedCost {
@@ -124,7 +124,7 @@ func TestPricingTable_TenantOverride(t *testing.T) {
 	}
 
 	// Non-premium tenant should get base pricing
-	regularPricing := pt.GetPricing("gemini-1.5-pro", "regular-tenant")
+	regularPricing := pt.GetPricing("gemini-2.5-pro", "regular-tenant")
 	if regularPricing.InputCostPer1K != baseInputCost {
 		t.Errorf("Regular tenant should get base pricing, expected %f, got %f", baseInputCost, regularPricing.InputCostPer1K)
 	}
@@ -138,12 +138,12 @@ func TestPricingTable_CustomPricing(t *testing.T) {
 
 	pt.SetOverride(&TenantPricingOverride{
 		TenantID:              "custom-tenant",
-		Model:                 "gemini-1.5-pro",
+		Model:                 "gemini-2.5-pro",
 		CustomInputCostPer1K:  &customInput,
 		CustomOutputCostPer1K: &customOutput,
 	})
 
-	pricing := pt.GetPricing("gemini-1.5-pro", "custom-tenant")
+	pricing := pt.GetPricing("gemini-2.5-pro", "custom-tenant")
 
 	if pricing.InputCostPer1K != customInput {
 		t.Errorf("Expected custom input cost %f, got %f", customInput, pricing.InputCostPer1K)
@@ -174,14 +174,14 @@ func TestPricingTable_UnknownModel(t *testing.T) {
 func TestPricingTable_EstimateCost(t *testing.T) {
 	pt := NewPricingTable()
 
-	estimate := pt.EstimateCost("gemini-1.5-flash", "", 2000, 1000)
+	estimate := pt.EstimateCost("gemini-2.0-flash", "", 2000, 1000)
 
 	if estimate == nil {
 		t.Fatal("Expected estimate to be returned")
 	}
 
-	if estimate.Model != "gemini-1.5-flash" {
-		t.Errorf("Expected model 'gemini-1.5-flash', got '%s'", estimate.Model)
+	if estimate.Model != "gemini-2.0-flash" {
+		t.Errorf("Expected model 'gemini-2.0-flash', got '%s'", estimate.Model)
 	}
 
 	if estimate.EstimatedInputTokens != 2000 {
@@ -214,7 +214,7 @@ func TestPricingTable_ListOperations(t *testing.T) {
 	// Add override and list
 	pt.SetOverride(&TenantPricingOverride{
 		TenantID:        "test-tenant",
-		Model:           "gemini-1.5-pro",
+		Model:           "gemini-2.5-pro",
 		DiscountPercent: 10,
 	})
 
@@ -230,7 +230,7 @@ func TestPricingTable_ListOperations(t *testing.T) {
 	}
 
 	// Remove override
-	pt.RemoveOverride("test-tenant", "gemini-1.5-pro")
+	pt.RemoveOverride("test-tenant", "gemini-2.5-pro")
 	overrides = pt.ListOverrides()
 	if len(overrides) != 0 {
 		t.Errorf("Expected 0 overrides after removal, got %d", len(overrides))

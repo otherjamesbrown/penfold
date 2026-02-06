@@ -99,7 +99,7 @@ type SelectionCriteria struct {
 
 // ModelCapabilities describes what a model can do and its performance characteristics.
 type ModelCapabilities struct {
-	// ModelID is the unique identifier for the model (e.g., "llama3.2", "gemini-1.5-pro").
+	// ModelID is the unique identifier for the model (e.g., "llama3.2", "gemini-2.5-pro").
 	ModelID string
 
 	// Provider is the source of the model.

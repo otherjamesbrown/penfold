@@ -475,7 +475,7 @@ func newModelAddCommand(deps *ModelCommandDeps) *cobra.Command {
 		Long: `Register a new remote model in the AI service registry.
 
 Supported providers:
-  - gemini    Google's Gemini models (gemini-2.0-flash, gemini-1.5-pro, etc.)
+  - gemini    Google's Gemini models (gemini-2.0-flash, gemini-2.5-pro, etc.)
   - openai    OpenAI models (gpt-4o, gpt-4o-mini, text-embedding-3-small, etc.)
   - anthropic Anthropic models (claude-3-5-sonnet, etc.)
 
@@ -493,7 +493,7 @@ Examples:
   penf model add openai gpt-4o --capabilities chat,summarization,extraction
 
   # Register with custom priority (higher = preferred)
-  penf model add gemini gemini-1.5-pro --priority 10`,
+  penf model add gemini gemini-2.5-pro --priority 10`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runModelAdd(cmd.Context(), deps, args[0], args[1], modelType, capabilities, endpoint, priority)

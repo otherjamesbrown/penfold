@@ -302,36 +302,36 @@ func selectModelForDeepAnalysis(category, importance, requestedModel string) str
 
 	// RISK_ISSUE always gets quality model
 	if category == "RISK_ISSUE" {
-		return "gemini-1.5-pro"
+		return "gemini-2.5-pro"
 	}
 
 	// CUSTOMER + HIGH → quality
 	if category == "CUSTOMER" && importance == "HIGH" {
-		return "gemini-1.5-pro"
+		return "gemini-2.5-pro"
 	}
 
 	// PROJECT_UPDATE + HIGH → quality
 	if category == "PROJECT_UPDATE" && importance == "HIGH" {
-		return "gemini-1.5-pro"
+		return "gemini-2.5-pro"
 	}
 
 	// PROJECT_UPDATE + MEDIUM → balanced
 	if category == "PROJECT_UPDATE" && importance == "MEDIUM" {
-		return "gemini-1.5-flash"
+		return "gemini-2.0-flash"
 	}
 
 	// ACTION_REQUEST + MEDIUM → balanced
 	if category == "ACTION_REQUEST" && importance == "MEDIUM" {
-		return "gemini-1.5-flash"
+		return "gemini-2.0-flash"
 	}
 
 	// Anything + LOW → cost optimization
 	if importance == "LOW" {
-		return "gemini-1.5-flash"
+		return "gemini-2.0-flash"
 	}
 
 	// Default: quality model
-	return "gemini-1.5-pro"
+	return "gemini-2.5-pro"
 }
 
 // parseDeepAnalysisResponse parses the JSON response from the deep analysis LLM.

@@ -130,73 +130,73 @@ func TestSelectModelForDeepAnalysis(t *testing.T) {
 			name:       "RISK_ISSUE with HIGH importance",
 			category:   "RISK_ISSUE",
 			importance: "HIGH",
-			want:       "gemini-1.5-pro",
+			want:       "gemini-2.5-pro",
 		},
 		{
 			name:       "RISK_ISSUE with MEDIUM importance",
 			category:   "RISK_ISSUE",
 			importance: "MEDIUM",
-			want:       "gemini-1.5-pro",
+			want:       "gemini-2.5-pro",
 		},
 		{
 			name:       "RISK_ISSUE with LOW importance",
 			category:   "RISK_ISSUE",
 			importance: "LOW",
-			want:       "gemini-1.5-pro", // RISK_ISSUE always gets Pro
+			want:       "gemini-2.5-pro", // RISK_ISSUE always gets Pro
 		},
 		{
 			name:       "CUSTOMER with HIGH importance",
 			category:   "CUSTOMER",
 			importance: "HIGH",
-			want:       "gemini-1.5-pro",
+			want:       "gemini-2.5-pro",
 		},
 		{
 			name:       "CUSTOMER with MEDIUM importance",
 			category:   "CUSTOMER",
 			importance: "MEDIUM",
-			want:       "gemini-1.5-pro", // Default to Pro
+			want:       "gemini-2.5-pro", // Default to Pro
 		},
 		{
 			name:       "PROJECT_UPDATE with HIGH importance",
 			category:   "PROJECT_UPDATE",
 			importance: "HIGH",
-			want:       "gemini-1.5-pro",
+			want:       "gemini-2.5-pro",
 		},
 		{
 			name:       "PROJECT_UPDATE with MEDIUM importance",
 			category:   "PROJECT_UPDATE",
 			importance: "MEDIUM",
-			want:       "gemini-1.5-flash",
+			want:       "gemini-2.0-flash",
 		},
 		{
 			name:       "PROJECT_UPDATE with LOW importance",
 			category:   "PROJECT_UPDATE",
 			importance: "LOW",
-			want:       "gemini-1.5-flash",
+			want:       "gemini-2.0-flash",
 		},
 		{
 			name:       "ACTION_REQUEST with MEDIUM importance",
 			category:   "ACTION_REQUEST",
 			importance: "MEDIUM",
-			want:       "gemini-1.5-flash",
+			want:       "gemini-2.0-flash",
 		},
 		{
 			name:       "ACTION_REQUEST with LOW importance",
 			category:   "ACTION_REQUEST",
 			importance: "LOW",
-			want:       "gemini-1.5-flash",
+			want:       "gemini-2.0-flash",
 		},
 		{
 			name:       "ANY category with LOW importance",
 			category:   "OTHER",
 			importance: "LOW",
-			want:       "gemini-1.5-flash",
+			want:       "gemini-2.0-flash",
 		},
 		{
 			name:       "No triage metadata defaults to Pro",
 			category:   "",
 			importance: "",
-			want:       "gemini-1.5-pro",
+			want:       "gemini-2.5-pro",
 		},
 		{
 			name:           "Requested model overrides selection",
@@ -209,7 +209,7 @@ func TestSelectModelForDeepAnalysis(t *testing.T) {
 			name:       "Case insensitive category",
 			category:   "risk_issue",
 			importance: "high",
-			want:       "gemini-1.5-pro",
+			want:       "gemini-2.5-pro",
 		},
 	}
 
