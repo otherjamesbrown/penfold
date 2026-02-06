@@ -48,10 +48,11 @@ type PipelineResult struct {
 	ModelUsed string `json:"model_used,omitempty"`
 
 	// Stage outputs
-	ParsedContent string `json:"parsed_content,omitempty"`
-	Category      string `json:"category,omitempty"`
-	Importance    string `json:"importance,omitempty"`
-	EmbeddingID   *int64 `json:"embedding_id,omitempty"`
+	ParsedContent     string `json:"parsed_content,omitempty"`
+	Category          string `json:"category,omitempty"`
+	Importance        string `json:"importance,omitempty"`
+	EmbeddingID       *int64 `json:"embedding_id,omitempty"`
+	AssertionsCreated int    `json:"assertions_created,omitempty"`
 }
 
 // PipelineStatus tracks the status of the pipeline workflow.
@@ -521,6 +522,24 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			logger.Warn("Stage 2 Extract failed, continuing with empty extraction", "error", err)
 			extractOutput = &pipelineExtractOutput{}
 		}
+		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
+		var assertionCount int
+		ctxAssertions := workflow.WithActivityOptions(ctx, embeddingOpts)
+		err = workflow.ExecuteActivity(ctxAssertions, "ExtractAssertions", ExtractAssertionsInput{
+			TenantID:  input.TenantID,
+			SourceID:  input.SourceID,
+			ContentID: input.ContentID,
+			JobID:     input.JobID,
+			Content:   parsedContent,
+		}).Get(ctx, &assertionCount)
+		if err != nil {
+			logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err)
+			assertionCount = 0
+		} else {
+			logger.Info("Assertions extracted", "count", assertionCount)
+		}
+		state.result.AssertionsCreated = assertionCount
+
 		state.status.StepsCompleted = 3
 
 		// Progressive availability: mark as "extracted" (entity-searchable)
@@ -634,6 +653,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 					"assertions_created", persistOutput.AssertionsCreated,
 					"references_created", persistOutput.ReferencesCreated,
 				)
+				state.result.AssertionsCreated += persistOutput.AssertionsCreated
 			}
 		}
 		state.status.StepsCompleted = 6

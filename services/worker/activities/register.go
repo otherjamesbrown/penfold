@@ -156,6 +156,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.extractionActivities.ExtractEntities, activity.RegisterOptions{
 			Name: "ExtractEntitiesActivity",
 		})
+		w.RegisterActivityWithOptions(r.extractionActivities.ExtractAssertions, activity.RegisterOptions{
+			Name: "ExtractAssertions",
+		})
+	} else if r.activities != nil {
+		w.RegisterActivityWithOptions(r.activities.ExtractAssertions, activity.RegisterOptions{
+			Name: "ExtractAssertions",
+		})
 	}
 
 	// Mentions extraction for content processing
@@ -308,9 +315,11 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		} else if r.activities != nil {
 			count += 1
 		}
-		// ExtractEntities
+		// ExtractEntities, ExtractAssertions
 		if r.extractionActivities != nil {
-			count += 1
+			count += 2
+		} else if r.activities != nil {
+			count += 1 // ExtractAssertions (legacy)
 		}
 		// ExtractMentions
 		if r.mentionsActivities != nil {
