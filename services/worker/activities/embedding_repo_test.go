@@ -66,6 +66,10 @@ func (m *mockEmbeddingRepo) DeleteEmbeddingsForSource(ctx context.Context, tenan
 	return m.deleteErr
 }
 
+func (m *mockEmbeddingRepo) DeleteEmbedding(ctx context.Context, embeddingID int64) error {
+	return m.deleteErr
+}
+
 func TestStoreMultiLevelEmbedding_Success(t *testing.T) {
 	mock := &mockEmbeddingRepo{
 		storeMultiLevelID: 100,

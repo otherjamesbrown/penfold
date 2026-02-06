@@ -123,14 +123,9 @@ type (
 		FailureReason   string `json:"failure_reason,omitempty"`
 	}
 
-	// UpdateContentStatusInput is the input for the UpdateContentStatus activity.
-	UpdateContentStatusInput struct {
-		TenantID        string `json:"tenant_id"`
-		SourceID        int64  `json:"source_id"`
-		Status          string `json:"status"`
-		FailureCategory string `json:"failure_category,omitempty"`
-		FailureReason   string `json:"failure_reason,omitempty"`
-	}
+	// UpdateContentStatusInput is an alias for UpdateSourceStatusInput.
+	// Both the content ingestion and SLM pipeline workflows use this to update source status.
+	UpdateContentStatusInput = UpdateSourceStatusInput
 
 	// RollbackContentInput is the input for the RollbackContent compensation activity.
 	RollbackContentInput struct {

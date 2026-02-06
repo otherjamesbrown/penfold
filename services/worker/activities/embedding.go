@@ -283,7 +283,49 @@ func (a *EmbeddingActivities) GenerateEmbeddingBatch(ctx context.Context, input 
 	return &GenerateEmbeddingBatchOutput{Results: results}, nil
 }
 
+// DeleteEmbedding deletes a single embedding by ID.
+// This is a compensation activity used by the saga pattern when downstream stages fail.
+func (a *EmbeddingActivities) DeleteEmbedding(ctx context.Context, embeddingID int64) error {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "DeleteEmbedding"),
+		logging.F("embedding_id", embeddingID),
+	)
+
+	activity.RecordHeartbeat(ctx, "deleting embedding")
+
+	logger.Info("Deleting embedding for saga compensation")
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	if embeddingID <= 0 {
+		return temporal.NewApplicationError(
+			fmt.Sprintf("invalid embedding_id: %d", embeddingID),
+			"ValidationError",
+		)
+	}
+
+	if a.embeddingRepo == nil {
+		logger.Warn("Embedding repository not configured")
+		return temporal.NewApplicationErrorWithCause(
+			"embedding repository not configured",
+			"ConfigurationError",
+			nil,
+		)
+	}
+
+	if err := a.embeddingRepo.DeleteEmbedding(ctx, embeddingID); err != nil {
+		logger.Error("Failed to delete embedding", logging.Err(err))
+		return fmt.Errorf("failed to delete embedding: %w", err)
+	}
+
+	logger.Info("Embedding deleted successfully")
+	return nil
+}
+
 // Ensure EmbeddingActivities implements required interfaces at compile time.
 var _ interface {
 	GenerateEmbedding(ctx context.Context, input workflows.GenerateEmbeddingInput) (int64, error)
+	DeleteEmbedding(ctx context.Context, embeddingID int64) error
 } = (*EmbeddingActivities)(nil)

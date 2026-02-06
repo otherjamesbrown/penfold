@@ -48,6 +48,9 @@ type EmbeddingRepository interface {
 
 	// DeleteEmbeddingsForSource deletes all embeddings for a source (for re-embedding).
 	DeleteEmbeddingsForSource(ctx context.Context, tenantID string, sourceID int64) error
+
+	// DeleteEmbedding deletes a single embedding by ID (for saga compensation).
+	DeleteEmbedding(ctx context.Context, embeddingID int64) error
 }
 
 // MultiLevelEmbeddingInput contains all fields for storing a multi-level embedding.

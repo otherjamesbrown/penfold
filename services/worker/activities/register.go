@@ -123,10 +123,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
-	// Embedding activity for content processing
+	// Embedding activities for content processing
 	if r.embeddingActivities != nil {
 		w.RegisterActivityWithOptions(r.embeddingActivities.GenerateEmbedding, activity.RegisterOptions{
 			Name: "GenerateContentEmbedding",
+		})
+		w.RegisterActivityWithOptions(r.embeddingActivities.DeleteEmbedding, activity.RegisterOptions{
+			Name: "DeleteEmbedding",
 		})
 	} else if r.activities != nil {
 		w.RegisterActivityWithOptions(r.activities.GenerateEmbedding, activity.RegisterOptions{
@@ -290,8 +293,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.activities != nil {
 			count += 3
 		}
-		// GenerateContentEmbedding
-		if r.embeddingActivities != nil || r.activities != nil {
+		// GenerateContentEmbedding, DeleteEmbedding
+		if r.embeddingActivities != nil {
+			count += 2
+		} else if r.activities != nil {
 			count += 1
 		}
 		// GenerateContentSummary

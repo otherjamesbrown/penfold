@@ -104,6 +104,10 @@ func (m *mlMockEmbeddingRepo) DeleteEmbeddingsForSource(ctx context.Context, ten
 	return nil
 }
 
+func (m *mlMockEmbeddingRepo) DeleteEmbedding(ctx context.Context, embeddingID int64) error {
+	return m.deleteErr
+}
+
 func TestGenerateMultiLevelEmbeddings_FullPipeline(t *testing.T) {
 	logger := logging.NewNopLogger()
 

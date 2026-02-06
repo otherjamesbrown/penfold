@@ -482,5 +482,37 @@ func (r *PostgresEmbeddingRepository) DeleteEmbeddingsForSource(
 	return nil
 }
 
+// DeleteEmbedding deletes a single embedding by ID.
+// Used for saga compensation when downstream pipeline stages fail.
+func (r *PostgresEmbeddingRepository) DeleteEmbedding(
+	ctx context.Context,
+	embeddingID int64,
+) error {
+	logger := r.logger.With(
+		logging.F("embedding_id", embeddingID),
+	)
+
+	logger.Debug("Deleting embedding by ID")
+
+	if embeddingID <= 0 {
+		return fmt.Errorf("invalid embedding_id: %d", embeddingID)
+	}
+
+	query := `DELETE FROM embeddings WHERE id = $1`
+
+	result, err := r.pool.Exec(ctx, query, embeddingID)
+	if err != nil {
+		logger.Error("Failed to delete embedding", logging.Err(err))
+		return fmt.Errorf("failed to delete embedding %d: %w", embeddingID, err)
+	}
+
+	rowsAffected := result.RowsAffected()
+	logger.Info("Embedding deleted",
+		logging.F("rows_affected", rowsAffected),
+	)
+
+	return nil
+}
+
 // Ensure PostgresEmbeddingRepository implements the EmbeddingRepository interface at compile time.
 var _ EmbeddingRepository = (*PostgresEmbeddingRepository)(nil)
