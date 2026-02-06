@@ -153,7 +153,7 @@ func (r *PostgresAssertionRepository) StoreAssertions(
 }
 
 // mapCategoryToType maps an assertion category to a valid assertion_type.
-// Valid types are: decision, risk, commitment, milestone, outcome, dependency, assumption, issue
+// Valid types are: decision, risk, commitment, milestone, outcome, dependency, assumption, issue, action, question
 func mapCategoryToType(category string) string {
 	switch category {
 	case "decision", "decisions":
@@ -172,6 +172,10 @@ func mapCategoryToType(category string) string {
 		return "assumption"
 	case "issue", "issues":
 		return "issue"
+	case "action", "actions":
+		return "action"
+	case "question", "questions":
+		return "question"
 	default:
 		// Default to "issue" for unknown categories
 		return "issue"

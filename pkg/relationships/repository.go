@@ -382,44 +382,40 @@ func (r *Repository) ListEntities(ctx context.Context, filter ListEntitiesFilter
 	if filter.EntityType == "" || filter.EntityType == EntityTypePerson {
 		people, count, err := r.getPeopleEntities(ctx, filter)
 		if err != nil {
-			r.logger.Error("Error getting people entities", logging.Err(err))
-		} else {
-			entities = append(entities, people...)
-			totalCount += count
+			return nil, 0, fmt.Errorf("get people entities: %w", err)
 		}
+		entities = append(entities, people...)
+		totalCount += count
 	}
 
 	// Get organization entities (teams)
 	if filter.EntityType == "" || filter.EntityType == EntityTypeOrganization {
 		orgs, count, err := r.getOrganizationEntities(ctx, filter)
 		if err != nil {
-			r.logger.Error("Error getting organization entities", logging.Err(err))
-		} else {
-			entities = append(entities, orgs...)
-			totalCount += count
+			return nil, 0, fmt.Errorf("get organization entities: %w", err)
 		}
+		entities = append(entities, orgs...)
+		totalCount += count
 	}
 
 	// Get project entities
 	if filter.EntityType == "" || filter.EntityType == EntityTypeProject {
 		projects, count, err := r.getProjectEntities(ctx, filter)
 		if err != nil {
-			r.logger.Error("Error getting project entities", logging.Err(err))
-		} else {
-			entities = append(entities, projects...)
-			totalCount += count
+			return nil, 0, fmt.Errorf("get project entities: %w", err)
 		}
+		entities = append(entities, projects...)
+		totalCount += count
 	}
 
 	// Get product entities
 	if filter.EntityType == "" || filter.EntityType == EntityTypeProduct {
 		products, count, err := r.getProductEntities(ctx, filter)
 		if err != nil {
-			r.logger.Error("Error getting product entities", logging.Err(err))
-		} else {
-			entities = append(entities, products...)
-			totalCount += count
+			return nil, 0, fmt.Errorf("get product entities: %w", err)
 		}
+		entities = append(entities, products...)
+		totalCount += count
 	}
 
 	// Apply limit and offset
@@ -447,10 +443,19 @@ func (r *Repository) getPeopleEntities(ctx context.Context, filter ListEntitiesF
 		LEFT JOIN person_aliases pa ON p.id = pa.person_id
 		LEFT JOIN team_members tm ON p.id = tm.person_id
 		LEFT JOIN project_members pm ON p.id = pm.person_id
-		WHERE p.tenant_id = $1
+		WHERE 1=1
 	`
-	args := []interface{}{filter.TenantID}
-	argNum := 2
+	args := []interface{}{}
+	argNum := 1
+
+	// Only filter by tenant_id if a specific, non-default value is provided.
+	// People may have been created with per-source tenant_ids, so filtering
+	// by the CLI's configured tenant_id would miss most records.
+	if filter.TenantID != "" && filter.TenantID != "00000000-0000-0000-0000-000000000000" {
+		query += fmt.Sprintf(` AND p.tenant_id = $%d`, argNum)
+		args = append(args, filter.TenantID)
+		argNum++
+	}
 
 	if filter.Search != "" {
 		query += fmt.Sprintf(` AND (LOWER(p.canonical_name) LIKE $%d OR LOWER(p.primary_email) LIKE $%d)`, argNum, argNum)

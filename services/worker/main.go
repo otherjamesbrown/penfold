@@ -19,12 +19,14 @@ import (
 
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
+	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/logs"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/otherjamesbrown/penfold/pkg/mentions/resolver"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
+	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	pkgobs "github.com/otherjamesbrown/penfold/pkg/temporal/observability"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
@@ -349,8 +351,13 @@ func main() {
 
 	// Initialize persist activities if database is available (Stage 4.5)
 	if dbPool != nil {
-		// Create persist repository
-		persistRepo := activities.NewPersistRepo(dbPool, logger)
+		// Create persist repository with review queue and glossary for acronym detection
+		reviewQueueRepo := reviewqueue.NewRepository(dbPool)
+		glossaryRepo := glossary.NewRepository(dbPool)
+		persistRepo := activities.NewPersistRepo(dbPool, logger,
+			activities.WithReviewQueue(reviewQueueRepo),
+			activities.WithGlossary(glossaryRepo),
+		)
 
 		// Create persist activities
 		persistActivities := activities.NewPersistActivities(logger, persistRepo, pipelineRepo)

@@ -5,26 +5,50 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 )
 
 // PersistRepo implements PersistRepository for Stage 4.5 persistence operations.
 type PersistRepo struct {
-	pool   *pgxpool.Pool
-	logger logging.Logger
+	pool         *pgxpool.Pool
+	logger       logging.Logger
+	reviewQueue  *reviewqueue.Repository
+	glossaryRepo *glossary.Repository
 }
 
 // NewPersistRepo creates a new persist repository.
-func NewPersistRepo(pool *pgxpool.Pool, logger logging.Logger) *PersistRepo {
-	return &PersistRepo{
+func NewPersistRepo(pool *pgxpool.Pool, logger logging.Logger, opts ...PersistRepoOption) *PersistRepo {
+	r := &PersistRepo{
 		pool:   pool,
 		logger: logger.With(logging.F("component", "persist_repo")),
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
+}
+
+// PersistRepoOption configures a PersistRepo.
+type PersistRepoOption func(*PersistRepo)
+
+// WithReviewQueue sets the review queue repository for acronym detection.
+func WithReviewQueue(rq *reviewqueue.Repository) PersistRepoOption {
+	return func(r *PersistRepo) { r.reviewQueue = rq }
+}
+
+// WithGlossary sets the glossary repository for acronym dedup.
+func WithGlossary(g *glossary.Repository) PersistRepoOption {
+	return func(r *PersistRepo) { r.glossaryRepo = g }
 }
 
 // Validation constants
@@ -125,6 +149,9 @@ func (r *PersistRepo) PersistFindings(ctx context.Context, input *PersistFinding
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
+	// Best-effort: detect acronyms and create review queue items (after commit, non-transactional)
+	r.detectAndCreateAcronymQuestions(ctx, input, output)
 
 	return output, nil
 }
@@ -615,4 +642,144 @@ func (r *PersistRepo) updateAffinity(ctx context.Context, tx pgx.Tx, input *Pers
 	}
 
 	return nil
+}
+
+// commonAcronymExclusions contains uppercase tokens that look like acronyms but aren't.
+var commonAcronymExclusions = map[string]bool{
+	"I": true, "A": true, "IT": true, "AM": true, "PM": true,
+	"IS": true, "AT": true, "IN": true, "ON": true, "TO": true,
+	"OR": true, "AN": true, "AS": true, "IF": true, "BY": true,
+	"DO": true, "GO": true, "NO": true, "SO": true, "UP": true,
+	"WE": true, "OK": true, "BE": true, "HE": true, "ME": true,
+	"MY": true, "OF": true, "US": true, "VS": true, "RE": true,
+	"THE": true, "AND": true, "FOR": true, "NOT": true, "BUT": true,
+	"ALL": true, "CAN": true, "HER": true, "WAS": true, "ONE": true,
+	"OUR": true, "OUT": true, "ARE": true, "HAS": true, "HIS": true,
+	"HOW": true, "ITS": true, "MAY": true, "NEW": true, "NOW": true,
+	"OLD": true, "SEE": true, "WAY": true, "WHO": true, "DID": true,
+	"GET": true, "HIM": true, "LET": true, "SAY": true, "SHE": true,
+	"TOO": true, "USE": true, "HAD": true,
+	"TBD": true, "TBA": true, "FYI": true, "ASAP": true, "NOTE": true,
+	"TODO": true, "DONE": true, "NONE": true, "NULL": true,
+}
+
+// acronymPattern matches uppercase tokens 2-5 chars long.
+var acronymPattern = regexp.MustCompile(`\b([A-Z]{2,5})\b`)
+
+// detectAndCreateAcronymQuestions scans analysis text for uppercase acronyms and
+// creates review queue items for unknown ones. Best-effort: errors are logged, not returned.
+func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input *PersistFindingsInput, output *PersistFindingsOutput) {
+	if r.reviewQueue == nil {
+		return
+	}
+
+	// Collect text from analysis findings
+	texts := r.collectAnalysisTexts(input.Analysis)
+	if len(texts) == 0 {
+		return
+	}
+
+	// Extract candidate acronyms
+	candidates := make(map[string]string) // term -> first context seen
+	for _, text := range texts {
+		for _, match := range acronymPattern.FindAllString(text, -1) {
+			if commonAcronymExclusions[match] {
+				continue
+			}
+			// Check all letters are uppercase (redundant with regex but safe)
+			allUpper := true
+			for _, ch := range match {
+				if !unicode.IsUpper(ch) {
+					allUpper = false
+					break
+				}
+			}
+			if !allUpper {
+				continue
+			}
+			if _, seen := candidates[match]; !seen {
+				// Store a snippet of context around the acronym
+				idx := strings.Index(text, match)
+				start := idx - 40
+				if start < 0 {
+					start = 0
+				}
+				end := idx + len(match) + 40
+				if end > len(text) {
+					end = len(text)
+				}
+				candidates[match] = text[start:end]
+			}
+		}
+	}
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	logger := r.logger.With(
+		logging.F("source_id", input.SourceID),
+		logging.F("candidate_count", len(candidates)),
+	)
+	logger.Debug("Detected acronym candidates")
+
+	for term, ctxSnippet := range candidates {
+		// Skip if already in glossary
+		if r.glossaryRepo != nil {
+			glossaryTerm, err := r.glossaryRepo.GetByTerm(ctx, term)
+			if err != nil {
+				logger.Warn("Failed to check glossary for acronym",
+					logging.F("term", term), logging.Err(err))
+				continue
+			}
+			if glossaryTerm != nil {
+				continue // Already known
+			}
+		}
+
+		// Create review queue item (CreateIfNotExists handles dedup)
+		aq := reviewqueue.AcronymQuestion{
+			Term:       term,
+			Context:    ctxSnippet,
+			SourceType: "source",
+			SourceID:   input.SourceID,
+			Confidence: 0.7,
+		}
+		_, created, err := r.reviewQueue.CreateIfNotExists(ctx, aq.ToInput())
+		if err != nil {
+			logger.Warn("Failed to create acronym review item",
+				logging.F("term", term), logging.Err(err))
+			continue
+		}
+		if created {
+			output.ReviewItemsCreated++
+		}
+	}
+}
+
+// collectAnalysisTexts gathers text strings from analysis findings for acronym scanning.
+func (r *PersistRepo) collectAnalysisTexts(analysis *DeepAnalyzeOutput) []string {
+	if analysis == nil {
+		return nil
+	}
+	var texts []string
+
+	for _, a := range analysis.VerifiedActions {
+		texts = append(texts, a.Description, a.ContextExcerpt)
+	}
+	for _, d := range analysis.VerifiedDecisions {
+		texts = append(texts, d.Description, d.ContextExcerpt)
+	}
+	for _, risk := range analysis.RiskReferences {
+		texts = append(texts, risk.Description, risk.ContextExcerpt)
+	}
+	for _, a := range analysis.ImplicitActions {
+		texts = append(texts, a.Description, a.ContextExcerpt)
+	}
+	if analysis.Summary != "" {
+		texts = append(texts, analysis.Summary)
+	}
+	texts = append(texts, analysis.Insights...)
+
+	return texts
 }

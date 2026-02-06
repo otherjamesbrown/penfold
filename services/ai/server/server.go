@@ -912,15 +912,29 @@ func (s *AIServer) extractKeyPointsFallback(text string) []string {
 }
 
 func (s *AIServer) buildAssertionSystemPrompt() string {
-	return `You are an assertion extraction assistant. Extract factual claims and statements from the content as subject-predicate-object triples.
+	return `You are a business intelligence extraction assistant. Extract meaningful business assertions from the content as subject-predicate-object triples.
 
 For each assertion, provide:
-- subject: The entity being discussed
-- predicate: The relationship or action
+- subject: The entity being discussed (a person, team, project, or system)
+- predicate: The relationship or action (what was decided, committed to, assigned, etc.)
 - object: What the subject relates to
 - confidence: Your confidence score (0.0-1.0)
 - source_text: The exact text supporting this assertion
-- category: One of: temporal, organizational, factual, relational, location, quantity
+- category: One of: decision, risk, commitment, milestone, outcome, dependency, assumption, issue, action, question
+
+Category definitions:
+- decision: A choice or determination that was made ("we decided to use Kafka")
+- risk: A potential problem or threat identified ("data loss if migration fails")
+- commitment: A promise or obligation undertaken ("James will deliver the API by Friday")
+- milestone: A significant achievement or deadline ("v2.0 launch on March 1")
+- outcome: A result or consequence of an action ("migration reduced latency by 40%")
+- dependency: A reliance on another system, team, or deliverable ("blocked on auth team")
+- assumption: An unstated belief underpinning a plan ("assumes 1000 concurrent users")
+- issue: A current problem or concern ("builds are failing on CI")
+- action: A task or follow-up assigned to someone ("Sarah to update the docs")
+- question: An unresolved question requiring an answer ("do we need HIPAA compliance?")
+
+Focus on business-meaningful assertions: decisions made, risks identified, actions assigned, commitments given, and dependencies noted. Skip trivial metadata like attendee lists or meeting logistics.
 
 Respond with a JSON object:
 {
@@ -934,9 +948,7 @@ Respond with a JSON object:
       "category": "..."
     }
   ]
-}
-
-Focus on explicit, verifiable facts. Avoid speculation or inference.`
+}`
 }
 
 type assertionsJSON struct {
