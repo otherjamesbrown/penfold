@@ -279,7 +279,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		status: PipelineStatus{
 			Stage:          "initializing",
 			StepsCompleted: 0,
-			TotalSteps:     7, // Full pipeline: parse, triage, extract, context, analyze, persist, embed
+			TotalSteps:     pkgtemporal.FullPipelineTotalSteps(),
 			LastActivity:   "",
 			StartedAt:      workflow.Now(ctx),
 			LastUpdated:    workflow.Now(ctx),
@@ -499,7 +499,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			"category", triageOutput.Category,
 			"importance", triageOutput.Importance,
 		)
-		state.status.TotalSteps = 3 // parse, triage, embed
+		state.status.TotalSteps = pkgtemporal.SkipDeepTotalSteps()
 	}
 
 	// ==================== Stages 2-4.5: Deep Processing ====================
@@ -708,9 +708,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	})
 
 	if triageOutput.SkipDeep {
-		state.status.StepsCompleted = 3
+		state.status.StepsCompleted = pkgtemporal.SkipDeepTotalSteps()
 	} else {
-		state.status.StepsCompleted = 7
+		state.status.StepsCompleted = pkgtemporal.FullPipelineTotalSteps()
 	}
 
 	// Final status update
