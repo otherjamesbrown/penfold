@@ -40,7 +40,7 @@ func (r *ContextPackageRepo) GetActiveRisks(ctx context.Context, projectIDs []in
 		FROM assertions a
 		LEFT JOIN people p ON a.owner_person_id = p.id
 		LEFT JOIN projects pr ON a.project_id = pr.id
-		WHERE a.type IN ('risk', 'issue')
+		WHERE a.assertion_type IN ('risk', 'issue')
 		  AND a.is_current = true
 		  AND a.project_id = ANY($1)
 		ORDER BY
@@ -100,7 +100,7 @@ func (r *ContextPackageRepo) GetOpenActions(ctx context.Context, projectIDs []in
 			COALESCE(p.canonical_name, '') AS assignee_name
 		FROM assertions a
 		LEFT JOIN people p ON a.assignee_person_id = p.id
-		WHERE a.type = 'action'
+		WHERE a.assertion_type = 'action'
 		  AND a.status = 'open'
 		  AND a.project_id = ANY($1)
 		ORDER BY
@@ -152,7 +152,7 @@ func (r *ContextPackageRepo) GetRecentDecisions(ctx context.Context, projectIDs 
 			COALESCE(p.canonical_name, '') AS decision_maker
 		FROM assertions a
 		LEFT JOIN people p ON a.decision_maker_person_id = p.id
-		WHERE a.type = 'decision'
+		WHERE a.assertion_type = 'decision'
 		  AND a.project_id = ANY($1)
 		  AND a.created_at > now() - ($2 || ' days')::interval
 		ORDER BY a.created_at DESC

@@ -97,9 +97,9 @@ func (r *PostgresAssertionRepository) StoreAssertions(
 				tenant_id,
 				source_id,
 				assertion_type,
-				content,
-				context,
-				confidence_score,
+				description,
+				source_quote,
+				confidence,
 				extraction_model,
 				processing_metadata
 			) VALUES (
