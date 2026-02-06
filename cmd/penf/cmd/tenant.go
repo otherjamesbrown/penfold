@@ -119,11 +119,23 @@ func NewTenantCommand(deps *TenantCommandDeps) *cobra.Command {
 		Short: "Manage tenant context for multi-tenant operations",
 		Long: `Manage tenant context for multi-tenant operations in Penfold.
 
-Penfold supports multi-tenancy, allowing you to work with different tenant
-contexts. Use these commands to list, switch, and view tenant information.
+Penfold supports multi-tenancy — each tenant has isolated content, entities,
+and configuration. The current tenant is stored in ~/.penf/config.yaml and
+can be overridden with the PENF_TENANT_ID environment variable or --tenant flag.
 
-The current tenant is stored in ~/.penf/config.yaml and can be overridden
-by the PENF_TENANT_ID environment variable.`,
+Commands:
+  list     List all accessible tenants
+  current  Show the active tenant
+  switch   Change the active tenant
+  show     Display tenant details
+
+Examples:
+  penf tenant current              Show active tenant
+  penf tenant list                 List all tenants
+  penf tenant switch my-tenant     Switch to a different tenant
+  penf tenant show my-tenant       View tenant details
+
+Most commands accept --tenant to override the active tenant for a single operation.`,
 	}
 
 	// Add subcommands

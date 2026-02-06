@@ -74,7 +74,7 @@ Documentation:
 	}
 
 	// Add persistent flags
-	cmd.PersistentFlags().StringVarP(&auditOutput, "output", "o", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&auditOutput, "output", "o", "", "Output format: text, json, yaml")
 	cmd.PersistentFlags().IntVarP(&auditLimit, "limit", "l", 20, "Maximum number of results")
 
 	// Add subcommands

@@ -89,7 +89,7 @@ Related Commands:
 
 	// Add persistent flags.
 	cmd.PersistentFlags().StringVarP(&watchTenant, "tenant", "t", "", "Tenant ID (overrides config)")
-	cmd.PersistentFlags().StringVarP(&watchOutput, "output", "o", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&watchOutput, "output", "o", "", "Output format: text, json, yaml")
 
 	// Add subcommands.
 	cmd.AddCommand(newWatchListCommand(deps))

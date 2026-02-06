@@ -91,12 +91,17 @@ Examples:
   penf trust set 123 --level 4 --domains technical-risk,timeline
 
   # Clear trust for a person
-  penf trust clear 123`,
+  penf trust clear 123
+
+Related Commands:
+  penf seniority             Set organizational seniority (1-7)
+  penf relationship entity   Manage the person entity itself
+  penf briefing              Uses trust levels for assertion priority ranking`,
 	}
 
 	// Add persistent flags.
 	cmd.PersistentFlags().StringVarP(&trustTenant, "tenant", "t", "", "Tenant ID (overrides config)")
-	cmd.PersistentFlags().StringVarP(&trustOutput, "output", "o", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&trustOutput, "output", "o", "", "Output format: text, json, yaml")
 
 	// Add subcommands.
 	cmd.AddCommand(newTrustSetCommand(deps))
@@ -174,12 +179,17 @@ Examples:
   penf seniority set 123 --tier 5
 
   # Clear seniority for a person
-  penf seniority clear 123`,
+  penf seniority clear 123
+
+Related Commands:
+  penf trust                 Set trust levels and domains (0-5)
+  penf relationship entity   Manage the person entity itself
+  penf escalations           Detect seniority escalations in content`,
 	}
 
 	// Add persistent flags.
 	cmd.PersistentFlags().StringVarP(&seniorityTenant, "tenant", "t", "", "Tenant ID (overrides config)")
-	cmd.PersistentFlags().StringVarP(&seniorityOutput, "output", "o", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&seniorityOutput, "output", "o", "", "Output format: text, json, yaml")
 
 	// Add subcommands.
 	cmd.AddCommand(newSenioritySetCommand(deps))

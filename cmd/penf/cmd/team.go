@@ -89,7 +89,7 @@ Related Commands:
 
 	// Add persistent flags.
 	cmd.PersistentFlags().StringVarP(&teamTenant, "tenant", "t", "", "Tenant ID (overrides config)")
-	cmd.PersistentFlags().StringVarP(&teamOutput, "output", "o", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&teamOutput, "output", "o", "", "Output format: text, json, yaml")
 
 	// Add subcommands.
 	cmd.AddCommand(newTeamListCommand(deps))

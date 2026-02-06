@@ -64,7 +64,12 @@ Commands:
 
 Documentation:
   Pipeline concepts:   docs/concepts/pipeline.md
-  System vision:       docs/shared/vision.md`,
+  System vision:       docs/shared/vision.md
+
+Related Commands:
+  penf workflow    Monitor individual workflow runs (Temporal)
+  penf content     Browse and manage processed content items
+  penf logs        View service logs (gateway, worker, AI)`,
 	}
 
 	cmd.AddCommand(newPipelineStatusCmd(pipelineDeps))

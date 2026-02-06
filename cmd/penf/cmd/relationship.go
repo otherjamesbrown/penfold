@@ -211,7 +211,7 @@ Documentation:
 
 	// Add persistent flags.
 	cmd.PersistentFlags().StringVarP(&relationshipTenant, "tenant", "t", "", "Tenant ID (overrides config)")
-	cmd.PersistentFlags().StringVarP(&relationshipOutput, "output", "o", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&relationshipOutput, "output", "o", "", "Output format: text, json, yaml")
 	cmd.PersistentFlags().IntVarP(&relationshipLimit, "limit", "l", 20, "Maximum number of results")
 	cmd.PersistentFlags().Float64Var(&relationshipConfidenceMin, "confidence-min", 0.0, "Minimum confidence threshold (0.0-1.0)")
 

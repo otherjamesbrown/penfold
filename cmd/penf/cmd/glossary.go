@@ -82,7 +82,7 @@ Documentation:
 	}
 
 	// Add persistent flags
-	cmd.PersistentFlags().StringVarP(&glossaryOutput, "output", "o", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&glossaryOutput, "output", "o", "", "Output format: text, json, yaml")
 	cmd.PersistentFlags().IntVarP(&glossaryLimit, "limit", "l", 50, "Maximum number of results")
 
 	// Add subcommands

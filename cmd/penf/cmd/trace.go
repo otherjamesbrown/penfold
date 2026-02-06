@@ -83,7 +83,12 @@ Examples:
 
 Documentation:
   Pipeline concepts:   docs/concepts/pipeline.md
-  Entity model:        docs/shared/entities.md`,
+  Entity model:        docs/shared/entities.md
+
+Related Commands:
+  penf content trace <id>    Processing timeline for a content item
+  penf pipeline history <id> Pipeline execution stages for a source
+  penf audit traces          Mention resolution decision traces`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTrace(cmd, deps, args[0])

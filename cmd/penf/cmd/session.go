@@ -60,7 +60,12 @@ Examples:
   penf session resume             # Load last checkpoint
   penf session end "summary"      # End current session
   penf session context            # Show current session
-  penf session history            # List past sessions`,
+  penf session history            # List past sessions
+
+Related Commands:
+  penf memory     Persistent notes that survive across sessions
+  penf message    Agent-to-agent messaging
+  penf context    Command history and project context`,
 	}
 
 	cmd.AddCommand(newSessionStartCommand(deps))

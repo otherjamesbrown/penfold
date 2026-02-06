@@ -37,14 +37,20 @@ func NewReminderCommand(deps *ReminderCommandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reminders",
 		Short: "Manage reminders",
-		Long: `Commands for managing reminders in Context-Palace.
+		Long: `Commands for managing time-based reminders in Context-Palace.
 
-Reminders are stored as shards with type="reminder" and contain a
-remind_after timestamp for scheduling.
+Reminders are scheduled notifications stored as shards. They have a
+remind_after timestamp that determines when they become due.
 
 Examples:
-  penf reminders list --due
-  penf reminders list --due -o json`,
+  penf reminders list              List all reminders
+  penf reminders list --due        List only due reminders
+  penf reminders list --due -o json  Due reminders as JSON
+
+Related Commands:
+  penf memory       Persistent notes and context (not time-triggered)
+  penf session      Work session management`,
+		Aliases: []string{"reminder"},
 	}
 
 	cmd.AddCommand(newReminderListCommand(deps))

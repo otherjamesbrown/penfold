@@ -97,7 +97,14 @@ Examples:
 
 Documentation:
   System vision:       docs/shared/vision.md
-  Entity model:        docs/shared/entities.md`,
+  Entity model:        docs/shared/entities.md
+
+When to Use:
+  ai query     Synthesized answers from the knowledge base
+  ai summarize Summary of a specific content item
+  ai analyze   Deep analysis (sentiment, entities, action items)
+  search       Find specific content items (use search, not ai, for browsing)
+  briefing     Project-scoped priority assertions (not general Q&A)`,
 	}
 
 	// Add subcommands.

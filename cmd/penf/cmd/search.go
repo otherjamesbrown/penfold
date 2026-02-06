@@ -249,7 +249,12 @@ JSON Output (for AI processing):
 Documentation:
   Glossary expansion: docs/concepts/glossary.md (how acronyms expand queries)
   Entity types:       docs/shared/entities.md (what you're searching)
-  Vision:             docs/shared/vision.md (why search matters)`,
+  Vision:             docs/shared/vision.md (why search matters)
+
+When to Use:
+  search     Find specific content by keywords, dates, or content type
+  ai query   Get synthesized answers to natural language questions
+  briefing   Get priority-ordered assertions for a specific project`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSearch(cmd.Context(), deps, strings.Join(args, " "))

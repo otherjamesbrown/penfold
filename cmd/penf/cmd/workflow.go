@@ -134,7 +134,11 @@ Examples:
 
 Documentation:
   Pipeline overview:   docs/concepts/pipeline.md
-  System vision:       docs/shared/vision.md`,
+  System vision:       docs/shared/vision.md
+
+Related Commands:
+  penf pipeline    Pipeline-level statistics and queue status
+  penf content     Browse processed content items`,
 	}
 
 	// Add subcommands.

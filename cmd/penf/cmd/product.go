@@ -188,7 +188,7 @@ Documentation:
 
 	// Add persistent flags.
 	cmd.PersistentFlags().StringVarP(&productTenant, "tenant", "t", "", "Tenant ID (overrides config)")
-	cmd.PersistentFlags().StringVarP(&productOutput, "output", "o", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&productOutput, "output", "o", "", "Output format: text, json, yaml")
 
 	// Add subcommands.
 	cmd.AddCommand(newProductListCommand(deps))

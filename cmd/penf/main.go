@@ -73,25 +73,23 @@ Penfold aggregates and correlates information from communication channels
 (email, Slack, documents, meetings) into a queryable institutional memory.
 
 DESIGNED FOR AI ASSISTANTS:
-  This CLI is optimized for use by AI assistants (like Claude Code), not direct
-  human interaction. Commands support JSON output (-o json) for structured data,
-  and batch processing for intelligent bulk operations.
+  This CLI is optimized for AI assistants (like Claude Code). Commands support
+  --output json for structured data. Run 'penf <command> --help' to discover
+  subcommands, flags, and examples.
 
-QUICK START:
-  penf init              Initialize configuration and documentation
-  penf search "query"    Search the knowledge base
-  penf health            Check system status
+COMMON WORKFLOWS:
+  Query knowledge:  penf search "topic"  |  penf ai query "question"
+  Project briefing: penf briefing "project name"
+  Check system:     penf health -e  →  penf pipeline status
+  Ingest content:   penf ingest email ./dir  →  penf process onboarding context
+  Review entities:  penf review start  →  penf review queue  →  penf review accept <id>
+  Manage people:    penf relationship entity list  →  penf trust set  →  penf seniority set
 
-DOCUMENTATION:
-  After 'penf init', read docs/assistant-rules.md - it defines your identity,
-  operating principles, and guides you to all other documentation.
-
-  Run 'penf init' to install docs, or 'penf update' to refresh them.
-
-FOR AI ASSISTANTS:
-  - Start with docs/assistant-rules.md (your operating manual)
-  - Use -o json for all commands when processing data
-  - Use 'penf process <workflow> context' for batch operations`,
+DISCOVERY:
+  penf <command> --help       Subcommands, flags, and examples for any command
+  penf health -e              System health with pipeline statistics
+  penf pipeline status        Processing pipeline overview
+  penf debug info             Full diagnostic information`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Record start time for command logging.
 		cmdStartTime = time.Now()
@@ -161,7 +159,17 @@ var versionCmd = &cobra.Command{
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Check connection status to the API Gateway",
-	Long:  `Check the connection status to the Penfold API Gateway and display service health information.`,
+	Long: `Check the connection status to the Penfold API Gateway.
+
+This is a lightweight connectivity check — it verifies the gRPC connection
+is established and responsive. For comprehensive system health including
+database, queues, pipeline stats, and ML services, use 'penf health' instead.
+
+Examples:
+  penf status                Quick connection check
+  penf health                Full system health check
+  penf health -e             Health with pipeline statistics
+  penf health -e -f          Health with functional inference tests`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Initialize client.
 		if err := initClient(); err != nil {
@@ -1022,49 +1030,189 @@ func init() {
 	healthCmd.AddCommand(cmd.NewHealthLocalCommand())
 	healthCmd.AddCommand(cmd.NewHealthGatewayCommand())
 
-	// Add commands.
-	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(statusCmd)
+	// Add command groups for organized help output.
+	rootCmd.AddGroup(
+		&cobra.Group{ID: "query", Title: "Querying:"},
+		&cobra.Group{ID: "content", Title: "Content & Pipeline:"},
+		&cobra.Group{ID: "entities", Title: "Entities:"},
+		&cobra.Group{ID: "people", Title: "People Attributes:"},
+		&cobra.Group{ID: "review", Title: "Review & Triage:"},
+		&cobra.Group{ID: "meetings", Title: "Meetings:"},
+		&cobra.Group{ID: "ops", Title: "Operations:"},
+		&cobra.Group{ID: "palace", Title: "Context-Palace:"},
+		&cobra.Group{ID: "setup", Title: "Setup:"},
+	)
+
+	// Querying
+	searchCmd := cmd.NewSearchCommand(nil)
+	searchCmd.GroupID = "query"
+	rootCmd.AddCommand(searchCmd)
+
+	aiCmd := cmd.NewAICommand(nil)
+	aiCmd.GroupID = "query"
+	rootCmd.AddCommand(aiCmd)
+
+	briefingCmd := cmd.NewBriefingCommand(nil)
+	briefingCmd.GroupID = "query"
+	rootCmd.AddCommand(briefingCmd)
+
+	// Content & Pipeline
+	contentCmd := cmd.NewContentCommand(nil)
+	contentCmd.GroupID = "content"
+	rootCmd.AddCommand(contentCmd)
+
+	pipelineCmd := cmd.NewPipelineCommand(nil)
+	pipelineCmd.GroupID = "content"
+	rootCmd.AddCommand(pipelineCmd)
+
+	ingestCmd := cmd.NewIngestCommand(nil)
+	ingestCmd.GroupID = "content"
+	rootCmd.AddCommand(ingestCmd)
+
+	workflowCmd := cmd.NewWorkflowCommand(nil)
+	workflowCmd.GroupID = "content"
+	rootCmd.AddCommand(workflowCmd)
+
+	// Entities
+	relationshipCmd := cmd.NewRelationshipCommand(nil)
+	relationshipCmd.GroupID = "entities"
+	rootCmd.AddCommand(relationshipCmd)
+
+	productCmd := cmd.NewProductCommand(nil)
+	productCmd.GroupID = "entities"
+	rootCmd.AddCommand(productCmd)
+
+	projectCmd := cmd.NewProjectCommand(nil)
+	projectCmd.GroupID = "entities"
+	rootCmd.AddCommand(projectCmd)
+
+	teamCmd := cmd.NewTeamCommand(nil)
+	teamCmd.GroupID = "entities"
+	rootCmd.AddCommand(teamCmd)
+
+	glossaryCmd := cmd.NewGlossaryCommand(nil)
+	glossaryCmd.GroupID = "entities"
+	rootCmd.AddCommand(glossaryCmd)
+
+	// People Attributes
+	trustCmd := cmd.NewTrustCommand(nil)
+	trustCmd.GroupID = "people"
+	rootCmd.AddCommand(trustCmd)
+
+	seniorityCmd := cmd.NewSeniorityCommand(nil)
+	seniorityCmd.GroupID = "people"
+	rootCmd.AddCommand(seniorityCmd)
+
+	// Review & Triage
+	reviewCmd := cmd.NewReviewCommand(nil)
+	reviewCmd.GroupID = "review"
+	rootCmd.AddCommand(reviewCmd)
+
+	processCmd := cmd.NewProcessCommand(nil)
+	processCmd.GroupID = "review"
+	rootCmd.AddCommand(processCmd)
+
+	watchCmd := cmd.NewWatchCommand(nil)
+	watchCmd.GroupID = "review"
+	rootCmd.AddCommand(watchCmd)
+
+	escalationsCmd := cmd.NewEscalationsCommand(nil)
+	escalationsCmd.GroupID = "review"
+	rootCmd.AddCommand(escalationsCmd)
+
+	auditCmd := cmd.NewAuditCommand(nil)
+	auditCmd.GroupID = "review"
+	rootCmd.AddCommand(auditCmd)
+
+	// Meetings
+	meetingCmd := cmd.NewMeetingCommand(nil)
+	meetingCmd.GroupID = "meetings"
+	rootCmd.AddCommand(meetingCmd)
+
+	// Operations
+	healthCmd.GroupID = "ops"
 	rootCmd.AddCommand(healthCmd)
+
+	statusCmd.GroupID = "ops"
+	rootCmd.AddCommand(statusCmd)
+
+	logsCmd := cmd.NewLogsCommand(nil)
+	logsCmd.GroupID = "ops"
+	rootCmd.AddCommand(logsCmd)
+
+	deployCmd := cmd.NewDeployCommand()
+	deployCmd.GroupID = "ops"
+	rootCmd.AddCommand(deployCmd)
+
+	modelCmd := cmd.NewModelCommand(nil)
+	modelCmd.GroupID = "ops"
+	rootCmd.AddCommand(modelCmd)
+
+	traceCmd := cmd.NewTraceCommand(nil)
+	traceCmd.GroupID = "ops"
+	rootCmd.AddCommand(traceCmd)
+
+	debugCmd := cmd.NewDebugCommand(nil)
+	debugCmd.GroupID = "ops"
+	rootCmd.AddCommand(debugCmd)
+
+	// Context-Palace
+	contextCmd := cmd.NewContextCommand(nil)
+	contextCmd.GroupID = "palace"
+	rootCmd.AddCommand(contextCmd)
+
+	memoryCmd := cmd.NewMemoryCommand(nil)
+	memoryCmd.GroupID = "palace"
+	rootCmd.AddCommand(memoryCmd)
+
+	backlogCmd := cmd.NewBacklogCommand(nil)
+	backlogCmd.GroupID = "palace"
+	rootCmd.AddCommand(backlogCmd)
+
+	sessionCmd := cmd.NewSessionCommand(nil)
+	sessionCmd.GroupID = "palace"
+	rootCmd.AddCommand(sessionCmd)
+
+	messageCmd := cmd.NewMessageCommand(nil)
+	messageCmd.GroupID = "palace"
+	rootCmd.AddCommand(messageCmd)
+
+	reminderCmd := cmd.NewReminderCommand(nil)
+	reminderCmd.GroupID = "palace"
+	rootCmd.AddCommand(reminderCmd)
+
+	// Setup
+	configCmd.GroupID = "setup"
 	rootCmd.AddCommand(configCmd)
-	rootCmd.AddCommand(completionCmd)
+
+	cmd.AuthCmd.GroupID = "setup"
 	rootCmd.AddCommand(cmd.AuthCmd)
-	rootCmd.AddCommand(cmd.NewTenantCommand(nil))
-	rootCmd.AddCommand(cmd.NewSearchCommand(nil))
-	rootCmd.AddCommand(cmd.NewIngestCommand(nil))
-	rootCmd.AddCommand(cmd.NewReviewCommand(nil))
-	rootCmd.AddCommand(cmd.NewAICommand(nil))
-	rootCmd.AddCommand(cmd.NewWorkflowCommand(nil))
-	rootCmd.AddCommand(cmd.NewLogsCommand(nil))
-	rootCmd.AddCommand(cmd.NewDebugCommand(nil))
-	rootCmd.AddCommand(cmd.NewPipelineCommand(nil))
-	rootCmd.AddCommand(cmd.NewGlossaryCommand(nil))
-	rootCmd.AddCommand(cmd.NewContentCommand(nil))
-	rootCmd.AddCommand(cmd.NewRelationshipCommand(nil))
-	rootCmd.AddCommand(cmd.NewProductCommand(nil))
-	rootCmd.AddCommand(cmd.NewProjectCommand(nil))
-	rootCmd.AddCommand(cmd.NewTeamCommand(nil))
-	rootCmd.AddCommand(cmd.NewTrustCommand(nil))
-	rootCmd.AddCommand(cmd.NewSeniorityCommand(nil))
-	rootCmd.AddCommand(cmd.NewProcessCommand(nil))
-	rootCmd.AddCommand(cmd.NewInitCommand())
-	rootCmd.AddCommand(cmd.NewUpdateCommand(version))
-	rootCmd.AddCommand(cmd.NewFeedbackCommand(version))
-	rootCmd.AddCommand(cmd.NewAuditCommand(nil))
-	rootCmd.AddCommand(cmd.NewModelCommand(nil))
-	rootCmd.AddCommand(cmd.NewTraceCommand(nil))
-	rootCmd.AddCommand(cmd.NewCertCommand())
-	rootCmd.AddCommand(cmd.NewContextCommand(nil))
-	rootCmd.AddCommand(cmd.NewMemoryCommand(nil))
-	rootCmd.AddCommand(cmd.NewBacklogCommand(nil))
-	rootCmd.AddCommand(cmd.NewSessionCommand(nil))
-	rootCmd.AddCommand(cmd.NewMessageCommand(nil))
-	rootCmd.AddCommand(cmd.NewMeetingCommand(nil))
-	rootCmd.AddCommand(cmd.NewReminderCommand(nil))
-	rootCmd.AddCommand(cmd.NewWatchCommand(nil))
-	rootCmd.AddCommand(cmd.NewBriefingCommand(nil))
-	rootCmd.AddCommand(cmd.NewEscalationsCommand(nil))
-	rootCmd.AddCommand(cmd.NewDeployCommand())
+
+	certCmd := cmd.NewCertCommand()
+	certCmd.GroupID = "setup"
+	rootCmd.AddCommand(certCmd)
+
+	tenantCmd := cmd.NewTenantCommand(nil)
+	tenantCmd.GroupID = "setup"
+	rootCmd.AddCommand(tenantCmd)
+
+	initCmd := cmd.NewInitCommand()
+	initCmd.GroupID = "setup"
+	rootCmd.AddCommand(initCmd)
+
+	updateCmd := cmd.NewUpdateCommand(version)
+	updateCmd.GroupID = "setup"
+	rootCmd.AddCommand(updateCmd)
+
+	feedbackCmd := cmd.NewFeedbackCommand(version)
+	feedbackCmd.GroupID = "setup"
+	rootCmd.AddCommand(feedbackCmd)
+
+	completionCmd.GroupID = "setup"
+	rootCmd.AddCommand(completionCmd)
+
+	versionCmd.GroupID = "setup"
+	rootCmd.AddCommand(versionCmd)
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)

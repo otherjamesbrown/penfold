@@ -65,7 +65,12 @@ Examples:
   penf memory resolve pf-abc123
 
   # Defer a memory to later
-  penf memory defer pf-abc123 --until "2026-02-15"`,
+  penf memory defer pf-abc123 --until "2026-02-15"
+
+Related Commands:
+  penf reminders   Time-triggered reminders (subset of memory)
+  penf session     Work session management
+  penf context     Command history and project context`,
 	}
 
 	cmd.AddCommand(newMemoryAddCommand(deps))

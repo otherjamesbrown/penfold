@@ -66,7 +66,7 @@ JSON Output (for AI processing):
 	}
 
 	// Add persistent flags
-	cmd.PersistentFlags().StringVarP(&questionsOutput, "output", "o", "", "Output format: table, json, yaml")
+	cmd.PersistentFlags().StringVarP(&questionsOutput, "output", "o", "", "Output format: text, json, yaml")
 	cmd.PersistentFlags().IntVarP(&questionsLimit, "limit", "l", 20, "Maximum number of results")
 
 	// Add subcommands

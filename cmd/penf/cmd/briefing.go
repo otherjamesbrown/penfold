@@ -90,12 +90,22 @@ func NewEscalationsCommand(deps *BriefingCommandDeps) *cobra.Command {
 		Short: "Show seniority escalations for a processing batch",
 		Long: `Show seniority escalations for a processing batch.
 
-Displays assertions where the maximum seniority has increased,
-indicating more senior people have joined the discussion.
+An escalation occurs when a more senior person joins a discussion, raising
+the maximum seniority tier. This signals that a topic may be getting
+elevated attention and could require priority handling.
+
+Seniority tiers: 1 (IC) → 4 (Manager) → 7 (VP/Executive)
+When a topic jumps from tier 2 to tier 5, that's an escalation.
 
 Examples:
   penf escalations --source-id 12345
-  penf escalations --source-id 12345 -o json`,
+  penf escalations --source-id 12345 -o json
+
+Related Commands:
+  penf briefing     Priority-ordered assertions (uses escalation data)
+  penf seniority    Set seniority tiers for people
+  penf trust        Set trust levels for people`,
+		Aliases: []string{"escalation"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if escalationSource == 0 {
 				return fmt.Errorf("--source-id is required")

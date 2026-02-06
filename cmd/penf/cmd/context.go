@@ -38,11 +38,29 @@ func NewContextCommand(deps *ContextCommandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "context",
 		Short: "Context-Palace operations",
-		Long: `Commands for interacting with Context-Palace, the shared memory system
-for cross-session and cross-agent coordination.
+		Long: `Commands for interacting with Context-Palace, the shared memory and
+coordination system that persists across CLI sessions.
 
-Context-Palace stores command history, messages, and tasks that persist
-across CLI sessions.`,
+Context-Palace stores command history, agent messages, tasks, and session
+state. Use these commands to access cross-session context.
+
+Commands:
+  history    Recent CLI command history from Context-Palace
+  morning    Display the morning briefing playbook
+  project    Get comprehensive project context for drill-down
+  status     Check Context-Palace connection and configuration
+
+Examples:
+  penf context status              Verify Context-Palace connectivity
+  penf context history             Recent command history
+  penf context morning             Morning briefing playbook
+  penf context project --name X    Deep project context
+
+Related Commands:
+  penf session    Work session management (checkpoint/resume)
+  penf memory     Persistent memory shards
+  penf message    Agent-to-agent messaging
+  penf backlog    Development work items`,
 	}
 
 	cmd.AddCommand(newContextHistoryCommand(deps))
