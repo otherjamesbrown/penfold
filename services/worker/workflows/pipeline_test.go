@@ -19,60 +19,60 @@ type PipelineMockActivities struct {
 	mock.Mock
 }
 
-func (m *PipelineMockActivities) ParseEmail(ctx context.Context, input pipelineParseEmailInput) (*pipelineParseEmailOutput, error) {
+func (m *PipelineMockActivities) ParseEmail(ctx context.Context, input ParseEmailInput) (*ParseEmailOutput, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*pipelineParseEmailOutput), args.Error(1)
+	return args.Get(0).(*ParseEmailOutput), args.Error(1)
 }
 
-func (m *PipelineMockActivities) ParseTranscript(ctx context.Context, input pipelineParseTranscriptInput) (*pipelineParseTranscriptOutput, error) {
+func (m *PipelineMockActivities) ParseTranscript(ctx context.Context, input ParseTranscriptInput) (*ParseTranscriptOutput, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*pipelineParseTranscriptOutput), args.Error(1)
+	return args.Get(0).(*ParseTranscriptOutput), args.Error(1)
 }
 
-func (m *PipelineMockActivities) Triage(ctx context.Context, input pipelineTriageInput) (*pipelineTriageOutput, error) {
+func (m *PipelineMockActivities) Triage(ctx context.Context, input TriageInput) (*TriageOutput, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*pipelineTriageOutput), args.Error(1)
+	return args.Get(0).(*TriageOutput), args.Error(1)
 }
 
-func (m *PipelineMockActivities) ExtractEntitiesActivity(ctx context.Context, input pipelineExtractInput) (*pipelineExtractOutput, error) {
+func (m *PipelineMockActivities) ExtractEntitiesActivity(ctx context.Context, input SLMPipelineExtractEntitiesInput) (*SLMPipelineExtractEntitiesOutput, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*pipelineExtractOutput), args.Error(1)
+	return args.Get(0).(*SLMPipelineExtractEntitiesOutput), args.Error(1)
 }
 
-func (m *PipelineMockActivities) BuildContextPackage(ctx context.Context, input pipelineContextInput) (*pipelineContextOutput, error) {
+func (m *PipelineMockActivities) BuildContextPackage(ctx context.Context, input BuildContextInput) (*BuildContextOutput, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*pipelineContextOutput), args.Error(1)
+	return args.Get(0).(*BuildContextOutput), args.Error(1)
 }
 
-func (m *PipelineMockActivities) DeepAnalyze(ctx context.Context, input pipelineAnalyzeInput) (*pipelineAnalyzeOutput, error) {
+func (m *PipelineMockActivities) DeepAnalyze(ctx context.Context, input DeepAnalyzeInput) (*DeepAnalyzeOutput, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*pipelineAnalyzeOutput), args.Error(1)
+	return args.Get(0).(*DeepAnalyzeOutput), args.Error(1)
 }
 
-func (m *PipelineMockActivities) PersistFindings(ctx context.Context, input pipelinePersistInput) (*pipelinePersistOutput, error) {
+func (m *PipelineMockActivities) PersistFindings(ctx context.Context, input PersistFindingsInput) (*PersistFindingsOutput, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*pipelinePersistOutput), args.Error(1)
+	return args.Get(0).(*PersistFindingsOutput), args.Error(1)
 }
 
 func (m *PipelineMockActivities) GenerateContentEmbedding(ctx context.Context, input GenerateEmbeddingInput) (int64, error) {
@@ -135,9 +135,9 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_FullPipeline() {
 	}
 
 	// Stage 0: Parse
-	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in pipelineParseEmailInput) bool {
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
 		return in.SourceID == 100
-	})).Return(&pipelineParseEmailOutput{
+	})).Return(&ParseEmailOutput{
 		CleanBody:  "Project Alpha is at risk. The timeline has slipped by 2 weeks.",
 		NewContent: "Project Alpha is at risk. The timeline has slipped by 2 weeks.",
 	}, nil)
@@ -148,9 +148,9 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_FullPipeline() {
 	})).Return(nil)
 
 	// Stage 1: Triage
-	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in pipelineTriageInput) bool {
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
 		return in.SourceID == 100 && in.ContentType == "email"
-	})).Return(&pipelineTriageOutput{
+	})).Return(&TriageOutput{
 		Category:   "RISK_ISSUE",
 		Importance: "HIGH",
 		Reason:     "Risk escalation",
@@ -160,10 +160,10 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_FullPipeline() {
 
 	// Stage 2: Extract
 	personID := int64(42)
-	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.MatchedBy(func(in pipelineExtractInput) bool {
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.MatchedBy(func(in SLMPipelineExtractEntitiesInput) bool {
 		return in.SourceID == 100
-	})).Return(&pipelineExtractOutput{
-		People:   []pipelinePersonResult{{Name: "PM User", Role: "project_manager"}},
+	})).Return(&SLMPipelineExtractEntitiesOutput{
+		People:   []PersonResult{{Name: "PM User", Role: "project_manager"}},
 		Projects: []string{"Project Alpha"},
 		Risks:    []string{"Timeline slipped by 2 weeks"},
 	}, nil)
@@ -174,27 +174,27 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_FullPipeline() {
 	})).Return(nil)
 
 	// Stage 3: Context
-	s.activities.On("BuildContextPackage", mock.Anything, mock.MatchedBy(func(in pipelineContextInput) bool {
+	s.activities.On("BuildContextPackage", mock.Anything, mock.MatchedBy(func(in BuildContextInput) bool {
 		return in.SourceID == 100
-	})).Return(&pipelineContextOutput{
-		ResolvedPeople:   []pipelineResolvedPerson{{Name: "PM User", PersonID: &personID, Confidence: 0.95, Source: "exact_match"}},
+	})).Return(&BuildContextOutput{
+		ResolvedPeople:   []ResolvedPerson{{Name: "PM User", PersonID: &personID, Confidence: 0.95, Source: "exact_match"}},
 		EntitiesResolved: 1,
 		TokensUsed:       500,
 		TokenBudget:      2000,
 	}, nil)
 
 	// Stage 4: Analyze
-	s.activities.On("DeepAnalyze", mock.Anything, mock.MatchedBy(func(in pipelineAnalyzeInput) bool {
+	s.activities.On("DeepAnalyze", mock.Anything, mock.MatchedBy(func(in DeepAnalyzeInput) bool {
 		return in.SourceID == 100 && in.TriageCategory == "RISK_ISSUE"
-	})).Return(&pipelineAnalyzeOutput{
+	})).Return(&DeepAnalyzeOutput{
 		Summary:   "Risk escalation for Project Alpha",
 		ModelUsed: "gemini-2.0-flash",
 	}, nil)
 
 	// Stage 4.5: Persist
-	s.activities.On("PersistFindings", mock.Anything, mock.MatchedBy(func(in pipelinePersistInput) bool {
+	s.activities.On("PersistFindings", mock.Anything, mock.MatchedBy(func(in PersistFindingsInput) bool {
 		return in.SourceID == 100 && in.Analysis != nil
-	})).Return(&pipelinePersistOutput{
+	})).Return(&PersistFindingsOutput{
 		AssertionsCreated: 2,
 		ReferencesCreated: 1,
 	}, nil)
@@ -240,7 +240,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_TriageSkip() {
 	}
 
 	// Stage 0: Parse
-	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&pipelineParseEmailOutput{
+	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&ParseEmailOutput{
 		CleanBody: "Hey, lunch at noon?",
 	}, nil)
 
@@ -249,7 +249,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_TriageSkip() {
 	})).Return(nil)
 
 	// Stage 1: Triage — PERSONAL
-	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&pipelineTriageOutput{
+	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&TriageOutput{
 		Category:   "PERSONAL",
 		Importance: "LOW",
 		SkipDeep:   true,
@@ -296,19 +296,19 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_Stage4Failure() {
 		SenderEmail: "pm@example.com",
 	}
 
-	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&pipelineParseEmailOutput{
+	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&ParseEmailOutput{
 		CleanBody: "Project update: Phase 2 started.",
 	}, nil)
 	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
 		return in.Status == "parsed" || in.Status == "extracted" || in.Status == "completed"
 	})).Return(nil)
-	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&pipelineTriageOutput{
+	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&TriageOutput{
 		Category: "PROJECT_UPDATE", Importance: "MEDIUM", SkipDeep: false, ModelUsed: "llama-3.2-1b",
 	}, nil)
-	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&pipelineExtractOutput{
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{
 		Projects: []string{"Project X"},
 	}, nil)
-	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&pipelineContextOutput{}, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
 
 	// Stage 4 FAILS
 	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(
@@ -346,19 +346,19 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_EmbeddingFailure() {
 		SenderEmail: "cfo@example.com",
 	}
 
-	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&pipelineParseEmailOutput{
+	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&ParseEmailOutput{
 		CleanBody: "Quick question about the budget.",
 	}, nil)
 	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
-	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&pipelineTriageOutput{
+	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&TriageOutput{
 		Category: "INTERNAL_COMMS", Importance: "MEDIUM", SkipDeep: false, ModelUsed: "llama-3.2-1b",
 	}, nil)
-	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&pipelineExtractOutput{}, nil)
-	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&pipelineContextOutput{}, nil)
-	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&pipelineAnalyzeOutput{
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{}, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{
 		Summary: "Budget inquiry", ModelUsed: "gemini-2.0-flash",
 	}, nil)
-	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&pipelinePersistOutput{}, nil)
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&PersistFindingsOutput{}, nil)
 
 	// Stage 5 FAILS
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(
@@ -391,9 +391,9 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_MeetingTranscript() {
 	}
 
 	// Stage 0: ParseTranscript
-	s.activities.On("ParseTranscript", mock.Anything, mock.MatchedBy(func(in pipelineParseTranscriptInput) bool {
+	s.activities.On("ParseTranscript", mock.Anything, mock.MatchedBy(func(in ParseTranscriptInput) bool {
 		return in.SourceID == 500 && in.Format == "vtt"
-	})).Return(&pipelineParseTranscriptOutput{
+	})).Return(&ParseTranscriptOutput{
 		CleanText:  "Sara: Let's review the risks.",
 		Speakers:   []string{"Sara"},
 		DurationMs: 5000,
@@ -402,20 +402,20 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_MeetingTranscript() {
 
 	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
 
-	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in pipelineTriageInput) bool {
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
 		return in.ContentType == "meeting"
-	})).Return(&pipelineTriageOutput{
+	})).Return(&TriageOutput{
 		Category: "PROJECT_UPDATE", Importance: "HIGH", SkipDeep: false, ModelUsed: "llama-3.2-1b",
 	}, nil)
 
-	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&pipelineExtractOutput{
-		People: []pipelinePersonResult{{Name: "Sara"}},
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{
+		People: []PersonResult{{Name: "Sara"}},
 	}, nil)
-	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&pipelineContextOutput{}, nil)
-	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&pipelineAnalyzeOutput{
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{
 		Summary: "Risk review meeting", ModelUsed: "gemini-2.0-flash",
 	}, nil)
-	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&pipelinePersistOutput{
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&PersistFindingsOutput{
 		AssertionsCreated: 1,
 	}, nil)
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(5005), nil)
@@ -445,15 +445,15 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_Stage4Timeout() {
 		SenderEmail: "customer@example.com",
 	}
 
-	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&pipelineParseEmailOutput{
+	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&ParseEmailOutput{
 		CleanBody: "Important customer feedback received.",
 	}, nil)
 	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
-	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&pipelineTriageOutput{
+	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&TriageOutput{
 		Category: "CUSTOMER", Importance: "HIGH", SkipDeep: false, ModelUsed: "llama-3.2-1b",
 	}, nil)
-	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&pipelineExtractOutput{}, nil)
-	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&pipelineContextOutput{}, nil)
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{}, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
 
 	// Stage 4 times out
 	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(
@@ -490,11 +490,11 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_QueryStatus() {
 	}
 
 	// Minimal mocks for quick completion (PERSONAL skip)
-	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&pipelineParseEmailOutput{
+	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&ParseEmailOutput{
 		CleanBody: "Status check content.",
 	}, nil)
 	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
-	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&pipelineTriageOutput{
+	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&TriageOutput{
 		Category: "PERSONAL", Importance: "LOW", SkipDeep: true, ModelUsed: "llama-3.2-1b",
 	}, nil)
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(5007), nil)
@@ -529,13 +529,13 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_Cancellation() {
 	}
 
 	// Stage 0 succeeds
-	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&pipelineParseEmailOutput{
+	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&ParseEmailOutput{
 		CleanBody: "Content to be cancelled.",
 	}, nil)
 	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Maybe().Return(nil)
 
 	// Stage 1 succeeds
-	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&pipelineTriageOutput{
+	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&TriageOutput{
 		Category: "PROJECT_UPDATE", Importance: "HIGH", SkipDeep: false, ModelUsed: "llama-3.2-1b",
 	}, nil)
 
@@ -547,10 +547,10 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_Cancellation() {
 	}, 0)
 
 	// These may or may not be called depending on timing
-	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Maybe().Return(&pipelineExtractOutput{}, nil)
-	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Maybe().Return(&pipelineContextOutput{}, nil)
-	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Maybe().Return(&pipelineAnalyzeOutput{}, nil)
-	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Maybe().Return(&pipelinePersistOutput{}, nil)
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Maybe().Return(&SLMPipelineExtractEntitiesOutput{}, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Maybe().Return(&BuildContextOutput{}, nil)
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Maybe().Return(&DeepAnalyzeOutput{}, nil)
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Maybe().Return(&PersistFindingsOutput{}, nil)
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
 
 	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)

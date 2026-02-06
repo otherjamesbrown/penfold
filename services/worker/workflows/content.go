@@ -262,7 +262,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	updateStatus("validating", "ValidateContent")
 	var validateOutput ValidateContentOutput
 	ctx0 := workflow.WithActivityOptions(ctx, fastOpts)
-	err := workflow.ExecuteActivity(ctx0, "ValidateContent", ValidateContentInput{
+	err := workflow.ExecuteActivity(ctx0, pkgtemporal.ActivityValidateContent, ValidateContentInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 	}).Get(ctx, &validateOutput)
@@ -280,7 +280,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 			"reason", validateOutput.FailureReason,
 		)
 		ctx0Update := workflow.WithActivityOptions(ctx, fastOpts)
-		err = workflow.ExecuteActivity(ctx0Update, "UpdateContentStatus", UpdateContentStatusInput{
+		err = workflow.ExecuteActivity(ctx0Update, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID:        input.TenantID,
 			SourceID:        input.SourceID,
 			Status:          "rejected",
@@ -301,7 +301,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	updateStatus("fetching_content", "FetchContent")
 	var fetchOutput FetchContentOutput
 	ctx1 := workflow.WithActivityOptions(ctx, fastOpts)
-	err = workflow.ExecuteActivity(ctx1, "FetchContent", FetchContentInput{
+	err = workflow.ExecuteActivity(ctx1, pkgtemporal.ActivityFetchContent, FetchContentInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 	}).Get(ctx, &fetchOutput)
@@ -328,7 +328,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	var embeddingFailed bool
 	var embeddingError string
 	ctx2 := workflow.WithActivityOptions(ctx, embeddingOpts)
-	err = workflow.ExecuteActivity(ctx2, "GenerateContentEmbedding", GenerateEmbeddingInput{
+	err = workflow.ExecuteActivity(ctx2, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
 		TenantID:    input.TenantID,
 		SourceID:    input.SourceID,
 		ContentID:   input.ContentID,
@@ -345,7 +345,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		compensations = append(compensations, func(ctx workflow.Context) error {
 			return workflow.ExecuteActivity(
 				workflow.WithActivityOptions(ctx, fastOpts),
-				"DeleteEmbedding",
+				pkgtemporal.ActivityDeleteEmbedding,
 				embeddingID,
 			).Get(ctx, nil)
 		})
@@ -365,7 +365,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	updateStatus("generating_summary", "GenerateSummary")
 	var summaryID int64
 	ctx3 := workflow.WithActivityOptions(ctx, llmOpts)
-	err = workflow.ExecuteActivity(ctx3, "GenerateContentSummary", GenerateSummaryInput{
+	err = workflow.ExecuteActivity(ctx3, pkgtemporal.ActivityGenerateContentSummary, GenerateSummaryInput{
 		TenantID:  input.TenantID,
 		SourceID:  input.SourceID,
 		ContentID: input.ContentID,
@@ -380,7 +380,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		compensations = append(compensations, func(ctx workflow.Context) error {
 			return workflow.ExecuteActivity(
 				workflow.WithActivityOptions(ctx, fastOpts),
-				"DeleteSummary",
+				pkgtemporal.ActivityDeleteSummary,
 				summaryID,
 			).Get(ctx, nil)
 		})
@@ -400,7 +400,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	updateStatus("extracting_entities", "ExtractEntities")
 	var entityOutput *ExtractEntitiesOutput
 	ctx4 := workflow.WithActivityOptions(ctx, llmOpts)
-	err = workflow.ExecuteActivity(ctx4, "ExtractEntitiesActivity", ExtractEntitiesInput{
+	err = workflow.ExecuteActivity(ctx4, pkgtemporal.ActivityExtractEntitiesActivity, ExtractEntitiesInput{
 		TenantID:  input.TenantID,
 		SourceID:  input.SourceID,
 		ContentID: input.ContentID,
@@ -432,7 +432,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	updateStatus("extracting_mentions", "ExtractMentions")
 	var mentionsOutput ExtractMentionsOutput
 	ctx6 := workflow.WithActivityOptions(ctx, llmOpts)
-	err = workflow.ExecuteActivity(ctx6, "ExtractMentions", ExtractMentionsInput{
+	err = workflow.ExecuteActivity(ctx6, pkgtemporal.ActivityExtractMentions, ExtractMentionsInput{
 		TenantID:       input.TenantID,
 		SourceID:       input.SourceID,
 		ContentID:      input.SourceID, // Use SourceID as ContentID for now
@@ -489,7 +489,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		)
 	}
 
-	err = workflow.ExecuteActivity(ctx7, "UpdateContentStatus", UpdateContentStatusInput{
+	err = workflow.ExecuteActivity(ctx7, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 		TenantID:        input.TenantID,
 		SourceID:        input.SourceID,
 		Status:          finalStatus,

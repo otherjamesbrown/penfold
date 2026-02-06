@@ -11,6 +11,7 @@ import (
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
+	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 // AnalysisActivities holds dependencies for analysis-related activities.
@@ -26,6 +27,13 @@ func NewAnalysisActivities(
 	aiClient AIClient,
 	pipelineRepo PipelineRepository,
 ) *AnalysisActivities {
+	if logger == nil {
+		panic("NewAnalysisActivities: logger is required")
+	}
+	if aiClient == nil {
+		panic("NewAnalysisActivities: aiClient is required")
+	}
+	// pipelineRepo is optional (provenance recording)
 	return &AnalysisActivities{
 		logger:       logger.With(logging.F("component", "analysis_activities")),
 		aiClient:     aiClient,
@@ -33,89 +41,9 @@ func NewAnalysisActivities(
 	}
 }
 
-// DeepAnalyzeInput is the input for the DeepAnalyze activity.
-type DeepAnalyzeInput struct {
-	TenantID          string                 `json:"tenant_id"`
-	SourceID          int64                  `json:"source_id"`
-	ContentID         string                 `json:"content_id,omitempty"`
-	JobID             string                 `json:"job_id"`
-	Content           string                 `json:"content"`
-	ContentType       string                 `json:"content_type"`      // email, meeting, slack
-	TriageCategory    string                 `json:"triage_category"`   // From Stage 1
-	TriageImportance  string                 `json:"triage_importance"` // From Stage 1
-	ExtractionResult  *ExtractEntitiesOutput `json:"extraction_result"` // From Stage 2
-	BackgroundContext string                 `json:"background_context,omitempty"`
-}
-
-// DeepAnalyzeOutput is the output from the DeepAnalyze activity.
-type DeepAnalyzeOutput struct {
-	Summary           string                   `json:"summary"`
-	Sentiment         *SentimentOutput         `json:"sentiment"`
-	TopicMappings     []TopicMappingOutput     `json:"topic_mappings"`
-	VerifiedActions   []VerifiedActionOutput   `json:"verified_action_items"`
-	VerifiedDecisions []VerifiedDecisionOutput `json:"verified_decisions"`
-	RiskReferences    []RiskReferenceOutput    `json:"risk_references"`
-	Insights          []string                 `json:"strategic_insights"`
-	ImplicitActions   []ImplicitActionOutput   `json:"implicit_action_items"`
-	ModelUsed         string                   `json:"model_used"`
-}
-
-// SentimentOutput represents business-context-aware sentiment analysis.
-type SentimentOutput struct {
-	Score       float32  `json:"score"`       // -1.0 to 1.0
-	Label       string   `json:"label"`       // positive, negative, neutral, mixed
-	Confidence  float32  `json:"confidence"`  // 0.0 to 1.0
-	Indicators  []string `json:"indicators"`  // Key sentiment indicators
-	Explanation string   `json:"explanation"` // Business context explanation
-}
-
-// TopicMappingOutput connects content to known projects/products.
-type TopicMappingOutput struct {
-	Topic          string  `json:"topic"`
-	RelatedProject string  `json:"related_project"` // Resolved product/project name
-	Relationship   string  `json:"relationship"`    // How content relates to this topic
-	Confidence     float32 `json:"confidence"`      // 0.0 to 1.0
-}
-
-// VerifiedActionOutput represents an action item verified/refined by LLM.
-type VerifiedActionOutput struct {
-	Description    string `json:"description"`
-	Assignee       string `json:"assignee"`
-	Due            string `json:"due"`
-	Priority       string `json:"priority"`        // high, medium, low
-	ContextExcerpt string `json:"context_excerpt"` // Direct quote from content (REQUIRED)
-	Status         string `json:"status"`          // confirmed, refined, removed, new
-}
-
-// VerifiedDecisionOutput represents a decision verified/refined by LLM.
-type VerifiedDecisionOutput struct {
-	Description    string `json:"description"`
-	ContextExcerpt string `json:"context_excerpt"` // Direct quote from content (REQUIRED)
-	Status         string `json:"status"`          // confirmed, refined, removed, new
-}
-
-// RiskReferenceOutput connects content to existing or new risks.
-type RiskReferenceOutput struct {
-	RootID          *int64  `json:"root_id,omitempty"`           // If matching existing risk
-	Description     string  `json:"description"`
-	LifecycleChange *string `json:"lifecycle_change,omitempty"`  // escalated, de_escalated, assigned, decided, deferred, resolved
-	Significance    string  `json:"significance"`                // primary, secondary, passing
-	ContextExcerpt  string  `json:"context_excerpt"`             // Direct quote from content (REQUIRED)
-	SeverityChange  *string `json:"severity_change,omitempty"`   // New severity if changed
-	OwnerChange     *string `json:"owner_change,omitempty"`      // New owner if changed
-	IsNew           bool    `json:"is_new"`                      // True if this is a new risk
-}
-
-// ImplicitActionOutput represents an inferred action not explicitly stated.
-type ImplicitActionOutput struct {
-	Description    string `json:"description"`
-	Reasoning      string `json:"reasoning"`       // Why this is inferred
-	ContextExcerpt string `json:"context_excerpt"` // Supporting quote from content (REQUIRED)
-}
-
 // DeepAnalyze performs Stage 4 deep analysis using a remote LLM.
 // Takes pre-processed input from pipeline stages and calls the DeepAnalyze RPC.
-func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input DeepAnalyzeInput) (*DeepAnalyzeOutput, error) {
+func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.DeepAnalyzeInput) (*workflows.DeepAnalyzeOutput, error) {
 	// Set trace_id in context for log correlation
 	if input.ContentID != "" {
 		ctx = context.WithValue(ctx, logging.TraceIDKey, input.ContentID)
@@ -238,8 +166,8 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input DeepAnalyzeI
 	return output, nil
 }
 
-// buildDeepAnalyzeRequest converts DeepAnalyzeInput to proto request.
-func buildDeepAnalyzeRequest(input DeepAnalyzeInput) *aiv1.DeepAnalyzeRequest {
+// buildDeepAnalyzeRequest converts workflows.DeepAnalyzeInput to proto request.
+func buildDeepAnalyzeRequest(input workflows.DeepAnalyzeInput) *aiv1.DeepAnalyzeRequest {
 	req := &aiv1.DeepAnalyzeRequest{
 		Content:          input.Content,
 		TriageCategory:   input.TriageCategory,
@@ -258,7 +186,7 @@ func buildDeepAnalyzeRequest(input DeepAnalyzeInput) *aiv1.DeepAnalyzeRequest {
 		req.ContentId = &input.ContentID
 	}
 
-	// Convert ExtractEntitiesOutput to proto types
+	// Convert workflows.SLMPipelineExtractEntitiesOutput to proto types
 	if input.ExtractionResult != nil {
 		// Convert people
 		for _, p := range input.ExtractionResult.People {
@@ -302,15 +230,15 @@ func buildDeepAnalyzeRequest(input DeepAnalyzeInput) *aiv1.DeepAnalyzeRequest {
 }
 
 // convertDeepAnalyzeResponse converts proto response to domain output types.
-func convertDeepAnalyzeResponse(resp *aiv1.DeepAnalyzeResponse) *DeepAnalyzeOutput {
-	output := &DeepAnalyzeOutput{
+func convertDeepAnalyzeResponse(resp *aiv1.DeepAnalyzeResponse) *workflows.DeepAnalyzeOutput {
+	output := &workflows.DeepAnalyzeOutput{
 		Summary:   resp.Summary,
 		ModelUsed: resp.ModelUsed,
 	}
 
 	// Convert sentiment
 	if resp.Sentiment != nil {
-		output.Sentiment = &SentimentOutput{
+		output.Sentiment = &workflows.SentimentOutput{
 			Score:       resp.Sentiment.Score,
 			Label:       resp.Sentiment.Label,
 			Confidence:  resp.Sentiment.Confidence,
@@ -321,7 +249,7 @@ func convertDeepAnalyzeResponse(resp *aiv1.DeepAnalyzeResponse) *DeepAnalyzeOutp
 
 	// Convert topic mappings
 	for _, tm := range resp.TopicMappings {
-		output.TopicMappings = append(output.TopicMappings, TopicMappingOutput{
+		output.TopicMappings = append(output.TopicMappings, workflows.TopicMappingOutput{
 			Topic:          tm.Topic,
 			RelatedProject: tm.RelatedProject,
 			Relationship:   tm.Relationship,
@@ -331,7 +259,7 @@ func convertDeepAnalyzeResponse(resp *aiv1.DeepAnalyzeResponse) *DeepAnalyzeOutp
 
 	// Convert verified action items
 	for _, va := range resp.VerifiedActionItems {
-		output.VerifiedActions = append(output.VerifiedActions, VerifiedActionOutput{
+		output.VerifiedActions = append(output.VerifiedActions, workflows.VerifiedActionOutput{
 			Description:    va.Description,
 			Assignee:       va.Assignee,
 			Due:            va.Due,
@@ -343,7 +271,7 @@ func convertDeepAnalyzeResponse(resp *aiv1.DeepAnalyzeResponse) *DeepAnalyzeOutp
 
 	// Convert verified decisions
 	for _, vd := range resp.VerifiedDecisions {
-		output.VerifiedDecisions = append(output.VerifiedDecisions, VerifiedDecisionOutput{
+		output.VerifiedDecisions = append(output.VerifiedDecisions, workflows.VerifiedDecisionOutput{
 			Description:    vd.Description,
 			ContextExcerpt: vd.ContextExcerpt,
 			Status:         vd.Status,
@@ -352,7 +280,7 @@ func convertDeepAnalyzeResponse(resp *aiv1.DeepAnalyzeResponse) *DeepAnalyzeOutp
 
 	// Convert risk references
 	for _, rr := range resp.RiskReferences {
-		riskRef := RiskReferenceOutput{
+		riskRef := workflows.RiskReferenceOutput{
 			Description:    rr.Description,
 			Significance:   rr.Significance,
 			ContextExcerpt: rr.ContextExcerpt,
@@ -378,7 +306,7 @@ func convertDeepAnalyzeResponse(resp *aiv1.DeepAnalyzeResponse) *DeepAnalyzeOutp
 
 	// Convert implicit action items
 	for _, ia := range resp.ImplicitActionItems {
-		output.ImplicitActions = append(output.ImplicitActions, ImplicitActionOutput{
+		output.ImplicitActions = append(output.ImplicitActions, workflows.ImplicitActionOutput{
 			Description:    ia.Description,
 			Reasoning:      ia.Reasoning,
 			ContextExcerpt: ia.ContextExcerpt,
@@ -390,5 +318,5 @@ func convertDeepAnalyzeResponse(resp *aiv1.DeepAnalyzeResponse) *DeepAnalyzeOutp
 
 // Ensure AnalysisActivities implements required interfaces at compile time.
 var _ interface {
-	DeepAnalyze(ctx context.Context, input DeepAnalyzeInput) (*DeepAnalyzeOutput, error)
+	DeepAnalyze(ctx context.Context, input workflows.DeepAnalyzeInput) (*workflows.DeepAnalyzeOutput, error)
 } = (*AnalysisActivities)(nil)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/parse"
+	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 // ParseActivities holds dependencies for content parsing activities.
@@ -17,30 +18,17 @@ type ParseActivities struct {
 
 // NewParseActivities creates a new ParseActivities instance.
 func NewParseActivities(logger logging.Logger) *ParseActivities {
+	if logger == nil {
+		panic("NewParseActivities: logger is required")
+	}
 	return &ParseActivities{
 		logger: logger.With(logging.F("component", "parse_activities")),
 	}
 }
 
-// ParseEmailInput is the input for the ParseEmail activity.
-type ParseEmailInput struct {
-	TenantID string `json:"tenant_id"`
-	SourceID int64  `json:"source_id"`
-	BodyText string `json:"body_text"`
-	BodyHTML string `json:"body_html"`
-}
-
-// ParseEmailOutput is the output from the ParseEmail activity.
-type ParseEmailOutput struct {
-	CleanBody     string `json:"clean_body"`
-	NewContent    string `json:"new_content"`
-	QuotedContent string `json:"quoted_content"`
-	IsReply       bool   `json:"is_reply"`
-}
-
 // ParseEmail parses email body content, stripping HTML and separating quoted replies.
 // This is a deterministic Stage 0 activity with no AI calls.
-func (a *ParseActivities) ParseEmail(ctx context.Context, input ParseEmailInput) (*ParseEmailOutput, error) {
+func (a *ParseActivities) ParseEmail(ctx context.Context, input workflows.ParseEmailInput) (*workflows.ParseEmailOutput, error) {
 	logger := a.logger.With(
 		logging.F("activity", "ParseEmail"),
 		logging.F("tenant_id", input.TenantID),
@@ -58,7 +46,7 @@ func (a *ParseActivities) ParseEmail(ctx context.Context, input ParseEmailInput)
 	// Handle empty body - return empty output, not error
 	if input.BodyText == "" && input.BodyHTML == "" {
 		logger.Info("Empty email body, returning empty output")
-		return &ParseEmailOutput{
+		return &workflows.ParseEmailOutput{
 			CleanBody:     "",
 			NewContent:    "",
 			QuotedContent: "",
@@ -69,7 +57,7 @@ func (a *ParseActivities) ParseEmail(ctx context.Context, input ParseEmailInput)
 	// Call parse utility
 	result := parse.ParseEmailBody(input.BodyText, input.BodyHTML)
 
-	output := &ParseEmailOutput{
+	output := &workflows.ParseEmailOutput{
 		CleanBody:     result.CleanBody,
 		NewContent:    result.NewContent,
 		QuotedContent: result.QuotedContent,
@@ -86,25 +74,9 @@ func (a *ParseActivities) ParseEmail(ctx context.Context, input ParseEmailInput)
 	return output, nil
 }
 
-// ParseTranscriptInput is the input for the ParseTranscript activity.
-type ParseTranscriptInput struct {
-	TenantID string `json:"tenant_id"`
-	SourceID int64  `json:"source_id"`
-	Content  string `json:"content"`
-	Format   string `json:"format,omitempty"` // hint: vtt, srt, txt (auto-detect if empty)
-}
-
-// ParseTranscriptOutput is the output from the ParseTranscript activity.
-type ParseTranscriptOutput struct {
-	CleanText  string   `json:"clean_text"`
-	Speakers   []string `json:"speakers"`
-	DurationMs int      `json:"duration_ms"`
-	Format     string   `json:"format"`
-}
-
 // ParseTranscript parses transcript content, detecting format and extracting speaker-attributed text.
 // This is a deterministic Stage 0 activity with no AI calls.
-func (a *ParseActivities) ParseTranscript(ctx context.Context, input ParseTranscriptInput) (*ParseTranscriptOutput, error) {
+func (a *ParseActivities) ParseTranscript(ctx context.Context, input workflows.ParseTranscriptInput) (*workflows.ParseTranscriptOutput, error) {
 	logger := a.logger.With(
 		logging.F("activity", "ParseTranscript"),
 		logging.F("tenant_id", input.TenantID),
@@ -123,7 +95,7 @@ func (a *ParseActivities) ParseTranscript(ctx context.Context, input ParseTransc
 	// Handle empty content - return empty output, not error
 	if input.Content == "" {
 		logger.Info("Empty transcript content, returning empty output")
-		return &ParseTranscriptOutput{
+		return &workflows.ParseTranscriptOutput{
 			CleanText:  "",
 			Speakers:   []string{},
 			DurationMs: 0,
@@ -138,7 +110,7 @@ func (a *ParseActivities) ParseTranscript(ctx context.Context, input ParseTransc
 		return nil, err
 	}
 
-	output := &ParseTranscriptOutput{
+	output := &workflows.ParseTranscriptOutput{
 		CleanText:  result.CleanText,
 		Speakers:   result.Speakers,
 		DurationMs: result.DurationMs,
@@ -158,6 +130,6 @@ func (a *ParseActivities) ParseTranscript(ctx context.Context, input ParseTransc
 
 // Ensure ParseActivities implements required interfaces at compile time.
 var _ interface {
-	ParseEmail(ctx context.Context, input ParseEmailInput) (*ParseEmailOutput, error)
-	ParseTranscript(ctx context.Context, input ParseTranscriptInput) (*ParseTranscriptOutput, error)
+	ParseEmail(ctx context.Context, input workflows.ParseEmailInput) (*workflows.ParseEmailOutput, error)
+	ParseTranscript(ctx context.Context, input workflows.ParseTranscriptInput) (*workflows.ParseTranscriptOutput, error)
 } = (*ParseActivities)(nil)

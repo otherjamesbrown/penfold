@@ -8,65 +8,8 @@ import (
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
-
-// BuildContextInput is the input for the BuildContextPackage activity.
-type BuildContextInput struct {
-	TenantID    string                  `json:"tenant_id"`
-	SourceID    int64                   `json:"source_id"`
-	ContentID   string                  `json:"content_id,omitempty"`
-	JobID       string                  `json:"job_id"`
-	ContentType string                  `json:"content_type"` // "email", "meeting", "slack"
-	Extraction  *ExtractEntitiesOutput  `json:"extraction"`   // Stage 2 output
-	SenderEmail string                  `json:"sender_email,omitempty"`
-	SenderName  string                  `json:"sender_name,omitempty"`
-	Subject     string                  `json:"subject,omitempty"`
-	ThreadID    string                  `json:"thread_id,omitempty"`
-}
-
-// BuildContextOutput is the output from the BuildContextPackage activity.
-type BuildContextOutput struct {
-	ResolvedPeople     []ResolvedPerson `json:"resolved_people"`
-	ResolvedProjects   []ResolvedProject `json:"resolved_projects"`
-	UnresolvedTerms    []string         `json:"unresolved_terms"`
-	ContextPackage     *ContextPackage  `json:"context_package"`
-	TokensUsed         int              `json:"tokens_used"`
-	TokenBudget        int              `json:"token_budget"`
-	EntitiesResolved   int              `json:"entities_resolved"`
-	EntitiesUnresolved int              `json:"entities_unresolved"`
-}
-
-// ResolvedPerson represents a person resolved from extraction.
-type ResolvedPerson struct {
-	Name       string  `json:"name"`
-	PersonID   *int64  `json:"person_id,omitempty"`
-	Confidence float32 `json:"confidence"`
-	Source     string  `json:"source"` // exact_match, alias, fuzzy, unresolved
-	Role       string  `json:"role,omitempty"`
-	Title      string  `json:"title,omitempty"`
-	Department string  `json:"department,omitempty"`
-	IsInternal bool    `json:"is_internal"`
-}
-
-// ResolvedProject represents a project resolved from extraction.
-type ResolvedProject struct {
-	Name      string  `json:"name"`
-	ProjectID *int64  `json:"project_id,omitempty"`
-	Expansion string  `json:"expansion,omitempty"`
-	Source    string  `json:"source"` // exact_match, keyword, glossary, unresolved
-}
-
-// ContextPackage is the assembled context for Stage 4.
-type ContextPackage struct {
-	ActiveRisks        []ContextAssertion    `json:"active_risks,omitempty"`
-	OpenActions        []ContextAssertion    `json:"open_actions,omitempty"`
-	RecentDecisions    []ContextAssertion    `json:"recent_decisions,omitempty"`
-	ProductEvents      []ContextProductEvent `json:"product_events,omitempty"`
-	GlossaryTerms      []ContextGlossaryTerm `json:"glossary_terms,omitempty"`
-	ParticipantContext []ResolvedPerson      `json:"participant_context,omitempty"`
-	TotalTokensUsed    int                   `json:"total_tokens_used"`
-	TokenBudget        int                   `json:"token_budget"`
-}
 
 // EntityResolverInterface provides entity resolution for the context builder.
 type EntityResolverInterface interface {
@@ -98,6 +41,19 @@ func NewContextBuilderActivities(
 	contextRepo ContextPackageRepository,
 	pipelineRepo PipelineRepository,
 ) *ContextBuilderActivities {
+	if logger == nil {
+		panic("NewContextBuilderActivities: logger is required")
+	}
+	if entityResolver == nil {
+		panic("NewContextBuilderActivities: entityResolver is required")
+	}
+	if entityRepo == nil {
+		panic("NewContextBuilderActivities: entityRepo is required")
+	}
+	if contextRepo == nil {
+		panic("NewContextBuilderActivities: contextRepo is required")
+	}
+	// pipelineRepo is optional (provenance recording)
 	return &ContextBuilderActivities{
 		logger:         logger.With(logging.F("component", "context_builder_activities")),
 		entityResolver: entityResolver,
@@ -109,7 +65,7 @@ func NewContextBuilderActivities(
 
 // BuildContextPackage builds a context package from extraction output.
 // This is Stage 3: resolve entities and assemble context for Stage 4.
-func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, input BuildContextInput) (*BuildContextOutput, error) {
+func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, input workflows.BuildContextInput) (*workflows.BuildContextOutput, error) {
 	// Set trace_id in context for log correlation
 	if input.ContentID != "" {
 		ctx = context.WithValue(ctx, logging.TraceIDKey, input.ContentID)
@@ -131,23 +87,23 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 	// Handle empty extraction
 	if input.Extraction == nil {
 		logger.Warn("Empty extraction input, returning empty context package")
-		return &BuildContextOutput{
-			ResolvedPeople:   []ResolvedPerson{},
-			ResolvedProjects: []ResolvedProject{},
+		return &workflows.BuildContextOutput{
+			ResolvedPeople:   []workflows.ResolvedPerson{},
+			ResolvedProjects: []workflows.ResolvedProject{},
 			UnresolvedTerms:  []string{},
-			ContextPackage: &ContextPackage{
-				ActiveRisks:     []ContextAssertion{},
-				OpenActions:     []ContextAssertion{},
-				RecentDecisions: []ContextAssertion{},
-				ProductEvents:   []ContextProductEvent{},
-				GlossaryTerms:   []ContextGlossaryTerm{},
+			ContextPackage: &workflows.ContextPackage{
+				ActiveRisks:     []workflows.ContextAssertion{},
+				OpenActions:     []workflows.ContextAssertion{},
+				RecentDecisions: []workflows.ContextAssertion{},
+				ProductEvents:   []workflows.ContextProductEvent{},
+				GlossaryTerms:   []workflows.ContextGlossaryTerm{},
 			},
 		}, nil
 	}
 
-	output := &BuildContextOutput{
-		ResolvedPeople:   []ResolvedPerson{},
-		ResolvedProjects: []ResolvedProject{},
+	output := &workflows.BuildContextOutput{
+		ResolvedPeople:   []workflows.ResolvedPerson{},
+		ResolvedProjects: []workflows.ResolvedProject{},
 		UnresolvedTerms:  []string{},
 	}
 
@@ -213,15 +169,15 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 }
 
 // resolvePeople resolves people from extraction output.
-func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID string, people []PersonResult, senderEmail, senderName string) ([]ResolvedPerson, int) {
-	var resolved []ResolvedPerson
+func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID string, people []workflows.PersonResult, senderEmail, senderName string) ([]workflows.ResolvedPerson, int) {
+	var resolved []workflows.ResolvedPerson
 	unresolvedCount := 0
 
 	// If we have sender email, resolve it first
 	if senderEmail != "" && a.entityResolver != nil {
 		result, err := a.entityResolver.Resolve(ctx, tenantID, senderEmail)
 		if err == nil && result != nil {
-			resolved = append(resolved, ResolvedPerson{
+			resolved = append(resolved, workflows.ResolvedPerson{
 				Name:       result.Person.CanonicalName,
 				PersonID:   &result.Person.ID,
 				Confidence: result.Confidence,
@@ -247,8 +203,8 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 }
 
 // resolvePerson resolves a single person from extraction.
-func (a *ContextBuilderActivities) resolvePerson(ctx context.Context, tenantID string, person PersonResult) ResolvedPerson {
-	rp := ResolvedPerson{
+func (a *ContextBuilderActivities) resolvePerson(ctx context.Context, tenantID string, person workflows.PersonResult) workflows.ResolvedPerson {
+	rp := workflows.ResolvedPerson{
 		Name:       person.Name,
 		Role:       person.Role,
 		PersonID:   nil,
@@ -293,8 +249,8 @@ func (a *ContextBuilderActivities) resolvePerson(ctx context.Context, tenantID s
 }
 
 // resolveProjects resolves projects from extraction output.
-func (a *ContextBuilderActivities) resolveProjects(ctx context.Context, tenantID string, projects []string) ([]ResolvedProject, []string) {
-	var resolved []ResolvedProject
+func (a *ContextBuilderActivities) resolveProjects(ctx context.Context, tenantID string, projects []string) ([]workflows.ResolvedProject, []string) {
+	var resolved []workflows.ResolvedProject
 	var unresolved []string
 
 	if a.entityRepo == nil || a.contextRepo == nil {
@@ -314,8 +270,8 @@ func (a *ContextBuilderActivities) resolveProjects(ctx context.Context, tenantID
 }
 
 // resolveProject resolves a single project from extraction.
-func (a *ContextBuilderActivities) resolveProject(ctx context.Context, tenantID string, projectName string) ResolvedProject {
-	rp := ResolvedProject{
+func (a *ContextBuilderActivities) resolveProject(ctx context.Context, tenantID string, projectName string) workflows.ResolvedProject {
+	rp := workflows.ResolvedProject{
 		Name:      projectName,
 		ProjectID: nil,
 		Source:    "unresolved",
@@ -351,21 +307,21 @@ func (a *ContextBuilderActivities) resolveProject(ctx context.Context, tenantID 
 // buildContextPackage assembles the context package for Stage 4.
 func (a *ContextBuilderActivities) buildContextPackage(
 	ctx context.Context,
-	input BuildContextInput,
-	resolvedPeople []ResolvedPerson,
-	resolvedProjects []ResolvedProject,
-) (*ContextPackage, error) {
+	input workflows.BuildContextInput,
+	resolvedPeople []workflows.ResolvedPerson,
+	resolvedProjects []workflows.ResolvedProject,
+) (*workflows.ContextPackage, error) {
 	// Determine token budget based on content type
 	tokenBudget := a.getTokenBudget(input.ContentType)
 
-	cp := &ContextPackage{
+	cp := &workflows.ContextPackage{
 		TokenBudget:        tokenBudget,
 		TotalTokensUsed:    0,
-		ActiveRisks:        []ContextAssertion{},
-		OpenActions:        []ContextAssertion{},
-		RecentDecisions:    []ContextAssertion{},
-		ProductEvents:      []ContextProductEvent{},
-		GlossaryTerms:      []ContextGlossaryTerm{},
+		ActiveRisks:        []workflows.ContextAssertion{},
+		OpenActions:        []workflows.ContextAssertion{},
+		RecentDecisions:    []workflows.ContextAssertion{},
+		ProductEvents:      []workflows.ContextProductEvent{},
+		GlossaryTerms:      []workflows.ContextGlossaryTerm{},
 		ParticipantContext: resolvedPeople,
 	}
 
@@ -394,7 +350,7 @@ func (a *ContextBuilderActivities) buildContextPackage(
 		if err == nil {
 			riskTokens := len(risks) * 25
 			if tokensUsed+riskTokens <= tokenBudget {
-				cp.ActiveRisks = risks
+				cp.ActiveRisks = toWorkflowAssertions(risks)
 				tokensUsed += riskTokens
 			}
 		}
@@ -406,7 +362,7 @@ func (a *ContextBuilderActivities) buildContextPackage(
 		if err == nil {
 			actionTokens := len(actions) * 25
 			if tokensUsed+actionTokens <= tokenBudget {
-				cp.OpenActions = actions
+				cp.OpenActions = toWorkflowAssertions(actions)
 				tokensUsed += actionTokens
 			}
 		}
@@ -418,7 +374,7 @@ func (a *ContextBuilderActivities) buildContextPackage(
 		if err == nil {
 			decisionTokens := len(decisions) * 25
 			if tokensUsed+decisionTokens <= tokenBudget {
-				cp.RecentDecisions = decisions
+				cp.RecentDecisions = toWorkflowAssertions(decisions)
 				tokensUsed += decisionTokens
 			}
 		}
@@ -430,7 +386,7 @@ func (a *ContextBuilderActivities) buildContextPackage(
 		if err == nil {
 			eventTokens := len(events) * 30
 			if tokensUsed+eventTokens <= tokenBudget {
-				cp.ProductEvents = events
+				cp.ProductEvents = toWorkflowEvents(events)
 				tokensUsed += eventTokens
 			}
 		}
@@ -445,7 +401,7 @@ func (a *ContextBuilderActivities) buildContextPackage(
 			if err == nil {
 				glossaryTokens := len(glossary) * 20
 				if tokensUsed+glossaryTokens <= tokenBudget {
-					cp.GlossaryTerms = glossary
+					cp.GlossaryTerms = toWorkflowGlossary(glossary)
 					tokensUsed += glossaryTokens
 				}
 			}
@@ -476,7 +432,7 @@ func (a *ContextBuilderActivities) getTokenBudget(contentType string) int {
 }
 
 // collectGlossaryTerms extracts potential glossary terms from extraction output.
-func (a *ContextBuilderActivities) collectGlossaryTerms(extraction *ExtractEntitiesOutput) []string {
+func (a *ContextBuilderActivities) collectGlossaryTerms(extraction *workflows.SLMPipelineExtractEntitiesOutput) []string {
 	terms := make(map[string]bool)
 
 	// Add projects as potential terms
@@ -510,6 +466,45 @@ func isAcronym(term string) bool {
 	return strings.ToUpper(term) == term
 }
 
+// toWorkflowAssertions converts repository ContextAssertions to workflow ContextAssertions.
+func toWorkflowAssertions(assertions []ContextAssertion) []workflows.ContextAssertion {
+	result := make([]workflows.ContextAssertion, len(assertions))
+	for i, a := range assertions {
+		result[i] = workflows.ContextAssertion{
+			Subject:    a.OwnerName,
+			Predicate:  a.Description,
+			Object:     a.ProjectName,
+			SourceText: a.SourceQuote,
+		}
+	}
+	return result
+}
+
+// toWorkflowEvents converts repository ContextProductEvents to workflow ContextProductEvents.
+func toWorkflowEvents(events []ContextProductEvent) []workflows.ContextProductEvent {
+	result := make([]workflows.ContextProductEvent, len(events))
+	for i, e := range events {
+		result[i] = workflows.ContextProductEvent{
+			EventType:   e.EventType,
+			Description: e.Description,
+			Timestamp:   e.OccurredAt.Format(time.RFC3339),
+		}
+	}
+	return result
+}
+
+// toWorkflowGlossary converts repository ContextGlossaryTerms to workflow ContextGlossaryTerms.
+func toWorkflowGlossary(terms []ContextGlossaryTerm) []workflows.ContextGlossaryTerm {
+	result := make([]workflows.ContextGlossaryTerm, len(terms))
+	for i, t := range terms {
+		result[i] = workflows.ContextGlossaryTerm{
+			Term:       t.Term,
+			Definition: t.Definition,
+		}
+	}
+	return result
+}
+
 // applyTokenBudget truncates sections from tail to fit within budget.
 // Order of truncation (least valuable first):
 // 1. Glossary terms (drop from tail)
@@ -518,7 +513,7 @@ func isAcronym(term string) bool {
 // 4. Actions (drop from tail)
 // 5. Risks (drop from tail)
 // 6. Participants (never drop - always included)
-func (a *ContextBuilderActivities) applyTokenBudget(cp *ContextPackage, budget int) int {
+func (a *ContextBuilderActivities) applyTokenBudget(cp *workflows.ContextPackage, budget int) int {
 	tokensUsed := len(cp.ParticipantContext) * 15
 
 	// Try to fit everything, dropping from tail of each section if needed

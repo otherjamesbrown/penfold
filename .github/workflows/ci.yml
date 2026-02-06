@@ -76,6 +76,26 @@ jobs:
             fi
           done
 
+  # Workflow determinism check
+  workflow-check:
+    name: Workflow Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: "**/go.sum"
+
+      - name: Install workflowcheck
+        run: go install go.temporal.io/sdk/contrib/tools/workflowcheck@latest
+
+      - name: Run workflowcheck
+        run: workflowcheck ./services/worker/workflows/...
+
   # Unit tests - matrix across all Go modules
   unit-tests:
     name: Unit Tests (${{ matrix.module }})
@@ -268,7 +288,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, proto-lint, unit-tests, validate-fixtures, integration-tests]
+    needs: [lint, proto-lint, unit-tests, validate-fixtures, integration-tests, workflow-check]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -277,7 +297,8 @@ jobs:
              [[ "${{ needs.proto-lint.result }}" != "success" ]] || \
              [[ "${{ needs.unit-tests.result }}" != "success" ]] || \
              [[ "${{ needs.validate-fixtures.result }}" != "success" ]] || \
-             [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
+             [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]] || \
+             [[ "${{ needs.workflow-check.result }}" != "success" ]]; then
             echo "One or more required jobs failed"
             exit 1
           fi

@@ -28,6 +28,15 @@ func NewSummarizationActivities(
 	aiClient AIClient,
 	summaryRepo SummaryRepository,
 ) *SummarizationActivities {
+	if logger == nil {
+		panic("NewSummarizationActivities: logger is required")
+	}
+	if aiClient == nil {
+		panic("NewSummarizationActivities: aiClient is required")
+	}
+	if summaryRepo == nil {
+		panic("NewSummarizationActivities: summaryRepo is required")
+	}
 	return &SummarizationActivities{
 		logger:      logger.With(logging.F("component", "summarization_activities")),
 		aiClient:    aiClient,

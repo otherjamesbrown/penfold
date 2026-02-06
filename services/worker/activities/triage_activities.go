@@ -11,6 +11,7 @@ import (
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
+	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 // TriageActivities holds dependencies for triage-related activities.
@@ -26,6 +27,13 @@ func NewTriageActivities(
 	aiClient AIClient,
 	pipelineRepo PipelineRepository,
 ) *TriageActivities {
+	if logger == nil {
+		panic("NewTriageActivities: logger is required")
+	}
+	if aiClient == nil {
+		panic("NewTriageActivities: aiClient is required")
+	}
+	// pipelineRepo is optional (provenance recording)
 	return &TriageActivities{
 		logger:       logger.With(logging.F("component", "triage_activities")),
 		aiClient:     aiClient,
@@ -33,31 +41,9 @@ func NewTriageActivities(
 	}
 }
 
-// TriageInput is the input for the Triage activity.
-type TriageInput struct {
-	TenantID    string `json:"tenant_id"`
-	SourceID    int64  `json:"source_id"`
-	ContentID   string `json:"content_id,omitempty"`
-	JobID       string `json:"job_id"`
-	Content     string `json:"content"`
-	Subject     string `json:"subject,omitempty"`
-	SenderEmail string `json:"sender_email,omitempty"`
-	ContentType string `json:"content_type"` // email, meeting, slack
-}
-
-// TriageOutput is the output from the Triage activity.
-type TriageOutput struct {
-	Category   string  `json:"category"`   // PROJECT_UPDATE, CUSTOMER, RISK_ISSUE, etc.
-	Importance string  `json:"importance"` // HIGH, MEDIUM, LOW
-	Reason     string  `json:"reason"`
-	Confidence float32 `json:"confidence"` // Derived from model confidence (0.0-1.0)
-	ModelUsed  string  `json:"model_used"`
-	SkipDeep   bool    `json:"skip_deep"` // True if LOW/PERSONAL - skip stages 2-4
-}
-
 // Triage performs Stage 1 content triage using an SLM.
 // Classifies content into categories and importance levels.
-func (a *TriageActivities) Triage(ctx context.Context, input TriageInput) (*TriageOutput, error) {
+func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInput) (*workflows.TriageOutput, error) {
 	// Set trace_id in context for log correlation
 	if input.ContentID != "" {
 		ctx = context.WithValue(ctx, logging.TraceIDKey, input.ContentID)
@@ -153,7 +139,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input TriageInput) (*Tria
 	skipDeep := shouldSkipDeep(resp.Category, resp.Importance)
 
 	// Convert proto response to domain output
-	output := &TriageOutput{
+	output := &workflows.TriageOutput{
 		Category:   resp.Category,
 		Importance: resp.Importance,
 		Reason:     resp.Reason,
@@ -216,5 +202,5 @@ func shouldSkipDeep(category, importance string) bool {
 
 // Ensure TriageActivities implements required interfaces at compile time.
 var _ interface {
-	Triage(ctx context.Context, input TriageInput) (*TriageOutput, error)
+	Triage(ctx context.Context, input workflows.TriageInput) (*workflows.TriageOutput, error)
 } = (*TriageActivities)(nil)

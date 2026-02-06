@@ -67,37 +67,42 @@ type PipelineStatus struct {
 	CompensationRan bool      `json:"compensation_ran,omitempty"`
 }
 
-// Pipeline activity input/output types (JSON-compatible with activities package types).
+// Pipeline activity input/output types (canonical types shared with activities package).
 
-type pipelineParseEmailInput struct {
+// ParseEmailInput is the input for the ParseEmail activity.
+type ParseEmailInput struct {
 	TenantID string `json:"tenant_id"`
 	SourceID int64  `json:"source_id"`
 	BodyText string `json:"body_text"`
 	BodyHTML string `json:"body_html"`
 }
 
-type pipelineParseEmailOutput struct {
+// ParseEmailOutput is the output from the ParseEmail activity.
+type ParseEmailOutput struct {
 	CleanBody     string `json:"clean_body"`
 	NewContent    string `json:"new_content"`
 	QuotedContent string `json:"quoted_content"`
 	IsReply       bool   `json:"is_reply"`
 }
 
-type pipelineParseTranscriptInput struct {
+// ParseTranscriptInput is the input for the ParseTranscript activity.
+type ParseTranscriptInput struct {
 	TenantID string `json:"tenant_id"`
 	SourceID int64  `json:"source_id"`
 	Content  string `json:"content"`
 	Format   string `json:"format,omitempty"`
 }
 
-type pipelineParseTranscriptOutput struct {
+// ParseTranscriptOutput is the output from the ParseTranscript activity.
+type ParseTranscriptOutput struct {
 	CleanText  string   `json:"clean_text"`
 	Speakers   []string `json:"speakers"`
 	DurationMs int      `json:"duration_ms"`
 	Format     string   `json:"format"`
 }
 
-type pipelineTriageInput struct {
+// TriageInput is the input for the Triage activity.
+type TriageInput struct {
 	TenantID    string `json:"tenant_id"`
 	SourceID    int64  `json:"source_id"`
 	ContentID   string `json:"content_id,omitempty"`
@@ -108,7 +113,8 @@ type pipelineTriageInput struct {
 	ContentType string `json:"content_type"`
 }
 
-type pipelineTriageOutput struct {
+// TriageOutput is the output from the Triage activity.
+type TriageOutput struct {
 	Category   string  `json:"category"`
 	Importance string  `json:"importance"`
 	Reason     string  `json:"reason"`
@@ -117,91 +123,143 @@ type pipelineTriageOutput struct {
 	SkipDeep   bool    `json:"skip_deep"`
 }
 
-type pipelineExtractInput struct {
-	TenantID  string `json:"tenant_id"`
-	SourceID  int64  `json:"source_id"`
-	ContentID string `json:"content_id,omitempty"`
-	JobID     string `json:"job_id"`
-	Content   string `json:"content"`
+// SLMPipelineExtractEntitiesInput is the input for the ExtractEntities activity (pipeline version with TriageCategory).
+type SLMPipelineExtractEntitiesInput struct {
+	TenantID       string `json:"tenant_id"`
+	SourceID       int64  `json:"source_id"`
+	ContentID      string `json:"content_id,omitempty"`
+	JobID          string `json:"job_id"`
+	Content        string `json:"content"`
+	TriageCategory string `json:"triage_category,omitempty"`
 }
 
-// pipelineExtractOutput mirrors activities.ExtractEntitiesOutput.
-type pipelineExtractOutput struct {
-	People               []pipelinePersonResult     `json:"people"`
-	Dates                []pipelineDateResult       `json:"dates"`
-	Projects             []string                   `json:"projects"`
-	Organisations        []string                   `json:"organisations"`
-	ActionItems          []pipelineActionItemResult `json:"action_items"`
-	Decisions            []string                   `json:"decisions"`
-	Risks                []string                   `json:"risks"`
-	DetailedRisks        []pipelineDetailedRisk     `json:"detailed_risks,omitempty"`
-	QualityGateTriggered bool                       `json:"quality_gate_triggered"`
-	ModelUsed            string                     `json:"model_used"`
+// SLMPipelineExtractEntitiesOutput is the output from the ExtractEntities activity (pipeline version with DetailedRisks).
+type SLMPipelineExtractEntitiesOutput struct {
+	People               []PersonResult     `json:"people"`
+	Dates                []DateResult       `json:"dates"`
+	Projects             []string           `json:"projects"`
+	Organisations        []string           `json:"organisations"`
+	ActionItems          []ActionItemResult `json:"action_items"`
+	Decisions            []string           `json:"decisions"`
+	Risks                []string           `json:"risks"`
+	DetailedRisks        []DetailedRisk     `json:"detailed_risks,omitempty"`
+	QualityGateTriggered bool               `json:"quality_gate_triggered"`
+	ModelUsed            string             `json:"model_used"`
 }
 
-type pipelinePersonResult struct {
+// PersonResult represents a person extracted from content.
+type PersonResult struct {
 	Name string `json:"name"`
 	Role string `json:"role,omitempty"`
 }
 
-type pipelineDateResult struct {
-	Date        string `json:"date"`
-	Context     string `json:"context,omitempty"`
-	IsDeadline  bool   `json:"is_deadline,omitempty"`
+// DateResult represents a date or deadline extracted from content.
+type DateResult struct {
+	Date       string `json:"date"`
+	Context    string `json:"context,omitempty"`
+	IsDeadline bool   `json:"is_deadline,omitempty"`
 }
 
-type pipelineActionItemResult struct {
-	Description string `json:"description"`
-	Assignee    string `json:"assignee,omitempty"`
-	Due         string `json:"due,omitempty"`
-	Priority    string `json:"priority,omitempty"`
+// ActionItemResult represents an action item extracted from content.
+type ActionItemResult struct {
+	Assignee string `json:"assignee,omitempty"`
+	Action   string `json:"action"`
+	Due      string `json:"due,omitempty"`
+	Priority string `json:"priority,omitempty"`
 }
 
-type pipelineDetailedRisk struct {
-	Description string `json:"description"`
-	Severity    string `json:"severity,omitempty"`
-	Owner       string `json:"owner,omitempty"`
-	Impact      string `json:"impact,omitempty"`
+// DetailedRisk represents a detailed risk from the quality gate re-run.
+type DetailedRisk struct {
+	Description  string `json:"description"`
+	SeverityHint string `json:"severity_hint,omitempty"`
+	OwnerHint    string `json:"owner_hint,omitempty"`
+	Impact       string `json:"impact,omitempty"`
 }
 
-type pipelineContextInput struct {
+// BuildContextInput is the input for the BuildContextPackage activity.
+type BuildContextInput struct {
 	TenantID    string                 `json:"tenant_id"`
 	SourceID    int64                  `json:"source_id"`
 	ContentID   string                 `json:"content_id,omitempty"`
 	JobID       string                 `json:"job_id"`
 	ContentType string                 `json:"content_type"`
-	Extraction  *pipelineExtractOutput `json:"extraction"`
+	Extraction  *SLMPipelineExtractEntitiesOutput `json:"extraction"`
 	SenderEmail string                 `json:"sender_email,omitempty"`
 	SenderName  string                 `json:"sender_name,omitempty"`
 	Subject     string                 `json:"subject,omitempty"`
 	ThreadID    string                 `json:"thread_id,omitempty"`
 }
 
-type pipelineContextOutput struct {
-	ResolvedPeople     []pipelineResolvedPerson  `json:"resolved_people"`
-	ResolvedProjects   []pipelineResolvedProject `json:"resolved_projects"`
-	UnresolvedTerms    []string                  `json:"unresolved_terms"`
-	ContextPackage     interface{}               `json:"context_package"` // Opaque for workflow
-	TokensUsed         int                       `json:"tokens_used"`
-	TokenBudget        int                       `json:"token_budget"`
-	EntitiesResolved   int                       `json:"entities_resolved"`
-	EntitiesUnresolved int                       `json:"entities_unresolved"`
+// BuildContextOutput is the output from the BuildContextPackage activity.
+type BuildContextOutput struct {
+	ResolvedPeople     []ResolvedPerson `json:"resolved_people"`
+	ResolvedProjects   []ResolvedProject `json:"resolved_projects"`
+	UnresolvedTerms    []string         `json:"unresolved_terms"`
+	ContextPackage     *ContextPackage  `json:"context_package"`
+	TokensUsed         int              `json:"tokens_used"`
+	TokenBudget        int              `json:"token_budget"`
+	EntitiesResolved   int              `json:"entities_resolved"`
+	EntitiesUnresolved int              `json:"entities_unresolved"`
 }
 
-type pipelineResolvedPerson struct {
+// ResolvedPerson represents a person resolved from extraction.
+type ResolvedPerson struct {
 	Name       string  `json:"name"`
 	PersonID   *int64  `json:"person_id,omitempty"`
 	Confidence float32 `json:"confidence"`
 	Source     string  `json:"source"`
+	Role       string  `json:"role,omitempty"`
+	Title      string  `json:"title,omitempty"`
+	Department string  `json:"department,omitempty"`
+	IsInternal bool    `json:"is_internal"`
 }
 
-type pipelineResolvedProject struct {
+// ResolvedProject represents a project resolved from extraction.
+type ResolvedProject struct {
 	Name      string `json:"name"`
 	ProjectID *int64 `json:"project_id,omitempty"`
-	Source    string  `json:"source"`
+	Expansion string `json:"expansion,omitempty"`
+	Source    string `json:"source"`
 }
 
-type pipelineAnalyzeInput struct {
+// ContextPackage is the assembled context for Stage 4.
+type ContextPackage struct {
+	ActiveRisks        []ContextAssertion    `json:"active_risks,omitempty"`
+	OpenActions        []ContextAssertion    `json:"open_actions,omitempty"`
+	RecentDecisions    []ContextAssertion    `json:"recent_decisions,omitempty"`
+	ProductEvents      []ContextProductEvent `json:"product_events,omitempty"`
+	GlossaryTerms      []ContextGlossaryTerm `json:"glossary_terms,omitempty"`
+	ParticipantContext []ResolvedPerson      `json:"participant_context,omitempty"`
+	TotalTokensUsed    int                   `json:"total_tokens_used"`
+	TokenBudget        int                   `json:"token_budget"`
+}
+
+// ContextAssertion represents an assertion in the context package.
+type ContextAssertion struct {
+	ID         int64   `json:"id"`
+	Subject    string  `json:"subject"`
+	Predicate  string  `json:"predicate"`
+	Object     string  `json:"object"`
+	Confidence float32 `json:"confidence"`
+	SourceText string  `json:"source_text,omitempty"`
+}
+
+// ContextProductEvent represents a product event in the context package.
+type ContextProductEvent struct {
+	EventType   string `json:"event_type"`
+	Description string `json:"description"`
+	Timestamp   string `json:"timestamp"`
+}
+
+// ContextGlossaryTerm represents a glossary term in the context package.
+type ContextGlossaryTerm struct {
+	Term       string `json:"term"`
+	Definition string `json:"definition"`
+	Category   string `json:"category,omitempty"`
+}
+
+// DeepAnalyzeInput is the input for the DeepAnalyze activity.
+type DeepAnalyzeInput struct {
 	TenantID          string                 `json:"tenant_id"`
 	SourceID          int64                  `json:"source_id"`
 	ContentID         string                 `json:"content_id,omitempty"`
@@ -210,38 +268,95 @@ type pipelineAnalyzeInput struct {
 	ContentType       string                 `json:"content_type"`
 	TriageCategory    string                 `json:"triage_category"`
 	TriageImportance  string                 `json:"triage_importance"`
-	ExtractionResult  *pipelineExtractOutput `json:"extraction_result"`
+	ExtractionResult  *SLMPipelineExtractEntitiesOutput `json:"extraction_result"`
 	BackgroundContext string                 `json:"background_context,omitempty"`
 }
 
-type pipelineAnalyzeOutput struct {
-	Summary           string      `json:"summary"`
-	Sentiment         interface{} `json:"sentiment"`
-	TopicMappings     interface{} `json:"topic_mappings"`
-	VerifiedActions   interface{} `json:"verified_action_items"`
-	VerifiedDecisions interface{} `json:"verified_decisions"`
-	RiskReferences    interface{} `json:"risk_references"`
-	Insights          []string    `json:"strategic_insights"`
-	ImplicitActions   interface{} `json:"implicit_action_items"`
-	ModelUsed         string      `json:"model_used"`
+// DeepAnalyzeOutput is the output from the DeepAnalyze activity.
+type DeepAnalyzeOutput struct {
+	Summary           string                   `json:"summary"`
+	Sentiment         *SentimentOutput         `json:"sentiment"`
+	TopicMappings     []TopicMappingOutput     `json:"topic_mappings"`
+	VerifiedActions   []VerifiedActionOutput   `json:"verified_action_items"`
+	VerifiedDecisions []VerifiedDecisionOutput `json:"verified_decisions"`
+	RiskReferences    []RiskReferenceOutput    `json:"risk_references"`
+	Insights          []string                 `json:"strategic_insights"`
+	ImplicitActions   []ImplicitActionOutput   `json:"implicit_action_items"`
+	ModelUsed         string                   `json:"model_used"`
 }
 
-type pipelinePersistInput struct {
-	TenantID       string               `json:"tenant_id"`
-	SourceID       int64                `json:"source_id"`
-	ThreadID       *int64               `json:"thread_id,omitempty"`
-	ProjectID      *int64               `json:"project_id,omitempty"`
-	Analysis       *pipelineAnalyzeOutput `json:"analysis"`
-	ResolvedPeople map[string]int64     `json:"resolved_people,omitempty"`
+// SentimentOutput represents business-context-aware sentiment analysis.
+type SentimentOutput struct {
+	Score       float32  `json:"score"`
+	Label       string   `json:"label"`
+	Confidence  float32  `json:"confidence"`
+	Indicators  []string `json:"indicators"`
+	Explanation string   `json:"explanation"`
 }
 
-type pipelinePersistOutput struct {
+// TopicMappingOutput connects content to known projects/products.
+type TopicMappingOutput struct {
+	Topic          string  `json:"topic"`
+	RelatedProject string  `json:"related_project"`
+	Relationship   string  `json:"relationship"`
+	Confidence     float32 `json:"confidence"`
+}
+
+// VerifiedActionOutput represents an action item verified/refined by LLM.
+type VerifiedActionOutput struct {
+	Description    string `json:"description"`
+	Assignee       string `json:"assignee"`
+	Due            string `json:"due"`
+	Priority       string `json:"priority"`
+	ContextExcerpt string `json:"context_excerpt"`
+	Status         string `json:"status"`
+}
+
+// VerifiedDecisionOutput represents a decision verified/refined by LLM.
+type VerifiedDecisionOutput struct {
+	Description    string `json:"description"`
+	ContextExcerpt string `json:"context_excerpt"`
+	Status         string `json:"status"`
+}
+
+// RiskReferenceOutput connects content to existing or new risks.
+type RiskReferenceOutput struct {
+	RootID          *int64  `json:"root_id,omitempty"`
+	Description     string  `json:"description"`
+	LifecycleChange *string `json:"lifecycle_change,omitempty"`
+	Significance    string  `json:"significance"`
+	ContextExcerpt  string  `json:"context_excerpt"`
+	SeverityChange  *string `json:"severity_change,omitempty"`
+	OwnerChange     *string `json:"owner_change,omitempty"`
+	IsNew           bool    `json:"is_new"`
+}
+
+// ImplicitActionOutput represents an inferred action not explicitly stated.
+type ImplicitActionOutput struct {
+	Description    string `json:"description"`
+	Reasoning      string `json:"reasoning"`
+	ContextExcerpt string `json:"context_excerpt"`
+}
+
+// PersistFindingsInput is the input for the PersistFindings activity.
+type PersistFindingsInput struct {
+	TenantID       string             `json:"tenant_id"`
+	SourceID       int64              `json:"source_id"`
+	ThreadID       *int64             `json:"thread_id,omitempty"`
+	ProjectID      *int64             `json:"project_id,omitempty"`
+	Analysis       *DeepAnalyzeOutput `json:"analysis"`
+	ResolvedPeople map[string]int64   `json:"resolved_people,omitempty"`
+}
+
+// PersistFindingsOutput is the output from the PersistFindings activity.
+type PersistFindingsOutput struct {
 	AssertionsCreated    int `json:"assertions_created"`
 	AssertionsSuperseded int `json:"assertions_superseded"`
 	ReferencesCreated    int `json:"references_created"`
 	ReviewItemsCreated   int `json:"review_items_created"`
 	AffinityUpdates      int `json:"affinity_updates"`
 }
+
 
 // pipelineState maintains the internal state of the pipeline workflow.
 type pipelineState struct {
@@ -279,7 +394,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		status: PipelineStatus{
 			Stage:          "initializing",
 			StepsCompleted: 0,
-			TotalSteps:     7, // Full pipeline: parse, triage, extract, context, analyze, persist, embed
+			TotalSteps:     pkgtemporal.FullPipelineTotalSteps(),
 			LastActivity:   "",
 			StartedAt:      workflow.Now(ctx),
 			LastUpdated:    workflow.Now(ctx),
@@ -356,13 +471,21 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// ==================== Stage 0: Parse ====================
 	updateStatus("parsing", "Parse")
+	parseStage := stageByStatus("parsing")
+	logger.Info("pipeline stage starting",
+		"source_id", input.SourceID,
+		"stage", parseStage.Name,
+		"stage_number", parseStage.Number,
+		"total_steps", state.status.TotalSteps,
+	)
+	parseStart := workflow.Now(ctx)
 
 	// If ContentType is empty, the workflow was started with SLMPipelineInput
 	// (minimal contract). Fetch content and metadata from the database.
 	if input.ContentType == "" {
 		var fetchOut FetchSourceOutput
 		ctxFetch := workflow.WithActivityOptions(ctx, fastOpts)
-		err := workflow.ExecuteActivity(ctxFetch, "FetchContent", FetchSourceInput{
+		err := workflow.ExecuteActivity(ctxFetch, pkgtemporal.ActivityFetchContent, FetchSourceInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 		}).Get(ctx, &fetchOut)
@@ -372,7 +495,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			state.status.ErrorMessage = state.result.Error
 			logger.Error("FetchSource failed", "error", err)
 			ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
-			_ = workflow.ExecuteActivity(ctxFail, "UpdateContentStatus", UpdateContentStatusInput{
+			_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 				TenantID: input.TenantID, SourceID: input.SourceID,
 				Status: "failed", FailureCategory: "fetch", FailureReason: err.Error(),
 			}).Get(ctx, nil)
@@ -389,9 +512,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	switch input.ContentType {
 	case "email":
-		var parseOutput pipelineParseEmailOutput
+		var parseOutput ParseEmailOutput
 		ctxParse := workflow.WithActivityOptions(ctx, fastOpts)
-		err := workflow.ExecuteActivity(ctxParse, "ParseEmail", pipelineParseEmailInput{
+		err := workflow.ExecuteActivity(ctxParse, pkgtemporal.ActivityParseEmail, ParseEmailInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 			BodyText: input.BodyText,
@@ -409,11 +532,20 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		} else {
 			parsedContent = parseOutput.CleanBody
 		}
+		logger.Info("pipeline stage completed",
+			"source_id", input.SourceID,
+			"stage", parseStage.Name,
+			"stage_number", parseStage.Number,
+			"duration_ms", workflow.Now(ctx).Sub(parseStart).Milliseconds(),
+			"status", "completed",
+			"content_length", len(parsedContent),
+			"is_reply", parseOutput.IsReply,
+		)
 
 	case "meeting":
-		var parseOutput pipelineParseTranscriptOutput
+		var parseOutput ParseTranscriptOutput
 		ctxParse := workflow.WithActivityOptions(ctx, fastOpts)
-		err := workflow.ExecuteActivity(ctxParse, "ParseTranscript", pipelineParseTranscriptInput{
+		err := workflow.ExecuteActivity(ctxParse, pkgtemporal.ActivityParseTranscript, ParseTranscriptInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 			Content:  input.TranscriptContent,
@@ -427,6 +559,15 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			return state.result, nil
 		}
 		parsedContent = parseOutput.CleanText
+		logger.Info("pipeline stage completed",
+			"source_id", input.SourceID,
+			"stage", parseStage.Name,
+			"stage_number", parseStage.Number,
+			"duration_ms", workflow.Now(ctx).Sub(parseStart).Milliseconds(),
+			"status", "completed",
+			"content_length", len(parsedContent),
+			"speaker_count", len(parseOutput.Speakers),
+		)
 
 	default:
 		state.result.Status = "failed"
@@ -434,7 +575,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.status.ErrorMessage = state.result.Error
 		logger.Error("Unsupported content type", "content_type", input.ContentType)
 		ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
-		_ = workflow.ExecuteActivity(ctxFail, "UpdateContentStatus", UpdateContentStatusInput{
+		_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID: input.TenantID, SourceID: input.SourceID,
 			Status: "failed", FailureCategory: "unsupported_type",
 			FailureReason: state.result.Error,
@@ -447,7 +588,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Progressive availability: mark as "parsed" (keyword-searchable)
 	ctxStatus := workflow.WithActivityOptions(ctx, fastOpts)
-	_ = workflow.ExecuteActivity(ctxStatus, "UpdateContentStatus", UpdateContentStatusInput{
+	_ = workflow.ExecuteActivity(ctxStatus, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 		Status:   "parsed",
@@ -461,9 +602,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// ==================== Stage 1: Triage ====================
 	updateStatus("triaging", "Triage")
-	var triageOutput pipelineTriageOutput
+	triageStage := stageByStatus("triaging")
+	logger.Info("pipeline stage starting",
+		"source_id", input.SourceID,
+		"stage", triageStage.Name,
+		"stage_number", triageStage.Number,
+		"total_steps", state.status.TotalSteps,
+	)
+	triageStart := workflow.Now(ctx)
+
+	var triageOutput TriageOutput
 	ctxTriage := workflow.WithActivityOptions(ctx, embeddingOpts)
-	err := workflow.ExecuteActivity(ctxTriage, "Triage", pipelineTriageInput{
+	err := workflow.ExecuteActivity(ctxTriage, pkgtemporal.ActivityTriage, TriageInput{
 		TenantID:    input.TenantID,
 		SourceID:    input.SourceID,
 		ContentID:   input.ContentID,
@@ -481,6 +631,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
+	logger.Info("pipeline stage completed",
+		"source_id", input.SourceID,
+		"stage", triageStage.Name,
+		"stage_number", triageStage.Number,
+		"duration_ms", workflow.Now(ctx).Sub(triageStart).Milliseconds(),
+		"status", "completed",
+		"category", triageOutput.Category,
+		"importance", triageOutput.Importance,
+		"confidence", triageOutput.Confidence,
+		"skip_deep", triageOutput.SkipDeep,
+		"model_used", triageOutput.ModelUsed,
+	)
+
 	state.result.Category = triageOutput.Category
 	state.result.Importance = triageOutput.Importance
 	state.result.SkipDeep = triageOutput.SkipDeep
@@ -495,11 +658,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Triage gate: skip Stages 2-4.5 for LOW/PERSONAL content
 	if triageOutput.SkipDeep {
-		logger.Info("Triage gate: skipping deep processing",
-			"category", triageOutput.Category,
-			"importance", triageOutput.Importance,
-		)
-		state.status.TotalSteps = 3 // parse, triage, embed
+		// Log skip for each deep processing stage
+		for _, s := range pkgtemporal.SLMPipelineStages {
+			if s.SkipWhenLow {
+				logger.Info("pipeline stage skipped",
+					"source_id", input.SourceID,
+					"stage", s.Name,
+					"stage_number", s.Number,
+					"reason", "skip_deep",
+				)
+			}
+		}
+		state.status.TotalSteps = pkgtemporal.SkipDeepTotalSteps()
 	}
 
 	// Persist triage results to source metadata (fires for all items)
@@ -515,48 +685,76 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}).Get(ctx, nil)
 
 	// ==================== Stages 2-4.5: Deep Processing ====================
-	var extractOutput *pipelineExtractOutput
-	var contextOutput *pipelineContextOutput
+	var extractOutput *SLMPipelineExtractEntitiesOutput
+	var contextOutput *BuildContextOutput
 
 	if !triageOutput.SkipDeep {
 		// Stage 2: Extract
 		updateStatus("extracting", "ExtractEntities")
-		extractOutput = &pipelineExtractOutput{}
+		extractStage := stageByStatus("extracting")
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", extractStage.Name,
+			"stage_number", extractStage.Number,
+			"total_steps", state.status.TotalSteps,
+		)
+		extractStart := workflow.Now(ctx)
+
+		extractOutput = &SLMPipelineExtractEntitiesOutput{}
 		ctxExtract := workflow.WithActivityOptions(ctx, embeddingOpts)
-		err = workflow.ExecuteActivity(ctxExtract, "ExtractEntitiesActivity", pipelineExtractInput{
+		err = workflow.ExecuteActivity(ctxExtract, pkgtemporal.ActivityExtractEntitiesActivity, SLMPipelineExtractEntitiesInput{
 			TenantID:  input.TenantID,
 			SourceID:  input.SourceID,
 			ContentID: input.ContentID,
 			JobID:     input.JobID,
 			Content:   parsedContent,
 		}).Get(ctx, extractOutput)
-		if err != nil {
-			logger.Warn("Stage 2 Extract failed, continuing with empty extraction", "error", err)
-			extractOutput = &pipelineExtractOutput{}
-		}
+
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
 		var assertionCount int
 		ctxAssertions := workflow.WithActivityOptions(ctx, embeddingOpts)
-		err = workflow.ExecuteActivity(ctxAssertions, "ExtractAssertions", ExtractAssertionsInput{
+		err2 := workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
 			TenantID:  input.TenantID,
 			SourceID:  input.SourceID,
 			ContentID: input.ContentID,
 			JobID:     input.JobID,
 			Content:   parsedContent,
 		}).Get(ctx, &assertionCount)
-		if err != nil {
-			logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err)
+		if err2 != nil {
+			logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err2)
 			assertionCount = 0
-		} else {
-			logger.Info("Assertions extracted", "count", assertionCount)
 		}
 		state.result.AssertionsCreated = assertionCount
+
+		if err != nil {
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", extractStage.Name,
+				"stage_number", extractStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(extractStart).Milliseconds(),
+				"status", "failed",
+				"error", err.Error(),
+			)
+			extractOutput = &SLMPipelineExtractEntitiesOutput{}
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", extractStage.Name,
+				"stage_number", extractStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(extractStart).Milliseconds(),
+				"status", "completed",
+				"people_count", len(extractOutput.People),
+				"action_items_count", len(extractOutput.ActionItems),
+				"assertions_created", assertionCount,
+				"model_used", extractOutput.ModelUsed,
+			)
+		}
 
 		state.status.StepsCompleted = 3
 
 		// Progressive availability: mark as "extracted" (entity-searchable)
 		ctxStatus2 := workflow.WithActivityOptions(ctx, fastOpts)
-		_ = workflow.ExecuteActivity(ctxStatus2, "UpdateContentStatus", UpdateContentStatusInput{
+		_ = workflow.ExecuteActivity(ctxStatus2, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 			Status:   "extracted",
@@ -570,9 +768,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		// Stage 3: Context
 		updateStatus("building_context", "BuildContextPackage")
-		contextOutput = &pipelineContextOutput{}
+		contextStage := stageByStatus("building_context")
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", contextStage.Name,
+			"stage_number", contextStage.Number,
+			"total_steps", state.status.TotalSteps,
+		)
+		contextStart := workflow.Now(ctx)
+
+		contextOutput = &BuildContextOutput{}
 		ctxContext := workflow.WithActivityOptions(ctx, fastOpts)
-		err = workflow.ExecuteActivity(ctxContext, "BuildContextPackage", pipelineContextInput{
+		err = workflow.ExecuteActivity(ctxContext, pkgtemporal.ActivityBuildContextPackage, BuildContextInput{
 			TenantID:    input.TenantID,
 			SourceID:    input.SourceID,
 			ContentID:   input.ContentID,
@@ -584,8 +791,26 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			Subject:     input.Subject,
 		}).Get(ctx, contextOutput)
 		if err != nil {
-			logger.Warn("Stage 3 Context failed, continuing without context", "error", err)
-			contextOutput = &pipelineContextOutput{}
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", contextStage.Name,
+				"stage_number", contextStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(contextStart).Milliseconds(),
+				"status", "failed",
+				"error", err.Error(),
+			)
+			contextOutput = &BuildContextOutput{}
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", contextStage.Name,
+				"stage_number", contextStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(contextStart).Milliseconds(),
+				"status", "completed",
+				"entities_resolved", contextOutput.EntitiesResolved,
+				"entities_unresolved", contextOutput.EntitiesUnresolved,
+				"tokens_used", contextOutput.TokensUsed,
+			)
 		}
 		state.status.StepsCompleted = 4
 
@@ -597,10 +822,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		// Stage 4: Deep Analysis (optional — failure does NOT block pipeline)
 		updateStatus("analyzing", "DeepAnalyze")
-		var analyzeOutput *pipelineAnalyzeOutput
+		analyzeStage := stageByStatus("analyzing")
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", analyzeStage.Name,
+			"stage_number", analyzeStage.Number,
+			"total_steps", state.status.TotalSteps,
+		)
+		analyzeStart := workflow.Now(ctx)
+
+		var analyzeOutput *DeepAnalyzeOutput
 		ctxAnalyze := workflow.WithActivityOptions(ctx, llmOpts)
-		analyzeOutput = &pipelineAnalyzeOutput{}
-		err = workflow.ExecuteActivity(ctxAnalyze, "DeepAnalyze", pipelineAnalyzeInput{
+		analyzeOutput = &DeepAnalyzeOutput{}
+		err = workflow.ExecuteActivity(ctxAnalyze, pkgtemporal.ActivityDeepAnalyze, DeepAnalyzeInput{
 			TenantID:          input.TenantID,
 			SourceID:          input.SourceID,
 			ContentID:         input.ContentID,
@@ -613,8 +847,25 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			BackgroundContext: "", // Context package content assembled by activity
 		}).Get(ctx, analyzeOutput)
 		if err != nil {
-			logger.Warn("Stage 4 DeepAnalyze failed, continuing to embedding", "error", err)
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", analyzeStage.Name,
+				"stage_number", analyzeStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(analyzeStart).Milliseconds(),
+				"status", "failed",
+				"error", err.Error(),
+			)
 			analyzeOutput = nil // Skip persist if analysis failed
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", analyzeStage.Name,
+				"stage_number", analyzeStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(analyzeStart).Milliseconds(),
+				"status", "completed",
+				"model_used", analyzeOutput.ModelUsed,
+				"has_summary", analyzeOutput.Summary != "",
+			)
 		}
 		state.status.StepsCompleted = 5
 
@@ -627,6 +878,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		// Stage 4.5: Persist Findings (only if Stage 4 succeeded)
 		if analyzeOutput != nil {
 			updateStatus("persisting", "PersistFindings")
+			persistStage := stageByStatus("persisting")
+			logger.Info("pipeline stage starting",
+				"source_id", input.SourceID,
+				"stage", persistStage.Name,
+				"stage_number", persistStage.Number,
+				"total_steps", state.status.TotalSteps,
+			)
+			persistStart := workflow.Now(ctx)
 
 			// Build resolved people map from context output
 			resolvedPeople := make(map[string]int64)
@@ -649,9 +908,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				}
 			}
 
-			var persistOutput pipelinePersistOutput
+			var persistOutput PersistFindingsOutput
 			ctxPersist := workflow.WithActivityOptions(ctx, fastOpts)
-			err = workflow.ExecuteActivity(ctxPersist, "PersistFindings", pipelinePersistInput{
+			err = workflow.ExecuteActivity(ctxPersist, pkgtemporal.ActivityPersistFindings, PersistFindingsInput{
 				TenantID:       input.TenantID,
 				SourceID:       input.SourceID,
 				ProjectID:      projectID,
@@ -659,10 +918,23 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				ResolvedPeople: resolvedPeople,
 			}).Get(ctx, &persistOutput)
 			if err != nil {
-				logger.Warn("Stage 4.5 PersistFindings failed", "error", err)
+				logger.Warn("pipeline stage failed (non-blocking)",
+					"source_id", input.SourceID,
+					"stage", persistStage.Name,
+					"stage_number", persistStage.Number,
+					"duration_ms", workflow.Now(ctx).Sub(persistStart).Milliseconds(),
+					"status", "failed",
+					"error", err.Error(),
+				)
 			} else {
-				logger.Info("Findings persisted",
+				logger.Info("pipeline stage completed",
+					"source_id", input.SourceID,
+					"stage", persistStage.Name,
+					"stage_number", persistStage.Number,
+					"duration_ms", workflow.Now(ctx).Sub(persistStart).Milliseconds(),
+					"status", "completed",
 					"assertions_created", persistOutput.AssertionsCreated,
+					"assertions_superseded", persistOutput.AssertionsSuperseded,
 					"references_created", persistOutput.ReferencesCreated,
 				)
 				state.result.AssertionsCreated += persistOutput.AssertionsCreated
@@ -681,9 +953,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// ==================== Stage 5: Embed ====================
 	// Embedding is critical — failure means pipeline failure.
 	updateStatus("embedding", "GenerateEmbedding")
+	embedStage := stageByStatus("embedding")
+	logger.Info("pipeline stage starting",
+		"source_id", input.SourceID,
+		"stage", embedStage.Name,
+		"stage_number", embedStage.Number,
+		"total_steps", state.status.TotalSteps,
+	)
+	embedStart := workflow.Now(ctx)
+
 	var embeddingID int64
 	ctxEmbed := workflow.WithActivityOptions(ctx, embeddingOpts)
-	err = workflow.ExecuteActivity(ctxEmbed, "GenerateContentEmbedding", GenerateEmbeddingInput{
+	err = workflow.ExecuteActivity(ctxEmbed, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
 		TenantID:    input.TenantID,
 		SourceID:    input.SourceID,
 		ContentID:   input.ContentID,
@@ -699,7 +980,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		// Update status to failed
 		ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
-		_ = workflow.ExecuteActivity(ctxFail, "UpdateContentStatus", UpdateContentStatusInput{
+		_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 			Status:   "failed",
@@ -708,26 +989,35 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
+	logger.Info("pipeline stage completed",
+		"source_id", input.SourceID,
+		"stage", embedStage.Name,
+		"stage_number", embedStage.Number,
+		"duration_ms", workflow.Now(ctx).Sub(embedStart).Milliseconds(),
+		"status", "completed",
+		"embedding_id", embeddingID,
+	)
+
 	state.result.EmbeddingID = &embeddingID
 
 	// Add compensation to delete embedding on downstream failure
 	compensations = append(compensations, func(ctx workflow.Context) error {
 		return workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, fastOpts),
-			"DeleteEmbedding",
+			pkgtemporal.ActivityDeleteEmbedding,
 			embeddingID,
 		).Get(ctx, nil)
 	})
 
 	if triageOutput.SkipDeep {
-		state.status.StepsCompleted = 3
+		state.status.StepsCompleted = pkgtemporal.SkipDeepTotalSteps()
 	} else {
-		state.status.StepsCompleted = 7
+		state.status.StepsCompleted = pkgtemporal.FullPipelineTotalSteps()
 	}
 
 	// Final status update
 	ctxComplete := workflow.WithActivityOptions(ctx, fastOpts)
-	_ = workflow.ExecuteActivity(ctxComplete, "UpdateContentStatus", UpdateContentStatusInput{
+	_ = workflow.ExecuteActivity(ctxComplete, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 		Status:   "completed",
@@ -745,6 +1035,17 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	)
 
 	return state.result, nil
+}
+
+// stageByStatus returns the Stage metadata for a given StatusName.
+// If not found, returns a minimal Stage with the status name.
+func stageByStatus(statusName string) pkgtemporal.Stage {
+	for _, s := range pkgtemporal.SLMPipelineStages {
+		if s.StatusName == statusName {
+			return s
+		}
+	}
+	return pkgtemporal.Stage{Name: statusName, StatusName: statusName}
 }
 
 // Ensure temporal package is used to avoid import errors during development.

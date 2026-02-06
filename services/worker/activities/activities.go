@@ -40,6 +40,12 @@ func NewActivities(logger logging.Logger) *Activities {
 
 // NewActivitiesWithDB creates a new Activities instance with database and AI service.
 func NewActivitiesWithDB(logger logging.Logger, db *pgxpool.Pool, aiServiceURL string) *Activities {
+	if logger == nil {
+		panic("NewActivitiesWithDB: logger is required")
+	}
+	if db == nil {
+		panic("NewActivitiesWithDB: db is required")
+	}
 	return &Activities{
 		logger:       logger.With(logging.F("component", "activities")),
 		db:           db,

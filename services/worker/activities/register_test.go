@@ -99,8 +99,8 @@ func TestActivityCount_MainQueue(t *testing.T) {
 	r := NewRegistrar(acts)
 
 	count := r.ActivityCount(config.MainTaskQueue)
-	// ValidateContent, FetchContent, UpdateContentStatus, GenerateContentEmbedding, GenerateContentSummary = 5
-	require.Equal(t, 5, count)
+	// ValidateContent, FetchContent, UpdateContentStatus, GenerateContentEmbedding, GenerateContentSummary, ExtractAssertions = 6
+	require.Equal(t, 6, count)
 }
 
 // TestActivityCount_AIQueue verifies activity count for AI queue.
