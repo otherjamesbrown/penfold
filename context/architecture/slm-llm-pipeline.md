@@ -42,13 +42,13 @@ Content arrives (email / transcript / slack)
 > If the answer is already in the text and you just need to pull it out or label it, use the SLM.
 > If the answer requires reasoning, connecting dots, or understanding subtext, use the LLM.
 
-| SLM (local 7B, Apple Silicon) | LLM (remote, Gemini Pro/Flash) |
+| SLM (local MLX, Apple Silicon) | LLM (Gemini 2.0 Flash, cloud) |
 |-------------------------------|-------------------------------|
 | Classification into known categories | Connecting information across contexts |
 | Extraction of explicitly stated facts | Nuanced business sentiment |
 | Short summarisation | Complex multi-step reasoning |
 | Structured output from clear instructions | Cross-content synthesis |
-| Embedding generation | Risk mapping against known issues |
+| Embedding generation (mxbai-embed-large-v1, 1024d) | Risk mapping against known issues |
 
 ## Pipeline Stages
 
@@ -97,6 +97,8 @@ Matches raw extracted data against Penfold's knowledge base. No AI required.
 - **Unknown entity detection**: unresolved terms flagged for the review queue.
 
 **Implementation**: `services/worker/activities/context_builder.go`, `pkg/enrichment/entities/`, `pkg/enrichment/query/`
+
+**Mention resolution**: Uses `AIProvider` → AI Coordinator → Gemini 2.0 Flash for LLM-driven entity matching (replaced direct vLLM-MLX calls).
 
 ### Stage 4: Deep Analysis (Remote LLM)
 
@@ -277,7 +279,7 @@ Within each tier: sort by severity, then recency.
 | Context queries | `pkg/enrichment/query/` |
 | Workflow definitions | `services/worker/workflows/` |
 | AI routing | `services/ai/router/` |
-| AI backends (MLX) | `services/ai/backend/mlx.go` |
+| AI backends (MLX, Gemini, Composite) | `services/ai/backend/mlx.go`, `gemini.go`, `composite.go` |
 | Circuit breaker | `services/ai/router/circuit.go` |
 | Activity interfaces | `services/worker/activities/interfaces.go` |
 | Temporal presets | `pkg/temporal/options.go` |

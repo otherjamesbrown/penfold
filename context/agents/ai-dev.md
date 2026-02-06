@@ -67,11 +67,12 @@ func (e *HybridEngine) Search(ctx context.Context, query string) ([]Result, erro
 
 ```go
 // services/ai/escalation/policies.go
-// Local-first: Use local models (MLX) for 80% of processing
-// Escalate to cloud only when:
-//   - Local confidence < 0.8
-//   - Daily budget not exceeded
-//   - Complex task types (reasoning, code_generation)
+// Default LLM: Gemini 2.0 Flash (cloud) for all chat/completion
+// Local MLX: Retained for embeddings only (mxbai-embed-large-v1, 1024d)
+// Composite backend: services/ai/backend/composite.go
+// Escalate to Gemini Pro only when:
+//   - RISK_ISSUE or CUSTOMER + HIGH triage result
+//   - Complex reasoning/synthesis tasks
 ```
 
 ### Confidence-Based Ensemble

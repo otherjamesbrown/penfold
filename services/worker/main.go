@@ -282,32 +282,19 @@ func main() {
 		logger.Info("Extraction activities initialized with AI client")
 	}
 
-	// LLM configuration (used for mentions resolution and health checks)
-	llmURL := os.Getenv("LLM_URL")
-	if llmURL == "" {
-		llmURL = "http://localhost:8080"
-	}
-	llmModel := os.Getenv("LLM_MODEL")
-	if llmModel == "" {
-		llmModel = "mlx-community/Qwen2.5-7B-Instruct-4bit"
-	}
-
-	// Initialize mentions activities if database is available
-	if dbPool != nil {
+	// Initialize mentions activities if database and AI client are available
+	if dbPool != nil && aiClient != nil {
 		mentionsRepo := mentions.NewPostgresRepository(dbPool)
 
 		llmConfig := resolver.LLMConfig{
-			Provider:   "vllm",
-			Model:      llmModel,
-			BaseURL:    llmURL,
+			Provider:   "ai-service",
 			Timeout:    5 * time.Minute,
 			MaxRetries: 2,
 		}
 
-		llmProvider := resolver.NewVLLMProvider(llmConfig)
-		logger.Info("LLM provider initialized",
-			logging.F("url", llmURL),
-			logging.F("model", llmModel),
+		llmProvider := resolver.NewAIProvider(aiClient, llmConfig)
+		logger.Info("Mentions LLM provider initialized via AI service",
+			logging.F("ai_service_addr", cfg.AIServiceAddr),
 		)
 
 		// Create resolver with provider
@@ -327,7 +314,9 @@ func main() {
 			mentionsRepo,
 		)
 		activityRegistrar.WithMentionsActivities(mentionsActivities)
-		logger.Info("Mentions activities initialized with resolver")
+		logger.Info("Mentions activities initialized with AI service resolver")
+	} else if dbPool != nil {
+		logger.Warn("Mentions activities not initialized: AI client not available")
 	}
 
 	workflowRegistrar := workflows.NewRegistrar()
@@ -407,22 +396,8 @@ func main() {
 		return nil
 	}, health.Critical())
 
-	// Register LLM service health check
-	healthChecker.RegisterCheck("llm", func(ctx context.Context) error {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, llmURL+"/v1/models", nil)
-		if err != nil {
-			return fmt.Errorf("create request: %w", err)
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return fmt.Errorf("LLM service unreachable: %w", err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("LLM service returned %d", resp.StatusCode)
-		}
-		return nil
-	}, health.Critical())
+	// LLM health is now covered by the AI service health check above
+	// (AI Coordinator routes LLM calls to Gemini Flash)
 
 	// Start HTTP server for health and metrics
 	httpMux := http.NewServeMux()

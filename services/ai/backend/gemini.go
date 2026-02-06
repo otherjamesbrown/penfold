@@ -299,7 +299,7 @@ func (b *GeminiBackend) ChatCompletion(ctx context.Context, messages []Message, 
 		genConfig.MaxOutputTokens = opts.MaxTokens
 		hasConfig = true
 	} else {
-		genConfig.MaxOutputTokens = 2048 // Default
+		genConfig.MaxOutputTokens = 8192 // Default — Gemini 2.0 Flash supports 8192
 		hasConfig = true
 	}
 

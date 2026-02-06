@@ -37,13 +37,13 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-3
 | **Gateway** | dev02.brown.chat | 50051 | 8080 | Deployed |
 | **Worker** | dev01.brown.chat | - | 8085 | Deployed |
 | **MLX Embeddings** | dev01.brown.chat | - | 8081 | Deployed |
-| **MLX LLM Server** | dev01.brown.chat | - | 8080 | Deployed |
+| **MLX LLM Server** | dev01.brown.chat | - | 8080 | Deployed (fallback; Gemini Flash is default LLM) |
 | **mlx-lm-exporter** | dev01.brown.chat | - | 9101 | Deployed |
 | **node_exporter** | dev01.brown.chat | - | 9100 | Deployed |
 | **promtail** | dev01.brown.chat | - | 9080 | Deployed |
 | **postgres_exporter** | dev02.brown.chat | - | 9187 | Deployed |
 | **Agent Mail** | dev02.brown.chat | - | 8765 | Deployed |
-| **AI Service** | dev01.brown.chat | 50055 | 8086 | Code exists |
+| **AI Service** | dev01.brown.chat | 50055 | 8086 | Deployed (composite: MLX embeddings + Gemini LLM) |
 | Gmail Connector | (not deployed) | 50056 | 8087 | Code exists |
 
 **Note:** Search, Review, Content, and Relationship functionality is built into the Gateway (not separate services).
@@ -230,7 +230,7 @@ Use hostnames in all configs for portability. IPs may change.
 | Service | Port | Co-located Access | Notes |
 |---------|------|-------------------|-------|
 | MLX Embeddings | 8081 | `localhost:8081` | Apple Silicon required, `/metrics` for Prometheus |
-| MLX LLM Server | 8080 | `localhost:8080` | Qwen2.5-7B — SLM for pipeline Stages 1-2 (Triage, Extract) and mention resolution |
+| MLX LLM Server | 8080 | `localhost:8080` | Qwen2.5-7B — local fallback only; LLM calls now route via AI Coordinator → Gemini 2.0 Flash |
 | mlx-lm-exporter | 9101 | `localhost:9101` | Prometheus metrics for MLX LLM Server |
 | Worker | 8085 | - | Health endpoint + `/metrics` |
 | node_exporter | 9100 | `localhost:9100` | System metrics |
@@ -294,8 +294,7 @@ PENFOLD_DB_PASSWORD=<see secrets/.env.penfold>
 PENFOLD_DB_NAME=penfold
 PENFOLD_TEMPORAL_HOST=dev02.brown.chat:7233
 AI_SERVICE_URL=http://localhost:8081  # MLX embeddings (local to dev01)
-LLM_URL=http://localhost:8080         # MLX LLM server (local to dev01)
-LLM_MODEL=mlx-community/Qwen2.5-7B-Instruct-4bit
+AI_SERVICE_ADDR=dev02.brown.chat:50055  # AI Coordinator (for LLM via Gemini)
 ```
 
 **AI Service (dev01):**
@@ -306,8 +305,10 @@ LLM_MODEL=mlx-community/Qwen2.5-7B-Instruct-4bit
 # Build from source
 cd services/ai && go build -o /tmp/penfold-ai .
 
-# Start with default config (uses localhost MLX services)
-AI_GRPC_PORT=50055 AI_HTTP_PORT=8086 nohup /tmp/penfold-ai > /tmp/penfold-ai.log 2>&1 &
+# Start with Gemini as default LLM (MLX retained for embeddings only)
+AI_GRPC_PORT=50055 AI_HTTP_PORT=8086 AI_GEMINI_API_KEY=<from secrets/gemini> \
+  AI_DEFAULT_LLM_MODEL=gemini-2.0-flash \
+  nohup /tmp/penfold-ai > /tmp/penfold-ai.log 2>&1 &
 
 # Health check
 curl -s http://localhost:8086/health
@@ -315,10 +316,11 @@ curl -s http://localhost:8086/health
 # Environment variables (all have sensible defaults)
 AI_GRPC_PORT=50055              # gRPC server port
 AI_HTTP_PORT=8086               # HTTP health/metrics port
-AI_MLX_EMBEDDINGS_URL=http://localhost:8081
-AI_MLX_LLM_URL=http://localhost:8080
+AI_MLX_EMBEDDINGS_URL=http://localhost:8081   # MLX for embeddings
+AI_MLX_LLM_URL=http://localhost:8080          # MLX LLM (fallback only)
+AI_GEMINI_API_KEY=<from secrets/gemini>       # Gemini API key for LLM
 AI_DEFAULT_EMBEDDING_MODEL=mxbai-embed-large-v1
-AI_DEFAULT_LLM_MODEL=mlx-community/Qwen2.5-7B-Instruct-4bit
+AI_DEFAULT_LLM_MODEL=gemini-2.0-flash        # Gemini Flash is default LLM
 ```
 
 ### dev02.brown.chat
@@ -480,14 +482,14 @@ ssh dev02.brown.chat "PENFOLD_SERVICE_NAME=gateway \
 cd penfold-go-pipeline/sidecar
 .venv/bin/uvicorn app:app --host 0.0.0.0 --port 8081 &
 
-# 4. Start LLM Server on dev01 (for mention resolution)
+# 4. Start LLM Server on dev01 (local fallback; primary LLM is Gemini Flash via AI Coordinator)
 .venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-7B-Instruct-4bit --port 8080 --host 0.0.0.0 &
 
-# 5. Start Worker on dev01
+# 5. Start Worker on dev01 (LLM calls route through AI Coordinator → Gemini Flash)
 PENFOLD_DB_HOST=dev02.brown.chat \
 PENFOLD_TEMPORAL_HOST=dev02.brown.chat:7233 \
 AI_SERVICE_URL=http://localhost:8081 \
-LLM_URL=http://localhost:8080 \
+AI_SERVICE_ADDR=dev02.brown.chat:50055 \
 ./bin/penfold-worker &
 
 # 6. Verify CLI connection
@@ -650,8 +652,8 @@ WORKER_TASK_QUEUES=penfold-main,penfold-ai,penfold-email
 TEMPORAL_HOST_PORT=dev02.brown.chat:7233
 TEMPORAL_NAMESPACE=default
 AI_SERVICE_URL=http://localhost:8081  # MLX embeddings
-LLM_URL=http://localhost:8080         # MLX LLM server
-LLM_MODEL=mlx-community/Qwen2.5-7B-Instruct-4bit
+AI_SERVICE_ADDR=dev02.brown.chat:50055  # AI Coordinator (Gemini Flash for LLM)
+# LLM_URL and LLM_MODEL removed — LLM calls now route through AI Coordinator
 WORKER_MAX_CONCURRENT_ACTIVITIES=1  # Limit concurrent activities per queue worker
 WORKER_MAX_CONCURRENT_WORKFLOWS=10  # Limit concurrent workflow executions
 ```

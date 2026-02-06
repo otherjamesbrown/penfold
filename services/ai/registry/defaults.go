@@ -18,6 +18,8 @@ func DefaultModels(mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint string) []*ModelC
 
 	return []*ModelConfig{
 		// MLX Models (via vllm-mlx)
+		// Note: MLX LLM is retained as a local fallback but is no longer the default.
+		// Gemini 2.0 Flash is the default LLM for chat/completion operations.
 		{
 			ID:        "mlx/Qwen2.5-7B-Instruct-4bit",
 			Name:      "Qwen 2.5 7B Instruct",
@@ -50,9 +52,9 @@ func DefaultModels(mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint string) []*ModelC
 				Status: HealthStatusUnknown,
 			},
 			IsLocal:   true,
-			IsDefault: true,
-			Priority:  120,
-			Tags:      []string{"general", "fast", "local", "instruction-following"},
+			IsDefault: false,
+			Priority:  50,
+			Tags:      []string{"general", "local", "instruction-following", "fallback"},
 			CreatedAt: now,
 			UpdatedAt: now,
 		},
@@ -158,6 +160,44 @@ func DefaultModels(mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint string) []*ModelC
 			},
 			Version: ModelVersion{
 				Version:  "1.5",
+				IsLatest: false,
+			},
+			Health: ModelHealth{
+				Status: HealthStatusUnknown,
+			},
+			IsLocal:   false,
+			IsDefault: false,
+			Priority:  85,
+			Tags:      []string{"general", "cloud", "google", "long-context", "vision"},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "gemini/gemini-2.0-flash",
+			Name:      "Gemini 2.0 Flash",
+			Provider:  ProviderGemini,
+			ModelName: "gemini-2.0-flash",
+			Endpoint:  geminiEndpoint,
+			Capabilities: ModelCapabilities{
+				Capabilities:            []Capability{CapabilityChat, CapabilityCompletion, CapabilitySummarization, CapabilityExtraction, CapabilityClassification, CapabilityCodeGeneration},
+				SupportsFunctionCalling: true,
+				SupportsStreaming:       true,
+				SupportsJSON:            true,
+			},
+			Limits: ModelLimits{
+				ContextWindow:   1048576, // 1M tokens
+				MaxOutputTokens: 8192,
+				RateLimitRPM:    60,
+				RateLimitTPM:    60000,
+				MaxBatchSize:    1,
+			},
+			Cost: ModelCost{
+				InputCostPer1K:  0.00010, // $0.00010 per 1K input tokens
+				OutputCostPer1K: 0.00040, // $0.00040 per 1K output tokens
+				Currency:        "USD",
+			},
+			Version: ModelVersion{
+				Version:  "2.0",
 				IsLatest: true,
 			},
 			Health: ModelHealth{
@@ -165,8 +205,8 @@ func DefaultModels(mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint string) []*ModelC
 			},
 			IsLocal:   false,
 			IsDefault: true,
-			Priority:  85,
-			Tags:      []string{"general", "cloud", "google", "long-context", "vision"},
+			Priority:  90,
+			Tags:      []string{"general", "cloud", "google", "fast", "structured-output"},
 			CreatedAt: now,
 			UpdatedAt: now,
 		},

@@ -92,7 +92,7 @@ func main() {
 		return nil
 	}, health.Critical())
 
-	// Create MLX backend
+	// Create MLX backend (used for embeddings)
 	mlxBackend := backend.NewMLXBackend(&backend.MLXConfig{
 		EmbeddingsURL:         cfg.MLXEmbeddingsURL,
 		LLMURL:                cfg.MLXLLMURL,
@@ -101,23 +101,42 @@ func main() {
 		EmbeddingDimensions:   cfg.EmbeddingDimensions,
 		Timeout:               10 * time.Minute,
 	})
-	defer func() { _ = mlxBackend.Close() }()
 
-	logger.Info("MLX backend configured",
+	logger.Info("MLX backend configured (embeddings)",
 		logging.F("embeddings_url", cfg.MLXEmbeddingsURL),
-		logging.F("llm_url", cfg.MLXLLMURL),
 		logging.F("default_embedding_model", cfg.DefaultEmbeddingModel),
-		logging.F("default_llm_model", cfg.DefaultLLMModel),
 	)
+
+	// Create Gemini backend (used for LLM chat/completion)
+	geminiConfig := backend.DefaultGeminiConfig()
+	if cfg.GeminiAPIKey != "" {
+		geminiConfig.APIKey = cfg.GeminiAPIKey
+	}
+	if cfg.DefaultLLMModel != "" {
+		geminiConfig.DefaultLLMModel = cfg.DefaultLLMModel
+	}
+	geminiBackend, err := backend.NewGeminiBackend(geminiConfig)
+	if err != nil {
+		logger.Error("Failed to create Gemini backend", logging.Err(err))
+		os.Exit(1)
+	}
+
+	logger.Info("Gemini backend configured (LLM)",
+		logging.F("default_llm_model", geminiConfig.DefaultLLMModel),
+	)
+
+	// Create composite backend: MLX for embeddings, Gemini for LLM
+	compositeBackend := backend.NewCompositeBackend(mlxBackend, geminiBackend)
+	defer func() { _ = compositeBackend.Close() }()
 
 	// Register MLX embeddings health check (non-critical)
 	healthChecker.RegisterCheck("mlx_embeddings", func(ctx context.Context) error {
 		return mlxBackend.CheckEmbeddingsHealth(ctx)
 	})
 
-	// Register MLX LLM health check (non-critical)
-	healthChecker.RegisterCheck("mlx_llm", func(ctx context.Context) error {
-		return mlxBackend.CheckLLMHealth(ctx)
+	// Register Gemini LLM health check (non-critical)
+	healthChecker.RegisterCheck("gemini_llm", func(ctx context.Context) error {
+		return geminiBackend.CheckLLMHealth(ctx)
 	})
 
 	// Create gRPC server
@@ -129,7 +148,7 @@ func main() {
 	)
 
 	// Register AI service
-	aiServer := server.NewAIServer(cfg, logger, mlxBackend)
+	aiServer := server.NewAIServer(cfg, logger, compositeBackend)
 	aiv1.RegisterAICoordinatorServiceServer(grpcServer, aiServer)
 
 	// Enable gRPC reflection for debugging

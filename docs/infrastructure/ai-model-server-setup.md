@@ -1,5 +1,10 @@
 # AI Model Server Setup
 
+> **Note (2026-02):** Gemini 2.0 Flash is now the default LLM for all chat/completion operations.
+> Local MLX/Qwen is retained for embeddings only (mxbai-embed-large-v1, 1024d vectors).
+> The AI Coordinator uses a composite backend: MLX for embeddings, Gemini for LLM.
+> See `services/ai/backend/composite.go` and `deploy/env/ai-coordinator.env`.
+
 This guide covers the complete setup of the AI model server for Penfold on Mac Mini M4 hardware, including Ollama installation, model management, resource allocation, and integration with Penfold's AI coordination framework.
 
 ## Table of Contents
@@ -272,12 +277,12 @@ export OLLAMA_MAX_LOADED_MODELS=3   # Max 3 models in memory
 
 | Task | Recommended Model | Reasoning |
 |------|-------------------|-----------|
-| Email summarization | llama3.1:8b | Best balance of speed and quality |
-| Entity extraction | qwen2.5:7b | Excellent at structured outputs |
-| Quick categorization | phi3:mini | Fastest response time |
-| Technical analysis | codellama:7b | Code and technical domain expertise |
-| Embedding generation | nomic-embed-text | Consistent vector quality |
-| Complex synthesis | Cloud (Gemini) | When local models underperform |
+| **Chat/Completion (default)** | **Gemini 2.0 Flash** | **Cloud API — fast, reliable structured output** |
+| Email summarization | Gemini 2.0 Flash | Routed via AI Coordinator |
+| Entity extraction | Gemini 2.0 Flash | Reliable JSON schema compliance |
+| Mention resolution | Gemini 2.0 Flash | Via AIProvider → AI Coordinator |
+| Embedding generation | mxbai-embed-large-v1 (MLX) | Local, 1024d vectors |
+| Complex synthesis | Gemini Pro | When Flash is insufficient |
 
 ### Content-Type Model Assignment
 
