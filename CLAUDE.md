@@ -83,10 +83,28 @@ See `context-palace.md` for full schema and function reference.
 
 > "Changes complete. Do you want me to:
 > 1. Commit and push?
-> 2. Create a PR?
-> 3. Deploy (if applicable)?"
+> 2. Commit, push, and deploy?
+> 3. Create a PR?"
 
 Do NOT assume the task is done after code changes. Changes aren't useful until deployed.
+
+### Deploy Logic (Option 2)
+
+When the user picks option 2, determine what changed and deploy accordingly:
+
+**Service binaries** — if files changed under these paths, run the corresponding deploy script:
+
+| Changed Path | Deploy Script |
+|--------------|---------------|
+| `services/gateway/` | `./scripts/deploy-gateway.sh` |
+| `services/worker/` or `services/worker/activities/` or `services/worker/workflows/` | `./scripts/deploy-worker.sh` |
+| `services/ai/` | `./scripts/deploy-ai-coordinator.sh` |
+| `pkg/` (shared packages) | Deploy **all** services that import the changed package |
+| MLX / Python changes | `NOMAD_ADDR=http://dev02.brown.chat:4646 nomad job run deploy/nomad/mlx-services.nomad.hcl` |
+
+**CLI** — if files changed under `cmd/penf/`, run `/cli-publish` (bumps version, commits, pushes, triggers GitHub Actions release).
+
+**Multiple components** — if changes span several components, deploy each affected one. For example, a change touching both `pkg/enrichment/` and `services/worker/` needs both gateway and worker redeployed (since both may import from `pkg/`).
 
 ### Deployment Commands
 
