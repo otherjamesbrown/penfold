@@ -163,12 +163,9 @@ func (env *E2EEnv) GatewayLLMAvailable() bool {
 		return false
 	}
 
-	// Check that the overall status is healthy and LLM service is available
-	if health.Status != "healthy" {
-		return false
-	}
-
-	// Verify LLM service is healthy
+	// Check that the LLM service specifically is healthy.
+	// Overall status may be "degraded" due to non-critical services (e.g. worker
+	// health check failing) while the pipeline can still process content.
 	for _, svc := range health.Services {
 		if svc.Name == "llm" {
 			return svc.Status == "healthy"
