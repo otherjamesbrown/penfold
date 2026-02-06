@@ -35,6 +35,7 @@ type Repository interface {
 	GetContentText(ctx context.Context, contentID string) (*ContentTextRecord, error)
 	ListAvailableInsights(ctx context.Context, contentID string) (*InsightsAvailabilityRecord, error)
 	GetInsights(ctx context.Context, contentID string, types []string) ([]*InsightRecord, error)
+	GetAssertions(ctx context.Context, contentID string, assertionType *string) ([]*AssertionRecord, error)
 }
 
 // ContentItemRecord represents a content item from the database.
@@ -96,6 +97,17 @@ type InsightRecord struct {
 	Data          map[string]interface{}
 	ExtractedAt   time.Time
 	ModelVersion  string
+}
+
+// AssertionRecord represents a single extracted assertion.
+type AssertionRecord struct {
+	ID              int64
+	AssertionType   string
+	Description     string
+	SourceQuote     *string
+	Confidence      float32
+	ExtractionModel *string
+	CreatedAt       time.Time
 }
 
 // repositoryImpl implements Repository using pgxpool.
@@ -647,6 +659,66 @@ func (r *repositoryImpl) GetInsights(ctx context.Context, contentID string, type
 	}
 
 	return insights, nil
+}
+
+// GetAssertions retrieves assertions for a content item.
+func (r *repositoryImpl) GetAssertions(ctx context.Context, contentID string, assertionType *string) ([]*AssertionRecord, error) {
+	// Build query with optional type filter
+	query := `
+		SELECT
+			a.id,
+			a.assertion_type::TEXT,
+			a.description,
+			a.source_quote,
+			a.confidence,
+			er.model_id AS extraction_model,
+			a.created_at
+		FROM assertions a
+		INNER JOIN sources s ON a.source_id = s.id
+		LEFT JOIN extraction_runs er ON a.extraction_run_id = er.id
+		WHERE s.content_id = $1 AND (s.is_deleted IS NULL OR s.is_deleted = false)
+	`
+
+	args := []interface{}{contentID}
+
+	// Add type filter if specified
+	if assertionType != nil && *assertionType != "" {
+		query += " AND a.assertion_type::TEXT = $2"
+		args = append(args, *assertionType)
+	}
+
+	query += " ORDER BY a.confidence DESC, a.created_at DESC"
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query assertions: %w", err)
+	}
+	defer rows.Close()
+
+	var assertions []*AssertionRecord
+	for rows.Next() {
+		var rec AssertionRecord
+		err := rows.Scan(
+			&rec.ID,
+			&rec.AssertionType,
+			&rec.Description,
+			&rec.SourceQuote,
+			&rec.Confidence,
+			&rec.ExtractionModel,
+			&rec.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan assertion: %w", err)
+		}
+
+		assertions = append(assertions, &rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating assertions: %w", err)
+	}
+
+	return assertions, nil
 }
 
 // joinWhere joins WHERE clauses with AND.
@@ -1397,5 +1469,64 @@ func (s *Service) GetContentTrace(ctx context.Context, req *contentv1.GetContent
 		ContentId:   req.ContentId,
 		Traces:      protoTraces,
 		LangfuseUrl: langfuseURL,
+	}, nil
+}
+
+// GetAssertions retrieves extracted assertions for a content item.
+func (s *Service) GetAssertions(ctx context.Context, req *contentv1.GetAssertionsRequest) (*contentv1.GetAssertionsResponse, error) {
+	s.logger.Debug("GetAssertions called",
+		logging.F("content_id", req.ContentId),
+		logging.F("assertion_type", req.AssertionType),
+	)
+
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	// Prepare type filter
+	var assertionType *string
+	if req.AssertionType != nil && *req.AssertionType != "" {
+		assertionType = req.AssertionType
+	}
+
+	// Query assertions
+	assertions, err := s.repo.GetAssertions(ctx, req.ContentId, assertionType)
+	if err != nil {
+		s.logger.Error("Failed to get assertions",
+			logging.Err(err),
+			logging.F("content_id", req.ContentId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to get assertions: %v", err)
+	}
+
+	// Convert to proto
+	protoAssertions := make([]*contentv1.Assertion, len(assertions))
+	for i, rec := range assertions {
+		protoAssertions[i] = &contentv1.Assertion{
+			Id:            rec.ID,
+			AssertionType: rec.AssertionType,
+			Description:   rec.Description,
+			Confidence:    rec.Confidence,
+			CreatedAt:     timestamppb.New(rec.CreatedAt),
+		}
+
+		// Add optional fields
+		if rec.SourceQuote != nil {
+			protoAssertions[i].SourceQuote = rec.SourceQuote
+		}
+		if rec.ExtractionModel != nil {
+			protoAssertions[i].ExtractionModel = rec.ExtractionModel
+		}
+	}
+
+	s.logger.Debug("Retrieved assertions",
+		logging.F("content_id", req.ContentId),
+		logging.F("count", len(assertions)),
+	)
+
+	return &contentv1.GetAssertionsResponse{
+		ContentId:   req.ContentId,
+		Assertions:  protoAssertions,
+		TotalCount:  int32(len(assertions)),
 	}, nil
 }

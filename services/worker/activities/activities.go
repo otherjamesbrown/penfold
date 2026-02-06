@@ -382,5 +382,22 @@ func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.Upd
 		}
 	}
 
+	// Update assertion_count in ingestion_metadata if provided
+	if input.AssertionCount != nil {
+		assertQuery := `
+			UPDATE sources
+			SET ingestion_metadata = COALESCE(ingestion_metadata, '{}'::jsonb) || jsonb_build_object('assertion_count', $3::int),
+			    updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+		`
+		_, assertErr := a.db.Exec(ctx, assertQuery, input.SourceID, tenantID, *input.AssertionCount)
+		if assertErr != nil {
+			logger.Warn("Failed to update assertion_count in ingestion_metadata",
+				logging.F("error", assertErr.Error()),
+				logging.F("source_id", input.SourceID),
+			)
+		}
+	}
+
 	return nil
 }

@@ -58,6 +58,9 @@ service ContentProcessorService {
 
   // GetContentTrace retrieves Langfuse traces associated with a content item.
   rpc GetContentTrace(GetContentTraceRequest) returns (GetContentTraceResponse);
+
+  // GetAssertions retrieves extracted assertions for a content item.
+  rpc GetAssertions(GetAssertionsRequest) returns (GetAssertionsResponse);
 }
 
 // =============================================================================
@@ -626,4 +629,53 @@ message GetContentTraceResponse {
 
   // URL to view traces in the Langfuse UI.
   string langfuse_url = 3;
+}
+
+// =============================================================================
+// Assertions Messages
+// =============================================================================
+
+// GetAssertionsRequest retrieves assertions for a content item.
+message GetAssertionsRequest {
+  // Unique identifier of the content item.
+  string content_id = 1;
+
+  // Optional filter by assertion type (e.g., "risk", "action_item", "decision").
+  optional string assertion_type = 2;
+}
+
+// Assertion represents a single extracted assertion.
+message Assertion {
+  // Unique identifier for this assertion.
+  int64 id = 1;
+
+  // Type of assertion (e.g., "risk", "action_item", "decision", "commitment").
+  string assertion_type = 2;
+
+  // Description of the assertion.
+  string description = 3;
+
+  // Original text quote from the source that triggered extraction.
+  optional string source_quote = 4;
+
+  // Confidence score (0.0 to 1.0).
+  float confidence = 5;
+
+  // Model identifier used for extraction (e.g., "gpt-4", "claude-3").
+  optional string extraction_model = 6;
+
+  // Timestamp when this assertion was created.
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// GetAssertionsResponse contains retrieved assertions.
+message GetAssertionsResponse {
+  // Unique identifier of the content item.
+  string content_id = 1;
+
+  // List of assertions for this content item.
+  repeated Assertion assertions = 2;
+
+  // Total count of assertions (useful if filtering is applied).
+  int32 total_count = 3;
 }

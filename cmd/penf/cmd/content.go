@@ -102,6 +102,7 @@ JSON Output (for AI processing):
 	cmd.AddCommand(newContentTraceCommand(deps))
 	cmd.AddCommand(newContentTextCommand(deps))
 	cmd.AddCommand(newContentInsightsCommand(deps))
+	cmd.AddCommand(newContentAssertionsCommand(deps))
 
 	return cmd
 }

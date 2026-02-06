@@ -78,6 +78,14 @@ func (m *MockRepository) GetInsights(ctx context.Context, contentID string, type
 	return args.Get(0).([]*InsightRecord), args.Error(1)
 }
 
+func (m *MockRepository) GetAssertions(ctx context.Context, contentID string, assertionType *string) ([]*AssertionRecord, error) {
+	args := m.Called(ctx, contentID, assertionType)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*AssertionRecord), args.Error(1)
+}
+
 // newTestService creates a service with mock dependencies for testing.
 func newTestService(repo Repository) *Service {
 	logger := logging.NewLogger(nil)
@@ -475,6 +483,146 @@ func TestGetContentTrace(t *testing.T) {
 		}
 
 		resp, err := svc.GetContentTrace(ctx, req)
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		st, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+	})
+}
+
+// TestGetAssertions tests the GetAssertions handler.
+func TestGetAssertions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Success", func(t *testing.T) {
+		mockRepo := new(MockRepository)
+		svc := newTestService(mockRepo)
+
+		now := time.Now()
+		sourceQuote := "This is a risky assumption"
+		extractionModel := "gemini-2.0-flash"
+
+		mockRepo.On("GetAssertions", ctx, "test-content-id", (*string)(nil)).Return([]*AssertionRecord{
+			{
+				ID:              1,
+				AssertionType:   "risk",
+				Description:     "Project timeline at risk due to dependencies",
+				SourceQuote:     &sourceQuote,
+				Confidence:      0.85,
+				ExtractionModel: &extractionModel,
+				CreatedAt:       now,
+			},
+			{
+				ID:              2,
+				AssertionType:   "action_item",
+				Description:     "Sarah to review security audit",
+				SourceQuote:     nil,
+				Confidence:      0.92,
+				ExtractionModel: &extractionModel,
+				CreatedAt:       now,
+			},
+		}, nil)
+
+		req := &contentv1.GetAssertionsRequest{
+			ContentId: "test-content-id",
+		}
+
+		resp, err := svc.GetAssertions(ctx, req)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, "test-content-id", resp.ContentId)
+		assert.Len(t, resp.Assertions, 2)
+		assert.Equal(t, int32(2), resp.TotalCount)
+
+		// Check first assertion
+		assert.Equal(t, int64(1), resp.Assertions[0].Id)
+		assert.Equal(t, "risk", resp.Assertions[0].AssertionType)
+		assert.Equal(t, "Project timeline at risk due to dependencies", resp.Assertions[0].Description)
+		assert.NotNil(t, resp.Assertions[0].SourceQuote)
+		assert.Equal(t, "This is a risky assumption", *resp.Assertions[0].SourceQuote)
+		assert.Equal(t, float32(0.85), resp.Assertions[0].Confidence)
+		assert.NotNil(t, resp.Assertions[0].ExtractionModel)
+		assert.Equal(t, "gemini-2.0-flash", *resp.Assertions[0].ExtractionModel)
+
+		// Check second assertion
+		assert.Equal(t, int64(2), resp.Assertions[1].Id)
+		assert.Equal(t, "action_item", resp.Assertions[1].AssertionType)
+		assert.Nil(t, resp.Assertions[1].SourceQuote)
+
+		mockRepo.AssertExpectations(t)
+	})
+
+	t.Run("SuccessWithTypeFilter", func(t *testing.T) {
+		mockRepo := new(MockRepository)
+		svc := newTestService(mockRepo)
+
+		now := time.Now()
+		sourceQuote := "This is a risky assumption"
+		extractionModel := "gemini-2.0-flash"
+		assertionType := "risk"
+
+		mockRepo.On("GetAssertions", ctx, "test-content-id", &assertionType).Return([]*AssertionRecord{
+			{
+				ID:              1,
+				AssertionType:   "risk",
+				Description:     "Project timeline at risk due to dependencies",
+				SourceQuote:     &sourceQuote,
+				Confidence:      0.85,
+				ExtractionModel: &extractionModel,
+				CreatedAt:       now,
+			},
+		}, nil)
+
+		req := &contentv1.GetAssertionsRequest{
+			ContentId:     "test-content-id",
+			AssertionType: &assertionType,
+		}
+
+		resp, err := svc.GetAssertions(ctx, req)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, "test-content-id", resp.ContentId)
+		assert.Len(t, resp.Assertions, 1)
+		assert.Equal(t, int32(1), resp.TotalCount)
+		assert.Equal(t, "risk", resp.Assertions[0].AssertionType)
+
+		mockRepo.AssertExpectations(t)
+	})
+
+	t.Run("EmptyResult", func(t *testing.T) {
+		mockRepo := new(MockRepository)
+		svc := newTestService(mockRepo)
+
+		mockRepo.On("GetAssertions", ctx, "test-content-id", (*string)(nil)).Return([]*AssertionRecord{}, nil)
+
+		req := &contentv1.GetAssertionsRequest{
+			ContentId: "test-content-id",
+		}
+
+		resp, err := svc.GetAssertions(ctx, req)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, "test-content-id", resp.ContentId)
+		assert.Len(t, resp.Assertions, 0)
+		assert.Equal(t, int32(0), resp.TotalCount)
+
+		mockRepo.AssertExpectations(t)
+	})
+
+	t.Run("MissingContentID", func(t *testing.T) {
+		mockRepo := new(MockRepository)
+		svc := newTestService(mockRepo)
+
+		req := &contentv1.GetAssertionsRequest{
+			ContentId: "",
+		}
+
+		resp, err := svc.GetAssertions(ctx, req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)

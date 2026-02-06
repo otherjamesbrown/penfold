@@ -753,12 +753,17 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.status.StepsCompleted = 3
 
 		// Progressive availability: mark as "extracted" (entity-searchable)
+		// Also update assertion count if any assertions were extracted
 		ctxStatus2 := workflow.WithActivityOptions(ctx, fastOpts)
-		_ = workflow.ExecuteActivity(ctxStatus2, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+		updateInput := UpdateContentStatusInput{
 			TenantID: input.TenantID,
 			SourceID: input.SourceID,
 			Status:   "extracted",
-		}).Get(ctx, nil)
+		}
+		if assertionCount > 0 {
+			updateInput.AssertionCount = &assertionCount
+		}
+		_ = workflow.ExecuteActivity(ctxStatus2, pkgtemporal.ActivityUpdateContentStatus, updateInput).Get(ctx, nil)
 
 		if checkCancellation() {
 			state.result.Status = "cancelled"
@@ -938,6 +943,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 					"references_created", persistOutput.ReferencesCreated,
 				)
 				state.result.AssertionsCreated += persistOutput.AssertionsCreated
+
+				// Update assertion count on source after persist (total from both Stage 2b and Stage 4.5)
+				if state.result.AssertionsCreated > 0 {
+					totalCount := state.result.AssertionsCreated
+					ctxAssertionUpdate := workflow.WithActivityOptions(ctx, fastOpts)
+					_ = workflow.ExecuteActivity(ctxAssertionUpdate, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+						TenantID:       input.TenantID,
+						SourceID:       input.SourceID,
+						Status:         "analyzed",
+						AssertionCount: &totalCount,
+					}).Get(ctx, nil)
+				}
 			}
 		}
 		state.status.StepsCompleted = 6
