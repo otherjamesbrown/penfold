@@ -105,15 +105,18 @@ Key environment variables in plist:
 
 ## Updating Binaries
 
+> **Note:** launchd is superseded by Nomad. Use `./scripts/deploy-worker.sh` instead,
+> which handles build (with git version via ldflags), upload, code signing, and Nomad job submission.
+
 ```bash
-# Build on local machine (must be Apple Silicon for MLX)
+# Preferred: use the deploy script
+./scripts/deploy-worker.sh
+
+# Manual alternative (legacy):
 cd services/worker
 go build -o worker-darwin-arm64 -ldflags="-s -w" .
-
-# Copy to dev01
 scp worker-darwin-arm64 james@dev01.brown.chat:/tmp/
-
-# On dev01: replace binary
+# On dev01:
 sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
 sudo mv /tmp/worker-darwin-arm64 /opt/penfold/bin/penfold-worker
 sudo chmod +x /opt/penfold/bin/penfold-worker

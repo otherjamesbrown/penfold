@@ -46,13 +46,9 @@ penf migrate status
 # Should show: "All migrations applied"
 ```
 
-### 5. Build Services
-```bash
-# Build affected services
-cd services/gateway && go build -o gateway-linux -ldflags="-s -w" .
-cd services/worker && go build -o worker -ldflags="-s -w" .
-# etc.
-```
+### 5. Build & Deploy Services
+
+Use the deploy scripts — they handle cross-compilation, ldflags (embedding git version/commit/buildTime), upload, and Nomad job submission:
 
 ### 6. Deploy Services
 

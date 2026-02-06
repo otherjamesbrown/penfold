@@ -115,15 +115,18 @@ sudo systemctl restart penfold-gateway
 
 ## Updating Binaries
 
+> **Note:** systemd is superseded by Nomad. Use `./scripts/deploy-gateway.sh` instead,
+> which handles build (with git version via ldflags), upload, and Nomad job submission.
+
 ```bash
-# Build on local machine
+# Preferred: use the deploy script
+./scripts/deploy-gateway.sh
+
+# Manual alternative (legacy):
 cd services/gateway
 GOOS=linux GOARCH=amd64 go build -o gateway-linux -ldflags="-s -w" .
-
-# Copy to dev02
 scp gateway-linux james@dev02.brown.chat:/tmp/
-
-# On dev02: replace binary
+# On dev02:
 sudo systemctl stop penfold-gateway
 sudo mv /tmp/gateway-linux /opt/penfold/bin/penfold-gateway
 sudo chmod +x /opt/penfold/bin/penfold-gateway
