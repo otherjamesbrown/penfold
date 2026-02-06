@@ -28,7 +28,7 @@ func SetupPipelineE2E(t *testing.T) *PipelineE2EEnv {
 
 	baseEnv := SetupE2EEnvironment(t)
 
-	temporalHost := getEnvOrDefault("TEMPORAL_HOST", "localhost:7233")
+	temporalHost := getEnvOrDefault("TEMPORAL_HOST", "dev02.brown.chat:7233")
 
 	// Create Temporal client
 	c, err := client.Dial(client.Options{
@@ -104,7 +104,7 @@ func terminateTestWorkflows(t *testing.T, c client.Client) {
 func TerminateTestWorkflowsStandalone(t *testing.T) {
 	t.Helper()
 
-	temporalHost := getEnvOrDefault("TEMPORAL_HOST", "localhost:7233")
+	temporalHost := getEnvOrDefault("TEMPORAL_HOST", "dev02.brown.chat:7233")
 	c, err := client.Dial(client.Options{
 		HostPort:  temporalHost,
 		Namespace: "default",
