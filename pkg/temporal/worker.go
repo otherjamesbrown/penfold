@@ -6,6 +6,7 @@ import (
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 )
@@ -61,6 +62,13 @@ func WithDisableWorkflowWorker(disable bool) WorkerOption {
 func WithDisableActivityWorker(disable bool) WorkerOption {
 	return func(opts *worker.Options) {
 		opts.DisableEagerActivities = disable
+	}
+}
+
+// WithInterceptors adds worker interceptors (e.g., observability).
+func WithInterceptors(interceptors ...interceptor.WorkerInterceptor) WorkerOption {
+	return func(opts *worker.Options) {
+		opts.Interceptors = append(opts.Interceptors, interceptors...)
 	}
 }
 

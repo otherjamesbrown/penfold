@@ -26,6 +26,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/mentions/resolver"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
+	pkgobs "github.com/otherjamesbrown/penfold/pkg/temporal/observability"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/activities"
 	"github.com/otherjamesbrown/penfold/services/worker/config"
@@ -170,6 +171,26 @@ func main() {
 		logger.Error("Failed to register metrics", logging.Err(err))
 		os.Exit(1)
 	}
+
+	// Initialize Temporal observability metrics
+	temporalMetrics := pkgobs.NewMetrics(&pkgobs.MetricsConfig{
+		Namespace:   "penfold",
+		ServiceName: cfg.ServiceName,
+	})
+
+	// Create observability interceptors
+	obsInterceptors := pkgobs.NewInterceptors(&pkgobs.InterceptorOptions{
+		Logger:        logger,
+		Metrics:       temporalMetrics,
+		EnableTracing: true,
+		EnableMetrics: true,
+		EnableLogging: true,
+	})
+	logger.Info("Temporal observability initialized",
+		logging.F("tracing", true),
+		logging.F("metrics", true),
+		logging.F("logging", true),
+	)
 
 	// Create Temporal client configuration
 	temporalCfg := &pkgtemporal.Config{
@@ -386,6 +407,7 @@ func main() {
 				MaxConcurrentWorkflows:  cfg.MaxConcurrentWorkflows,
 			},
 			pkgtemporal.WithWorkerStopTimeout(time.Duration(cfg.GracefulShutdownTimeout)*time.Second),
+			pkgtemporal.WithInterceptors(obsInterceptors...),
 		)
 
 		// Register workflows and activities for this queue

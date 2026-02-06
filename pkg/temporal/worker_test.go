@@ -1,10 +1,13 @@
 package temporal
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 )
 
 func TestWorkerOptions(t *testing.T) {
@@ -77,6 +80,40 @@ func TestWorkerOptions(t *testing.T) {
 
 		if !opts.DisableEagerActivities {
 			t.Error("expected DisableEagerActivities to be true")
+		}
+	})
+
+	t.Run("WithInterceptors", func(t *testing.T) {
+		opts := &worker.Options{}
+
+		// Create mock interceptors
+		interceptor1 := &mockInterceptor{name: "interceptor1"}
+		interceptor2 := &mockInterceptor{name: "interceptor2"}
+
+		// Apply the WithInterceptors option
+		WithInterceptors(interceptor1, interceptor2)(opts)
+
+		// Verify interceptors were added
+		if len(opts.Interceptors) != 2 {
+			t.Errorf("expected 2 interceptors, got %d", len(opts.Interceptors))
+		}
+	})
+
+	t.Run("WithInterceptors_AppendsBehavior", func(t *testing.T) {
+		opts := &worker.Options{}
+
+		// Add initial interceptor
+		initialInterceptor := &mockInterceptor{name: "initial"}
+		opts.Interceptors = append(opts.Interceptors, initialInterceptor)
+
+		// Add more interceptors using WithInterceptors
+		newInterceptor1 := &mockInterceptor{name: "new1"}
+		newInterceptor2 := &mockInterceptor{name: "new2"}
+		WithInterceptors(newInterceptor1, newInterceptor2)(opts)
+
+		// Verify all interceptors are present (appended, not replaced)
+		if len(opts.Interceptors) != 3 {
+			t.Errorf("expected 3 interceptors (1 initial + 2 new), got %d", len(opts.Interceptors))
 		}
 	})
 
@@ -266,4 +303,26 @@ func TestWorkerOptionOverride(t *testing.T) {
 	if opts.MaxConcurrentActivityExecutionSize != 30 {
 		t.Errorf("expected last value 30, got %d", opts.MaxConcurrentActivityExecutionSize)
 	}
+}
+
+// mockInterceptor is a test implementation of WorkerInterceptor.
+type mockInterceptor struct {
+	interceptor.WorkerInterceptorBase
+	name string
+}
+
+// InterceptActivity implements the WorkerInterceptor interface.
+func (m *mockInterceptor) InterceptActivity(
+	ctx context.Context,
+	next interceptor.ActivityInboundInterceptor,
+) interceptor.ActivityInboundInterceptor {
+	return next
+}
+
+// InterceptWorkflow implements the WorkerInterceptor interface.
+func (m *mockInterceptor) InterceptWorkflow(
+	ctx workflow.Context,
+	next interceptor.WorkflowInboundInterceptor,
+) interceptor.WorkflowInboundInterceptor {
+	return next
 }
