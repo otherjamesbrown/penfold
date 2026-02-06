@@ -170,17 +170,21 @@ func getAssertionsForSource(env *E2EEnv, sourceID int64) ([]map[string]interface
 	for rows.Next() {
 		var id int64
 		var assertionType, description string
-		var confidence float64
+		var confidence *float64
 		var isCurrent bool
 		err := rows.Scan(&id, &assertionType, &description, &confidence, &isCurrent)
 		if err != nil {
 			return nil, err
 		}
+		conf := 0.0
+		if confidence != nil {
+			conf = *confidence
+		}
 		assertions = append(assertions, map[string]interface{}{
 			"id":          id,
 			"type":        assertionType,
 			"description": description,
-			"confidence":  confidence,
+			"confidence":  conf,
 			"is_current":  isCurrent,
 		})
 	}

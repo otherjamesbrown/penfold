@@ -284,8 +284,8 @@ func (env *E2EEnv) CleanupTestTenant() error {
 		"products",                    // (tenant_id, has self-FK parent_id)
 
 		// Parent tables (many children depend on these)
+		"assertions",                  // (tenant_id, has self-FK, FK -> sources)
 		"sources",                     // -> meetings (but sources.meeting_id -> meetings)
-		"assertions",                  // (tenant_id, has self-FK)
 		"meetings",                    // (tenant_id) -> meeting_series
 		"meeting_series",              // (tenant_id) -> projects
 		"projects",                    // (tenant_id, has self-FK)
