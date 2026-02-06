@@ -218,7 +218,9 @@ func TestSLMPipeline_FullEmailPipeline(t *testing.T) {
 	env := SetupE2EEnvironment(t)
 	ctx := context.Background()
 
-	// Setup: Clean slate
+	// Terminate stale workflows from previous test runs before cleanup
+	TerminateTestWorkflowsStandalone(t)
+
 	err := env.TruncateAllTables()
 	require.NoError(t, err)
 
@@ -269,6 +271,9 @@ func TestSLMPipeline_FullEmailPipeline(t *testing.T) {
 func TestSLMPipeline_MeetingTranscript(t *testing.T) {
 	env := SetupE2EEnvironment(t)
 	ctx := context.Background()
+
+	// Terminate stale workflows from previous test runs before cleanup
+	TerminateTestWorkflowsStandalone(t)
 
 	err := env.TruncateAllTables()
 	require.NoError(t, err)
@@ -322,6 +327,9 @@ Marcus: I have some concerns about the deadline.`
 func TestSLMPipeline_TriageGateLOW(t *testing.T) {
 	env := SetupE2EEnvironment(t)
 	ctx := context.Background()
+
+	// Terminate stale workflows from previous test runs before cleanup
+	TerminateTestWorkflowsStandalone(t)
 
 	err := env.TruncateAllTables()
 	require.NoError(t, err)
@@ -391,6 +399,9 @@ func TestSLMPipeline_HighImportanceRisk(t *testing.T) {
 	env := SetupE2EEnvironment(t)
 	ctx := context.Background()
 
+	// Terminate stale workflows from previous test runs before cleanup
+	TerminateTestWorkflowsStandalone(t)
+
 	err := env.TruncateAllTables()
 	require.NoError(t, err)
 
@@ -455,6 +466,9 @@ Recommended action: Immediate hotfix deployment
 func TestSLMPipeline_GoldenThread(t *testing.T) {
 	env := SetupE2EEnvironment(t)
 	ctx := context.Background()
+
+	// Terminate stale workflows from previous test runs before cleanup
+	TerminateTestWorkflowsStandalone(t)
 
 	err := env.TruncateAllTables()
 	require.NoError(t, err)
@@ -549,6 +563,9 @@ func TestSLMPipeline_BatchIngestion(t *testing.T) {
 	env := SetupE2EEnvironment(t)
 	ctx := context.Background()
 
+	// Terminate stale workflows from previous test runs before cleanup
+	TerminateTestWorkflowsStandalone(t)
+
 	err := env.TruncateAllTables()
 	require.NoError(t, err)
 
@@ -640,6 +657,9 @@ func TestSLMPipeline_Idempotency(t *testing.T) {
 	env := SetupE2EEnvironment(t)
 	ctx := context.Background()
 
+	// Terminate stale workflows from previous test runs before cleanup
+	TerminateTestWorkflowsStandalone(t)
+
 	err := env.TruncateAllTables()
 	require.NoError(t, err)
 
@@ -695,6 +715,9 @@ func TestSLMPipeline_SRTTranscript(t *testing.T) {
 	env := SetupE2EEnvironment(t)
 	ctx := context.Background()
 
+	// Terminate stale workflows from previous test runs before cleanup
+	TerminateTestWorkflowsStandalone(t)
+
 	err := env.TruncateAllTables()
 	require.NoError(t, err)
 
@@ -744,6 +767,9 @@ Marcus: The outage began at 2:15 AM UTC.`
 func TestSLMPipeline_EntityResolution(t *testing.T) {
 	env := SetupE2EEnvironment(t)
 	ctx := context.Background()
+
+	// Terminate stale workflows from previous test runs before cleanup
+	TerminateTestWorkflowsStandalone(t)
 
 	err := env.TruncateAllTables()
 	require.NoError(t, err)

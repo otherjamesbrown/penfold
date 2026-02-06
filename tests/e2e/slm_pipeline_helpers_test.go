@@ -7,10 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 )
 
@@ -42,12 +44,78 @@ func SetupPipelineE2E(t *testing.T) *PipelineE2EEnv {
 		TemporalClient: c,
 	}
 
-	// Register cleanup
+	// Terminate stale workflows from previous test runs
+	terminateTestWorkflows(t, c)
+
+	// Register cleanup: terminate workflows started by this test, then close client
 	t.Cleanup(func() {
+		terminateTestWorkflows(t, c)
 		c.Close()
 	})
 
 	return env
+}
+
+// terminateTestWorkflows terminates any running workflows on the penfold-main
+// task queue that were started by E2E tests. This prevents stale workflows from
+// previous test runs from interfering with the current run by operating on
+// deleted source records.
+func terminateTestWorkflows(t *testing.T, c client.Client) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Query for running workflows on the E2E task queue
+	resp, err := c.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
+		Query: `ExecutionStatus = "Running" AND TaskQueue = "penfold-main"`,
+	})
+	if err != nil {
+		t.Logf("warning: could not list workflows: %v", err)
+		return
+	}
+
+	terminated := 0
+	for _, exec := range resp.Executions {
+		wfID := exec.Execution.GetWorkflowId()
+		runID := exec.Execution.GetRunId()
+
+		// Only terminate workflows that look like E2E test workflows
+		// or SLMPipeline workflows (which E2E tests trigger via pipeline kick)
+		if strings.HasPrefix(wfID, "e2e-") ||
+			strings.HasPrefix(wfID, "slm-pipeline-") ||
+			strings.HasPrefix(wfID, "ingestion-") {
+			err := c.TerminateWorkflow(ctx, wfID, runID, "E2E test cleanup")
+			if err != nil {
+				t.Logf("warning: could not terminate workflow %s: %v", wfID, err)
+				continue
+			}
+			terminated++
+		}
+	}
+
+	if terminated > 0 {
+		t.Logf("terminated %d stale workflows before test", terminated)
+	}
+}
+
+// TerminateTestWorkflowsStandalone creates a temporary Temporal client,
+// terminates stale test workflows, and closes the client. Use this in tests
+// that don't use SetupPipelineE2E but still trigger pipeline processing.
+func TerminateTestWorkflowsStandalone(t *testing.T) {
+	t.Helper()
+
+	temporalHost := getEnvOrDefault("TEMPORAL_HOST", "localhost:7233")
+	c, err := client.Dial(client.Options{
+		HostPort:  temporalHost,
+		Namespace: "default",
+	})
+	if err != nil {
+		t.Logf("warning: could not connect to Temporal for workflow cleanup: %v", err)
+		return
+	}
+	defer c.Close()
+
+	terminateTestWorkflows(t, c)
 }
 
 // PipelineInput matches the workflow input structure.
