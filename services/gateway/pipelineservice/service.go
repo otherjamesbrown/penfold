@@ -164,7 +164,7 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 			ID:        workflowID,
 			TaskQueue: "penfold-main",
 		}
-		_, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "ContentIngestionWorkflow", input)
+		_, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "SLMPipelineWorkflow", input)
 		if err != nil {
 			s.logger.Warn("Failed to start workflow for source",
 				logging.F("source_id", src.ID),
@@ -174,7 +174,7 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 			// Continue with other sources
 			continue
 		}
-		s.logger.Info("Started ContentIngestionWorkflow",
+		s.logger.Info("Started SLMPipelineWorkflow",
 			logging.F("workflow_id", workflowID),
 			logging.F("source_id", src.ID),
 			logging.F("content_id", src.ContentID),

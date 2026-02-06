@@ -867,7 +867,7 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		ID:        workflowID,
 		TaskQueue: "penfold-main",
 	}
-	workflowRun, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "ContentIngestionWorkflow", input)
+	workflowRun, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "SLMPipelineWorkflow", input)
 	if err != nil {
 		s.logger.Error("Failed to start workflow",
 			logging.F("source_id", source.ID),

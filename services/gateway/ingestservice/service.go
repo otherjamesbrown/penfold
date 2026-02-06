@@ -247,7 +247,7 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 			ID:        workflowID,
 			TaskQueue: "penfold-main",
 		}
-		_, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "ContentIngestionWorkflow", input)
+		_, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "SLMPipelineWorkflow", input)
 		if err != nil {
 			s.logger.Warn("Failed to start workflow for source",
 				logging.F("source_id", createdSource.ID),
@@ -255,7 +255,7 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 			)
 			// Don't fail ingestion, continue
 		} else {
-			s.logger.Info("Started ContentIngestionWorkflow",
+			s.logger.Info("Started SLMPipelineWorkflow",
 				logging.F("workflow_id", workflowID),
 				logging.F("source_id", createdSource.ID),
 				logging.F("content_id", createdSource.ContentID),
