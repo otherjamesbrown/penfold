@@ -1,6 +1,6 @@
 # Penfold Go Services Makefile
 
-.PHONY: all build test lint vet proto clean help
+.PHONY: all build test lint vet workflow-check proto clean help
 
 # Go modules in the project
 GO_MODULES := cmd/penf pkg api/proto services/ai services/gateway services/gmail services/worker
@@ -48,6 +48,11 @@ vet: ## Run go vet on all modules
 		echo "Vetting $$mod..."; \
 		(cd $$mod && go vet ./...); \
 	done
+
+workflow-check: ## Run Temporal workflowcheck static analysis
+	@echo "Running workflowcheck..."
+	@go install go.temporal.io/sdk/contrib/tools/workflowcheck@latest
+	@workflowcheck ./services/worker/workflows/...
 
 ## Proto targets
 
