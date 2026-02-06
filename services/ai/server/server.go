@@ -184,6 +184,7 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 	opts := backend.CompletionOptions{
 		Model:       model,
 		Temperature: 0.3, // Slightly creative for summaries
+		JSONMode:    req.GetJsonMode(), // Pass through JSON mode flag
 	}
 
 	if req.GetMaxLength() > 0 {

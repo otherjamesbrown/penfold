@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -211,10 +212,124 @@ func (env *E2EEnv) FixtureLoader() *testfixtures.Loader {
 
 // CleanupTestTenant deletes all data for the test tenant only.
 // This preserves other tenants' data in the shared database.
+// Tables are deleted in FK-safe order (children before parents) to avoid constraint violations.
 func (env *E2EEnv) CleanupTestTenant() error {
 	ctx := context.Background()
 
-	// Find all tables with a tenant_id column (except tenants itself)
+	// FK-safe deletion order: leaf tables first, parent tables last.
+	// This order is derived from the FK relationships in the schema.
+	// Tables without FK dependencies on other tenant tables can be deleted early.
+	cleanupOrder := []string{
+		// Deepest leaf tables (no children)
+		"enrichment_stages",           // -> content_enrichment
+		"pipeline_runs",               // -> pipeline_stages
+		"extraction_feedback",         // -> extraction_runs
+		"extraction_experiment_results", // -> extraction_runs, extraction_experiments
+		"ingest_errors",               // -> ingest_jobs
+		"jira_ticket_changes",         // -> jira_tickets
+		"meeting_events",              // -> meetings
+		"meeting_attendees",           // -> meetings
+		"meeting_mentions",            // -> meetings, sources
+		"meeting_participants",        // -> meetings
+		"thread_messages",             // -> email_threads
+		"link_sources",                // -> extracted_links
+		"link_enrichment",             // -> extracted_links
+		"person_aliases",              // -> people
+		"team_members",                // -> teams, people
+		"assertion_references",        // -> assertions
+		"watch_list",                  // -> assertions, projects
+		"resolution_decisions",        // -> resolution_trace_stages
+		"resolution_llm_calls",        // -> resolution_trace_stages
+		"resolution_trace_stages",     // -> resolution_traces
+		"resolution_comparison_decisions", // -> resolution_comparisons
+		"relationship_conflicts",      // -> relationships
+		"relationship_evidence",       // -> relationships, sources
+		"relationship_feedback",       // -> relationships
+		"relationship_versions",       // -> relationships
+		"product_aliases",             // -> products
+		"product_team_roles",          // -> product_teams, people
+		"product_event_links",         // -> product_events
+		"product_events",              // -> products
+		"product_teams",               // -> products, teams
+		"automation_decisions",        // -> automation_rules
+		"automation_patterns",         // -> automation_rules
+		"rule_effectiveness",          // -> automation_rules
+		"rule_conflicts",              // -> automation_rules
+		"automation_rule_versions",    // -> automation_rules
+		"project_members",             // -> projects, people, teams
+		"cross_tenant_person_links",   // -> people
+		"user_feedback",               // -> review_items, review_sessions, learning_rules
+		"review_items",                // -> review_sessions, sources
+		"batch_operations",            // -> review_sessions
+		"search_query_records",        // -> search_sessions
+		"processing_jobs",             // -> processing_events
+
+		// Mid-level tables (have children above, parents below)
+		"embeddings",                  // -> sources, people, projects, teams, assertions
+		"content_mentions",            // (no tenant_id, skipped)
+		"content_sentiment",           // -> extraction_runs
+		"email_attachments",           // -> sources
+		"archived_files",              // -> sources
+		"extraction_runs",             // -> email_threads, extraction_experiments
+		"extraction_experiments",      // (tenant_id)
+		"resolution_comparisons",      // (tenant_id)
+		"resolution_traces",           // (tenant_id)
+		"relationships",               // (tenant_id)
+		"content_enrichment",          // (tenant_id, source_id not FK)
+		"jira_tickets",                // (tenant_id) -> people, projects
+		"extracted_links",             // (tenant_id)
+		"email_threads",               // (tenant_id) -> projects
+		"ingest_jobs",                 // (tenant_id)
+		"review_sessions",             // (tenant_id)
+		"search_sessions",             // (tenant_id)
+		"processing_events",           // (tenant_id)
+		"automation_rules",            // (tenant_id, has self-FK)
+		"products",                    // (tenant_id, has self-FK parent_id)
+
+		// Parent tables (many children depend on these)
+		"sources",                     // -> meetings (but sources.meeting_id -> meetings)
+		"assertions",                  // (tenant_id, has self-FK)
+		"meetings",                    // (tenant_id) -> meeting_series
+		"meeting_series",              // (tenant_id) -> projects
+		"projects",                    // (tenant_id, has self-FK)
+		"people",                      // (tenant_id)
+		"teams",                       // (tenant_id, has self-FK)
+
+		// Tenant configuration and system tables
+		"learning_rules",              // (tenant_id)
+		"review_analytics",            // (tenant_id)
+		"search_analytics",            // (tenant_id)
+		"query_suggestions",           // (tenant_id)
+		"tenant_sessions",             // (tenant_id)
+		"progressive_settings",        // (tenant_id if exists)
+		"confidence_thresholds",       // (tenant_id if exists)
+		"glossary",                    // (tenant_id)
+		"insight_type_registry",       // (tenant_id if exists)
+		"mention_patterns",            // (tenant_id if exists)
+
+		// Note: 'tenants' table is never deleted - we preserve the tenant record itself
+	}
+
+	// Track deleted tables to detect any that were missed
+	deletedTables := make(map[string]bool)
+
+	// Delete from each table in order
+	for _, table := range cleanupOrder {
+		_, err := env.DB.Exec(ctx, fmt.Sprintf(
+			"DELETE FROM %s WHERE tenant_id = $1", table), env.TenantID)
+		if err != nil {
+			// Handle "relation does not exist" gracefully - some tables may not exist in all environments
+			if strings.Contains(err.Error(), "does not exist") {
+				env.t.Logf("table %s does not exist, skipping", table)
+				continue
+			}
+			// Fail loudly on FK violations or other errors
+			return fmt.Errorf("failed to delete from %s: %w", table, err)
+		}
+		deletedTables[table] = true
+	}
+
+	// Safety net: check for any tables with tenant_id that we missed
 	rows, err := env.DB.Query(ctx, `
 		SELECT DISTINCT c.table_name
 		FROM information_schema.columns c
@@ -226,27 +341,25 @@ func (env *E2EEnv) CleanupTestTenant() error {
 		AND c.table_name != 'tenants'
 	`)
 	if err != nil {
-		return fmt.Errorf("querying tenant tables: %w", err)
+		return fmt.Errorf("querying tenant tables for safety check: %w", err)
 	}
 	defer rows.Close()
 
-	var tables []string
+	var missedTables []string
 	for rows.Next() {
 		var tableName string
 		if err := rows.Scan(&tableName); err != nil {
 			return err
 		}
-		tables = append(tables, tableName)
+		if !deletedTables[tableName] {
+			missedTables = append(missedTables, tableName)
+		}
 	}
 
-	// Delete test tenant's data from each table
-	for _, table := range tables {
-		_, err := env.DB.Exec(ctx, fmt.Sprintf(
-			"DELETE FROM %s WHERE tenant_id = $1", table), env.TenantID)
-		if err != nil {
-			// Log but continue - some tables might have FK constraints
-			env.t.Logf("warning: could not clean %s: %v", table, err)
-		}
+	// Warn if we found tables not in our explicit list
+	if len(missedTables) > 0 {
+		env.t.Logf("WARNING: Found tables with tenant_id not in cleanup list: %v", missedTables)
+		env.t.Logf("These tables were NOT cleaned up and may cause test isolation issues")
 	}
 
 	return nil

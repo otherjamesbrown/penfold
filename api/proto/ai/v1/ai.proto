@@ -177,6 +177,10 @@ message SummaryRequest {
 
   // Optional tenant identifier for multi-tenancy support.
   optional string tenant_id = 5;
+
+  // Whether to request JSON-structured output from the LLM.
+  // When true, the backend will constrain the model to output valid JSON.
+  optional bool json_mode = 6;
 }
 
 // SummaryResponse contains the generated summary and key points.

@@ -83,6 +83,12 @@ func (p *AIProvider) Complete(ctx context.Context, req CompletionRequest) (*Comp
 		summaryReq.Model = &p.config.Model
 	}
 
+	// Pass through JSON mode
+	if req.JSONMode {
+		jm := true
+		summaryReq.JsonMode = &jm
+	}
+
 	// Execute request
 	resp, err := p.aiClient.GenerateSummary(ctx, summaryReq)
 	if err != nil {

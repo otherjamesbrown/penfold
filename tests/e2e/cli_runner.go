@@ -10,8 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
+)
+
+var (
+	builtBinaryPath string
+	buildOnce       sync.Once
+	buildErr        error
 )
 
 // CLIRunner executes penf CLI commands and captures output.
@@ -44,21 +51,32 @@ func NewCLIRunner(t *testing.T) *CLIRunner {
 		t.Fatalf("could not find project root (looking for cmd/penf)")
 	}
 
-	binaryPath := filepath.Join(workDir, "penf")
+	// Build the CLI once across all tests in the package
+	buildOnce.Do(func() {
+		binaryPath := filepath.Join(workDir, "penf")
+		cmdPath := filepath.Join(workDir, "cmd", "penf")
 
-	// Build the CLI if it doesn't exist or is stale
-	cmdPath := filepath.Join(workDir, "cmd", "penf")
-	if _, err := os.Stat(cmdPath); err == nil {
-		t.Log("Building penf CLI...")
-		cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/penf")
-		cmd.Dir = workDir
-		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("failed to build penf: %v\n%s", err, output)
+		if _, err := os.Stat(cmdPath); err == nil {
+			t.Log("Building penf CLI...")
+			cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/penf")
+			cmd.Dir = workDir
+			if output, err := cmd.CombinedOutput(); err != nil {
+				buildErr = fmt.Errorf("failed to build penf: %v\n%s", err, output)
+				return
+			}
+			builtBinaryPath = binaryPath
+		} else {
+			buildErr = fmt.Errorf("cmd/penf directory not found")
 		}
+	})
+
+	// Check if build failed
+	if buildErr != nil {
+		t.Fatalf("failed to build penf: %v", buildErr)
 	}
 
 	return &CLIRunner{
-		BinaryPath: binaryPath,
+		BinaryPath: builtBinaryPath,
 		WorkDir:    workDir,
 		Env:        os.Environ(),
 	}
