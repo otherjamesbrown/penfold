@@ -1,0 +1,60 @@
+job "penfold-worker" {
+  datacenters = ["dc1"]
+  type        = "service"
+
+  constraint {
+    attribute = "${meta.apple-silicon}"
+    value     = "true"
+  }
+
+  update {
+    max_parallel     = 1
+    canary           = 1
+    min_healthy_time = "10s"
+    healthy_deadline = "60s"
+    auto_revert      = true
+    auto_promote     = true
+  }
+
+  group "worker" {
+    count = 1
+
+    network {
+      port "http" { static = 8085 }
+    }
+
+    restart {
+      attempts = 3
+      delay    = "30s"
+      interval = "5m"
+      mode     = "fail"
+    }
+
+    task "worker" {
+      driver = "raw_exec"
+
+      config {
+        command = "/bin/sh"
+        args    = ["-c", "set -a; . /etc/penfold/worker.env; set +a; exec /opt/penfold/bin/penfold-worker"]
+      }
+
+      service {
+        name = "penfold-worker"
+        port = "http"
+
+        check {
+          name     = "http-health"
+          type     = "http"
+          path     = "/health"
+          interval = "10s"
+          timeout  = "3s"
+        }
+      }
+
+      resources {
+        cpu    = 1000
+        memory = 2048
+      }
+    }
+  }
+}
