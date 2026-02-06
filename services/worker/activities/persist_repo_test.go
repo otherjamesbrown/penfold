@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
 // mockPersistRepo is a mock implementation of PersistRepository for testing.
@@ -469,5 +471,92 @@ func TestPersistRepo_AffinityUpdate(t *testing.T) {
 		output, err := mock.PersistFindings(ctx, input)
 		require.NoError(t, err)
 		assert.Equal(t, 0, output.AffinityUpdates)
+	})
+}
+
+func TestCollectAnalysisTexts(t *testing.T) {
+	repo := &PersistRepo{
+		logger: logging.NewLogger(&logging.Config{Level: logging.LevelError}),
+	}
+
+	t.Run("nil analysis returns nil", func(t *testing.T) {
+		texts := repo.collectAnalysisTexts(nil)
+		assert.Nil(t, texts)
+	})
+
+	t.Run("empty analysis returns nil", func(t *testing.T) {
+		texts := repo.collectAnalysisTexts(&DeepAnalyzeOutput{})
+		assert.Nil(t, texts)
+	})
+
+	t.Run("collects from all finding types", func(t *testing.T) {
+		analysis := &DeepAnalyzeOutput{
+			Summary: "Meeting summary about the KPI dashboard",
+			VerifiedActions: []VerifiedActionOutput{
+				{Description: "Deploy the API gateway", ContextExcerpt: "We need to deploy the API"},
+			},
+			VerifiedDecisions: []VerifiedDecisionOutput{
+				{Description: "Use AWS for hosting", ContextExcerpt: "Decided on AWS"},
+			},
+			RiskReferences: []RiskReferenceOutput{
+				{Description: "SLA breach risk", ContextExcerpt: "If SLA is missed"},
+			},
+			ImplicitActions: []ImplicitActionOutput{
+				{Description: "Review the RFC", ContextExcerpt: "The RFC needs review"},
+			},
+			Insights: []string{"The team is aligned on OKR priorities"},
+		}
+
+		texts := repo.collectAnalysisTexts(analysis)
+
+		// 2 from verified actions + 2 from decisions + 2 from risks + 2 from implicit + 1 summary + 1 insight = 10
+		assert.Len(t, texts, 10)
+		assert.Contains(t, texts, "Deploy the API gateway")
+		assert.Contains(t, texts, "Use AWS for hosting")
+		assert.Contains(t, texts, "SLA breach risk")
+		assert.Contains(t, texts, "Review the RFC")
+		assert.Contains(t, texts, "Meeting summary about the KPI dashboard")
+		assert.Contains(t, texts, "The team is aligned on OKR priorities")
+	})
+}
+
+func TestAcronymDetection(t *testing.T) {
+	t.Run("common words are excluded", func(t *testing.T) {
+		// These should all be excluded
+		excluded := []string{"IT", "AM", "PM", "THE", "AND", "FOR", "NOT", "ALL", "CAN", "FYI", "ASAP", "TODO"}
+		for _, word := range excluded {
+			assert.True(t, commonAcronymExclusions[word], "%s should be excluded", word)
+		}
+	})
+
+	t.Run("acronym pattern matches uppercase 2-5 char tokens", func(t *testing.T) {
+		matches := acronymPattern.FindAllString("The API uses JWT for auth and the SLA is strict", -1)
+		assert.Contains(t, matches, "API")
+		assert.Contains(t, matches, "JWT")
+		assert.Contains(t, matches, "SLA")
+	})
+
+	t.Run("acronym pattern rejects too-long tokens", func(t *testing.T) {
+		matches := acronymPattern.FindAllString("TOOLONG is not matched", -1)
+		// "TOOLONG" is 7 chars, should not match the 2-5 pattern
+		for _, m := range matches {
+			assert.NotEqual(t, "TOOLONG", m)
+		}
+	})
+
+	t.Run("skips when reviewQueue is nil", func(t *testing.T) {
+		repo := &PersistRepo{
+			logger: logging.NewLogger(&logging.Config{Level: logging.LevelError}),
+			// reviewQueue is nil
+		}
+		output := &PersistFindingsOutput{}
+		input := &PersistFindingsInput{
+			SourceID: 1,
+			Analysis: &DeepAnalyzeOutput{
+				Summary: "We discussed the KPI dashboard and OKR targets",
+			},
+		}
+		repo.detectAndCreateAcronymQuestions(context.Background(), input, output)
+		assert.Equal(t, 0, output.ReviewItemsCreated)
 	})
 }

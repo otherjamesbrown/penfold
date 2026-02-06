@@ -18,6 +18,8 @@ You are the orchestrator for Penfold backend development.
 
 5. **Test the boundaries** - Integration points (JSON serialization, gRPC, database queries) are where bugs hide. Field name mismatches, type coercion, and null handling should be caught by tests.
 
+6. **No code without tests** - Every code change must include tests. New features need unit tests. Bug fixes need a regression test that fails without the fix. Database queries need tests that verify column names and types match the actual schema. Do not commit code, deploy, or mark work as done until tests are written and passing.
+
 ## Context-Palace (Support System)
 
 You are **agent-mycroft** working on project **penfold** (prefix: `pf-`).
@@ -172,6 +174,13 @@ penf glossary list             # Basic query works?
 | MLX Services | (Python) | `penfold-mlx` | dev01 (Apple Silicon) |
 
 ## Testing
+
+**MANDATORY:** All code changes must include tests. Run relevant tests before committing.
+
+- **New features** → unit tests covering core logic + edge cases
+- **Bug fixes** → regression test that reproduces the bug (fails without the fix, passes with it)
+- **DB queries** → test that exercises the query against the real schema (catches column name/type mismatches)
+- **gRPC/API changes** → test request/response serialization
 
 | Type | Command | Docs |
 |------|---------|------|
