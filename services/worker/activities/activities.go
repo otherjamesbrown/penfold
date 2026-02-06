@@ -351,5 +351,30 @@ func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.Upd
 	}
 
 	logger.Info("Source status updated successfully")
+
+	// Merge triage metadata into ingestion_metadata if any triage fields are set
+	if input.TriageCategory != "" || input.TriageImportance != "" || input.SkipDeep != nil {
+		metaQuery := `
+			UPDATE sources
+			SET ingestion_metadata = COALESCE(ingestion_metadata, '{}'::jsonb) || jsonb_build_object(
+				'triage_category', $3::text,
+				'triage_importance', $4::text,
+				'skip_deep', $5::boolean
+			),
+			updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+		`
+		skipDeep := false
+		if input.SkipDeep != nil {
+			skipDeep = *input.SkipDeep
+		}
+		_, metaErr := a.db.Exec(ctx, metaQuery, input.SourceID, tenantID, input.TriageCategory, input.TriageImportance, skipDeep)
+		if metaErr != nil {
+			logger.Warn("Failed to persist triage metadata (status update succeeded)",
+				logging.F("error", metaErr.Error()),
+			)
+		}
+	}
+
 	return nil
 }

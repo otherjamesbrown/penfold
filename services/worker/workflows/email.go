@@ -68,11 +68,14 @@ type (
 
 	// UpdateSourceStatusInput is the input for the UpdateSourceStatus activity.
 	UpdateSourceStatusInput struct {
-		TenantID        string `json:"tenant_id"`
-		SourceID        int64  `json:"source_id"`
-		Status          string `json:"status"`
-		FailureCategory string `json:"failure_category,omitempty"`
-		FailureReason   string `json:"failure_reason,omitempty"`
+		TenantID         string `json:"tenant_id"`
+		SourceID         int64  `json:"source_id"`
+		Status           string `json:"status"`
+		FailureCategory  string `json:"failure_category,omitempty"`
+		FailureReason    string `json:"failure_reason,omitempty"`
+		TriageCategory   string `json:"triage_category,omitempty"`
+		TriageImportance string `json:"triage_importance,omitempty"`
+		SkipDeep         *bool  `json:"skip_deep,omitempty"`
 	}
 )
 

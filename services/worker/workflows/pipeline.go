@@ -502,6 +502,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.status.TotalSteps = 3 // parse, triage, embed
 	}
 
+	// Persist triage results to source metadata (fires for all items)
+	skipDeep := triageOutput.SkipDeep
+	ctxTriageMeta := workflow.WithActivityOptions(ctx, fastOpts)
+	_ = workflow.ExecuteActivity(ctxTriageMeta, "UpdateContentStatus", UpdateContentStatusInput{
+		TenantID:         input.TenantID,
+		SourceID:         input.SourceID,
+		Status:           "parsed",
+		TriageCategory:   triageOutput.Category,
+		TriageImportance: triageOutput.Importance,
+		SkipDeep:         &skipDeep,
+	}).Get(ctx, nil)
+
 	// ==================== Stages 2-4.5: Deep Processing ====================
 	var extractOutput *pipelineExtractOutput
 	var contextOutput *pipelineContextOutput
