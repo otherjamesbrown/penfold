@@ -639,6 +639,216 @@ func (c *RelationshipClient) ResolveConflict(ctx context.Context, req *ResolveCo
 	return protoToConflict(resp.Conflict), resp.RelationshipsUpdated, nil
 }
 
+// NetworkGraph represents the relationship network for visualization.
+type NetworkGraph struct {
+	Nodes    []*GraphNode
+	Edges    []*GraphEdge
+	Metadata *GraphMetadata
+}
+
+// GraphNode represents an entity in the network graph.
+type GraphNode struct {
+	ID         string
+	Label      string
+	Type       string
+	Degree     int32
+	Properties map[string]string
+}
+
+// GraphEdge represents a relationship in the network graph.
+type GraphEdge struct {
+	ID               string
+	Source           string
+	Target           string
+	RelationshipType string
+	Weight           float32
+	Label            string
+	Properties       map[string]string
+}
+
+// GraphMetadata provides information about the network graph.
+type GraphMetadata struct {
+	TotalNodes     int32
+	TotalEdges     int32
+	Truncated      bool
+	CenterEntityID string
+	Depth          int32
+}
+
+// DiscoveryResult contains discovered relationships from content analysis.
+type DiscoveryResult struct {
+	Relationships   []*Relationship
+	TotalDiscovered int32
+	Metadata        *DiscoveryMetadata
+}
+
+// DiscoveryMetadata provides information about the discovery process.
+type DiscoveryMetadata struct {
+	ProcessingTimeMs int64
+	ModelName        string
+	EntitiesAnalyzed int32
+	JobID            string
+}
+
+// ValidateRelationshipRequest represents a request to validate a relationship.
+type ValidateRelationshipRequest struct {
+	TenantID       string
+	RelationshipID string
+	Action         relationshipv1.ValidationAction
+	Notes          string
+}
+
+// ValidateRelationshipResult contains the result of a validation operation.
+type ValidateRelationshipResult struct {
+	Relationship *Relationship
+	Success      bool
+	Message      string
+}
+
+// GetNetworkGraphOptions configures network graph retrieval.
+type GetNetworkGraphOptions struct {
+	CenterEntityID string
+	Depth          int32
+	MaxNodes       int32
+	ConfirmedOnly  bool
+	MinConfidence  float32
+}
+
+// GetNetworkGraph retrieves the relationship network graph for visualization.
+func (c *RelationshipClient) GetNetworkGraph(ctx context.Context, tenantID string, opts *GetNetworkGraphOptions) (*NetworkGraph, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	req := &relationshipv1.GetNetworkGraphRequest{
+		TenantId: tenantID,
+	}
+
+	if opts != nil {
+		if opts.CenterEntityID != "" {
+			req.CenterEntityId = &opts.CenterEntityID
+		}
+		if opts.Depth > 0 {
+			req.Depth = opts.Depth
+		}
+		if opts.MaxNodes > 0 {
+			req.MaxNodes = opts.MaxNodes
+		}
+		if opts.ConfirmedOnly {
+			req.ConfirmedOnly = opts.ConfirmedOnly
+		}
+		if opts.MinConfidence > 0 {
+			req.MinConfidence = &opts.MinConfidence
+		}
+	}
+
+	resp, err := client.GetNetworkGraph(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("get network graph request failed: %w", err)
+	}
+
+	return protoToNetworkGraph(resp), nil
+}
+
+// DiscoverOptions configures relationship discovery.
+type DiscoverOptions struct {
+	MinConfidence    float32
+	MaxRelationships int32
+	IncludeExisting  bool
+}
+
+// DiscoverRelationships analyzes content to find relationships between entities.
+func (c *RelationshipClient) DiscoverRelationships(ctx context.Context, tenantID, contentID string, opts *DiscoverOptions) (*DiscoveryResult, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	req := &relationshipv1.DiscoverRelationshipsRequest{
+		TenantId:  tenantID,
+		ContentId: contentID,
+	}
+
+	if opts != nil {
+		req.DiscoveryOptions = &relationshipv1.DiscoveryOptions{
+			MinConfidence:    opts.MinConfidence,
+			MaxRelationships: opts.MaxRelationships,
+			IncludeExisting:  opts.IncludeExisting,
+		}
+	}
+
+	resp, err := client.DiscoverRelationships(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("discover relationships request failed: %w", err)
+	}
+
+	relationships := make([]*Relationship, len(resp.Relationships))
+	for i, r := range resp.Relationships {
+		relationships[i] = protoToRelationship(r)
+	}
+
+	var metadata *DiscoveryMetadata
+	if resp.Metadata != nil {
+		metadata = &DiscoveryMetadata{
+			ProcessingTimeMs: resp.Metadata.ProcessingTimeMs,
+			ModelName:        resp.Metadata.ModelName,
+			EntitiesAnalyzed: resp.Metadata.EntitiesAnalyzed,
+			JobID:            resp.Metadata.JobId,
+		}
+	}
+
+	return &DiscoveryResult{
+		Relationships:   relationships,
+		TotalDiscovered: resp.TotalDiscovered,
+		Metadata:        metadata,
+	}, nil
+}
+
+// ValidateRelationship allows users to confirm or reject a discovered relationship.
+func (c *RelationshipClient) ValidateRelationship(ctx context.Context, req *ValidateRelationshipRequest) (*ValidateRelationshipResult, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, req.TenantID)
+
+	protoReq := &relationshipv1.ValidateRelationshipRequest{
+		TenantId:       req.TenantID,
+		RelationshipId: req.RelationshipID,
+		Action:         req.Action,
+	}
+
+	if req.Notes != "" {
+		protoReq.Notes = &req.Notes
+	}
+
+	resp, err := client.ValidateRelationship(ctx, protoReq)
+	if err != nil {
+		return nil, fmt.Errorf("validate relationship request failed: %w", err)
+	}
+
+	return &ValidateRelationshipResult{
+		Relationship: protoToRelationship(resp.Relationship),
+		Success:      resp.Success,
+		Message:      resp.Message,
+	}, nil
+}
+
 // Conversion helpers
 
 func protoToEntity(e *relationshipv1.Entity) *RelEntity {
@@ -761,4 +971,55 @@ func protoToConflict(c *relationshipv1.Conflict) *RelationshipConflict {
 	}
 
 	return conflict
+}
+
+func protoToNetworkGraph(g *relationshipv1.NetworkGraph) *NetworkGraph {
+	if g == nil {
+		return nil
+	}
+
+	nodes := make([]*GraphNode, len(g.Nodes))
+	for i, n := range g.Nodes {
+		nodes[i] = &GraphNode{
+			ID:         n.Id,
+			Label:      n.Label,
+			Type:       n.Type.String(),
+			Degree:     n.Degree,
+			Properties: n.Properties,
+		}
+	}
+
+	edges := make([]*GraphEdge, len(g.Edges))
+	for i, e := range g.Edges {
+		edges[i] = &GraphEdge{
+			ID:               e.Id,
+			Source:           e.Source,
+			Target:           e.Target,
+			RelationshipType: e.RelationshipType.String(),
+			Weight:           e.Weight,
+			Label:            e.Label,
+			Properties:       e.Properties,
+		}
+	}
+
+	var metadata *GraphMetadata
+	if g.Metadata != nil {
+		centerID := ""
+		if g.Metadata.CenterEntityId != nil {
+			centerID = *g.Metadata.CenterEntityId
+		}
+		metadata = &GraphMetadata{
+			TotalNodes:     g.Metadata.TotalNodes,
+			TotalEdges:     g.Metadata.TotalEdges,
+			Truncated:      g.Metadata.Truncated,
+			CenterEntityID: centerID,
+			Depth:          g.Metadata.Depth,
+		}
+	}
+
+	return &NetworkGraph{
+		Nodes:    nodes,
+		Edges:    edges,
+		Metadata: metadata,
+	}
 }

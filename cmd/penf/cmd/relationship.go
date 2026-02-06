@@ -157,6 +157,17 @@ var (
 	relationshipType          string
 	relationshipEntityType    string
 	conflictStrategy          string
+	// Discover flags
+	discoverMinConfidence float64
+	discoverMaxRels       int
+	discoverIncludeExist  bool
+	// Validate flags
+	validateNotes string
+	// Network graph flags
+	graphCenter        string
+	graphDepth         int
+	graphMaxNodes      int
+	graphConfirmedOnly bool
 )
 
 // getRelInsecureFlag retrieves the --insecure flag from the command's root.
@@ -219,6 +230,8 @@ Documentation:
 	cmd.AddCommand(newRelationshipListCommand(deps))
 	cmd.AddCommand(newRelationshipShowCommand(deps))
 	cmd.AddCommand(newRelationshipSearchCommand(deps))
+	cmd.AddCommand(newRelationshipDiscoverCommand(deps))
+	cmd.AddCommand(newRelationshipValidateCommand(deps))
 	cmd.AddCommand(newRelationshipEntityCommand(deps))
 	cmd.AddCommand(newRelationshipNetworkCommand(deps))
 	cmd.AddCommand(newRelationshipConflictCommand(deps))
@@ -300,6 +313,91 @@ Examples:
 			return runRelationshipSearch(cmd.Context(), deps, query, getRelInsecureFlag(cmd))
 		},
 	}
+}
+
+// newRelationshipDiscoverCommand creates the 'relationship discover' subcommand.
+func newRelationshipDiscoverCommand(deps *RelationshipCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "discover <content-id>",
+		Short: "Discover relationships in content",
+		Long: `Analyze content to discover relationships between entities.
+
+This command triggers AI-powered relationship extraction from the specified
+content source. Discovered relationships can then be validated or confirmed.
+
+Examples:
+  # Discover relationships in a specific content item
+  penf relationship discover content-abc123
+
+  # Set minimum confidence threshold
+  penf relationship discover content-abc123 --min-confidence 0.7
+
+  # Limit the number of relationships discovered
+  penf relationship discover content-abc123 --max-relationships 50
+
+  # Include already discovered relationships in results
+  penf relationship discover content-abc123 --include-existing`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRelationshipDiscover(cmd.Context(), deps, args[0], getRelInsecureFlag(cmd))
+		},
+	}
+
+	cmd.Flags().Float64Var(&discoverMinConfidence, "min-confidence", 0.5, "Minimum confidence threshold (0.0-1.0)")
+	cmd.Flags().IntVar(&discoverMaxRels, "max-relationships", 100, "Maximum number of relationships to discover")
+	cmd.Flags().BoolVar(&discoverIncludeExist, "include-existing", false, "Include existing relationships in results")
+
+	return cmd
+}
+
+// newRelationshipValidateCommand creates the 'relationship validate' subcommand.
+func newRelationshipValidateCommand(deps *RelationshipCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "validate <relationship-id> <action>",
+		Short: "Validate a discovered relationship",
+		Long: `Confirm, reject, or archive a discovered relationship.
+
+This provides human-in-the-loop validation for AI-discovered relationships.
+
+Actions:
+  - confirm: Mark the relationship as valid
+  - reject:  Mark the relationship as invalid
+  - archive: Archive the relationship (no longer relevant)
+
+Examples:
+  # Confirm a relationship
+  penf relationship validate rel-abc123 confirm
+
+  # Reject with notes
+  penf relationship validate rel-abc123 reject --notes "Incorrect entity match"
+
+  # Archive a relationship
+  penf relationship validate rel-abc123 archive`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			relationshipID := args[0]
+			actionStr := args[1]
+
+			// Map action string to enum
+			var action relationshipv1.ValidationAction
+			switch strings.ToLower(actionStr) {
+			case "confirm":
+				action = relationshipv1.ValidationAction_VALIDATION_ACTION_CONFIRM
+			case "reject":
+				action = relationshipv1.ValidationAction_VALIDATION_ACTION_REJECT
+			case "archive":
+				action = relationshipv1.ValidationAction_VALIDATION_ACTION_ARCHIVE
+			default:
+				return fmt.Errorf("invalid action: %s (must be confirm, reject, or archive)", actionStr)
+			}
+
+			return runRelationshipValidate(cmd.Context(), deps, relationshipID, action, getRelInsecureFlag(cmd))
+		},
+	}
+
+	cmd.Flags().StringVar(&validateNotes, "notes", "", "Optional notes explaining the validation decision")
+
+	return cmd
 }
 
 // newRelationshipEntityCommand creates the 'relationship entity' subcommand group.
@@ -409,7 +507,7 @@ of entities in the knowledge graph.`,
 
 // newNetworkGraphCommand creates the 'relationship network graph' subcommand.
 func newNetworkGraphCommand(deps *RelationshipCommandDeps) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "graph",
 		Short: "Display the relationship graph structure",
 		Long: `Display an overview of the relationship graph structure.
@@ -417,12 +515,29 @@ func newNetworkGraphCommand(deps *RelationshipCommandDeps) *cobra.Command {
 Shows the overall network topology including node counts, edge counts,
 density, and other graph metrics.
 
-Example:
-  penf relationship network graph`,
+Examples:
+  # Show full network graph
+  penf relationship network graph
+
+  # Show graph centered on a specific entity
+  penf relationship network graph --center ent-abc123 --depth 2
+
+  # Limit the number of nodes
+  penf relationship network graph --max-nodes 50
+
+  # Only show confirmed relationships
+  penf relationship network graph --confirmed-only`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runNetworkGraph(cmd.Context(), deps, getRelInsecureFlag(cmd))
 		},
 	}
+
+	cmd.Flags().StringVar(&graphCenter, "center", "", "Center entity ID to build graph around")
+	cmd.Flags().IntVar(&graphDepth, "depth", 2, "Maximum depth of relationships to include")
+	cmd.Flags().IntVar(&graphMaxNodes, "max-nodes", 100, "Maximum number of nodes to return")
+	cmd.Flags().BoolVar(&graphConfirmedOnly, "confirmed-only", false, "Only include confirmed relationships")
+
+	return cmd
 }
 
 // newNetworkCentralCommand creates the 'relationship network central' subcommand.
@@ -691,6 +806,135 @@ func runRelationshipSearch(ctx context.Context, deps *RelationshipCommandDeps, q
 	return outputRelationships(format, relationships)
 }
 
+// runRelationshipDiscover executes the relationship discover command.
+func runRelationshipDiscover(ctx context.Context, deps *RelationshipCommandDeps, contentID string, insecureFlag bool) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
+
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	fmt.Printf("Discovering relationships in content %s...\n", contentID)
+
+	// Build discovery options.
+	opts := &client.DiscoverOptions{
+		MinConfidence:    float32(discoverMinConfidence),
+		MaxRelationships: int32(discoverMaxRels),
+		IncludeExisting:  discoverIncludeExist,
+	}
+
+	// Discover relationships via gRPC.
+	result, err := relClient.DiscoverRelationships(ctx, cfg.TenantID, contentID, opts)
+	if err != nil {
+		return fmt.Errorf("discovering relationships: %w", err)
+	}
+
+	fmt.Printf("\n\033[32mSuccess!\033[0m Discovered %d relationships.\n", result.TotalDiscovered)
+	if result.Metadata != nil {
+		fmt.Printf("  Processing time: %dms\n", result.Metadata.ProcessingTimeMs)
+		if result.Metadata.ModelName != "" {
+			fmt.Printf("  Model: %s\n", result.Metadata.ModelName)
+		}
+		fmt.Printf("  Entities analyzed: %d\n", result.Metadata.EntitiesAnalyzed)
+	}
+	fmt.Println()
+
+	// Convert to local types for output.
+	relationships := make([]Relationship, len(result.Relationships))
+	for i, r := range result.Relationships {
+		relationships[i] = clientRelToLocal(r)
+	}
+
+	format := cfg.OutputFormat
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
+	}
+
+	return outputRelationships(format, relationships)
+}
+
+// runRelationshipValidate executes the relationship validate command.
+func runRelationshipValidate(ctx context.Context, deps *RelationshipCommandDeps, relationshipID string, action relationshipv1.ValidationAction, insecureFlag bool) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
+
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	actionName := "validating"
+	switch action {
+	case relationshipv1.ValidationAction_VALIDATION_ACTION_CONFIRM:
+		actionName = "confirming"
+	case relationshipv1.ValidationAction_VALIDATION_ACTION_REJECT:
+		actionName = "rejecting"
+	case relationshipv1.ValidationAction_VALIDATION_ACTION_ARCHIVE:
+		actionName = "archiving"
+	}
+
+	fmt.Printf("Validating relationship %s (%s)...\n", relationshipID, actionName)
+
+	// Validate relationship via gRPC.
+	req := &client.ValidateRelationshipRequest{
+		TenantID:       cfg.TenantID,
+		RelationshipID: relationshipID,
+		Action:         action,
+		Notes:          validateNotes,
+	}
+
+	result, err := relClient.ValidateRelationship(ctx, req)
+	if err != nil {
+		return fmt.Errorf("validating relationship: %w", err)
+	}
+
+	if result.Success {
+		fmt.Printf("\n\033[32mSuccess!\033[0m %s\n", result.Message)
+	} else {
+		fmt.Printf("\n\033[33mWarning:\033[0m %s\n", result.Message)
+	}
+
+	format := cfg.OutputFormat
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
+	}
+
+	relationship := clientRelToLocal(result.Relationship)
+	return outputRelationshipDetail(format, relationship)
+}
+
 // runEntityList executes the entity list command.
 func runEntityList(ctx context.Context, deps *RelationshipCommandDeps, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
@@ -854,40 +1098,64 @@ func runNetworkGraph(ctx context.Context, deps *RelationshipCommandDeps, insecur
 	}
 	defer relClient.Close()
 
-	// Get network stats via gRPC.
-	stats, err := relClient.GetNetworkStats(ctx, cfg.TenantID)
-	if err != nil {
-		return fmt.Errorf("getting network stats: %w", err)
+	// Build graph options.
+	opts := &client.GetNetworkGraphOptions{
+		CenterEntityID: graphCenter,
+		Depth:          int32(graphDepth),
+		MaxNodes:       int32(graphMaxNodes),
+		ConfirmedOnly:  graphConfirmedOnly,
+		MinConfidence:  float32(relationshipConfidenceMin),
 	}
 
-	// Display network statistics.
+	// Get network graph via gRPC.
+	graph, err := relClient.GetNetworkGraph(ctx, cfg.TenantID, opts)
+	if err != nil {
+		return fmt.Errorf("getting network graph: %w", err)
+	}
+
+	// Display network graph summary.
 	fmt.Println("Relationship Network Graph")
 	fmt.Println("=" + strings.Repeat("=", 40))
 	fmt.Println()
-	fmt.Printf("  \033[1mNodes (Entities):\033[0m    %d\n", stats.TotalNodes)
-	fmt.Printf("  \033[1mEdges (Relations):\033[0m   %d\n", stats.TotalEdges)
-	fmt.Printf("  \033[1mDensity:\033[0m             %.3f\n", stats.Density)
-	fmt.Printf("  \033[1mAvg. Connections:\033[0m    %.1f\n", stats.AvgConnections)
-	fmt.Printf("  \033[1mClusters:\033[0m            %d\n", stats.ClusterCount)
-	fmt.Println()
 
-	if len(stats.EntityTypeCounts) > 0 {
-		total := float64(stats.TotalNodes)
-		fmt.Println("Entity Types:")
-		for entType, count := range stats.EntityTypeCounts {
-			pct := 0.0
-			if total > 0 {
-				pct = float64(count) / total * 100
-			}
-			fmt.Printf("  - %s: %d (%.1f%%)\n", entType, count, pct)
+	if graph.Metadata != nil {
+		fmt.Printf("  \033[1mNodes (Entities):\033[0m    %d\n", graph.Metadata.TotalNodes)
+		fmt.Printf("  \033[1mEdges (Relations):\033[0m   %d\n", graph.Metadata.TotalEdges)
+		if graph.Metadata.CenterEntityID != "" {
+			fmt.Printf("  \033[1mCenter Entity:\033[0m       %s\n", graph.Metadata.CenterEntityID)
+		}
+		fmt.Printf("  \033[1mDepth:\033[0m               %d\n", graph.Metadata.Depth)
+		if graph.Metadata.Truncated {
+			fmt.Printf("  \033[33mTruncated:\033[0m           Yes (limited by max-nodes)\n")
 		}
 		fmt.Println()
 	}
 
-	if len(stats.RelationshipTypeCounts) > 0 {
-		fmt.Println("Relationship Types:")
-		for relType, count := range stats.RelationshipTypeCounts {
-			fmt.Printf("  - %s: %d\n", relType, count)
+	if len(graph.Nodes) > 0 {
+		fmt.Printf("Nodes (%d):\n", len(graph.Nodes))
+		for _, node := range graph.Nodes {
+			typeColor := getEntityTypeColor(EntityType(node.Type))
+			fmt.Printf("  - %s%-20s\033[0m %s (degree: %d)\n",
+				typeColor,
+				truncateString(node.Label, 20),
+				node.ID,
+				node.Degree)
+		}
+		fmt.Println()
+	}
+
+	if len(graph.Edges) > 0 {
+		fmt.Printf("Edges (%d):\n", len(graph.Edges))
+		for i, edge := range graph.Edges {
+			if i >= 10 {
+				fmt.Printf("  ... and %d more\n", len(graph.Edges)-10)
+				break
+			}
+			fmt.Printf("  - %s -> %s (%s, weight: %.2f)\n",
+				edge.Source,
+				edge.Target,
+				edge.Label,
+				edge.Weight)
 		}
 	}
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 
 	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
@@ -131,11 +132,15 @@ func DefaultReviewDeps() *ReviewCommandDeps {
 
 // Review command flags.
 var (
-	reviewPriority  string
-	reviewCountOnly bool
-	reviewReason    string
-	reviewUntil     string
-	reviewOutput    string
+	reviewPriority        string
+	reviewCountOnly       bool
+	reviewReason          string
+	reviewUntil           string
+	reviewOutput          string
+	reviewDate            string
+	reviewIncludeProcessed bool
+	reviewFrom            string
+	reviewTo              string
 )
 
 // NewReviewCommand creates the root review command with all subcommands.
@@ -210,6 +215,11 @@ Documentation:
 
 	// Add questions subcommand for AI review queue.
 	cmd.AddCommand(newReviewQuestionsCommand(deps))
+
+	// Add daily, session, stats subcommands.
+	cmd.AddCommand(newReviewDailyCommand(deps))
+	cmd.AddCommand(newReviewSessionCommand(deps))
+	cmd.AddCommand(newReviewStatsCommand(deps))
 
 	return cmd
 }
@@ -1470,4 +1480,406 @@ func ValidateReviewItemStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+// newReviewDailyCommand creates the 'review daily' subcommand.
+func newReviewDailyCommand(deps *ReviewCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "daily",
+		Short: "Get today's review items grouped by category",
+		Long: `Get today's review items grouped by category.
+
+Shows all pending review items organized by category (communications, tasks, etc.).
+Optionally filter by date or include already processed items.
+
+Examples:
+  penf review daily
+  penf review daily --date 2026-02-05
+  penf review daily --include-processed
+  penf review daily -o json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewDaily(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVarP(&reviewDate, "date", "d", "", "Date in YYYY-MM-DD format (defaults to today)")
+	cmd.Flags().BoolVarP(&reviewIncludeProcessed, "include-processed", "i", false, "Include already processed items")
+	cmd.Flags().StringVarP(&reviewOutput, "output", "o", "", "Output format: text, json, yaml")
+
+	return cmd
+}
+
+// newReviewSessionCommand creates the 'review session' subcommand.
+func newReviewSessionCommand(deps *ReviewCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "session",
+		Short: "Show current review session status",
+		Long: `Show current review session status.
+
+Displays the current active or paused review session with statistics on
+items reviewed, accepted, rejected, and deferred. Shows session duration.
+
+Examples:
+  penf review session
+  penf review session -o json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewSession(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVarP(&reviewOutput, "output", "o", "", "Output format: text, json, yaml")
+
+	return cmd
+}
+
+// newReviewStatsCommand creates the 'review stats' subcommand.
+func newReviewStatsCommand(deps *ReviewCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Show review statistics and metrics",
+		Long: `Show review statistics and metrics.
+
+Provides insights into review queue health, processing velocity, and
+breakdowns by priority, content type, source, and category.
+
+Examples:
+  penf review stats
+  penf review stats --from 2026-01-01 --to 2026-01-31
+  penf review stats -o json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewStats(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVarP(&reviewFrom, "from", "f", "", "Start date in YYYY-MM-DD format")
+	cmd.Flags().StringVarP(&reviewTo, "to", "t", "", "End date in YYYY-MM-DD format")
+	cmd.Flags().StringVarP(&reviewOutput, "output", "o", "", "Output format: text, json, yaml")
+
+	return cmd
+}
+
+// runReviewDaily executes the review daily command.
+func runReviewDaily(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Get output format.
+	outputFormat := cfg.OutputFormat
+	if reviewOutput != "" {
+		outputFormat = config.OutputFormat(reviewOutput)
+		if !outputFormat.IsValid() {
+			return fmt.Errorf("invalid output format: %s (must be text, json, or yaml)", reviewOutput)
+		}
+	}
+
+	grpcClient, err := deps.InitClient(cfg)
+	if err != nil {
+		return err
+	}
+	defer grpcClient.Close()
+
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
+
+	req := &reviewv1.GetDailyReviewRequest{
+		IncludeProcessed: reviewIncludeProcessed,
+	}
+
+	if reviewDate != "" {
+		req.Date = &reviewDate
+	}
+
+	resp, err := client.GetDailyReview(ctx, req)
+	if err != nil {
+		return fmt.Errorf("getting daily review: %w", err)
+	}
+
+	return outputDailyReview(outputFormat, resp.Review)
+}
+
+// runReviewSession executes the review session command.
+func runReviewSession(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Get output format.
+	outputFormat := cfg.OutputFormat
+	if reviewOutput != "" {
+		outputFormat = config.OutputFormat(reviewOutput)
+		if !outputFormat.IsValid() {
+			return fmt.Errorf("invalid output format: %s (must be text, json, or yaml)", reviewOutput)
+		}
+	}
+
+	grpcClient, err := deps.InitClient(cfg)
+	if err != nil {
+		return err
+	}
+	defer grpcClient.Close()
+
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
+
+	resp, err := client.GetCurrentSession(ctx, &reviewv1.GetCurrentSessionRequest{})
+	if err != nil {
+		return fmt.Errorf("getting current session: %w", err)
+	}
+
+	if !resp.HasSession {
+		fmt.Println("No active review session.")
+		fmt.Println("Use 'penf review start' to begin a new session.")
+		return nil
+	}
+
+	return outputCurrentSession(outputFormat, resp.Session)
+}
+
+// runReviewStats executes the review stats command.
+func runReviewStats(ctx context.Context, deps *ReviewCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Get output format.
+	outputFormat := cfg.OutputFormat
+	if reviewOutput != "" {
+		outputFormat = config.OutputFormat(reviewOutput)
+		if !outputFormat.IsValid() {
+			return fmt.Errorf("invalid output format: %s (must be text, json, or yaml)", reviewOutput)
+		}
+	}
+
+	grpcClient, err := deps.InitClient(cfg)
+	if err != nil {
+		return err
+	}
+	defer grpcClient.Close()
+
+	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
+
+	req := &reviewv1.GetReviewStatsRequest{}
+
+	// Parse date filters if provided.
+	if reviewFrom != "" {
+		t, err := time.Parse("2006-01-02", reviewFrom)
+		if err != nil {
+			return fmt.Errorf("invalid --from date: %w", err)
+		}
+		req.FromTime = timestamppb.New(t)
+	}
+
+	if reviewTo != "" {
+		t, err := time.Parse("2006-01-02", reviewTo)
+		if err != nil {
+			return fmt.Errorf("invalid --to date: %w", err)
+		}
+		req.ToTime = timestamppb.New(t)
+	}
+
+	resp, err := client.GetReviewStats(ctx, req)
+	if err != nil {
+		return fmt.Errorf("getting review stats: %w", err)
+	}
+
+	return outputReviewStats(outputFormat, resp)
+}
+
+// outputDailyReview outputs the daily review.
+func outputDailyReview(format config.OutputFormat, review *reviewv1.DailyReview) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(review)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(review)
+	default:
+		return outputDailyReviewText(review)
+	}
+}
+
+// outputDailyReviewText outputs the daily review in human-readable format.
+func outputDailyReviewText(review *reviewv1.DailyReview) error {
+	if review == nil {
+		fmt.Println("No review data available.")
+		return nil
+	}
+
+	fmt.Printf("Daily Review for %s\n\n", review.Date)
+	fmt.Printf("Total Pending: %d\n", review.TotalPending)
+	fmt.Printf("High Priority: %d\n", review.HighPriorityCount)
+	fmt.Printf("Processed Today: %d\n\n", review.ProcessedToday)
+
+	if len(review.Categories) == 0 {
+		fmt.Println("No items to review.")
+		return nil
+	}
+
+	for _, category := range review.Categories {
+		fmt.Printf("  %s (%d items):\n", category.DisplayName, category.ItemCount)
+		if len(category.Items) == 0 {
+			fmt.Println("    (no items)")
+		} else {
+			for _, item := range category.Items {
+				priorityColor := ""
+				switch item.Priority {
+				case reviewv1.Priority_PRIORITY_HIGH, reviewv1.Priority_PRIORITY_URGENT:
+					priorityColor = "\033[31m"
+				case reviewv1.Priority_PRIORITY_MEDIUM:
+					priorityColor = "\033[33m"
+				case reviewv1.Priority_PRIORITY_LOW:
+					priorityColor = "\033[32m"
+				}
+
+				fmt.Printf("    %s[%s]\033[0m %s - %s\n",
+					priorityColor,
+					item.Priority.String(),
+					truncateString(item.Id, 10),
+					truncateString(item.ContentSummary, 60))
+			}
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
+// outputCurrentSession outputs the current session.
+func outputCurrentSession(format config.OutputFormat, session *reviewv1.ReviewSession) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(session)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(session)
+	default:
+		return outputCurrentSessionText(session)
+	}
+}
+
+// outputCurrentSessionText outputs the current session in human-readable format.
+func outputCurrentSessionText(session *reviewv1.ReviewSession) error {
+	if session == nil {
+		fmt.Println("No session data available.")
+		return nil
+	}
+
+	fmt.Println("Current Review Session:")
+	fmt.Println()
+	fmt.Printf("  Session ID:     %s\n", session.Id)
+	fmt.Printf("  Status:         %s\n", session.Status.String())
+	fmt.Printf("  Started:        %s\n", session.StartedAt.AsTime().Format(time.RFC3339))
+
+	if session.PausedAt != nil {
+		fmt.Printf("  Paused:         %s\n", session.PausedAt.AsTime().Format(time.RFC3339))
+	}
+
+	if session.EndedAt != nil {
+		fmt.Printf("  Ended:          %s\n", session.EndedAt.AsTime().Format(time.RFC3339))
+	}
+
+	duration := time.Duration(session.ActiveDurationSeconds) * time.Second
+	fmt.Printf("  Duration:       %s\n", formatReviewDuration(duration))
+	fmt.Println()
+	fmt.Printf("  Total Reviewed: %d\n", session.TotalReviewed)
+	fmt.Printf("  Approved:       \033[32m%d\033[0m\n", session.ApprovedCount)
+	fmt.Printf("  Rejected:       \033[31m%d\033[0m\n", session.RejectedCount)
+	fmt.Printf("  Deferred:       \033[33m%d\033[0m\n", session.DeferredCount)
+
+	return nil
+}
+
+// outputReviewStats outputs the review statistics.
+func outputReviewStats(format config.OutputFormat, stats *reviewv1.GetReviewStatsResponse) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(stats)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(stats)
+	default:
+		return outputReviewStatsText(stats)
+	}
+}
+
+// outputReviewStatsText outputs review statistics in human-readable format.
+func outputReviewStatsText(stats *reviewv1.GetReviewStatsResponse) error {
+	if stats == nil {
+		fmt.Println("No statistics available.")
+		return nil
+	}
+
+	fmt.Println("Review Statistics:")
+	fmt.Println()
+	fmt.Println("Overall Counts:")
+	fmt.Printf("  Pending:   %d\n", stats.PendingCount)
+	fmt.Printf("  Approved:  \033[32m%d\033[0m\n", stats.ApprovedCount)
+	fmt.Printf("  Rejected:  \033[31m%d\033[0m\n", stats.RejectedCount)
+	fmt.Printf("  Deferred:  \033[33m%d\033[0m\n", stats.DeferredCount)
+	fmt.Println()
+
+	if stats.AvgReviewTimeSeconds > 0 {
+		avgDuration := time.Duration(stats.AvgReviewTimeSeconds) * time.Second
+		fmt.Printf("Average Review Time: %s\n\n", formatReviewDuration(avgDuration))
+	}
+
+	if len(stats.ByPriority) > 0 {
+		fmt.Println("By Priority:")
+		for priority, count := range stats.ByPriority {
+			fmt.Printf("  %-8s: %d\n", priority, count)
+		}
+		fmt.Println()
+	}
+
+	if len(stats.ByContentType) > 0 {
+		fmt.Println("By Content Type:")
+		for contentType, count := range stats.ByContentType {
+			fmt.Printf("  %-12s: %d\n", contentType, count)
+		}
+		fmt.Println()
+	}
+
+	if len(stats.BySource) > 0 {
+		fmt.Println("By Source:")
+		for source, count := range stats.BySource {
+			fmt.Printf("  %-12s: %d\n", source, count)
+		}
+		fmt.Println()
+	}
+
+	if len(stats.ByCategory) > 0 {
+		fmt.Println("By Category:")
+		for category, count := range stats.ByCategory {
+			fmt.Printf("  %-20s: %d\n", category, count)
+		}
+		fmt.Println()
+	}
+
+	if len(stats.DailyCounts) > 0 {
+		fmt.Println("Daily Activity:")
+		fmt.Println("  DATE         CREATED  REVIEWED  APPROVED  REJECTED")
+		fmt.Println("  ----------   -------  --------  --------  --------")
+		for _, daily := range stats.DailyCounts {
+			fmt.Printf("  %-10s   %-7d  %-8d  %-8d  %-8d\n",
+				daily.Date,
+				daily.Created,
+				daily.Reviewed,
+				daily.Approved,
+				daily.Rejected)
+		}
+		fmt.Println()
+	}
+
+	return nil
 }
