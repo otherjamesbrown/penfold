@@ -1,13 +1,16 @@
 #!/bin/zsh
 #
-# Penfold AI Coordinator Deployment (systemd)
-# Cross-compiles and deploys AI coordinator to dev02
+# Penfold AI Coordinator Deployment (Nomad)
+# Cross-compiles, uploads, and deploys AI coordinator via Nomad
 #
 # Usage:
-#   ./scripts/deploy-ai-coordinator.sh           # Build, deploy, and restart
+#   ./scripts/deploy-ai-coordinator.sh           # Build, upload, and deploy via Nomad
 #   ./scripts/deploy-ai-coordinator.sh --build   # Build only (no deploy)
-#   ./scripts/deploy-ai-coordinator.sh --status  # Check status
+#   ./scripts/deploy-ai-coordinator.sh --status  # Check Nomad job status
 #
+# Environment:
+#   AI_HOST     Target host for binary upload (default: dev02)
+#   NOMAD_ADDR  Nomad server address (default: http://dev02.brown.chat:4646)
 
 set -e
 
@@ -24,13 +27,48 @@ NC='\033[0m'
 # Configuration
 AI_HOST="${AI_HOST:-dev02}"
 BINARY_PATH="/opt/penfold/bin/penfold-ai-coordinator"
-SERVICE_NAME="penfold-ai-coordinator"
 BUILD_OUTPUT="${PROJECT_ROOT}/services/ai/ai-coordinator-linux"
+NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
+NOMAD_JOB_FILE="deploy/nomad/ai-coordinator.nomad.hcl"
+NOMAD_JOB_NAME="penfold-ai-coordinator"
 
 log_info() { echo "${CYAN}[INFO]${NC} $1"; }
 log_success() { echo "${GREEN}[OK]${NC} $1"; }
 log_error() { echo "${RED}[ERROR]${NC} $1"; }
 log_warn() { echo "${YELLOW}[WARN]${NC} $1"; }
+
+# --- Nomad Helpers ---
+
+nomad_run_job() {
+    local job_file="$1"
+    log_info "Running Nomad job: ${job_file}..."
+    NOMAD_ADDR="$NOMAD_ADDR" nomad job run "${PROJECT_ROOT}/${job_file}"
+}
+
+nomad_wait_healthy() {
+    local job_name="$1"
+    local timeout="${2:-60}"
+    log_info "Waiting for ${job_name} to be healthy..."
+    local attempts=0
+    while [[ $attempts -lt $timeout ]]; do
+        local status=$(NOMAD_ADDR="$NOMAD_ADDR" nomad job status -short "$job_name" 2>/dev/null | grep "Status" | awk '{print $NF}')
+        if [[ "$status" == "running" ]]; then
+            log_success "${job_name} is running"
+            return 0
+        fi
+        ((attempts++))
+        sleep 1
+    done
+    log_error "${job_name} failed to become healthy within ${timeout}s"
+    return 1
+}
+
+nomad_job_status() {
+    local job_name="$1"
+    NOMAD_ADDR="$NOMAD_ADDR" nomad job status "$job_name" 2>/dev/null
+}
+
+# --- Build & Deploy ---
 
 build_ai() {
     log_info "Building AI coordinator for Linux amd64..."
@@ -46,32 +84,6 @@ build_ai() {
     fi
 }
 
-check_status() {
-    log_info "Checking AI coordinator status on ${AI_HOST}..."
-
-    local svc_status=$(ssh -o ConnectTimeout=5 "$AI_HOST" "systemctl is-active ${SERVICE_NAME}" 2>/dev/null || echo "unknown")
-
-    if [[ "$svc_status" == "active" ]]; then
-        log_success "Service: active (running)"
-
-        # Check health endpoint
-        local health=$(curl -s -o /dev/null -w "%{http_code}" "http://${AI_HOST}.brown.chat:8090/health" 2>/dev/null || echo "000")
-        if [[ "$health" == "200" ]]; then
-            log_success "Health endpoint: OK"
-        else
-            log_warn "Health endpoint: HTTP ${health}"
-        fi
-
-        # Show recent logs
-        log_info "Recent logs:"
-        ssh "$AI_HOST" "journalctl -u ${SERVICE_NAME} -n 5 --no-pager" 2>/dev/null || true
-        return 0
-    else
-        log_warn "Service status: ${status}"
-        return 1
-    fi
-}
-
 deploy_binary() {
     log_info "Deploying binary to ${AI_HOST}:${BINARY_PATH}..."
 
@@ -82,64 +94,29 @@ deploy_binary() {
 
     # Copy new binary
     scp "$BUILD_OUTPUT" "${AI_HOST}:${BINARY_PATH}.new"
-    ssh "$AI_HOST" "chmod +x ${BINARY_PATH}.new"
+    ssh "$AI_HOST" "chmod +x ${BINARY_PATH}.new && mv ${BINARY_PATH}.new ${BINARY_PATH}"
     log_success "Binary uploaded"
 }
 
-switch_version() {
-    log_info "Switching to new version..."
+check_status() {
+    log_info "Checking AI coordinator Nomad job status..."
+    echo ""
+    nomad_job_status "$NOMAD_JOB_NAME" || log_warn "Job not found or Nomad not reachable"
 
-    ssh "$AI_HOST" "
-        sudo systemctl stop ${SERVICE_NAME} || true
-        sleep 1
-        if [[ -f ${BINARY_PATH} ]]; then
-            mv ${BINARY_PATH} ${BINARY_PATH}.backup
-        fi
-        mv ${BINARY_PATH}.new ${BINARY_PATH}
-        sudo systemctl start ${SERVICE_NAME}
-    "
-    log_success "Version switched"
+    # Also check health endpoint
+    echo ""
+    local health=$(curl -s -o /dev/null -w "%{http_code}" "http://${AI_HOST}.brown.chat:8090/health" 2>/dev/null || echo "000")
+    if [[ "$health" == "200" ]]; then
+        log_success "Health endpoint: OK"
+    else
+        log_warn "Health endpoint: HTTP ${health}"
+    fi
 }
 
-verify_health() {
-    log_info "Verifying health..."
-
-    local attempts=0
-    while [[ $attempts -lt 30 ]]; do
-        local svc_status=$(ssh "$AI_HOST" "systemctl is-active ${SERVICE_NAME}" 2>/dev/null || echo "unknown")
-        if [[ "$svc_status" == "active" ]]; then
-            local health=$(curl -s -o /dev/null -w "%{http_code}" "http://${AI_HOST}.brown.chat:8090/health" 2>/dev/null || echo "000")
-            if [[ "$health" == "200" ]]; then
-                log_success "Service healthy (attempt $((attempts+1)))"
-                return 0
-            fi
-        fi
-        ((attempts++))
-        sleep 1
-    done
-
-    log_error "Health check failed after 30 attempts"
-    return 1
-}
-
-rollback() {
-    log_error "Rolling back to previous version..."
-
-    ssh "$AI_HOST" "
-        sudo systemctl stop ${SERVICE_NAME} || true
-        if [[ -f ${BINARY_PATH}.backup ]]; then
-            mv ${BINARY_PATH}.backup ${BINARY_PATH}
-            sudo systemctl start ${SERVICE_NAME}
-            echo 'Rollback complete'
-        else
-            echo 'No backup available!'
-            exit 1
-        fi
-    "
-}
+# --- Commands ---
 
 cmd_full_deploy() {
-    echo "${CYAN}=== Penfold AI Coordinator Deployment ===${NC}"
+    echo "${CYAN}=== Penfold AI Coordinator Deployment (Nomad) ===${NC}"
     echo ""
 
     build_ai
@@ -148,12 +125,12 @@ cmd_full_deploy() {
     deploy_binary
     echo ""
 
-    switch_version
+    log_info "Submitting Nomad job..."
+    nomad_run_job "$NOMAD_JOB_FILE"
     echo ""
 
-    if ! verify_health; then
-        echo ""
-        rollback
+    if ! nomad_wait_healthy "$NOMAD_JOB_NAME" 60; then
+        log_error "Deployment failed - Nomad will auto-revert if configured"
         exit 1
     fi
 
@@ -187,12 +164,13 @@ case "${1:-}" in
         echo "Usage: $0 [--build|--status]"
         echo ""
         echo "Options:"
-        echo "  (no args)  Build, deploy, and restart AI coordinator via systemd"
+        echo "  (no args)  Build, upload, and deploy AI coordinator via Nomad"
         echo "  --build    Build only (cross-compile for Linux)"
-        echo "  --status   Check status and logs"
+        echo "  --status   Check Nomad job status and health"
         echo ""
         echo "Environment:"
-        echo "  AI_HOST  Target host (default: dev02)"
+        echo "  AI_HOST     Target host for binary upload (default: dev02)"
+        echo "  NOMAD_ADDR  Nomad server address (default: http://dev02.brown.chat:4646)"
         ;;
     "")
         cmd_full_deploy

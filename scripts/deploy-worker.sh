@@ -1,13 +1,16 @@
 #!/bin/zsh
 #
-# Penfold Worker Deployment (launchd)
-# Cross-compiles and deploys worker to dev01 (Apple Silicon)
+# Penfold Worker Deployment (Nomad)
+# Cross-compiles, uploads, and deploys worker via Nomad
 #
 # Usage:
-#   ./scripts/deploy-worker.sh           # Build, deploy, and restart
+#   ./scripts/deploy-worker.sh           # Build, upload, and deploy via Nomad
 #   ./scripts/deploy-worker.sh --build   # Build only (no deploy)
-#   ./scripts/deploy-worker.sh --status  # Check worker status
+#   ./scripts/deploy-worker.sh --status  # Check Nomad job status
 #
+# Environment:
+#   WORKER_HOST  Target host for binary upload (default: dev01)
+#   NOMAD_ADDR   Nomad server address (default: http://dev02.brown.chat:4646)
 
 set -e
 
@@ -24,14 +27,48 @@ NC='\033[0m'
 # Configuration
 WORKER_HOST="${WORKER_HOST:-dev01}"
 BINARY_PATH="/opt/penfold/bin/penfold-worker"
-SERVICE_NAME="com.penfold.worker"
-PLIST_PATH="/Library/LaunchDaemons/${SERVICE_NAME}.plist"
 BUILD_OUTPUT="${PROJECT_ROOT}/services/worker/worker-darwin-arm64"
+NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
+NOMAD_JOB_FILE="deploy/nomad/worker.nomad.hcl"
+NOMAD_JOB_NAME="penfold-worker"
 
 log_info() { echo "${CYAN}[INFO]${NC} $1"; }
 log_success() { echo "${GREEN}[OK]${NC} $1"; }
 log_error() { echo "${RED}[ERROR]${NC} $1"; }
 log_warn() { echo "${YELLOW}[WARN]${NC} $1"; }
+
+# --- Nomad Helpers ---
+
+nomad_run_job() {
+    local job_file="$1"
+    log_info "Running Nomad job: ${job_file}..."
+    NOMAD_ADDR="$NOMAD_ADDR" nomad job run "${PROJECT_ROOT}/${job_file}"
+}
+
+nomad_wait_healthy() {
+    local job_name="$1"
+    local timeout="${2:-60}"
+    log_info "Waiting for ${job_name} to be healthy..."
+    local attempts=0
+    while [[ $attempts -lt $timeout ]]; do
+        local status=$(NOMAD_ADDR="$NOMAD_ADDR" nomad job status -short "$job_name" 2>/dev/null | grep "Status" | awk '{print $NF}')
+        if [[ "$status" == "running" ]]; then
+            log_success "${job_name} is running"
+            return 0
+        fi
+        ((attempts++))
+        sleep 1
+    done
+    log_error "${job_name} failed to become healthy within ${timeout}s"
+    return 1
+}
+
+nomad_job_status() {
+    local job_name="$1"
+    NOMAD_ADDR="$NOMAD_ADDR" nomad job status "$job_name" 2>/dev/null
+}
+
+# --- Build & Deploy ---
 
 build_worker() {
     log_info "Building worker for Darwin arm64 (Apple Silicon)..."
@@ -47,39 +84,6 @@ build_worker() {
     fi
 }
 
-check_status() {
-    log_info "Checking worker status on ${WORKER_HOST}..."
-
-    local launchctl_status=$(ssh -o ConnectTimeout=5 "$WORKER_HOST" "sudo launchctl list | grep ${SERVICE_NAME}" 2>/dev/null || echo "")
-
-    if [[ -n "$launchctl_status" ]]; then
-        local pid=$(echo "$launchctl_status" | awk '{print $1}')
-        local exit_code=$(echo "$launchctl_status" | awk '{print $2}')
-
-        if [[ "$pid" != "-" && "$exit_code" == "0" ]]; then
-            log_success "Service: running (PID: ${pid})"
-        else
-            log_warn "Service: not running (exit: ${exit_code})"
-        fi
-
-        # Check health endpoint
-        local health=$(ssh "$WORKER_HOST" "curl -s -o /dev/null -w '%{http_code}' http://localhost:8085/health" 2>/dev/null || echo "000")
-        if [[ "$health" == "200" ]]; then
-            log_success "Health endpoint: OK"
-        else
-            log_warn "Health endpoint: HTTP ${health}"
-        fi
-
-        # Show recent logs
-        log_info "Recent logs:"
-        ssh "$WORKER_HOST" "tail -5 /var/log/penfold/worker.log" 2>/dev/null || true
-        return 0
-    else
-        log_warn "Service not loaded"
-        return 1
-    fi
-}
-
 deploy_binary() {
     log_info "Deploying binary to ${WORKER_HOST}:${BINARY_PATH}..."
 
@@ -90,61 +94,29 @@ deploy_binary() {
 
     # Copy new binary
     scp "$BUILD_OUTPUT" "${WORKER_HOST}:${BINARY_PATH}.new"
-    ssh "$WORKER_HOST" "chmod +x ${BINARY_PATH}.new"
+    ssh "$WORKER_HOST" "chmod +x ${BINARY_PATH}.new && mv ${BINARY_PATH}.new ${BINARY_PATH}"
     log_success "Binary uploaded"
 }
 
-switch_version() {
-    log_info "Switching to new version..."
+check_status() {
+    log_info "Checking worker Nomad job status..."
+    echo ""
+    nomad_job_status "$NOMAD_JOB_NAME" || log_warn "Job not found or Nomad not reachable"
 
-    ssh "$WORKER_HOST" "
-        sudo launchctl unload ${PLIST_PATH} 2>/dev/null || true
-        sleep 1
-        if [[ -f ${BINARY_PATH} ]]; then
-            mv ${BINARY_PATH} ${BINARY_PATH}.backup
-        fi
-        mv ${BINARY_PATH}.new ${BINARY_PATH}
-        sudo launchctl load ${PLIST_PATH}
-    "
-    log_success "Version switched"
+    # Also check health endpoint
+    echo ""
+    local health=$(ssh "$WORKER_HOST" "curl -s -o /dev/null -w '%{http_code}' http://localhost:8085/health" 2>/dev/null || echo "000")
+    if [[ "$health" == "200" ]]; then
+        log_success "Health endpoint: OK"
+    else
+        log_warn "Health endpoint: HTTP ${health}"
+    fi
 }
 
-verify_health() {
-    log_info "Verifying health..."
-
-    local attempts=0
-    while [[ $attempts -lt 30 ]]; do
-        local health=$(ssh "$WORKER_HOST" "curl -s -o /dev/null -w '%{http_code}' http://localhost:8085/health" 2>/dev/null || echo "000")
-        if [[ "$health" == "200" ]]; then
-            log_success "Service healthy (attempt $((attempts+1)))"
-            return 0
-        fi
-        ((attempts++))
-        sleep 1
-    done
-
-    log_error "Health check failed after 30 attempts"
-    return 1
-}
-
-rollback() {
-    log_error "Rolling back to previous version..."
-
-    ssh "$WORKER_HOST" "
-        sudo launchctl unload ${PLIST_PATH} 2>/dev/null || true
-        if [[ -f ${BINARY_PATH}.backup ]]; then
-            mv ${BINARY_PATH}.backup ${BINARY_PATH}
-            sudo launchctl load ${PLIST_PATH}
-            echo 'Rollback complete'
-        else
-            echo 'No backup available!'
-            exit 1
-        fi
-    "
-}
+# --- Commands ---
 
 cmd_full_deploy() {
-    echo "${CYAN}=== Penfold Worker Deployment ===${NC}"
+    echo "${CYAN}=== Penfold Worker Deployment (Nomad) ===${NC}"
     echo ""
 
     build_worker
@@ -153,12 +125,12 @@ cmd_full_deploy() {
     deploy_binary
     echo ""
 
-    switch_version
+    log_info "Submitting Nomad job..."
+    nomad_run_job "$NOMAD_JOB_FILE"
     echo ""
 
-    if ! verify_health; then
-        echo ""
-        rollback
+    if ! nomad_wait_healthy "$NOMAD_JOB_NAME" 60; then
+        log_error "Deployment failed - Nomad will auto-revert if configured"
         exit 1
     fi
 
@@ -192,12 +164,13 @@ case "${1:-}" in
         echo "Usage: $0 [--build|--status]"
         echo ""
         echo "Options:"
-        echo "  (no args)  Build, deploy, and restart worker via launchd"
+        echo "  (no args)  Build, upload, and deploy worker via Nomad"
         echo "  --build    Build only (cross-compile for Darwin ARM64)"
-        echo "  --status   Check worker status and logs"
+        echo "  --status   Check Nomad job status and health"
         echo ""
         echo "Environment:"
-        echo "  WORKER_HOST  Target host (default: dev01)"
+        echo "  WORKER_HOST  Target host for binary upload (default: dev01)"
+        echo "  NOMAD_ADDR   Nomad server address (default: http://dev02.brown.chat:4646)"
         ;;
     "")
         cmd_full_deploy

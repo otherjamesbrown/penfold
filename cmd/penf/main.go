@@ -1064,6 +1064,7 @@ func init() {
 	rootCmd.AddCommand(cmd.NewWatchCommand(nil))
 	rootCmd.AddCommand(cmd.NewBriefingCommand(nil))
 	rootCmd.AddCommand(cmd.NewEscalationsCommand(nil))
+	rootCmd.AddCommand(cmd.NewDeployCommand())
 
 	// Config subcommands.
 	configCmd.AddCommand(configShowCmd)
