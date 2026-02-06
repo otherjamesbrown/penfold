@@ -26,6 +26,13 @@ func NewTriageActivities(
 	aiClient AIClient,
 	pipelineRepo PipelineRepository,
 ) *TriageActivities {
+	if logger == nil {
+		panic("NewTriageActivities: logger is required")
+	}
+	if aiClient == nil {
+		panic("NewTriageActivities: aiClient is required")
+	}
+	// pipelineRepo is optional (provenance recording)
 	return &TriageActivities{
 		logger:       logger.With(logging.F("component", "triage_activities")),
 		aiClient:     aiClient,

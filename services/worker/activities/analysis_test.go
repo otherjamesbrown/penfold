@@ -190,26 +190,6 @@ func TestDeepAnalyze_EmptyContent(t *testing.T) {
 	require.Contains(t, err.Error(), "content is empty")
 }
 
-func TestDeepAnalyze_NoAIClient(t *testing.T) {
-	logger := logging.NewNopLogger()
-	activities := NewAnalysisActivities(logger, nil, nil)
-
-	input := DeepAnalyzeInput{
-		TenantID:         "test-tenant",
-		SourceID:         123,
-		JobID:            "job-123",
-		Content:          "Some content",
-		ContentType:      "email",
-		TriageCategory:   "PROJECT_UPDATE",
-		TriageImportance: "HIGH",
-	}
-
-	output, err := activities.DeepAnalyze(context.Background(), input)
-	require.Error(t, err)
-	require.Nil(t, output)
-	require.Contains(t, err.Error(), "AI client not configured")
-}
-
 func TestDeepAnalyze_AIClientError(t *testing.T) {
 	logger := logging.NewNopLogger()
 

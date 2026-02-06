@@ -98,6 +98,19 @@ func NewContextBuilderActivities(
 	contextRepo ContextPackageRepository,
 	pipelineRepo PipelineRepository,
 ) *ContextBuilderActivities {
+	if logger == nil {
+		panic("NewContextBuilderActivities: logger is required")
+	}
+	if entityResolver == nil {
+		panic("NewContextBuilderActivities: entityResolver is required")
+	}
+	if entityRepo == nil {
+		panic("NewContextBuilderActivities: entityRepo is required")
+	}
+	if contextRepo == nil {
+		panic("NewContextBuilderActivities: contextRepo is required")
+	}
+	// pipelineRepo is optional (provenance recording)
 	return &ContextBuilderActivities{
 		logger:         logger.With(logging.F("component", "context_builder_activities")),
 		entityResolver: entityResolver,

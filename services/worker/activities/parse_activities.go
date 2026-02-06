@@ -17,6 +17,9 @@ type ParseActivities struct {
 
 // NewParseActivities creates a new ParseActivities instance.
 func NewParseActivities(logger logging.Logger) *ParseActivities {
+	if logger == nil {
+		panic("NewParseActivities: logger is required")
+	}
 	return &ParseActivities{
 		logger: logger.With(logging.F("component", "parse_activities")),
 	}

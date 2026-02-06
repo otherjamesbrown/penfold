@@ -95,7 +95,7 @@ func TestExtractEntities_ShortContent(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID: "test-tenant",
@@ -144,7 +144,7 @@ func TestExtractEntities_MediumContent(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID: "test-tenant",
@@ -204,7 +204,7 @@ func TestExtractEntities_LongContent(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID: "test-tenant",
@@ -228,7 +228,7 @@ func TestExtractEntities_LongContent(t *testing.T) {
 func TestExtractEntities_EmptyContent(t *testing.T) {
 	logger := logging.NewNopLogger()
 	mockClient := &mockAIClient{}
-	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID: "test-tenant",
@@ -241,23 +241,6 @@ func TestExtractEntities_EmptyContent(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, output)
 	require.Contains(t, err.Error(), "content is empty")
-}
-
-func TestExtractEntities_NoAIClient(t *testing.T) {
-	logger := logging.NewNopLogger()
-	activities := NewExtractionActivities(logger, nil, nil, nil, nil)
-
-	input := ExtractEntitiesInput{
-		TenantID: "test-tenant",
-		SourceID: 123,
-		JobID:    "job-123",
-		Content:  "Some content",
-	}
-
-	output, err := activities.ExtractEntities(context.Background(), input)
-	require.Error(t, err)
-	require.Nil(t, output)
-	require.Contains(t, err.Error(), "AI client not configured")
 }
 
 func TestExtractEntities_MergeDedup(t *testing.T) {
@@ -296,7 +279,7 @@ func TestExtractEntities_MergeDedup(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID: "test-tenant",
@@ -344,7 +327,7 @@ func TestExtractEntities_QualityGate(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID:       "test-tenant",
@@ -382,7 +365,7 @@ func TestExtractEntities_QualityGateNotTriggered(t *testing.T) {
 		},
 	}
 
-	activities := NewExtractionActivities(logger, mockClient, nil, nil, nil)
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
 
 	input := ExtractEntitiesInput{
 		TenantID:       "test-tenant",

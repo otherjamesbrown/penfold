@@ -26,6 +26,13 @@ func NewAnalysisActivities(
 	aiClient AIClient,
 	pipelineRepo PipelineRepository,
 ) *AnalysisActivities {
+	if logger == nil {
+		panic("NewAnalysisActivities: logger is required")
+	}
+	if aiClient == nil {
+		panic("NewAnalysisActivities: aiClient is required")
+	}
+	// pipelineRepo is optional (provenance recording)
 	return &AnalysisActivities{
 		logger:       logger.With(logging.F("component", "analysis_activities")),
 		aiClient:     aiClient,

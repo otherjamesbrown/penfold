@@ -31,6 +31,18 @@ func NewMentionsActivities(
 	res *resolver.Resolver,
 	repo *mentions.PostgresRepository,
 ) *MentionsActivities {
+	if logger == nil {
+		panic("NewMentionsActivities: logger is required")
+	}
+	if db == nil {
+		panic("NewMentionsActivities: db is required")
+	}
+	if res == nil {
+		panic("NewMentionsActivities: res is required")
+	}
+	if repo == nil {
+		panic("NewMentionsActivities: repo is required")
+	}
 	return &MentionsActivities{
 		logger:   logger.With(logging.F("component", "mentions_activities")),
 		db:       db,

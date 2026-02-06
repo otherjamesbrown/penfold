@@ -33,6 +33,19 @@ func NewExtractionActivities(
 	entityRepo EntityRepository,
 	pipelineRepo PipelineRepository,
 ) *ExtractionActivities {
+	if logger == nil {
+		panic("NewExtractionActivities: logger is required")
+	}
+	if aiClient == nil {
+		panic("NewExtractionActivities: aiClient is required")
+	}
+	if assertionRepo == nil {
+		panic("NewExtractionActivities: assertionRepo is required")
+	}
+	if entityRepo == nil {
+		panic("NewExtractionActivities: entityRepo is required")
+	}
+	// pipelineRepo is optional (provenance recording)
 	return &ExtractionActivities{
 		logger:        logger.With(logging.F("component", "extraction_activities")),
 		aiClient:      aiClient,

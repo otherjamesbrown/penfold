@@ -24,6 +24,13 @@ func NewPersistActivities(
 	repository PersistRepository,
 	pipelineRepo PipelineRepository,
 ) *PersistActivities {
+	if logger == nil {
+		panic("NewPersistActivities: logger is required")
+	}
+	if repository == nil {
+		panic("NewPersistActivities: repository is required")
+	}
+	// pipelineRepo is optional (provenance recording)
 	return &PersistActivities{
 		logger:       logger.With(logging.F("component", "persist_activities")),
 		repository:   repository,

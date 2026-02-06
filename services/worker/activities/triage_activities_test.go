@@ -189,24 +189,6 @@ func TestTriage_EmptyContent(t *testing.T) {
 	require.Contains(t, err.Error(), "content is empty")
 }
 
-func TestTriage_NilAIClient(t *testing.T) {
-	logger := logging.NewNopLogger()
-	activities := NewTriageActivities(logger, nil, nil)
-
-	input := TriageInput{
-		TenantID:    "test-tenant",
-		SourceID:    123,
-		JobID:       "job-123",
-		Content:     "Some content",
-		ContentType: "email",
-	}
-
-	output, err := activities.Triage(context.Background(), input)
-	require.Error(t, err)
-	require.Nil(t, output)
-	require.Contains(t, err.Error(), "AI client not configured")
-}
-
 func TestTriage_AIClientError(t *testing.T) {
 	logger := logging.NewNopLogger()
 

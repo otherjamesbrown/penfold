@@ -143,24 +143,6 @@ func TestPersistFindings_InvalidSourceID(t *testing.T) {
 	require.Contains(t, err.Error(), "source_id must be positive")
 }
 
-func TestPersistFindings_NilRepository(t *testing.T) {
-	logger := logging.NewNopLogger()
-	activities := NewPersistActivities(logger, nil, nil)
-
-	input := PersistFindingsActivityInput{
-		TenantID: "test-tenant",
-		SourceID: 123,
-		Analysis: &DeepAnalyzeOutput{
-			Summary: "Test analysis",
-		},
-	}
-
-	output, err := activities.PersistFindings(context.Background(), input)
-	require.Error(t, err)
-	require.Nil(t, output)
-	require.Contains(t, err.Error(), "persist repository not configured")
-}
-
 func TestPersistFindings_RepositoryError(t *testing.T) {
 	logger := logging.NewNopLogger()
 

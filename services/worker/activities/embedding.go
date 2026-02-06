@@ -25,6 +25,16 @@ type EmbeddingActivities struct {
 
 // NewEmbeddingActivities creates a new EmbeddingActivities instance.
 func NewEmbeddingActivities(logger logging.Logger, aiClient AIClient, embeddingRepo EmbeddingRepository, pipelineRepo PipelineRepository) *EmbeddingActivities {
+	if logger == nil {
+		panic("NewEmbeddingActivities: logger is required")
+	}
+	if aiClient == nil {
+		panic("NewEmbeddingActivities: aiClient is required")
+	}
+	if embeddingRepo == nil {
+		panic("NewEmbeddingActivities: embeddingRepo is required")
+	}
+	// pipelineRepo is optional (provenance recording)
 	return &EmbeddingActivities{
 		logger:        logger.With(logging.F("component", "embedding_activities")),
 		aiClient:      aiClient,
