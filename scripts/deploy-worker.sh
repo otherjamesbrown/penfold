@@ -45,14 +45,21 @@ nomad_run_job() {
     NOMAD_ADDR="$NOMAD_ADDR" nomad job run "${PROJECT_ROOT}/${job_file}"
 }
 
+nomad_restart_job() {
+    local job_name="$1"
+    log_info "Restarting ${job_name} to pick up new binary..."
+    NOMAD_ADDR="$NOMAD_ADDR" nomad job restart -on-error=fail "$job_name"
+}
+
 nomad_wait_healthy() {
     local job_name="$1"
     local timeout="${2:-60}"
     log_info "Waiting for ${job_name} to be healthy..."
     local attempts=0
+    local job_status=""
     while [[ $attempts -lt $timeout ]]; do
-        local status=$(NOMAD_ADDR="$NOMAD_ADDR" nomad job status -short "$job_name" 2>/dev/null | grep "Status" | awk '{print $NF}')
-        if [[ "$status" == "running" ]]; then
+        job_status=$(NOMAD_ADDR="$NOMAD_ADDR" nomad job status -short "$job_name" 2>/dev/null | grep "Status" | awk '{print $NF}')
+        if [[ "$job_status" == "running" ]]; then
             log_success "${job_name} is running"
             return 0
         fi
@@ -136,6 +143,9 @@ cmd_full_deploy() {
 
     log_info "Submitting Nomad job..."
     nomad_run_job "$NOMAD_JOB_FILE"
+    echo ""
+
+    nomad_restart_job "$NOMAD_JOB_NAME"
     echo ""
 
     if ! nomad_wait_healthy "$NOMAD_JOB_NAME" 60; then
