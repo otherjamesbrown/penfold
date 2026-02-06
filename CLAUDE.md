@@ -90,12 +90,26 @@ Do NOT assume the task is done after code changes. Changes aren't useful until d
 
 ### Deployment Commands
 
-**Gateway Service:**
+All services are deployed via Nomad. Each script builds, uploads, and runs `nomad job run`:
+
 ```bash
-./scripts/deploy-gateway.sh          # Full: build + deploy + verify + rollback on failure
+# Gateway (Linux amd64 → dev02)
+./scripts/deploy-gateway.sh          # Full: build + upload + nomad job run
 ./scripts/deploy-gateway.sh --build  # Build only
-./scripts/deploy-gateway.sh --status # Check current status
-./scripts/verify-deployment.sh       # Verify deployment
+./scripts/deploy-gateway.sh --status # Nomad job status + health check
+
+# Worker (Darwin arm64 → dev01)
+./scripts/deploy-worker.sh           # Full: build + upload + nomad job run
+./scripts/deploy-worker.sh --build   # Build only
+./scripts/deploy-worker.sh --status  # Nomad job status + health check
+
+# AI Coordinator (Linux amd64 → dev02)
+./scripts/deploy-ai-coordinator.sh           # Full: build + upload + nomad job run
+./scripts/deploy-ai-coordinator.sh --build   # Build only
+./scripts/deploy-ai-coordinator.sh --status  # Nomad job status + health check
+
+# MLX Services (no build — Python, managed by Nomad on dev01)
+NOMAD_ADDR=http://dev02.brown.chat:4646 nomad job run deploy/nomad/mlx-services.nomad.hcl
 ```
 
 **CLI Release:**
@@ -106,10 +120,15 @@ Do NOT assume the task is done after code changes. Changes aren't useful until d
 # 4. Users run: penf update
 ```
 
-**Other Services:**
+**Nomad CLI Quick Reference:**
 ```bash
-# Worker (runs on dev01 - Apple Silicon)
-# Search, AI services - see context/development/workflows/deployment-checklist.md
+export NOMAD_ADDR=http://dev02.brown.chat:4646
+nomad job status                              # All jobs
+nomad job status penfold-gateway              # Specific job
+nomad alloc logs -job penfold-gateway         # View logs
+nomad alloc logs -job penfold-gateway -stderr # View error logs
+nomad job restart penfold-gateway             # Restart
+nomad job revert penfold-gateway <version>    # Rollback
 ```
 
 ### Deployment Checklist
@@ -126,12 +145,13 @@ penf glossary list             # Basic query works?
 
 ### Component Locations
 
-| Component | Location | Deploy Target |
-|-----------|----------|---------------|
-| CLI (penf) | cmd/penf/ | GitHub Release |
-| Gateway | services/gateway/ | dev02 |
-| Worker | services/worker/ | dev01 |
-| AI Service | services/ai/ | dev01 |
+| Component | Location | Nomad Job | Deploy Target |
+|-----------|----------|-----------|---------------|
+| CLI (penf) | cmd/penf/ | - | GitHub Release |
+| Gateway | services/gateway/ | `penfold-gateway` | dev02 (Linux) |
+| Worker | services/worker/ | `penfold-worker` | dev01 (Apple Silicon) |
+| AI Coordinator | services/ai/ | `penfold-ai-coordinator` | dev02 (Linux) |
+| MLX Services | (Python) | `penfold-mlx` | dev01 (Apple Silicon) |
 
 ## Testing
 

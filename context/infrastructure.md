@@ -85,10 +85,10 @@ Deployment-specific configuration for Penfold services. Last verified: 2026-01-3
 
 **Startup sequence:**
 1. PostgreSQL, Redis, Temporal (Docker containers on dev02)
-2. MLX Embeddings Sidecar (launchd on dev01)
-3. MLX LLM Server (launchd on dev01)
-4. Gateway (process on dev02)
-5. Worker (process on dev01)
+2. MLX services (Nomad job `penfold-mlx` on dev01)
+3. Gateway (Nomad job `penfold-gateway` on dev02)
+4. AI Coordinator (Nomad job `penfold-ai-coordinator` on dev02)
+5. Worker (Nomad job `penfold-worker` on dev01)
 6. CLI ready to use
 
 ### Inter-Service Communication Paths
@@ -236,52 +236,31 @@ Use hostnames in all configs for portability. IPs may change.
 | node_exporter | 9100 | `localhost:9100` | System metrics |
 | promtail | 9080 | `localhost:9080` | Log shipping to Loki |
 
-**Embeddings Sidecar:**
+**MLX Services (Nomad job `penfold-mlx`):**
+
+All ML services on dev01 are managed by Nomad as a single composite job with three task groups:
+
+| Task Group | Port | Model/Purpose |
+|------------|------|---------------|
+| embeddings | 8081 | mxbai-embed-large-v1 (1024 dimensions) |
+| llm | 8080 | Qwen2.5-7B-Instruct-4bit (local fallback; Gemini Flash is primary) |
+| exporter | 9101 | Prometheus metrics for MLX LLM |
+
 ```bash
-# Location
-penfold-go-pipeline/sidecar
+export NOMAD_ADDR=http://dev02.brown.chat:4646
 
-# Model
-mixedbread-ai/mxbai-embed-large-v1 (1024 dimensions)
+# Check MLX job status
+nomad job status penfold-mlx
 
-# Managed by launchd (auto-restarts on reboot)
-launchctl list | grep penfold.mlx-embeddings
+# View logs for a specific task group
+nomad alloc logs -job penfold-mlx -task embeddings
+nomad alloc logs -job penfold-mlx -task llm
 
-# Manual start (if not using launchd)
-.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8081
-```
+# Restart the entire MLX job
+nomad job restart penfold-mlx
 
-**LLM Server (mlx_lm.server):**
-```bash
-# Location
-penfold-go-pipeline/sidecar
-
-# Model
-mlx-community/Qwen2.5-7B-Instruct-4bit
-
-# Managed by launchd (auto-restarts on reboot)
-launchctl list | grep penfold.mlx-llm-server
-
-# Manual start (if not using launchd)
-.venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-7B-Instruct-4bit --port 8080 --host 0.0.0.0
-```
-
-**Launchd Services (dev01):**
-```bash
-# List penfold services
-launchctl list | grep penfold
-
-# Service plists location
-~/Library/LaunchAgents/com.penfold.mlx-embeddings.plist
-~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist
-
-# Reload a service
-launchctl unload ~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist
-launchctl load ~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist
-
-# View logs
-tail -f /tmp/mlx-embeddings.log
-tail -f /tmp/mlx-llm-server.log
+# Redeploy after config change
+nomad job run deploy/nomad/mlx-services.nomad.hcl
 ```
 
 **Worker Environment:**
@@ -297,38 +276,42 @@ AI_SERVICE_URL=http://localhost:8081  # MLX embeddings (local to dev01)
 AI_SERVICE_ADDR=dev02.brown.chat:50055  # AI Coordinator (for LLM via Gemini)
 ```
 
-**AI Service (dev01):**
+**AI Coordinator (Nomad job `penfold-ai-coordinator` on dev02):**
 ```bash
-# Binary location
-/tmp/penfold-ai
+# Managed by Nomad (constraint: meta.os = linux)
+# Binary: /opt/penfold/bin/penfold-ai-coordinator
+# Env: /etc/penfold/ai-coordinator.env
 
-# Build from source
-cd services/ai && go build -o /tmp/penfold-ai .
+export NOMAD_ADDR=http://dev02.brown.chat:4646
 
-# Start with Gemini as default LLM (MLX retained for embeddings only)
-AI_GRPC_PORT=50055 AI_HTTP_PORT=8086 AI_GEMINI_API_KEY=<from secrets/gemini> \
-  AI_DEFAULT_LLM_MODEL=gemini-2.0-flash \
-  nohup /tmp/penfold-ai > /tmp/penfold-ai.log 2>&1 &
+# Check status
+nomad job status penfold-ai-coordinator
+
+# View logs
+nomad alloc logs -job penfold-ai-coordinator
+
+# Deploy
+./scripts/deploy-ai-coordinator.sh
 
 # Health check
-curl -s http://localhost:8086/health
+curl -s http://dev02.brown.chat:8090/health
 
-# Environment variables (all have sensible defaults)
+# Key environment variables (in /etc/penfold/ai-coordinator.env)
 AI_GRPC_PORT=50055              # gRPC server port
-AI_HTTP_PORT=8086               # HTTP health/metrics port
-AI_MLX_EMBEDDINGS_URL=http://localhost:8081   # MLX for embeddings
-AI_MLX_LLM_URL=http://localhost:8080          # MLX LLM (fallback only)
-AI_GEMINI_API_KEY=<from secrets/gemini>       # Gemini API key for LLM
+AI_HTTP_PORT=8090               # HTTP health/metrics port
+AI_MLX_EMBEDDINGS_URL=http://dev01.brown.chat:8081  # MLX for embeddings
+AI_MLX_LLM_URL=http://dev01.brown.chat:8080         # MLX LLM (fallback only)
+AI_GEMINI_API_KEY=<from secrets/gemini>              # Gemini API key for LLM
 AI_DEFAULT_EMBEDDING_MODEL=mxbai-embed-large-v1
-AI_DEFAULT_LLM_MODEL=gemini-2.0-flash        # Gemini Flash is default LLM
+AI_DEFAULT_LLM_MODEL=gemini-2.0-flash               # Gemini Flash is default LLM
 ```
 
 ### dev02.brown.chat
 
 | Service | Port | Container | Notes |
 |---------|------|-----------|-------|
-| Gateway (gRPC) | 50051 | /tmp/penfold-gateway | Main API |
-| Gateway (HTTP) | 8080 | /tmp/penfold-gateway | Health, metrics |
+| Gateway (gRPC) | 50051 | Nomad: `penfold-gateway` | Main API |
+| Gateway (HTTP) | 8080 | Nomad: `penfold-gateway` | Health, metrics |
 | Agent Mail | 8765 | - | Client-dev communication |
 | PostgreSQL | 5432 | penfold-postgres | pgvector, TimescaleDB |
 | Redis | 6379 | penfold-redis | No password |
@@ -469,30 +452,21 @@ This provides the `mcp__agent-mail__*` tools: `fetch_inbox`, `send_message`, `re
 ### Full Stack Startup
 
 ```bash
-# 1. Verify Docker services on dev02
+export NOMAD_ADDR=http://dev02.brown.chat:4646
+
+# 1. Verify Docker services on dev02 (infrastructure)
 ssh dev02.brown.chat "docker ps --filter 'name=penfold'"
 
-# 2. Start Gateway on dev02 (if not running)
-ssh dev02.brown.chat "PENFOLD_SERVICE_NAME=gateway \
-  PENFOLD_DB_HOST=localhost \
-  PENFOLD_DB_PASSWORD=penfold \
-  nohup /tmp/penfold-gateway > /tmp/gateway.log 2>&1 &"
+# 2. Start all Nomad jobs
+nomad job run deploy/nomad/mlx-services.nomad.hcl      # MLX services (dev01)
+nomad job run deploy/nomad/gateway.nomad.hcl            # Gateway (dev02)
+nomad job run deploy/nomad/ai-coordinator.nomad.hcl     # AI Coordinator (dev02)
+nomad job run deploy/nomad/worker.nomad.hcl             # Worker (dev01)
 
-# 3. Start Embeddings on dev01
-cd penfold-go-pipeline/sidecar
-.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8081 &
+# 3. Verify all jobs are running
+nomad job status
 
-# 4. Start LLM Server on dev01 (local fallback; primary LLM is Gemini Flash via AI Coordinator)
-.venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-7B-Instruct-4bit --port 8080 --host 0.0.0.0 &
-
-# 5. Start Worker on dev01 (LLM calls route through AI Coordinator → Gemini Flash)
-PENFOLD_DB_HOST=dev02.brown.chat \
-PENFOLD_TEMPORAL_HOST=dev02.brown.chat:7233 \
-AI_SERVICE_URL=http://localhost:8081 \
-AI_SERVICE_ADDR=dev02.brown.chat:50055 \
-./bin/penfold-worker &
-
-# 6. Verify CLI connection
+# 4. Verify CLI connection
 penf status
 ```
 
@@ -622,9 +596,9 @@ Complete inventory of Penfold Go services with their default configurations.
 
 | Service | Manager | Port | Model/Purpose | Health Check |
 |---------|---------|------|---------------|--------------|
-| MLX Embeddings | launchd | 8081 | mxbai-embed-large-v1 | `/health`, `/metrics` |
-| MLX LLM Server | launchd | 8080 | Qwen2.5-7B-Instruct-4bit | `/v1/models` |
-| mlx-lm-exporter | nohup | 9101 | Prometheus metrics for LLM | `/health`, `/metrics` |
+| MLX Embeddings | Nomad (`penfold-mlx`) | 8081 | mxbai-embed-large-v1 | `/health`, `/metrics` |
+| MLX LLM Server | Nomad (`penfold-mlx`) | 8080 | Qwen2.5-7B-Instruct-4bit | `/health` |
+| mlx-lm-exporter | Nomad (`penfold-mlx`) | 9101 | Prometheus metrics for LLM | `/metrics` |
 
 ### Observability Sidecars (dev01)
 
@@ -720,21 +694,20 @@ Activities that call the MLX LLM Server (`:8080`):
 
 | Setting | File | Host |
 |---------|------|------|
-| Worker concurrency | `~/Library/LaunchAgents/com.penfold.worker.plist` | dev01 |
+| Worker concurrency | `/etc/penfold/worker.env` | dev01 |
 | Activity timeouts | `pkg/temporal/options.go` | Codebase |
 | Activity registration | `services/worker/activities/register.go` | Codebase |
 
 ### Changing Concurrency
 
 ```bash
-# On dev01 - update plist
-ssh dev01 "plutil -replace EnvironmentVariables.WORKER_MAX_CONCURRENT_ACTIVITIES -string '2' ~/Library/LaunchAgents/com.penfold.worker.plist"
+# On dev01 - update env file
+ssh dev01 "sudo vi /etc/penfold/worker.env"
+# Change: WORKER_MAX_CONCURRENT_ACTIVITIES=2
 
-# Restart worker (kill and launchd restarts it)
-ssh dev01 "pkill -f penfold-worker"
-
-# Or use nohup if launchctl isn't working over SSH
-ssh dev01 "nohup /opt/penfold/bin/penfold-worker > ~/penfold-worker.log 2>&1 &"
+# Restart worker via Nomad
+export NOMAD_ADDR=http://dev02.brown.chat:4646
+nomad job restart penfold-worker
 ```
 
 ### Monitoring
@@ -805,15 +778,14 @@ Metrics and logs are collected on dev02:
 
 #### Exporter Processes (dev01)
 
-These run via nohup (not launchd, due to SSH domain issues):
+The mlx-lm-exporter is managed by Nomad as part of the `penfold-mlx` job. Other observability sidecars still run via nohup:
 
 ```bash
+# mlx-lm-exporter — managed by Nomad (penfold-mlx / exporter task group)
+# To check: nomad job status penfold-mlx
+
 # node_exporter
 nohup /opt/homebrew/opt/node_exporter/bin/node_exporter > /tmp/node_exporter.log 2>&1 &
-
-# mlx-lm-exporter (proxies to mlx-lm on 8080)
-cd ~/github/otherjamesbrown/mlx-lm-exporter
-nohup .venv/bin/python mlx_lm_exporter.py --mlx-server http://localhost:8080 --port 9101 > /tmp/mlx-lm-exporter.log 2>&1 &
 
 # promtail
 nohup /opt/homebrew/opt/promtail/bin/promtail -config.file=/tmp/promtail-config.yaml > /tmp/promtail.log 2>&1 &
@@ -865,12 +837,16 @@ If the LLM server crashes with OOM:
 
 **Recovery steps:**
 ```bash
-# 1. Restart vLLM-MLX with smaller model
-ssh dev01 "pkill -f mlx_lm.server"
-ssh dev01 "cd ~/github/otherjamesbrown/penfold/penfold-go-pipeline/sidecar && nohup .venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-7B-Instruct-4bit --port 8080 --host 0.0.0.0 > /tmp/mlx-llm-server.log 2>&1 &"
+export NOMAD_ADDR=http://dev02.brown.chat:4646
+
+# 1. Restart MLX services (Nomad will restart all task groups)
+nomad job restart penfold-mlx
 
 # 2. Restart worker
-ssh dev01 "pkill -f penfold-worker"
-# Worker auto-restarts via launchd, or start manually with nohup
+nomad job restart penfold-worker
+
+# If Nomad restarts alone aren't sufficient, re-submit the jobs:
+nomad job run deploy/nomad/mlx-services.nomad.hcl
+nomad job run deploy/nomad/worker.nomad.hcl
 ```
 

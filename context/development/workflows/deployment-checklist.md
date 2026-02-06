@@ -56,37 +56,34 @@ cd services/worker && go build -o worker -ldflags="-s -w" .
 
 ### 6. Deploy Services
 
-**Gateway (dev02 - systemd):**
-```bash
-# Copy binary to target host
-scp services/gateway/gateway-linux james@dev02.brown.chat:/tmp/penfold-gateway
+All services are managed by Nomad. Use the deployment scripts which handle build, upload, and `nomad job run`:
 
-# On dev02: Stop, update binary, start
-ssh james@dev02.brown.chat << 'EOF'
-sudo systemctl stop penfold-gateway
-sudo mv /tmp/penfold-gateway /opt/penfold/bin/penfold-gateway
-sudo chmod +x /opt/penfold/bin/penfold-gateway
-sudo systemctl start penfold-gateway
-sudo systemctl status penfold-gateway
-EOF
+**Gateway (dev02):**
+```bash
+./scripts/deploy-gateway.sh          # Build + upload + nomad job run
+./scripts/deploy-gateway.sh --build  # Build only
+./scripts/deploy-gateway.sh --status # Check Nomad job status
 ```
 
-**Worker (dev01 - launchd):**
+**Worker (dev01 - Apple Silicon):**
 ```bash
-# Build for Apple Silicon
-GOOS=darwin GOARCH=arm64 go build -o worker-darwin-arm64 -ldflags="-s -w" ./services/worker
+./scripts/deploy-worker.sh           # Build + upload + nomad job run
+./scripts/deploy-worker.sh --build   # Build only
+./scripts/deploy-worker.sh --status  # Check Nomad job status
+```
 
-# Copy to dev01
-scp worker-darwin-arm64 james@dev01.brown.chat:/tmp/penfold-worker
+**AI Coordinator (dev02):**
+```bash
+./scripts/deploy-ai-coordinator.sh           # Build + upload + nomad job run
+./scripts/deploy-ai-coordinator.sh --build   # Build only
+./scripts/deploy-ai-coordinator.sh --status  # Check Nomad job status
+```
 
-# On dev01: Stop, update binary, start
-ssh james@dev01.brown.chat << 'EOF'
-sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
-sudo mv /tmp/penfold-worker /opt/penfold/bin/penfold-worker
-sudo chmod +x /opt/penfold/bin/penfold-worker
-sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
-sudo launchctl list | grep penfold
-EOF
+**MLX Services (dev01):**
+```bash
+# MLX services are managed directly via Nomad (no build step)
+export NOMAD_ADDR=http://dev02.brown.chat:4646
+nomad job run deploy/nomad/mlx-services.nomad.hcl
 ```
 
 ---
@@ -155,11 +152,16 @@ penf glossary list
 
 ### 9. Log Check
 ```bash
-# Gateway logs (systemd journal on dev02)
-ssh dev02.brown.chat "journalctl -u penfold-gateway --since '5 minutes ago' | grep -i error"
+export NOMAD_ADDR=http://dev02.brown.chat:4646
 
-# Worker logs (file on dev01)
-ssh dev01.brown.chat "tail -100 /var/log/penfold/worker.log | grep -i error"
+# Gateway logs (via Nomad)
+nomad alloc logs -job penfold-gateway -stderr | tail -50
+
+# Worker logs (via Nomad)
+nomad alloc logs -job penfold-worker -stderr | tail -50
+
+# AI Coordinator logs
+nomad alloc logs -job penfold-ai-coordinator -stderr | tail -50
 
 # Should show no critical errors
 ```
@@ -175,31 +177,30 @@ ssh dev01.brown.chat "tail -100 /var/log/penfold/worker.log | grep -i error"
 
 If ANY smoke test fails:
 
-### 1. Stop New Service
+### 1. Automatic Rollback (Nomad)
 
-**Gateway (dev02 - systemd):**
+Nomad jobs are configured with `auto_revert = true`. If the canary allocation fails its health check, Nomad automatically reverts to the previous version. Check if this already happened:
+
 ```bash
-ssh dev02.brown.chat "sudo systemctl stop penfold-gateway"
+export NOMAD_ADDR=http://dev02.brown.chat:4646
+nomad job status penfold-gateway   # Check "Latest Deployment" section
 ```
 
-**Worker (dev01 - launchd):**
-```bash
-ssh dev01.brown.chat "sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist"
-```
+### 2. Manual Rollback
 
-### 2. Restore Previous Binary
-```bash
-# Gateway (dev02)
-ssh dev02.brown.chat << 'EOF'
-sudo mv /opt/penfold/bin/penfold-gateway.backup /opt/penfold/bin/penfold-gateway
-sudo systemctl start penfold-gateway
-EOF
+If automatic revert didn't trigger or you need to revert further:
 
-# Worker (dev01)
-ssh dev01.brown.chat << 'EOF'
-sudo mv /opt/penfold/bin/penfold-worker.backup /opt/penfold/bin/penfold-worker
-sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
-EOF
+```bash
+export NOMAD_ADDR=http://dev02.brown.chat:4646
+
+# View deployment history
+nomad job history penfold-gateway
+
+# Revert to a specific version
+nomad job revert penfold-gateway <version>
+
+# Or stop the job entirely
+nomad job stop penfold-gateway
 ```
 
 ### 3. Rollback Migration (if applied)
@@ -222,28 +223,28 @@ penf health gateway
 
 ---
 
-## Deployment Script
+## Deployment Scripts
 
-For convenience, use the deployment script:
+Each service has a dedicated deploy script that handles build, SCP, and Nomad job submission:
 
 ```bash
-# Full deployment with verification
-./scripts/deploy-gateway.sh
+# Gateway (builds Linux amd64, deploys to dev02)
+./scripts/deploy-gateway.sh           # Full: build + upload + nomad job run
+./scripts/deploy-gateway.sh --build   # Build only
+./scripts/deploy-gateway.sh --status  # Check Nomad job status + health
 
-# The script will:
-# 1. Build the binary
-# 2. Copy to dev02
-# 3. Run migrations
-# 4. Restart service
-# 5. Run smoke tests
-# 6. Rollback on failure
+# Worker (builds Darwin arm64, deploys to dev01)
+./scripts/deploy-worker.sh            # Full: build + upload + nomad job run
+./scripts/deploy-worker.sh --build    # Build only
+./scripts/deploy-worker.sh --status   # Check Nomad job status + health
 
-# Other options:
-./scripts/deploy-gateway.sh --build    # Build only
-./scripts/deploy-gateway.sh --deploy   # Deploy only
-./scripts/deploy-gateway.sh --status   # Check status
-./scripts/deploy-gateway.sh --verify   # Run verification only
+# AI Coordinator (builds Linux amd64, deploys to dev02)
+./scripts/deploy-ai-coordinator.sh           # Full: build + upload + nomad job run
+./scripts/deploy-ai-coordinator.sh --build   # Build only
+./scripts/deploy-ai-coordinator.sh --status  # Check Nomad job status + health
 ```
+
+All scripts use canary deployments via Nomad. If the new version fails its health check, Nomad auto-reverts.
 
 ## CI/CD Verification
 
@@ -316,58 +317,41 @@ Copy this for each deployment:
 
 ### AI Coordinator
 - Requires: MLX services (dev01)
-- Host: dev02.brown.chat (systemd)
+- Host: dev02.brown.chat (Nomad: `penfold-ai-coordinator`)
 - Port: 50055 (gRPC), 8090 (HTTP)
-- Binary: `penfold-ai-coordinator`
+- Binary: `/opt/penfold/bin/penfold-ai-coordinator`
 
 ---
 
-## Service Management Reference
+## Service Management Reference (Nomad)
 
-### dev02 (Linux/systemd)
-
-```bash
-# Check status
-sudo systemctl status penfold-gateway
-sudo systemctl status penfold-ai-coordinator
-
-# Start/stop/restart
-sudo systemctl start penfold-gateway
-sudo systemctl stop penfold-gateway
-sudo systemctl restart penfold-gateway
-
-# Enable/disable auto-start
-sudo systemctl enable penfold-gateway
-sudo systemctl disable penfold-gateway
-
-# View logs
-journalctl -u penfold-gateway -f                    # Follow
-journalctl -u penfold-gateway -n 100                # Last 100 lines
-journalctl -u penfold-gateway --since "1 hour ago"  # Time-based
-journalctl -u penfold-gateway -p err                # Errors only
-
-# Reload after config change
-sudo systemctl daemon-reload
-sudo systemctl restart penfold-gateway
-```
-
-### dev01 (macOS/launchd)
+All Penfold services are managed by Nomad. The Nomad server runs on dev02.
 
 ```bash
-# Check status
-sudo launchctl list | grep penfold
+export NOMAD_ADDR=http://dev02.brown.chat:4646
 
-# Start/stop
-sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
-sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
+# --- Status ---
+nomad job status                            # All jobs
+nomad job status penfold-gateway            # Specific job
+nomad node status                           # All nodes
+nomad server members                        # Cluster membership
 
-# View logs
-tail -f /var/log/penfold/worker.log
-tail -f /var/log/penfold/worker.error.log
+# --- Start/Stop ---
+nomad job run deploy/nomad/gateway.nomad.hcl    # Start/update
+nomad job stop penfold-gateway                   # Stop
+nomad job restart penfold-gateway                # Restart (stop + start)
 
-# After editing plist
-sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
-sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
+# --- Logs ---
+nomad alloc logs -job penfold-gateway            # stdout
+nomad alloc logs -job penfold-gateway -stderr    # stderr
+nomad alloc logs -job penfold-gateway -f         # Follow
+
+# --- Rollback ---
+nomad job history penfold-gateway                # View versions
+nomad job revert penfold-gateway <version>       # Revert
+
+# --- Debugging ---
+nomad alloc status <alloc-id>                    # Allocation details + events
 ```
 
 ### Observability Stack (dev02)
@@ -392,7 +376,5 @@ docker compose logs -f grafana
 
 ## See Also
 
-- [deploy/README.md](../../deploy/README.md) - Deployment configuration overview
-- [deploy/systemd/README.md](../../deploy/systemd/README.md) - Linux service details
-- [deploy/launchd/README.md](../../deploy/launchd/README.md) - macOS service details
+- [deploy/nomad/README.md](../../deploy/nomad/README.md) - Nomad job specs, operations, troubleshooting
 - [deploy/observability/README.md](../../deploy/observability/README.md) - Monitoring stack
