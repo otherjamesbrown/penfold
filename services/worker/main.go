@@ -35,7 +35,12 @@ import (
 	"go.temporal.io/sdk/worker"
 )
 
-const version = "0.1.0"
+// Build-time variables set via ldflags.
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildTime = "unknown"
+)
 
 // logWriterAdapter adapts logs.Repository to logging.LogWriter.
 type logWriterAdapter struct {
@@ -88,6 +93,8 @@ func main() {
 
 	logger.Info("Starting Penfold Temporal worker",
 		logging.F("version", version),
+		logging.F("commit", commit),
+		logging.F("build_time", buildTime),
 		logging.F("http_port", cfg.HTTPPort),
 		logging.F("temporal_host", cfg.TemporalHostPort),
 		logging.F("temporal_namespace", cfg.TemporalNamespace),

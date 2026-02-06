@@ -18,8 +18,8 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/health"
 )
 
-// Version is the service version.
-const Version = "0.1.0"
+// Version is the service version. Set via ldflags at build time.
+var Version = "dev"
 
 // GatewayServer implements the GatewayService gRPC service.
 // It acts as the unified entry point for external API requests,

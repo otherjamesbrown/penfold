@@ -68,12 +68,21 @@ nomad_job_status() {
     NOMAD_ADDR="$NOMAD_ADDR" nomad job status "$job_name" 2>/dev/null
 }
 
+# --- Build Helpers ---
+
+build_ldflags() {
+    local ver=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+    local cmt=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    local bt=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+    echo "-X main.version=${ver} -X main.commit=${cmt} -X main.buildTime=${bt}"
+}
+
 # --- Build & Deploy ---
 
 build_ai() {
     log_info "Building AI coordinator for Linux amd64..."
     cd "${PROJECT_ROOT}/services/ai"
-    GOOS=linux GOARCH=amd64 go build -o ai-coordinator-linux .
+    GOOS=linux GOARCH=amd64 go build -ldflags "$(build_ldflags)" -o ai-coordinator-linux .
     if [[ -f "ai-coordinator-linux" ]]; then
         local size=$(ls -lh ai-coordinator-linux | awk '{print $5}')
         log_success "Built ai-coordinator-linux (${size})"

@@ -86,6 +86,13 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/workflowservice"
 )
 
+// Build-time variables set via ldflags.
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildTime = "unknown"
+)
+
 // logWriterAdapter adapts logs.Repository to logging.LogWriter.
 type logWriterAdapter struct {
 	repo     *logs.Repository
@@ -135,8 +142,13 @@ func main() {
 	logger := logging.NewLogger(logCfg)
 	logging.SetGlobal(logger)
 
+	// Set the exported version for health check responses.
+	server.Version = version
+
 	logger.Info("Starting API Gateway service",
-		logging.F("version", server.Version),
+		logging.F("version", version),
+		logging.F("commit", commit),
+		logging.F("build_time", buildTime),
 		logging.F("environment", cfg.Base.Environment),
 		logging.F("grpc_port", cfg.GRPCPort),
 		logging.F("http_port", cfg.HTTPPort),
@@ -196,7 +208,7 @@ func main() {
 	}
 
 	// Initialize health aggregator for backend services.
-	healthAggregator := gatewayhealth.NewAggregator(server.Version)
+	healthAggregator := gatewayhealth.NewAggregator(version)
 	healthAggregator.SetDefaultTimeout(5 * time.Second)
 
 	// Register database health check.

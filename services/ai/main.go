@@ -25,7 +25,12 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-const version = "0.1.0"
+// Build-time variables set via ldflags.
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildTime = "unknown"
+)
 
 func main() {
 	// Load configuration
@@ -47,6 +52,8 @@ func main() {
 
 	logger.Info("Starting AI Coordinator service",
 		logging.F("version", version),
+		logging.F("commit", commit),
+		logging.F("build_time", buildTime),
 		logging.F("grpc_port", cfg.GRPCPort),
 		logging.F("http_port", cfg.HTTPPort),
 		logging.F("environment", cfg.Environment),
