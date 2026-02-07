@@ -1,11 +1,11 @@
 ---
-description: "Phase 5: Verify builds and tests, cross-check decomposed features, reply to penfold with resolution."
+description: "Phase 5: Verify builds, unit tests, integration tests, cross-check decomposed features, send pre-deploy review to penfold."
 ---
 
-# Ingest — Phase 5: Verify & Reply
+# Ingest — Phase 5: Verify & Review
 
-Verify all implementations, cross-check decomposed features, trace back to original
-messages, and send resolution replies to penfold.
+Verify all implementations, run integration tests, cross-check decomposed features,
+trace back to original messages, and send pre-deploy review to penfold.
 
 ## Configuration
 
@@ -14,7 +14,7 @@ DB_CONN: "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify
 PALACE_CLI: /Users/dev/bin/palace
 ```
 
-## Step 1: Verify Build and Tests
+## Step 1: Verify Build and Unit Tests
 
 **For all items** (both single-agent and decomposed):
 ```bash
@@ -56,7 +56,45 @@ git diff --name-only | grep "_test.go"
 If tests are missing, re-launch the agent with explicit test requirements.
 If build fails, fix small issues directly or re-launch agent.
 
-## Step 2: Trace Back to Original Message
+## Step 2: Integration Tests
+
+**Run integration tests against the actual codebase** — unit tests alone don't catch
+wiring bugs. This was learned the hard way: unit tests pass but pipeline wiring mismatches
+slip through.
+
+```bash
+# If integration test suite exists:
+go test ./tests/integration/... -v -tags=integration
+
+# If no integration test suite, run smoke checks:
+go build ./...
+go vet ./...
+```
+
+**For changes that affect the pipeline (worker, activities, workflows):**
+```bash
+# Build the worker to verify it compiles with all changes
+go build ./services/worker/...
+
+# Run worker-specific tests
+go test ./services/worker/... -v
+```
+
+**For changes that affect gRPC services:**
+```bash
+# Verify proto generation is up to date
+# (only if proto files were modified)
+go build ./services/gateway/...
+go test ./services/gateway/... -v
+```
+
+If integration tests fail:
+1. Identify which component is broken
+2. Fix the wiring issue directly if small
+3. Re-launch the relevant agent if larger
+4. Do NOT proceed to deploy until integration tests pass
+
+## Step 3: Trace Back to Original Message
 
 Follow edges from impl shard → investigation/analysis → original message:
 
@@ -77,7 +115,54 @@ SELECT * FROM msg;
 "
 ```
 
-## Step 3: Reply to Penfold
+## Step 4: Pre-Deploy Review to Penfold
+
+**Before deploying**, send a review message to penfold with what was built. This is the
+last checkpoint before changes go live.
+
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
+SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-penfold'],
+  'Pre-deploy review: [N items ready]',
+  \$body\${\"poll_hint\":\"review\",\"type\":\"progress\"}
+## Pre-Deploy Review
+
+All items built and verified. Ready to deploy.
+
+### Bugs Fixed
+1. **[bug title]** — [1-sentence fix summary]
+   - Test: [TestName] FAILED before fix, PASSES after fix
+   - Files: [modified files]
+
+### Features Built
+1. **[feature title]** — [1-sentence summary]
+   - Tests: [TestName1, TestName2] PASS
+   - Files: [modified/created files]
+   - Acceptance criteria: [N/N met]
+
+### Verification
+- Build: all packages compile ✓
+- Unit tests: all passing ✓
+- Integration tests: [passing ✓ / not applicable / N failures]
+- Cross-layer check: [N features verified ✓]
+
+### What Will Be Deployed
+- [Gateway: yes/no]
+- [Worker: yes/no]
+- [CLI: yes/no — version bump to vX.Y.Z]
+
+Proceeding to deploy. Reply if you want to hold.
+
+-- agent-mycroft
+\$body\$,
+  NULL, 'progress', NULL);
+"
+```
+
+**Do NOT block on penfold's response.** Continue to deploy phase. But if penfold replies
+with "hold" or corrections before deploy completes, pause and incorporate.
+
+## Step 5: Send Resolution Replies
 
 **Group replies by original message.** If one message contained 3 items, send ONE reply.
 
@@ -106,13 +191,23 @@ SELECT send_message('penfold', 'agent-mycroft',
 - Analysis: pf-anl-bbb (closed)
 - Implementation: pf-feat-bbb (closed)
 
+### Specs Implemented
+
+**3. [spec title]**
+[summary from implementation agent]
+- Spec: pf-spc-ccc (closed)
+- Implementation: pf-feat-ccc (closed)
+- Acceptance criteria met: [N/N]
+
 ### Verification
 - Build: passing
 - Tests: [TestName1] FAILED before fix, PASSED after fix
 - Tests: [TestName2] (acceptance) PASSED after implementation
+- Integration: [passing / not applicable]
 
 ### Deployment
 [List what was deployed: gateway, worker, CLI vX.Y.Z, etc.]
+[Deployed version verified: commit [hash] running on [service]]
 
 ### Action Required
 [If CLI was updated: \"Please run penf update to get the changes.\"]
@@ -126,27 +221,31 @@ SELECT send_message('penfold', 'agent-mycroft',
 
 If a message contained only bugs or only requirements, omit the empty section header.
 
-## Step 4: Close Remaining Shards
+## Step 6: Close Remaining Shards
 
-If any investigation or analysis shards are still open, close them:
+If any investigation, analysis, or spec shards are still open, close them:
 
 ```bash
 /Users/dev/bin/palace task close pf-inv-xxx "Investigation complete, fix deployed"
 /Users/dev/bin/palace task close pf-anl-xxx "Analysis complete, feature deployed"
+/Users/dev/bin/palace task close pf-spc-xxx "Spec implemented and deployed"
 ```
 
 ## Show Progress
 
 ```
-INGEST PIPELINE - Phase 5: Verify & Reply
-══════════════════════════════════════════
-BUILD:     All packages compile ✓
-TESTS:     N test files, all passing ✓
-CROSS-CHECK: [N decomposed features verified across layers ✓]
+INGEST PIPELINE - Phase 5: Verify & Review
+═══════════════════════════════════════════
+BUILD:        All packages compile ✓
+UNIT TESTS:   N test files, all passing ✓
+INTEGRATION:  [N tests passing ✓ / smoke checks pass ✓]
+CROSS-CHECK:  [N decomposed features verified across layers ✓]
+
+PRE-DEPLOY REVIEW: Sent to penfold (non-blocking) ✓
 
 REPLIES:
   pf-msg-aaa: Resolved (3 items: 2 bugs, 1 feature) → agent-penfold ✓
-  pf-msg-bbb: Resolved (1 item: 1 feature) → agent-penfold ✓
+  pf-msg-bbb: Resolved (1 item: 1 spec) → agent-penfold ✓
 ```
 
 After displaying progress, return to the orchestrator for deploy.

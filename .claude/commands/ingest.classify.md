@@ -1,5 +1,5 @@
 ---
-description: "Phase 1: Pull unread messages from inbox, classify as bug/requirement/skip, create shards, acknowledge."
+description: "Phase 1: Pull unread messages from inbox, classify as bug/requirement/spec/skip, create shards, acknowledge."
 ---
 
 # Ingest — Phase 1: Pull & Classify
@@ -32,19 +32,33 @@ For each message:
      error, or unexpected behavior. Needs investigation to find root cause.
    - **REQUIREMENT** — A new capability, enhancement, or change request. Something that
      doesn't exist yet and needs to be built. No root cause to investigate — the code
-     isn't broken, it's missing.
+     isn't broken, it's missing. Loosely described, needs analysis.
+   - **SPEC** — A fully analyzed requirement with structured detail. The sender has already
+     done the analysis work. Contains acceptance criteria, file lists, data models, SQL,
+     or layer breakdowns. Does NOT need exploration — skip straight to triage/decomposition.
    - **SKIP** — Questions, status updates, acks, or items that don't need implementation.
 
-2. **Split multi-item messages.** A single message may contain both bugs AND requirements,
-   or multiple of each. Each discrete item gets its own shard.
+2. **Split multi-item messages.** A single message may contain bugs AND requirements AND
+   specs, or multiple of each. Each discrete item gets its own shard.
 
 **Classification examples:**
 - "review queue fails with timeout" → **BUG** (something broke)
-- "reprocess --all not implemented" → **REQUIREMENT** (feature doesn't exist)
+- "reprocess --all not implemented" → **REQUIREMENT** (feature doesn't exist, loosely described)
 - "reprocess returns empty job ID" → **BUG** (unexpected behavior)
-- "add a --format json flag to penf status" → **REQUIREMENT** (new feature)
+- "add a --format json flag to penf status" → **REQUIREMENT** (new feature, simple)
 - "glossary export should support CSV" → **REQUIREMENT** (new capability)
 - "glossary list crashes when DB is empty" → **BUG** (crash/error)
+- Message with `## Goal`, `## Acceptance Criteria`, `## Files`, `## Data Model` → **SPEC**
+- Message labeled `kind:requirement` with SQL, proto definitions, layer breakdown → **SPEC**
+- Message with just "add entity filtering" and no structure → **REQUIREMENT**
+
+**SPEC detection criteria** — classify as SPEC if the message contains **3 or more** of:
+- Structured sections (## Goal, ## Scope, ## Acceptance Criteria, ## Files)
+- Specific file paths to create or modify
+- Data model or schema definitions (SQL, proto, table structures)
+- Layer identification (db, service, cli, pipeline)
+- Explicit acceptance criteria with testable conditions
+- Existing pattern references (e.g., "follow the glossary command pattern")
 
 **How to identify discrete items:**
 - Different symptoms or different features requested
@@ -77,8 +91,24 @@ SELECT create_task_from('penfold', 'agent-mycroft', 'pf-MESSAGE-ID',
 "
 ```
 
-Note the shard title prefix: `investigate:` for bugs, `analyze:` for requirements. This
-prefix is used in later phases to determine which path to follow.
+**For SPECS:**
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
+SELECT create_task_from('penfold', 'agent-mycroft', 'pf-MESSAGE-ID',
+  'spec: [specific feature title]',
+  \$body\$Pre-analyzed spec from [creator]. Skipping investigation/analysis — proceed directly to triage.
+
+## Original Spec Content
+[paste the FULL spec content here — this IS the analysis]
+\$body\$,
+  1, 'agent-mycroft');
+"
+```
+
+Note the shard title prefix:
+- `investigate:` for bugs → Phase 2 launches debugger
+- `analyze:` for requirements → Phase 2 launches explorer
+- `spec:` for specs → **Phase 2 is skipped**, goes directly to Phase 3 triage
 
 ## Step 4: Acknowledge to Penfold
 
@@ -92,7 +122,8 @@ SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-penfold'],
 Processing N items from your report:
 1. [BUG] [issue title]
 2. [REQ] [requirement title]
-3. [BUG] [issue title]
+3. [SPEC] [feature title] — skipping analysis, using your spec directly
+4. [BUG] [issue title]
 
 Will update as each is resolved.\$body\$,
   NULL, 'ack', 'pf-MESSAGE-ID');
@@ -112,18 +143,19 @@ SELECT mark_read(ARRAY['pf-msg1', 'pf-msg2'], 'agent-mycroft');
 ```
 INGEST PIPELINE - Phase 1: Pull & Classify
 ════════════════════════════════════════════
-Messages: N (containing M discrete items: B bugs, R requirements)
+Messages: N (containing M discrete items: B bugs, R requirements, S specs)
 
 Message pf-xxxxxx: "[title]" (from agent-penfold)
-  #1 | BUG | pf-inv-aaa | [issue title]
-  #2 | REQ | pf-anl-bbb | [requirement title]
-  #3 | BUG | pf-inv-ccc | [issue title]
+  #1 | BUG  | pf-inv-aaa | [issue title]
+  #2 | REQ  | pf-anl-bbb | [requirement title]
+  #3 | SPEC | pf-spc-ccc | [feature title] — analysis skipped
 
 Message pf-yyyyyy: "[title]" (from agent-penfold)
-  #4 | REQ | pf-anl-ddd | [requirement title]
+  #4 | REQ  | pf-anl-ddd | [requirement title]
 
 Acks sent: N messages acknowledged
-Shards created: M (B investigations, R analyses)
+Shards created: M (B investigations, R analyses, S specs)
+SPECs skip Phase 2 — proceeding directly to triage for those items.
 ```
 
 After displaying progress, return to the orchestrator. It will invoke the next phase.

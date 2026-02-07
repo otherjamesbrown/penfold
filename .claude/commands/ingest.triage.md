@@ -4,8 +4,8 @@ description: "Phase 3: Create implementation shards from findings, route by comp
 
 # Ingest — Phase 3: Triage & Decompose
 
-Process findings from Phase 2 (investigations + analyses), create implementation shards,
-route by complexity, and decompose HIGH complexity items into layer sub-shards.
+Process findings from Phase 2 (investigations + analyses + specs), create implementation
+shards, route by complexity, and decompose HIGH complexity items into layer sub-shards.
 
 ## Configuration
 
@@ -16,13 +16,13 @@ PALACE_CLI: /Users/dev/bin/palace
 
 ## Step 1: Extract Findings
 
-Read all closed investigation and analysis shards:
+Read all closed investigation, analysis, and spec shards:
 
 ```bash
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
 SELECT s.id, s.title, s.content, s.closed_reason
 FROM shards s
-WHERE s.id IN ('pf-inv-aaa', 'pf-anl-bbb')
+WHERE s.id IN ('pf-inv-aaa', 'pf-anl-bbb', 'pf-spc-ccc')
   AND s.status = 'closed';
 "
 ```
@@ -39,6 +39,12 @@ WHERE s.id IN ('pf-inv-aaa', 'pf-anl-bbb')
 - Scope summary (what to build)
 - Files to create/modify
 - Existing pattern to follow
+
+**For specs**, parse the shard `content` directly (the spec IS the analysis):
+- Extract complexity from the spec's layer coverage
+- Extract files, acceptance criteria, data model from structured sections
+- Use the spec's own decomposition if it provides one (e.g., layer breakdown)
+- The spec's acceptance criteria become the shard's acceptance criteria **verbatim**
 
 Map to agent type:
 
@@ -151,6 +157,53 @@ $md$,
 EOSQL
 ```
 
+**For SPECS** — use `feat:` prefix, preserve spec's own acceptance criteria verbatim:
+
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" <<'EOSQL'
+SELECT create_impl_shard('penfold', 'agent-mycroft', '<agent-type>',
+  'feat: [short title]',
+  $md$## Goal
+[from the spec's Goal section — use exact wording]
+
+## Complexity
+[Low/Medium/High]
+
+## Layers
+[from spec's layer identification]
+
+## Approach
+[from spec — use the spec's own approach, not a re-analysis]
+
+## Existing Pattern to Follow
+[from spec if mentioned]
+
+## Files to Modify/Create
+[from spec's Files section — use exact paths]
+
+## Data Model
+[from spec's data model section, if any — preserve SQL/proto verbatim]
+
+## Acceptance Criteria
+[from spec's acceptance criteria — use EXACT wording, do not paraphrase]
+- [ ] Code compiles: go build ./...
+- [ ] Tests pass: go test ./...
+
+## Original Spec
+pf-[spec-id]: [title]
+$md$,
+  ARRAY['file1.go', 'file2.go'],
+  ARRAY['pf-dependency-or-NULL'],
+  'pf-spec-id'
+);
+EOSQL
+```
+
+**CRITICAL for SPECs:** The spec's acceptance criteria are the source of truth. Do not
+simplify, paraphrase, or drop any criteria. The implementation agent must satisfy every
+criterion in the spec. If the spec includes SQL, proto definitions, or test requirements,
+include them in the shard content.
+
 ## Step 4: Route by Complexity
 
 Split impl shards into two groups:
@@ -161,7 +214,7 @@ Split impl shards into two groups:
 ```
 COMPLEXITY ROUTING:
   LOW/MEDIUM → /ingest.test → /ingest.implement (single agent per shard)
-  HIGH       → Decompose (below) → /ingest.implement (layer-by-layer)
+  HIGH       → Decompose (below) → /ingest.test (per wave) → /ingest.implement (layer-by-layer)
 ```
 
 ## Step 5: Decompose HIGH Complexity Items
@@ -190,7 +243,10 @@ Layer 4: Pipeline (worker-dev) — only if needed
   → Depends on: Layer 1 (imports repository)
 ```
 
-Only create sub-shards for layers the analysis identified. Not every feature needs all 4.
+Only create sub-shards for layers the analysis/spec identified. Not every feature needs all 4.
+
+**For SPECs that provide their own decomposition:** If the spec breaks down the work by
+layer, use the spec's decomposition directly. Don't re-decompose.
 
 ### Create Layer Sub-Shards
 
@@ -217,6 +273,9 @@ pf-PARENT-SHARD: [parent title]
 
 ## Pattern to Follow
 [specific existing migration + repository as template]
+
+## Data Model
+[If from a SPEC: paste the spec's SQL/schema verbatim here]
 
 ## Acceptance Criteria
 - [ ] Migration creates correct schema
@@ -342,6 +401,38 @@ VALUES
 "
 ```
 
+## Step 6: Send Decomposition Plan to Penfold (HIGH items only)
+
+**For HIGH complexity items**, send the decomposition plan to penfold before proceeding
+to implementation. This lets penfold validate layer splits and catch mistakes.
+
+```bash
+psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
+SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-penfold'],
+  'Decomposition plan: [feature name]',
+  \$body\${\"poll_hint\":\"review\",\"type\":\"progress\"}
+## Decomposition Plan: [feature name]
+
+Parent shard: pf-PARENT-SHARD
+Complexity: HIGH — decomposed into N layers
+
+| Wave | Shard | Layer | Agent | Files | Blocked By |
+|------|-------|-------|-------|-------|------------|
+| 1 | pf-xxx-db | DB | data-dev | migrations/NNN.sql, pkg/.../repo.go | — |
+| 2 | pf-xxx-svc | Service | service-dev | api/proto/..., services/gateway/... | pf-xxx-db |
+| 3 | pf-xxx-cli | CLI | cli-dev | cmd/penf/cmd/feature.go | pf-xxx-svc |
+
+Proceeding to test-writing and implementation. Reply if you want to adjust.
+
+-- agent-mycroft
+\$body\$,
+  NULL, 'progress', NULL);
+"
+```
+
+**Do NOT block on penfold's response.** Continue to Phase 3.5 / Phase 4. But if penfold
+replies with corrections, incorporate them.
+
 ## Build Queue
 
 ```bash
@@ -365,19 +456,21 @@ ORDER BY s.priority, s.created_at;
 ```
 INGEST PIPELINE - Phase 3: Triage & Decompose
 ══════════════════════════════════════════════
-Impl shards created: N (B fixes, R features)
+Impl shards created: N (B fixes, R features, S from specs)
 
 LOW/MEDIUM (single-agent path):
   pf-fix-aaa (cli-dev, LOW) — READY
   pf-feat-bbb (service-dev, MEDIUM) — READY
 
 HIGH (decomposed into layers):
-  Feature: [name] (parent: pf-feat-ccc)
+  Feature: [name] (parent: pf-feat-ccc) [from SPEC]
     Layer 1 | pf-ccc-db  | DB         | data-dev    | READY
     Layer 2 | pf-ccc-svc | Service    | service-dev | blocked by pf-ccc-db
     Layer 3 | pf-ccc-cli | CLI        | cli-dev     | blocked by pf-ccc-svc
 
 Blocked: pf-fix-ddd (blocked by pf-fix-aaa)
+
+Decomposition plan sent to penfold (non-blocking).
 ```
 
 After displaying progress, return to the orchestrator.

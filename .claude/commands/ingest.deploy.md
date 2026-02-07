@@ -1,5 +1,5 @@
 ---
-description: "Phase 6+7: Loop for unblocked work, then commit, deploy, verify deployment, show final summary."
+description: "Phase 6+7: Loop for unblocked work, then commit, deploy, verify deployment with version check, show final summary."
 ---
 
 # Ingest — Phase 6+7: Loop & Deploy
@@ -121,23 +121,74 @@ nomad job status penfold-worker
 
 penf health
 penf status
-penf glossary list
 ```
 
-**Verification checklist:**
+### Step 4: Verify Deployed Version Matches Commit
 
-| Service | Check | Pass? |
-|---------|-------|-------|
-| Gateway | `deploy-gateway.sh --status` running + health check | ✓/✗ |
-| Worker | `deploy-worker.sh --status` running + health check | ✓/✗ |
-| AI Coordinator | `deploy-ai-coordinator.sh --status` running | ✓/✗ |
-| CLI | GitHub Actions release completed | ✓/✗ |
+**CRITICAL. Nomad is unreliable — binaries upload but allocations don't always restart.**
+This step catches ghost deploys where the old binary is still running.
 
-**If ANY service fails:**
-1. Check logs: `nomad alloc logs -job <job-name> -stderr`
-2. If crash loop: `nomad job revert <job-name> <previous-version>`
-3. Do NOT proceed to summary — fix first
-4. If unable to fix, note failure explicitly in summary
+```bash
+# Get the commit we just deployed
+EXPECTED_COMMIT=$(git rev-parse --short HEAD)
+
+# Check running version via /version endpoint or CLI
+RUNNING_VERSION=$(penf version --server 2>/dev/null || echo "unknown")
+
+echo "Expected: $EXPECTED_COMMIT"
+echo "Running:  $RUNNING_VERSION"
+```
+
+**If version doesn't match:**
+1. The allocation didn't restart. Force it:
+```bash
+# Force restart the allocation
+nomad job restart penfold-gateway
+nomad job restart penfold-worker
+
+# Wait 15 seconds for restart
+sleep 15
+
+# Re-check version
+penf version --server
+```
+2. If still mismatched after force restart, check allocation logs:
+```bash
+nomad alloc logs -job penfold-gateway -stderr | tail -50
+nomad alloc logs -job penfold-worker -stderr | tail -50
+```
+3. If crash looping: `nomad job revert <job-name> <previous-version>`
+4. **Notify penfold** of deployment issue.
+
+### Step 5: Functional Smoke Tests
+
+**After verifying the service is running with the correct version**, run smoke tests
+specific to what was changed. These catch wiring bugs that unit tests miss.
+
+```bash
+# Always run:
+penf health
+penf status
+penf content stats
+
+# If entities were changed:
+penf entity list --limit 5
+
+# If assertions were changed:
+penf assertion list --limit 5
+
+# If glossary was changed:
+penf glossary list --limit 5
+
+# If content processing was changed:
+penf content list --limit 5
+```
+
+**If any smoke test fails:**
+1. Check if it's a pre-existing issue or caused by this deploy
+2. If caused by this deploy: investigate, fix, and re-deploy
+3. If pre-existing: note in summary, don't block deploy
+4. **Notify penfold** of smoke test failure
 
 ### Show Final Summary
 
@@ -150,7 +201,8 @@ Shard:       pf-fix-aaa (investigation: pf-inv-aaa)
 Bug:         [1-2 sentence summary]
 Fix:         [1-2 sentence summary]
 Test:        [TestName] in [file] — FAILED before fix ✓, PASSED after ✓
-Deploy:      [Gateway ✓ VERIFIED RUNNING | Worker ✓ VERIFIED RUNNING | None needed]
+Deploy:      [Gateway ✓ VERIFIED v[hash] | Worker ✓ VERIFIED v[hash] | None needed]
+Smoke:       [penf health ✓ | penf entity list ✓]
 Notified:    agent-penfold ✓ [action required or "no action needed"]
 
 ## Feature 1: [short title] (LOW/MEDIUM — single agent)
@@ -158,35 +210,42 @@ Shard:       pf-feat-bbb (analysis: pf-anl-bbb)
 Requirement: [1-2 sentence summary]
 Built:       [1-2 sentence summary]
 Test:        [TestName1, TestName2] — acceptance tests PASS ✓
-Deploy:      [details + VERIFIED RUNNING]
+Deploy:      [details + VERIFIED v[hash]]
+Smoke:       [relevant smoke test results]
 Notified:    agent-penfold ✓
 
-## Feature 2: [short title] (HIGH — decomposed)
-Shard:       pf-feat-ccc (analysis: pf-anl-ccc)
-Requirement: [1-2 sentence summary]
+## Feature 2: [short title] (from SPEC, HIGH — decomposed)
+Shard:       pf-feat-ccc (spec: pf-spc-ccc)
+Spec:        [1-2 sentence summary]
+Criteria:    [N/N acceptance criteria met]
 Layers:
   DB:        pf-ccc-db  — [summary]. Tests: [TestNames]
   Service:   pf-ccc-svc — [summary]. Tests: [TestNames]
   CLI:       pf-ccc-cli — [summary]. Tests: [TestNames]
 Cross-check: All layers build ✓, all tests pass ✓, no conflicts ✓
-Deploy:      [details + VERIFIED RUNNING]
+Deploy:      [details + VERIFIED v[hash]]
+Smoke:       [relevant smoke test results]
 Notified:    agent-penfold ✓
 
 ────────────────────────
-Totals: B bugs fixed, R features built, N deployed, N replies sent
+Totals: B bugs fixed, R features built, S specs implemented, N deployed, N replies sent
 Commit: [hash] "[message]"
 
 Deployment verification:
-  Gateway:  RUNNING ✓ (health check passed)
-  Worker:   RUNNING ✓ (health check passed)
-  CLI:      v0.X.Y released ✓
+  Gateway:        RUNNING ✓ (version [hash] verified)
+  Worker:         RUNNING ✓ (version [hash] verified)
+  CLI:            v0.X.Y released ✓
+  Smoke tests:    [N/N passed]
 ```
 
 **Summary rules:**
-- Every item MUST have all 6 fields (Shard, Bug/Requirement, Fix/Built, Test, Deploy, Notified)
+- Every item MUST have all fields (Shard, Bug/Requirement/Spec, Fix/Built, Test, Deploy, Smoke, Notified)
 - Test: bugs confirm pre-fix fail AND post-fix pass; features confirm acceptance tests pass
-- Deploy: must say "VERIFIED RUNNING" or "None needed" — never just "deployed"
+- Deploy: must say "VERIFIED v[hash]" — never just "deployed"
+- Smoke: list which smoke tests ran and passed
 - Notified: confirm reporter was told + whether they need to act
 - Decomposed features: list each layer with sub-shard ID, summary, tests
+- SPEC features: include acceptance criteria count (N/N met)
 - Partial/deferred items: say so explicitly with next steps
 - Failed deployment: MUST say so — do not mark as complete
+- Version mismatch: MUST be resolved before marking complete
