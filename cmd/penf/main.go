@@ -1143,6 +1143,10 @@ func init() {
 	briefingCmd.GroupID = "query"
 	rootCmd.AddCommand(briefingCmd)
 
+	assertionsCmd := cmd.NewAssertionsCommand(nil)
+	assertionsCmd.GroupID = "query"
+	rootCmd.AddCommand(assertionsCmd)
+
 	// Content & Pipeline
 	contentCmd := cmd.NewContentCommand(nil)
 	contentCmd.GroupID = "content"
@@ -1180,6 +1184,10 @@ func init() {
 	glossaryCmd := cmd.NewGlossaryCommand(nil)
 	glossaryCmd.GroupID = "entities"
 	rootCmd.AddCommand(glossaryCmd)
+
+	entityCmd := cmd.NewEntityCommand(nil)
+	entityCmd.GroupID = "entities"
+	rootCmd.AddCommand(entityCmd)
 
 	// People Attributes
 	trustCmd := cmd.NewTrustCommand(nil)

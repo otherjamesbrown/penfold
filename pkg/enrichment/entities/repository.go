@@ -90,7 +90,9 @@ func (r *Repository) GetPersonByID(ctx context.Context, id int64) (*Person, erro
 			id, tenant_id, canonical_name, primary_email,
 			job_title as title, department, company, is_internal, account_type,
 			confidence_score as confidence, needs_review, auto_created,
-			reviewed_at, reviewed_by, potential_duplicates,
+			reviewed_at, reviewed_by,
+			rejected_at, rejected_reason, rejected_by,
+			potential_duplicates,
 			created_at, updated_at
 		FROM people
 		WHERE id = $1
@@ -105,7 +107,9 @@ func (r *Repository) GetPersonByEmail(ctx context.Context, tenantID, email strin
 			id, tenant_id, canonical_name, primary_email,
 			job_title as title, department, company, is_internal, account_type,
 			confidence_score as confidence, needs_review, auto_created,
-			reviewed_at, reviewed_by, potential_duplicates,
+			reviewed_at, reviewed_by,
+			rejected_at, rejected_reason, rejected_by,
+			potential_duplicates,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND primary_email = $2
@@ -120,7 +124,9 @@ func (r *Repository) GetPersonByAlias(ctx context.Context, tenantID, aliasValue 
 			p.id, p.tenant_id, p.canonical_name, p.primary_email,
 			p.job_title as title, p.department, p.company, p.is_internal, p.account_type,
 			p.confidence_score as confidence, p.needs_review, p.auto_created,
-			p.reviewed_at, p.reviewed_by, p.potential_duplicates,
+			p.reviewed_at, p.reviewed_by,
+			p.rejected_at, p.rejected_reason, p.rejected_by,
+			p.potential_duplicates,
 			p.created_at, p.updated_at
 		FROM people p
 		JOIN person_aliases a ON a.person_id = p.id
@@ -142,7 +148,9 @@ func (r *Repository) SearchPeopleByName(ctx context.Context, tenantID, name stri
 			id, tenant_id, canonical_name, primary_email,
 			job_title as title, department, company, is_internal, account_type,
 			confidence_score as confidence, needs_review, auto_created,
-			reviewed_at, reviewed_by, potential_duplicates,
+			reviewed_at, reviewed_by,
+			rejected_at, rejected_reason, rejected_by,
+			potential_duplicates,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND canonical_name ILIKE '%' || $2 || '%'
@@ -165,7 +173,9 @@ func (r *Repository) GetPeopleByDomain(ctx context.Context, tenantID, domain str
 			id, tenant_id, canonical_name, primary_email,
 			job_title as title, department, company, is_internal, account_type,
 			confidence_score as confidence, needs_review, auto_created,
-			reviewed_at, reviewed_by, potential_duplicates,
+			reviewed_at, reviewed_by,
+			rejected_at, rejected_reason, rejected_by,
+			potential_duplicates,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND primary_email LIKE '%@' || $2
@@ -192,7 +202,9 @@ func (r *Repository) ListPeopleNeedingReview(ctx context.Context, tenantID strin
 			id, tenant_id, canonical_name, primary_email,
 			job_title as title, department, company, is_internal, account_type,
 			confidence_score as confidence, needs_review, auto_created,
-			reviewed_at, reviewed_by, potential_duplicates,
+			reviewed_at, reviewed_by,
+			rejected_at, rejected_reason, rejected_by,
+			potential_duplicates,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND needs_review = TRUE
@@ -750,13 +762,15 @@ func (r *Repository) GetProjectMemberIDs(ctx context.Context, projectID int64) (
 
 func (r *Repository) scanPerson(ctx context.Context, query string, args ...interface{}) (*Person, error) {
 	p := &Person{}
-	var title, department, company, reviewedBy *string
+	var title, department, company, reviewedBy, rejectedReason, rejectedBy *string
 
 	err := r.pool.QueryRow(ctx, query, args...).Scan(
 		&p.ID, &p.TenantID, &p.CanonicalName, &p.PrimaryEmail,
 		&title, &department, &company, &p.IsInternal, &p.AccountType,
 		&p.Confidence, &p.NeedsReview, &p.AutoCreated,
-		&p.ReviewedAt, &reviewedBy, &p.PotentialDuplicates,
+		&p.ReviewedAt, &reviewedBy,
+		&p.RejectedAt, &rejectedReason, &rejectedBy,
+		&p.PotentialDuplicates,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
 
@@ -779,6 +793,12 @@ func (r *Repository) scanPerson(ctx context.Context, query string, args ...inter
 	if reviewedBy != nil {
 		p.ReviewedBy = *reviewedBy
 	}
+	if rejectedReason != nil {
+		p.RejectedReason = *rejectedReason
+	}
+	if rejectedBy != nil {
+		p.RejectedBy = *rejectedBy
+	}
 
 	return p, nil
 }
@@ -787,13 +807,15 @@ func (r *Repository) scanPeople(rows pgx.Rows) ([]*Person, error) {
 	var people []*Person
 	for rows.Next() {
 		p := &Person{}
-		var title, department, company, reviewedBy *string
+		var title, department, company, reviewedBy, rejectedReason, rejectedBy *string
 
 		if err := rows.Scan(
 			&p.ID, &p.TenantID, &p.CanonicalName, &p.PrimaryEmail,
 			&title, &department, &company, &p.IsInternal, &p.AccountType,
 			&p.Confidence, &p.NeedsReview, &p.AutoCreated,
-			&p.ReviewedAt, &reviewedBy, &p.PotentialDuplicates,
+			&p.ReviewedAt, &reviewedBy,
+			&p.RejectedAt, &rejectedReason, &rejectedBy,
+			&p.PotentialDuplicates,
 			&p.CreatedAt, &p.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan person: %w", err)
@@ -811,6 +833,12 @@ func (r *Repository) scanPeople(rows pgx.Rows) ([]*Person, error) {
 		if reviewedBy != nil {
 			p.ReviewedBy = *reviewedBy
 		}
+		if rejectedReason != nil {
+			p.RejectedReason = *rejectedReason
+		}
+		if rejectedBy != nil {
+			p.RejectedBy = *rejectedBy
+		}
 
 		people = append(people, p)
 	}
@@ -823,6 +851,414 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ==================== Entity Lifecycle Operations ====================
+
+// RejectPerson soft-deletes a person by setting rejected_at.
+func (r *Repository) RejectPerson(ctx context.Context, tenantID string, personID int64, reason, rejectedBy string) error {
+	query := `
+		UPDATE people SET
+			rejected_at = NOW(),
+			rejected_reason = $3,
+			rejected_by = $4,
+			updated_at = NOW()
+		WHERE tenant_id = $1 AND id = $2 AND rejected_at IS NULL
+	`
+
+	result, err := r.pool.Exec(ctx, query, tenantID, personID, reason, rejectedBy)
+	if err != nil {
+		return fmt.Errorf("failed to reject person: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("person not found or already rejected: %d", personID)
+	}
+
+	r.logger.Info("Person rejected",
+		logging.F("person_id", personID),
+		logging.F("reason", reason),
+		logging.F("rejected_by", rejectedBy))
+
+	return nil
+}
+
+// RestorePerson removes the rejection from a person.
+func (r *Repository) RestorePerson(ctx context.Context, tenantID string, personID int64) error {
+	query := `
+		UPDATE people SET
+			rejected_at = NULL,
+			rejected_reason = NULL,
+			rejected_by = NULL,
+			updated_at = NOW()
+		WHERE tenant_id = $1 AND id = $2 AND rejected_at IS NOT NULL
+	`
+
+	result, err := r.pool.Exec(ctx, query, tenantID, personID)
+	if err != nil {
+		return fmt.Errorf("failed to restore person: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("person not found or not rejected: %d", personID)
+	}
+
+	r.logger.Info("Person restored",
+		logging.F("person_id", personID))
+
+	return nil
+}
+
+// BulkRejectByPattern rejects multiple people matching email or name patterns.
+func (r *Repository) BulkRejectByPattern(ctx context.Context, tenantID, emailPattern, namePattern, reason, rejectedBy string) (int, error) {
+	if emailPattern == "" && namePattern == "" {
+		return 0, fmt.Errorf("at least one pattern (email or name) is required")
+	}
+
+	query := `
+		UPDATE people SET
+			rejected_at = NOW(),
+			rejected_reason = $3,
+			rejected_by = $4,
+			updated_at = NOW()
+		WHERE tenant_id = $1
+			AND rejected_at IS NULL
+			AND (
+				($5 != '' AND primary_email LIKE $5) OR
+				($6 != '' AND canonical_name LIKE $6)
+			)
+	`
+
+	result, err := r.pool.Exec(ctx, query, tenantID, reason, reason, rejectedBy, emailPattern, namePattern)
+	if err != nil {
+		return 0, fmt.Errorf("failed to bulk reject: %w", err)
+	}
+
+	count := int(result.RowsAffected())
+	r.logger.Info("Bulk rejected people",
+		logging.F("count", count),
+		logging.F("email_pattern", emailPattern),
+		logging.F("name_pattern", namePattern),
+		logging.F("reason", reason))
+
+	return count, nil
+}
+
+// CreateFilterRule creates a new entity filter rule.
+func (r *Repository) CreateFilterRule(ctx context.Context, rule *EntityFilterRule) error {
+	query := `
+		INSERT INTO entity_filter_rules (
+			tenant_id, email_pattern, name_pattern, entity_type, reason, created_by, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		RETURNING id, created_at
+	`
+
+	err := r.pool.QueryRow(ctx, query,
+		rule.TenantID,
+		nullIfEmpty(rule.EmailPattern),
+		nullIfEmpty(rule.NamePattern),
+		nullIfEmpty(rule.EntityType),
+		rule.Reason,
+		nullIfEmpty(rule.CreatedBy),
+	).Scan(&rule.ID, &rule.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create filter rule: %w", err)
+	}
+
+	r.logger.Info("Filter rule created",
+		logging.F("rule_id", rule.ID),
+		logging.F("email_pattern", rule.EmailPattern),
+		logging.F("name_pattern", rule.NamePattern))
+
+	return nil
+}
+
+// ListFilterRules retrieves all filter rules for a tenant.
+func (r *Repository) ListFilterRules(ctx context.Context, tenantID string) ([]*EntityFilterRule, error) {
+	query := `
+		SELECT id, tenant_id, email_pattern, name_pattern, entity_type, reason, created_at, created_by
+		FROM entity_filter_rules
+		WHERE tenant_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1000
+	`
+
+	rows, err := r.pool.Query(ctx, query, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list filter rules: %w", err)
+	}
+	defer rows.Close()
+
+	var rules []*EntityFilterRule
+	for rows.Next() {
+		rule := &EntityFilterRule{}
+		var emailPattern, namePattern, entityType, createdBy *string
+
+		if err := rows.Scan(
+			&rule.ID, &rule.TenantID, &emailPattern, &namePattern, &entityType,
+			&rule.Reason, &rule.CreatedAt, &createdBy,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan filter rule: %w", err)
+		}
+
+		if emailPattern != nil {
+			rule.EmailPattern = *emailPattern
+		}
+		if namePattern != nil {
+			rule.NamePattern = *namePattern
+		}
+		if entityType != nil {
+			rule.EntityType = *entityType
+		}
+		if createdBy != nil {
+			rule.CreatedBy = *createdBy
+		}
+
+		rules = append(rules, rule)
+	}
+
+	return rules, rows.Err()
+}
+
+// DeleteFilterRule deletes a filter rule.
+func (r *Repository) DeleteFilterRule(ctx context.Context, tenantID string, ruleID int64) error {
+	query := `DELETE FROM entity_filter_rules WHERE tenant_id = $1 AND id = $2`
+
+	result, err := r.pool.Exec(ctx, query, tenantID, ruleID)
+	if err != nil {
+		return fmt.Errorf("failed to delete filter rule: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("filter rule not found: %d", ruleID)
+	}
+
+	r.logger.Info("Filter rule deleted", logging.F("rule_id", ruleID))
+
+	return nil
+}
+
+// TestFilterRule checks if an email/name would match any filter rules.
+func (r *Repository) TestFilterRule(ctx context.Context, tenantID, email, name string) ([]*EntityFilterRule, error) {
+	query := `
+		SELECT id, tenant_id, email_pattern, name_pattern, entity_type, reason, created_at, created_by
+		FROM entity_filter_rules
+		WHERE tenant_id = $1
+			AND (
+				(email_pattern IS NOT NULL AND $2 LIKE email_pattern) OR
+				(name_pattern IS NOT NULL AND $3 LIKE name_pattern)
+			)
+	`
+
+	rows, err := r.pool.Query(ctx, query, tenantID, email, name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to test filter rules: %w", err)
+	}
+	defer rows.Close()
+
+	var matchingRules []*EntityFilterRule
+	for rows.Next() {
+		rule := &EntityFilterRule{}
+		var emailPattern, namePattern, entityType, createdBy *string
+
+		if err := rows.Scan(
+			&rule.ID, &rule.TenantID, &emailPattern, &namePattern, &entityType,
+			&rule.Reason, &rule.CreatedAt, &createdBy,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan filter rule: %w", err)
+		}
+
+		if emailPattern != nil {
+			rule.EmailPattern = *emailPattern
+		}
+		if namePattern != nil {
+			rule.NamePattern = *namePattern
+		}
+		if entityType != nil {
+			rule.EntityType = *entityType
+		}
+		if createdBy != nil {
+			rule.CreatedBy = *createdBy
+		}
+
+		matchingRules = append(matchingRules, rule)
+	}
+
+	return matchingRules, rows.Err()
+}
+
+// MatchesFilterRule returns true if the email/name matches any active filter rule.
+// This is used during entity resolution to prevent creation of filtered entities.
+func (r *Repository) MatchesFilterRule(ctx context.Context, tenantID, email, name string) (bool, error) {
+	query := `
+		SELECT EXISTS (
+			SELECT 1 FROM entity_filter_rules
+			WHERE tenant_id = $1
+				AND (
+					(email_pattern IS NOT NULL AND $2 LIKE email_pattern) OR
+					(name_pattern IS NOT NULL AND $3 LIKE name_pattern)
+				)
+		)
+	`
+
+	var matches bool
+	err := r.pool.QueryRow(ctx, query, tenantID, email, name).Scan(&matches)
+	if err != nil {
+		return false, fmt.Errorf("failed to check filter rules: %w", err)
+	}
+
+	return matches, nil
+}
+
+// GetEntityStats returns statistics about entities in the system.
+func (r *Repository) GetEntityStats(ctx context.Context, tenantID string) (*EntityStats, error) {
+	stats := &EntityStats{
+		ByAccountType: make(map[AccountType]int64),
+		ByConfidence:  make(map[string]int64),
+	}
+
+	// Total counts
+	query := `
+		SELECT
+			COUNT(*) as total,
+			COUNT(*) FILTER (WHERE rejected_at IS NOT NULL) as rejected,
+			COUNT(*) FILTER (WHERE needs_review = TRUE) as needs_review,
+			COUNT(*) FILTER (WHERE auto_created = TRUE) as auto_created,
+			COUNT(*) FILTER (WHERE is_internal = TRUE) as internal,
+			COUNT(*) FILTER (WHERE is_internal = FALSE) as external
+		FROM people
+		WHERE tenant_id = $1
+	`
+
+	err := r.pool.QueryRow(ctx, query, tenantID).Scan(
+		&stats.TotalPeople,
+		&stats.TotalRejected,
+		&stats.NeedingReview,
+		&stats.AutoCreated,
+		&stats.Internal,
+		&stats.External,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entity stats: %w", err)
+	}
+
+	// By account type
+	typeQuery := `
+		SELECT account_type, COUNT(*)
+		FROM people
+		WHERE tenant_id = $1 AND rejected_at IS NULL
+		GROUP BY account_type
+	`
+
+	rows, err := r.pool.Query(ctx, typeQuery, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account type stats: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var accountType AccountType
+		var count int64
+		if err := rows.Scan(&accountType, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan account type: %w", err)
+		}
+		stats.ByAccountType[accountType] = count
+	}
+
+	// By confidence
+	confQuery := `
+		SELECT
+			COUNT(*) FILTER (WHERE confidence_score >= 0.8) as high,
+			COUNT(*) FILTER (WHERE confidence_score >= 0.5 AND confidence_score < 0.8) as medium,
+			COUNT(*) FILTER (WHERE confidence_score < 0.5) as low
+		FROM people
+		WHERE tenant_id = $1 AND rejected_at IS NULL
+	`
+
+	var high, medium, low int64
+	err = r.pool.QueryRow(ctx, confQuery, tenantID).Scan(&high, &medium, &low)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get confidence stats: %w", err)
+	}
+
+	stats.ByConfidence["high"] = high
+	stats.ByConfidence["medium"] = medium
+	stats.ByConfidence["low"] = low
+
+	return stats, nil
+}
+
+// SearchEntities searches for entities by name or email substring.
+// Field can be "name", "email", or empty for both.
+func (r *Repository) SearchEntities(ctx context.Context, tenantID, query, field string, limit int) ([]*Person, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
+	var sqlQuery string
+	var args []interface{}
+
+	switch field {
+	case "email":
+		sqlQuery = `
+			SELECT
+				id, tenant_id, canonical_name, primary_email,
+				job_title as title, department, company, is_internal, account_type,
+				confidence_score as confidence, needs_review, auto_created,
+				reviewed_at, reviewed_by,
+				rejected_at, rejected_reason, rejected_by,
+				potential_duplicates,
+				created_at, updated_at
+			FROM people
+			WHERE tenant_id = $1 AND primary_email ILIKE '%' || $2 || '%'
+			ORDER BY created_at DESC
+			LIMIT $3
+		`
+		args = []interface{}{tenantID, query, limit}
+	case "name":
+		sqlQuery = `
+			SELECT
+				id, tenant_id, canonical_name, primary_email,
+				job_title as title, department, company, is_internal, account_type,
+				confidence_score as confidence, needs_review, auto_created,
+				reviewed_at, reviewed_by,
+				rejected_at, rejected_reason, rejected_by,
+				potential_duplicates,
+				created_at, updated_at
+			FROM people
+			WHERE tenant_id = $1 AND canonical_name ILIKE '%' || $2 || '%'
+			ORDER BY created_at DESC
+			LIMIT $3
+		`
+		args = []interface{}{tenantID, query, limit}
+	default:
+		// Search both fields
+		sqlQuery = `
+			SELECT
+				id, tenant_id, canonical_name, primary_email,
+				job_title as title, department, company, is_internal, account_type,
+				confidence_score as confidence, needs_review, auto_created,
+				reviewed_at, reviewed_by,
+				rejected_at, rejected_reason, rejected_by,
+				potential_duplicates,
+				created_at, updated_at
+			FROM people
+			WHERE tenant_id = $1
+				AND (canonical_name ILIKE '%' || $2 || '%' OR primary_email ILIKE '%' || $2 || '%')
+			ORDER BY created_at DESC
+			LIMIT $3
+		`
+		args = []interface{}{tenantID, query, limit}
+	}
+
+	rows, err := r.pool.Query(ctx, sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search entities: %w", err)
+	}
+	defer rows.Close()
+
+	return r.scanPeople(rows)
 }
 
 // ==================== Context Formatting Functions ====================

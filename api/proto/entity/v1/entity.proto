@@ -26,6 +26,37 @@ service EntityService {
   rpc BulkCreateProjects(BulkCreateProjectsRequest) returns (BulkCreateProjectsResponse);
 }
 
+// EntityManagementService provides gRPC endpoints for entity lifecycle management.
+// This service handles entity rejection, restoration, filtering, statistics, and search.
+service EntityManagementService {
+  // RejectEntity soft-deletes an entity.
+  rpc RejectEntity(RejectEntityRequest) returns (RejectEntityResponse);
+
+  // RestoreEntity removes the rejection from an entity.
+  rpc RestoreEntity(RestoreEntityRequest) returns (RestoreEntityResponse);
+
+  // BulkRejectEntities rejects multiple entities matching a pattern.
+  rpc BulkRejectEntities(BulkRejectEntitiesRequest) returns (BulkRejectEntitiesResponse);
+
+  // CreateFilterRule creates a new entity filter rule.
+  rpc CreateFilterRule(CreateFilterRuleRequest) returns (CreateFilterRuleResponse);
+
+  // ListFilterRules lists all filter rules for a tenant.
+  rpc ListFilterRules(ListFilterRulesRequest) returns (ListFilterRulesResponse);
+
+  // DeleteFilterRule deletes a filter rule.
+  rpc DeleteFilterRule(DeleteFilterRuleRequest) returns (DeleteFilterRuleResponse);
+
+  // TestFilterRule tests if an email/name would match any filter rules.
+  rpc TestFilterRule(TestFilterRuleRequest) returns (TestFilterRuleResponse);
+
+  // GetEntityStats returns statistics about entities in the system.
+  rpc GetEntityStats(GetEntityStatsRequest) returns (GetEntityStatsResponse);
+
+  // SearchEntities searches for entities by name or email.
+  rpc SearchEntities(SearchEntitiesRequest) returns (SearchEntitiesResponse);
+}
+
 // =============================================================================
 // People Messages
 // =============================================================================
@@ -298,4 +329,227 @@ message EntityError {
 
   // Index in the input array
   int32 index = 3;
+}
+
+// =============================================================================
+// Entity Lifecycle Management Messages
+// =============================================================================
+
+// RejectEntityRequest soft-deletes an entity.
+message RejectEntityRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Entity ID to reject
+  int64 entity_id = 2;
+
+  // Reason for rejection
+  string reason = 3;
+
+  // User or service performing the rejection
+  string rejected_by = 4;
+}
+
+// RejectEntityResponse confirms entity rejection.
+message RejectEntityResponse {
+  // The rejected entity ID
+  int64 entity_id = 1;
+
+  // When the entity was rejected
+  google.protobuf.Timestamp rejected_at = 2;
+}
+
+// RestoreEntityRequest removes rejection from an entity.
+message RestoreEntityRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Entity ID to restore
+  int64 entity_id = 2;
+}
+
+// RestoreEntityResponse confirms entity restoration.
+message RestoreEntityResponse {
+  // The restored entity ID
+  int64 entity_id = 1;
+}
+
+// BulkRejectEntitiesRequest rejects entities matching patterns.
+message BulkRejectEntitiesRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Email pattern (SQL LIKE format, e.g., "%@aha.io")
+  string email_pattern = 2;
+
+  // Name pattern (SQL LIKE format, e.g., "Bot%")
+  string name_pattern = 3;
+
+  // Reason for bulk rejection
+  string reason = 4;
+
+  // User or service performing the rejection
+  string rejected_by = 5;
+}
+
+// BulkRejectEntitiesResponse returns count of rejected entities.
+message BulkRejectEntitiesResponse {
+  // Number of entities rejected
+  int32 count = 1;
+}
+
+// FilterRule represents a pattern-based entity filter.
+message FilterRule {
+  // Rule ID
+  int64 id = 1;
+
+  // Tenant ID
+  string tenant_id = 2;
+
+  // Email pattern (SQL LIKE format)
+  string email_pattern = 3;
+
+  // Name pattern (SQL LIKE format)
+  string name_pattern = 4;
+
+  // Entity type filter
+  string entity_type = 5;
+
+  // Reason for the rule
+  string reason = 6;
+
+  // When created
+  google.protobuf.Timestamp created_at = 7;
+
+  // Who created it
+  string created_by = 8;
+}
+
+// CreateFilterRuleRequest creates a new filter rule.
+message CreateFilterRuleRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Email pattern (SQL LIKE format, e.g., "%@aha.io")
+  string email_pattern = 2;
+
+  // Name pattern (SQL LIKE format, e.g., "Bot%")
+  string name_pattern = 3;
+
+  // Entity type filter (optional)
+  string entity_type = 4;
+
+  // Reason for the rule
+  string reason = 5;
+
+  // User or service creating the rule
+  string created_by = 6;
+}
+
+// CreateFilterRuleResponse returns the created rule.
+message CreateFilterRuleResponse {
+  // The created filter rule
+  FilterRule rule = 1;
+}
+
+// ListFilterRulesRequest lists filter rules.
+message ListFilterRulesRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+}
+
+// ListFilterRulesResponse returns all filter rules.
+message ListFilterRulesResponse {
+  // Filter rules
+  repeated FilterRule rules = 1;
+}
+
+// DeleteFilterRuleRequest deletes a filter rule.
+message DeleteFilterRuleRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Rule ID to delete
+  int64 rule_id = 2;
+}
+
+// DeleteFilterRuleResponse confirms deletion.
+message DeleteFilterRuleResponse {
+  // The deleted rule ID
+  int64 rule_id = 1;
+}
+
+// TestFilterRuleRequest tests if an email/name matches any rules.
+message TestFilterRuleRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Email to test
+  string email = 2;
+
+  // Name to test
+  string name = 3;
+}
+
+// TestFilterRuleResponse returns matching rules.
+message TestFilterRuleResponse {
+  // Matching filter rules
+  repeated FilterRule matching_rules = 1;
+
+  // Whether the email/name would be blocked
+  bool would_be_blocked = 2;
+}
+
+// GetEntityStatsRequest requests entity statistics.
+message GetEntityStatsRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+}
+
+// GetEntityStatsResponse returns entity statistics.
+message GetEntityStatsResponse {
+  // Total number of people
+  int64 total_people = 1;
+
+  // Total rejected (soft-deleted)
+  int64 total_rejected = 2;
+
+  // Count by account type
+  map<string, int64> by_account_type = 3;
+
+  // Count by confidence (high/medium/low)
+  map<string, int64> by_confidence = 4;
+
+  // Entities needing review
+  int64 needing_review = 5;
+
+  // Auto-created entities
+  int64 auto_created = 6;
+
+  // Internal entities
+  int64 internal = 7;
+
+  // External entities
+  int64 external = 8;
+}
+
+// SearchEntitiesRequest searches for entities.
+message SearchEntitiesRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Search query (substring match)
+  string query = 2;
+
+  // Field to search: "name", "email", or empty for both
+  string field = 3;
+
+  // Maximum number of results
+  int32 limit = 4;
+}
+
+// SearchEntitiesResponse returns matching entities.
+message SearchEntitiesResponse {
+  // Matching people
+  repeated Person people = 1;
 }

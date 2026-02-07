@@ -45,6 +45,11 @@ type Person struct {
 	ReviewedAt  *time.Time `json:"reviewed_at,omitempty"`
 	ReviewedBy  string     `json:"reviewed_by,omitempty"`
 
+	// Rejection status (soft delete)
+	RejectedAt     *time.Time `json:"rejected_at,omitempty"`
+	RejectedReason string     `json:"rejected_reason,omitempty"`
+	RejectedBy     string     `json:"rejected_by,omitempty"`
+
 	// Duplicate tracking
 	PotentialDuplicates []int64 `json:"potential_duplicates,omitempty"`
 
@@ -162,4 +167,33 @@ func (p *Person) HasEmail(email string) bool {
 		}
 	}
 	return false
+}
+
+// IsRejected returns true if this entity has been soft-deleted.
+func (p *Person) IsRejected() bool {
+	return p.RejectedAt != nil
+}
+
+// EntityFilterRule represents a pattern-based rule for rejecting entity creation.
+type EntityFilterRule struct {
+	ID           int64     `json:"id,omitempty"`
+	TenantID     string    `json:"tenant_id"`
+	EmailPattern string    `json:"email_pattern,omitempty"`
+	NamePattern  string    `json:"name_pattern,omitempty"`
+	EntityType   string    `json:"entity_type,omitempty"`
+	Reason       string    `json:"reason"`
+	CreatedAt    time.Time `json:"created_at"`
+	CreatedBy    string    `json:"created_by,omitempty"`
+}
+
+// EntityStats provides statistics about entities in the system.
+type EntityStats struct {
+	TotalPeople     int64                     `json:"total_people"`
+	TotalRejected   int64                     `json:"total_rejected"`
+	ByAccountType   map[AccountType]int64     `json:"by_account_type"`
+	ByConfidence    map[string]int64          `json:"by_confidence"` // high (0.8+), medium (0.5-0.8), low (<0.5)
+	NeedingReview   int64                     `json:"needing_review"`
+	AutoCreated     int64                     `json:"auto_created"`
+	Internal        int64                     `json:"internal"`
+	External        int64                     `json:"external"`
 }

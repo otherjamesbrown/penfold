@@ -74,6 +74,9 @@ service PipelineService {
 
   // UpdateTimeoutConfig updates a timeout configuration value.
   rpc UpdateTimeoutConfig(UpdateTimeoutConfigRequest) returns (UpdateTimeoutConfigResponse);
+
+  // GetPipelineErrors retrieves pipeline errors with filtering.
+  rpc GetPipelineErrors(GetPipelineErrorsRequest) returns (GetPipelineErrorsResponse);
 }
 
 // =============================================================================
@@ -97,6 +100,18 @@ enum FailureCategory {
   FAILURE_CATEGORY_MALFORMED_STRUCTURE = 3;
   FAILURE_CATEGORY_PROCESSING_ERROR = 4;
   FAILURE_CATEGORY_UNSUPPORTED_FORMAT = 5;
+  FAILURE_CATEGORY_TIMEOUT = 6;
+  FAILURE_CATEGORY_TIMEOUT_HEARTBEAT = 7;
+  FAILURE_CATEGORY_RATE_LIMIT = 8;
+  FAILURE_CATEGORY_RATE_LIMIT_EMBEDDING = 9;
+  FAILURE_CATEGORY_MODEL_UNAVAILABLE = 10;
+  FAILURE_CATEGORY_CONTEXT_CANCELLED = 11;
+  FAILURE_CATEGORY_PARSE_ERROR = 12;
+  FAILURE_CATEGORY_CONTENT_TOO_LARGE = 13;
+  FAILURE_CATEGORY_STAGE_DEPENDENCY_FAILED = 14;
+  FAILURE_CATEGORY_DUPLICATE_CONTENT = 15;
+  FAILURE_CATEGORY_ENTITY_RESOLUTION_FAILED = 16;
+  FAILURE_CATEGORY_EMBEDDING_DIMENSION_MISMATCH = 17;
 }
 
 // JobSummary represents summary information about an ingest job.
@@ -755,4 +770,65 @@ message UpdateTimeoutConfigResponse {
 
   // Success message.
   string message = 3;
+}
+
+// =============================================================================
+// Pipeline Errors Messages
+// =============================================================================
+
+// GetPipelineErrorsRequest retrieves pipeline errors with filtering.
+message GetPipelineErrorsRequest {
+  // Filter by time range: errors occurring since this timestamp.
+  google.protobuf.Timestamp since = 1;
+
+  // Filter by time range: errors occurring until this timestamp.
+  google.protobuf.Timestamp until = 2;
+
+  // Filter by specific error code (e.g., "timeout", "rate_limit").
+  string error_code = 3;
+
+  // Filter by source ID.
+  string source_id = 4;
+
+  // Maximum number of results (default: 100).
+  int32 limit = 5;
+
+  // Pagination offset.
+  int32 offset = 6;
+}
+
+// GetPipelineErrorsResponse contains filtered pipeline errors.
+message GetPipelineErrorsResponse {
+  // The error events matching the filter.
+  repeated PipelineErrorEvent errors = 1;
+
+  // Total count of matching errors (before pagination).
+  int64 total_count = 2;
+}
+
+// PipelineErrorEvent represents a single pipeline error occurrence.
+message PipelineErrorEvent {
+  // Error code.
+  string code = 1;
+
+  // Pipeline stage where error occurred.
+  string stage = 2;
+
+  // Error message.
+  string message = 3;
+
+  // Whether this error is retryable.
+  bool retryable = 4;
+
+  // Suggested action to resolve the error.
+  string suggested_action = 5;
+
+  // When the error occurred.
+  google.protobuf.Timestamp occurred_at = 6;
+
+  // Source ID (if applicable).
+  string source_id = 7;
+
+  // Additional error details.
+  map<string, string> details = 8;
 }

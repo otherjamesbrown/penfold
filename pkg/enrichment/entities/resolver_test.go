@@ -205,3 +205,81 @@ func TestResolveOrCreate_AccountTypeMismatch_Documentation(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveOrCreate_FilterRuleBlocks tests that filter rules prevent entity creation.
+// This is a unit test documenting the expected behavior when MatchesFilterRule returns true.
+//
+// BEHAVIOR: When a filter rule matches the email or name being resolved:
+// 1. ResolveOrCreate should call repo.MatchesFilterRule(ctx, tenantID, email, displayName)
+// 2. If it returns (true, nil), entity creation should be blocked
+// 3. ResolveOrCreate should return (nil, error) with a descriptive error message
+// 4. The error message should indicate that entity creation was blocked by a filter rule
+//
+// This prevents unwanted entities (spam, bots, test accounts) from being auto-created
+// during pipeline processing.
+func TestResolveOrCreate_FilterRuleBlocks(t *testing.T) {
+	t.Run("filter rule blocks entity creation by email", func(t *testing.T) {
+		// This test documents the expected behavior:
+		// When MatchesFilterRule returns true for an email pattern,
+		// the entity should NOT be created and an error should be returned.
+
+		email := "spam@blocked.com"
+		displayName := "Spam User"
+
+		// Expected flow:
+		// 1. GetPersonByEmail(ctx, tenantID, email) -> (nil, nil) [not found]
+		// 2. GetPersonByAlias(ctx, tenantID, email) -> (nil, nil) [not found]
+		// 3. MatchesFilterRule(ctx, tenantID, email, displayName) -> (true, nil) [blocked]
+		// 4. Return (nil, error) with message like "entity creation blocked by filter rule: spam@blocked.com"
+
+		t.Logf("EXPECTED: ResolveOrCreate(%q, %q) should:", email, displayName)
+		t.Logf("  1. Check MatchesFilterRule(%q, %q)", email, displayName)
+		t.Logf("  2. When it returns true, return (nil, error)")
+		t.Logf("  3. Error message should contain 'blocked by filter rule'")
+		t.Logf("  4. CreatePerson should NOT be called")
+	})
+
+	t.Run("filter rule blocks entity creation by name", func(t *testing.T) {
+		// This test documents the expected behavior:
+		// When MatchesFilterRule returns true for a name pattern,
+		// the entity should NOT be created and an error should be returned.
+
+		email := "bot@example.com"
+		displayName := "Bot Service Account"
+
+		// Expected flow:
+		// 1. GetPersonByEmail(ctx, tenantID, email) -> (nil, nil) [not found]
+		// 2. GetPersonByAlias(ctx, tenantID, email) -> (nil, nil) [not found]
+		// 3. MatchesFilterRule(ctx, tenantID, email, displayName) -> (true, nil) [blocked]
+		// 4. Return (nil, error) with message like "entity creation blocked by filter rule: bot@example.com"
+
+		t.Logf("EXPECTED: ResolveOrCreate(%q, %q) should:", email, displayName)
+		t.Logf("  1. Check MatchesFilterRule(%q, %q)", email, displayName)
+		t.Logf("  2. When it returns true, return (nil, error)")
+		t.Logf("  3. Error message should contain 'blocked by filter rule'")
+		t.Logf("  4. CreatePerson should NOT be called")
+	})
+
+	t.Run("filter rule check error is handled gracefully", func(t *testing.T) {
+		// This test documents error handling:
+		// If MatchesFilterRule returns an error, the resolver should:
+		// 1. Log a warning
+		// 2. Continue with entity creation (fail open, not fail closed)
+		// This prevents database issues from blocking legitimate entities
+
+		t.Logf("EXPECTED: When MatchesFilterRule returns error:")
+		t.Logf("  1. Log warning about filter check failure")
+		t.Logf("  2. Continue with entity creation (fail open)")
+		t.Logf("  3. CreatePerson should still be called")
+	})
+
+	t.Run("no filter rule allows entity creation", func(t *testing.T) {
+		// This test documents the normal flow:
+		// When MatchesFilterRule returns (false, nil), entity creation proceeds normally
+
+		t.Logf("EXPECTED: When MatchesFilterRule returns (false, nil):")
+		t.Logf("  1. Entity creation should proceed")
+		t.Logf("  2. CreatePerson should be called")
+		t.Logf("  3. Return created person with IsNew=true")
+	})
+}

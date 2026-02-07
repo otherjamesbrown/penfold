@@ -37,10 +37,12 @@ import (
 	searchv1 "github.com/otherjamesbrown/penfold/api/proto/search/v1"
 	teamsv1 "github.com/otherjamesbrown/penfold/api/proto/teams/v1"
 	tenantv1 "github.com/otherjamesbrown/penfold/api/proto/tenant/v1"
+	assertionsv1 "github.com/otherjamesbrown/penfold/api/proto/assertions/v1"
 	watchlistv1 "github.com/otherjamesbrown/penfold/api/proto/watchlist/v1"
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
+	"github.com/otherjamesbrown/penfold/pkg/assertions"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
@@ -65,6 +67,8 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/auditservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/contentservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/entitymanagementservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/assertionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/internal/langfuse"
 	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
@@ -333,6 +337,11 @@ func main() {
 	entityv1.RegisterEntityServiceServer(grpcServer, entitySvc)
 	logger.Info("Registered EntityService")
 
+	// Register EntityManagementService for entity lifecycle management (reject, restore, filter, stats, search).
+	entityMgmtSvc := entitymanagementservice.NewService(entityRepo, logger)
+	entityv1.RegisterEntityManagementServiceServer(grpcServer, entityMgmtSvc)
+	logger.Info("Registered EntityManagementService")
+
 	// Register PipelineService for pipeline stats and job tracking.
 	// Note: Will be initialized with Temporal client after it becomes available
 	pipelineRepo := pipeline.NewRepository(dbPool)
@@ -378,6 +387,12 @@ func main() {
 	watchlistSvc := watchlistservice.NewService(watchlistRepo, logger)
 	watchlistv1.RegisterWatchListServiceServer(grpcServer, watchlistSvc)
 	logger.Info("Registered WatchListService")
+
+	// Register AssertionsService for cross-content assertion queries.
+	assertionsRepo := assertions.NewRepository(dbPool, logger)
+	assertionsSvc := assertionsservice.NewService(assertionsRepo, logger)
+	assertionsv1.RegisterAssertionsServiceServer(grpcServer, assertionsSvc)
+	logger.Info("Registered AssertionsService")
 
 	// Register IngestService for email and meeting ingestion.
 	// Uses tenantRepo (created above) for tenant slug-to-UUID resolution.

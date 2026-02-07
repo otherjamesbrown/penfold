@@ -379,10 +379,16 @@ func outputContentItemText(item *contentv1.ContentItem, status *contentv1.Proces
 
 	// Show failure info for rejected/failed items
 	if item.FailureCategory != nil && *item.FailureCategory != "" {
-		fmt.Printf("  \033[1mFailure:\033[0m      %s\n", *item.FailureCategory)
+		fmt.Printf("  \033[1m\033[31mError Code:\033[0m   %s\n", *item.FailureCategory)
 	}
 	if item.FailureReason != nil && *item.FailureReason != "" {
-		fmt.Printf("  \033[1mReason:\033[0m       %s\n", *item.FailureReason)
+		fmt.Printf("  \033[1mMessage:\033[0m      %s\n", *item.FailureReason)
+	}
+	// Show suggested action for known error codes
+	if item.FailureCategory != nil && *item.FailureCategory != "" {
+		// Import the errors package to get suggested actions
+		// For now, we'll add a generic hint
+		fmt.Printf("  \033[1mHint:\033[0m         Use 'penf pipeline errors --code %s' to see similar errors\n", *item.FailureCategory)
 	}
 	fmt.Println()
 

@@ -223,7 +223,7 @@ func TestIsTimeout(t *testing.T) {
 	}
 }
 
-func TestIsRetryable(t *testing.T) {
+func TestIsErrorRetryable(t *testing.T) {
 	tests := []struct {
 		name     string
 		err      error
@@ -273,7 +273,7 @@ func TestIsRetryable(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := IsRetryable(tt.err)
+			result := IsErrorRetryable(tt.err)
 			if result != tt.expected {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}

@@ -42,6 +42,7 @@ const (
 	PipelineService_ReprocessDryRun_FullMethodName     = "/penfold.pipeline.v1.PipelineService/ReprocessDryRun"
 	PipelineService_GetTimeoutConfig_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetTimeoutConfig"
 	PipelineService_UpdateTimeoutConfig_FullMethodName = "/penfold.pipeline.v1.PipelineService/UpdateTimeoutConfig"
+	PipelineService_GetPipelineErrors_FullMethodName   = "/penfold.pipeline.v1.PipelineService/GetPipelineErrors"
 )
 
 // PipelineServiceClient is the client API for PipelineService service.
@@ -90,6 +91,8 @@ type PipelineServiceClient interface {
 	GetTimeoutConfig(ctx context.Context, in *GetTimeoutConfigRequest, opts ...grpc.CallOption) (*GetTimeoutConfigResponse, error)
 	// UpdateTimeoutConfig updates a timeout configuration value.
 	UpdateTimeoutConfig(ctx context.Context, in *UpdateTimeoutConfigRequest, opts ...grpc.CallOption) (*UpdateTimeoutConfigResponse, error)
+	// GetPipelineErrors retrieves pipeline errors with filtering.
+	GetPipelineErrors(ctx context.Context, in *GetPipelineErrorsRequest, opts ...grpc.CallOption) (*GetPipelineErrorsResponse, error)
 }
 
 type pipelineServiceClient struct {
@@ -300,6 +303,16 @@ func (c *pipelineServiceClient) UpdateTimeoutConfig(ctx context.Context, in *Upd
 	return out, nil
 }
 
+func (c *pipelineServiceClient) GetPipelineErrors(ctx context.Context, in *GetPipelineErrorsRequest, opts ...grpc.CallOption) (*GetPipelineErrorsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPipelineErrorsResponse)
+	err := c.cc.Invoke(ctx, PipelineService_GetPipelineErrors_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PipelineServiceServer is the server API for PipelineService service.
 // All implementations must embed UnimplementedPipelineServiceServer
 // for forward compatibility.
@@ -346,6 +359,8 @@ type PipelineServiceServer interface {
 	GetTimeoutConfig(context.Context, *GetTimeoutConfigRequest) (*GetTimeoutConfigResponse, error)
 	// UpdateTimeoutConfig updates a timeout configuration value.
 	UpdateTimeoutConfig(context.Context, *UpdateTimeoutConfigRequest) (*UpdateTimeoutConfigResponse, error)
+	// GetPipelineErrors retrieves pipeline errors with filtering.
+	GetPipelineErrors(context.Context, *GetPipelineErrorsRequest) (*GetPipelineErrorsResponse, error)
 	mustEmbedUnimplementedPipelineServiceServer()
 }
 
@@ -415,6 +430,9 @@ func (UnimplementedPipelineServiceServer) GetTimeoutConfig(context.Context, *Get
 }
 func (UnimplementedPipelineServiceServer) UpdateTimeoutConfig(context.Context, *UpdateTimeoutConfigRequest) (*UpdateTimeoutConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateTimeoutConfig not implemented")
+}
+func (UnimplementedPipelineServiceServer) GetPipelineErrors(context.Context, *GetPipelineErrorsRequest) (*GetPipelineErrorsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPipelineErrors not implemented")
 }
 func (UnimplementedPipelineServiceServer) mustEmbedUnimplementedPipelineServiceServer() {}
 func (UnimplementedPipelineServiceServer) testEmbeddedByValue()                         {}
@@ -797,6 +815,24 @@ func _PipelineService_UpdateTimeoutConfig_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_GetPipelineErrors_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPipelineErrorsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).GetPipelineErrors(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_GetPipelineErrors_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).GetPipelineErrors(ctx, req.(*GetPipelineErrorsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PipelineService_ServiceDesc is the grpc.ServiceDesc for PipelineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -883,6 +919,10 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateTimeoutConfig",
 			Handler:    _PipelineService_UpdateTimeoutConfig_Handler,
+		},
+		{
+			MethodName: "GetPipelineErrors",
+			Handler:    _PipelineService_GetPipelineErrors_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

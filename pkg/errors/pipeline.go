@@ -12,13 +12,20 @@ import (
 type ErrorCode string
 
 const (
-	ErrTimeout          ErrorCode = "timeout"
-	ErrRateLimit        ErrorCode = "rate_limit"
-	ErrModelUnavailable ErrorCode = "model_unavailable"
-	ErrContextCancelled ErrorCode = "context_cancelled"
-	ErrParseError       ErrorCode = "parse_error"
-	ErrEmptyContent     ErrorCode = "empty_content"
-	ErrProcessingError  ErrorCode = "processing_error"
+	ErrTimeout                    ErrorCode = "timeout"
+	ErrTimeoutHeartbeat           ErrorCode = "timeout_heartbeat"
+	ErrRateLimit                  ErrorCode = "rate_limit"
+	ErrRateLimitEmbedding         ErrorCode = "rate_limit_embedding"
+	ErrModelUnavailable           ErrorCode = "model_unavailable"
+	ErrContextCancelled           ErrorCode = "context_cancelled"
+	ErrParseError                 ErrorCode = "parse_error"
+	ErrEmptyContent               ErrorCode = "empty_content"
+	ErrContentTooLarge            ErrorCode = "content_too_large"
+	ErrStageDependencyFailed      ErrorCode = "stage_dependency_failed"
+	ErrDuplicateContent           ErrorCode = "duplicate_content"
+	ErrEntityResolutionFailed     ErrorCode = "entity_resolution_failed"
+	ErrEmbeddingDimensionMismatch ErrorCode = "embedding_dimension_mismatch"
+	ErrProcessingError            ErrorCode = "processing_error"
 )
 
 // PipelineError is a structured error for pipeline failures.
@@ -75,6 +82,13 @@ func ClassifyError(err error, stage string) *PipelineError {
 	msg := err.Error()
 	lower := strings.ToLower(msg)
 
+	// Heartbeat timeout patterns
+	if strings.Contains(lower, "heartbeat") && strings.Contains(lower, "timeout") {
+		pe.Code = ErrTimeoutHeartbeat
+		pe.Message = msg
+		return pe
+	}
+
 	// Empty content patterns
 	if strings.Contains(lower, "empty content") || strings.Contains(lower, "content is empty") || strings.Contains(lower, "no content") {
 		pe.Code = ErrEmptyContent
@@ -82,7 +96,49 @@ func ClassifyError(err error, stage string) *PipelineError {
 		return pe
 	}
 
-	// Rate limit patterns
+	// Content too large patterns
+	if strings.Contains(lower, "too large") || strings.Contains(lower, "exceeds maximum") || strings.Contains(lower, "content size") {
+		pe.Code = ErrContentTooLarge
+		pe.Message = msg
+		return pe
+	}
+
+	// Duplicate content patterns
+	if strings.Contains(lower, "duplicate") || strings.Contains(lower, "already exists") {
+		pe.Code = ErrDuplicateContent
+		pe.Message = msg
+		return pe
+	}
+
+	// Entity resolution patterns
+	if strings.Contains(lower, "entity resolution") || strings.Contains(lower, "entity lookup") {
+		pe.Code = ErrEntityResolutionFailed
+		pe.Message = msg
+		return pe
+	}
+
+	// Embedding dimension mismatch patterns
+	if strings.Contains(lower, "dimension mismatch") || strings.Contains(lower, "embedding dimension") {
+		pe.Code = ErrEmbeddingDimensionMismatch
+		pe.Message = msg
+		return pe
+	}
+
+	// Stage dependency patterns
+	if strings.Contains(lower, "upstream") || strings.Contains(lower, "dependency failed") || strings.Contains(lower, "prerequisite") {
+		pe.Code = ErrStageDependencyFailed
+		pe.Message = msg
+		return pe
+	}
+
+	// Embedding rate limit patterns (more specific than general rate limit)
+	if strings.Contains(lower, "embedding") && (strings.Contains(lower, "rate limit") || strings.Contains(lower, "quota")) {
+		pe.Code = ErrRateLimitEmbedding
+		pe.Message = msg
+		return pe
+	}
+
+	// General rate limit patterns
 	if strings.Contains(lower, "rate limit") || strings.Contains(lower, "429") || strings.Contains(lower, "too many requests") || strings.Contains(lower, "quota exceeded") || strings.Contains(lower, "resource_exhausted") {
 		pe.Code = ErrRateLimit
 		pe.Message = msg
@@ -111,11 +167,16 @@ func IsTimeout(err error) bool {
 	return false
 }
 
-// IsRetryable returns true if the error is likely transient and worth retrying.
-func IsRetryable(err error) bool {
+// IsErrorRetryable returns true if the error is likely transient and worth retrying.
+// This function checks the error code using the ErrorCodeRegistry.
+func IsErrorRetryable(err error) bool {
 	var pe *PipelineError
 	if errors.As(err, &pe) {
-		return pe.Code == ErrTimeout || pe.Code == ErrRateLimit || pe.Code == ErrModelUnavailable
+		if info, ok := ErrorCodeRegistry[pe.Code]; ok {
+			return info.Retryable
+		}
+		// Default to non-retryable for unknown codes
+		return false
 	}
 	return false
 }

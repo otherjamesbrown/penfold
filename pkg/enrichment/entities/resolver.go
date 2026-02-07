@@ -173,7 +173,20 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 		}
 	}
 
-	// 4. Auto-create with appropriate confidence
+	// 4. Check filter rules before creating
+	matched, err := r.repo.MatchesFilterRule(ctx, tenantID, email, displayName)
+	if err != nil {
+		r.logger.Warn("Failed to check filter rules", logging.Err(err))
+		// Continue - don't fail resolution due to filter check error
+	} else if matched {
+		r.logger.Info("Entity creation blocked by filter rule",
+			logging.F("email", email),
+			logging.F("display_name", displayName))
+		// Return nil to indicate entity was not created
+		return nil, fmt.Errorf("entity creation blocked by filter rule: %s", email)
+	}
+
+	// 5. Auto-create with appropriate confidence
 	normalizedName := NormalizeDisplayName(displayName)
 	if normalizedName == "" {
 		// Derive a human-readable name from the email prefix
@@ -212,7 +225,7 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 		return nil, fmt.Errorf("failed to create person: %w", err)
 	}
 
-	// 5. Add email as alias
+	// 6. Add email as alias
 	alias := &PersonAlias{
 		PersonID:   person.ID,
 		AliasType:  AliasTypeEmail,
@@ -224,7 +237,7 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 		r.logger.Warn("Failed to create email alias", logging.Err(err))
 	}
 
-	// 6. Add display name as alias if different from canonical
+	// 7. Add display name as alias if different from canonical
 	if displayName != "" && displayName != normalizedName {
 		r.addDisplayNameAlias(ctx, person.ID, displayName)
 	}

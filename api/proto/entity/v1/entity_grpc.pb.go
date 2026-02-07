@@ -210,3 +210,434 @@ var EntityService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "entity/v1/entity.proto",
 }
+
+const (
+	EntityManagementService_RejectEntity_FullMethodName       = "/penfold.entity.v1.EntityManagementService/RejectEntity"
+	EntityManagementService_RestoreEntity_FullMethodName      = "/penfold.entity.v1.EntityManagementService/RestoreEntity"
+	EntityManagementService_BulkRejectEntities_FullMethodName = "/penfold.entity.v1.EntityManagementService/BulkRejectEntities"
+	EntityManagementService_CreateFilterRule_FullMethodName   = "/penfold.entity.v1.EntityManagementService/CreateFilterRule"
+	EntityManagementService_ListFilterRules_FullMethodName    = "/penfold.entity.v1.EntityManagementService/ListFilterRules"
+	EntityManagementService_DeleteFilterRule_FullMethodName   = "/penfold.entity.v1.EntityManagementService/DeleteFilterRule"
+	EntityManagementService_TestFilterRule_FullMethodName     = "/penfold.entity.v1.EntityManagementService/TestFilterRule"
+	EntityManagementService_GetEntityStats_FullMethodName     = "/penfold.entity.v1.EntityManagementService/GetEntityStats"
+	EntityManagementService_SearchEntities_FullMethodName     = "/penfold.entity.v1.EntityManagementService/SearchEntities"
+)
+
+// EntityManagementServiceClient is the client API for EntityManagementService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// EntityManagementService provides gRPC endpoints for entity lifecycle management.
+// This service handles entity rejection, restoration, filtering, statistics, and search.
+type EntityManagementServiceClient interface {
+	// RejectEntity soft-deletes an entity.
+	RejectEntity(ctx context.Context, in *RejectEntityRequest, opts ...grpc.CallOption) (*RejectEntityResponse, error)
+	// RestoreEntity removes the rejection from an entity.
+	RestoreEntity(ctx context.Context, in *RestoreEntityRequest, opts ...grpc.CallOption) (*RestoreEntityResponse, error)
+	// BulkRejectEntities rejects multiple entities matching a pattern.
+	BulkRejectEntities(ctx context.Context, in *BulkRejectEntitiesRequest, opts ...grpc.CallOption) (*BulkRejectEntitiesResponse, error)
+	// CreateFilterRule creates a new entity filter rule.
+	CreateFilterRule(ctx context.Context, in *CreateFilterRuleRequest, opts ...grpc.CallOption) (*CreateFilterRuleResponse, error)
+	// ListFilterRules lists all filter rules for a tenant.
+	ListFilterRules(ctx context.Context, in *ListFilterRulesRequest, opts ...grpc.CallOption) (*ListFilterRulesResponse, error)
+	// DeleteFilterRule deletes a filter rule.
+	DeleteFilterRule(ctx context.Context, in *DeleteFilterRuleRequest, opts ...grpc.CallOption) (*DeleteFilterRuleResponse, error)
+	// TestFilterRule tests if an email/name would match any filter rules.
+	TestFilterRule(ctx context.Context, in *TestFilterRuleRequest, opts ...grpc.CallOption) (*TestFilterRuleResponse, error)
+	// GetEntityStats returns statistics about entities in the system.
+	GetEntityStats(ctx context.Context, in *GetEntityStatsRequest, opts ...grpc.CallOption) (*GetEntityStatsResponse, error)
+	// SearchEntities searches for entities by name or email.
+	SearchEntities(ctx context.Context, in *SearchEntitiesRequest, opts ...grpc.CallOption) (*SearchEntitiesResponse, error)
+}
+
+type entityManagementServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewEntityManagementServiceClient(cc grpc.ClientConnInterface) EntityManagementServiceClient {
+	return &entityManagementServiceClient{cc}
+}
+
+func (c *entityManagementServiceClient) RejectEntity(ctx context.Context, in *RejectEntityRequest, opts ...grpc.CallOption) (*RejectEntityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RejectEntityResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_RejectEntity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *entityManagementServiceClient) RestoreEntity(ctx context.Context, in *RestoreEntityRequest, opts ...grpc.CallOption) (*RestoreEntityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestoreEntityResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_RestoreEntity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *entityManagementServiceClient) BulkRejectEntities(ctx context.Context, in *BulkRejectEntitiesRequest, opts ...grpc.CallOption) (*BulkRejectEntitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BulkRejectEntitiesResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_BulkRejectEntities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *entityManagementServiceClient) CreateFilterRule(ctx context.Context, in *CreateFilterRuleRequest, opts ...grpc.CallOption) (*CreateFilterRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateFilterRuleResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_CreateFilterRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *entityManagementServiceClient) ListFilterRules(ctx context.Context, in *ListFilterRulesRequest, opts ...grpc.CallOption) (*ListFilterRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListFilterRulesResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_ListFilterRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *entityManagementServiceClient) DeleteFilterRule(ctx context.Context, in *DeleteFilterRuleRequest, opts ...grpc.CallOption) (*DeleteFilterRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteFilterRuleResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_DeleteFilterRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *entityManagementServiceClient) TestFilterRule(ctx context.Context, in *TestFilterRuleRequest, opts ...grpc.CallOption) (*TestFilterRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TestFilterRuleResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_TestFilterRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *entityManagementServiceClient) GetEntityStats(ctx context.Context, in *GetEntityStatsRequest, opts ...grpc.CallOption) (*GetEntityStatsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetEntityStatsResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_GetEntityStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *entityManagementServiceClient) SearchEntities(ctx context.Context, in *SearchEntitiesRequest, opts ...grpc.CallOption) (*SearchEntitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SearchEntitiesResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_SearchEntities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// EntityManagementServiceServer is the server API for EntityManagementService service.
+// All implementations must embed UnimplementedEntityManagementServiceServer
+// for forward compatibility.
+//
+// EntityManagementService provides gRPC endpoints for entity lifecycle management.
+// This service handles entity rejection, restoration, filtering, statistics, and search.
+type EntityManagementServiceServer interface {
+	// RejectEntity soft-deletes an entity.
+	RejectEntity(context.Context, *RejectEntityRequest) (*RejectEntityResponse, error)
+	// RestoreEntity removes the rejection from an entity.
+	RestoreEntity(context.Context, *RestoreEntityRequest) (*RestoreEntityResponse, error)
+	// BulkRejectEntities rejects multiple entities matching a pattern.
+	BulkRejectEntities(context.Context, *BulkRejectEntitiesRequest) (*BulkRejectEntitiesResponse, error)
+	// CreateFilterRule creates a new entity filter rule.
+	CreateFilterRule(context.Context, *CreateFilterRuleRequest) (*CreateFilterRuleResponse, error)
+	// ListFilterRules lists all filter rules for a tenant.
+	ListFilterRules(context.Context, *ListFilterRulesRequest) (*ListFilterRulesResponse, error)
+	// DeleteFilterRule deletes a filter rule.
+	DeleteFilterRule(context.Context, *DeleteFilterRuleRequest) (*DeleteFilterRuleResponse, error)
+	// TestFilterRule tests if an email/name would match any filter rules.
+	TestFilterRule(context.Context, *TestFilterRuleRequest) (*TestFilterRuleResponse, error)
+	// GetEntityStats returns statistics about entities in the system.
+	GetEntityStats(context.Context, *GetEntityStatsRequest) (*GetEntityStatsResponse, error)
+	// SearchEntities searches for entities by name or email.
+	SearchEntities(context.Context, *SearchEntitiesRequest) (*SearchEntitiesResponse, error)
+	mustEmbedUnimplementedEntityManagementServiceServer()
+}
+
+// UnimplementedEntityManagementServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedEntityManagementServiceServer struct{}
+
+func (UnimplementedEntityManagementServiceServer) RejectEntity(context.Context, *RejectEntityRequest) (*RejectEntityResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RejectEntity not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) RestoreEntity(context.Context, *RestoreEntityRequest) (*RestoreEntityResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RestoreEntity not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) BulkRejectEntities(context.Context, *BulkRejectEntitiesRequest) (*BulkRejectEntitiesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BulkRejectEntities not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) CreateFilterRule(context.Context, *CreateFilterRuleRequest) (*CreateFilterRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateFilterRule not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) ListFilterRules(context.Context, *ListFilterRulesRequest) (*ListFilterRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListFilterRules not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) DeleteFilterRule(context.Context, *DeleteFilterRuleRequest) (*DeleteFilterRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteFilterRule not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) TestFilterRule(context.Context, *TestFilterRuleRequest) (*TestFilterRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TestFilterRule not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) GetEntityStats(context.Context, *GetEntityStatsRequest) (*GetEntityStatsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetEntityStats not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) SearchEntities(context.Context, *SearchEntitiesRequest) (*SearchEntitiesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SearchEntities not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) mustEmbedUnimplementedEntityManagementServiceServer() {
+}
+func (UnimplementedEntityManagementServiceServer) testEmbeddedByValue() {}
+
+// UnsafeEntityManagementServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to EntityManagementServiceServer will
+// result in compilation errors.
+type UnsafeEntityManagementServiceServer interface {
+	mustEmbedUnimplementedEntityManagementServiceServer()
+}
+
+func RegisterEntityManagementServiceServer(s grpc.ServiceRegistrar, srv EntityManagementServiceServer) {
+	// If the following call pancis, it indicates UnimplementedEntityManagementServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&EntityManagementService_ServiceDesc, srv)
+}
+
+func _EntityManagementService_RejectEntity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RejectEntityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).RejectEntity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_RejectEntity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).RejectEntity(ctx, req.(*RejectEntityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EntityManagementService_RestoreEntity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreEntityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).RestoreEntity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_RestoreEntity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).RestoreEntity(ctx, req.(*RestoreEntityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EntityManagementService_BulkRejectEntities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BulkRejectEntitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).BulkRejectEntities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_BulkRejectEntities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).BulkRejectEntities(ctx, req.(*BulkRejectEntitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EntityManagementService_CreateFilterRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateFilterRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).CreateFilterRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_CreateFilterRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).CreateFilterRule(ctx, req.(*CreateFilterRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EntityManagementService_ListFilterRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFilterRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).ListFilterRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_ListFilterRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).ListFilterRules(ctx, req.(*ListFilterRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EntityManagementService_DeleteFilterRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteFilterRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).DeleteFilterRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_DeleteFilterRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).DeleteFilterRule(ctx, req.(*DeleteFilterRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EntityManagementService_TestFilterRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestFilterRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).TestFilterRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_TestFilterRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).TestFilterRule(ctx, req.(*TestFilterRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EntityManagementService_GetEntityStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEntityStatsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).GetEntityStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_GetEntityStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).GetEntityStats(ctx, req.(*GetEntityStatsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EntityManagementService_SearchEntities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchEntitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).SearchEntities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_SearchEntities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).SearchEntities(ctx, req.(*SearchEntitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// EntityManagementService_ServiceDesc is the grpc.ServiceDesc for EntityManagementService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var EntityManagementService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "penfold.entity.v1.EntityManagementService",
+	HandlerType: (*EntityManagementServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "RejectEntity",
+			Handler:    _EntityManagementService_RejectEntity_Handler,
+		},
+		{
+			MethodName: "RestoreEntity",
+			Handler:    _EntityManagementService_RestoreEntity_Handler,
+		},
+		{
+			MethodName: "BulkRejectEntities",
+			Handler:    _EntityManagementService_BulkRejectEntities_Handler,
+		},
+		{
+			MethodName: "CreateFilterRule",
+			Handler:    _EntityManagementService_CreateFilterRule_Handler,
+		},
+		{
+			MethodName: "ListFilterRules",
+			Handler:    _EntityManagementService_ListFilterRules_Handler,
+		},
+		{
+			MethodName: "DeleteFilterRule",
+			Handler:    _EntityManagementService_DeleteFilterRule_Handler,
+		},
+		{
+			MethodName: "TestFilterRule",
+			Handler:    _EntityManagementService_TestFilterRule_Handler,
+		},
+		{
+			MethodName: "GetEntityStats",
+			Handler:    _EntityManagementService_GetEntityStats_Handler,
+		},
+		{
+			MethodName: "SearchEntities",
+			Handler:    _EntityManagementService_SearchEntities_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "entity/v1/entity.proto",
+}
