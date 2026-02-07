@@ -28,12 +28,12 @@ type PipelineInput struct {
 	ContentHash string `json:"content_hash,omitempty"`
 
 	// Email-specific fields
-	BodyText          string   `json:"body_text,omitempty"`
-	BodyHTML          string   `json:"body_html,omitempty"`
-	Subject           string   `json:"subject,omitempty"`
-	SenderEmail       string   `json:"sender_email,omitempty"`
-	SenderName        string   `json:"sender_name,omitempty"`
-	ParticipantEmails []string `json:"participant_emails,omitempty"`
+	BodyText          string        `json:"body_text,omitempty"`
+	BodyHTML          string        `json:"body_html,omitempty"`
+	Subject           string        `json:"subject,omitempty"`
+	SenderEmail       string        `json:"sender_email,omitempty"`
+	SenderName        string        `json:"sender_name,omitempty"`
+	ParticipantEmails []Participant `json:"participant_emails,omitempty"`
 
 	// Meeting-specific fields
 	TranscriptContent string `json:"transcript_content,omitempty"`
@@ -189,7 +189,7 @@ type BuildContextInput struct {
 	SenderName        string                            `json:"sender_name,omitempty"`
 	Subject           string                            `json:"subject,omitempty"`
 	ThreadID          string                            `json:"thread_id,omitempty"`
-	ParticipantEmails []string                          `json:"participant_emails,omitempty"`
+	ParticipantEmails []Participant                     `json:"participant_emails,omitempty"`
 }
 
 // BuildContextOutput is the output from the BuildContextPackage activity.
@@ -867,14 +867,24 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			BackgroundContext: "", // Context package content assembled by activity
 		}).Get(ctx, analyzeOutput)
 		if err != nil {
+			durationMs := workflow.Now(ctx).Sub(analyzeStart).Milliseconds()
 			logger.Warn("pipeline stage failed (non-blocking)",
 				"source_id", input.SourceID,
 				"stage", analyzeStage.Name,
 				"stage_number", analyzeStage.Number,
-				"duration_ms", workflow.Now(ctx).Sub(analyzeStart).Milliseconds(),
+				"duration_ms", durationMs,
 				"status", "failed",
 				"error", err.Error(),
 			)
+			// Log additional context for timeout errors (bulk reprocessing can overwhelm LLM service)
+			if durationMs > 3*60*1000 { // > 3 minutes suggests timeout rather than immediate failure
+				logger.Error("Stage 4 DeepAnalyze timeout - LLM service may be overloaded",
+					"source_id", input.SourceID,
+					"duration_ms", durationMs,
+					"heartbeat_timeout_ms", 5*60*1000,
+					"error", err.Error(),
+				)
+			}
 			analyzeOutput = nil // Skip persist if analysis failed
 		} else {
 			logger.Info("pipeline stage completed",

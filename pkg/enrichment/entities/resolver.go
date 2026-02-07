@@ -116,6 +116,25 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 		if displayName != "" && displayName != person.CanonicalName {
 			r.addDisplayNameAlias(ctx, person.ID, displayName)
 		}
+
+		// Check if account_type needs updating based on current patterns
+		currentAccountType := DetectAccountType(email, displayName)
+		if currentAccountType != person.AccountType {
+			r.logger.Info("Updating stale account_type for existing entity",
+				logging.F("person_id", person.ID),
+				logging.F("email", email),
+				logging.F("old_type", string(person.AccountType)),
+				logging.F("new_type", string(currentAccountType)))
+
+			person.AccountType = currentAccountType
+			if err := r.repo.UpdatePerson(ctx, person); err != nil {
+				r.logger.Warn("Failed to update account_type",
+					logging.Err(err),
+					logging.F("person_id", person.ID))
+				// Continue - don't fail resolution due to update error
+			}
+		}
+
 		return &ResolutionResult{
 			Person:     person,
 			Confidence: person.Confidence,

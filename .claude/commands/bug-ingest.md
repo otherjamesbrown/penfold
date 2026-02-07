@@ -830,3 +830,84 @@ If some implementations succeed and others fail:
 4. **Reply to penfold** - every bug gets an ack and a resolution reply
 5. **Deploy changes** - implementation isn't done until deployed
 6. **Trace edges** - maintain the chain: bug message -> investigation -> implementation
+
+---
+
+## Test Quality Requirements (Lessons Learned)
+
+Previous bug-fix cycles had tests that **passed but didn't catch the actual bugs**. This
+section encodes the patterns to avoid.
+
+### Anti-Pattern 1: Testing Functions Instead of Pipelines
+
+**BAD:** Test calls `ResolveOrCreate(email, "Alice")` directly with correct inputs.
+**REALITY:** In production, `FetchSource` extracts emails but not display names, so
+`ResolveOrCreate(email, "")` is called with empty string.
+
+**Rule:** Reproduction tests must exercise the **actual code path** from the entry point
+the pipeline uses, not call the fixed function directly with ideal inputs. If the bug is
+that data doesn't flow correctly between stages, the test must cover that flow.
+
+### Anti-Pattern 2: Testing With Fresh State
+
+**BAD:** Test creates a new entity and verifies `DetectAccountType` returns `"role"`.
+**REALITY:** Entity already exists in DB with `account_type='person'` from before the
+pattern was added. `ResolveOrCreate` finds it and returns it unchanged.
+
+**Rule:** Reproduction tests for data-layer bugs must set up **pre-existing state** that
+simulates the production scenario (stale records, previously-created entities, etc.).
+
+### Anti-Pattern 3: Assuming Upstream Stages Succeed
+
+**BAD:** Test provides a populated `DeepAnalyzeOutput` to acronym detection.
+**REALITY:** Stage 4 (LLM) times out, so `Analysis` is nil. Acronym detection finds
+nothing because it only reads from Stage 4 output.
+
+**Rule:** Reproduction tests must cover the failure mode, not just the happy path. If the
+bug manifests when an upstream stage fails, the test must simulate that failure (nil input,
+empty output, error return).
+
+### Anti-Pattern 4: Misattributing Root Cause to External Services
+
+**BAD:** "The LLM service is overwhelmed by concurrent requests."
+**REALITY:** The Temporal HeartbeatTimeout was too short for chunked processing. The LLM
+service (Gemini) handles concurrency fine — the activity framework killed the task.
+
+**Rule:** Before attributing a failure to an external service (LLM, DB, network), verify
+the framework configuration (timeouts, retries, heartbeats). Infrastructure config issues
+masquerade as service failures.
+
+### How to Apply These Rules
+
+**For debugger agents (Phase 2):** Add this to the investigation prompt:
+```
+IMPORTANT: Trace the FULL data path from database → activity → function.
+Do not just verify the function works in isolation. Identify:
+- Where does the input data come from? (DB column, upstream stage, metadata)
+- Is the data transformed or filtered between stages?
+- What happens when upstream stages fail or return nil?
+- Are there existing records in the DB that predate the fix?
+```
+
+**For test-writing agents (Phase 3.5):** Add this to the test prompt:
+```
+IMPORTANT: Your test must reproduce the ACTUAL production failure, not just test
+the fixed function in isolation. Common mistakes to avoid:
+1. Do NOT call the function directly with ideal inputs — test through the same
+   entry point the pipeline uses
+2. Do NOT use fresh/empty state — set up pre-existing records that simulate
+   production (stale DB records, previously-created entities)
+3. Do NOT assume all upstream stages succeed — if the bug appears when a stage
+   fails, simulate that failure (nil analysis, empty extraction, timeout)
+4. The test MUST fail before the fix AND pass after — if it passes without the
+   fix, it's testing the wrong thing
+```
+
+**For implementation agents (Phase 4):** Add this to the impl prompt:
+```
+After implementing the fix, verify it addresses the PIPELINE-LEVEL issue:
+1. Does the fix change the actual code path the workflow calls? (not just a
+   helper function that's never invoked)
+2. Does the fix handle existing/stale data? (not just new records)
+3. Does the fix degrade gracefully when upstream stages fail?
+```

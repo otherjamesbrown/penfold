@@ -110,6 +110,7 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 
 	// Extract email metadata fields from ingestion_metadata JSONB
 	var subject, senderEmail, senderName string
+	var participants []workflows.Participant
 	if len(metadataJSON) > 0 {
 		var metadata map[string]interface{}
 		if jsonErr := json.Unmarshal(metadataJSON, &metadata); jsonErr == nil {
@@ -122,6 +123,54 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 			if v, ok := metadata["from_name"].(string); ok {
 				senderName = v
 			}
+
+			// Extract display names from to/cc/from arrays in metadata
+			// These are arrays of {name, address} objects
+			emailToName := make(map[string]string)
+
+			// Helper to extract email+name from metadata arrays
+			extractParticipants := func(field string) {
+				if arr, ok := metadata[field].([]interface{}); ok {
+					for _, item := range arr {
+						if obj, ok := item.(map[string]interface{}); ok {
+							email := ""
+							name := ""
+							if addr, ok := obj["address"].(string); ok {
+								email = addr
+							}
+							if n, ok := obj["name"].(string); ok {
+								name = n
+							}
+							if email != "" {
+								emailToName[email] = name
+							}
+						}
+					}
+				}
+			}
+
+			extractParticipants("to")
+			extractParticipants("cc")
+			extractParticipants("from")
+
+			// Build participants list, matching emails from participant_emails with display names
+			for _, email := range participantEmails {
+				displayName := emailToName[email]
+				participants = append(participants, workflows.Participant{
+					Email:       email,
+					DisplayName: displayName,
+				})
+			}
+		}
+	}
+
+	// If metadata parsing failed or no metadata, fall back to email-only participants
+	if len(participants) == 0 && len(participantEmails) > 0 {
+		for _, email := range participantEmails {
+			participants = append(participants, workflows.Participant{
+				Email:       email,
+				DisplayName: "",
+			})
 		}
 	}
 
@@ -129,7 +178,7 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 		logging.F("content_length", len(content)),
 		logging.F("content_type", contentType),
 		logging.F("source_system", sourceSystem),
-		logging.F("participant_count", len(participantEmails)),
+		logging.F("participant_count", len(participants)),
 	)
 
 	return &workflows.FetchSourceOutput{
@@ -138,7 +187,7 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 		Subject:           subject,
 		SenderEmail:       senderEmail,
 		SenderName:        senderName,
-		ParticipantEmails: participantEmails,
+		ParticipantEmails: participants,
 	}, nil
 }
 

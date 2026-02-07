@@ -169,7 +169,7 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 }
 
 // resolvePeople resolves people from extraction output and structured participant emails.
-func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID string, people []workflows.PersonResult, senderEmail, senderName string, participantEmails []string) ([]workflows.ResolvedPerson, int) {
+func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID string, people []workflows.PersonResult, senderEmail, senderName string, participantEmails []workflows.Participant) ([]workflows.ResolvedPerson, int) {
 	var resolved []workflows.ResolvedPerson
 	unresolvedCount := 0
 	seenEmails := make(map[string]bool)
@@ -199,24 +199,25 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 		}
 	}
 
-	// Process participant_emails array (From/To/Cc from email headers)
+	// Process participant_emails array (From/To/Cc from email headers with display names)
 	// Filter out non-person accounts (distribution lists, bots, role accounts, external services)
 	if a.entityResolver != nil {
-		for _, email := range participantEmails {
-			if email == "" || seenEmails[email] {
+		for _, participant := range participantEmails {
+			if participant.Email == "" || seenEmails[participant.Email] {
 				continue
 			}
 
 			// Check if this is a person account
-			accountType := entities.DetectAccountType(email, "")
+			accountType := entities.DetectAccountType(participant.Email, participant.DisplayName)
 			if accountType != entities.AccountTypePerson {
 				logger.Debug("Skipping non-person participant",
-					logging.F("email", email),
+					logging.F("email", participant.Email),
 					logging.F("account_type", accountType))
 				continue
 			}
 
-			result, err := a.entityResolver.ResolveOrCreate(ctx, tenantID, email, "")
+			// Pass display name to ResolveOrCreate - this is the bug fix
+			result, err := a.entityResolver.ResolveOrCreate(ctx, tenantID, participant.Email, participant.DisplayName)
 			if err == nil && result != nil {
 				resolved = append(resolved, workflows.ResolvedPerson{
 					Name:       result.Person.CanonicalName,
@@ -227,7 +228,7 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 					Department: result.Person.Department,
 					IsInternal: result.Person.IsInternal,
 				})
-				seenEmails[email] = true
+				seenEmails[participant.Email] = true
 			}
 		}
 	}

@@ -727,8 +727,8 @@ func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input
 		return
 	}
 
-	// Collect text from analysis findings
-	texts := r.collectAnalysisTexts(input.Analysis)
+	// Collect text from BOTH Stage 4 (Analysis) and Stage 2 (SLM assertions from DB)
+	texts := r.collectAnalysisTexts(ctx, input.SourceID, input.Analysis)
 	if len(texts) == 0 {
 		return
 	}
@@ -806,28 +806,94 @@ func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input
 }
 
 // collectAnalysisTexts gathers text strings from analysis findings for acronym scanning.
-func (r *PersistRepo) collectAnalysisTexts(analysis *DeepAnalyzeOutput) []string {
-	if analysis == nil {
-		return nil
-	}
+// It collects from BOTH Stage 4 (Analysis) and Stage 2 (SLM assertions from DB).
+// This ensures acronyms are detected even when Stage 4 times out or is nil.
+func (r *PersistRepo) collectAnalysisTexts(ctx context.Context, sourceID int64, analysis *DeepAnalyzeOutput) []string {
 	var texts []string
 
-	for _, a := range analysis.VerifiedActions {
-		texts = append(texts, a.Description, a.ContextExcerpt)
+	// Collect from Stage 4 (Analysis) if available
+	if analysis != nil {
+		for _, a := range analysis.VerifiedActions {
+			texts = append(texts, a.Description, a.ContextExcerpt)
+		}
+		for _, d := range analysis.VerifiedDecisions {
+			texts = append(texts, d.Description, d.ContextExcerpt)
+		}
+		for _, risk := range analysis.RiskReferences {
+			texts = append(texts, risk.Description, risk.ContextExcerpt)
+		}
+		for _, a := range analysis.ImplicitActions {
+			texts = append(texts, a.Description, a.ContextExcerpt)
+		}
+		if analysis.Summary != "" {
+			texts = append(texts, analysis.Summary)
+		}
+		texts = append(texts, analysis.Insights...)
 	}
-	for _, d := range analysis.VerifiedDecisions {
-		texts = append(texts, d.Description, d.ContextExcerpt)
+
+	// ALSO collect from Stage 2 assertions (SLM extraction output from DB)
+	// This handles the case where Stage 4 times out but Stage 2 completed successfully.
+	stage2Texts := r.collectStage2Texts(ctx, sourceID)
+	texts = append(texts, stage2Texts...)
+
+	if len(texts) == 0 {
+		return nil
 	}
-	for _, risk := range analysis.RiskReferences {
-		texts = append(texts, risk.Description, risk.ContextExcerpt)
+
+	return texts
+}
+
+// collectStage2Texts queries the database for Stage 2 SLM assertions and extracts text for acronym scanning.
+// This is a fallback when Stage 4 (DeepAnalyze) times out or fails.
+func (r *PersistRepo) collectStage2Texts(ctx context.Context, sourceID int64) []string {
+	// Skip if pool is not available (e.g., in unit tests without DB)
+	if r.pool == nil {
+		return nil
 	}
-	for _, a := range analysis.ImplicitActions {
-		texts = append(texts, a.Description, a.ContextExcerpt)
+
+	// Query for Stage 2 assertions (those with extraction_model set, indicating SLM output)
+	// We look for assertions with extraction_model IS NOT NULL, which indicates Stage 2 SLM output
+	// (as opposed to Stage 4 assertions created by PersistFindings which don't set extraction_model).
+	query := `
+		SELECT description, source_quote
+		FROM assertions
+		WHERE source_id = $1
+		  AND extraction_model IS NOT NULL
+		  AND is_deleted = false
+		ORDER BY created_at DESC
+		LIMIT 100
+	`
+
+	rows, err := r.pool.Query(ctx, query, sourceID)
+	if err != nil {
+		r.logger.Warn("Failed to query Stage 2 assertions for acronym detection",
+			logging.F("source_id", sourceID), logging.Err(err))
+		return nil
 	}
-	if analysis.Summary != "" {
-		texts = append(texts, analysis.Summary)
+	defer rows.Close()
+
+	var texts []string
+	for rows.Next() {
+		var description, sourceQuote string
+		if err := rows.Scan(&description, &sourceQuote); err != nil {
+			r.logger.Warn("Failed to scan Stage 2 assertion",
+				logging.F("source_id", sourceID), logging.Err(err))
+			continue
+		}
+		texts = append(texts, description)
+		if sourceQuote != "" {
+			texts = append(texts, sourceQuote)
+		}
 	}
-	texts = append(texts, analysis.Insights...)
+
+	if err := rows.Err(); err != nil {
+		r.logger.Warn("Error iterating Stage 2 assertions",
+			logging.F("source_id", sourceID), logging.Err(err))
+	}
+
+	r.logger.Debug("Collected Stage 2 assertion texts for acronym scanning",
+		logging.F("source_id", sourceID),
+		logging.F("text_count", len(texts)))
 
 	return texts
 }

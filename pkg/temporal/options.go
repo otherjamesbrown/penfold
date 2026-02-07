@@ -54,14 +54,14 @@ func EmbeddingActivityOptions() workflow.ActivityOptions {
 // Configuration:
 //   - 10 minute start-to-close timeout (4-stage pipeline on a queued MLX server)
 //   - 15 minute schedule-to-close timeout (allows for retries)
-//   - 3 minute heartbeat interval (a single LLM call can take 2+ min under load)
+//   - 5 minute heartbeat interval (bulk reprocessing can overwhelm MLX, causing delays)
 //   - 2 retries with exponential backoff (5s, 10s)
 //   - Fewer retries because LLM operations are expensive
 func LLMActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout:    10 * time.Minute,
 		ScheduleToCloseTimeout: 15 * time.Minute,
-		HeartbeatTimeout:       3 * time.Minute,
+		HeartbeatTimeout:       5 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    5 * time.Second,
 			BackoffCoefficient: 2.0,

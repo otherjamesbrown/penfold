@@ -7,6 +7,7 @@ import (
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 // mockEntityResolver implements EntityResolverInterface for testing.
@@ -507,51 +508,60 @@ func TestBuildContext_FilterNonPersonEmails(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
+	// Helper to convert email strings to Participant structs
+	toParticipants := func(emails []string) []workflows.Participant {
+		participants := make([]workflows.Participant, len(emails))
+		for i, email := range emails {
+			participants[i] = workflows.Participant{Email: email, DisplayName: ""}
+		}
+		return participants
+	}
+
 	tests := []struct {
 		name              string
-		participantEmails []string
+		participantEmails []workflows.Participant
 		expectedPeople    int
 		expectedFiltered  []string
 	}{
 		{
 			name:              "filter distribution lists",
-			participantEmails: []string{"alice@example.com", "dl-ttmtc-SteerCo@akamai.com", "bob@example.com"},
+			participantEmails: toParticipants([]string{"alice@example.com", "dl-ttmtc-SteerCo@akamai.com", "bob@example.com"}),
 			expectedPeople:    2, // only alice and bob
 			expectedFiltered:  []string{"dl-ttmtc-SteerCo@akamai.com"},
 		},
 		{
 			name:              "filter automated senders",
-			participantEmails: []string{"alice@example.com", "updates@mailer.aha.io", "bob@example.com"},
+			participantEmails: toParticipants([]string{"alice@example.com", "updates@mailer.aha.io", "bob@example.com"}),
 			expectedPeople:    2, // only alice and bob
 			expectedFiltered:  []string{"updates@mailer.aha.io"},
 		},
 		{
 			name:              "filter service accounts",
-			participantEmails: []string{"alice@example.com", "gsd-jira@akamai.com", "bob@example.com"},
+			participantEmails: toParticipants([]string{"alice@example.com", "gsd-jira@akamai.com", "bob@example.com"}),
 			expectedPeople:    2, // only alice and bob
 			expectedFiltered:  []string{"gsd-jira@akamai.com"},
 		},
 		{
 			name:              "filter role accounts",
-			participantEmails: []string{"alice@example.com", "prb-facilitator@akamai.com", "bob@example.com"},
+			participantEmails: toParticipants([]string{"alice@example.com", "prb-facilitator@akamai.com", "bob@example.com"}),
 			expectedPeople:    2, // only alice and bob
 			expectedFiltered:  []string{"prb-facilitator@akamai.com"},
 		},
 		{
 			name:              "filter noreply addresses",
-			participantEmails: []string{"alice@example.com", "noreply@company.com", "bob@example.com"},
+			participantEmails: toParticipants([]string{"alice@example.com", "noreply@company.com", "bob@example.com"}),
 			expectedPeople:    2, // only alice and bob
 			expectedFiltered:  []string{"noreply@company.com"},
 		},
 		{
 			name:              "filter docs.google.com senders",
-			participantEmails: []string{"alice@example.com", "comments-noreply@docs.google.com", "bob@example.com"},
+			participantEmails: toParticipants([]string{"alice@example.com", "comments-noreply@docs.google.com", "bob@example.com"}),
 			expectedPeople:    2, // only alice and bob
 			expectedFiltered:  []string{"comments-noreply@docs.google.com"},
 		},
 		{
 			name:              "all person emails",
-			participantEmails: []string{"alice@example.com", "bob@example.com"},
+			participantEmails: toParticipants([]string{"alice@example.com", "bob@example.com"}),
 			expectedPeople:    2,
 			expectedFiltered:  []string{},
 		},
@@ -614,15 +624,107 @@ func TestBuildContext_FilterNonPersonEmails(t *testing.T) {
 	}
 }
 
+func TestBuildContext_DisplayNamesPassedToResolver(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	// This test reproduces bug pf-22a545: display names exist in metadata but are not passed to ResolveOrCreate.
+	// The FetchSource activity reads participant_emails (text array, emails only).
+	// The context builder calls ResolveOrCreate(ctx, tenantID, email, "") with empty displayName.
+	// This test MUST fail until the bug is fixed.
+
+	receivedCalls := make(map[string]string) // email -> displayName
+
+	entityResolver := &mockEntityResolver{
+		resolveOrCreateFunc: func(ctx context.Context, tenantID, email, displayName string) (*entities.ResolutionResult, error) {
+			receivedCalls[email] = displayName
+			return &entities.ResolutionResult{
+				Person: &entities.Person{
+					ID:            int64(100 + len(receivedCalls)),
+					CanonicalName: displayName,
+					PrimaryEmail:  email,
+					IsInternal:    false,
+					Confidence:    0.7,
+				},
+				Confidence: 0.7,
+				Source:     "auto_created",
+				IsNew:      true,
+			}, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(
+		logger,
+		entityResolver,
+		&mockEntityLookup{},
+		&mockContextPackageRepo{},
+		nil,
+	)
+
+	input := BuildContextInput{
+		TenantID:    "test-tenant",
+		SourceID:    1,
+		ContentType: "email",
+		SenderEmail: "alice@example.com",
+		SenderName:  "Alice Smith",
+		ParticipantEmails: []workflows.Participant{
+			{Email: "bob@example.com", DisplayName: "Bob Jones"},
+			{Email: "carol@example.com", DisplayName: "Carol White"},
+		},
+		Extraction: &ExtractEntitiesOutput{},
+	}
+
+	_, err := activities.BuildContextPackage(ctx, input)
+	if err != nil {
+		t.Fatalf("BuildContextPackage failed: %v", err)
+	}
+
+	// Verify sender display name was passed
+	if senderName, ok := receivedCalls["alice@example.com"]; !ok {
+		t.Error("Sender email was not resolved")
+	} else if senderName != "Alice Smith" {
+		t.Errorf("Expected sender displayName 'Alice Smith', got '%s' (empty means bug exists)", senderName)
+	}
+
+	// Verify participant display names were passed correctly
+	if bobName, ok := receivedCalls["bob@example.com"]; !ok {
+		t.Error("Participant bob@example.com was not resolved")
+	} else if bobName != "Bob Jones" {
+		t.Errorf("Expected bob@example.com displayName 'Bob Jones', got '%s'", bobName)
+	}
+
+	if carolName, ok := receivedCalls["carol@example.com"]; !ok {
+		t.Error("Participant carol@example.com was not resolved")
+	} else if carolName != "Carol White" {
+		t.Errorf("Expected carol@example.com displayName 'Carol White', got '%s'", carolName)
+	}
+
+	// Verify all participants have display names
+	for email, displayName := range receivedCalls {
+		if displayName == "" {
+			t.Errorf("BUG: Participant %s was resolved with empty displayName", email)
+		}
+	}
+}
+
 func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
+
+	// Helper to convert email strings to Participant structs
+	toParticipants := func(emails []string) []workflows.Participant {
+		participants := make([]workflows.Participant, len(emails))
+		for i, email := range emails {
+			participants[i] = workflows.Participant{Email: email, DisplayName: ""}
+		}
+		return participants
+	}
 
 	tests := []struct {
 		name                 string
 		senderEmail          string
 		senderName           string
-		participantEmails    []string
+		participantEmails    []workflows.Participant
 		extraction           *ExtractEntitiesOutput
 		expectedPeople       int
 		expectedSources      []string
@@ -630,7 +732,7 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 	}{
 		{
 			name:              "participant emails only",
-			participantEmails: []string{"alice@example.com", "bob@example.com"},
+			participantEmails: toParticipants([]string{"alice@example.com", "bob@example.com"}),
 			extraction:        &ExtractEntitiesOutput{},
 			expectedPeople:    2,
 			expectedSources:   []string{"auto_created", "auto_created"},
@@ -639,7 +741,7 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 			name:              "sender + participants",
 			senderEmail:       "alice@example.com",
 			senderName:        "Alice Smith",
-			participantEmails: []string{"bob@example.com", "carol@example.com"},
+			participantEmails: toParticipants([]string{"bob@example.com", "carol@example.com"}),
 			extraction:        &ExtractEntitiesOutput{},
 			expectedPeople:    3,
 			expectedSources:   []string{"auto_created", "auto_created", "auto_created"},
@@ -648,7 +750,7 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 			name:               "deduplication: sender in participants",
 			senderEmail:        "alice@example.com",
 			senderName:         "Alice Smith",
-			participantEmails:  []string{"alice@example.com", "bob@example.com"},
+			participantEmails:  toParticipants([]string{"alice@example.com", "bob@example.com"}),
 			extraction:         &ExtractEntitiesOutput{},
 			expectedPeople:     2,
 			expectedSources:    []string{"auto_created", "auto_created"},
@@ -657,7 +759,7 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 		{
 			name:        "participants + extracted people",
 			senderEmail: "alice@example.com",
-			participantEmails: []string{"bob@example.com"},
+			participantEmails: toParticipants([]string{"bob@example.com"}),
 			extraction: &ExtractEntitiesOutput{
 				People: []PersonResult{
 					{Name: "Carol Davis", Role: "PM"},

@@ -19,6 +19,12 @@ type EmailProcessingInput = pkgtemporal.EmailProcessingInput
 // This mirrors the type in pkg/temporal/types.go for convenience.
 type EmailProcessingResult = pkgtemporal.EmailProcessingResult
 
+// Participant represents an email participant with their display name.
+type Participant struct {
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name,omitempty"`
+}
+
 // Activity input types for email processing.
 type (
 	// FetchSourceInput is the input for the FetchSource activity.
@@ -29,12 +35,12 @@ type (
 
 	// FetchSourceOutput is the output from the FetchSource activity.
 	FetchSourceOutput struct {
-		ContentText        string   `json:"content_text"`
-		ContentType        string   `json:"content_type"`
-		Subject            string   `json:"subject,omitempty"`
-		SenderEmail        string   `json:"sender_email,omitempty"`
-		SenderName         string   `json:"sender_name,omitempty"`
-		ParticipantEmails  []string `json:"participant_emails,omitempty"`
+		ContentText        string        `json:"content_text"`
+		ContentType        string        `json:"content_type"`
+		Subject            string        `json:"subject,omitempty"`
+		SenderEmail        string        `json:"sender_email,omitempty"`
+		SenderName         string        `json:"sender_name,omitempty"`
+		ParticipantEmails  []Participant `json:"participant_emails,omitempty"`
 	}
 
 	// GenerateEmbeddingInput is the input for the GenerateEmbedding activity.

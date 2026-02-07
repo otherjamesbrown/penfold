@@ -59,8 +59,8 @@ func TestLLMActivityOptions(t *testing.T) {
 	if opts.ScheduleToCloseTimeout != 15*time.Minute {
 		t.Errorf("expected ScheduleToCloseTimeout 15m, got %v", opts.ScheduleToCloseTimeout)
 	}
-	if opts.HeartbeatTimeout != 3*time.Minute {
-		t.Errorf("expected HeartbeatTimeout 3m, got %v", opts.HeartbeatTimeout)
+	if opts.HeartbeatTimeout != 5*time.Minute {
+		t.Errorf("expected HeartbeatTimeout 5m, got %v", opts.HeartbeatTimeout)
 	}
 	if opts.RetryPolicy == nil {
 		t.Fatal("expected RetryPolicy to be set")
