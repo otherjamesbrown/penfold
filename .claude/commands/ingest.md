@@ -1,11 +1,38 @@
 ---
-description: "Pull unread bugs/requirements, investigate, triage, decompose, implement, verify, deploy - full automated pipeline."
+description: "Single command for all work: pull inbox, implement specific shards, or pick up ready queue items."
 ---
 
-# Ingest Pipeline — Orchestrator
+# Ingest — Orchestrator
 
-Full automated pipeline: pull inbox items, investigate/analyze, triage, decompose complex
-features, implement, verify, reply, deploy.
+Single entry point for all implementation work.
+
+## User Input
+
+```text
+$ARGUMENTS
+```
+
+## Input Routing
+
+Parse the user's input to determine which mode to run:
+
+**Mode 1: Full Pipeline** (no arguments, or "all")
+- User typed `/ingest` with no args
+- Run Phase 1 → 2 → 3 → 3.5 → 4 → 5 → 6+7
+
+**Mode 2: Implement Specific Shards** (shard IDs provided)
+- User typed `/ingest pf-e453b1 pf-086c4d` or natural language like "the pipeline one"
+- Extract shard IDs from input (look for `pf-` patterns) or match against recent conversation
+- Fetch the shards from Context-Palace, assess complexity, then skip to Phase 4 → 5 → 6+7
+- For HIGH complexity shards that aren't yet decomposed, run Phase 3 (triage/decompose) first
+
+**Mode 3: Next from Queue** (input is "next" or "queue")
+- User typed `/ingest next`
+- Query ready_tasks and unblocked impl shards from Context-Palace
+- Show the queue, ask user which/how many to implement
+- Then Phase 4 → 5 → 6+7
+
+**If input is ambiguous, ask a clarifying question. Otherwise proceed.**
 
 ## Configuration
 
@@ -148,4 +175,4 @@ conversation, so shard IDs, classifications, and findings carry forward.
 | Implementation agent fails (tests) | Re-launch with failing test details |
 | Decomposed layer fails | Fix that layer before proceeding; other features continue |
 | No actionable items | Display empty state, suggest `/bug-status` |
-| Partial completion | Deploy what's ready, leave failed items for `/implement-next` |
+| Partial completion | Deploy what's ready, leave failed items for `/ingest next` |
