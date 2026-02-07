@@ -14,6 +14,7 @@ import (
 	"time"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
+	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
@@ -23,13 +24,6 @@ import (
 	"github.com/otherjamesbrown/penfold/services/ai/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
-)
-
-// Build-time variables set via ldflags.
-var (
-	version   = "dev"
-	commit    = "unknown"
-	buildTime = "unknown"
 )
 
 func main() {
@@ -51,9 +45,9 @@ func main() {
 	logging.SetGlobal(logger)
 
 	logger.Info("Starting AI Coordinator service",
-		logging.F("version", version),
-		logging.F("commit", commit),
-		logging.F("build_time", buildTime),
+		logging.F("version", buildinfo.Version),
+		logging.F("commit", buildinfo.Commit),
+		logging.F("build_time", buildinfo.BuildTime),
 		logging.F("grpc_port", cfg.GRPCPort),
 		logging.F("http_port", cfg.HTTPPort),
 		logging.F("environment", cfg.Environment),
@@ -184,6 +178,7 @@ func main() {
 	httpMux.Handle("/ready", healthChecker.ReadyHandler())
 	httpMux.Handle("/live", healthChecker.LiveHandler())
 	httpMux.Handle("/metrics", metrics.Handler())
+	httpMux.HandleFunc("/version", buildinfo.Handler("penfold-ai-coordinator"))
 
 	httpServer := &http.Server{
 		Addr:         cfg.HTTPAddr(),

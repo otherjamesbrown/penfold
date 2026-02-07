@@ -3,10 +3,13 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 )
 
 func TestNewMLXBackend(t *testing.T) {
@@ -314,4 +317,164 @@ func TestToFloat32(t *testing.T) {
 	if f32[1] < 2.1 || f32[1] > 2.3 {
 		t.Errorf("unexpected value: %f", f32[1])
 	}
+}
+
+// TestMLXBackend_ErrorClassification tests error classification for timeouts and rate limits.
+func TestMLXBackend_ErrorClassification(t *testing.T) {
+	t.Run("timeout error returns PipelineError with ErrTimeout", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(200 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		be := NewMLXBackend(&MLXConfig{
+			EmbeddingsURL: server.URL,
+			Timeout:       100 * time.Millisecond,
+		})
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		_, err := be.GenerateEmbedding(ctx, "test", "")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T", err)
+		}
+		if pe.Code != perrors.ErrTimeout {
+			t.Errorf("expected ErrTimeout, got %s", pe.Code)
+		}
+		if pe.Stage != "mlx-embedding" {
+			t.Errorf("expected stage 'mlx-embedding', got %s", pe.Stage)
+		}
+	})
+
+	t.Run("rate limit HTTP 429 returns PipelineError with ErrRateLimit", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			resp := struct {
+				Error *struct {
+					Message string `json:"message"`
+					Type    string `json:"type"`
+				} `json:"error"`
+			}{
+				Error: &struct {
+					Message string `json:"message"`
+					Type    string `json:"type"`
+				}{
+					Message: "rate limit exceeded",
+					Type:    "rate_limit_error",
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		be := NewMLXBackend(&MLXConfig{
+			EmbeddingsURL: server.URL,
+		})
+
+		_, err := be.GenerateEmbedding(context.Background(), "test", "")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T", err)
+		}
+		if pe.Code != perrors.ErrRateLimit {
+			t.Errorf("expected ErrRateLimit, got %s", pe.Code)
+		}
+	})
+
+	t.Run("service unavailable returns PipelineError with ErrModelUnavailable", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		defer server.Close()
+
+		be := NewMLXBackend(&MLXConfig{
+			EmbeddingsURL: server.URL,
+		})
+
+		_, err := be.GenerateEmbedding(context.Background(), "test", "")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T", err)
+		}
+		if pe.Code != perrors.ErrModelUnavailable {
+			t.Errorf("expected ErrModelUnavailable, got %s", pe.Code)
+		}
+	})
+}
+
+// TestMLXBackend_ChatCompletion_ErrorClassification tests error classification for chat completion.
+func TestMLXBackend_ChatCompletion_ErrorClassification(t *testing.T) {
+	t.Run("timeout error returns PipelineError with ErrTimeout", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(200 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		be := NewMLXBackend(&MLXConfig{
+			LLMURL:  server.URL,
+			Timeout: 100 * time.Millisecond,
+		})
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		messages := []Message{{Role: "user", Content: "test"}}
+		_, err := be.ChatCompletion(ctx, messages, CompletionOptions{})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T", err)
+		}
+		if pe.Code != perrors.ErrTimeout {
+			t.Errorf("expected ErrTimeout, got %s", pe.Code)
+		}
+		if pe.Stage != "mlx-llm" {
+			t.Errorf("expected stage 'mlx-llm', got %s", pe.Stage)
+		}
+	})
+
+	t.Run("rate limit returns PipelineError with ErrRateLimit", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests)
+		}))
+		defer server.Close()
+
+		be := NewMLXBackend(&MLXConfig{
+			LLMURL: server.URL,
+		})
+
+		messages := []Message{{Role: "user", Content: "test"}}
+		_, err := be.ChatCompletion(context.Background(), messages, CompletionOptions{})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T", err)
+		}
+		if pe.Code != perrors.ErrRateLimit {
+			t.Errorf("expected ErrRateLimit, got %s", pe.Code)
+		}
+	})
 }

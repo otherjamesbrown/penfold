@@ -8,6 +8,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
@@ -492,14 +493,15 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			SourceID: input.SourceID,
 		}).Get(ctx, &fetchOut)
 		if err != nil {
+			pe := perrors.ClassifyError(err, "fetch")
 			state.result.Status = "failed"
 			state.result.Error = fmt.Sprintf("fetch_source: %v", err)
 			state.status.ErrorMessage = state.result.Error
-			logger.Error("FetchSource failed", "error", err)
+			logger.Error("FetchSource failed", "error", err, "error_code", pe.Code)
 			ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
 			_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 				TenantID: input.TenantID, SourceID: input.SourceID,
-				Status: "failed", FailureCategory: "fetch", FailureReason: err.Error(),
+				Status: "failed", FailureCategory: string(pe.Code), FailureReason: err.Error(),
 			}).Get(ctx, nil)
 			return state.result, nil
 		}
@@ -524,10 +526,16 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			BodyHTML: input.BodyHTML,
 		}).Get(ctx, &parseOutput)
 		if err != nil {
+			pe := perrors.ClassifyError(err, "parse")
 			state.result.Status = "failed"
 			state.result.Error = fmt.Sprintf("parse_email: %v", err)
 			state.status.ErrorMessage = state.result.Error
-			logger.Error("Stage 0 ParseEmail failed", "error", err)
+			logger.Error("Stage 0 ParseEmail failed", "error", err, "error_code", pe.Code)
+			ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
+			_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+				TenantID: input.TenantID, SourceID: input.SourceID,
+				Status: "failed", FailureCategory: string(pe.Code), FailureReason: err.Error(),
+			}).Get(ctx, nil)
 			return state.result, nil
 		}
 		if parseOutput.NewContent != "" {
@@ -555,10 +563,16 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			Format:   input.TranscriptFormat,
 		}).Get(ctx, &parseOutput)
 		if err != nil {
+			pe := perrors.ClassifyError(err, "parse")
 			state.result.Status = "failed"
 			state.result.Error = fmt.Sprintf("parse_transcript: %v", err)
 			state.status.ErrorMessage = state.result.Error
-			logger.Error("Stage 0 ParseTranscript failed", "error", err)
+			logger.Error("Stage 0 ParseTranscript failed", "error", err, "error_code", pe.Code)
+			ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
+			_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+				TenantID: input.TenantID, SourceID: input.SourceID,
+				Status: "failed", FailureCategory: string(pe.Code), FailureReason: err.Error(),
+			}).Get(ctx, nil)
 			return state.result, nil
 		}
 		parsedContent = parseOutput.CleanText
@@ -580,7 +594,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
 		_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID: input.TenantID, SourceID: input.SourceID,
-			Status: "failed", FailureCategory: "unsupported_type",
+			Status: "failed", FailureCategory: "processing_error",
 			FailureReason: state.result.Error,
 		}).Get(ctx, nil)
 		return state.result, nil
@@ -628,19 +642,21 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}).Get(ctx, &triageOutput)
 	if err != nil {
 		// Update status to "rejected" with failure info
+		pe := perrors.ClassifyError(err, "triage")
 		logger.Info("Triage failed, marking as rejected",
 			"error", err,
+			"error_code", pe.Code,
 		)
 		ctxTriageUpdate := workflow.WithActivityOptions(ctx, fastOpts)
 		_ = workflow.ExecuteActivity(ctxTriageUpdate, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID:        input.TenantID,
 			SourceID:        input.SourceID,
 			Status:          "rejected",
-			FailureCategory: "empty_content",
+			FailureCategory: string(pe.Code),
 			FailureReason:   err.Error(),
 		}).Get(ctx, nil)
 		state.result.Status = "rejected"
-		state.result.Error = fmt.Sprintf("empty_content: %s", err.Error())
+		state.result.Error = fmt.Sprintf("%s: %s", pe.Code, err.Error())
 		state.status.ErrorMessage = state.result.Error
 		return state.result, nil
 	}
@@ -1015,17 +1031,20 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}).Get(ctx, &embeddingID)
 	if err != nil {
 		runCompensation(ctx)
+		pe := perrors.ClassifyError(err, "embedding")
 		state.result.Status = "failed"
 		state.result.Error = fmt.Sprintf("embedding_failed: %v", err)
 		state.status.ErrorMessage = state.result.Error
-		logger.Error("Stage 5 Embedding failed — pipeline failed", "error", err)
+		logger.Error("Stage 5 Embedding failed — pipeline failed", "error", err, "error_code", pe.Code)
 
 		// Update status to failed
 		ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
 		_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
-			TenantID: input.TenantID,
-			SourceID: input.SourceID,
-			Status:   "failed",
+			TenantID:        input.TenantID,
+			SourceID:        input.SourceID,
+			Status:          "failed",
+			FailureCategory: string(pe.Code),
+			FailureReason:   err.Error(),
 		}).Get(ctx, nil)
 
 		return state.result, nil

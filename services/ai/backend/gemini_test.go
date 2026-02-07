@@ -3,11 +3,14 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
+
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 )
 
 func TestNewGeminiBackend(t *testing.T) {
@@ -776,9 +779,18 @@ func TestGeminiBackend_ContextCancellation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	// Should be context canceled or deadline exceeded
-	if !contains(err.Error(), "context") && !contains(err.Error(), "deadline") {
-		t.Errorf("expected context error, got: %v", err)
+	// Should be context timeout error, wrapped in PipelineError
+	var pe *perrors.PipelineError
+	if errors.As(err, &pe) {
+		// Wrapped as PipelineError
+		if pe.Code != perrors.ErrTimeout && pe.Code != perrors.ErrContextCancelled {
+			t.Errorf("expected ErrTimeout or ErrContextCancelled, got: %s", pe.Code)
+		}
+	} else {
+		// Fallback check for legacy behavior (though should be wrapped)
+		if !contains(err.Error(), "context") && !contains(err.Error(), "deadline") {
+			t.Errorf("expected context error, got: %v", err)
+		}
 	}
 }
 
@@ -788,4 +800,222 @@ func contains(s, substr string) bool {
 		len(s) > 0 && len(substr) > 0 &&
 			(s[0:len(substr)] == substr ||
 				contains(s[1:], substr)))
+}
+
+// TestGeminiBackend_ErrorClassification tests error classification for timeouts and rate limits.
+func TestGeminiBackend_ErrorClassification(t *testing.T) {
+	t.Run("timeout error returns PipelineError with ErrTimeout", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(200 * time.Millisecond) // Exceed context deadline
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		be, _ := NewGeminiBackend(&GeminiConfig{
+			APIKey:   "test-key",
+			Endpoint: server.URL,
+			Timeout:  100 * time.Millisecond,
+		})
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		_, err := be.GenerateEmbedding(ctx, "test", "")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T", err)
+		}
+		if pe.Code != perrors.ErrTimeout {
+			t.Errorf("expected ErrTimeout, got %s", pe.Code)
+		}
+		if pe.Stage != "gemini-embedding" {
+			t.Errorf("expected stage 'gemini-embedding', got %s", pe.Stage)
+		}
+	})
+
+	t.Run("rate limit HTTP 429 returns PipelineError with ErrRateLimit", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			resp := struct {
+				Error *geminiError `json:"error"`
+			}{
+				Error: &geminiError{
+					Code:    429,
+					Message: "quota exceeded",
+					Status:  "RESOURCE_EXHAUSTED",
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		be, _ := NewGeminiBackend(&GeminiConfig{
+			APIKey:   "test-key",
+			Endpoint: server.URL,
+		})
+
+		_, err := be.GenerateEmbedding(context.Background(), "test", "")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T", err)
+		}
+		if pe.Code != perrors.ErrRateLimit {
+			t.Errorf("expected ErrRateLimit, got %s", pe.Code)
+		}
+	})
+
+	t.Run("RESOURCE_EXHAUSTED status returns PipelineError with ErrRateLimit", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			resp := struct {
+				Error *geminiError `json:"error"`
+			}{
+				Error: &geminiError{
+					Code:    500,
+					Message: "resource limit reached",
+					Status:  "RESOURCE_EXHAUSTED",
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		be, _ := NewGeminiBackend(&GeminiConfig{
+			APIKey:   "test-key",
+			Endpoint: server.URL,
+		})
+
+		_, err := be.GenerateEmbedding(context.Background(), "test", "")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T", err)
+		}
+		if pe.Code != perrors.ErrRateLimit {
+			t.Errorf("expected ErrRateLimit, got %s", pe.Code)
+		}
+	})
+
+	t.Run("service unavailable returns PipelineError with ErrModelUnavailable", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			resp := struct {
+				Error *geminiError `json:"error"`
+			}{
+				Error: &geminiError{
+					Code:    503,
+					Message: "service temporarily unavailable",
+					Status:  "UNAVAILABLE",
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		be, _ := NewGeminiBackend(&GeminiConfig{
+			APIKey:   "test-key",
+			Endpoint: server.URL,
+		})
+
+		_, err := be.GenerateEmbedding(context.Background(), "test", "")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T", err)
+		}
+		if pe.Code != perrors.ErrModelUnavailable {
+			t.Errorf("expected ErrModelUnavailable, got %s", pe.Code)
+		}
+	})
+}
+
+// TestGeminiBackend_ChatCompletion_ErrorClassification tests error classification for chat completion.
+func TestGeminiBackend_ChatCompletion_ErrorClassification(t *testing.T) {
+	t.Run("timeout error returns PipelineError with ErrTimeout", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(200 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		be, _ := NewGeminiBackend(&GeminiConfig{
+			APIKey:   "test-key",
+			Endpoint: server.URL,
+			Timeout:  100 * time.Millisecond,
+		})
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		messages := []Message{{Role: "user", Content: "test"}}
+		_, err := be.ChatCompletion(ctx, messages, CompletionOptions{})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T", err)
+		}
+		if pe.Code != perrors.ErrTimeout {
+			t.Errorf("expected ErrTimeout, got %s", pe.Code)
+		}
+		if pe.Stage != "gemini-llm" {
+			t.Errorf("expected stage 'gemini-llm', got %s", pe.Stage)
+		}
+	})
+
+	t.Run("rate limit returns PipelineError with ErrRateLimit", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			resp := struct {
+				Error *geminiError `json:"error"`
+			}{
+				Error: &geminiError{
+					Code:    429,
+					Message: "rate limit exceeded",
+					Status:  "RESOURCE_EXHAUSTED",
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		be, _ := NewGeminiBackend(&GeminiConfig{
+			APIKey:   "test-key",
+			Endpoint: server.URL,
+		})
+
+		messages := []Message{{Role: "user", Content: "test"}}
+		_, err := be.ChatCompletion(context.Background(), messages, CompletionOptions{})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T", err)
+		}
+		if pe.Code != perrors.ErrRateLimit {
+			t.Errorf("expected ErrRateLimit, got %s", pe.Code)
+		}
+	})
 }

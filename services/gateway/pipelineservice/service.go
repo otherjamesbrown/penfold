@@ -979,3 +979,187 @@ func pipelineRunToProto(pr *pipeline.PipelineRun) *pipelinev1.PipelineRun {
 	}
 	return proto
 }
+
+// GetTimeoutConfig retrieves timeout configuration entries.
+func (s *Service) GetTimeoutConfig(ctx context.Context, req *pipelinev1.GetTimeoutConfigRequest) (*pipelinev1.GetTimeoutConfigResponse, error) {
+	s.logger.Debug("GetTimeoutConfig called",
+		logging.F("key_filter", req.Key),
+	)
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	// Build query with optional key prefix filter
+	query := `
+		SELECT key, value, value_type, description,
+		       min_value, max_value, default_value,
+		       COALESCE(updated_at, now()), COALESCE(updated_by, '')
+		FROM pipeline_config
+		WHERE value_type = 'duration'
+	`
+	args := []interface{}{}
+
+	if req.Key != "" {
+		query += " AND key LIKE $1"
+		args = append(args, req.Key+"%")
+	}
+
+	query += " ORDER BY key"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		s.logger.Error("Error querying pipeline_config", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to query timeout config: %v", err)
+	}
+	defer rows.Close()
+
+	var entries []*pipelinev1.TimeoutEntry
+	for rows.Next() {
+		var entry pipelinev1.TimeoutEntry
+		var updatedAt time.Time
+
+		err := rows.Scan(
+			&entry.Key,
+			&entry.Value,
+			&entry.ValueType,
+			&entry.Description,
+			&entry.MinValue,
+			&entry.MaxValue,
+			&entry.DefaultValue,
+			&updatedAt,
+			&entry.UpdatedBy,
+		)
+		if err != nil {
+			s.logger.Error("Error scanning timeout entry", logging.Err(err))
+			continue
+		}
+
+		entry.UpdatedAt = updatedAt.Format(time.RFC3339)
+		entries = append(entries, &entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		s.logger.Error("Error iterating timeout entries", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to iterate timeout config: %v", err)
+	}
+
+	s.logger.Info("Timeout config retrieved",
+		logging.F("entry_count", len(entries)),
+		logging.F("key_filter", req.Key),
+	)
+
+	return &pipelinev1.GetTimeoutConfigResponse{
+		Entries: entries,
+	}, nil
+}
+
+// UpdateTimeoutConfig updates a timeout configuration value.
+func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.UpdateTimeoutConfigRequest) (*pipelinev1.UpdateTimeoutConfigResponse, error) {
+	s.logger.Info("UpdateTimeoutConfig called",
+		logging.F("key", req.Key),
+		logging.F("value", req.Value),
+		logging.F("updated_by", req.UpdatedBy),
+	)
+
+	// Validate required fields
+	if req.Key == "" {
+		return nil, status.Error(codes.InvalidArgument, "key is required")
+	}
+	if req.Value == "" {
+		return nil, status.Error(codes.InvalidArgument, "value is required")
+	}
+	if req.UpdatedBy == "" {
+		return nil, status.Error(codes.InvalidArgument, "updated_by is required")
+	}
+	if req.Reason == "" {
+		return nil, status.Error(codes.InvalidArgument, "reason is required")
+	}
+
+	// Parse the new value to validate it's a valid duration (before DB check)
+	newDuration, err := time.ParseDuration(req.Value)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid duration value: %v", err)
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	// Get current entry to check min/max and previous value
+	var entry pipelinev1.TimeoutEntry
+	var previousValue string
+	var updatedAt time.Time
+
+	err = s.db.QueryRowContext(ctx, `
+		SELECT key, value, value_type, description,
+		       min_value, max_value, default_value,
+		       COALESCE(updated_at, now()), COALESCE(updated_by, '')
+		FROM pipeline_config
+		WHERE key = $1
+	`, req.Key).Scan(
+		&entry.Key,
+		&previousValue,
+		&entry.ValueType,
+		&entry.Description,
+		&entry.MinValue,
+		&entry.MaxValue,
+		&entry.DefaultValue,
+		&updatedAt,
+		&entry.UpdatedBy,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, status.Errorf(codes.NotFound, "unknown config key: %s", req.Key)
+	}
+	if err != nil {
+		s.logger.Error("Error getting config entry", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get config entry: %v", err)
+	}
+
+	// Validate min/max bounds
+	if entry.MinValue != "" {
+		minDuration, err := time.ParseDuration(entry.MinValue)
+		if err == nil && newDuration < minDuration {
+			return nil, status.Errorf(codes.InvalidArgument, "value %s is below minimum %s", req.Value, entry.MinValue)
+		}
+	}
+	if entry.MaxValue != "" {
+		maxDuration, err := time.ParseDuration(entry.MaxValue)
+		if err == nil && newDuration > maxDuration {
+			return nil, status.Errorf(codes.InvalidArgument, "value %s is above maximum %s", req.Value, entry.MaxValue)
+		}
+	}
+
+	// Update the value in database
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE pipeline_config
+		SET value = $1, updated_at = now(), updated_by = $2
+		WHERE key = $3
+	`, req.Value, req.UpdatedBy, req.Key)
+	if err != nil {
+		s.logger.Error("Error updating config", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to update config: %v", err)
+	}
+
+	// Build response with updated entry
+	entry.Value = req.Value
+	entry.UpdatedAt = time.Now().Format(time.RFC3339)
+	entry.UpdatedBy = req.UpdatedBy
+
+	message := fmt.Sprintf("Updated %s from %s to %s (reason: %s)", req.Key, previousValue, req.Value, req.Reason)
+
+	s.logger.Info("Timeout config updated",
+		logging.F("key", req.Key),
+		logging.F("previous_value", previousValue),
+		logging.F("new_value", req.Value),
+		logging.F("updated_by", req.UpdatedBy),
+		logging.F("reason", req.Reason),
+	)
+
+	return &pipelinev1.UpdateTimeoutConfigResponse{
+		Entry:         &entry,
+		PreviousValue: previousValue,
+		Message:       message,
+	}, nil
+}

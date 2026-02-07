@@ -17,6 +17,8 @@ set -e
 SCRIPT_DIR="${0:A:h}"
 PROJECT_ROOT="${SCRIPT_DIR}/.."
 
+source "${SCRIPT_DIR}/lib/deploy-common.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -31,6 +33,7 @@ BUILD_OUTPUT="${PROJECT_ROOT}/services/worker/worker-darwin-arm64"
 NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
 NOMAD_JOB_FILE="deploy/nomad/worker.nomad.hcl"
 NOMAD_JOB_NAME="penfold-worker"
+WORKER_URL="http://dev01.brown.chat:8085"
 
 log_info() { echo "${CYAN}[INFO]${NC} $1"; }
 log_success() { echo "${GREEN}[OK]${NC} $1"; }
@@ -135,6 +138,10 @@ cmd_full_deploy() {
     echo "${CYAN}=== Penfold Worker Deployment (Nomad) ===${NC}"
     echo ""
 
+    # Capture old commit before deploy
+    OLD_COMMIT=$(get_deployed_commit "$WORKER_URL")
+    log_info "Current deployed commit: ${OLD_COMMIT}"
+
     build_worker
     echo ""
 
@@ -152,6 +159,12 @@ cmd_full_deploy() {
         log_error "Deployment failed - Nomad will auto-revert if configured"
         exit 1
     fi
+
+    # Get new commit from freshly deployed service
+    NEW_COMMIT=$(get_deployed_commit "$WORKER_URL")
+
+    # Record deployment
+    record_deploy "penfold-worker" "$OLD_COMMIT" "$NEW_COMMIT" "agent-mycroft"
 
     echo ""
     echo "${GREEN}=== Deployment Complete ===${NC}"

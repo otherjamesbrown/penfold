@@ -17,6 +17,8 @@ set -e
 SCRIPT_DIR="${0:A:h}"
 PROJECT_ROOT="${SCRIPT_DIR}/.."
 
+source "${SCRIPT_DIR}/lib/deploy-common.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -31,6 +33,7 @@ BUILD_OUTPUT="${PROJECT_ROOT}/services/gateway/gateway-linux"
 NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
 NOMAD_JOB_FILE="deploy/nomad/gateway.nomad.hcl"
 NOMAD_JOB_NAME="penfold-gateway"
+GATEWAY_URL="http://dev02.brown.chat:8080"
 
 log_info() { echo "${CYAN}[INFO]${NC} $1"; }
 log_success() { echo "${GREEN}[OK]${NC} $1"; }
@@ -121,7 +124,7 @@ check_status() {
 
     # Also check health endpoint
     echo ""
-    local health=$(curl -s -o /dev/null -w "%{http_code}" "http://${GATEWAY_HOST}.brown.chat:8080/health" 2>/dev/null || echo "000")
+    local health=$(curl -s -o /dev/null -w "%{http_code}" "${GATEWAY_URL}/health" 2>/dev/null || echo "000")
     if [[ "$health" == "200" ]]; then
         log_success "Health endpoint: OK"
     else
@@ -144,7 +147,7 @@ run_smoke_tests() {
     fi
 
     # Fallback: basic health check
-    if curl -sf "http://${GATEWAY_HOST}.brown.chat:8080/health" > /dev/null; then
+    if curl -sf "${GATEWAY_URL}/health" > /dev/null; then
         log_success "Basic health check passed"
         return 0
     fi
@@ -158,6 +161,10 @@ run_smoke_tests() {
 cmd_full_deploy() {
     echo "${CYAN}=== Penfold Gateway Deployment (Nomad) ===${NC}"
     echo ""
+
+    # Capture old commit before deploy
+    OLD_COMMIT=$(get_deployed_commit "$GATEWAY_URL")
+    log_info "Current deployed commit: ${OLD_COMMIT}"
 
     build_gateway
     echo ""
@@ -179,6 +186,12 @@ cmd_full_deploy() {
 
     echo ""
     run_smoke_tests || true
+
+    # Get new commit from freshly deployed service
+    NEW_COMMIT=$(get_deployed_commit "$GATEWAY_URL")
+
+    # Record deployment
+    record_deploy "penfold-gateway" "$OLD_COMMIT" "$NEW_COMMIT" "agent-mycroft"
 
     echo ""
     echo "${GREEN}=== Deployment Complete ===${NC}"

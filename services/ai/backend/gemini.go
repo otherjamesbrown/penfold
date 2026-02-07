@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 )
 
 // Default Gemini models.
@@ -202,10 +204,38 @@ func (b *GeminiBackend) GenerateEmbedding(ctx context.Context, text string, mode
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	start := time.Now()
 	resp, err := b.httpClient.Do(req)
+	elapsed := time.Since(start)
+
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("%w: %v", ErrContextCanceled, ctx.Err())
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, &perrors.PipelineError{
+				Code:     perrors.ErrTimeout,
+				Stage:    "gemini-embedding",
+				Message:  fmt.Sprintf("Gemini embedding request timed out after %s", elapsed.Round(time.Millisecond)),
+				Duration: elapsed,
+				Cause:    err,
+			}
+		}
+		if ctx.Err() == context.Canceled {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrContextCancelled,
+				Stage:   "gemini-embedding",
+				Message: "context cancelled",
+				Cause:   err,
+			}
+		}
+		// Connection errors indicate service unavailable
+		errMsg := err.Error()
+		if strings.Contains(strings.ToLower(errMsg), "connection refused") ||
+		   strings.Contains(strings.ToLower(errMsg), "no such host") {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrModelUnavailable,
+				Stage:   "gemini-embedding",
+				Message: errMsg,
+				Cause:   err,
+			}
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
@@ -331,10 +361,38 @@ func (b *GeminiBackend) ChatCompletion(ctx context.Context, messages []Message, 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	start := time.Now()
 	resp, err := b.httpClient.Do(req)
+	elapsed := time.Since(start)
+
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("%w: %v", ErrContextCanceled, ctx.Err())
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, &perrors.PipelineError{
+				Code:     perrors.ErrTimeout,
+				Stage:    "gemini-llm",
+				Message:  fmt.Sprintf("Gemini LLM request timed out after %s", elapsed.Round(time.Millisecond)),
+				Duration: elapsed,
+				Cause:    err,
+			}
+		}
+		if ctx.Err() == context.Canceled {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrContextCancelled,
+				Stage:   "gemini-llm",
+				Message: "context cancelled",
+				Cause:   err,
+			}
+		}
+		// Connection errors indicate service unavailable
+		errMsg := err.Error()
+		if strings.Contains(strings.ToLower(errMsg), "connection refused") ||
+		   strings.Contains(strings.ToLower(errMsg), "no such host") {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrModelUnavailable,
+				Stage:   "gemini-llm",
+				Message: errMsg,
+				Cause:   err,
+			}
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
@@ -446,7 +504,19 @@ func (b *GeminiBackend) handleHTTPError(statusCode int, body []byte) error {
 	if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error != nil {
 		switch statusCode {
 		case http.StatusTooManyRequests:
-			return fmt.Errorf("%w: rate limit exceeded: %s", ErrRequestFailed, errResp.Error.Message)
+			// Rate limit errors return PipelineError with ErrRateLimit
+			return &perrors.PipelineError{
+				Code:    perrors.ErrRateLimit,
+				Stage:   "gemini",
+				Message: fmt.Sprintf("rate limit exceeded: %s", errResp.Error.Message),
+			}
+		case http.StatusServiceUnavailable, http.StatusBadGateway, http.StatusGatewayTimeout:
+			// Service unavailable errors
+			return &perrors.PipelineError{
+				Code:    perrors.ErrModelUnavailable,
+				Stage:   "gemini",
+				Message: fmt.Sprintf("service unavailable: %s", errResp.Error.Message),
+			}
 		case http.StatusUnauthorized:
 			return fmt.Errorf("%w: authentication failed: %s", ErrRequestFailed, errResp.Error.Message)
 		case http.StatusForbidden:
@@ -454,10 +524,25 @@ func (b *GeminiBackend) handleHTTPError(statusCode int, body []byte) error {
 		case http.StatusNotFound:
 			return fmt.Errorf("%w: model not found: %s", ErrRequestFailed, errResp.Error.Message)
 		default:
+			// Check for RESOURCE_EXHAUSTED in error status (Gemini-specific rate limit)
+			if strings.Contains(strings.ToUpper(errResp.Error.Status), "RESOURCE_EXHAUSTED") {
+				return &perrors.PipelineError{
+					Code:    perrors.ErrRateLimit,
+					Stage:   "gemini",
+					Message: fmt.Sprintf("resource exhausted: %s", errResp.Error.Message),
+				}
+			}
 			return fmt.Errorf("%w: HTTP %d: %s", ErrRequestFailed, statusCode, errResp.Error.Message)
 		}
 	}
 
 	// Fall back to raw body if parsing fails
+	if statusCode == http.StatusTooManyRequests {
+		return &perrors.PipelineError{
+			Code:    perrors.ErrRateLimit,
+			Stage:   "gemini",
+			Message: fmt.Sprintf("HTTP 429: %s", string(body)),
+		}
+	}
 	return fmt.Errorf("%w: HTTP %d: %s", ErrRequestFailed, statusCode, string(body))
 }

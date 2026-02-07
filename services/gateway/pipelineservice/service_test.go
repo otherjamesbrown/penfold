@@ -160,3 +160,116 @@ func TestReprocessDryRun_Validation(t *testing.T) {
 		assert.Len(t, req.SourceIds, 3)
 	})
 }
+
+func TestGetTimeoutConfig_Validation(t *testing.T) {
+	svc := NewService(nil, testLogger(), nil, nil, "default")
+
+	t.Run("nil db returns error", func(t *testing.T) {
+		_, err := svc.GetTimeoutConfig(context.Background(), &pipelinev1.GetTimeoutConfigRequest{})
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Unavailable, st.Code())
+	})
+
+	t.Run("valid request structure", func(t *testing.T) {
+		req := &pipelinev1.GetTimeoutConfigRequest{Key: "timeout.activity"}
+		assert.Equal(t, "timeout.activity", req.Key)
+	})
+
+	t.Run("valid request with empty key", func(t *testing.T) {
+		req := &pipelinev1.GetTimeoutConfigRequest{}
+		assert.Equal(t, "", req.Key)
+	})
+}
+
+func TestUpdateTimeoutConfig_Validation(t *testing.T) {
+	svc := NewService(nil, testLogger(), nil, nil, "default")
+
+	t.Run("missing key", func(t *testing.T) {
+		_, err := svc.UpdateTimeoutConfig(context.Background(), &pipelinev1.UpdateTimeoutConfigRequest{
+			Value:     "30s",
+			UpdatedBy: "test",
+			Reason:    "test",
+		})
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+	})
+
+	t.Run("missing value", func(t *testing.T) {
+		_, err := svc.UpdateTimeoutConfig(context.Background(), &pipelinev1.UpdateTimeoutConfigRequest{
+			Key:       "timeout.ai_client.request",
+			UpdatedBy: "test",
+			Reason:    "test",
+		})
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+	})
+
+	t.Run("missing updated_by", func(t *testing.T) {
+		_, err := svc.UpdateTimeoutConfig(context.Background(), &pipelinev1.UpdateTimeoutConfigRequest{
+			Key:    "timeout.ai_client.request",
+			Value:  "30s",
+			Reason: "test",
+		})
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+	})
+
+	t.Run("missing reason", func(t *testing.T) {
+		_, err := svc.UpdateTimeoutConfig(context.Background(), &pipelinev1.UpdateTimeoutConfigRequest{
+			Key:       "timeout.ai_client.request",
+			Value:     "30s",
+			UpdatedBy: "test",
+		})
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+	})
+
+	t.Run("invalid duration value", func(t *testing.T) {
+		_, err := svc.UpdateTimeoutConfig(context.Background(), &pipelinev1.UpdateTimeoutConfigRequest{
+			Key:       "timeout.ai_client.request",
+			Value:     "invalid",
+			UpdatedBy: "test",
+			Reason:    "test",
+		})
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+	})
+
+	t.Run("nil db returns error", func(t *testing.T) {
+		_, err := svc.UpdateTimeoutConfig(context.Background(), &pipelinev1.UpdateTimeoutConfigRequest{
+			Key:       "timeout.ai_client.request",
+			Value:     "30s",
+			UpdatedBy: "test",
+			Reason:    "test",
+		})
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Unavailable, st.Code())
+	})
+
+	t.Run("valid request structure", func(t *testing.T) {
+		req := &pipelinev1.UpdateTimeoutConfigRequest{
+			Key:       "timeout.ai_client.request",
+			Value:     "180s",
+			UpdatedBy: "test-user",
+			Reason:    "Extended for longer requests",
+		}
+		assert.Equal(t, "timeout.ai_client.request", req.Key)
+		assert.Equal(t, "180s", req.Value)
+		assert.Equal(t, "test-user", req.UpdatedBy)
+		assert.Equal(t, "Extended for longer requests", req.Reason)
+	})
+}

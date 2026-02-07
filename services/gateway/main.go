@@ -42,6 +42,7 @@ import (
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
+	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -84,13 +85,6 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/tenantservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/watchlistservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/workflowservice"
-)
-
-// Build-time variables set via ldflags.
-var (
-	version   = "dev"
-	commit    = "unknown"
-	buildTime = "unknown"
 )
 
 // logWriterAdapter adapts logs.Repository to logging.LogWriter.
@@ -143,12 +137,12 @@ func main() {
 	logging.SetGlobal(logger)
 
 	// Set the exported version for health check responses.
-	server.Version = version
+	server.Version = buildinfo.Version
 
 	logger.Info("Starting API Gateway service",
-		logging.F("version", version),
-		logging.F("commit", commit),
-		logging.F("build_time", buildTime),
+		logging.F("version", buildinfo.Version),
+		logging.F("commit", buildinfo.Commit),
+		logging.F("build_time", buildinfo.BuildTime),
 		logging.F("environment", cfg.Base.Environment),
 		logging.F("grpc_port", cfg.GRPCPort),
 		logging.F("http_port", cfg.HTTPPort),
@@ -208,7 +202,7 @@ func main() {
 	}
 
 	// Initialize health aggregator for backend services.
-	healthAggregator := gatewayhealth.NewAggregator(version)
+	healthAggregator := gatewayhealth.NewAggregator(buildinfo.Version)
 	healthAggregator.SetDefaultTimeout(5 * time.Second)
 
 	// Register database health check.
@@ -508,6 +502,7 @@ func main() {
 	httpMux.Handle("/ready", healthAggregator.ReadyHandler())
 	httpMux.Handle("/live", healthAggregator.LiveHandler())
 	httpMux.Handle("/metrics", promhttp.Handler())
+	httpMux.HandleFunc("/version", buildinfo.Handler("penfold-gateway"))
 
 	httpServer := &http.Server{
 		Addr:         cfg.HTTPAddress(),

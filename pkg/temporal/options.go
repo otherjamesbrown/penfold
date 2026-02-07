@@ -10,6 +10,14 @@ import (
 
 // Activity option presets for different operation types.
 // These provide consistent configuration across all workflows.
+//
+// NOTE: These functions currently use hardcoded timeout values. In the future,
+// they could accept a *timeout.Config parameter to read values from pipeline_config.
+// However, Temporal activity options are set at workflow dispatch time in workflow code,
+// which cannot access runtime state. For dynamic timeout configuration, consider:
+// 1. Passing timeout values through workflow input
+// 2. Using workflow signals to update timeout behavior
+// 3. Adding a gRPC API for penf to update config values and restart workflows
 
 // FastActivityOptions returns activity options suitable for quick operations
 // like database queries or simple transformations.

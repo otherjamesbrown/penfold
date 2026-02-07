@@ -22,13 +22,7 @@ import (
 	"github.com/otherjamesbrown/penfold/cmd/penf/cmd"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 	"github.com/otherjamesbrown/penfold/cmd/penf/contextpalace"
-)
-
-// Version information (set via ldflags at build time).
-var (
-	version   = "dev"
-	commit    = "unknown"
-	buildTime = "unknown"
+	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 )
 
 // Global flags and state.
@@ -143,15 +137,108 @@ DISCOVERY:
 	},
 }
 
+// Version command flags.
+var (
+	versionAll        bool
+	versionOutputJSON bool
+)
+
 // versionCmd prints version information.
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
-	Long:  `Print the version, commit hash, and build time of the penf CLI.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("penf version %s\n", version)
-		fmt.Printf("  commit:     %s\n", commit)
-		fmt.Printf("  built:      %s\n", buildTime)
+	Long: `Print the version, commit hash, and build time of the penf CLI.
+
+Use --all to query all service versions.
+Use --output json for machine-readable output.
+
+Examples:
+  penf version               Show CLI version only
+  penf version --all         Show all service versions
+  penf version --all --output json  Output as JSON`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Always get local CLI version first.
+		info := buildinfo.Get("penf-cli")
+
+		if !versionAll {
+			// Just print local version.
+			fmt.Printf("penf version %s\n", info.Version)
+			fmt.Printf("  commit:     %s\n", info.Commit)
+			fmt.Printf("  built:      %s\n", info.BuildTime)
+			return nil
+		}
+
+		// Query all services.
+		services := []struct {
+			Name string
+			URL  string
+		}{
+			{"penfold-gateway", "http://dev02.brown.chat:8080"},
+			{"penfold-worker", "http://dev01.brown.chat:8085"},
+			{"penfold-ai-coordinator", "http://dev02.brown.chat:8090"},
+		}
+
+		type result struct {
+			Info buildinfo.Info
+			Err  error
+		}
+
+		results := []result{{Info: info}} // CLI first
+
+		httpClient := &http.Client{Timeout: 5 * time.Second}
+		for _, svc := range services {
+			resp, err := httpClient.Get(svc.URL + "/version")
+			if err != nil {
+				results = append(results, result{
+					Info: buildinfo.Info{ServiceName: svc.Name, Version: "unreachable"},
+					Err:  err,
+				})
+				continue
+			}
+			defer resp.Body.Close()
+
+			var svcInfo buildinfo.Info
+			if err := json.NewDecoder(resp.Body).Decode(&svcInfo); err != nil {
+				results = append(results, result{
+					Info: buildinfo.Info{ServiceName: svc.Name, Version: "error"},
+					Err:  err,
+				})
+				continue
+			}
+			results = append(results, result{Info: svcInfo})
+		}
+
+		if versionOutputJSON {
+			infos := make([]buildinfo.Info, len(results))
+			for i, r := range results {
+				infos[i] = r.Info
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(infos)
+		}
+
+		// Table format.
+		fmt.Printf("%-25s %-12s %-10s %s\n", "SERVICE", "VERSION", "COMMIT", "BUILT")
+		for _, r := range results {
+			version := r.Info.Version
+			commit := r.Info.Commit
+			built := r.Info.BuildTime
+			if r.Err != nil {
+				version = "unreachable"
+				commit = "-"
+				built = "-"
+			}
+			if len(commit) > 10 {
+				commit = commit[:10]
+			}
+			if len(built) > 20 {
+				built = built[:20]
+			}
+			fmt.Printf("%-25s %-12s %-10s %s\n", r.Info.ServiceName, version, commit, built)
+		}
+
+		return nil
 	},
 }
 
@@ -1200,11 +1287,11 @@ func init() {
 	initCmd.GroupID = "setup"
 	rootCmd.AddCommand(initCmd)
 
-	updateCmd := cmd.NewUpdateCommand(version)
+	updateCmd := cmd.NewUpdateCommand(buildinfo.Version)
 	updateCmd.GroupID = "setup"
 	rootCmd.AddCommand(updateCmd)
 
-	feedbackCmd := cmd.NewFeedbackCommand(version)
+	feedbackCmd := cmd.NewFeedbackCommand(buildinfo.Version)
 	feedbackCmd.GroupID = "setup"
 	rootCmd.AddCommand(feedbackCmd)
 
@@ -1212,6 +1299,8 @@ func init() {
 	rootCmd.AddCommand(completionCmd)
 
 	versionCmd.GroupID = "setup"
+	versionCmd.Flags().BoolVar(&versionAll, "all", false, "Query all service versions")
+	versionCmd.Flags().BoolVar(&versionOutputJSON, "output-json", false, "Output as JSON")
 	rootCmd.AddCommand(versionCmd)
 
 	// Config subcommands.

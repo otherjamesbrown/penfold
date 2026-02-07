@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/spf13/cobra"
 )
 
@@ -64,7 +67,11 @@ var services = map[string]serviceConfig{
 	},
 }
 
-var deployStatus bool
+var (
+	deployStatus     bool
+	historyLast      int
+	historyServiceName string
+)
 
 // NewDeployCommand creates the deploy command.
 func NewDeployCommand() *cobra.Command {
@@ -83,6 +90,9 @@ Examples:
   penf deploy ai           Build and deploy AI coordinator to dev02
   penf deploy all          Deploy all services in order
   penf deploy --status     Show Nomad job status for all services
+
+Subcommands:
+  penf deploy history      Show deployment history
 
 Environment:
   NOMAD_ADDR       Nomad server address (default: http://dev02.brown.chat:4646)
@@ -110,6 +120,34 @@ Environment:
 	}
 
 	deployCmd.Flags().BoolVar(&deployStatus, "status", false, "Show Nomad job status for all services")
+
+	// Add history subcommand.
+	historyCmd := &cobra.Command{
+		Use:   "history [service]",
+		Short: "Show deployment history",
+		Long: `Display deployment history from the deploy_history table.
+
+Optionally filter by service name and limit results.
+
+Examples:
+  penf deploy history                Show all deployments
+  penf deploy history gateway        Show gateway deployments only
+  penf deploy history --last 5       Show last 5 deployments
+  penf deploy history gateway --last 10  Show last 10 gateway deployments
+
+Environment:
+  PENFOLD_DB_URL   Database connection string (required)`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				historyServiceName = args[0]
+			}
+			return runDeployHistory()
+		},
+	}
+	historyCmd.Flags().IntVar(&historyLast, "last", 0, "Limit to last N deployments")
+
+	deployCmd.AddCommand(historyCmd)
 
 	return deployCmd
 }
@@ -161,6 +199,33 @@ func runCmdEnv(env []string, name string, args ...string) error {
 	return cmd.Run()
 }
 
+func buildLDFlags() (string, error) {
+	// Get version from git
+	verCmd := exec.Command("git", "describe", "--tags", "--always", "--dirty")
+	verOut, err := verCmd.Output()
+	ver := "dev"
+	if err == nil {
+		ver = strings.TrimSpace(string(verOut))
+	}
+
+	// Get commit from git
+	cmtCmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+	cmtOut, err := cmtCmd.Output()
+	cmt := "unknown"
+	if err == nil {
+		cmt = strings.TrimSpace(string(cmtOut))
+	}
+
+	// Get build time
+	bt := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+
+	// Build ldflags string targeting pkg/buildinfo
+	ldflags := fmt.Sprintf("-X github.com/otherjamesbrown/penfold/pkg/buildinfo.Version=%s -X github.com/otherjamesbrown/penfold/pkg/buildinfo.Commit=%s -X github.com/otherjamesbrown/penfold/pkg/buildinfo.BuildTime=%s",
+		ver, cmt, bt)
+
+	return ldflags, nil
+}
+
 func runDeploy(svc serviceConfig) error {
 	root, err := projectRoot()
 	if err != nil {
@@ -176,7 +241,12 @@ func runDeploy(svc serviceConfig) error {
 	buildDir := filepath.Join(root, svc.BuildDir)
 	buildOutput := filepath.Join(buildDir, svc.BinaryName)
 
-	buildCmd := exec.Command("go", "build", "-o", buildOutput, ".")
+	ldflags, err := buildLDFlags()
+	if err != nil {
+		return fmt.Errorf("failed to generate ldflags: %w", err)
+	}
+
+	buildCmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", buildOutput, ".")
 	buildCmd.Dir = buildDir
 	buildCmd.Stdout = os.Stdout
 	buildCmd.Stderr = os.Stderr
@@ -277,4 +347,124 @@ func waitForNomadHealthy(jobName string, timeoutSecs int) error {
 		time.Sleep(1 * time.Second)
 	}
 	return fmt.Errorf("%s failed to become healthy within %ds", jobName, timeoutSecs)
+}
+
+// deployHistoryEntry represents a row from the deploy_history table.
+type deployHistoryEntry struct {
+	ID              int
+	ServiceName     string
+	Commit          string
+	PreviousCommit  sql.NullString
+	Version         sql.NullString
+	DeployedAt      time.Time
+	DeployedBy      sql.NullString
+	Changes         sql.NullString
+	NomadJobVersion sql.NullInt32
+	ShardIDs        []string
+}
+
+func runDeployHistory() error {
+	// Get database URL from environment.
+	dbURL := os.Getenv("PENFOLD_DB_URL")
+	if dbURL == "" {
+		return fmt.Errorf("PENFOLD_DB_URL environment variable not set")
+	}
+
+	// Connect to database.
+	ctx := context.Background()
+	db, err := sql.Open("pgx", dbURL)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer db.Close()
+
+	// Build query.
+	query := `
+		SELECT id, service_name, commit, previous_commit, version,
+		       deployed_at, deployed_by, changes, nomad_job_version, shard_ids
+		FROM deploy_history`
+
+	var args []interface{}
+	var whereClauses []string
+
+	if historyServiceName != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("service_name = $%d", len(args)+1))
+		args = append(args, historyServiceName)
+	}
+
+	if len(whereClauses) > 0 {
+		query += " WHERE " + strings.Join(whereClauses, " AND ")
+	}
+
+	query += " ORDER BY deployed_at DESC"
+
+	if historyLast > 0 {
+		query += fmt.Sprintf(" LIMIT %d", historyLast)
+	}
+
+	// Execute query.
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to query deploy history: %w", err)
+	}
+	defer rows.Close()
+
+	// Collect results.
+	var entries []deployHistoryEntry
+	for rows.Next() {
+		var entry deployHistoryEntry
+		err := rows.Scan(
+			&entry.ID,
+			&entry.ServiceName,
+			&entry.Commit,
+			&entry.PreviousCommit,
+			&entry.Version,
+			&entry.DeployedAt,
+			&entry.DeployedBy,
+			&entry.Changes,
+			&entry.NomadJobVersion,
+			&entry.ShardIDs,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to scan row: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	// Display results.
+	if len(entries) == 0 {
+		fmt.Println("No deployment history found.")
+		return nil
+	}
+
+	fmt.Printf("%-20s %-25s %-10s %-50s %s\n", "DEPLOYED AT", "SERVICE", "COMMIT", "CHANGES", "BY")
+	fmt.Printf("%-20s %-25s %-10s %-50s %s\n", "-----------", "-------", "------", "-------", "--")
+
+	for _, entry := range entries {
+		deployedAt := entry.DeployedAt.Format("2006-01-02 15:04")
+		commit := entry.Commit
+		if len(commit) > 10 {
+			commit = commit[:10]
+		}
+		changes := ""
+		if entry.Changes.Valid {
+			changes = entry.Changes.String
+			if len(changes) > 50 {
+				changes = changes[:47] + "..."
+			}
+		}
+		deployedBy := "-"
+		if entry.DeployedBy.Valid && entry.DeployedBy.String != "" {
+			deployedBy = entry.DeployedBy.String
+		}
+
+		fmt.Printf("%-20s %-25s %-10s %-50s %s\n",
+			deployedAt, entry.ServiceName, commit, changes, deployedBy)
+	}
+
+	return nil
 }

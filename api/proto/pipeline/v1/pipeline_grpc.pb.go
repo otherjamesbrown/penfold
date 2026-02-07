@@ -22,24 +22,26 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PipelineService_GetStats_FullMethodName           = "/penfold.pipeline.v1.PipelineService/GetStats"
-	PipelineService_GetJob_FullMethodName             = "/penfold.pipeline.v1.PipelineService/GetJob"
-	PipelineService_ListJobs_FullMethodName           = "/penfold.pipeline.v1.PipelineService/ListJobs"
-	PipelineService_KickProcessing_FullMethodName     = "/penfold.pipeline.v1.PipelineService/KickProcessing"
-	PipelineService_RetryFailed_FullMethodName        = "/penfold.pipeline.v1.PipelineService/RetryFailed"
-	PipelineService_GetQueueStatus_FullMethodName     = "/penfold.pipeline.v1.PipelineService/GetQueueStatus"
-	PipelineService_GetPipelineHealth_FullMethodName  = "/penfold.pipeline.v1.PipelineService/GetPipelineHealth"
-	PipelineService_GetContentTrace_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetContentTrace"
-	PipelineService_ListDeletedSources_FullMethodName = "/penfold.pipeline.v1.PipelineService/ListDeletedSources"
-	PipelineService_UndeleteSource_FullMethodName     = "/penfold.pipeline.v1.PipelineService/UndeleteSource"
-	PipelineService_DescribePipeline_FullMethodName   = "/penfold.pipeline.v1.PipelineService/DescribePipeline"
-	PipelineService_GetPrompt_FullMethodName          = "/penfold.pipeline.v1.PipelineService/GetPrompt"
-	PipelineService_ListPromptVersions_FullMethodName = "/penfold.pipeline.v1.PipelineService/ListPromptVersions"
-	PipelineService_UpdatePrompt_FullMethodName       = "/penfold.pipeline.v1.PipelineService/UpdatePrompt"
-	PipelineService_RollbackPrompt_FullMethodName     = "/penfold.pipeline.v1.PipelineService/RollbackPrompt"
-	PipelineService_ExportPrompt_FullMethodName       = "/penfold.pipeline.v1.PipelineService/ExportPrompt"
-	PipelineService_GetSourceHistory_FullMethodName   = "/penfold.pipeline.v1.PipelineService/GetSourceHistory"
-	PipelineService_ReprocessDryRun_FullMethodName    = "/penfold.pipeline.v1.PipelineService/ReprocessDryRun"
+	PipelineService_GetStats_FullMethodName            = "/penfold.pipeline.v1.PipelineService/GetStats"
+	PipelineService_GetJob_FullMethodName              = "/penfold.pipeline.v1.PipelineService/GetJob"
+	PipelineService_ListJobs_FullMethodName            = "/penfold.pipeline.v1.PipelineService/ListJobs"
+	PipelineService_KickProcessing_FullMethodName      = "/penfold.pipeline.v1.PipelineService/KickProcessing"
+	PipelineService_RetryFailed_FullMethodName         = "/penfold.pipeline.v1.PipelineService/RetryFailed"
+	PipelineService_GetQueueStatus_FullMethodName      = "/penfold.pipeline.v1.PipelineService/GetQueueStatus"
+	PipelineService_GetPipelineHealth_FullMethodName   = "/penfold.pipeline.v1.PipelineService/GetPipelineHealth"
+	PipelineService_GetContentTrace_FullMethodName     = "/penfold.pipeline.v1.PipelineService/GetContentTrace"
+	PipelineService_ListDeletedSources_FullMethodName  = "/penfold.pipeline.v1.PipelineService/ListDeletedSources"
+	PipelineService_UndeleteSource_FullMethodName      = "/penfold.pipeline.v1.PipelineService/UndeleteSource"
+	PipelineService_DescribePipeline_FullMethodName    = "/penfold.pipeline.v1.PipelineService/DescribePipeline"
+	PipelineService_GetPrompt_FullMethodName           = "/penfold.pipeline.v1.PipelineService/GetPrompt"
+	PipelineService_ListPromptVersions_FullMethodName  = "/penfold.pipeline.v1.PipelineService/ListPromptVersions"
+	PipelineService_UpdatePrompt_FullMethodName        = "/penfold.pipeline.v1.PipelineService/UpdatePrompt"
+	PipelineService_RollbackPrompt_FullMethodName      = "/penfold.pipeline.v1.PipelineService/RollbackPrompt"
+	PipelineService_ExportPrompt_FullMethodName        = "/penfold.pipeline.v1.PipelineService/ExportPrompt"
+	PipelineService_GetSourceHistory_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetSourceHistory"
+	PipelineService_ReprocessDryRun_FullMethodName     = "/penfold.pipeline.v1.PipelineService/ReprocessDryRun"
+	PipelineService_GetTimeoutConfig_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetTimeoutConfig"
+	PipelineService_UpdateTimeoutConfig_FullMethodName = "/penfold.pipeline.v1.PipelineService/UpdateTimeoutConfig"
 )
 
 // PipelineServiceClient is the client API for PipelineService service.
@@ -84,6 +86,10 @@ type PipelineServiceClient interface {
 	GetSourceHistory(ctx context.Context, in *GetSourceHistoryRequest, opts ...grpc.CallOption) (*GetSourceHistoryResponse, error)
 	// ReprocessDryRun calculates the impact of reprocessing a stage.
 	ReprocessDryRun(ctx context.Context, in *ReprocessDryRunRequest, opts ...grpc.CallOption) (*ReprocessDryRunResponse, error)
+	// GetTimeoutConfig retrieves timeout configuration entries.
+	GetTimeoutConfig(ctx context.Context, in *GetTimeoutConfigRequest, opts ...grpc.CallOption) (*GetTimeoutConfigResponse, error)
+	// UpdateTimeoutConfig updates a timeout configuration value.
+	UpdateTimeoutConfig(ctx context.Context, in *UpdateTimeoutConfigRequest, opts ...grpc.CallOption) (*UpdateTimeoutConfigResponse, error)
 }
 
 type pipelineServiceClient struct {
@@ -274,6 +280,26 @@ func (c *pipelineServiceClient) ReprocessDryRun(ctx context.Context, in *Reproce
 	return out, nil
 }
 
+func (c *pipelineServiceClient) GetTimeoutConfig(ctx context.Context, in *GetTimeoutConfigRequest, opts ...grpc.CallOption) (*GetTimeoutConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetTimeoutConfigResponse)
+	err := c.cc.Invoke(ctx, PipelineService_GetTimeoutConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) UpdateTimeoutConfig(ctx context.Context, in *UpdateTimeoutConfigRequest, opts ...grpc.CallOption) (*UpdateTimeoutConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateTimeoutConfigResponse)
+	err := c.cc.Invoke(ctx, PipelineService_UpdateTimeoutConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PipelineServiceServer is the server API for PipelineService service.
 // All implementations must embed UnimplementedPipelineServiceServer
 // for forward compatibility.
@@ -316,6 +342,10 @@ type PipelineServiceServer interface {
 	GetSourceHistory(context.Context, *GetSourceHistoryRequest) (*GetSourceHistoryResponse, error)
 	// ReprocessDryRun calculates the impact of reprocessing a stage.
 	ReprocessDryRun(context.Context, *ReprocessDryRunRequest) (*ReprocessDryRunResponse, error)
+	// GetTimeoutConfig retrieves timeout configuration entries.
+	GetTimeoutConfig(context.Context, *GetTimeoutConfigRequest) (*GetTimeoutConfigResponse, error)
+	// UpdateTimeoutConfig updates a timeout configuration value.
+	UpdateTimeoutConfig(context.Context, *UpdateTimeoutConfigRequest) (*UpdateTimeoutConfigResponse, error)
 	mustEmbedUnimplementedPipelineServiceServer()
 }
 
@@ -379,6 +409,12 @@ func (UnimplementedPipelineServiceServer) GetSourceHistory(context.Context, *Get
 }
 func (UnimplementedPipelineServiceServer) ReprocessDryRun(context.Context, *ReprocessDryRunRequest) (*ReprocessDryRunResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReprocessDryRun not implemented")
+}
+func (UnimplementedPipelineServiceServer) GetTimeoutConfig(context.Context, *GetTimeoutConfigRequest) (*GetTimeoutConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTimeoutConfig not implemented")
+}
+func (UnimplementedPipelineServiceServer) UpdateTimeoutConfig(context.Context, *UpdateTimeoutConfigRequest) (*UpdateTimeoutConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateTimeoutConfig not implemented")
 }
 func (UnimplementedPipelineServiceServer) mustEmbedUnimplementedPipelineServiceServer() {}
 func (UnimplementedPipelineServiceServer) testEmbeddedByValue()                         {}
@@ -725,6 +761,42 @@ func _PipelineService_ReprocessDryRun_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_GetTimeoutConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTimeoutConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).GetTimeoutConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_GetTimeoutConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).GetTimeoutConfig(ctx, req.(*GetTimeoutConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_UpdateTimeoutConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateTimeoutConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).UpdateTimeoutConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_UpdateTimeoutConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).UpdateTimeoutConfig(ctx, req.(*UpdateTimeoutConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PipelineService_ServiceDesc is the grpc.ServiceDesc for PipelineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -803,6 +875,14 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReprocessDryRun",
 			Handler:    _PipelineService_ReprocessDryRun_Handler,
+		},
+		{
+			MethodName: "GetTimeoutConfig",
+			Handler:    _PipelineService_GetTimeoutConfig_Handler,
+		},
+		{
+			MethodName: "UpdateTimeoutConfig",
+			Handler:    _PipelineService_UpdateTimeoutConfig_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

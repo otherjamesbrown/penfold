@@ -17,6 +17,8 @@ set -e
 SCRIPT_DIR="${0:A:h}"
 PROJECT_ROOT="${SCRIPT_DIR}/.."
 
+source "${SCRIPT_DIR}/lib/deploy-common.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -31,6 +33,7 @@ BUILD_OUTPUT="${PROJECT_ROOT}/services/ai/ai-coordinator-linux"
 NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
 NOMAD_JOB_FILE="deploy/nomad/ai-coordinator.nomad.hcl"
 NOMAD_JOB_NAME="penfold-ai-coordinator"
+AI_URL="http://dev02.brown.chat:8090"
 
 log_info() { echo "${CYAN}[INFO]${NC} $1"; }
 log_success() { echo "${GREEN}[OK]${NC} $1"; }
@@ -121,7 +124,7 @@ check_status() {
 
     # Also check health endpoint
     echo ""
-    local health=$(curl -s -o /dev/null -w "%{http_code}" "http://${AI_HOST}.brown.chat:8090/health" 2>/dev/null || echo "000")
+    local health=$(curl -s -o /dev/null -w "%{http_code}" "${AI_URL}/health" 2>/dev/null || echo "000")
     if [[ "$health" == "200" ]]; then
         log_success "Health endpoint: OK"
     else
@@ -134,6 +137,10 @@ check_status() {
 cmd_full_deploy() {
     echo "${CYAN}=== Penfold AI Coordinator Deployment (Nomad) ===${NC}"
     echo ""
+
+    # Capture old commit before deploy
+    OLD_COMMIT=$(get_deployed_commit "$AI_URL")
+    log_info "Current deployed commit: ${OLD_COMMIT}"
 
     build_ai
     echo ""
@@ -152,6 +159,12 @@ cmd_full_deploy() {
         log_error "Deployment failed - Nomad will auto-revert if configured"
         exit 1
     fi
+
+    # Get new commit from freshly deployed service
+    NEW_COMMIT=$(get_deployed_commit "$AI_URL")
+
+    # Record deployment
+    record_deploy "penfold-ai-coordinator" "$OLD_COMMIT" "$NEW_COMMIT" "agent-mycroft"
 
     echo ""
     echo "${GREEN}=== Deployment Complete ===${NC}"

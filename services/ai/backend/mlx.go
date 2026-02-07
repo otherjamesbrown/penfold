@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 )
 
 // MLXBackend connects to MLX servers for embeddings and LLM operations.
@@ -195,10 +197,38 @@ func (b *MLXBackend) GenerateEmbedding(ctx context.Context, text string, model s
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	start := time.Now()
 	resp, err := b.httpClient.Do(req)
+	elapsed := time.Since(start)
+
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("%w: %v", ErrContextCanceled, ctx.Err())
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, &perrors.PipelineError{
+				Code:     perrors.ErrTimeout,
+				Stage:    "mlx-embedding",
+				Message:  fmt.Sprintf("MLX embedding request timed out after %s", elapsed.Round(time.Millisecond)),
+				Duration: elapsed,
+				Cause:    err,
+			}
+		}
+		if ctx.Err() == context.Canceled {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrContextCancelled,
+				Stage:   "mlx-embedding",
+				Message: "context cancelled",
+				Cause:   err,
+			}
+		}
+		// Connection errors indicate service unavailable
+		errMsg := err.Error()
+		if strings.Contains(strings.ToLower(errMsg), "connection refused") ||
+		   strings.Contains(strings.ToLower(errMsg), "no such host") {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrModelUnavailable,
+				Stage:   "mlx-embedding",
+				Message: errMsg,
+				Cause:   err,
+			}
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
@@ -210,6 +240,20 @@ func (b *MLXBackend) GenerateEmbedding(ctx context.Context, text string, model s
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrRateLimit,
+				Stage:   "mlx-embedding",
+				Message: fmt.Sprintf("rate limit exceeded: HTTP %d: %s", resp.StatusCode, string(body)),
+			}
+		}
+		if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrModelUnavailable,
+				Stage:   "mlx-embedding",
+				Message: fmt.Sprintf("service unavailable: HTTP %d: %s", resp.StatusCode, string(body)),
+			}
+		}
 		return nil, fmt.Errorf("%w: HTTP %d: %s", ErrRequestFailed, resp.StatusCode, string(body))
 	}
 
@@ -286,10 +330,38 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	start := time.Now()
 	resp, err := b.httpClient.Do(req)
+	elapsed := time.Since(start)
+
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("%w: %v", ErrContextCanceled, ctx.Err())
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, &perrors.PipelineError{
+				Code:     perrors.ErrTimeout,
+				Stage:    "mlx-llm",
+				Message:  fmt.Sprintf("MLX LLM request timed out after %s", elapsed.Round(time.Millisecond)),
+				Duration: elapsed,
+				Cause:    err,
+			}
+		}
+		if ctx.Err() == context.Canceled {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrContextCancelled,
+				Stage:   "mlx-llm",
+				Message: "context cancelled",
+				Cause:   err,
+			}
+		}
+		// Connection errors indicate service unavailable
+		errMsg := err.Error()
+		if strings.Contains(strings.ToLower(errMsg), "connection refused") ||
+		   strings.Contains(strings.ToLower(errMsg), "no such host") {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrModelUnavailable,
+				Stage:   "mlx-llm",
+				Message: errMsg,
+				Cause:   err,
+			}
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
@@ -301,6 +373,20 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrRateLimit,
+				Stage:   "mlx-llm",
+				Message: fmt.Sprintf("rate limit exceeded: HTTP %d: %s", resp.StatusCode, string(body)),
+			}
+		}
+		if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrModelUnavailable,
+				Stage:   "mlx-llm",
+				Message: fmt.Sprintf("service unavailable: HTTP %d: %s", resp.StatusCode, string(body)),
+			}
+		}
 		return nil, fmt.Errorf("%w: HTTP %d: %s", ErrRequestFailed, resp.StatusCode, string(body))
 	}
 

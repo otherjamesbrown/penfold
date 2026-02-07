@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/otherjamesbrown/penfold/pkg/ai"
+	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/health"
@@ -29,6 +30,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	pkgobs "github.com/otherjamesbrown/penfold/pkg/temporal/observability"
+	"github.com/otherjamesbrown/penfold/pkg/timeout"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/activities"
 	"github.com/otherjamesbrown/penfold/services/worker/config"
@@ -36,13 +38,6 @@ import (
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
-)
-
-// Build-time variables set via ldflags.
-var (
-	version   = "dev"
-	commit    = "unknown"
-	buildTime = "unknown"
 )
 
 // logWriterAdapter adapts logs.Repository to logging.LogWriter.
@@ -95,9 +90,9 @@ func main() {
 	logging.SetGlobal(logger)
 
 	logger.Info("Starting Penfold Temporal worker",
-		logging.F("version", version),
-		logging.F("commit", commit),
-		logging.F("build_time", buildTime),
+		logging.F("version", buildinfo.Version),
+		logging.F("commit", buildinfo.Commit),
+		logging.F("build_time", buildinfo.BuildTime),
 		logging.F("http_port", cfg.HTTPPort),
 		logging.F("temporal_host", cfg.TemporalHostPort),
 		logging.F("temporal_namespace", cfg.TemporalNamespace),
@@ -167,6 +162,43 @@ func main() {
 		logger.Warn("DATABASE_URL not configured - activities requiring database will fail")
 	}
 
+	// Initialize timeout configuration
+	ctx := context.Background()
+	timeoutCfg := timeout.New(dbPool)
+
+	// Load timeout config from database (non-fatal if fails — uses defaults)
+	if err := timeoutCfg.Refresh(ctx); err != nil {
+		logger.Warn("Failed to load timeout config from DB, using defaults", logging.F("error", err))
+	}
+
+	// Start background refresh loop to pick up runtime changes
+	timeoutCfg.StartRefreshLoop(ctx, 30*time.Second)
+
+	// Log configuration changes for observability
+	timeoutCfg.OnChange(func(key string, oldVal, newVal time.Duration) {
+		logger.Info("Timeout config changed",
+			logging.F("key", key),
+			logging.F("old", oldVal.String()),
+			logging.F("new", newVal.String()),
+		)
+	})
+
+	// Log all timeout values at startup for verification
+	logger.Info("Timeout configuration loaded",
+		logging.F("ai_client.request", timeoutCfg.Get("timeout.ai_client.request").String()),
+		logging.F("activity.fast.start_to_close", timeoutCfg.Get("timeout.activity.fast.start_to_close").String()),
+		logging.F("activity.fast.heartbeat", timeoutCfg.Get("timeout.activity.fast.heartbeat").String()),
+		logging.F("activity.embedding.start_to_close", timeoutCfg.Get("timeout.activity.embedding.start_to_close").String()),
+		logging.F("activity.embedding.heartbeat", timeoutCfg.Get("timeout.activity.embedding.heartbeat").String()),
+		logging.F("activity.llm.start_to_close", timeoutCfg.Get("timeout.activity.llm.start_to_close").String()),
+		logging.F("activity.llm.heartbeat", timeoutCfg.Get("timeout.activity.llm.heartbeat").String()),
+		logging.F("activity.batch.start_to_close", timeoutCfg.Get("timeout.activity.batch.start_to_close").String()),
+		logging.F("activity.batch.heartbeat", timeoutCfg.Get("timeout.activity.batch.heartbeat").String()),
+		logging.F("http.backend.gemini", timeoutCfg.Get("timeout.http.backend.gemini").String()),
+		logging.F("http.backend.mlx", timeoutCfg.Get("timeout.http.backend.mlx").String()),
+		logging.F("schedule_to_close.default", timeoutCfg.Get("timeout.schedule_to_close.default").String()),
+	)
+
 	// Initialize metrics
 	svcMetrics := metrics.NewMetrics(cfg.ServiceName, "penfold")
 	if err := svcMetrics.RegisterMetrics(); err != nil {
@@ -234,7 +266,7 @@ func main() {
 		var err error
 		aiClient, err = ai.NewClient(cfg.AIServiceAddr,
 			ai.WithInsecure(),
-			ai.WithRequestTimeout(120*time.Second),
+			ai.WithRequestTimeout(timeoutCfg.Get("timeout.ai_client.request")),
 			ai.WithMaxRetries(3),
 		)
 		if err != nil {
@@ -248,6 +280,7 @@ func main() {
 			}()
 			logger.Info("AI client created",
 				logging.F("ai_service_addr", cfg.AIServiceAddr),
+				logging.F("request_timeout", timeoutCfg.Get("timeout.ai_client.request").String()),
 			)
 		}
 	}
@@ -489,6 +522,7 @@ func main() {
 	httpMux.Handle("/ready", healthChecker.ReadyHandler())
 	httpMux.Handle("/live", healthChecker.LiveHandler())
 	httpMux.Handle("/metrics", metrics.Handler())
+	httpMux.HandleFunc("/version", buildinfo.Handler("penfold-worker"))
 
 	httpServer := &http.Server{
 		Addr:         cfg.HTTPAddr(),

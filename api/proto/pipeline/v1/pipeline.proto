@@ -68,6 +68,12 @@ service PipelineService {
 
   // ReprocessDryRun calculates the impact of reprocessing a stage.
   rpc ReprocessDryRun(ReprocessDryRunRequest) returns (ReprocessDryRunResponse);
+
+  // GetTimeoutConfig retrieves timeout configuration entries.
+  rpc GetTimeoutConfig(GetTimeoutConfigRequest) returns (GetTimeoutConfigResponse);
+
+  // UpdateTimeoutConfig updates a timeout configuration value.
+  rpc UpdateTimeoutConfig(UpdateTimeoutConfigRequest) returns (UpdateTimeoutConfigResponse);
 }
 
 // =============================================================================
@@ -676,4 +682,77 @@ message ReprocessDryRunResponse {
 
   // Human-readable summary.
   string message = 4;
+}
+
+// =============================================================================
+// Timeout Configuration Messages
+// =============================================================================
+
+// TimeoutEntry represents a single timeout configuration entry.
+message TimeoutEntry {
+  // Configuration key (e.g., "timeout.ai_client.request").
+  string key = 1;
+
+  // Current value (duration string, e.g., "120s").
+  string value = 2;
+
+  // Value type (always "duration" for timeouts).
+  string value_type = 3;
+
+  // Human-readable description.
+  string description = 4;
+
+  // Minimum allowed value (duration string).
+  string min_value = 5;
+
+  // Maximum allowed value (duration string).
+  string max_value = 6;
+
+  // Default value (duration string).
+  string default_value = 7;
+
+  // When this entry was last updated.
+  string updated_at = 8;
+
+  // Who last updated this entry.
+  string updated_by = 9;
+}
+
+// GetTimeoutConfigRequest requests timeout configuration.
+message GetTimeoutConfigRequest {
+  // Optional key filter (prefix match, e.g., "timeout.activity").
+  string key = 1;
+}
+
+// GetTimeoutConfigResponse contains timeout configuration entries.
+message GetTimeoutConfigResponse {
+  // All matching timeout entries.
+  repeated TimeoutEntry entries = 1;
+}
+
+// UpdateTimeoutConfigRequest updates a timeout value.
+message UpdateTimeoutConfigRequest {
+  // Configuration key to update (required).
+  string key = 1;
+
+  // New value as duration string (e.g., "180s", "5m") (required).
+  string value = 2;
+
+  // Who is making this change (required).
+  string updated_by = 3;
+
+  // Reason for the change (required for audit trail).
+  string reason = 4;
+}
+
+// UpdateTimeoutConfigResponse confirms the timeout update.
+message UpdateTimeoutConfigResponse {
+  // Updated entry with new value.
+  TimeoutEntry entry = 1;
+
+  // Previous value (duration string).
+  string previous_value = 2;
+
+  // Success message.
+  string message = 3;
 }
