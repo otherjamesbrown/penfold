@@ -143,6 +143,7 @@ func TestBuildContext_PersonResolution(t *testing.T) {
 				entityLookup,
 				&mockContextPackageRepo{},
 				nil,
+				nil,
 			)
 
 			input := BuildContextInput{
@@ -253,6 +254,7 @@ func TestBuildContext_ProjectResolution(t *testing.T) {
 				entityLookup,
 				contextRepo,
 				nil,
+				nil,
 			)
 
 			input := BuildContextInput{
@@ -282,7 +284,7 @@ func TestBuildContext_TokenBudget_Meeting(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -305,7 +307,7 @@ func TestBuildContext_TokenBudget_Email(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -328,7 +330,7 @@ func TestBuildContext_TokenBudget_Slack(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -394,7 +396,7 @@ func TestBuildContext_TokenBudget_Truncation(t *testing.T) {
 		},
 	}
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, entityLookup, contextRepo, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, entityLookup, contextRepo, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -431,7 +433,7 @@ func TestBuildContext_EmptyExtraction(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -476,7 +478,7 @@ func TestBuildContext_UnknownEntities(t *testing.T) {
 		glossaryTerms:     []ContextGlossaryTerm{}, // Empty - no glossary matches
 	}
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, entityLookup, contextRepo, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, entityLookup, contextRepo, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -595,6 +597,7 @@ func TestBuildContext_FilterNonPersonEmails(t *testing.T) {
 				&mockEntityLookup{},
 				&mockContextPackageRepo{},
 				nil,
+				nil,
 			)
 
 			input := BuildContextInput{
@@ -658,6 +661,7 @@ func TestBuildContext_DisplayNamesPassedToResolver(t *testing.T) {
 		entityResolver,
 		&mockEntityLookup{},
 		&mockContextPackageRepo{},
+		nil,
 		nil,
 	)
 
@@ -805,6 +809,7 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 				entityResolver,
 				entityLookup,
 				&mockContextPackageRepo{},
+				nil,
 				nil,
 			)
 

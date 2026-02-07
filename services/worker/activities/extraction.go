@@ -12,6 +12,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
@@ -128,12 +129,13 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 
 	resp, err := a.aiClient.ExtractAssertions(ctx, assertionReq)
 	if err != nil {
+		pe := perrors.ClassifyError(err, "extract_assertions")
 		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
 			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     err,
+			Error:     pe,
 		})
-		logger.Error("Failed to extract assertions from AI service", logging.Err(err))
-		return 0, fmt.Errorf("failed to extract assertions: %w", err)
+		logger.Error("Failed to extract assertions from AI service", logging.Err(pe))
+		return 0, pe
 	}
 
 	// Record LLM result
@@ -187,8 +189,9 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	storeStart := time.Now()
 	count, err := a.assertionRepo.StoreAssertions(ctx, input.TenantID, input.SourceID, assertions, resp.ModelUsed)
 	if err != nil {
-		logger.Error("Failed to store assertions", logging.Err(err))
-		return 0, fmt.Errorf("failed to store assertions: %w", err)
+		pe := perrors.ClassifyError(err, "extract_assertions")
+		logger.Error("Failed to store assertions", logging.Err(pe))
+		return 0, pe
 	}
 
 	logger.Info("Assertions stored successfully",
@@ -313,12 +316,13 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 
 		resp, err := a.aiClient.ExtractEntities(ctx, req)
 		if err != nil {
+			pe := perrors.ClassifyError(err, "extract_ner")
 			tracing.SetLLMResult(llmSpan, tracing.LLMResult{
 				LatencyMs: time.Since(startTime).Milliseconds(),
-				Error:     err,
+				Error:     pe,
 			})
-			logger.Error("Failed to extract entities from AI service", logging.Err(err))
-			return nil, fmt.Errorf("failed to extract entities: %w", err)
+			logger.Error("Failed to extract entities from AI service", logging.Err(pe))
+			return nil, pe
 		}
 		results = append(results, resp)
 	} else {
@@ -350,12 +354,13 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 
 			resp, err := a.aiClient.ExtractEntities(ctx, req)
 			if err != nil {
+				pe := perrors.ClassifyError(err, "extract_ner")
 				logger.Error("Failed to extract entities from chunk",
-					logging.Err(err),
+					logging.Err(pe),
 					logging.F("chunk_index", i),
 					logging.F("chunk_length", len(chunk.Content)),
 				)
-				return nil, fmt.Errorf("failed to extract entities from chunk %d: %w", i, err)
+				return nil, pe
 			}
 			results = append(results, resp)
 		}

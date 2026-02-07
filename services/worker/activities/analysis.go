@@ -10,6 +10,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
@@ -108,12 +109,13 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 	// Call AI service
 	resp, err := a.aiClient.DeepAnalyze(ctx, req)
 	if err != nil {
+		pe := perrors.ClassifyError(err, "analyze")
 		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
 			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     err,
+			Error:     pe,
 		})
-		logger.Error("Failed to perform deep analysis", logging.Err(err))
-		return nil, fmt.Errorf("failed to perform deep analysis: %w", err)
+		logger.Error("Failed to perform deep analysis", logging.Err(pe))
+		return nil, pe
 	}
 
 	// Record LLM result

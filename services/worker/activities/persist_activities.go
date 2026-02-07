@@ -9,6 +9,7 @@ import (
 
 	"go.temporal.io/sdk/temporal"
 
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
@@ -102,11 +103,9 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input workflows
 	// Call repository to persist findings
 	repoOutput, err := a.repository.PersistFindings(ctx, repoInput)
 	if err != nil {
-		logger.Error("Failed to persist findings", logging.Err(err))
-		return nil, temporal.NewApplicationError(
-			fmt.Sprintf("failed to persist findings: %v", err),
-			"PersistenceError",
-		)
+		pe := perrors.ClassifyError(err, "persist")
+		logger.Error("Failed to persist findings", logging.Err(pe))
+		return nil, pe
 	}
 
 	// Build activity output

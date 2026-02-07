@@ -218,35 +218,35 @@ func TestNewAnalysisActivities_Success(t *testing.T) {
 
 func TestNewContextBuilderActivities_NilLogger(t *testing.T) {
 	assert.PanicsWithValue(t, "NewContextBuilderActivities: logger is required", func() {
-		NewContextBuilderActivities(nil, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil)
+		NewContextBuilderActivities(nil, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil)
 	})
 }
 
 func TestNewContextBuilderActivities_NilEntityResolver(t *testing.T) {
 	logger := logging.NewNopLogger()
 	assert.PanicsWithValue(t, "NewContextBuilderActivities: entityResolver is required", func() {
-		NewContextBuilderActivities(logger, nil, &mockEntityLookup{}, &mockContextPackageRepo{}, nil)
+		NewContextBuilderActivities(logger, nil, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil)
 	})
 }
 
 func TestNewContextBuilderActivities_NilEntityRepo(t *testing.T) {
 	logger := logging.NewNopLogger()
 	assert.PanicsWithValue(t, "NewContextBuilderActivities: entityRepo is required", func() {
-		NewContextBuilderActivities(logger, &mockEntityResolver{}, nil, &mockContextPackageRepo{}, nil)
+		NewContextBuilderActivities(logger, &mockEntityResolver{}, nil, &mockContextPackageRepo{}, nil, nil)
 	})
 }
 
 func TestNewContextBuilderActivities_NilContextRepo(t *testing.T) {
 	logger := logging.NewNopLogger()
 	assert.PanicsWithValue(t, "NewContextBuilderActivities: contextRepo is required", func() {
-		NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, nil, nil)
+		NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, nil, nil, nil)
 	})
 }
 
 func TestNewContextBuilderActivities_Success(t *testing.T) {
 	logger := logging.NewNopLogger()
-	// PipelineRepo is optional - can be nil
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil)
+	// PipelineRepo and ConfigResolver are optional - can be nil
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil)
 	assert.NotNil(t, activities)
 }
 

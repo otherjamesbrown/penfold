@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
@@ -109,12 +110,13 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 
 	resp, err := a.aiClient.GenerateEmbedding(ctx, embeddingReq)
 	if err != nil {
+		pe := perrors.ClassifyError(err, "embed")
 		tracing.SetEmbeddingResult(embSpan, tracing.EmbeddingResult{
 			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     err,
+			Error:     pe,
 		})
-		logger.Error("Failed to generate embedding from AI service", logging.Err(err))
-		return 0, fmt.Errorf("failed to generate embedding: %w", err)
+		logger.Error("Failed to generate embedding from AI service", logging.Err(pe))
+		return 0, pe
 	}
 
 	// Record embedding result
@@ -150,8 +152,9 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		resp.Dimensions,
 	)
 	if err != nil {
-		logger.Error("Failed to store embedding", logging.Err(err))
-		return 0, fmt.Errorf("failed to store embedding: %w", err)
+		pe := perrors.ClassifyError(err, "embed")
+		logger.Error("Failed to store embedding", logging.Err(pe))
+		return 0, pe
 	}
 
 	logger.Info("Embedding stored successfully",
@@ -347,8 +350,9 @@ func (a *EmbeddingActivities) DeleteEmbedding(ctx context.Context, embeddingID i
 	}
 
 	if err := a.embeddingRepo.DeleteEmbedding(ctx, embeddingID); err != nil {
-		logger.Error("Failed to delete embedding", logging.Err(err))
-		return fmt.Errorf("failed to delete embedding: %w", err)
+		pe := perrors.ClassifyError(err, "embed")
+		logger.Error("Failed to delete embedding", logging.Err(pe))
+		return pe
 	}
 
 	logger.Info("Embedding deleted successfully")

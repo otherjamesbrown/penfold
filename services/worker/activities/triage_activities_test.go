@@ -212,6 +212,7 @@ func TestTriage_AIClientError(t *testing.T) {
 	output, err := activities.Triage(context.Background(), input)
 	require.Error(t, err)
 	require.Nil(t, output)
-	require.Contains(t, err.Error(), "failed to perform triage")
+	// Error is now classified, so check for PipelineError
+	require.Contains(t, err.Error(), "triage")
 	require.ErrorIs(t, err, expectedErr)
 }

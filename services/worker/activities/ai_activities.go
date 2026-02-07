@@ -10,6 +10,7 @@ import (
 	"go.temporal.io/sdk/activity"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
@@ -217,6 +218,7 @@ func (a *AIActivities) ProcessWithAIActivity(ctx context.Context, input ProcessW
 	}
 
 	if err != nil {
+		// Error is already classified by handlers, just log and return
 		logger.Error("AI processing failed",
 			logging.F("task", input.Task),
 			logging.Err(err),
@@ -259,7 +261,8 @@ func (a *AIActivities) handleSummarizeTask(ctx context.Context, input ProcessWit
 
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("summarization failed: %w", err)
+		pe := perrors.ClassifyError(err, "summarize")
+		return nil, pe
 	}
 
 	return &ProcessWithAIOutput{
@@ -287,7 +290,8 @@ func (a *AIActivities) handleExtractTask(ctx context.Context, input ProcessWithA
 
 	resp, err := a.aiClient.ExtractAssertions(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("extraction failed: %w", err)
+		pe := perrors.ClassifyError(err, "extract")
+		return nil, pe
 	}
 
 	// Format assertions as result
@@ -322,7 +326,8 @@ func (a *AIActivities) handleEmbedTask(ctx context.Context, input ProcessWithAII
 
 	resp, err := a.aiClient.GenerateEmbedding(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("embedding failed: %w", err)
+		pe := perrors.ClassifyError(err, "embed")
+		return nil, pe
 	}
 
 	return &ProcessWithAIOutput{
@@ -353,7 +358,8 @@ func (a *AIActivities) handleCategorizeTask(ctx context.Context, input ProcessWi
 
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("categorization failed: %w", err)
+		pe := perrors.ClassifyError(err, "categorize")
+		return nil, pe
 	}
 
 	return &ProcessWithAIOutput{
@@ -582,8 +588,9 @@ func (a *AIActivities) EscalateRequestActivity(ctx context.Context, input Escala
 
 	resp, err := a.escalationHandler.Escalate(ctx, req)
 	if err != nil {
-		logger.Error("Failed to escalate request", logging.Err(err))
-		return nil, fmt.Errorf("failed to escalate request: %w", err)
+		pe := perrors.ClassifyError(err, "escalate")
+		logger.Error("Failed to escalate request", logging.Err(pe))
+		return nil, pe
 	}
 
 	output := &EscalateRequestOutput{

@@ -3,11 +3,12 @@ package activities
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
+	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
@@ -32,6 +33,7 @@ type ContextBuilderActivities struct {
 	entityRepo     EntityLookupInterface
 	contextRepo    ContextPackageRepository
 	pipelineRepo   PipelineRepository
+	configResolver *enrichmentconfig.ConfigResolver
 }
 
 // NewContextBuilderActivities creates a new ContextBuilderActivities instance.
@@ -41,6 +43,7 @@ func NewContextBuilderActivities(
 	entityRepo EntityLookupInterface,
 	contextRepo ContextPackageRepository,
 	pipelineRepo PipelineRepository,
+	configResolver *enrichmentconfig.ConfigResolver,
 ) *ContextBuilderActivities {
 	if logger == nil {
 		panic("NewContextBuilderActivities: logger is required")
@@ -55,12 +58,14 @@ func NewContextBuilderActivities(
 		panic("NewContextBuilderActivities: contextRepo is required")
 	}
 	// pipelineRepo is optional (provenance recording)
+	// configResolver is optional (pattern detection)
 	return &ContextBuilderActivities{
 		logger:         logger.With(logging.F("component", "context_builder_activities")),
 		entityResolver: entityResolver,
 		entityRepo:     entityRepo,
 		contextRepo:    contextRepo,
 		pipelineRepo:   pipelineRepo,
+		configResolver: configResolver,
 	}
 }
 
@@ -134,8 +139,9 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 	recordHeartbeat(ctx, "building context package")
 	contextPackage, err := a.buildContextPackage(ctx, input, resolvedPeople, resolvedProjects)
 	if err != nil {
-		logger.Error("Failed to build context package", logging.Err(err))
-		return nil, fmt.Errorf("failed to build context package: %w", err)
+		pe := perrors.ClassifyError(err, "resolve")
+		logger.Error("Failed to build context package", logging.Err(pe))
+		return nil, pe
 	}
 
 	output.ContextPackage = contextPackage
@@ -189,6 +195,31 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 	return output, nil
 }
 
+// getTenantPatterns loads tenant-specific patterns for account type detection.
+// Returns nil if config resolver is not available or if loading fails.
+func (a *ContextBuilderActivities) getTenantPatterns(ctx context.Context, tenantID string) *entities.AccountTypePatterns {
+	if a.configResolver == nil {
+		return nil
+	}
+
+	config, err := a.configResolver.GetConfig(ctx, tenantID)
+	if err != nil {
+		a.logger.WithContext(ctx).Warn("Failed to load tenant config for pattern detection",
+			logging.Err(err),
+			logging.F("tenant_id", tenantID))
+		return nil
+	}
+
+	// Convert tenant config patterns to AccountTypePatterns
+	return &entities.AccountTypePatterns{
+		BotPatterns:          config.BotPatterns,
+		DistributionPatterns: config.DistributionPatterns,
+		RolePatterns:         config.RoleAccountPatterns,
+		// Note: TenantConfig doesn't have ExternalDomains yet, so leave empty
+		ExternalDomains: nil,
+	}
+}
+
 // resolvePeople resolves people from extraction output and structured participant emails.
 func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID string, people []workflows.PersonResult, senderEmail, senderName string, participantEmails []workflows.Participant) ([]workflows.ResolvedPerson, int) {
 	var resolved []workflows.ResolvedPerson
@@ -196,9 +227,12 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 	seenEmails := make(map[string]bool)
 	logger := a.logger.WithContext(ctx)
 
+	// Load tenant-specific patterns for account type detection
+	tenantPatterns := a.getTenantPatterns(ctx, tenantID)
+
 	// If we have sender email, check if it's a person account before resolving
 	if senderEmail != "" && a.entityResolver != nil {
-		accountType := entities.DetectAccountType(senderEmail, senderName)
+		accountType := entities.DetectAccountTypeWithPatterns(senderEmail, senderName, tenantPatterns)
 		if accountType != entities.AccountTypePerson {
 			logger.Debug("Skipping non-person sender",
 				logging.F("email", senderEmail),
@@ -229,7 +263,7 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 			}
 
 			// Check if this is a person account
-			accountType := entities.DetectAccountType(participant.Email, participant.DisplayName)
+			accountType := entities.DetectAccountTypeWithPatterns(participant.Email, participant.DisplayName, tenantPatterns)
 			if accountType != entities.AccountTypePerson {
 				logger.Debug("Skipping non-person participant",
 					logging.F("email", participant.Email),

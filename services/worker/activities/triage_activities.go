@@ -10,6 +10,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
@@ -122,12 +123,13 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	// Call AI service
 	resp, err := a.aiClient.TriageContent(ctx, req)
 	if err != nil {
+		pe := perrors.ClassifyError(err, "triage")
 		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
 			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     err,
+			Error:     pe,
 		})
-		logger.Error("Failed to perform triage", logging.Err(err))
-		return nil, fmt.Errorf("failed to perform triage: %w", err)
+		logger.Error("Failed to perform triage", logging.Err(pe))
+		return nil, pe
 	}
 
 	// Record LLM result

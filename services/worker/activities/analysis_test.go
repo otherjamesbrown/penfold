@@ -215,7 +215,8 @@ func TestDeepAnalyze_AIClientError(t *testing.T) {
 	output, err := activities.DeepAnalyze(context.Background(), input)
 	require.Error(t, err)
 	require.Nil(t, output)
-	require.Contains(t, err.Error(), "failed to perform deep analysis")
+	// Error is now classified, so check for PipelineError
+	require.Contains(t, err.Error(), "analyze")
 	require.ErrorIs(t, err, expectedErr)
 }
 

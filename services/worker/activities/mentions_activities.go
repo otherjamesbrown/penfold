@@ -10,6 +10,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/otherjamesbrown/penfold/pkg/mentions/resolver"
@@ -163,12 +164,13 @@ func (a *MentionsActivities) ExtractMentions(ctx context.Context, input ExtractM
 	startTime := time.Now()
 	result, err := a.resolver.ProcessBatch(ctx, tenantID, batch)
 	if err != nil {
+		pe := perrors.ClassifyError(err, "extract_mentions")
 		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
 			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     err,
+			Error:     pe,
 		})
-		logger.Error("Failed to process mentions through resolver", logging.Err(err))
-		return nil, fmt.Errorf("failed to process mentions: %w", err)
+		logger.Error("Failed to process mentions through resolver", logging.Err(pe))
+		return nil, pe
 	}
 
 	// Record success metrics
