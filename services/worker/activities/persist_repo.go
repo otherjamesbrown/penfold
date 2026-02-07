@@ -662,12 +662,63 @@ var commonAcronymExclusions = map[string]bool{
 	"TODO": true, "DONE": true, "NONE": true, "NULL": true,
 }
 
+// properNounExclusions contains CamelCase words that are proper nouns, not acronyms.
+var properNounExclusions = map[string]bool{
+	"TIKTOK": true, "LINKEDIN": true, "GITHUB": true, "YOUTUBE": true,
+	"MACBOOK": true, "IPHONE": true, "IPAD": true, "AIRPODS": true,
+	"FACEBOOK": true, "INSTAGRAM": true, "TWITTER": true, "SNAPCHAT": true,
+	"GOOGLE": true, "MICROSOFT": true, "AMAZON": true, "APPLE": true,
+	"NETFLIX": true, "SPOTIFY": true, "AIRBNB": true, "UBER": true,
+	"SALESFORCE": true, "SLACK": true, "ZOOM": true, "ASANA": true,
+	"JIRA": true, "CONFLUENCE": true, "BITBUCKET": true, "GITLAB": true,
+	"POSTGRES": true, "POSTGRESQL": true, "MONGODB": true, "MYSQL": true,
+	"REDIS": true, "ELASTICSEARCH": true, "KUBERNETES": true, "DOCKER": true,
+}
+
+const (
+	// maxAcronymLength is the maximum length for a valid acronym (matching pkg/ingest/meeting/acronyms.go)
+	maxAcronymLength = 10
+	// minUppercaseCount is the minimum number of uppercase letters required
+	minUppercaseCount = 2
+)
+
 // acronymPattern matches potential acronyms including:
 // - Pure uppercase: API, JWT, SLA, CLIC, TRR
 // - Mixed-case: IaaS, SteerCo, PostgreSQL
 // - With digits: FY26, S3
 // Pattern: 2+ uppercase letters with optional lowercase/digits
 var acronymPattern = regexp.MustCompile(`\b([A-Z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[A-Z]{2,}[a-z]*)\b`)
+
+// isValidAcronym checks if a matched token is actually a valid acronym.
+// Filters out:
+// - Tokens longer than maxAcronymLength
+// - Tokens with fewer than minUppercaseCount uppercase letters
+// - Proper nouns (via blocklist)
+func isValidAcronym(token string) bool {
+	// Length cap
+	if len(token) > maxAcronymLength {
+		return false
+	}
+
+	// Count uppercase letters
+	upperCount := 0
+	for _, r := range token {
+		if r >= 'A' && r <= 'Z' {
+			upperCount++
+		}
+	}
+	if upperCount < minUppercaseCount {
+		return false
+	}
+
+	// Check proper noun blocklist (case-insensitive)
+	upperToken := strings.ToUpper(token)
+	if properNounExclusions[upperToken] {
+		return false
+	}
+
+	return true
+}
 
 // detectAndCreateAcronymQuestions scans analysis text for uppercase acronyms and
 // creates review queue items for unknown ones. Best-effort: errors are logged, not returned.
@@ -687,6 +738,10 @@ func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input
 	for _, text := range texts {
 		for _, match := range acronymPattern.FindAllString(text, -1) {
 			if commonAcronymExclusions[match] {
+				continue
+			}
+			// Validate acronym: check length, uppercase count, proper nouns
+			if !isValidAcronym(match) {
 				continue
 			}
 			// Pattern now accepts mixed-case (IaaS, SteerCo) and digits (FY26)

@@ -503,6 +503,117 @@ func TestBuildContext_UnknownEntities(t *testing.T) {
 	}
 }
 
+func TestBuildContext_FilterNonPersonEmails(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	tests := []struct {
+		name              string
+		participantEmails []string
+		expectedPeople    int
+		expectedFiltered  []string
+	}{
+		{
+			name:              "filter distribution lists",
+			participantEmails: []string{"alice@example.com", "dl-ttmtc-SteerCo@akamai.com", "bob@example.com"},
+			expectedPeople:    2, // only alice and bob
+			expectedFiltered:  []string{"dl-ttmtc-SteerCo@akamai.com"},
+		},
+		{
+			name:              "filter automated senders",
+			participantEmails: []string{"alice@example.com", "updates@mailer.aha.io", "bob@example.com"},
+			expectedPeople:    2, // only alice and bob
+			expectedFiltered:  []string{"updates@mailer.aha.io"},
+		},
+		{
+			name:              "filter service accounts",
+			participantEmails: []string{"alice@example.com", "gsd-jira@akamai.com", "bob@example.com"},
+			expectedPeople:    2, // only alice and bob
+			expectedFiltered:  []string{"gsd-jira@akamai.com"},
+		},
+		{
+			name:              "filter role accounts",
+			participantEmails: []string{"alice@example.com", "prb-facilitator@akamai.com", "bob@example.com"},
+			expectedPeople:    2, // only alice and bob
+			expectedFiltered:  []string{"prb-facilitator@akamai.com"},
+		},
+		{
+			name:              "filter noreply addresses",
+			participantEmails: []string{"alice@example.com", "noreply@company.com", "bob@example.com"},
+			expectedPeople:    2, // only alice and bob
+			expectedFiltered:  []string{"noreply@company.com"},
+		},
+		{
+			name:              "filter docs.google.com senders",
+			participantEmails: []string{"alice@example.com", "comments-noreply@docs.google.com", "bob@example.com"},
+			expectedPeople:    2, // only alice and bob
+			expectedFiltered:  []string{"comments-noreply@docs.google.com"},
+		},
+		{
+			name:              "all person emails",
+			participantEmails: []string{"alice@example.com", "bob@example.com"},
+			expectedPeople:    2,
+			expectedFiltered:  []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callCount := make(map[string]int)
+
+			entityResolver := &mockEntityResolver{
+				resolveOrCreateFunc: func(ctx context.Context, tenantID, email, displayName string) (*entities.ResolutionResult, error) {
+					callCount[email]++
+					return &entities.ResolutionResult{
+						Person: &entities.Person{
+							ID:            int64(100 + len(callCount)),
+							CanonicalName: displayName,
+							PrimaryEmail:  email,
+							IsInternal:    false,
+							Confidence:    0.7,
+						},
+						Confidence: 0.7,
+						Source:     "auto_created",
+						IsNew:      true,
+					}, nil
+				},
+			}
+
+			activities := NewContextBuilderActivities(
+				logger,
+				entityResolver,
+				&mockEntityLookup{},
+				&mockContextPackageRepo{},
+				nil,
+			)
+
+			input := BuildContextInput{
+				TenantID:          "test-tenant",
+				SourceID:          1,
+				ContentType:       "email",
+				ParticipantEmails: tt.participantEmails,
+				Extraction:        &ExtractEntitiesOutput{},
+			}
+
+			output, err := activities.BuildContextPackage(ctx, input)
+			if err != nil {
+				t.Fatalf("BuildContextPackage failed: %v", err)
+			}
+
+			if len(output.ResolvedPeople) != tt.expectedPeople {
+				t.Errorf("Expected %d resolved people, got %d", tt.expectedPeople, len(output.ResolvedPeople))
+			}
+
+			// Verify filtered emails were NOT passed to ResolveOrCreate
+			for _, filtered := range tt.expectedFiltered {
+				if count, exists := callCount[filtered]; exists && count > 0 {
+					t.Errorf("Expected email %s to be filtered, but it was processed %d times", filtered, count)
+				}
+			}
+		})
+	}
+}
+
 func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()

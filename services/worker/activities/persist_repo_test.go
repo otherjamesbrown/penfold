@@ -583,4 +583,70 @@ func TestAcronymDetection(t *testing.T) {
 		repo.detectAndCreateAcronymQuestions(context.Background(), input, output)
 		assert.Equal(t, 0, output.ReviewItemsCreated)
 	})
+
+	t.Run("rejects hash strings as acronyms", func(t *testing.T) {
+		// Hash strings should be filtered by isValidAcronym due to length cap
+		hashStrings := []string{
+			"MG87xCq4mhRpHGqmJp6G5m49xP8rmWp95wPcPpv1",
+			"HJpvxXVhc73F55XXrfCjVHh2Xx3x7jXx3mHM6f71",
+		}
+		for _, hash := range hashStrings {
+			text := "The hash " + hash + " was generated"
+			matches := acronymPattern.FindAllString(text, -1)
+			// Apply the same filtering logic as detectAndCreateAcronymQuestions
+			for _, match := range matches {
+				if !commonAcronymExclusions[match] && isValidAcronym(match) {
+					assert.Fail(t, "Hash string should be rejected", "Hash fragment %s (length %d) passed isValidAcronym", match, len(match))
+				}
+			}
+		}
+	})
+
+	t.Run("rejects proper nouns as acronyms", func(t *testing.T) {
+		// Proper nouns should be filtered by isValidAcronym
+		properNouns := []string{"TikTok", "LinkedIn", "GitHub", "YouTube", "MacBook", "iPhone"}
+		for _, noun := range properNouns {
+			text := "We discussed " + noun + " in the meeting"
+			matches := acronymPattern.FindAllString(text, -1)
+			for _, match := range matches {
+				if match == noun && !commonAcronymExclusions[match] {
+					// The match should be rejected by isValidAcronym
+					assert.False(t, isValidAcronym(match), "Proper noun %s should be rejected by isValidAcronym", noun)
+				}
+			}
+		}
+	})
+
+	t.Run("accepts real acronyms including longer ones", func(t *testing.T) {
+		// These SHOULD match and pass isValidAcronym
+		realAcronyms := []string{"CLIC", "TRR", "NLB", "ECMP", "PACE", "PLT", "MTC", "ETG"}
+		for _, acronym := range realAcronyms {
+			text := "The " + acronym + " system is ready"
+			matches := acronymPattern.FindAllString(text, -1)
+			assert.Contains(t, matches, acronym, "Real acronym %s should match pattern", acronym)
+			// And it should pass validation
+			assert.True(t, isValidAcronym(acronym), "Real acronym %s should pass isValidAcronym", acronym)
+		}
+	})
+
+	t.Run("accepts mixed-case acronyms", func(t *testing.T) {
+		// These SHOULD match and pass isValidAcronym
+		mixedCaseAcronyms := []string{"IaaS", "SteerCo", "PMO", "DRI", "FY26"}
+		for _, acronym := range mixedCaseAcronyms {
+			text := "The " + acronym + " was discussed"
+			matches := acronymPattern.FindAllString(text, -1)
+			assert.Contains(t, matches, acronym, "Mixed-case acronym %s should match pattern", acronym)
+			// And it should pass validation
+			assert.True(t, isValidAcronym(acronym), "Mixed-case acronym %s should pass isValidAcronym", acronym)
+		}
+	})
+
+	t.Run("rejects tokens longer than 10 characters", func(t *testing.T) {
+		// Long tokens should be rejected by isValidAcronym
+		longTokens := []string{"VERYLONGACRONYM", "TOOLONGTOBEREAL", "UNNECESSARILYLONGUPPER"}
+		for _, token := range longTokens {
+			// These should fail validation
+			assert.False(t, isValidAcronym(token), "Long token %s (length %d) should be rejected", token, len(token))
+		}
+	})
 }

@@ -71,15 +71,22 @@ func TestDetectAccountType(t *testing.T) {
 		{"team-engineering@company.com", "", AccountTypeDistribution},
 		{"all-staff@company.com", "", AccountTypeDistribution},
 		{"group-sales@company.com", "", AccountTypeDistribution},
+		{"dl-ttmtc-SteerCo@akamai.com", "", AccountTypeDistribution},
 
 		// Role accounts
 		{"support@company.com", "", AccountTypeRole},
 		{"sales@company.com", "", AccountTypeRole},
 		{"hr@company.com", "", AccountTypeRole},
+		{"facilitator@company.com", "", AccountTypeRole},
+		{"prb-facilitator@akamai.com", "", AccountTypeRole},
 
 		// External services
 		{"comments-noreply@docs.google.com", "", AccountTypeExternalService},
 		{"notification@slack.com", "", AccountTypeExternalService},
+		{"updates@mailer.aha.io", "", AccountTypeExternalService},
+
+		// Service accounts (bots with specific prefixes)
+		{"gsd-jira@akamai.com", "", AccountTypeBot},
 
 		// Regular person
 		{"john.doe@company.com", "John Doe", AccountTypePerson},

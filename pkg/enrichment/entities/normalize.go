@@ -87,6 +87,7 @@ var (
 		"system",
 		"alert",
 		"notification",
+		"gsd-", // Akamai service accounts (Get Stuff Done)
 	}
 
 	distributionPatterns = []string{
@@ -119,6 +120,7 @@ var (
 		"billing",
 		"accounts",
 		"facilitator",
+		"prb-facilitator", // Akamai PRB facilitator role account
 	}
 
 	externalServiceDomains = []string{
@@ -131,6 +133,7 @@ var (
 		"circleci.com",
 		"travis-ci.org",
 		"travis-ci.com",
+		"mailer.aha.io", // Aha! product management tool
 	}
 )
 
@@ -320,4 +323,76 @@ func IsValidEmail(email string) bool {
 		return false
 	}
 	return true
+}
+
+// DeriveNameFromEmail derives a human-readable name from an email address prefix.
+// Patterns:
+//   - "john.smith@example.com" → "John Smith"
+//   - "jane_doe@example.com" → "Jane Doe"
+//   - "mary-ann@example.com" → "Mary Ann"
+//   - "jsmith@example.com" → "J Smith" (single letter + rest)
+//   - "johnsmith@example.com" → "Johnsmith" (single word, title cased)
+func DeriveNameFromEmail(email string) string {
+	if email == "" {
+		return ""
+	}
+
+	// Extract local part (before @)
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 || parts[0] == "" {
+		return ""
+	}
+
+	local := parts[0]
+
+	// Check for single-letter prefix pattern before replacing separators
+	// e.g., "jsmith" → "j smith" if length > 2 and starts with single letter
+	if len(local) > 2 && !strings.ContainsAny(local, "._-") {
+		// Check if first character is a letter and rest are letters
+		if isLetter(rune(local[0])) {
+			// Check if this looks like initial+lastname pattern (e.g., "jsmith")
+			// We detect this heuristically: if the first char is lowercase and the rest starts with lowercase
+			// It's safer to just split at the second character if length <= 8
+			if len(local) <= 8 {
+				local = string(local[0]) + " " + local[1:]
+			}
+		}
+	}
+
+	// Replace common separators with spaces
+	// Handle . _ - as word separators
+	name := local
+	name = strings.ReplaceAll(name, ".", " ")
+	name = strings.ReplaceAll(name, "_", " ")
+	name = strings.ReplaceAll(name, "-", " ")
+
+	// Remove numbers (optional - keeping them for now as they may be meaningful)
+	// Could add: name = regexp.MustCompile(`\d+`).ReplaceAllString(name, "")
+
+	// Split into words
+	words := strings.Fields(name)
+	if len(words) == 0 {
+		return ""
+	}
+
+	// Handle single-letter first word (likely an initial)
+	// e.g., "j smith" → "J Smith"
+	if len(words) > 1 && len(words[0]) == 1 {
+		// First word is a single letter, capitalize it
+		words[0] = strings.ToUpper(words[0])
+		// Title case the rest
+		for i := 1; i < len(words); i++ {
+			words[i] = titleCase(words[i])
+		}
+		return strings.Join(words, " ")
+	}
+
+	// Normal case: title case all words
+	name = strings.Join(words, " ")
+	return titleCase(name)
+}
+
+// isLetter checks if a rune is a letter.
+func isLetter(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }

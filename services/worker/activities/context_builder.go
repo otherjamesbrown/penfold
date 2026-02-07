@@ -173,31 +173,49 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 	var resolved []workflows.ResolvedPerson
 	unresolvedCount := 0
 	seenEmails := make(map[string]bool)
+	logger := a.logger.WithContext(ctx)
 
-	// If we have sender email, resolve or create it first
+	// If we have sender email, check if it's a person account before resolving
 	if senderEmail != "" && a.entityResolver != nil {
-		result, err := a.entityResolver.ResolveOrCreate(ctx, tenantID, senderEmail, senderName)
-		if err == nil && result != nil {
-			resolved = append(resolved, workflows.ResolvedPerson{
-				Name:       result.Person.CanonicalName,
-				PersonID:   &result.Person.ID,
-				Confidence: result.Confidence,
-				Source:     result.Source,
-				Title:      result.Person.Title,
-				Department: result.Person.Department,
-				IsInternal: result.Person.IsInternal,
-			})
-			seenEmails[senderEmail] = true
+		accountType := entities.DetectAccountType(senderEmail, senderName)
+		if accountType != entities.AccountTypePerson {
+			logger.Debug("Skipping non-person sender",
+				logging.F("email", senderEmail),
+				logging.F("account_type", accountType))
+		} else {
+			result, err := a.entityResolver.ResolveOrCreate(ctx, tenantID, senderEmail, senderName)
+			if err == nil && result != nil {
+				resolved = append(resolved, workflows.ResolvedPerson{
+					Name:       result.Person.CanonicalName,
+					PersonID:   &result.Person.ID,
+					Confidence: result.Confidence,
+					Source:     result.Source,
+					Title:      result.Person.Title,
+					Department: result.Person.Department,
+					IsInternal: result.Person.IsInternal,
+				})
+				seenEmails[senderEmail] = true
+			}
 		}
 	}
 
 	// Process participant_emails array (From/To/Cc from email headers)
-	// These are reliable structured data, so we create person records for them
+	// Filter out non-person accounts (distribution lists, bots, role accounts, external services)
 	if a.entityResolver != nil {
 		for _, email := range participantEmails {
 			if email == "" || seenEmails[email] {
 				continue
 			}
+
+			// Check if this is a person account
+			accountType := entities.DetectAccountType(email, "")
+			if accountType != entities.AccountTypePerson {
+				logger.Debug("Skipping non-person participant",
+					logging.F("email", email),
+					logging.F("account_type", accountType))
+				continue
+			}
+
 			result, err := a.entityResolver.ResolveOrCreate(ctx, tenantID, email, "")
 			if err == nil && result != nil {
 				resolved = append(resolved, workflows.ResolvedPerson{

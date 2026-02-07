@@ -157,8 +157,12 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 	// 4. Auto-create with appropriate confidence
 	normalizedName := NormalizeDisplayName(displayName)
 	if normalizedName == "" {
-		// Use email local part as fallback name
-		normalizedName = email
+		// Derive a human-readable name from the email prefix
+		normalizedName = DeriveNameFromEmail(email)
+		if normalizedName == "" {
+			// Final fallback: use email address as-is
+			normalizedName = email
+		}
 	}
 
 	accountType := DetectAccountType(email, displayName)

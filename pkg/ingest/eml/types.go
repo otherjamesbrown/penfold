@@ -141,6 +141,43 @@ func (p *ParsedEmail) AllParticipantEmails() []string {
 	return result
 }
 
+// AllParticipantPairs returns all participant email+displayName pairs (From, To, Cc, Bcc).
+// This preserves display names from email headers for entity resolution.
+// Duplicates are not removed to preserve the full participant list.
+func (p *ParsedEmail) AllParticipantPairs() []Address {
+	// Pre-allocate capacity for all participants
+	capacity := 1 + len(p.To) + len(p.Cc) + len(p.Bcc)
+	result := make([]Address, 0, capacity)
+
+	// Add From
+	if p.From.Email != "" {
+		result = append(result, p.From)
+	}
+
+	// Add To
+	for _, addr := range p.To {
+		if addr.Email != "" {
+			result = append(result, addr)
+		}
+	}
+
+	// Add Cc
+	for _, addr := range p.Cc {
+		if addr.Email != "" {
+			result = append(result, addr)
+		}
+	}
+
+	// Add Bcc
+	for _, addr := range p.Bcc {
+		if addr.Email != "" {
+			result = append(result, addr)
+		}
+	}
+
+	return result
+}
+
 // ParseOptions configures email parsing behavior.
 type ParseOptions struct {
 	// IncludeAttachmentContent controls whether attachment data is loaded.
