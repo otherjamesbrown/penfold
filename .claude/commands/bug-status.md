@@ -132,7 +132,7 @@ Based on the pipeline state, suggest the appropriate next action:
 
 | State | Suggestion |
 |-------|-----------|
-| Inbox has items | `/bug-ingest` to process new bugs |
+| Inbox has items | `/ingest` to process new items |
 | Awaiting triage has items | `/bug-triage` to create impl shards |
 | Ready has items | `/implement-next` to launch agents |
 | Everything complete | No action needed |

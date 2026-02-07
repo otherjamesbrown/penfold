@@ -4,11 +4,11 @@ description: "Resume implementation: launch agents for ready shards, verify, rep
 
 # Implement Next
 
-Resume implementation after a pause, failure, or manual triage. Picks up where `/bug-ingest` or `/bug-triage` left off.
+Resume implementation after a pause, failure, or manual triage. Picks up where `/ingest` or `/bug-triage` left off.
 
 ## When to Use
 
-- `/bug-ingest` was interrupted mid-pipeline
+- `/ingest` was interrupted mid-pipeline
 - You ran `/bug-triage` manually and want to continue implementing
 - An implementation agent failed and you want to retry the rest
 - Newly unblocked work is available after earlier fixes completed
