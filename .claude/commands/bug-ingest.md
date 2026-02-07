@@ -704,13 +704,46 @@ git push origin v0.X.Y
 # GitHub Actions auto-release.yml creates release
 ```
 
-### Step 7c: Verify Deployment
+### Step 7c: Verify Deployment is Live
+
+**This step is MANDATORY. Do NOT skip it. Do NOT proceed to the summary until every
+deployed service is confirmed running the new code.**
+
+For each service that was deployed, verify the new version is actually running in Nomad:
 
 ```bash
-./scripts/verify-deployment.sh   # gateway
-penf health                       # overall
-penf status                       # connectivity
+export NOMAD_ADDR=http://dev02.brown.chat:4646
+
+# 1. Check Nomad job status — confirm allocation is "running", not "pending" or "dead"
+nomad job status penfold-gateway
+nomad job status penfold-worker
+
+# 2. Check deploy script status for each deployed service
+./scripts/deploy-gateway.sh --status   # confirms healthy + reachable
+./scripts/deploy-worker.sh --status    # confirms healthy + reachable
+
+# 3. Health check — confirms services respond
+penf health
+penf status
+
+# 4. Smoke test — run a basic query to confirm the service is functional
+penf glossary list
 ```
+
+**Verification checklist (check ALL that were deployed):**
+
+| Service | Check | Pass? |
+|---------|-------|-------|
+| Gateway | `deploy-gateway.sh --status` shows "running" + health check passes | ✓/✗ |
+| Worker | `deploy-worker.sh --status` shows "running" + health check passes | ✓/✗ |
+| AI Coordinator | `deploy-ai-coordinator.sh --status` shows "running" | ✓/✗ |
+| CLI | GitHub Actions release completed, `penf update` fetches new version | ✓/✗ |
+
+**If ANY service fails verification:**
+1. Check allocation logs: `nomad alloc logs -job <job-name> -stderr`
+2. If crash loop: revert with `nomad job revert <job-name> <previous-version>`
+3. Do NOT proceed to summary — fix the deployment first
+4. If unable to fix, note the failure explicitly in the summary
 
 ### Show Final Summary
 
@@ -727,7 +760,7 @@ Fix:         [1-2 sentence summary of what was changed to resolve it]
 Test:        [TestName] in [file] — FAILED before fix ✓, PASSED after fix ✓
              [or: "Not directly testable — [reason]. Closest test: [TestName]"]
              [or: "Fixed existing test [TestName] — had [what was wrong]"]
-Actions:     [Gateway deployed ✓ | Worker deployed ✓ | CLI v0.X.Y released ✓ | None needed]
+Deploy:      [Gateway deployed ✓ VERIFIED RUNNING | Worker deployed ✓ VERIFIED RUNNING | CLI v0.X.Y released ✓ | None needed]
 Notified:    agent-penfold replied ✓ [user action required: "run penf update" | no action needed]
 
 ## Bug 2: [short title]
@@ -735,21 +768,28 @@ Shard:       pf-fix-bbb (investigation: pf-inv-bbb)
 Bug:         [summary]
 Fix:         [summary]
 Test:        [details]
-Actions:     [details]
+Deploy:      [details — must include VERIFIED RUNNING for each service]
 Notified:    [details]
 
 ────────────────────────
 Totals: N bugs fixed, N deployed, N replies sent
 Commit: [hash] "[message]"
+
+Deployment verification:
+  Gateway:  RUNNING ✓ (health check passed)
+  Worker:   RUNNING ✓ (health check passed)
+  CLI:      v0.X.Y released ✓
 ```
 
 **Rules for the summary:**
-- Every bug MUST have all 6 fields (Shard, Bug, Fix, Test, Actions, Notified)
+- Every bug MUST have all 6 fields (Shard, Bug, Fix, Test, Deploy, Notified)
 - Test field must confirm both pre-fix failure AND post-fix pass (or explain why not testable)
-- Actions field must list every deployment action taken, or "None needed" if code-only
+- Deploy field must list every deployment action taken AND confirm "VERIFIED RUNNING" for each
+  service, or "None needed" if code-only. Never say just "deployed" without verification.
 - Notified field must confirm the reporter was told, and whether they need to do anything
   (e.g. "run `penf update`" for CLI changes, "no action needed" for server-side fixes)
 - If a bug was partially fixed or deferred, say so explicitly with next steps
+- If deployment verification failed, the summary MUST say so — do not mark as complete
 
 ---
 
