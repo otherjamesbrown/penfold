@@ -23,8 +23,9 @@ Your job:
 1. Pull and analyze bug reports
 2. Launch debugger agents to investigate
 3. Triage findings and create implementation shards
-4. Launch implementation agents
-5. Verify, reply, and deploy
+4. Launch test-writing agents to create/fix reproduction tests
+5. Launch implementation agents (make failing tests pass)
+6. Verify, reply, and deploy
 
 **NEVER use Edit/Write tools yourself for code changes. ALWAYS delegate to sub-agents.**
 
@@ -328,6 +329,108 @@ Launching ready items...
 
 ---
 
+## Phase 3.5: Reproduction Tests (Parallel Agents)
+
+Before implementing fixes, ensure each bug has a failing test that proves the issue exists.
+This phase gates implementation — no fix proceeds without a validated reproduction.
+
+### Step 1: Assess Testability
+
+For each implementation shard, the orchestrator decides:
+
+- **Testable** — The bug can be caught by a unit or integration test (wrong return value,
+  missing field, incorrect query, logic error, etc.)
+- **Not directly testable** — The bug requires live infrastructure, timing, network conditions,
+  or UI interaction that cannot be meaningfully unit-tested. Examples: connection timeouts to
+  external services, race conditions under load, Nomad deployment issues.
+
+If **not directly testable**: skip this phase for that shard, add a note to the impl shard
+content explaining why, and proceed directly to Phase 4. The implementation agent should still
+add the closest possible test (e.g., testing the error-handling path even if the trigger can't
+be simulated).
+
+### Step 2: Launch Test-Writing Agents
+
+Launch ALL testable bug agents in a **single message** (parallel, background):
+
+For each testable implementation shard:
+```
+Task(subagent_type="<agent-type>", run_in_background=true,
+  description="Test: [short title]",
+  prompt="Write a reproduction test for bug pf-inv-xxx.
+
+  ## Bug Summary
+  [paste root cause and symptom from investigation/impl shard]
+
+  ## Files Affected
+  [files from shard]
+
+  ## Your Task
+
+  ### Step 0: Check for Existing Tests
+  Look for existing tests that SHOULD have caught this bug:
+  - Search test files in the same package as the affected code
+  - Look for tests covering the same function/method/handler
+  - Check if there is a test that tests this path but has an error (wrong assertion,
+    missing case, incorrect expected value, stale mock)
+
+  ### Step 1: Fix or Create Test
+  - **If an existing test should catch this but doesn't:** Fix the existing test so it
+    correctly exercises the buggy path. Document what was wrong with the test.
+  - **If no relevant test exists:** Write a new focused test that reproduces the bug symptom.
+    Follow existing test patterns in the package.
+
+  ### Step 2: Validate the Test Catches the Bug
+  Run the test and confirm it **FAILS** against the current (unfixed) code:
+    go test ./path/to/... -run TestName -v
+  The test MUST fail. A passing test means it does not reproduce the bug — revise it.
+
+  ### Step 3: Report
+  Output a summary:
+  - Test file and test name
+  - Whether this was a fix to an existing test or a new test
+  - Confirmation the test fails (paste the failure output)
+
+  CRITICAL: Do NOT fix the bug itself. Only write/fix the test.
+  CRITICAL: Do NOT run git add, git commit, git push, or any git write commands.")
+```
+
+### Step 3: Monitor Completion
+
+Read background agent output files to check progress. Wait until all test-writing agents
+complete.
+
+For each completed agent, verify:
+1. A test file was created or modified
+2. The test was run and **failed** (proving it catches the bug)
+
+If an agent's test passes (doesn't catch the bug), re-launch with feedback:
+"Your test passed — it does not reproduce the bug. The test must FAIL against current code.
+Review the root cause and write a test that exercises the specific failing path."
+
+### Step 4: Update Implementation Shards
+
+For each impl shard, add the test information to the shard content so the implementation
+agent knows what test to make pass:
+
+```bash
+/Users/dev/bin/palace task progress pf-fix-xxx 'Reproduction test ready: [TestName] in [file]. Test FAILS on current code. Implementation must make this test pass.'
+```
+
+### Show Progress
+
+```
+BUG PIPELINE - Phase 3.5: Reproduction Tests
+══════════════════════════════════════════════
+pf-fix-aaa | [title] | TESTABLE  | New test: TestReviewQueueTimeout (FAILS ✓)
+pf-fix-bbb | [title] | TESTABLE  | Fixed existing: TestReprocessAll (FAILS ✓)
+pf-fix-ccc | [title] | SKIP      | Not testable: requires live Nomad cluster
+
+All reproduction tests validated. Proceeding to implementation...
+```
+
+---
+
 ## Phase 4: Implement (Parallel Agents)
 
 ### Step 1: Launch Implementation Agents
@@ -353,20 +456,23 @@ Task(subagent_type="<agent-type>", run_in_background=true,
 
   ## Implementation
   3. Read existing code patterns in the affected files
-  4. Implement the fix described in the shard
-  5. WRITE TESTS (regression test for the bug symptom)
-  6. Verify compilation:
+  4. Check shard progress notes for reproduction test details (test name and file)
+  5. Run the reproduction test FIRST to confirm it fails:
+     go test ./path/to/... -run TestName -v
+  6. Implement the fix described in the shard
+  7. Run the reproduction test again — it MUST now pass
+  8. Run the full test suite for affected packages:
      go build ./path/to/...
-  7. Run tests:
      go test ./path/to/... -v
 
   IMPORTANT: Do NOT report completion unless build and tests pass.
+  IMPORTANT: If there is no reproduction test noted in shard progress, write one yourself.
 
   ## Completion
-  8. Log progress:
+  9. Log progress:
      /Users/dev/bin/palace task progress pf-fix-xxx 'Implemented: [summary]'
 
-  9. Close the shard:
+  10. Close the shard:
      /Users/dev/bin/palace task close pf-fix-xxx 'Done: [summary]. Tests: [TestNames]'
 
   CRITICAL: Do NOT run git add, git commit, git push, or any git write commands.
