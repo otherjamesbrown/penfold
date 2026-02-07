@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -151,12 +152,30 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 	// Record pipeline run for provenance tracking (Stage 4: analyze)
 	if a.pipelineRepo != nil {
 		durationMS := int(time.Since(startTime).Milliseconds())
+
+		// Capture IO data
+		inputJSON, _ := json.Marshal(map[string]interface{}{
+			"content_length": len(input.Content),
+			"content_type": input.ContentType,
+			"triage_category": input.TriageCategory,
+			"triage_importance": input.TriageImportance,
+			"has_background_context": input.BackgroundContext != "",
+			"tenant_id": input.TenantID,
+		})
+		outputJSON, _ := json.Marshal(map[string]interface{}{
+			"model_used": resp.ModelUsed,
+		})
+		parsedJSON, _ := json.Marshal(output)
+
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:   input.SourceID,
 			Stage:      "analyze",
 			ModelID:    output.ModelUsed,
 			Status:     "completed",
 			DurationMS: durationMS,
+			InputData:  inputJSON,
+			OutputData: outputJSON,
+			ParsedData: parsedJSON,
 		})
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run", logging.Err(runErr))

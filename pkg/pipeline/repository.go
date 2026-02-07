@@ -585,7 +585,8 @@ func (r *Repository) ActivatePromptVersion(ctx context.Context, stage string, ve
 // ListSourceHistory retrieves all pipeline runs for a given source.
 func (r *Repository) ListSourceHistory(ctx context.Context, sourceID int64, stageFilter string) ([]PipelineRun, error) {
 	query := `
-		SELECT id, source_id, stage, model_id, prompt_version, config_hash, status, created_at, duration_ms
+		SELECT id, source_id, stage, model_id, prompt_version, config_hash, status, created_at, duration_ms,
+		       input_data, output_data, parsed_data
 		FROM pipeline_runs
 		WHERE source_id = $1
 		  AND ($2 = '' OR stage = $2)
@@ -611,6 +612,9 @@ func (r *Repository) ListSourceHistory(ctx context.Context, sourceID int64, stag
 			&pr.Status,
 			&pr.CreatedAt,
 			&pr.DurationMS,
+			&pr.InputData,
+			&pr.OutputData,
+			&pr.ParsedData,
 		); err != nil {
 			return nil, fmt.Errorf("scanning pipeline run: %w", err)
 		}
@@ -696,20 +700,23 @@ func (r *Repository) GetDownstreamStages(ctx context.Context, stage string) ([]s
 // PipelineRunInput contains the data needed to record a pipeline run.
 type PipelineRunInput struct {
 	SourceID      int64
-	Stage         string // 'triage', 'extract_ner', 'extract_semantic', 'resolve', 'analyze', 'persist', 'embed'
-	ModelID       string // 'qwen2.5-7b', 'gemini-2.0-flash', '' for code-only
-	PromptVersion int    // which prompt version, 0 for no-prompt stages
-	ConfigHash    string // hash of relevant config
-	Status        string // 'completed', 'failed'
-	DurationMS    int    // how long this stage took
+	Stage         string          // 'triage', 'extract_ner', 'extract_semantic', 'resolve', 'analyze', 'persist', 'embed'
+	ModelID       string          // 'qwen2.5-7b', 'gemini-2.0-flash', '' for code-only
+	PromptVersion int             // which prompt version, 0 for no-prompt stages
+	ConfigHash    string          // hash of relevant config
+	Status        string          // 'completed', 'failed'
+	DurationMS    int             // how long this stage took
+	InputData     json.RawMessage // optional, nil = not captured
+	OutputData    json.RawMessage // optional, nil = not captured
+	ParsedData    json.RawMessage // optional, nil = not captured
 }
 
 // CreateRun records a pipeline run for provenance tracking.
 func (r *Repository) CreateRun(ctx context.Context, input PipelineRunInput) error {
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO pipeline_runs (source_id, stage, model_id, prompt_version, config_hash, status, duration_ms)
-		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, 0), NULLIF($5, ''), $6, $7)
-	`, input.SourceID, input.Stage, input.ModelID, input.PromptVersion, input.ConfigHash, input.Status, input.DurationMS)
+		INSERT INTO pipeline_runs (source_id, stage, model_id, prompt_version, config_hash, status, duration_ms, input_data, output_data, parsed_data)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, 0), NULLIF($5, ''), $6, $7, $8, $9, $10)
+	`, input.SourceID, input.Stage, input.ModelID, input.PromptVersion, input.ConfigHash, input.Status, input.DurationMS, input.InputData, input.OutputData, input.ParsedData)
 	return err
 }
 
@@ -739,4 +746,114 @@ func (r *Repository) CountExtracted(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("counting extracted sources: %w", err)
 	}
 	return count, nil
+}
+
+// GetStageIO retrieves pipeline runs with IO data for a source+stage.
+func (r *Repository) GetStageIO(ctx context.Context, sourceID int64, stage string, limit int) ([]PipelineRun, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+
+	query := `
+		SELECT id, source_id, stage, model_id, prompt_version, config_hash, status,
+		       created_at, duration_ms, input_data, output_data, parsed_data
+		FROM pipeline_runs
+		WHERE source_id = $1
+		  AND ($2 = '' OR stage = $2)
+		ORDER BY created_at DESC
+		LIMIT $3
+	`
+
+	rows, err := r.db.Query(ctx, query, sourceID, stage, limit)
+	if err != nil {
+		return nil, fmt.Errorf("querying pipeline runs with IO: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []PipelineRun
+	for rows.Next() {
+		var pr PipelineRun
+		if err := rows.Scan(
+			&pr.ID,
+			&pr.SourceID,
+			&pr.Stage,
+			&pr.ModelID,
+			&pr.PromptVersion,
+			&pr.ConfigHash,
+			&pr.Status,
+			&pr.CreatedAt,
+			&pr.DurationMS,
+			&pr.InputData,
+			&pr.OutputData,
+			&pr.ParsedData,
+		); err != nil {
+			return nil, fmt.Errorf("scanning pipeline run: %w", err)
+		}
+		runs = append(runs, pr)
+	}
+
+	return runs, rows.Err()
+}
+
+// GetRunByID fetches a single pipeline run by ID.
+func (r *Repository) GetRunByID(ctx context.Context, runID int64) (*PipelineRun, error) {
+	query := `
+		SELECT id, source_id, stage, model_id, prompt_version, config_hash, status,
+		       created_at, duration_ms, input_data, output_data, parsed_data
+		FROM pipeline_runs
+		WHERE id = $1
+	`
+
+	var pr PipelineRun
+	err := r.db.QueryRow(ctx, query, runID).Scan(
+		&pr.ID,
+		&pr.SourceID,
+		&pr.Stage,
+		&pr.ModelID,
+		&pr.PromptVersion,
+		&pr.ConfigHash,
+		&pr.Status,
+		&pr.CreatedAt,
+		&pr.DurationMS,
+		&pr.InputData,
+		&pr.OutputData,
+		&pr.ParsedData,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("fetching pipeline run %d: %w", runID, err)
+	}
+
+	return &pr, nil
+}
+
+// PruneOldRunIO nulls out IO data for runs beyond keepN per source+stage.
+func (r *Repository) PruneOldRunIO(ctx context.Context, sourceID int64, stage string, keepN int) (int64, error) {
+	if keepN <= 0 {
+		keepN = 3
+	}
+
+	query := `
+		UPDATE pipeline_runs
+		SET input_data = NULL,
+		    output_data = NULL,
+		    parsed_data = NULL
+		WHERE id NOT IN (
+			SELECT id
+			FROM pipeline_runs
+			WHERE source_id = $1
+			  AND ($2 = '' OR stage = $2)
+			ORDER BY created_at DESC
+			LIMIT $3
+		)
+		AND source_id = $1
+		AND ($2 = '' OR stage = $2)
+		AND (input_data IS NOT NULL OR output_data IS NOT NULL OR parsed_data IS NOT NULL)
+	`
+
+	result, err := r.db.Exec(ctx, query, sourceID, stage, keepN)
+	if err != nil {
+		return 0, fmt.Errorf("pruning old run IO: %w", err)
+	}
+
+	return result.RowsAffected(), nil
 }

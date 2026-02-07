@@ -89,6 +89,7 @@ Related Commands:
 	cmd.AddCommand(newPipelineHistoryCmd(pipelineDeps))
 	cmd.AddCommand(newPipelineConfigCmd(pipelineDeps))
 	cmd.AddCommand(newPipelineErrorsCmd(pipelineDeps))
+	cmd.AddCommand(newPipelineInspectCmd(pipelineDeps))
 
 	return cmd
 }

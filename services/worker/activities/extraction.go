@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -402,6 +403,19 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	// The actual pipeline has separate stages, but they run together in this activity
 	if a.pipelineRepo != nil {
 		durationMS := int(time.Since(startTime).Milliseconds())
+
+		// Capture IO data
+		inputJSON, _ := json.Marshal(map[string]interface{}{
+			"content_length": len(input.Content),
+			"triage_category": input.TriageCategory,
+			"tenant_id": input.TenantID,
+		})
+		outputJSON, _ := json.Marshal(map[string]interface{}{
+			"response_count": len(results),
+			"model_used": output.ModelUsed,
+		})
+		parsedJSON, _ := json.Marshal(output)
+
 		// Record as extract_ner stage (primary extraction stage)
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:   input.SourceID,
@@ -409,6 +423,9 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			ModelID:    output.ModelUsed,
 			Status:     "completed",
 			DurationMS: durationMS,
+			InputData:  inputJSON,
+			OutputData: outputJSON,
+			ParsedData: parsedJSON,
 		})
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run for extract_ner", logging.Err(runErr))
@@ -420,6 +437,9 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			ModelID:    output.ModelUsed,
 			Status:     "completed",
 			DurationMS: durationMS,
+			InputData:  inputJSON,
+			OutputData: outputJSON,
+			ParsedData: parsedJSON,
 		})
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run for extract_semantic", logging.Err(runErr))

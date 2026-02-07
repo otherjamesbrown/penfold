@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
@@ -314,4 +315,7 @@ type PipelineRunInput struct {
 	ConfigHash    string
 	Status        string
 	DurationMS    int
+	InputData     json.RawMessage // Prompt/input sent to stage
+	OutputData    json.RawMessage // Raw response from stage
+	ParsedData    json.RawMessage // Parsed/structured output
 }

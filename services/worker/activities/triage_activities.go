@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -169,12 +170,31 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	// Record pipeline run for provenance tracking
 	if a.pipelineRepo != nil {
 		durationMS := int(time.Since(startTime).Milliseconds())
+
+		// Capture IO data
+		inputJSON, _ := json.Marshal(map[string]interface{}{
+			"content_length": len(input.Content),
+			"content_type": input.ContentType,
+			"has_subject": input.Subject != "",
+			"has_sender": input.SenderEmail != "",
+			"tenant_id": input.TenantID,
+		})
+		outputJSON, _ := json.Marshal(map[string]interface{}{
+			"category": resp.Category,
+			"importance": resp.Importance,
+			"model_used": resp.ModelUsed,
+		})
+		parsedJSON, _ := json.Marshal(output)
+
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:   input.SourceID,
 			Stage:      "triage",
 			ModelID:    output.ModelUsed,
 			Status:     "completed",
 			DurationMS: durationMS,
+			InputData:  inputJSON,
+			OutputData: outputJSON,
+			ParsedData: parsedJSON,
 		})
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run", logging.Err(runErr))

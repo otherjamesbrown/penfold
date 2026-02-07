@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -153,12 +154,32 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 	// Record pipeline run for provenance tracking (Stage 3: resolve)
 	if a.pipelineRepo != nil {
 		durationMS := int(time.Since(startTime).Milliseconds())
+
+		// Capture IO data for code-only stage
+		inputJSON, _ := json.Marshal(map[string]interface{}{
+			"source_id": input.SourceID,
+			"content_type": input.ContentType,
+			"has_extraction": input.Extraction != nil,
+			"people_count": len(input.Extraction.People),
+			"projects_count": len(input.Extraction.Projects),
+		})
+		outputJSON, _ := json.Marshal(map[string]interface{}{
+			"resolved_people": len(resolvedPeople),
+			"resolved_projects": len(resolvedProjects),
+			"tokens_used": contextPackage.TotalTokensUsed,
+			"token_budget": contextPackage.TokenBudget,
+		})
+		parsedJSON, _ := json.Marshal(output)
+
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:   input.SourceID,
 			Stage:      "resolve",
 			ModelID:    "", // code-only stage
 			Status:     "completed",
 			DurationMS: durationMS,
+			InputData:  inputJSON,
+			OutputData: outputJSON,
+			ParsedData: parsedJSON,
 		})
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run", logging.Err(runErr))

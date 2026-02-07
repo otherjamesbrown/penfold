@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -131,12 +132,33 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input workflows
 	// Record pipeline run for provenance tracking (Stage 4.5: persist)
 	if a.pipelineRepo != nil {
 		durationMS := int(time.Since(startTime).Milliseconds())
+
+		// Capture IO data for code-only stage
+		inputJSON, _ := json.Marshal(map[string]interface{}{
+			"source_id": input.SourceID,
+			"has_analysis": input.Analysis != nil,
+			"has_thread_id": input.ThreadID != nil,
+			"has_project_id": input.ProjectID != nil,
+			"resolved_people_count": len(input.ResolvedPeople),
+		})
+		outputJSON, _ := json.Marshal(map[string]interface{}{
+			"assertions_created": repoOutput.AssertionsCreated,
+			"assertions_superseded": repoOutput.AssertionsSuperseded,
+			"references_created": repoOutput.ReferencesCreated,
+			"review_items_created": repoOutput.ReviewItemsCreated,
+			"affinity_updates": repoOutput.AffinityUpdates,
+		})
+		parsedJSON, _ := json.Marshal(output)
+
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:   input.SourceID,
 			Stage:      "persist",
 			ModelID:    "", // code-only stage
 			Status:     "completed",
 			DurationMS: durationMS,
+			InputData:  inputJSON,
+			OutputData: outputJSON,
+			ParsedData: parsedJSON,
 		})
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run", logging.Err(runErr))

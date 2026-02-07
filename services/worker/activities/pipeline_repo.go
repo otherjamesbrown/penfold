@@ -30,5 +30,8 @@ func (a *pipelineRepositoryAdapter) CreateRun(ctx context.Context, input Pipelin
 		ConfigHash:    input.ConfigHash,
 		Status:        input.Status,
 		DurationMS:    input.DurationMS,
+		InputData:     input.InputData,
+		OutputData:    input.OutputData,
+		ParsedData:    input.ParsedData,
 	})
 }

@@ -77,6 +77,12 @@ service PipelineService {
 
   // GetPipelineErrors retrieves pipeline errors with filtering.
   rpc GetPipelineErrors(GetPipelineErrorsRequest) returns (GetPipelineErrorsResponse);
+
+  // InspectStage retrieves pipeline stage IO data for debugging and inspection.
+  rpc InspectStage(InspectStageRequest) returns (InspectStageResponse);
+
+  // DiffStageRuns compares two pipeline runs to identify differences.
+  rpc DiffStageRuns(DiffStageRunsRequest) returns (DiffStageRunsResponse);
 }
 
 // =============================================================================
@@ -831,4 +837,101 @@ message PipelineErrorEvent {
 
   // Additional error details.
   map<string, string> details = 8;
+}
+
+// =============================================================================
+// Pipeline Stage IO Inspection Messages
+// =============================================================================
+
+// StageIOData contains input/output data for a pipeline stage run.
+message StageIOData {
+  // JSON string of input/prompt data.
+  string input_data = 1;
+
+  // JSON string of raw response/output data.
+  string output_data = 2;
+
+  // JSON string of parsed/structured result.
+  string parsed_data = 3;
+}
+
+// PipelineRunDetail represents detailed information about a single pipeline run.
+message PipelineRunDetail {
+  // Unique run ID.
+  int64 id = 1;
+
+  // Source ID that was processed.
+  int64 source_id = 2;
+
+  // Pipeline stage.
+  string stage = 3;
+
+  // Model used (empty for code-only stages).
+  string model_id = 4;
+
+  // Prompt version used (0 for no-prompt stages).
+  int32 prompt_version = 5;
+
+  // Run status (completed, failed, superseded).
+  string status = 6;
+
+  // When the run started.
+  google.protobuf.Timestamp created_at = 7;
+
+  // Duration in milliseconds.
+  int64 duration_ms = 8;
+
+  // Input/output data for this run.
+  StageIOData io = 9;
+}
+
+// InspectStageRequest requests pipeline stage IO data for inspection.
+message InspectStageRequest {
+  // Source ID to inspect (required).
+  int64 source_id = 1;
+
+  // Optional: filter by specific stage (empty = all stages).
+  string stage = 2;
+
+  // Maximum number of runs to return per stage (default: 3).
+  int32 limit = 3;
+}
+
+// InspectStageResponse contains pipeline run details with IO data.
+message InspectStageResponse {
+  // All matching pipeline runs.
+  repeated PipelineRunDetail runs = 1;
+}
+
+// DiffStageRunsRequest requests a comparison of two pipeline runs.
+message DiffStageRunsRequest {
+  // First run ID to compare (required).
+  int64 run_id_a = 1;
+
+  // Second run ID to compare (required).
+  int64 run_id_b = 2;
+}
+
+// DiffStageRunsResponse contains the diff between two pipeline runs.
+message DiffStageRunsResponse {
+  // Stage name.
+  string stage = 1;
+
+  // Status of run A.
+  string run_a_status = 2;
+
+  // Status of run B.
+  string run_b_status = 3;
+
+  // Timestamp of run A.
+  google.protobuf.Timestamp run_a_time = 4;
+
+  // Timestamp of run B.
+  google.protobuf.Timestamp run_b_time = 5;
+
+  // Human-readable summary of differences.
+  string diff_summary = 6;
+
+  // Structured diff as JSON.
+  string diff_json = 7;
 }

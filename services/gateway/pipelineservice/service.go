@@ -1163,3 +1163,187 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 		Message:       message,
 	}, nil
 }
+
+// InspectStage retrieves pipeline stage IO data for debugging and inspection.
+func (s *Service) InspectStage(ctx context.Context, req *pipelinev1.InspectStageRequest) (*pipelinev1.InspectStageResponse, error) {
+	s.logger.Debug("InspectStage called",
+		logging.F("source_id", req.SourceId),
+		logging.F("stage", req.Stage),
+		logging.F("limit", req.Limit),
+	)
+
+	// Validate input
+	if req.SourceId <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "source_id is required")
+	}
+
+	limit := int(req.Limit)
+	if limit <= 0 {
+		limit = 3
+	}
+
+	// Call repository to get stage IO data
+	runs, err := s.repo.GetStageIO(ctx, req.SourceId, req.Stage, limit)
+	if err != nil {
+		s.logger.Error("Error getting stage IO", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get stage IO: %v", err)
+	}
+
+	// Convert to proto
+	protoRuns := make([]*pipelinev1.PipelineRunDetail, len(runs))
+	for i, run := range runs {
+		protoRuns[i] = pipelineRunToDetail(&run)
+	}
+
+	s.logger.Info("Stage IO retrieved",
+		logging.F("source_id", req.SourceId),
+		logging.F("stage", req.Stage),
+		logging.F("run_count", len(runs)),
+	)
+
+	return &pipelinev1.InspectStageResponse{
+		Runs: protoRuns,
+	}, nil
+}
+
+// DiffStageRuns compares two pipeline runs to identify differences.
+func (s *Service) DiffStageRuns(ctx context.Context, req *pipelinev1.DiffStageRunsRequest) (*pipelinev1.DiffStageRunsResponse, error) {
+	s.logger.Debug("DiffStageRuns called",
+		logging.F("run_id_a", req.RunIdA),
+		logging.F("run_id_b", req.RunIdB),
+	)
+
+	// Validate
+	if req.RunIdA <= 0 || req.RunIdB <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "both run_id_a and run_id_b are required")
+	}
+
+	// Fetch both runs
+	runA, err := s.repo.GetRunByID(ctx, req.RunIdA)
+	if err != nil {
+		s.logger.Error("Error getting run A", logging.Err(err))
+		return nil, status.Errorf(codes.NotFound, "run %d not found: %v", req.RunIdA, err)
+	}
+
+	runB, err := s.repo.GetRunByID(ctx, req.RunIdB)
+	if err != nil {
+		s.logger.Error("Error getting run B", logging.Err(err))
+		return nil, status.Errorf(codes.NotFound, "run %d not found: %v", req.RunIdB, err)
+	}
+
+	// Compute diff of ParsedData
+	diffSummary, diffJSON := computeJSONDiff(runA.ParsedData, runB.ParsedData)
+
+	s.logger.Info("Diff computed",
+		logging.F("run_id_a", req.RunIdA),
+		logging.F("run_id_b", req.RunIdB),
+		logging.F("stage", runA.Stage),
+	)
+
+	return &pipelinev1.DiffStageRunsResponse{
+		Stage:       runA.Stage,
+		RunAStatus:  runA.Status,
+		RunBStatus:  runB.Status,
+		RunATime:    timestamppb.New(runA.CreatedAt),
+		RunBTime:    timestamppb.New(runB.CreatedAt),
+		DiffSummary: diffSummary,
+		DiffJson:    diffJSON,
+	}, nil
+}
+
+// pipelineRunToDetail converts a PipelineRun to PipelineRunDetail proto.
+func pipelineRunToDetail(run *pipeline.PipelineRun) *pipelinev1.PipelineRunDetail {
+	if run == nil {
+		return nil
+	}
+	detail := &pipelinev1.PipelineRunDetail{
+		Id:        run.ID,
+		SourceId:  run.SourceID,
+		Stage:     run.Stage,
+		Status:    run.Status,
+		CreatedAt: timestamppb.New(run.CreatedAt),
+	}
+	if run.ModelID != nil {
+		detail.ModelId = *run.ModelID
+	}
+	if run.PromptVersion != nil {
+		detail.PromptVersion = int32(*run.PromptVersion)
+	}
+	if run.DurationMS != nil {
+		detail.DurationMs = int64(*run.DurationMS)
+	}
+	// IO data
+	if run.InputData != nil || run.OutputData != nil || run.ParsedData != nil {
+		detail.Io = &pipelinev1.StageIOData{
+			InputData:  string(run.InputData),
+			OutputData: string(run.OutputData),
+			ParsedData: string(run.ParsedData),
+		}
+	}
+	return detail
+}
+
+// computeJSONDiff compares two JSON blobs and returns a summary and detailed diff.
+func computeJSONDiff(a, b json.RawMessage) (summary string, diffJSON string) {
+	// Simple implementation: unmarshal and compare top-level keys
+	var mapA, mapB map[string]interface{}
+
+	// Parse both JSON documents
+	errA := json.Unmarshal(a, &mapA)
+	errB := json.Unmarshal(b, &mapB)
+
+	// Handle parsing errors
+	if errA != nil && errB != nil {
+		return "Both documents failed to parse as JSON", "{\"error\": \"invalid_json\"}"
+	}
+	if errA != nil {
+		return "Document A is not valid JSON", "{\"error\": \"invalid_json_a\"}"
+	}
+	if errB != nil {
+		return "Document B is not valid JSON", "{\"error\": \"invalid_json_b\"}"
+	}
+
+	// Track differences
+	added := []string{}
+	removed := []string{}
+	changed := []string{}
+
+	// Find removed and changed keys
+	for key := range mapA {
+		if _, exists := mapB[key]; !exists {
+			removed = append(removed, key)
+		} else {
+			// Simple comparison - just check if values differ
+			valA, _ := json.Marshal(mapA[key])
+			valB, _ := json.Marshal(mapB[key])
+			if string(valA) != string(valB) {
+				changed = append(changed, key)
+			}
+		}
+	}
+
+	// Find added keys
+	for key := range mapB {
+		if _, exists := mapA[key]; !exists {
+			added = append(added, key)
+		}
+	}
+
+	// Build summary
+	if len(added) == 0 && len(removed) == 0 && len(changed) == 0 {
+		summary = "No differences detected"
+	} else {
+		summary = fmt.Sprintf("%d added, %d removed, %d changed", len(added), len(removed), len(changed))
+	}
+
+	// Build structured diff
+	diffMap := map[string]interface{}{
+		"added":   added,
+		"removed": removed,
+		"changed": changed,
+	}
+	diffBytes, _ := json.Marshal(diffMap)
+	diffJSON = string(diffBytes)
+
+	return summary, diffJSON
+}

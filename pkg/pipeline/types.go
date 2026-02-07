@@ -1,7 +1,10 @@
 // Package pipeline provides types and repository for pipeline status and job tracking.
 package pipeline
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // StatusCount represents a count grouped by status.
 type StatusCount struct {
@@ -114,4 +117,7 @@ type PipelineRun struct {
 	Status        string
 	CreatedAt     time.Time
 	DurationMS    *int
+	InputData     json.RawMessage // JSONB snapshot of input data (prompt + context)
+	OutputData    json.RawMessage // JSONB snapshot of raw output (model response)
+	ParsedData    json.RawMessage // JSONB snapshot of parsed/structured output
 }

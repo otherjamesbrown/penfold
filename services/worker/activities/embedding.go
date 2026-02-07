@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -161,12 +162,32 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	// Record pipeline run for provenance tracking (Stage 5: embed)
 	if a.pipelineRepo != nil {
 		durationMS := int(time.Since(startTime).Milliseconds())
+
+		// Capture IO data
+		inputJSON, _ := json.Marshal(map[string]interface{}{
+			"content_length": len(input.Content),
+			"content_hash": input.ContentHash,
+			"tenant_id": input.TenantID,
+		})
+		outputJSON, _ := json.Marshal(map[string]interface{}{
+			"dimensions": resp.Dimensions,
+			"model_used": resp.ModelUsed,
+			"embedding_id": embeddingID,
+		})
+		parsedJSON, _ := json.Marshal(map[string]interface{}{
+			"embedding_id": embeddingID,
+			"dimensions": resp.Dimensions,
+		})
+
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:   input.SourceID,
 			Stage:      "embed",
 			ModelID:    resp.ModelUsed,
 			Status:     "completed",
 			DurationMS: durationMS,
+			InputData:  inputJSON,
+			OutputData: outputJSON,
+			ParsedData: parsedJSON,
 		})
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run", logging.Err(runErr))
