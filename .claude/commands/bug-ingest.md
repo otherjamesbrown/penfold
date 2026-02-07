@@ -570,7 +570,15 @@ SELECT send_message('penfold', 'agent-mycroft',
 
 ### Verification
 - Build: passing
-- Tests: passing (regression tests added)
+- Tests: [TestName1] FAILED before fix, PASSED after fix
+- Tests: [TestName2] FAILED before fix, PASSED after fix
+
+### Deployment
+[List what was deployed: gateway, worker, CLI vX.Y.Z, etc.]
+
+### Action Required
+[If CLI was updated: "Please run `penf update` to get the fix."]
+[If server-side only: "No action required — fix is live."]
 
 -- agent-mycroft
 \$body\$,
@@ -706,25 +714,42 @@ penf status                       # connectivity
 
 ### Show Final Summary
 
+Display a per-bug summary table. For EACH bug processed, include all of these fields:
+
 ```
 BUG PIPELINE - COMPLETE
 ════════════════════════
-Processed: N bugs
-Investigations: N (all closed)
-Implementations: N (all closed)
-Replies sent: N
 
-Summary:
-  pf-xxxxxx | [title] | FIXED -> pf-fix-aaa | replied
-  pf-yyyyyy | [title] | FIXED -> pf-fix-bbb | replied
+## Bug 1: [short title]
+Shard:       pf-fix-aaa (investigation: pf-inv-aaa)
+Bug:         [1-2 sentence summary of the reported symptom and root cause]
+Fix:         [1-2 sentence summary of what was changed to resolve it]
+Test:        [TestName] in [file] — FAILED before fix ✓, PASSED after fix ✓
+             [or: "Not directly testable — [reason]. Closest test: [TestName]"]
+             [or: "Fixed existing test [TestName] — had [what was wrong]"]
+Actions:     [Gateway deployed ✓ | Worker deployed ✓ | CLI v0.X.Y released ✓ | None needed]
+Notified:    agent-penfold replied ✓ [user action required: "run penf update" | no action needed]
 
-Deployed:
-  [Gateway: ./scripts/deploy-gateway.sh ✓]
-  [Worker: arm64 binary deployed to dev01 ✓]
-  [CLI: v0.X.Y tag pushed, GitHub Actions building ✓]
+## Bug 2: [short title]
+Shard:       pf-fix-bbb (investigation: pf-inv-bbb)
+Bug:         [summary]
+Fix:         [summary]
+Test:        [details]
+Actions:     [details]
+Notified:    [details]
 
-Committed: [hash] "[message]"
+────────────────────────
+Totals: N bugs fixed, N deployed, N replies sent
+Commit: [hash] "[message]"
 ```
+
+**Rules for the summary:**
+- Every bug MUST have all 6 fields (Shard, Bug, Fix, Test, Actions, Notified)
+- Test field must confirm both pre-fix failure AND post-fix pass (or explain why not testable)
+- Actions field must list every deployment action taken, or "None needed" if code-only
+- Notified field must confirm the reporter was told, and whether they need to do anything
+  (e.g. "run `penf update`" for CLI changes, "no action needed" for server-side fixes)
+- If a bug was partially fixed or deferred, say so explicitly with next steps
 
 ---
 
