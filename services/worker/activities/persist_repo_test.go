@@ -835,3 +835,101 @@ func TestBug_pf9c5be0_AcronymsInOriginalContentNotDetected(t *testing.T) {
 		t.Logf("4. Acronyms like CLIC, TRR, NLB, ECMP are now included in scan")
 	})
 }
+
+// TestBug_pfec8d04_EmailPrefixesNotExcludedFromAcronyms reproduces bug pf-ec8d04.
+// Root cause: Missing email prefixes (FW, CC, BCC) in commonAcronymExclusions.
+//
+// Bug: Email prefixes like FW (forward), CC (carbon copy), BCC (blind carbon copy)
+// are detected as acronyms and create review queue items, even though they're not
+// domain-specific acronyms that need glossary definitions.
+//
+// Expected behavior after fix:
+// - FW, CC, BCC should be added to commonAcronymExclusions map in persist_repo.go
+// - isValidAcronym() should reject these tokens
+// - No review items should be created for these common email prefixes
+func TestBug_pfec8d04_EmailPrefixesNotExcludedFromAcronyms(t *testing.T) {
+	t.Run("FW is incorrectly accepted as valid acronym", func(t *testing.T) {
+		// BUG: FW passes isValidAcronym() because it's not in commonAcronymExclusions
+		result := isValidAcronym("FW")
+
+		// This assertion FAILS (reproduces the bug) - FW is currently accepted
+		assert.False(t, result, "BUG pf-ec8d04: FW should be rejected as a common email prefix, not a domain acronym")
+
+		t.Logf("REPRODUCTION: FW incorrectly returns true from isValidAcronym()")
+		t.Logf("ROOT CAUSE: FW is missing from commonAcronymExclusions map")
+	})
+
+	t.Run("CC is incorrectly accepted as valid acronym", func(t *testing.T) {
+		// BUG: CC passes isValidAcronym() because it's not in commonAcronymExclusions
+		result := isValidAcronym("CC")
+
+		// This assertion FAILS (reproduces the bug) - CC is currently accepted
+		assert.False(t, result, "BUG pf-ec8d04: CC should be rejected as a common email prefix, not a domain acronym")
+
+		t.Logf("REPRODUCTION: CC incorrectly returns true from isValidAcronym()")
+		t.Logf("ROOT CAUSE: CC is missing from commonAcronymExclusions map in persist_repo.go")
+		t.Logf("NOTE: CC exists in pkg/ingest/meeting/acronyms.go defaultCommonWords but not in persist_repo.go")
+	})
+
+	t.Run("BCC is incorrectly accepted as valid acronym", func(t *testing.T) {
+		// BUG: BCC passes isValidAcronym() because it's not in commonAcronymExclusions
+		result := isValidAcronym("BCC")
+
+		// This assertion FAILS (reproduces the bug) - BCC is currently accepted
+		assert.False(t, result, "BUG pf-ec8d04: BCC should be rejected as a common email prefix, not a domain acronym")
+
+		t.Logf("REPRODUCTION: BCC incorrectly returns true from isValidAcronym()")
+		t.Logf("ROOT CAUSE: BCC is missing from commonAcronymExclusions map in persist_repo.go")
+		t.Logf("NOTE: BCC exists in pkg/ingest/meeting/acronyms.go defaultCommonWords but not in persist_repo.go")
+	})
+
+	t.Run("email prefixes pass validation checks but should be excluded", func(t *testing.T) {
+		// These tokens meet the technical criteria (2 uppercase letters, length ≤10)
+		// but should be excluded as common email prefixes, not domain acronyms
+		emailPrefixes := []string{"FW", "CC", "BCC"}
+
+		for _, prefix := range emailPrefixes {
+			// Check that they pass the technical validation
+			assert.LessOrEqual(t, len(prefix), 3, "Email prefix %s should be ≤3 chars", prefix)
+			assert.GreaterOrEqual(t, len(prefix), 2, "Email prefix %s should be ≥2 chars", prefix)
+
+			upperCount := 0
+			for _, r := range prefix {
+				if r >= 'A' && r <= 'Z' {
+					upperCount++
+				}
+			}
+			assert.GreaterOrEqual(t, upperCount, 2, "Email prefix %s should have ≥2 uppercase letters", prefix)
+			assert.LessOrEqual(t, len(prefix), 10, "Email prefix %s should be ≤10 chars", prefix)
+
+			// BUG: They're not in commonAcronymExclusions
+			inExclusions := commonAcronymExclusions[prefix]
+			assert.True(t, inExclusions, "BUG pf-ec8d04: %s should be in commonAcronymExclusions", prefix)
+
+			// BUG: So they incorrectly pass isValidAcronym()
+			passes := isValidAcronym(prefix)
+			assert.False(t, passes, "BUG pf-ec8d04: %s should fail isValidAcronym()", prefix)
+		}
+
+		t.Logf("REPRODUCTION: Email prefixes FW, CC, BCC pass isValidAcronym() but shouldn't")
+		t.Logf("FIX REQUIRED: Add FW, CC, BCC to commonAcronymExclusions map in persist_repo.go:646-663")
+	})
+
+	t.Run("verify inconsistency between persist_repo.go and acronyms.go", func(t *testing.T) {
+		// persist_repo.go commonAcronymExclusions is MISSING: FW, CC, BCC
+		// pkg/ingest/meeting/acronyms.go defaultCommonWords HAS: CC, BCC (but not FW)
+
+		// This demonstrates the inconsistency between the two files
+		persistRepoHasFW := commonAcronymExclusions["FW"]
+		persistRepoHasCC := commonAcronymExclusions["CC"]
+		persistRepoHasBCC := commonAcronymExclusions["BCC"]
+
+		assert.True(t, persistRepoHasFW, "BUG: persist_repo.go is missing FW in commonAcronymExclusions")
+		assert.True(t, persistRepoHasCC, "BUG: persist_repo.go is missing CC in commonAcronymExclusions")
+		assert.True(t, persistRepoHasBCC, "BUG: persist_repo.go is missing BCC in commonAcronymExclusions")
+
+		t.Logf("INCONSISTENCY: pkg/ingest/meeting/acronyms.go has CC, BCC in defaultCommonWords")
+		t.Logf("INCONSISTENCY: persist_repo.go commonAcronymExclusions is missing FW, CC, BCC")
+		t.Logf("FIX REQUIRED: Sync the exclusion lists and add missing email prefixes")
+	})
+}

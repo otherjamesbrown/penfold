@@ -48,7 +48,7 @@ func defaultCommonWords() map[string]bool {
 		"ME", "US",
 
 		// Common abbreviations
-		"ID", "VS", "ETC", "AKA", "FYI", "ASAP", "BTW", "RE", "CC", "BCC",
+		"ID", "VS", "ETC", "AKA", "FYI", "ASAP", "BTW", "RE", "FW", "CC", "BCC",
 
 		// Days and months
 		"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN",

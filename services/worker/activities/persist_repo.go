@@ -660,6 +660,7 @@ var commonAcronymExclusions = map[string]bool{
 	"TOO": true, "USE": true, "HAD": true,
 	"TBD": true, "TBA": true, "FYI": true, "ASAP": true, "NOTE": true,
 	"TODO": true, "DONE": true, "NONE": true, "NULL": true,
+	"FW": true, "CC": true, "BCC": true,
 }
 
 // properNounExclusions contains CamelCase words that are proper nouns, not acronyms.
@@ -711,8 +712,13 @@ func isValidAcronym(token string) bool {
 		return false
 	}
 
-	// Check proper noun blocklist (case-insensitive)
+	// Check common exclusions (words that aren't acronyms)
 	upperToken := strings.ToUpper(token)
+	if commonAcronymExclusions[upperToken] {
+		return false
+	}
+
+	// Check proper noun blocklist (case-insensitive)
 	if properNounExclusions[upperToken] {
 		return false
 	}
@@ -737,10 +743,7 @@ func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input
 	candidates := make(map[string]string) // term -> first context seen
 	for _, text := range texts {
 		for _, match := range acronymPattern.FindAllString(text, -1) {
-			if commonAcronymExclusions[match] {
-				continue
-			}
-			// Validate acronym: check length, uppercase count, proper nouns
+			// Validate acronym: check length, uppercase count, common words, proper nouns
 			if !isValidAcronym(match) {
 				continue
 			}
