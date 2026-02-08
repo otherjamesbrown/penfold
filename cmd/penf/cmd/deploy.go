@@ -12,6 +12,9 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/spf13/cobra"
+
+	"github.com/otherjamesbrown/penfold/cmd/penf/config"
+	"github.com/otherjamesbrown/penfold/cmd/penf/contextpalace"
 )
 
 // serviceConfig defines the build and deploy configuration for a service.
@@ -68,9 +71,18 @@ var services = map[string]serviceConfig{
 }
 
 var (
-	deployStatus     bool
-	historyLast      int
+	deployStatus       bool
+	historyLast        int
 	historyServiceName string
+
+	// record subcommand flags
+	recordCommit         string
+	recordPreviousCommit string
+	recordDeployedBy     string
+	recordVersion        string
+	recordChanges        string
+	recordShardIDs       string
+	recordNotify         bool
 )
 
 // NewDeployCommand creates the deploy command.
@@ -148,6 +160,39 @@ Environment:
 	historyCmd.Flags().IntVar(&historyLast, "last", 0, "Limit to last N deployments")
 
 	deployCmd.AddCommand(historyCmd)
+
+	// Add record subcommand.
+	recordCmd := &cobra.Command{
+		Use:   "record <service>",
+		Short: "Record a deployment in deploy_history",
+		Long: `Record a deployment in the deploy_history table and optionally send
+a Context-Palace notification.
+
+This replaces the shell-based record_deploy() function in deploy scripts,
+providing proper parameterized queries and unified notification logic.
+
+Examples:
+  penf deploy record penfold-gateway --commit abc123
+  penf deploy record penfold-worker --commit abc123 --previous-commit def456
+  penf deploy record penfold-gateway --commit abc123 --notify --shard-ids pf-xxx,pf-yyy
+
+Environment:
+  PENFOLD_DB_URL   Database connection string (required)`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDeployRecord(args[0])
+		},
+	}
+	recordCmd.Flags().StringVar(&recordCommit, "commit", "", "New commit hash (required)")
+	recordCmd.Flags().StringVar(&recordPreviousCommit, "previous-commit", "", "Previous commit hash")
+	recordCmd.Flags().StringVar(&recordDeployedBy, "deployed-by", "", "Who deployed (default: from Context-Palace config)")
+	recordCmd.Flags().StringVar(&recordVersion, "version", "", "Version tag (default: git describe)")
+	recordCmd.Flags().StringVar(&recordChanges, "changes", "", "Changelog (default: git log between commits)")
+	recordCmd.Flags().StringVar(&recordShardIDs, "shard-ids", "", "Comma-separated Context-Palace shard IDs")
+	recordCmd.Flags().BoolVar(&recordNotify, "notify", true, "Send Context-Palace notification")
+	_ = recordCmd.MarkFlagRequired("commit")
+
+	deployCmd.AddCommand(recordCmd)
 
 	return deployCmd
 }
@@ -361,6 +406,134 @@ type deployHistoryEntry struct {
 	Changes         sql.NullString
 	NomadJobVersion sql.NullInt32
 	ShardIDs        []string
+}
+
+func runDeployRecord(serviceName string) error {
+	// Get database URL from environment.
+	dbURL := os.Getenv("PENFOLD_DB_URL")
+	if dbURL == "" {
+		return fmt.Errorf("PENFOLD_DB_URL environment variable not set")
+	}
+
+	// Resolve version: flag > git describe.
+	version := recordVersion
+	if version == "" {
+		verCmd := exec.Command("git", "describe", "--tags", "--always")
+		if out, err := verCmd.Output(); err == nil {
+			version = strings.TrimSpace(string(out))
+		}
+	}
+
+	// Resolve changes: flag > git log between commits.
+	changes := recordChanges
+	if changes == "" && recordPreviousCommit != "" && recordCommit != "" {
+		logCmd := exec.Command("git", "log", "--oneline", recordPreviousCommit+".."+recordCommit)
+		if out, err := logCmd.Output(); err == nil {
+			changes = strings.TrimSpace(string(out))
+		}
+	}
+	if changes == "" {
+		changes = "Deploy " + recordCommit
+	}
+
+	// Resolve deployed-by: flag > Context-Palace config > default.
+	deployedBy := recordDeployedBy
+	if deployedBy == "" {
+		if cfg, err := config.LoadConfig(); err == nil && cfg.ContextPalace != nil {
+			deployedBy = cfg.ContextPalace.GetAgent()
+		}
+	}
+	if deployedBy == "" {
+		deployedBy = "agent-mycroft"
+	}
+
+	// Parse shard IDs.
+	var shardIDs []string
+	if recordShardIDs != "" {
+		for _, id := range strings.Split(recordShardIDs, ",") {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				shardIDs = append(shardIDs, id)
+			}
+		}
+	}
+
+	// Insert into deploy_history.
+	ctx := context.Background()
+	db, err := sql.Open("pgx", dbURL)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer db.Close()
+
+	query := `
+		INSERT INTO deploy_history (service_name, commit, previous_commit, version, deployed_by, changes, shard_ids)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
+
+	var prevCommit *string
+	if recordPreviousCommit != "" {
+		prevCommit = &recordPreviousCommit
+	}
+
+	var versionPtr *string
+	if version != "" {
+		versionPtr = &version
+	}
+
+	_, err = db.ExecContext(ctx, query,
+		serviceName,
+		recordCommit,
+		prevCommit,
+		versionPtr,
+		deployedBy,
+		changes,
+		shardIDs,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert deploy record: %w", err)
+	}
+
+	prev := recordPreviousCommit
+	if prev == "" {
+		prev = "unknown"
+	}
+	fmt.Printf("Recorded: %s %s -> %s\n", serviceName, prev, recordCommit)
+
+	// Send Context-Palace notification if requested.
+	if recordNotify {
+		if err := sendDeployNotification(ctx, serviceName, recordCommit, prev, version, changes); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to send deploy notification: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+func sendDeployNotification(ctx context.Context, serviceName, commit, previousCommit, version, changes string) error {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	cpClient, err := contextpalace.NewClient(cfg.ContextPalace)
+	if err != nil {
+		return fmt.Errorf("creating context-palace client: %w", err)
+	}
+	defer cpClient.Close()
+
+	subject := fmt.Sprintf("Deploy: %s %s", serviceName, commit)
+	body := fmt.Sprintf("Deployed %s %s (was %s)\n\nVersion: %s\n\nChanges:\n%s",
+		serviceName, commit, previousCommit, version, changes)
+
+	_, err = cpClient.SendMessage(ctx, []string{"agent-penfold"}, subject, body, &contextpalace.SendMessageOptions{
+		Kind: "deploy",
+	})
+	if err != nil {
+		return fmt.Errorf("sending message: %w", err)
+	}
+
+	fmt.Println("Notification sent to agent-penfold")
+	return nil
 }
 
 func runDeployHistory() error {

@@ -164,7 +164,11 @@ cmd_full_deploy() {
     NEW_COMMIT=$(get_deployed_commit "$WORKER_URL")
 
     # Record deployment
-    record_deploy "penfold-worker" "$OLD_COMMIT" "$NEW_COMMIT" "agent-mycroft"
+    penf deploy record "penfold-worker" \
+        --commit "$NEW_COMMIT" \
+        --previous-commit "$OLD_COMMIT" \
+        --deployed-by "agent-mycroft" \
+        --notify
 
     echo ""
     echo "${GREEN}=== Deployment Complete ===${NC}"
