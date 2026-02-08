@@ -499,6 +499,51 @@ func TestContentIngestionWorkflow_LargeContent(t *testing.T) {
 	require.Equal(t, 1024*1024, capturedContentSize)
 }
 
+func TestContentIngestionWorkflow_RejectedByValidation(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	registerStandaloneActivities(env)
+
+	// ValidateContent returns Valid:false with empty_content category
+	env.OnActivity("ValidateContent", mock.Anything, mock.Anything).Return(&ValidateContentOutput{
+		Valid:           false,
+		FailureCategory: "empty_content",
+		FailureReason:   "Source has no extractable text content",
+	}, nil)
+
+	// UpdateContentStatus should be called with rejected status
+	env.OnActivity("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(input UpdateContentStatusInput) bool {
+		return input.Status == "rejected" &&
+			input.FailureCategory == "empty_content" &&
+			input.FailureReason == "Source has no extractable text content"
+	})).Return(nil)
+
+	// Execute workflow
+	env.ExecuteWorkflow(ContentIngestionWorkflow, pkgtemporal.ContentIngestionInput{
+		TenantID:    "tenant-123",
+		SourceID:    456,
+		SourceType:  "document",
+		ContentHash: "hash123",
+		JobID:       "job-001",
+	})
+
+	// Assert workflow completed successfully
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+
+	// Assert result shows rejected status
+	var result ContentIngestionResult
+	require.NoError(t, env.GetWorkflowResult(&result))
+	require.Equal(t, "rejected", result.Status)
+	require.Contains(t, result.Error, "empty_content")
+
+	// Verify no further activities were called (FetchContent, embedding, etc.)
+	env.AssertNotCalled(t, "FetchContent", mock.Anything, mock.Anything)
+	env.AssertNotCalled(t, "GenerateContentEmbedding", mock.Anything, mock.Anything)
+	env.AssertNotCalled(t, "GenerateContentSummary", mock.Anything, mock.Anything)
+	env.AssertNotCalled(t, "ExtractEntitiesActivity", mock.Anything, mock.Anything)
+}
+
 func TestContentIngestionWorkflow_RetryBehavior(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()

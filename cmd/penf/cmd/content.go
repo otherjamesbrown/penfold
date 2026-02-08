@@ -141,7 +141,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&contentStatus, "status", "", "Filter by processing state: pending, processing, complete, failed")
+	cmd.Flags().StringVar(&contentStatus, "status", "", "Filter by processing state: pending, processing, complete, failed, cancelled, rejected, skipped")
 	cmd.Flags().StringVar(&contentSource, "source", "", "Filter by source type: email, document, meeting, slack")
 	cmd.Flags().StringVar(&contentTenant, "tenant", "", "Filter by tenant ID (defaults to config tenant)")
 
