@@ -40,7 +40,7 @@ Parse the user's input to determine which mode to run:
 AGENT_NAME: agent-mycroft
 PROJECT: penfold
 DB_CONN: "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full"
-PALACE_CLI: /Users/dev/bin/palace
+CP_CLI: cxp
 ```
 
 ## CRITICAL: Orchestrator Role
