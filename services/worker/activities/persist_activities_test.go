@@ -219,3 +219,39 @@ func TestPersistFindings_EmptyAnalysis(t *testing.T) {
 	require.Equal(t, 0, output.ReviewItemsCreated)
 	require.Equal(t, 0, output.AffinityUpdates)
 }
+
+func TestPersistFindings_PassesBodyTextAndSubjectToRepository(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	var capturedBodyText, capturedSubject string
+	mockRepo := &mockPersistRepository{
+		persistFindingsFn: func(ctx context.Context, input *PersistFindingsInput) (*PersistFindingsOutput, error) {
+			capturedBodyText = input.BodyText
+			capturedSubject = input.Subject
+			return &PersistFindingsOutput{}, nil
+		},
+	}
+
+	activities := NewPersistActivities(logger, mockRepo, nil)
+
+	input := PersistFindingsActivityInput{
+		TenantID: "test-tenant",
+		SourceID: 123,
+		Analysis: &DeepAnalyzeOutput{
+			Summary: "Test analysis",
+		},
+		BodyText: "CLIC is our project framework for managing initiatives.",
+		Subject:  "MTC TRR Review",
+	}
+
+	output, err := activities.PersistFindings(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// CRITICAL: These assertions reproduce the bug
+	// Currently FAILS because persist_activities.go drops BodyText and Subject
+	require.Equal(t, "CLIC is our project framework for managing initiatives.", capturedBodyText,
+		"PersistFindings should pass BodyText to repository for acronym detection")
+	require.Equal(t, "MTC TRR Review", capturedSubject,
+		"PersistFindings should pass Subject to repository for acronym detection")
+}

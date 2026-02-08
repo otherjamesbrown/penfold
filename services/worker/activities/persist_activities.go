@@ -98,6 +98,8 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input workflows
 		ProjectID:      input.ProjectID,
 		Analysis:       input.Analysis,
 		ResolvedPeople: input.ResolvedPeople,
+		BodyText:       input.BodyText,
+		Subject:        input.Subject,
 	}
 
 	// Call repository to persist findings
