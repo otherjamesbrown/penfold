@@ -3,6 +3,7 @@ package entities
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/processors"
@@ -121,6 +122,23 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 		return nil, fmt.Errorf("failed to lookup by email: %w", err)
 	}
 	if person != nil {
+		// Update canonical_name if it's currently an email and we have a proper display name
+		if displayName != "" && strings.Contains(person.CanonicalName, "@") {
+			r.logger.Info("Updating canonical_name from email to display name",
+				logging.F("person_id", person.ID),
+				logging.F("email", email),
+				logging.F("old_name", person.CanonicalName),
+				logging.F("new_name", displayName))
+
+			person.CanonicalName = displayName
+			if err := r.repo.UpdatePerson(ctx, person); err != nil {
+				r.logger.Warn("Failed to update canonical_name",
+					logging.Err(err),
+					logging.F("person_id", person.ID))
+				// Continue - don't fail resolution due to update error
+			}
+		}
+
 		// Update display name alias if we have a new variation
 		if displayName != "" && displayName != person.CanonicalName {
 			r.addDisplayNameAlias(ctx, person.ID, displayName)

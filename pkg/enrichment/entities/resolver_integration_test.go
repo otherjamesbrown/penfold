@@ -185,6 +185,238 @@ func getEnvOrDefault(key, defaultValue string) string {
 	return defaultValue
 }
 
+// TestResolveOrCreate_CanonicalNameUpdate_Integration is an integration test that reproduces
+// bug pf-38e4a9: ResolveOrCreate does not update canonical_name when a better display name
+// becomes available.
+//
+// ROOT CAUSE: When finding an existing entity by exact email match (lines ~119-152 in resolver.go),
+// the code only adds the display name as an alias but never updates canonical_name. When an entity
+// is first created with canonical_name=email (e.g., "mponec@akamai.com") and later resolved again
+// with a display name (e.g., "Miroslav Ponec"), the canonical_name stays as the email address.
+//
+// This test:
+// 1. Creates a Person entity with canonical_name = email address (no display name available)
+// 2. Calls ResolveOrCreate with the same email AND a display name
+// 3. Expects the returned entity to have canonical_name updated to the display name
+// 4. Currently FAILS because ResolveOrCreate never updates canonical_name for existing entities
+//
+// After the bug is fixed, this test should PASS.
+func TestResolveOrCreate_CanonicalNameUpdate_Integration(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup database connection
+	pool := setupTestDB(t)
+	tenantID := IntegrationTestTenantID
+	logger := logging.MustGlobal()
+
+	// Create repository and resolver
+	repo := NewRepository(pool, logger)
+	resolver := NewResolver(repo, WithResolverLogger(logger))
+
+	testCases := []struct {
+		name                 string
+		email                string
+		initialCanonicalName string // Email address used as canonical name
+		displayName          string // Better display name provided later
+		expectedCanonicalName string // Should be updated to display name
+	}{
+		{
+			name:                 "email canonical name updated to proper display name",
+			email:                "mponec@test-integration.com",
+			initialCanonicalName: "mponec@test-integration.com", // Email used as name initially
+			displayName:          "Miroslav Ponec",
+			expectedCanonicalName: "Miroslav Ponec",
+		},
+		{
+			name:                 "email prefix canonical name updated to full name",
+			email:                "jsmith@test-integration.com",
+			initialCanonicalName: "jsmith@test-integration.com",
+			displayName:          "John Smith",
+			expectedCanonicalName: "John Smith",
+		},
+		{
+			name:                 "email canonical name with domain updated to clean name",
+			email:                "contact@test-integration.com",
+			initialCanonicalName: "contact@test-integration.com",
+			displayName:          "Jane Contact",
+			expectedCanonicalName: "Jane Contact",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Clean up any existing person with this email
+			cleanupPerson(t, ctx, pool, tenantID, tc.email)
+			defer cleanupPerson(t, ctx, pool, tenantID, tc.email)
+
+			// Step 1: Create a person with canonical_name = email address
+			// This simulates an entity created before a display name was available
+			initialPerson := &Person{
+				TenantID:      tenantID,
+				CanonicalName: tc.initialCanonicalName, // Using email as canonical name
+				PrimaryEmail:  tc.email,
+				AccountType:   AccountTypePerson,
+				IsInternal:    false,
+				Confidence:    0.6,
+				AutoCreated:   true,
+				NeedsReview:   true,
+			}
+
+			if err := repo.CreatePerson(ctx, initialPerson); err != nil {
+				t.Fatalf("Failed to create initial person: %v", err)
+			}
+			t.Logf("Created person ID %d with canonical_name=%q (email address)",
+				initialPerson.ID, initialPerson.CanonicalName)
+
+			// Verify initial state: canonical_name looks like an email (contains @)
+			if !containsAt(initialPerson.CanonicalName) {
+				t.Fatalf("Test setup issue: canonical_name %q doesn't look like an email",
+					initialPerson.CanonicalName)
+			}
+
+			// Step 2: Call ResolveOrCreate with a display name
+			// This simulates processing a new email from the same person that includes a display name
+			result, err := resolver.ResolveOrCreate(ctx, tenantID, tc.email, tc.displayName)
+			if err != nil {
+				t.Fatalf("ResolveOrCreate failed: %v", err)
+			}
+
+			// Step 3: Assert that canonical_name was updated to the display name
+			if result.Person.CanonicalName != tc.expectedCanonicalName {
+				t.Errorf("FAIL: ResolveOrCreate returned canonical_name=%q, want %q",
+					result.Person.CanonicalName, tc.expectedCanonicalName)
+				t.Errorf("BUG REPRODUCED: canonical_name was NOT updated from email to display name")
+				t.Logf("Person ID: %d", result.Person.ID)
+				t.Logf("Email: %s", tc.email)
+				t.Logf("Display name provided: %s", tc.displayName)
+				t.Logf("Expected: canonical_name should be updated from %q to %q",
+					tc.initialCanonicalName, tc.expectedCanonicalName)
+			} else {
+				t.Logf("PASS: canonical_name correctly updated to %q", result.Person.CanonicalName)
+			}
+
+			// Step 4: Verify the database was actually updated (not just the in-memory object)
+			dbPerson, err := repo.GetPersonByEmail(ctx, tenantID, tc.email)
+			if err != nil {
+				t.Fatalf("Failed to fetch person from DB: %v", err)
+			}
+			if dbPerson.CanonicalName != tc.expectedCanonicalName {
+				t.Errorf("FAIL: Database still has canonical_name=%q, want %q",
+					dbPerson.CanonicalName, tc.expectedCanonicalName)
+				t.Errorf("BUG: Changes were not persisted to database")
+			}
+		})
+	}
+}
+
+// TestResolveOrCreate_CanonicalNameNoOverwrite_Integration verifies that we do NOT overwrite
+// a good canonical_name (one that doesn't look like an email) with a new display name.
+//
+// This is an edge case test to ensure the fix for pf-38e4a9 doesn't break existing good names.
+func TestResolveOrCreate_CanonicalNameNoOverwrite_Integration(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup database connection
+	pool := setupTestDB(t)
+	tenantID := IntegrationTestTenantID
+	logger := logging.MustGlobal()
+
+	// Create repository and resolver
+	repo := NewRepository(pool, logger)
+	resolver := NewResolver(repo, WithResolverLogger(logger))
+
+	testCases := []struct {
+		name                  string
+		email                 string
+		existingCanonicalName string // Already a good name (not an email)
+		newDisplayName        string // Different display name provided
+		expectedCanonicalName string // Should NOT change
+	}{
+		{
+			name:                  "good canonical name not overwritten by different display name",
+			email:                 "mponec@test-integration.com",
+			existingCanonicalName: "Miroslav Ponec", // Already a good name
+			newDisplayName:        "M. Ponec",        // Different variation
+			expectedCanonicalName: "Miroslav Ponec",  // Keep original
+		},
+		{
+			name:                  "canonical name not overwritten when empty display name",
+			email:                 "jsmith@test-integration.com",
+			existingCanonicalName: "John Smith",
+			newDisplayName:        "", // Empty display name
+			expectedCanonicalName: "John Smith",
+		},
+		{
+			name:                  "canonical name not overwritten by same value",
+			email:                 "jane@test-integration.com",
+			existingCanonicalName: "Jane Contact",
+			newDisplayName:        "Jane Contact", // Same value
+			expectedCanonicalName: "Jane Contact",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Clean up any existing person with this email
+			cleanupPerson(t, ctx, pool, tenantID, tc.email)
+			defer cleanupPerson(t, ctx, pool, tenantID, tc.email)
+
+			// Step 1: Create a person with a GOOD canonical_name (not an email)
+			initialPerson := &Person{
+				TenantID:      tenantID,
+				CanonicalName: tc.existingCanonicalName, // Already a proper name
+				PrimaryEmail:  tc.email,
+				AccountType:   AccountTypePerson,
+				IsInternal:    false,
+				Confidence:    0.8,
+				AutoCreated:   true,
+				NeedsReview:   false,
+			}
+
+			if err := repo.CreatePerson(ctx, initialPerson); err != nil {
+				t.Fatalf("Failed to create initial person: %v", err)
+			}
+			t.Logf("Created person ID %d with canonical_name=%q (good name)",
+				initialPerson.ID, initialPerson.CanonicalName)
+
+			// Step 2: Call ResolveOrCreate with a different display name
+			result, err := resolver.ResolveOrCreate(ctx, tenantID, tc.email, tc.newDisplayName)
+			if err != nil {
+				t.Fatalf("ResolveOrCreate failed: %v", err)
+			}
+
+			// Step 3: Assert that canonical_name was NOT changed
+			if result.Person.CanonicalName != tc.expectedCanonicalName {
+				t.Errorf("FAIL: canonical_name changed from %q to %q, should stay unchanged",
+					tc.existingCanonicalName, result.Person.CanonicalName)
+				t.Errorf("We should NOT overwrite good canonical names with new display names")
+			} else {
+				t.Logf("PASS: canonical_name correctly preserved as %q", result.Person.CanonicalName)
+			}
+
+			// Step 4: Verify the database preserved the original name
+			dbPerson, err := repo.GetPersonByEmail(ctx, tenantID, tc.email)
+			if err != nil {
+				t.Fatalf("Failed to fetch person from DB: %v", err)
+			}
+			if dbPerson.CanonicalName != tc.expectedCanonicalName {
+				t.Errorf("FAIL: Database canonical_name changed to %q, want %q",
+					dbPerson.CanonicalName, tc.expectedCanonicalName)
+			}
+		})
+	}
+}
+
+// containsAt returns true if the string contains an @ symbol (simple email check).
+func containsAt(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '@' {
+			return true
+		}
+	}
+	return false
+}
+
 // cleanupPerson removes a person by email from the database.
 func cleanupPerson(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, email string) {
 	t.Helper()

@@ -777,6 +777,115 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_EmailReprocess_FetchSourceBodyHTM
 	s.Equal("completed", result.Status)
 }
 
+// TestSLMPipeline_PersistFindingsReceivesParsedContent tests that PersistFindings
+// receives PARSED content (from ParseEmail), not RAW content (from FetchSource).
+// This test reproduces bug pf-fc4b48: acronym detection receives RAW email content.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_PersistFindingsReceivesParsedContent() {
+	rawBodyWithEmailHeaders := `From: sender@example.com
+To: recipient@example.com
+Subject: Project Update
+Message-ID: <abc123@mail.example.com>
+X-Routing-ID: routing-xyz-789
+
+CLIC is our project framework for managing initiatives.
+We need to review the CLIC workflow next week.
+
+--- Original Message ---
+On Jan 1, 2026, John wrote:
+> Let's discuss CLIC implementation.`
+
+	parsedCleanBody := `CLIC is our project framework for managing initiatives.
+We need to review the CLIC workflow next week.`
+
+	// Minimal input (SLMPipelineInput contract) - triggers FetchSource fallback
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    1100,
+		ContentID:   "em-test11",
+		JobID:       "job-1100",
+		ContentType: "", // EMPTY - triggers FetchSource fallback path
+		ContentHash: "hash1100",
+	}
+
+	// FetchSource returns RAW content with email headers
+	s.activities.On("FetchSource", mock.Anything, mock.MatchedBy(func(in FetchSourceInput) bool {
+		return in.SourceID == 1100
+	})).Return(&FetchSourceOutput{
+		ContentType: "email",
+		ContentText: rawBodyWithEmailHeaders,
+		Subject:     "Project Update",
+		SenderEmail: "sender@example.com",
+		SenderName:  "Sender Name",
+	}, nil)
+
+	// Stage 0: ParseEmail cleans the content and returns only NEW content
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 1100 && in.BodyText == rawBodyWithEmailHeaders
+	})).Return(&ParseEmailOutput{
+		CleanBody:     parsedCleanBody,
+		NewContent:    parsedCleanBody,
+		QuotedContent: "On Jan 1, 2026, John wrote:\n> Let's discuss CLIC implementation.",
+		IsReply:       true,
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+
+	// Stage 1: Triage
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.ContentType == "email"
+	})).Return(&TriageOutput{
+		Category:   "PROJECT_UPDATE",
+		Importance: "HIGH",
+		SkipDeep:   false,
+		ModelUsed:  "llama-3.2-1b",
+	}, nil)
+
+	// Stage 2: Extract
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{
+		Projects: []string{"CLIC"},
+		People:   []PersonResult{{Name: "Sender Name"}},
+	}, nil)
+
+	// Stage 3: Context
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
+
+	// Stage 4: Analyze
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{
+		Summary:   "Project update about CLIC framework",
+		ModelUsed: "gemini-2.0-flash",
+	}, nil)
+
+	// Stage 4.5: PersistFindings - THIS IS THE KEY ASSERTION
+	// We capture what BodyText is actually passed to PersistFindings
+	var capturedBodyText string
+	s.activities.On("PersistFindings", mock.Anything, mock.MatchedBy(func(in PersistFindingsInput) bool {
+		capturedBodyText = in.BodyText
+		return in.SourceID == 1100
+	})).Return(&PersistFindingsOutput{
+		AssertionsCreated: 2,
+		ReferencesCreated: 1,
+	}, nil)
+
+	// Stage 5: Embed
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(5011), nil)
+
+	// Execute workflow
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+
+	// CRITICAL ASSERTION: PersistFindings should receive PARSED content, not RAW content
+	// BUG pf-fc4b48: Currently it receives rawBodyWithEmailHeaders instead of parsedCleanBody
+	s.Equal(parsedCleanBody, capturedBodyText,
+		"PersistFindings should receive PARSED content from ParseEmail, not RAW content from FetchSource. "+
+			"Bug pf-fc4b48: Acronym detection receives RAW email content with headers and quoted replies.")
+}
+
 func TestSLMPipelineTestSuite(t *testing.T) {
 	suite.Run(t, new(SLMPipelineTestSuite))
 }

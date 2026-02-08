@@ -567,6 +567,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		} else {
 			parsedContent = parseOutput.CleanBody
 		}
+		input.BodyText = parsedContent
 		logger.Info("pipeline stage completed",
 			"source_id", input.SourceID,
 			"stage", parseStage.Name,
