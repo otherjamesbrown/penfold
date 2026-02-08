@@ -76,13 +76,22 @@ git push origin HEAD
 
 ### Step 2: Deploy Based on What Changed
 
+**MANDATORY: Map changed packages to deployment targets.** Do NOT reason about this
+from memory — check the import graph. A change in `pkg/` may affect gateway, worker,
+or both depending on which services import it.
+
+```bash
+# For each changed pkg/ directory, check which services import it:
+grep -r "import_path" services/gateway/ services/worker/ --include="*.go" -l
+```
+
 | Changed Files | Deploy Action |
 |---------------|---------------|
 | `services/gateway/**` | `./scripts/deploy-gateway.sh` |
 | `services/worker/**` | `./scripts/deploy-worker.sh` |
 | `cmd/penf/**` | CLI release: bump version + tag + push |
 | `api/proto/**` | Deploy gateway + release CLI |
-| `pkg/**` only | Deploy services that import the changed package |
+| `pkg/**` only | Deploy **all services that import the changed package** (check imports!) |
 
 **Worker deploy (if deploy script not available):**
 ```bash
@@ -187,7 +196,7 @@ penf content list --limit 5
 **If any smoke test fails:**
 1. Check if it's a pre-existing issue or caused by this deploy
 2. If caused by this deploy: investigate, fix, and re-deploy
-3. If pre-existing: note in summary, don't block deploy
+3. If pre-existing: **file a bug shard** in Context Palace (don't just note it — track it), then continue
 4. **Notify penfold** of smoke test failure
 
 ### Show Final Summary
