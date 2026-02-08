@@ -14,6 +14,8 @@ const (
 	AccountTypeDistribution    AccountType = "distribution"
 	AccountTypeBot             AccountType = "bot"
 	AccountTypeExternalService AccountType = "external_service"
+	AccountTypeTeam            AccountType = "team"
+	AccountTypeService         AccountType = "service"
 )
 
 // AliasType represents the type of alias.

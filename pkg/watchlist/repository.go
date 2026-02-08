@@ -218,7 +218,7 @@ func (r *Repository) SetSeniority(ctx context.Context, personID int64, seniority
 		UPDATE people
 		SET seniority_tier = $2
 		WHERE id = $1
-		RETURNING id, canonical_name, seniority_tier, COALESCE(title, '')
+		RETURNING id, canonical_name, seniority_tier, COALESCE(job_title, '')
 	`
 
 	person := &PersonSeniority{}

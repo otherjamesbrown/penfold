@@ -3,7 +3,6 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -615,56 +614,10 @@ func TestGetEntityTypeColor(t *testing.T) {
 
 func TestRunRelationshipList(t *testing.T) {
 	t.Skip("Requires running backend - move to integration tests")
-	return
-// Original test:
-	cfg := mockConfig()
-	deps := createRelationshipTestDeps(cfg)
-
-	// Reset global flags.
-	relationshipTenant = ""
-	relationshipOutput = ""
-	relationshipLimit = 20
-	relationshipConfidenceMin = 0
-	relationshipType = ""
-
-	// Capture stdout.
-	oldStdout := os.Stdout
-	_, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := runRelationshipList(context.Background(), deps, false)
-
-	w.Close()
-	os.Stdout = oldStdout
-
-	if err != nil {
-		t.Fatalf("runRelationshipList failed: %v", err)
-	}
 }
 
 func TestRunRelationshipShow(t *testing.T) {
 	t.Skip("Requires running backend - move to integration tests")
-	return
-// Original test:
-	cfg := mockConfig()
-	deps := createRelationshipTestDeps(cfg)
-
-	// Reset global flags.
-	relationshipOutput = ""
-
-	// Capture stdout.
-	oldStdout := os.Stdout
-	_, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := runRelationshipShow(context.Background(), deps, "rel-001", false)
-
-	w.Close()
-	os.Stdout = oldStdout
-
-	if err != nil {
-		t.Fatalf("runRelationshipShow failed: %v", err)
-	}
 }
 
 func TestRunRelationshipSearch(t *testing.T) {

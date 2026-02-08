@@ -224,6 +224,8 @@ const (
 	EntityManagementService_TestFilterRule_FullMethodName     = "/penfold.entity.v1.EntityManagementService/TestFilterRule"
 	EntityManagementService_GetEntityStats_FullMethodName     = "/penfold.entity.v1.EntityManagementService/GetEntityStats"
 	EntityManagementService_SearchEntities_FullMethodName     = "/penfold.entity.v1.EntityManagementService/SearchEntities"
+	EntityManagementService_UpdateEntity_FullMethodName       = "/penfold.entity.v1.EntityManagementService/UpdateEntity"
+	EntityManagementService_DeleteEntity_FullMethodName       = "/penfold.entity.v1.EntityManagementService/DeleteEntity"
 )
 
 // EntityManagementServiceClient is the client API for EntityManagementService service.
@@ -257,6 +259,10 @@ type EntityManagementServiceClient interface {
 	GetEntityStats(ctx context.Context, in *GetEntityStatsRequest, opts ...grpc.CallOption) (*GetEntityStatsResponse, error)
 	// SearchEntities searches for entities by name or email.
 	SearchEntities(ctx context.Context, in *SearchEntitiesRequest, opts ...grpc.CallOption) (*SearchEntitiesResponse, error)
+	// UpdateEntity updates specific fields of an entity.
+	UpdateEntity(ctx context.Context, in *UpdateEntityRequest, opts ...grpc.CallOption) (*UpdateEntityResponse, error)
+	// DeleteEntity permanently deletes an entity and all related records.
+	DeleteEntity(ctx context.Context, in *DeleteEntityRequest, opts ...grpc.CallOption) (*DeleteEntityResponse, error)
 }
 
 type entityManagementServiceClient struct {
@@ -387,6 +393,26 @@ func (c *entityManagementServiceClient) SearchEntities(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *entityManagementServiceClient) UpdateEntity(ctx context.Context, in *UpdateEntityRequest, opts ...grpc.CallOption) (*UpdateEntityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateEntityResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_UpdateEntity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *entityManagementServiceClient) DeleteEntity(ctx context.Context, in *DeleteEntityRequest, opts ...grpc.CallOption) (*DeleteEntityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteEntityResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_DeleteEntity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EntityManagementServiceServer is the server API for EntityManagementService service.
 // All implementations must embed UnimplementedEntityManagementServiceServer
 // for forward compatibility.
@@ -418,6 +444,10 @@ type EntityManagementServiceServer interface {
 	GetEntityStats(context.Context, *GetEntityStatsRequest) (*GetEntityStatsResponse, error)
 	// SearchEntities searches for entities by name or email.
 	SearchEntities(context.Context, *SearchEntitiesRequest) (*SearchEntitiesResponse, error)
+	// UpdateEntity updates specific fields of an entity.
+	UpdateEntity(context.Context, *UpdateEntityRequest) (*UpdateEntityResponse, error)
+	// DeleteEntity permanently deletes an entity and all related records.
+	DeleteEntity(context.Context, *DeleteEntityRequest) (*DeleteEntityResponse, error)
 	mustEmbedUnimplementedEntityManagementServiceServer()
 }
 
@@ -463,6 +493,12 @@ func (UnimplementedEntityManagementServiceServer) GetEntityStats(context.Context
 }
 func (UnimplementedEntityManagementServiceServer) SearchEntities(context.Context, *SearchEntitiesRequest) (*SearchEntitiesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SearchEntities not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) UpdateEntity(context.Context, *UpdateEntityRequest) (*UpdateEntityResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateEntity not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) DeleteEntity(context.Context, *DeleteEntityRequest) (*DeleteEntityResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteEntity not implemented")
 }
 func (UnimplementedEntityManagementServiceServer) mustEmbedUnimplementedEntityManagementServiceServer() {
 }
@@ -702,6 +738,42 @@ func _EntityManagementService_SearchEntities_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EntityManagementService_UpdateEntity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateEntityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).UpdateEntity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_UpdateEntity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).UpdateEntity(ctx, req.(*UpdateEntityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EntityManagementService_DeleteEntity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteEntityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).DeleteEntity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_DeleteEntity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).DeleteEntity(ctx, req.(*DeleteEntityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // EntityManagementService_ServiceDesc is the grpc.ServiceDesc for EntityManagementService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -756,6 +828,14 @@ var EntityManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SearchEntities",
 			Handler:    _EntityManagementService_SearchEntities_Handler,
+		},
+		{
+			MethodName: "UpdateEntity",
+			Handler:    _EntityManagementService_UpdateEntity_Handler,
+		},
+		{
+			MethodName: "DeleteEntity",
+			Handler:    _EntityManagementService_DeleteEntity_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -443,3 +443,80 @@ func (s *Service) DeleteEmailPattern(ctx context.Context, req *entityv1.DeleteEm
 		PatternId: req.PatternId,
 	}, nil
 }
+
+// UpdateEntity updates specific fields of an entity.
+func (s *Service) UpdateEntity(ctx context.Context, req *entityv1.UpdateEntityRequest) (*entityv1.UpdateEntityResponse, error) {
+	s.logger.Debug("UpdateEntity called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("entity_id", req.EntityId),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.EntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "entity_id is required")
+	}
+
+	// At least one field must be specified
+	if req.Name == nil && req.AccountType == nil {
+		return nil, status.Error(codes.InvalidArgument, "at least one field (name or account_type) must be specified")
+	}
+
+	// Validate account_type if provided
+	var accountType *entities.AccountType
+	if req.AccountType != nil {
+		validTypes := map[string]entities.AccountType{
+			"person":           entities.AccountTypePerson,
+			"role":             entities.AccountTypeRole,
+			"distribution":     entities.AccountTypeDistribution,
+			"bot":              entities.AccountTypeBot,
+			"external_service": entities.AccountTypeExternalService,
+			"team":             entities.AccountTypeTeam,
+			"service":          entities.AccountTypeService,
+		}
+
+		at, ok := validTypes[*req.AccountType]
+		if !ok {
+			return nil, status.Error(codes.InvalidArgument, "account_type must be one of: person, role, distribution, bot, external_service, team, service")
+		}
+		accountType = &at
+	}
+
+	err := s.entityRepo.UpdateEntityFields(ctx, req.TenantId, req.EntityId, req.Name, accountType)
+	if err != nil {
+		s.logger.Error("Failed to update entity", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update entity: %v", err))
+	}
+
+	return &entityv1.UpdateEntityResponse{
+		EntityId: req.EntityId,
+		Message:  "Entity updated successfully",
+	}, nil
+}
+
+// DeleteEntity permanently deletes an entity and all related records.
+func (s *Service) DeleteEntity(ctx context.Context, req *entityv1.DeleteEntityRequest) (*entityv1.DeleteEntityResponse, error) {
+	s.logger.Debug("DeleteEntity called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("entity_id", req.EntityId),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.EntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "entity_id is required")
+	}
+
+	err := s.entityRepo.DeleteEntity(ctx, req.TenantId, req.EntityId)
+	if err != nil {
+		s.logger.Error("Failed to delete entity", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to delete entity: %v", err))
+	}
+
+	return &entityv1.DeleteEntityResponse{
+		EntityId: req.EntityId,
+		Message:  "Entity deleted successfully",
+	}, nil
+}

@@ -64,6 +64,12 @@ service EntityManagementService {
 
   // SearchEntities searches for entities by name or email.
   rpc SearchEntities(SearchEntitiesRequest) returns (SearchEntitiesResponse);
+
+  // UpdateEntity updates specific fields of an entity.
+  rpc UpdateEntity(UpdateEntityRequest) returns (UpdateEntityResponse);
+
+  // DeleteEntity permanently deletes an entity and all related records.
+  rpc DeleteEntity(DeleteEntityRequest) returns (DeleteEntityResponse);
 }
 
 // =============================================================================
@@ -639,4 +645,47 @@ message SearchEntitiesRequest {
 message SearchEntitiesResponse {
   // Matching people
   repeated Person people = 1;
+}
+
+// UpdateEntityRequest updates specific fields of an entity.
+message UpdateEntityRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Entity ID to update
+  int64 entity_id = 2;
+
+  // New name (optional, omit to leave unchanged)
+  optional string name = 3;
+
+  // New account type (optional, omit to leave unchanged)
+  // Valid values: person, role, distribution, bot, external_service, team, service
+  optional string account_type = 4;
+}
+
+// UpdateEntityResponse confirms entity update.
+message UpdateEntityResponse {
+  // The updated entity ID
+  int64 entity_id = 1;
+
+  // Confirmation message
+  string message = 2;
+}
+
+// DeleteEntityRequest permanently deletes an entity.
+message DeleteEntityRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Entity ID to delete
+  int64 entity_id = 2;
+}
+
+// DeleteEntityResponse confirms entity deletion.
+message DeleteEntityResponse {
+  // The deleted entity ID
+  int64 entity_id = 1;
+
+  // Confirmation message
+  string message = 2;
 }

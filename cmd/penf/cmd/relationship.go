@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
@@ -415,6 +417,8 @@ discovered from your content and can be merged when duplicates are detected.`,
 	cmd.AddCommand(newEntityListCommand(deps))
 	cmd.AddCommand(newEntityShowCommand(deps))
 	cmd.AddCommand(newEntityMergeCommand(deps))
+	cmd.AddCommand(newEntityUpdateCommand(deps))
+	cmd.AddCommand(newEntityDeleteCommand(deps))
 
 	return cmd
 }
@@ -484,6 +488,85 @@ Example:
 			return runEntityMerge(cmd.Context(), deps, args[0], args[1], getRelInsecureFlag(cmd))
 		},
 	}
+}
+
+// entityUpdateFlags holds flags for the entity update command.
+var (
+	entityUpdateName        string
+	entityUpdateAccountType string
+)
+
+// newEntityUpdateCommand creates the 'relationship entity update' subcommand.
+func newEntityUpdateCommand(deps *RelationshipCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update <entity-id>",
+		Short: "Update entity properties",
+		Long: `Update specific properties of an entity.
+
+You can update the entity's name and/or account type. At least one flag must be provided.
+
+Valid account types:
+  - person:           Individual person
+  - role:             Role-based account (e.g., support@company.com)
+  - distribution:     Distribution list or mailing list
+  - bot:              Automated bot account
+  - external_service: External service account (e.g., notifications)
+  - team:             Team account
+  - service:          Service account
+
+Examples:
+  # Rename an entity
+  penf relationship entity update 123 --name "Jane Smith"
+
+  # Change account type to team
+  penf relationship entity update 456 --account-type team
+
+  # Update both name and account type
+  penf relationship entity update 789 --name "Engineering Bot" --account-type bot`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEntityUpdate(cmd.Context(), deps, args[0], getRelInsecureFlag(cmd))
+		},
+	}
+
+	cmd.Flags().StringVar(&entityUpdateName, "name", "", "New name for the entity")
+	cmd.Flags().StringVar(&entityUpdateAccountType, "account-type", "", "New account type (person, role, distribution, bot, external_service, team, service)")
+
+	return cmd
+}
+
+// entityDeleteFlags holds flags for the entity delete command.
+var (
+	entityDeleteForce bool
+)
+
+// newEntityDeleteCommand creates the 'relationship entity delete' subcommand.
+func newEntityDeleteCommand(deps *RelationshipCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete <entity-id>",
+		Short: "Delete an entity permanently",
+		Long: `Permanently delete an entity and all its related records.
+
+This is a destructive operation that cannot be undone. All entity mentions,
+aliases, team memberships, and project memberships will also be deleted.
+
+A confirmation prompt will be shown unless --force is used.
+
+Examples:
+  # Delete an entity with confirmation
+  penf relationship entity delete 123
+
+  # Delete without confirmation
+  penf relationship entity delete 123 --force`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEntityDelete(cmd.Context(), deps, args[0], getRelInsecureFlag(cmd))
+		},
+	}
+
+	cmd.Flags().BoolVar(&entityDeleteForce, "force", false, "Skip confirmation prompt")
+
+	return cmd
 }
 
 // newRelationshipNetworkCommand creates the 'relationship network' subcommand group.
@@ -1074,6 +1157,138 @@ func runEntityMerge(ctx context.Context, deps *RelationshipCommandDeps, entityID
 	fmt.Printf("  Primary entity: %s\n", entityID1)
 	fmt.Printf("  Merged entity:  %s (now archived)\n", entityID2)
 	fmt.Printf("  Relationships transferred: %d\n", transferred)
+
+	return nil
+}
+
+// runEntityUpdate executes the entity update command.
+func runEntityUpdate(ctx context.Context, deps *RelationshipCommandDeps, entityIDStr string, insecureFlag bool) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
+
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Parse entity ID.
+	entityID, err := strconv.ParseInt(entityIDStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid entity ID: %w", err)
+	}
+
+	// Validate at least one flag is provided.
+	if entityUpdateName == "" && entityUpdateAccountType == "" {
+		return fmt.Errorf("at least one of --name or --account-type must be specified")
+	}
+
+	// Connect to gateway.
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	entityClient := entityv1.NewEntityManagementServiceClient(conn)
+
+	// Build update request.
+	req := &entityv1.UpdateEntityRequest{
+		TenantId: cfg.TenantID,
+		EntityId: entityID,
+	}
+
+	if entityUpdateName != "" {
+		req.Name = &entityUpdateName
+	}
+	if entityUpdateAccountType != "" {
+		req.AccountType = &entityUpdateAccountType
+	}
+
+	// Call UpdateEntity.
+	resp, err := entityClient.UpdateEntity(ctx, req)
+	if err != nil {
+		return fmt.Errorf("updating entity: %w", err)
+	}
+
+	fmt.Printf("\n\033[32mSuccess!\033[0m Entity updated.\n")
+	fmt.Printf("  Entity ID: %d\n", resp.EntityId)
+	if entityUpdateName != "" {
+		fmt.Printf("  New name: %s\n", entityUpdateName)
+	}
+	if entityUpdateAccountType != "" {
+		fmt.Printf("  New account type: %s\n", entityUpdateAccountType)
+	}
+
+	return nil
+}
+
+// runEntityDelete executes the entity delete command.
+func runEntityDelete(ctx context.Context, deps *RelationshipCommandDeps, entityIDStr string, insecureFlag bool) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
+
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Parse entity ID.
+	entityID, err := strconv.ParseInt(entityIDStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid entity ID: %w", err)
+	}
+
+	// Show confirmation prompt unless --force is used.
+	if !entityDeleteForce {
+		fmt.Printf("\n\033[33mWARNING:\033[0m This will permanently delete entity %d and all related records.\n", entityID)
+		fmt.Print("This action cannot be undone. Continue? (yes/no): ")
+
+		var response string
+		fmt.Scanln(&response)
+
+		if response != "yes" && response != "y" {
+			fmt.Println("Deletion cancelled.")
+			return nil
+		}
+	}
+
+	// Connect to gateway.
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	entityClient := entityv1.NewEntityManagementServiceClient(conn)
+
+	// Call DeleteEntity.
+	resp, err := entityClient.DeleteEntity(ctx, &entityv1.DeleteEntityRequest{
+		TenantId: cfg.TenantID,
+		EntityId: entityID,
+	})
+	if err != nil {
+		return fmt.Errorf("deleting entity: %w", err)
+	}
+
+	fmt.Printf("\n\033[32mSuccess!\033[0m Entity deleted.\n")
+	fmt.Printf("  Entity ID: %d\n", resp.EntityId)
+	fmt.Printf("  %s\n", resp.Message)
 
 	return nil
 }

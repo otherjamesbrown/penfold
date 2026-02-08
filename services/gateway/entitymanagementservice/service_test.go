@@ -30,6 +30,8 @@ type mockEntityRepo struct {
 	testFilterRuleFn      func(ctx context.Context, tenantID, email, name string) ([]*entities.EntityFilterRule, error)
 	getEntityStatsFn      func(ctx context.Context, tenantID string) (*entities.EntityStats, error)
 	searchEntitiesFn      func(ctx context.Context, tenantID, query, field string, limit int) ([]*entities.Person, error)
+	updateEntityFn        func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error
+	deleteEntityFn        func(ctx context.Context, tenantID string, personID int64) error
 }
 
 func (m *mockEntityRepo) RejectPerson(ctx context.Context, tenantID string, personID int64, reason, rejectedBy string) error {
@@ -98,6 +100,20 @@ func (m *mockEntityRepo) SearchEntities(ctx context.Context, tenantID, query, fi
 		return m.searchEntitiesFn(ctx, tenantID, query, field, limit)
 	}
 	return []*entities.Person{}, nil
+}
+
+func (m *mockEntityRepo) UpdateEntity(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+	if m.updateEntityFn != nil {
+		return m.updateEntityFn(ctx, tenantID, personID, name, accountType)
+	}
+	return nil
+}
+
+func (m *mockEntityRepo) DeleteEntity(ctx context.Context, tenantID string, personID int64) error {
+	if m.deleteEntityFn != nil {
+		return m.deleteEntityFn(ctx, tenantID, personID)
+	}
+	return nil
 }
 
 // ============ Test Helpers ============
@@ -1360,5 +1376,418 @@ func TestSearchEntities_Success(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, codes.Internal, st.Code())
 		assert.Contains(t, st.Message(), "failed to search entities")
+	})
+}
+
+func (s *testService) UpdateEntity(ctx context.Context, req *entityv1.UpdateEntityRequest) (*entityv1.UpdateEntityResponse, error) {
+	s.logger.Debug("UpdateEntity called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("entity_id", req.EntityId),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.EntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "entity_id is required")
+	}
+
+	// At least one field must be provided
+	if req.Name == nil && req.AccountType == nil {
+		return nil, status.Error(codes.InvalidArgument, "at least one field (name or account_type) must be provided")
+	}
+
+	// Validate account_type if provided
+	var accountType *entities.AccountType
+	if req.AccountType != nil {
+		validTypes := map[string]entities.AccountType{
+			"person":           entities.AccountTypePerson,
+			"role":             entities.AccountTypeRole,
+			"distribution":     entities.AccountTypeDistribution,
+			"bot":              entities.AccountTypeBot,
+			"external_service": entities.AccountTypeExternalService,
+			"team":             entities.AccountType("team"),
+			"service":          entities.AccountType("service"),
+		}
+		at, ok := validTypes[*req.AccountType]
+		if !ok {
+			return nil, status.Error(codes.InvalidArgument, "invalid account_type: must be one of person, role, distribution, bot, external_service, team, service")
+		}
+		accountType = &at
+	}
+
+	err := s.repo.UpdateEntity(ctx, req.TenantId, req.EntityId, req.Name, accountType)
+	if err != nil {
+		s.logger.Error("Failed to update entity", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update entity: %v", err))
+	}
+
+	return &entityv1.UpdateEntityResponse{
+		EntityId: req.EntityId,
+	}, nil
+}
+
+func (s *testService) DeleteEntity(ctx context.Context, req *entityv1.DeleteEntityRequest) (*entityv1.DeleteEntityResponse, error) {
+	s.logger.Debug("DeleteEntity called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("entity_id", req.EntityId),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.EntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "entity_id is required")
+	}
+
+	err := s.repo.DeleteEntity(ctx, req.TenantId, req.EntityId)
+	if err != nil {
+		s.logger.Error("Failed to delete entity", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to delete entity: %v", err))
+	}
+
+	return &entityv1.DeleteEntityResponse{
+		EntityId: req.EntityId,
+	}, nil
+}
+
+// ============ UpdateEntity Tests ============
+
+func TestUpdateEntity_Validation(t *testing.T) {
+	svc, _ := newTestService()
+	ctx := context.Background()
+
+	t.Run("empty tenant_id returns InvalidArgument", func(t *testing.T) {
+		name := "New Name"
+		req := &entityv1.UpdateEntityRequest{
+			TenantId: "",
+			EntityId: 123,
+			Name:     &name,
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+		assert.Contains(t, st.Message(), "tenant_id is required")
+	})
+
+	t.Run("zero entity_id returns InvalidArgument", func(t *testing.T) {
+		name := "New Name"
+		req := &entityv1.UpdateEntityRequest{
+			TenantId: "tenant-1",
+			EntityId: 0,
+			Name:     &name,
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+		assert.Contains(t, st.Message(), "entity_id is required")
+	})
+
+	t.Run("no fields provided returns InvalidArgument", func(t *testing.T) {
+		req := &entityv1.UpdateEntityRequest{
+			TenantId: "tenant-1",
+			EntityId: 123,
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+		assert.Contains(t, st.Message(), "at least one field")
+	})
+
+	t.Run("invalid account_type returns InvalidArgument", func(t *testing.T) {
+		accountType := "invalid_type"
+		req := &entityv1.UpdateEntityRequest{
+			TenantId:    "tenant-1",
+			EntityId:    123,
+			AccountType: &accountType,
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+		assert.Contains(t, st.Message(), "invalid account_type")
+	})
+}
+
+func TestUpdateEntity_Name(t *testing.T) {
+	svc, repo := newTestService()
+	ctx := context.Background()
+
+	t.Run("successfully updates entity name", func(t *testing.T) {
+		var capturedTenantID string
+		var capturedEntityID int64
+		var capturedName *string
+		var capturedAccountType *entities.AccountType
+
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+			capturedTenantID = tenantID
+			capturedEntityID = personID
+			capturedName = name
+			capturedAccountType = accountType
+			return nil
+		}
+
+		newName := "Jane Doe Updated"
+		req := &entityv1.UpdateEntityRequest{
+			TenantId: "tenant-1",
+			EntityId: 123,
+			Name:     &newName,
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Equal(t, int64(123), resp.EntityId)
+		assert.Equal(t, "tenant-1", capturedTenantID)
+		assert.Equal(t, int64(123), capturedEntityID)
+		require.NotNil(t, capturedName)
+		assert.Equal(t, "Jane Doe Updated", *capturedName)
+		assert.Nil(t, capturedAccountType)
+	})
+
+	t.Run("repository error returns Internal", func(t *testing.T) {
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+			return errors.New("database error")
+		}
+
+		newName := "Jane Doe Updated"
+		req := &entityv1.UpdateEntityRequest{
+			TenantId: "tenant-1",
+			EntityId: 123,
+			Name:     &newName,
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Internal, st.Code())
+		assert.Contains(t, st.Message(), "failed to update entity")
+	})
+}
+
+func TestUpdateEntity_AccountType(t *testing.T) {
+	svc, repo := newTestService()
+	ctx := context.Background()
+
+	t.Run("successfully updates entity to team account type", func(t *testing.T) {
+		var capturedTenantID string
+		var capturedEntityID int64
+		var capturedName *string
+		var capturedAccountType *entities.AccountType
+
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+			capturedTenantID = tenantID
+			capturedEntityID = personID
+			capturedName = name
+			capturedAccountType = accountType
+			return nil
+		}
+
+		accountType := "team"
+		req := &entityv1.UpdateEntityRequest{
+			TenantId:    "tenant-1",
+			EntityId:    456,
+			AccountType: &accountType,
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Equal(t, int64(456), resp.EntityId)
+		assert.Equal(t, "tenant-1", capturedTenantID)
+		assert.Equal(t, int64(456), capturedEntityID)
+		assert.Nil(t, capturedName)
+		require.NotNil(t, capturedAccountType)
+		assert.Equal(t, entities.AccountType("team"), *capturedAccountType)
+	})
+
+	t.Run("successfully updates entity to service account type", func(t *testing.T) {
+		var capturedAccountType *entities.AccountType
+
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+			capturedAccountType = accountType
+			return nil
+		}
+
+		accountType := "service"
+		req := &entityv1.UpdateEntityRequest{
+			TenantId:    "tenant-1",
+			EntityId:    789,
+			AccountType: &accountType,
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Equal(t, int64(789), resp.EntityId)
+		require.NotNil(t, capturedAccountType)
+		assert.Equal(t, entities.AccountType("service"), *capturedAccountType)
+	})
+
+	t.Run("successfully updates entity to bot account type", func(t *testing.T) {
+		var capturedAccountType *entities.AccountType
+
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+			capturedAccountType = accountType
+			return nil
+		}
+
+		accountType := "bot"
+		req := &entityv1.UpdateEntityRequest{
+			TenantId:    "tenant-1",
+			EntityId:    999,
+			AccountType: &accountType,
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Equal(t, int64(999), resp.EntityId)
+		require.NotNil(t, capturedAccountType)
+		assert.Equal(t, entities.AccountTypeBot, *capturedAccountType)
+	})
+
+	t.Run("successfully updates both name and account type", func(t *testing.T) {
+		var capturedName *string
+		var capturedAccountType *entities.AccountType
+
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+			capturedName = name
+			capturedAccountType = accountType
+			return nil
+		}
+
+		newName := "CI/CD Bot"
+		accountType := "bot"
+		req := &entityv1.UpdateEntityRequest{
+			TenantId:    "tenant-1",
+			EntityId:    111,
+			Name:        &newName,
+			AccountType: &accountType,
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Equal(t, int64(111), resp.EntityId)
+		require.NotNil(t, capturedName)
+		assert.Equal(t, "CI/CD Bot", *capturedName)
+		require.NotNil(t, capturedAccountType)
+		assert.Equal(t, entities.AccountTypeBot, *capturedAccountType)
+	})
+}
+
+// ============ DeleteEntity Tests ============
+
+func TestDeleteEntity_Validation(t *testing.T) {
+	svc, _ := newTestService()
+	ctx := context.Background()
+
+	t.Run("empty tenant_id returns InvalidArgument", func(t *testing.T) {
+		req := &entityv1.DeleteEntityRequest{
+			TenantId: "",
+			EntityId: 123,
+		}
+
+		resp, err := svc.DeleteEntity(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+		assert.Contains(t, st.Message(), "tenant_id is required")
+	})
+
+	t.Run("zero entity_id returns InvalidArgument", func(t *testing.T) {
+		req := &entityv1.DeleteEntityRequest{
+			TenantId: "tenant-1",
+			EntityId: 0,
+		}
+
+		resp, err := svc.DeleteEntity(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+		assert.Contains(t, st.Message(), "entity_id is required")
+	})
+}
+
+func TestDeleteEntity_Success(t *testing.T) {
+	svc, repo := newTestService()
+	ctx := context.Background()
+
+	t.Run("successfully deletes entity", func(t *testing.T) {
+		var capturedTenantID string
+		var capturedEntityID int64
+
+		repo.deleteEntityFn = func(ctx context.Context, tenantID string, personID int64) error {
+			capturedTenantID = tenantID
+			capturedEntityID = personID
+			return nil
+		}
+
+		req := &entityv1.DeleteEntityRequest{
+			TenantId: "tenant-1",
+			EntityId: 123,
+		}
+
+		resp, err := svc.DeleteEntity(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Equal(t, int64(123), resp.EntityId)
+		assert.Equal(t, "tenant-1", capturedTenantID)
+		assert.Equal(t, int64(123), capturedEntityID)
+	})
+
+	t.Run("repository error returns Internal", func(t *testing.T) {
+		repo.deleteEntityFn = func(ctx context.Context, tenantID string, personID int64) error {
+			return errors.New("database error")
+		}
+
+		req := &entityv1.DeleteEntityRequest{
+			TenantId: "tenant-1",
+			EntityId: 123,
+		}
+
+		resp, err := svc.DeleteEntity(ctx, req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Internal, st.Code())
+		assert.Contains(t, st.Message(), "failed to delete entity")
 	})
 }

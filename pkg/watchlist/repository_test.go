@@ -3,7 +3,14 @@ package watchlist
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRepository_AddItem_Validation(t *testing.T) {
@@ -109,4 +116,111 @@ func TestRepository_GetBriefingAssertions_LimitHandling(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ==================== Integration Test Helpers ====================
+
+// getEnvOrDefault returns the environment variable value or a default.
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+// setupTestDB creates a test database connection.
+// It reads configuration from environment variables:
+//   - PENFOLD_DB_HOST (default: dev02.brown.chat)
+//   - PENFOLD_DB_PORT (default: 5432)
+//   - PENFOLD_DB_USER (default: penfold)
+//   - PENFOLD_DB_PASSWORD (required, or uses SSL cert auth)
+//   - PENFOLD_DB_NAME (default: penfold_test)
+//
+// NOTE: For integration tests that require recent schema changes (like SetSeniority),
+// run with: PENFOLD_DB_NAME=penfold go test
+func setupTestDB(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+
+	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
+	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
+	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
+	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold_test")
+
+	// Build connection string with SSL verify-full (standard for dev02)
+	connString := fmt.Sprintf(
+		"host=%s port=%s user=%s dbname=%s sslmode=verify-full",
+		host, port, user, dbName,
+	)
+
+	pool, err := pgxpool.New(context.Background(), connString)
+	if err != nil {
+		t.Skipf("Could not connect to test database: %v", err)
+		return nil
+	}
+
+	// Verify connection
+	if err := pool.Ping(context.Background()); err != nil {
+		pool.Close()
+		t.Skipf("Could not ping test database: %v", err)
+		return nil
+	}
+
+	return pool
+}
+
+// cleanupTestPerson removes a test person from the database.
+func cleanupTestPerson(t *testing.T, pool *pgxpool.Pool, personID int64) {
+	t.Helper()
+	ctx := context.Background()
+
+	_, err := pool.Exec(ctx, "DELETE FROM people WHERE id = $1", personID)
+	if err != nil {
+		t.Logf("Warning: could not clean up test person: %v", err)
+	}
+}
+
+// ==================== Integration Tests ====================
+
+// TestRepository_SetSeniority_Integration is a reproduction test for bug pf-d9487c.
+// The bug: SetSeniority SQL query references column 'title' but people table has 'job_title'.
+// This test will FAIL with the buggy code because the SQL query is incorrect.
+func TestRepository_SetSeniority_Integration(t *testing.T) {
+	pool := setupTestDB(t)
+	if pool == nil {
+		return
+	}
+	defer pool.Close()
+
+	logger := logging.NewLogger(logging.DefaultConfig())
+	repo := NewRepository(pool, logger)
+
+	ctx := context.Background()
+
+	// Create a test person with a job_title
+	tenantID := uuid.New()
+	var personID int64
+	err := pool.QueryRow(ctx, `
+		INSERT INTO people (
+			tenant_id,
+			canonical_name,
+			email_addresses,
+			job_title
+		) VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, tenantID, "Test Person", []string{"test@example.com"}, "Senior Engineer").Scan(&personID)
+	require.NoError(t, err, "Failed to create test person")
+	defer cleanupTestPerson(t, pool, personID)
+
+	// Call SetSeniority - this will fail if SQL query references 'title' instead of 'job_title'
+	result, err := repo.SetSeniority(ctx, personID, 5)
+
+	// Assert no error occurred
+	require.NoError(t, err, "SetSeniority should succeed")
+	require.NotNil(t, result, "Result should not be nil")
+
+	// Verify the returned data
+	assert.Equal(t, personID, result.ID)
+	assert.Equal(t, "Test Person", result.Name)
+	assert.Equal(t, int32(5), result.SeniorityTier)
+	assert.Equal(t, "Senior Engineer", result.Title, "Title should be returned from job_title column")
 }

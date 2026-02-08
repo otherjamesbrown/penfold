@@ -909,6 +909,118 @@ func (r *Repository) RestorePerson(ctx context.Context, tenantID string, personI
 	return nil
 }
 
+// UpdateEntityFields updates specific fields of an entity (name and/or account_type).
+// Both name and accountType are optional. Pass nil to leave the field unchanged.
+func (r *Repository) UpdateEntityFields(ctx context.Context, tenantID string, personID int64, name *string, accountType *AccountType) error {
+	if name == nil && accountType == nil {
+		return fmt.Errorf("at least one field (name or account_type) must be specified")
+	}
+
+	// Build dynamic query based on which fields are being updated
+	var setParts []string
+	var args []interface{}
+	argIdx := 1
+
+	args = append(args, tenantID)
+	argIdx++
+	args = append(args, personID)
+	argIdx++
+
+	if name != nil {
+		setParts = append(setParts, fmt.Sprintf("canonical_name = $%d", argIdx))
+		args = append(args, *name)
+		argIdx++
+	}
+
+	if accountType != nil {
+		setParts = append(setParts, fmt.Sprintf("account_type = $%d", argIdx))
+		args = append(args, *accountType)
+		argIdx++
+	}
+
+	setParts = append(setParts, "updated_at = NOW()")
+
+	query := fmt.Sprintf(`
+		UPDATE people SET
+			%s
+		WHERE tenant_id = $1 AND id = $2
+	`, strings.Join(setParts, ", "))
+
+	result, err := r.pool.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to update entity fields: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("entity not found: %d", personID)
+	}
+
+	r.logger.Info("Entity fields updated",
+		logging.F("person_id", personID),
+		logging.F("name_updated", name != nil),
+		logging.F("account_type_updated", accountType != nil))
+
+	return nil
+}
+
+// DeleteEntity permanently deletes an entity and its related records.
+// This is a hard delete, not a soft delete. Use with caution.
+func (r *Repository) DeleteEntity(ctx context.Context, tenantID string, personID int64) error {
+	// Start a transaction to ensure all related records are deleted atomically
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Delete related records first to avoid foreign key violations
+
+	// Delete email aliases
+	_, err = tx.Exec(ctx, `DELETE FROM person_aliases WHERE person_id = $1`, personID)
+	if err != nil {
+		return fmt.Errorf("failed to delete person aliases: %w", err)
+	}
+
+	// Delete entity mentions
+	_, err = tx.Exec(ctx, `DELETE FROM entity_mentions WHERE person_id = $1`, personID)
+	if err != nil {
+		return fmt.Errorf("failed to delete entity mentions: %w", err)
+	}
+
+	// Delete team memberships
+	_, err = tx.Exec(ctx, `DELETE FROM team_members WHERE person_id = $1`, personID)
+	if err != nil {
+		return fmt.Errorf("failed to delete team memberships: %w", err)
+	}
+
+	// Delete project memberships
+	_, err = tx.Exec(ctx, `DELETE FROM project_members WHERE person_id = $1`, personID)
+	if err != nil {
+		return fmt.Errorf("failed to delete project memberships: %w", err)
+	}
+
+	// Finally, delete the person record
+	result, err := tx.Exec(ctx, `DELETE FROM people WHERE tenant_id = $1 AND id = $2`, tenantID, personID)
+	if err != nil {
+		return fmt.Errorf("failed to delete person: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("entity not found: %d", personID)
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	r.logger.Info("Entity deleted",
+		logging.F("person_id", personID),
+		logging.F("tenant_id", tenantID))
+
+	return nil
+}
+
 // BulkRejectByPattern rejects multiple people matching email or name patterns.
 func (r *Repository) BulkRejectByPattern(ctx context.Context, tenantID, emailPattern, namePattern, reason, rejectedBy string) (int, error) {
 	if emailPattern == "" && namePattern == "" {
