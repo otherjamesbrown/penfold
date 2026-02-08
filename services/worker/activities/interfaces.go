@@ -286,6 +286,9 @@ type PersistFindingsInput struct {
 	Analysis   *DeepAnalyzeOutput // From Stage 4
 	// Resolved person IDs from Stage 3
 	ResolvedPeople map[string]int64 // name -> person_id
+	// Original email content for acronym detection
+	BodyText string
+	Subject  string
 }
 
 // PersistFindingsOutput is the output from persisting findings.

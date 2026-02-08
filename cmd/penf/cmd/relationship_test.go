@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -1333,4 +1334,43 @@ func getMockConflictByID(id string) *RelationshipConflict {
 		}
 	}
 	return nil
+}
+
+// =============================================================================
+// Bug Reproduction Tests
+// =============================================================================
+
+// TestEntityListDefaultLimit reproduces bug pf-b5ca7d.
+// The penf relationship entity list command has a hardcoded default limit of 20.
+// This test verifies that:
+// 1. The default limit is at least 100 (not 20)
+// 2. When there are more results than the limit, users are warned
+func TestEntityListDefaultLimit(t *testing.T) {
+	cfg := mockConfig()
+	deps := createRelationshipTestDeps(cfg)
+	relationshipCmd := NewRelationshipCommand(deps)
+
+	// Check the default value of the --limit flag (persistent flag on relationship command).
+	limitFlag := relationshipCmd.PersistentFlags().Lookup("limit")
+	if limitFlag == nil {
+		t.Fatal("--limit flag not found on relationship command")
+	}
+
+	// Get the default value.
+	defaultLimit := limitFlag.DefValue
+
+	// The bug is that the default is "20". It should be at least "100".
+	if defaultLimit == "20" {
+		t.Errorf("BUG REPRODUCED: Default limit is 20, which truncates results without warning. Expected >= 100, got %s", defaultLimit)
+	}
+
+	// Verify the expectation: default should be at least 100.
+	var limit int
+	if _, err := fmt.Sscanf(defaultLimit, "%d", &limit); err != nil {
+		t.Fatalf("Could not parse default limit value: %s", defaultLimit)
+	}
+
+	if limit < 100 {
+		t.Errorf("Default limit %d is too low. Database has 402 entities. Expected >= 100 to avoid silent truncation", limit)
+	}
 }

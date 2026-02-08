@@ -95,6 +95,14 @@ func (m *PipelineMockActivities) RecordOverrides(ctx context.Context, input Reco
 	return args.Error(0)
 }
 
+func (m *PipelineMockActivities) FetchSource(ctx context.Context, input FetchSourceInput) (*FetchSourceOutput, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*FetchSourceOutput), args.Error(1)
+}
+
 // SLMPipelineTestSuite tests the SLMPipelineWorkflow.
 type SLMPipelineTestSuite struct {
 	suite.Suite
@@ -120,6 +128,7 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.UpdateContentStatus, activity.RegisterOptions{Name: "UpdateContentStatus"})
 	s.env.RegisterActivityWithOptions(s.activities.DeleteEmbedding, activity.RegisterOptions{Name: "DeleteEmbedding"})
 	s.env.RegisterActivityWithOptions(s.activities.RecordOverrides, activity.RegisterOptions{Name: "RecordOverrides"})
+	s.env.RegisterActivityWithOptions(s.activities.FetchSource, activity.RegisterOptions{Name: "FetchContent"})
 }
 
 func (s *SLMPipelineTestSuite) AfterTest(suiteName, testName string) {
@@ -625,6 +634,147 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_TriageValidationFailure() {
 	s.activities.AssertNotCalled(s.T(), "BuildContextPackage", mock.Anything, mock.Anything)
 	s.activities.AssertNotCalled(s.T(), "DeepAnalyze", mock.Anything, mock.Anything)
 	s.activities.AssertNotCalled(s.T(), "GenerateContentEmbedding", mock.Anything, mock.Anything)
+}
+
+// TestSLMPipeline_MeetingReprocess_FetchSourceFallback tests the FetchSource fallback
+// path for meeting reprocessing via minimal SLMPipelineInput (pf-0065d5).
+// This test SHOULD FAIL because the FetchSource fallback sets BodyText but NOT
+// TranscriptContent, causing ParseTranscript to receive empty Content.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_MeetingReprocess_FetchSourceFallback() {
+	// Minimal input (SLMPipelineInput contract) - no ContentType, triggers FetchSource fallback
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    900,
+		ContentID:   "mt-test09",
+		JobID:       "job-900",
+		ContentType: "", // EMPTY - triggers FetchSource fallback path
+		ContentHash: "hash900",
+	}
+
+	// FetchSource returns meeting content type with transcript in ContentText
+	s.activities.On("FetchSource", mock.Anything, mock.MatchedBy(func(in FetchSourceInput) bool {
+		return in.SourceID == 900
+	})).Return(&FetchSourceOutput{
+		ContentType: "meeting",
+		ContentText: "Speaker 1: Hello, this is a test meeting transcript.",
+		Subject:     "Test Meeting",
+	}, nil)
+
+	// Stage 0: ParseTranscript should receive NON-EMPTY Content
+	// BUG: It will receive EMPTY Content because FetchSource sets BodyText, not TranscriptContent
+	s.activities.On("ParseTranscript", mock.Anything, mock.MatchedBy(func(in ParseTranscriptInput) bool {
+		// This assertion SHOULD pass but WILL FAIL due to the bug
+		if in.Content == "" {
+			s.T().Errorf("BUG REPRODUCED: ParseTranscript received empty Content (expected transcript from FetchSource)")
+		}
+		return in.SourceID == 900
+	})).Return(&ParseTranscriptOutput{
+		CleanText:  "Speaker 1: Hello, this is a test meeting transcript.",
+		Speakers:   []string{"Speaker 1"},
+		DurationMs: 3000,
+		Format:     "plain",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.ContentType == "meeting"
+	})).Return(&TriageOutput{
+		Category: "MEETING", Importance: "MEDIUM", SkipDeep: false, ModelUsed: "llama-3.2-1b",
+	}, nil)
+
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{
+		People: []PersonResult{{Name: "Speaker 1"}},
+	}, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{
+		Summary: "Test meeting summary", ModelUsed: "gemini-2.0-flash",
+	}, nil)
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&PersistFindingsOutput{}, nil)
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(5009), nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+}
+
+// TestSLMPipeline_EmailReprocess_FetchSourceBodyHTMLFallback tests the FetchSource fallback
+// path for email reprocessing via minimal SLMPipelineInput (pf-dfbc24).
+// This test SHOULD FAIL because the FetchSource fallback sets BodyText but NOT
+// BodyHTML, and ParseEmail should receive both fields for proper HTML parsing.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_EmailReprocess_FetchSourceBodyHTMLFallback() {
+	// Minimal input (SLMPipelineInput contract) - no ContentType, triggers FetchSource fallback
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    1000,
+		ContentID:   "em-test10",
+		JobID:       "job-1000",
+		ContentType: "", // EMPTY - triggers FetchSource fallback path
+		ContentHash: "hash1000",
+	}
+
+	// FetchSource returns email content type with HTML in body_html metadata
+	// In the real system, body_html would be in ingestion_metadata and should be returned
+	s.activities.On("FetchSource", mock.Anything, mock.MatchedBy(func(in FetchSourceInput) bool {
+		return in.SourceID == 1000
+	})).Return(&FetchSourceOutput{
+		ContentType: "email",
+		ContentText: "Plain text version of the email body.",
+		Subject:     "Test Email with HTML",
+		SenderEmail: "sender@example.com",
+		SenderName:  "Test Sender",
+		BodyHTML:    "<html><body>HTML version of the email body.</body></html>", // pf-dfbc24: FIX - return BodyHTML from FetchSource
+	}, nil)
+
+	// Stage 0: ParseEmail should receive BOTH BodyText AND BodyHTML
+	// BUG: It will receive empty BodyHTML because FetchSource doesn't populate it
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		// This assertion tracks whether BodyHTML is populated from FetchSource
+		if in.BodyHTML == "" {
+			s.T().Errorf("BUG REPRODUCED: ParseEmail received empty BodyHTML (expected HTML content from FetchSource)")
+		}
+		// The test expects BOTH BodyText and BodyHTML to be set from FetchSource
+		if in.BodyText == "" {
+			s.T().Errorf("ParseEmail received empty BodyText (regression)")
+		}
+		return in.SourceID == 1000
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Plain text version of the email body.",
+		NewContent: "Plain text version of the email body.",
+		IsReply:    false,
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.ContentType == "email"
+	})).Return(&TriageOutput{
+		Category: "INTERNAL_COMMS", Importance: "MEDIUM", SkipDeep: false, ModelUsed: "llama-3.2-1b",
+	}, nil)
+
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{
+		People: []PersonResult{{Name: "Test Sender"}},
+	}, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{
+		Summary: "Test email summary", ModelUsed: "gemini-2.0-flash",
+	}, nil)
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&PersistFindingsOutput{}, nil)
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(5010), nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
 }
 
 func TestSLMPipelineTestSuite(t *testing.T) {

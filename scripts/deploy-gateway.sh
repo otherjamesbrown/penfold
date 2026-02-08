@@ -84,7 +84,7 @@ build_ldflags() {
     local ver=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
     local cmt=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
     local bt=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-    echo "-X main.version=${ver} -X main.commit=${cmt} -X main.buildTime=${bt}"
+    echo "-X github.com/otherjamesbrown/penfold/pkg/buildinfo.Version=${ver} -X github.com/otherjamesbrown/penfold/pkg/buildinfo.Commit=${cmt} -X github.com/otherjamesbrown/penfold/pkg/buildinfo.BuildTime=${bt}"
 }
 
 # --- Build & Deploy ---

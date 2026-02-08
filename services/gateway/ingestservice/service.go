@@ -917,6 +917,11 @@ func buildEmailMetadata(req *ingestv1.IngestEmailRequest) map[string]interface{}
 		metadata["references"] = req.References
 	}
 
+	// Store body_html for HTML content retrieval in FetchSource fallback (pf-dfbc24)
+	if req.BodyHtml != "" {
+		metadata["body_html"] = req.BodyHtml
+	}
+
 	// Store attachment metadata
 	if len(req.Attachments) > 0 {
 		attachments := make([]map[string]interface{}, len(req.Attachments))

@@ -223,7 +223,7 @@ Documentation:
 	// Add persistent flags.
 	cmd.PersistentFlags().StringVarP(&relationshipTenant, "tenant", "t", "", "Tenant ID (overrides config)")
 	cmd.PersistentFlags().StringVarP(&relationshipOutput, "output", "o", "", "Output format: text, json, yaml")
-	cmd.PersistentFlags().IntVarP(&relationshipLimit, "limit", "l", 20, "Maximum number of results")
+	cmd.PersistentFlags().IntVarP(&relationshipLimit, "limit", "l", 100, "Maximum number of results")
 	cmd.PersistentFlags().Float64Var(&relationshipConfidenceMin, "confidence-min", 0.0, "Minimum confidence threshold (0.0-1.0)")
 
 	// Add subcommands.
@@ -981,6 +981,11 @@ func runEntityList(ctx context.Context, deps *RelationshipCommandDeps, insecureF
 	entities := make([]Entity, len(ents))
 	for i, e := range ents {
 		entities[i] = clientEntityToLocal(e)
+	}
+
+	// Warn if results were truncated.
+	if len(entities) == relationshipLimit {
+		fmt.Fprintf(os.Stderr, "Warning: showing %d results (limit reached). Use --limit to see more.\n", relationshipLimit)
 	}
 
 	format := cfg.OutputFormat

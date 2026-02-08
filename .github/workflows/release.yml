@@ -70,9 +70,9 @@ jobs:
         run: |
           cd cmd/penf
           go build -ldflags "\
-            -X main.version=${{ steps.version.outputs.version }} \
-            -X main.commit=${{ steps.version.outputs.commit }} \
-            -X main.buildTime=${{ steps.version.outputs.build_time }}" \
+            -X github.com/otherjamesbrown/penfold/pkg/buildinfo.Version=${{ steps.version.outputs.version }} \
+            -X github.com/otherjamesbrown/penfold/pkg/buildinfo.Commit=${{ steps.version.outputs.commit }} \
+            -X github.com/otherjamesbrown/penfold/pkg/buildinfo.BuildTime=${{ steps.version.outputs.build_time }}" \
             -o penf .
 
       - name: Prepare artifacts

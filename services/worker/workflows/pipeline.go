@@ -356,6 +356,8 @@ type PersistFindingsInput struct {
 	ProjectID      *int64             `json:"project_id,omitempty"`
 	Analysis       *DeepAnalyzeOutput `json:"analysis"`
 	ResolvedPeople map[string]int64   `json:"resolved_people,omitempty"`
+	BodyText       string             `json:"body_text,omitempty"`
+	Subject        string             `json:"subject,omitempty"`
 }
 
 // PersistFindingsOutput is the output from the PersistFindings activity.
@@ -525,6 +527,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		input.SenderEmail = fetchOut.SenderEmail
 		input.SenderName = fetchOut.SenderName
 		input.ParticipantEmails = fetchOut.ParticipantEmails
+		// For meeting content, also populate TranscriptContent so ParseTranscript has data (pf-0065d5)
+		if input.ContentType == "meeting" {
+			input.TranscriptContent = fetchOut.ContentText
+		}
+		// For email content, also populate BodyHTML from FetchSource for HTML-only emails (pf-dfbc24)
+		if input.ContentType == "email" {
+			input.BodyHTML = fetchOut.BodyHTML
+		}
 	}
 
 	var parsedContent string
@@ -991,6 +1001,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				ProjectID:      projectID,
 				Analysis:       analyzeOutput,
 				ResolvedPeople: resolvedPeople,
+				BodyText:       input.BodyText,
+				Subject:        input.Subject,
 			}).Get(ctx, &persistOutput)
 			if err != nil {
 				logger.Warn("pipeline stage failed (non-blocking)",

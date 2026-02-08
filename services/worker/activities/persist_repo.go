@@ -727,8 +727,8 @@ func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input
 		return
 	}
 
-	// Collect text from BOTH Stage 4 (Analysis) and Stage 2 (SLM assertions from DB)
-	texts := r.collectAnalysisTexts(ctx, input.SourceID, input.Analysis)
+	// Collect text from original email content, Stage 4 (Analysis), and Stage 2 (SLM assertions from DB)
+	texts := r.collectAnalysisTexts(ctx, input.SourceID, input.Analysis, input.BodyText, input.Subject)
 	if len(texts) == 0 {
 		return
 	}
@@ -806,12 +806,21 @@ func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input
 }
 
 // collectAnalysisTexts gathers text strings from analysis findings for acronym scanning.
-// It collects from BOTH Stage 4 (Analysis) and Stage 2 (SLM assertions from DB).
+// It collects from original email content, Stage 4 (Analysis), and Stage 2 (SLM assertions from DB).
 // This ensures acronyms are detected even when Stage 4 times out or is nil.
-func (r *PersistRepo) collectAnalysisTexts(ctx context.Context, sourceID int64, analysis *DeepAnalyzeOutput) []string {
+func (r *PersistRepo) collectAnalysisTexts(ctx context.Context, sourceID int64, analysis *DeepAnalyzeOutput, bodyText, subject string) []string {
 	var texts []string
 
-	// Collect from Stage 4 (Analysis) if available
+	// FIRST: Collect from original email content (if available)
+	// This ensures acronyms in the original email are detected even if LLM doesn't mention them
+	if subject != "" {
+		texts = append(texts, subject)
+	}
+	if bodyText != "" {
+		texts = append(texts, bodyText)
+	}
+
+	// SECOND: Collect from Stage 4 (Analysis) if available
 	if analysis != nil {
 		for _, a := range analysis.VerifiedActions {
 			texts = append(texts, a.Description, a.ContextExcerpt)
@@ -831,7 +840,7 @@ func (r *PersistRepo) collectAnalysisTexts(ctx context.Context, sourceID int64, 
 		texts = append(texts, analysis.Insights...)
 	}
 
-	// ALSO collect from Stage 2 assertions (SLM extraction output from DB)
+	// THIRD: Collect from Stage 2 assertions (SLM extraction output from DB)
 	// This handles the case where Stage 4 times out but Stage 2 completed successfully.
 	stage2Texts := r.collectStage2Texts(ctx, sourceID)
 	texts = append(texts, stage2Texts...)
