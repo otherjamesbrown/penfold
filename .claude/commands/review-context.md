@@ -28,7 +28,7 @@ Read and inventory all context files:
 
 ```bash
 # List dev context in Context Palace
-cp knowledge list --label mycroft-context
+cxp knowledge list --label mycroft-context
 
 # List client context on disk
 find context/client -name "*.md" -type f | sort
@@ -51,8 +51,8 @@ Verify the reference chain is complete and all links resolve:
 4. Cross-links between docs all resolve
 
 **Dev reference chain:**
-1. `CLAUDE.md` → bootstraps from `cp knowledge show mycroft-playbook`
-2. `mycroft-playbook` → references sub-agent docs and context docs via `cp knowledge show`
+1. `CLAUDE.md` → bootstraps from `cxp knowledge show mycroft-playbook`
+2. `mycroft-playbook` → references sub-agent docs and context docs via `cxp knowledge show`
 3. `mycroft-agent-*` → consistent naming and cross-references
 4. `.claude/agents/*.md` → point to correct CP knowledge docs
 
@@ -116,9 +116,9 @@ Create a report with:
 - [ ] Cross-links resolve (status)
 
 ### Dev Chain
-- [ ] CLAUDE.md → cp knowledge show mycroft-playbook (status)
-- [ ] mycroft-playbook → sub-agent docs via cp knowledge show (status)
-- [ ] .claude/agents/ → cp knowledge show mycroft-agent-* (status)
+- [ ] CLAUDE.md → cxp knowledge show mycroft-playbook (status)
+- [ ] mycroft-playbook → sub-agent docs via cxp knowledge show (status)
+- [ ] .claude/agents/ → cxp knowledge show mycroft-agent-* (status)
 
 ## Issues Found
 

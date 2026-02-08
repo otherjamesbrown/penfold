@@ -138,9 +138,9 @@ You are an expert architect reviewing Penfold's architecture.
 
 Read these files to understand Penfold:
 - CLAUDE.md (entry point)
-- `cp knowledge show mycroft-playbook` (architecture overview)
-- `cp knowledge show mycroft-shared-vision` (system purpose)
-- `cp knowledge show mycroft-shared-entities` (data model)
+- `cxp knowledge show mycroft-playbook` (architecture overview)
+- `cxp knowledge show mycroft-shared-vision` (system purpose)
+- `cxp knowledge show mycroft-shared-entities` (data model)
 
 ## Penfold Architecture
 
@@ -461,7 +461,7 @@ Previous review: $PREV_REVIEW
 
 Related commands:
   /review-context  - Review documentation consistency
-  cp shard list    - View existing shards
+  cxp shard list    - View existing shards
 ```
 
 ### Creating Shards

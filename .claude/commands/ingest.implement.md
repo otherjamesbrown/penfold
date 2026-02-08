@@ -20,10 +20,10 @@ Include these instructions in every agent prompt:
 
 ```
 ## Setup (MANDATORY — do this before any code changes)
-1. cp knowledge show mycroft-dev-index — project architecture, conventions, patterns
-2. cp knowledge show mycroft-agent-<agent-type> — your domain-specific context
-3. Read your assignment: cp task get pf-xxx
-4. Claim the work: cp task claim pf-xxx
+1. cxp knowledge show mycroft-dev-index — project architecture, conventions, patterns
+2. cxp knowledge show mycroft-agent-<agent-type> — your domain-specific context
+3. Read your assignment: cxp task get pf-xxx
+4. Claim the work: cxp task claim pf-xxx
 ```
 
 ## Coding Standards (Include in All Prompts)
@@ -72,10 +72,10 @@ Task(subagent_type="<agent-type>", run_in_background=true,
   prompt="You have been assigned shard pf-fix-xxx.
 
   ## Setup (MANDATORY)
-  1. cp knowledge show mycroft-dev-index — project architecture and conventions
-  2. cp knowledge show mycroft-agent-<agent-type> — your domain context
-  3. Read your assignment: cp task get pf-fix-xxx
-  4. Claim the work: cp task claim pf-fix-xxx
+  1. cxp knowledge show mycroft-dev-index — project architecture and conventions
+  2. cxp knowledge show mycroft-agent-<agent-type> — your domain context
+  3. Read your assignment: cxp task get pf-fix-xxx
+  4. Claim the work: cxp task claim pf-fix-xxx
 
   ## Coding Standards
   - Error handling: Return errors up the call stack. Use fmt.Errorf('context: %w', err).
@@ -108,8 +108,8 @@ Task(subagent_type="<agent-type>", run_in_background=true,
   IMPORTANT: If there is no reproduction test, write one yourself.
 
   ## Completion
-  11. cp task progress pf-fix-xxx 'Implemented: [summary]'
-  12. cp task close pf-fix-xxx 'Done: [summary]. Tests: [TestNames]. Files modified: [list]'
+  11. cxp task progress pf-fix-xxx 'Implemented: [summary]'
+  12. cxp task close pf-fix-xxx 'Done: [summary]. Tests: [TestNames]. Files modified: [list]'
 
   ## Context Budget
   Prioritize: (1) working fix that compiles, (2) tests pass, (3) cleanup.
@@ -126,10 +126,10 @@ Task(subagent_type="<agent-type>", run_in_background=true,
   prompt="You have been assigned shard pf-feat-xxx.
 
   ## Setup (MANDATORY)
-  1. cp knowledge show mycroft-dev-index — project architecture and conventions
-  2. cp knowledge show mycroft-agent-<agent-type> — your domain context
-  3. Read your assignment: cp task get pf-feat-xxx
-  4. Claim the work: cp task claim pf-feat-xxx
+  1. cxp knowledge show mycroft-dev-index — project architecture and conventions
+  2. cxp knowledge show mycroft-agent-<agent-type> — your domain context
+  3. Read your assignment: cxp task get pf-feat-xxx
+  4. Claim the work: cxp task claim pf-feat-xxx
 
   ## Coding Standards
   - Error handling: Return errors up the call stack. Use fmt.Errorf('context: %w', err).
@@ -162,8 +162,8 @@ Task(subagent_type="<agent-type>", run_in_background=true,
   IMPORTANT: If there are no acceptance tests, write them yourself.
 
   ## Completion
-  11. cp task progress pf-feat-xxx 'Implemented: [summary]'
-  12. cp task close pf-feat-xxx 'Done: [summary]. Tests: [TestNames]. Acceptance criteria: [list which are met]. Files modified: [list]'
+  11. cxp task progress pf-feat-xxx 'Implemented: [summary]'
+  12. cxp task close pf-feat-xxx 'Done: [summary]. Tests: [TestNames]. Acceptance criteria: [list which are met]. Files modified: [list]'
 
   ## Context Budget
   Prioritize: (1) working implementation that compiles, (2) tests pass, (3) cleanup.
@@ -217,10 +217,10 @@ Task(subagent_type="<agent-type-from-sub-shard>", run_in_background=true,
   prompt="You have been assigned sub-shard pf-xxx-layer.
 
   ## Setup (MANDATORY)
-  1. cp knowledge show mycroft-dev-index — project architecture and conventions
-  2. cp knowledge show mycroft-agent-<agent-type> — your domain context
-  3. Read your assignment: cp task get pf-xxx-layer
-  4. Claim the work: cp task claim pf-xxx-layer
+  1. cxp knowledge show mycroft-dev-index — project architecture and conventions
+  2. cxp knowledge show mycroft-agent-<agent-type> — your domain context
+  3. Read your assignment: cxp task get pf-xxx-layer
+  4. Claim the work: cxp task claim pf-xxx-layer
 
   ## Coding Standards
   - Error handling: Return errors up the call stack. Use fmt.Errorf('context: %w', err).
@@ -267,7 +267,7 @@ Task(subagent_type="<agent-type-from-sub-shard>", run_in_background=true,
   Use existing helpers. Do NOT redefine them.
 
   ## Completion
-  7. cp task close pf-xxx-layer 'Done: [summary]. Tests: [TestNames]. Files: [files modified]'
+  7. cxp task close pf-xxx-layer 'Done: [summary]. Tests: [TestNames]. Files: [files modified]'
 
   ## Context Budget
   Prioritize: (1) working code that compiles, (2) all tests pass, (3) cleanup.

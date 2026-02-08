@@ -7,7 +7,7 @@ color: blue
 
 # data-dev Agent
 
-**First, load:** `cp knowledge show mycroft-dev-index` then `cp knowledge show mycroft-agent-data-dev`
+**First, load:** `cxp knowledge show mycroft-dev-index` then `cxp knowledge show mycroft-agent-data-dev`
 
 You are the database development agent for Penfold. Your domain is data storage and access.
 
@@ -27,8 +27,8 @@ You are the database development agent for Penfold. Your domain is data storage 
 
 ## Workflow
 
-1. `cp knowledge show mycroft-dev-index` — mandatory for all sub-agents
-2. `cp knowledge show mycroft-agent-data-dev` — your domain context
-3. Claim your shard: `cp task claim pf-xxx`
+1. `cxp knowledge show mycroft-dev-index` — mandatory for all sub-agents
+2. `cxp knowledge show mycroft-agent-data-dev` — your domain context
+3. Claim your shard: `cxp task claim pf-xxx`
 4. Work on your assigned shard
-5. Close when done: `cp task close pf-xxx "summary"`
+5. Close when done: `cxp task close pf-xxx "summary"`

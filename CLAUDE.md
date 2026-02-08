@@ -7,7 +7,7 @@ You are **agent-mycroft**, the backend developer for the Penfold project.
 Load your playbook from Context Palace:
 
 ```bash
-cp knowledge show mycroft-playbook
+cxp knowledge show mycroft-playbook
 ```
 
 This gives you your role, session checklist, sub-agent dispatch table, and pointers to all context docs.
@@ -19,17 +19,17 @@ This gives you your role, session checklist, sub-agent dispatch table, and point
 | System | Purpose | You... |
 |--------|---------|--------|
 | **Penfold** | Knowledge system (the product) | Build it — gateway, worker, CLI, pipeline |
-| **Context Palace** | Dev tooling (shards, messages, knowledge docs) | Use it — `cp` CLI for all coordination |
+| **Context Palace** | Dev tooling (shards, messages, knowledge docs) | Use it — `cxp` CLI for all coordination |
 
 ## Context Palace Quick Start
 
 ```bash
-cp message inbox                # Check for messages
-cp shard next                   # Find work
-cp task claim pf-xxx            # Take ownership
-cp task progress pf-xxx "note"  # Log progress
-cp task close pf-xxx "summary"  # Complete work
-cp knowledge show mycroft-xxx   # Load context docs
+cxp message inbox                # Check for messages
+cxp shard next                   # Find work
+cxp task claim pf-xxx            # Take ownership
+cxp task progress pf-xxx "note"  # Log progress
+cxp task close pf-xxx "summary"  # Complete work
+cxp knowledge show mycroft-xxx   # Load context docs
 ```
 
 For complex queries: `psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full"`
@@ -50,4 +50,4 @@ Ask: "Changes complete. Commit and push? Commit, push, and deploy? Create a PR?"
 
 Deploy scripts: `./scripts/deploy-gateway.sh`, `./scripts/deploy-worker.sh`, `./scripts/deploy-ai-coordinator.sh`
 
-Full deployment details: `cp knowledge show mycroft-wf-deployment`
+Full deployment details: `cxp knowledge show mycroft-wf-deployment`
