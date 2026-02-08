@@ -28,6 +28,7 @@ var (
 	contentProcessing bool
 	contentConfirm    bool
 	contentBefore     string
+	contentReason     string
 )
 
 // ContentCommandDeps holds the dependencies for content commands.
@@ -98,6 +99,7 @@ JSON Output (for AI processing):
 	cmd.AddCommand(newContentShowCommand(deps))
 	cmd.AddCommand(newContentUpdateCommand(deps))
 	cmd.AddCommand(newContentDeleteCommand(deps))
+	cmd.AddCommand(newContentPurgeCommand(deps))
 	cmd.AddCommand(newContentStatsCommand(deps))
 	cmd.AddCommand(newContentTraceCommand(deps))
 	cmd.AddCommand(newContentTextCommand(deps))
@@ -751,6 +753,163 @@ func runContentDeleteBulk(ctx context.Context, deps *ContentCommandDeps) error {
 		for _, id := range resp.DeletedIds {
 			fmt.Printf("  - %s\n", id)
 		}
+	}
+
+	return nil
+}
+
+// newContentPurgeCommand creates the 'content purge' subcommand.
+func newContentPurgeCommand(deps *ContentCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "purge [content-id]",
+		Short: "Permanently delete (purge) content items",
+		Long: `Permanently delete (purge) soft-deleted content items.
+
+Purge performs a hard delete of content items that have already been soft-deleted.
+This operation is irreversible and removes all associated data.
+
+Examples:
+  # Purge a single content item
+  penf content purge content-123 --reason "re-ingest needed" --confirm
+
+  # Bulk purge by filters (requires --confirm)
+  penf content purge --source email --reason "cleanup" --confirm
+
+  # Limit bulk purge to 50 items
+  penf content purge --source email --reason "cleanup" --confirm --limit 50`,
+		Aliases: []string{"hard-delete"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				// Single content item purge
+				return runContentPurgeSingle(cmd.Context(), deps, args[0])
+			} else if len(args) == 0 {
+				// Bulk purge
+				return runContentPurgeBulk(cmd.Context(), deps)
+			}
+			return fmt.Errorf("specify a single content ID or use filters for bulk purge")
+		},
+	}
+
+	cmd.Flags().StringVar(&contentSource, "source", "", "Filter by source type for bulk purge: email, document, meeting, slack")
+	cmd.Flags().StringVar(&contentTenant, "tenant", "", "Filter by tenant ID (defaults to config tenant)")
+	cmd.Flags().StringVar(&contentReason, "reason", "", "Reason for purging (required)")
+	cmd.Flags().BoolVar(&contentConfirm, "confirm", false, "Confirm purge operation (required)")
+	cmd.Flags().Int32VarP(&contentLimit, "limit", "l", 100, "Maximum number of items to purge in bulk mode")
+
+	return cmd
+}
+
+func runContentPurgeSingle(ctx context.Context, deps *ContentCommandDeps, contentID string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Validate required flags
+	if contentReason == "" {
+		return fmt.Errorf("--reason flag is required")
+	}
+	if !contentConfirm {
+		return fmt.Errorf("--confirm flag is required")
+	}
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := contentv1.NewContentProcessorServiceClient(conn)
+
+	// Purge the content item
+	resp, err := client.PurgeContentItem(ctx, &contentv1.PurgeContentItemRequest{
+		ContentId: contentID,
+		Reason:    contentReason,
+		Confirm:   true,
+	})
+	if err != nil {
+		return fmt.Errorf("purging content item: %w", err)
+	}
+
+	if resp.Success {
+		fmt.Printf("Successfully purged content item: %s\n", resp.ContentId)
+		if resp.Message != "" {
+			fmt.Printf("Message: %s\n", resp.Message)
+		}
+	} else {
+		fmt.Printf("Failed to purge content item: %s\n", resp.ContentId)
+		if resp.Message != "" {
+			fmt.Printf("Message: %s\n", resp.Message)
+		}
+	}
+
+	return nil
+}
+
+func runContentPurgeBulk(ctx context.Context, deps *ContentCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Validate required flags
+	if contentReason == "" {
+		return fmt.Errorf("--reason flag is required")
+	}
+	if !contentConfirm {
+		return fmt.Errorf("--confirm flag is required")
+	}
+
+	// Get tenant ID
+	tenantID := contentTenant
+	if tenantID == "" {
+		tenantID = cfg.TenantID
+	}
+	if tenantID == "" {
+		return fmt.Errorf("tenant ID required: set via --tenant flag or 'penf config set tenant_id <id>'")
+	}
+
+	conn, err := connectToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := contentv1.NewContentProcessorServiceClient(conn)
+
+	// Build request
+	req := &contentv1.PurgeContentItemsRequest{
+		TenantId: tenantID,
+		Reason:   contentReason,
+		Confirm:  true,
+		Limit:    contentLimit,
+	}
+
+	// Apply filters
+	if contentSource != "" {
+		req.SourceType = &contentSource
+	}
+
+	// Execute bulk purge
+	resp, err := client.PurgeContentItems(ctx, req)
+	if err != nil {
+		return fmt.Errorf("bulk purging content items: %w", err)
+	}
+
+	fmt.Printf("Successfully purged %d content items.\n", resp.PurgedCount)
+	if resp.Message != "" {
+		fmt.Printf("Message: %s\n", resp.Message)
+	}
+
+	if len(resp.ContentIds) > 0 && len(resp.ContentIds) <= 20 {
+		fmt.Println("\nPurged IDs:")
+		for _, id := range resp.ContentIds {
+			fmt.Printf("  - %s\n", id)
+		}
+	} else if len(resp.ContentIds) > 20 {
+		fmt.Printf("\n%d content IDs purged (too many to display)\n", len(resp.ContentIds))
 	}
 
 	return nil

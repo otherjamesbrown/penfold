@@ -46,6 +46,16 @@ func (m *MockRepository) DeleteByFilters(ctx context.Context, tenantID string, s
 	return args.Get(0).(int64), args.Get(1).([]string), args.Error(2)
 }
 
+func (m *MockRepository) PurgeByContentID(ctx context.Context, contentID string) error {
+	args := m.Called(ctx, contentID)
+	return args.Error(0)
+}
+
+func (m *MockRepository) PurgeByFilters(ctx context.Context, tenantID string, sourceType *string, limit int) (int64, []string, error) {
+	args := m.Called(ctx, tenantID, sourceType, limit)
+	return args.Get(0).(int64), args.Get(1).([]string), args.Error(2)
+}
+
 func (m *MockRepository) GetStats(ctx context.Context, tenantID string) (*StatsRecord, error) {
 	args := m.Called(ctx, tenantID)
 	if args.Get(0) == nil {

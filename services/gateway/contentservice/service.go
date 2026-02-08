@@ -31,6 +31,8 @@ type Repository interface {
 	ListByTenant(ctx context.Context, filter ListFilter) ([]*ContentItemRecord, error)
 	DeleteByContentID(ctx context.Context, contentID string) error
 	DeleteByFilters(ctx context.Context, tenantID string, sourceType, processingStatus *string) (int64, []string, error)
+	PurgeByContentID(ctx context.Context, contentID string) error
+	PurgeByFilters(ctx context.Context, tenantID string, sourceType *string, limit int) (int64, []string, error)
 	GetStats(ctx context.Context, tenantID string) (*StatsRecord, error)
 	GetContentText(ctx context.Context, contentID string) (*ContentTextRecord, error)
 	ListAvailableInsights(ctx context.Context, contentID string) (*InsightsAvailabilityRecord, error)
@@ -381,6 +383,246 @@ func (r *repositoryImpl) DeleteByFilters(ctx context.Context, tenantID string, s
 	}
 
 	return result.RowsAffected(), deletedIDs, nil
+}
+
+// PurgeByContentID hard-deletes a source and all related data by content_id.
+// Only purges sources that are already soft-deleted (is_deleted = true).
+func (r *repositoryImpl) PurgeByContentID(ctx context.Context, contentID string) error {
+	// Start transaction
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Look up the source and verify it's soft-deleted
+	var sourceID int64
+	var isDeleted bool
+	err = tx.QueryRow(ctx, `
+		SELECT id, COALESCE(is_deleted, false)
+		FROM sources
+		WHERE content_id = $1
+	`, contentID).Scan(&sourceID, &isDeleted)
+
+	if err == pgx.ErrNoRows {
+		return fmt.Errorf("content item not found: %s", contentID)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to look up source: %w", err)
+	}
+
+	// Safety check: only purge soft-deleted sources
+	if !isDeleted {
+		return fmt.Errorf("content item not soft-deleted: %s (soft-delete first)", contentID)
+	}
+
+	// Delete in FK dependency order
+	// 1. Delete pipeline_runs
+	_, err = tx.Exec(ctx, "DELETE FROM pipeline_runs WHERE source_id = $1", sourceID)
+	if err != nil {
+		return fmt.Errorf("failed to delete pipeline_runs: %w", err)
+	}
+
+	// 2. Delete embeddings referencing assertions from this source
+	_, err = tx.Exec(ctx, `
+		DELETE FROM embeddings
+		WHERE assertion_id IN (SELECT id FROM assertions WHERE source_id = $1)
+	`, sourceID)
+	if err != nil {
+		return fmt.Errorf("failed to delete assertion embeddings: %w", err)
+	}
+
+	// 3. Delete embeddings referencing this source directly
+	_, err = tx.Exec(ctx, "DELETE FROM embeddings WHERE source_id = $1", sourceID)
+	if err != nil {
+		return fmt.Errorf("failed to delete source embeddings: %w", err)
+	}
+
+	// 4. Delete assertions (CASCADE will handle assertion_references)
+	_, err = tx.Exec(ctx, "DELETE FROM assertions WHERE source_id = $1", sourceID)
+	if err != nil {
+		return fmt.Errorf("failed to delete assertions: %w", err)
+	}
+
+	// 5. Delete review_items
+	_, err = tx.Exec(ctx, "DELETE FROM review_items WHERE source_id = $1", sourceID)
+	if err != nil {
+		return fmt.Errorf("failed to delete review_items: %w", err)
+	}
+
+	// 6. Update relationship_evidence (SET NULL via FK, but do it explicitly for clarity)
+	_, err = tx.Exec(ctx, "UPDATE relationship_evidence SET source_id = NULL WHERE source_id = $1", sourceID)
+	if err != nil {
+		return fmt.Errorf("failed to update relationship_evidence: %w", err)
+	}
+
+	// 7. CASCADE handles: archived_files, email_attachments, meeting_mentions
+	// 8. Delete the source itself
+	result, err := tx.Exec(ctx, "DELETE FROM sources WHERE id = $1", sourceID)
+	if err != nil {
+		return fmt.Errorf("failed to delete source: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("source not found for deletion (concurrent modification?)")
+	}
+
+	// Commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing transaction: %w", err)
+	}
+
+	r.logger.Info("Purged content item",
+		logging.F("content_id", contentID),
+		logging.F("source_id", sourceID),
+	)
+
+	return nil
+}
+
+// PurgeByFilters bulk hard-deletes sources matching filters.
+// Only purges sources that are already soft-deleted (is_deleted = true).
+func (r *repositoryImpl) PurgeByFilters(ctx context.Context, tenantID string, sourceType *string, limit int) (int64, []string, error) {
+	// Build WHERE clause
+	whereClauses := []string{"is_deleted = true"}
+	args := []interface{}{}
+	argCount := 1
+
+	// Tenant filter (required)
+	whereClauses = append(whereClauses, fmt.Sprintf("tenant_id = $%d", argCount))
+	tenantUUID, err := uuid.Parse(tenantID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("invalid tenant_id: %w", err)
+	}
+	args = append(args, tenantUUID)
+	argCount++
+
+	// Optional source_type filter
+	if sourceType != nil && *sourceType != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("source_system = $%d", argCount))
+		args = append(args, *sourceType)
+		argCount++
+	}
+
+	// Apply limit for safety
+	if limit <= 0 {
+		limit = 100 // default safety limit
+	}
+
+	// Get the sources to purge
+	selectQuery := fmt.Sprintf(`
+		SELECT id, content_id
+		FROM sources
+		WHERE %s
+		ORDER BY id
+		LIMIT $%d
+	`, joinWhere(whereClauses), argCount)
+	args = append(args, limit)
+
+	rows, err := r.db.Query(ctx, selectQuery, args...)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to query sources for purge: %w", err)
+	}
+
+	type sourceRecord struct {
+		ID        int64
+		ContentID string
+	}
+
+	var sourcesToPurge []sourceRecord
+	for rows.Next() {
+		var rec sourceRecord
+		if err := rows.Scan(&rec.ID, &rec.ContentID); err != nil {
+			rows.Close()
+			return 0, nil, fmt.Errorf("failed to scan source: %w", err)
+		}
+		sourcesToPurge = append(sourcesToPurge, rec)
+	}
+	rows.Close()
+
+	if err := rows.Err(); err != nil {
+		return 0, nil, fmt.Errorf("error iterating sources: %w", err)
+	}
+
+	if len(sourcesToPurge) == 0 {
+		return 0, []string{}, nil
+	}
+
+	// Collect source IDs for batch deletion
+	sourceIDs := make([]int64, len(sourcesToPurge))
+	contentIDs := make([]string, len(sourcesToPurge))
+	for i, s := range sourcesToPurge {
+		sourceIDs[i] = s.ID
+		contentIDs[i] = s.ContentID
+	}
+
+	// Start transaction
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return 0, nil, fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Delete in FK dependency order (batch operations)
+	// 1. Delete pipeline_runs
+	_, err = tx.Exec(ctx, "DELETE FROM pipeline_runs WHERE source_id = ANY($1)", sourceIDs)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to delete pipeline_runs: %w", err)
+	}
+
+	// 2. Delete embeddings referencing assertions from these sources
+	_, err = tx.Exec(ctx, `
+		DELETE FROM embeddings
+		WHERE assertion_id IN (SELECT id FROM assertions WHERE source_id = ANY($1))
+	`, sourceIDs)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to delete assertion embeddings: %w", err)
+	}
+
+	// 3. Delete embeddings referencing these sources directly
+	_, err = tx.Exec(ctx, "DELETE FROM embeddings WHERE source_id = ANY($1)", sourceIDs)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to delete source embeddings: %w", err)
+	}
+
+	// 4. Delete assertions (CASCADE will handle assertion_references)
+	_, err = tx.Exec(ctx, "DELETE FROM assertions WHERE source_id = ANY($1)", sourceIDs)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to delete assertions: %w", err)
+	}
+
+	// 5. Delete review_items
+	_, err = tx.Exec(ctx, "DELETE FROM review_items WHERE source_id = ANY($1)", sourceIDs)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to delete review_items: %w", err)
+	}
+
+	// 6. Update relationship_evidence (SET NULL)
+	_, err = tx.Exec(ctx, "UPDATE relationship_evidence SET source_id = NULL WHERE source_id = ANY($1)", sourceIDs)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to update relationship_evidence: %w", err)
+	}
+
+	// 7. CASCADE handles: archived_files, email_attachments, meeting_mentions
+	// 8. Delete the sources themselves
+	result, err := tx.Exec(ctx, "DELETE FROM sources WHERE id = ANY($1)", sourceIDs)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to delete sources: %w", err)
+	}
+
+	purgedCount := result.RowsAffected()
+
+	// Commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		return 0, nil, fmt.Errorf("committing transaction: %w", err)
+	}
+
+	r.logger.Info("Bulk purged content items",
+		logging.F("tenant_id", tenantID),
+		logging.F("purged_count", purgedCount),
+	)
+
+	return purgedCount, contentIDs, nil
 }
 
 // GetStats retrieves aggregate statistics for content.
@@ -1054,6 +1296,122 @@ func (s *Service) DeleteContentItems(ctx context.Context, req *contentv1.DeleteC
 	return &contentv1.DeleteContentItemsResponse{
 		DeletedCount: count,
 		DeletedIds:   deletedIDs,
+	}, nil
+}
+
+// PurgeContentItem hard-deletes a content item and all related data.
+func (s *Service) PurgeContentItem(ctx context.Context, req *contentv1.PurgeContentItemRequest) (*contentv1.PurgeContentItemResponse, error) {
+	s.logger.Info("PurgeContentItem called",
+		logging.F("content_id", req.ContentId),
+		logging.F("reason", req.Reason),
+		logging.F("confirm", req.Confirm),
+	)
+
+	// Validate confirm flag
+	if !req.Confirm {
+		return nil, status.Error(codes.InvalidArgument, "confirm must be true for purge operation")
+	}
+
+	// Validate content_id
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	// Validate reason
+	if req.Reason == "" {
+		return nil, status.Error(codes.InvalidArgument, "reason is required for purge operation")
+	}
+
+	// Purge the content item
+	err := s.repo.PurgeByContentID(ctx, req.ContentId)
+	if err != nil {
+		s.logger.Error("Failed to purge content item",
+			logging.Err(err),
+			logging.F("content_id", req.ContentId),
+			logging.F("reason", req.Reason),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to purge content item: %v", err)
+	}
+
+	s.logger.Info("Content item purged",
+		logging.F("content_id", req.ContentId),
+		logging.F("reason", req.Reason),
+	)
+
+	return &contentv1.PurgeContentItemResponse{
+		Success:   true,
+		Message:   "Content item permanently deleted",
+		ContentId: req.ContentId,
+	}, nil
+}
+
+// PurgeContentItems bulk hard-deletes content items matching filters.
+func (s *Service) PurgeContentItems(ctx context.Context, req *contentv1.PurgeContentItemsRequest) (*contentv1.PurgeContentItemsResponse, error) {
+	s.logger.Info("PurgeContentItems called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("source_type", req.SourceType),
+		logging.F("reason", req.Reason),
+		logging.F("confirm", req.Confirm),
+		logging.F("limit", req.Limit),
+	)
+
+	// Validate confirm flag
+	if !req.Confirm {
+		return nil, status.Error(codes.InvalidArgument, "confirm must be true for bulk purge operation")
+	}
+
+	// Validate tenant_id
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+
+	// Validate reason
+	if req.Reason == "" {
+		return nil, status.Error(codes.InvalidArgument, "reason is required for purge operation")
+	}
+
+	// Resolve tenant reference to UUID
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build filters
+	var sourceType *string
+	if req.SourceType != nil {
+		st := *req.SourceType
+		sourceType = &st
+	}
+
+	// Set limit (default to 100 if not specified or 0)
+	limit := int(req.Limit)
+	if limit <= 0 {
+		limit = 100
+	}
+
+	// Execute bulk purge
+	count, purgedIDs, err := s.repo.PurgeByFilters(ctx, tenantID, sourceType, limit)
+	if err != nil {
+		s.logger.Error("Failed to bulk purge content items",
+			logging.Err(err),
+			logging.F("tenant_id", req.TenantId),
+			logging.F("reason", req.Reason),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to purge content items: %v", err)
+	}
+
+	s.logger.Info("Bulk purge completed",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("purged_count", count),
+		logging.F("reason", req.Reason),
+	)
+
+	message := fmt.Sprintf("Permanently deleted %d content items", count)
+
+	return &contentv1.PurgeContentItemsResponse{
+		PurgedCount: int32(count),
+		ContentIds:  purgedIDs,
+		Message:     message,
 	}, nil
 }
 

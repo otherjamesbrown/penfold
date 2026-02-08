@@ -61,6 +61,14 @@ service ContentProcessorService {
 
   // GetAssertions retrieves extracted assertions for a content item.
   rpc GetAssertions(GetAssertionsRequest) returns (GetAssertionsResponse);
+
+  // PurgeContentItem hard-deletes a content item and all derived data.
+  // Only works on soft-deleted items. Requires confirm=true.
+  rpc PurgeContentItem(PurgeContentItemRequest) returns (PurgeContentItemResponse);
+
+  // PurgeContentItems bulk hard-deletes soft-deleted content items.
+  // Requires confirm=true.
+  rpc PurgeContentItems(PurgeContentItemsRequest) returns (PurgeContentItemsResponse);
 }
 
 // =============================================================================
@@ -678,4 +686,62 @@ message GetAssertionsResponse {
 
   // Total count of assertions (useful if filtering is applied).
   int32 total_count = 3;
+}
+
+// =============================================================================
+// Purge Messages
+// =============================================================================
+
+// PurgeContentItemRequest hard-deletes a content item.
+message PurgeContentItemRequest {
+  // Unique identifier of the content item to purge.
+  string content_id = 1;
+
+  // Reason for purging (for audit trail).
+  string reason = 2;
+
+  // Must be true to confirm hard delete.
+  bool confirm = 3;
+}
+
+// PurgeContentItemResponse returns the result of purging a content item.
+message PurgeContentItemResponse {
+  // Whether the purge was successful.
+  bool success = 1;
+
+  // Status message.
+  string message = 2;
+
+  // The content_id that was purged.
+  string content_id = 3;
+}
+
+// PurgeContentItemsRequest bulk hard-deletes content items.
+message PurgeContentItemsRequest {
+  // Tenant identifier for filtering.
+  string tenant_id = 1;
+
+  // Optional filter by source type.
+  optional string source_type = 2;
+
+  // Reason for purging (for audit trail).
+  string reason = 3;
+
+  // Must be true to confirm bulk hard delete.
+  bool confirm = 4;
+
+  // Maximum number of items to purge (safety limit, default 100).
+  int32 limit = 5;
+}
+
+// PurgeContentItemsResponse returns the result of bulk purge.
+message PurgeContentItemsResponse {
+  // Number of items purged.
+  int32 purged_count = 1;
+
+  // List of purged content item IDs.
+  repeated string content_ids = 2;
+
+  // Status message.
+  string message = 3;
 }
