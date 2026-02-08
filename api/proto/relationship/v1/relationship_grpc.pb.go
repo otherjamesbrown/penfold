@@ -37,6 +37,7 @@ const (
 	RelationshipService_ListConflicts_FullMethodName         = "/penfold.relationship.v1.RelationshipService/ListConflicts"
 	RelationshipService_GetConflict_FullMethodName           = "/penfold.relationship.v1.RelationshipService/GetConflict"
 	RelationshipService_ResolveConflict_FullMethodName       = "/penfold.relationship.v1.RelationshipService/ResolveConflict"
+	RelationshipService_CreateRelationship_FullMethodName    = "/penfold.relationship.v1.RelationshipService/CreateRelationship"
 )
 
 // RelationshipServiceClient is the client API for RelationshipService service.
@@ -79,6 +80,8 @@ type RelationshipServiceClient interface {
 	GetConflict(ctx context.Context, in *GetConflictRequest, opts ...grpc.CallOption) (*Conflict, error)
 	// ResolveConflict resolves a relationship conflict.
 	ResolveConflict(ctx context.Context, in *ResolveConflictRequest, opts ...grpc.CallOption) (*ResolveConflictResponse, error)
+	// CreateRelationship manually creates a new relationship between two entities.
+	CreateRelationship(ctx context.Context, in *CreateRelationshipRequest, opts ...grpc.CallOption) (*CreateRelationshipResponse, error)
 }
 
 type relationshipServiceClient struct {
@@ -239,6 +242,16 @@ func (c *relationshipServiceClient) ResolveConflict(ctx context.Context, in *Res
 	return out, nil
 }
 
+func (c *relationshipServiceClient) CreateRelationship(ctx context.Context, in *CreateRelationshipRequest, opts ...grpc.CallOption) (*CreateRelationshipResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateRelationshipResponse)
+	err := c.cc.Invoke(ctx, RelationshipService_CreateRelationship_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RelationshipServiceServer is the server API for RelationshipService service.
 // All implementations must embed UnimplementedRelationshipServiceServer
 // for forward compatibility.
@@ -279,6 +292,8 @@ type RelationshipServiceServer interface {
 	GetConflict(context.Context, *GetConflictRequest) (*Conflict, error)
 	// ResolveConflict resolves a relationship conflict.
 	ResolveConflict(context.Context, *ResolveConflictRequest) (*ResolveConflictResponse, error)
+	// CreateRelationship manually creates a new relationship between two entities.
+	CreateRelationship(context.Context, *CreateRelationshipRequest) (*CreateRelationshipResponse, error)
 	mustEmbedUnimplementedRelationshipServiceServer()
 }
 
@@ -333,6 +348,9 @@ func (UnimplementedRelationshipServiceServer) GetConflict(context.Context, *GetC
 }
 func (UnimplementedRelationshipServiceServer) ResolveConflict(context.Context, *ResolveConflictRequest) (*ResolveConflictResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolveConflict not implemented")
+}
+func (UnimplementedRelationshipServiceServer) CreateRelationship(context.Context, *CreateRelationshipRequest) (*CreateRelationshipResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateRelationship not implemented")
 }
 func (UnimplementedRelationshipServiceServer) mustEmbedUnimplementedRelationshipServiceServer() {}
 func (UnimplementedRelationshipServiceServer) testEmbeddedByValue()                             {}
@@ -625,6 +643,24 @@ func _RelationshipService_ResolveConflict_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RelationshipService_CreateRelationship_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateRelationshipRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).CreateRelationship(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_CreateRelationship_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).CreateRelationship(ctx, req.(*CreateRelationshipRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RelationshipService_ServiceDesc is the grpc.ServiceDesc for RelationshipService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -691,6 +727,10 @@ var RelationshipService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveConflict",
 			Handler:    _RelationshipService_ResolveConflict_Handler,
+		},
+		{
+			MethodName: "CreateRelationship",
+			Handler:    _RelationshipService_CreateRelationship_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

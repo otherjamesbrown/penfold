@@ -3,6 +3,7 @@ package relationshipservice
 
 import (
 	"context"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -13,15 +14,32 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/relationships"
 )
 
+// RelationshipRepository defines the interface for relationship data access.
+type RelationshipRepository interface {
+	ListRelationships(ctx context.Context, filter relationships.ListRelationshipsFilter) ([]relationships.Relationship, int64, error)
+	GetRelationship(ctx context.Context, tenantID, relationshipID string) (*relationships.Relationship, error)
+	SearchRelationships(ctx context.Context, query relationships.SearchRelationshipsQuery) ([]relationships.Relationship, error)
+	ListEntities(ctx context.Context, filter relationships.ListEntitiesFilter) ([]relationships.Entity, int64, error)
+	GetEntity(ctx context.Context, tenantID, entityID string) (*relationships.Entity, error)
+	InsertRelationship(ctx context.Context, req relationships.InsertRelationshipRequest) (*relationships.Relationship, error)
+	MergeEntities(ctx context.Context, req relationships.MergeEntitiesRequest) (*relationships.MergeEntitiesResult, error)
+	GetNetworkStats(ctx context.Context, tenantID string) (*relationships.NetworkStats, error)
+	GetCentralEntities(ctx context.Context, tenantID string, limit int) ([]relationships.Entity, error)
+	GetClusters(ctx context.Context, tenantID string) ([]relationships.NetworkCluster, error)
+	ListConflicts(ctx context.Context, filter relationships.ListConflictsFilter) ([]relationships.RelationshipConflict, int64, error)
+	GetConflict(ctx context.Context, tenantID, conflictID string) (*relationships.RelationshipConflict, error)
+	ResolveConflict(ctx context.Context, req relationships.ResolveConflictRequest) (*relationships.ResolveConflictResult, error)
+}
+
 // Service implements the RelationshipService gRPC server.
 type Service struct {
 	relationshipv1.UnimplementedRelationshipServiceServer
-	repo   *relationships.Repository
+	repo   RelationshipRepository
 	logger logging.Logger
 }
 
 // NewService creates a new relationship service.
-func NewService(repo *relationships.Repository, logger logging.Logger) *Service {
+func NewService(repo RelationshipRepository, logger logging.Logger) *Service {
 	return &Service{
 		repo:   repo,
 		logger: logger,
@@ -572,6 +590,92 @@ func (s *Service) DiscoverRelationships(ctx context.Context, req *relationshipv1
 // ValidateRelationship is not implemented yet.
 func (s *Service) ValidateRelationship(ctx context.Context, req *relationshipv1.ValidateRelationshipRequest) (*relationshipv1.ValidateRelationshipResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ValidateRelationship not implemented")
+}
+
+// CreateRelationship manually creates a new relationship between two entities.
+func (s *Service) CreateRelationship(ctx context.Context, req *relationshipv1.CreateRelationshipRequest) (*relationshipv1.CreateRelationshipResponse, error) {
+	s.logger.Debug("CreateRelationship called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("from_entity_id", req.FromEntityId),
+		logging.F("to_entity_id", req.ToEntityId),
+		logging.F("type", req.Type),
+	)
+
+	// Validate required fields
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.FromEntityId == "" {
+		return nil, status.Error(codes.InvalidArgument, "from_entity_id is required")
+	}
+	if req.ToEntityId == "" {
+		return nil, status.Error(codes.InvalidArgument, "to_entity_id is required")
+	}
+	if req.Type == relationshipv1.RelationshipType_RELATIONSHIP_TYPE_UNSPECIFIED {
+		return nil, status.Error(codes.InvalidArgument, "type is required and cannot be UNSPECIFIED")
+	}
+
+	// Validate that both entities exist
+	fromEntity, err := s.repo.GetEntity(ctx, req.TenantId, req.FromEntityId)
+	if err != nil {
+		s.logger.Error("Error checking from_entity existence", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to check from_entity: %v", err)
+	}
+	if fromEntity == nil {
+		return nil, status.Errorf(codes.NotFound, "from_entity not found: %s", req.FromEntityId)
+	}
+
+	toEntity, err := s.repo.GetEntity(ctx, req.TenantId, req.ToEntityId)
+	if err != nil {
+		s.logger.Error("Error checking to_entity existence", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to check to_entity: %v", err)
+	}
+	if toEntity == nil {
+		return nil, status.Errorf(codes.NotFound, "to_entity not found: %s", req.ToEntityId)
+	}
+
+	// Build the insert request
+	insertReq := relationships.InsertRelationshipRequest{
+		TenantID:       req.TenantId,
+		FromEntityID:   req.FromEntityId,
+		FromEntityType: fromEntity.Type,
+		ToEntityID:     req.ToEntityId,
+		ToEntityType:   toEntity.Type,
+		Type:           protoRelTypeToInternal(req.Type),
+		Confidence:     1.0,
+		UserConfirmed:  true,
+	}
+
+	if req.Subtype != nil {
+		insertReq.Subtype = *req.Subtype
+	}
+
+	// Insert the relationship
+	rel, err := s.repo.InsertRelationship(ctx, insertReq)
+	if err != nil {
+		// Check for duplicate key error
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "already exists") || strings.Contains(errMsg, "duplicate key") || strings.Contains(errMsg, "unique constraint") {
+			return nil, status.Error(codes.AlreadyExists, "relationship already exists")
+		}
+		s.logger.Error("Error inserting relationship", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to create relationship: %v", err)
+	}
+
+	// Populate entity names for the response
+	rel.SourceName = fromEntity.Name
+	rel.TargetName = toEntity.Name
+
+	s.logger.Info("Relationship created",
+		logging.F("relationship_id", rel.ID),
+		logging.F("from_entity_id", req.FromEntityId),
+		logging.F("to_entity_id", req.ToEntityId),
+		logging.F("type", req.Type),
+	)
+
+	return &relationshipv1.CreateRelationshipResponse{
+		Relationship: relationshipToProto(rel),
+	}, nil
 }
 
 // Conversion helpers

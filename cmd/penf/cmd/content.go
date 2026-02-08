@@ -29,6 +29,7 @@ var (
 	contentConfirm    bool
 	contentBefore     string
 	contentReason     string
+	contentFull       bool
 )
 
 // ContentCommandDeps holds the dependencies for content commands.
@@ -174,6 +175,7 @@ Examples:
 	}
 
 	cmd.Flags().BoolVar(&contentProcessing, "processing", false, "Show detailed processing status")
+	cmd.Flags().BoolVar(&contentFull, "full", false, "Show full body text without truncation")
 
 	return cmd
 }
@@ -366,11 +368,11 @@ func outputContentItem(format config.OutputFormat, item *contentv1.ContentItem, 
 		}
 		return outputContentYAML(data)
 	default:
-		return outputContentItemText(item, status)
+		return outputContentItemText(item, status, contentFull)
 	}
 }
 
-func outputContentItemText(item *contentv1.ContentItem, status *contentv1.ProcessingStatus) error {
+func outputContentItemText(item *contentv1.ContentItem, status *contentv1.ProcessingStatus, fullBody bool) error {
 	fmt.Println("Content Item Details:")
 	fmt.Println()
 	fmt.Printf("  \033[1mID:\033[0m           %s\n", item.Id)
@@ -394,18 +396,81 @@ func outputContentItemText(item *contentv1.ContentItem, status *contentv1.Proces
 	}
 	fmt.Println()
 
-	// Metadata
-	if len(item.Metadata) > 0 {
-		fmt.Println("  \033[1mMetadata:\033[0m")
-		for key, value := range item.Metadata {
-			fmt.Printf("    %-12s %s\n", key+":", truncate(value, 60))
+	// For email content, show email-specific fields first
+	if item.SourceType == "email" && len(item.Metadata) > 0 {
+		fmt.Println("  \033[1mEmail:\033[0m")
+		if subject, ok := item.Metadata["subject"]; ok {
+			fmt.Printf("    Subject:     %s\n", subject)
+		}
+		if from, ok := item.Metadata["from"]; ok {
+			fmt.Printf("    From:        %s\n", from)
+		}
+		if to, ok := item.Metadata["to"]; ok {
+			fmt.Printf("    To:          %s\n", to)
+		}
+		if cc, ok := item.Metadata["cc"]; ok {
+			fmt.Printf("    CC:          %s\n", cc)
+		}
+		if bcc, ok := item.Metadata["bcc"]; ok {
+			fmt.Printf("    BCC:         %s\n", bcc)
 		}
 		fmt.Println()
+	}
+
+	// Metadata (show remaining fields not already displayed)
+	if len(item.Metadata) > 0 {
+		// For email, skip the fields we already showed
+		emailFields := map[string]bool{
+			"subject": true,
+			"from":    true,
+			"to":      true,
+			"cc":      true,
+			"bcc":     true,
+		}
+
+		hasOtherMetadata := false
+		if item.SourceType == "email" {
+			for key := range item.Metadata {
+				if !emailFields[key] {
+					hasOtherMetadata = true
+					break
+				}
+			}
+		} else {
+			hasOtherMetadata = len(item.Metadata) > 0
+		}
+
+		if hasOtherMetadata {
+			fmt.Println("  \033[1mMetadata:\033[0m")
+			for key, value := range item.Metadata {
+				if item.SourceType == "email" && emailFields[key] {
+					continue
+				}
+				fmt.Printf("    %-12s %s\n", key+":", truncate(value, 60))
+			}
+			fmt.Println()
+		}
 	}
 
 	// Content hash
 	fmt.Printf("  \033[1mContent Hash:\033[0m %s\n", item.ContentHash)
 	fmt.Println()
+
+	// Body text from raw_content
+	if item.RawContent != "" {
+		fmt.Printf("  \033[1mBody:\033[0m\n")
+		bodyText := item.RawContent
+		const maxBodyLength = 1000
+
+		if !fullBody && len(bodyText) > maxBodyLength {
+			bodyText = truncateContentBody(bodyText, maxBodyLength)
+			fmt.Printf("    %s\n", bodyText)
+			fmt.Printf("    \033[90m[truncated at %d chars, use --full to see complete body]\033[0m\n", maxBodyLength)
+		} else {
+			fmt.Printf("    %s\n", bodyText)
+		}
+		fmt.Println()
+	}
 
 	// Summary if available
 	if item.Summary != nil && *item.Summary != "" {
@@ -579,6 +644,13 @@ func stageCompleted(stage contentv1.ProcessingStage, completed []contentv1.Proce
 		}
 	}
 	return false
+}
+
+func truncateContentBody(text string, maxLen int) string {
+	if len(text) <= maxLen {
+		return text
+	}
+	return text[:maxLen] + "..."
 }
 
 // newContentDeleteCommand creates the 'content delete' subcommand.

@@ -243,3 +243,16 @@ type ResolveConflictResult struct {
 	Conflict             *RelationshipConflict `json:"conflict"`
 	RelationshipsUpdated int                   `json:"relationships_updated"`
 }
+
+// InsertRelationshipRequest specifies parameters for manually creating a relationship.
+type InsertRelationshipRequest struct {
+	TenantID       string
+	FromEntityID   string
+	FromEntityType EntityType
+	ToEntityID     string
+	ToEntityType   EntityType
+	Type           RelationshipType
+	Subtype        string
+	Confidence     float64
+	UserConfirmed  bool
+}

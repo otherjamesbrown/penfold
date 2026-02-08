@@ -63,6 +63,9 @@ service RelationshipService {
 
   // ResolveConflict resolves a relationship conflict.
   rpc ResolveConflict(ResolveConflictRequest) returns (ResolveConflictResponse);
+
+  // CreateRelationship manually creates a new relationship between two entities.
+  rpc CreateRelationship(CreateRelationshipRequest) returns (CreateRelationshipResponse);
 }
 
 // =============================================================================
@@ -427,6 +430,34 @@ message ValidateRelationshipResponse {
 
   // Message providing additional details
   string message = 3;
+}
+
+// =============================================================================
+// Create Relationship Messages
+// =============================================================================
+
+// CreateRelationshipRequest manually creates a new relationship.
+message CreateRelationshipRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Source entity ID
+  string from_entity_id = 2;
+
+  // Target entity ID
+  string to_entity_id = 3;
+
+  // Type of relationship
+  RelationshipType type = 4;
+
+  // Optional subtype for additional specificity
+  optional string subtype = 5;
+}
+
+// CreateRelationshipResponse contains the created relationship.
+message CreateRelationshipResponse {
+  // The created relationship
+  Relationship relationship = 1;
 }
 
 // =============================================================================

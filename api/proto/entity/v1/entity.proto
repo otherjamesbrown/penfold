@@ -661,6 +661,9 @@ message UpdateEntityRequest {
   // New account type (optional, omit to leave unchanged)
   // Valid values: person, role, distribution, bot, external_service, team, service
   optional string account_type = 4;
+
+  // Metadata key-value pairs (optional, merges with existing metadata)
+  map<string, string> metadata = 5;
 }
 
 // UpdateEntityResponse confirms entity update.

@@ -1041,6 +1041,65 @@ func (r *Repository) ResolveConflict(ctx context.Context, req ResolveConflictReq
 	}, nil
 }
 
+// InsertRelationship manually creates a new relationship in the database.
+func (r *Repository) InsertRelationship(ctx context.Context, req InsertRelationshipRequest) (*Relationship, error) {
+	query := `
+		INSERT INTO relationships (
+			tenant_id,
+			source_entity_type,
+			source_entity_id,
+			target_entity_type,
+			target_entity_id,
+			relationship_type,
+			relationship_subtype,
+			confidence_score,
+			user_confirmed,
+			lifecycle_state,
+			created_at,
+			updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', NOW(), NOW())
+		RETURNING id, created_at, updated_at
+	`
+
+	var id int64
+	var createdAt, updatedAt time.Time
+
+	err := r.db.QueryRow(ctx, query,
+		req.TenantID,
+		string(req.FromEntityType),
+		req.FromEntityID,
+		string(req.ToEntityType),
+		req.ToEntityID,
+		string(req.Type),
+		req.Subtype,
+		req.Confidence,
+		req.UserConfirmed,
+	).Scan(&id, &createdAt, &updatedAt)
+
+	if err != nil {
+		// Check for duplicate key constraint violation
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
+			return nil, fmt.Errorf("relationship already exists")
+		}
+		return nil, fmt.Errorf("insert relationship: %w", err)
+	}
+
+	// Return the created relationship
+	return &Relationship{
+		ID:         fmt.Sprintf("rel-%s-%d", req.Type, id),
+		SourceID:   req.FromEntityID,
+		SourceType: req.FromEntityType,
+		TargetID:   req.ToEntityID,
+		TargetType: req.ToEntityType,
+		Type:       req.Type,
+		Status:     RelationshipStatusConfirmed,
+		Confidence: req.Confidence,
+		TenantID:   req.TenantID,
+		CreatedAt:  createdAt,
+		UpdatedAt:  updatedAt,
+	}, nil
+}
+
 // MergeEntities merges two entities into one.
 func (r *Repository) MergeEntities(ctx context.Context, req MergeEntitiesRequest) (*MergeEntitiesResult, error) {
 	// Parse entity IDs

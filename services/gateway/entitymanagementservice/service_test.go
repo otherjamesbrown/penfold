@@ -30,7 +30,7 @@ type mockEntityRepo struct {
 	testFilterRuleFn      func(ctx context.Context, tenantID, email, name string) ([]*entities.EntityFilterRule, error)
 	getEntityStatsFn      func(ctx context.Context, tenantID string) (*entities.EntityStats, error)
 	searchEntitiesFn      func(ctx context.Context, tenantID, query, field string, limit int) ([]*entities.Person, error)
-	updateEntityFn        func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error
+	updateEntityFn        func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType, metadata map[string]string) error
 	deleteEntityFn        func(ctx context.Context, tenantID string, personID int64) error
 }
 
@@ -102,9 +102,9 @@ func (m *mockEntityRepo) SearchEntities(ctx context.Context, tenantID, query, fi
 	return []*entities.Person{}, nil
 }
 
-func (m *mockEntityRepo) UpdateEntity(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+func (m *mockEntityRepo) UpdateEntity(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType, metadata map[string]string) error {
 	if m.updateEntityFn != nil {
-		return m.updateEntityFn(ctx, tenantID, personID, name, accountType)
+		return m.updateEntityFn(ctx, tenantID, personID, name, accountType, metadata)
 	}
 	return nil
 }
@@ -1393,8 +1393,8 @@ func (s *testService) UpdateEntity(ctx context.Context, req *entityv1.UpdateEnti
 	}
 
 	// At least one field must be provided
-	if req.Name == nil && req.AccountType == nil {
-		return nil, status.Error(codes.InvalidArgument, "at least one field (name or account_type) must be provided")
+	if req.Name == nil && req.AccountType == nil && len(req.Metadata) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one field (name, account_type, or metadata) must be provided")
 	}
 
 	// Validate account_type if provided
@@ -1416,7 +1416,7 @@ func (s *testService) UpdateEntity(ctx context.Context, req *entityv1.UpdateEnti
 		accountType = &at
 	}
 
-	err := s.repo.UpdateEntity(ctx, req.TenantId, req.EntityId, req.Name, accountType)
+	err := s.repo.UpdateEntity(ctx, req.TenantId, req.EntityId, req.Name, accountType, req.Metadata)
 	if err != nil {
 		s.logger.Error("Failed to update entity", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update entity: %v", err))
@@ -1506,6 +1506,8 @@ func TestUpdateEntity_Validation(t *testing.T) {
 		st, ok := status.FromError(err)
 		require.True(t, ok)
 		assert.Equal(t, codes.InvalidArgument, st.Code())
+		// Once metadata is implemented, the error message should be:
+		// "at least one field (name, account_type, or metadata) must be provided"
 		assert.Contains(t, st.Message(), "at least one field")
 	})
 
@@ -1538,7 +1540,7 @@ func TestUpdateEntity_Name(t *testing.T) {
 		var capturedName *string
 		var capturedAccountType *entities.AccountType
 
-		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType, metadata map[string]string) error {
 			capturedTenantID = tenantID
 			capturedEntityID = personID
 			capturedName = name
@@ -1566,7 +1568,7 @@ func TestUpdateEntity_Name(t *testing.T) {
 	})
 
 	t.Run("repository error returns Internal", func(t *testing.T) {
-		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType, metadata map[string]string) error {
 			return errors.New("database error")
 		}
 
@@ -1598,7 +1600,7 @@ func TestUpdateEntity_AccountType(t *testing.T) {
 		var capturedName *string
 		var capturedAccountType *entities.AccountType
 
-		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType, metadata map[string]string) error {
 			capturedTenantID = tenantID
 			capturedEntityID = personID
 			capturedName = name
@@ -1628,7 +1630,7 @@ func TestUpdateEntity_AccountType(t *testing.T) {
 	t.Run("successfully updates entity to service account type", func(t *testing.T) {
 		var capturedAccountType *entities.AccountType
 
-		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType, metadata map[string]string) error {
 			capturedAccountType = accountType
 			return nil
 		}
@@ -1652,7 +1654,7 @@ func TestUpdateEntity_AccountType(t *testing.T) {
 	t.Run("successfully updates entity to bot account type", func(t *testing.T) {
 		var capturedAccountType *entities.AccountType
 
-		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType, metadata map[string]string) error {
 			capturedAccountType = accountType
 			return nil
 		}
@@ -1677,7 +1679,7 @@ func TestUpdateEntity_AccountType(t *testing.T) {
 		var capturedName *string
 		var capturedAccountType *entities.AccountType
 
-		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType) error {
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType, metadata map[string]string) error {
 			capturedName = name
 			capturedAccountType = accountType
 			return nil
@@ -1701,6 +1703,121 @@ func TestUpdateEntity_AccountType(t *testing.T) {
 		assert.Equal(t, "CI/CD Bot", *capturedName)
 		require.NotNil(t, capturedAccountType)
 		assert.Equal(t, entities.AccountTypeBot, *capturedAccountType)
+	})
+}
+
+// ============ UpdateEntity Metadata Tests ============
+
+func TestUpdateEntity_WithMetadata_Success(t *testing.T) {
+	svc, repo := newTestService()
+	ctx := context.Background()
+
+	t.Run("successfully updates entity with metadata", func(t *testing.T) {
+		var capturedTenantID string
+		var capturedEntityID int64
+		var capturedMetadata map[string]string
+
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType, metadata map[string]string) error {
+			capturedTenantID = tenantID
+			capturedEntityID = personID
+			capturedMetadata = metadata
+			return nil
+		}
+
+		// This test expects the proto to have a Metadata field (map<string, string>)
+		// and the service to pass it through to the repository
+		req := &entityv1.UpdateEntityRequest{
+			TenantId: "tenant-1",
+			EntityId: 123,
+			Metadata: map[string]string{
+				"role":       "Program Manager",
+				"department": "CTG",
+			},
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Equal(t, int64(123), resp.EntityId)
+		assert.Equal(t, "tenant-1", capturedTenantID)
+		assert.Equal(t, int64(123), capturedEntityID)
+		require.NotNil(t, capturedMetadata)
+		assert.Equal(t, "Program Manager", capturedMetadata["role"])
+		assert.Equal(t, "CTG", capturedMetadata["department"])
+	})
+}
+
+func TestUpdateEntity_WithMetadataOnly_Success(t *testing.T) {
+	svc, repo := newTestService()
+	ctx := context.Background()
+
+	t.Run("successfully updates only metadata without name or type", func(t *testing.T) {
+		var capturedName *string
+		var capturedAccountType *entities.AccountType
+		var capturedMetadata map[string]string
+
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType, metadata map[string]string) error {
+			capturedName = name
+			capturedAccountType = accountType
+			capturedMetadata = metadata
+			return nil
+		}
+
+		// Should be valid to update only metadata (validation should check for at least one of: name, account_type, or metadata)
+		req := &entityv1.UpdateEntityRequest{
+			TenantId: "tenant-1",
+			EntityId: 456,
+			Metadata: map[string]string{
+				"title": "Senior Engineer",
+			},
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Equal(t, int64(456), resp.EntityId)
+		assert.Nil(t, capturedName)
+		assert.Nil(t, capturedAccountType)
+		require.NotNil(t, capturedMetadata)
+		assert.Equal(t, "Senior Engineer", capturedMetadata["title"])
+	})
+}
+
+func TestUpdateEntity_MetadataMergesWithExisting(t *testing.T) {
+	svc, repo := newTestService()
+	ctx := context.Background()
+
+	t.Run("metadata updates merge with existing values", func(t *testing.T) {
+		var capturedMetadata map[string]string
+
+		repo.updateEntityFn = func(ctx context.Context, tenantID string, personID int64, name *string, accountType *entities.AccountType, metadata map[string]string) error {
+			// Repository should merge new metadata with existing
+			// This test verifies the service passes metadata correctly
+			// The actual merge logic is in the repository layer
+			capturedMetadata = metadata
+			return nil
+		}
+
+		// This test verifies that when metadata is provided, it should be passed through
+		// The repository layer will handle the JSONB merge operation
+		req := &entityv1.UpdateEntityRequest{
+			TenantId: "tenant-1",
+			EntityId: 789,
+			Metadata: map[string]string{
+				"role": "Engineering Manager",
+			},
+		}
+
+		resp, err := svc.UpdateEntity(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		assert.Equal(t, int64(789), resp.EntityId)
+		require.NotNil(t, capturedMetadata)
+		assert.Equal(t, "Engineering Manager", capturedMetadata["role"])
+		// The repository test should verify the actual SQL merge behavior
 	})
 }
 

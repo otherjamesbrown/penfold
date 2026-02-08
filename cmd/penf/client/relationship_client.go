@@ -434,6 +434,37 @@ func (c *RelationshipClient) MergeEntities(ctx context.Context, tenantID, primar
 	return protoToEntity(resp.PrimaryEntity), resp.RelationshipsTransferred, nil
 }
 
+// CreateRelationship manually creates a new relationship between two entities.
+func (c *RelationshipClient) CreateRelationship(ctx context.Context, tenantID, fromEntityID, toEntityID string, relType relationshipv1.RelationshipType, subtype string) (*Relationship, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	req := &relationshipv1.CreateRelationshipRequest{
+		TenantId:     tenantID,
+		FromEntityId: fromEntityID,
+		ToEntityId:   toEntityID,
+		Type:         relType,
+	}
+
+	if subtype != "" {
+		req.Subtype = &subtype
+	}
+
+	resp, err := client.CreateRelationship(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("create relationship request failed: %w", err)
+	}
+
+	return protoToRelationship(resp.Relationship), nil
+}
+
 // GetNetworkStats retrieves statistics about the relationship network.
 func (c *RelationshipClient) GetNetworkStats(ctx context.Context, tenantID string) (*NetworkStats, error) {
 	c.mu.RLock()

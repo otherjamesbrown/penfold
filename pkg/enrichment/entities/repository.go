@@ -2,6 +2,7 @@ package entities
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -909,11 +910,11 @@ func (r *Repository) RestorePerson(ctx context.Context, tenantID string, personI
 	return nil
 }
 
-// UpdateEntityFields updates specific fields of an entity (name and/or account_type).
-// Both name and accountType are optional. Pass nil to leave the field unchanged.
-func (r *Repository) UpdateEntityFields(ctx context.Context, tenantID string, personID int64, name *string, accountType *AccountType) error {
-	if name == nil && accountType == nil {
-		return fmt.Errorf("at least one field (name or account_type) must be specified")
+// UpdateEntityFields updates specific fields of an entity (name, account_type, and/or metadata).
+// All parameters are optional. Pass nil/empty to leave the field unchanged.
+func (r *Repository) UpdateEntityFields(ctx context.Context, tenantID string, personID int64, name *string, accountType *AccountType, metadata map[string]string) error {
+	if name == nil && accountType == nil && len(metadata) == 0 {
+		return fmt.Errorf("at least one field (name, account_type, or metadata) must be specified")
 	}
 
 	// Build dynamic query based on which fields are being updated
@@ -938,6 +939,18 @@ func (r *Repository) UpdateEntityFields(ctx context.Context, tenantID string, pe
 		argIdx++
 	}
 
+	if len(metadata) > 0 {
+		// Convert metadata to JSON for JSONB merge
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			return fmt.Errorf("failed to marshal metadata: %w", err)
+		}
+		// Use JSONB merge operator to merge new metadata with existing
+		setParts = append(setParts, fmt.Sprintf("entity_resolution_metadata = COALESCE(entity_resolution_metadata, '{}'::jsonb) || $%d::jsonb", argIdx))
+		args = append(args, metadataJSON)
+		argIdx++
+	}
+
 	setParts = append(setParts, "updated_at = NOW()")
 
 	query := fmt.Sprintf(`
@@ -958,7 +971,8 @@ func (r *Repository) UpdateEntityFields(ctx context.Context, tenantID string, pe
 	r.logger.Info("Entity fields updated",
 		logging.F("person_id", personID),
 		logging.F("name_updated", name != nil),
-		logging.F("account_type_updated", accountType != nil))
+		logging.F("account_type_updated", accountType != nil),
+		logging.F("metadata_updated", len(metadata) > 0))
 
 	return nil
 }
@@ -981,10 +995,10 @@ func (r *Repository) DeleteEntity(ctx context.Context, tenantID string, personID
 		return fmt.Errorf("failed to delete person aliases: %w", err)
 	}
 
-	// Delete entity mentions
-	_, err = tx.Exec(ctx, `DELETE FROM entity_mentions WHERE person_id = $1`, personID)
+	// Delete content mentions
+	_, err = tx.Exec(ctx, `DELETE FROM content_mentions WHERE entity_type = 'person' AND resolved_entity_id = $1`, personID)
 	if err != nil {
-		return fmt.Errorf("failed to delete entity mentions: %w", err)
+		return fmt.Errorf("failed to delete content mentions: %w", err)
 	}
 
 	// Delete team memberships

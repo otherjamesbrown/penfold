@@ -459,8 +459,8 @@ func (s *Service) UpdateEntity(ctx context.Context, req *entityv1.UpdateEntityRe
 	}
 
 	// At least one field must be specified
-	if req.Name == nil && req.AccountType == nil {
-		return nil, status.Error(codes.InvalidArgument, "at least one field (name or account_type) must be specified")
+	if req.Name == nil && req.AccountType == nil && len(req.Metadata) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one field (name, account_type, or metadata) must be specified")
 	}
 
 	// Validate account_type if provided
@@ -483,7 +483,7 @@ func (s *Service) UpdateEntity(ctx context.Context, req *entityv1.UpdateEntityRe
 		accountType = &at
 	}
 
-	err := s.entityRepo.UpdateEntityFields(ctx, req.TenantId, req.EntityId, req.Name, accountType)
+	err := s.entityRepo.UpdateEntityFields(ctx, req.TenantId, req.EntityId, req.Name, accountType, req.Metadata)
 	if err != nil {
 		s.logger.Error("Failed to update entity", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update entity: %v", err))

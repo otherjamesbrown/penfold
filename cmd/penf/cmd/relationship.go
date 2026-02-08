@@ -165,6 +165,9 @@ var (
 	discoverIncludeExist  bool
 	// Validate flags
 	validateNotes string
+	// Create flags
+	createType    string
+	createSubtype string
 	// Network graph flags
 	graphCenter        string
 	graphDepth         int
@@ -234,6 +237,7 @@ Documentation:
 	cmd.AddCommand(newRelationshipSearchCommand(deps))
 	cmd.AddCommand(newRelationshipDiscoverCommand(deps))
 	cmd.AddCommand(newRelationshipValidateCommand(deps))
+	cmd.AddCommand(newRelationshipCreateCommand(deps))
 	cmd.AddCommand(newRelationshipEntityCommand(deps))
 	cmd.AddCommand(newRelationshipNetworkCommand(deps))
 	cmd.AddCommand(newRelationshipConflictCommand(deps))
@@ -402,6 +406,50 @@ Examples:
 	return cmd
 }
 
+// newRelationshipCreateCommand creates the 'relationship create' subcommand.
+func newRelationshipCreateCommand(deps *RelationshipCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create <from-entity-id> <to-entity-id>",
+		Short: "Manually create a relationship between two entities",
+		Long: `Manually create a new relationship between two entities.
+
+This allows you to explicitly define relationships that were not automatically
+discovered. The relationship will be created with confidence=1.0 and marked as
+user-confirmed.
+
+Relationship Types (required via --type flag):
+  - reports_to:        Hierarchical reporting relationship
+  - member_of:         Membership in an organization/team
+  - works_on:          Association with a project
+  - colleague:         Peer relationship
+  - manages:           Management relationship
+  - collaborates_with: Collaboration relationship
+  - knows:             General acquaintance
+  - located_at:        Physical location
+  - related_to:        General association
+
+Examples:
+  # Create a reports_to relationship
+  penf relationship create ent-person-123 ent-person-456 --type reports_to
+
+  # Create a member_of relationship with a subtype
+  penf relationship create ent-person-789 ent-org-100 --type member_of --subtype full-time
+
+  # Create a works_on relationship
+  penf relationship create ent-person-123 ent-project-999 --type works_on`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRelationshipCreate(cmd.Context(), deps, args[0], args[1], getRelInsecureFlag(cmd))
+		},
+	}
+
+	cmd.Flags().StringVar(&createType, "type", "", "Relationship type (required)")
+	cmd.Flags().StringVar(&createSubtype, "subtype", "", "Optional relationship subtype for additional specificity")
+	cmd.MarkFlagRequired("type")
+
+	return cmd
+}
+
 // newRelationshipEntityCommand creates the 'relationship entity' subcommand group.
 func newRelationshipEntityCommand(deps *RelationshipCommandDeps) *cobra.Command {
 	cmd := &cobra.Command{
@@ -494,6 +542,7 @@ Example:
 var (
 	entityUpdateName        string
 	entityUpdateAccountType string
+	entityUpdateMetadata    []string
 )
 
 // newEntityUpdateCommand creates the 'relationship entity update' subcommand.
@@ -503,7 +552,7 @@ func newEntityUpdateCommand(deps *RelationshipCommandDeps) *cobra.Command {
 		Short: "Update entity properties",
 		Long: `Update specific properties of an entity.
 
-You can update the entity's name and/or account type. At least one flag must be provided.
+You can update the entity's name, account type, and/or metadata. At least one flag must be provided.
 
 Valid account types:
   - person:           Individual person
@@ -521,6 +570,9 @@ Examples:
   # Change account type to team
   penf relationship entity update 456 --account-type team
 
+  # Update metadata
+  penf relationship entity update 789 --metadata role='Program Manager' --metadata department='CTG'
+
   # Update both name and account type
   penf relationship entity update 789 --name "Engineering Bot" --account-type bot`,
 		Args: cobra.ExactArgs(1),
@@ -531,6 +583,7 @@ Examples:
 
 	cmd.Flags().StringVar(&entityUpdateName, "name", "", "New name for the entity")
 	cmd.Flags().StringVar(&entityUpdateAccountType, "account-type", "", "New account type (person, role, distribution, bot, external_service, team, service)")
+	cmd.Flags().StringSliceVar(&entityUpdateMetadata, "metadata", []string{}, "Metadata key=value pairs (can be specified multiple times)")
 
 	return cmd
 }
@@ -1018,6 +1071,62 @@ func runRelationshipValidate(ctx context.Context, deps *RelationshipCommandDeps,
 	return outputRelationshipDetail(format, relationship)
 }
 
+// runRelationshipCreate executes the relationship create command.
+func runRelationshipCreate(ctx context.Context, deps *RelationshipCommandDeps, fromEntityID, toEntityID string, insecureFlag bool) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
+
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Validate type is specified.
+	if createType == "" {
+		return fmt.Errorf("--type is required")
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	fmt.Printf("Creating relationship: %s -> %s (%s)...\n", fromEntityID, toEntityID, createType)
+
+	// Create relationship via gRPC.
+	rel, err := relClient.CreateRelationship(ctx, cfg.TenantID, fromEntityID, toEntityID, stringToRelType(createType), createSubtype)
+	if err != nil {
+		return fmt.Errorf("creating relationship: %w", err)
+	}
+
+	fmt.Printf("\n\033[32mSuccess!\033[0m Relationship created.\n")
+	fmt.Printf("  ID: %s\n", rel.ID)
+	fmt.Printf("  Type: %s\n", createType)
+	if createSubtype != "" {
+		fmt.Printf("  Subtype: %s\n", createSubtype)
+	}
+	fmt.Printf("  Confidence: %.2f (user-confirmed)\n", rel.Confidence)
+	fmt.Println()
+
+	format := cfg.OutputFormat
+	if relationshipOutput != "" {
+		format = config.OutputFormat(relationshipOutput)
+	}
+
+	relationship := clientRelToLocal(rel)
+	return outputRelationshipDetail(format, relationship)
+}
+
 // runEntityList executes the entity list command.
 func runEntityList(ctx context.Context, deps *RelationshipCommandDeps, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
@@ -1185,9 +1294,19 @@ func runEntityUpdate(ctx context.Context, deps *RelationshipCommandDeps, entityI
 		return fmt.Errorf("invalid entity ID: %w", err)
 	}
 
+	// Parse metadata flags.
+	metadata := make(map[string]string)
+	for _, kv := range entityUpdateMetadata {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid metadata format: %s (expected key=value)", kv)
+		}
+		metadata[parts[0]] = parts[1]
+	}
+
 	// Validate at least one flag is provided.
-	if entityUpdateName == "" && entityUpdateAccountType == "" {
-		return fmt.Errorf("at least one of --name or --account-type must be specified")
+	if entityUpdateName == "" && entityUpdateAccountType == "" && len(metadata) == 0 {
+		return fmt.Errorf("at least one of --name, --account-type, or --metadata must be specified")
 	}
 
 	// Connect to gateway.
@@ -1211,6 +1330,9 @@ func runEntityUpdate(ctx context.Context, deps *RelationshipCommandDeps, entityI
 	if entityUpdateAccountType != "" {
 		req.AccountType = &entityUpdateAccountType
 	}
+	if len(metadata) > 0 {
+		req.Metadata = metadata
+	}
 
 	// Call UpdateEntity.
 	resp, err := entityClient.UpdateEntity(ctx, req)
@@ -1225,6 +1347,12 @@ func runEntityUpdate(ctx context.Context, deps *RelationshipCommandDeps, entityI
 	}
 	if entityUpdateAccountType != "" {
 		fmt.Printf("  New account type: %s\n", entityUpdateAccountType)
+	}
+	if len(metadata) > 0 {
+		fmt.Printf("  Metadata updated: %d key(s)\n", len(metadata))
+		for k, v := range metadata {
+			fmt.Printf("    %s: %s\n", k, v)
+		}
 	}
 
 	return nil
