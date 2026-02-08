@@ -1251,6 +1251,10 @@ func init() {
 	debugCmd.GroupID = "ops"
 	rootCmd.AddCommand(debugCmd)
 
+	qualityCmd := cmd.NewQualityCommand(nil)
+	qualityCmd.GroupID = "ops"
+	rootCmd.AddCommand(qualityCmd)
+
 	// Context-Palace
 	contextCmd := cmd.NewContextCommand(nil)
 	contextCmd.GroupID = "palace"

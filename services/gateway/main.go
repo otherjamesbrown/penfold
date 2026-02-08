@@ -32,6 +32,7 @@ import (
 	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
 	projectv1 "github.com/otherjamesbrown/penfold/api/proto/project/v1"
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
+	qualityv1 "github.com/otherjamesbrown/penfold/api/proto/quality/v1"
 	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
 	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
 	searchv1 "github.com/otherjamesbrown/penfold/api/proto/search/v1"
@@ -81,6 +82,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/pipelineservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/productservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/projectservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/qualityservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/questionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/relationshipservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/reviewservice"
@@ -395,6 +397,11 @@ func main() {
 	assertionsSvc := assertionsservice.NewService(assertionsRepo, logger)
 	assertionsv1.RegisterAssertionsServiceServer(grpcServer, assertionsSvc)
 	logger.Info("Registered AssertionsService")
+
+	// Register QualityService for quality monitoring and issue tracking.
+	qualitySvc := qualityservice.NewService(dbPool, logger)
+	qualityv1.RegisterQualityServiceServer(grpcServer, qualitySvc)
+	logger.Info("Registered QualityService")
 
 	// Register IngestService for email and meeting ingestion.
 	// Uses tenantRepo (created above) for tenant slug-to-UUID resolution.

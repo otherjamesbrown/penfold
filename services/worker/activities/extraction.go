@@ -175,7 +175,7 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	// Convert proto assertions to domain model
 	assertions := make([]*Assertion, len(resp.Assertions))
 	for i, pa := range resp.Assertions {
-		assertions[i] = &Assertion{
+		assertion := &Assertion{
 			Subject:    pa.Subject,
 			Predicate:  pa.Predicate,
 			Object:     pa.Object,
@@ -183,6 +183,16 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 			SourceText: pa.GetSourceText(),
 			Category:   pa.GetCategory(),
 		}
+
+		// Add sender as "owner" attribution if present
+		if input.SenderEmail != "" {
+			assertion.Attributions = append(assertion.Attributions, Attribution{
+				EntityID: input.SenderEmail,
+				Role:     "owner",
+			})
+		}
+
+		assertions[i] = assertion
 	}
 
 	// Store the assertions

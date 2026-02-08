@@ -51,6 +51,11 @@ func (m *PipelineMockActivities) ExtractEntitiesActivity(ctx context.Context, in
 	return args.Get(0).(*SLMPipelineExtractEntitiesOutput), args.Error(1)
 }
 
+func (m *PipelineMockActivities) ExtractAssertions(ctx context.Context, input interface{}) (int, error) {
+	args := m.Called(ctx, input)
+	return args.Get(0).(int), args.Error(1)
+}
+
 func (m *PipelineMockActivities) BuildContextPackage(ctx context.Context, input BuildContextInput) (*BuildContextOutput, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
@@ -121,6 +126,7 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.ParseTranscript, activity.RegisterOptions{Name: "ParseTranscript"})
 	s.env.RegisterActivityWithOptions(s.activities.Triage, activity.RegisterOptions{Name: "Triage"})
 	s.env.RegisterActivityWithOptions(s.activities.ExtractEntitiesActivity, activity.RegisterOptions{Name: "ExtractEntitiesActivity"})
+	s.env.RegisterActivityWithOptions(s.activities.ExtractAssertions, activity.RegisterOptions{Name: "ExtractAssertions"})
 	s.env.RegisterActivityWithOptions(s.activities.BuildContextPackage, activity.RegisterOptions{Name: "BuildContextPackage"})
 	s.env.RegisterActivityWithOptions(s.activities.DeepAnalyze, activity.RegisterOptions{Name: "DeepAnalyze"})
 	s.env.RegisterActivityWithOptions(s.activities.PersistFindings, activity.RegisterOptions{Name: "PersistFindings"})
@@ -775,6 +781,89 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_EmailReprocess_FetchSourceBodyHTM
 	var result PipelineResult
 	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
 	s.Equal("completed", result.Status)
+}
+
+// TestSLMPipeline_CleanupOnCancellation tests that workflow cancellation
+// triggers cleanup and updates status to 'failed'.
+// This test reproduces bug pf-caed79: workflow timeout/cancellation leaves status='pending'.
+// The bug: There's no defer block with disconnected context to update status on cancellation.
+// Expected behavior: UpdateContentStatus activity should be called with status='failed'.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_CleanupOnCancellation() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    900,
+		ContentID:   "em-test09",
+		JobID:       "job-900",
+		ContentType: "email",
+		ContentHash: "hash900",
+		BodyText:    "Project update email content.",
+		Subject:     "Project Status",
+		SenderEmail: "pm@example.com",
+	}
+
+	// Stage 0: Parse succeeds
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 900
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Project update email content.",
+		NewContent: "Project update email content.",
+	}, nil)
+
+	// UpdateContentStatus: parsed (before cancellation)
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed"
+	})).Maybe().Return(nil)
+
+	// Stage 1: Triage succeeds
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 900
+	})).Return(&TriageOutput{
+		Category:   "PROJECT_UPDATE",
+		Importance: "HIGH",
+		SkipDeep:   false,
+		ModelUsed:  "llama-3.2-1b",
+	}, nil)
+
+	// UpdateContentStatus: triage metadata (before cancellation)
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed" && in.TriageCategory == "PROJECT_UPDATE"
+	})).Maybe().Return(nil)
+
+	// Cancel the workflow via context cancellation (simulates timeout)
+	// This differs from signal-based cancellation in TestSLMPipeline_Cancellation
+	s.env.RegisterDelayedCallback(func() {
+		s.env.CancelWorkflow()
+	}, 0)
+
+	// These activities may or may not be called depending on timing
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Maybe().Return(&SLMPipelineExtractEntitiesOutput{}, nil)
+	s.activities.On("ExtractAssertions", mock.Anything, mock.Anything).Maybe().Return(0, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Maybe().Return(&BuildContextOutput{}, nil)
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Maybe().Return(&DeepAnalyzeOutput{}, nil)
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Maybe().Return(&PersistFindingsOutput{}, nil)
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
+
+	// CRITICAL ASSERTION: UpdateContentStatus should be called with status='failed' on cancellation
+	// This is the cleanup mechanism that should exist in a defer block with disconnected context
+	cleanupCalled := false
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		if in.Status == "failed" && in.SourceID == 900 {
+			cleanupCalled = true
+			return true
+		}
+		return false
+	})).Maybe().Return(nil)
+
+	// Execute workflow
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+
+	// The test expectation: cleanup should have been called
+	// BUG pf-caed79: This assertion will FAIL because there's no defer block cleanup
+	require.True(s.T(), cleanupCalled,
+		"BUG pf-caed79: Workflow cancellation should trigger cleanup via UpdateContentStatus with status='failed'. "+
+			"Currently there's no defer block with disconnected context to handle timeout/cancellation cleanup.")
 }
 
 // TestSLMPipeline_PersistFindingsReceivesParsedContent tests that PersistFindings

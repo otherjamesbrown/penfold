@@ -35,3 +35,8 @@ func (a *pipelineRepositoryAdapter) CreateRun(ctx context.Context, input Pipelin
 		ParsedData:    input.ParsedData,
 	})
 }
+
+// RecordOverrides records override parameters for a pipeline run.
+func (a *pipelineRepositoryAdapter) RecordOverrides(ctx context.Context, runID int64, overrides map[string]string) error {
+	return a.repo.RecordOverrides(ctx, runID, overrides)
+}

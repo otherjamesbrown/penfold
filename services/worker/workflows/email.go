@@ -66,12 +66,13 @@ type (
 
 	// ExtractAssertionsInput is the input for the ExtractAssertions activity.
 	ExtractAssertionsInput struct {
-		TenantID string `json:"tenant_id"`
-		SourceID int64  `json:"source_id"`
+		TenantID    string `json:"tenant_id"`
+		SourceID    int64  `json:"source_id"`
 		// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
-		ContentID string `json:"content_id,omitempty"`
-		JobID    string `json:"job_id"`
-		Content  string `json:"content"`
+		ContentID   string `json:"content_id,omitempty"`
+		JobID       string `json:"job_id"`
+		Content     string `json:"content"`
+		SenderEmail string `json:"sender_email,omitempty"` // Email sender, gets "owner" attribution
 	}
 
 	// UpdateSourceStatusInput is the input for the UpdateSourceStatus activity.
@@ -173,11 +174,12 @@ func EmailProcessingWorkflow(ctx workflow.Context, input EmailProcessingInput) (
 	var assertionCount int
 	ctx4 := workflow.WithActivityOptions(ctx, llmOpts)
 	err = workflow.ExecuteActivity(ctx4, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
-		TenantID:  input.TenantID,
-		SourceID:  input.SourceID,
-		ContentID: input.ContentID,
-		JobID:     input.JobID,
-		Content:   emailContext,
+		TenantID:    input.TenantID,
+		SourceID:    input.SourceID,
+		ContentID:   input.ContentID,
+		JobID:       input.JobID,
+		Content:     emailContext,
+		SenderEmail: input.FromEmail, // Pass sender for owner attribution
 	}).Get(ctx, &assertionCount)
 	if err != nil {
 		logger.Warn("Assertion extraction failed, continuing", "error", err)

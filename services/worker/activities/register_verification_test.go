@@ -87,6 +87,16 @@ func (r *regVerifyPersistRepo) PersistFindings(context.Context, *PersistFindings
 	return nil, nil
 }
 
+type regVerifyPipelineRepo struct{}
+
+func (r *regVerifyPipelineRepo) CreateRun(context.Context, PipelineRunInput) error {
+	return nil
+}
+
+func (r *regVerifyPipelineRepo) RecordOverrides(context.Context, int64, map[string]string) error {
+	return nil
+}
+
 type regVerifyContextPackageRepo struct{}
 
 func (r *regVerifyContextPackageRepo) GetActiveRisks(context.Context, []int64, int) ([]ContextAssertion, error) {
@@ -134,15 +144,16 @@ func (r *regVerifyEntityLookup) GetProjectsWithKeywords(context.Context, string)
 
 // Compile-time interface verification for stubs.
 var (
-	_ AIClient                = (*regVerifyAIClient)(nil)
-	_ EmbeddingRepository     = (*regVerifyEmbeddingRepo)(nil)
-	_ SummaryRepository       = (*regVerifySummaryRepo)(nil)
-	_ AssertionRepository     = (*regVerifyAssertionRepo)(nil)
-	_ EntityRepository        = (*regVerifyEntityRepo)(nil)
-	_ PersistRepository       = (*regVerifyPersistRepo)(nil)
+	_ AIClient                 = (*regVerifyAIClient)(nil)
+	_ EmbeddingRepository      = (*regVerifyEmbeddingRepo)(nil)
+	_ SummaryRepository        = (*regVerifySummaryRepo)(nil)
+	_ AssertionRepository      = (*regVerifyAssertionRepo)(nil)
+	_ EntityRepository         = (*regVerifyEntityRepo)(nil)
+	_ PersistRepository        = (*regVerifyPersistRepo)(nil)
+	_ PipelineRepository       = (*regVerifyPipelineRepo)(nil)
 	_ ContextPackageRepository = (*regVerifyContextPackageRepo)(nil)
-	_ EntityResolverInterface = (*regVerifyEntityResolver)(nil)
-	_ EntityLookupInterface   = (*regVerifyEntityLookup)(nil)
+	_ EntityResolverInterface  = (*regVerifyEntityResolver)(nil)
+	_ EntityLookupInterface    = (*regVerifyEntityLookup)(nil)
 )
 
 // newFullRegistrar creates a fully-configured Registrar with all activity types.
@@ -194,6 +205,11 @@ func newFullRegistrar() *Registrar {
 		WithAnalysisActivities(&AnalysisActivities{
 			logger:   logger,
 			aiClient: ai,
+		}).
+		WithPipelineActivities(&PipelineActivities{
+			logger:       logger,
+			pipelineRepo: &regVerifyPipelineRepo{},
+			baseRepo:     nil, // nil is safe for registration testing
 		})
 }
 

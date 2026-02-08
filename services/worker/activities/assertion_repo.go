@@ -91,7 +91,7 @@ func (r *PostgresAssertionRepository) StoreAssertions(
 			metadataJSON = []byte("{}")
 		}
 
-		// Insert assertion
+		// Insert assertion and get the assertion_id
 		query := `
 			INSERT INTO assertions (
 				tenant_id,
@@ -113,9 +113,11 @@ func (r *PostgresAssertionRepository) StoreAssertions(
 				$8
 			)
 			ON CONFLICT DO NOTHING
+			RETURNING id
 		`
 
-		_, err = tx.Exec(
+		var assertionID int64
+		err = tx.QueryRow(
 			ctx,
 			query,
 			tenantID,
@@ -126,9 +128,13 @@ func (r *PostgresAssertionRepository) StoreAssertions(
 			assertion.Confidence,
 			model,
 			metadataJSON,
-		)
+		).Scan(&assertionID)
 
 		if err != nil {
+			// ON CONFLICT DO NOTHING means no row returned, skip attributions
+			if err.Error() == "no rows in result set" {
+				continue
+			}
 			logger.Error("Failed to insert assertion",
 				logging.Err(err),
 				logging.F("content", content),
@@ -137,6 +143,33 @@ func (r *PostgresAssertionRepository) StoreAssertions(
 		}
 
 		insertedCount++
+
+		// Insert attributions if any
+		for _, attribution := range assertion.Attributions {
+			attrQuery := `
+				INSERT INTO assertion_attributions (
+					assertion_id,
+					entity_id,
+					role
+				) VALUES (
+					$1,
+					$2,
+					$3
+				)
+				ON CONFLICT DO NOTHING
+			`
+
+			_, err = tx.Exec(ctx, attrQuery, assertionID, attribution.EntityID, attribution.Role)
+			if err != nil {
+				logger.Warn("Failed to insert assertion attribution",
+					logging.Err(err),
+					logging.F("assertion_id", assertionID),
+					logging.F("entity_id", attribution.EntityID),
+					logging.F("role", attribution.Role),
+				)
+				// Continue - don't fail the entire operation for attribution errors
+			}
+		}
 	}
 
 	// Commit the transaction

@@ -107,14 +107,21 @@ type AssertionRepository interface {
 	StoreAssertions(ctx context.Context, tenantID string, sourceID int64, assertions []*Assertion, model string) (int, error)
 }
 
+// Attribution represents a person's relationship to an assertion.
+type Attribution struct {
+	EntityID string // Person canonical name or email
+	Role     string // owner, assignee, decision_maker, mentioned
+}
+
 // Assertion represents an extracted assertion (subject-predicate-object triple).
 type Assertion struct {
-	Subject    string
-	Predicate  string
-	Object     string
-	Confidence float32
-	SourceText string
-	Category   string
+	Subject      string
+	Predicate    string
+	Object       string
+	Confidence   float32
+	SourceText   string
+	Category     string
+	Attributions []Attribution // People associated with this assertion
 }
 
 // EntityRepository defines the interface for entity data access.
@@ -307,6 +314,7 @@ type PersistFindingsOutput struct {
 // PipelineRepository defines the interface for pipeline run recording.
 type PipelineRepository interface {
 	CreateRun(ctx context.Context, input PipelineRunInput) error
+	RecordOverrides(ctx context.Context, runID int64, overrides map[string]string) error
 }
 
 // PipelineRunInput contains the data needed to record a pipeline run.

@@ -423,6 +423,29 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		},
 	}
 
+	// Cleanup handler: if workflow terminates abnormally (timeout/cancellation),
+	// update status to 'failed' so content doesn't stay stuck in 'pending'.
+	// Uses disconnected context so cleanup runs even after workflow cancellation.
+	defer func() {
+		// Only run cleanup if workflow didn't complete successfully
+		// (successful completion is the ONLY case where we're certain the final status was written)
+		if state.result.Status != "completed" {
+			logger.Info("Workflow did not complete successfully, running cleanup",
+				"source_id", input.SourceID,
+				"final_status", state.result.Status,
+			)
+			newCtx, _ := workflow.NewDisconnectedContext(ctx)
+			cleanupCtx := workflow.WithActivityOptions(newCtx, workflow.ActivityOptions{
+				StartToCloseTimeout: 30 * time.Second,
+			})
+			_ = workflow.ExecuteActivity(cleanupCtx, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+				TenantID: input.TenantID,
+				SourceID: input.SourceID,
+				Status:   "failed",
+			}).Get(cleanupCtx, nil)
+		}
+	}()
+
 	// Register query handler
 	if err := workflow.SetQueryHandler(ctx, PipelineStatusQuery, func() (PipelineStatus, error) {
 		return state.status, nil
@@ -779,11 +802,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		var assertionCount int
 		ctxAssertions := workflow.WithActivityOptions(ctx, embeddingOpts)
 		err2 := workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
-			TenantID:  input.TenantID,
-			SourceID:  input.SourceID,
-			ContentID: input.ContentID,
-			JobID:     input.JobID,
-			Content:   parsedContent,
+			TenantID:    input.TenantID,
+			SourceID:    input.SourceID,
+			ContentID:   input.ContentID,
+			JobID:       input.JobID,
+			Content:     parsedContent,
+			SenderEmail: input.SenderEmail, // Pass sender for owner attribution
 		}).Get(ctx, &assertionCount)
 		if err2 != nil {
 			logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err2)

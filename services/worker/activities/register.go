@@ -25,6 +25,7 @@ type Registrar struct {
 	triageActivities         *TriageActivities
 	contextBuilderActivities *ContextBuilderActivities
 	analysisActivities       *AnalysisActivities
+	pipelineActivities       *PipelineActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -85,6 +86,12 @@ func (r *Registrar) WithContextBuilderActivities(cba *ContextBuilderActivities) 
 // WithAnalysisActivities adds analysis activities to the registrar.
 func (r *Registrar) WithAnalysisActivities(aa *AnalysisActivities) *Registrar {
 	r.analysisActivities = aa
+	return r
+}
+
+// WithPipelineActivities adds pipeline activities to the registrar.
+func (r *Registrar) WithPipelineActivities(pa *PipelineActivities) *Registrar {
+	r.pipelineActivities = pa
 	return r
 }
 
@@ -208,6 +215,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.analysisActivities != nil {
 		w.RegisterActivityWithOptions(r.analysisActivities.DeepAnalyze, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityDeepAnalyze,
+		})
+	}
+
+	// Pipeline activities for pipeline metadata recording
+	if r.pipelineActivities != nil {
+		w.RegisterActivityWithOptions(r.pipelineActivities.RecordOverrides, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityRecordOverrides,
 		})
 	}
 }
@@ -344,6 +358,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// DeepAnalyze
 		if r.analysisActivities != nil {
+			count += 1
+		}
+		// RecordOverrides
+		if r.pipelineActivities != nil {
 			count += 1
 		}
 		return count
