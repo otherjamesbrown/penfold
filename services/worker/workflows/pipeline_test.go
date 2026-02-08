@@ -90,6 +90,11 @@ func (m *PipelineMockActivities) DeleteEmbedding(ctx context.Context, embeddingI
 	return args.Error(0)
 }
 
+func (m *PipelineMockActivities) RecordOverrides(ctx context.Context, input RecordOverridesInput) error {
+	args := m.Called(ctx, input)
+	return args.Error(0)
+}
+
 // SLMPipelineTestSuite tests the SLMPipelineWorkflow.
 type SLMPipelineTestSuite struct {
 	suite.Suite
@@ -114,6 +119,7 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.GenerateContentEmbedding, activity.RegisterOptions{Name: "GenerateContentEmbedding"})
 	s.env.RegisterActivityWithOptions(s.activities.UpdateContentStatus, activity.RegisterOptions{Name: "UpdateContentStatus"})
 	s.env.RegisterActivityWithOptions(s.activities.DeleteEmbedding, activity.RegisterOptions{Name: "DeleteEmbedding"})
+	s.env.RegisterActivityWithOptions(s.activities.RecordOverrides, activity.RegisterOptions{Name: "RecordOverrides"})
 }
 
 func (s *SLMPipelineTestSuite) AfterTest(suiteName, testName string) {

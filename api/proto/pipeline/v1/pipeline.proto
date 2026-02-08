@@ -83,6 +83,9 @@ service PipelineService {
 
   // DiffStageRuns compares two pipeline runs to identify differences.
   rpc DiffStageRuns(DiffStageRunsRequest) returns (DiffStageRunsResponse);
+
+  // DiffPipelineRuns compares two pipeline runs for a source to show what changed.
+  rpc DiffPipelineRuns(DiffPipelineRunsRequest) returns (DiffPipelineRunsResponse);
 }
 
 // =============================================================================
@@ -934,4 +937,52 @@ message DiffStageRunsResponse {
 
   // Structured diff as JSON.
   string diff_json = 7;
+}
+
+// =============================================================================
+// DiffPipelineRuns Messages
+// =============================================================================
+
+// ChangeType indicates the type of change detected in a field.
+enum ChangeType {
+  CHANGE_TYPE_UNSPECIFIED = 0;
+  CHANGE_TYPE_ADDED = 1;
+  CHANGE_TYPE_REMOVED = 2;
+  CHANGE_TYPE_MODIFIED = 3;
+}
+
+// DiffPipelineRunsRequest compares two pipeline runs for a source.
+message DiffPipelineRunsRequest {
+  // Source ID to compare runs for (required).
+  int64 source_id = 1;
+
+  // First run ID to compare (optional, defaults to previous run if not set).
+  optional int64 run_id_a = 2;
+
+  // Second run ID to compare (optional, defaults to latest run if not set).
+  optional int64 run_id_b = 3;
+}
+
+// StageDiff represents a difference in a specific field between two runs.
+message StageDiff {
+  // Pipeline stage name.
+  string stage = 1;
+
+  // Field name that changed.
+  string field = 2;
+
+  // Old value (from run A).
+  string old_value = 3;
+
+  // New value (from run B).
+  string new_value = 4;
+
+  // Type of change.
+  ChangeType change_type = 5;
+}
+
+// DiffPipelineRunsResponse contains the differences between two runs.
+message DiffPipelineRunsResponse {
+  // List of differences found.
+  repeated StageDiff diffs = 1;
 }

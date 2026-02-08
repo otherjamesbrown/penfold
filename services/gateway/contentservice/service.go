@@ -1167,6 +1167,29 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		return nil, status.Errorf(codes.Internal, "failed to reset processing status: %v", err)
 	}
 
+	// Read processing overrides from request options
+	var modelOverride *string
+	var timeoutOverride *int32
+	if req.Options != nil {
+		// Access the pointer fields directly to preserve optional semantics
+		modelOverride = req.Options.ModelId
+		timeoutOverride = req.Options.TimeoutSeconds
+	}
+
+	// Log overrides when they're set
+	if modelOverride != nil {
+		s.logger.Info("Reprocessing with model override",
+			logging.F("source_id", source.ID),
+			logging.F("model_id", *modelOverride),
+		)
+	}
+	if timeoutOverride != nil {
+		s.logger.Info("Reprocessing with timeout override",
+			logging.F("source_id", source.ID),
+			logging.F("timeout_seconds", *timeoutOverride),
+		)
+	}
+
 	// Start ContentIngestionWorkflow via Temporal
 	workflowID := pkgtemporal.GenerateIngestWorkflowID(source.TenantID, source.SourceSystem, strconv.FormatInt(source.ID, 10))
 	input := pkgtemporal.SLMPipelineInput{
@@ -1175,6 +1198,8 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		ContentID:   source.ContentID,
 		ContentHash: source.ContentHash,
 	}
+	// TODO: Worker layer will add ModelOverride and TimeoutOverride fields to SLMPipelineInput
+	// For now, overrides are read and logged but not passed to the workflow
 	opts := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: "penfold-main",

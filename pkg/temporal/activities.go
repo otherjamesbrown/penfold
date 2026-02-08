@@ -4,24 +4,25 @@ package temporal
 // These constants provide a single source of truth for activity names,
 // preventing typos and mismatches between registration and invocation.
 
-// Main Task Queue activity names (16 activities).
+// Main Task Queue activity names (17 activities).
 const (
-	ActivityValidateContent         = "ValidateContent"
-	ActivityFetchContent            = "FetchContent"
-	ActivityUpdateContentStatus     = "UpdateContentStatus"
+	ActivityValidateContent          = "ValidateContent"
+	ActivityFetchContent             = "FetchContent"
+	ActivityUpdateContentStatus      = "UpdateContentStatus"
 	ActivityGenerateContentEmbedding = "GenerateContentEmbedding"
-	ActivityDeleteEmbedding         = "DeleteEmbedding"
-	ActivityGenerateContentSummary  = "GenerateContentSummary"
-	ActivityDeleteSummary           = "DeleteSummary"
-	ActivityExtractEntitiesActivity = "ExtractEntitiesActivity"
-	ActivityExtractAssertions       = "ExtractAssertions"
-	ActivityExtractMentions         = "ExtractMentions"
-	ActivityParseEmail              = "ParseEmail"
-	ActivityParseTranscript         = "ParseTranscript"
-	ActivityPersistFindings         = "PersistFindings"
-	ActivityTriage                  = "Triage"
-	ActivityBuildContextPackage     = "BuildContextPackage"
-	ActivityDeepAnalyze             = "DeepAnalyze"
+	ActivityDeleteEmbedding          = "DeleteEmbedding"
+	ActivityGenerateContentSummary   = "GenerateContentSummary"
+	ActivityDeleteSummary            = "DeleteSummary"
+	ActivityExtractEntitiesActivity  = "ExtractEntitiesActivity"
+	ActivityExtractAssertions        = "ExtractAssertions"
+	ActivityExtractMentions          = "ExtractMentions"
+	ActivityParseEmail               = "ParseEmail"
+	ActivityParseTranscript          = "ParseTranscript"
+	ActivityPersistFindings          = "PersistFindings"
+	ActivityTriage                   = "Triage"
+	ActivityBuildContextPackage      = "BuildContextPackage"
+	ActivityDeepAnalyze              = "DeepAnalyze"
+	ActivityRecordOverrides          = "RecordOverrides"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -59,6 +60,7 @@ func AllMainQueueActivities() []string {
 		ActivityTriage,
 		ActivityBuildContextPackage,
 		ActivityDeepAnalyze,
+		ActivityRecordOverrides,
 	}
 }
 

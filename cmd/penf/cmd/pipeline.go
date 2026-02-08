@@ -90,6 +90,7 @@ Related Commands:
 	cmd.AddCommand(newPipelineConfigCmd(pipelineDeps))
 	cmd.AddCommand(newPipelineErrorsCmd(pipelineDeps))
 	cmd.AddCommand(newPipelineInspectCmd(pipelineDeps))
+	cmd.AddCommand(newPipelineDiffCmd(pipelineDeps))
 
 	return cmd
 }
@@ -620,6 +621,8 @@ func newPipelineReprocessCmd(deps *PipelineCommandDeps) *cobra.Command {
 	var dryRun bool
 	var all bool
 	var sourceTag string
+	var timeout int32
+	var model string
 
 	cmd := &cobra.Command{
 		Use:   "reprocess <content-id>",
@@ -637,6 +640,10 @@ Stages that can be reprocessed:
   - keywords: Re-extract keywords
   - summary: Regenerate AI summaries
 
+Processing Overrides:
+  --timeout    Override timeout for this reprocessing run (seconds)
+  --model      Override model ID for this reprocessing run
+
 Examples:
   # Reprocess all stages for a content item
   penf pipeline reprocess content-123
@@ -647,18 +654,21 @@ Examples:
   # Reprocess with a reason
   penf pipeline reprocess content-123 --reason="Updated to new model"
 
+  # Reprocess with custom model and timeout
+  penf pipeline reprocess content-123 --model gemini-2.0-pro --timeout 300
+
   # Dry-run to see impact
   penf pipeline reprocess --stage triage --dry-run
 
-  # Dry-run for specific source tag
-  penf pipeline reprocess --stage triage --dry-run --source-tag gmail-import`,
+  # Dry-run for specific source tag with overrides
+  penf pipeline reprocess --stage triage --dry-run --source-tag gmail-import --timeout 120`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			contentID := ""
 			if len(args) > 0 {
 				contentID = args[0]
 			}
-			return runPipelineReprocess(cmd.Context(), deps, contentID, stage, reason, outputFormat, dryRun, all, sourceTag)
+			return runPipelineReprocess(cmd.Context(), deps, contentID, stage, reason, outputFormat, dryRun, all, sourceTag, timeout, model)
 		},
 	}
 
@@ -669,11 +679,13 @@ Examples:
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Calculate impact without executing")
 	cmd.Flags().BoolVar(&all, "all", false, "Reprocess all sources (for bulk operations)")
 	cmd.Flags().StringVar(&sourceTag, "source-tag", "", "Filter by source tag")
+	cmd.Flags().Int32Var(&timeout, "timeout", 0, "Timeout override in seconds (0 = use default)")
+	cmd.Flags().StringVar(&model, "model", "", "Model ID override (empty = use default)")
 
 	return cmd
 }
 
-func runPipelineReprocess(ctx context.Context, deps *PipelineCommandDeps, contentID string, stage string, reason string, outputFormat string, dryRun bool, all bool, sourceTag string) error {
+func runPipelineReprocess(ctx context.Context, deps *PipelineCommandDeps, contentID string, stage string, reason string, outputFormat string, dryRun bool, all bool, sourceTag string, timeout int32, model string) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
@@ -690,6 +702,18 @@ func runPipelineReprocess(ctx context.Context, deps *PipelineCommandDeps, conten
 	if dryRun {
 		if stage == "" {
 			return fmt.Errorf("--stage is required for dry-run")
+		}
+
+		// Show overrides that would be applied
+		if model != "" || timeout > 0 {
+			fmt.Println("Overrides:")
+			if model != "" {
+				fmt.Printf("  Model: %s\n", model)
+			}
+			if timeout > 0 {
+				fmt.Printf("  Timeout: %d seconds\n", timeout)
+			}
+			fmt.Println()
 		}
 
 		pipelineClient := pipelinev1.NewPipelineServiceClient(conn)
@@ -719,7 +743,7 @@ func runPipelineReprocess(ctx context.Context, deps *PipelineCommandDeps, conten
 			return fmt.Errorf("cannot specify both content-id and --all flag")
 		}
 
-		return runBulkReprocess(ctx, conn, cfg, sourceTag, stage, reason, outputFormat)
+		return runBulkReprocess(ctx, conn, cfg, sourceTag, stage, reason, outputFormat, timeout, model)
 	}
 
 	// Otherwise, call ReprocessContent for single item
@@ -745,6 +769,17 @@ func runPipelineReprocess(ctx context.Context, deps *PipelineCommandDeps, conten
 		req.StagesToReprocess = []contentv1.ProcessingStage{stageEnum}
 	}
 
+	// Add processing options if overrides are provided
+	if model != "" || timeout > 0 {
+		req.Options = &contentv1.ProcessingOptions{}
+		if model != "" {
+			req.Options.ModelId = &model
+		}
+		if timeout > 0 {
+			req.Options.TimeoutSeconds = &timeout
+		}
+	}
+
 	// Call ReprocessContent RPC
 	resp, err := contentClient.ReprocessContent(ctx, req)
 	if err != nil {
@@ -759,7 +794,7 @@ func runPipelineReprocess(ctx context.Context, deps *PipelineCommandDeps, conten
 }
 
 // runBulkReprocess reprocesses all content items matching filters.
-func runBulkReprocess(ctx context.Context, conn *grpc.ClientConn, cfg *config.CLIConfig, sourceTag string, stage string, reason string, outputFormat string) error {
+func runBulkReprocess(ctx context.Context, conn *grpc.ClientConn, cfg *config.CLIConfig, sourceTag string, stage string, reason string, outputFormat string, timeout int32, model string) error {
 	contentClient := contentv1.NewContentProcessorServiceClient(conn)
 
 	// Use tenant ID from config
@@ -829,9 +864,20 @@ func runBulkReprocess(ctx context.Context, conn *grpc.ClientConn, cfg *config.CL
 
 	for i, contentID := range allContentIDs {
 		req := &contentv1.ReprocessContentRequest{
-			ContentId:          contentID,
-			Reason:             reason,
-			StagesToReprocess:  stagesToReprocess,
+			ContentId:         contentID,
+			Reason:            reason,
+			StagesToReprocess: stagesToReprocess,
+		}
+
+		// Add processing options if overrides are provided
+		if model != "" || timeout > 0 {
+			req.Options = &contentv1.ProcessingOptions{}
+			if model != "" {
+				req.Options.ModelId = &model
+			}
+			if timeout > 0 {
+				req.Options.TimeoutSeconds = &timeout
+			}
 		}
 
 		resp, err := contentClient.ReprocessContent(ctx, req)
@@ -1870,5 +1916,145 @@ func outputReprocessDryRunHuman(resp *pipelinev1.ReprocessDryRunResponse, stage 
 	fmt.Println()
 	fmt.Printf("To execute: penf pipeline reprocess --stage %s --all\n", stage)
 
+	return nil
+}
+
+func newPipelineDiffCmd(deps *PipelineCommandDeps) *cobra.Command {
+	var runA int64
+	var runB int64
+	var outputFormat string
+
+	cmd := &cobra.Command{
+		Use:   "diff <source-id>",
+		Short: "Compare two pipeline runs for a source",
+		Long: `Compare pipeline run outputs for a source to identify changes in processing results.
+
+By default, compares the two most recent runs. Use --run-a and --run-b to compare
+specific runs by their run IDs.
+
+This is useful for:
+  - Verifying reprocessing changes after model updates
+  - Debugging processing differences
+  - Validating pipeline improvements
+
+Examples:
+  # Compare two most recent runs
+  penf pipeline diff 123
+
+  # Compare specific runs
+  penf pipeline diff 123 --run-a 456 --run-b 789
+
+  # Output as JSON for programmatic analysis
+  penf pipeline diff 123 --output json`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sourceID, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid source-id: %s (must be a number)", args[0])
+			}
+			return runPipelineDiff(cmd.Context(), deps, sourceID, runA, runB, outputFormat)
+		},
+	}
+
+	cmd.Flags().Int64Var(&runA, "run-a", 0, "First run ID to compare (default: second most recent)")
+	cmd.Flags().Int64Var(&runB, "run-b", 0, "Second run ID to compare (default: most recent)")
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
+
+	return cmd
+}
+
+func runPipelineDiff(ctx context.Context, deps *PipelineCommandDeps, sourceID int64, runA int64, runB int64, outputFormat string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectPipelineToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	pipelineClient := pipelinev1.NewPipelineServiceClient(conn)
+
+	req := &pipelinev1.DiffPipelineRunsRequest{
+		SourceId: sourceID,
+	}
+
+	// Add optional run IDs if provided
+	if runA > 0 {
+		req.RunIdA = &runA
+	}
+	if runB > 0 {
+		req.RunIdB = &runB
+	}
+
+	resp, err := pipelineClient.DiffPipelineRuns(ctx, req)
+	if err != nil {
+		return fmt.Errorf("comparing pipeline runs: %w", err)
+	}
+
+	if outputFormat == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(resp)
+	}
+
+	return outputPipelineDiffHuman(resp, sourceID)
+}
+
+func outputPipelineDiffHuman(resp *pipelinev1.DiffPipelineRunsResponse, sourceID int64) error {
+	fmt.Printf("Pipeline Diff for Source %d\n", sourceID)
+	fmt.Println("====================================")
+
+	if len(resp.Diffs) == 0 {
+		fmt.Println("No differences found between runs.")
+		return nil
+	}
+
+	fmt.Printf("Found %d differences:\n\n", len(resp.Diffs))
+	fmt.Println("STAGE            FIELD                      OLD VALUE                  NEW VALUE                  CHANGE")
+	fmt.Println("-----            -----                      ---------                  ---------                  ------")
+
+	for _, diff := range resp.Diffs {
+		// Format change type
+		changeType := ""
+		switch diff.ChangeType {
+		case pipelinev1.ChangeType_CHANGE_TYPE_ADDED:
+			changeType = "\033[32mADDED\033[0m"
+		case pipelinev1.ChangeType_CHANGE_TYPE_REMOVED:
+			changeType = "\033[31mREMOVED\033[0m"
+		case pipelinev1.ChangeType_CHANGE_TYPE_MODIFIED:
+			changeType = "\033[33mMODIFIED\033[0m"
+		default:
+			changeType = "UNKNOWN"
+		}
+
+		// Truncate long values
+		oldValue := diff.OldValue
+		if len(oldValue) > 26 {
+			oldValue = oldValue[:23] + "..."
+		}
+		newValue := diff.NewValue
+		if len(newValue) > 26 {
+			newValue = newValue[:23] + "..."
+		}
+
+		stage := diff.Stage
+		if len(stage) > 16 {
+			stage = stage[:13] + "..."
+		}
+
+		field := diff.Field
+		if len(field) > 26 {
+			field = field[:23] + "..."
+		}
+
+		fmt.Printf("%-16s %-26s %-26s %-26s %s\n",
+			stage, field, oldValue, newValue, changeType)
+	}
+
+	fmt.Println()
 	return nil
 }

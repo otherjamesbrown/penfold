@@ -39,6 +39,10 @@ type PipelineInput struct {
 	// Meeting-specific fields
 	TranscriptContent string `json:"transcript_content,omitempty"`
 	TranscriptFormat  string `json:"transcript_format,omitempty"`
+
+	// Reprocessing overrides
+	ModelOverride   string        `json:"model_override,omitempty"`   // If set, use this model instead of default
+	TimeoutOverride time.Duration `json:"timeout_override,omitempty"` // If set, use this timeout for activities
 }
 
 // PipelineResult is the output from the SLM pipeline workflow.
@@ -105,14 +109,15 @@ type ParseTranscriptOutput struct {
 
 // TriageInput is the input for the Triage activity.
 type TriageInput struct {
-	TenantID    string `json:"tenant_id"`
-	SourceID    int64  `json:"source_id"`
-	ContentID   string `json:"content_id,omitempty"`
-	JobID       string `json:"job_id"`
-	Content     string `json:"content"`
-	Subject     string `json:"subject,omitempty"`
-	SenderEmail string `json:"sender_email,omitempty"`
-	ContentType string `json:"content_type"`
+	TenantID      string `json:"tenant_id"`
+	SourceID      int64  `json:"source_id"`
+	ContentID     string `json:"content_id,omitempty"`
+	JobID         string `json:"job_id"`
+	Content       string `json:"content"`
+	Subject       string `json:"subject,omitempty"`
+	SenderEmail   string `json:"sender_email,omitempty"`
+	ContentType   string `json:"content_type"`
+	ModelOverride string `json:"model_override,omitempty"` // Optional model override for reprocessing
 }
 
 // TriageOutput is the output from the Triage activity.
@@ -133,6 +138,7 @@ type SLMPipelineExtractEntitiesInput struct {
 	JobID          string `json:"job_id"`
 	Content        string `json:"content"`
 	TriageCategory string `json:"triage_category,omitempty"`
+	ModelOverride  string `json:"model_override,omitempty"` // Optional model override for reprocessing
 }
 
 // SLMPipelineExtractEntitiesOutput is the output from the ExtractEntities activity (pipeline version with DetailedRisks).
@@ -263,16 +269,17 @@ type ContextGlossaryTerm struct {
 
 // DeepAnalyzeInput is the input for the DeepAnalyze activity.
 type DeepAnalyzeInput struct {
-	TenantID          string                 `json:"tenant_id"`
-	SourceID          int64                  `json:"source_id"`
-	ContentID         string                 `json:"content_id,omitempty"`
-	JobID             string                 `json:"job_id"`
-	Content           string                 `json:"content"`
-	ContentType       string                 `json:"content_type"`
-	TriageCategory    string                 `json:"triage_category"`
-	TriageImportance  string                 `json:"triage_importance"`
+	TenantID          string                            `json:"tenant_id"`
+	SourceID          int64                             `json:"source_id"`
+	ContentID         string                            `json:"content_id,omitempty"`
+	JobID             string                            `json:"job_id"`
+	Content           string                            `json:"content"`
+	ContentType       string                            `json:"content_type"`
+	TriageCategory    string                            `json:"triage_category"`
+	TriageImportance  string                            `json:"triage_importance"`
 	ExtractionResult  *SLMPipelineExtractEntitiesOutput `json:"extraction_result"`
-	BackgroundContext string                 `json:"background_context,omitempty"`
+	BackgroundContext string                            `json:"background_context,omitempty"`
+	ModelOverride     string                            `json:"model_override,omitempty"` // Optional model override for reprocessing
 }
 
 // DeepAnalyzeOutput is the output from the DeepAnalyze activity.
@@ -358,6 +365,13 @@ type PersistFindingsOutput struct {
 	ReferencesCreated    int `json:"references_created"`
 	ReviewItemsCreated   int `json:"review_items_created"`
 	AffinityUpdates      int `json:"affinity_updates"`
+}
+
+// RecordOverridesInput is the input for recording override parameters in pipeline_runs.
+type RecordOverridesInput struct {
+	TenantID  string            `json:"tenant_id"`
+	SourceID  int64             `json:"source_id"`
+	Overrides map[string]string `json:"overrides"`
 }
 
 
@@ -629,16 +643,21 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	triageStart := workflow.Now(ctx)
 
 	var triageOutput TriageOutput
-	ctxTriage := workflow.WithActivityOptions(ctx, embeddingOpts)
+	triageOpts := embeddingOpts
+	if input.TimeoutOverride > 0 {
+		triageOpts.StartToCloseTimeout = input.TimeoutOverride
+	}
+	ctxTriage := workflow.WithActivityOptions(ctx, triageOpts)
 	err := workflow.ExecuteActivity(ctxTriage, pkgtemporal.ActivityTriage, TriageInput{
-		TenantID:    input.TenantID,
-		SourceID:    input.SourceID,
-		ContentID:   input.ContentID,
-		JobID:       input.JobID,
-		Content:     parsedContent,
-		Subject:     input.Subject,
-		SenderEmail: input.SenderEmail,
-		ContentType: input.ContentType,
+		TenantID:      input.TenantID,
+		SourceID:      input.SourceID,
+		ContentID:     input.ContentID,
+		JobID:         input.JobID,
+		Content:       parsedContent,
+		Subject:       input.Subject,
+		SenderEmail:   input.SenderEmail,
+		ContentType:   input.ContentType,
+		ModelOverride: input.ModelOverride,
 	}).Get(ctx, &triageOutput)
 	if err != nil {
 		// Update status to "rejected" with failure info
@@ -731,13 +750,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		extractStart := workflow.Now(ctx)
 
 		extractOutput = &SLMPipelineExtractEntitiesOutput{}
-		ctxExtract := workflow.WithActivityOptions(ctx, embeddingOpts)
+		extractOpts := embeddingOpts
+		if input.TimeoutOverride > 0 {
+			extractOpts.StartToCloseTimeout = input.TimeoutOverride
+		}
+		ctxExtract := workflow.WithActivityOptions(ctx, extractOpts)
 		err = workflow.ExecuteActivity(ctxExtract, pkgtemporal.ActivityExtractEntitiesActivity, SLMPipelineExtractEntitiesInput{
-			TenantID:  input.TenantID,
-			SourceID:  input.SourceID,
-			ContentID: input.ContentID,
-			JobID:     input.JobID,
-			Content:   parsedContent,
+			TenantID:      input.TenantID,
+			SourceID:      input.SourceID,
+			ContentID:     input.ContentID,
+			JobID:         input.JobID,
+			Content:       parsedContent,
+			ModelOverride: input.ModelOverride,
 		}).Get(ctx, extractOutput)
 
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
@@ -868,7 +892,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		analyzeStart := workflow.Now(ctx)
 
 		var analyzeOutput *DeepAnalyzeOutput
-		ctxAnalyze := workflow.WithActivityOptions(ctx, llmOpts)
+		analyzeOpts := llmOpts
+		if input.TimeoutOverride > 0 {
+			analyzeOpts.StartToCloseTimeout = input.TimeoutOverride
+		}
+		ctxAnalyze := workflow.WithActivityOptions(ctx, analyzeOpts)
 		analyzeOutput = &DeepAnalyzeOutput{}
 		err = workflow.ExecuteActivity(ctxAnalyze, pkgtemporal.ActivityDeepAnalyze, DeepAnalyzeInput{
 			TenantID:          input.TenantID,
@@ -881,6 +909,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			TriageImportance:  triageOutput.Importance,
 			ExtractionResult:  extractOutput,
 			BackgroundContext: "", // Context package content assembled by activity
+			ModelOverride:     input.ModelOverride,
 		}).Get(ctx, analyzeOutput)
 		if err != nil {
 			durationMs := workflow.Now(ctx).Sub(analyzeStart).Milliseconds()
@@ -1074,6 +1103,23 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.status.StepsCompleted = pkgtemporal.SkipDeepTotalSteps()
 	} else {
 		state.status.StepsCompleted = pkgtemporal.FullPipelineTotalSteps()
+	}
+
+	// Record overrides if any were provided
+	if input.ModelOverride != "" || input.TimeoutOverride > 0 {
+		overrides := make(map[string]string)
+		if input.ModelOverride != "" {
+			overrides["model_override"] = input.ModelOverride
+		}
+		if input.TimeoutOverride > 0 {
+			overrides["timeout_override"] = input.TimeoutOverride.String()
+		}
+		ctxRecord := workflow.WithActivityOptions(ctx, fastOpts)
+		_ = workflow.ExecuteActivity(ctxRecord, pkgtemporal.ActivityRecordOverrides, RecordOverridesInput{
+			TenantID:  input.TenantID,
+			SourceID:  input.SourceID,
+			Overrides: overrides,
+		}).Get(ctx, nil)
 	}
 
 	// Final status update

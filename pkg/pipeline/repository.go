@@ -857,3 +857,207 @@ func (r *Repository) PruneOldRunIO(ctx context.Context, sourceID int64, stage st
 
 	return result.RowsAffected(), nil
 }
+
+// GetLatestRunIDs retrieves the N most recent run IDs for a given source.
+// Returns IDs in descending order (newest first).
+func (r *Repository) GetLatestRunIDs(ctx context.Context, sourceID int64, count int) ([]int64, error) {
+	// Use default count if not specified
+	if count <= 0 {
+		count = 10
+	}
+
+	query := `
+		SELECT id
+		FROM pipeline_runs
+		WHERE source_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`
+
+	rows, err := r.db.Query(ctx, query, sourceID, count)
+	if err != nil {
+		return nil, fmt.Errorf("querying latest run IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var runIDs []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scanning run ID: %w", err)
+		}
+		runIDs = append(runIDs, id)
+	}
+
+	return runIDs, rows.Err()
+}
+
+// DiffPipelineRuns compares parsed_data JSONB between two pipeline runs.
+// If runIDA is 0, uses the second-most-recent run for the source.
+// If runIDB is 0, uses the most recent run for the source.
+func (r *Repository) DiffPipelineRuns(ctx context.Context, sourceID, runIDA, runIDB int64) ([]StageDiff, error) {
+	// Auto-select run IDs if needed
+	if runIDA == 0 || runIDB == 0 {
+		latestIDs, err := r.GetLatestRunIDs(ctx, sourceID, 2)
+		if err != nil {
+			return nil, fmt.Errorf("fetching latest run IDs: %w", err)
+		}
+		if len(latestIDs) == 0 {
+			return nil, fmt.Errorf("no runs found for source %d", sourceID)
+		}
+		if len(latestIDs) < 2 && (runIDA == 0 && runIDB == 0) {
+			return nil, fmt.Errorf("need at least 2 runs for comparison, found %d", len(latestIDs))
+		}
+
+		// runIDB = 0 means latest (index 0)
+		if runIDB == 0 {
+			runIDB = latestIDs[0]
+		}
+		// runIDA = 0 means second-latest (index 1)
+		if runIDA == 0 {
+			if len(latestIDs) < 2 {
+				return nil, fmt.Errorf("need at least 2 runs for second-latest selection, found %d", len(latestIDs))
+			}
+			runIDA = latestIDs[1]
+		}
+	}
+
+	// Fetch both runs
+	runA, err := r.GetRunByID(ctx, runIDA)
+	if err != nil {
+		return nil, fmt.Errorf("fetching run A (%d): %w", runIDA, err)
+	}
+
+	runB, err := r.GetRunByID(ctx, runIDB)
+	if err != nil {
+		return nil, fmt.Errorf("fetching run B (%d): %w", runIDB, err)
+	}
+
+	// Verify both runs belong to the same source
+	if runA.SourceID != sourceID || runB.SourceID != sourceID {
+		return nil, fmt.Errorf("runs do not belong to source %d", sourceID)
+	}
+
+	// Compare same run (no diffs)
+	if runIDA == runIDB {
+		return []StageDiff{}, nil
+	}
+
+	// Compare parsed_data for each stage
+	var diffs []StageDiff
+
+	// Parse both runs' parsed_data
+	var parsedA, parsedB map[string]interface{}
+	if len(runA.ParsedData) > 0 {
+		if err := json.Unmarshal(runA.ParsedData, &parsedA); err != nil {
+			return nil, fmt.Errorf("unmarshaling parsed_data for run A: %w", err)
+		}
+	}
+	if len(runB.ParsedData) > 0 {
+		if err := json.Unmarshal(runB.ParsedData, &parsedB); err != nil {
+			return nil, fmt.Errorf("unmarshaling parsed_data for run B: %w", err)
+		}
+	}
+
+	// Compare top-level keys
+	diffs = append(diffs, r.compareJSONObjects(runA.Stage, parsedA, parsedB)...)
+
+	return diffs, nil
+}
+
+// compareJSONObjects compares two JSON objects and returns diffs.
+func (r *Repository) compareJSONObjects(stage string, oldData, newData map[string]interface{}) []StageDiff {
+	var diffs []StageDiff
+
+	// Track all keys from both objects
+	allKeys := make(map[string]bool)
+	for k := range oldData {
+		allKeys[k] = true
+	}
+	for k := range newData {
+		allKeys[k] = true
+	}
+
+	// Compare each key
+	for key := range allKeys {
+		oldVal, oldExists := oldData[key]
+		newVal, newExists := newData[key]
+
+		if !oldExists && newExists {
+			// Added
+			diffs = append(diffs, StageDiff{
+				Stage:      stage,
+				Field:      key,
+				OldValue:   "",
+				NewValue:   jsonValueToString(newVal),
+				ChangeType: "added",
+			})
+		} else if oldExists && !newExists {
+			// Removed
+			diffs = append(diffs, StageDiff{
+				Stage:      stage,
+				Field:      key,
+				OldValue:   jsonValueToString(oldVal),
+				NewValue:   "",
+				ChangeType: "removed",
+			})
+		} else if oldExists && newExists {
+			// Compare values
+			oldStr := jsonValueToString(oldVal)
+			newStr := jsonValueToString(newVal)
+			if oldStr != newStr {
+				diffs = append(diffs, StageDiff{
+					Stage:      stage,
+					Field:      key,
+					OldValue:   oldStr,
+					NewValue:   newStr,
+					ChangeType: "modified",
+				})
+			}
+		}
+	}
+
+	return diffs
+}
+
+// jsonValueToString converts a JSON value to a string representation.
+func jsonValueToString(val interface{}) string {
+	if val == nil {
+		return ""
+	}
+	// Marshal to JSON for consistent string representation
+	b, err := json.Marshal(val)
+	if err != nil {
+		return fmt.Sprintf("%v", val)
+	}
+	return string(b)
+}
+
+// RecordOverrides stores override parameters in pipeline_runs input_data JSONB.
+// Merges the overrides under an "overrides" key without overwriting existing input_data.
+func (r *Repository) RecordOverrides(ctx context.Context, runID int64, overrides map[string]string) error {
+	// Convert overrides map to JSON
+	overridesJSON, err := json.Marshal(overrides)
+	if err != nil {
+		return fmt.Errorf("marshaling overrides: %w", err)
+	}
+
+	// Use jsonb_set to merge overrides into input_data
+	query := `
+		UPDATE pipeline_runs
+		SET input_data = COALESCE(input_data, '{}'::jsonb) || jsonb_build_object('overrides', $2::jsonb)
+		WHERE id = $1
+	`
+
+	result, err := r.db.Exec(ctx, query, runID, overridesJSON)
+	if err != nil {
+		return fmt.Errorf("recording overrides for run %d: %w", runID, err)
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("run %d not found", runID)
+	}
+
+	return nil
+}

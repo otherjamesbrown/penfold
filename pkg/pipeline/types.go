@@ -121,3 +121,12 @@ type PipelineRun struct {
 	OutputData    json.RawMessage // JSONB snapshot of raw output (model response)
 	ParsedData    json.RawMessage // JSONB snapshot of parsed/structured output
 }
+
+// StageDiff represents a difference between two pipeline runs.
+type StageDiff struct {
+	Stage      string // Pipeline stage (e.g., "triage", "extract_ner")
+	Field      string // Field name that changed
+	OldValue   string // Previous value
+	NewValue   string // New value
+	ChangeType string // "added", "removed", "modified"
+}

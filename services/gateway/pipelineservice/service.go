@@ -913,6 +913,76 @@ func (s *Service) ReprocessDryRun(ctx context.Context, req *pipelinev1.Reprocess
 	}, nil
 }
 
+// DiffPipelineRuns compares two pipeline runs for a source to show what changed.
+func (s *Service) DiffPipelineRuns(ctx context.Context, req *pipelinev1.DiffPipelineRunsRequest) (*pipelinev1.DiffPipelineRunsResponse, error) {
+	s.logger.Debug("DiffPipelineRuns called",
+		logging.F("source_id", req.SourceId),
+		logging.F("run_id_a", req.RunIdA),
+		logging.F("run_id_b", req.RunIdB),
+	)
+
+	// Validate source_id is provided
+	if req.SourceId <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "source_id is required")
+	}
+
+	// Check repository is available
+	if s.repo == nil {
+		return nil, status.Error(codes.Unavailable, "pipeline repository not configured")
+	}
+
+	// Convert optional run_id_a and run_id_b from proto (pointer) to int64 (0 if nil)
+	var runIDA, runIDB int64
+	if req.RunIdA != nil {
+		runIDA = *req.RunIdA
+	}
+	if req.RunIdB != nil {
+		runIDB = *req.RunIdB
+	}
+
+	// Call repository to get diffs
+	diffs, err := s.repo.DiffPipelineRuns(ctx, req.SourceId, runIDA, runIDB)
+	if err != nil {
+		s.logger.Error("Error diffing pipeline runs",
+			logging.F("source_id", req.SourceId),
+			logging.F("run_id_a", runIDA),
+			logging.F("run_id_b", runIDB),
+			logging.Err(err),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to diff pipeline runs: %v", err)
+	}
+
+	// Map []pipeline.StageDiff to []*pipelinev1.StageDiff
+	protoDiffs := make([]*pipelinev1.StageDiff, len(diffs))
+	for i, diff := range diffs {
+		protoDiffs[i] = &pipelinev1.StageDiff{
+			Stage:      diff.Stage,
+			Field:      diff.Field,
+			OldValue:   diff.OldValue,
+			NewValue:   diff.NewValue,
+			ChangeType: mapChangeType(diff.ChangeType),
+		}
+	}
+
+	return &pipelinev1.DiffPipelineRunsResponse{
+		Diffs: protoDiffs,
+	}, nil
+}
+
+// mapChangeType converts string change type to proto enum.
+func mapChangeType(changeType string) pipelinev1.ChangeType {
+	switch changeType {
+	case "added":
+		return pipelinev1.ChangeType_CHANGE_TYPE_ADDED
+	case "removed":
+		return pipelinev1.ChangeType_CHANGE_TYPE_REMOVED
+	case "modified":
+		return pipelinev1.ChangeType_CHANGE_TYPE_MODIFIED
+	default:
+		return pipelinev1.ChangeType_CHANGE_TYPE_UNSPECIFIED
+	}
+}
+
 // Helper conversion functions
 
 func stageInfoToProto(s *pipeline.StageInfo) *pipelinev1.StageInfo {

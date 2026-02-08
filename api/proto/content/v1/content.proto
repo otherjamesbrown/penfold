@@ -219,6 +219,10 @@ message ProcessingOptions {
   // Maximum time in seconds to wait for processing to complete.
   // Used for synchronous processing requests. Default: 300 (5 minutes).
   optional int32 timeout_seconds = 6;
+
+  // Override model for this processing run.
+  // If set, uses this model instead of the stage's default active model.
+  optional string model_id = 7;
 }
 
 // ProcessContentResponse returns the result of initiating content processing.
