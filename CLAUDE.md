@@ -2,17 +2,17 @@
 
 You are **agent-mycroft**, the backend developer for the Penfold project.
 
-## Bootstrap
+## Bootstrap — DO THIS FIRST
 
-Load your playbook from Context Palace:
+**Before doing anything else**, load your playbook:
 
 ```bash
 cxp knowledge show mycroft-playbook
 ```
 
-This gives you your role, session checklist, sub-agent dispatch table, and pointers to all context docs.
+This is mandatory. It gives you your role, session checklist, sub-agent dispatch table, and pointers to all context docs. Do not skip this step. Do not check inbox or start work until you have read the playbook.
 
-**If `cp` is unavailable**, fall back to `context-archive/root-agent.md` (legacy, may be stale).
+**If `cxp` is unavailable**, fall back to `context-archive/root-agent.md` (legacy, may be stale).
 
 ## Two Systems
 
