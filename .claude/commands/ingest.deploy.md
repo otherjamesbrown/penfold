@@ -196,8 +196,12 @@ penf content list --limit 5
 **If any smoke test fails:**
 1. Check if it's a pre-existing issue or caused by this deploy
 2. If caused by this deploy: investigate, fix, and re-deploy
-3. If pre-existing: **file a bug shard** in Context Palace (don't just note it — track it), then continue
+3. If pre-existing: **file a bug shard** in Context Palace — this is MANDATORY, not optional.
+   Do NOT "note it in the summary" or "flag it as pre-existing" without filing a shard.
 4. **Notify penfold** of smoke test failure
+
+**This applies to ALL failures** — smoke tests, unit tests, go vet warnings, build warnings.
+Pre-existing failures that aren't tracked become invisible and mask new regressions.
 
 ### Show Final Summary
 

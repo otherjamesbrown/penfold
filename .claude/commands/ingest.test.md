@@ -256,4 +256,21 @@ HIGH (per-wave, tests precede each implementation wave):
    from the original spec should map to at least one test assertion. Don't invent your own
    criteria — the spec is the source of truth.
 
-After displaying progress, return to the orchestrator.
+## Checkpoint (MANDATORY)
+
+Before returning to the orchestrator, write a checkpoint:
+
+```bash
+cxp session checkpoint "$(cat <<'CKPT'
+## Phase 3.5 Complete: Tests Written
+
+**Tests written:** [N testable items]
+**Skipped:** [N non-testable items with reasons]
+**Test files:** [list test file paths + test function names]
+**All tests confirmed FAILING:** [yes/no — list any that passed unexpectedly]
+**Next:** Phase 4 (Implement) for shards: [list shard IDs]
+CKPT
+)"
+```
+
+After displaying progress and writing the checkpoint, return to the orchestrator.

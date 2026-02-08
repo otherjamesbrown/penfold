@@ -39,7 +39,11 @@ If the spec doesn't explicitly state complexity, assess it from the spec structu
 
 ### Launch Debugger Agents
 
-Launch ALL debugger agents in a **single message** (parallel, background):
+**Batch size: max 4 agents at a time.** If there are more than 4 items, launch in batches
+of 4, wait for the batch to complete, then launch the next batch. This prevents all agent
+outputs from flooding the orchestrator's context at once.
+
+Launch each batch in a **single message** (parallel, background):
 
 For each investigation shard (title starts with `investigate:`), use:
 ```
@@ -80,7 +84,9 @@ Task(subagent_type="debugger", run_in_background=true,
 
 ### Launch Explore Agents
 
-Launch ALL explore agents in a **single message** (parallel, background):
+**Batch size: max 4 agents at a time** (same rule as debuggers).
+
+Launch each batch in a **single message** (parallel, background):
 
 For each analysis shard (title starts with `analyze:`), use:
 ```
@@ -201,4 +207,21 @@ Findings sent to penfold (non-blocking).
 All N items complete. Returning to orchestrator for triage...
 ```
 
-After displaying progress, return to the orchestrator. It will invoke the next phase.
+## Checkpoint (MANDATORY)
+
+Before returning to the orchestrator, write a checkpoint:
+
+```bash
+cxp session checkpoint "$(cat <<'CKPT'
+## Phase 2 Complete: Investigate & Analyze
+
+**Bugs investigated:** [N] — [list shard IDs + root cause categories]
+**Requirements analyzed:** [N] — [list shard IDs + complexity]
+**Specs (skipped):** [N] — [list shard IDs]
+**Key findings:** [any surprises, merged items, shared root causes]
+**Next:** Phase 3 (Triage) with shard IDs: [list]
+CKPT
+)"
+```
+
+After displaying progress and writing the checkpoint, return to the orchestrator.

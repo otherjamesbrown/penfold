@@ -162,8 +162,30 @@ Skill(skill="ingest.verify")
 Skill(skill="ingest.deploy")
 ```
 
-Pass context between phases naturally — you are the orchestrator running in a single
-conversation, so shard IDs, classifications, and findings carry forward.
+## MANDATORY: Checkpoint After Every Phase
+
+**Before invoking the next phase, write a structured checkpoint to Context Palace.**
+This is non-negotiable. Checkpoints serve as decision gates that survive context compression
+and session death.
+
+```bash
+cxp session checkpoint "$(cat <<'CKPT'
+## Phase [N] Complete: [phase name]
+
+**Items:** [count and type]
+**Shard IDs:** [list all shard IDs created/processed this phase]
+**Decisions:** [key decisions made — what was merged, skipped, routed where]
+**Next phase:** [what happens next, with specific shard IDs]
+**Wave plan:** [if applicable — which shards in which order]
+CKPT
+)"
+```
+
+**Why this matters:** If context compresses mid-session or the session dies, the next phase
+(or a new session) can read the checkpoint instead of relying on conversation history.
+Each checkpoint is an audit trail of what was decided and why.
+
+Do NOT rely on conversation context carrying forward between phases. Write it down.
 
 ## Parallel Session Coordination
 

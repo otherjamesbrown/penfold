@@ -39,6 +39,9 @@ Include these standards in every implementation agent prompt:
 - Comments: Only where the logic isn't obvious. No redundant comments on clear code.
 - Tests: Table-driven tests preferred. Test happy path + error cases + edge cases.
 - Imports: Group stdlib, external, internal. Use goimports formatting.
+- API stability: Do NOT change existing function signatures. If you need additional parameters,
+  add them with defaults, create a new function, or use an options struct. Changing a signature
+  cascades to all callers and wastes context fixing compile errors.
 ```
 
 ## Context Budget Warning (Include in All Prompts)
@@ -57,13 +60,23 @@ If you are running low on context:
 - Ensure go build passes.
 - Close the shard with a progress note: "Implemented: [what's done]. Remaining: [what's left]."
 - Do NOT defer tests — if you can't write tests, say so explicitly in the close message.
+
+BAIL-OUT RULE: If you hit cascading compile errors (e.g. a signature change broke 5+ callers),
+STOP immediately. Do NOT grind through fixing caller after caller. Instead:
+- Revert the signature change
+- Find a backwards-compatible approach (add new function, use defaults, options struct)
+- If you cannot find one, close the shard with: "BLOCKED: [explanation]. Needs orchestrator guidance."
 ```
 
 ---
 
 ## Mode A: Single Agent (LOW/MEDIUM Complexity)
 
-Launch ALL "ready now" LOW/MEDIUM agents in a **single message** (parallel, background):
+**Batch size: max 4 agents at a time.** If more than 4 items are ready, launch in batches
+of 4, wait for the batch to complete, then launch the next. This prevents context pressure
+from all outputs arriving simultaneously.
+
+Launch each batch in a **single message** (parallel, background):
 
 **For BUG shards** (title starts with `fix:`):
 ```
@@ -83,6 +96,7 @@ Task(subagent_type="<agent-type>", run_in_background=true,
   - Logging: Use structured logging (slog). Include relevant IDs.
   - Naming: Follow existing codebase conventions. Check nearby files.
   - Tests: Table-driven tests preferred. Happy path + error + edge cases.
+  - API stability: Do NOT change existing function signatures. Add new params with defaults or create new functions.
 
   ## File Scope
   IMPORTANT: Only modify files listed in your shard's 'Files to Modify' section.
@@ -137,6 +151,7 @@ Task(subagent_type="<agent-type>", run_in_background=true,
   - Logging: Use structured logging (slog). Include relevant IDs.
   - Naming: Follow existing codebase conventions. Check nearby files.
   - Tests: Table-driven tests preferred. Happy path + error + edge cases.
+  - API stability: Do NOT change existing function signatures. Add new params with defaults or create new functions.
 
   ## File Scope
   IMPORTANT: Only modify/create files listed in your shard's 'Files to Modify/Create'.
@@ -228,6 +243,7 @@ Task(subagent_type="<agent-type-from-sub-shard>", run_in_background=true,
   - Logging: Use structured logging (slog). Include relevant IDs.
   - Naming: Follow existing codebase conventions. Check nearby files.
   - Tests: Table-driven tests preferred. Happy path + error + edge cases.
+  - API stability: Do NOT change existing function signatures. Add new params with defaults or create new functions.
 
   ## Context
   This is ONE LAYER of a larger feature. You are implementing ONLY the [layer] layer.
@@ -336,4 +352,21 @@ HIGH (layer-by-layer):
     Wave 3 | pf-ccc-cli | CLI     | DONE ✓ | build ✓
 ```
 
-After all agents complete, return to the orchestrator for verification.
+## Checkpoint (MANDATORY)
+
+Before returning to the orchestrator, write a checkpoint:
+
+```bash
+cxp session checkpoint "$(cat <<'CKPT'
+## Phase 4 Complete: Implementation
+
+**Completed:** [N shards] — [list shard IDs + 1-line summaries]
+**Failed/re-launched:** [N shards with reasons]
+**Files modified:** [total count, list paths]
+**Waves executed:** [for HIGH items: wave count and order]
+**Next:** Phase 5 (Verify) — build, test, go vet across all changed packages
+CKPT
+)"
+```
+
+After all agents complete and the checkpoint is written, return to the orchestrator for verification.

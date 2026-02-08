@@ -494,4 +494,22 @@ Blocked: pf-fix-ddd (blocked by pf-fix-aaa)
 Decomposition plan sent to penfold (non-blocking).
 ```
 
-After displaying progress, return to the orchestrator.
+## Checkpoint (MANDATORY)
+
+Before returning to the orchestrator, write a checkpoint:
+
+```bash
+cxp session checkpoint "$(cat <<'CKPT'
+## Phase 3 Complete: Triage & Decompose
+
+**Impl shards created:** [N] — [list shard IDs + titles + complexity]
+**Routing:** LOW/MEDIUM: [shard IDs]. HIGH (decomposed): [parent → sub-shard IDs]
+**Merged items:** [any items combined into single shards, with rationale]
+**Blocked items:** [shard IDs blocked by what]
+**File claims registered:** [count]
+**Next:** Phase 3.5 (Tests) for shards: [list ready shard IDs]
+CKPT
+)"
+```
+
+After displaying progress and writing the checkpoint, return to the orchestrator.

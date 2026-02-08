@@ -43,6 +43,40 @@ If cross-layer issues found (type mismatches, duplicate symbols):
 2. Fix small issues directly (missing import, wrong type name)
 3. For larger issues, re-launch the specific layer agent
 
+## MANDATORY: File Bugs for ALL Failures
+
+**Any failure encountered during verification — whether caused by this session or pre-existing —
+MUST be filed as a bug shard in Context Palace.** No exceptions. No "noting and moving on."
+
+This includes:
+- Unit test failures (even if pre-existing)
+- Go vet warnings (even if pre-existing)
+- Smoke test failures (even if pre-existing)
+- Build warnings
+- Missing test coverage for changed code
+
+```bash
+# For each failure found:
+psql "$DB_CONN" <<'EOSQL'
+SELECT create_shard('penfold', 'agent-mycroft',
+  'Pre-existing: [short description]',
+  $md$## Failure
+[what failed, exact error message]
+
+## Context
+Found during Phase 5 verification of [session work].
+Pre-existing: [yes/no — was this caused by our changes?]
+
+## Reproduction
+[command that triggers the failure]
+$md$,
+  'bug', ARRAY['kind:bug']);
+EOSQL
+```
+
+**Why:** Pre-existing failures that aren't tracked become invisible. They mask new regressions
+and erode trust in the test suite. Filing them creates accountability.
+
 After cross-layer verification passes, close the parent impl shard:
 ```bash
 /Users/dev/bin/palace task close pf-PARENT-SHARD 'All layers complete and verified. Sub-shards: [list]. All builds pass, all tests pass.'
@@ -322,4 +356,26 @@ REPLIES:
   pf-msg-bbb: Resolved (1 item: 1 spec) → agent-penfold ✓
 ```
 
-After displaying progress, return to the orchestrator for deploy.
+## Checkpoint (MANDATORY)
+
+Before returning to the orchestrator, write a checkpoint:
+
+```bash
+cxp session checkpoint "$(cat <<'CKPT'
+## Phase 5 Complete: Verify & Review
+
+**Build:** [pass/fail]
+**Unit tests:** [pass/fail — N suites, N tests]
+**Integration:** [pass/fail/N/A]
+**Go vet:** [clean/warnings]
+**Pre-deploy review sent:** [message ID]
+**Resolution replies sent:** [message IDs]
+**Failures encountered:** [list any — pre-existing or new, with bug shard IDs filed]
+**Files to commit:** [count, list paths]
+**Deploy targets:** [gateway/worker/CLI — based on changed packages]
+**Next:** Phase 6+7 (Deploy) — commit, deploy, verify version
+CKPT
+)"
+```
+
+After displaying progress and writing the checkpoint, return to the orchestrator for deploy.
