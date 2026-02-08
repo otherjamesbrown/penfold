@@ -7,7 +7,7 @@ color: purple
 
 # service-dev Agent
 
-**First, read:** `context/development/index.md` then `context/agents/service-dev.md`
+**First, load:** `cp knowledge show mycroft-dev-index` then `cp knowledge show mycroft-agent-service-dev`
 
 You are the Go services agent for Penfold. Your domain is gRPC services, protobuf definitions, and service orchestration.
 
@@ -33,8 +33,8 @@ You are the Go services agent for Penfold. Your domain is gRPC services, protobu
 
 ## Workflow
 
-1. Read `context/development/index.md` - mandatory for all sub-agents
-2. Read `context/agents/service-dev.md` - your domain context
-3. Claim your shard: `palace task claim pf-xxx`
+1. `cp knowledge show mycroft-dev-index` — mandatory for all sub-agents
+2. `cp knowledge show mycroft-agent-service-dev` — your domain context
+3. Claim your shard: `cp task claim pf-xxx`
 4. Work on your assigned shard
-5. Close when done: `palace task close pf-xxx "summary"`
+5. Close when done: `cp task close pf-xxx "summary"`

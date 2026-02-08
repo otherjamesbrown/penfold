@@ -14,10 +14,10 @@ Context lives in multiple places that must stay synchronized:
 
 | Location | Purpose | Consumed By |
 |----------|---------|-------------|
-| `context/root-agent.md` | Dev orchestrator identity | Dev Claude |
-| `context/agents/*.md` | Sub-agent definitions | Dev sub-agents |
+| **Context Palace** `mycroft-playbook` | Dev orchestrator identity | Dev Claude |
+| **Context Palace** `mycroft-agent-*` | Sub-agent definitions | Dev sub-agents |
+| **Context Palace** `mycroft-shared-*` | Shared docs (vision, entities) | Both dev and client |
 | `context/client/` | Client docs (source of truth) | Client Claude (via penf init) |
-| `context/shared/` | Shared docs (vision, entities) | Both dev and client |
 | `cmd/penf/main.go` | CLI --help text | Users, AI assistants |
 | `cmd/penf/cmd/init.go` | Doc installation logic | penf init/update |
 | `.claude/agents/` | Claude Code agent definitions | Claude Code |
@@ -27,8 +27,11 @@ Context lives in multiple places that must stay synchronized:
 Read and inventory all context files:
 
 ```bash
-# List all context files
-find context -name "*.md" -type f | sort
+# List dev context in Context Palace
+cp knowledge list --label mycroft-context
+
+# List client context on disk
+find context/client -name "*.md" -type f | sort
 
 # List CLI help references
 grep -r "docs/" cmd/penf/main.go cmd/penf/cmd/*.go | grep -v "_test.go"
@@ -43,15 +46,15 @@ Verify the reference chain is complete and all links resolve:
 
 **Client reference chain:**
 1. `cmd/penf/main.go` --help text → references `docs/assistant-rules.md`
-2. `cmd/penf/cmd/init.go` → downloads files from `context/client/` and `context/shared/`
+2. `cmd/penf/cmd/init.go` → downloads files from `context/client/`
 3. `context/client/assistant-rules.md` → links to other docs
 4. Cross-links between docs all resolve
 
 **Dev reference chain:**
-1. `CLAUDE.md` → references `context/root-agent.md`
-2. `context/root-agent.md` → references sub-agents and speckit
-3. `context/agents/*.md` → consistent naming and cross-references
-4. `.claude/agents/*.md` → point to correct context files
+1. `CLAUDE.md` → bootstraps from `cp knowledge show mycroft-playbook`
+2. `mycroft-playbook` → references sub-agent docs and context docs via `cp knowledge show`
+3. `mycroft-agent-*` → consistent naming and cross-references
+4. `.claude/agents/*.md` → point to correct CP knowledge docs
 
 For each reference found:
 - Verify the target file exists
@@ -66,14 +69,14 @@ For each reference found:
 - Cross-references use consistent names
 
 **Content consistency:**
-- `context/client/index.md` navigation matches actual files
+- `context/client/index.md` navigation matches actual client files
 - `context/client/processes.md` workflow links resolve
 - `context/client/assistant-rules.md` file listings are accurate
 - CLI --help DOCUMENTATION section matches what `penf init` installs
 
 **No duplicates:**
 - Client docs only in `context/client/` (not duplicated in `docs/` or `cmd/penf/cmd/templates/`)
-- Shared docs only in `context/shared/`
+- Dev context only in Context Palace (not duplicated on disk)
 - No stale copies in unexpected locations
 
 ### Phase 4: Quality Assessment
@@ -113,9 +116,9 @@ Create a report with:
 - [ ] Cross-links resolve (status)
 
 ### Dev Chain
-- [ ] CLAUDE.md → root-agent.md (status)
-- [ ] root-agent.md → sub-agents (status)
-- [ ] .claude/agents/ → context/agents/ (status)
+- [ ] CLAUDE.md → cp knowledge show mycroft-playbook (status)
+- [ ] mycroft-playbook → sub-agent docs via cp knowledge show (status)
+- [ ] .claude/agents/ → cp knowledge show mycroft-agent-* (status)
 
 ## Issues Found
 
@@ -138,7 +141,7 @@ Create a report with:
 
 | File | Clarity | Complete | Current | Links | Action |
 |------|---------|----------|---------|-------|--------|
-| context/root-agent.md | Good | Good | Good | Good | None |
+| mycroft-playbook (CP) | Good | Good | Good | Good | None |
 | ... | ... | ... | ... | ... | ... |
 
 ## Recommendations

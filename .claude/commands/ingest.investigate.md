@@ -25,7 +25,7 @@ If Phase 1 classified any items as SPEC (title starts with `spec:`), those shard
 
 ```bash
 # For each SPEC shard:
-/Users/dev/bin/palace task close pf-spc-xxx 'SPEC provided by sender. COMPLEXITY: [assess from spec content]. LAYERS: [from spec]. SCOPE: [from spec]. FILES: [from spec]. PATTERN: [from spec if mentioned]. Full spec content preserved in shard.'
+cp task close pf-spc-xxx 'SPEC provided by sender. COMPLEXITY: [assess from spec content]. LAYERS: [from spec]. SCOPE: [from spec]. FILES: [from spec]. PATTERN: [from spec if mentioned]. Full spec content preserved in shard.'
 ```
 
 If the spec doesn't explicitly state complexity, assess it from the spec structure:
@@ -53,9 +53,9 @@ Task(subagent_type="debugger", run_in_background=true,
   Your investigation shard: pf-inv-xxx
 
   ## Setup
-  1. Read context/development/index.md — mandatory project context
-  2. Read context/agents/debugger.md — your domain context
-  3. /Users/dev/bin/palace task claim pf-inv-xxx
+  1. cp knowledge show mycroft-dev-index — mandatory project context
+  2. cp knowledge show mycroft-agent-debugger — your domain context
+  3. cp task claim pf-inv-xxx
 
   ## Investigation
   4. Investigate using read-only tools (Read, Grep, Glob, Bash for go build/test)
@@ -69,7 +69,7 @@ Task(subagent_type="debugger", run_in_background=true,
   - Are there existing records in the DB that predate the fix?
 
   ## Completion
-  6. /Users/dev/bin/palace task close pf-inv-xxx 'ROOT CAUSE: [category]. [summary]. FILES: [file1, file2]. FIX: [description]. COMPLEXITY: [Low/Medium/High]'
+  6. cp task close pf-inv-xxx 'ROOT CAUSE: [category]. [summary]. FILES: [file1, file2]. FIX: [description]. COMPLEXITY: [Low/Medium/High]'
 
   Root cause categories: cli_ux, config_drift, temporal_workflow, grpc_wiring, data_layer, proto_mismatch, missing_feature, test_gap")
 ```
@@ -94,8 +94,8 @@ Task(subagent_type="Explore", run_in_background=true,
   Your analysis shard: pf-anl-xxx
 
   ## Setup
-  1. Read context/development/index.md — mandatory project context
-  2. /Users/dev/bin/palace task claim pf-anl-xxx
+  1. cp knowledge show mycroft-dev-index — mandatory project context
+  2. cp task claim pf-anl-xxx
 
   ## Analysis
   Explore the codebase to answer:
@@ -123,7 +123,7 @@ Task(subagent_type="Explore", run_in_background=true,
        cross-cutting concerns, or 10+ files to create/modify
 
   ## Completion
-  8. /Users/dev/bin/palace task close pf-anl-xxx 'COMPLEXITY: [Low/Medium/High]. LAYERS: [db,service,cli,pipeline]. SCOPE: [summary of what to build]. FILES: [file1, file2, new:file3]. PATTERN: [existing feature to follow].'
+  8. cp task close pf-anl-xxx 'COMPLEXITY: [Low/Medium/High]. LAYERS: [db,service,cli,pipeline]. SCOPE: [summary of what to build]. FILES: [file1, file2, new:file3]. PATTERN: [existing feature to follow].'
 
   IMPORTANT: Do NOT write any code. Only analyze and report.
   IMPORTANT: The COMPLEXITY and LAYERS fields are critical — they determine how implementation is structured.")

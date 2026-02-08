@@ -13,7 +13,7 @@ Write tests that FAIL now and will PASS after implementation. This applies to AL
 
 ```yaml
 DB_CONN: "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full"
-PALACE_CLI: /Users/dev/bin/palace
+CP_CLI: cp
 ```
 
 ## Step 1: Assess Testability
@@ -39,8 +39,8 @@ Task(subagent_type="<agent-type>", run_in_background=true,
   prompt="Write a reproduction test for bug pf-fix-xxx.
 
   ## Setup
-  1. Read context/development/index.md — mandatory project context
-  2. Read context/agents/<agent-type>.md — your domain context
+  1. cp knowledge show mycroft-dev-index — mandatory project context
+  2. cp knowledge show mycroft-agent-<agent-type> — your domain context
 
   ## Bug Summary
   [paste root cause and symptom from investigation/impl shard]
@@ -83,8 +83,8 @@ Task(subagent_type="<agent-type>", run_in_background=true,
   prompt="Write acceptance tests for requirement pf-feat-xxx.
 
   ## Setup
-  1. Read context/development/index.md — mandatory project context
-  2. Read context/agents/<agent-type>.md — your domain context
+  1. cp knowledge show mycroft-dev-index — mandatory project context
+  2. cp knowledge show mycroft-agent-<agent-type> — your domain context
 
   ## Requirement Summary
   [paste goal and acceptance criteria from impl shard]
@@ -142,8 +142,8 @@ Task(subagent_type="<agent-type-for-this-layer>", run_in_background=true,
   prompt="Write failing tests for sub-shard pf-xxx-layer.
 
   ## Setup
-  1. Read context/development/index.md — mandatory project context
-  2. Read context/agents/<agent-type>.md — your domain context
+  1. cp knowledge show mycroft-dev-index — mandatory project context
+  2. cp knowledge show mycroft-agent-<agent-type> — your domain context
 
   ## Sub-Shard Summary
   [paste the sub-shard's Goal, Scope, and Acceptance Criteria]
@@ -201,13 +201,13 @@ If an agent's test **passes** (wrong — should fail):
 
 ```bash
 # For bugs:
-/Users/dev/bin/palace task progress pf-fix-xxx 'Reproduction test ready: [TestName] in [file]. Test FAILS on current code.'
+cp task progress pf-fix-xxx 'Reproduction test ready: [TestName] in [file]. Test FAILS on current code.'
 
 # For requirements/specs:
-/Users/dev/bin/palace task progress pf-feat-xxx 'Acceptance tests ready: [TestName1, TestName2] in [file]. Tests FAIL.'
+cp task progress pf-feat-xxx 'Acceptance tests ready: [TestName1, TestName2] in [file]. Tests FAIL.'
 
 # For HIGH sub-shards:
-/Users/dev/bin/palace task progress pf-xxx-layer 'Layer tests ready: [TestName1, TestName2] in [file]. Tests FAIL.'
+cp task progress pf-xxx-layer 'Layer tests ready: [TestName1, TestName2] in [file]. Tests FAIL.'
 ```
 
 ## Show Progress

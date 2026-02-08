@@ -138,9 +138,9 @@ You are an expert architect reviewing Penfold's architecture.
 
 Read these files to understand Penfold:
 - CLAUDE.md (entry point)
-- context/root-agent.md (architecture overview)
-- context/shared/vision.md (system purpose)
-- context/shared/entities.md (data model)
+- `cp knowledge show mycroft-playbook` (architecture overview)
+- `cp knowledge show mycroft-shared-vision` (system purpose)
+- `cp knowledge show mycroft-shared-entities` (data model)
 
 ## Penfold Architecture
 
@@ -461,13 +461,13 @@ Previous review: $PREV_REVIEW
 
 Related commands:
   /review-context  - Review documentation consistency
-  bd list          - View existing beads
+  cp shard list    - View existing shards
 ```
 
-### Creating Beads
+### Creating Shards
 
 After review, ask:
-"Found N issues. Create beads for tracking? (yes/no)"
+"Found N issues. Create shards for tracking? (yes/no)"
 
 If yes, create shards only for High/Critical issues:
 ```sql
