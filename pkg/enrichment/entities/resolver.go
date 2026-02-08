@@ -13,6 +13,7 @@ import (
 type Resolver struct {
 	repo            *Repository
 	internalDomains []string
+	tenantPatterns  *AccountTypePatterns
 	logger          logging.Logger
 }
 
@@ -30,6 +31,14 @@ func WithInternalDomains(domains []string) ResolverOption {
 func WithResolverLogger(logger logging.Logger) ResolverOption {
 	return func(r *Resolver) {
 		r.logger = logger
+	}
+}
+
+// WithTenantPatterns sets custom tenant-specific patterns for account type detection.
+// These patterns are merged with hardcoded defaults, not replacing them.
+func WithTenantPatterns(patterns *AccountTypePatterns) ResolverOption {
+	return func(r *Resolver) {
+		r.tenantPatterns = patterns
 	}
 }
 
@@ -118,7 +127,7 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 		}
 
 		// Check if account_type needs updating based on current patterns
-		currentAccountType := DetectAccountType(email, displayName)
+		currentAccountType := DetectAccountTypeWithPatterns(email, displayName, r.tenantPatterns)
 		if currentAccountType != person.AccountType {
 			r.logger.Info("Updating stale account_type for existing entity",
 				logging.F("person_id", person.ID),
@@ -197,7 +206,7 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 		}
 	}
 
-	accountType := DetectAccountType(email, displayName)
+	accountType := DetectAccountTypeWithPatterns(email, displayName, r.tenantPatterns)
 	isInternal := IsInternalDomain(email, r.internalDomains)
 
 	// Higher confidence for internal accounts, lower for external

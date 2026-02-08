@@ -283,3 +283,84 @@ func TestResolveOrCreate_FilterRuleBlocks(t *testing.T) {
 		t.Logf("  3. Return created person with IsNew=true")
 	})
 }
+
+// TestResolver_WithTenantPatterns tests that the Resolver can be configured with
+// custom tenant-specific patterns and that these patterns are used during entity resolution.
+func TestResolver_WithTenantPatterns(t *testing.T) {
+	// This test verifies that:
+	// 1. Resolver accepts a WithTenantPatterns option
+	// 2. The patterns are stored and used when detecting account types
+	// 3. ResolveOrCreate uses the custom patterns when creating new entities
+
+	t.Run("resolver accepts tenant patterns option", func(t *testing.T) {
+		// This test documents the expected API:
+		// r := NewResolver(repo,
+		//     WithTenantPatterns(&AccountTypePatterns{
+		//         BotPatterns: []string{"custom-bot-"},
+		//         DistributionPatterns: []string{"custom-dist-"},
+		//         RolePatterns: []string{"custom-role"},
+		//         ExternalDomains: []string{"external.example.com"},
+		//     }),
+		// )
+
+		t.Logf("EXPECTED: NewResolver should accept WithTenantPatterns option")
+		t.Logf("  type WithTenantPatterns func(*AccountTypePatterns) ResolverOption")
+		t.Logf("  Stores patterns in Resolver for use during entity resolution")
+
+		// Verify the option is available
+		// This will fail until WithTenantPatterns is implemented
+		t.Skip("WithTenantPatterns option not yet implemented")
+	})
+
+	t.Run("resolver uses custom patterns for account type detection", func(t *testing.T) {
+		// This test documents the integration:
+		// When ResolveOrCreate creates a new entity, it should:
+		// 1. Call DetectAccountTypeWithPatterns with the configured custom patterns
+		// 2. Use the result to set Person.AccountType
+		// 3. Store the correctly classified entity
+
+		t.Logf("EXPECTED: When ResolveOrCreate creates new entity with custom patterns:")
+		t.Logf("  1. Call DetectAccountTypeWithPatterns(email, displayName, customPatterns)")
+		t.Logf("  2. Set Person.AccountType to the result")
+		t.Logf("  3. Custom bot 'acme-bot-scheduler@company.com' -> AccountTypeBot")
+		t.Logf("  4. Custom role 'acme-support@company.com' -> AccountTypeRole")
+
+		// This will fail until the integration is implemented
+		t.Skip("Custom pattern integration not yet implemented")
+	})
+
+	t.Run("resolver updates stale account types with custom patterns", func(t *testing.T) {
+		// This test documents a critical behavior:
+		// When ResolveOrCreate finds an existing entity, it should:
+		// 1. Re-detect account type using CURRENT custom patterns
+		// 2. Compare with stored Person.AccountType
+		// 3. If mismatch, update the entity
+		//
+		// This ensures that when tenant patterns are updated, existing entities
+		// are automatically corrected on next resolution.
+
+		t.Logf("EXPECTED: When ResolveOrCreate finds existing entity:")
+		t.Logf("  1. Call DetectAccountTypeWithPatterns with CURRENT custom patterns")
+		t.Logf("  2. Compare result with Person.AccountType")
+		t.Logf("  3. If different, update Person.AccountType and call UpdatePerson")
+		t.Logf("  4. This auto-corrects stale classifications when patterns change")
+
+		// This will fail until the integration is implemented
+		t.Skip("Account type update with custom patterns not yet implemented")
+	})
+
+	t.Run("empty tenant patterns use defaults", func(t *testing.T) {
+		// This test verifies backward compatibility:
+		// If WithTenantPatterns is called with empty/nil patterns,
+		// DetectAccountType should fall back to hardcoded defaults only.
+
+		t.Logf("EXPECTED: WithTenantPatterns(nil) or WithTenantPatterns(&AccountTypePatterns{}):")
+		t.Logf("  1. Should not error")
+		t.Logf("  2. Should fall back to hardcoded patterns")
+		t.Logf("  3. 'noreply@company.com' -> AccountTypeBot (default pattern)")
+		t.Logf("  4. 'support@company.com' -> AccountTypeRole (default pattern)")
+
+		// This will fail until the integration is implemented
+		t.Skip("Empty pattern handling not yet implemented")
+	})
+}

@@ -47,6 +47,15 @@ service EntityManagementService {
   // DeleteFilterRule deletes a filter rule.
   rpc DeleteFilterRule(DeleteFilterRuleRequest) returns (DeleteFilterRuleResponse);
 
+  // CreateEmailPattern creates a tenant email pattern.
+  rpc CreateEmailPattern(CreateEmailPatternRequest) returns (CreateEmailPatternResponse);
+
+  // ListEmailPatterns lists tenant email patterns.
+  rpc ListEmailPatterns(ListEmailPatternsRequest) returns (ListEmailPatternsResponse);
+
+  // DeleteEmailPattern deletes a tenant email pattern.
+  rpc DeleteEmailPattern(DeleteEmailPatternRequest) returns (DeleteEmailPatternResponse);
+
   // TestFilterRule tests if an email/name would match any filter rules.
   rpc TestFilterRule(TestFilterRuleRequest) returns (TestFilterRuleResponse);
 
@@ -498,6 +507,84 @@ message TestFilterRuleResponse {
 
   // Whether the email/name would be blocked
   bool would_be_blocked = 2;
+}
+
+// EmailPattern represents a tenant-specific email pattern for account type detection.
+message EmailPattern {
+  // Pattern ID
+  int64 id = 1;
+
+  // Tenant ID
+  string tenant_id = 2;
+
+  // Pattern string (substring match)
+  string pattern = 3;
+
+  // Pattern type: bot, distribution, role, external_domain
+  string pattern_type = 4;
+
+  // Priority for pattern matching (higher = checked first)
+  int32 priority = 5;
+
+  // Whether this pattern is enabled
+  bool enabled = 6;
+
+  // When created
+  google.protobuf.Timestamp created_at = 7;
+
+  // Who created it
+  string created_by = 8;
+
+  // Optional notes about this pattern
+  string notes = 9;
+}
+
+// CreateEmailPatternRequest creates a new email pattern.
+message CreateEmailPatternRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Pattern string
+  string pattern = 2;
+
+  // Pattern type: bot, distribution, role, external_domain
+  string pattern_type = 3;
+
+  // Optional notes
+  string notes = 4;
+}
+
+// CreateEmailPatternResponse returns the created pattern.
+message CreateEmailPatternResponse {
+  // The created email pattern
+  EmailPattern pattern = 1;
+}
+
+// ListEmailPatternsRequest lists email patterns.
+message ListEmailPatternsRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+}
+
+// ListEmailPatternsResponse returns all email patterns.
+message ListEmailPatternsResponse {
+  // Email patterns
+  repeated EmailPattern patterns = 1;
+}
+
+// DeleteEmailPatternRequest deletes an email pattern.
+message DeleteEmailPatternRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Pattern ID to delete
+  int64 pattern_id = 2;
+}
+
+// DeleteEmailPatternResponse confirms deletion.
+message DeleteEmailPatternResponse {
+  // The deleted pattern ID
+  int64 pattern_id = 1;
 }
 
 // GetEntityStatsRequest requests entity statistics.

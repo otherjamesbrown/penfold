@@ -216,3 +216,135 @@ func TestLevenshteinDistance(t *testing.T) {
 		})
 	}
 }
+
+// TestDetectAccountTypeWithPatterns tests that DetectAccountType can use additional patterns
+// beyond the hardcoded defaults. This verifies custom tenant-specific patterns work correctly.
+func TestDetectAccountTypeWithPatterns(t *testing.T) {
+	tests := []struct {
+		name        string
+		email       string
+		displayName string
+		patterns    *AccountTypePatterns
+		want        AccountType
+	}{
+		{
+			name:        "custom bot pattern identifies custom bot",
+			email:       "custom-bot-alerts@company.com",
+			displayName: "",
+			patterns: &AccountTypePatterns{
+				BotPatterns: []string{"custom-bot-"},
+			},
+			want: AccountTypeBot,
+		},
+		{
+			name:        "custom distribution pattern identifies custom distribution list",
+			email:       "dept-all-engineering@company.com",
+			displayName: "",
+			patterns: &AccountTypePatterns{
+				DistributionPatterns: []string{"dept-all-"},
+			},
+			want: AccountTypeDistribution,
+		},
+		{
+			name:        "custom role pattern identifies custom role account",
+			email:       "facilities@company.com",
+			displayName: "",
+			patterns: &AccountTypePatterns{
+				RolePatterns: []string{"facilities"},
+			},
+			want: AccountTypeRole,
+		},
+		{
+			name:        "custom external service domain identifies external service",
+			email:       "bot@custom-service.example.com",
+			displayName: "",
+			patterns: &AccountTypePatterns{
+				ExternalDomains: []string{"custom-service.example.com"},
+			},
+			want: AccountTypeExternalService,
+		},
+		{
+			name:        "hardcoded patterns still work with custom patterns",
+			email:       "noreply@company.com",
+			displayName: "",
+			patterns: &AccountTypePatterns{
+				BotPatterns: []string{"custom-bot-"},
+			},
+			want: AccountTypeBot,
+		},
+		{
+			name:        "empty custom patterns falls back to defaults only",
+			email:       "jira@company.com",
+			displayName: "",
+			patterns:    &AccountTypePatterns{},
+			want:        AccountTypeBot,
+		},
+		{
+			name:        "nil patterns uses defaults",
+			email:       "support@company.com",
+			displayName: "",
+			patterns:    nil,
+			want:        AccountTypeRole,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DetectAccountTypeWithPatterns(tt.email, tt.displayName, tt.patterns)
+			if got != tt.want {
+				t.Errorf("DetectAccountTypeWithPatterns(%q, %q, patterns) = %q, want %q",
+					tt.email, tt.displayName, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDetectAccountTypeWithPatternsFromTenantConfig tests that patterns from TenantConfig
+// are correctly applied to account type detection.
+func TestDetectAccountTypeWithPatternsFromTenantConfig(t *testing.T) {
+	// Simulate TenantConfig with custom patterns
+	tenantBotPatterns := []string{"acme-bot-", "widget-automation-"}
+	tenantDistPatterns := []string{"all-acme-", "acme-team-"}
+	tenantRolePatterns := []string{"acme-support", "acme-helpdesk"}
+
+	tests := []struct {
+		name        string
+		email       string
+		displayName string
+		want        AccountType
+	}{
+		{
+			name:        "tenant-specific bot pattern",
+			email:       "acme-bot-scheduler@company.com",
+			displayName: "",
+			want:        AccountTypeBot,
+		},
+		{
+			name:        "tenant-specific distribution pattern",
+			email:       "all-acme-engineers@company.com",
+			displayName: "",
+			want:        AccountTypeDistribution,
+		},
+		{
+			name:        "tenant-specific role pattern",
+			email:       "acme-support@company.com",
+			displayName: "",
+			want:        AccountTypeRole,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patterns := &AccountTypePatterns{
+				BotPatterns:          tenantBotPatterns,
+				DistributionPatterns: tenantDistPatterns,
+				RolePatterns:         tenantRolePatterns,
+			}
+			got := DetectAccountTypeWithPatterns(tt.email, tt.displayName, patterns)
+			if got != tt.want {
+				t.Errorf("DetectAccountTypeWithPatterns(%q, %q, tenantPatterns) = %q, want %q",
+					tt.email, tt.displayName, got, tt.want)
+			}
+		})
+	}
+}

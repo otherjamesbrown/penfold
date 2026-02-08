@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
@@ -18,13 +19,15 @@ import (
 type Service struct {
 	entityv1.UnimplementedEntityManagementServiceServer
 	entityRepo *entities.Repository
+	configRepo *config.ConfigRepositoryImpl
 	logger     logging.Logger
 }
 
 // NewService creates a new entity management service.
-func NewService(entityRepo *entities.Repository, logger logging.Logger) *Service {
+func NewService(entityRepo *entities.Repository, configRepo *config.ConfigRepositoryImpl, logger logging.Logger) *Service {
 	return &Service{
 		entityRepo: entityRepo,
+		configRepo: configRepo,
 		logger:     logger,
 	}
 }
@@ -333,5 +336,110 @@ func (s *Service) SearchEntities(ctx context.Context, req *entityv1.SearchEntiti
 
 	return &entityv1.SearchEntitiesResponse{
 		People: protoPeople,
+	}, nil
+}
+
+// CreateEmailPattern creates a new tenant email pattern.
+func (s *Service) CreateEmailPattern(ctx context.Context, req *entityv1.CreateEmailPatternRequest) (*entityv1.CreateEmailPatternResponse, error) {
+	s.logger.Debug("CreateEmailPattern called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("pattern", req.Pattern),
+		logging.F("pattern_type", req.PatternType),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.Pattern == "" {
+		return nil, status.Error(codes.InvalidArgument, "pattern is required")
+	}
+	if req.PatternType == "" {
+		return nil, status.Error(codes.InvalidArgument, "pattern_type is required")
+	}
+
+	// Validate pattern_type
+	validTypes := map[string]bool{
+		"bot":          true,
+		"distribution": true,
+		"role":         true,
+		"external_domain": true,
+	}
+	if !validTypes[req.PatternType] {
+		return nil, status.Error(codes.InvalidArgument, "pattern_type must be one of: bot, distribution, role, external_domain")
+	}
+
+	pattern, err := s.configRepo.CreateEmailPattern(ctx, req.TenantId, req.Pattern, req.PatternType, req.Notes)
+	if err != nil {
+		s.logger.Error("Failed to create email pattern", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create email pattern: %v", err))
+	}
+
+	return &entityv1.CreateEmailPatternResponse{
+		Pattern: &entityv1.EmailPattern{
+			Id:          pattern.ID,
+			TenantId:    pattern.TenantID,
+			Pattern:     pattern.Pattern,
+			PatternType: pattern.PatternType,
+			Priority:    int32(pattern.Priority),
+			Enabled:     pattern.Enabled,
+		},
+	}, nil
+}
+
+// ListEmailPatterns lists all email patterns for a tenant.
+func (s *Service) ListEmailPatterns(ctx context.Context, req *entityv1.ListEmailPatternsRequest) (*entityv1.ListEmailPatternsResponse, error) {
+	s.logger.Debug("ListEmailPatterns called",
+		logging.F("tenant_id", req.TenantId),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+
+	patterns, err := s.configRepo.ListEmailPatterns(ctx, req.TenantId)
+	if err != nil {
+		s.logger.Error("Failed to list email patterns", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to list email patterns: %v", err))
+	}
+
+	protoPatterns := make([]*entityv1.EmailPattern, 0, len(patterns))
+	for _, pattern := range patterns {
+		protoPatterns = append(protoPatterns, &entityv1.EmailPattern{
+			Id:          pattern.ID,
+			TenantId:    pattern.TenantID,
+			Pattern:     pattern.Pattern,
+			PatternType: pattern.PatternType,
+			Priority:    int32(pattern.Priority),
+			Enabled:     pattern.Enabled,
+		})
+	}
+
+	return &entityv1.ListEmailPatternsResponse{
+		Patterns: protoPatterns,
+	}, nil
+}
+
+// DeleteEmailPattern deletes an email pattern.
+func (s *Service) DeleteEmailPattern(ctx context.Context, req *entityv1.DeleteEmailPatternRequest) (*entityv1.DeleteEmailPatternResponse, error) {
+	s.logger.Debug("DeleteEmailPattern called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("pattern_id", req.PatternId),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.PatternId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "pattern_id is required")
+	}
+
+	err := s.configRepo.DeleteEmailPattern(ctx, req.TenantId, req.PatternId)
+	if err != nil {
+		s.logger.Error("Failed to delete email pattern", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to delete email pattern: %v", err))
+	}
+
+	return &entityv1.DeleteEmailPatternResponse{
+		PatternId: req.PatternId,
 	}, nil
 }

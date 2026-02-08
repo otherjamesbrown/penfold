@@ -197,3 +197,12 @@ type EntityStats struct {
 	Internal        int64                     `json:"internal"`
 	External        int64                     `json:"external"`
 }
+
+// AccountTypePatterns contains configurable patterns for account type detection.
+// These patterns are merged with hardcoded defaults, not replacing them.
+type AccountTypePatterns struct {
+	BotPatterns          []string `json:"bot_patterns,omitempty"`
+	DistributionPatterns []string `json:"distribution_patterns,omitempty"`
+	RolePatterns         []string `json:"role_patterns,omitempty"`
+	ExternalDomains      []string `json:"external_domains,omitempty"`
+}

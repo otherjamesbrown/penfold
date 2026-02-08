@@ -218,6 +218,9 @@ const (
 	EntityManagementService_CreateFilterRule_FullMethodName   = "/penfold.entity.v1.EntityManagementService/CreateFilterRule"
 	EntityManagementService_ListFilterRules_FullMethodName    = "/penfold.entity.v1.EntityManagementService/ListFilterRules"
 	EntityManagementService_DeleteFilterRule_FullMethodName   = "/penfold.entity.v1.EntityManagementService/DeleteFilterRule"
+	EntityManagementService_CreateEmailPattern_FullMethodName = "/penfold.entity.v1.EntityManagementService/CreateEmailPattern"
+	EntityManagementService_ListEmailPatterns_FullMethodName  = "/penfold.entity.v1.EntityManagementService/ListEmailPatterns"
+	EntityManagementService_DeleteEmailPattern_FullMethodName = "/penfold.entity.v1.EntityManagementService/DeleteEmailPattern"
 	EntityManagementService_TestFilterRule_FullMethodName     = "/penfold.entity.v1.EntityManagementService/TestFilterRule"
 	EntityManagementService_GetEntityStats_FullMethodName     = "/penfold.entity.v1.EntityManagementService/GetEntityStats"
 	EntityManagementService_SearchEntities_FullMethodName     = "/penfold.entity.v1.EntityManagementService/SearchEntities"
@@ -242,6 +245,12 @@ type EntityManagementServiceClient interface {
 	ListFilterRules(ctx context.Context, in *ListFilterRulesRequest, opts ...grpc.CallOption) (*ListFilterRulesResponse, error)
 	// DeleteFilterRule deletes a filter rule.
 	DeleteFilterRule(ctx context.Context, in *DeleteFilterRuleRequest, opts ...grpc.CallOption) (*DeleteFilterRuleResponse, error)
+	// CreateEmailPattern creates a tenant email pattern.
+	CreateEmailPattern(ctx context.Context, in *CreateEmailPatternRequest, opts ...grpc.CallOption) (*CreateEmailPatternResponse, error)
+	// ListEmailPatterns lists tenant email patterns.
+	ListEmailPatterns(ctx context.Context, in *ListEmailPatternsRequest, opts ...grpc.CallOption) (*ListEmailPatternsResponse, error)
+	// DeleteEmailPattern deletes a tenant email pattern.
+	DeleteEmailPattern(ctx context.Context, in *DeleteEmailPatternRequest, opts ...grpc.CallOption) (*DeleteEmailPatternResponse, error)
 	// TestFilterRule tests if an email/name would match any filter rules.
 	TestFilterRule(ctx context.Context, in *TestFilterRuleRequest, opts ...grpc.CallOption) (*TestFilterRuleResponse, error)
 	// GetEntityStats returns statistics about entities in the system.
@@ -318,6 +327,36 @@ func (c *entityManagementServiceClient) DeleteFilterRule(ctx context.Context, in
 	return out, nil
 }
 
+func (c *entityManagementServiceClient) CreateEmailPattern(ctx context.Context, in *CreateEmailPatternRequest, opts ...grpc.CallOption) (*CreateEmailPatternResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateEmailPatternResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_CreateEmailPattern_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *entityManagementServiceClient) ListEmailPatterns(ctx context.Context, in *ListEmailPatternsRequest, opts ...grpc.CallOption) (*ListEmailPatternsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListEmailPatternsResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_ListEmailPatterns_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *entityManagementServiceClient) DeleteEmailPattern(ctx context.Context, in *DeleteEmailPatternRequest, opts ...grpc.CallOption) (*DeleteEmailPatternResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteEmailPatternResponse)
+	err := c.cc.Invoke(ctx, EntityManagementService_DeleteEmailPattern_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *entityManagementServiceClient) TestFilterRule(ctx context.Context, in *TestFilterRuleRequest, opts ...grpc.CallOption) (*TestFilterRuleResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TestFilterRuleResponse)
@@ -367,6 +406,12 @@ type EntityManagementServiceServer interface {
 	ListFilterRules(context.Context, *ListFilterRulesRequest) (*ListFilterRulesResponse, error)
 	// DeleteFilterRule deletes a filter rule.
 	DeleteFilterRule(context.Context, *DeleteFilterRuleRequest) (*DeleteFilterRuleResponse, error)
+	// CreateEmailPattern creates a tenant email pattern.
+	CreateEmailPattern(context.Context, *CreateEmailPatternRequest) (*CreateEmailPatternResponse, error)
+	// ListEmailPatterns lists tenant email patterns.
+	ListEmailPatterns(context.Context, *ListEmailPatternsRequest) (*ListEmailPatternsResponse, error)
+	// DeleteEmailPattern deletes a tenant email pattern.
+	DeleteEmailPattern(context.Context, *DeleteEmailPatternRequest) (*DeleteEmailPatternResponse, error)
 	// TestFilterRule tests if an email/name would match any filter rules.
 	TestFilterRule(context.Context, *TestFilterRuleRequest) (*TestFilterRuleResponse, error)
 	// GetEntityStats returns statistics about entities in the system.
@@ -400,6 +445,15 @@ func (UnimplementedEntityManagementServiceServer) ListFilterRules(context.Contex
 }
 func (UnimplementedEntityManagementServiceServer) DeleteFilterRule(context.Context, *DeleteFilterRuleRequest) (*DeleteFilterRuleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteFilterRule not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) CreateEmailPattern(context.Context, *CreateEmailPatternRequest) (*CreateEmailPatternResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateEmailPattern not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) ListEmailPatterns(context.Context, *ListEmailPatternsRequest) (*ListEmailPatternsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListEmailPatterns not implemented")
+}
+func (UnimplementedEntityManagementServiceServer) DeleteEmailPattern(context.Context, *DeleteEmailPatternRequest) (*DeleteEmailPatternResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteEmailPattern not implemented")
 }
 func (UnimplementedEntityManagementServiceServer) TestFilterRule(context.Context, *TestFilterRuleRequest) (*TestFilterRuleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TestFilterRule not implemented")
@@ -540,6 +594,60 @@ func _EntityManagementService_DeleteFilterRule_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EntityManagementService_CreateEmailPattern_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateEmailPatternRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).CreateEmailPattern(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_CreateEmailPattern_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).CreateEmailPattern(ctx, req.(*CreateEmailPatternRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EntityManagementService_ListEmailPatterns_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListEmailPatternsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).ListEmailPatterns(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_ListEmailPatterns_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).ListEmailPatterns(ctx, req.(*ListEmailPatternsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EntityManagementService_DeleteEmailPattern_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteEmailPatternRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntityManagementServiceServer).DeleteEmailPattern(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntityManagementService_DeleteEmailPattern_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntityManagementServiceServer).DeleteEmailPattern(ctx, req.(*DeleteEmailPatternRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _EntityManagementService_TestFilterRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TestFilterRuleRequest)
 	if err := dec(in); err != nil {
@@ -624,6 +732,18 @@ var EntityManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteFilterRule",
 			Handler:    _EntityManagementService_DeleteFilterRule_Handler,
+		},
+		{
+			MethodName: "CreateEmailPattern",
+			Handler:    _EntityManagementService_CreateEmailPattern_Handler,
+		},
+		{
+			MethodName: "ListEmailPatterns",
+			Handler:    _EntityManagementService_ListEmailPatterns_Handler,
+		},
+		{
+			MethodName: "DeleteEmailPattern",
+			Handler:    _EntityManagementService_DeleteEmailPattern_Handler,
 		},
 		{
 			MethodName: "TestFilterRule",

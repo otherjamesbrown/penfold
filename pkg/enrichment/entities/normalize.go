@@ -139,11 +139,40 @@ var (
 
 // DetectAccountType determines the account type based on email and display name.
 func DetectAccountType(email, displayName string) AccountType {
+	return DetectAccountTypeWithPatterns(email, displayName, nil)
+}
+
+// DetectAccountTypeWithPatterns determines the account type based on email and display name,
+// using both hardcoded default patterns and optional extra patterns.
+// The extraPatterns are merged with defaults (not replacing them).
+// If extraPatterns is nil, behaves identically to DetectAccountType.
+func DetectAccountTypeWithPatterns(email, displayName string, extraPatterns *AccountTypePatterns) AccountType {
 	emailLower := strings.ToLower(email)
 	domain := ExtractDomain(email)
 
+	// Build merged pattern lists
+	externalDomains := externalServiceDomains
+	bots := botPatterns
+	distributions := distributionPatterns
+	roles := rolePatterns
+
+	if extraPatterns != nil {
+		if len(extraPatterns.ExternalDomains) > 0 {
+			externalDomains = append(externalDomains, extraPatterns.ExternalDomains...)
+		}
+		if len(extraPatterns.BotPatterns) > 0 {
+			bots = append(bots, extraPatterns.BotPatterns...)
+		}
+		if len(extraPatterns.DistributionPatterns) > 0 {
+			distributions = append(distributions, extraPatterns.DistributionPatterns...)
+		}
+		if len(extraPatterns.RolePatterns) > 0 {
+			roles = append(roles, extraPatterns.RolePatterns...)
+		}
+	}
+
 	// Check for external service first
-	for _, svcDomain := range externalServiceDomains {
+	for _, svcDomain := range externalDomains {
 		if strings.HasSuffix(domain, svcDomain) || domain == svcDomain {
 			return AccountTypeExternalService
 		}
@@ -153,21 +182,21 @@ func DetectAccountType(email, displayName string) AccountType {
 	localPart := strings.ToLower(strings.Split(email, "@")[0])
 
 	// Bot patterns
-	for _, pattern := range botPatterns {
+	for _, pattern := range bots {
 		if strings.Contains(localPart, pattern) || strings.Contains(emailLower, pattern) {
 			return AccountTypeBot
 		}
 	}
 
 	// Distribution list patterns
-	for _, pattern := range distributionPatterns {
+	for _, pattern := range distributions {
 		if strings.HasPrefix(localPart, pattern) {
 			return AccountTypeDistribution
 		}
 	}
 
 	// Role account patterns
-	for _, pattern := range rolePatterns {
+	for _, pattern := range roles {
 		if localPart == pattern || strings.HasPrefix(localPart, pattern+"-") {
 			return AccountTypeRole
 		}

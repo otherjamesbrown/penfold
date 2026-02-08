@@ -29,6 +29,10 @@ var (
 	entityCreatedBy    string
 	entityField        string
 	entityLimit        int
+	// Pattern command flags
+	entityPatternType  string
+	entityPatternNotes string
+	entityPatternValue string
 )
 
 // EntityCommandDeps holds the dependencies for entity commands.
@@ -91,6 +95,7 @@ Examples:
 	cmd.AddCommand(newEntityRejectCommand(deps))
 	cmd.AddCommand(newEntityRestoreCommand(deps))
 	cmd.AddCommand(newEntityFilterCommand(deps))
+	cmd.AddCommand(newEntityPatternCommand(deps))
 	cmd.AddCommand(newEntityStatsCommand(deps))
 	cmd.AddCommand(newEntitySearchCommand(deps))
 
@@ -200,6 +205,121 @@ Examples:
 	cmd.AddCommand(newEntityFilterRemoveCommand(deps))
 
 	return cmd
+}
+
+// newEntityPatternCommand creates the 'entity pattern' subcommand group.
+func newEntityPatternCommand(deps *EntityCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "pattern",
+		Short: "Manage tenant email patterns",
+		Long: `Manage tenant-specific email patterns for entity classification.
+
+Email patterns help identify entity types during pipeline processing:
+  - bot: Automated bot accounts (e.g., "bot@", "-bot-")
+  - distribution_list: Group distribution lists (e.g., "team@", "all@")
+  - role_account: Role-based accounts (e.g., "noreply@", "support@")
+  - ignore: Emails to ignore during entity creation
+
+Patterns are simple substring matches (case-insensitive).
+
+Examples:
+  # Add a bot pattern
+  penf entity pattern add --pattern "bot@" --type bot --notes "Bot accounts"
+
+  # List all patterns
+  penf entity pattern list
+
+  # Remove a pattern
+  penf entity pattern remove 5`,
+	}
+
+	cmd.AddCommand(newEntityPatternAddCommand(deps))
+	cmd.AddCommand(newEntityPatternListCommand(deps))
+	cmd.AddCommand(newEntityPatternRemoveCommand(deps))
+
+	return cmd
+}
+
+// newEntityPatternAddCommand creates the 'entity pattern add' subcommand.
+func newEntityPatternAddCommand(deps *EntityCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add",
+		Short: "Add a new email pattern",
+		Long: `Add a new tenant email pattern for entity classification.
+
+Pattern types:
+  - bot: Automated bot accounts
+  - distribution_list: Group distribution lists
+  - role_account: Role-based accounts
+  - ignore: Emails to ignore during entity creation
+
+Patterns are case-insensitive substring matches.
+
+Examples:
+  # Add a bot pattern
+  penf entity pattern add --pattern "bot@" --type bot --notes "Bot accounts"
+
+  # Add a distribution list pattern
+  penf entity pattern add --pattern "team@" --type distribution_list --notes "Team lists"
+
+  # Add a role account pattern
+  penf entity pattern add --pattern "noreply@" --type role_account --notes "No-reply addresses"`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEntityPatternAdd(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVar(&entityPatternValue, "pattern", "", "Pattern string (required)")
+	cmd.Flags().StringVar(&entityPatternType, "type", "", "Pattern type: bot, distribution_list, role_account, ignore (required)")
+	cmd.Flags().StringVar(&entityPatternNotes, "notes", "", "Optional notes explaining the pattern")
+	cmd.MarkFlagRequired("pattern")
+	cmd.MarkFlagRequired("type")
+
+	return cmd
+}
+
+// newEntityPatternListCommand creates the 'entity pattern list' subcommand.
+func newEntityPatternListCommand(deps *EntityCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all email patterns",
+		Long: `List all tenant email patterns.
+
+Examples:
+  penf entity pattern list
+  penf entity pattern list --output json`,
+		Aliases: []string{"ls"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEntityPatternList(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVar(&entityPatternType, "type", "", "Filter by pattern type (optional)")
+
+	return cmd
+}
+
+// newEntityPatternRemoveCommand creates the 'entity pattern remove' subcommand.
+func newEntityPatternRemoveCommand(deps *EntityCommandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <pattern-id>",
+		Short: "Remove an email pattern",
+		Long: `Remove a tenant email pattern by ID.
+
+Use 'penf entity pattern list' to find pattern IDs.
+
+Examples:
+  penf entity pattern remove 5`,
+		Aliases: []string{"rm", "delete"},
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			patternID, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid pattern ID: %s", args[0])
+			}
+			return runEntityPatternRemove(cmd.Context(), deps, patternID)
+		},
+	}
 }
 
 // newEntityFilterAddCommand creates the 'entity filter add' subcommand.
@@ -650,6 +770,135 @@ func runEntityFilterRemove(ctx context.Context, deps *EntityCommandDeps, ruleID 
 	return nil
 }
 
+func runEntityPatternAdd(ctx context.Context, deps *EntityCommandDeps) error {
+	if entityPatternValue == "" {
+		return fmt.Errorf("--pattern flag is required")
+	}
+	if entityPatternType == "" {
+		return fmt.Errorf("--type flag is required")
+	}
+
+	// Validate pattern type
+	validTypes := map[string]bool{
+		"bot":               true,
+		"distribution_list": true,
+		"role_account":      true,
+		"ignore":            true,
+	}
+	if !validTypes[entityPatternType] {
+		return fmt.Errorf("invalid pattern type: %s (must be one of: bot, distribution_list, role_account, ignore)", entityPatternType)
+	}
+
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectEntityToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := entityv1.NewEntityManagementServiceClient(conn)
+	tenantID, err := getTenantIDForEntity(deps)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.CreateEmailPattern(ctx, &entityv1.CreateEmailPatternRequest{
+		TenantId:    tenantID,
+		Pattern:     entityPatternValue,
+		PatternType: entityPatternType,
+		Notes:       entityPatternNotes,
+	})
+	if err != nil {
+		return fmt.Errorf("creating email pattern: %w", err)
+	}
+
+	fmt.Printf("Created email pattern ID %d\n", resp.Pattern.Id)
+	fmt.Printf("  Pattern: %s\n", entityPatternValue)
+	fmt.Printf("  Type: %s\n", entityPatternType)
+	if entityPatternNotes != "" {
+		fmt.Printf("  Notes: %s\n", entityPatternNotes)
+	}
+
+	return nil
+}
+
+func runEntityPatternList(ctx context.Context, deps *EntityCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectEntityToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := entityv1.NewEntityManagementServiceClient(conn)
+	tenantID, err := getTenantIDForEntity(deps)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.ListEmailPatterns(ctx, &entityv1.ListEmailPatternsRequest{
+		TenantId: tenantID,
+	})
+	if err != nil {
+		return fmt.Errorf("listing email patterns: %w", err)
+	}
+
+	// Filter by type if specified
+	patterns := resp.Patterns
+	if entityPatternType != "" {
+		filtered := []*entityv1.EmailPattern{}
+		for _, p := range patterns {
+			if p.PatternType == entityPatternType {
+				filtered = append(filtered, p)
+			}
+		}
+		patterns = filtered
+	}
+
+	return outputEmailPatterns(cfg, patterns)
+}
+
+func runEntityPatternRemove(ctx context.Context, deps *EntityCommandDeps, patternID int64) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectEntityToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := entityv1.NewEntityManagementServiceClient(conn)
+	tenantID, err := getTenantIDForEntity(deps)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.DeleteEmailPattern(ctx, &entityv1.DeleteEmailPatternRequest{
+		TenantId:  tenantID,
+		PatternId: patternID,
+	})
+	if err != nil {
+		return fmt.Errorf("deleting email pattern: %w", err)
+	}
+
+	fmt.Printf("Deleted email pattern ID %d\n", patternID)
+	return nil
+}
+
 func runEntityStats(ctx context.Context, deps *EntityCommandDeps) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
@@ -838,6 +1087,46 @@ func outputEntitySearchResultsTable(people []*entityv1.Person) error {
 			truncate(p.Name, 30),
 			truncate(p.Email, 30),
 			title)
+	}
+
+	fmt.Println()
+	return nil
+}
+
+func outputEmailPatterns(cfg *config.CLIConfig, patterns []*entityv1.EmailPattern) error {
+	format := getEntityOutputFormat(cfg)
+
+	switch format {
+	case config.OutputFormatJSON:
+		return outputJSON(patterns)
+	case config.OutputFormatYAML:
+		return outputYAML(patterns)
+	default:
+		return outputEmailPatternsTable(patterns)
+	}
+}
+
+func outputEmailPatternsTable(patterns []*entityv1.EmailPattern) error {
+	if len(patterns) == 0 {
+		fmt.Println("No email patterns found.")
+		return nil
+	}
+
+	fmt.Printf("Email Patterns (%d):\n\n", len(patterns))
+	fmt.Println("  ID      PATTERN                        TYPE                 PRIORITY  ENABLED")
+	fmt.Println("  --      -------                        ----                 --------  -------")
+
+	for _, p := range patterns {
+		enabled := "yes"
+		if !p.Enabled {
+			enabled = "no"
+		}
+		fmt.Printf("  %-6d  %-30s %-20s %-9d %s\n",
+			p.Id,
+			truncate(p.Pattern, 30),
+			truncate(p.PatternType, 20),
+			p.Priority,
+			enabled)
 	}
 
 	fmt.Println()

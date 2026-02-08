@@ -19,6 +19,7 @@ import (
 
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
+	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/health"
@@ -367,6 +368,10 @@ func main() {
 		entityRepo := entities.NewRepository(dbPool, logger)
 		entityResolver := entities.NewResolver(entityRepo)
 
+		// Create config resolver for tenant-specific patterns
+		configRepo := enrichmentconfig.NewConfigRepository(dbPool)
+		configResolver := enrichmentconfig.NewConfigResolver(configRepo)
+
 		// Create context package repository
 		contextRepo := activities.NewContextPackageRepo(dbPool, logger)
 
@@ -377,6 +382,7 @@ func main() {
 			entityRepo, // entityRepo implements EntityLookupInterface
 			contextRepo,
 			pipelineRepo,
+			configResolver,
 		)
 		activityRegistrar.WithContextBuilderActivities(contextBuilderActivities)
 		logger.Info("Context builder activities initialized with database (Stage 3)")

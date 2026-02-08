@@ -45,6 +45,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/assertions"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
+	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -338,7 +339,8 @@ func main() {
 	logger.Info("Registered EntityService")
 
 	// Register EntityManagementService for entity lifecycle management (reject, restore, filter, stats, search).
-	entityMgmtSvc := entitymanagementservice.NewService(entityRepo, logger)
+	configRepo := enrichmentconfig.NewConfigRepository(dbPool)
+	entityMgmtSvc := entitymanagementservice.NewService(entityRepo, configRepo, logger)
 	entityv1.RegisterEntityManagementServiceServer(grpcServer, entityMgmtSvc)
 	logger.Info("Registered EntityManagementService")
 
