@@ -94,6 +94,71 @@ If integration tests fail:
 3. Re-launch the relevant agent if larger
 4. Do NOT proceed to deploy until integration tests pass
 
+## Step 2.5: Test Quality Review
+
+**Tests existing is not enough. Tests must test the right things.**
+
+For each implementation shard, review the test assertions:
+
+```bash
+# Show test functions and their assertions
+grep -A 10 'func Test' path/to/test_file.go | grep -E '(func Test|assert\.|require\.)'
+```
+
+**Red flags — re-launch the agent if you see these:**
+- Tests that only assert `assert.NoError` or `require.NoError` without checking return values
+- Tests that assert `!= nil` without verifying specific fields
+- Bug reproduction tests that don't exercise the specific failing path from the investigation
+- Acceptance tests that don't map to the shard's acceptance criteria
+- Tests with no edge cases (only happy path)
+
+**For SPEC items specifically:** Cross-check that every acceptance criterion in the spec
+has at least one test assertion. List the mapping:
+```
+Criterion 1: "X returns only Y" → TestX_ReturnsOnlyY (line 45)
+Criterion 2: "Z with no data returns empty" → TestZ_EmptyResult (line 78)
+Criterion 3: "Unknown input returns error" → ??? MISSING — flag for fix
+```
+
+## Step 2.6: Real-Data Verification (Pipeline/Data Changes Only)
+
+**Skip this step if the changes don't affect the pipeline, AI processing, or data output.**
+
+For bugs or features that change how content is processed, extracted, or stored:
+
+1. **Identify affected content.** Find at least one content item that demonstrates the
+   bug or that the feature should improve:
+   ```bash
+   penf content list --limit 10
+   # Pick an item that was affected by the bug, or a representative item
+   ```
+
+2. **Capture before state.** Record the current output for comparison:
+   ```bash
+   penf content show pf-CONTENT-ID
+   # For entity bugs: penf entity list | head -20
+   # For assertion bugs: penf assertion list | head -20
+   # For acronym bugs: penf glossary list | head -20
+   ```
+
+3. **Reprocess after deploy** (this runs AFTER Phase 6+7 deploy, but plan for it here):
+   ```bash
+   penf pipeline reprocess pf-CONTENT-ID
+   # Wait for completion, then capture after state
+   ```
+
+4. **Include before/after in resolution.** The resolution message to penfold must show:
+   - Before: [paste output from step 2]
+   - After: [paste output from step 3]
+   - What changed: [specific differences]
+
+**If the output didn't change after reprocessing, the fix didn't work.** Investigate
+whether the correct binary is running (ghost deploy) or whether the fix doesn't affect
+the code path for this content.
+
+**This step is non-negotiable for pipeline changes.** Penfold will reject resolutions
+for pipeline bugs that don't include reprocessed output.
+
 ## Step 3: Trace Back to Original Message
 
 Follow edges from impl shard → investigation/analysis → original message:
@@ -204,6 +269,15 @@ SELECT send_message('penfold', 'agent-mycroft',
 - Tests: [TestName1] FAILED before fix, PASSED after fix
 - Tests: [TestName2] (acceptance) PASSED after implementation
 - Integration: [passing / not applicable]
+- Test quality: [criteria-to-test mapping verified / N/A]
+
+### Real-Data Verification (pipeline changes only)
+Content ID: pf-CONTENT-ID
+Before (pre-fix output):
+[paste actual output]
+After (post-fix, reprocessed output):
+[paste actual output]
+What changed: [specific differences]
 
 ### Deployment
 [List what was deployed: gateway, worker, CLI vX.Y.Z, etc.]

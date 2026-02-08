@@ -165,6 +165,69 @@ Skill(skill="ingest.deploy")
 Pass context between phases naturally — you are the orchestrator running in a single
 conversation, so shard IDs, classifications, and findings carry forward.
 
+## Parallel Session Coordination
+
+James often runs 3-4 mycroft sessions simultaneously. Each session runs `/ingest` or
+`/ingest pf-xxx` independently. This creates coordination challenges.
+
+### Session Rules
+
+1. **Penfold advises James on what can parallelize.** Before sessions start, penfold
+   analyzes file overlap between work items and recommends grouping. Sessions do NOT
+   pick from the queue independently.
+
+2. **Check for file conflicts before implementation.** At Phase 3 (triage), query in-flight
+   work across ALL sessions, not just your own:
+   ```sql
+   SELECT fc.file_path, fc.shard_id, fc.agent_id, s.title
+   FROM file_claims fc
+   JOIN shards s ON s.id = fc.shard_id
+   WHERE fc.expires_at > NOW()
+   AND fc.shard_id != 'pf-MY-SHARD';
+   ```
+   If your shard's files overlap with an active claim: **STOP.** Report the conflict to
+   James via terminal output. Do NOT proceed — two agents modifying the same file produces
+   broken code.
+
+3. **Claim files early.** Register file claims in Phase 3 (triage), not Phase 4 (implement).
+   This gives other sessions time to see the claim before they start coding.
+
+4. **Deploy sequencing.** Only one session deploys at a time. Before deploying:
+   ```sql
+   SELECT s.id, s.title, s.status FROM shards s
+   WHERE s.project = 'penfold' AND s.type = 'task'
+   AND s.status = 'in_progress'
+   AND s.title LIKE 'deploy:%';
+   ```
+   If another deploy is in progress: wait for it to complete, then pull latest before
+   deploying your changes.
+
+5. **All sessions work on main.** Stage ONLY files your sub-agents modified — never
+   `git add -A` or `git add .`. File claims + selective staging prevent cross-contamination.
+
+6. **Feature branches only for multi-day specs.** If penfold flags a spec as spanning
+   multiple days, that session creates a feature branch. Otherwise, commit to main.
+
+### What Happens When Sessions Conflict
+
+| Conflict | Resolution |
+|----------|------------|
+| Same file claimed by two sessions | Later session stops, reports to James |
+| Two sessions deploy simultaneously | Later session waits, pulls, re-verifies |
+| Session A's deploy breaks session B's tests | Session B re-runs tests after pull, fixes conflicts |
+| Session exhausts context mid-work | Close shard with progress notes; James starts new session to continue |
+
+## Definition of Done
+
+Resolution messages to penfold must meet the Definition of Done defined in:
+`docs/ways-of-working.md`
+
+Every resolution MUST include sample output from the running system. "Tests pass" is not
+evidence — penfold will reject resolutions without observable proof.
+
+For pipeline/data changes, reprocess at least one affected content item and include the
+before/after output in the resolution.
+
 ## Key Principles
 
 1. **NEVER write code yourself** — always delegate to sub-agents
@@ -187,6 +250,9 @@ conversation, so shard IDs, classifications, and findings carry forward.
     Nomad is unreliable — binaries upload but allocations don't always restart.
 13. **Context budget awareness** — tell agents to prioritize: working code > tests > cleanup.
     If running low, close the shard with progress notes listing what remains.
+14. **Check file claims** — before implementing, verify no other session owns your target files.
+15. **Sub-shard size limits** — if a layer sub-shard involves >15 files or >500 expected lines
+    of change, decompose it further. Agents that exhaust context produce incomplete work.
 
 ## Error Handling Overview
 

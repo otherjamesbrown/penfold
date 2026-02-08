@@ -203,6 +203,7 @@ Fix:         [1-2 sentence summary]
 Test:        [TestName] in [file] — FAILED before fix ✓, PASSED after ✓
 Deploy:      [Gateway ✓ VERIFIED v[hash] | Worker ✓ VERIFIED v[hash] | None needed]
 Smoke:       [penf health ✓ | penf entity list ✓]
+Real-data:   [Reprocessed pf-CONTENT: before=[summary], after=[summary] | N/A (not pipeline)]
 Notified:    agent-penfold ✓ [action required or "no action needed"]
 
 ## Feature 1: [short title] (LOW/MEDIUM — single agent)
@@ -243,6 +244,7 @@ Deployment verification:
 - Test: bugs confirm pre-fix fail AND post-fix pass; features confirm acceptance tests pass
 - Deploy: must say "VERIFIED v[hash]" — never just "deployed"
 - Smoke: list which smoke tests ran and passed
+- Real-data: pipeline changes MUST show before/after from reprocessed content
 - Notified: confirm reporter was told + whether they need to act
 - Decomposed features: list each layer with sub-shard ID, summary, tests
 - SPEC features: include acceptance criteria count (N/N met)

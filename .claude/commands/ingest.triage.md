@@ -248,6 +248,27 @@ Only create sub-shards for layers the analysis/spec identified. Not every featur
 **For SPECs that provide their own decomposition:** If the spec breaks down the work by
 layer, use the spec's decomposition directly. Don't re-decompose.
 
+### Sub-Shard Size Limits
+
+**Before creating a sub-shard, verify it fits in one agent's context window.**
+
+| Metric | Limit | If Exceeded |
+|--------|-------|-------------|
+| Files to modify/create | ≤15 | Split into sub-layers (e.g., DB-schema + DB-repository) |
+| Expected lines of change | ≤500 | Split by functional area within the layer |
+| Acceptance criteria | ≤8 per sub-shard | Group related criteria into separate sub-shards |
+
+**How to split an oversized layer:**
+- DB layer too large → split into: migration sub-shard + repository sub-shard
+- Service layer too large → split into: proto sub-shard + handler sub-shard
+- CLI layer too large → split by command group (each command gets its own sub-shard)
+
+Each split sub-shard gets its own file claims and dependency edges. The second sub-shard
+within a layer depends on the first (e.g., repository depends on migration).
+
+**Why this matters:** Agents that exhaust context produce incomplete work — missing tests,
+deferred layers, unclosed shards. Prevention (smaller scope) beats recovery (re-launching).
+
 ### Create Layer Sub-Shards
 
 **Layer 1: DB sub-shard:**
