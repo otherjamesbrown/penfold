@@ -158,6 +158,7 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 			SourceID:    src.ID,
 			ContentID:   src.ContentID,
 			ContentHash: src.ContentHash,
+			JobID:       workflowID, // Use workflow ID as job ID for tracing
 		}
 		opts := client.StartWorkflowOptions{
 			ID:        workflowID,

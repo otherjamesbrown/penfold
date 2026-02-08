@@ -8,7 +8,7 @@ func TestAllMainQueueActivities(t *testing.T) {
 	activities := AllMainQueueActivities()
 
 	// Test count
-	expectedCount := 16
+	expectedCount := 17
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -31,6 +31,7 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"Triage",
 		"BuildContextPackage",
 		"DeepAnalyze",
+		"RecordOverrides",
 	}
 
 	activityMap := make(map[string]bool)

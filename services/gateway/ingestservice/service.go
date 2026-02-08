@@ -241,6 +241,7 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 			SourceID:    createdSource.ID,
 			ContentID:   createdSource.ContentID,
 			ContentHash: req.ContentHash,
+			JobID:       workflowID, // Use workflow ID as job ID for tracing
 		}
 		opts := client.StartWorkflowOptions{
 			ID:        workflowID,

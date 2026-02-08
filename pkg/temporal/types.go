@@ -88,7 +88,7 @@ type SLMPipelineInput struct {
 	SourceID    int64  `json:"source_id"`
 	ContentID   string `json:"content_id,omitempty"`
 	ContentHash string `json:"content_hash,omitempty"`
-	JobID       string `json:"job_id"`
+	JobID       string `json:"job_id"` // Required for tracing and activity context
 }
 
 // ContentIngestionInput is the input for content ingestion workflows.

@@ -1,10 +1,14 @@
 package resolver
 
 import (
-	"context"
-	"fmt"
-	"text/template"
 	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strconv"
+	"strings"
+	"text/template"
 )
 
 // StageExecutor executes resolution stages.
@@ -118,7 +122,6 @@ func (e *StageExecutor) ExecuteStage3(
 		return nil, fmt.Errorf("render stage 3 prompt: %w", err)
 	}
 
-	var result Stage3Matching
 	req := CompletionRequest{
 		SystemPrompt: matchingSystemPrompt,
 		Prompt:       prompt,
@@ -127,11 +130,19 @@ func (e *StageExecutor) ExecuteStage3(
 		StageNum:     3,
 	}
 
-	if err := e.provider.CompleteStructured(ctx, req, &result); err != nil {
+	// Get raw completion response
+	resp, err := e.provider.Complete(ctx, req)
+	if err != nil {
 		return nil, fmt.Errorf("stage 3 completion: %w", err)
 	}
 
-	return &result, nil
+	// Parse with fallback for name-to-ID mapping
+	result, err := e.parseStage3WithFallback(resp.Content, candidates)
+	if err != nil {
+		return nil, fmt.Errorf("parse stage 3 result: %w", err)
+	}
+
+	return result, nil
 }
 
 // ExecuteStage4 verifies uncertain resolutions.
@@ -320,6 +331,9 @@ Candidates:
 {{end}}
 {{end}}
 
+IMPORTANT: When matching to a candidate, you MUST use the numeric ID value shown above.
+For entity_id, return the INTEGER ID from the candidate list (e.g., 123), NOT the entity name (e.g., "John Smith").
+
 For each mention, provide:
 {
   "resolutions": [
@@ -374,3 +388,116 @@ Output:
   "adjusted_confidence": 0.0-1.0,
   "verification_notes": "detailed notes on verification"
 }`
+
+// parseStage3WithFallback attempts to parse Stage3Matching from JSON.
+// If FlexInt64 parsing fails due to name strings, it retries with name-to-ID mapping.
+func (e *StageExecutor) parseStage3WithFallback(content string, candidates map[string]*CandidateSet) (*Stage3Matching, error) {
+	// Clean up the response - sometimes LLMs wrap JSON in markdown
+	content = strings.TrimSpace(content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	content = strings.TrimSpace(content)
+
+	var result Stage3Matching
+	err := json.Unmarshal([]byte(content), &result)
+	if err == nil {
+		// Success on first try
+		return &result, nil
+	}
+
+	// Check if it's a FlexInt64 parsing error
+	if !strings.Contains(err.Error(), "FlexInt64") {
+		return nil, err
+	}
+
+	// FlexInt64 error - likely entity_id is a name string
+	// Try to fix the JSON by mapping names to IDs
+	fixedContent, fixed := e.fixEntityIDNamesInJSON(content, candidates)
+	if !fixed {
+		return nil, fmt.Errorf("FlexInt64 error and fallback failed: %w", err)
+	}
+
+	// Retry parsing with fixed content
+	if err := json.Unmarshal([]byte(fixedContent), &result); err != nil {
+		return nil, fmt.Errorf("parse fixed JSON: %w", err)
+	}
+
+	return &result, nil
+}
+
+// fixEntityIDNamesInJSON finds entity_id fields with name strings and replaces them with numeric IDs.
+// Returns the fixed JSON and whether any fixes were applied.
+func (e *StageExecutor) fixEntityIDNamesInJSON(content string, candidates map[string]*CandidateSet) (string, bool) {
+	// Build a name-to-ID mapping from candidates
+	nameToID := make(map[string]int64)
+	for _, candidateSet := range candidates {
+		for _, candidate := range candidateSet.Candidates {
+			nameToID[candidate.EntityName] = candidate.EntityID
+		}
+	}
+
+	// Parse as generic JSON to manipulate
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		return content, false
+	}
+
+	fixed := false
+
+	// Fix resolutions
+	if resolutions, ok := raw["resolutions"].([]interface{}); ok {
+		for _, res := range resolutions {
+			if resMap, ok := res.(map[string]interface{}); ok {
+				if resolvedTo, ok := resMap["resolved_to"].(map[string]interface{}); ok {
+					if entityIDVal, ok := resolvedTo["entity_id"]; ok {
+						// Check if entity_id is a string (and not a numeric string)
+						if entityIDStr, ok := entityIDVal.(string); ok {
+							// Try to parse as int - if it fails, it's a name string
+							if _, err := strconv.ParseInt(entityIDStr, 10, 64); err != nil {
+								// It's a name string - look up the ID
+								if id, found := nameToID[entityIDStr]; found {
+									resolvedTo["entity_id"] = id
+									fixed = true
+									slog.Warn("LLM returned entity_id as name string, mapped to numeric ID",
+										"entity_name", entityIDStr,
+										"entity_id", id)
+								}
+							}
+						}
+					}
+				}
+
+				// Also fix alternatives_considered
+				if alternatives, ok := resMap["alternatives_considered"].([]interface{}); ok {
+					for _, alt := range alternatives {
+						if altMap, ok := alt.(map[string]interface{}); ok {
+							if entityIDVal, ok := altMap["entity_id"]; ok {
+								if entityIDStr, ok := entityIDVal.(string); ok {
+									if _, err := strconv.ParseInt(entityIDStr, 10, 64); err != nil {
+										if id, found := nameToID[entityIDStr]; found {
+											altMap["entity_id"] = id
+											fixed = true
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if !fixed {
+		return content, false
+	}
+
+	// Re-marshal the fixed JSON
+	fixedBytes, err := json.Marshal(raw)
+	if err != nil {
+		return content, false
+	}
+
+	return string(fixedBytes), true
+}

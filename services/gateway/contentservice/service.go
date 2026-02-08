@@ -1197,6 +1197,7 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		SourceID:    source.ID,
 		ContentID:   source.ContentID,
 		ContentHash: source.ContentHash,
+		JobID:       workflowID, // Use workflow ID as job ID for tracing
 	}
 	// TODO: Worker layer will add ModelOverride and TimeoutOverride fields to SLMPipelineInput
 	// For now, overrides are read and logged but not passed to the workflow
