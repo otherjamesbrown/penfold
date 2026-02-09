@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -141,6 +142,7 @@ DISCOVERY:
 var (
 	versionAll        bool
 	versionOutputJSON bool
+	versionChangelog  bool
 )
 
 // versionCmd prints version information.
@@ -150,21 +152,84 @@ var versionCmd = &cobra.Command{
 	Long: `Print the version, commit hash, and build time of the penf CLI.
 
 Use --all to query all service versions.
+Use --changelog to show commits since the last tag.
 Use --output json for machine-readable output.
 
 Examples:
-  penf version               Show CLI version only
-  penf version --all         Show all service versions
+  penf version                      Show CLI version only
+  penf version --all                Show all service versions
+  penf version --changelog          Show commits since last tag
+  penf version --changelog --output json  Output changelog as JSON
   penf version --all --output json  Output as JSON`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Always get local CLI version first.
 		info := buildinfo.Get("penf-cli")
 
+		// If --changelog is set, show commits since last tag.
+		if versionChangelog {
+			// Get the last tag.
+			tagCmd := exec.Command("git", "describe", "--tags", "--abbrev=0")
+			tagOut, err := tagCmd.Output()
+			lastTag := strings.TrimSpace(string(tagOut))
+			if err != nil || lastTag == "" {
+				lastTag = "" // No tags, show all commits
+			}
+
+			// Get commits since last tag (or all if no tag).
+			var logCmd *exec.Cmd
+			if lastTag != "" {
+				logCmd = exec.Command("git", "log", "--oneline", lastTag+"..HEAD")
+			} else {
+				logCmd = exec.Command("git", "log", "--oneline")
+			}
+
+			logOut, err := logCmd.Output()
+			if err != nil {
+				return fmt.Errorf("failed to get git log: %w", err)
+			}
+
+			changelog := strings.TrimSpace(string(logOut))
+
+			// Handle --output-json mode.
+			if versionOutputJSON {
+				type commit struct {
+					Hash    string `json:"hash"`
+					Message string `json:"message"`
+				}
+				commits := []commit{}
+				if changelog != "" {
+					lines := strings.Split(changelog, "\n")
+					for _, line := range lines {
+						fields := strings.SplitN(line, " ", 2)
+						if len(fields) == 2 {
+							commits = append(commits, commit{
+								Hash:    fields[0],
+								Message: fields[1],
+							})
+						}
+					}
+				}
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(commits)
+			}
+
+			// Text output.
+			out := cmd.OutOrStdout()
+			if changelog == "" {
+				fmt.Fprintln(out, "No commits since last tag.")
+			} else {
+				fmt.Fprintln(out, changelog)
+			}
+			return nil
+		}
+
 		if !versionAll {
 			// Just print local version.
-			fmt.Printf("penf version %s\n", info.Version)
-			fmt.Printf("  commit:     %s\n", info.Commit)
-			fmt.Printf("  built:      %s\n", info.BuildTime)
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "penf version %s\n", info.Version)
+			fmt.Fprintf(out, "  commit:     %s\n", info.Commit)
+			fmt.Fprintf(out, "  built:      %s\n", info.BuildTime)
 			return nil
 		}
 
@@ -1313,6 +1378,7 @@ func init() {
 	versionCmd.GroupID = "setup"
 	versionCmd.Flags().BoolVar(&versionAll, "all", false, "Query all service versions")
 	versionCmd.Flags().BoolVar(&versionOutputJSON, "output-json", false, "Output as JSON")
+	versionCmd.Flags().BoolVar(&versionChangelog, "changelog", false, "Show commits since last tag")
 	rootCmd.AddCommand(versionCmd)
 
 	// Config subcommands.

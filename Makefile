@@ -17,6 +17,15 @@ build: ## Build all Go services
 		(cd $$mod && go build ./...); \
 	done
 
+build-cli: ## Build penf CLI with version info embedded
+	@echo "Building penf CLI with version info..."
+	@VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
+	COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
+	BUILD_TIME=$$(date -u '+%Y-%m-%dT%H:%M:%SZ'); \
+	LDFLAGS="-X github.com/otherjamesbrown/penfold/pkg/buildinfo.Version=$$VERSION -X github.com/otherjamesbrown/penfold/pkg/buildinfo.Commit=$$COMMIT -X github.com/otherjamesbrown/penfold/pkg/buildinfo.BuildTime=$$BUILD_TIME"; \
+	cd cmd/penf && go build -ldflags "$$LDFLAGS" -o ../../bin/penf .; \
+	echo "Built bin/penf with version $$VERSION ($$COMMIT) at $$BUILD_TIME"
+
 ## Test targets
 
 test: ## Run all tests
