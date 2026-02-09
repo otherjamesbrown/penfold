@@ -1,16 +1,15 @@
 #!/bin/zsh
 #
-# Penfold Gateway Deployment (Nomad)
-# Cross-compiles, uploads, and deploys gateway via Nomad
+# Penfold Gateway Deployment (systemd)
+# Cross-compiles, uploads, and deploys gateway via systemd
 #
 # Usage:
-#   ./scripts/deploy-gateway.sh           # Build, upload, and deploy via Nomad
+#   ./scripts/deploy-gateway.sh           # Build, upload, and deploy via systemd
 #   ./scripts/deploy-gateway.sh --build   # Build only (no deploy)
-#   ./scripts/deploy-gateway.sh --status  # Check Nomad job status
+#   ./scripts/deploy-gateway.sh --status  # Check service status
 #
 # Environment:
 #   GATEWAY_HOST  Target host for binary upload (default: dev02)
-#   NOMAD_ADDR    Nomad server address (default: http://dev02.brown.chat:4646)
 
 set -e
 
@@ -30,9 +29,7 @@ NC='\033[0m'
 GATEWAY_HOST="${GATEWAY_HOST:-dev02}"
 BINARY_PATH="/opt/penfold/bin/penfold-gateway"
 BUILD_OUTPUT="${PROJECT_ROOT}/services/gateway/gateway-linux"
-NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
-NOMAD_JOB_FILE="deploy/nomad/gateway.nomad.hcl"
-NOMAD_JOB_NAME="penfold-gateway"
+SERVICE_NAME="penfold-gateway"
 GATEWAY_URL="http://dev02.brown.chat:8080"
 
 log_info() { echo "${CYAN}[INFO]${NC} $1"; }
@@ -40,42 +37,31 @@ log_success() { echo "${GREEN}[OK]${NC} $1"; }
 log_error() { echo "${RED}[ERROR]${NC} $1"; }
 log_warn() { echo "${YELLOW}[WARN]${NC} $1"; }
 
-# --- Nomad Helpers ---
+# --- systemd Helpers ---
 
-nomad_run_job() {
-    local job_file="$1"
-    log_info "Running Nomad job: ${job_file}..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job run "${PROJECT_ROOT}/${job_file}"
+systemctl_restart_service() {
+    local service_name="$1"
+    log_info "Restarting ${service_name} via systemd..."
+    ssh "$GATEWAY_HOST" "sudo systemctl restart ${service_name}"
+    log_success "Service restart command sent"
 }
 
-nomad_restart_job() {
-    local job_name="$1"
-    log_info "Restarting ${job_name} to pick up new binary..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job restart -on-error=fail "$job_name"
+systemctl_verify_active() {
+    local service_name="$1"
+    log_info "Verifying ${service_name} is active..."
+    if ssh "$GATEWAY_HOST" "systemctl is-active ${service_name}" > /dev/null 2>&1; then
+        log_success "${service_name} is active"
+        return 0
+    else
+        log_error "${service_name} is not active"
+        return 1
+    fi
 }
 
-nomad_wait_healthy() {
-    local job_name="$1"
-    local timeout="${2:-60}"
-    log_info "Waiting for ${job_name} to be healthy..."
-    local attempts=0
-    local job_status=""
-    while [[ $attempts -lt $timeout ]]; do
-        job_status=$(NOMAD_ADDR="$NOMAD_ADDR" nomad job status -short "$job_name" 2>/dev/null | grep "Status" | awk '{print $NF}')
-        if [[ "$job_status" == "running" ]]; then
-            log_success "${job_name} is running"
-            return 0
-        fi
-        ((attempts++))
-        sleep 1
-    done
-    log_error "${job_name} failed to become healthy within ${timeout}s"
-    return 1
-}
-
-nomad_job_status() {
-    local job_name="$1"
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job status "$job_name" 2>/dev/null
+systemctl_service_status() {
+    local service_name="$1"
+    log_info "Fetching ${service_name} status..."
+    ssh "$GATEWAY_HOST" "systemctl status ${service_name} --no-pager" 2>/dev/null || log_warn "Failed to get service status"
 }
 
 # --- Build Helpers ---
@@ -118,9 +104,9 @@ deploy_binary() {
 }
 
 check_status() {
-    log_info "Checking gateway Nomad job status..."
+    log_info "Checking gateway service status..."
     echo ""
-    nomad_job_status "$NOMAD_JOB_NAME" || log_warn "Job not found or Nomad not reachable"
+    systemctl_service_status "$SERVICE_NAME"
 
     # Also check health endpoint
     echo ""
@@ -159,7 +145,7 @@ run_smoke_tests() {
 # --- Commands ---
 
 cmd_full_deploy() {
-    echo "${CYAN}=== Penfold Gateway Deployment (Nomad) ===${NC}"
+    echo "${CYAN}=== Penfold Gateway Deployment (systemd) ===${NC}"
     echo ""
 
     # Capture old commit before deploy
@@ -172,15 +158,16 @@ cmd_full_deploy() {
     deploy_binary
     echo ""
 
-    log_info "Submitting Nomad job..."
-    nomad_run_job "$NOMAD_JOB_FILE"
+    systemctl_restart_service "$SERVICE_NAME"
     echo ""
 
-    nomad_restart_job "$NOMAD_JOB_NAME"
+    # Allow service time to start
+    log_info "Waiting for service to start..."
+    sleep 3
     echo ""
 
-    if ! nomad_wait_healthy "$NOMAD_JOB_NAME" 60; then
-        log_error "Deployment failed - Nomad will auto-revert if configured"
+    if ! systemctl_verify_active "$SERVICE_NAME"; then
+        log_error "Deployment failed - service is not active"
         exit 1
     fi
 
@@ -227,13 +214,12 @@ case "${1:-}" in
         echo "Usage: $0 [--build|--status]"
         echo ""
         echo "Options:"
-        echo "  (no args)  Build, upload, and deploy gateway via Nomad"
+        echo "  (no args)  Build, upload, and deploy gateway via systemd"
         echo "  --build    Build only (cross-compile for Linux)"
-        echo "  --status   Check Nomad job status and health"
+        echo "  --status   Check service status and health"
         echo ""
         echo "Environment:"
         echo "  GATEWAY_HOST  Target host for binary upload (default: dev02)"
-        echo "  NOMAD_ADDR    Nomad server address (default: http://dev02.brown.chat:4646)"
         ;;
     "")
         cmd_full_deploy

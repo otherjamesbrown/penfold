@@ -53,6 +53,15 @@ func main() {
 		logging.F("environment", cfg.Environment),
 	)
 
+	// Bind gRPC port FIRST - fail fast if port is unavailable
+	// This prevents expensive cloud API initialization when the port is already in use
+	grpcListener, err := net.Listen("tcp", cfg.GRPCAddr())
+	if err != nil {
+		logger.Error("Failed to create gRPC listener", logging.Err(err))
+		os.Exit(1)
+	}
+	logger.Debug("gRPC port bound successfully", logging.F("address", cfg.GRPCAddr()))
+
 	// Initialize tracing with Langfuse if configured
 	var tracingShutdown tracing.ShutdownFunc
 	if lfConfig := tracing.LangfuseConfigFromEnv(); lfConfig != nil && lfConfig.Host != "" {
@@ -158,13 +167,7 @@ func main() {
 		logger.Debug("gRPC reflection enabled")
 	}
 
-	// Start gRPC server
-	grpcListener, err := net.Listen("tcp", cfg.GRPCAddr())
-	if err != nil {
-		logger.Error("Failed to create gRPC listener", logging.Err(err))
-		os.Exit(1)
-	}
-
+	// Start gRPC server (listener already bound earlier to fail fast)
 	go func() {
 		logger.Info("gRPC server listening", logging.F("address", cfg.GRPCAddr()))
 		if err := grpcServer.Serve(grpcListener); err != nil {
