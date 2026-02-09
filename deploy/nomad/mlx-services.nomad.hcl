@@ -30,6 +30,9 @@ job "penfold-mlx" {
     task "embeddings" {
       driver = "raw_exec"
 
+      kill_signal  = "SIGTERM"
+      kill_timeout = "10s"
+
       config {
         command = "/bin/sh"
         args = [
@@ -71,6 +74,9 @@ job "penfold-mlx" {
     task "llm" {
       driver = "raw_exec"
 
+      kill_signal  = "SIGTERM"
+      kill_timeout = "10s"
+
       config {
         command = "/bin/sh"
         args = [
@@ -107,6 +113,9 @@ job "penfold-mlx" {
 
     task "exporter" {
       driver = "raw_exec"
+
+      kill_signal  = "SIGTERM"
+      kill_timeout = "10s"
 
       config {
         command = "/bin/sh"

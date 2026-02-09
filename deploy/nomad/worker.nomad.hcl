@@ -36,6 +36,9 @@ job "penfold-worker" {
     task "worker" {
       driver = "raw_exec"
 
+      kill_signal  = "SIGTERM"
+      kill_timeout = "35s"
+
       config {
         command = "/bin/sh"
         args    = ["-c", "set -a; . /etc/penfold/worker.env; set +a; exec /opt/penfold/bin/penfold-worker"]

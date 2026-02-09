@@ -34,6 +34,9 @@ job "penfold-ai-coordinator" {
     task "ai-coordinator" {
       driver = "raw_exec"
 
+      kill_signal  = "SIGTERM"
+      kill_timeout = "35s"
+
       config {
         command = "/bin/sh"
         args    = ["-c", "set -a; . /etc/penfold/ai-coordinator.env; set +a; exec /opt/penfold/bin/penfold-ai-coordinator"]

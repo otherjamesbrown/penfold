@@ -34,6 +34,9 @@ job "penfold-gateway" {
     task "gateway" {
       driver = "raw_exec"
 
+      kill_signal  = "SIGTERM"
+      kill_timeout = "35s"
+
       config {
         command = "/bin/sh"
         args    = ["-c", "set -a; . /etc/penfold/gateway.env; set +a; exec /opt/penfold/bin/penfold-gateway"]
