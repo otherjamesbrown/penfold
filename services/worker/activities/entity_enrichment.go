@@ -95,9 +95,12 @@ func (a *PersonEnrichmentActivities) EnrichPersonMetadata(ctx context.Context, i
 			var signatureForThisPerson string
 			if len(input.PerSenderSignatures) > 0 {
 				signatureForThisPerson = input.PerSenderSignatures[person.Name]
-			} else {
-				// Fall back to shared signature (single-sender or legacy)
-				signatureForThisPerson = input.SignatureText
+			} else if input.SignatureText != "" {
+				// Fall back to shared signature, but scope to sender only when sender email is known.
+				// This prevents a single sender's title leaking to all mentioned people.
+				if input.SenderEmail == "" || strings.EqualFold(dbPerson.PrimaryEmail, input.SenderEmail) {
+					signatureForThisPerson = input.SignatureText
+				}
 			}
 
 			if signatureForThisPerson != "" {

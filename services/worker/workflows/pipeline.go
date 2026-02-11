@@ -375,6 +375,7 @@ type EnrichPersonMetadataInput struct {
 	TenantID             string            `json:"tenant_id"`
 	ResolvedPeople       []ResolvedPerson  `json:"resolved_people"`
 	SignatureText        string            `json:"signature_text,omitempty"`
+	SenderEmail          string            `json:"sender_email,omitempty"`          // Email of the message sender, for scoping shared signature
 	BodyText             string            `json:"body_text,omitempty"`
 	PerSenderSignatures  map[string]string `json:"per_sender_signatures,omitempty"` // Maps person name to their signature
 }
@@ -941,6 +942,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				TenantID:       input.TenantID,
 				ResolvedPeople: contextOutput.ResolvedPeople,
 				BodyText:       input.BodyText,
+				SenderEmail:    input.SenderEmail,
 			}
 
 			// Try per-sender extraction for multiple people
@@ -948,13 +950,10 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				perSenderSigs := extractSignaturesPerSender(input.BodyText, contextOutput.ResolvedPeople)
 				if len(perSenderSigs) > 0 {
 					enrichInput.PerSenderSignatures = perSenderSigs
-				} else if sig := extractSignature(input.BodyText); sig != "" && input.SenderName != "" {
-					// Single signature (no thread separators) but multiple people:
-					// Scope signature to sender only to prevent cross-contamination
-					enrichInput.PerSenderSignatures = map[string]string{input.SenderName: sig}
-				} else if sig != "" {
-					// No sender name available: fall back to shared signature
-					enrichInput.SignatureText = sig
+				} else {
+					// Fall back to single signature if no thread separators found.
+					// SenderEmail is passed so the activity can scope it to the sender only.
+					enrichInput.SignatureText = extractSignature(input.BodyText)
 				}
 			} else {
 				// Single sender: use original extractSignature for backwards compatibility
