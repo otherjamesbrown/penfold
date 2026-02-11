@@ -135,14 +135,26 @@ check_status() {
 run_migrations() {
     log_info "Running database migrations..."
 
-    # Check if penf CLI is available
-    if [[ ! -x "${PROJECT_ROOT}/bin/penf" ]]; then
-        log_warn "penf CLI not found in bin/, attempting to build..."
-        cd "${PROJECT_ROOT}" && make build-cli
+    # Migrations require DATABASE_URL to connect to the remote database.
+    # Skip if not set — the deploy can proceed without migrations.
+    if [[ -z "${DATABASE_URL:-}" ]]; then
+        log_warn "DATABASE_URL not set, skipping migrations (run 'penf db migrate' manually)"
+        return 0
+    fi
+
+    # Check if penf CLI is available locally
+    local penf_bin=""
+    if [[ -x "${PROJECT_ROOT}/cmd/penf/penf" ]]; then
+        penf_bin="${PROJECT_ROOT}/cmd/penf/penf"
+    elif command -v penf &>/dev/null; then
+        penf_bin="penf"
+    else
+        log_warn "penf CLI not found, skipping migrations (run 'penf db migrate' manually)"
+        return 0
     fi
 
     # Run migrations
-    if "${PROJECT_ROOT}/bin/penf" db migrate --migrations "${PROJECT_ROOT}/migrations"; then
+    if "$penf_bin" db migrate --migrations "${PROJECT_ROOT}/migrations"; then
         log_success "Migrations completed"
     else
         log_error "Migrations failed"
