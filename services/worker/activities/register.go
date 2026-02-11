@@ -26,6 +26,7 @@ type Registrar struct {
 	contextBuilderActivities *ContextBuilderActivities
 	analysisActivities       *AnalysisActivities
 	pipelineActivities       *PipelineActivities
+	personEnrichmentActivities *PersonEnrichmentActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -92,6 +93,12 @@ func (r *Registrar) WithAnalysisActivities(aa *AnalysisActivities) *Registrar {
 // WithPipelineActivities adds pipeline activities to the registrar.
 func (r *Registrar) WithPipelineActivities(pa *PipelineActivities) *Registrar {
 	r.pipelineActivities = pa
+	return r
+}
+
+// WithPersonEnrichmentActivities adds person enrichment activities to the registrar.
+func (r *Registrar) WithPersonEnrichmentActivities(pea *PersonEnrichmentActivities) *Registrar {
+	r.personEnrichmentActivities = pea
 	return r
 }
 
@@ -222,6 +229,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.pipelineActivities != nil {
 		w.RegisterActivityWithOptions(r.pipelineActivities.RecordOverrides, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityRecordOverrides,
+		})
+	}
+
+	// Person enrichment activities for Stage 3.5 (entity enrichment)
+	if r.personEnrichmentActivities != nil {
+		w.RegisterActivityWithOptions(r.personEnrichmentActivities.EnrichPersonMetadata, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityEnrichPersonMetadata,
 		})
 	}
 }
@@ -362,6 +376,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// RecordOverrides
 		if r.pipelineActivities != nil {
+			count += 1
+		}
+		// EnrichPersonMetadata
+		if r.personEnrichmentActivities != nil {
 			count += 1
 		}
 		return count

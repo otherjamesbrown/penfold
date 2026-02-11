@@ -33,6 +33,15 @@ var (
 	entityPatternType  string
 	entityPatternNotes string
 	entityPatternValue string
+	// Update command flags
+	entityName        string
+	entityAccountType string
+	entityTitle       string
+	entityCompany     string
+	entityMetadata    map[string]string
+	// Bulk-enrich command flags
+	entityDomain     string
+	entityIsInternal bool
 )
 
 // EntityCommandDeps holds the dependencies for entity commands.
@@ -98,6 +107,8 @@ Examples:
 	cmd.AddCommand(newEntityPatternCommand(deps))
 	cmd.AddCommand(newEntityStatsCommand(deps))
 	cmd.AddCommand(newEntitySearchCommand(deps))
+	cmd.AddCommand(newEntityManagementUpdateCommand(deps))
+	cmd.AddCommand(newEntityManagementBulkEnrichCommand(deps))
 
 	return cmd
 }
@@ -958,6 +969,165 @@ func runEntitySearch(ctx context.Context, deps *EntityCommandDeps, query string)
 	}
 
 	return outputEntitySearchResults(cfg, resp.People)
+}
+
+// newEntityManagementUpdateCommand creates the 'entity update' subcommand.
+func newEntityManagementUpdateCommand(deps *EntityCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update <entity-id>",
+		Short: "Update entity fields",
+		Long: `Update specific fields of an entity.
+
+You can update name, account type, title, company, and metadata.`,
+		Example: `  # Update entity title and company
+  penf entity update 123 --title "VP Engineering" --company "Akamai"
+
+  # Update entity name
+  penf entity update 123 --name "John Smith"
+
+  # Update account type
+  penf entity update 123 --account-type "person"
+
+  # Update metadata
+  penf entity update 123 --metadata "linkedin=https://linkedin.com/in/john"`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid entity ID: %s", args[0])
+			}
+			return runEntityManagementUpdate(cmd.Context(), deps, id)
+		},
+	}
+
+	cmd.Flags().StringVar(&entityName, "name", "", "New entity name")
+	cmd.Flags().StringVar(&entityAccountType, "account-type", "", "New account type (person, role, distribution, bot, external_service, team, service)")
+	cmd.Flags().StringVar(&entityTitle, "title", "", "New job title")
+	cmd.Flags().StringVar(&entityCompany, "company", "", "New company name")
+	cmd.Flags().StringToStringVar(&entityMetadata, "metadata", nil, "Metadata key=value pairs")
+
+	return cmd
+}
+
+// newEntityManagementBulkEnrichCommand creates the 'entity bulk-enrich' subcommand.
+func newEntityManagementBulkEnrichCommand(deps *EntityCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "bulk-enrich",
+		Short: "Bulk enrich entities by domain",
+		Long: `Enrich entities by email domain, setting company and is_internal flag.
+
+This command updates all entities with email addresses in the specified domain.`,
+		Example: `  # Set company for all akamai.com entities
+  penf entity bulk-enrich --domain akamai.com --company Akamai
+
+  # Mark all internal domain entities as internal
+  penf entity bulk-enrich --domain mycompany.com --company "My Company" --internal
+
+  # Set company without marking as internal
+  penf entity bulk-enrich --domain example.com --company Example`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEntityManagementBulkEnrich(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVar(&entityDomain, "domain", "", "Email domain to match (required)")
+	cmd.Flags().StringVar(&entityCompany, "company", "", "Company name to set")
+	cmd.Flags().BoolVar(&entityIsInternal, "internal", false, "Mark entities as internal")
+	cmd.MarkFlagRequired("domain")
+
+	return cmd
+}
+
+func runEntityManagementUpdate(ctx context.Context, deps *EntityCommandDeps, entityID int64) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectEntityToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := entityv1.NewEntityManagementServiceClient(conn)
+	tenantID, err := getTenantIDForEntity(deps)
+	if err != nil {
+		return err
+	}
+
+	// At least one field must be specified
+	if entityName == "" && entityAccountType == "" && entityTitle == "" && entityCompany == "" && len(entityMetadata) == 0 {
+		return fmt.Errorf("at least one field (--name, --account-type, --title, --company, or --metadata) must be specified")
+	}
+
+	// Build request with optional fields
+	req := &entityv1.UpdateEntityRequest{
+		TenantId: tenantID,
+		EntityId: entityID,
+		Metadata: entityMetadata,
+	}
+
+	if entityName != "" {
+		req.Name = &entityName
+	}
+	if entityAccountType != "" {
+		req.AccountType = &entityAccountType
+	}
+	if entityTitle != "" {
+		req.Title = &entityTitle
+	}
+	if entityCompany != "" {
+		req.Company = &entityCompany
+	}
+
+	resp, err := client.UpdateEntity(ctx, req)
+	if err != nil {
+		return fmt.Errorf("updating entity: %w", err)
+	}
+
+	fmt.Printf("Updated entity ID %d: %s\n", resp.EntityId, resp.Message)
+	return nil
+}
+
+func runEntityManagementBulkEnrich(ctx context.Context, deps *EntityCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	conn, err := connectEntityToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := entityv1.NewEntityManagementServiceClient(conn)
+	tenantID, err := getTenantIDForEntity(deps)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.BulkEnrichEntities(ctx, &entityv1.BulkEnrichEntitiesRequest{
+		TenantId:   tenantID,
+		Domain:     entityDomain,
+		Company:    entityCompany,
+		IsInternal: entityIsInternal,
+	})
+	if err != nil {
+		return fmt.Errorf("bulk enriching entities: %w", err)
+	}
+
+	fmt.Printf("Enriched %d entities in domain %s\n", resp.Count, entityDomain)
+	if entityCompany != "" {
+		fmt.Printf("  Set company: %s\n", entityCompany)
+	}
+	if entityIsInternal {
+		fmt.Printf("  Marked as internal\n")
+	}
+	return nil
 }
 
 // ==================== Output Functions ====================

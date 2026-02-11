@@ -369,6 +369,19 @@ type PersistFindingsOutput struct {
 	AffinityUpdates      int `json:"affinity_updates"`
 }
 
+// EnrichPersonMetadataInput is the input for the EnrichPersonMetadata activity (Stage 3.5).
+type EnrichPersonMetadataInput struct {
+	TenantID       string           `json:"tenant_id"`
+	ResolvedPeople []ResolvedPerson `json:"resolved_people"`
+	SignatureText  string           `json:"signature_text,omitempty"`
+	BodyText       string           `json:"body_text,omitempty"`
+}
+
+// EnrichPersonMetadataOutput is the output from the EnrichPersonMetadata activity.
+type EnrichPersonMetadataOutput struct {
+	PeopleEnriched int `json:"people_enriched"`
+}
+
 // RecordOverridesInput is the input for recording override parameters in pipeline_runs.
 type RecordOverridesInput struct {
 	TenantID  string            `json:"tenant_id"`
@@ -908,6 +921,36 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			)
 		}
 		state.status.StepsCompleted = 4
+
+		if checkCancellation() {
+			state.result.Status = "cancelled"
+			state.result.Error = state.cancelReason
+			return state.result, nil
+		}
+
+		// Stage 3.5: Person Metadata Enrichment (non-blocking)
+		// Enriches person entities with title, company, and is_internal flag from email content and domain
+		if contextOutput != nil && len(contextOutput.ResolvedPeople) > 0 {
+			enrichCtx := workflow.WithActivityOptions(ctx, fastOpts)
+			enrichOutput := &EnrichPersonMetadataOutput{}
+			err = workflow.ExecuteActivity(enrichCtx, pkgtemporal.ActivityEnrichPersonMetadata, EnrichPersonMetadataInput{
+				TenantID:       input.TenantID,
+				ResolvedPeople: contextOutput.ResolvedPeople,
+				SignatureText:  "", // TODO: Extract signature from parsed content
+				BodyText:       "",  // TODO: Extract body from parsed content
+			}).Get(ctx, enrichOutput)
+			if err != nil {
+				logger.Warn("person metadata enrichment failed (non-blocking)",
+					"source_id", input.SourceID,
+					"error", err.Error(),
+				)
+			} else if enrichOutput.PeopleEnriched > 0 {
+				logger.Info("person metadata enriched",
+					"source_id", input.SourceID,
+					"people_enriched", enrichOutput.PeopleEnriched,
+				)
+			}
+		}
 
 		if checkCancellation() {
 			state.result.Status = "cancelled"

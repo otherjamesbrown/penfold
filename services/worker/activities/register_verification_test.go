@@ -142,6 +142,18 @@ func (r *regVerifyEntityLookup) GetProjectsWithKeywords(context.Context, string)
 	return nil, nil
 }
 
+type regVerifyPersonRepo struct{}
+
+func (r *regVerifyPersonRepo) GetPersonByID(context.Context, int64) (*entities.Person, error) {
+	return nil, nil
+}
+func (r *regVerifyPersonRepo) UpdatePerson(context.Context, *entities.Person) error {
+	return nil
+}
+func (r *regVerifyPersonRepo) GetPeopleByDomain(context.Context, string, string) ([]*entities.Person, error) {
+	return nil, nil
+}
+
 // Compile-time interface verification for stubs.
 var (
 	_ AIClient                 = (*regVerifyAIClient)(nil)
@@ -154,6 +166,7 @@ var (
 	_ ContextPackageRepository = (*regVerifyContextPackageRepo)(nil)
 	_ EntityResolverInterface  = (*regVerifyEntityResolver)(nil)
 	_ EntityLookupInterface    = (*regVerifyEntityLookup)(nil)
+	_ PersonRepository         = (*regVerifyPersonRepo)(nil)
 )
 
 // newFullRegistrar creates a fully-configured Registrar with all activity types.
@@ -210,6 +223,10 @@ func newFullRegistrar() *Registrar {
 			logger:       logger,
 			pipelineRepo: &regVerifyPipelineRepo{},
 			baseRepo:     nil, // nil is safe for registration testing
+		}).
+		WithPersonEnrichmentActivities(&PersonEnrichmentActivities{
+			logger:     logger,
+			personRepo: &regVerifyPersonRepo{},
 		})
 }
 

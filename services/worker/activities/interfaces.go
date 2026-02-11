@@ -16,6 +16,9 @@ type SourceRepository interface {
 
 	// UpdateSourceStatus updates the processing status of a source.
 	UpdateSourceStatus(ctx context.Context, tenantID string, sourceID int64, status string) error
+
+	// UpdateSourceStatusWithFailure updates the processing status and failure info of a source.
+	UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string) error
 }
 
 // Source represents a content source record from the database.

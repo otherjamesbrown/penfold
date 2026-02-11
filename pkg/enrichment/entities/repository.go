@@ -232,13 +232,14 @@ func (r *Repository) UpdatePerson(ctx context.Context, p *Person) error {
 			email_addresses = $3,
 			job_title = $4,
 			department = $5,
-			is_internal = $6,
-			account_type = $7,
-			confidence_score = $8,
-			needs_review = $9,
-			reviewed_at = $10,
-			reviewed_by = $11,
-			potential_duplicates = $12,
+			company = $6,
+			is_internal = $7,
+			account_type = $8,
+			confidence_score = $9,
+			needs_review = $10,
+			reviewed_at = $11,
+			reviewed_by = $12,
+			potential_duplicates = $13,
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING updated_at
@@ -256,6 +257,7 @@ func (r *Repository) UpdatePerson(ctx context.Context, p *Person) error {
 		emailAddresses,
 		nullIfEmpty(p.Title),
 		nullIfEmpty(p.Department),
+		nullIfEmpty(p.Company),
 		p.IsInternal,
 		p.AccountType,
 		p.Confidence,
@@ -910,11 +912,11 @@ func (r *Repository) RestorePerson(ctx context.Context, tenantID string, personI
 	return nil
 }
 
-// UpdateEntityFields updates specific fields of an entity (name, account_type, and/or metadata).
+// UpdateEntityFields updates specific fields of an entity (name, account_type, metadata, title, and/or company).
 // All parameters are optional. Pass nil/empty to leave the field unchanged.
-func (r *Repository) UpdateEntityFields(ctx context.Context, tenantID string, personID int64, name *string, accountType *AccountType, metadata map[string]string) error {
-	if name == nil && accountType == nil && len(metadata) == 0 {
-		return fmt.Errorf("at least one field (name, account_type, or metadata) must be specified")
+func (r *Repository) UpdateEntityFields(ctx context.Context, tenantID string, personID int64, name *string, accountType *AccountType, metadata map[string]string, title *string, company *string) error {
+	if name == nil && accountType == nil && len(metadata) == 0 && title == nil && company == nil {
+		return fmt.Errorf("at least one field (name, account_type, metadata, title, or company) must be specified")
 	}
 
 	// Build dynamic query based on which fields are being updated
@@ -951,6 +953,18 @@ func (r *Repository) UpdateEntityFields(ctx context.Context, tenantID string, pe
 		argIdx++
 	}
 
+	if title != nil {
+		setParts = append(setParts, fmt.Sprintf("job_title = $%d", argIdx))
+		args = append(args, *title)
+		argIdx++
+	}
+
+	if company != nil {
+		setParts = append(setParts, fmt.Sprintf("company = $%d", argIdx))
+		args = append(args, *company)
+		argIdx++
+	}
+
 	setParts = append(setParts, "updated_at = NOW()")
 
 	query := fmt.Sprintf(`
@@ -972,7 +986,9 @@ func (r *Repository) UpdateEntityFields(ctx context.Context, tenantID string, pe
 		logging.F("person_id", personID),
 		logging.F("name_updated", name != nil),
 		logging.F("account_type_updated", accountType != nil),
-		logging.F("metadata_updated", len(metadata) > 0))
+		logging.F("metadata_updated", len(metadata) > 0),
+		logging.F("title_updated", title != nil),
+		logging.F("company_updated", company != nil))
 
 	return nil
 }
@@ -1066,6 +1082,59 @@ func (r *Repository) BulkRejectByPattern(ctx context.Context, tenantID, emailPat
 		logging.F("email_pattern", emailPattern),
 		logging.F("name_pattern", namePattern),
 		logging.F("reason", reason))
+
+	return count, nil
+}
+
+// BulkEnrichByDomain enriches multiple people by email domain, setting company and is_internal.
+func (r *Repository) BulkEnrichByDomain(ctx context.Context, tenantID, domain, company string, isInternal bool) (int, error) {
+	if domain == "" {
+		return 0, fmt.Errorf("domain is required")
+	}
+
+	// Build the email pattern for LIKE matching
+	emailPattern := fmt.Sprintf("%%@%s", domain)
+
+	// Build dynamic query based on which fields are being set
+	var setParts []string
+	var args []interface{}
+	argIdx := 1
+
+	args = append(args, tenantID)
+	argIdx++
+
+	if company != "" {
+		setParts = append(setParts, fmt.Sprintf("company = $%d", argIdx))
+		args = append(args, company)
+		argIdx++
+	}
+
+	setParts = append(setParts, fmt.Sprintf("is_internal = $%d", argIdx))
+	args = append(args, isInternal)
+	argIdx++
+
+	setParts = append(setParts, "updated_at = NOW()")
+
+	args = append(args, emailPattern)
+
+	query := fmt.Sprintf(`
+		UPDATE people SET
+			%s
+		WHERE tenant_id = $1
+			AND primary_email LIKE $%d
+	`, strings.Join(setParts, ", "), argIdx)
+
+	result, err := r.pool.Exec(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("failed to bulk enrich: %w", err)
+	}
+
+	count := int(result.RowsAffected())
+	r.logger.Info("Bulk enriched people by domain",
+		logging.F("count", count),
+		logging.F("domain", domain),
+		logging.F("company", company),
+		logging.F("is_internal", isInternal))
 
 	return count, nil
 }

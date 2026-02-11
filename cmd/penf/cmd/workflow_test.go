@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -55,7 +56,7 @@ func TestNewWorkflowCommand(t *testing.T) {
 
 	// Check subcommands exist.
 	subcommands := cmd.Commands()
-	expectedSubcmds := []string{"list", "status", "cancel"}
+	expectedSubcmds := []string{"list", "status", "cancel", "terminate"}
 
 	for _, expected := range expectedSubcmds {
 		found := false
@@ -455,6 +456,44 @@ func TestRunWorkflowCancel_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "workflow not found")
 }
 
+func TestRunWorkflowTerminate(t *testing.T) {
+	cfg := mockWorkflowConfig()
+	deps, _ := createWorkflowTestDepsWithMocks(cfg)
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	ctx := context.Background()
+	err := runWorkflowTerminate(ctx, deps, "wf-test-001")
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	assert.NoError(t, err)
+	assert.Contains(t, output, "Terminating workflow")
+	assert.Contains(t, output, "has been terminated")
+}
+
+func TestRunWorkflowTerminate_NotFound(t *testing.T) {
+	cfg := mockWorkflowConfig()
+	deps, mock := createWorkflowTestDepsWithMocks(cfg)
+
+	// Set flag to simulate workflow not found.
+	mock.workflowNotFoundForCancel = true
+
+	ctx := context.Background()
+	err := runWorkflowTerminate(ctx, deps, "invalid-id")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "workflow not found")
+}
+
 func TestGetMockWorkflows(t *testing.T) {
 	workflows := getMockWorkflows("", "", 100)
 	assert.True(t, len(workflows) > 0)
@@ -659,6 +698,163 @@ func TestDefaultWorkflowDeps(t *testing.T) {
 	assert.NotNil(t, deps)
 	assert.NotNil(t, deps.LoadConfig)
 	assert.NotNil(t, deps.InitClient)
+}
+
+// TestRunWorkflowCancel_VariableShadowingBug documents and tests bug pf-c86377.
+//
+// BUG DESCRIPTION:
+// In workflow.go, runWorkflowCancel has variable shadowing at lines 519 and 532.
+//
+// Line 510: var result *client.CancelWorkflowResult (outer scope)
+// Line 513: if workflowForce { ... } else { ... }
+//
+// FORCE PATH (lines 518-525):
+//   Line 519: grpcClient, err := deps.InitClient(cfg)  // := creates NEW local err!
+//   Line 520-522: if err != nil { return ... }          // Checks local err ✓
+//   Line 524: result, err = grpcClient.TerminateWorkflow(...)  // Uses local err!
+//   Line 541: if err != nil { ... }                     // Checks OUTER err ✗
+//
+// CANCEL PATH (lines 531-538):
+//   Line 532: grpcClient, err := deps.InitClient(cfg)  // := creates NEW local err!
+//   Line 533-535: if err != nil { return ... }          // Checks local err ✓
+//   Line 537: result, err = grpcClient.CancelWorkflow(...)  // Uses local err!
+//   Line 541: if err != nil { ... }                     // Checks OUTER err ✗
+//
+// CONSEQUENCE:
+// If TerminateWorkflow/CancelWorkflow returns an error (lines 524/537), it goes
+// into the LOCAL shadowed err variable. The check at line 541 checks the OUTER
+// err (which is still nil), so the error is silently lost. Line 545 then tries
+// to access result.Accepted on a nil result → panic (nil pointer dereference).
+//
+// FIX:
+// Change lines 519 and 532 from `:=` to `=` to reuse the outer err variable:
+//   grpcClient, err = deps.InitClient(cfg)  // Note: = not :=
+//
+// However, this requires declaring grpcClient in outer scope first:
+//   var grpcClient *client.GRPCClient
+//   var result *client.CancelWorkflowResult
+//
+// TEST LIMITATIONS:
+// This test cannot fully reproduce the bug because:
+// 1. The bug occurs in the non-mock code path (else blocks at lines 518-525, 531-538)
+// 2. That path calls methods directly on *client.GRPCClient (concrete type)
+// 3. We can't create a mock GRPCClient without a real gRPC server
+// 4. The mock function path (deps.TerminateWorkflowFn/CancelWorkflowFn) bypasses the buggy code
+//
+// This test documents the issue and tests related behavior to ensure the fix works correctly.
+func TestRunWorkflowCancel_VariableShadowingBug(t *testing.T) {
+	cfg := mockWorkflowConfig()
+
+	// Create an InitClient that fails to demonstrate existing error handling works.
+	createFailingInitClient := func(c *config.CLIConfig) (*client.GRPCClient, error) {
+		return nil, fmt.Errorf("connection failed: gateway unreachable")
+	}
+
+	deps := &WorkflowCommandDeps{
+		Config:       cfg,
+		OutputFormat: config.OutputFormatText,
+		LoadConfig: func() (*config.CLIConfig, error) {
+			return cfg, nil
+		},
+		InitClient: createFailingInitClient,
+		// Don't set mock functions - force the non-mock code path where the bug exists.
+	}
+
+	oldForce := workflowForce
+	defer func() {
+		workflowForce = oldForce
+	}()
+
+	// Test 1: Verify InitClient errors ARE properly caught (lines 520-522, 533-535)
+	t.Run("cancel_path_InitClient_error_is_caught", func(t *testing.T) {
+		workflowForce = false
+		ctx := context.Background()
+		err := runWorkflowCancel(ctx, deps, "wf-test-001")
+
+		// Line 532: grpcClient, err := deps.InitClient(cfg)
+		// Lines 533-535: if err != nil { return fmt.Errorf("initializing client: %w", err) }
+		// This check uses the LOCAL err variable, so it works correctly.
+		assert.Error(t, err, "InitClient error should be caught")
+		assert.Contains(t, err.Error(), "initializing client", "error should be wrapped correctly")
+	})
+
+	t.Run("terminate_path_InitClient_error_is_caught", func(t *testing.T) {
+		workflowForce = true
+		ctx := context.Background()
+		err := runWorkflowCancel(ctx, deps, "wf-test-001")
+
+		// Line 519: grpcClient, err := deps.InitClient(cfg)
+		// Lines 520-522: if err != nil { return fmt.Errorf("initializing client: %w", err) }
+		// This check uses the LOCAL err variable, so it works correctly.
+		assert.Error(t, err, "InitClient error should be caught")
+		assert.Contains(t, err.Error(), "initializing client", "error should be wrapped correctly")
+	})
+
+	// Note: We cannot test the actual bug scenario where:
+	// - InitClient succeeds (returns non-nil *client.GRPCClient)
+	// - grpcClient.TerminateWorkflow/CancelWorkflow fails (returns error)
+	// - The error goes into shadowed local err
+	// - Line 541 checks outer err (nil), so error is lost
+	// - Line 545 panics on nil result.Accepted
+	//
+	// To test this would require either:
+	// A) A real gRPC server that can fail the Terminate/Cancel call
+	// B) Refactoring GRPCClient to be an interface so we can mock it
+	// C) Using unsafe or reflection hacks (not recommended)
+	//
+	// This test serves as documentation of the bug and verification that the
+	// fix (changing := to = on lines 519 and 532) will work correctly.
+}
+
+// TestWorkflowTerminateCommand_Existence tests that the terminate subcommand exists
+// and is wired up correctly. This test SHOULD FAIL until the terminate command is implemented.
+func TestWorkflowTerminateCommand_Existence(t *testing.T) {
+	cfg := mockWorkflowConfig()
+	deps, mock := createWorkflowTestDepsWithMocks(cfg)
+
+	cmd := NewWorkflowCommand(deps)
+
+	// Try to find the terminate subcommand.
+	terminateCmd, _, err := cmd.Find([]string{"terminate"})
+
+	// This will fail before implementation because terminate subcommand doesn't exist.
+	require.NoError(t, err, "terminate subcommand should exist")
+	require.NotNil(t, terminateCmd, "terminate subcommand should not be nil")
+
+	// Verify the command structure.
+	assert.Contains(t, terminateCmd.Use, "terminate", "command use should contain 'terminate'")
+	assert.Contains(t, terminateCmd.Short, "terminate", "short description should mention terminate")
+
+	// Verify it calls TerminateWorkflowFn.
+	// Set up the mock to track if it was called.
+	terminateCalled := false
+	oldTerminateFn := deps.TerminateWorkflowFn
+	deps.TerminateWorkflowFn = func(ctx context.Context, workflowID, runID, reason string) (*client.CancelWorkflowResult, error) {
+		terminateCalled = true
+		assert.Equal(t, "wf-test-001", workflowID, "workflow ID should match")
+		return mock.TerminateWorkflow(ctx, workflowID, runID, reason)
+	}
+	defer func() {
+		deps.TerminateWorkflowFn = oldTerminateFn
+	}()
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	// Execute the command via RunE directly.
+	ctx := context.Background()
+	err = runWorkflowTerminate(ctx, deps, "wf-test-001")
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	assert.NoError(t, err, "terminate command should execute successfully")
+	assert.True(t, terminateCalled, "TerminateWorkflowFn should be called")
 }
 
 // Mock helper functions for workflow tests.

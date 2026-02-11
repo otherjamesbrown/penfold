@@ -459,8 +459,8 @@ func (s *Service) UpdateEntity(ctx context.Context, req *entityv1.UpdateEntityRe
 	}
 
 	// At least one field must be specified
-	if req.Name == nil && req.AccountType == nil && len(req.Metadata) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "at least one field (name, account_type, or metadata) must be specified")
+	if req.Name == nil && req.AccountType == nil && len(req.Metadata) == 0 && req.Title == nil && req.Company == nil {
+		return nil, status.Error(codes.InvalidArgument, "at least one field (name, account_type, metadata, title, or company) must be specified")
 	}
 
 	// Validate account_type if provided
@@ -483,7 +483,7 @@ func (s *Service) UpdateEntity(ctx context.Context, req *entityv1.UpdateEntityRe
 		accountType = &at
 	}
 
-	err := s.entityRepo.UpdateEntityFields(ctx, req.TenantId, req.EntityId, req.Name, accountType, req.Metadata)
+	err := s.entityRepo.UpdateEntityFields(ctx, req.TenantId, req.EntityId, req.Name, accountType, req.Metadata, req.Title, req.Company)
 	if err != nil {
 		s.logger.Error("Failed to update entity", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update entity: %v", err))
@@ -518,5 +518,32 @@ func (s *Service) DeleteEntity(ctx context.Context, req *entityv1.DeleteEntityRe
 	return &entityv1.DeleteEntityResponse{
 		EntityId: req.EntityId,
 		Message:  "Entity deleted successfully",
+	}, nil
+}
+
+// BulkEnrichEntities enriches entities by email domain with company and is_internal flag.
+func (s *Service) BulkEnrichEntities(ctx context.Context, req *entityv1.BulkEnrichEntitiesRequest) (*entityv1.BulkEnrichEntitiesResponse, error) {
+	s.logger.Debug("BulkEnrichEntities called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("domain", req.Domain),
+		logging.F("company", req.Company),
+		logging.F("is_internal", req.IsInternal),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.Domain == "" {
+		return nil, status.Error(codes.InvalidArgument, "domain is required")
+	}
+
+	count, err := s.entityRepo.BulkEnrichByDomain(ctx, req.TenantId, req.Domain, req.Company, req.IsInternal)
+	if err != nil {
+		s.logger.Error("Failed to bulk enrich entities", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to bulk enrich entities: %v", err))
+	}
+
+	return &entityv1.BulkEnrichEntitiesResponse{
+		Count: int32(count),
 	}, nil
 }

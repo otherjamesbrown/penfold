@@ -40,7 +40,6 @@ func (s *Service) GetPipelineErrors(ctx context.Context, req *pipelinev1.GetPipe
 			pr.source_id,
 			pr.stage,
 			pr.error_code,
-			pr.raw_error,
 			pr.status,
 			pr.created_at,
 			s.external_id
@@ -108,13 +107,12 @@ func (s *Service) GetPipelineErrors(ctx context.Context, req *pipelinev1.GetPipe
 			sourceID   int64
 			stage      string
 			errorCode  *string
-			rawError   *string
 			runStatus  string
 			createdAt  time.Time
 			externalID *string
 		)
 
-		if err := rows.Scan(&runID, &sourceID, &stage, &errorCode, &rawError, &runStatus, &createdAt, &externalID); err != nil {
+		if err := rows.Scan(&runID, &sourceID, &stage, &errorCode, &runStatus, &createdAt, &externalID); err != nil {
 			s.logger.Error("Error scanning pipeline error row", logging.Err(err))
 			continue
 		}
@@ -130,17 +128,10 @@ func (s *Service) GetPipelineErrors(ctx context.Context, req *pipelinev1.GetPipe
 		event := &pipelinev1.PipelineErrorEvent{
 			Code:            *errorCode,
 			Stage:           stage,
-			Message:         "",
+			Message:         perrors.GetDescription(code),
 			Retryable:       perrors.IsRetryable(code),
 			SuggestedAction: perrors.GetSuggestedAction(code),
 			Details:         make(map[string]string),
-		}
-
-		// Set message from raw_error if available
-		if rawError != nil && *rawError != "" {
-			event.Message = *rawError
-		} else {
-			event.Message = perrors.GetDescription(code)
 		}
 
 		// Set occurred_at timestamp

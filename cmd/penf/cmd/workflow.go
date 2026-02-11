@@ -115,9 +115,10 @@ Workflows are long-running operations like content ingestion, batch processing,
 or scheduled tasks. Use these commands to monitor and manage workflow execution.
 
 Commands:
-  list   - List all workflows
-  status - Show detailed workflow status
-  cancel - Cancel a running workflow
+  list      - List all workflows
+  status    - Show detailed workflow status
+  cancel    - Cancel a running workflow
+  terminate - Terminate a workflow immediately
 
 Examples:
   # List recent workflows
@@ -129,8 +130,11 @@ Examples:
   # Check status of a specific workflow
   penf workflow status wf-abc123
 
-  # Cancel a running workflow
+  # Cancel a running workflow (graceful)
   penf workflow cancel wf-abc123
+
+  # Terminate a workflow (immediate)
+  penf workflow terminate wf-abc123
 
 Documentation:
   Pipeline overview:   docs/concepts/pipeline.md
@@ -145,6 +149,7 @@ Related Commands:
 	cmd.AddCommand(newWorkflowListCommand(deps))
 	cmd.AddCommand(newWorkflowStatusCommand(deps))
 	cmd.AddCommand(newWorkflowCancelCommand(deps))
+	cmd.AddCommand(newWorkflowTerminateCommand(deps))
 
 	return cmd
 }
@@ -245,6 +250,35 @@ Examples:
 
 	// Define flags.
 	cmd.Flags().BoolVarP(&workflowForce, "force", "f", false, "Force immediate termination")
+
+	return cmd
+}
+
+// newWorkflowTerminateCommand creates the 'workflow terminate' subcommand.
+func newWorkflowTerminateCommand(deps *WorkflowCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "terminate <workflow-id>",
+		Short: "Immediately terminate a workflow",
+		Long: `Terminate a workflow immediately without cleanup.
+
+This will forcefully stop the workflow without allowing cleanup or graceful shutdown.
+Already completed steps will not be rolled back. For graceful cancellation, use 'cancel' instead.
+
+Terminate is more forceful than cancel:
+- Cancel requests graceful shutdown (workflow can still run cleanup)
+- Terminate stops execution immediately (no cleanup allowed)
+
+Examples:
+  # Terminate a stuck workflow
+  penf workflow terminate wf-abc123
+
+  # Terminate when cancel doesn't work
+  penf workflow terminate wf-abc123`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkflowTerminate(cmd.Context(), deps, args[0])
+		},
+	}
 
 	return cmd
 }
@@ -507,6 +541,7 @@ func runWorkflowCancel(ctx context.Context, deps *WorkflowCommandDeps, workflowI
 	}
 	deps.Config = cfg
 
+	var grpcClient *client.GRPCClient
 	var result *client.CancelWorkflowResult
 
 	// Use mock functions if provided (for testing).
@@ -516,7 +551,7 @@ func runWorkflowCancel(ctx context.Context, deps *WorkflowCommandDeps, workflowI
 			result, err = deps.TerminateWorkflowFn(ctx, workflowID, "", "Terminated via CLI (--force)")
 		} else {
 			// Initialize gRPC client.
-			grpcClient, err := deps.InitClient(cfg)
+			grpcClient, err = deps.InitClient(cfg)
 			if err != nil {
 				return fmt.Errorf("initializing client: %w", err)
 			}
@@ -529,7 +564,7 @@ func runWorkflowCancel(ctx context.Context, deps *WorkflowCommandDeps, workflowI
 			result, err = deps.CancelWorkflowFn(ctx, workflowID, "", "Cancelled via CLI")
 		} else {
 			// Initialize gRPC client.
-			grpcClient, err := deps.InitClient(cfg)
+			grpcClient, err = deps.InitClient(cfg)
 			if err != nil {
 				return fmt.Errorf("initializing client: %w", err)
 			}
@@ -546,6 +581,45 @@ func runWorkflowCancel(ctx context.Context, deps *WorkflowCommandDeps, workflowI
 		fmt.Printf("\n%s\n", result.Message)
 	} else {
 		fmt.Printf("\nFailed to cancel workflow: %s\n", result.Message)
+	}
+
+	return nil
+}
+
+// runWorkflowTerminate executes the workflow terminate command.
+func runWorkflowTerminate(ctx context.Context, deps *WorkflowCommandDeps, workflowID string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	var grpcClient *client.GRPCClient
+	var result *client.CancelWorkflowResult
+
+	fmt.Printf("Terminating workflow %s...\n", workflowID)
+
+	// Use mock function if provided (for testing).
+	if deps.TerminateWorkflowFn != nil {
+		result, err = deps.TerminateWorkflowFn(ctx, workflowID, "", "Terminated via CLI")
+	} else {
+		// Initialize gRPC client.
+		grpcClient, err = deps.InitClient(cfg)
+		if err != nil {
+			return fmt.Errorf("initializing client: %w", err)
+		}
+		defer grpcClient.Close()
+		result, err = grpcClient.TerminateWorkflow(ctx, workflowID, "", "Terminated via CLI")
+	}
+
+	if err != nil {
+		return fmt.Errorf("terminating workflow: %w", err)
+	}
+
+	if result.Accepted {
+		fmt.Printf("\n%s\n", result.Message)
+	} else {
+		fmt.Printf("\nFailed to terminate workflow: %s\n", result.Message)
 	}
 
 	return nil

@@ -38,6 +38,7 @@ type Repository interface {
 	ListAvailableInsights(ctx context.Context, contentID string) (*InsightsAvailabilityRecord, error)
 	GetInsights(ctx context.Context, contentID string, types []string) ([]*InsightRecord, error)
 	GetAssertions(ctx context.Context, contentID string, assertionType *string) ([]*AssertionRecord, error)
+	ClearErrorByContentID(ctx context.Context, contentID string) error
 }
 
 // ContentItemRecord represents a content item from the database.
@@ -960,6 +961,26 @@ func (r *repositoryImpl) GetAssertions(ctx context.Context, contentID string, as
 	}
 
 	return assertions, nil
+}
+
+// ClearErrorByContentID clears error fields from a source by content_id.
+func (r *repositoryImpl) ClearErrorByContentID(ctx context.Context, contentID string) error {
+	query := `
+		UPDATE sources
+		SET failure_category = NULL, failure_reason = NULL, updated_at = NOW()
+		WHERE content_id = $1 AND (is_deleted IS NULL OR is_deleted = false)
+	`
+
+	result, err := r.db.Exec(ctx, query, contentID)
+	if err != nil {
+		return fmt.Errorf("failed to clear error fields: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("content item not found")
+	}
+
+	return nil
 }
 
 // joinWhere joins WHERE clauses with AND.
@@ -1911,5 +1932,36 @@ func (s *Service) GetAssertions(ctx context.Context, req *contentv1.GetAssertion
 		ContentId:   req.ContentId,
 		Assertions:  protoAssertions,
 		TotalCount:  int32(len(assertions)),
+	}, nil
+}
+
+// ClearError clears error fields from a successfully reprocessed content item.
+func (s *Service) ClearError(ctx context.Context, req *contentv1.ClearErrorRequest) (*contentv1.ClearErrorResponse, error) {
+	s.logger.Info("ClearError called",
+		logging.F("content_id", req.ContentId),
+	)
+
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	// Clear error fields
+	err := s.repo.ClearErrorByContentID(ctx, req.ContentId)
+	if err != nil {
+		s.logger.Error("Failed to clear error fields",
+			logging.Err(err),
+			logging.F("content_id", req.ContentId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to clear error fields: %v", err)
+	}
+
+	s.logger.Info("Error fields cleared",
+		logging.F("content_id", req.ContentId),
+	)
+
+	return &contentv1.ClearErrorResponse{
+		Success:   true,
+		ContentId: req.ContentId,
+		Message:   "Error fields cleared successfully",
 	}, nil
 }

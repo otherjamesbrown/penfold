@@ -37,6 +37,7 @@ const (
 	ContentProcessorService_GetAssertions_FullMethodName         = "/penfold.content.v1.ContentProcessorService/GetAssertions"
 	ContentProcessorService_PurgeContentItem_FullMethodName      = "/penfold.content.v1.ContentProcessorService/PurgeContentItem"
 	ContentProcessorService_PurgeContentItems_FullMethodName     = "/penfold.content.v1.ContentProcessorService/PurgeContentItems"
+	ContentProcessorService_ClearError_FullMethodName            = "/penfold.content.v1.ContentProcessorService/ClearError"
 )
 
 // ContentProcessorServiceClient is the client API for ContentProcessorService service.
@@ -84,6 +85,8 @@ type ContentProcessorServiceClient interface {
 	// PurgeContentItems bulk hard-deletes soft-deleted content items.
 	// Requires confirm=true.
 	PurgeContentItems(ctx context.Context, in *PurgeContentItemsRequest, opts ...grpc.CallOption) (*PurgeContentItemsResponse, error)
+	// ClearError clears error fields from a successfully reprocessed content item.
+	ClearError(ctx context.Context, in *ClearErrorRequest, opts ...grpc.CallOption) (*ClearErrorResponse, error)
 }
 
 type contentProcessorServiceClient struct {
@@ -244,6 +247,16 @@ func (c *contentProcessorServiceClient) PurgeContentItems(ctx context.Context, i
 	return out, nil
 }
 
+func (c *contentProcessorServiceClient) ClearError(ctx context.Context, in *ClearErrorRequest, opts ...grpc.CallOption) (*ClearErrorResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClearErrorResponse)
+	err := c.cc.Invoke(ctx, ContentProcessorService_ClearError_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ContentProcessorServiceServer is the server API for ContentProcessorService service.
 // All implementations must embed UnimplementedContentProcessorServiceServer
 // for forward compatibility.
@@ -289,6 +302,8 @@ type ContentProcessorServiceServer interface {
 	// PurgeContentItems bulk hard-deletes soft-deleted content items.
 	// Requires confirm=true.
 	PurgeContentItems(context.Context, *PurgeContentItemsRequest) (*PurgeContentItemsResponse, error)
+	// ClearError clears error fields from a successfully reprocessed content item.
+	ClearError(context.Context, *ClearErrorRequest) (*ClearErrorResponse, error)
 	mustEmbedUnimplementedContentProcessorServiceServer()
 }
 
@@ -343,6 +358,9 @@ func (UnimplementedContentProcessorServiceServer) PurgeContentItem(context.Conte
 }
 func (UnimplementedContentProcessorServiceServer) PurgeContentItems(context.Context, *PurgeContentItemsRequest) (*PurgeContentItemsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PurgeContentItems not implemented")
+}
+func (UnimplementedContentProcessorServiceServer) ClearError(context.Context, *ClearErrorRequest) (*ClearErrorResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClearError not implemented")
 }
 func (UnimplementedContentProcessorServiceServer) mustEmbedUnimplementedContentProcessorServiceServer() {
 }
@@ -636,6 +654,24 @@ func _ContentProcessorService_PurgeContentItems_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ContentProcessorService_ClearError_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClearErrorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContentProcessorServiceServer).ClearError(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContentProcessorService_ClearError_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContentProcessorServiceServer).ClearError(ctx, req.(*ClearErrorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ContentProcessorService_ServiceDesc is the grpc.ServiceDesc for ContentProcessorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -702,6 +738,10 @@ var ContentProcessorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PurgeContentItems",
 			Handler:    _ContentProcessorService_PurgeContentItems_Handler,
+		},
+		{
+			MethodName: "ClearError",
+			Handler:    _ContentProcessorService_ClearError_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

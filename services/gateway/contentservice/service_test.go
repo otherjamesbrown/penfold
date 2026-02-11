@@ -96,6 +96,11 @@ func (m *MockRepository) GetAssertions(ctx context.Context, contentID string, as
 	return args.Get(0).([]*AssertionRecord), args.Error(1)
 }
 
+func (m *MockRepository) ClearErrorByContentID(ctx context.Context, contentID string) error {
+	args := m.Called(ctx, contentID)
+	return args.Error(0)
+}
+
 // newTestService creates a service with mock dependencies for testing.
 func newTestService(repo Repository) *Service {
 	logger := logging.NewLogger(nil)

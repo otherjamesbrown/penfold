@@ -69,6 +69,9 @@ service ContentProcessorService {
   // PurgeContentItems bulk hard-deletes soft-deleted content items.
   // Requires confirm=true.
   rpc PurgeContentItems(PurgeContentItemsRequest) returns (PurgeContentItemsResponse);
+
+  // ClearError clears error fields from a successfully reprocessed content item.
+  rpc ClearError(ClearErrorRequest) returns (ClearErrorResponse);
 }
 
 // =============================================================================
@@ -745,6 +748,28 @@ message PurgeContentItemsResponse {
 
   // List of purged content item IDs.
   repeated string content_ids = 2;
+
+  // Status message.
+  string message = 3;
+}
+
+// =============================================================================
+// Clear Error Messages
+// =============================================================================
+
+// ClearErrorRequest clears error fields from a content item.
+message ClearErrorRequest {
+  // Unique identifier of the content item.
+  string content_id = 1;
+}
+
+// ClearErrorResponse returns the result of clearing error fields.
+message ClearErrorResponse {
+  // Whether the operation was successful.
+  bool success = 1;
+
+  // The content_id that was updated.
+  string content_id = 2;
 
   // Status message.
   string message = 3;

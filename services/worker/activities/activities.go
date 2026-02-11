@@ -378,30 +378,23 @@ func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.Upd
 
 	tenantID := resolveTenantID(input.TenantID)
 
-	// Build query based on whether failure info is provided
-	var query string
-	var args []interface{}
+	// Always update failure fields to support clearing them on success
+	// When status is "completed"/"parsed"/"extracted", empty strings clear previous errors
+	query := `
+		UPDATE sources
+		SET processing_status = $3,
+		    failure_category = NULLIF($4, ''),
+		    failure_reason = NULLIF($5, ''),
+		    updated_at = NOW()
+		WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+	`
+	args := []interface{}{input.SourceID, tenantID, input.Status, input.FailureCategory, input.FailureReason}
+
 	if input.FailureCategory != "" || input.FailureReason != "" {
-		query = `
-			UPDATE sources
-			SET processing_status = $3,
-			    failure_category = $4,
-			    failure_reason = $5,
-			    updated_at = NOW()
-			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
-		`
-		args = []interface{}{input.SourceID, tenantID, input.Status, input.FailureCategory, input.FailureReason}
 		logger.Info("Updating status with failure info",
 			logging.F("category", input.FailureCategory),
 			logging.F("reason", input.FailureReason),
 		)
-	} else {
-		query = `
-			UPDATE sources
-			SET processing_status = $3, updated_at = NOW()
-			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
-		`
-		args = []interface{}{input.SourceID, tenantID, input.Status}
 	}
 
 	result, err := a.db.Exec(ctx, query, args...)

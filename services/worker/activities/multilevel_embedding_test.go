@@ -35,6 +35,10 @@ func (m *mockSourceRepo) UpdateSourceStatus(ctx context.Context, tenantID string
 	return nil
 }
 
+func (m *mockSourceRepo) UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string) error {
+	return nil
+}
+
 // mlMockEmbeddingRepo is a mock for multi-level embedding tests.
 // We need a different name because mockEmbeddingRepo already exists in embedding_repo_test.go
 type mlMockEmbeddingRepo struct {

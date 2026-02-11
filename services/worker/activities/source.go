@@ -124,15 +124,17 @@ func (a *SourceActivities) UpdateSourceStatus(ctx context.Context, input workflo
 		)
 	}
 
-	// Update the status
+	// Update the status with failure fields
 	startTime := time.Now()
-	if err := a.sourceRepo.UpdateSourceStatus(ctx, input.TenantID, input.SourceID, input.Status); err != nil {
+	if err := a.sourceRepo.UpdateSourceStatusWithFailure(ctx, input.TenantID, input.SourceID, input.Status, input.FailureCategory, input.FailureReason); err != nil {
 		logger.Error("Failed to update source status", logging.Err(err))
 		return fmt.Errorf("failed to update source %d status to %s: %w", input.SourceID, input.Status, err)
 	}
 
 	logger.Info("Source status updated successfully",
 		logging.F("duration", time.Since(startTime)),
+		logging.F("failure_category", input.FailureCategory),
+		logging.F("failure_reason", input.FailureReason),
 	)
 
 	return nil

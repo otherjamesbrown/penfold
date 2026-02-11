@@ -70,6 +70,9 @@ service EntityManagementService {
 
   // DeleteEntity permanently deletes an entity and all related records.
   rpc DeleteEntity(DeleteEntityRequest) returns (DeleteEntityResponse);
+
+  // BulkEnrichEntities enriches entities by domain with company and is_internal flag.
+  rpc BulkEnrichEntities(BulkEnrichEntitiesRequest) returns (BulkEnrichEntitiesResponse);
 }
 
 // =============================================================================
@@ -664,6 +667,12 @@ message UpdateEntityRequest {
 
   // Metadata key-value pairs (optional, merges with existing metadata)
   map<string, string> metadata = 5;
+
+  // New job title (optional, omit to leave unchanged)
+  optional string title = 6;
+
+  // New company name (optional, omit to leave unchanged)
+  optional string company = 7;
 }
 
 // UpdateEntityResponse confirms entity update.
@@ -691,4 +700,25 @@ message DeleteEntityResponse {
 
   // Confirmation message
   string message = 2;
+}
+
+// BulkEnrichEntitiesRequest enriches entities by email domain.
+message BulkEnrichEntitiesRequest {
+  // Tenant identifier
+  string tenant_id = 1;
+
+  // Email domain to match (e.g., "akamai.com")
+  string domain = 2;
+
+  // Company name to set for matching entities
+  string company = 3;
+
+  // Whether to mark matching entities as internal
+  bool is_internal = 4;
+}
+
+// BulkEnrichEntitiesResponse returns count of enriched entities.
+message BulkEnrichEntitiesResponse {
+  // Number of entities enriched
+  int32 count = 1;
 }
