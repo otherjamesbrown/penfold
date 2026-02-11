@@ -1294,6 +1294,65 @@ func extractSignature(body string) string {
 	return strings.TrimSpace(body[lastPos:])
 }
 
+// extractSenderFromSeparator tries to extract sender identity from a thread separator line.
+// Returns (email, name) where email is preferred if found, otherwise name, or both empty if parse fails.
+// Examples:
+//   - "On Mon, Feb 10, 2026, John Smith <john@example.com> wrote:" -> ("john@example.com", "John Smith")
+//   - "From: Sarah Chen <sarah@example.com>" -> ("sarah@example.com", "Sarah Chen")
+//   - "On Mon, Sarah Chen wrote:" -> ("", "Sarah Chen")
+func extractSenderFromSeparator(separatorLine string) (email string, name string) {
+	// Pattern: email in angle brackets <email@domain.com>
+	if idx := strings.Index(separatorLine, "<"); idx != -1 {
+		if endIdx := strings.Index(separatorLine[idx:], ">"); endIdx != -1 {
+			email = separatorLine[idx+1 : idx+endIdx]
+		}
+	}
+
+	// Try to extract name from common patterns
+	// "On Mon, Feb 10, 2026, John Smith <john@example.com> wrote:"
+	// "From: Sarah Chen <sarah@example.com>"
+	// "On Mon, Sarah Chen wrote:"
+
+	// For "From:" pattern
+	if strings.HasPrefix(strings.TrimSpace(separatorLine), "From:") {
+		fromText := strings.TrimPrefix(strings.TrimSpace(separatorLine), "From:")
+		fromText = strings.TrimSpace(fromText)
+		// Extract name before <email> if present
+		if idx := strings.Index(fromText, "<"); idx != -1 {
+			name = strings.TrimSpace(fromText[:idx])
+		} else {
+			name = fromText
+		}
+		return
+	}
+
+	// For "On ... wrote:" pattern
+	if strings.Contains(separatorLine, " wrote:") {
+		// Extract text between last comma and " wrote:" or between last comma and "<" if email present
+		wroteIdx := strings.Index(separatorLine, " wrote:")
+		workingText := separatorLine[:wroteIdx]
+
+		// If email present, extract name before it
+		if idx := strings.Index(workingText, "<"); idx != -1 {
+			// Find the name before the email (after the last comma or "On")
+			beforeEmail := workingText[:idx]
+			// Look for the last comma
+			if lastComma := strings.LastIndex(beforeEmail, ","); lastComma != -1 {
+				name = strings.TrimSpace(beforeEmail[lastComma+1:])
+			} else if onIdx := strings.Index(beforeEmail, "On "); onIdx != -1 {
+				name = strings.TrimSpace(beforeEmail[onIdx+3:])
+			}
+		} else {
+			// No email, try to extract name after last comma
+			if lastComma := strings.LastIndex(workingText, ","); lastComma != -1 {
+				name = strings.TrimSpace(workingText[lastComma+1:])
+			}
+		}
+	}
+
+	return
+}
+
 // extractSignaturesPerSender extracts per-sender signatures from a threaded email body.
 // It splits the email body into message blocks using common separators (e.g., "On ... wrote:",
 // "-----Original Message-----", "From:") and extracts the signature from each block.
@@ -1314,13 +1373,22 @@ func extractSignaturesPerSender(bodyText string, people []ResolvedPerson) map[st
 		"\n> On ",                     // Quoted version
 	}
 
-	// Find all separator positions
-	separatorPositions := []int{}
+	// Find all separator positions and store the separator line text
+	type separatorInfo struct {
+		pos  int
+		line string
+	}
+	separators := []separatorInfo{}
 
 	// Check if body starts with a separator pattern (no leading newline)
 	for _, sep := range []string{"On ", "-----Original Message-----", "From:", "> On "} {
 		if strings.HasPrefix(bodyText, sep) {
-			separatorPositions = append(separatorPositions, 0)
+			// Extract the full separator line (up to newline or end of text)
+			lineEnd := strings.Index(bodyText, "\n")
+			if lineEnd == -1 {
+				lineEnd = len(bodyText)
+			}
+			separators = append(separators, separatorInfo{pos: 0, line: bodyText[:lineEnd]})
 			break
 		}
 	}
@@ -1334,57 +1402,106 @@ func extractSignaturesPerSender(bodyText string, people []ResolvedPerson) map[st
 				break
 			}
 			actualPos := idx + pos
-			separatorPositions = append(separatorPositions, actualPos)
+			// Extract the separator line (from newline to next newline)
+			lineStart := actualPos
+			lineEnd := strings.Index(bodyText[actualPos+1:], "\n")
+			if lineEnd == -1 {
+				lineEnd = len(bodyText) - actualPos - 1
+			}
+			separatorLine := bodyText[lineStart : actualPos+1+lineEnd]
+			separators = append(separators, separatorInfo{pos: actualPos, line: separatorLine})
 			idx = actualPos + 1
 		}
 	}
 
 	// If no separators found, this is a single-message email, return empty map
-	if len(separatorPositions) == 0 {
+	if len(separators) == 0 {
 		return nil
 	}
 
-	// Sort separator positions
+	// Sort separators by position
 	// Use simple bubble sort since the list is typically small
-	for i := 0; i < len(separatorPositions); i++ {
-		for j := i + 1; j < len(separatorPositions); j++ {
-			if separatorPositions[i] > separatorPositions[j] {
-				separatorPositions[i], separatorPositions[j] = separatorPositions[j], separatorPositions[i]
+	for i := 0; i < len(separators); i++ {
+		for j := i + 1; j < len(separators); j++ {
+			if separators[i].pos > separators[j].pos {
+				separators[i], separators[j] = separators[j], separators[i]
 			}
 		}
 	}
 
-	// Split body into message blocks
-	blocks := []string{}
-	lastPos := 0
-	for _, sepPos := range separatorPositions {
-		if sepPos > lastPos {
-			blocks = append(blocks, bodyText[lastPos:sepPos])
-		}
-		lastPos = sepPos
+	// Split body into message blocks, pairing each block with its preceding separator
+	type blockInfo struct {
+		text          string
+		senderEmail   string
+		senderName    string
+		hasSeparator  bool
 	}
-	// Add final block
+	blocks := []blockInfo{}
+
+	lastPos := 0
+	for i, sep := range separators {
+		if sep.pos > lastPos {
+			// This is the block BEFORE the separator
+			var block blockInfo
+			block.text = bodyText[lastPos:sep.pos]
+			if i > 0 {
+				// Extract sender from the previous separator
+				email, name := extractSenderFromSeparator(separators[i-1].line)
+				block.senderEmail = email
+				block.senderName = name
+				block.hasSeparator = true
+			} else {
+				// First block has no preceding separator
+				block.hasSeparator = false
+			}
+			blocks = append(blocks, block)
+		}
+		lastPos = sep.pos
+	}
+	// Add final block (after last separator)
 	if lastPos < len(bodyText) {
-		blocks = append(blocks, bodyText[lastPos:])
+		var block blockInfo
+		block.text = bodyText[lastPos:]
+		// Extract sender from the last separator
+		email, name := extractSenderFromSeparator(separators[len(separators)-1].line)
+		block.senderEmail = email
+		block.senderName = name
+		block.hasSeparator = true
+		blocks = append(blocks, block)
 	}
 
-	// Extract signature from each block and try to match to a person
+	// Extract signature from each block and match to a person
 	result := make(map[string]string)
 	for _, block := range blocks {
-		// Try to find which person this block belongs to by looking for their name or email
 		var matchedPerson *ResolvedPerson
-		for i := range people {
-			person := &people[i]
-			// Check if person's name appears in the block
-			if strings.Contains(block, person.Name) {
-				matchedPerson = person
-				break
+
+		// Try to match by sender info from separator first
+		if block.hasSeparator && (block.senderEmail != "" || block.senderName != "") {
+			for i := range people {
+				person := &people[i]
+				// Match by name from separator (case-insensitive)
+				if block.senderName != "" && strings.EqualFold(block.senderName, person.Name) {
+					matchedPerson = person
+					break
+				}
+			}
+		}
+
+		// Fall back to name-presence matching if separator matching failed
+		if matchedPerson == nil {
+			for i := range people {
+				person := &people[i]
+				// Check if person's name appears in the block
+				if strings.Contains(block.text, person.Name) {
+					matchedPerson = person
+					break
+				}
 			}
 		}
 
 		if matchedPerson != nil {
 			// Extract signature from this block
-			signature := extractSignature(block)
+			signature := extractSignature(block.text)
 			if signature != "" {
 				result[matchedPerson.Name] = signature
 			}

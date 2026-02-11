@@ -1167,6 +1167,35 @@ Bob Jones`,
 				"Alice Smith": "Best,\nAlice Smith",
 			},
 		},
+		{
+			name: "Cross-contamination bug: name in quoted text causes wrong signature match",
+			bodyText: `From: Sarah Chen <sarah@example.com>
+Subject: Re: Q3 Roadmap
+
+I agree with John Smith's proposal. Let's proceed with the timeline.
+
+Thanks,
+Sarah Chen
+Product Manager
+Example Corp
+
+On Mon, Feb 10, 2026, John Smith wrote:
+
+Here's my proposal for Q3. Please review and let me know.
+
+Best regards,
+John Smith
+VP Engineering
+Example Corp`,
+			people: []ResolvedPerson{
+				{Name: "John Smith"},
+				{Name: "Sarah Chen"},
+			},
+			expected: map[string]string{
+				"John Smith":  "Best regards,\nJohn Smith\nVP Engineering\nExample Corp",
+				"Sarah Chen":  "Thanks,\nSarah Chen\nProduct Manager\nExample Corp",
+			},
+		},
 	}
 
 	for _, tt := range tests {
