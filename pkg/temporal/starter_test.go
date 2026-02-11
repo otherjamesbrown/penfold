@@ -1,10 +1,69 @@
 package temporal
 
 import (
+	"context"
 	"regexp"
 	"strings"
 	"testing"
+
+	"go.temporal.io/sdk/client"
 )
+
+// mockTemporalClient is a test-only implementation that captures StartWorkflowOptions.
+// It implements only the ExecuteWorkflow method; other methods are not used in these tests.
+type mockTemporalClient struct {
+	// We embed a nil client to satisfy the interface requirement
+	client.Client
+	executeWorkflowCallCount int
+	capturedOptions          *client.StartWorkflowOptions
+	capturedWorkflow         interface{}
+	capturedInput            interface{}
+}
+
+// ExecuteWorkflow captures the options and returns a mock workflow run.
+func (m *mockTemporalClient) ExecuteWorkflow(
+	ctx context.Context,
+	options client.StartWorkflowOptions,
+	workflow interface{},
+	args ...interface{},
+) (client.WorkflowRun, error) {
+	m.executeWorkflowCallCount++
+	// Make a copy of the options struct to capture its state
+	m.capturedOptions = &client.StartWorkflowOptions{
+		ID:                       options.ID,
+		TaskQueue:                options.TaskQueue,
+		WorkflowIDReusePolicy:    options.WorkflowIDReusePolicy,
+		WorkflowIDConflictPolicy: options.WorkflowIDConflictPolicy,
+	}
+	m.capturedWorkflow = workflow
+	if len(args) > 0 {
+		m.capturedInput = args[0]
+	}
+	return &mockWorkflowRun{
+		workflowID: options.ID,
+		runID:      "test-run-id",
+	}, nil
+}
+
+// mockWorkflowRun is a test-only implementation of client.WorkflowRun.
+type mockWorkflowRun struct {
+	// Embed a nil WorkflowRun to satisfy the interface
+	client.WorkflowRun
+	workflowID string
+	runID      string
+}
+
+func (m *mockWorkflowRun) GetID() string {
+	return m.workflowID
+}
+
+func (m *mockWorkflowRun) GetRunID() string {
+	return m.runID
+}
+
+func (m *mockWorkflowRun) Get(ctx context.Context, valuePtr interface{}) error {
+	return nil
+}
 
 func TestGenerateWorkflowID(t *testing.T) {
 	t.Run("BasicGeneration", func(t *testing.T) {
@@ -361,5 +420,44 @@ func BenchmarkGenerateEmailWorkflowID(b *testing.B) {
 func BenchmarkGenerateIngestWorkflowID(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		GenerateIngestWorkflowID("tenant", "document", "doc123")
+	}
+}
+
+// TestStartWorkflow_SetsReusePolicy verifies that StartWorkflow sets WorkflowIDReusePolicy.
+// This test reproduces bug pf-02b536 - it will FAIL because the policy is not currently set.
+func TestStartWorkflow_SetsReusePolicy(t *testing.T) {
+	ctx := context.Background()
+	mockClient := &mockTemporalClient{}
+
+	starter := NewWorkflowStarter(mockClient, "test-queue")
+
+	_, err := starter.StartWorkflow(ctx, "test-workflow-id", "TestWorkflow", nil)
+
+	// Should succeed (we're checking the options, not workflow execution)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify ExecuteWorkflow was called
+	if mockClient.executeWorkflowCallCount != 1 {
+		t.Errorf("expected ExecuteWorkflow to be called once, got %d", mockClient.executeWorkflowCallCount)
+	}
+
+	// Verify the options were captured
+	if mockClient.capturedOptions == nil {
+		t.Fatal("expected options to be captured")
+	}
+
+	// BUG: This assertion will FAIL because WorkflowIDReusePolicy is not currently set
+	// Expected: WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
+	// Actual: 0 (unset)
+	if mockClient.capturedOptions.WorkflowIDReusePolicy == 0 {
+		t.Error("WorkflowIDReusePolicy not set - this is the bug we're reproducing")
+	}
+
+	// Also verify WorkflowIDConflictPolicy is set
+	// BUG: This will also FAIL
+	if mockClient.capturedOptions.WorkflowIDConflictPolicy == 0 {
+		t.Error("WorkflowIDConflictPolicy not set - this is the bug we're reproducing")
 	}
 }

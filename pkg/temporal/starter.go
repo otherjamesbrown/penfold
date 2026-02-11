@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 )
 
@@ -31,8 +32,10 @@ func (s *WorkflowStarter) StartWorkflow(
 	input interface{},
 ) (client.WorkflowRun, error) {
 	options := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: s.taskQueue,
+		ID:                     workflowID,
+		TaskQueue:              s.taskQueue,
+		WorkflowIDReusePolicy:  enums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: enums.WORKFLOW_ID_CONFLICT_POLICY_FAIL,
 	}
 
 	we, err := s.client.ExecuteWorkflow(ctx, options, workflow, input)

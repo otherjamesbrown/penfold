@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -271,6 +272,8 @@ func (s *Starter) startWorkflow(
 		TaskQueue:                taskQueue,
 		WorkflowExecutionTimeout: s.config.DefaultExecutionTimeout,
 		WorkflowTaskTimeout:      s.config.DefaultTaskTimeout,
+		WorkflowIDReusePolicy:    enums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: enums.WORKFLOW_ID_CONFLICT_POLICY_FAIL,
 	}
 
 	// Create a context with timeout for the start operation

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -1223,8 +1224,10 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 	// TODO: Worker layer will add ModelOverride and TimeoutOverride fields to SLMPipelineInput
 	// For now, overrides are read and logged but not passed to the workflow
 	opts := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: "penfold-main",
+		ID:                       workflowID,
+		TaskQueue:                "penfold-main",
+		WorkflowIDReusePolicy:    enums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: enums.WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING,
 	}
 	workflowRun, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "SLMPipelineWorkflow", input)
 	if err != nil {
