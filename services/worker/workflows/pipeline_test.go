@@ -975,6 +975,67 @@ We need to review the CLIC workflow next week.`
 			"Bug pf-fc4b48: Acronym detection receives RAW email content with headers and quoted replies.")
 }
 
+func TestExtractSignature(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		expected string
+	}{
+		{
+			name:     "RFC 3676 separator with signature",
+			body:     "Email body text here.\n\n-- \nJohn Doe\nSenior Engineer",
+			expected: "-- \nJohn Doe\nSenior Engineer",
+		},
+		{
+			name:     "Best regards sign-off",
+			body:     "Email body text here.\n\nBest regards,\nJane Smith\nProduct Manager",
+			expected: "Best regards,\nJane Smith\nProduct Manager",
+		},
+		{
+			name:     "Kind regards sign-off",
+			body:     "Email content.\n\nKind regards,\nBob",
+			expected: "Kind regards,\nBob",
+		},
+		{
+			name:     "Simple Thanks sign-off",
+			body:     "Quick message.\n\nThanks,\nAlice",
+			expected: "Thanks,\nAlice",
+		},
+		{
+			name:     "No signature markers",
+			body:     "Just a plain email with no signature markers at all",
+			expected: "",
+		},
+		{
+			name:     "Empty body",
+			body:     "",
+			expected: "",
+		},
+		{
+			name: "Multiple markers - uses last one",
+			body: "Email starts here.\n\nThanks for that.\n\nBest regards,\nJohn",
+			expected: "Best regards,\nJohn",
+		},
+		{
+			name:     "Sincerely sign-off",
+			body:     "Formal email.\n\nSincerely,\nDr. Smith",
+			expected: "Sincerely,\nDr. Smith",
+		},
+		{
+			name:     "Cheers sign-off",
+			body:     "Casual email.\n\nCheers,\nMike",
+			expected: "Cheers,\nMike",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractSignature(tt.body)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestSLMPipelineTestSuite(t *testing.T) {
 	suite.Run(t, new(SLMPipelineTestSuite))
 }

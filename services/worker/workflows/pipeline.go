@@ -3,6 +3,7 @@ package workflows
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -936,8 +937,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			err = workflow.ExecuteActivity(enrichCtx, pkgtemporal.ActivityEnrichPersonMetadata, EnrichPersonMetadataInput{
 				TenantID:       input.TenantID,
 				ResolvedPeople: contextOutput.ResolvedPeople,
-				SignatureText:  "", // TODO: Extract signature from parsed content
-				BodyText:       "",  // TODO: Extract body from parsed content
+				SignatureText:  extractSignature(input.BodyText),
+				BodyText:       input.BodyText,
 			}).Get(ctx, enrichOutput)
 			if err != nil {
 				logger.Warn("person metadata enrichment failed (non-blocking)",
@@ -1233,6 +1234,46 @@ func stageByStatus(statusName string) pkgtemporal.Stage {
 		}
 	}
 	return pkgtemporal.Stage{Name: statusName, StatusName: statusName}
+}
+
+// extractSignature attempts to extract email signature from body text.
+// It looks for RFC 3676 "-- " separator or common sign-offs (Regards, Best, etc.)
+// and returns everything after the last occurrence. Returns empty string if not found.
+func extractSignature(body string) string {
+	if body == "" {
+		return ""
+	}
+
+	// Common signature markers in descending order of specificity
+	markers := []string{
+		"-- \n",        // RFC 3676 standard
+		"\n-- \n",      // RFC 3676 with leading newline
+		"\nBest regards,",
+		"\nKind regards,",
+		"\nWarm regards,",
+		"\nRegards,",
+		"\nSincerely,",
+		"\nCheers,",
+		"\nThanks,",
+		"\nBest,",
+		"\nThank you,",
+	}
+
+	lastPos := -1
+
+	// Find the last occurrence of any marker
+	for _, marker := range markers {
+		if pos := strings.LastIndex(body, marker); pos > lastPos {
+			lastPos = pos
+		}
+	}
+
+	if lastPos == -1 {
+		return ""
+	}
+
+	// Extract from marker to end, including the marker text
+	return strings.TrimSpace(body[lastPos:])
 }
 
 // Ensure temporal package is used to avoid import errors during development.
