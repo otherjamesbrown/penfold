@@ -948,9 +948,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				perSenderSigs := extractSignaturesPerSender(input.BodyText, contextOutput.ResolvedPeople)
 				if len(perSenderSigs) > 0 {
 					enrichInput.PerSenderSignatures = perSenderSigs
-				} else {
-					// Fall back to single signature if no thread separators found
-					enrichInput.SignatureText = extractSignature(input.BodyText)
+				} else if sig := extractSignature(input.BodyText); sig != "" && input.SenderName != "" {
+					// Single signature (no thread separators) but multiple people:
+					// Scope signature to sender only to prevent cross-contamination
+					enrichInput.PerSenderSignatures = map[string]string{input.SenderName: sig}
+				} else if sig != "" {
+					// No sender name available: fall back to shared signature
+					enrichInput.SignatureText = sig
 				}
 			} else {
 				// Single sender: use original extractSignature for backwards compatibility
