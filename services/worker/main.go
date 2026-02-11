@@ -386,6 +386,24 @@ func main() {
 		)
 		activityRegistrar.WithContextBuilderActivities(contextBuilderActivities)
 		logger.Info("Context builder activities initialized with database (Stage 3)")
+
+		// Create person enrichment activities (Stage 3.5)
+		// entityRepo satisfies PersonRepository interface (GetPersonByID, UpdatePerson, GetPeopleByDomain)
+		// Internal domains loaded from tenant enrichment config
+		var internalDomains []string
+		tenantCfg, cfgErr := configResolver.GetConfig(context.Background(), "default")
+		if cfgErr != nil {
+			logger.Warn("Failed to load tenant config for internal domains, enrichment will skip is_internal",
+				logging.F("error", cfgErr.Error()),
+			)
+		} else if tenantCfg != nil {
+			internalDomains = tenantCfg.InternalDomains
+		}
+		personEnrichmentActivities := activities.NewPersonEnrichmentActivities(logger, entityRepo, internalDomains)
+		activityRegistrar.WithPersonEnrichmentActivities(personEnrichmentActivities)
+		logger.Info("Person enrichment activities initialized with database (Stage 3.5)",
+			logging.F("internal_domains_count", len(internalDomains)),
+		)
 	}
 
 	// Initialize persist activities if database is available (Stage 4.5)
