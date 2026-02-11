@@ -543,3 +543,139 @@ Akamai Technologies`,
 		t.Errorf("Expected 1 person enriched, got %d", output.PeopleEnriched)
 	}
 }
+
+// TestEnrichPersonMetadata_EmptyDomains_PreservesIsInternal verifies that when internalDomains
+// is empty (tenant config not loaded), the activity does NOT clobber existing is_internal values.
+// This is a regression test for bug pf-bba49a.
+func TestEnrichPersonMetadata_EmptyDomains_PreservesIsInternal(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	tests := []struct {
+		name               string
+		existingIsInternal bool
+		existingCompany    string
+		existingTitle      string
+		email              string
+		signatureText      string
+		expectedIsInternal bool
+		shouldUpdate       bool
+		description        string
+	}{
+		{
+			name:               "preserves is_internal=true when metadata incomplete",
+			existingIsInternal: true,
+			existingCompany:    "",
+			existingTitle:      "",
+			email:              "alice@example.com",
+			signatureText:      "",
+			expectedIsInternal: true,
+			shouldUpdate:       false, // No enrichment data available (example.com not in known domains)
+			description:        "is_internal=true should NOT be clobbered to false when internalDomains is empty",
+		},
+		{
+			name:               "preserves is_internal=false when metadata incomplete",
+			existingIsInternal: false,
+			existingCompany:    "",
+			existingTitle:      "",
+			email:              "bob@external.com",
+			signatureText:      "",
+			expectedIsInternal: false,
+			shouldUpdate:       false, // No enrichment data available
+			description:        "is_internal=false should stay false when internalDomains is empty (no false->true either)",
+		},
+		{
+			name:               "preserves is_internal=true with company enrichment",
+			existingIsInternal: true,
+			existingCompany:    "",
+			existingTitle:      "",
+			email:              "charlie@akamai.com",
+			signatureText: `--
+Charlie Brown
+Senior Engineer
+Akamai Technologies`,
+			expectedIsInternal: true,
+			shouldUpdate:       true, // Both company and title enrichment
+			description:        "Company/title enrichment should work, but is_internal=true must be preserved",
+		},
+		{
+			name:               "no update when metadata complete and is_internal=true",
+			existingIsInternal: true,
+			existingCompany:    "Existing Company",
+			existingTitle:      "Existing Title",
+			email:              "david@example.com",
+			signatureText:      "",
+			expectedIsInternal: true,
+			shouldUpdate:       false, // Metadata complete, skip is_internal check entirely
+			description:        "Complete metadata should skip is_internal logic entirely",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			updateCalled := false
+			var updatedPerson *entities.Person
+
+			personRepo := &mockPersonRepository{
+				updatePersonFunc: func(ctx context.Context, p *entities.Person) error {
+					updateCalled = true
+					updatedPerson = p
+					return nil
+				},
+				getPersonByIDFunc: func(ctx context.Context, id int64) (*entities.Person, error) {
+					return &entities.Person{
+						ID:           id,
+						TenantID:     "test-tenant",
+						CanonicalName: "Test Person",
+						PrimaryEmail: tt.email,
+						Company:      tt.existingCompany,
+						Title:        tt.existingTitle,
+						IsInternal:   tt.existingIsInternal,
+					}, nil
+				},
+			}
+
+			// CRITICAL: Empty internalDomains array simulates tenant config not loaded
+			activity := NewPersonEnrichmentActivities(logger, personRepo, []string{})
+
+			input := workflows.EnrichPersonMetadataInput{
+				TenantID:      "test-tenant",
+				SignatureText: tt.signatureText,
+				ResolvedPeople: []workflows.ResolvedPerson{
+					{
+						PersonID:   func() *int64 { id := int64(123); return &id }(),
+						Name:       "Test Person",
+						Title:      tt.existingTitle,
+						IsInternal: tt.existingIsInternal,
+					},
+				},
+			}
+
+			output, err := activity.EnrichPersonMetadata(ctx, input)
+			if err != nil {
+				t.Fatalf("EnrichPersonMetadata failed: %v", err)
+			}
+
+			if tt.shouldUpdate != updateCalled {
+				t.Errorf("Expected updateCalled=%v, got %v (reason: %s)",
+					tt.shouldUpdate, updateCalled, tt.description)
+			}
+
+			// CRITICAL CHECK: is_internal must NOT change when internalDomains is empty
+			if updateCalled && updatedPerson != nil {
+				if updatedPerson.IsInternal != tt.expectedIsInternal {
+					t.Errorf("BUG REPRODUCED: is_internal was clobbered! Expected is_internal=%v, got %v (reason: %s)",
+						tt.expectedIsInternal, updatedPerson.IsInternal, tt.description)
+				}
+			}
+
+			// Verify output count matches expectation
+			if tt.shouldUpdate && output.PeopleEnriched == 0 {
+				t.Errorf("Expected at least 1 person enriched, got 0")
+			}
+			if !tt.shouldUpdate && output.PeopleEnriched != 0 {
+				t.Errorf("Expected 0 people enriched, got %d", output.PeopleEnriched)
+			}
+		})
+	}
+}

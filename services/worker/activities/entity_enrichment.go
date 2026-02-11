@@ -107,10 +107,11 @@ func (a *PersonEnrichmentActivities) EnrichPersonMetadata(ctx context.Context, i
 			}
 		}
 
-		// Enrich is_internal flag from domain if metadata was incomplete
-		// This ensures we update is_internal for records that need enrichment,
-		// but skip it for records that already have complete metadata (title AND company present)
-		if metadataIncomplete {
+		// Enrich is_internal flag from domain if metadata was incomplete AND we have
+		// domain config to evaluate against. When internalDomains is empty (config not
+		// loaded), skip to avoid clobbering existing is_internal values set by
+		// bulk-enrich or manual review.
+		if len(a.internalDomains) > 0 && metadataIncomplete {
 			domain := entities.ExtractDomain(updatedPerson.PrimaryEmail)
 			if domain != "" {
 				isInternal := entities.IsInternalDomain(updatedPerson.PrimaryEmail, a.internalDomains)
