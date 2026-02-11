@@ -1296,6 +1296,10 @@ func init() {
 	statusCmd.GroupID = "ops"
 	rootCmd.AddCommand(statusCmd)
 
+	dbCmd := cmd.NewDbCommand()
+	dbCmd.GroupID = "ops"
+	rootCmd.AddCommand(dbCmd)
+
 	logsCmd := cmd.NewLogsCommand(nil)
 	logsCmd.GroupID = "ops"
 	rootCmd.AddCommand(logsCmd)

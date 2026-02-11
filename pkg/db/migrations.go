@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -23,6 +24,20 @@ type MigrationResult struct {
 	Applied []string
 	Skipped []string
 	Errors  []error
+}
+
+// MigrationStatusEntry represents a single migration in a status report.
+type MigrationStatusEntry struct {
+	Version   string
+	Name      string
+	AppliedAt *time.Time // nil for pending, non-nil for applied/drift
+}
+
+// MigrationStatus represents the complete status of migrations.
+type MigrationStatus struct {
+	Applied []MigrationStatusEntry // applied and has file
+	Pending []MigrationStatusEntry // has file but not applied
+	Drift   []MigrationStatusEntry // applied but no file
 }
 
 // RunMigrations executes all .sql migration files from the given directory.
@@ -66,6 +81,71 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsDir string
 		if err := applyMigration(ctx, pool, m); err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("migration %s failed: %w", m.Version, err))
 			// Continue with other migrations or stop? For safety, we stop on first error.
+			return result, err
+		}
+
+		result.Applied = append(result.Applied, m.Version)
+	}
+
+	return result, nil
+}
+
+// RunMigrationsToTarget executes migrations up to and including the specified target version.
+// It validates that the target version exists and applies migrations in order, stopping at the target.
+// Already-applied migrations are skipped.
+func RunMigrationsToTarget(ctx context.Context, pool *pgxpool.Pool, migrationsDir string, targetVersion string) (*MigrationResult, error) {
+	if pool == nil {
+		return nil, fmt.Errorf("pool is nil")
+	}
+
+	result := &MigrationResult{}
+
+	// Ensure migrations table exists
+	if err := ensureMigrationsTable(ctx, pool); err != nil {
+		return nil, fmt.Errorf("failed to create migrations table: %w", err)
+	}
+
+	// Find all migration files
+	migrations, err := findMigrations(migrationsDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find migrations: %w", err)
+	}
+
+	if len(migrations) == 0 {
+		return result, nil
+	}
+
+	// Validate that the target version exists
+	targetFound := false
+	targetIndex := -1
+	for i, m := range migrations {
+		if m.Version == targetVersion {
+			targetFound = true
+			targetIndex = i
+			break
+		}
+	}
+
+	if !targetFound {
+		return nil, fmt.Errorf("target version %s not found in migrations directory", targetVersion)
+	}
+
+	// Get already applied migrations
+	applied, err := getAppliedMigrations(ctx, pool)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get applied migrations: %w", err)
+	}
+
+	// Apply migrations up to and including the target
+	for i := 0; i <= targetIndex; i++ {
+		m := migrations[i]
+		if applied[m.Version] {
+			result.Skipped = append(result.Skipped, m.Version)
+			continue
+		}
+
+		if err := applyMigration(ctx, pool, m); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("migration %s failed: %w", m.Version, err))
 			return result, err
 		}
 
@@ -144,6 +224,28 @@ func getAppliedMigrations(ctx context.Context, pool *pgxpool.Pool) (map[string]b
 	return applied, rows.Err()
 }
 
+// getAppliedMigrationsWithTimestamps returns a map of applied migration versions with their applied_at timestamps.
+func getAppliedMigrationsWithTimestamps(ctx context.Context, pool *pgxpool.Pool) (map[string]time.Time, error) {
+	applied := make(map[string]time.Time)
+
+	rows, err := pool.Query(ctx, "SELECT version, applied_at FROM schema_migrations")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var version string
+		var appliedAt time.Time
+		if err := rows.Scan(&version, &appliedAt); err != nil {
+			return nil, err
+		}
+		applied[version] = appliedAt
+	}
+
+	return applied, rows.Err()
+}
+
 // applyMigration reads and executes a single migration file.
 func applyMigration(ctx context.Context, pool *pgxpool.Pool, m Migration) error {
 	content, err := os.ReadFile(m.Path)
@@ -209,4 +311,77 @@ func GetPendingMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsDir
 	}
 
 	return pending, nil
+}
+
+// GetMigrationStatus returns a comprehensive status report of all migrations.
+// It categorizes migrations into:
+// - Applied: migrations that have been applied and have a corresponding file
+// - Pending: migrations that have a file but have not been applied
+// - Drift: migrations that have been applied but no longer have a corresponding file
+func GetMigrationStatus(ctx context.Context, pool *pgxpool.Pool, migrationsDir string) (*MigrationStatus, error) {
+	if pool == nil {
+		return nil, fmt.Errorf("pool is nil")
+	}
+
+	// Ensure migrations table exists first
+	if err := ensureMigrationsTable(ctx, pool); err != nil {
+		return nil, fmt.Errorf("failed to ensure migrations table: %w", err)
+	}
+
+	// Get all migration files
+	migrations, err := findMigrations(migrationsDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find migrations: %w", err)
+	}
+
+	// Get applied migrations with timestamps
+	appliedMap, err := getAppliedMigrationsWithTimestamps(ctx, pool)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get applied migrations: %w", err)
+	}
+
+	// Create a map of file versions for quick lookup
+	fileVersions := make(map[string]Migration)
+	for _, m := range migrations {
+		fileVersions[m.Version] = m
+	}
+
+	status := &MigrationStatus{
+		Applied: []MigrationStatusEntry{},
+		Pending: []MigrationStatusEntry{},
+		Drift:   []MigrationStatusEntry{},
+	}
+
+	// Process migrations from files
+	for _, m := range migrations {
+		if appliedAt, isApplied := appliedMap[m.Version]; isApplied {
+			// Migration is applied and has a file
+			status.Applied = append(status.Applied, MigrationStatusEntry{
+				Version:   m.Version,
+				Name:      m.Name,
+				AppliedAt: &appliedAt,
+			})
+		} else {
+			// Migration has a file but is not applied
+			status.Pending = append(status.Pending, MigrationStatusEntry{
+				Version:   m.Version,
+				Name:      m.Name,
+				AppliedAt: nil,
+			})
+		}
+	}
+
+	// Check for drift: applied migrations without files
+	for version, appliedAt := range appliedMap {
+		if _, hasFile := fileVersions[version]; !hasFile {
+			// Migration is applied but no file exists
+			status.Drift = append(status.Drift, MigrationStatusEntry{
+				Version:   version,
+				Name:      version + ".sql", // Reconstruct likely filename
+				AppliedAt: &appliedAt,
+			})
+		}
+	}
+
+	return status, nil
 }

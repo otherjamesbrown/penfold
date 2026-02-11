@@ -6,6 +6,7 @@ import (
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/parse"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -541,6 +542,327 @@ Akamai Technologies`,
 
 	if output.PeopleEnriched != 1 {
 		t.Errorf("Expected 1 person enriched, got %d", output.PeopleEnriched)
+	}
+}
+
+// TestEnrichPersonMetadata_ThreadedEmailSignatures verifies that title extraction works correctly
+// for threaded emails with multiple senders and signatures. This is a regression test for bug pf-420aec.
+//
+// FIX: extractSignaturesPerSender() in pipeline.go now extracts per-sender signatures by splitting
+// the email body into message blocks. EnrichPersonMetadata() uses PerSenderSignatures map to apply
+// the correct signature to each person, preventing title cross-contamination.
+//
+// Example: Thread with John Smith (VP Engineering) and Sarah Chen (Product Manager).
+// Each person now gets their own title from their own signature block.
+func TestEnrichPersonMetadata_ThreadedEmailSignatures(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	// Simulate a threaded email body with two different signatures
+	threadedEmailBody := `From: John Smith <john@akamai.com>
+Subject: Re: Project Update
+
+Thanks for the update. I'll review the roadmap this week.
+
+John Smith
+VP Engineering
+Akamai Technologies
+
+On Mon, Feb 10, 2026, Sarah Chen wrote:
+
+Here's the latest project update. Please review.
+
+Sarah Chen
+Product Manager
+Akamai Technologies`
+
+	// Track updates for both people
+	peopleUpdates := make(map[int64]*entities.Person)
+
+	personRepo := &mockPersonRepository{
+		updatePersonFunc: func(ctx context.Context, p *entities.Person) error {
+			peopleUpdates[p.ID] = p
+			return nil
+		},
+		getPersonByIDFunc: func(ctx context.Context, id int64) (*entities.Person, error) {
+			// Return different people based on ID
+			if id == 1 {
+				return &entities.Person{
+					ID:           1,
+					TenantID:     "test-tenant",
+					CanonicalName: "John Smith",
+					PrimaryEmail: "john@akamai.com",
+					Title:        "", // Missing - needs enrichment
+					Company:      "",
+					IsInternal:   false,
+				}, nil
+			}
+			if id == 2 {
+				return &entities.Person{
+					ID:           2,
+					TenantID:     "test-tenant",
+					CanonicalName: "Sarah Chen",
+					PrimaryEmail: "sarah@akamai.com",
+					Title:        "", // Missing - needs enrichment
+					Company:      "",
+					IsInternal:   false,
+				}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"akamai.com"})
+
+	// FIX: Use per-sender signatures to map each person to their own signature
+	perSenderSignatures := map[string]string{
+		"John Smith": `John Smith
+VP Engineering
+Akamai Technologies`,
+		"Sarah Chen": `Sarah Chen
+Product Manager
+Akamai Technologies`,
+	}
+
+	input := workflows.EnrichPersonMetadataInput{
+		TenantID:            "test-tenant",
+		PerSenderSignatures: perSenderSignatures, // FIX: Per-sender signatures
+		BodyText:            threadedEmailBody,
+		ResolvedPeople: []workflows.ResolvedPerson{
+			{
+				PersonID: func() *int64 { id := int64(1); return &id }(),
+				Name:     "John Smith",
+				Title:    "",
+			},
+			{
+				PersonID: func() *int64 { id := int64(2); return &id }(),
+				Name:     "Sarah Chen",
+				Title:    "",
+			},
+		},
+	}
+
+	output, err := activity.EnrichPersonMetadata(ctx, input)
+	if err != nil {
+		t.Fatalf("EnrichPersonMetadata failed: %v", err)
+	}
+
+	// Verify both people were updated
+	if output.PeopleEnriched != 2 {
+		t.Errorf("Expected 2 people enriched, got %d", output.PeopleEnriched)
+	}
+
+	// CRITICAL ASSERTION: John Smith should have title "VP Engineering"
+	johnUpdate, johnUpdated := peopleUpdates[1]
+	if !johnUpdated {
+		t.Fatal("Expected John Smith to be updated")
+	}
+
+	// FIX VERIFICATION: John should get "VP Engineering" from his own signature
+	if johnUpdate.Title != "VP Engineering" {
+		t.Errorf("John Smith title incorrect! Expected 'VP Engineering', got '%s'",
+			johnUpdate.Title)
+	}
+
+	// CRITICAL ASSERTION: Sarah Chen should have title "Product Manager"
+	sarahUpdate, sarahUpdated := peopleUpdates[2]
+	if !sarahUpdated {
+		t.Fatal("Expected Sarah Chen to be updated")
+	}
+
+	// FIX VERIFICATION: Sarah should get "Product Manager" from her own signature
+	if sarahUpdate.Title != "Product Manager" {
+		t.Errorf("Sarah Chen title incorrect! Expected 'Product Manager', got '%s'",
+			sarahUpdate.Title)
+	}
+}
+
+// TestEnrichPersonMetadata_HTMLSignatureTitleExtraction verifies that titles are extracted
+// correctly from HTML signatures. This is a regression test for bug pf-a9fa80.
+//
+// BUG: htmlToText() in pkg/parse/email.go collapses HTML structure, losing line breaks.
+// Signatures like '<div>Name</div><div>Title</div>' may collapse to a single line,
+// causing parseSignatureForTitle() to fail since it expects line-based plaintext.
+//
+// Example HTML signatures that should work:
+//   1. Div-based: <div>Aurore Defiolles</div><div>Cloud Sales Director - France</div>
+//   2. Table-based: <table><tr><td>Luca Olivari</td></tr><tr><td>EMEA Vice President, Cloud</td></tr></table>
+func TestEnrichPersonMetadata_HTMLSignatureTitleExtraction(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	tests := []struct {
+		name           string
+		htmlSignature  string
+		personName     string
+		expectedTitle  string
+		shouldExtract  bool
+		description    string
+	}{
+		{
+			name: "div-based HTML signature",
+			htmlSignature: `<div>Aurore Defiolles</div>
+<div>Cloud Sales Director - France</div>
+<div>Example Corp</div>`,
+			personName:    "Aurore Defiolles",
+			expectedTitle: "Cloud Sales Director - France",
+			shouldExtract: true,
+			description:   "Div tags should create line breaks, allowing title extraction",
+		},
+		{
+			name: "table-based HTML signature",
+			htmlSignature: `<table>
+<tr><td>Luca Olivari</td></tr>
+<tr><td>EMEA Vice President, Cloud</td></tr>
+<tr><td>Tech Company</td></tr>
+</table>`,
+			personName:    "Luca Olivari",
+			expectedTitle: "EMEA Vice President, Cloud",
+			shouldExtract: true,
+			description:   "Table rows should create line breaks, allowing title extraction",
+		},
+		{
+			name: "inline HTML signature with pipes - FIXED",
+			htmlSignature: `<span>Jane Smith</span><span> | </span><span>Senior Product Manager</span><span> | </span><span>Startup Inc</span>`,
+			personName:    "Jane Smith",
+			expectedTitle: "Senior Product Manager",
+			shouldExtract: true, // FIXED: Pipe-check now happens BEFORE name-skip
+			description:   "FIXED: Single-line signature with name | title | company now extracts title correctly",
+		},
+		{
+			name: "inline HTML signature without separators - FAILS",
+			htmlSignature: `<font>Carlos Mendez</font><font>VP Engineering</font><font>TechCorp</font>`,
+			personName:    "Carlos Mendez",
+			expectedTitle: "VP Engineering",
+			shouldExtract: false, // BUG: This WILL fail - no line breaks, no separators
+			description:   "Inline font tags collapse to single line without keywords proximity",
+		},
+		{
+			name: "nested div signature",
+			htmlSignature: `<div class="signature">
+	<div class="name">Bob Jones</div>
+	<div class="title">Technical Director</div>
+	<div class="company">Engineering Firm</div>
+</div>`,
+			personName:    "Bob Jones",
+			expectedTitle: "Technical Director",
+			shouldExtract: true,
+			description:   "Nested divs should preserve line structure",
+		},
+		{
+			name: "Gmail-style signature with font and div - realistic",
+			htmlSignature: `<div dir="ltr" class="gmail_signature">
+<div dir="ltr">
+<div><font face="arial, helvetica, sans-serif">Pierre Dubois</font></div>
+<div><font face="arial, helvetica, sans-serif">Cloud Architect - EMEA</font></div>
+<div><font face="arial, helvetica, sans-serif">Tech Solutions Inc.</font></div>
+</div>
+</div>`,
+			personName:    "Pierre Dubois",
+			expectedTitle: "Cloud Architect - EMEA",
+			shouldExtract: true,
+			description:   "Real-world Gmail signatures with nested divs and font tags",
+		},
+		{
+			name: "Outlook signature with paragraphs",
+			htmlSignature: `<p class="MsoNormal"><b><span style='font-size:10.0pt'>Maria Garcia</span></b></p>
+<p class="MsoNormal"><span style='font-size:9.0pt'>Director of Product</span></p>
+<p class="MsoNormal"><span style='font-size:9.0pt'>Innovation Labs</span></p>`,
+			personName:    "Maria Garcia",
+			expectedTitle: "Director of Product",
+			shouldExtract: true,
+			description:   "Outlook-style signatures with paragraph tags",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			updateCalled := false
+			var updatedPerson *entities.Person
+
+			personRepo := &mockPersonRepository{
+				updatePersonFunc: func(ctx context.Context, p *entities.Person) error {
+					updateCalled = true
+					updatedPerson = p
+					return nil
+				},
+				getPersonByIDFunc: func(ctx context.Context, id int64) (*entities.Person, error) {
+					return &entities.Person{
+						ID:           id,
+						TenantID:     "test-tenant",
+						CanonicalName: tt.personName,
+						PrimaryEmail: "test@example.com",
+						Title:        "", // Missing - needs enrichment from signature
+						Company:      "",
+						IsInternal:   false,
+					}, nil
+				},
+			}
+
+			activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"example.com"})
+
+			// Convert HTML signature to text using the current htmlToText() implementation
+			// (via ParseEmailBody in pkg/parse/email.go)
+			parsedEmail := parse.ParseEmailBody("", tt.htmlSignature)
+			signatureText := parsedEmail.CleanBody
+
+			input := workflows.EnrichPersonMetadataInput{
+				TenantID:      "test-tenant",
+				SignatureText: signatureText, // Pass the HTML-converted signature
+				ResolvedPeople: []workflows.ResolvedPerson{
+					{
+						PersonID: func() *int64 { id := int64(123); return &id }(),
+						Name:     tt.personName,
+						Title:    "",
+					},
+				},
+			}
+
+			output, err := activity.EnrichPersonMetadata(ctx, input)
+			if err != nil {
+				t.Fatalf("EnrichPersonMetadata failed: %v", err)
+			}
+
+			// Check if title was extracted
+			titleExtracted := updateCalled && updatedPerson != nil && updatedPerson.Title != ""
+
+			if tt.shouldExtract && !titleExtracted {
+				t.Errorf("BUG REPRODUCED: Title not extracted from HTML signature!\n"+
+					"Expected title: '%s'\n"+
+					"Signature text after HTML conversion:\n%s\n"+
+					"Description: %s",
+					tt.expectedTitle, signatureText, tt.description)
+			}
+
+			if tt.shouldExtract && titleExtracted {
+				if updatedPerson.Title != tt.expectedTitle {
+					t.Errorf("Title extracted but incorrect.\n"+
+						"Expected: '%s'\n"+
+						"Got: '%s'\n"+
+						"Signature text after HTML conversion:\n%s",
+						tt.expectedTitle, updatedPerson.Title, signatureText)
+				}
+			}
+
+			// CRITICAL: For known bug cases, verify bug still exists
+			// When bug is fixed, update shouldExtract to true for these cases
+			if !tt.shouldExtract {
+				if titleExtracted {
+					t.Errorf("BUG FIXED! Update this test case to shouldExtract=true.\n"+
+						"Title was extracted: '%s'\n"+
+						"Description: %s",
+						updatedPerson.Title, tt.description)
+				} else {
+					// Bug still exists - this is expected for now
+					t.Logf("Bug confirmed: title not extracted (expected behavior). %s", tt.description)
+				}
+			}
+
+			// Verify output count
+			if tt.shouldExtract && output.PeopleEnriched == 0 {
+				t.Error("Expected at least 1 person enriched")
+			}
+		})
 	}
 }
 

@@ -158,6 +158,24 @@ run_smoke_tests() {
 
 # --- Commands ---
 
+run_migrations() {
+    log_info "Running database migrations..."
+
+    # Check if penf CLI is available
+    if [[ ! -x "${PROJECT_ROOT}/bin/penf" ]]; then
+        log_warn "penf CLI not found in bin/, attempting to build..."
+        cd "${PROJECT_ROOT}" && make build-cli
+    fi
+
+    # Run migrations
+    if "${PROJECT_ROOT}/bin/penf" db migrate --migrations "${PROJECT_ROOT}/migrations"; then
+        log_success "Migrations completed"
+    else
+        log_error "Migrations failed"
+        return 1
+    fi
+}
+
 cmd_full_deploy() {
     echo "${CYAN}=== Penfold Gateway Deployment (Nomad) ===${NC}"
     echo ""
@@ -170,6 +188,10 @@ cmd_full_deploy() {
     echo ""
 
     deploy_binary
+    echo ""
+
+    # Run migrations before restarting service
+    run_migrations
     echo ""
 
     log_info "Submitting Nomad job..."

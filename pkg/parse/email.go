@@ -290,3 +290,70 @@ func cleanAngleBracketQuoting(quotedText string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// ExtractQuotedReplyParticipants scans body text for email addresses in quoted reply headers.
+// Handles multiple formats:
+// - Gmail: "On Mon, Feb 10, 2026, Name <email@example.com> wrote:"
+// - Outlook: "From: Name <email@example.com>" (after "-----Original Message-----")
+// - Generic: "From: email@example.com"
+// Also handles nested quoting with ">" prefix (e.g., "> From: Name <email@example.com>")
+// Returns deduplicated list of email addresses found in quoted reply attribution lines.
+func ExtractQuotedReplyParticipants(bodyText string) []string {
+	seen := make(map[string]bool)
+	emails := make([]string, 0)
+
+	// Pattern 1: Gmail-style "On ... Name <email@example.com> wrote:"
+	// Matches: "On Mon, Feb 10, 2026, Aurore Defiolles <aurore@example.com> wrote:"
+	// Also matches with leading ">" for nested quotes
+	gmailPattern := regexp.MustCompile(`(?i)On\s+.+?<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>\s+wrote:`)
+
+	// Pattern 2: Outlook-style "From: Name <email@example.com>"
+	// Matches: "From: Jane Doe <jane@example.com>"
+	// Also matches with leading "> " for nested quotes: "> From: ..."
+	outlookPattern := regexp.MustCompile(`(?i)From:\s+.*?<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>`)
+
+	// Pattern 3: Simple "From: email@example.com" (no angle brackets)
+	// Matches: "From: jane@example.com" or "> From: jane@example.com"
+	simpleFromPattern := regexp.MustCompile(`(?i)From:\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`)
+
+	lines := strings.Split(bodyText, "\n")
+	for _, line := range lines {
+		// Remove leading ">" characters (for nested quoting) before matching
+		trimmed := strings.TrimSpace(line)
+		for strings.HasPrefix(trimmed, ">") {
+			trimmed = strings.TrimPrefix(trimmed, ">")
+			trimmed = strings.TrimSpace(trimmed)
+		}
+
+		// Try Gmail pattern first (most specific)
+		if matches := gmailPattern.FindStringSubmatch(trimmed); len(matches) > 1 {
+			email := strings.ToLower(matches[1])
+			if !seen[email] {
+				seen[email] = true
+				emails = append(emails, email)
+			}
+			continue
+		}
+
+		// Try Outlook pattern with angle brackets
+		if matches := outlookPattern.FindStringSubmatch(trimmed); len(matches) > 1 {
+			email := strings.ToLower(matches[1])
+			if !seen[email] {
+				seen[email] = true
+				emails = append(emails, email)
+			}
+			continue
+		}
+
+		// Try simple From: pattern
+		if matches := simpleFromPattern.FindStringSubmatch(trimmed); len(matches) > 1 {
+			email := strings.ToLower(matches[1])
+			if !seen[email] {
+				seen[email] = true
+				emails = append(emails, email)
+			}
+		}
+	}
+
+	return emails
+}

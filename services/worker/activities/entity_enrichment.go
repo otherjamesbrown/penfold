@@ -90,11 +90,22 @@ func (a *PersonEnrichmentActivities) EnrichPersonMetadata(ctx context.Context, i
 		metadataIncomplete := (updatedPerson.Title == "" || updatedPerson.Company == "")
 
 		// Enrich title from signature if missing
-		if updatedPerson.Title == "" && input.SignatureText != "" {
-			title := parseSignatureForTitle(input.SignatureText, updatedPerson.CanonicalName)
-			if title != "" {
-				updatedPerson.Title = title
-				needsUpdate = true
+		if updatedPerson.Title == "" {
+			// Try per-sender signature first (for threaded emails)
+			var signatureForThisPerson string
+			if len(input.PerSenderSignatures) > 0 {
+				signatureForThisPerson = input.PerSenderSignatures[person.Name]
+			} else {
+				// Fall back to shared signature (single-sender or legacy)
+				signatureForThisPerson = input.SignatureText
+			}
+
+			if signatureForThisPerson != "" {
+				title := parseSignatureForTitle(signatureForThisPerson, updatedPerson.CanonicalName)
+				if title != "" {
+					updatedPerson.Title = title
+					needsUpdate = true
+				}
 			}
 		}
 
@@ -225,12 +236,8 @@ func parseSignatureForTitle(signatureText, personName string) string {
 			continue
 		}
 
-		// Skip the person's name line
-		if strings.Contains(strings.ToLower(line), strings.ToLower(personName)) {
-			continue
-		}
-
 		// Check if line contains a pipe separator (common in signatures: "Name | Title")
+		// Do this BEFORE skipping lines with person name, so "Name | Title | Company" works
 		if strings.Contains(line, "|") {
 			parts := strings.Split(line, "|")
 			for _, part := range parts {
@@ -242,6 +249,11 @@ func parseSignatureForTitle(signatureText, personName string) string {
 					}
 				}
 			}
+		}
+
+		// Skip the person's name line (for non-pipe-separated signatures)
+		if strings.Contains(strings.ToLower(line), strings.ToLower(personName)) {
+			continue
 		}
 
 		// Check if this line contains title keywords

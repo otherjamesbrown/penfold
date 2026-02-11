@@ -1036,6 +1036,147 @@ func TestExtractSignature(t *testing.T) {
 	}
 }
 
+func TestExtractSignaturesPerSender(t *testing.T) {
+	tests := []struct {
+		name     string
+		bodyText string
+		people   []ResolvedPerson
+		expected map[string]string
+	}{
+		{
+			name: "Threaded email with two senders",
+			bodyText: `From: John Smith <john@example.com>
+Subject: Re: Project Update
+
+Thanks for the update. I'll review the roadmap this week.
+
+Best,
+John Smith
+VP Engineering
+Example Corp
+
+On Mon, Feb 10, 2026, Sarah Chen wrote:
+
+Here's the latest project update. Please review.
+
+Regards,
+Sarah Chen
+Product Manager
+Example Corp`,
+			people: []ResolvedPerson{
+				{Name: "John Smith"},
+				{Name: "Sarah Chen"},
+			},
+			expected: map[string]string{
+				"John Smith": "Best,\nJohn Smith\nVP Engineering\nExample Corp",
+				"Sarah Chen": "Regards,\nSarah Chen\nProduct Manager\nExample Corp",
+			},
+		},
+		{
+			name: "Single message - returns empty map",
+			bodyText: `Just a simple email with one signature.
+
+Best regards,
+Alice Smith
+Engineer`,
+			people: []ResolvedPerson{
+				{Name: "Alice Smith"},
+			},
+			expected: nil,
+		},
+		{
+			name: "Three-way thread with Original Message separator",
+			bodyText: `From: Alice <alice@example.com>
+
+I agree with both proposals.
+
+Best,
+Alice Smith
+CTO
+
+-----Original Message-----
+From: Bob Jones
+
+Sounds good to me.
+
+Regards,
+Bob Jones
+Director
+
+On Tue, Carol wrote:
+
+Here's my proposal.
+
+Cheers,
+Carol Lee
+Manager`,
+			people: []ResolvedPerson{
+				{Name: "Alice Smith"},
+				{Name: "Bob Jones"},
+				{Name: "Carol Lee"},
+			},
+			expected: map[string]string{
+				"Alice Smith": "Best,\nAlice Smith\nCTO",
+				"Bob Jones":   "Regards,\nBob Jones\nDirector",
+				"Carol Lee":   "Cheers,\nCarol Lee\nManager",
+			},
+		},
+		{
+			name:     "Empty body - returns nil",
+			bodyText: "",
+			people: []ResolvedPerson{
+				{Name: "John Smith"},
+			},
+			expected: nil,
+		},
+		{
+			name: "No signature markers in thread - returns empty map",
+			bodyText: `From: John <john@example.com>
+
+Plain text.
+
+On Mon, Sarah wrote:
+
+More plain text.`,
+			people: []ResolvedPerson{
+				{Name: "John Smith"},
+				{Name: "Sarah Chen"},
+			},
+			expected: map[string]string{},
+		},
+		{
+			name: "Person not found in any block - missing from result",
+			bodyText: `From: Alice <alice@example.com>
+
+My update.
+
+Best,
+Alice Smith
+
+On Mon, Bob wrote:
+
+His update.
+
+Regards,
+Bob Jones`,
+			people: []ResolvedPerson{
+				{Name: "Alice Smith"},
+				{Name: "Charlie Brown"}, // Not in thread
+			},
+			expected: map[string]string{
+				"Alice Smith": "Best,\nAlice Smith",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractSignaturesPerSender(tt.bodyText, tt.people)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestSLMPipelineTestSuite(t *testing.T) {
 	suite.Run(t, new(SLMPipelineTestSuite))
 }

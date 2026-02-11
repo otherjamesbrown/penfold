@@ -372,10 +372,11 @@ type PersistFindingsOutput struct {
 
 // EnrichPersonMetadataInput is the input for the EnrichPersonMetadata activity (Stage 3.5).
 type EnrichPersonMetadataInput struct {
-	TenantID       string           `json:"tenant_id"`
-	ResolvedPeople []ResolvedPerson `json:"resolved_people"`
-	SignatureText  string           `json:"signature_text,omitempty"`
-	BodyText       string           `json:"body_text,omitempty"`
+	TenantID             string            `json:"tenant_id"`
+	ResolvedPeople       []ResolvedPerson  `json:"resolved_people"`
+	SignatureText        string            `json:"signature_text,omitempty"`
+	BodyText             string            `json:"body_text,omitempty"`
+	PerSenderSignatures  map[string]string `json:"per_sender_signatures,omitempty"` // Maps person name to their signature
 }
 
 // EnrichPersonMetadataOutput is the output from the EnrichPersonMetadata activity.
@@ -934,12 +935,29 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		if contextOutput != nil && len(contextOutput.ResolvedPeople) > 0 {
 			enrichCtx := workflow.WithActivityOptions(ctx, fastOpts)
 			enrichOutput := &EnrichPersonMetadataOutput{}
-			err = workflow.ExecuteActivity(enrichCtx, pkgtemporal.ActivityEnrichPersonMetadata, EnrichPersonMetadataInput{
+
+			// For multi-sender emails (threads), extract per-sender signatures to avoid title cross-contamination
+			enrichInput := EnrichPersonMetadataInput{
 				TenantID:       input.TenantID,
 				ResolvedPeople: contextOutput.ResolvedPeople,
-				SignatureText:  extractSignature(input.BodyText),
 				BodyText:       input.BodyText,
-			}).Get(ctx, enrichOutput)
+			}
+
+			// Try per-sender extraction for multiple people
+			if len(contextOutput.ResolvedPeople) > 1 {
+				perSenderSigs := extractSignaturesPerSender(input.BodyText, contextOutput.ResolvedPeople)
+				if len(perSenderSigs) > 0 {
+					enrichInput.PerSenderSignatures = perSenderSigs
+				} else {
+					// Fall back to single signature if no thread separators found
+					enrichInput.SignatureText = extractSignature(input.BodyText)
+				}
+			} else {
+				// Single sender: use original extractSignature for backwards compatibility
+				enrichInput.SignatureText = extractSignature(input.BodyText)
+			}
+
+			err = workflow.ExecuteActivity(enrichCtx, pkgtemporal.ActivityEnrichPersonMetadata, enrichInput).Get(ctx, enrichOutput)
 			if err != nil {
 				logger.Warn("person metadata enrichment failed (non-blocking)",
 					"source_id", input.SourceID,
@@ -1274,6 +1292,106 @@ func extractSignature(body string) string {
 
 	// Extract from marker to end, including the marker text
 	return strings.TrimSpace(body[lastPos:])
+}
+
+// extractSignaturesPerSender extracts per-sender signatures from a threaded email body.
+// It splits the email body into message blocks using common separators (e.g., "On ... wrote:",
+// "-----Original Message-----", "From:") and extracts the signature from each block.
+// Returns a map from person name to their signature text.
+//
+// For single-message emails (no thread separators), returns an empty map and caller should
+// fall back to extractSignature() for the single signature.
+func extractSignaturesPerSender(bodyText string, people []ResolvedPerson) map[string]string {
+	if bodyText == "" || len(people) == 0 {
+		return nil
+	}
+
+	// Common email thread separators - look for both with and without leading newline
+	threadSeparators := []string{
+		"\nOn ",                       // "On Mon, Feb 10, 2026, Alice wrote:"
+		"\n-----Original Message-----", // Outlook separator
+		"\nFrom:",                     // "From: Alice <alice@example.com>"
+		"\n> On ",                     // Quoted version
+	}
+
+	// Find all separator positions
+	separatorPositions := []int{}
+
+	// Check if body starts with a separator pattern (no leading newline)
+	for _, sep := range []string{"On ", "-----Original Message-----", "From:", "> On "} {
+		if strings.HasPrefix(bodyText, sep) {
+			separatorPositions = append(separatorPositions, 0)
+			break
+		}
+	}
+
+	// Find all separator positions in the middle of the text
+	for _, sep := range threadSeparators {
+		idx := 0
+		for {
+			pos := strings.Index(bodyText[idx:], sep)
+			if pos == -1 {
+				break
+			}
+			actualPos := idx + pos
+			separatorPositions = append(separatorPositions, actualPos)
+			idx = actualPos + 1
+		}
+	}
+
+	// If no separators found, this is a single-message email, return empty map
+	if len(separatorPositions) == 0 {
+		return nil
+	}
+
+	// Sort separator positions
+	// Use simple bubble sort since the list is typically small
+	for i := 0; i < len(separatorPositions); i++ {
+		for j := i + 1; j < len(separatorPositions); j++ {
+			if separatorPositions[i] > separatorPositions[j] {
+				separatorPositions[i], separatorPositions[j] = separatorPositions[j], separatorPositions[i]
+			}
+		}
+	}
+
+	// Split body into message blocks
+	blocks := []string{}
+	lastPos := 0
+	for _, sepPos := range separatorPositions {
+		if sepPos > lastPos {
+			blocks = append(blocks, bodyText[lastPos:sepPos])
+		}
+		lastPos = sepPos
+	}
+	// Add final block
+	if lastPos < len(bodyText) {
+		blocks = append(blocks, bodyText[lastPos:])
+	}
+
+	// Extract signature from each block and try to match to a person
+	result := make(map[string]string)
+	for _, block := range blocks {
+		// Try to find which person this block belongs to by looking for their name or email
+		var matchedPerson *ResolvedPerson
+		for i := range people {
+			person := &people[i]
+			// Check if person's name appears in the block
+			if strings.Contains(block, person.Name) {
+				matchedPerson = person
+				break
+			}
+		}
+
+		if matchedPerson != nil {
+			// Extract signature from this block
+			signature := extractSignature(block)
+			if signature != "" {
+				result[matchedPerson.Name] = signature
+			}
+		}
+	}
+
+	return result
 }
 
 // Ensure temporal package is used to avoid import errors during development.

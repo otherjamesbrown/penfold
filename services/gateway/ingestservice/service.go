@@ -21,6 +21,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/contentid"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/parse"
 	"github.com/otherjamesbrown/penfold/pkg/repository"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
@@ -191,8 +192,8 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 	// Build metadata from request
 	metadata := buildEmailMetadata(req)
 
-	// Collect participant emails
-	participantEmails := collectParticipantEmails(req)
+	// Collect participant emails (from envelope headers and quoted reply headers in body)
+	participantEmails := collectParticipantEmails(req, rawContent)
 
 	// Create the source record
 	emailSource := &storage.EmailSource{
@@ -945,28 +946,54 @@ func buildEmailMetadata(req *ingestv1.IngestEmailRequest) map[string]interface{}
 }
 
 // collectParticipantEmails extracts all email addresses from the request.
-func collectParticipantEmails(req *ingestv1.IngestEmailRequest) []string {
+// This includes both envelope headers (From/To/Cc/Bcc) and participants found
+// in quoted reply headers within the body text.
+func collectParticipantEmails(req *ingestv1.IngestEmailRequest, bodyText string) []string {
+	// Use a map to deduplicate emails
+	seen := make(map[string]bool)
 	emails := make([]string, 0)
 
+	// Helper to add email if not seen
+	addEmail := func(email string) {
+		if email == "" {
+			return
+		}
+		// Normalize to lowercase for deduplication
+		normalized := strings.ToLower(email)
+		if !seen[normalized] {
+			seen[normalized] = true
+			emails = append(emails, email)
+		}
+	}
+
+	// Extract from envelope headers
 	if req.From != nil && req.From.Address != "" {
-		emails = append(emails, req.From.Address)
+		addEmail(req.From.Address)
 	}
 
 	for _, addr := range req.To {
 		if addr != nil && addr.Address != "" {
-			emails = append(emails, addr.Address)
+			addEmail(addr.Address)
 		}
 	}
 
 	for _, addr := range req.Cc {
 		if addr != nil && addr.Address != "" {
-			emails = append(emails, addr.Address)
+			addEmail(addr.Address)
 		}
 	}
 
 	for _, addr := range req.Bcc {
 		if addr != nil && addr.Address != "" {
-			emails = append(emails, addr.Address)
+			addEmail(addr.Address)
+		}
+	}
+
+	// Extract from quoted reply headers in body text
+	if bodyText != "" {
+		quotedParticipants := parse.ExtractQuotedReplyParticipants(bodyText)
+		for _, email := range quotedParticipants {
+			addEmail(email)
 		}
 	}
 

@@ -1345,3 +1345,218 @@ func TestUpdateContent_MissingContentID(t *testing.T) {
 	assert.Equal(t, codes.InvalidArgument, st.Code())
 	assert.Contains(t, st.Message(), "content_id is required")
 }
+
+// ============ Participant Extraction Tests ============
+
+// TestCollectParticipantEmails_QuotedReplyParticipants tests extraction of participants
+// from quoted reply headers within the email body.
+// This is a reproduction test for bug pf-8ecc9f.
+func TestCollectParticipantEmails_QuotedReplyParticipants(t *testing.T) {
+	t.Run("Gmail quoted reply with participant in body", func(t *testing.T) {
+		svc, repo := newTestService()
+
+		// Create an email where:
+		// - Envelope From is bob@example.com (should be captured)
+		// - Envelope To is alice@example.com (should be captured)
+		// - Quoted reply "On ... wrote:" contains aurore@example.com (currently NOT captured - BUG)
+		// - Nested quoted reply contains luca@example.com (currently NOT captured - BUG)
+		bodyText := `Thanks for the update.
+
+On Mon, Feb 10, 2026, Aurore Defiolles <aurore@example.com> wrote:
+
+> Here's the proposal draft.
+>
+> On Feb 9, 2026, Luca Olivari <luca@example.com> wrote:
+>> Can you review this?
+>>
+>> Thanks!`
+
+		req := &ingestv1.IngestEmailRequest{
+			TenantId:    "tenant-1",
+			MessageId:   "msg-123",
+			ContentHash: "hash-123",
+			From: &ingestv1.EmailAddress{
+				Name:    "Bob Jones",
+				Address: "bob@example.com",
+			},
+			To: []*ingestv1.EmailAddress{
+				{
+					Name:    "Alice Smith",
+					Address: "alice@example.com",
+				},
+			},
+			BodyPlain: bodyText,
+		}
+
+		resp, err := svc.IngestEmail(context.Background(), req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		// Verify the source was created
+		capturedSource := repo.lastSource
+		require.NotNil(t, capturedSource)
+
+		// Expected: All 4 participants should be captured:
+		// 1. bob@example.com (envelope From)
+		// 2. alice@example.com (envelope To)
+		// 3. aurore@example.com (quoted reply "On ... wrote:")
+		// 4. luca@example.com (nested quoted reply "On ... wrote:")
+		expectedParticipants := []string{
+			"bob@example.com",
+			"alice@example.com",
+			"aurore@example.com", // BUG: Currently missing
+			"luca@example.com",   // BUG: Currently missing
+		}
+
+		actualParticipants := capturedSource.ParticipantEmails
+
+		// Check each expected participant
+		for _, expected := range expectedParticipants {
+			found := false
+			for _, actual := range actualParticipants {
+				if actual == expected {
+					found = true
+					break
+				}
+			}
+			assert.True(t, found, "Expected participant %s to be extracted, but was missing. Actual participants: %v", expected, actualParticipants)
+		}
+
+		// Verify count matches
+		assert.Equal(t, len(expectedParticipants), len(actualParticipants),
+			"Expected %d participants but got %d. Missing: quoted reply participants",
+			len(expectedParticipants), len(actualParticipants))
+	})
+
+	t.Run("Outlook quoted reply with participant in body", func(t *testing.T) {
+		svc, repo := newTestService()
+
+		// Outlook-style quoted reply with From: in body
+		bodyText := `Got it, thanks!
+
+-----Original Message-----
+From: Jane Doe <jane@example.com>
+Sent: Monday, February 10, 2026 3:45 PM
+To: Bob Jones
+Subject: RE: Project Update
+
+Here is the original message.`
+
+		req := &ingestv1.IngestEmailRequest{
+			TenantId:    "tenant-1",
+			MessageId:   "msg-456",
+			ContentHash: "hash-456",
+			From: &ingestv1.EmailAddress{
+				Name:    "Bob Jones",
+				Address: "bob@example.com",
+			},
+			To: []*ingestv1.EmailAddress{
+				{
+					Name:    "Carol White",
+					Address: "carol@example.com",
+				},
+			},
+			BodyPlain: bodyText,
+		}
+
+		resp, err := svc.IngestEmail(context.Background(), req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		capturedSource := repo.lastSource
+		require.NotNil(t, capturedSource)
+
+		// Expected: All 3 participants:
+		// 1. bob@example.com (envelope From)
+		// 2. carol@example.com (envelope To)
+		// 3. jane@example.com (Outlook quoted From: line)
+		expectedParticipants := []string{
+			"bob@example.com",
+			"carol@example.com",
+			"jane@example.com", // BUG: Currently missing
+		}
+
+		actualParticipants := capturedSource.ParticipantEmails
+
+		for _, expected := range expectedParticipants {
+			found := false
+			for _, actual := range actualParticipants {
+				if actual == expected {
+					found = true
+					break
+				}
+			}
+			assert.True(t, found, "Expected participant %s to be extracted from Outlook quoted body, but was missing. Actual: %v", expected, actualParticipants)
+		}
+
+		assert.Equal(t, len(expectedParticipants), len(actualParticipants),
+			"Expected %d participants but got %d",
+			len(expectedParticipants), len(actualParticipants))
+	})
+
+	t.Run("Multiple quoted replies with different formats", func(t *testing.T) {
+		svc, repo := newTestService()
+
+		// Complex case with multiple quoting styles
+		bodyText := `I'll take care of this.
+
+On Tue, Feb 11, 2026, Emma Watson <emma@example.com> wrote:
+
+> Sounds good.
+>
+> -----Original Message-----
+> From: David Chen <david@example.com>
+> Sent: Monday, February 10, 2026 9:00 AM
+>
+> Let's proceed with the plan.`
+
+		req := &ingestv1.IngestEmailRequest{
+			TenantId:    "tenant-1",
+			MessageId:   "msg-789",
+			ContentHash: "hash-789",
+			From: &ingestv1.EmailAddress{
+				Name:    "Frank Miller",
+				Address: "frank@example.com",
+			},
+			To: []*ingestv1.EmailAddress{
+				{
+					Name:    "Grace Lee",
+					Address: "grace@example.com",
+				},
+			},
+			BodyPlain: bodyText,
+		}
+
+		resp, err := svc.IngestEmail(context.Background(), req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		capturedSource := repo.lastSource
+		require.NotNil(t, capturedSource)
+
+		// Expected: All 4 participants
+		expectedParticipants := []string{
+			"frank@example.com", // Envelope From
+			"grace@example.com", // Envelope To
+			"emma@example.com",  // BUG: Gmail-style quoted reply in body
+			"david@example.com", // BUG: Outlook-style quoted From: in nested body
+		}
+
+		actualParticipants := capturedSource.ParticipantEmails
+
+		for _, expected := range expectedParticipants {
+			found := false
+			for _, actual := range actualParticipants {
+				if actual == expected {
+					found = true
+					break
+				}
+			}
+			assert.True(t, found, "Expected participant %s to be extracted from complex quoted body, but was missing. Actual: %v", expected, actualParticipants)
+		}
+
+		assert.Equal(t, len(expectedParticipants), len(actualParticipants),
+			"Expected %d participants but got %d",
+			len(expectedParticipants), len(actualParticipants))
+	})
+}
