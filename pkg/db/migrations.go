@@ -203,6 +203,16 @@ func findMigrations(dir string) ([]Migration, error) {
 	return migrations, nil
 }
 
+// normalizeVersion removes the .sql suffix from a version string for comparison.
+// This handles migrations that were applied with the full filename in schema_migrations.
+func normalizeVersion(v string) string {
+	// Strip .sql or .SQL suffix (case-insensitive)
+	if len(v) > 4 && strings.ToLower(v[len(v)-4:]) == ".sql" {
+		return v[:len(v)-4]
+	}
+	return v
+}
+
 // getAppliedMigrations returns a map of already-applied migration versions.
 func getAppliedMigrations(ctx context.Context, pool *pgxpool.Pool) (map[string]bool, error) {
 	applied := make(map[string]bool)
@@ -218,7 +228,7 @@ func getAppliedMigrations(ctx context.Context, pool *pgxpool.Pool) (map[string]b
 		if err := rows.Scan(&version); err != nil {
 			return nil, err
 		}
-		applied[version] = true
+		applied[normalizeVersion(version)] = true
 	}
 
 	return applied, rows.Err()
@@ -240,7 +250,7 @@ func getAppliedMigrationsWithTimestamps(ctx context.Context, pool *pgxpool.Pool)
 		if err := rows.Scan(&version, &appliedAt); err != nil {
 			return nil, err
 		}
-		applied[version] = appliedAt
+		applied[normalizeVersion(version)] = appliedAt
 	}
 
 	return applied, rows.Err()

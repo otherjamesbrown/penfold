@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,52 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestNormalizeVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "with .sql suffix",
+			input:    "001_test.sql",
+			expected: "001_test",
+		},
+		{
+			name:     "with .SQL suffix (uppercase)",
+			input:    "002_test.SQL",
+			expected: "002_test",
+		},
+		{
+			name:     "without .sql suffix",
+			input:    "003_test",
+			expected: "003_test",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "just .sql",
+			input:    ".sql",
+			expected: ".sql",
+		},
+		{
+			name:     "mixed case .Sql",
+			input:    "004_test.Sql",
+			expected: "004_test",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeVersion(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
 
 func TestFindMigrations(t *testing.T) {
 	// Create a temporary directory with test migration files
@@ -269,8 +316,8 @@ func TestGetMigrationStatus(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, status)
 
-	// Verify applied migrations (should include 001 and the drift migration 999)
-	assert.GreaterOrEqual(t, len(status.Applied), 2)
+	// Verify applied migrations (should include 001; 999 is drift, not applied)
+	assert.GreaterOrEqual(t, len(status.Applied), 1)
 	foundApplied := false
 	for _, m := range status.Applied {
 		if m.Version == "001_status_test" {
@@ -359,6 +406,113 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 func getTestDatabaseURL(t *testing.T) string {
 	t.Helper()
 
-	dbURL := "postgres://penfold:penfold123@dev02.brown.chat:5432/penfold?sslmode=disable"
+	// Check if DATABASE_URL is set in environment
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		return dbURL
+	}
+
+	// Use SSL-enabled connection (requires certs in ~/.postgresql/)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("failed to get home directory: %v", err)
+	}
+
+	dbURL := fmt.Sprintf(
+		"postgres://penfold@dev02.brown.chat:5432/penfold?sslmode=verify-full&sslcert=%s/.postgresql/postgresql.crt&sslkey=%s/.postgresql/postgresql.key&sslrootcert=%s/.postgresql/root.crt",
+		homeDir, homeDir, homeDir,
+	)
 	return dbURL
+}
+
+// TestGetMigrationStatus_SqlSuffixNormalization reproduces bug pf-0dfbbd:
+// When migrations are applied with .sql suffix in schema_migrations (by external tools),
+// but findMigrations() strips .sql from filenames, GetMigrationStatus() incorrectly
+// shows these migrations as both pending (file exists, not applied) and drift (applied, no file).
+func TestGetMigrationStatus_SqlSuffixNormalization(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test")
+	}
+
+	ctx := context.Background()
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	// Create a temporary directory with test migration files
+	tmpDir, err := os.MkdirTemp("", "migrations_norm_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Create test migration files (with .sql extension)
+	migrations := map[string]string{
+		"001_test_norm.sql": "CREATE TABLE test_norm_001 (id INT);",
+		"002_test_norm.sql": "CREATE TABLE test_norm_002 (id INT);",
+		"003_test_norm.sql": "CREATE TABLE test_norm_003 (id INT);",
+	}
+
+	for filename, content := range migrations {
+		err := os.WriteFile(filepath.Join(tmpDir, filename), []byte(content), 0644)
+		require.NoError(t, err)
+	}
+
+	// Simulate production state: Manually insert versions WITH .sql suffix
+	// (as if they were applied by an external tool that preserves the full filename)
+	now := time.Now()
+	_, err = pool.Exec(ctx, "INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)", "001_test_norm.sql", now)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, "INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)", "002_test_norm.sql", now)
+	require.NoError(t, err)
+
+	// Get migration status
+	status, err := GetMigrationStatus(ctx, pool, tmpDir)
+	require.NoError(t, err)
+	require.NotNil(t, status)
+
+	// Expected behavior (after fix):
+	// - 001_test_norm and 002_test_norm should appear as APPLIED (normalized comparison works)
+	// - 003_test_norm should appear as PENDING (has file, not applied)
+	// - NO drift entries for 001_test_norm.sql or 002_test_norm.sql
+
+	// Actual behavior (before fix) - this test will FAIL showing the bug:
+	// - findMigrations returns versions: 001_test_norm, 002_test_norm, 003_test_norm
+	// - getAppliedMigrationsWithTimestamps returns: 001_test_norm.sql, 002_test_norm.sql
+	// - Comparison fails because "001_test_norm" != "001_test_norm.sql"
+	// - Result: 001 and 002 show as PENDING (have file, not applied)
+	//           001.sql and 002.sql show as DRIFT (applied, no file)
+	//           003 shows as PENDING (correct)
+
+	// Assert applied migrations
+	appliedVersions := make(map[string]bool)
+	for _, m := range status.Applied {
+		appliedVersions[m.Version] = true
+	}
+
+	// These should be APPLIED (normalized versions)
+	assert.True(t, appliedVersions["001_test_norm"], "001_test_norm should be in applied list (not pending)")
+	assert.True(t, appliedVersions["002_test_norm"], "002_test_norm should be in applied list (not pending)")
+
+	// Assert pending migrations
+	pendingVersions := make(map[string]bool)
+	for _, m := range status.Pending {
+		pendingVersions[m.Version] = true
+	}
+
+	// This should be PENDING (has file, not applied)
+	assert.True(t, pendingVersions["003_test_norm"], "003_test_norm should be pending")
+
+	// These should NOT be pending (they are applied)
+	assert.False(t, pendingVersions["001_test_norm"], "001_test_norm should NOT be pending (it's applied)")
+	assert.False(t, pendingVersions["002_test_norm"], "002_test_norm should NOT be pending (it's applied)")
+
+	// Assert drift migrations
+	driftVersions := make(map[string]bool)
+	for _, m := range status.Drift {
+		driftVersions[m.Version] = true
+	}
+
+	// These should NOT be in drift (they have corresponding files)
+	assert.False(t, driftVersions["001_test_norm.sql"], "001_test_norm.sql should NOT be in drift (file exists)")
+	assert.False(t, driftVersions["002_test_norm.sql"], "002_test_norm.sql should NOT be in drift (file exists)")
+
+	// Clean up
+	_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE version LIKE '%test_norm%'")
 }
