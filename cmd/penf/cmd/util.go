@@ -134,3 +134,14 @@ func connectToGateway(cfg *config.CLIConfig) (*grpc.ClientConn, error) {
 
 	return conn, nil
 }
+
+// formatDurationMs formats milliseconds as a human-readable duration.
+func formatDurationMs(ms int) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	if ms < 60000 {
+		return fmt.Sprintf("%.1fs", float64(ms)/1000)
+	}
+	return fmt.Sprintf("%.1fm", float64(ms)/60000)
+}

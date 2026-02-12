@@ -1191,7 +1191,6 @@ func init() {
 		&cobra.Group{ID: "review", Title: "Review & Triage:"},
 		&cobra.Group{ID: "meetings", Title: "Meetings:"},
 		&cobra.Group{ID: "ops", Title: "Operations:"},
-		&cobra.Group{ID: "palace", Title: "Context-Palace:"},
 		&cobra.Group{ID: "setup", Title: "Setup:"},
 	)
 
@@ -1323,31 +1322,6 @@ func init() {
 	qualityCmd := cmd.NewQualityCommand(nil)
 	qualityCmd.GroupID = "ops"
 	rootCmd.AddCommand(qualityCmd)
-
-	// Context-Palace
-	contextCmd := cmd.NewContextCommand(nil)
-	contextCmd.GroupID = "palace"
-	rootCmd.AddCommand(contextCmd)
-
-	memoryCmd := cmd.NewMemoryCommand(nil)
-	memoryCmd.GroupID = "palace"
-	rootCmd.AddCommand(memoryCmd)
-
-	backlogCmd := cmd.NewBacklogCommand(nil)
-	backlogCmd.GroupID = "palace"
-	rootCmd.AddCommand(backlogCmd)
-
-	sessionCmd := cmd.NewSessionCommand(nil)
-	sessionCmd.GroupID = "palace"
-	rootCmd.AddCommand(sessionCmd)
-
-	messageCmd := cmd.NewMessageCommand(nil)
-	messageCmd.GroupID = "palace"
-	rootCmd.AddCommand(messageCmd)
-
-	reminderCmd := cmd.NewReminderCommand(nil)
-	reminderCmd.GroupID = "palace"
-	rootCmd.AddCommand(reminderCmd)
 
 	// Setup
 	configCmd.GroupID = "setup"
