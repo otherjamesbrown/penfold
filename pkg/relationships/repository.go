@@ -1255,10 +1255,12 @@ func (r *Repository) FindDuplicateEntities(ctx context.Context, tenantID string,
 
 				if similarity >= minSimilarity {
 					duplicatePairs = append(duplicatePairs, DuplicatePair{
-						EntityID1:  e1.ID,
-						EntityID2:  e2.ID,
-						Similarity: similarity,
-						Signals:    signals,
+						EntityID1:   e1.ID,
+						EntityID2:   e2.ID,
+						EntityName1: e1.Name,
+						EntityName2: e2.Name,
+						Similarity:  similarity,
+						Signals:     signals,
 					})
 				}
 			}
@@ -1281,10 +1283,12 @@ func (r *Repository) FindDuplicateEntities(ctx context.Context, tenantID string,
 
 				if similarity >= minSimilarity {
 					duplicatePairs = append(duplicatePairs, DuplicatePair{
-						EntityID1:  e1.ID,
-						EntityID2:  e2.ID,
-						Similarity: similarity,
-						Signals:    signals,
+						EntityID1:   e1.ID,
+						EntityID2:   e2.ID,
+						EntityName1: e1.Name,
+						EntityName2: e2.Name,
+						Similarity:  similarity,
+						Signals:     signals,
 					})
 				}
 			}
@@ -1462,7 +1466,7 @@ func (r *Repository) GetMergePreview(ctx context.Context, tenantID string, entit
 	// Get aliases that would be transferred from entity2 to entity1
 	var transferringAliases []string
 	query := `
-		SELECT display_name, email
+		SELECT alias_type, alias_value
 		FROM person_aliases
 		WHERE person_id = $1
 	`
@@ -1473,11 +1477,11 @@ func (r *Repository) GetMergePreview(ctx context.Context, tenantID string, entit
 	defer rows.Close()
 
 	for rows.Next() {
-		var displayName, email string
-		if err := rows.Scan(&displayName, &email); err != nil {
+		var aliasType, aliasValue string
+		if err := rows.Scan(&aliasType, &aliasValue); err != nil {
 			continue
 		}
-		transferringAliases = append(transferringAliases, fmt.Sprintf("%s <%s>", displayName, email))
+		transferringAliases = append(transferringAliases, fmt.Sprintf("%s: %s", aliasType, aliasValue))
 	}
 
 	// Get relationships that would be transferred

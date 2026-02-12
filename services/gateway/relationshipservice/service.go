@@ -1054,8 +1054,8 @@ func duplicatePairToProto(pair *relationships.DuplicatePair) *relationshipv1.Dup
 	return &relationshipv1.DuplicatePair{
 		EntityId1:   pair.EntityID1,
 		EntityId2:   pair.EntityID2,
-		EntityName1: "", // Names will be filled by caller if needed
-		EntityName2: "", // Names will be filled by caller if needed
+		EntityName1: pair.EntityName1,
+		EntityName2: pair.EntityName2,
 		Similarity:  float32(pair.Similarity),
 		Signals:     pair.Signals,
 	}

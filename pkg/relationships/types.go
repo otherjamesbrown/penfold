@@ -259,10 +259,12 @@ type InsertRelationshipRequest struct {
 
 // DuplicatePair represents a pair of potentially duplicate entities.
 type DuplicatePair struct {
-	EntityID1  string
-	EntityID2  string
-	Similarity float64
-	Signals    []string // e.g., ["name_match", "domain_match", "shared_sources"]
+	EntityID1   string
+	EntityID2   string
+	EntityName1 string
+	EntityName2 string
+	Similarity  float64
+	Signals     []string // e.g., ["name_match", "domain_match", "shared_sources"]
 }
 
 // MergePreview shows what would happen if two entities were merged.
