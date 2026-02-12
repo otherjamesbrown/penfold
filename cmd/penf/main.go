@@ -1181,6 +1181,7 @@ func init() {
 	// Health subcommands.
 	healthCmd.AddCommand(cmd.NewHealthLocalCommand())
 	healthCmd.AddCommand(cmd.NewHealthGatewayCommand())
+	healthCmd.AddCommand(cmd.NewHealthPreflightCommand())
 
 	// Add command groups for organized help output.
 	rootCmd.AddGroup(

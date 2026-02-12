@@ -12,13 +12,46 @@ Single entry point for all implementation work.
 $ARGUMENTS
 ```
 
+## Phase 0: Preflight Health Check
+
+**ALWAYS run preflight checks before starting any ingestion work.**
+
+Run the preflight health check:
+```bash
+penf health preflight
+```
+
+This command checks:
+1. Gateway reachability and health
+2. Critical service health (database must be healthy)
+3. Circuit breaker states (all must be closed)
+4. AI coordinator health
+
+**Exit codes:**
+- `0` - All critical services healthy, proceed with ingestion
+- `1` - Critical failure, abort the pipeline
+
+**If preflight fails:**
+- Display the failure reasons clearly to the user
+- Do NOT proceed with ingestion
+- Suggest the user investigate the failing services
+- Exit immediately
+
+**If preflight passes with warnings:**
+- Display warnings (non-critical services degraded)
+- Continue with ingestion (warnings don't block work)
+
+**Note:** This protects against wasting API credits on a broken system.
+
+---
+
 ## Input Routing
 
 Parse the user's input to determine which mode to run:
 
 **Mode 1: Full Pipeline** (no arguments, or "all")
 - User typed `/ingest` with no args
-- Run Phase 1 → 2 → 3 → 3.5 → 4 → 5 → 5.5 → 6+7
+- Run Phase 0 (preflight) → Phase 1 → 2 → 3 → 3.5 → 4 → 5 → 5.5 → 6+7
 
 **Mode 2: Implement Specific Shards** (shard IDs provided)
 - User typed `/ingest pf-e453b1 pf-086c4d` or natural language like "the pipeline one"
@@ -142,8 +175,11 @@ Phase 6+7: /ingest.deploy        — Loop for unblocked work, then commit/deploy
 - **Feedback:** For HIGH items, send decomposition plan to penfold (poll_hint: "review").
 
 **After Phase 4 (Implement):**
-- If all agents complete → proceed to Phase 5 (Verify)
-- If any failed → re-launch with error output. **Notify penfold of re-launch.**
+- Phase 4 now includes automatic retry (Ralph Loop pattern) — up to MAX_RETRIES fresh
+  attempts per shard before escalating. See `/ingest.implement` for details.
+- If all shards complete (with or without retries) → proceed to Phase 5 (Verify)
+- If any shards exhausted retries → penfold has already been notified. Proceed with
+  successful shards; leave failed ones for `/ingest next` after penfold provides guidance.
 
 **After Phase 5 (Verify):**
 - If all builds + unit tests + integration tests pass → send pre-deploy review to penfold
@@ -282,8 +318,8 @@ before/after output in the resolution.
 |---------|--------|
 | Debugger agent fails | Re-launch with more context, or close with partial findings |
 | Explorer agent fails | Re-launch with specific search guidance, or orchestrator fills gaps |
-| Implementation agent fails (build) | Re-launch with error output. **Notify penfold.** |
-| Implementation agent fails (tests) | Re-launch with failing test details. **Notify penfold.** |
+| Implementation agent fails (build) | Automatic retry (Ralph Loop) — fresh agent, up to MAX_RETRIES. Notify penfold only after retries exhausted. |
+| Implementation agent fails (tests) | Automatic retry (Ralph Loop) — fresh agent, up to MAX_RETRIES. Notify penfold only after retries exhausted. |
 | Decomposed layer fails | Fix that layer before proceeding; other features continue |
 | No actionable items | Display empty state, suggest `/bug-status` |
 | Partial completion | Deploy what's ready, leave failed items for `/ingest next` |
