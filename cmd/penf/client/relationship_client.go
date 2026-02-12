@@ -1054,3 +1054,165 @@ func protoToNetworkGraph(g *relationshipv1.NetworkGraph) *NetworkGraph {
 		Metadata: metadata,
 	}
 }
+
+// DuplicatePair represents a pair of potentially duplicate entities.
+type DuplicatePair struct {
+	EntityID1   string
+	EntityID2   string
+	EntityName1 string
+	EntityName2 string
+	Similarity  float32
+	Signals     []string
+}
+
+// MergePreview contains a preview of merging two entities.
+type MergePreview struct {
+	MergedEntity              *RelEntity
+	TransferringAliases       []string
+	TransferringRelationships []string
+	ConflictFields            []string
+}
+
+// AutoMergeResult contains results of auto-merge operation.
+type AutoMergeResult struct {
+	MergedCount  int32
+	MergedPairs  []*DuplicatePair
+	SkippedPairs []*SkippedPair
+	WasDryRun    bool
+}
+
+// SkippedPair represents a duplicate pair that was skipped.
+type SkippedPair struct {
+	Pair   *DuplicatePair
+	Reason string
+}
+
+// FindDuplicates finds pairs of entities that are likely duplicates.
+func (c *RelationshipClient) FindDuplicates(ctx context.Context, tenantID string, minSimilarity float32) ([]*DuplicatePair, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	req := &relationshipv1.FindDuplicatesRequest{
+		TenantId: tenantID,
+	}
+
+	if minSimilarity > 0 {
+		req.MinSimilarity = &minSimilarity
+	}
+
+	resp, err := client.FindDuplicates(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("find duplicates: %w", err)
+	}
+
+	pairs := make([]*DuplicatePair, len(resp.DuplicatePairs))
+	for i, p := range resp.DuplicatePairs {
+		pairs[i] = &DuplicatePair{
+			EntityID1:   p.EntityId1,
+			EntityID2:   p.EntityId2,
+			EntityName1: p.EntityName1,
+			EntityName2: p.EntityName2,
+			Similarity:  p.Similarity,
+			Signals:     p.Signals,
+		}
+	}
+
+	return pairs, nil
+}
+
+// MergePreview shows what would happen if two entities were merged.
+func (c *RelationshipClient) MergePreview(ctx context.Context, tenantID, entityID1, entityID2 string) (*MergePreview, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	resp, err := client.MergePreview(ctx, &relationshipv1.MergePreviewRequest{
+		TenantId:  tenantID,
+		EntityId1: entityID1,
+		EntityId2: entityID2,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("merge preview: %w", err)
+	}
+
+	return &MergePreview{
+		MergedEntity:              protoToEntity(resp.MergedEntity),
+		TransferringAliases:       resp.TransferringAliases,
+		TransferringRelationships: resp.TransferringRelationships,
+		ConflictFields:            resp.ConflictFields,
+	}, nil
+}
+
+// AutoMergeDuplicates automatically merges high-confidence duplicate entities.
+func (c *RelationshipClient) AutoMergeDuplicates(ctx context.Context, tenantID string, minSimilarity float32, dryRun bool) (*AutoMergeResult, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, fmt.Errorf("relationship client not connected")
+	}
+
+	ctx = c.contextWithTenant(ctx, tenantID)
+
+	req := &relationshipv1.AutoMergeDuplicatesRequest{
+		TenantId: tenantID,
+		DryRun:   dryRun,
+	}
+
+	if minSimilarity > 0 {
+		req.MinSimilarity = &minSimilarity
+	}
+
+	resp, err := client.AutoMergeDuplicates(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("auto merge duplicates: %w", err)
+	}
+
+	mergedPairs := make([]*DuplicatePair, len(resp.MergedPairs))
+	for i, p := range resp.MergedPairs {
+		mergedPairs[i] = &DuplicatePair{
+			EntityID1:   p.EntityId1,
+			EntityID2:   p.EntityId2,
+			EntityName1: p.EntityName1,
+			EntityName2: p.EntityName2,
+			Similarity:  p.Similarity,
+			Signals:     p.Signals,
+		}
+	}
+
+	skippedPairs := make([]*SkippedPair, len(resp.SkippedPairs))
+	for i, sp := range resp.SkippedPairs {
+		skippedPairs[i] = &SkippedPair{
+			Pair: &DuplicatePair{
+				EntityID1:   sp.Pair.EntityId1,
+				EntityID2:   sp.Pair.EntityId2,
+				EntityName1: sp.Pair.EntityName1,
+				EntityName2: sp.Pair.EntityName2,
+				Similarity:  sp.Pair.Similarity,
+				Signals:     sp.Pair.Signals,
+			},
+			Reason: sp.Reason,
+		}
+	}
+
+	return &AutoMergeResult{
+		MergedCount:  resp.MergedCount,
+		MergedPairs:  mergedPairs,
+		SkippedPairs: skippedPairs,
+		WasDryRun:    resp.WasDryRun,
+	}, nil
+}

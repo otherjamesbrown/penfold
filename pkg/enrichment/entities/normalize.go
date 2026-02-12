@@ -425,3 +425,73 @@ func DeriveNameFromEmail(email string) string {
 func isLetter(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }
+
+// EntityComparisonData contains the data needed to compare two entities for similarity.
+type EntityComparisonData struct {
+	Name      string
+	Email     string
+	Domain    string
+	SourceIDs []string
+}
+
+// EntitySimilarity calculates weighted similarity between two entities (0.0 to 1.0).
+// It combines name similarity with bonuses for matching domain and shared sources:
+// - Name similarity (primary signal, scaled to 0.73 max contribution)
+// - Email domain match (adds 0.22 bonus)
+// - Shared sources (adds 0.05 bonus)
+// The result is capped at 1.0.
+func EntitySimilarity(a, b *EntityComparisonData) float64 {
+	// Handle nil inputs
+	if a == nil || b == nil {
+		return 0.0
+	}
+
+	// Name similarity is the primary signal
+	nameSim := NameSimilarity(a.Name, b.Name)
+
+	// If names don't match at all, the entities are not similar
+	if nameSim == 0.0 {
+		return 0.0
+	}
+
+	// Start with name similarity as primary component (scaled 0.73)
+	score := nameSim * 0.73
+
+	// Add domain bonus (0.22)
+	if a.Domain != "" && b.Domain != "" && a.Domain == b.Domain {
+		score += 0.22
+	}
+
+	// Add shared source bonus (0.05)
+	if hasSharedSources(a.SourceIDs, b.SourceIDs) {
+		score += 0.05
+	}
+
+	// Cap at 1.0
+	if score > 1.0 {
+		score = 1.0
+	}
+
+	return score
+}
+
+// hasSharedSources returns true if the two slices share at least one common element.
+func hasSharedSources(a, b []string) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+
+	// Use a map for efficient lookup
+	seen := make(map[string]bool)
+	for _, id := range a {
+		seen[id] = true
+	}
+
+	for _, id := range b {
+		if seen[id] {
+			return true
+		}
+	}
+
+	return false
+}

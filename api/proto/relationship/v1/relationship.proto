@@ -66,6 +66,15 @@ service RelationshipService {
 
   // CreateRelationship manually creates a new relationship between two entities.
   rpc CreateRelationship(CreateRelationshipRequest) returns (CreateRelationshipResponse);
+
+  // FindDuplicates finds pairs of entities that are likely duplicates.
+  rpc FindDuplicates(FindDuplicatesRequest) returns (FindDuplicatesResponse);
+
+  // MergePreview shows what would happen if two entities were merged.
+  rpc MergePreview(MergePreviewRequest) returns (MergePreviewResponse);
+
+  // AutoMergeDuplicates automatically merges high-confidence duplicate entities.
+  rpc AutoMergeDuplicates(AutoMergeDuplicatesRequest) returns (AutoMergeDuplicatesResponse);
 }
 
 // =============================================================================
@@ -874,4 +883,113 @@ message ResolveConflictResponse {
 
   // Message providing additional details
   string message = 4;
+}
+
+// =============================================================================
+// Deduplication Messages
+// =============================================================================
+
+// DuplicatePair represents a pair of potentially duplicate entities.
+message DuplicatePair {
+  // ID of the first entity
+  string entity_id1 = 1;
+
+  // ID of the second entity
+  string entity_id2 = 2;
+
+  // Name of the first entity (for display)
+  string entity_name1 = 3;
+
+  // Name of the second entity (for display)
+  string entity_name2 = 4;
+
+  // Similarity score (0.0 to 1.0)
+  float similarity = 5;
+
+  // Signals explaining why these might be duplicates
+  repeated string signals = 6;
+}
+
+// FindDuplicatesRequest finds duplicate entities.
+message FindDuplicatesRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Minimum similarity threshold (default: 0.85, range: 0.5 to 1.0)
+  optional float min_similarity = 2;
+}
+
+// FindDuplicatesResponse contains duplicate entity pairs.
+message FindDuplicatesResponse {
+  // List of duplicate pairs
+  repeated DuplicatePair duplicate_pairs = 1;
+
+  // Total count of pairs found
+  int32 total_count = 2;
+}
+
+// MergePreviewRequest requests a preview of merging two entities.
+message MergePreviewRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // ID of the first entity
+  string entity_id1 = 2;
+
+  // ID of the second entity
+  string entity_id2 = 3;
+}
+
+// MergePreviewResponse contains a preview of the merge operation.
+message MergePreviewResponse {
+  // The merged entity (preview only)
+  Entity merged_entity = 1;
+
+  // Aliases that would be transferred
+  repeated string transferring_aliases = 2;
+
+  // Relationships that would be transferred (IDs only)
+  repeated string transferring_relationships = 3;
+
+  // Fields that have conflicting values
+  repeated string conflict_fields = 4;
+}
+
+// AutoMergeDuplicatesRequest automatically merges duplicate entities.
+message AutoMergeDuplicatesRequest {
+  // Tenant identifier for multi-tenancy support
+  string tenant_id = 1;
+
+  // Minimum similarity threshold (minimum: 0.90, default: 0.95)
+  optional float min_similarity = 2;
+
+  // If true, only preview what would be merged
+  bool dry_run = 3;
+
+  // Confirmation flag (reserved for future use)
+  bool confirm = 4;
+}
+
+// SkippedPair represents a duplicate pair that was skipped during auto-merge.
+message SkippedPair {
+  // The duplicate pair
+  DuplicatePair pair = 1;
+
+  // Reason why this pair was skipped
+  string reason = 2;
+}
+
+// AutoMergeDuplicatesResponse contains the results of auto-merge.
+message AutoMergeDuplicatesResponse {
+  // Number of entities merged
+  int32 merged_count = 1;
+
+  // Pairs that were merged
+  repeated DuplicatePair merged_pairs = 2;
+
+  // Pairs that were skipped
+  repeated SkippedPair skipped_pairs = 3;
+
+  // Whether this was a dry run
+  bool was_dry_run = 4;
 }

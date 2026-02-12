@@ -467,6 +467,8 @@ discovered from your content and can be merged when duplicates are detected.`,
 	cmd.AddCommand(newEntityMergeCommand(deps))
 	cmd.AddCommand(newEntityUpdateCommand(deps))
 	cmd.AddCommand(newEntityDeleteCommand(deps))
+	cmd.AddCommand(newEntityDuplicatesCommand(deps))
+	cmd.AddCommand(newEntityMergePreviewCommand(deps))
 
 	return cmd
 }
@@ -593,6 +595,20 @@ var (
 	entityDeleteForce bool
 )
 
+// entityDuplicatesFlags holds flags for the entity duplicates command.
+var (
+	duplicatesMinSimilarity float64
+	duplicatesOutput        string
+	duplicatesAutoMerge     bool
+	duplicatesConfirm       bool
+	duplicatesDryRun        bool
+)
+
+// entityMergePreviewFlags holds flags for the entity merge-preview command.
+var (
+	mergePreviewOutput string
+)
+
 // newEntityDeleteCommand creates the 'relationship entity delete' subcommand.
 func newEntityDeleteCommand(deps *RelationshipCommandDeps) *cobra.Command {
 	cmd := &cobra.Command{
@@ -618,6 +634,83 @@ Examples:
 	}
 
 	cmd.Flags().BoolVar(&entityDeleteForce, "force", false, "Skip confirmation prompt")
+
+	return cmd
+}
+
+// newEntityDuplicatesCommand creates the 'relationship entity duplicates' subcommand.
+func newEntityDuplicatesCommand(deps *RelationshipCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "duplicates",
+		Short: "Find duplicate entity pairs",
+		Long: `Detect near-duplicate entities using weighted similarity scoring.
+
+This command analyzes entities to find potential duplicates based on name
+similarity, shared aliases, and other signals. Results include similarity
+scores (0.0-1.0) and signals explaining why entities might be duplicates.
+
+Use --auto-merge to automatically merge high-confidence duplicates. Auto-merge
+requires --min-similarity >= 0.90 (enforced server-side) and --confirm to execute.
+Without --confirm, auto-merge runs in dry-run mode by default.
+
+Use --output json for programmatic processing of duplicate pairs.`,
+		Example: `  # Find duplicates with default threshold
+  penf entity duplicates
+
+  # Find duplicates with custom threshold
+  penf entity duplicates --min-similarity 0.9
+
+  # Get results as JSON for processing
+  penf entity duplicates --output json
+
+  # Auto-merge high-confidence duplicates (dry-run by default)
+  penf entity duplicates --auto-merge --min-similarity 0.95
+
+  # Auto-merge with confirmation (actually executes)
+  penf entity duplicates --auto-merge --min-similarity 0.95 --confirm
+
+  # Explicit dry-run to preview auto-merge
+  penf entity duplicates --auto-merge --min-similarity 0.95 --dry-run`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEntityDuplicates(cmd.Context(), deps, getRelInsecureFlag(cmd))
+		},
+	}
+
+	cmd.Flags().Float64Var(&duplicatesMinSimilarity, "min-similarity", 0.7, "Minimum similarity score threshold (0.0-1.0)")
+	cmd.Flags().StringVar(&duplicatesOutput, "output", "table", "Output format (table, json)")
+	cmd.Flags().BoolVar(&duplicatesAutoMerge, "auto-merge", false, "Auto-merge high-confidence duplicate pairs")
+	cmd.Flags().BoolVar(&duplicatesConfirm, "confirm", false, "Confirm auto-merge (required with --auto-merge to execute)")
+	cmd.Flags().BoolVar(&duplicatesDryRun, "dry-run", false, "Show what would be merged without executing")
+
+	return cmd
+}
+
+// newEntityMergePreviewCommand creates the 'relationship entity merge-preview' subcommand.
+func newEntityMergePreviewCommand(deps *RelationshipCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "merge-preview <id1> <id2>",
+		Short: "Preview the result of merging two entities",
+		Long: `Show what the merged entity would look like without actually merging.
+
+This command previews the merge operation between two entities, showing:
+- The resulting merged entity with combined properties
+- Aliases that would be transferred
+- Relationships that would be transferred
+- Fields with conflicting values that need resolution
+
+Use this before 'penf entity merge' to understand the impact of the merge.`,
+		Example: `  # Preview merging two entities
+  penf entity merge-preview ent-person-1 ent-person-2
+
+  # Get preview as JSON for analysis
+  penf entity merge-preview ent-person-1 ent-person-2 --output json`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEntityMergePreview(cmd.Context(), deps, args[0], args[1], getRelInsecureFlag(cmd))
+		},
+	}
+
+	cmd.Flags().StringVar(&mergePreviewOutput, "output", "table", "Output format (table, json)")
 
 	return cmd
 }
@@ -1421,6 +1514,105 @@ func runEntityDelete(ctx context.Context, deps *RelationshipCommandDeps, entityI
 	return nil
 }
 
+// runEntityDuplicates executes the entity duplicates command.
+func runEntityDuplicates(ctx context.Context, deps *RelationshipCommandDeps, insecureFlag bool) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
+
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Determine output format.
+	format := cfg.OutputFormat
+	if duplicatesOutput != "" {
+		format = config.OutputFormat(duplicatesOutput)
+	}
+
+	// Handle auto-merge flow.
+	if duplicatesAutoMerge {
+		// Auto-merge requires explicit confirm or dry-run.
+		isDryRun := duplicatesDryRun || !duplicatesConfirm
+
+		if isDryRun {
+			fmt.Printf("Running auto-merge in dry-run mode (no changes will be made)...\n\n")
+		} else {
+			fmt.Printf("Auto-merging high-confidence duplicates...\n\n")
+		}
+
+		result, err := relClient.AutoMergeDuplicates(ctx, cfg.TenantID, float32(duplicatesMinSimilarity), isDryRun)
+		if err != nil {
+			return fmt.Errorf("auto-merge duplicates: %w", err)
+		}
+
+		return outputAutoMergeResult(format, result, isDryRun)
+	}
+
+	// Standard find duplicates flow.
+	pairs, err := relClient.FindDuplicates(ctx, cfg.TenantID, float32(duplicatesMinSimilarity))
+	if err != nil {
+		return fmt.Errorf("finding duplicates: %w", err)
+	}
+
+	return outputDuplicatePairs(format, pairs)
+}
+
+// runEntityMergePreview executes the entity merge-preview command.
+func runEntityMergePreview(ctx context.Context, deps *RelationshipCommandDeps, entityID1, entityID2 string, insecureFlag bool) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Override insecure if flag is set.
+	if insecureFlag {
+		cfg.Insecure = true
+	}
+
+	// Override tenant if specified.
+	if relationshipTenant != "" {
+		cfg.TenantID = relationshipTenant
+	}
+
+	// Initialize relationship client.
+	relClient, err := deps.InitRelClient(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing relationship client: %w", err)
+	}
+	defer relClient.Close()
+
+	// Get merge preview.
+	preview, err := relClient.MergePreview(ctx, cfg.TenantID, entityID1, entityID2)
+	if err != nil {
+		return fmt.Errorf("merge preview: %w", err)
+	}
+
+	// Determine output format.
+	format := cfg.OutputFormat
+	if mergePreviewOutput != "" {
+		format = config.OutputFormat(mergePreviewOutput)
+	}
+
+	return outputMergePreview(format, preview, entityID1, entityID2)
+}
+
 // runNetworkGraph executes the network graph command.
 func runNetworkGraph(ctx context.Context, deps *RelationshipCommandDeps, insecureFlag bool) error {
 	cfg, err := deps.LoadConfig()
@@ -2128,6 +2320,160 @@ func outputConflictDetailText(c RelationshipConflict) error {
 	}
 
 	fmt.Printf("Resolve with: penf relationship conflict resolve %s --strategy <strategy>\n", c.ID)
+
+	return nil
+}
+
+// outputDuplicatePairs outputs duplicate entity pairs.
+func outputDuplicatePairs(format config.OutputFormat, pairs []*client.DuplicatePair) error {
+	switch format {
+	case config.OutputFormatJSON:
+		return outputRelJSON(pairs)
+	default:
+		return outputDuplicatePairsText(pairs)
+	}
+}
+
+// outputDuplicatePairsText outputs duplicate pairs in human-readable format.
+func outputDuplicatePairsText(pairs []*client.DuplicatePair) error {
+	if len(pairs) == 0 {
+		fmt.Println("\033[32mNo duplicate entities found.\033[0m")
+		return nil
+	}
+
+	fmt.Printf("Duplicate Entity Pairs (%d):\n\n", len(pairs))
+	fmt.Println("  ENTITY 1             ENTITY 2             SIMILARITY  SIGNALS")
+	fmt.Println("  --------             --------             ----------  -------")
+
+	for _, p := range pairs {
+		similarityColor := getConfidenceColor(float64(p.Similarity))
+		signalsStr := strings.Join(p.Signals, ", ")
+		fmt.Printf("  %-20s %-20s %s%.2f\033[0m      %s\n",
+			truncateString(p.EntityName1, 20),
+			truncateString(p.EntityName2, 20),
+			similarityColor,
+			p.Similarity,
+			truncateString(signalsStr, 40))
+	}
+
+	fmt.Println()
+	fmt.Println("Use 'penf entity merge-preview <id1> <id2>' to preview merging a pair.")
+	fmt.Println("Use 'penf entity merge <id1> <id2>' to merge a pair.")
+	return nil
+}
+
+// outputAutoMergeResult outputs auto-merge results.
+func outputAutoMergeResult(format config.OutputFormat, result *client.AutoMergeResult, isDryRun bool) error {
+	switch format {
+	case config.OutputFormatJSON:
+		return outputRelJSON(result)
+	default:
+		return outputAutoMergeResultText(result, isDryRun)
+	}
+}
+
+// outputAutoMergeResultText outputs auto-merge results in human-readable format.
+func outputAutoMergeResultText(result *client.AutoMergeResult, isDryRun bool) error {
+	if isDryRun {
+		fmt.Printf("\033[33mDry Run Results\033[0m (no changes made):\n\n")
+	} else {
+		fmt.Printf("\033[32mAuto-Merge Complete\033[0m:\n\n")
+	}
+
+	fmt.Printf("  Merged: %d pairs\n", result.MergedCount)
+	fmt.Printf("  Skipped: %d pairs\n", len(result.SkippedPairs))
+	fmt.Println()
+
+	if len(result.MergedPairs) > 0 {
+		fmt.Println("Merged Pairs:")
+		for _, p := range result.MergedPairs {
+			fmt.Printf("  - %s + %s (similarity: %.2f)\n",
+				truncateString(p.EntityName1, 30),
+				truncateString(p.EntityName2, 30),
+				p.Similarity)
+		}
+		fmt.Println()
+	}
+
+	if len(result.SkippedPairs) > 0 {
+		fmt.Println("Skipped Pairs:")
+		for _, sp := range result.SkippedPairs {
+			fmt.Printf("  - %s + %s: %s\n",
+				truncateString(sp.Pair.EntityName1, 25),
+				truncateString(sp.Pair.EntityName2, 25),
+				sp.Reason)
+		}
+		fmt.Println()
+	}
+
+	if isDryRun {
+		fmt.Println("To execute this merge, run:")
+		fmt.Println("  penf entity duplicates --auto-merge --min-similarity <threshold> --confirm")
+	}
+
+	return nil
+}
+
+// outputMergePreview outputs merge preview information.
+func outputMergePreview(format config.OutputFormat, preview *client.MergePreview, entityID1, entityID2 string) error {
+	switch format {
+	case config.OutputFormatJSON:
+		return outputRelJSON(preview)
+	default:
+		return outputMergePreviewText(preview, entityID1, entityID2)
+	}
+}
+
+// outputMergePreviewText outputs merge preview in human-readable format.
+func outputMergePreviewText(preview *client.MergePreview, entityID1, entityID2 string) error {
+	fmt.Println("Merge Preview:")
+	fmt.Println()
+	fmt.Printf("  \033[1mMerging:\033[0m %s + %s\n", entityID1, entityID2)
+	fmt.Println()
+
+	if preview.MergedEntity != nil {
+		fmt.Println("  \033[1mMerged Entity:\033[0m")
+		fmt.Printf("    ID:   %s\n", preview.MergedEntity.ID)
+		fmt.Printf("    Name: %s\n", preview.MergedEntity.Name)
+		fmt.Printf("    Type: %s\n", preview.MergedEntity.Type)
+		fmt.Println()
+	}
+
+	if len(preview.TransferringAliases) > 0 {
+		fmt.Println("  \033[1mTransferring Aliases:\033[0m")
+		for _, alias := range preview.TransferringAliases {
+			fmt.Printf("    - %s\n", alias)
+		}
+		fmt.Println()
+	}
+
+	if len(preview.TransferringRelationships) > 0 {
+		fmt.Printf("  \033[1mTransferring Relationships:\033[0m %d\n", len(preview.TransferringRelationships))
+		if len(preview.TransferringRelationships) <= 10 {
+			for _, relID := range preview.TransferringRelationships {
+				fmt.Printf("    - %s\n", relID)
+			}
+		} else {
+			for i := 0; i < 10; i++ {
+				fmt.Printf("    - %s\n", preview.TransferringRelationships[i])
+			}
+			fmt.Printf("    ... and %d more\n", len(preview.TransferringRelationships)-10)
+		}
+		fmt.Println()
+	}
+
+	if len(preview.ConflictFields) > 0 {
+		fmt.Println("  \033[33mConflict Fields:\033[0m")
+		for _, field := range preview.ConflictFields {
+			fmt.Printf("    - %s\n", field)
+		}
+		fmt.Println()
+		fmt.Println("  \033[33mNote:\033[0m Conflicting fields will be resolved during merge.")
+		fmt.Println()
+	}
+
+	fmt.Printf("To execute this merge, run:\n")
+	fmt.Printf("  penf entity merge %s %s\n", entityID1, entityID2)
 
 	return nil
 }

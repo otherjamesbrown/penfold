@@ -29,6 +29,9 @@ type RelationshipRepository interface {
 	ListConflicts(ctx context.Context, filter relationships.ListConflictsFilter) ([]relationships.RelationshipConflict, int64, error)
 	GetConflict(ctx context.Context, tenantID, conflictID string) (*relationships.RelationshipConflict, error)
 	ResolveConflict(ctx context.Context, req relationships.ResolveConflictRequest) (*relationships.ResolveConflictResult, error)
+	FindDuplicateEntities(ctx context.Context, tenantID string, minSimilarity float64) ([]relationships.DuplicatePair, error)
+	GetMergePreview(ctx context.Context, tenantID string, entityID1, entityID2 string) (*relationships.MergePreview, error)
+	AutoMergeDuplicates(ctx context.Context, tenantID string, minSimilarity float64, dryRun bool) (*relationships.AutoMergeResult, error)
 }
 
 // Service implements the RelationshipService gRPC server.
@@ -678,6 +681,120 @@ func (s *Service) CreateRelationship(ctx context.Context, req *relationshipv1.Cr
 	}, nil
 }
 
+// FindDuplicates finds pairs of entities that are likely duplicates.
+func (s *Service) FindDuplicates(ctx context.Context, req *relationshipv1.FindDuplicatesRequest) (*relationshipv1.FindDuplicatesResponse, error) {
+	s.logger.Debug("FindDuplicates called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("min_similarity", req.GetMinSimilarity()),
+	)
+
+	// Validate tenant_id
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+
+	// Default min_similarity to 0.85 if not provided, convert from float32 to float64
+	minSimilarity := 0.85
+	if req.MinSimilarity != nil {
+		minSimilarity = float64(*req.MinSimilarity)
+	}
+
+	// Validate min_similarity bounds (0.5 to 1.0)
+	if minSimilarity < 0.5 || minSimilarity > 1.0 {
+		return nil, status.Errorf(codes.InvalidArgument, "min_similarity must be between 0.5 and 1.0, got: %.2f", minSimilarity)
+	}
+
+	// Call repository
+	pairs, err := s.repo.FindDuplicateEntities(ctx, req.TenantId, minSimilarity)
+	if err != nil {
+		s.logger.Error("Error finding duplicate entities", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to find duplicate entities: %v", err)
+	}
+
+	// Convert to proto
+	protoPairs := make([]*relationshipv1.DuplicatePair, len(pairs))
+	for i, pair := range pairs {
+		protoPairs[i] = duplicatePairToProto(&pair)
+	}
+
+	return &relationshipv1.FindDuplicatesResponse{
+		DuplicatePairs: protoPairs,
+		TotalCount:     int32(len(pairs)),
+	}, nil
+}
+
+// MergePreview shows what would happen if two entities were merged.
+func (s *Service) MergePreview(ctx context.Context, req *relationshipv1.MergePreviewRequest) (*relationshipv1.MergePreviewResponse, error) {
+	s.logger.Debug("MergePreview called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("entity_id1", req.EntityId1),
+		logging.F("entity_id2", req.EntityId2),
+	)
+
+	// Validate required fields
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.EntityId1 == "" {
+		return nil, status.Error(codes.InvalidArgument, "entity_id_1 is required")
+	}
+	if req.EntityId2 == "" {
+		return nil, status.Error(codes.InvalidArgument, "entity_id_2 is required")
+	}
+
+	// Call repository
+	preview, err := s.repo.GetMergePreview(ctx, req.TenantId, req.EntityId1, req.EntityId2)
+	if err != nil {
+		s.logger.Error("Error getting merge preview", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get merge preview: %v", err)
+	}
+
+	// Convert to proto
+	return mergePreviewToProto(preview), nil
+}
+
+// AutoMergeDuplicates automatically merges high-confidence duplicate entities.
+func (s *Service) AutoMergeDuplicates(ctx context.Context, req *relationshipv1.AutoMergeDuplicatesRequest) (*relationshipv1.AutoMergeDuplicatesResponse, error) {
+	s.logger.Debug("AutoMergeDuplicates called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("min_similarity", req.GetMinSimilarity()),
+		logging.F("dry_run", req.DryRun),
+	)
+
+	// Validate tenant_id
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+
+	// Default min_similarity to 0.95 if not provided, convert from float32 to float64
+	minSimilarity := 0.95
+	if req.MinSimilarity != nil {
+		minSimilarity = float64(*req.MinSimilarity)
+	}
+
+	// Enforce minimum threshold of 0.90 for auto-merge (server-side enforcement)
+	// Use a small epsilon to account for float32->float64 conversion precision loss
+	const minThreshold = 0.899
+	if minSimilarity < minThreshold {
+		return nil, status.Errorf(codes.InvalidArgument, "min_similarity for auto-merge must be at least 0.90, got: %.2f", minSimilarity)
+	}
+
+	// Validate max bound
+	if minSimilarity > 1.0 {
+		return nil, status.Errorf(codes.InvalidArgument, "min_similarity must be between 0.90 and 1.0, got: %.2f", minSimilarity)
+	}
+
+	// Call repository
+	result, err := s.repo.AutoMergeDuplicates(ctx, req.TenantId, minSimilarity, req.DryRun)
+	if err != nil {
+		s.logger.Error("Error auto-merging duplicates", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to auto-merge duplicates: %v", err)
+	}
+
+	// Convert to proto
+	return autoMergeResultToProto(result, req.DryRun), nil
+}
+
 // Conversion helpers
 
 func entityToProto(e *relationships.Entity) *relationshipv1.Entity {
@@ -924,5 +1041,69 @@ func protoConflictStrategyToInternal(s relationshipv1.ConflictResolutionStrategy
 		return relationships.ConflictStrategyManual
 	default:
 		return relationships.ConflictStrategyKeepLatest
+	}
+}
+
+// Deduplication conversion helpers
+
+func duplicatePairToProto(pair *relationships.DuplicatePair) *relationshipv1.DuplicatePair {
+	if pair == nil {
+		return nil
+	}
+
+	return &relationshipv1.DuplicatePair{
+		EntityId1:   pair.EntityID1,
+		EntityId2:   pair.EntityID2,
+		EntityName1: "", // Names will be filled by caller if needed
+		EntityName2: "", // Names will be filled by caller if needed
+		Similarity:  float32(pair.Similarity),
+		Signals:     pair.Signals,
+	}
+}
+
+func mergePreviewToProto(preview *relationships.MergePreview) *relationshipv1.MergePreviewResponse {
+	if preview == nil {
+		return nil
+	}
+
+	// Convert relationship objects to just their IDs for the proto response
+	relIDs := make([]string, len(preview.TransferringRelationships))
+	for i, rel := range preview.TransferringRelationships {
+		relIDs[i] = rel.ID
+	}
+
+	return &relationshipv1.MergePreviewResponse{
+		MergedEntity:              entityToProto(preview.MergedEntity),
+		TransferringAliases:       preview.TransferringAliases,
+		TransferringRelationships: relIDs,
+		ConflictFields:            preview.ConflictFields,
+	}
+}
+
+func autoMergeResultToProto(result *relationships.AutoMergeResult, wasDryRun bool) *relationshipv1.AutoMergeDuplicatesResponse {
+	if result == nil {
+		return nil
+	}
+
+	// Convert merged pairs
+	mergedPairs := make([]*relationshipv1.DuplicatePair, len(result.MergedPairs))
+	for i, pair := range result.MergedPairs {
+		mergedPairs[i] = duplicatePairToProto(&pair)
+	}
+
+	// Convert skipped pairs
+	skippedPairs := make([]*relationshipv1.SkippedPair, len(result.SkippedPairs))
+	for i, pair := range result.SkippedPairs {
+		skippedPairs[i] = &relationshipv1.SkippedPair{
+			Pair:   duplicatePairToProto(&pair),
+			Reason: "merge_failed", // Generic reason, actual reason would come from the pair
+		}
+	}
+
+	return &relationshipv1.AutoMergeDuplicatesResponse{
+		MergedCount:  int32(result.MergedCount),
+		MergedPairs:  mergedPairs,
+		SkippedPairs: skippedPairs,
+		WasDryRun:    wasDryRun,
 	}
 }

@@ -106,6 +106,18 @@ func (m *mockRelationshipRepo) GetEntity(ctx context.Context, tenantID, entityID
 	}, nil
 }
 
+func (m *mockRelationshipRepo) FindDuplicateEntities(ctx context.Context, tenantID string, minSimilarity float64) ([]relationships.DuplicatePair, error) {
+	return nil, nil
+}
+
+func (m *mockRelationshipRepo) GetMergePreview(ctx context.Context, tenantID string, entityID1, entityID2 string) (*relationships.MergePreview, error) {
+	return nil, nil
+}
+
+func (m *mockRelationshipRepo) AutoMergeDuplicates(ctx context.Context, tenantID string, minSimilarity float64, dryRun bool) (*relationships.AutoMergeResult, error) {
+	return nil, nil
+}
+
 // ============ Test Helpers ============
 
 func testLogger() logging.Logger {

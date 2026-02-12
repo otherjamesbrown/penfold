@@ -256,3 +256,26 @@ type InsertRelationshipRequest struct {
 	Confidence     float64
 	UserConfirmed  bool
 }
+
+// DuplicatePair represents a pair of potentially duplicate entities.
+type DuplicatePair struct {
+	EntityID1  string
+	EntityID2  string
+	Similarity float64
+	Signals    []string // e.g., ["name_match", "domain_match", "shared_sources"]
+}
+
+// MergePreview shows what would happen if two entities were merged.
+type MergePreview struct {
+	MergedEntity              *Entity
+	TransferringAliases       []string
+	TransferringRelationships []Relationship
+	ConflictFields            []string
+}
+
+// AutoMergeResult contains the result of an auto-merge operation.
+type AutoMergeResult struct {
+	MergedCount  int
+	MergedPairs  []DuplicatePair
+	SkippedPairs []DuplicatePair
+}

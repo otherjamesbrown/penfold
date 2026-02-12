@@ -38,6 +38,9 @@ const (
 	RelationshipService_GetConflict_FullMethodName           = "/penfold.relationship.v1.RelationshipService/GetConflict"
 	RelationshipService_ResolveConflict_FullMethodName       = "/penfold.relationship.v1.RelationshipService/ResolveConflict"
 	RelationshipService_CreateRelationship_FullMethodName    = "/penfold.relationship.v1.RelationshipService/CreateRelationship"
+	RelationshipService_FindDuplicates_FullMethodName        = "/penfold.relationship.v1.RelationshipService/FindDuplicates"
+	RelationshipService_MergePreview_FullMethodName          = "/penfold.relationship.v1.RelationshipService/MergePreview"
+	RelationshipService_AutoMergeDuplicates_FullMethodName   = "/penfold.relationship.v1.RelationshipService/AutoMergeDuplicates"
 )
 
 // RelationshipServiceClient is the client API for RelationshipService service.
@@ -82,6 +85,12 @@ type RelationshipServiceClient interface {
 	ResolveConflict(ctx context.Context, in *ResolveConflictRequest, opts ...grpc.CallOption) (*ResolveConflictResponse, error)
 	// CreateRelationship manually creates a new relationship between two entities.
 	CreateRelationship(ctx context.Context, in *CreateRelationshipRequest, opts ...grpc.CallOption) (*CreateRelationshipResponse, error)
+	// FindDuplicates finds pairs of entities that are likely duplicates.
+	FindDuplicates(ctx context.Context, in *FindDuplicatesRequest, opts ...grpc.CallOption) (*FindDuplicatesResponse, error)
+	// MergePreview shows what would happen if two entities were merged.
+	MergePreview(ctx context.Context, in *MergePreviewRequest, opts ...grpc.CallOption) (*MergePreviewResponse, error)
+	// AutoMergeDuplicates automatically merges high-confidence duplicate entities.
+	AutoMergeDuplicates(ctx context.Context, in *AutoMergeDuplicatesRequest, opts ...grpc.CallOption) (*AutoMergeDuplicatesResponse, error)
 }
 
 type relationshipServiceClient struct {
@@ -252,6 +261,36 @@ func (c *relationshipServiceClient) CreateRelationship(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *relationshipServiceClient) FindDuplicates(ctx context.Context, in *FindDuplicatesRequest, opts ...grpc.CallOption) (*FindDuplicatesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FindDuplicatesResponse)
+	err := c.cc.Invoke(ctx, RelationshipService_FindDuplicates_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relationshipServiceClient) MergePreview(ctx context.Context, in *MergePreviewRequest, opts ...grpc.CallOption) (*MergePreviewResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MergePreviewResponse)
+	err := c.cc.Invoke(ctx, RelationshipService_MergePreview_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *relationshipServiceClient) AutoMergeDuplicates(ctx context.Context, in *AutoMergeDuplicatesRequest, opts ...grpc.CallOption) (*AutoMergeDuplicatesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AutoMergeDuplicatesResponse)
+	err := c.cc.Invoke(ctx, RelationshipService_AutoMergeDuplicates_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RelationshipServiceServer is the server API for RelationshipService service.
 // All implementations must embed UnimplementedRelationshipServiceServer
 // for forward compatibility.
@@ -294,6 +333,12 @@ type RelationshipServiceServer interface {
 	ResolveConflict(context.Context, *ResolveConflictRequest) (*ResolveConflictResponse, error)
 	// CreateRelationship manually creates a new relationship between two entities.
 	CreateRelationship(context.Context, *CreateRelationshipRequest) (*CreateRelationshipResponse, error)
+	// FindDuplicates finds pairs of entities that are likely duplicates.
+	FindDuplicates(context.Context, *FindDuplicatesRequest) (*FindDuplicatesResponse, error)
+	// MergePreview shows what would happen if two entities were merged.
+	MergePreview(context.Context, *MergePreviewRequest) (*MergePreviewResponse, error)
+	// AutoMergeDuplicates automatically merges high-confidence duplicate entities.
+	AutoMergeDuplicates(context.Context, *AutoMergeDuplicatesRequest) (*AutoMergeDuplicatesResponse, error)
 	mustEmbedUnimplementedRelationshipServiceServer()
 }
 
@@ -351,6 +396,15 @@ func (UnimplementedRelationshipServiceServer) ResolveConflict(context.Context, *
 }
 func (UnimplementedRelationshipServiceServer) CreateRelationship(context.Context, *CreateRelationshipRequest) (*CreateRelationshipResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateRelationship not implemented")
+}
+func (UnimplementedRelationshipServiceServer) FindDuplicates(context.Context, *FindDuplicatesRequest) (*FindDuplicatesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FindDuplicates not implemented")
+}
+func (UnimplementedRelationshipServiceServer) MergePreview(context.Context, *MergePreviewRequest) (*MergePreviewResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MergePreview not implemented")
+}
+func (UnimplementedRelationshipServiceServer) AutoMergeDuplicates(context.Context, *AutoMergeDuplicatesRequest) (*AutoMergeDuplicatesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AutoMergeDuplicates not implemented")
 }
 func (UnimplementedRelationshipServiceServer) mustEmbedUnimplementedRelationshipServiceServer() {}
 func (UnimplementedRelationshipServiceServer) testEmbeddedByValue()                             {}
@@ -661,6 +715,60 @@ func _RelationshipService_CreateRelationship_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RelationshipService_FindDuplicates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FindDuplicatesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).FindDuplicates(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_FindDuplicates_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).FindDuplicates(ctx, req.(*FindDuplicatesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RelationshipService_MergePreview_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MergePreviewRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).MergePreview(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_MergePreview_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).MergePreview(ctx, req.(*MergePreviewRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RelationshipService_AutoMergeDuplicates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AutoMergeDuplicatesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelationshipServiceServer).AutoMergeDuplicates(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelationshipService_AutoMergeDuplicates_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelationshipServiceServer).AutoMergeDuplicates(ctx, req.(*AutoMergeDuplicatesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RelationshipService_ServiceDesc is the grpc.ServiceDesc for RelationshipService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -731,6 +839,18 @@ var RelationshipService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateRelationship",
 			Handler:    _RelationshipService_CreateRelationship_Handler,
+		},
+		{
+			MethodName: "FindDuplicates",
+			Handler:    _RelationshipService_FindDuplicates_Handler,
+		},
+		{
+			MethodName: "MergePreview",
+			Handler:    _RelationshipService_MergePreview_Handler,
+		},
+		{
+			MethodName: "AutoMergeDuplicates",
+			Handler:    _RelationshipService_AutoMergeDuplicates_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
