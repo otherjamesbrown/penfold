@@ -110,15 +110,16 @@ type ParseTranscriptOutput struct {
 
 // TriageInput is the input for the Triage activity.
 type TriageInput struct {
-	TenantID      string `json:"tenant_id"`
-	SourceID      int64  `json:"source_id"`
-	ContentID     string `json:"content_id,omitempty"`
-	JobID         string `json:"job_id"`
-	Content       string `json:"content"`
-	Subject       string `json:"subject,omitempty"`
-	SenderEmail   string `json:"sender_email,omitempty"`
-	ContentType   string `json:"content_type"`
-	ModelOverride string `json:"model_override,omitempty"` // Optional model override for reprocessing
+	TenantID      string            `json:"tenant_id"`
+	SourceID      int64             `json:"source_id"`
+	ContentID     string            `json:"content_id,omitempty"`
+	JobID         string            `json:"job_id"`
+	Content       string            `json:"content"`
+	Subject       string            `json:"subject,omitempty"`
+	SenderEmail   string            `json:"sender_email,omitempty"`
+	ContentType   string            `json:"content_type"`
+	Headers       map[string]string `json:"headers,omitempty"`       // Email headers for subtype classification
+	ModelOverride string            `json:"model_override,omitempty"` // Optional model override for reprocessing
 }
 
 // TriageOutput is the output from the Triage activity.

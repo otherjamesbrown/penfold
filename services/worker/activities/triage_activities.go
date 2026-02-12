@@ -10,6 +10,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
@@ -18,9 +19,10 @@ import (
 
 // TriageActivities holds dependencies for triage-related activities.
 type TriageActivities struct {
-	logger       logging.Logger
-	aiClient     AIClient
-	pipelineRepo PipelineRepository
+	logger         logging.Logger
+	aiClient       AIClient
+	pipelineRepo   PipelineRepository
+	enrichmentRepo EnrichmentRepository
 }
 
 // NewTriageActivities creates a new TriageActivities instance.
@@ -28,6 +30,7 @@ func NewTriageActivities(
 	logger logging.Logger,
 	aiClient AIClient,
 	pipelineRepo PipelineRepository,
+	enrichmentRepo EnrichmentRepository,
 ) *TriageActivities {
 	if logger == nil {
 		panic("NewTriageActivities: logger is required")
@@ -36,10 +39,12 @@ func NewTriageActivities(
 		panic("NewTriageActivities: aiClient is required")
 	}
 	// pipelineRepo is optional (provenance recording)
+	// enrichmentRepo is optional (for content subtype classification)
 	return &TriageActivities{
-		logger:       logger.With(logging.F("component", "triage_activities")),
-		aiClient:     aiClient,
-		pipelineRepo: pipelineRepo,
+		logger:         logger.With(logging.F("component", "triage_activities")),
+		aiClient:       aiClient,
+		pipelineRepo:   pipelineRepo,
+		enrichmentRepo: enrichmentRepo,
 	}
 }
 
@@ -75,6 +80,44 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			"content is empty",
 			"ValidationError",
 		)
+	}
+
+	// Classify content subtype (Stage 0.5 - before AI triage)
+	// This runs for all content types but is most useful for emails
+	if a.enrichmentRepo != nil && input.SourceID > 0 {
+		subtype := enrichment.ClassifyContentSubtype(
+			input.Headers,
+			input.SenderEmail,
+			input.Subject,
+			nil, // TODO: Load tenant patterns from config if needed
+		)
+
+		logger.Debug("Content subtype classified",
+			logging.F("subtype", string(subtype)),
+			logging.F("source_id", input.SourceID),
+		)
+
+		// Update the enrichment record with the classified subtype
+		// This is a best-effort update; don't fail the activity if it fails
+		if enrichmentRec, err := a.enrichmentRepo.GetBySourceID(ctx, input.SourceID); err == nil && enrichmentRec != nil {
+			enrichmentRec.ContentSubtype = string(subtype)
+			if updateErr := a.enrichmentRepo.Update(ctx, enrichmentRec); updateErr != nil {
+				logger.Warn("Failed to update enrichment subtype",
+					logging.Err(updateErr),
+					logging.F("source_id", input.SourceID),
+				)
+			} else {
+				logger.Info("Updated enrichment subtype",
+					logging.F("source_id", input.SourceID),
+					logging.F("subtype", string(subtype)),
+				)
+			}
+		} else if err != nil {
+			logger.Warn("Failed to fetch enrichment for subtype update",
+				logging.Err(err),
+				logging.F("source_id", input.SourceID),
+			)
+		}
 	}
 
 	// Check if AI client is available

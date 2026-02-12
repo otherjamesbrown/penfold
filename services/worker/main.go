@@ -351,8 +351,15 @@ func main() {
 		activityRegistrar.WithExtractionActivities(extractionActivities)
 		logger.Info("Extraction activities initialized with AI client")
 
+		// Create enrichment repository if database is available
+		var enrichmentRepo activities.EnrichmentRepository
+		if dbPool != nil {
+			enrichmentRepo = activities.NewPostgresEnrichmentRepository(dbPool, logger)
+			logger.Info("Enrichment repository initialized for content subtype classification")
+		}
+
 		// Create triage activities (Stage 1)
-		triageActivities := activities.NewTriageActivities(logger, aiClient, pipelineRepo)
+		triageActivities := activities.NewTriageActivities(logger, aiClient, pipelineRepo, enrichmentRepo)
 		activityRegistrar.WithTriageActivities(triageActivities)
 		logger.Info("Triage activities initialized with AI client (Stage 1)")
 

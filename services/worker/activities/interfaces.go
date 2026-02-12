@@ -320,6 +320,23 @@ type PipelineRepository interface {
 	RecordOverrides(ctx context.Context, runID int64, overrides map[string]string) error
 }
 
+// EnrichmentRepository defines the interface for enrichment data access.
+type EnrichmentRepository interface {
+	// GetBySourceID retrieves an enrichment by source ID.
+	GetBySourceID(ctx context.Context, sourceID int64) (*EnrichmentRecord, error)
+	// Update updates an existing enrichment record.
+	Update(ctx context.Context, e *EnrichmentRecord) error
+}
+
+// EnrichmentRecord represents an enrichment record for content subtype updates.
+type EnrichmentRecord struct {
+	ID                   int64
+	SourceID             int64
+	TenantID             string
+	ContentSubtype       string
+	ClassificationReason string
+}
+
 // PipelineRunInput contains the data needed to record a pipeline run.
 type PipelineRunInput struct {
 	SourceID      int64

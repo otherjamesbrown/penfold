@@ -174,21 +174,21 @@ func TestNewExtractionActivities_Success(t *testing.T) {
 
 func TestNewTriageActivities_NilLogger(t *testing.T) {
 	assert.PanicsWithValue(t, "NewTriageActivities: logger is required", func() {
-		NewTriageActivities(nil, &mockAIClient{}, nil)
+		NewTriageActivities(nil, &mockAIClient{}, nil, nil)
 	})
 }
 
 func TestNewTriageActivities_NilAIClient(t *testing.T) {
 	logger := logging.NewNopLogger()
 	assert.PanicsWithValue(t, "NewTriageActivities: aiClient is required", func() {
-		NewTriageActivities(logger, nil, nil)
+		NewTriageActivities(logger, nil, nil, nil)
 	})
 }
 
 func TestNewTriageActivities_Success(t *testing.T) {
 	logger := logging.NewNopLogger()
-	// PipelineRepo is optional - can be nil
-	activities := NewTriageActivities(logger, &mockAIClient{}, nil)
+	// PipelineRepo and EnrichmentRepo are optional - can be nil
+	activities := NewTriageActivities(logger, &mockAIClient{}, nil, nil)
 	assert.NotNil(t, activities)
 }
 
