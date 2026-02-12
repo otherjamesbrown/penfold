@@ -50,4 +50,20 @@ Ask: "Changes complete. Commit and push? Commit, push, and deploy? Create a PR?"
 
 Deploy scripts: `./scripts/deploy-gateway.sh`, `./scripts/deploy-worker.sh`, `./scripts/deploy-ai-coordinator.sh`
 
-Full deployment details: `cxp knowledge show mycroft-wf-deployment`
+**Before deploying**, load the deployment checklist:
+
+```bash
+cxp knowledge show mycroft-wf-deployment
+```
+
+This is mandatory. It contains the full deploy workflow including post-deploy verification and confirmation requirements. A deploy is not complete until you send a deploy-complete resolution message with verification results. Acks are not confirmations.
+
+## Standing Instructions
+
+Load standing instructions at session start:
+
+```bash
+cxp memory search "standing instruction"
+```
+
+These are persistent rules from James and Penfold that apply across all sessions. Check for new ones each session.
