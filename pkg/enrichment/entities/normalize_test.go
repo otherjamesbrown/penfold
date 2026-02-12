@@ -108,26 +108,41 @@ func TestNameSimilarity(t *testing.T) {
 		a    string
 		b    string
 		min  float64 // minimum expected similarity
+		max  float64 // maximum expected similarity (0 if no upper bound)
 	}{
 		// Exact match
-		{"Rick Eskelsen", "Rick Eskelsen", 1.0},
+		{"Rick Eskelsen", "Rick Eskelsen", 1.0, 0.0},
 
 		// Same after normalization
-		{"Eskelsen, Rick", "Rick Eskelsen", 1.0},
+		{"Eskelsen, Rick", "Rick Eskelsen", 1.0, 0.0},
 
 		// Subset
-		{"Rick", "Rick Eskelsen", 0.85},
-		{"Eskelsen", "Rick Eskelsen", 0.85},
+		{"Rick", "Rick Eskelsen", 0.85, 0.0},
+		{"Eskelsen", "Rick Eskelsen", 0.85, 0.0},
 
 		// Contains
-		{"Rick E", "Rick Eskelsen", 0.8},
+		{"Rick E", "Rick Eskelsen", 0.8, 0.0},
 
 		// Different
-		{"John Doe", "Jane Smith", 0.0},
+		{"John Doe", "Jane Smith", 0.0, 0.0},
 
 		// Empty
-		{"", "Rick", 0.0},
-		{"Rick", "", 0.0},
+		{"", "Rick", 0.0, 0.0},
+		{"Rick", "", 0.0, 0.0},
+
+		// False positive prevention: same first name, different last name
+		// These should score LOW (< 0.5) to prevent false duplicates
+		{"Patrick Brisbane", "Patrick Bussmann", 0.0, 0.5},
+		{"James Brown", "James DeMent", 0.0, 0.5},
+		{"Sean Butler", "Sean Li", 0.0, 0.5},
+
+		// True duplicates: same first + last name
+		// These should score HIGH (> 0.9) to detect real duplicates
+		{"John Smith", "Smith, John", 0.9, 0.0},
+		{"Jane Doe", "Jane Doe", 1.0, 0.0},
+
+		// Close variant (typo/spelling): should still score high
+		{"Jon Smith", "John Smith", 0.8, 0.0},
 	}
 
 	for _, tt := range tests {
@@ -135,6 +150,9 @@ func TestNameSimilarity(t *testing.T) {
 			got := NameSimilarity(tt.a, tt.b)
 			if got < tt.min {
 				t.Errorf("NameSimilarity(%q, %q) = %v, want >= %v", tt.a, tt.b, got, tt.min)
+			}
+			if tt.max > 0 && got > tt.max {
+				t.Errorf("NameSimilarity(%q, %q) = %v, want <= %v", tt.a, tt.b, got, tt.max)
 			}
 		})
 	}

@@ -207,6 +207,8 @@ func DetectAccountTypeWithPatterns(email, displayName string, extraPatterns *Acc
 }
 
 // NameSimilarity calculates similarity between two names (0.0 to 1.0).
+// It compares first and last name components separately to avoid false positives
+// where people share a first name but have different last names.
 func NameSimilarity(a, b string) float64 {
 	// Normalize both names
 	a = strings.ToLower(NormalizeDisplayName(a))
@@ -226,31 +228,66 @@ func NameSimilarity(a, b string) float64 {
 		return 0.9
 	}
 
-	// Check if all words from shorter are in longer
+	// Split into components (first, last)
 	wordsA := strings.Fields(a)
 	wordsB := strings.Fields(b)
 
-	shorter, longer := wordsA, wordsB
-	if len(wordsA) > len(wordsB) {
-		shorter, longer = wordsB, wordsA
-	}
-
-	matchCount := 0
-	for _, word := range shorter {
-		for _, other := range longer {
-			if word == other {
-				matchCount++
-				break
+	// Handle single-word names (no last name)
+	if len(wordsA) == 1 || len(wordsB) == 1 {
+		// If both are single words, compare them directly
+		if len(wordsA) == 1 && len(wordsB) == 1 {
+			return levenshteinSimilarity(wordsA[0], wordsB[0])
+		}
+		// One has multiple words, one has single word
+		// Check if the single word matches any component
+		single := wordsA[0]
+		multi := wordsB
+		if len(wordsB) == 1 {
+			single = wordsB[0]
+			multi = wordsA
+		}
+		for _, word := range multi {
+			if word == single {
+				return 0.85 // partial match
 			}
 		}
+		// No exact match, use Levenshtein on full names
+		return levenshteinSimilarity(a, b)
 	}
 
-	if len(shorter) > 0 && matchCount == len(shorter) {
-		return 0.85
+	// Both names have at least 2 components
+	// Assume: first word = first name, last word = last name
+	firstA := wordsA[0]
+	lastA := wordsA[len(wordsA)-1]
+	firstB := wordsB[0]
+	lastB := wordsB[len(wordsB)-1]
+
+	// Compare first names
+	firstSim := levenshteinSimilarity(firstA, firstB)
+
+	// Compare last names
+	lastSim := levenshteinSimilarity(lastA, lastB)
+
+	// If last names are clearly different (low similarity), penalize heavily
+	// Even if first names match exactly, different last names = different people
+	// We use a threshold of 0.7 - last names need to be quite similar to be considered a match
+	// Examples:
+	// - "brisbane" vs "bussmann" = 0.50 (different people)
+	// - "brown" vs "dement" = 0.17 (different people)
+	// - "smith" vs "smyth" = 0.80 (likely same person, spelling variant)
+	if lastSim < 0.7 {
+		// Different last names - even with same first name, this is likely different people
+		// Return a low score that combines first name similarity with a heavy penalty
+		// With EntitySimilarity weights (0.73 name, 0.22 domain):
+		// - If we return 0.3 here, final score = 0.3 * 0.73 + 0.22 = 0.439 (below 0.5 threshold)
+		// - If we return 0.4 here, final score = 0.4 * 0.73 + 0.22 = 0.512 (above 0.5 threshold)
+		// So we use 0.3 as the penalty multiplier to keep false positives below 0.5
+		return firstSim * 0.3
 	}
 
-	// Levenshtein similarity for close matches
-	return levenshteinSimilarity(a, b)
+	// Both first and last names are similar
+	// Weight them equally: 50% first name, 50% last name
+	return (firstSim + lastSim) / 2.0
 }
 
 // levenshteinSimilarity calculates similarity based on Levenshtein distance.

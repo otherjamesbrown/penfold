@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
@@ -1307,128 +1308,69 @@ func (r *Repository) FindDuplicateEntities(ctx context.Context, tenantID string,
 // and calls the similarity function from the entities package.
 // It returns the similarity score and a list of signals explaining why they match.
 func (r *Repository) calculateEntitySimilarity(e1, e2 Entity) (float64, []string) {
-	// We need to import the entities package to use EntityComparisonData
-	// For now, we'll implement a simple version here
-	// This would need to be updated to use entities.EntitySimilarity
-
-	// Extract comparison data
+	// Extract email from metadata
 	email1 := e1.Metadata["email"]
 	email2 := e2.Metadata["email"]
 
-	domain1 := ""
-	domain2 := ""
-	if email1 != "" {
-		parts := strings.Split(email1, "@")
-		if len(parts) == 2 {
-			domain1 = parts[1]
-		}
+	// Extract domain from emails
+	domain1 := entities.ExtractDomain(email1)
+	domain2 := entities.ExtractDomain(email2)
+
+	// Build source IDs from aliases (if available)
+	// Note: Entity struct has Aliases []string, which we can use as source IDs
+	sourceIDs1 := e1.Aliases
+	sourceIDs2 := e2.Aliases
+
+	// Build EntityComparisonData for both entities
+	data1 := &entities.EntityComparisonData{
+		Name:      e1.Name,
+		Email:     email1,
+		Domain:    domain1,
+		SourceIDs: sourceIDs1,
 	}
-	if email2 != "" {
-		parts := strings.Split(email2, "@")
-		if len(parts) == 2 {
-			domain2 = parts[1]
-		}
+
+	data2 := &entities.EntityComparisonData{
+		Name:      e2.Name,
+		Email:     email2,
+		Domain:    domain2,
+		SourceIDs: sourceIDs2,
 	}
 
-	// For source IDs, we could use aliases or other metadata
-	// For now, use empty slices as we don't have direct access to source IDs
-	sourceIDs1 := []string{}
-	sourceIDs2 := []string{}
+	// Call the correct similarity function
+	score := entities.EntitySimilarity(data1, data2)
 
-	// Calculate name similarity (simplified version)
-	nameSim := calculateNameSimilarity(e1.Name, e2.Name)
-
-	score := nameSim
+	// Build signals based on what matched
 	signals := []string{}
 
+	// Name similarity check
+	nameSim := entities.NameSimilarity(e1.Name, e2.Name)
 	if nameSim >= 0.85 {
 		signals = append(signals, "name_match")
 	}
 
-	// Domain bonus
+	// Domain match check
 	if domain1 != "" && domain2 != "" && domain1 == domain2 {
-		score += 0.6
 		signals = append(signals, "domain_match")
 	}
 
-	// Shared sources bonus (would need actual source IDs)
-	if hasSharedElements(sourceIDs1, sourceIDs2) {
-		score += 0.2
-		signals = append(signals, "shared_sources")
-	}
-
-	// Cap at 1.0
-	if score > 1.0 {
-		score = 1.0
-	}
-
-	return score, signals
-}
-
-// calculateNameSimilarity is a simplified name similarity calculation.
-// This should ideally use entities.NameSimilarity, but we're implementing
-// a simple version here to avoid circular dependencies.
-func calculateNameSimilarity(name1, name2 string) float64 {
-	n1 := strings.ToLower(strings.TrimSpace(name1))
-	n2 := strings.ToLower(strings.TrimSpace(name2))
-
-	if n1 == "" || n2 == "" {
-		return 0.0
-	}
-
-	if n1 == n2 {
-		return 1.0
-	}
-
-	if strings.Contains(n1, n2) || strings.Contains(n2, n1) {
-		return 0.9
-	}
-
-	// Simple word-based matching
-	words1 := strings.Fields(n1)
-	words2 := strings.Fields(n2)
-
-	shorter, longer := words1, words2
-	if len(words1) > len(words2) {
-		shorter, longer = words2, words1
-	}
-
-	matchCount := 0
-	for _, word := range shorter {
-		for _, other := range longer {
-			if word == other {
-				matchCount++
+	// Shared sources check
+	if len(sourceIDs1) > 0 && len(sourceIDs2) > 0 {
+		// Check if they share any source IDs
+		seen := make(map[string]bool)
+		for _, id := range sourceIDs1 {
+			seen[id] = true
+		}
+		for _, id := range sourceIDs2 {
+			if seen[id] {
+				signals = append(signals, "shared_sources")
 				break
 			}
 		}
 	}
 
-	if len(shorter) > 0 {
-		return float64(matchCount) / float64(len(shorter))
-	}
-
-	return 0.0
+	return score, signals
 }
 
-// hasSharedElements returns true if two string slices have any common elements.
-func hasSharedElements(a, b []string) bool {
-	if len(a) == 0 || len(b) == 0 {
-		return false
-	}
-
-	seen := make(map[string]bool)
-	for _, item := range a {
-		seen[item] = true
-	}
-
-	for _, item := range b {
-		if seen[item] {
-			return true
-		}
-	}
-
-	return false
-}
 
 // GetMergePreview shows what would happen if two entities were merged, without actually merging them.
 // It returns a preview of the merged entity, transferring aliases, relationships, and any conflicts.

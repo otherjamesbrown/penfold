@@ -292,6 +292,127 @@ func TestAutoMergeDuplicates_AuditTrail(t *testing.T) {
 	}
 }
 
+// TestCalculateEntitySimilarity_FalsePositives reproduces bug pf-771b9a:
+// The buggy calculateEntitySimilarity() incorrectly awards 0.6 domain bonus
+// and uses simple word overlap for name matching, causing false positives.
+//
+// Examples:
+// - "Brisbane, Patrick" vs "Bussmann, Patrick" (same domain) → buggy code returns ~1.0, should be < 0.5
+// - "James Brown" vs "DeMent, James" (same domain) → buggy code returns ~1.0, should be < 0.5
+// - "Butler, Sean" vs "Sean Li" (same domain) → buggy code returns ~1.0, should be < 0.5
+//
+// True duplicates should still score high:
+// - Same first + last name + same domain → should be > 0.9
+func TestCalculateEntitySimilarity_FalsePositives(t *testing.T) {
+	// No DB connection needed — we're testing the pure function logic
+	pool := &pgxpool.Pool{} // nil would panic, use empty pool
+	repo := NewRepository(pool, logging.NewNopLogger())
+
+	tests := []struct {
+		name            string
+		entity1         Entity
+		entity2         Entity
+		expectedBelow   float64 // score should be < this
+		expectedAbove   float64 // score should be > this (0 if not applicable)
+		description     string
+	}{
+		{
+			name: "false_positive_brisbane_bussmann",
+			entity1: Entity{
+				Name: "Brisbane, Patrick",
+				Metadata: map[string]string{
+					"email": "patrick.brisbane@akamai.com",
+				},
+			},
+			entity2: Entity{
+				Name: "Bussmann, Patrick",
+				Metadata: map[string]string{
+					"email": "patrick.bussmann@akamai.com",
+				},
+			},
+			expectedBelow: 0.5,
+			expectedAbove: 0.0,
+			description:   "Different last names (Brisbane vs Bussmann), same first name + domain should score < 0.5",
+		},
+		{
+			name: "false_positive_james_brown_vs_james_dement",
+			entity1: Entity{
+				Name: "James Brown",
+				Metadata: map[string]string{
+					"email": "james.brown@acme.com",
+				},
+			},
+			entity2: Entity{
+				Name: "DeMent, James",
+				Metadata: map[string]string{
+					"email": "james.dement@acme.com",
+				},
+			},
+			expectedBelow: 0.5,
+			expectedAbove: 0.0,
+			description:   "Different last names (Brown vs DeMent), same first name + domain should score < 0.5",
+		},
+		{
+			name: "false_positive_butler_sean_vs_sean_li",
+			entity1: Entity{
+				Name: "Butler, Sean",
+				Metadata: map[string]string{
+					"email": "sean.butler@company.com",
+				},
+			},
+			entity2: Entity{
+				Name: "Sean Li",
+				Metadata: map[string]string{
+					"email": "sean.li@company.com",
+				},
+			},
+			expectedBelow: 0.5,
+			expectedAbove: 0.0,
+			description:   "Different last names (Butler vs Li), same first name + domain should score < 0.5",
+		},
+		{
+			name: "true_duplicate_same_first_last_domain",
+			entity1: Entity{
+				Name: "Smith, John",
+				Metadata: map[string]string{
+					"email": "john.smith@example.com",
+				},
+			},
+			entity2: Entity{
+				Name: "John Smith",
+				Metadata: map[string]string{
+					"email": "j.smith@example.com",
+				},
+			},
+			expectedBelow: 2.0, // no upper bound (should pass)
+			expectedAbove: 0.9,
+			description:   "Same first + last name + same domain should score > 0.9 (true duplicate)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			score, signals := repo.calculateEntitySimilarity(tt.entity1, tt.entity2)
+
+			// Assert
+			t.Logf("Score: %.2f, Signals: %v", score, signals)
+			t.Logf("Description: %s", tt.description)
+
+			if tt.expectedAbove > 0 && score <= tt.expectedAbove {
+				t.Errorf("calculateEntitySimilarity() = %.2f, expected > %.2f", score, tt.expectedAbove)
+				t.Errorf("This is a TRUE duplicate case that should score high")
+			}
+
+			if score >= tt.expectedBelow {
+				t.Errorf("calculateEntitySimilarity() = %.2f, expected < %.2f", score, tt.expectedBelow)
+				t.Errorf("This is a FALSE POSITIVE — different people incorrectly scored as duplicates")
+				t.Errorf("Bug: domain bonus (0.6) + simple word overlap causes false matches")
+			}
+		})
+	}
+}
+
 // Helper functions
 
 func setupTestDB(t *testing.T) *pgxpool.Pool {
