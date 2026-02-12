@@ -53,6 +53,7 @@ func WithGlossary(g *glossary.Repository) PersistRepoOption {
 // Validation constants
 var (
 	validLifecycleEvents = map[string]bool{
+		"new":           true,
 		"raised":        true,
 		"updated":       true,
 		"escalated":     true,

@@ -933,3 +933,159 @@ func TestBug_pfec8d04_EmailPrefixesNotExcludedFromAcronyms(t *testing.T) {
 		t.Logf("FIX REQUIRED: Sync the exclusion lists and add missing email prefixes")
 	})
 }
+
+// TestBug_pf4a3aba_NewLifecycleEventNotAccepted reproduces bug pf-4a3aba.
+// Root cause: AI model returns lifecycle_event='new' for new risks (is_new=true),
+// but the validation in persist_repo.go doesn't include 'new' as a valid lifecycle event.
+//
+// Bug: When AI model produces a new risk (is_new=true) with lifecycle_event='new',
+// PersistFindings validation rejects it with error:
+// "risk reference [0] has invalid lifecycle_event: new"
+//
+// Valid lifecycle events currently: raised, updated, escalated, de_escalated, assigned,
+// decided, deferred, resolved, reopened
+// Missing: 'new'
+//
+// Expected behavior after fix:
+// - 'new' should be added to validLifecycleEvents map in persist_repo.go:55-65
+// - Risk references with lifecycle_event='new' should pass validation
+// - New risks can be persisted successfully
+func TestBug_pf4a3aba_NewLifecycleEventNotAccepted(t *testing.T) {
+	repo := &PersistRepo{
+		logger: logging.NewLogger(&logging.Config{Level: logging.LevelError}),
+	}
+
+	t.Run("lifecycle_event 'new' is rejected during validation", func(t *testing.T) {
+		// BUG REPRODUCTION: AI model returns lifecycle_event='new' for new risks
+		// but validateInput rejects it as invalid
+
+		newEvent := "new"
+		input := &PersistFindingsInput{
+			TenantID: "tenant-1",
+			SourceID: 123,
+			Analysis: &DeepAnalyzeOutput{
+				RiskReferences: []RiskReferenceOutput{
+					{
+						Description:     "Security vulnerability detected",
+						ContextExcerpt:  "We discovered a SQL injection vulnerability in the login form",
+						Significance:    "origination",
+						LifecycleChange: &newEvent, // AI model returns 'new' for new risks
+						IsNew:           true,       // This is a new risk
+					},
+				},
+			},
+			ResolvedPeople: map[string]int64{},
+		}
+
+		// Call validateInput directly (same validation used by PersistFindings)
+		err := repo.validateInput(input)
+
+		// FIXED: This validation now SUCCEEDS because 'new' is in validLifecycleEvents map
+		require.NoError(t, err, "FIXED pf-4a3aba: lifecycle_event='new' is now ACCEPTED")
+
+		t.Logf("FIXED: validateInput accepts lifecycle_event='new'")
+		t.Logf("FIX APPLIED: 'new' added to validLifecycleEvents map in persist_repo.go:55-65")
+		t.Logf("IMPACT: Findings with lifecycle_event='new' are no longer dropped")
+	})
+
+	t.Run("'new' is now in validLifecycleEvents map", func(t *testing.T) {
+		// Verify that 'new' is now in the validation map
+		isValid := validLifecycleEvents["new"]
+
+		assert.True(t, isValid, "FIXED pf-4a3aba: 'new' is now in validLifecycleEvents")
+
+		t.Logf("Current valid lifecycle events: %v", getValidLifecycleEventsList())
+		t.Logf("FIXED: 'new' is now included")
+		t.Logf("FIX APPLIED: Added 'new': true to validLifecycleEvents map in persist_repo.go:55-65")
+	})
+
+	t.Run("AI model legitimately produces lifecycle_event='new' for new risks", func(t *testing.T) {
+		// This test documents the expected AI model behavior that triggers the bug
+
+		// Scenario: Email discusses a NEW security risk
+		// AI correctly identifies:
+		// - is_new=true (this is a new risk, not a reference to an existing one)
+		// - lifecycle_event='new' (the risk is being newly raised)
+		// - significance='primary' (this is the originating mention)
+
+		newEvent := "new"
+		riskRef := RiskReferenceOutput{
+			Description:     "New security vulnerability in authentication system",
+			ContextExcerpt:  "Alice reported a critical security flaw in our auth module",
+			Significance:    "origination",
+			LifecycleChange: &newEvent, // AI model output
+			IsNew:           true,
+			SeverityChange:  stringPtr("high"),
+			OwnerChange:     stringPtr("Alice"),
+		}
+
+		// This is VALID AI model output - it correctly identifies a new risk
+		assert.True(t, riskRef.IsNew, "This is a new risk")
+		assert.Equal(t, "new", *riskRef.LifecycleChange, "AI model returns 'new' for new risks")
+		assert.Equal(t, "origination", riskRef.Significance, "This is the originating mention")
+
+		// FIXED: validateInput now accepts this legitimate output
+		input := &PersistFindingsInput{
+			TenantID: "tenant-1",
+			SourceID: 456,
+			Analysis: &DeepAnalyzeOutput{
+				RiskReferences: []RiskReferenceOutput{riskRef},
+			},
+			ResolvedPeople: map[string]int64{},
+		}
+
+		err := repo.validateInput(input)
+		require.NoError(t, err, "FIXED: Valid AI output is now accepted")
+
+		t.Logf("SCENARIO: AI model correctly identifies a new risk")
+		t.Logf("AI OUTPUT: is_new=true, lifecycle_event='new', significance='origination'")
+		t.Logf("FIXED: validateInput now accepts this legitimate AI output")
+		t.Logf("CONSEQUENCE: Valid findings are preserved, knowledge is captured")
+	})
+
+	t.Run("after fix: 'new' should be accepted alongside other lifecycle events", func(t *testing.T) {
+		// This test validates the expected behavior AFTER the fix is applied
+
+		// AFTER FIX: All these lifecycle events should be valid
+		expectedValidEvents := []string{
+			"new",          // MISSING - needs to be added
+			"raised",       // Existing
+			"updated",      // Existing
+			"escalated",    // Existing
+			"de_escalated", // Existing
+			"assigned",     // Existing
+			"decided",      // Existing
+			"deferred",     // Existing
+			"resolved",     // Existing
+			"reopened",     // Existing
+		}
+
+		for _, event := range expectedValidEvents {
+			isValid := validLifecycleEvents[event]
+			if event == "new" {
+				// BEFORE FIX: This assertion FAILS
+				assert.True(t, isValid, "After fix: '%s' should be a valid lifecycle event", event)
+			} else {
+				// These already pass
+				assert.True(t, isValid, "'%s' should be a valid lifecycle event", event)
+			}
+		}
+
+		t.Logf("AFTER FIX: validLifecycleEvents should include 'new'")
+		t.Logf("FIX: Add '\"new\": true,' to validLifecycleEvents map in persist_repo.go:55-65")
+	})
+}
+
+// Helper function to get list of valid lifecycle events for logging
+func getValidLifecycleEventsList() []string {
+	events := make([]string, 0, len(validLifecycleEvents))
+	for event := range validLifecycleEvents {
+		events = append(events, event)
+	}
+	return events
+}
+
+// Helper function to create string pointers
+func stringPtr(s string) *string {
+	return &s
+}

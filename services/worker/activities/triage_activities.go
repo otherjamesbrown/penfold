@@ -92,7 +92,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			nil, // TODO: Load tenant patterns from config if needed
 		)
 
-		logger.Debug("Content subtype classified",
+		logger.Info("Content subtype classified",
 			logging.F("subtype", string(subtype)),
 			logging.F("source_id", input.SourceID),
 		)

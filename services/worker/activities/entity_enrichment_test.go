@@ -866,6 +866,141 @@ func TestEnrichPersonMetadata_HTMLSignatureTitleExtraction(t *testing.T) {
 	}
 }
 
+// TestEnrichPersonMetadata_LongTitleTruncation verifies that titles longer than 200 characters
+// are properly truncated before being passed to UpdatePerson(). This is a regression test for
+// bug pf-331505.
+//
+// ROOT CAUSE: parseSignatureForTitle() in entity_enrichment.go returns untruncated strings
+// (lines 252, 267). When the extracted title exceeds 200 characters, the downstream
+// UpdatePerson() call fails with "value too long for type character varying(200)".
+//
+// Database constraints:
+//   - people.job_title VARCHAR(200)
+//   - people.company VARCHAR(200)
+//   - people.department VARCHAR(200)
+//
+// FIX: EnrichPersonMetadata() now truncates title/company/department fields to 200 chars
+// before calling UpdatePerson().
+func TestEnrichPersonMetadata_LongTitleTruncation(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	tests := []struct {
+		name          string
+		signatureText string
+		expectedTitle string
+		titleLength   int
+		description   string
+	}{
+		{
+			name: "title exceeds 200 chars - line-separated signature",
+			signatureText: `--
+Test Person
+Senior Executive Vice President of Global Enterprise Cloud Infrastructure Solutions and Digital Transformation Services, North America and EMEA Regional Operations Division, Strategic Partnerships and Business Development Group
+Example Corp`,
+			expectedTitle: "Senior Executive Vice President of Global Enterprise Cloud Infrastructure Solutions and Digital Transformation Services, North America and EMEA Regional Operations Division, Strategic Partnerships and",
+			titleLength:   200,
+			description:   "Standard line-separated signature with very long title (truncated to 200)",
+		},
+		{
+			name: "title exceeds 200 chars - pipe-separated signature",
+			signatureText: "Jane Smith | Chief Executive Officer and Director of Global Strategic Initiatives for Enterprise Cloud Computing Solutions and Digital Transformation Technology Services, Worldwide Operations and Regional Business Development Division | Tech Corp",
+			expectedTitle: "Chief Executive Officer and Director of Global Strategic Initiatives for Enterprise Cloud Computing Solutions and Digital Transformation Technology Services, Worldwide Operations and Regional Business",
+			titleLength:   200,
+			description:   "Pipe-separated signature with very long title (truncated to 200)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			updateCalled := false
+			var updatedPerson *entities.Person
+
+			personRepo := &mockPersonRepository{
+				updatePersonFunc: func(ctx context.Context, p *entities.Person) error {
+					updateCalled = true
+					updatedPerson = p
+					return nil
+				},
+				getPersonByIDFunc: func(ctx context.Context, id int64) (*entities.Person, error) {
+					return &entities.Person{
+						ID:           id,
+						TenantID:     "test-tenant",
+						CanonicalName: "Test Person",
+						PrimaryEmail: "test@example.com",
+						Title:        "", // Missing - needs enrichment from signature
+						Company:      "",
+						IsInternal:   false,
+					}, nil
+				},
+			}
+
+			activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"example.com"})
+
+			input := workflows.EnrichPersonMetadataInput{
+				TenantID:      "test-tenant",
+				SignatureText: tt.signatureText,
+				ResolvedPeople: []workflows.ResolvedPerson{
+					{
+						PersonID: func() *int64 { id := int64(123); return &id }(),
+						Name:     "Test Person",
+						Title:    "",
+					},
+				},
+			}
+
+			output, err := activity.EnrichPersonMetadata(ctx, input)
+			if err != nil {
+				t.Fatalf("EnrichPersonMetadata failed: %v", err)
+			}
+
+			if !updateCalled {
+				t.Fatal("Expected UpdatePerson to be called")
+			}
+
+			if updatedPerson == nil {
+				t.Fatal("Expected updated person to be non-nil")
+			}
+
+			// Log what was actually extracted
+			t.Logf("Extracted title: %q", updatedPerson.Title)
+			t.Logf("Title length: %d", len(updatedPerson.Title))
+			t.Logf("Description: %s", tt.description)
+
+			// ADDITIONAL CHECK: Verify the title was actually extracted (proving parseSignatureForTitle works)
+			if updatedPerson.Title == "" {
+				t.Fatal("Expected title to be extracted from signature, got empty string - signature parsing may have failed")
+			}
+
+			// Verify title is truncated to 200 characters max
+			if len(updatedPerson.Title) > 200 {
+				t.Errorf("Title exceeds 200 character limit!\n"+
+					"Title length: %d (expected max 200)\n"+
+					"Title: %s\n"+
+					"This will cause database constraint violation: value too long for type character varying(200)",
+					len(updatedPerson.Title), updatedPerson.Title)
+			}
+
+			// Verify the title length matches expected
+			if len(updatedPerson.Title) != tt.titleLength {
+				t.Errorf("Title length mismatch.\nExpected: %d\nGot: %d",
+					tt.titleLength, len(updatedPerson.Title))
+			}
+
+			// Verify the extracted title matches expected (truncated version)
+			if updatedPerson.Title != tt.expectedTitle {
+				t.Errorf("Extracted title does not match expected.\nExpected: %q\nGot: %q",
+					tt.expectedTitle, updatedPerson.Title)
+			}
+
+			// ADDITIONAL CHECK: Verify output count
+			if output.PeopleEnriched != 1 {
+				t.Errorf("Expected 1 person enriched, got %d", output.PeopleEnriched)
+			}
+		})
+	}
+}
+
 // TestEnrichPersonMetadata_EmptyDomains_PreservesIsInternal verifies that when internalDomains
 // is empty (tenant config not loaded), the activity does NOT clobber existing is_internal values.
 // This is a regression test for bug pf-bba49a.

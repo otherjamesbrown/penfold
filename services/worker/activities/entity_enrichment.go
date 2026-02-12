@@ -138,6 +138,12 @@ func (a *PersonEnrichmentActivities) EnrichPersonMetadata(ctx context.Context, i
 
 		// Update person if any field was enriched
 		if needsUpdate {
+			// Truncate fields to match database constraints (VARCHAR(200))
+			// This prevents "value too long for type character varying(200)" errors
+			updatedPerson.Title = truncateString(updatedPerson.Title, 200)
+			updatedPerson.Company = truncateString(updatedPerson.Company, 200)
+			updatedPerson.Department = truncateString(updatedPerson.Department, 200)
+
 			if err := a.personRepo.UpdatePerson(ctx, &updatedPerson); err != nil {
 				logger.Warn("Failed to update enriched person",
 					logging.Err(err),
@@ -313,4 +319,13 @@ func looksLikeCompanyName(s string) bool {
 		}
 	}
 	return false
+}
+
+// truncateString truncates a string to maxLen characters.
+// If the string is already shorter, it is returned unchanged.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
 }

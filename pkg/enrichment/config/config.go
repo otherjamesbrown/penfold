@@ -82,7 +82,7 @@ type ConfigRepository interface {
 
 // Tenant represents a tenant record.
 type Tenant struct {
-	ID        int64
+	ID        string
 	Name      string
 	Slug      string
 	IsActive  bool
