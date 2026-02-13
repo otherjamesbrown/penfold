@@ -58,6 +58,10 @@ type Person struct {
 	// Loaded relationships
 	Aliases []PersonAlias `json:"aliases,omitempty"`
 
+	// Message counts
+	SentCount     int `db:"sent_count" json:"sent_count"`
+	ReceivedCount int `db:"received_count" json:"received_count"`
+
 	// Timestamps
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

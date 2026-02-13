@@ -24,6 +24,8 @@ type EntityLookupInterface interface {
 	SearchPeopleByName(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error)
 	GetProjectByName(ctx context.Context, tenantID, name string) (*entities.Project, error)
 	GetProjectsWithKeywords(ctx context.Context, tenantID string) ([]*entities.Project, error)
+	IncrementSentCount(ctx context.Context, personID int64) error
+	IncrementReceivedCount(ctx context.Context, personID int64) error
 }
 
 // ContextBuilderActivities holds dependencies for context building activities.
@@ -227,6 +229,9 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 	seenEmails := make(map[string]bool)
 	logger := a.logger.WithContext(ctx)
 
+	// Track sender person ID for message count increment
+	var senderPersonID *int64
+
 	// Load tenant-specific patterns for account type detection
 	tenantPatterns := a.getTenantPatterns(ctx, tenantID)
 
@@ -250,6 +255,16 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 					IsInternal: result.Person.IsInternal,
 				})
 				seenEmails[senderEmail] = true
+				senderPersonID = &result.Person.ID
+
+				// Increment sent_count for the sender
+				if a.entityRepo != nil {
+					if err := a.entityRepo.IncrementSentCount(ctx, result.Person.ID); err != nil {
+						logger.Warn("Failed to increment sent_count for sender",
+							logging.Err(err),
+							logging.F("person_id", result.Person.ID))
+					}
+				}
 			}
 		}
 	}
@@ -284,6 +299,18 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 					IsInternal: result.Person.IsInternal,
 				})
 				seenEmails[participant.Email] = true
+
+				// Increment received_count for recipients (but not the sender)
+				// If sender is also in the recipient list (e.g., CC'd on their own email), skip them
+				if senderPersonID == nil || result.Person.ID != *senderPersonID {
+					if a.entityRepo != nil {
+						if err := a.entityRepo.IncrementReceivedCount(ctx, result.Person.ID); err != nil {
+							logger.Warn("Failed to increment received_count for recipient",
+								logging.Err(err),
+								logging.F("person_id", result.Person.ID))
+						}
+					}
+				}
 			}
 		}
 	}

@@ -35,6 +35,8 @@ type mockEntityLookup struct {
 	searchPeopleByNameFunc  func(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error)
 	getProjectByNameFunc    func(ctx context.Context, tenantID, name string) (*entities.Project, error)
 	getProjectsWithKeywordsFunc func(ctx context.Context, tenantID string) ([]*entities.Project, error)
+	incrementSentCountFunc     func(ctx context.Context, personID int64) error
+	incrementReceivedCountFunc func(ctx context.Context, personID int64) error
 }
 
 func (m *mockEntityLookup) SearchPeopleByName(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error) {
@@ -56,6 +58,20 @@ func (m *mockEntityLookup) GetProjectsWithKeywords(ctx context.Context, tenantID
 		return m.getProjectsWithKeywordsFunc(ctx, tenantID)
 	}
 	return nil, nil
+}
+
+func (m *mockEntityLookup) IncrementSentCount(ctx context.Context, personID int64) error {
+	if m.incrementSentCountFunc != nil {
+		return m.incrementSentCountFunc(ctx, personID)
+	}
+	return nil
+}
+
+func (m *mockEntityLookup) IncrementReceivedCount(ctx context.Context, personID int64) error {
+	if m.incrementReceivedCountFunc != nil {
+		return m.incrementReceivedCountFunc(ctx, personID)
+	}
+	return nil
 }
 
 // Note: mockContextPackageRepo is defined in context_repo_test.go

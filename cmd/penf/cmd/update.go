@@ -184,7 +184,14 @@ func runUpdate(currentVersion string) error {
 		cfg = config.DefaultConfig()
 	}
 	cwd, _ := os.Getwd()
-	if err := downloadAssistantClaudeMd(cfg); err != nil {
+	claudeMdPath := filepath.Join(cwd, "CLAUDE.md")
+	// Inline protection: Check if CLAUDE.md already exists before calling downloadAssistantClaudeMd.
+	// This provides "belt and suspenders" protection for self-updating binaries:
+	// Even if updating FROM an old version that lacks function-level protection,
+	// this inline check ensures we never overwrite the user's CLAUDE.md.
+	if _, err := os.Stat(claudeMdPath); err == nil {
+		fmt.Printf("  \033[32m✓\033[0m CLAUDE.md already exists (not modified)\n")
+	} else if err := downloadAssistantClaudeMd(cfg); err != nil {
 		fmt.Printf("  \033[33mWarning:\033[0m Could not update assistant CLAUDE.md: %v\n", err)
 	} else {
 		fmt.Printf("  \033[32m✓\033[0m Assistant CLAUDE.md updated in %s\n", cwd)

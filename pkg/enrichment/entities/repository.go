@@ -94,6 +94,7 @@ func (r *Repository) GetPersonByID(ctx context.Context, id int64) (*Person, erro
 			reviewed_at, reviewed_by,
 			rejected_at, rejected_reason, rejected_by,
 			potential_duplicates,
+			sent_count, received_count,
 			created_at, updated_at
 		FROM people
 		WHERE id = $1
@@ -111,6 +112,7 @@ func (r *Repository) GetPersonByEmail(ctx context.Context, tenantID, email strin
 			reviewed_at, reviewed_by,
 			rejected_at, rejected_reason, rejected_by,
 			potential_duplicates,
+			sent_count, received_count,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND primary_email = $2
@@ -128,6 +130,7 @@ func (r *Repository) GetPersonByAlias(ctx context.Context, tenantID, aliasValue 
 			p.reviewed_at, p.reviewed_by,
 			p.rejected_at, p.rejected_reason, p.rejected_by,
 			p.potential_duplicates,
+			p.sent_count, p.received_count,
 			p.created_at, p.updated_at
 		FROM people p
 		JOIN person_aliases a ON a.person_id = p.id
@@ -152,6 +155,7 @@ func (r *Repository) SearchPeopleByName(ctx context.Context, tenantID, name stri
 			reviewed_at, reviewed_by,
 			rejected_at, rejected_reason, rejected_by,
 			potential_duplicates,
+			sent_count, received_count,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND canonical_name ILIKE '%' || $2 || '%'
@@ -177,6 +181,7 @@ func (r *Repository) GetPeopleByDomain(ctx context.Context, tenantID, domain str
 			reviewed_at, reviewed_by,
 			rejected_at, rejected_reason, rejected_by,
 			potential_duplicates,
+			sent_count, received_count,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND primary_email LIKE '%@' || $2
@@ -206,6 +211,7 @@ func (r *Repository) ListPeopleNeedingReview(ctx context.Context, tenantID strin
 			reviewed_at, reviewed_by,
 			rejected_at, rejected_reason, rejected_by,
 			potential_duplicates,
+			sent_count, received_count,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND needs_review = TRUE
@@ -774,6 +780,7 @@ func (r *Repository) scanPerson(ctx context.Context, query string, args ...inter
 		&p.ReviewedAt, &reviewedBy,
 		&p.RejectedAt, &rejectedReason, &rejectedBy,
 		&p.PotentialDuplicates,
+		&p.SentCount, &p.ReceivedCount,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
 
@@ -819,6 +826,7 @@ func (r *Repository) scanPeople(rows pgx.Rows) ([]*Person, error) {
 			&p.ReviewedAt, &reviewedBy,
 			&p.RejectedAt, &rejectedReason, &rejectedBy,
 			&p.PotentialDuplicates,
+			&p.SentCount, &p.ReceivedCount,
 			&p.CreatedAt, &p.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan person: %w", err)
@@ -1404,6 +1412,7 @@ func (r *Repository) SearchEntities(ctx context.Context, tenantID, query, field 
 				reviewed_at, reviewed_by,
 				rejected_at, rejected_reason, rejected_by,
 				potential_duplicates,
+				sent_count, received_count,
 				created_at, updated_at
 			FROM people
 			WHERE tenant_id = $1 AND primary_email ILIKE '%' || $2 || '%'
@@ -1420,6 +1429,7 @@ func (r *Repository) SearchEntities(ctx context.Context, tenantID, query, field 
 				reviewed_at, reviewed_by,
 				rejected_at, rejected_reason, rejected_by,
 				potential_duplicates,
+				sent_count, received_count,
 				created_at, updated_at
 			FROM people
 			WHERE tenant_id = $1 AND canonical_name ILIKE '%' || $2 || '%'
@@ -1437,6 +1447,7 @@ func (r *Repository) SearchEntities(ctx context.Context, tenantID, query, field 
 				reviewed_at, reviewed_by,
 				rejected_at, rejected_reason, rejected_by,
 				potential_duplicates,
+				sent_count, received_count,
 				created_at, updated_at
 			FROM people
 			WHERE tenant_id = $1
@@ -1572,6 +1583,54 @@ func (r *Repository) ListProjectsForContext(ctx context.Context, tenantID string
 	}
 
 	return sb.String(), rows.Err()
+}
+
+// ==================== Message Count Operations ====================
+
+// IncrementSentCount increments the sent_count for a person by 1.
+// This is called after entity resolution when processing emails to track
+// the number of messages sent by this person.
+func (r *Repository) IncrementSentCount(ctx context.Context, personID int64) error {
+	query := `
+		UPDATE people
+		SET sent_count = sent_count + 1,
+		    updated_at = NOW()
+		WHERE id = $1
+	`
+
+	result, err := r.pool.Exec(ctx, query, personID)
+	if err != nil {
+		return fmt.Errorf("failed to increment sent_count: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("person not found: %d", personID)
+	}
+
+	return nil
+}
+
+// IncrementReceivedCount increments the received_count for a person by 1.
+// This is called after entity resolution when processing emails to track
+// the number of messages received by this person.
+func (r *Repository) IncrementReceivedCount(ctx context.Context, personID int64) error {
+	query := `
+		UPDATE people
+		SET received_count = received_count + 1,
+		    updated_at = NOW()
+		WHERE id = $1
+	`
+
+	result, err := r.pool.Exec(ctx, query, personID)
+	if err != nil {
+		return fmt.Errorf("failed to increment received_count: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("person not found: %d", personID)
+	}
+
+	return nil
 }
 
 // Ensure time is imported

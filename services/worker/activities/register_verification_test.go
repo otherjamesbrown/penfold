@@ -141,6 +141,12 @@ func (r *regVerifyEntityLookup) GetProjectByName(context.Context, string, string
 func (r *regVerifyEntityLookup) GetProjectsWithKeywords(context.Context, string) ([]*entities.Project, error) {
 	return nil, nil
 }
+func (r *regVerifyEntityLookup) IncrementSentCount(context.Context, int64) error {
+	return nil
+}
+func (r *regVerifyEntityLookup) IncrementReceivedCount(context.Context, int64) error {
+	return nil
+}
 
 type regVerifyPersonRepo struct{}
 

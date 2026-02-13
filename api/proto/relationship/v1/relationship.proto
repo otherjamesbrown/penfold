@@ -122,6 +122,12 @@ message Entity {
 
   // When the entity was last seen in content
   google.protobuf.Timestamp last_seen = 13;
+
+  // Number of messages sent by this person (for person entities only)
+  int32 sent_count = 14;
+
+  // Number of messages received by this person (for person entities only)
+  int32 received_count = 15;
 }
 
 // EntityType enumerates the possible types of entities.
