@@ -237,10 +237,14 @@ func TestExtractEntities_EmptyContent(t *testing.T) {
 		Content:  "",
 	}
 
+	// pf-479452: Empty content now returns empty extraction result (metadata-only)
+	// This supports calendar invites with no body text
 	output, err := activities.ExtractEntities(context.Background(), input)
-	require.Error(t, err)
-	require.Nil(t, output)
-	require.Contains(t, err.Error(), "content is empty")
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	require.Equal(t, "metadata-only", output.ModelUsed)
+	require.Equal(t, 0, len(output.People))
+	require.Equal(t, 0, len(output.ActionItems))
 }
 
 func TestExtractEntities_MergeDedup(t *testing.T) {

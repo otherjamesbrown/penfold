@@ -74,18 +74,12 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		return nil, ctx.Err()
 	}
 
-	// Validate input
-	if input.Content == "" {
-		return nil, temporal.NewApplicationError(
-			"content is empty",
-			"ValidationError",
-		)
-	}
-
-	// Classify content subtype (Stage 0.5 - before AI triage)
+	// Classify content subtype BEFORE validating content (Stage 0.5 - before AI triage)
+	// This allows us to handle metadata-only calendar invites with empty body
 	// This runs for all content types but is most useful for emails
+	var subtype enrichment.ContentSubtype
 	if a.enrichmentRepo != nil && input.SourceID > 0 {
-		subtype := enrichment.ClassifyContentSubtype(
+		subtype = enrichment.ClassifyContentSubtype(
 			input.Headers,
 			input.SenderEmail,
 			input.Subject,
@@ -118,6 +112,41 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 				logging.F("source_id", input.SourceID),
 			)
 		}
+	}
+
+	// Handle calendar invites with empty body (pf-479452)
+	// Calendar metadata (organizer, attendees, title, date) is extracted later in Stage 3,
+	// so we can skip AI triage and return a metadata-only result
+	if input.Content == "" && subtype.IsCalendar() {
+		logger.Info("Calendar invite with empty body detected, skipping AI triage",
+			logging.F("subtype", string(subtype)),
+		)
+
+		// Return metadata-only result without calling AI
+		output := &workflows.TriageOutput{
+			Category:   "MEETING",
+			Importance: "MEDIUM",
+			Reason:     "Calendar invite with no body text (metadata-only)",
+			Confidence: 1.0, // High confidence - deterministic classification
+			ModelUsed:  "metadata-classifier",
+			SkipDeep:   true, // Skip deep processing (Stages 2-4)
+		}
+
+		logger.Info("Triage completed (metadata-only)",
+			logging.F("category", output.Category),
+			logging.F("importance", output.Importance),
+			logging.F("skip_deep", output.SkipDeep),
+		)
+
+		return output, nil
+	}
+
+	// Validate input - only fail if content is empty and it's NOT a calendar
+	if input.Content == "" {
+		return nil, temporal.NewApplicationError(
+			"content is empty",
+			"ValidationError",
+		)
 	}
 
 	// Check if AI client is available

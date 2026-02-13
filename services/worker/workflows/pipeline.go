@@ -443,22 +443,34 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Cleanup handler: if workflow terminates abnormally (timeout/cancellation),
 	// update status to 'failed' so content doesn't stay stuck in 'pending'.
 	// Uses disconnected context so cleanup runs even after workflow cancellation.
+	// Fix pf-904069: Set failure_category and failure_reason when marking as failed.
 	defer func() {
-		// Only run cleanup if workflow didn't complete successfully
+		// Only run cleanup if workflow didn't complete successfully AND didn't already set a terminal status
 		// (successful completion is the ONLY case where we're certain the final status was written)
-		if state.result.Status != "completed" {
+		if state.result.Status != "completed" && state.result.Status != "rejected" && state.result.Status != "cancelled" {
 			logger.Info("Workflow did not complete successfully, running cleanup",
 				"source_id", input.SourceID,
 				"final_status", state.result.Status,
+				"error", state.result.Error,
 			)
 			newCtx, _ := workflow.NewDisconnectedContext(ctx)
 			cleanupCtx := workflow.WithActivityOptions(newCtx, workflow.ActivityOptions{
 				StartToCloseTimeout: 30 * time.Second,
 			})
+
+			// Set failure fields based on workflow state
+			failureCategory := "processing_error"
+			failureReason := "Workflow terminated abnormally"
+			if state.result.Error != "" {
+				failureReason = state.result.Error
+			}
+
 			_ = workflow.ExecuteActivity(cleanupCtx, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
-				TenantID: input.TenantID,
-				SourceID: input.SourceID,
-				Status:   "failed",
+				TenantID:        input.TenantID,
+				SourceID:        input.SourceID,
+				Status:          "failed",
+				FailureCategory: failureCategory,
+				FailureReason:   failureReason,
 			}).Get(cleanupCtx, nil)
 		}
 	}()

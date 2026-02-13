@@ -276,12 +276,23 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		return nil, ctx.Err()
 	}
 
-	// Validate input
+	// Handle metadata-only content (pf-479452)
+	// For calendar invites with empty body, return empty extraction result
+	// Metadata extraction (organizer, attendees) happens in Stage 3 via CalendarExtractor
 	if input.Content == "" {
-		return nil, temporal.NewApplicationError(
-			"content is empty",
-			"ValidationError",
-		)
+		logger.Info("Empty content detected, returning empty extraction result")
+		return &workflows.SLMPipelineExtractEntitiesOutput{
+			People:               []workflows.PersonResult{},
+			Dates:                []workflows.DateResult{},
+			Projects:             []string{},
+			Organisations:        []string{},
+			ActionItems:          []workflows.ActionItemResult{},
+			Decisions:            []string{},
+			Risks:                []string{},
+			DetailedRisks:        []workflows.DetailedRisk{},
+			QualityGateTriggered: false,
+			ModelUsed:            "metadata-only",
+		}, nil
 	}
 
 	// Check if AI client is available
