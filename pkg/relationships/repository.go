@@ -439,7 +439,8 @@ func (r *Repository) getPeopleEntities(ctx context.Context, filter ListEntitiesF
 			p.id, p.canonical_name, p.primary_email, p.job_title, p.department,
 			p.confidence_score, p.created_at, p.updated_at,
 			COUNT(DISTINCT pa.id) as alias_count,
-			COUNT(DISTINCT tm.team_id) + COUNT(DISTINCT pm.project_id) as relation_count
+			COUNT(DISTINCT tm.team_id) + COUNT(DISTINCT pm.project_id) as relation_count,
+			p.sent_count, p.received_count
 		FROM people p
 		LEFT JOIN person_aliases pa ON p.id = pa.person_id
 		LEFT JOIN team_members tm ON p.id = tm.person_id
@@ -487,9 +488,10 @@ func (r *Repository) getPeopleEntities(ctx context.Context, filter ListEntitiesF
 		var confidence *float64
 		var createdAt, updatedAt time.Time
 		var aliasCount, relationCount int
+		var sentCount, receivedCount int
 
 		if err := rows.Scan(&id, &canonicalName, &primaryEmail, &jobTitle, &department,
-			&confidence, &createdAt, &updatedAt, &aliasCount, &relationCount); err != nil {
+			&confidence, &createdAt, &updatedAt, &aliasCount, &relationCount, &sentCount, &receivedCount); err != nil {
 			return nil, 0, fmt.Errorf("scan people entity: %w", err)
 		}
 
@@ -519,6 +521,8 @@ func (r *Repository) getPeopleEntities(ctx context.Context, filter ListEntitiesF
 			LastSeen:      updatedAt,
 			Metadata:      metadata,
 			RelationCount: relationCount,
+			SentCount:     sentCount,
+			ReceivedCount: receivedCount,
 			CreatedAt:     createdAt,
 			UpdatedAt:     updatedAt,
 		})

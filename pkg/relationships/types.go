@@ -75,6 +75,8 @@ type Entity struct {
 	LastSeen       time.Time         `json:"last_seen"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
 	RelationCount  int               `json:"relation_count"`
+	SentCount      int               `json:"sent_count"`
+	ReceivedCount  int               `json:"received_count"`
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
 }

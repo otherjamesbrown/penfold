@@ -458,3 +458,84 @@ func TestCreateRelationship_RepositoryError_InternalError(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, codes.Internal, st.Code())
 }
+
+// ============ Bug Reproduction Tests ============
+
+// TestGetEntity_MissingMessageCounts reproduces bug pf-a18695.
+//
+// Bug: sent_count and received_count are not wired through the relationship service.
+// - Migration 043 added sent_count/received_count to people table
+// - Proto definition has sent_count (field 14) and received_count (field 15)
+// - BUT: domain Entity struct, repository query, and entityToProto() don't wire these fields
+//
+// Root causes:
+// 1. pkg/relationships/types.go (lines 66-80): Entity struct missing SentCount/ReceivedCount
+// 2. pkg/relationships/repository.go (line 438): getPeopleEntities SELECT missing p.sent_count, p.received_count
+// 3. services/gateway/relationshipservice/service.go (lines 800-824): entityToProto doesn't map the fields
+//
+// This test demonstrates the bug by calling GetEntity and expecting message counts
+// to be populated in the response. The test FAILS because these fields are always zero.
+func TestGetEntity_MissingMessageCounts(t *testing.T) {
+	// Setup: Mock repository returns an entity with message counts
+	// In a real scenario, these would come from the database via getPeopleEntities
+	now := time.Now()
+	mockRepo := &mockRelationshipRepo{
+		getEntityFn: func(ctx context.Context, tenantID, entityID string) (*relationships.Entity, error) {
+			entity := &relationships.Entity{
+				ID:            "person-123",
+				Name:          "John Doe",
+				Type:          relationships.EntityTypePerson,
+				CanonicalName: "john.doe@example.com",
+				Confidence:    0.95,
+				SourceCount:   10,
+				RelationCount: 25,
+				SentCount:     42,
+				ReceivedCount: 108,
+				FirstSeen:     now.Add(-30 * 24 * time.Hour),
+				LastSeen:      now,
+				CreatedAt:     now.Add(-60 * 24 * time.Hour),
+				UpdatedAt:     now,
+			}
+			// FIX: The Entity struct now has SentCount/ReceivedCount fields
+			// In a real database query, we have:
+			//   p.sent_count AS sent_count, p.received_count AS received_count
+			// And we populate:
+			//   entity.SentCount = 42
+			//   entity.ReceivedCount = 108
+			return entity, nil
+		},
+	}
+	svc := newTestService(mockRepo)
+
+	req := &relationshipv1.GetEntityRequest{
+		TenantId: "tenant-1",
+		EntityId: "person-123",
+	}
+
+	// Execute
+	resp, err := svc.GetEntity(context.Background(), req)
+
+	// Verify: Basic operation succeeds
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, "person-123", resp.Id)
+	assert.Equal(t, "John Doe", resp.Name)
+	assert.Equal(t, int32(10), resp.SourceCount)
+
+	// BUG REPRODUCTION: These fields are ALWAYS zero, even when the database has values
+	// This test FAILS because the wiring is broken at three points:
+	// 1. Entity struct doesn't have the fields (types.go)
+	// 2. Repository doesn't SELECT them (repository.go)
+	// 3. entityToProto doesn't map them (service.go)
+	//
+	// Expected: resp.SentCount = 42, resp.ReceivedCount = 108
+	// Actual:   resp.SentCount = 0,  resp.ReceivedCount = 0
+	t.Logf("Bug pf-a18695: resp.SentCount = %d (expected 42)", resp.SentCount)
+	t.Logf("Bug pf-a18695: resp.ReceivedCount = %d (expected 108)", resp.ReceivedCount)
+
+	// These assertions FAIL, demonstrating the bug
+	assert.Equal(t, int32(42), resp.SentCount,
+		"BUG pf-a18695: SentCount should be populated from database, but the wiring is broken")
+	assert.Equal(t, int32(108), resp.ReceivedCount,
+		"BUG pf-a18695: ReceivedCount should be populated from database, but the wiring is broken")
+}

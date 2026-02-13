@@ -35,7 +35,7 @@ func (m *mockSourceRepo) UpdateSourceStatus(ctx context.Context, tenantID string
 	return nil
 }
 
-func (m *mockSourceRepo) UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string) error {
+func (m *mockSourceRepo) UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error {
 	return nil
 }
 

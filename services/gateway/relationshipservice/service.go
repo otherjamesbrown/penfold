@@ -813,6 +813,8 @@ func entityToProto(e *relationships.Entity) *relationshipv1.Entity {
 		Confidence:    float32(e.Confidence),
 		SourceCount:   int32(e.SourceCount),
 		RelationCount: int32(e.RelationCount),
+		SentCount:     int32(e.SentCount),
+		ReceivedCount: int32(e.ReceivedCount),
 		FirstSeen:     timestamppb.New(e.FirstSeen),
 		LastSeen:      timestamppb.New(e.LastSeen),
 	}

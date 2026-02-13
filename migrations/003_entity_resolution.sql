@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS people (
     primary_email VARCHAR(500) NOT NULL,
 
     -- Metadata
-    title VARCHAR(255),
+    job_title VARCHAR(255),
     department VARCHAR(255),
 
     -- Classification
