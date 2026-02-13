@@ -145,6 +145,8 @@ type RelEntity struct {
 	Confidence    float32
 	SourceCount   int32
 	RelationCount int32
+	SentCount     int32
+	ReceivedCount int32
 	FirstSeen     time.Time
 	LastSeen      time.Time
 	Metadata      map[string]string
@@ -895,6 +897,8 @@ func protoToEntity(e *relationshipv1.Entity) *RelEntity {
 		Confidence:    e.Confidence,
 		SourceCount:   e.SourceCount,
 		RelationCount: e.RelationCount,
+		SentCount:     e.SentCount,
+		ReceivedCount: e.ReceivedCount,
 		Metadata:      e.Metadata,
 	}
 

@@ -500,7 +500,7 @@ func (r *Repository) getPeopleEntities(ctx context.Context, filter ListEntitiesF
 			metadata["email"] = *primaryEmail
 		}
 		if jobTitle != nil && *jobTitle != "" {
-			metadata["title"] = *jobTitle
+			metadata["job_title"] = *jobTitle
 		}
 		if department != nil && *department != "" {
 			metadata["department"] = *department

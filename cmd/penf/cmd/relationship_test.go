@@ -1327,3 +1327,54 @@ func TestEntityListDefaultLimit(t *testing.T) {
 		t.Errorf("Default limit %d is too low. Database has 402 entities. Expected >= 100 to avoid silent truncation", limit)
 	}
 }
+
+// TestClientEntityToLocal_SentReceivedCount reproduces bug pf-1a14d6.
+// The gateway fix (commit d59c3b2) wired sent_count/received_count through the gRPC service layer,
+// but the CLI client and command layers were not updated. The fields are in the proto response
+// but the CLI never deserializes or displays them.
+//
+// This test verifies that clientEntityToLocal() properly maps SentCount and ReceivedCount
+// from client.RelEntity to the local Entity struct.
+func TestClientEntityToLocal_SentReceivedCount(t *testing.T) {
+	// Create a client.RelEntity with non-zero SentCount and ReceivedCount.
+	clientEntity := &client.RelEntity{
+		ID:            "person-001",
+		Name:          "Alice Smith",
+		Type:          "ENTITY_TYPE_PERSON",
+		Confidence:    0.95,
+		SourceCount:   10,
+		RelationCount: 8,
+		SentCount:     5,
+		ReceivedCount: 3,
+		Aliases:       []string{"A. Smith"},
+		Metadata:      map[string]string{"email": "alice@example.com"},
+		FirstSeen:     time.Now().Add(-90 * 24 * time.Hour),
+		LastSeen:      time.Now(),
+	}
+
+	// Call clientEntityToLocal to convert it.
+	localEntity := clientEntityToLocal(clientEntity)
+
+	// Verify all fields are mapped correctly.
+	if localEntity.ID != clientEntity.ID {
+		t.Errorf("ID mismatch: expected %q, got %q", clientEntity.ID, localEntity.ID)
+	}
+	if localEntity.Name != clientEntity.Name {
+		t.Errorf("Name mismatch: expected %q, got %q", clientEntity.Name, localEntity.Name)
+	}
+	if int(localEntity.SourceCount) != int(clientEntity.SourceCount) {
+		t.Errorf("SourceCount mismatch: expected %d, got %d", clientEntity.SourceCount, localEntity.SourceCount)
+	}
+	if int(localEntity.RelationCount) != int(clientEntity.RelationCount) {
+		t.Errorf("RelationCount mismatch: expected %d, got %d", clientEntity.RelationCount, localEntity.RelationCount)
+	}
+
+	// BUG: SentCount and ReceivedCount are not mapped.
+	// These assertions will FAIL because the current clientEntityToLocal() doesn't copy these fields.
+	if localEntity.SentCount != int(clientEntity.SentCount) {
+		t.Errorf("BUG REPRODUCED: SentCount not mapped. Expected %d, got %d", clientEntity.SentCount, localEntity.SentCount)
+	}
+	if localEntity.ReceivedCount != int(clientEntity.ReceivedCount) {
+		t.Errorf("BUG REPRODUCED: ReceivedCount not mapped. Expected %d, got %d", clientEntity.ReceivedCount, localEntity.ReceivedCount)
+	}
+}

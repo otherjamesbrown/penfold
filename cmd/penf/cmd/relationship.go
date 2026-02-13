@@ -67,6 +67,8 @@ type Entity struct {
 	LastSeen      time.Time         `json:"last_seen" yaml:"last_seen"`
 	Metadata      map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 	RelationCount int               `json:"relation_count" yaml:"relation_count"`
+	SentCount     int               `json:"sent_count" yaml:"sent_count"`
+	ReceivedCount int               `json:"received_count" yaml:"received_count"`
 }
 
 // Relationship represents an edge in the relationship graph.
@@ -2575,6 +2577,8 @@ func clientEntityToLocal(e *client.RelEntity) Entity {
 		LastSeen:      e.LastSeen,
 		Metadata:      e.Metadata,
 		RelationCount: int(e.RelationCount),
+		SentCount:     int(e.SentCount),
+		ReceivedCount: int(e.ReceivedCount),
 	}
 }
 
