@@ -42,6 +42,8 @@ var (
 	// Bulk-enrich command flags
 	entityDomain     string
 	entityIsInternal bool
+	// Delete command flags
+	entityForce bool
 )
 
 // EntityCommandDeps holds the dependencies for entity commands.
@@ -103,6 +105,7 @@ Examples:
 	// Add subcommands.
 	cmd.AddCommand(newEntityRejectCommand(deps))
 	cmd.AddCommand(newEntityRestoreCommand(deps))
+	cmd.AddCommand(newEntityManagementDeleteCommand(deps))
 	cmd.AddCommand(newEntityFilterCommand(deps))
 	cmd.AddCommand(newEntityPatternCommand(deps))
 	cmd.AddCommand(newEntityStatsCommand(deps))
@@ -185,6 +188,41 @@ Examples:
 			return runEntityRestore(cmd.Context(), deps, id)
 		},
 	}
+}
+
+// newEntityManagementDeleteCommand creates the 'entity delete' subcommand.
+func newEntityManagementDeleteCommand(deps *EntityCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete <entity-id>",
+		Short: "Permanently delete an entity",
+		Long: `Permanently delete an entity and all related records.
+
+WARNING: This is a permanent deletion that cannot be undone. The entity and all
+related data will be removed from the database.
+
+For soft deletion, use 'penf entity reject' instead.
+
+The --force flag skips the confirmation prompt for scripting purposes.`,
+		Example: `  # Delete with confirmation prompt (accepts both numeric and prefixed format)
+  penf entity delete 123
+  penf entity delete ent-person-123
+
+  # Delete without confirmation (for scripting)
+  penf entity delete 123 --force`,
+		Aliases: []string{"rm"},
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := ParseEntityID(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid entity ID: %s", args[0])
+			}
+			return runEntityManagementDelete(cmd.Context(), deps, id)
+		},
+	}
+
+	cmd.Flags().BoolVar(&entityForce, "force", false, "Skip confirmation prompt")
+
+	return cmd
 }
 
 // newEntityFilterCommand creates the 'entity filter' subcommand group.
@@ -602,6 +640,51 @@ func runEntityRestore(ctx context.Context, deps *EntityCommandDeps, entityID int
 	}
 
 	fmt.Printf("Restored entity ID %d\n", entityID)
+	return nil
+}
+
+func runEntityManagementDelete(ctx context.Context, deps *EntityCommandDeps, entityID int64) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Prompt for confirmation unless --force is set
+	if !entityForce {
+		fmt.Printf("WARNING: This will permanently delete entity ID %d and all related records.\n", entityID)
+		fmt.Print("This action cannot be undone. Continue? (yes/no): ")
+
+		var response string
+		fmt.Scanln(&response)
+
+		if response != "yes" && response != "y" {
+			fmt.Println("Deletion cancelled.")
+			return nil
+		}
+	}
+
+	conn, err := connectEntityToGateway(cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := entityv1.NewEntityManagementServiceClient(conn)
+	tenantID, err := getTenantIDForEntity(deps)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.DeleteEntity(ctx, &entityv1.DeleteEntityRequest{
+		TenantId: tenantID,
+		EntityId: entityID,
+	})
+	if err != nil {
+		return fmt.Errorf("deleting entity: %w", err)
+	}
+
+	fmt.Printf("Deleted entity ID %d: %s\n", resp.EntityId, resp.Message)
 	return nil
 }
 

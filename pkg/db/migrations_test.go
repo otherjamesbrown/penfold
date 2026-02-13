@@ -516,3 +516,57 @@ func TestGetMigrationStatus_SqlSuffixNormalization(t *testing.T) {
 	// Clean up
 	_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE version LIKE '%test_norm%'")
 }
+
+// TestApplyMigration_VersionFormatConsistency reproduces bug pf-67f8c0:
+// The applyMigration() function inserts version strings WITHOUT the .sql suffix,
+// but all 42 previously-applied migrations have the .sql suffix.
+// This test verifies that applyMigration() stores versions WITH .sql suffix
+// to maintain consistency with existing migrations.
+func TestApplyMigration_VersionFormatConsistency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test")
+	}
+
+	ctx := context.Background()
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	// Create a temporary directory with a test migration file
+	tmpDir, err := os.MkdirTemp("", "migration_version_format_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Create a test migration file with .sql extension
+	migrationFilename := "999_test_version_format.sql"
+	migrationContent := "CREATE TABLE test_version_format (id INT);"
+	err = os.WriteFile(filepath.Join(tmpDir, migrationFilename), []byte(migrationContent), 0644)
+	require.NoError(t, err)
+
+	// Manually construct a Migration object as applyMigration would receive it
+	// from findMigrations() - which strips the .sql extension
+	migration := Migration{
+		Version: "999_test_version_format", // This is what findMigrations() produces (no .sql)
+		Name:    migrationFilename,         // The actual filename
+		Path:    filepath.Join(tmpDir, migrationFilename),
+	}
+
+	// Apply the migration
+	err = applyMigration(ctx, pool, migration)
+	require.NoError(t, err)
+
+	// Query schema_migrations to check what version was stored
+	var storedVersion string
+	err = pool.QueryRow(ctx, "SELECT version FROM schema_migrations WHERE version LIKE '999_test_version_format%'").Scan(&storedVersion)
+	require.NoError(t, err)
+
+	// CRITICAL ASSERTION: The stored version should include the .sql suffix
+	// to match the convention used by all 42 existing migrations.
+	// This assertion will FAIL with the current (unfixed) code because
+	// applyMigration() stores m.Version which is "999_test_version_format" (no .sql).
+	assert.Equal(t, "999_test_version_format.sql", storedVersion,
+		"Migration version should be stored WITH .sql suffix to match existing convention")
+
+	// Clean up
+	_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS test_version_format")
+	_, _ = pool.Exec(ctx, "DELETE FROM schema_migrations WHERE version LIKE '999_test_version_format%'")
+}

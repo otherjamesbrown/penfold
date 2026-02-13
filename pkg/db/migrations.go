@@ -280,8 +280,8 @@ func applyMigration(ctx context.Context, pool *pgxpool.Pool, m Migration) error 
 		return fmt.Errorf("failed to execute SQL: %w", err)
 	}
 
-	// Record the migration
-	if _, err := tx.Exec(ctx, "INSERT INTO schema_migrations (version) VALUES ($1)", m.Version); err != nil {
+	// Record the migration (store Name which includes .sql suffix for consistency)
+	if _, err := tx.Exec(ctx, "INSERT INTO schema_migrations (version) VALUES ($1)", m.Name); err != nil {
 		return fmt.Errorf("failed to record migration: %w", err)
 	}
 

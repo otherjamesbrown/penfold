@@ -44,12 +44,12 @@ type Config struct {
 var hardcodedDefaults = map[string]ConfigEntry{
 	"timeout.ai_client.request": {
 		Key:          "timeout.ai_client.request",
-		Value:        300 * time.Second,
+		Value:        120 * time.Second,
 		ValueType:    "duration",
 		Description:  "AI gRPC client per-request timeout",
 		MinValue:     10 * time.Second,
 		MaxValue:     600 * time.Second,
-		DefaultValue: 300 * time.Second,
+		DefaultValue: 120 * time.Second,
 	},
 	"timeout.activity.fast.start_to_close": {
 		Key:          "timeout.activity.fast.start_to_close",

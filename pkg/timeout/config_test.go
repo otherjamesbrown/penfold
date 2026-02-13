@@ -156,7 +156,7 @@ func TestGet_ReturnsDefault(t *testing.T) {
 
 	// Test a specific known default
 	val := cfg.Get("timeout.ai_client.request")
-	expected := 300 * time.Second
+	expected := 120 * time.Second
 
 	if val != expected {
 		t.Errorf("expected %v, got %v", expected, val)
@@ -184,8 +184,8 @@ func TestGetEntry_Found(t *testing.T) {
 		t.Errorf("expected key 'timeout.ai_client.request', got %s", entry.Key)
 	}
 
-	if entry.Value != 300*time.Second {
-		t.Errorf("expected value 300s, got %v", entry.Value)
+	if entry.Value != 120*time.Second {
+		t.Errorf("expected value 120s, got %v", entry.Value)
 	}
 }
 
@@ -391,8 +391,8 @@ func TestOnChange_Fires(t *testing.T) {
 		t.Errorf("expected key 'timeout.ai_client.request', got %s", callbackKey)
 	}
 
-	if callbackOld != 300*time.Second {
-		t.Errorf("expected old value 300s, got %v", callbackOld)
+	if callbackOld != 120*time.Second {
+		t.Errorf("expected old value 120s, got %v", callbackOld)
 	}
 
 	if callbackNew != 180*time.Second {
@@ -516,8 +516,8 @@ func TestRefresh_InvalidDuration(t *testing.T) {
 
 	// Verify old defaults are preserved
 	val := cfg.Get("timeout.ai_client.request")
-	if val != 300*time.Second {
-		t.Errorf("expected original default 300s to be preserved, got %v", val)
+	if val != 120*time.Second {
+		t.Errorf("expected original default 120s to be preserved, got %v", val)
 	}
 }
 
