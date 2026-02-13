@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/processors"
 )
 
@@ -446,7 +447,7 @@ func (c *CalendarExtractor) extractEmail(from string) string {
 func (c *CalendarExtractor) extractName(from string) string {
 	name := regexp.MustCompile(`\s*<[^>]+>\s*`).ReplaceAllString(from, "")
 	name = strings.Trim(name, `"' `)
-	return name
+	return entities.NormalizeDisplayName(name)
 }
 
 // Verify interface compliance

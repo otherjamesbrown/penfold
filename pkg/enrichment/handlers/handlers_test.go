@@ -310,6 +310,51 @@ func TestCalendarExtractor_ExtractVideoURL(t *testing.T) {
 	}
 }
 
+func TestCalendarExtractor_ExtractName(t *testing.T) {
+	extractor := NewCalendarExtractor()
+
+	tests := []struct {
+		name  string
+		from  string
+		want  string
+	}{
+		{
+			name: "Last, First format",
+			from: "Brown, James <jbrown@example.com>",
+			want: "James Brown",
+		},
+		{
+			name: "First Last format",
+			from: "John Smith <jsmith@example.com>",
+			want: "John Smith",
+		},
+		{
+			name: "quoted Last, First format",
+			from: "\"Doe, Jane\" <jdoe@example.com>",
+			want: "Jane Doe",
+		},
+		{
+			name: "single name",
+			from: "Alice <alice@example.com>",
+			want: "Alice",
+		},
+		{
+			name: "extra whitespace with Last, First",
+			from: "  Eskelsen, Rick   <reskelsen@example.com>",
+			want: "Rick Eskelsen",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractor.extractName(tt.from)
+			if got != tt.want {
+				t.Errorf("extractName(%q) = %q, want %q", tt.from, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCalendarExtractor_Process(t *testing.T) {
 	extractor := NewCalendarExtractor()
 
@@ -347,6 +392,37 @@ func TestCalendarExtractor_Process(t *testing.T) {
 	}
 	if meetingData.VideoURL != "https://zoom.us/j/123" {
 		t.Errorf("VideoURL = %v, want https://zoom.us/j/123", meetingData.VideoURL)
+	}
+}
+
+func TestCalendarExtractor_Process_LastFirstName(t *testing.T) {
+	extractor := NewCalendarExtractor()
+
+	source := makeSource(map[string]interface{}{
+		"subject":   "Updated: Project Planning Meeting",
+		"from":      "Brown, James <jbrown@company.com>",
+		"body_text": "Meeting details updated.\n\nJoin: https://zoom.us/j/456",
+	})
+	pctx := makeContext(source)
+	pctx.Enrichment.Classification = enrichment.Classification{
+		Subtype: enrichment.SubtypeCalendarUpdate,
+	}
+
+	err := extractor.Process(context.Background(), pctx)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	meetingData, ok := pctx.Enrichment.ExtractedData["meeting"].(*MeetingData)
+	if !ok {
+		t.Fatal("Expected meeting data in ExtractedData")
+	}
+
+	if meetingData.OrganizerEmail != "jbrown@company.com" {
+		t.Errorf("OrganizerEmail = %v, want jbrown@company.com", meetingData.OrganizerEmail)
+	}
+	if meetingData.OrganizerName != "James Brown" {
+		t.Errorf("OrganizerName = %q, want %q (Bug pf-df45d7: extractName should normalize 'Last, First' format)", meetingData.OrganizerName, "James Brown")
 	}
 }
 
