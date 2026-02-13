@@ -86,6 +86,7 @@ type (
 		TriageImportance string `json:"triage_importance,omitempty"`
 		SkipDeep         *bool  `json:"skip_deep,omitempty"`
 		AssertionCount   *int   `json:"assertion_count,omitempty"`
+		ContentSubtype   string `json:"content_subtype,omitempty"`
 	}
 )
 

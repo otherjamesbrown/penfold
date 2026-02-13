@@ -124,12 +124,13 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 
 		// Return metadata-only result without calling AI
 		output := &workflows.TriageOutput{
-			Category:   "MEETING",
-			Importance: "MEDIUM",
-			Reason:     "Calendar invite with no body text (metadata-only)",
-			Confidence: 1.0, // High confidence - deterministic classification
-			ModelUsed:  "metadata-classifier",
-			SkipDeep:   true, // Skip deep processing (Stages 2-4)
+			Category:       "MEETING",
+			Importance:     "MEDIUM",
+			Reason:         "Calendar invite with no body text (metadata-only)",
+			Confidence:     1.0, // High confidence - deterministic classification
+			ModelUsed:      "metadata-classifier",
+			SkipDeep:       true, // Skip deep processing (Stages 2-4)
+			ContentSubtype: string(subtype),
 		}
 
 		logger.Info("Triage completed (metadata-only)",
@@ -215,12 +216,13 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 
 	// Convert proto response to domain output
 	output := &workflows.TriageOutput{
-		Category:   resp.Category,
-		Importance: resp.Importance,
-		Reason:     resp.Reason,
-		Confidence: 0.85, // Default confidence - can be enhanced later
-		ModelUsed:  resp.ModelUsed,
-		SkipDeep:   skipDeep,
+		Category:       resp.Category,
+		Importance:     resp.Importance,
+		Reason:         resp.Reason,
+		Confidence:     0.85, // Default confidence - can be enhanced later
+		ModelUsed:      resp.ModelUsed,
+		SkipDeep:       skipDeep,
+		ContentSubtype: string(subtype),
 	}
 
 	// Add tracing attributes

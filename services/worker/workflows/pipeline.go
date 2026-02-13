@@ -124,12 +124,13 @@ type TriageInput struct {
 
 // TriageOutput is the output from the Triage activity.
 type TriageOutput struct {
-	Category   string  `json:"category"`
-	Importance string  `json:"importance"`
-	Reason     string  `json:"reason"`
-	Confidence float32 `json:"confidence"`
-	ModelUsed  string  `json:"model_used"`
-	SkipDeep   bool    `json:"skip_deep"`
+	Category       string  `json:"category"`
+	Importance     string  `json:"importance"`
+	Reason         string  `json:"reason"`
+	Confidence     float32 `json:"confidence"`
+	ModelUsed      string  `json:"model_used"`
+	SkipDeep       bool    `json:"skip_deep"`
+	ContentSubtype string  `json:"content_subtype,omitempty"`
 }
 
 // SLMPipelineExtractEntitiesInput is the input for the ExtractEntities activity (pipeline version with TriageCategory).
@@ -794,6 +795,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		TriageCategory:   triageOutput.Category,
 		TriageImportance: triageOutput.Importance,
 		SkipDeep:         &skipDeep,
+		ContentSubtype:   triageOutput.ContentSubtype,
 	}).Get(ctx, nil)
 
 	// ==================== Stages 2-4.5: Deep Processing ====================
