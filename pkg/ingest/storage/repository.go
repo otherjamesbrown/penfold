@@ -576,22 +576,48 @@ func (r *Repository) UpdateSourceStatus(ctx context.Context, tenantID string, so
 }
 
 // UpdateSourceStatusWithFailure updates the processing status and failure info of a source.
-func (r *Repository) UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string) error {
+// If triage metadata fields are provided, they are persisted to the ingestion_metadata JSONB column.
+func (r *Repository) UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error {
 	// Use default tenant if not specified or not a valid UUID
 	if tenantID == "" || tenantID == "default" {
 		tenantID = DefaultTenantID
 	}
 
-	query := `
-		UPDATE sources
-		SET processing_status = $3,
-		    failure_category = $4,
-		    failure_reason = $5,
-		    updated_at = NOW()
-		WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
-	`
+	// Build the query based on whether triage metadata is provided
+	var query string
+	var args []interface{}
 
-	result, err := r.pool.Exec(ctx, query, sourceID, tenantID, status, failureCategory, failureReason)
+	if len(triageMetadata) > 0 && triageMetadata[0] != nil && len(triageMetadata[0]) > 0 {
+		// Update with triage metadata merged into ingestion_metadata JSONB
+		metadataJSON, err := json.Marshal(triageMetadata[0])
+		if err != nil {
+			return fmt.Errorf("failed to marshal triage metadata: %w", err)
+		}
+
+		query = `
+			UPDATE sources
+			SET processing_status = $3,
+			    failure_category = $4,
+			    failure_reason = $5,
+			    ingestion_metadata = COALESCE(ingestion_metadata, '{}'::jsonb) || $6::jsonb,
+			    updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+		`
+		args = []interface{}{sourceID, tenantID, status, failureCategory, failureReason, metadataJSON}
+	} else {
+		// Original behavior: only update status and failure fields
+		query = `
+			UPDATE sources
+			SET processing_status = $3,
+			    failure_category = $4,
+			    failure_reason = $5,
+			    updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+		`
+		args = []interface{}{sourceID, tenantID, status, failureCategory, failureReason}
+	}
+
+	result, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to update source %d status: %w", sourceID, err)
 	}
@@ -603,7 +629,8 @@ func (r *Repository) UpdateSourceStatusWithFailure(ctx context.Context, tenantID
 	r.logger.Debug("Source status updated with failure info",
 		logging.F("source_id", sourceID),
 		logging.F("status", status),
-		logging.F("failure_category", failureCategory))
+		logging.F("failure_category", failureCategory),
+		logging.F("has_triage_metadata", len(triageMetadata) > 0))
 
 	return nil
 }

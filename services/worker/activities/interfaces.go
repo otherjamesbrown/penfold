@@ -18,7 +18,8 @@ type SourceRepository interface {
 	UpdateSourceStatus(ctx context.Context, tenantID string, sourceID int64, status string) error
 
 	// UpdateSourceStatusWithFailure updates the processing status and failure info of a source.
-	UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string) error
+	// If triage metadata is provided as a variadic argument, it is persisted to the ingestion_metadata JSONB column.
+	UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error
 }
 
 // Source represents a content source record from the database.

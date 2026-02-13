@@ -103,8 +103,13 @@ func (a *SourceActivities) UpdateSourceStatus(ctx context.Context, input workflo
 	validStatuses := map[string]bool{
 		"pending":    true,
 		"processing": true,
+		"parsed":     true,
+		"extracted":  true,
 		"completed":  true,
 		"failed":     true,
+		"retrying":   true,
+		"rejected":   true,
+		"skipped":    true,
 		"cancelled":  true,
 	}
 	if !validStatuses[input.Status] {
@@ -124,9 +129,36 @@ func (a *SourceActivities) UpdateSourceStatus(ctx context.Context, input workflo
 		)
 	}
 
-	// Update the status with failure fields
+	// Update the status with failure fields and triage metadata (if present)
 	startTime := time.Now()
-	if err := a.sourceRepo.UpdateSourceStatusWithFailure(ctx, input.TenantID, input.SourceID, input.Status, input.FailureCategory, input.FailureReason); err != nil {
+
+	// Build triage metadata map if any fields are present
+	var triageMetadata map[string]interface{}
+	if input.TriageCategory != "" || input.TriageImportance != "" || input.SkipDeep != nil || input.ContentSubtype != "" {
+		triageMetadata = make(map[string]interface{})
+		if input.TriageCategory != "" {
+			triageMetadata["triage_category"] = input.TriageCategory
+		}
+		if input.TriageImportance != "" {
+			triageMetadata["triage_importance"] = input.TriageImportance
+		}
+		if input.SkipDeep != nil {
+			triageMetadata["skip_deep"] = *input.SkipDeep
+		}
+		if input.ContentSubtype != "" {
+			triageMetadata["content_subtype"] = input.ContentSubtype
+		}
+	}
+
+	// Call repository with or without triage metadata
+	var err error
+	if triageMetadata != nil {
+		err = a.sourceRepo.UpdateSourceStatusWithFailure(ctx, input.TenantID, input.SourceID, input.Status, input.FailureCategory, input.FailureReason, triageMetadata)
+	} else {
+		err = a.sourceRepo.UpdateSourceStatusWithFailure(ctx, input.TenantID, input.SourceID, input.Status, input.FailureCategory, input.FailureReason)
+	}
+
+	if err != nil {
 		logger.Error("Failed to update source status", logging.Err(err))
 		return fmt.Errorf("failed to update source %d status to %s: %w", input.SourceID, input.Status, err)
 	}
@@ -135,6 +167,8 @@ func (a *SourceActivities) UpdateSourceStatus(ctx context.Context, input workflo
 		logging.F("duration", time.Since(startTime)),
 		logging.F("failure_category", input.FailureCategory),
 		logging.F("failure_reason", input.FailureReason),
+		logging.F("triage_category", input.TriageCategory),
+		logging.F("triage_importance", input.TriageImportance),
 	)
 
 	return nil

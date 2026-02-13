@@ -30,7 +30,7 @@ func TestUpdateSourceStatus_ShouldPassFailureFields(t *testing.T) {
 	var capturedArgs []interface{}
 
 	mockRepo := &mockSourceRepositoryTracking{
-		updateStatusWithFailureFunc: func(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string) error {
+		updateStatusWithFailureFunc: func(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error {
 			updateStatusCalled = true
 			// Capture all args to verify what was passed
 			capturedArgs = []interface{}{tenantID, sourceID, status, failureCategory, failureReason}
@@ -81,7 +81,7 @@ func TestUpdateSourceStatus_WithFailureFields(t *testing.T) {
 	var capturedReason string
 
 	mockRepo := &mockSourceRepositoryTracking{
-		updateStatusWithFailureFunc: func(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string) error {
+		updateStatusWithFailureFunc: func(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error {
 			updateStatusCalled = true
 			capturedStatus = status
 			capturedCategory = failureCategory
@@ -115,7 +115,7 @@ func TestUpdateSourceStatus_WithFailureFields(t *testing.T) {
 // mockSourceRepositoryTracking is a mock that tracks calls to UpdateSourceStatus.
 type mockSourceRepositoryTracking struct {
 	updateStatusFunc             func(ctx context.Context, tenantID string, sourceID int64, status string) error
-	updateStatusWithFailureFunc  func(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string) error
+	updateStatusWithFailureFunc  func(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error
 	getSourceFunc                func(ctx context.Context, tenantID string, sourceID int64) (*Source, error)
 }
 
@@ -126,9 +126,9 @@ func (m *mockSourceRepositoryTracking) UpdateSourceStatus(ctx context.Context, t
 	return nil
 }
 
-func (m *mockSourceRepositoryTracking) UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string) error {
+func (m *mockSourceRepositoryTracking) UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error {
 	if m.updateStatusWithFailureFunc != nil {
-		return m.updateStatusWithFailureFunc(ctx, tenantID, sourceID, status, failureCategory, failureReason)
+		return m.updateStatusWithFailureFunc(ctx, tenantID, sourceID, status, failureCategory, failureReason, triageMetadata...)
 	}
 	return nil
 }
@@ -142,3 +142,86 @@ func (m *mockSourceRepositoryTracking) GetSource(ctx context.Context, tenantID s
 
 // Ensure mockSourceRepositoryTracking implements SourceRepository.
 var _ SourceRepository = (*mockSourceRepositoryTracking)(nil)
+
+// TestUpdateSourceStatus_ShouldPersistTriageMetadata is a reproduction test for bug pf-f22176.
+//
+// Verifies that the UpdateSourceStatus activity correctly passes triage metadata
+// to the repository for persistence in the ingestion_metadata JSONB column.
+func TestUpdateSourceStatus_ShouldPersistTriageMetadata(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+
+	// Track what arguments were actually passed to the repository
+	var updateStatusCalled bool
+	var capturedTriageMetadata map[string]interface{}
+
+	// Mock repository that tracks what the activity actually passes
+	mockRepo := &mockSourceRepositoryWithTriageTracking{
+		updateStatusWithFailureFunc: func(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error {
+			updateStatusCalled = true
+			if len(triageMetadata) > 0 {
+				capturedTriageMetadata = triageMetadata[0]
+			}
+			return nil
+		},
+	}
+
+	logger := logging.NewNopLogger()
+	activities := NewSourceActivities(logger, mockRepo)
+	env.RegisterActivity(activities.UpdateSourceStatus)
+
+	// Simulate Stage 1 (Triage) completing and writing metadata
+	skipDeepValue := true
+	input := workflows.UpdateSourceStatusInput{
+		TenantID:         "test-tenant",
+		SourceID:         123,
+		Status:           "completed",
+		TriageCategory:   "technical_discussion",    // Should be persisted
+		TriageImportance: "high",                    // Should be persisted
+		SkipDeep:         &skipDeepValue,            // Should be persisted
+		ContentSubtype:   "architectural_decision",  // Should be persisted
+	}
+
+	_, err := env.ExecuteActivity(activities.UpdateSourceStatus, input)
+	require.NoError(t, err)
+
+	require.True(t, updateStatusCalled, "UpdateSourceStatusWithFailure was called")
+
+	// Verify triage metadata was passed to the repository
+	require.NotNil(t, capturedTriageMetadata, "Triage metadata should be passed")
+	require.Equal(t, "technical_discussion", capturedTriageMetadata["triage_category"])
+	require.Equal(t, "high", capturedTriageMetadata["triage_importance"])
+	require.Equal(t, true, capturedTriageMetadata["skip_deep"])
+	require.Equal(t, "architectural_decision", capturedTriageMetadata["content_subtype"])
+}
+
+// mockSourceRepositoryWithTriageTracking extends the mock to track triage metadata.
+type mockSourceRepositoryWithTriageTracking struct {
+	updateStatusFunc            func(ctx context.Context, tenantID string, sourceID int64, status string) error
+	updateStatusWithFailureFunc func(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error
+	getSourceFunc               func(ctx context.Context, tenantID string, sourceID int64) (*Source, error)
+}
+
+func (m *mockSourceRepositoryWithTriageTracking) UpdateSourceStatus(ctx context.Context, tenantID string, sourceID int64, status string) error {
+	if m.updateStatusFunc != nil {
+		return m.updateStatusFunc(ctx, tenantID, sourceID, status)
+	}
+	return nil
+}
+
+func (m *mockSourceRepositoryWithTriageTracking) UpdateSourceStatusWithFailure(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error {
+	if m.updateStatusWithFailureFunc != nil {
+		return m.updateStatusWithFailureFunc(ctx, tenantID, sourceID, status, failureCategory, failureReason, triageMetadata...)
+	}
+	return nil
+}
+
+func (m *mockSourceRepositoryWithTriageTracking) GetSource(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+	if m.getSourceFunc != nil {
+		return m.getSourceFunc(ctx, tenantID, sourceID)
+	}
+	return nil, nil
+}
+
+// Ensure mockSourceRepositoryWithTriageTracking implements SourceRepository.
+var _ SourceRepository = (*mockSourceRepositoryWithTriageTracking)(nil)
