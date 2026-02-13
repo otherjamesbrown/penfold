@@ -128,8 +128,9 @@ Bulk rejection by pattern:
   penf entity reject --name-pattern "Bot%" --reason "Block bot accounts"
 
 Examples:
-  # Reject specific entity
+  # Reject specific entity (accepts both numeric and prefixed format)
   penf entity reject 123 --reason "duplicate account"
+  penf entity reject ent-person-123 --reason "duplicate account"
 
   # Bulk reject by email pattern
   penf entity reject --email-pattern "%noreply%" --reason "Block noreply addresses"
@@ -140,7 +141,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
 				// Single entity rejection
-				id, err := strconv.ParseInt(args[0], 10, 64)
+				id, err := ParseEntityID(args[0])
 				if err != nil {
 					return fmt.Errorf("invalid entity ID: %s", args[0])
 				}
@@ -173,10 +174,11 @@ func newEntityRestoreCommand(deps *EntityCommandDeps) *cobra.Command {
 This removes the rejection flag and makes the entity active again.
 
 Examples:
-  penf entity restore 123`,
+  penf entity restore 123
+  penf entity restore ent-person-123`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := strconv.ParseInt(args[0], 10, 64)
+			id, err := ParseEntityID(args[0])
 			if err != nil {
 				return fmt.Errorf("invalid entity ID: %s", args[0])
 			}
@@ -979,8 +981,9 @@ func newEntityManagementUpdateCommand(deps *EntityCommandDeps) *cobra.Command {
 		Long: `Update specific fields of an entity.
 
 You can update name, account type, title, company, and metadata.`,
-		Example: `  # Update entity title and company
+		Example: `  # Update entity title and company (accepts both numeric and prefixed format)
   penf entity update 123 --title "VP Engineering" --company "Akamai"
+  penf entity update ent-person-123 --title "VP Engineering" --company "Akamai"
 
   # Update entity name
   penf entity update 123 --name "John Smith"
@@ -992,7 +995,7 @@ You can update name, account type, title, company, and metadata.`,
   penf entity update 123 --metadata "linkedin=https://linkedin.com/in/john"`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := strconv.ParseInt(args[0], 10, 64)
+			id, err := ParseEntityID(args[0])
 			if err != nil {
 				return fmt.Errorf("invalid entity ID: %s", args[0])
 			}

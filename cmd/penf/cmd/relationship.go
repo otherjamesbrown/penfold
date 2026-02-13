@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -511,8 +510,12 @@ func newEntityShowCommand(deps *RelationshipCommandDeps) *cobra.Command {
 
 Displays the entity's properties, aliases, metadata, and related relationships.
 
-Example:
-  penf relationship entity show ent-abc123`,
+Accepts both prefixed (ent-person-123) and numeric (123) ID formats.
+Numeric IDs are auto-prefixed with "ent-person-" for compatibility.
+
+Examples:
+  penf relationship entity show ent-person-123
+  penf relationship entity show 123`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runEntityShow(cmd.Context(), deps, args[0], getRelInsecureFlag(cmd))
@@ -531,8 +534,12 @@ When duplicate entities are discovered, use this command to merge them.
 The first entity will be the primary, and the second will be merged into it.
 All relationships of the second entity will be transferred to the first.
 
-Example:
-  penf relationship entity merge ent-abc123 ent-def456`,
+Accepts both prefixed (ent-person-123) and numeric (123) ID formats.
+Numeric IDs are auto-prefixed with "ent-person-" for compatibility.
+
+Examples:
+  penf relationship entity merge ent-person-123 ent-person-456
+  penf relationship entity merge 123 456`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runEntityMerge(cmd.Context(), deps, args[0], args[1], getRelInsecureFlag(cmd))
@@ -1299,6 +1306,17 @@ func runEntityShow(ctx context.Context, deps *RelationshipCommandDeps, entityID 
 		cfg.TenantID = relationshipTenant
 	}
 
+	// If entityID is a bare numeric ID, convert it to prefixed format.
+	// Assume "person" as default entity type for backward compatibility.
+	if numericID, err := ParseEntityID(entityID); err == nil {
+		// ParseEntityID succeeded, meaning it's either a numeric ID or already prefixed.
+		// Check if it's not already prefixed by checking if entityID contains "ent-".
+		if !strings.HasPrefix(entityID, "ent-") {
+			// It's a bare numeric ID, so format it with "person" as default type.
+			entityID = FormatEntityID(numericID, "person")
+		}
+	}
+
 	// Initialize relationship client.
 	relClient, err := deps.InitRelClient(cfg)
 	if err != nil {
@@ -1338,6 +1356,15 @@ func runEntityMerge(ctx context.Context, deps *RelationshipCommandDeps, entityID
 	// Override tenant if specified.
 	if relationshipTenant != "" {
 		cfg.TenantID = relationshipTenant
+	}
+
+	// If entity IDs are bare numeric IDs, convert them to prefixed format.
+	// Assume "person" as default entity type for backward compatibility.
+	if numericID, err := ParseEntityID(entityID1); err == nil && !strings.HasPrefix(entityID1, "ent-") {
+		entityID1 = FormatEntityID(numericID, "person")
+	}
+	if numericID, err := ParseEntityID(entityID2); err == nil && !strings.HasPrefix(entityID2, "ent-") {
+		entityID2 = FormatEntityID(numericID, "person")
 	}
 
 	// Initialize relationship client.
@@ -1381,8 +1408,8 @@ func runEntityUpdate(ctx context.Context, deps *RelationshipCommandDeps, entityI
 		cfg.TenantID = relationshipTenant
 	}
 
-	// Parse entity ID.
-	entityID, err := strconv.ParseInt(entityIDStr, 10, 64)
+	// Parse entity ID (accepts both "123" and "ent-person-123" formats).
+	entityID, err := ParseEntityID(entityIDStr)
 	if err != nil {
 		return fmt.Errorf("invalid entity ID: %w", err)
 	}
@@ -1469,8 +1496,8 @@ func runEntityDelete(ctx context.Context, deps *RelationshipCommandDeps, entityI
 		cfg.TenantID = relationshipTenant
 	}
 
-	// Parse entity ID.
-	entityID, err := strconv.ParseInt(entityIDStr, 10, 64)
+	// Parse entity ID (accepts both "123" and "ent-person-123" formats).
+	entityID, err := ParseEntityID(entityIDStr)
 	if err != nil {
 		return fmt.Errorf("invalid entity ID: %w", err)
 	}
@@ -1589,6 +1616,15 @@ func runEntityMergePreview(ctx context.Context, deps *RelationshipCommandDeps, e
 	// Override tenant if specified.
 	if relationshipTenant != "" {
 		cfg.TenantID = relationshipTenant
+	}
+
+	// If entity IDs are bare numeric IDs, convert them to prefixed format.
+	// Assume "person" as default entity type for backward compatibility.
+	if numericID, err := ParseEntityID(entityID1); err == nil && !strings.HasPrefix(entityID1, "ent-") {
+		entityID1 = FormatEntityID(numericID, "person")
+	}
+	if numericID, err := ParseEntityID(entityID2); err == nil && !strings.HasPrefix(entityID2, "ent-") {
+		entityID2 = FormatEntityID(numericID, "person")
 	}
 
 	// Initialize relationship client.

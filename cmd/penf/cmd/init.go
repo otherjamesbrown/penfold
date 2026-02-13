@@ -244,6 +244,12 @@ func downloadAssistantClaudeMd(cfg *config.CLIConfig) error {
 
 	claudeMdPath := filepath.Join(cwd, "CLAUDE.md")
 
+	// Check if CLAUDE.md already exists - never overwrite
+	if _, err := os.Stat(claudeMdPath); err == nil {
+		fmt.Printf("  \033[32m✓\033[0m CLAUDE.md already exists (not modified)\n")
+		return nil
+	}
+
 	// For now, create a default assistant CLAUDE.md.
 	// In the future, this could fetch from the gateway or a central repository.
 	content := generateAssistantClaudeMd(cfg)
