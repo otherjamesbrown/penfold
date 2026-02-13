@@ -154,11 +154,15 @@ Criterion 2: "Z with no data returns empty" → TestZ_EmptyResult (line 78)
 Criterion 3: "Unknown input returns error" → ??? MISSING — flag for fix
 ```
 
-## Step 2.6: Real-Data Verification (Pipeline/Data Changes Only)
+## Step 2.6: Real-Data Verification (Pipeline, Data, AND Visibility Changes)
 
-**Skip this step if the changes don't affect the pipeline, AI processing, or data output.**
+**Skip this step ONLY if the changes are purely structural (refactoring, test-only, docs).**
 
-For bugs or features that change how content is processed, extracted, or stored:
+**Do NOT skip for:** pipeline changes, data output changes, wiring/visibility bugs,
+new fields added to entities or content, column renames, or any fix where the symptom
+was "field missing" or "data not showing."
+
+For bugs or features that change how content is processed, extracted, stored, or displayed:
 
 1. **Identify affected content.** Find at least one content item that demonstrates the
    bug or that the feature should improve:
@@ -190,8 +194,19 @@ For bugs or features that change how content is processed, extracted, or stored:
 whether the correct binary is running (ghost deploy) or whether the fix doesn't affect
 the code path for this content.
 
-**This step is non-negotiable for pipeline changes.** Penfold will reject resolutions
-for pipeline bugs that don't include reprocessed output.
+**This step is non-negotiable for pipeline AND visibility changes.** Penfold will reject
+resolutions that don't include actual CLI output showing the fix works.
+
+**For visibility/wiring bugs specifically:** Run the exact CLI command the user would run
+and verify the field appears in JSON output. Example:
+```bash
+# Bug was "sent_count not visible on entity"
+penf relationship entity show ent-person-123 -o json
+# Verify: sent_count field present with correct value
+```
+
+If the CLI binary needs rebuilding to pick up proto changes, that's part of the fix.
+Include `penf update` or `go build ./cmd/penf/...` in the deployment steps.
 
 ## Step 3: Trace Back to Original Message
 

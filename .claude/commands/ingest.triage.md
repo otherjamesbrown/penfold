@@ -29,9 +29,26 @@ WHERE s.id IN ('pf-inv-aaa', 'pf-anl-bbb', 'pf-spc-ccc')
 
 **For bug investigations**, parse each `closed_reason` for:
 - Root cause category + explanation
-- Affected files
+- Affected files — **verify this covers ALL layers, not just the root cause layer**
 - Fix description
 - Complexity (Low/Medium/High)
+- Layers involved (from LAYERS field)
+
+**Cross-layer verification (MANDATORY for grpc_wiring, data_layer, proto_mismatch bugs):**
+If the investigation lists files in only one layer (e.g. only gateway service files), check
+whether the fix also needs changes in:
+- CLI client layer: `cmd/penf/client/` — does the client struct have the new fields?
+- CLI command layer: `cmd/penf/cmd/` — does the display struct map the new fields?
+- Proto layer: `api/proto/` — does the proto definition have the new fields?
+
+If the investigation missed layers, add the missing files to the impl shard yourself.
+Do NOT create a shard with incomplete file coverage. Common full paths:
+
+| Bug Type | Full File Path |
+|----------|---------------|
+| Entity field not visible | `pkg/relationships/repository.go` + `types.go` + `services/gateway/relationshipservice/service.go` + `api/proto/relationship/v1/relationship.proto` + `.pb.go` + `cmd/penf/client/relationship_client.go` + `cmd/penf/cmd/relationship.go` |
+| Content metadata missing | worker activity + `services/gateway/` content service + proto + CLI client + CLI command |
+| Pipeline field not persisted | worker activity + repository SQL |
 
 **For requirement analyses**, parse each `closed_reason` for:
 - Complexity (Low/Medium/High) — **this determines the implementation path**

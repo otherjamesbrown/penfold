@@ -65,15 +65,28 @@ Task(subagent_type="debugger", run_in_background=true,
   4. Investigate using read-only tools (Read, Grep, Glob, Bash for go build/test)
   5. Identify root cause, affected files, and proposed fix
 
-  IMPORTANT: Trace the FULL data path from database → activity → function.
-  Do not just verify the function works in isolation. Identify:
+  IMPORTANT: Trace the FULL data path — not just the root cause layer.
+
+  For pipeline bugs (data processing):
   - Where does the input data come from? (DB column, upstream stage, metadata)
   - Is the data transformed or filtered between stages?
   - What happens when upstream stages fail or return nil?
   - Are there existing records in the DB that predate the fix?
 
+  For visibility/wiring bugs (data not showing in CLI):
+  - Trace from DB column → repository (SELECT + scan) → types.go (struct)
+    → service.go (mapping) → proto → CLI client (struct) → CLI command (display)
+  - List EVERY file in EVERY layer. Don't stop at the gRPC service — the CLI
+    client and command layers have their own structs that also need updating.
+  - Count files per layer: e.g. '6 files across gateway (3) + CLI (3)'
+
+  For data cleanup:
+  - Does existing data in the DB need correction? (e.g. column rename doesn't
+    fix garbage data already in the column)
+  - Does the metadata key name match the new column name?
+
   ## Completion
-  6. cxp task close pf-inv-xxx 'ROOT CAUSE: [category]. [summary]. FILES: [file1, file2]. FIX: [description]. COMPLEXITY: [Low/Medium/High]'
+  6. cxp task close pf-inv-xxx 'ROOT CAUSE: [category]. [summary]. FILES: [file1, file2, ...ALL files across ALL layers]. FIX: [description]. COMPLEXITY: [Low/Medium/High]. LAYERS: [list which sub-agent domains are needed]'
 
   Root cause categories: cli_ux, config_drift, temporal_workflow, grpc_wiring, data_layer, proto_mismatch, missing_feature, test_gap")
 ```

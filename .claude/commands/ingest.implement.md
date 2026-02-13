@@ -11,6 +11,7 @@ Two execution modes based on complexity routing from Phase 3.
 ```yaml
 DB_CONN: "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full"
 CP_CLI: cp
+MAX_RETRIES: 3
 ```
 
 ## Agent Context Requirements
@@ -70,6 +71,75 @@ STOP immediately. Do NOT grind through fixing caller after caller. Instead:
 
 ---
 
+## Implementation Loop (Ralph Loop Pattern)
+
+Every sub-agent launch — Mode A or Mode B — runs inside a retry loop. This implements
+the Ralph Loop concept at the orchestrator level: same prompt, fresh context, persistent
+code changes.
+
+**Why this matters:** Sub-agents that fail on the first attempt have already modified files.
+A fresh sub-agent sees those changes, plus the error output from the previous attempt, and
+can course-correct with a full context window. This is fundamentally better than retrying
+within a depleted context.
+
+**Loop logic (applied to EVERY sub-agent):**
+
+```
+for attempt in 1..MAX_RETRIES:
+    launch sub-agent (fresh context)
+    wait for completion
+
+    ## TWO-SIGNAL VERIFICATION (both must agree)
+    # Signal 1: Independent build/test check (PRIMARY — ground truth)
+    run: go build ./path/to/... && go test ./path/to/... -v
+    # Signal 2: Shard close reason prefix (SECONDARY — agent's self-report)
+    read shard close reason
+
+    # Classification:
+    if build+tests PASS and close reason starts with "DONE:" → SUCCESS, break
+    if close reason starts with "BLOCKED:" → ESCALATE to penfold immediately, break
+    if build+tests FAIL (regardless of close reason) → FAILED, enter retry
+    if build+tests PASS but close reason is not "DONE:" → treat as SUCCESS with warning
+        (log: "Agent used non-standard close prefix. Verified independently.")
+
+    # Retry path:
+    if attempt < MAX_RETRIES:
+        capture: build errors, test failures, close reason
+        re-open shard: cxp task reopen pf-xxx
+        add progress note:
+          cxp task progress pf-xxx "Attempt [N] failed: [error summary]. Retrying with fresh agent."
+        continue loop
+    else:
+        ESCALATE to penfold — all retries exhausted
+```
+
+**Why two signals:** Sub-agents may use non-standard prefixes ("Completed:", "Implemented:").
+Build and test results are ground truth. The close reason is useful context for retries but
+should never be the sole determinant of success or failure.
+
+**Retry prompt additions:** When re-launching (attempt > 1), prepend this to the sub-agent prompt:
+
+```
+## RETRY CONTEXT — Attempt [N] of [MAX_RETRIES]
+
+Previous attempt failed. The previous agent's code changes are already in the files.
+
+**Previous failure:**
+[paste closed_reason or error output from previous attempt]
+
+**What to do:**
+1. Read the files the previous agent modified — understand what was done
+2. Run `go build` and `go test` to see the current state
+3. Identify what went wrong (don't assume the previous approach was correct)
+4. Fix the issue — you may need to revise the approach, not just patch
+5. Verify everything passes before closing
+```
+
+**IMPORTANT:** Each retry is a FRESH sub-agent with full context budget. Do not ask the
+same agent to retry within its session — that wastes context. Kill and re-launch.
+
+---
+
 ## Mode A: Single Agent (LOW/MEDIUM Complexity)
 
 **Batch size: max 4 agents at a time.** If more than 4 items are ready, launch in batches
@@ -113,21 +183,29 @@ Task(subagent_type="<agent-type>", run_in_background=true,
       go build ./path/to/...
       go test ./path/to/... -v
 
-  Pipeline-level verification:
+  Cross-layer verification:
   1. Does the fix change the actual code path the workflow calls?
   2. Does the fix handle existing/stale data?
   3. Does the fix degrade gracefully when upstream stages fail?
+  4. For visibility/wiring bugs: does the field appear in CLI output?
+     Trace: DB → repository struct → gRPC service mapping → proto →
+     CLI client struct → CLI command struct → JSON/text output.
+     If ANY layer in this chain is missing the field, the fix is incomplete.
 
   IMPORTANT: Do NOT report completion unless build and tests pass.
   IMPORTANT: If there is no reproduction test, write one yourself.
 
-  ## Completion
+  ## Completion — EXACT FORMAT REQUIRED
   11. cxp task progress pf-fix-xxx 'Implemented: [summary]'
-  12. cxp task close pf-fix-xxx 'Done: [summary]. Tests: [TestNames]. Files modified: [list]'
+  12. Close with one of these EXACT prefixes:
+      - SUCCESS: cxp task close pf-fix-xxx 'DONE: [summary]. Tests: [TestNames]. Files modified: [list]'
+      - STUCK:   cxp task close pf-fix-xxx 'BLOCKED: [what is blocking]. Needs: [what you need]'
+      - PARTIAL: cxp task close pf-fix-xxx 'FAILED: [what went wrong]. Done so far: [what works]. Remaining: [what is left]'
+      Use DONE/BLOCKED/FAILED exactly — the orchestrator classifies your result by this prefix.
 
   ## Context Budget
   Prioritize: (1) working fix that compiles, (2) tests pass, (3) cleanup.
-  If running low, close the shard with progress notes listing what's done and what remains.
+  If running low, close with FAILED prefix listing what's done and what remains.
 
   CRITICAL: Do NOT run git add, git commit, git push, or any git write commands.
   Only modify files. The orchestrator handles all git operations.")
@@ -176,13 +254,17 @@ Task(subagent_type="<agent-type>", run_in_background=true,
   IMPORTANT: Do NOT report completion unless build and ALL tests pass.
   IMPORTANT: If there are no acceptance tests, write them yourself.
 
-  ## Completion
+  ## Completion — EXACT FORMAT REQUIRED
   11. cxp task progress pf-feat-xxx 'Implemented: [summary]'
-  12. cxp task close pf-feat-xxx 'Done: [summary]. Tests: [TestNames]. Acceptance criteria: [list which are met]. Files modified: [list]'
+  12. Close with one of these EXACT prefixes:
+      - SUCCESS: cxp task close pf-feat-xxx 'DONE: [summary]. Tests: [TestNames]. Acceptance criteria: [list which are met]. Files modified: [list]'
+      - STUCK:   cxp task close pf-feat-xxx 'BLOCKED: [what is blocking]. Needs: [what you need]'
+      - PARTIAL: cxp task close pf-feat-xxx 'FAILED: [what went wrong]. Done so far: [what works]. Remaining: [what is left]'
+      Use DONE/BLOCKED/FAILED exactly — the orchestrator classifies your result by this prefix.
 
   ## Context Budget
   Prioritize: (1) working implementation that compiles, (2) tests pass, (3) cleanup.
-  If running low, close the shard with progress notes listing what's done and what remains.
+  If running low, close with FAILED prefix listing what's done and what remains.
 
   CRITICAL: Do NOT run git add, git commit, git push, or any git write commands.
   Only modify files. The orchestrator handles all git operations.")
@@ -220,8 +302,9 @@ Wave 4: Write Pipeline tests → Implement Pipeline sub-shards (feat-pipe:) — 
 
 **CRITICAL: Verify between waves.** If a wave's build or tests fail:
 - Small issues (missing import, typo): fix directly
-- Larger issues: re-launch the failed agent with the error output
+- Larger issues: apply the retry loop (Monitor & Retry section) — re-launch with fresh agent
 - Do NOT proceed to the next wave until the current one passes
+- Each sub-shard gets up to MAX_RETRIES fresh attempts before escalating
 
 ### Launch Sub-Shard Agents
 
@@ -282,12 +365,16 @@ Task(subagent_type="<agent-type-from-sub-shard>", run_in_background=true,
     grep -r 'func functionName' cmd/penf/cmd/
   Use existing helpers. Do NOT redefine them.
 
-  ## Completion
-  7. cxp task close pf-xxx-layer 'Done: [summary]. Tests: [TestNames]. Files: [files modified]'
+  ## Completion — EXACT FORMAT REQUIRED
+  7. Close with one of these EXACT prefixes:
+     - SUCCESS: cxp task close pf-xxx-layer 'DONE: [summary]. Tests: [TestNames]. Files: [files modified]'
+     - STUCK:   cxp task close pf-xxx-layer 'BLOCKED: [what is blocking]. Needs: [what you need]'
+     - PARTIAL: cxp task close pf-xxx-layer 'FAILED: [what went wrong]. Done so far: [what works]. Remaining: [what is left]'
+     Use DONE/BLOCKED/FAILED exactly — the orchestrator classifies your result by this prefix.
 
   ## Context Budget
   Prioritize: (1) working code that compiles, (2) all tests pass, (3) cleanup.
-  If running low, close the shard with progress notes listing what's done and what remains.
+  If running low, close with FAILED prefix listing what's done and what remains.
   Do NOT defer tests — say explicitly if tests are incomplete.
 
   CRITICAL: Do NOT run git add, git commit, git push, or any git write commands.")
@@ -295,7 +382,11 @@ Task(subagent_type="<agent-type-from-sub-shard>", run_in_background=true,
 
 ---
 
-## Monitor Completion (Both Modes)
+## Monitor & Retry Loop (Both Modes)
+
+After launching a batch, monitor completion and apply the retry loop:
+
+### Step 1: Wait for Completion
 
 ```bash
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
@@ -309,26 +400,59 @@ ORDER BY created_at;
 Also use `Read` on background agent output files.
 Wait until all current-batch shards/sub-shards are closed.
 
-## Notify Penfold on Failures
+### Step 2: Classify Results
 
-If any implementation agent fails (build errors, test failures, context exhaustion):
+For each completed shard, read `closed_reason` and classify:
+
+| Close Reason Starts With | Result | Action |
+|--------------------------|--------|--------|
+| `Done:` | SUCCESS | No retry needed |
+| `BLOCKED:` | BLOCKED | Escalate to penfold immediately — do NOT retry |
+| Anything else | FAILED | Enter retry loop |
+
+### Step 3: Retry Failed Shards
+
+For each FAILED shard (attempt < MAX_RETRIES):
+
+1. **Capture the failure:** Read the shard's `closed_reason` and any progress notes
+2. **Re-open the shard:**
+   ```bash
+   cxp task reopen pf-xxx
+   cxp task progress pf-xxx "Attempt [N] failed: [1-line error summary]. Retrying with fresh agent."
+   ```
+3. **Re-launch with retry context:** Launch a NEW sub-agent using the same prompt template
+   (Mode A or Mode B as appropriate), but prepend the retry context block from the
+   "Implementation Loop" section above
+4. **Wait and re-classify** — repeat until success or MAX_RETRIES exhausted
+
+**Batch retries:** If multiple shards in a batch failed, re-launch them all in parallel
+(same batch-size rules apply). Don't serialize retries unnecessarily.
+
+### Step 4: Escalate After MAX_RETRIES
+
+Only notify penfold when a shard has exhausted all retry attempts OR is BLOCKED:
 
 ```bash
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
 SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-penfold'],
-  'Implementation issue: [shard title]',
+  'Implementation failed after [N] attempts: [shard title]',
   \$body\${\"poll_hint\":\"review\",\"type\":\"progress\"}
-## Implementation Issue
+## Implementation Failed — Retries Exhausted
 
 Shard: pf-xxx ([title])
 Agent: <agent-type>
-Status: FAILED — [build error / test failure / context exhaustion]
+Attempts: [N] of [MAX_RETRIES]
 
-Error:
-[paste relevant error output]
+**Attempt 1:** [1-line summary of what happened]
+**Attempt 2:** [1-line summary of what happened]
+**Attempt 3:** [1-line summary of what happened]
 
-Action: Re-launching with [additional context / error details].
-If you have insight into this failure, reply and I'll incorporate it.
+**Pattern:** [what kept going wrong — same error each time? different errors?]
+
+**Files modified:** [list files the agents touched]
+**Current state:** [does it build? which tests fail?]
+
+This shard needs human guidance or a different approach.
 
 -- agent-mycroft
 \$body\$,
@@ -336,20 +460,26 @@ If you have insight into this failure, reply and I'll incorporate it.
 "
 ```
 
+**Key difference from before:** Penfold only hears about failures that survived 3 fresh
+attempts. If it gets here, the problem is likely in the spec/approach, not the implementation.
+
 ## Show Progress
 
 ```
 INGEST PIPELINE - Phase 4: Implement
 ═════════════════════════════════════
 LOW/MEDIUM (single agent):
-  pf-fix-aaa  | [title] | DONE
-  pf-feat-bbb | [title] | DONE
+  pf-fix-aaa  | [title] | DONE (attempt 1/3)
+  pf-feat-bbb | [title] | DONE (attempt 2/3) — retry fixed test failure
 
 HIGH (layer-by-layer):
   Feature: [name]
-    Wave 1 | pf-ccc-db  | DB      | DONE ✓ | build ✓ tests ✓
-    Wave 2 | pf-ccc-svc | Service | DONE ✓ | build ✓ tests ✓
-    Wave 3 | pf-ccc-cli | CLI     | DONE ✓ | build ✓
+    Wave 1 | pf-ccc-db  | DB      | DONE (1/3) | build ✓ tests ✓
+    Wave 2 | pf-ccc-svc | Service | DONE (2/3) | build ✓ tests ✓ — retry fixed missing import
+    Wave 3 | pf-ccc-cli | CLI     | DONE (1/3) | build ✓
+
+FAILED (retries exhausted):
+  pf-fix-ddd  | [title] | FAILED (3/3) — escalated to penfold
 ```
 
 ## Checkpoint (MANDATORY)
@@ -361,7 +491,8 @@ cxp session checkpoint "$(cat <<'CKPT'
 ## Phase 4 Complete: Implementation
 
 **Completed:** [N shards] — [list shard IDs + 1-line summaries]
-**Failed/re-launched:** [N shards with reasons]
+**Retried:** [N shards needed retries] — [shard IDs + attempt counts + what the retry fixed]
+**Failed (retries exhausted):** [N shards, 0 if all succeeded] — [shard IDs + failure pattern]
 **Files modified:** [total count, list paths]
 **Waves executed:** [for HIGH items: wave count and order]
 **Next:** Phase 5 (Verify) — build, test, go vet across all changed packages
