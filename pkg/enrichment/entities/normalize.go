@@ -223,9 +223,47 @@ func NameSimilarity(a, b string) float64 {
 		return 1.0
 	}
 
-	// Check if one contains the other
-	if strings.Contains(a, b) || strings.Contains(b, a) {
-		return 0.9
+	// Minimum length check: reject single-character matches (bug pf-96c91a)
+	// Single-character names like "K" or "M" should not match real names
+	if len(a) < 2 || len(b) < 2 {
+		// Allow Levenshtein for very short strings (both < 2 chars)
+		if len(a) < 2 && len(b) < 2 {
+			return levenshteinSimilarity(a, b)
+		}
+		// One is too short, the other is longer - this is not a match
+		return 0.0
+	}
+
+	// Check if one contains the other (substring match)
+	// Apply length-based penalty: shorter substrings get lower scores
+	var shorter, longer string
+	if len(a) < len(b) {
+		shorter, longer = a, b
+	} else {
+		shorter, longer = b, a
+	}
+
+	if strings.Contains(longer, shorter) {
+		// For legitimate partial name matches (>= 4 chars), keep the old behavior (0.85)
+		// Examples: "Rick" in "Rick Eskelsen", "Mike" in "Mike Johnson"
+		if len(shorter) >= 4 {
+			return 0.85
+		}
+
+		// For very short substrings (2-3 chars), apply length-based penalty
+		// Examples:
+		// - "Mi" in "Mike" (2 chars) -> 0.2
+		// - "ike" in "Mike" (3 chars) -> 0.4
+		// This prevents single initials and very short fragments from matching
+		if len(shorter) == 2 {
+			return 0.2
+		}
+		if len(shorter) == 3 {
+			return 0.4
+		}
+
+		// Fallback (shouldn't reach here due to length check above)
+		return 0.1
 	}
 
 	// Split into components (first, last)
@@ -393,11 +431,12 @@ func IsValidEmail(email string) bool {
 
 // DeriveNameFromEmail derives a human-readable name from an email address prefix.
 // Patterns:
-//   - "john.smith@example.com" → "John Smith"
-//   - "jane_doe@example.com" → "Jane Doe"
-//   - "mary-ann@example.com" → "Mary Ann"
-//   - "jsmith@example.com" → "J Smith" (single letter + rest)
-//   - "johnsmith@example.com" → "Johnsmith" (single word, title cased)
+//   - "john.smith@example.com" → "John Smith" (split on separator)
+//   - "jane_doe@example.com" → "Jane Doe" (split on separator)
+//   - "mary-ann@example.com" → "Mary Ann" (split on separator)
+//   - "jSmith@example.com" → "J Smith" (split on camelCase)
+//   - "jsmith@example.com" → "Jsmith" (single word, title cased - no split)
+//   - "uzeeshan@example.com" → "Uzeeshan" (single word, title cased - no split)
 func DeriveNameFromEmail(email string) string {
 	if email == "" {
 		return ""
@@ -411,15 +450,24 @@ func DeriveNameFromEmail(email string) string {
 
 	local := parts[0]
 
-	// Check for single-letter prefix pattern before replacing separators
-	// e.g., "jsmith" → "j smith" if length > 2 and starts with single letter
-	if len(local) > 2 && !strings.ContainsAny(local, "._-") {
-		// Check if first character is a letter and rest are letters
-		if isLetter(rune(local[0])) {
-			// Check if this looks like initial+lastname pattern (e.g., "jsmith")
-			// We detect this heuristically: if the first char is lowercase and the rest starts with lowercase
-			// It's safer to just split at the second character if length <= 8
-			if len(local) <= 8 {
+	// Check for camelCase pattern before replacing separators
+	// e.g., "jSmith" → "j smith" (camelCase detected)
+	// BUT preserve single-word usernames like "jsmith", "uzeeshan", "knaidu" (all lowercase)
+	//
+	// Heuristic: Only split if camelCase (lowercase followed by uppercase)
+	// - "jSmith" (camelCase) → split → "J Smith"
+	// - "jsmith" (all lowercase) → DON'T split → "Jsmith"
+	// - "uzeeshan" (all lowercase) → DON'T split → "Uzeeshan"
+	// - "knaidu" (all lowercase) → DON'T split → "Knaidu"
+	//
+	// This fix prevents false splitting of corporate email prefixes like "uzeeshan" → "U Zeeshan"
+	if len(local) >= 3 && !strings.ContainsAny(local, "._-") {
+		if isLetter(rune(local[0])) && isLetter(rune(local[1])) {
+			firstChar := rune(local[0])
+			secondChar := rune(local[1])
+
+			// Only split on camelCase pattern (jSmith)
+			if unicode.IsLower(firstChar) && unicode.IsUpper(secondChar) {
 				local = string(local[0]) + " " + local[1:]
 			}
 		}

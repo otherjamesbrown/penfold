@@ -189,8 +189,8 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 		rawContent = req.BodyHtml
 	}
 
-	// Build metadata from request
-	metadata := buildEmailMetadata(req)
+	// Build metadata from request (including quoted-reply display names)
+	metadata := buildEmailMetadata(req, rawContent)
 
 	// Collect participant emails (from envelope headers and quoted reply headers in body)
 	participantEmails := collectParticipantEmails(req, rawContent)
@@ -871,7 +871,8 @@ func (s *Service) RecordIngestError(ctx context.Context, req *ingestv1.RecordIng
 // =============================================================================
 
 // buildEmailMetadata constructs metadata map from email request.
-func buildEmailMetadata(req *ingestv1.IngestEmailRequest) map[string]interface{} {
+// Also extracts and stores display names from quoted reply headers in the body text.
+func buildEmailMetadata(req *ingestv1.IngestEmailRequest, bodyText string) map[string]interface{} {
 	metadata := make(map[string]interface{})
 
 	metadata["subject"] = req.Subject
@@ -940,6 +941,24 @@ func buildEmailMetadata(req *ingestv1.IngestEmailRequest) map[string]interface{}
 	// Store headers
 	if len(req.Headers) > 0 {
 		metadata["headers"] = req.Headers
+	}
+
+	// Extract and store quoted-reply participant display names from body text
+	// This preserves display names like "Usama Zeeshan" from "From: Zeeshan, Usama <uzeeshan@akamai.com>"
+	// which are not in the envelope headers but are in the quoted reply attribution lines.
+	if bodyText != "" {
+		quotedParticipants := parse.ExtractQuotedReplyParticipantsWithNames(bodyText)
+		if len(quotedParticipants) > 0 {
+			quotedReplyNames := make(map[string]string)
+			for _, p := range quotedParticipants {
+				if p.DisplayName != "" {
+					quotedReplyNames[p.Email] = p.DisplayName
+				}
+			}
+			if len(quotedReplyNames) > 0 {
+				metadata["quoted_reply_names"] = quotedReplyNames
+			}
+		}
 	}
 
 	return metadata

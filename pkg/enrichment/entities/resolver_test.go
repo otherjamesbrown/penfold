@@ -64,9 +64,9 @@ func TestNameDerivation_FromEmail(t *testing.T) {
 			wantName: "Jane Doe",
 		},
 		{
-			name:     "single initial pattern",
+			name:     "single word lowercase (ambiguous)",
 			email:    "jsmith@example.com",
-			wantName: "J Smith",
+			wantName: "Jsmith", // Consistent with fix for pf-2c2ab0: preserve single-word usernames
 		},
 		{
 			name:     "three part name",

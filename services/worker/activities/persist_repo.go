@@ -153,6 +153,9 @@ func (r *PersistRepo) PersistFindings(ctx context.Context, input *PersistFinding
 	// Best-effort: detect acronyms and create review queue items (after commit, non-transactional)
 	r.detectAndCreateAcronymQuestions(ctx, input, output)
 
+	// Best-effort: create entity review items for auto-created people (after commit, non-transactional)
+	r.createEntityReviewItems(ctx, input, output)
+
 	return output, nil
 }
 
@@ -662,6 +665,20 @@ var commonAcronymExclusions = map[string]bool{
 	"TBD": true, "TBA": true, "FYI": true, "ASAP": true, "NOTE": true,
 	"TODO": true, "DONE": true, "NONE": true, "NULL": true,
 	"FW": true, "CC": true, "BCC": true,
+	// Geography/regions
+	"USA": true, "CA": true, "NY": true, "UK": true, "EU": true,
+	// Time zones
+	"PST": true, "GMT": true, "EST": true, "CST": true, "MST": true,
+	"UTC": true, "CET": true, "BST": true,
+	// Business terms
+	"LLC": true, "OOO": true, "HR": true, "PR": true, "QA": true,
+	"VP": true, "CEO": true, "CFO": true, "CTO": true, "COO": true,
+	// Common tech
+	"VM": true, "OS": true, "UI": true, "UX": true, "DB": true,
+	"AI": true, "ML": true,
+	// Other
+	"PDF": true, "FAQ": true, "ETA": true, "AKA": true, "RFP": true,
+	"RFI": true, "NDA": true, "EOD": true, "WFH": true,
 }
 
 // properNounExclusions contains CamelCase words that are proper nouns, not acronyms.
@@ -690,6 +707,33 @@ const (
 // - With digits: FY26, S3
 // Pattern: 2+ uppercase letters with optional lowercase/digits
 var acronymPattern = regexp.MustCompile(`\b([A-Z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[A-Z]{2,}[a-z]*)\b`)
+
+// normalizeAcronym normalizes plural acronyms to singular form.
+// Strips trailing 's' from acronyms like "SLIs" -> "SLI", "APIs" -> "API".
+// This prevents duplicate review items for singular/plural variants.
+func normalizeAcronym(term string) string {
+	if len(term) < 2 {
+		return term
+	}
+
+	// Check if ends with lowercase 's' and rest is uppercase (e.g., "SLIs")
+	if term[len(term)-1] == 's' {
+		rest := term[:len(term)-1]
+		// Only strip 's' if the rest is all uppercase (acronym pattern)
+		allUpper := true
+		for _, r := range rest {
+			if r >= 'a' && r <= 'z' {
+				allUpper = false
+				break
+			}
+		}
+		if allUpper && len(rest) >= 2 {
+			return rest
+		}
+	}
+
+	return term
+}
 
 // isValidAcronym checks if a matched token is actually a valid acronym.
 // Filters out:
@@ -776,12 +820,15 @@ func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input
 	logger.Debug("Detected acronym candidates")
 
 	for term, ctxSnippet := range candidates {
+		// Normalize plural forms before dedup check (SLIs -> SLI, APIs -> API)
+		normalizedTerm := normalizeAcronym(term)
+
 		// Skip if already in glossary
 		if r.glossaryRepo != nil {
-			glossaryTerm, err := r.glossaryRepo.GetByTerm(ctx, term)
+			glossaryTerm, err := r.glossaryRepo.GetByTerm(ctx, normalizedTerm)
 			if err != nil {
 				logger.Warn("Failed to check glossary for acronym",
-					logging.F("term", term), logging.Err(err))
+					logging.F("term", normalizedTerm), logging.Err(err))
 				continue
 			}
 			if glossaryTerm != nil {
@@ -791,7 +838,7 @@ func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input
 
 		// Create review queue item (CreateIfNotExists handles dedup)
 		aq := reviewqueue.AcronymQuestion{
-			Term:       term,
+			Term:       normalizedTerm,
 			Context:    ctxSnippet,
 			SourceType: "source",
 			SourceID:   input.SourceID,
@@ -909,4 +956,94 @@ func (r *PersistRepo) collectStage2Texts(ctx context.Context, sourceID int64) []
 		logging.F("text_count", len(texts)))
 
 	return texts
+}
+
+// createEntityReviewItems creates review queue items for auto-created entities that need review.
+// Best-effort: errors are logged, not returned.
+func (r *PersistRepo) createEntityReviewItems(ctx context.Context, input *PersistFindingsInput, output *PersistFindingsOutput) {
+	if r.reviewQueue == nil {
+		return
+	}
+
+	// Skip if no resolved people
+	if len(input.ResolvedPeople) == 0 {
+		return
+	}
+
+	// Collect person IDs to query
+	personIDs := make([]int64, 0, len(input.ResolvedPeople))
+	nameToID := make(map[int64]string) // person_id -> name for logging
+	for name, personID := range input.ResolvedPeople {
+		personIDs = append(personIDs, personID)
+		nameToID[personID] = name
+	}
+
+	// Query database for entity metadata (needs_review, confidence, auto_created)
+	query := `
+		SELECT id, preferred_name, needs_review, confidence, auto_created
+		FROM people
+		WHERE id = ANY($1)
+		  AND needs_review = true
+	`
+	rows, err := r.pool.Query(ctx, query, personIDs)
+	if err != nil {
+		r.logger.Warn("Failed to query entities for review",
+			logging.F("source_id", input.SourceID), logging.Err(err))
+		return
+	}
+	defer rows.Close()
+
+	logger := r.logger.With(
+		logging.F("source_id", input.SourceID),
+	)
+
+	createdCount := 0
+	for rows.Next() {
+		var personID int64
+		var preferredName string
+		var needsReview bool
+		var confidence float32
+		var autoCreated bool
+
+		if err := rows.Scan(&personID, &preferredName, &needsReview, &confidence, &autoCreated); err != nil {
+			logger.Warn("Failed to scan entity row",
+				logging.F("person_id", personID), logging.Err(err))
+			continue
+		}
+
+		// Create review queue item for this entity
+		pq := reviewqueue.PersonQuestion{
+			MatchedText:    preferredName,
+			Context:        fmt.Sprintf("Auto-created entity (confidence: %.2f)", confidence),
+			CandidateIDs:   []int64{personID},
+			CandidateNames: []string{preferredName},
+			SourceType:     "source",
+			SourceID:       input.SourceID,
+			Confidence:     float64(confidence),
+		}
+
+		_, created, err := r.reviewQueue.CreateIfNotExists(ctx, pq.ToInput())
+		if err != nil {
+			logger.Warn("Failed to create entity review item",
+				logging.F("person_id", personID),
+				logging.F("name", preferredName),
+				logging.Err(err))
+			continue
+		}
+
+		if created {
+			createdCount++
+			output.ReviewItemsCreated++
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		logger.Warn("Error iterating entity rows",
+			logging.Err(err))
+	}
+
+	if createdCount > 0 {
+		logger.Info("Created entity review items",
+			logging.F("count", createdCount))
+	}
 }

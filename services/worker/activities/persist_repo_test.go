@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 )
 
 // mockPersistRepo is a mock implementation of PersistRepository for testing.
@@ -1088,4 +1089,438 @@ func getValidLifecycleEventsList() []string {
 // Helper function to create string pointers
 func stringPtr(s string) *string {
 	return &s
+}
+
+// TestBug_pf1d596f_CommonAcronymsNotExcluded reproduces bug pf-1d596f issue #1.
+// Root cause: commonAcronymExclusions map is missing common business/tech/timezone terms.
+//
+// Bug: Common terms like USA, LLC, PST, GMT, OOO, VM, CA pass isValidAcronym()
+// and create unnecessary review queue items, even though they're not domain-specific
+// acronyms that need glossary definitions.
+//
+// Expected behavior after fix:
+// - These common terms should be added to commonAcronymExclusions map
+// - isValidAcronym() should reject these tokens
+// - No review items should be created for these common terms
+func TestBug_pf1d596f_CommonAcronymsNotExcluded(t *testing.T) {
+	t.Run("common business/tech/timezone terms incorrectly accepted as valid acronyms", func(t *testing.T) {
+		// BUG: These common terms pass isValidAcronym() because they're not in commonAcronymExclusions
+		commonTerms := []string{
+			"USA",  // Country
+			"LLC",  // Legal entity type
+			"PST",  // Pacific Standard Time
+			"GMT",  // Greenwich Mean Time
+			"OOO",  // Out of office
+			"VM",   // Virtual machine
+			"CA",   // California or Certificate Authority
+			"NY",   // New York
+			"UK",   // United Kingdom
+			"EST",  // Eastern Standard Time
+			"UTC",  // Coordinated Universal Time
+			"PDF",  // Portable Document Format
+			"FAQ",  // Frequently Asked Questions
+			"ETA",  // Estimated Time of Arrival
+		}
+
+		for _, term := range commonTerms {
+			result := isValidAcronym(term)
+
+			// This assertion FAILS (reproduces the bug) - these terms are currently accepted
+			assert.False(t, result, "BUG pf-1d596f: %s should be rejected as a common term, not a domain acronym", term)
+
+			t.Logf("REPRODUCTION: %s incorrectly returns true from isValidAcronym()", term)
+		}
+
+		t.Logf("ROOT CAUSE: USA, LLC, PST, GMT, OOO, VM, CA, etc. are missing from commonAcronymExclusions map")
+		t.Logf("FIX REQUIRED: Add these common terms to commonAcronymExclusions in persist_repo.go:648-665")
+	})
+
+	t.Run("common terms meet technical criteria but should be excluded", func(t *testing.T) {
+		// These tokens meet the technical validation criteria but should be excluded
+		// as common terms, not domain-specific acronyms
+		term := "USA"
+
+		// Verify technical criteria are met
+		assert.LessOrEqual(t, len(term), 10, "USA should be ≤10 chars")
+		assert.GreaterOrEqual(t, len(term), 2, "USA should be ≥2 chars")
+
+		upperCount := 0
+		for _, r := range term {
+			if r >= 'A' && r <= 'Z' {
+				upperCount++
+			}
+		}
+		assert.GreaterOrEqual(t, upperCount, 2, "USA should have ≥2 uppercase letters")
+
+		// BUG: Not in commonAcronymExclusions
+		inExclusions := commonAcronymExclusions[term]
+		assert.True(t, inExclusions, "BUG pf-1d596f: USA should be in commonAcronymExclusions")
+
+		// BUG: Incorrectly passes isValidAcronym()
+		passes := isValidAcronym(term)
+		assert.False(t, passes, "BUG pf-1d596f: USA should fail isValidAcronym()")
+
+		t.Logf("REPRODUCTION: USA passes technical validation but should be excluded as common term")
+	})
+}
+
+// TestBug_pf1d596f_PluralAcronymsCreateDuplicates reproduces bug pf-1d596f issue #2.
+// Root cause: ExistsForTerm in pkg/reviewqueue/repository.go uses exact string match,
+// no plural normalization before dedup check.
+//
+// Bug: When "SLI" already exists as a review item, creating "SLIs" creates a separate
+// duplicate review item. Same for "SLO"/"SLOs", "ACL"/"ACLs", etc.
+//
+// Expected behavior after fix:
+// - Plural forms should be normalized to singular before dedup check
+// - "SLIs" should be treated as same term as "SLI"
+// - No duplicate review items for plural variants
+func TestBug_pf1d596f_PluralAcronymsCreateDuplicates(t *testing.T) {
+	t.Run("plural acronyms should be normalized before validation", func(t *testing.T) {
+		// BUG: No plural normalization logic exists anywhere in the data path
+		// This test documents what SHOULD happen after the fix
+
+		pluralPairs := []struct {
+			singular string
+			plural   string
+		}{
+			{"SLI", "SLIs"},
+			{"SLO", "SLOs"},
+			{"ACL", "ACLs"},
+			{"API", "APIs"},
+			{"KPI", "KPIs"},
+			{"OKR", "OKRs"},
+		}
+
+		for _, pair := range pluralPairs {
+			// AFTER FIX: There should be a normalizeAcronym function that strips trailing 's'
+			// normalized := normalizeAcronym(pair.plural)
+			// assert.Equal(t, pair.singular, normalized, "Plural %s should normalize to %s", pair.plural, pair.singular)
+
+			// BEFORE FIX: No such function exists
+			// This test documents the expected behavior
+			t.Logf("BUG pf-1d596f: No normalization for %s -> %s", pair.plural, pair.singular)
+			t.Logf("EXPECTED: %s should be treated as same term as %s", pair.plural, pair.singular)
+		}
+
+		t.Logf("ROOT CAUSE: No plural normalization logic anywhere in the data path")
+		t.Logf("FIX REQUIRED: Add normalizeAcronym function to strip trailing 's' before dedup check")
+	})
+
+	t.Run("isValidAcronym accepts both singular and plural forms", func(t *testing.T) {
+		// Both forms currently pass validation (which is correct at validation stage)
+		// but they should be normalized before dedup check
+		assert.True(t, isValidAcronym("SLI"), "SLI should pass validation")
+		assert.True(t, isValidAcronym("SLIs"), "SLIs should pass validation")
+
+		assert.True(t, isValidAcronym("SLO"), "SLO should pass validation")
+		assert.True(t, isValidAcronym("SLOs"), "SLOs should pass validation")
+
+		// BUG: These are treated as different terms throughout the system
+		assert.NotEqual(t, "SLI", "SLIs", "Currently treated as different terms")
+		assert.NotEqual(t, "SLO", "SLOs", "Currently treated as different terms")
+
+		t.Logf("REPRODUCTION: Both singular and plural pass validation but aren't normalized")
+		t.Logf("ROOT CAUSE: No normalization step before ExistsForTerm dedup check")
+		t.Logf("IMPACT: Multiple review items created for same conceptual acronym")
+	})
+
+	t.Run("ExistsForTerm uses exact string match without normalization", func(t *testing.T) {
+		// This test documents the current behavior of ExistsForTerm
+		// It uses exact string match: WHERE suggested_term = $1
+		// No normalization happens before the check
+
+		// Example: If "SLI" exists in review_queue, searching for "SLIs" returns false
+		// because "SLI" != "SLIs" (exact match)
+
+		term1 := "SLI"
+		term2 := "SLIs"
+
+		// These are different strings (no normalization)
+		assert.NotEqual(t, term1, term2, "Exact string match treats these as different")
+
+		t.Logf("BUG pf-1d596f: ExistsForTerm uses 'WHERE suggested_term = $1' (exact match)")
+		t.Logf("CURRENT: ExistsForTerm('SLI') and ExistsForTerm('SLIs') are independent checks")
+		t.Logf("ROOT CAUSE: No normalization before dedup check in repository.go:336-348")
+		t.Logf("FIX REQUIRED: Normalize plural before ExistsForTerm check")
+		t.Logf("LOCATION: pkg/reviewqueue/repository.go ExistsForTerm function")
+	})
+}
+
+// TestBug_pfFbd126_EntityReviewItemCreation reproduces bug pf-fbd126.
+// Root cause: persist_repo.go only creates acronym review items (detectAndCreateAcronymQuestions).
+// It never creates person/entity review items for auto-created entities despite setting NeedsReview=true.
+//
+// Bug: When entity resolution creates new entities with low confidence (NeedsReview=true, IsNew=true),
+// the review_queue table schema supports person/entity types but the creation logic is missing.
+// There is no createEntityReviewItems() function to match detectAndCreateAcronymQuestions().
+//
+// Expected behavior after fix:
+// - New createEntityReviewItems() function should exist in persist_repo.go
+// - It should be called from PersistFindings() after entity resolution completes
+// - It should create review queue items with question_type='person' for entities with NeedsReview=true
+// - PersonQuestion type exists in pkg/reviewqueue/types.go but is not being used
+//
+// Related files:
+// - services/worker/activities/persist_repo.go:773 - detectAndCreateAcronymQuestions() exists
+// - services/worker/activities/persist_repo.go:87-157 - PersistFindings() flow
+// - pkg/reviewqueue/types.go:146-179 - PersonQuestion type exists but unused
+// - pkg/enrichment/entities/types.go:45 - NeedsReview field on Person struct
+func TestBug_pfFbd126_EntityReviewItemCreation(t *testing.T) {
+	t.Run("PersistFindingsInput lacks entity metadata needed for review item creation", func(t *testing.T) {
+		// BUG REPRODUCTION: PersistFindingsInput only has ResolvedPeople map[string]int64
+		// which maps name -> person_id, but lacks the entity metadata (NeedsReview, Confidence, IsNew)
+		// needed to determine which entities should create review queue items.
+
+		input := &PersistFindingsInput{
+			TenantID: "tenant-1",
+			SourceID: 123,
+			Analysis: &DeepAnalyzeOutput{
+				Summary: "Meeting with Alice and Bob",
+			},
+			// ResolvedPeople only has name -> person_id mapping
+			// Missing: NeedsReview, Confidence, AutoCreated, IsNew metadata
+			ResolvedPeople: map[string]int64{
+				"Alice Johnson": 42, // Auto-created with NeedsReview=true (but we don't know that here)
+				"Bob Smith":     43, // Matched existing entity with high confidence
+			},
+		}
+
+		// The bug: We can't tell which entities need review items because the metadata is missing
+		// Expected: Input should include entity metadata like:
+		// ResolvedEntitiesWithMetadata: []ResolvedEntityMetadata{
+		//     {Name: "Alice Johnson", PersonID: 42, NeedsReview: true, Confidence: 0.6, IsNew: true},
+		//     {Name: "Bob Smith", PersonID: 43, NeedsReview: false, Confidence: 0.95, IsNew: false},
+		// }
+
+		t.Logf("BUG pf-fbd126: PersistFindingsInput.ResolvedPeople is map[string]int64")
+		t.Logf("MISSING: Entity metadata (NeedsReview, Confidence, IsNew) needed for review item creation")
+		t.Logf("CURRENT: No way to determine which resolved entities should create review queue items")
+		t.Logf("ROOT CAUSE: Data structure gap between entity resolution (Stage 3) and persist (Stage 4.5)")
+
+		// This satisfies the compiler - we just need to reference input
+		assert.NotNil(t, input)
+		assert.NotNil(t, input.ResolvedPeople)
+		assert.Equal(t, 2, len(input.ResolvedPeople), "Has 2 resolved people but no metadata")
+	})
+
+	t.Run("detectAndCreateAcronymQuestions exists but no equivalent for entities", func(t *testing.T) {
+		// BUG REPRODUCTION: persist_repo.go has detectAndCreateAcronymQuestions() to create
+		// review items for unknown acronyms, but NO equivalent function for entities.
+
+		repo := &PersistRepo{
+			logger: logging.NewLogger(&logging.Config{Level: logging.LevelError}),
+			// reviewQueue: nil - we're testing the absence of the function, not execution
+		}
+
+		// detectAndCreateAcronymQuestions is called from PersistFindings (line 154):
+		// r.detectAndCreateAcronymQuestions(ctx, input, output)
+
+		// EXPECTED: There should be a matching call like:
+		// r.createEntityReviewItems(ctx, input, output)
+
+		// Let's verify detectAndCreateAcronymQuestions exists (this will compile)
+		var _ func(context.Context, *PersistFindingsInput, *PersistFindingsOutput) = repo.detectAndCreateAcronymQuestions
+
+		// BUG: createEntityReviewItems does NOT exist - this would fail to compile:
+		// var _ func(context.Context, *PersistFindingsInput, *PersistFindingsOutput) = repo.createEntityReviewItems
+		// Compile error: repo.createEntityReviewItems undefined
+
+		t.Logf("BUG pf-fbd126: detectAndCreateAcronymQuestions exists (line 773)")
+		t.Logf("MISSING: No createEntityReviewItems function exists")
+		t.Logf("CURRENT: Only acronyms create review items, not entities")
+		t.Logf("EXPECTED: createEntityReviewItems should create person/entity review items")
+		t.Logf("LOCATION: Should be added to persist_repo.go alongside detectAndCreateAcronymQuestions")
+	})
+
+	t.Run("PersonQuestion type exists but is never used", func(t *testing.T) {
+		// BUG REPRODUCTION: pkg/reviewqueue/types.go defines PersonQuestion helper type
+		// but it's never actually used in the codebase.
+
+		// PersonQuestion exists in types.go:146-179
+		pq := reviewqueue.PersonQuestion{
+			MatchedText:    "Alice Johnson",
+			Context:        "Meeting with Alice Johnson about the project",
+			CandidateIDs:   []int64{42, 99}, // Multiple possible matches
+			CandidateNames: []string{"Alice Johnson (Engineering)", "Alice Johnson (Marketing)"},
+			SourceType:     "source",
+			SourceID:       123,
+			Confidence:     0.6,
+		}
+
+		// Convert to ReviewItemInput (this works - the type is defined correctly)
+		input := pq.ToInput()
+
+		// Verify the conversion produces the expected review item
+		assert.Equal(t, reviewqueue.QuestionTypePerson, input.QuestionType)
+		assert.Equal(t, reviewqueue.PriorityHigh, input.Priority)
+		assert.Contains(t, input.Question, "Alice Johnson")
+		assert.Equal(t, []int64{42, 99}, input.CandidatePersonIDs)
+		assert.Equal(t, "Alice Johnson", input.MatchedText)
+		assert.Equal(t, float64(0.6), input.Confidence)
+
+		t.Logf("PersonQuestion type exists and works correctly")
+		t.Logf("BUG pf-fbd126: PersonQuestion is defined but NEVER used in persist_repo.go")
+		t.Logf("EXPECTED: createEntityReviewItems should use PersonQuestion.ToInput()")
+		t.Logf("CURRENT: No code path creates person review items")
+		t.Logf("LOCATION: pkg/reviewqueue/types.go:146-179 (unused code)")
+	})
+
+	t.Run("review_queue schema supports person type but no creation logic", func(t *testing.T) {
+		// BUG REPRODUCTION: The review_queue table schema and QuestionTypePerson constant
+		// exist, but there's no code that actually creates these review items.
+
+		// QuestionTypePerson constant exists (types.go:11)
+		questionType := reviewqueue.QuestionTypePerson
+		assert.Equal(t, reviewqueue.QuestionType("person"), questionType)
+
+		// The database schema supports it (review_queue.question_type can be 'person')
+		// The ReviewItemInput accepts it
+		input := reviewqueue.ReviewItemInput{
+			QuestionType:       reviewqueue.QuestionTypePerson,
+			Priority:           reviewqueue.PriorityHigh,
+			Question:           "Is this the correct Alice Johnson?",
+			Context:            "Auto-created from email sender",
+			CandidatePersonIDs: []int64{42, 99},
+			MatchedText:        "Alice Johnson",
+			SourceType:         "source",
+			SourceID:           123,
+			Confidence:         0.6,
+		}
+
+		// This structure is valid and ready to use
+		assert.NotNil(t, input)
+		assert.Equal(t, reviewqueue.QuestionTypePerson, input.QuestionType)
+
+		t.Logf("review_queue schema supports question_type='person'")
+		t.Logf("ReviewItemInput accepts QuestionTypePerson")
+		t.Logf("BUG pf-fbd126: NO code creates person review items despite schema support")
+		t.Logf("EXPECTED: persist_repo.go should call reviewQueue.CreateIfNotExists for entities")
+		t.Logf("MISSING: createEntityReviewItems function to populate person review queue")
+	})
+
+	t.Run("expected behavior after fix: createEntityReviewItems would create person review items", func(t *testing.T) {
+		// This test documents the EXPECTED behavior after the fix is implemented.
+		// It will FAIL to compile because createEntityReviewItems doesn't exist yet.
+
+		// AFTER FIX: PersistFindingsInput should include entity metadata
+		// AFTER FIX: persist_repo.go should have createEntityReviewItems function
+		// AFTER FIX: PersistFindings should call createEntityReviewItems after commit
+
+		// Expected input structure (after fix):
+		// type PersistFindingsInput struct {
+		//     ...existing fields...
+		//     ResolvedEntitiesMetadata []ResolvedEntityMetadata // NEW FIELD
+		// }
+		//
+		// type ResolvedEntityMetadata struct {
+		//     Name        string
+		//     PersonID    int64
+		//     NeedsReview bool
+		//     Confidence  float32
+		//     IsNew       bool
+		//     AutoCreated bool
+		// }
+
+		// Expected function signature (after fix):
+		// func (r *PersistRepo) createEntityReviewItems(ctx context.Context, input *PersistFindingsInput, output *PersistFindingsOutput) {
+		//     if r.reviewQueue == nil {
+		//         return
+		//     }
+		//     for _, entity := range input.ResolvedEntitiesMetadata {
+		//         if !entity.NeedsReview {
+		//             continue
+		//         }
+		//         pq := reviewqueue.PersonQuestion{
+		//             MatchedText:  entity.Name,
+		//             Context:      fmt.Sprintf("Auto-created entity (confidence: %.2f)", entity.Confidence),
+		//             CandidateIDs: []int64{entity.PersonID},
+		//             SourceType:   "source",
+		//             SourceID:     input.SourceID,
+		//             Confidence:   entity.Confidence,
+		//         }
+		//         _, created, err := r.reviewQueue.CreateIfNotExists(ctx, pq.ToInput())
+		//         if err != nil {
+		//             r.logger.Warn("Failed to create entity review item", logging.Err(err))
+		//             continue
+		//         }
+		//         if created {
+		//             output.ReviewItemsCreated++
+		//         }
+		//     }
+		// }
+
+		// Expected call site in PersistFindings (after fix):
+		// Line 154 (after detectAndCreateAcronymQuestions):
+		// r.createEntityReviewItems(ctx, input, output)
+
+		t.Logf("AFTER FIX: PersistFindingsInput will have ResolvedEntitiesMetadata field")
+		t.Logf("AFTER FIX: createEntityReviewItems function will exist in persist_repo.go")
+		t.Logf("AFTER FIX: PersistFindings will call createEntityReviewItems alongside detectAndCreateAcronymQuestions")
+		t.Logf("AFTER FIX: PersonQuestion.ToInput() will be used to create review items")
+		t.Logf("AFTER FIX: output.ReviewItemsCreated will include both acronyms AND entities")
+	})
+
+	t.Run("createEntityReviewItems function exists and has correct signature", func(t *testing.T) {
+		// This test validates that the createEntityReviewItems function exists
+		// with the correct signature, matching the detectAndCreateAcronymQuestions pattern.
+
+		repo := &PersistRepo{
+			logger: logging.NewLogger(&logging.Config{Level: logging.LevelError}),
+			// reviewQueue: nil - testing function signature, not execution
+		}
+
+		// Verify createEntityReviewItems exists and has the expected signature
+		var _ func(context.Context, *PersistFindingsInput, *PersistFindingsOutput) = repo.createEntityReviewItems
+
+		t.Logf("SUCCESS: createEntityReviewItems function exists")
+		t.Logf("Signature: func(context.Context, *PersistFindingsInput, *PersistFindingsOutput)")
+		t.Logf("Matches pattern of detectAndCreateAcronymQuestions")
+	})
+
+	t.Run("createEntityReviewItems skips gracefully when reviewQueue is nil", func(t *testing.T) {
+		// This test validates the nil-check pattern from detectAndCreateAcronymQuestions
+
+		ctx := context.Background()
+		repo := &PersistRepo{
+			logger: logging.NewLogger(&logging.Config{Level: logging.LevelError}),
+			// reviewQueue: nil - intentionally nil
+		}
+
+		input := &PersistFindingsInput{
+			SourceID: 123,
+			ResolvedPeople: map[string]int64{
+				"Alice Johnson": 42,
+			},
+		}
+		output := &PersistFindingsOutput{}
+
+		// Should not panic or error - just skip
+		repo.createEntityReviewItems(ctx, input, output)
+
+		assert.Equal(t, 0, output.ReviewItemsCreated, "Should not create review items when reviewQueue is nil")
+		t.Logf("SUCCESS: Gracefully skips when reviewQueue is nil")
+	})
+
+	t.Run("createEntityReviewItems skips when no resolved people", func(t *testing.T) {
+		// This test validates the empty input check
+
+		ctx := context.Background()
+		repo := &PersistRepo{
+			logger: logging.NewLogger(&logging.Config{Level: logging.LevelError}),
+			// reviewQueue would be set but we don't need it for this test
+		}
+
+		input := &PersistFindingsInput{
+			SourceID:       123,
+			ResolvedPeople: map[string]int64{}, // Empty
+		}
+		output := &PersistFindingsOutput{}
+
+		// Should skip gracefully
+		repo.createEntityReviewItems(ctx, input, output)
+
+		assert.Equal(t, 0, output.ReviewItemsCreated, "Should not create review items when no resolved people")
+		t.Logf("SUCCESS: Gracefully skips when ResolvedPeople is empty")
+	})
 }

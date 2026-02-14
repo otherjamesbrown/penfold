@@ -1136,3 +1136,140 @@ func TestBugPf99a49b_NoOverwrite(t *testing.T) {
 
 	t.Logf("PASS: Existing job_title 'VP Engineering' was not overwritten by extracted Role 'Engineer'")
 }
+
+// TestBugPf96c91a_SingleCharacterFuzzyMatch tests bug pf-96c91a: single-character mentions
+// incorrectly resolve via fuzzy matching without minimum length validation.
+// This test MUST FAIL until the bug is fixed.
+//
+// BUG: NameSimilarity("K", "Mike") returns 0.9 due to substring contains() check at line 227.
+// Single-character mentions like "K" in an email should NOT match "Mike Johnson" with 0.9 similarity.
+// The resolvePerson function uses NameSimilarity without minimum length validation, so "K" can
+// incorrectly resolve to person_id 123 (Mike Johnson) with confidence 0.9.
+//
+// ROOT CAUSE:
+// 1. NameSimilarity (pkg/enrichment/entities/normalize.go:227) returns 0.9 for ANY substring match
+// 2. resolvePerson (services/worker/activities/context_builder.go:408) uses NameSimilarity without
+//    checking minimum name length
+// 3. No email participant context is used for disambiguation
+//
+// EXPECTED: Single-character names should score very low (< 0.3) and NOT resolve.
+func TestBugPf96c91a_SingleCharacterFuzzyMatch(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	tests := []struct {
+		name                 string
+		extractedName        string
+		candidateName        string
+		shouldMatch          bool
+		expectedConfidence   float32
+		maxAllowedConfidence float32 // Bug threshold: confidence should be below this
+	}{
+		{
+			name:                 "single char K vs Mike Johnson",
+			extractedName:        "K",
+			candidateName:        "Mike Johnson",
+			shouldMatch:          false,
+			expectedConfidence:   0.0,
+			maxAllowedConfidence: 0.3, // BUG: currently returns 0.9
+		},
+		{
+			name:                 "single char M vs Mike Johnson",
+			extractedName:        "M",
+			candidateName:        "Mike Johnson",
+			shouldMatch:          false,
+			expectedConfidence:   0.0,
+			maxAllowedConfidence: 0.3, // BUG: currently returns 0.9
+		},
+		{
+			name:                 "single char a vs Sarah",
+			extractedName:        "a",
+			candidateName:        "Sarah",
+			shouldMatch:          false,
+			expectedConfidence:   0.0,
+			maxAllowedConfidence: 0.3, // BUG: currently returns 0.9
+		},
+		{
+			name:                 "two char Mi vs Mike",
+			extractedName:        "Mi",
+			candidateName:        "Mike",
+			shouldMatch:          false,
+			expectedConfidence:   0.0,
+			maxAllowedConfidence: 0.7, // BUG: currently returns 0.9
+		},
+		{
+			name:                 "full name Mike vs Mike Johnson",
+			extractedName:        "Mike",
+			candidateName:        "Mike Johnson",
+			shouldMatch:          true,
+			expectedConfidence:   0.85, // This is intended behavior (partial match)
+			maxAllowedConfidence: 1.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entityLookup := &mockEntityLookup{
+				searchPeopleByNameFunc: func(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error) {
+					// Return a candidate that matches the test case
+					return []*entities.Person{
+						{
+							ID:            123,
+							CanonicalName: tt.candidateName,
+							IsInternal:    true,
+						},
+					}, nil
+				},
+			}
+
+			activities := NewContextBuilderActivities(
+				logger,
+				&mockEntityResolver{},
+				entityLookup,
+				&mockContextPackageRepo{},
+				nil,
+				nil,
+			)
+
+			input := workflows.BuildContextInput{
+				TenantID:    "test-tenant",
+				SourceID:    1,
+				ContentType: "email",
+				Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+					People: []workflows.PersonResult{
+						{Name: tt.extractedName, Role: ""},
+					},
+				},
+			}
+
+			output, err := activities.BuildContextPackage(ctx, input)
+			if err != nil {
+				t.Fatalf("BuildContextPackage failed: %v", err)
+			}
+
+			if !tt.shouldMatch {
+				// BUG: Single-character names should NOT resolve (confidence should be < 0.7 threshold)
+				if len(output.ResolvedPeople) > 0 && output.ResolvedPeople[0].PersonID != nil {
+					confidence := output.ResolvedPeople[0].Confidence
+					if confidence > tt.maxAllowedConfidence {
+						t.Errorf("BUG pf-96c91a: '%s' matched '%s' with confidence %.2f (should be <= %.2f)",
+							tt.extractedName, tt.candidateName, confidence, tt.maxAllowedConfidence)
+						t.Errorf("Expected: unresolved (PersonID = nil)")
+						t.Errorf("Got: PersonID = %d, confidence = %.2f", *output.ResolvedPeople[0].PersonID, confidence)
+					}
+				}
+			} else {
+				// This case should match (full name like "Mike")
+				if len(output.ResolvedPeople) == 0 || output.ResolvedPeople[0].PersonID == nil {
+					t.Errorf("Expected '%s' to match '%s', but it didn't resolve", tt.extractedName, tt.candidateName)
+				} else {
+					confidence := output.ResolvedPeople[0].Confidence
+					if confidence < 0.7 {
+						t.Errorf("Expected '%s' to match '%s' with confidence >= 0.7, got %.2f",
+							tt.extractedName, tt.candidateName, confidence)
+					}
+				}
+			}
+		})
+	}
+}

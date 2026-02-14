@@ -291,29 +291,39 @@ func cleanAngleBracketQuoting(quotedText string) string {
 	return strings.Join(lines, "\n")
 }
 
-// ExtractQuotedReplyParticipants scans body text for email addresses in quoted reply headers.
-// Handles multiple formats:
+// QuotedReplyParticipant represents an email participant extracted from quoted reply headers.
+type QuotedReplyParticipant struct {
+	Email       string // Email address (lowercase, normalized)
+	DisplayName string // Display name if present (e.g., "John Doe" from "Doe, John <john@example.com>")
+}
+
+// ExtractQuotedReplyParticipantsWithNames scans body text for email addresses and display names
+// in quoted reply headers. Handles multiple formats:
 // - Gmail: "On Mon, Feb 10, 2026, Name <email@example.com> wrote:"
-// - Outlook: "From: Name <email@example.com>" (after "-----Original Message-----")
+// - Outlook: "From: Lastname, Firstname <email@example.com>"
 // - Generic: "From: email@example.com"
 // Also handles nested quoting with ">" prefix (e.g., "> From: Name <email@example.com>")
-// Returns deduplicated list of email addresses found in quoted reply attribution lines.
-func ExtractQuotedReplyParticipants(bodyText string) []string {
+// Returns deduplicated list of participants with email and display name.
+// Display names in "Lastname, Firstname" format are normalized to "Firstname Lastname".
+func ExtractQuotedReplyParticipantsWithNames(bodyText string) []QuotedReplyParticipant {
 	seen := make(map[string]bool)
-	emails := make([]string, 0)
+	participants := make([]QuotedReplyParticipant, 0)
 
 	// Pattern 1: Gmail-style "On ... Name <email@example.com> wrote:"
+	// Capture group 1: display name, group 2: email
 	// Matches: "On Mon, Feb 10, 2026, Aurore Defiolles <aurore@example.com> wrote:"
-	// Also matches with leading ">" for nested quotes
-	gmailPattern := regexp.MustCompile(`(?i)On\s+.+?<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>\s+wrote:`)
+	// Matches: "On Mon, Feb 10, 2026, Pandya, Parag <ppandya@akamai.com> wrote:"
+	// Strategy: Match "On ... wrote:" and extract name from between last date/time and email
+	// Look for pattern after year (4 digits) and before email angle bracket
+	gmailPattern := regexp.MustCompile(`(?i)On\s+.+\d{4},\s+([^<]+?)\s+<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>\s+wrote:`)
 
 	// Pattern 2: Outlook-style "From: Name <email@example.com>"
-	// Matches: "From: Jane Doe <jane@example.com>"
-	// Also matches with leading "> " for nested quotes: "> From: ..."
-	outlookPattern := regexp.MustCompile(`(?i)From:\s+.*?<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>`)
+	// Capture group 1: display name, group 2: email
+	// Matches: "From: Jane Doe <jane@example.com>" or "From: Doe, Jane <jane@example.com>"
+	outlookPattern := regexp.MustCompile(`(?i)From:\s+(.+?)\s+<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>`)
 
-	// Pattern 3: Simple "From: email@example.com" (no angle brackets)
-	// Matches: "From: jane@example.com" or "> From: jane@example.com"
+	// Pattern 3: Simple "From: email@example.com" (no angle brackets, no display name)
+	// Capture group 1: email
 	simpleFromPattern := regexp.MustCompile(`(?i)From:\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`)
 
 	lines := strings.Split(bodyText, "\n")
@@ -326,34 +336,90 @@ func ExtractQuotedReplyParticipants(bodyText string) []string {
 		}
 
 		// Try Gmail pattern first (most specific)
-		if matches := gmailPattern.FindStringSubmatch(trimmed); len(matches) > 1 {
-			email := strings.ToLower(matches[1])
+		// Capture groups: [0]=full match, [1]=display name, [2]=email
+		if matches := gmailPattern.FindStringSubmatch(trimmed); len(matches) > 2 {
+			email := strings.ToLower(matches[2])
 			if !seen[email] {
 				seen[email] = true
-				emails = append(emails, email)
+				displayName := normalizeDisplayName(matches[1])
+				participants = append(participants, QuotedReplyParticipant{
+					Email:       email,
+					DisplayName: displayName,
+				})
 			}
 			continue
 		}
 
 		// Try Outlook pattern with angle brackets
-		if matches := outlookPattern.FindStringSubmatch(trimmed); len(matches) > 1 {
-			email := strings.ToLower(matches[1])
+		// Capture groups: [0]=full match, [1]=display name, [2]=email
+		if matches := outlookPattern.FindStringSubmatch(trimmed); len(matches) > 2 {
+			email := strings.ToLower(matches[2])
 			if !seen[email] {
 				seen[email] = true
-				emails = append(emails, email)
+				displayName := normalizeDisplayName(matches[1])
+				participants = append(participants, QuotedReplyParticipant{
+					Email:       email,
+					DisplayName: displayName,
+				})
 			}
 			continue
 		}
 
-		// Try simple From: pattern
+		// Try simple From: pattern (no display name)
+		// Capture groups: [0]=full match, [1]=email
 		if matches := simpleFromPattern.FindStringSubmatch(trimmed); len(matches) > 1 {
 			email := strings.ToLower(matches[1])
 			if !seen[email] {
 				seen[email] = true
-				emails = append(emails, email)
+				participants = append(participants, QuotedReplyParticipant{
+					Email:       email,
+					DisplayName: "", // No display name available
+				})
 			}
 		}
 	}
 
+	return participants
+}
+
+// normalizeDisplayName normalizes a display name from quoted reply header.
+// - "Zeeshan, Usama" → "Usama Zeeshan" (flip "Lastname, Firstname" to "Firstname Lastname")
+// - "  James  Brown  " → "James Brown" (trim and collapse whitespace)
+func normalizeDisplayName(name string) string {
+	if name == "" {
+		return ""
+	}
+
+	// Trim whitespace
+	name = strings.TrimSpace(name)
+
+	// Handle "Lastname, Firstname" format
+	if strings.Contains(name, ",") {
+		parts := strings.SplitN(name, ",", 2)
+		if len(parts) == 2 {
+			first := strings.TrimSpace(parts[1])
+			last := strings.TrimSpace(parts[0])
+			if first != "" && last != "" {
+				name = first + " " + last
+			}
+		}
+	}
+
+	// Normalize whitespace (collapse multiple spaces)
+	name = strings.Join(strings.Fields(name), " ")
+
+	return name
+}
+
+// ExtractQuotedReplyParticipants scans body text for email addresses in quoted reply headers.
+// This is a backwards-compatible wrapper around ExtractQuotedReplyParticipantsWithNames
+// that returns only email addresses (no display names).
+// For new code, prefer ExtractQuotedReplyParticipantsWithNames to capture display names.
+func ExtractQuotedReplyParticipants(bodyText string) []string {
+	participants := ExtractQuotedReplyParticipantsWithNames(bodyText)
+	emails := make([]string, len(participants))
+	for i, p := range participants {
+		emails[i] = p.Email
+	}
 	return emails
 }

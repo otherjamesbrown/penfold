@@ -143,6 +143,26 @@ func TestNameSimilarity(t *testing.T) {
 
 		// Close variant (typo/spelling): should still score high
 		{"Jon Smith", "John Smith", 0.8, 0.0},
+
+		// BUG pf-96c91a: Single-character substring matches should NOT score 0.9
+		// The contains() check at line 227 returns 0.9 for ANY substring match,
+		// even single characters like "K" in "Mike" or "a" in "Sarah"
+		{"K", "Mike", 0.0, 0.3},           // Single char should score very low
+		{"a", "Sarah", 0.0, 0.3},          // Single char should score very low
+		{"M", "Mike Johnson", 0.0, 0.3},   // Single char should score very low
+		{"e", "Mike", 0.0, 0.3},           // Single char at end should score very low
+
+		// Short substring matches should score lower than full matches
+		{"Mi", "Mike", 0.0, 0.7},          // 2-char substring should be moderate, not 0.9
+		{"ike", "Mike", 0.0, 0.7},         // 3-char substring should be moderate, not 0.9
+		{"Mik", "Mike Johnson", 0.0, 0.7}, // Short substring should be moderate, not 0.9
+
+		// First-name-only mentions (common in emails: "Thanks, Mike")
+		// Without minimum length validation, "Mike" matches "Mike Johnson" at 0.85
+		// but could also fuzzy-match other Mikes without email context
+		{"Mike", "Mike Johnson", 0.85, 0.0},    // This is intended behavior (partial match)
+		{"Mike", "Mike Smith", 0.85, 0.0},      // This is intended behavior (partial match)
+		// The bug is that "K" also gets 0.9 via contains(), skipping proper similarity scoring
 	}
 
 	for _, tt := range tests {
@@ -362,6 +382,84 @@ func TestDetectAccountTypeWithPatternsFromTenantConfig(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("DetectAccountTypeWithPatterns(%q, %q, tenantPatterns) = %q, want %q",
 					tt.email, tt.displayName, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDeriveNameFromEmail_CorporateEmailPrefixes is a REPRODUCTION TEST for bug pf-2c2ab0.
+// It tests that DeriveNameFromEmail handles single-word corporate email prefixes correctly.
+//
+// BUG: The current implementation incorrectly splits single-word email prefixes like "uzeeshan",
+// "knaidu", "ppandya" into "U Zeeshan", "K Naidu", "P Pandya" by treating the first character
+// as an initial. This is incorrect for corporate emails where the entire prefix is a username
+// (often lowercase firstname+lastname concatenated without separator).
+//
+// ROOT CAUSE: Lines 416-425 in normalize.go split any single-word prefix ≤8 chars at position 1,
+// treating first char as initial. This heuristic fails for corporate usernames.
+//
+// EVIDENCE: Source 3168 (em-4xp9yUfl) "FW: Tiktok FY26 discounts"
+// - "uzeeshan@akamai.com" → derived "U Zeeshan" (should stay "Uzeeshan" or not split)
+// - "knaidu@akamai.com" → derived "K Naidu" (should stay "Knaidu" or not split)
+//
+// EXPECTED: This test should FAIL until the heuristic is fixed to avoid splitting
+// lowercase single-word prefixes that don't follow clear initial+lastname patterns.
+func TestDeriveNameFromEmail_CorporateEmailPrefixes(t *testing.T) {
+	tests := []struct {
+		name         string
+		email        string
+		wantName     string // What we SHOULD get
+		currentlyGot string // What we INCORRECTLY get now (documents the bug)
+	}{
+		{
+			name:         "uzeeshan - single-word corporate username",
+			email:        "uzeeshan@akamai.com",
+			wantName:     "Uzeeshan",     // Should title-case as-is
+			currentlyGot: "U Zeeshan",    // BUG: incorrectly splits at position 1
+		},
+		{
+			name:         "knaidu - single-word corporate username",
+			email:        "knaidu@akamai.com",
+			wantName:     "Knaidu",       // Should title-case as-is
+			currentlyGot: "K Naidu",      // BUG: incorrectly splits at position 1
+		},
+		{
+			name:         "ppandya - single-word corporate username",
+			email:        "ppandya@akamai.com",
+			wantName:     "Ppandya",      // Should title-case as-is
+			currentlyGot: "P Pandya",     // BUG: incorrectly splits at position 1
+		},
+		{
+			name:         "jsmith - ambiguous single-word username",
+			email:        "jsmith@example.com",
+			wantName:     "Jsmith",       // Treat as single word (consistent with knaidu, uzeeshan)
+			currentlyGot: "J Smith",      // OLD behavior: split at position 1
+		},
+		{
+			name:         "john.smith - clear separator pattern",
+			email:        "john.smith@example.com",
+			wantName:     "John Smith",   // Should split on separator
+			currentlyGot: "John Smith",   // This case works correctly
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DeriveNameFromEmail(tt.email)
+
+			// Document the current buggy behavior
+			if got == tt.currentlyGot && tt.currentlyGot != tt.wantName {
+				t.Logf("BUG pf-2c2ab0: DeriveNameFromEmail(%q) = %q (incorrect)", tt.email, got)
+				t.Logf("EXPECTED: %q", tt.wantName)
+				// Fail the test to confirm it reproduces the bug
+				t.Errorf("DeriveNameFromEmail(%q) = %q, want %q (bug reproduced)", tt.email, got, tt.wantName)
+			} else if got == tt.wantName {
+				// This case works correctly
+				t.Logf("DeriveNameFromEmail(%q) = %q (correct)", tt.email, got)
+			} else {
+				// Unexpected result
+				t.Errorf("DeriveNameFromEmail(%q) = %q, expected current buggy behavior %q or correct %q",
+					tt.email, got, tt.currentlyGot, tt.wantName)
 			}
 		})
 	}

@@ -332,15 +332,44 @@ func (r *Repository) GetStats(ctx context.Context) (*QueueStats, error) {
 	return stats, nil
 }
 
+// normalizeAcronymTerm normalizes plural acronyms to singular form for dedup.
+// Strips trailing 's' from all-uppercase acronyms like "SLIs" -> "SLI".
+func normalizeAcronymTerm(term string) string {
+	if len(term) < 2 {
+		return term
+	}
+
+	// Check if ends with lowercase 's' and rest is all uppercase (e.g., "SLIs")
+	if term[len(term)-1] == 's' {
+		rest := term[:len(term)-1]
+		// Only strip 's' if the rest is all uppercase (acronym pattern)
+		allUpper := true
+		for _, r := range rest {
+			if r >= 'a' && r <= 'z' {
+				allUpper = false
+				break
+			}
+		}
+		if allUpper && len(rest) >= 2 {
+			return rest
+		}
+	}
+
+	return term
+}
+
 // ExistsForTerm checks if a pending question already exists for a given term.
+// Normalizes plural forms (SLIs -> SLI) to prevent duplicate entries.
 func (r *Repository) ExistsForTerm(ctx context.Context, term string) (bool, error) {
+	normalizedTerm := normalizeAcronymTerm(term)
+
 	var exists bool
 	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM review_queue
 			WHERE suggested_term = $1 AND status = 'pending'
 		)
-	`, term).Scan(&exists)
+	`, normalizedTerm).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("check term exists: %w", err)
 	}
