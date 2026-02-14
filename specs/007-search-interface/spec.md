@@ -1,5 +1,9 @@
 # Feature Specification: Search and Query Interface
 
+> **Status:** PARTIALLY IMPLEMENTED
+> **Current state:** See Context Palace `penfold-arch-search`
+> **This spec covers:** NLP query parsing, temporal queries, cross-content correlation, search analytics — vector search and faceted filtering work, NLP parsing missing
+
 **Feature Branch**: `007-search-interface`
 **Created**: 2026-01-12
 **Updated**: 2026-01-15

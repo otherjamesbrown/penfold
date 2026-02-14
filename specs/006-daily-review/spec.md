@@ -1,8 +1,11 @@
 # Feature Specification: Daily Review Workflow Interface
 
+> **Status:** PARTIALLY IMPLEMENTED
+> **Current state:** See Context Palace `penfold-arch-pipeline` (session bootstrap section)
+> **This spec covers:** Review queue management, batch operations, learning rule configuration, review analytics — basic morning briefing workflow exists, queue management missing
+
 **Feature Branch**: `006-daily-review`
 **Created**: 2026-01-12
-**Status**: Draft
 **Input**: User description: "Daily Review Workflow Interface"
 
 ## User Scenarios & Testing *(mandatory)*

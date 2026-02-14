@@ -1,6 +1,9 @@
 # AI Coordination Framework - Specification 003
 
-**Status**: ✅ COMPLETED - PRODUCTION READY & CONSOLIDATED
+> **Status:** PARTIALLY IMPLEMENTED
+> **Current state:** See Context Palace `penfold-arch-pipeline` (AI routing section)
+> **This spec covers:** ModelCoordinator ensemble combining, EnsembleCombiner, advanced escalation — basic routing and circuit breaking work, ensemble/escalation missing
+
 **Implementation Date**: January 13, 2026
 **Consolidation Date**: January 13, 2026
 **Version**: 1.0

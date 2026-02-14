@@ -1,8 +1,11 @@
 # Feature Specification: Meeting Upload and Processing Pipeline
 
+> **Status:** PARTIALLY IMPLEMENTED
+> **Current state:** See Context Palace `penfold-arch-ingest`
+> **This spec covers:** Transcription with speaker ID, AI-driven summary generation, quality scoring, large file resumable upload — basic transcript ingest works
+
 **Feature Branch**: `005-meeting-pipeline`
 **Created**: 2026-01-13
-**Status**: Draft
 **Input**: User description: "Meeting Upload and Processing Pipeline"
 
 ## User Scenarios & Testing *(mandatory)*

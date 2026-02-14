@@ -1,5 +1,9 @@
 # Penfold System Architecture
 
+> Detailed architectural documentation lives in Context Palace knowledge documents.
+> Run `cxp knowledge list --doc-type architecture` to see all system docs.
+> Key docs: `penfold-arch-pipeline`, `penfold-arch-data`, `penfold-arch-ingest`, `penfold-arch-enrichment`, `penfold-arch-infra`, `penfold-arch-search`
+
 This document provides a comprehensive overview of Penfold's system architecture, including core principles, component design, data flows, and integration patterns.
 
 ## Table of Contents

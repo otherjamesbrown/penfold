@@ -1,8 +1,11 @@
 # Feature Specification: Penfold Production Agent Observability
 
+> **Status:** PARTIALLY IMPLEMENTED
+> **Current state:** See Context Palace `penfold-arch-infra` (observability section)
+> **This spec covers:** Agent decision tracing, cross-agent workflow tracking, autonomous agent observability access — Prometheus/Grafana monitoring deployed, decision tracking missing
+
 **Feature Branch**: `011-observability-framework`
 **Created**: 2026-01-13
-**Status**: Draft
 **Input**: User requirement for monitoring Penfold's operational AI agents and processing workflows
 
 ## Problem Statement

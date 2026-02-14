@@ -1,8 +1,11 @@
 # Feature Specification: AI-First Testing Framework
 
+> **Status:** PARTIALLY IMPLEMENTED
+> **Current state:** See Context Palace `penfold-arch-infra` (testing section)
+> **This spec covers:** AI model mocking framework, agent-driven test generation, performance benchmarking — test infrastructure and Acme Corp fixtures exist, AI mocking framework missing
+
 **Feature Branch**: `010-testing-framework`
 **Created**: 2026-01-13
-**Status**: Draft
 **Input**: User requirement for comprehensive testing framework for AI-first development
 
 ## Problem Statement

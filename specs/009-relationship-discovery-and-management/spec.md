@@ -1,8 +1,11 @@
 # Feature Specification: Relationship Discovery and Management
 
+> **Status:** PARTIALLY IMPLEMENTED
+> **Current state:** See Context Palace `penfold-arch-enrichment`
+> **This spec covers:** Relationship validation/lifecycle, user feedback learning, network analysis, relationship-aware search — basic discovery and confidence scoring work, validation and lifecycle management missing
+
 **Feature Branch**: `009-relationship-discovery-and-management`
 **Created**: 2026-01-12
-**Status**: Clarified
 **Input**: User description: "Relationship Discovery and Management"
 
 ## User Scenarios & Testing *(mandatory)*

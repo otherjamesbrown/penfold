@@ -1,5 +1,9 @@
 # SLM/LLM Architecture — Context for AI Advisors
 
+> **Status:** PARTIALLY IMPLEMENTED
+> **Current state:** See Context Palace `penfold-arch-pipeline`
+> **This spec covers:** All 14 work packages (WP1-WP14) completed. Remaining: Stage 2/3/4 refinement, advanced prompt engineering, full E2E validation at scale
+
 ## What This Is
 
 You have been given this folder so you can advise on the design of **Penfold**, a knowledge management system that processes emails, meeting transcripts, and documents to build institutional memory for knowledge workers.

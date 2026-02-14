@@ -1,8 +1,11 @@
 # Feature Specification: Automation Rules Engine
 
+> **Status:** NOT STARTED
+> **Current state:** No code exists for this feature
+> **This spec covers:** Confidence-based automatic processing, automation rule creation, progressive automation, rule effectiveness monitoring
+
 **Feature Branch**: `008-automation-engine`
 **Created**: 2026-01-12
-**Status**: Planned
 **Input**: User description: "Automation Rules Engine"
 
 ## User Scenarios & Testing *(mandatory)*
