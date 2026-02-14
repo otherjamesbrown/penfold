@@ -1633,5 +1633,28 @@ func (r *Repository) IncrementReceivedCount(ctx context.Context, personID int64)
 	return nil
 }
 
+// UpdatePersonTitle updates the job_title for a person.
+// This is called after entity resolution when a job title is extracted from content
+// (e.g., from email signatures) and the person's current job_title is NULL.
+func (r *Repository) UpdatePersonTitle(ctx context.Context, personID int64, title string) error {
+	query := `
+		UPDATE people
+		SET job_title = $2,
+		    updated_at = NOW()
+		WHERE id = $1
+	`
+
+	result, err := r.pool.Exec(ctx, query, personID, title)
+	if err != nil {
+		return fmt.Errorf("failed to update job_title: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("person not found: %d", personID)
+	}
+
+	return nil
+}
+
 // Ensure time is imported
 var _ = time.Now

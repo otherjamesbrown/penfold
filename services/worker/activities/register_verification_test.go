@@ -147,6 +147,9 @@ func (r *regVerifyEntityLookup) IncrementSentCount(context.Context, int64) error
 func (r *regVerifyEntityLookup) IncrementReceivedCount(context.Context, int64) error {
 	return nil
 }
+func (r *regVerifyEntityLookup) UpdatePersonTitle(context.Context, int64, string) error {
+	return nil
+}
 
 type regVerifyPersonRepo struct{}
 

@@ -26,6 +26,7 @@ type EntityLookupInterface interface {
 	GetProjectsWithKeywords(ctx context.Context, tenantID string) ([]*entities.Project, error)
 	IncrementSentCount(ctx context.Context, personID int64) error
 	IncrementReceivedCount(ctx context.Context, personID int64) error
+	UpdatePersonTitle(ctx context.Context, personID int64, title string) error
 }
 
 // ContextBuilderActivities holds dependencies for context building activities.
@@ -328,10 +329,58 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 	return resolved, unresolvedCount
 }
 
+// isGarbageTitle filters out meeting invitation text and other non-job-title strings.
+// Returns true if the title should be rejected.
+func isGarbageTitle(title string) bool {
+	if title == "" {
+		return true
+	}
+
+	lowerTitle := strings.ToLower(title)
+
+	// Meeting invitation patterns
+	garbagePatterns := []string{
+		"tap to",
+		"join my meeting",
+		"join webex",
+		"join zoom",
+		"join teams",
+		"attendees only",
+		"dial in",
+		"click here",
+		"conference",
+		"meeting id",
+		"passcode",
+		"http://",
+		"https://",
+		"www.",
+	}
+
+	for _, pattern := range garbagePatterns {
+		if strings.Contains(lowerTitle, pattern) {
+			return true
+		}
+	}
+
+	// Reject if it looks like a phone number (contains multiple digits and dashes/spaces)
+	digitCount := 0
+	for _, ch := range title {
+		if ch >= '0' && ch <= '9' {
+			digitCount++
+		}
+	}
+	if digitCount > 5 {
+		return true
+	}
+
+	return false
+}
+
 // resolvePerson resolves a single person from extraction via fuzzy name matching.
 // NOTE: For name-only extractions (no email), we use fuzzy matching to find existing people.
 // Person creation from structured data (email headers) happens via participant_emails processing.
 func (a *ContextBuilderActivities) resolvePerson(ctx context.Context, tenantID string, person workflows.PersonResult) workflows.ResolvedPerson {
+	logger := a.logger.WithContext(ctx)
 	rp := workflows.ResolvedPerson{
 		Name:       person.Name,
 		Role:       person.Role,
@@ -371,6 +420,25 @@ func (a *ContextBuilderActivities) resolvePerson(ctx context.Context, tenantID s
 		rp.Title = bestMatch.Title
 		rp.Department = bestMatch.Department
 		rp.IsInternal = bestMatch.IsInternal
+
+		// Persist extracted Role to job_title if:
+		// 1. Person has no current job_title (Title is empty/NULL)
+		// 2. PersonResult has a non-empty Role
+		// 3. The Role is not garbage (meeting invitation text, etc.)
+		if bestMatch.Title == "" && person.Role != "" && !isGarbageTitle(person.Role) {
+			if err := a.entityRepo.UpdatePersonTitle(ctx, bestMatch.ID, person.Role); err != nil {
+				logger.Warn("Failed to update person title from extracted role",
+					logging.Err(err),
+					logging.F("person_id", bestMatch.ID),
+					logging.F("extracted_role", person.Role))
+			} else {
+				// Update the returned ResolvedPerson to reflect the new title
+				rp.Title = person.Role
+				logger.Debug("Updated person title from extracted role",
+					logging.F("person_id", bestMatch.ID),
+					logging.F("title", person.Role))
+			}
+		}
 	}
 
 	return rp

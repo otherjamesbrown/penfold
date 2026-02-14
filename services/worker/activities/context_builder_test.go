@@ -37,6 +37,7 @@ type mockEntityLookup struct {
 	getProjectsWithKeywordsFunc func(ctx context.Context, tenantID string) ([]*entities.Project, error)
 	incrementSentCountFunc     func(ctx context.Context, personID int64) error
 	incrementReceivedCountFunc func(ctx context.Context, personID int64) error
+	updatePersonTitleFunc      func(ctx context.Context, personID int64, title string) error
 }
 
 func (m *mockEntityLookup) SearchPeopleByName(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error) {
@@ -70,6 +71,13 @@ func (m *mockEntityLookup) IncrementSentCount(ctx context.Context, personID int6
 func (m *mockEntityLookup) IncrementReceivedCount(ctx context.Context, personID int64) error {
 	if m.incrementReceivedCountFunc != nil {
 		return m.incrementReceivedCountFunc(ctx, personID)
+	}
+	return nil
+}
+
+func (m *mockEntityLookup) UpdatePersonTitle(ctx context.Context, personID int64, title string) error {
+	if m.updatePersonTitleFunc != nil {
+		return m.updatePersonTitleFunc(ctx, personID, title)
 	}
 	return nil
 }
@@ -745,7 +753,7 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 		senderEmail          string
 		senderName           string
 		participantEmails    []workflows.Participant
-		extraction           *ExtractEntitiesOutput
+		extraction           *workflows.SLMPipelineExtractEntitiesOutput
 		expectedPeople       int
 		expectedSources      []string
 		verifyDeduplication  bool
@@ -753,7 +761,7 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 		{
 			name:              "participant emails only",
 			participantEmails: toParticipants([]string{"alice@example.com", "bob@example.com"}),
-			extraction:        &ExtractEntitiesOutput{},
+			extraction:        &workflows.SLMPipelineExtractEntitiesOutput{},
 			expectedPeople:    2,
 			expectedSources:   []string{"auto_created", "auto_created"},
 		},
@@ -762,7 +770,7 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 			senderEmail:       "alice@example.com",
 			senderName:        "Alice Smith",
 			participantEmails: toParticipants([]string{"bob@example.com", "carol@example.com"}),
-			extraction:        &ExtractEntitiesOutput{},
+			extraction:        &workflows.SLMPipelineExtractEntitiesOutput{},
 			expectedPeople:    3,
 			expectedSources:   []string{"auto_created", "auto_created", "auto_created"},
 		},
@@ -771,7 +779,7 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 			senderEmail:        "alice@example.com",
 			senderName:         "Alice Smith",
 			participantEmails:  toParticipants([]string{"alice@example.com", "bob@example.com"}),
-			extraction:         &ExtractEntitiesOutput{},
+			extraction:         &workflows.SLMPipelineExtractEntitiesOutput{},
 			expectedPeople:     2,
 			expectedSources:    []string{"auto_created", "auto_created"},
 			verifyDeduplication: true,
@@ -780,8 +788,8 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 			name:        "participants + extracted people",
 			senderEmail: "alice@example.com",
 			participantEmails: toParticipants([]string{"bob@example.com"}),
-			extraction: &ExtractEntitiesOutput{
-				People: []PersonResult{
+			extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+				People: []workflows.PersonResult{
 					{Name: "Carol Davis", Role: "PM"},
 				},
 			},
@@ -829,7 +837,7 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 				nil,
 			)
 
-			input := BuildContextInput{
+			input := workflows.BuildContextInput{
 				TenantID:          "test-tenant",
 				SourceID:          1,
 				ContentType:       "email",
@@ -864,4 +872,267 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBugPf99a49b_RolePersistence tests bug pf-99a49b: extracted Role field is never persisted to job_title.
+// This test MUST FAIL until the bug is fixed.
+//
+// BUG: When resolvePeople() processes a PersonResult with a non-empty Role field,
+// and the matched person's current job_title is NULL, the Role should be persisted
+// to the database via job_title. Currently, the Role flows through PersonResult and
+// ResolvedPerson structs but is never written to the people.job_title column.
+func TestBugPf99a49b_RolePersistence(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	// Track what gets written to the repository
+	var updatedPersons []struct {
+		personID int64
+		jobTitle string
+	}
+
+	// Mock entity lookup that returns a person with NULL job_title
+	entityLookup := &mockEntityLookup{
+		searchPeopleByNameFunc: func(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error) {
+			if name == "John Doe" {
+				return []*entities.Person{
+					{
+						ID:            123,
+						CanonicalName: "John Doe",
+						Title:         "", // NULL job_title in database
+						IsInternal:    true,
+					},
+				}, nil
+			}
+			return nil, nil
+		},
+		updatePersonTitleFunc: func(ctx context.Context, personID int64, title string) error {
+			updatedPersons = append(updatedPersons, struct {
+				personID int64
+				jobTitle string
+			}{personID, title})
+			return nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(
+		logger,
+		&mockEntityResolver{},
+		entityLookup,
+		&mockContextPackageRepo{},
+		nil,
+		nil,
+	)
+
+	input := workflows.BuildContextInput{
+		TenantID:    "test-tenant",
+		SourceID:    1,
+		ContentType: "email",
+		Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+			People: []workflows.PersonResult{
+				{Name: "John Doe", Role: "Senior Engineer"},
+			},
+		},
+	}
+
+	output, err := activities.BuildContextPackage(ctx, input)
+	if err != nil {
+		t.Fatalf("BuildContextPackage failed: %v", err)
+	}
+
+	if len(output.ResolvedPeople) != 1 {
+		t.Fatalf("Expected 1 resolved person, got %d", len(output.ResolvedPeople))
+	}
+
+	resolvedPerson := output.ResolvedPeople[0]
+
+	// Verify the Role is present in the PersonResult input
+	if input.Extraction.People[0].Role != "Senior Engineer" {
+		t.Errorf("Expected PersonResult.Role to be 'Senior Engineer', got '%s'", input.Extraction.People[0].Role)
+	}
+
+	// Verify the Role flows through to ResolvedPerson
+	if resolvedPerson.Role != "Senior Engineer" {
+		t.Errorf("Expected ResolvedPerson.Role to be 'Senior Engineer', got '%s'", resolvedPerson.Role)
+	}
+
+	// FIXED: The Title field should have been updated from the Role
+	// Expected behavior: When person.Title is empty/NULL and PersonResult.Role is non-empty,
+	// the Role should be written to job_title in the database and reflected in Title.
+	if resolvedPerson.Title != "Senior Engineer" {
+		t.Errorf("Person 123 should have Title 'Senior Engineer', got '%s'", resolvedPerson.Title)
+	}
+
+	// Verify database update was attempted
+	if len(updatedPersons) != 1 {
+		t.Errorf("Expected UpdatePersonTitle to be called once, got %d calls", len(updatedPersons))
+	} else {
+		update := updatedPersons[0]
+		if update.personID != 123 {
+			t.Errorf("Expected UpdatePersonTitle for person 123, got %d", update.personID)
+		}
+		if update.jobTitle != "Senior Engineer" {
+			t.Errorf("Expected UpdatePersonTitle with title 'Senior Engineer', got '%s'", update.jobTitle)
+		}
+	}
+}
+
+// TestBugPf99a49b_GarbageTitleFilter tests bug pf-99a49b: garbage titles from meeting invites.
+// This test MUST FAIL until the bug is fixed.
+//
+// BUG: Meeting invitation text like "Tap to call in from a mobile device (attendees only)"
+// is being extracted as a Role and stored as job_title. We need filtering to prevent
+// obviously non-job-title strings from being persisted.
+func TestBugPf99a49b_GarbageTitleFilter(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	garbageTitles := []string{
+		"Tap to call in from a mobile device (attendees only)",
+		"Join my meeting",
+		"Click here to join the meeting",
+		"Attendees only",
+		"Join Webex Meeting",
+	}
+
+	for _, garbageTitle := range garbageTitles {
+		t.Run(garbageTitle, func(t *testing.T) {
+			// Track UpdatePersonTitle calls
+			updateCalled := false
+
+			entityLookup := &mockEntityLookup{
+				searchPeopleByNameFunc: func(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error) {
+					return []*entities.Person{
+						{
+							ID:            456,
+							CanonicalName: "Jane Smith",
+							Title:         "", // NULL job_title
+							IsInternal:    true,
+						},
+					}, nil
+				},
+				updatePersonTitleFunc: func(ctx context.Context, personID int64, title string) error {
+					updateCalled = true
+					t.Errorf("UpdatePersonTitle should NOT be called for garbage title '%s'", title)
+					return nil
+				},
+			}
+
+			activities := NewContextBuilderActivities(
+				logger,
+				&mockEntityResolver{},
+				entityLookup,
+				&mockContextPackageRepo{},
+				nil,
+				nil,
+			)
+
+			input := workflows.BuildContextInput{
+				TenantID:    "test-tenant",
+				SourceID:    1,
+				ContentType: "meeting",
+				Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+					People: []workflows.PersonResult{
+						{Name: "Jane Smith", Role: garbageTitle},
+					},
+				},
+			}
+
+			output, err := activities.BuildContextPackage(ctx, input)
+			if err != nil {
+				t.Fatalf("BuildContextPackage failed: %v", err)
+			}
+
+			if len(output.ResolvedPeople) != 1 {
+				t.Fatalf("Expected 1 resolved person, got %d", len(output.ResolvedPeople))
+			}
+
+			resolvedPerson := output.ResolvedPeople[0]
+
+			// FIXED: Garbage meeting text should NOT be persisted as job_title
+			// The Role field may still contain the garbage text (that's fine - it's metadata)
+			// but the Title should remain empty and UpdatePersonTitle should not be called
+			if resolvedPerson.Title == garbageTitle {
+				t.Errorf("Garbage title '%s' should not be persisted to Title field", garbageTitle)
+			}
+
+			if updateCalled {
+				t.Errorf("UpdatePersonTitle should not be called for garbage title '%s'", garbageTitle)
+			}
+
+			t.Logf("PASS: Garbage title '%s' was filtered out - Title='%s', UpdatePersonTitle called=%v",
+				garbageTitle, resolvedPerson.Title, updateCalled)
+		})
+	}
+}
+
+// TestBugPf99a49b_NoOverwrite tests bug pf-99a49b: Role should not overwrite existing job_title.
+// This test documents the expected contract: if a person already has a job_title,
+// the extracted Role should NOT overwrite it.
+//
+// This may pass or fail depending on current behavior, but it documents the requirement.
+func TestBugPf99a49b_NoOverwrite(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	entityLookup := &mockEntityLookup{
+		searchPeopleByNameFunc: func(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error) {
+			if name == "Bob Jones" {
+				return []*entities.Person{
+					{
+						ID:            789,
+						CanonicalName: "Bob Jones",
+						Title:         "VP Engineering", // Existing non-NULL job_title
+						IsInternal:    true,
+					},
+				}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(
+		logger,
+		&mockEntityResolver{},
+		entityLookup,
+		&mockContextPackageRepo{},
+		nil,
+		nil,
+	)
+
+	input := workflows.BuildContextInput{
+		TenantID:    "test-tenant",
+		SourceID:    1,
+		ContentType: "email",
+		Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+			People: []workflows.PersonResult{
+				{Name: "Bob Jones", Role: "Engineer"}, // Extracted role (less specific than existing)
+			},
+		},
+	}
+
+	output, err := activities.BuildContextPackage(ctx, input)
+	if err != nil {
+		t.Fatalf("BuildContextPackage failed: %v", err)
+	}
+
+	if len(output.ResolvedPeople) != 1 {
+		t.Fatalf("Expected 1 resolved person, got %d", len(output.ResolvedPeople))
+	}
+
+	resolvedPerson := output.ResolvedPeople[0]
+
+	// EXPECTED CONTRACT: Existing job_title should NOT be overwritten by extracted Role
+	// Current behavior: Title comes from database lookup, so it's preserved (good!)
+	// But we need to ensure the update logic (when added) respects this rule
+	if resolvedPerson.Title != "VP Engineering" {
+		t.Errorf("Existing Title should be preserved: expected 'VP Engineering', got '%s'", resolvedPerson.Title)
+	}
+
+	// The Role field may still contain the extracted value (that's fine - it's metadata)
+	if resolvedPerson.Role != "Engineer" {
+		t.Logf("Role field: expected 'Engineer', got '%s'", resolvedPerson.Role)
+	}
+
+	t.Logf("PASS: Existing job_title 'VP Engineering' was not overwritten by extracted Role 'Engineer'")
 }
