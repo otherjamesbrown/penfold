@@ -167,7 +167,7 @@ func insertThreadTestEmails(t *testing.T, db *TestDB, emails []threadTestEmail) 
 			INSERT INTO sources (
 				tenant_id, source_system, external_id, content_hash,
 				raw_content, content_type, content_size,
-				source_timestamp, metadata, processing_status
+				source_timestamp, ingestion_metadata, processing_status
 			) VALUES (
 				$1, 'manual_eml', $2, encode(sha256($3::bytea), 'hex'),
 				$3, 'message/rfc822', length($3),

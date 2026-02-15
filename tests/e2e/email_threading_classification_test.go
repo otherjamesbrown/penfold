@@ -40,7 +40,9 @@ func createEmailSource(t *testing.T, env *PipelineE2EEnv, opts emailSourceOpts) 
 	t.Helper()
 	ctx := context.Background()
 
-	metadata := map[string]interface{}{
+	// The sources table has no 'metadata' column — all metadata goes into
+	// ingestion_metadata (JSONB). Merge email headers into one map.
+	ingestionMeta := map[string]interface{}{
 		"message_id":   opts.MessageID,
 		"subject":      opts.Subject,
 		"from_address": opts.FromAddress,
@@ -48,25 +50,15 @@ func createEmailSource(t *testing.T, env *PipelineE2EEnv, opts emailSourceOpts) 
 		"date":         opts.Date.Format(time.RFC3339),
 	}
 	if opts.InReplyTo != "" {
-		metadata["in_reply_to"] = opts.InReplyTo
+		ingestionMeta["in_reply_to"] = opts.InReplyTo
 	}
 	if len(opts.References) > 0 {
-		metadata["references"] = opts.References
+		ingestionMeta["references"] = opts.References
 	}
 	if len(opts.To) > 0 {
-		metadata["to"] = opts.To
+		ingestionMeta["to"] = opts.To
 	}
 
-	metadataJSON, err := json.Marshal(metadata)
-	require.NoError(t, err)
-
-	// ingestion_metadata must also contain from_address, subject, from_name
-	// because FetchSource reads from this column
-	ingestionMeta := map[string]interface{}{
-		"from_address": opts.FromAddress,
-		"from_name":    opts.FromName,
-		"subject":      opts.Subject,
-	}
 	ingestionMetaJSON, err := json.Marshal(ingestionMeta)
 	require.NoError(t, err)
 
@@ -75,16 +67,16 @@ func createEmailSource(t *testing.T, env *PipelineE2EEnv, opts emailSourceOpts) 
 		INSERT INTO sources (
 			tenant_id, source_system, external_id, content_hash,
 			raw_content, content_type, content_size,
-			source_timestamp, metadata, ingestion_metadata,
+			source_timestamp, ingestion_metadata,
 			processing_status, participant_emails
 		) VALUES (
 			$1, 'manual_eml', $2, encode(sha256($3::bytea), 'hex'),
 			$3, 'message/rfc822', length($3),
-			$4, $5::jsonb, $6::jsonb,
-			'pending', $7
+			$4, $5::jsonb,
+			'pending', $6
 		) RETURNING id
 	`, testTenantID(env), opts.ExternalID, opts.Body, opts.Date,
-		metadataJSON, ingestionMetaJSON, opts.ParticipantEmails,
+		ingestionMetaJSON, opts.ParticipantEmails,
 	).Scan(&sourceID)
 	require.NoError(t, err, "failed to insert test email source")
 
