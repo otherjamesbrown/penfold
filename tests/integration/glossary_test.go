@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	pferrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -512,5 +513,43 @@ func TestGlossaryRepository_ListLinked(t *testing.T) {
 			assert.GreaterOrEqual(t, int(total), tt.wantCount)
 		})
 	}
+}
+
+func TestGlossaryRepository_CreateDuplicate(t *testing.T) {
+	db := SetupTestDB(t)
+	db.TruncateTables(t, "glossary")
+
+	repo := glossary.NewRepository(db.Pool)
+	ctx := context.Background()
+
+	// Create the first term
+	input := glossary.TermInput{
+		Term:       "DUPTEST",
+		Expansion:  "Duplicate Test Term",
+		Definition: "A term to test duplicate handling",
+	}
+
+	first, err := repo.Create(ctx, input)
+	require.NoError(t, err)
+	assert.NotZero(t, first.ID)
+	assert.Equal(t, "DUPTEST", first.Term)
+
+	// Attempt to create the same term again
+	second, err := repo.Create(ctx, input)
+
+	// The bug: repository does not translate pgx unique constraint violation
+	// to pferrors.ErrAlreadyExists. This test should FAIL until the bug is fixed.
+	require.Error(t, err, "Creating duplicate term should return an error")
+	assert.Nil(t, second, "Creating duplicate term should not return a term")
+
+	// Assert the error is specifically ErrAlreadyExists (not just any error)
+	assert.ErrorIs(t, err, pferrors.ErrAlreadyExists,
+		"Creating duplicate term should return ErrAlreadyExists, got: %v", err)
+
+	// Verify only ONE copy exists in the database
+	terms, err := repo.List(ctx, glossary.TermFilter{Term: "DUPTEST"})
+	require.NoError(t, err)
+	assert.Len(t, terms, 1, "Only one copy of the term should exist in database")
+	assert.Equal(t, first.ID, terms[0].ID, "The existing term should be the first one created")
 }
 

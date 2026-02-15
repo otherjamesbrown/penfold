@@ -3,12 +3,14 @@ package glossaryservice
 
 import (
 	"context"
+	"errors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
+	pferrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
@@ -65,6 +67,10 @@ func (s *Service) AddTerm(ctx context.Context, req *glossaryv1.AddTermRequest) (
 
 	created, err := s.repo.Create(ctx, input)
 	if err != nil {
+		// Handle duplicate error from repository
+		if errors.Is(err, pferrors.ErrAlreadyExists) {
+			return nil, status.Errorf(codes.AlreadyExists, "term '%s' already exists", req.Term)
+		}
 		s.logger.Error("Error creating term", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to create term: %v", err)
 	}

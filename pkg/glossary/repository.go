@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	pferrors "github.com/otherjamesbrown/penfold/pkg/errors"
@@ -80,6 +82,11 @@ func (r *Repository) Create(ctx context.Context, input TermInput) (*Term, error)
 		&term.LinkedEntityID,
 	)
 	if err != nil {
+		// Check for unique constraint violation
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, fmt.Errorf("create glossary term: %w", pferrors.ErrAlreadyExists)
+		}
 		return nil, fmt.Errorf("create glossary term: %w", err)
 	}
 

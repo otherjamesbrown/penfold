@@ -208,19 +208,41 @@ Example:
 
 // newGlossaryRemoveCommand creates the 'glossary remove' subcommand.
 func newGlossaryRemoveCommand(deps *GlossaryCommandDeps) *cobra.Command {
-	return &cobra.Command{
-		Use:   "remove <term>",
-		Short: "Remove a term from the glossary",
-		Long: `Remove a term from the glossary by its term name.
+	var removeID int64
 
-Example:
-  penf glossary remove TER`,
+	cmd := &cobra.Command{
+		Use:   "remove [term]",
+		Short: "Remove a term from the glossary",
+		Long: `Remove a term from the glossary by its term name or ID.
+
+Examples:
+  # Remove by term name
+  penf glossary remove TER
+
+  # Remove by ID (useful for duplicates or when term name is ambiguous)
+  penf glossary remove --id 123`,
 		Aliases: []string{"rm", "delete"},
-		Args:    cobra.ExactArgs(1),
+		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGlossaryRemove(cmd.Context(), deps, args[0])
+			// Validate: either --id or term argument is provided
+			if removeID == 0 && len(args) == 0 {
+				return fmt.Errorf("either --id or term argument is required")
+			}
+			if removeID > 0 && len(args) > 0 {
+				return fmt.Errorf("cannot specify both --id and term argument")
+			}
+
+			var termStr string
+			if len(args) > 0 {
+				termStr = args[0]
+			}
+			return runGlossaryRemove(cmd.Context(), deps, termStr, removeID)
 		},
 	}
+
+	cmd.Flags().Int64Var(&removeID, "id", 0, "Remove term by ID instead of name")
+
+	return cmd
 }
 
 // newGlossaryExpandCommand creates the 'glossary expand' subcommand.
@@ -526,7 +548,7 @@ func runGlossarySearch(ctx context.Context, deps *GlossaryCommandDeps, query str
 	return outputGlossaryProtoTerms(format, resp.Terms)
 }
 
-func runGlossaryRemove(ctx context.Context, deps *GlossaryCommandDeps, termStr string) error {
+func runGlossaryRemove(ctx context.Context, deps *GlossaryCommandDeps, termStr string, removeID int64) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
@@ -541,22 +563,40 @@ func runGlossaryRemove(ctx context.Context, deps *GlossaryCommandDeps, termStr s
 
 	client := glossaryv1.NewGlossaryServiceClient(conn)
 
-	// First get the term to show what we're deleting
-	termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{Term: termStr})
-	if err != nil {
-		return fmt.Errorf("looking up term: %w", err)
-	}
-	if termResp.Term == nil {
-		return fmt.Errorf("term not found: %s", termStr)
+	var termID int64
+	var term *glossaryv1.Term
+
+	if removeID > 0 {
+		// Remove by ID - get the term first to show what we're deleting
+		termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{Id: removeID})
+		if err != nil {
+			return fmt.Errorf("looking up term by ID: %w", err)
+		}
+		if termResp.Term == nil {
+			return fmt.Errorf("term not found with ID: %d", removeID)
+		}
+		term = termResp.Term
+		termID = removeID
+	} else {
+		// Remove by term name - get the term first to show what we're deleting
+		termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{Term: termStr})
+		if err != nil {
+			return fmt.Errorf("looking up term: %w", err)
+		}
+		if termResp.Term == nil {
+			return fmt.Errorf("term not found: %s", termStr)
+		}
+		term = termResp.Term
+		termID = term.Id
 	}
 
 	// Delete by ID
-	_, err = client.DeleteTerm(ctx, &glossaryv1.DeleteTermRequest{Id: termResp.Term.Id})
+	_, err = client.DeleteTerm(ctx, &glossaryv1.DeleteTermRequest{Id: termID})
 	if err != nil {
 		return fmt.Errorf("deleting term: %w", err)
 	}
 
-	fmt.Printf("\033[32mRemoved term:\033[0m %s (%s)\n", termResp.Term.Term, termResp.Term.Expansion)
+	fmt.Printf("\033[32mRemoved term:\033[0m %s (%s)\n", term.Term, term.Expansion)
 	return nil
 }
 
