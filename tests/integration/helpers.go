@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/otherjamesbrown/penfold/pkg/db"
 	"github.com/otherjamesbrown/penfold/pkg/testfixtures"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,7 @@ func SetupTestDB(t *testing.T) *TestDB {
 	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
 	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
 	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
-	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold") // Use production DB with tenant isolation
+	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold_test") // Use test DB
 
 	// Build connection string with SSL cert auth
 	// Certs are expected in ~/.postgresql/ (standard libpq location)
@@ -79,6 +80,28 @@ func SetupTestDB(t *testing.T) *TestDB {
 	// Verify connection
 	err = pool.Ping(ctx)
 	require.NoError(t, err, "failed to ping test database")
+
+	// Run migrations to ensure schema is up to date.
+	// Find migrations directory relative to the test file.
+	cwd, err := os.Getwd()
+	require.NoError(t, err, "failed to get working directory")
+
+	// Walk up to find migrations directory
+	migrationsDir := ""
+	for dir := cwd; dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, "migrations")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			migrationsDir = candidate
+			break
+		}
+	}
+
+	if migrationsDir == "" {
+		t.Skip("migrations directory not found - skipping integration test")
+	}
+
+	_, err = db.RunMigrations(ctx, pool, migrationsDir)
+	require.NoError(t, err, "failed to run migrations")
 
 	testDB := &TestDB{
 		Pool:     pool,
