@@ -163,19 +163,32 @@ func (r *regVerifyPersonRepo) GetPeopleByDomain(context.Context, string, string)
 	return nil, nil
 }
 
+type regVerifyProjectTaggingRepo struct{}
+
+func (r *regVerifyProjectTaggingRepo) GetProjectsWithKeywords(context.Context, string) ([]*entities.Project, error) {
+	return nil, nil
+}
+func (r *regVerifyProjectTaggingRepo) GetContentText(context.Context, string, int64) (string, error) {
+	return "", nil
+}
+func (r *regVerifyProjectTaggingRepo) CreateContentMention(context.Context, string, int64, string, string, int64) error {
+	return nil
+}
+
 // Compile-time interface verification for stubs.
 var (
-	_ AIClient                 = (*regVerifyAIClient)(nil)
-	_ EmbeddingRepository      = (*regVerifyEmbeddingRepo)(nil)
-	_ SummaryRepository        = (*regVerifySummaryRepo)(nil)
-	_ AssertionRepository      = (*regVerifyAssertionRepo)(nil)
-	_ EntityRepository         = (*regVerifyEntityRepo)(nil)
-	_ PersistRepository        = (*regVerifyPersistRepo)(nil)
-	_ PipelineRepository       = (*regVerifyPipelineRepo)(nil)
-	_ ContextPackageRepository = (*regVerifyContextPackageRepo)(nil)
-	_ EntityResolverInterface  = (*regVerifyEntityResolver)(nil)
-	_ EntityLookupInterface    = (*regVerifyEntityLookup)(nil)
-	_ PersonRepository         = (*regVerifyPersonRepo)(nil)
+	_ AIClient                   = (*regVerifyAIClient)(nil)
+	_ EmbeddingRepository        = (*regVerifyEmbeddingRepo)(nil)
+	_ SummaryRepository          = (*regVerifySummaryRepo)(nil)
+	_ AssertionRepository        = (*regVerifyAssertionRepo)(nil)
+	_ EntityRepository           = (*regVerifyEntityRepo)(nil)
+	_ PersistRepository          = (*regVerifyPersistRepo)(nil)
+	_ PipelineRepository         = (*regVerifyPipelineRepo)(nil)
+	_ ContextPackageRepository   = (*regVerifyContextPackageRepo)(nil)
+	_ EntityResolverInterface    = (*regVerifyEntityResolver)(nil)
+	_ EntityLookupInterface      = (*regVerifyEntityLookup)(nil)
+	_ PersonRepository           = (*regVerifyPersonRepo)(nil)
+	_ ProjectTaggingRepository   = (*regVerifyProjectTaggingRepo)(nil)
 )
 
 // newFullRegistrar creates a fully-configured Registrar with all activity types.
@@ -236,6 +249,10 @@ func newFullRegistrar() *Registrar {
 		WithPersonEnrichmentActivities(&PersonEnrichmentActivities{
 			logger:     logger,
 			personRepo: &regVerifyPersonRepo{},
+		}).
+		WithProjectTaggingActivities(&ProjectTaggingActivities{
+			logger: logger,
+			repo:   &regVerifyProjectTaggingRepo{},
 		})
 }
 

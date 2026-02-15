@@ -1145,6 +1145,44 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			}
 		}
 		state.status.StepsCompleted = 6
+
+		// Stage 4.6: Tag Projects (match project keywords)
+		updateStatus("tagging_projects", "TagProjects")
+		projectTagStage := stageByStatus("tagging_projects")
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", projectTagStage.Name,
+			"stage_number", "4.6",
+			"total_steps", state.status.TotalSteps,
+		)
+		projectTagStart := workflow.Now(ctx)
+
+		var tagProjectsOutput TagProjectsOutput
+		ctxTagProjects := workflow.WithActivityOptions(ctx, fastOpts)
+		err = workflow.ExecuteActivity(ctxTagProjects, pkgtemporal.ActivityTagProjects, TagProjectsInput{
+			TenantID:  input.TenantID,
+			ContentID: input.SourceID,
+		}).Get(ctx, &tagProjectsOutput)
+		if err != nil {
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", projectTagStage.Name,
+				"stage_number", "4.6",
+				"duration_ms", workflow.Now(ctx).Sub(projectTagStart).Milliseconds(),
+				"status", "failed",
+				"error", err.Error(),
+			)
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", projectTagStage.Name,
+				"stage_number", "4.6",
+				"duration_ms", workflow.Now(ctx).Sub(projectTagStart).Milliseconds(),
+				"status", "completed",
+				"projects_matched", tagProjectsOutput.ProjectsMatched,
+				"mentions_created", tagProjectsOutput.MentionsCreated,
+			)
+		}
 	}
 
 	if checkCancellation() {

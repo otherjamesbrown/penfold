@@ -355,8 +355,8 @@ func (s *ContentIngestionWorkflowTestSuite) TestContentIngestionWorkflow_QuerySt
 	var status ContentIngestionWorkflowStatus
 	require.NoError(s.T(), result.Get(&status))
 	s.Equal("completed", status.Stage)
-	s.Equal(8, status.StepsCompleted)
-	s.Equal(8, status.TotalSteps)
+	s.Equal(9, status.StepsCompleted)
+	s.Equal(9, status.TotalSteps)
 }
 
 // TestContentIngestionWorkflow_CancellationSignal tests cancellation with signal.

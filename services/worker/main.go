@@ -64,6 +64,73 @@ func (a *logWriterAdapter) WriteBatch(ctx context.Context, entries []logging.Log
 	return err
 }
 
+// projectTaggingRepositoryAdapter adapts entity and mentions repositories for project tagging.
+type projectTaggingRepositoryAdapter struct {
+	entityRepo   *entities.Repository
+	mentionsRepo *mentions.PostgresRepository
+	db           *pgxpool.Pool
+}
+
+func (a *projectTaggingRepositoryAdapter) GetProjectsWithKeywords(ctx context.Context, tenantID string) ([]*entities.Project, error) {
+	return a.entityRepo.GetProjectsWithKeywords(ctx, tenantID)
+}
+
+func (a *projectTaggingRepositoryAdapter) GetContentText(ctx context.Context, tenantID string, contentID int64) (string, error) {
+	// Query sources table for raw_content
+	query := `SELECT raw_content FROM sources WHERE id = $1 AND tenant_id = $2`
+	var contentText string
+	err := a.db.QueryRow(ctx, query, contentID, tenantID).Scan(&contentText)
+	if err != nil {
+		return "", fmt.Errorf("failed to get content text: %w", err)
+	}
+	return contentText, nil
+}
+
+func (a *projectTaggingRepositoryAdapter) CreateContentMention(ctx context.Context, tenantID string, contentID int64, entityType string, mentionedText string, resolvedEntityID int64) error {
+	// Check for existing mention to avoid duplicates on reprocessing
+	var exists bool
+	err := a.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM content_mentions
+			WHERE tenant_id = $1 AND content_id = $2 AND entity_type = $3
+			AND LOWER(mentioned_text) = LOWER($4) AND resolved_entity_id = $5
+		)
+	`, tenantID, contentID, entityType, mentionedText, resolvedEntityID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check existing mention: %w", err)
+	}
+	if exists {
+		return nil // Already exists, skip
+	}
+
+	// Create an already-resolved mention directly via SQL
+	query := `
+		INSERT INTO content_mentions (
+			tenant_id, content_id, entity_type, mentioned_text,
+			resolved_entity_id, resolution_confidence, resolution_source,
+			status, resolved_at, candidates
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, NOW(), '[]'::jsonb
+		)
+	`
+
+	_, err = a.db.Exec(ctx, query,
+		tenantID,
+		contentID,
+		entityType,
+		mentionedText,
+		resolvedEntityID,
+		1.0, // resolution_confidence - exact keyword match
+		string(mentions.ResolutionSourceExactMatch),
+		string(mentions.MentionStatusAutoResolved),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create resolved mention: %w", err)
+	}
+
+	return nil
+}
+
 // workerManager manages multiple Temporal workers for different task queues.
 type workerManager struct {
 	client  client.Client
@@ -370,10 +437,11 @@ func main() {
 	}
 
 	// Initialize context builder activities if database is available (Stage 3)
+	var entitiesRepo *entities.Repository
 	if dbPool != nil {
 		// Create entity repository for both resolution and lookups
-		entityRepo := entities.NewRepository(dbPool, logger)
-		entityResolver := entities.NewResolver(entityRepo)
+		entitiesRepo = entities.NewRepository(dbPool, logger)
+		entityResolver := entities.NewResolver(entitiesRepo)
 
 		// Create config resolver for tenant-specific patterns
 		configRepo := enrichmentconfig.NewConfigRepository(dbPool)
@@ -386,7 +454,7 @@ func main() {
 		contextBuilderActivities := activities.NewContextBuilderActivities(
 			logger,
 			entityResolver,
-			entityRepo, // entityRepo implements EntityLookupInterface
+			entitiesRepo, // entitiesRepo implements EntityLookupInterface
 			contextRepo,
 			pipelineRepo,
 			configResolver,
@@ -406,7 +474,7 @@ func main() {
 		} else if tenantCfg != nil {
 			internalDomains = tenantCfg.InternalDomains
 		}
-		personEnrichmentActivities := activities.NewPersonEnrichmentActivities(logger, entityRepo, internalDomains)
+		personEnrichmentActivities := activities.NewPersonEnrichmentActivities(logger, entitiesRepo, internalDomains)
 		activityRegistrar.WithPersonEnrichmentActivities(personEnrichmentActivities)
 		logger.Info("Person enrichment activities initialized with database (Stage 3.5)",
 			logging.F("internal_domains_count", len(internalDomains)),
@@ -430,8 +498,9 @@ func main() {
 	}
 
 	// Initialize mentions activities if database and AI client are available
+	var mentionsRepo *mentions.PostgresRepository
 	if dbPool != nil && aiClient != nil {
-		mentionsRepo := mentions.NewPostgresRepository(dbPool)
+		mentionsRepo = mentions.NewPostgresRepository(dbPool)
 
 		llmConfig := resolver.LLMConfig{
 			Provider:   "ai-service",
@@ -464,6 +533,18 @@ func main() {
 		logger.Info("Mentions activities initialized with AI service resolver")
 	} else if dbPool != nil {
 		logger.Warn("Mentions activities not initialized: AI client not available")
+	}
+
+	// Initialize Project Tagging Activities
+	if dbPool != nil && entitiesRepo != nil && mentionsRepo != nil {
+		projectTaggingRepo := &projectTaggingRepositoryAdapter{
+			entityRepo:   entitiesRepo,
+			mentionsRepo: mentionsRepo,
+			db:           dbPool,
+		}
+		projectTaggingActivities := activities.NewProjectTaggingActivities(logger, projectTaggingRepo)
+		activityRegistrar.WithProjectTaggingActivities(projectTaggingActivities)
+		logger.Info("Project tagging activities initialized")
 	}
 
 	workflowRegistrar := workflows.NewRegistrar()

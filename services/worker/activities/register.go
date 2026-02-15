@@ -16,17 +16,18 @@ type Registrar struct {
 	activities *Activities
 
 	// Specialized activity implementations using AIClient
-	embeddingActivities      *EmbeddingActivities
-	summarizationActivities  *SummarizationActivities
-	extractionActivities     *ExtractionActivities
-	mentionsActivities       *MentionsActivities
-	parseActivities          *ParseActivities
-	persistActivities        *PersistActivities
-	triageActivities         *TriageActivities
-	contextBuilderActivities *ContextBuilderActivities
-	analysisActivities       *AnalysisActivities
-	pipelineActivities       *PipelineActivities
+	embeddingActivities        *EmbeddingActivities
+	summarizationActivities    *SummarizationActivities
+	extractionActivities       *ExtractionActivities
+	mentionsActivities         *MentionsActivities
+	parseActivities            *ParseActivities
+	persistActivities          *PersistActivities
+	triageActivities           *TriageActivities
+	contextBuilderActivities   *ContextBuilderActivities
+	analysisActivities         *AnalysisActivities
+	pipelineActivities         *PipelineActivities
 	personEnrichmentActivities *PersonEnrichmentActivities
+	projectTaggingActivities   *ProjectTaggingActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -99,6 +100,12 @@ func (r *Registrar) WithPipelineActivities(pa *PipelineActivities) *Registrar {
 // WithPersonEnrichmentActivities adds person enrichment activities to the registrar.
 func (r *Registrar) WithPersonEnrichmentActivities(pea *PersonEnrichmentActivities) *Registrar {
 	r.personEnrichmentActivities = pea
+	return r
+}
+
+// WithProjectTaggingActivities adds project tagging activities to the registrar.
+func (r *Registrar) WithProjectTaggingActivities(pta *ProjectTaggingActivities) *Registrar {
+	r.projectTaggingActivities = pta
 	return r
 }
 
@@ -184,6 +191,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.mentionsActivities != nil {
 		w.RegisterActivityWithOptions(r.mentionsActivities.ExtractMentions, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityExtractMentions,
+		})
+	}
+
+	// Project tagging for content processing
+	if r.projectTaggingActivities != nil {
+		w.RegisterActivityWithOptions(r.projectTaggingActivities.TagProjects, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityTagProjects,
 		})
 	}
 
@@ -352,6 +366,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// ExtractMentions
 		if r.mentionsActivities != nil {
+			count += 1
+		}
+		// TagProjects
+		if r.projectTaggingActivities != nil {
 			count += 1
 		}
 		// ParseEmail, ParseTranscript

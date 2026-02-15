@@ -78,6 +78,18 @@ type (
 		ProcessingTimeMs int    `json:"processing_time_ms"`
 	}
 
+	// TagProjectsInput is the input for the TagProjects activity.
+	TagProjectsInput struct {
+		TenantID  string `json:"tenant_id"`
+		ContentID int64  `json:"content_id"`
+	}
+
+	// TagProjectsOutput is the output from the TagProjects activity.
+	TagProjectsOutput struct {
+		ProjectsMatched  int `json:"projects_matched"`
+		MentionsCreated  int `json:"mentions_created"`
+	}
+
 	// ExtractEntitiesOutput is the output from the ExtractEntities activity.
 	// This matches the activities.ExtractEntitiesOutput structure for JSON deserialization.
 	ExtractEntitiesOutput struct {
@@ -171,7 +183,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		status: ContentIngestionWorkflowStatus{
 			Stage:          "initializing",
 			StepsCompleted: 0,
-			TotalSteps:     8, // Updated: validation + 7 existing steps
+			TotalSteps:     9, // Updated: validation + 8 processing steps (added project tagging)
 			LastActivity:   "",
 			StartedAt:      workflow.Now(ctx),
 			LastUpdated:    workflow.Now(ctx),
@@ -452,7 +464,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 			"queued", mentionsOutput.QueuedForReview,
 		)
 	}
-	state.status.StepsCompleted = 7
+	state.status.StepsCompleted = 6
 
 	if checkCancellation() {
 		runCompensation(ctx)
@@ -462,11 +474,37 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		return state.result, nil
 	}
 
-	// Step 7: Update content status
+	// Step 6: Tag projects (match project keywords)
+	updateStatus("tagging_projects", "TagProjects")
+	var tagProjectsOutput TagProjectsOutput
+	ctx7 := workflow.WithActivityOptions(ctx, fastOpts) // Fast activity - just keyword matching
+	err = workflow.ExecuteActivity(ctx7, pkgtemporal.ActivityTagProjects, TagProjectsInput{
+		TenantID:  input.TenantID,
+		ContentID: input.SourceID,
+	}).Get(ctx, &tagProjectsOutput)
+	if err != nil {
+		logger.Warn("Project tagging failed, continuing", "error", err)
+	} else {
+		logger.Debug("Projects tagged",
+			"projects_matched", tagProjectsOutput.ProjectsMatched,
+			"mentions_created", tagProjectsOutput.MentionsCreated,
+		)
+	}
+	state.status.StepsCompleted = 7
+
+	if checkCancellation() {
+		runCompensation(ctx)
+		state.result.Status = "cancelled"
+		state.result.Error = state.cancelReason
+		logger.Info("Workflow cancelled after project tagging")
+		return state.result, nil
+	}
+
+	// Step 8: Update content status
 	// Embedding is critical - without it, the content can't be searched.
 	// If embedding failed, mark the source as failed so it can be retried.
 	updateStatus("updating_status", "UpdateContentStatus")
-	ctx7 := workflow.WithActivityOptions(ctx, fastOpts)
+	ctx8 := workflow.WithActivityOptions(ctx, fastOpts)
 
 	var finalStatus string
 	if embeddingFailed {
@@ -490,7 +528,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 		)
 	}
 
-	err = workflow.ExecuteActivity(ctx7, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+	err = workflow.ExecuteActivity(ctx8, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 		TenantID:        input.TenantID,
 		SourceID:        input.SourceID,
 		Status:          finalStatus,
@@ -500,7 +538,7 @@ func ContentIngestionWorkflow(ctx workflow.Context, input ContentIngestionInput)
 	if err != nil {
 		logger.Warn("Status update failed", "error", err)
 	}
-	state.status.StepsCompleted = 8
+	state.status.StepsCompleted = 9
 
 	updateStatus(finalStatus, "")
 	return state.result, nil
