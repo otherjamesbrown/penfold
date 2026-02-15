@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
+	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
@@ -26,13 +28,54 @@ var (
 // ClassifyCommandDeps holds the dependencies for classify commands.
 type ClassifyCommandDeps struct {
 	Config     *config.CLIConfig
+	GRPCClient *client.GRPCClient
 	LoadConfig func() (*config.CLIConfig, error)
+	InitClient func(*config.CLIConfig) (*client.GRPCClient, error)
+
+	// Mock function overrides for testing
+	ReprocessContentFn func(ctx context.Context, contentID, reason string) (*contentv1.ReprocessContentResponse, error)
+	ListContentItemsFn func(ctx context.Context, req *contentv1.ListContentItemsRequest) (*contentv1.ListContentItemsResponse, error)
+	GetContentItemFn   func(ctx context.Context, contentID string, includeEmbedding bool) (*contentv1.ContentItem, error)
+	GetContentStatsFn  func(ctx context.Context, tenantID string) (*contentv1.ContentStats, error)
+}
+
+// ReprocessContentResult represents the result of reprocessing a content item.
+type ReprocessContentResult struct {
+	ContentID    string `json:"content_id"`
+	SourceSystem string `json:"source_system"`
+	JobID        string `json:"job_id"`
+}
+
+// ContentItemSummary represents a summary of a content item for listing.
+type ContentItemSummary struct {
+	ID           string
+	SourceSystem string
+}
+
+// ContentListFilter represents filters for listing content items.
+type ContentListFilter struct {
+	SourceSystem string
+	Limit        int
+}
+
+// ContentItemDetails represents full details of a content item.
+type ContentItemDetails struct {
+	ID           string
+	SourceSystem string
+	Metadata     map[string]string
+}
+
+// ContentStatsResult represents classification statistics.
+type ContentStatsResult struct {
+	Total     int            `json:"total"`
+	Breakdown map[string]int `json:"breakdown"`
 }
 
 // DefaultClassifyDeps returns the default dependencies for production use.
 func DefaultClassifyDeps() *ClassifyCommandDeps {
 	return &ClassifyCommandDeps{
 		LoadConfig: config.LoadConfig,
+		InitClient: client.ConnectFromConfig,
 	}
 }
 
@@ -204,8 +247,198 @@ func runClassify(ctx context.Context, deps *ClassifyCommandDeps, contentID strin
 	}
 	deps.Config = cfg
 
-	// This requires gateway RPC implementation
-	return fmt.Errorf("classify run RPC not yet available — requires gateway implementation (Wave 2: pf-c29635)")
+	// Determine tenant ID
+	tenantID := classifyTenant
+	if tenantID == "" {
+		tenantID = cfg.TenantID
+	}
+
+	// Determine output format
+	format := cfg.OutputFormat
+	if classifyOutput != "" {
+		format = config.OutputFormat(classifyOutput)
+	}
+
+	// Initialize client if needed
+	if deps.GRPCClient == nil && deps.InitClient != nil {
+		grpcClient, err := deps.InitClient(cfg)
+		if err != nil {
+			return fmt.Errorf("initializing gRPC client: %w", err)
+		}
+		deps.GRPCClient = grpcClient
+	}
+
+	// Single item mode
+	if contentID != "" {
+		if classifyDryRun {
+			return runClassifyDryRun(ctx, deps, contentID, format)
+		}
+		return runClassifySingleItem(ctx, deps, contentID, format)
+	}
+
+	// Batch mode
+	return runClassifyBatch(ctx, deps, tenantID, format)
+}
+
+func runClassifySingleItem(ctx context.Context, deps *ClassifyCommandDeps, contentID string, format config.OutputFormat) error {
+	var resp *contentv1.ReprocessContentResponse
+	var err error
+
+	// Use mock function if provided (for testing), otherwise use real client
+	if deps.ReprocessContentFn != nil {
+		resp, err = deps.ReprocessContentFn(ctx, contentID, "classify run")
+	} else {
+		req := &contentv1.ReprocessContentRequest{
+			ContentId: contentID,
+			Reason:    "classify run",
+		}
+		resp, err = deps.GRPCClient.ReprocessContent(ctx, req)
+	}
+
+	if err != nil {
+		return fmt.Errorf("reprocessing content %s: %w", contentID, err)
+	}
+
+	// Get the updated item to extract source_system
+	var item *contentv1.ContentItem
+	if deps.GetContentItemFn != nil {
+		item, err = deps.GetContentItemFn(ctx, contentID, false)
+	} else {
+		item, err = deps.GRPCClient.GetContentItem(ctx, contentID, false)
+	}
+	if err != nil {
+		return fmt.Errorf("fetching content item %s: %w", contentID, err)
+	}
+
+	sourceSystem := ""
+	if item.Metadata != nil {
+		sourceSystem = item.Metadata["source_system"]
+	}
+
+	result := &ReprocessContentResult{
+		ContentID:    resp.ContentId,
+		SourceSystem: sourceSystem,
+		JobID:        resp.JobId,
+	}
+
+	return outputClassifyResult(format, result, false)
+}
+
+func runClassifyDryRun(ctx context.Context, deps *ClassifyCommandDeps, contentID string, format config.OutputFormat) error {
+	var item *contentv1.ContentItem
+	var err error
+
+	// Use mock function if provided (for testing), otherwise use real client
+	if deps.GetContentItemFn != nil {
+		item, err = deps.GetContentItemFn(ctx, contentID, false)
+	} else {
+		item, err = deps.GRPCClient.GetContentItem(ctx, contentID, false)
+	}
+
+	if err != nil {
+		return fmt.Errorf("fetching content item %s: %w", contentID, err)
+	}
+
+	// Extract metadata for classification
+	from := ""
+	subject := ""
+	messageID := ""
+	headers := make(map[string]string)
+
+	if item.Metadata != nil {
+		from = item.Metadata["from"]
+		subject = item.Metadata["subject"]
+		messageID = item.Metadata["message_id"]
+		// Pass all metadata as headers for classification
+		for k, v := range item.Metadata {
+			headers[k] = v
+		}
+	}
+
+	// Run classification locally
+	sourceSystem := classification.ClassifySourceSystem(from, subject, messageID, headers)
+
+	result := &ReprocessContentResult{
+		ContentID:    contentID,
+		SourceSystem: string(sourceSystem),
+		JobID:        "", // No job ID in dry-run mode
+	}
+
+	return outputClassifyResult(format, result, true)
+}
+
+func runClassifyBatch(ctx context.Context, deps *ClassifyCommandDeps, tenantID string, format config.OutputFormat) error {
+	// Build list request - fetch all items for the tenant
+	listReq := &contentv1.ListContentItemsRequest{
+		TenantId: tenantID,
+		PageSize: 1000, // Maximum allowed
+	}
+
+	// Get list of items
+	var listResp *contentv1.ListContentItemsResponse
+	var err error
+
+	if deps.ListContentItemsFn != nil {
+		listResp, err = deps.ListContentItemsFn(ctx, listReq)
+	} else {
+		listResp, err = deps.GRPCClient.ListContentItems(ctx, listReq)
+	}
+
+	if err != nil {
+		return fmt.Errorf("listing content items: %w", err)
+	}
+
+	// Filter items if not --all
+	itemsToProcess := listResp.Items
+	if !classifyAll {
+		// Filter to only items with source_system = "unknown"
+		filtered := make([]*contentv1.ContentItem, 0)
+		for _, item := range listResp.Items {
+			if item.Metadata != nil && item.Metadata["source_system"] == "unknown" {
+				filtered = append(filtered, item)
+			}
+		}
+		itemsToProcess = filtered
+	}
+
+	// Reprocess each item
+	results := make([]*ReprocessContentResult, 0, len(itemsToProcess))
+	reason := "classify run"
+	if classifyAll {
+		reason = "classify run --all"
+	}
+
+	for _, item := range itemsToProcess {
+		var resp *contentv1.ReprocessContentResponse
+		if deps.ReprocessContentFn != nil {
+			resp, err = deps.ReprocessContentFn(ctx, item.Id, reason)
+		} else {
+			req := &contentv1.ReprocessContentRequest{
+				ContentId: item.Id,
+				Reason:    reason,
+			}
+			resp, err = deps.GRPCClient.ReprocessContent(ctx, req)
+		}
+
+		if err != nil {
+			// Log error but continue with other items
+			fmt.Fprintf(os.Stderr, "Warning: failed to reprocess %s: %v\n", item.Id, err)
+			continue
+		}
+
+		sourceSystem := ""
+		if item.Metadata != nil {
+			sourceSystem = item.Metadata["source_system"]
+		}
+
+		results = append(results, &ReprocessContentResult{
+			ContentID:    resp.ContentId,
+			SourceSystem: sourceSystem,
+			JobID:        resp.JobId,
+		})
+	}
+
+	return outputClassifyBatchResult(format, results)
 }
 
 func runClassifyStats(ctx context.Context, deps *ClassifyCommandDeps) error {
@@ -215,8 +448,51 @@ func runClassifyStats(ctx context.Context, deps *ClassifyCommandDeps) error {
 	}
 	deps.Config = cfg
 
-	// This requires gateway RPC implementation
-	return fmt.Errorf("classify stats RPC not yet available — requires gateway implementation (Wave 2: pf-c29635)")
+	// Determine tenant ID
+	tenantID := classifyTenant
+	if tenantID == "" {
+		tenantID = cfg.TenantID
+	}
+
+	// Determine output format
+	format := cfg.OutputFormat
+	if classifyOutput != "" {
+		format = config.OutputFormat(classifyOutput)
+	}
+
+	// Initialize client if needed
+	if deps.GRPCClient == nil && deps.InitClient != nil {
+		grpcClient, err := deps.InitClient(cfg)
+		if err != nil {
+			return fmt.Errorf("initializing gRPC client: %w", err)
+		}
+		deps.GRPCClient = grpcClient
+	}
+
+	// Get stats from gateway
+	var stats *contentv1.ContentStats
+	if deps.GetContentStatsFn != nil {
+		stats, err = deps.GetContentStatsFn(ctx, tenantID)
+	} else {
+		stats, err = deps.GRPCClient.GetContentStats(ctx, tenantID)
+	}
+
+	if err != nil {
+		return fmt.Errorf("fetching content stats: %w", err)
+	}
+
+	// Convert to ContentStatsResult
+	breakdown := make(map[string]int)
+	for k, v := range stats.CountByType {
+		breakdown[k] = int(v)
+	}
+
+	result := &ContentStatsResult{
+		Total:     int(stats.TotalCount),
+		Breakdown: breakdown,
+	}
+
+	return outputClassifyStats(format, result)
 }
 
 func runClassifyRules(ctx context.Context, deps *ClassifyCommandDeps) error {
@@ -398,3 +674,92 @@ func outputClassifyRulesText(rules []ClassificationRule) error {
 
 // Verify the classification package is available (for testing)
 var _ = classification.ClassifySourceSystem
+
+// Output formatting functions
+
+func outputClassifyResult(format config.OutputFormat, result *ReprocessContentResult, dryRun bool) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		output := map[string]interface{}{
+			"content_id":    result.ContentID,
+			"source_system": result.SourceSystem,
+		}
+		if dryRun {
+			output["dry_run"] = true
+		} else {
+			output["job_id"] = result.JobID
+		}
+		return enc.Encode(output)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		output := map[string]interface{}{
+			"content_id":    result.ContentID,
+			"source_system": result.SourceSystem,
+		}
+		if dryRun {
+			output["dry_run"] = true
+		} else {
+			output["job_id"] = result.JobID
+		}
+		return enc.Encode(output)
+	default:
+		if dryRun {
+			fmt.Printf("Content ID: %s\n", result.ContentID)
+			fmt.Printf("Source System (dry-run): %s\n", result.SourceSystem)
+			fmt.Println("\nNote: Dry-run mode - no changes persisted")
+		} else {
+			fmt.Printf("Content ID: %s\n", result.ContentID)
+			fmt.Printf("Source System: %s\n", result.SourceSystem)
+			fmt.Printf("Job ID: %s\n", result.JobID)
+		}
+		return nil
+	}
+}
+
+func outputClassifyBatchResult(format config.OutputFormat, results []*ReprocessContentResult) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		output := map[string]interface{}{
+			"processed": len(results),
+			"results":   results,
+		}
+		return enc.Encode(output)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		output := map[string]interface{}{
+			"processed": len(results),
+			"results":   results,
+		}
+		return enc.Encode(output)
+	default:
+		fmt.Printf("Processed %d items:\n\n", len(results))
+		for _, r := range results {
+			fmt.Printf("  %s -> %s (job: %s)\n", r.ContentID, r.SourceSystem, r.JobID)
+		}
+		return nil
+	}
+}
+
+func outputClassifyStats(format config.OutputFormat, result *ContentStatsResult) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(result)
+	default:
+		fmt.Printf("Classification Statistics:\n\n")
+		fmt.Printf("Total items: %d\n\n", result.Total)
+		fmt.Println("Breakdown by source system:")
+		for sourceSystem, count := range result.Breakdown {
+			fmt.Printf("  %-20s: %d\n", sourceSystem, count)
+		}
+		return nil
+	}
+}
