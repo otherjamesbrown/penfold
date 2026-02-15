@@ -41,11 +41,13 @@ func (s *Service) ListQuestions(ctx context.Context, req *questionsv1.ListQuesti
 		logging.F("status", req.Status),
 		logging.F("question_type", req.QuestionType),
 		logging.F("limit", req.Limit),
+		logging.F("tenant_id", req.GetTenantId()),
 	)
 
 	filter := reviewqueue.ReviewFilter{
-		Limit:  int(req.Limit),
-		Offset: int(req.Offset),
+		TenantID: req.GetTenantId(),
+		Limit:    int(req.Limit),
+		Offset:   int(req.Offset),
 	}
 
 	// Map proto status to internal status
@@ -116,6 +118,7 @@ func (s *Service) GetQuestion(ctx context.Context, req *questionsv1.GetQuestionR
 func (s *Service) GetNextQuestion(ctx context.Context, req *questionsv1.GetNextQuestionRequest) (*questionsv1.GetNextQuestionResponse, error) {
 	s.logger.Debug("GetNextQuestion called",
 		logging.F("question_type", req.QuestionType),
+		logging.F("tenant_id", req.GetTenantId()),
 	)
 
 	var questionType reviewqueue.QuestionType
@@ -123,7 +126,7 @@ func (s *Service) GetNextQuestion(ctx context.Context, req *questionsv1.GetNextQ
 		questionType = protoTypeToInternal(req.QuestionType)
 	}
 
-	item, err := s.repo.GetNext(ctx, questionType)
+	item, err := s.repo.GetNext(ctx, questionType, req.GetTenantId())
 	if err != nil {
 		s.logger.Error("Error getting next question", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to get next question: %v", err)
@@ -250,9 +253,11 @@ func (s *Service) DeferQuestion(ctx context.Context, req *questionsv1.DeferQuest
 
 // GetQueueStats retrieves statistics about the questions queue.
 func (s *Service) GetQueueStats(ctx context.Context, req *questionsv1.GetQueueStatsRequest) (*questionsv1.GetQueueStatsResponse, error) {
-	s.logger.Debug("GetQueueStats called")
+	s.logger.Debug("GetQueueStats called",
+		logging.F("tenant_id", req.GetTenantId()),
+	)
 
-	stats, err := s.repo.GetStats(ctx)
+	stats, err := s.repo.GetStats(ctx, req.GetTenantId())
 	if err != nil {
 		s.logger.Error("Error getting queue stats", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to get queue stats: %v", err)

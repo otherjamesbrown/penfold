@@ -307,8 +307,10 @@ func runAcronymsContext(ctx context.Context, deps *ProcessCommandDeps) error {
 
 	// Fetch glossary.
 	glossaryClient := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 	glossaryResp, err := glossaryClient.ListTerms(ctx, &glossaryv1.ListTermsRequest{
-		Limit: 500, // Get comprehensive glossary.
+		TenantId: tenantID,
+		Limit:    500, // Get comprehensive glossary.
 	})
 	if err != nil {
 		return fmt.Errorf("listing glossary: %w", err)

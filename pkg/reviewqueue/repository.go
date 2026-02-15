@@ -246,10 +246,11 @@ func (r *Repository) Defer(ctx context.Context, id int64) error {
 }
 
 // GetNext retrieves the next pending item to review (highest priority, oldest).
-func (r *Repository) GetNext(ctx context.Context, questionType QuestionType) (*ReviewItem, error) {
+func (r *Repository) GetNext(ctx context.Context, questionType QuestionType, tenantID string) (*ReviewItem, error) {
 	filter := ReviewFilter{
 		Status:       StatusPending,
 		QuestionType: questionType,
+		TenantID:     tenantID,
 		Limit:        1,
 	}
 	items, err := r.List(ctx, filter)
@@ -263,7 +264,7 @@ func (r *Repository) GetNext(ctx context.Context, questionType QuestionType) (*R
 }
 
 // GetStats retrieves summary statistics for the review queue.
-func (r *Repository) GetStats(ctx context.Context) (*QueueStats, error) {
+func (r *Repository) GetStats(ctx context.Context, tenantID string) (*QueueStats, error) {
 	stats := &QueueStats{
 		ByPriority: make(map[string]int),
 		ByType:     make(map[string]int),
@@ -271,8 +272,8 @@ func (r *Repository) GetStats(ctx context.Context) (*QueueStats, error) {
 
 	// Total pending
 	err := r.db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM review_queue WHERE status = 'pending'
-	`).Scan(&stats.TotalPending)
+		SELECT COUNT(*) FROM review_queue WHERE status = 'pending' AND tenant_id = $1
+	`, tenantID).Scan(&stats.TotalPending)
 	if err != nil {
 		return nil, fmt.Errorf("count pending: %w", err)
 	}
@@ -280,9 +281,9 @@ func (r *Repository) GetStats(ctx context.Context) (*QueueStats, error) {
 	// By priority
 	rows, err := r.db.Query(ctx, `
 		SELECT priority, COUNT(*) FROM review_queue
-		WHERE status = 'pending'
+		WHERE status = 'pending' AND tenant_id = $1
 		GROUP BY priority
-	`)
+	`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("count by priority: %w", err)
 	}
@@ -299,9 +300,9 @@ func (r *Repository) GetStats(ctx context.Context) (*QueueStats, error) {
 	// By type
 	rows, err = r.db.Query(ctx, `
 		SELECT question_type, COUNT(*) FROM review_queue
-		WHERE status = 'pending'
+		WHERE status = 'pending' AND tenant_id = $1
 		GROUP BY question_type
-	`)
+	`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("count by type: %w", err)
 	}
@@ -319,8 +320,9 @@ func (r *Repository) GetStats(ctx context.Context) (*QueueStats, error) {
 	err = r.db.QueryRow(ctx, `
 		SELECT COUNT(*) FROM review_queue
 		WHERE status = 'resolved'
+		AND tenant_id = $1
 		AND resolved_at >= CURRENT_DATE
-	`).Scan(&stats.ResolvedToday)
+	`, tenantID).Scan(&stats.ResolvedToday)
 	if err != nil {
 		return nil, fmt.Errorf("count resolved today: %w", err)
 	}
@@ -328,8 +330,8 @@ func (r *Repository) GetStats(ctx context.Context) (*QueueStats, error) {
 	// Oldest pending
 	var oldest *time.Time
 	err = r.db.QueryRow(ctx, `
-		SELECT MIN(created_at) FROM review_queue WHERE status = 'pending'
-	`).Scan(&oldest)
+		SELECT MIN(created_at) FROM review_queue WHERE status = 'pending' AND tenant_id = $1
+	`, tenantID).Scan(&oldest)
 	if err != nil && err != pgx.ErrNoRows {
 		return nil, fmt.Errorf("get oldest: %w", err)
 	}

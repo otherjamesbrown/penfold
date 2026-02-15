@@ -330,15 +330,17 @@ func TestReviewQueue_GetStatsTenantIsolation(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// GetStats has no tenant_id parameter
-	stats, err := repo.GetStats(ctx)
+	// GetStats now accepts tenant_id parameter
+	stats, err := repo.GetStats(ctx, tenantA)
 	require.NoError(t, err)
 
-	// BUG: TotalPending includes items from BOTH tenants
-	// Expected: GetStats() should accept tenant_id parameter
-	// Actual: Returns 5 (2 + 3) - cross-tenant data leak
-	assert.Equal(t, 5, stats.TotalPending, "GetStats leaks data: returns combined count from all tenants")
+	// After fix: TotalPending should only include tenant A items
+	assert.Equal(t, 2, stats.TotalPending, "GetStats should return only tenant A items (2), not tenant B items (3)")
 
-	// The stats are aggregated across all tenants, which is a security issue
-	t.Logf("GetStats returned TotalPending=%d (should be tenant-scoped)", stats.TotalPending)
+	// Verify tenant B gets their own isolated stats
+	statsB, err := repo.GetStats(ctx, tenantB)
+	require.NoError(t, err)
+	assert.Equal(t, 3, statsB.TotalPending, "GetStats should return only tenant B items (3)")
+
+	t.Logf("GetStats returned TotalPending=%d for tenant A, %d for tenant B (properly isolated)", stats.TotalPending, statsB.TotalPending)
 }

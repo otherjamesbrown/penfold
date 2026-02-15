@@ -315,10 +315,12 @@ func runQuestionsList(ctx context.Context, deps *ReviewCommandDeps) error {
 	defer conn.Close()
 
 	client := questionsv1.NewQuestionsServiceClient(conn)
+	tenantID := getTenantID()
 
 	req := &questionsv1.ListQuestionsRequest{
-		Status: questionsv1.QuestionStatus_QUESTION_STATUS_PENDING,
-		Limit:  int32(questionsLimit),
+		Status:   questionsv1.QuestionStatus_QUESTION_STATUS_PENDING,
+		Limit:    int32(questionsLimit),
+		TenantId: &tenantID,
 	}
 
 	if questionsPriority != "" {
@@ -354,8 +356,11 @@ func runQuestionsNext(ctx context.Context, deps *ReviewCommandDeps) error {
 	defer conn.Close()
 
 	client := questionsv1.NewQuestionsServiceClient(conn)
+	tenantID := getTenantID()
 
-	req := &questionsv1.GetNextQuestionRequest{}
+	req := &questionsv1.GetNextQuestionRequest{
+		TenantId: &tenantID,
+	}
 	if questionsType != "" {
 		req.QuestionType = stringToQuestionType(questionsType)
 	}
@@ -499,8 +504,11 @@ func runQuestionsStats(ctx context.Context, deps *ReviewCommandDeps) error {
 	defer conn.Close()
 
 	client := questionsv1.NewQuestionsServiceClient(conn)
+	tenantID := getTenantID()
 
-	resp, err := client.GetQueueStats(ctx, &questionsv1.GetQueueStatsRequest{})
+	resp, err := client.GetQueueStats(ctx, &questionsv1.GetQueueStatsRequest{
+		TenantId: &tenantID,
+	})
 	if err != nil {
 		return fmt.Errorf("getting stats: %w", err)
 	}

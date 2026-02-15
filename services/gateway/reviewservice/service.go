@@ -554,9 +554,11 @@ func (s *Service) UndoAction(ctx context.Context, req *reviewv1.UndoActionReques
 
 // GetReviewStats retrieves review statistics.
 func (s *Service) GetReviewStats(ctx context.Context, req *reviewv1.GetReviewStatsRequest) (*reviewv1.GetReviewStatsResponse, error) {
-	s.logger.Debug("GetReviewStats called")
+	s.logger.Debug("GetReviewStats called",
+		logging.F("tenant_id", req.GetTenantId()),
+	)
 
-	stats, err := s.repo.GetStats(ctx)
+	stats, err := s.repo.GetStats(ctx, req.GetTenantId())
 	if err != nil {
 		s.logger.Error("Error getting stats", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to get stats: %v", err)

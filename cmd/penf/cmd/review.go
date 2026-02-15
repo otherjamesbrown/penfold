@@ -706,8 +706,10 @@ func runReviewQueue(ctx context.Context, deps *ReviewCommandDeps) error {
 	defer grpcClient.Close()
 
 	client := reviewv1.NewReviewServiceClient(grpcClient.GetConnection())
+	tenantID := getTenantID()
 
 	req := &reviewv1.ListReviewItemsRequest{
+		TenantId: &tenantID,
 		Statuses: []reviewv1.ReviewStatus{reviewv1.ReviewStatus_REVIEW_STATUS_PENDING},
 		PageSize: 50,
 	}

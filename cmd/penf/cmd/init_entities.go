@@ -165,9 +165,11 @@ func runInitEntitiesFromJSON(ctx context.Context, cfg *config.CLIConfig, jsonPat
 	if len(seed.Glossary) > 0 {
 		fmt.Println("Seeding glossary terms...")
 		glossaryClient := glossaryv1.NewGlossaryServiceClient(conn)
+		tenantID := getTenantID()
 
 		for _, g := range seed.Glossary {
 			_, err := glossaryClient.AddTerm(ctx, &glossaryv1.AddTermRequest{
+				TenantId:       tenantID,
 				Term:           g.Term,
 				Expansion:      g.Expansion,
 				Definition:     g.Definition,
@@ -342,6 +344,7 @@ func runInitEntitiesInteractive(ctx context.Context, cfg *config.CLIConfig) erro
 	defer conn.Close()
 
 	glossaryClient := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 
 	var stats struct {
 		people   int
@@ -391,6 +394,7 @@ func runInitEntitiesInteractive(ctx context.Context, cfg *config.CLIConfig) erro
 
 		// Add to glossary
 		_, err := glossaryClient.AddTerm(ctx, &glossaryv1.AddTermRequest{
+			TenantId:       tenantID,
 			Term:           input,
 			Expansion:      expansion,
 			Context:        contextTags,

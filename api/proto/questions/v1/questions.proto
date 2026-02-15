@@ -201,6 +201,9 @@ message ListQuestionsRequest {
 
   // Pagination offset.
   int32 offset = 6;
+
+  // Tenant ID for multi-tenant isolation.
+  optional string tenant_id = 7;
 }
 
 // ListQuestionsResponse contains the list of questions.
@@ -228,6 +231,9 @@ message GetQuestionResponse {
 message GetNextQuestionRequest {
   // Optional filter by type.
   QuestionType question_type = 1;
+
+  // Tenant ID for multi-tenant isolation.
+  optional string tenant_id = 2;
 }
 
 // GetNextQuestionResponse contains the next question.
@@ -286,7 +292,8 @@ message DeferQuestionResponse {
 
 // GetQueueStatsRequest retrieves queue statistics.
 message GetQueueStatsRequest {
-  // No parameters needed.
+  // Tenant ID for multi-tenant isolation.
+  optional string tenant_id = 1;
 }
 
 // GetQueueStatsResponse contains the statistics.
