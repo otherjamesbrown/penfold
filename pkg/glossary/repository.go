@@ -95,7 +95,7 @@ func scanTerm(scanner interface {
 }
 
 // Create adds a new term to the glossary.
-func (r *Repository) Create(ctx context.Context, input TermInput) (*Term, error) {
+func (r *Repository) Create(ctx context.Context, tenantID string, input TermInput) (*Term, error) {
 	expandInSearch := true
 	if input.ExpandInSearch != nil {
 		expandInSearch = *input.ExpandInSearch
@@ -119,10 +119,11 @@ func (r *Repository) Create(ctx context.Context, input TermInput) (*Term, error)
 	}
 
 	row := r.db.QueryRow(ctx, `
-		INSERT INTO glossary (term, expansion, definition, context, aliases, expand_in_search, source, created_by, linked_entity_type, linked_entity_id)
-		VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10)
+		INSERT INTO glossary (tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_by, linked_entity_type, linked_entity_id)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
 		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
 	`,
+		tenantID,
 		input.Term,
 		input.Expansion,
 		input.Definition,

@@ -56,7 +56,7 @@ func TestGlossaryRepository_Create(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			term, err := repo.Create(ctx, tt.input)
+			term, err := repo.Create(ctx, DefaultTestTenantID, tt.input)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
@@ -85,7 +85,7 @@ func TestGlossaryRepository_GetByTerm(t *testing.T) {
 		Definition: "Weekly engineering review meeting",
 		Context:    []string{"meeting"},
 	}
-	created, err := repo.Create(ctx, input)
+	created, err := repo.Create(ctx, DefaultTestTenantID, input)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -149,7 +149,7 @@ func TestGlossaryRepository_List(t *testing.T) {
 	}
 
 	for _, input := range terms {
-		_, err := repo.Create(ctx, input)
+		_, err := repo.Create(ctx, DefaultTestTenantID, input)
 		require.NoError(t, err)
 	}
 
@@ -197,7 +197,7 @@ func TestGlossaryRepository_Update(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a term
-	created, err := repo.Create(ctx, glossary.TermInput{
+	created, err := repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{
 		Term:       "MVP",
 		Expansion:  "Minimum Viable Product",
 		Definition: "Original definition",
@@ -226,7 +226,7 @@ func TestGlossaryRepository_Delete(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a term
-	created, err := repo.Create(ctx, glossary.TermInput{
+	created, err := repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{
 		Term:      "TEMP",
 		Expansion: "Temporary Term",
 	})
@@ -250,14 +250,14 @@ func TestGlossaryRepository_ExpandQuery(t *testing.T) {
 	ctx := context.Background()
 
 	// Create terms with aliases
-	mvpTerm, err := repo.Create(ctx, glossary.TermInput{
+	mvpTerm, err := repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{
 		Term:      "MVP",
 		Expansion: "Minimum Viable Product",
 		Aliases:   []string{"minimum viable", "early release"},
 	})
 	require.NoError(t, err)
 
-	_, err = repo.Create(ctx, glossary.TermInput{
+	_, err = repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{
 		Term:      "API",
 		Expansion: "Application Programming Interface",
 		Aliases:   []string{"interface", "endpoint"},
@@ -307,7 +307,7 @@ func TestGlossaryRepository_DeleteByTerm(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a term
-	created, err := repo.Create(ctx, glossary.TermInput{
+	created, err := repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{
 		Term:      "DELETEME",
 		Expansion: "Term To Delete",
 	})
@@ -340,7 +340,7 @@ func TestGlossaryRepository_LookupTerm(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a term with aliases
-	created, err := repo.Create(ctx, glossary.TermInput{
+	created, err := repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{
 		Term:      "MVP",
 		Expansion: "Minimum Viable Product",
 		Aliases:   []string{"minimum viable", "early release"},
@@ -391,7 +391,7 @@ func TestGlossaryRepository_LinkEntity(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a term
-	created, err := repo.Create(ctx, glossary.TermInput{
+	created, err := repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{
 		Term:      "Widget",
 		Expansion: "Widget Product",
 	})
@@ -425,7 +425,7 @@ func TestGlossaryRepository_UnlinkEntity(t *testing.T) {
 	ctx := context.Background()
 
 	// Create and link a term
-	created, err := repo.Create(ctx, glossary.TermInput{
+	created, err := repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{
 		Term:      "Project Alpha",
 		Expansion: "Main Project",
 	})
@@ -454,23 +454,23 @@ func TestGlossaryRepository_ListLinked(t *testing.T) {
 	ctx := context.Background()
 
 	// Create terms with various link states
-	term1, err := repo.Create(ctx, glossary.TermInput{Term: "Product1", Expansion: "Prod One"})
+	term1, err := repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{Term: "Product1", Expansion: "Prod One"})
 	require.NoError(t, err)
 	_, err = repo.LinkEntity(ctx, term1.ID, term1.TenantID, "product", 1)
 	require.NoError(t, err)
 
-	term2, err := repo.Create(ctx, glossary.TermInput{Term: "Product2", Expansion: "Prod Two"})
+	term2, err := repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{Term: "Product2", Expansion: "Prod Two"})
 	require.NoError(t, err)
 	_, err = repo.LinkEntity(ctx, term2.ID, term2.TenantID, "product", 2)
 	require.NoError(t, err)
 
-	term3, err := repo.Create(ctx, glossary.TermInput{Term: "Project1", Expansion: "Proj One"})
+	term3, err := repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{Term: "Project1", Expansion: "Proj One"})
 	require.NoError(t, err)
 	_, err = repo.LinkEntity(ctx, term3.ID, term3.TenantID, "project", 1)
 	require.NoError(t, err)
 
 	// Create unlinked term
-	_, err = repo.Create(ctx, glossary.TermInput{Term: "Unlinked", Expansion: "No Link"})
+	_, err = repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{Term: "Unlinked", Expansion: "No Link"})
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -529,13 +529,13 @@ func TestGlossaryRepository_CreateDuplicate(t *testing.T) {
 		Definition: "A term to test duplicate handling",
 	}
 
-	first, err := repo.Create(ctx, input)
+	first, err := repo.Create(ctx, DefaultTestTenantID, input)
 	require.NoError(t, err)
 	assert.NotZero(t, first.ID)
 	assert.Equal(t, "DUPTEST", first.Term)
 
 	// Attempt to create the same term again
-	second, err := repo.Create(ctx, input)
+	second, err := repo.Create(ctx, DefaultTestTenantID, input)
 
 	// The bug: repository does not translate pgx unique constraint violation
 	// to pferrors.ErrAlreadyExists. This test should FAIL until the bug is fixed.

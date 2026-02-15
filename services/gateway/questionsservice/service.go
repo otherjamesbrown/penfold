@@ -178,7 +178,7 @@ func (s *Service) ResolveQuestion(ctx context.Context, req *questionsv1.ResolveQ
 			Source:         "review_queue",
 		}
 
-		_, err := s.glossaryRepo.Create(ctx, input)
+		_, err := s.glossaryRepo.Create(ctx, item.TenantID, input)
 		if err != nil {
 			s.logger.Warn("Failed to add term to glossary (may already exist)",
 				logging.F("term", *item.SuggestedTerm),

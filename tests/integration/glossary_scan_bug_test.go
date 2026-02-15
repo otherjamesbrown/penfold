@@ -115,7 +115,7 @@ func TestGlossaryRepository_Update_ScanEdgeCases(t *testing.T) {
 	repo := glossary.NewRepository(db.Pool)
 
 	// Create a normal term
-	created, err := repo.Create(ctx, glossary.TermInput{
+	created, err := repo.Create(ctx, DefaultTestTenantID, glossary.TermInput{
 		Term:       "UPDATETEST",
 		Expansion:  "Update Test",
 		Definition: "Original",

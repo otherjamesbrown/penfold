@@ -69,7 +69,7 @@ func (s *Service) AddTerm(ctx context.Context, req *glossaryv1.AddTermRequest) (
 		Source:         "grpc",
 	}
 
-	created, err := s.repo.Create(ctx, input)
+	created, err := s.repo.Create(ctx, req.TenantId, input)
 	if err != nil {
 		// Handle duplicate error from repository
 		if errors.Is(err, pferrors.ErrAlreadyExists) {
