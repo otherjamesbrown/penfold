@@ -1,7 +1,12 @@
+//go:build integration
+
 package relationships
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -417,20 +422,101 @@ func TestCalculateEntitySimilarity_FalsePositives(t *testing.T) {
 
 func setupTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	// Note: This will fail on laptop due to no DB connection.
-	// The goal is to demonstrate the expected interface.
-	connString := "postgres://penfold:penfold@dev02.brown.chat:5432/penfold?sslmode=disable"
-	pool, err := pgxpool.New(context.Background(), connString)
+
+	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
+	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
+	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
+	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold")
+
+	// Build connection string with SSL cert auth
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		t.Skipf("Skipping test: cannot connect to database: %v", err)
+		t.Fatalf("failed to get home directory: %v", err)
 	}
+	sslCert := filepath.Join(homeDir, ".postgresql", "postgresql.crt")
+	sslKey := filepath.Join(homeDir, ".postgresql", "postgresql.key")
+	sslRootCert := filepath.Join(homeDir, ".postgresql", "root.crt")
+
+	// Check if SSL certs exist
+	if _, err := os.Stat(sslCert); os.IsNotExist(err) {
+		t.Skip("SSL certs not found in ~/.postgresql/ - skipping integration test")
+	}
+
+	connStr := fmt.Sprintf(
+		"postgres://%s@%s:%s/%s?sslmode=verify-full&sslcert=%s&sslkey=%s&sslrootcert=%s",
+		user, host, port, dbName, sslCert, sslKey, sslRootCert,
+	)
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, connStr)
+	if err != nil {
+		t.Fatalf("failed to connect to test database: %v", err)
+	}
+
+	// Verify connection
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatalf("failed to ping test database: %v", err)
+	}
+
+	// Register cleanup
+	t.Cleanup(func() {
+		pool.Close()
+	})
+
 	return pool
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }
 
 func seedDuplicateEntities(t *testing.T, pool *pgxpool.Pool, tenantID string) {
 	t.Helper()
-	// Insert two similar entities for testing
-	// Implementation would use INSERT statements
+
+	ctx := context.Background()
+
+	// Clean up any existing test data for this tenant
+	_, err := pool.Exec(ctx, `
+		DELETE FROM people
+		WHERE tenant_id = $1
+		  AND canonical_name IN ('John Smith', 'Jon Smith')
+	`, tenantID)
+	if err != nil {
+		t.Fatalf("Failed to clean up test data: %v", err)
+	}
+
+	// Insert two similar entities that should be detected as duplicates
+	// Entity 1: John Smith with email john.smith@example.com
+	_, err = pool.Exec(ctx, `
+		INSERT INTO people (
+			tenant_id, canonical_name, email_addresses,
+			confidence_score, created_at, updated_at
+		) VALUES (
+			$1, 'John Smith', ARRAY['john.smith@example.com'],
+			0.9, NOW(), NOW()
+		)
+	`, tenantID)
+	if err != nil {
+		t.Fatalf("Failed to insert first duplicate entity: %v", err)
+	}
+
+	// Entity 2: Jon Smith with email jonsmith@example.com
+	// Similar name (typo variant) - should trigger duplicate detection
+	_, err = pool.Exec(ctx, `
+		INSERT INTO people (
+			tenant_id, canonical_name, email_addresses,
+			confidence_score, created_at, updated_at
+		) VALUES (
+			$1, 'Jon Smith', ARRAY['jonsmith@example.com'],
+			0.9, NOW(), NOW()
+		)
+	`, tenantID)
+	if err != nil {
+		t.Fatalf("Failed to insert second duplicate entity: %v", err)
+	}
 }
 
 func seedDissimilarEntities(t *testing.T, pool *pgxpool.Pool, tenantID string) {

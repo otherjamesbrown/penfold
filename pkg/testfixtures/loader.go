@@ -160,9 +160,10 @@ func (l *Loader) LoadPeople(ctx context.Context) error {
 		// first element of the array.
 		// We don't specify ID - let the database auto-generate it to avoid
 		// conflicts with production data (tables use global IDs, not tenant-scoped).
+		// confidence_score defaults to 0.85 for test fixtures.
 		_, err := l.db.Exec(ctx, `
-			INSERT INTO people (tenant_id, canonical_name, email_addresses)
-			VALUES ($1, $2, ARRAY[$3])
+			INSERT INTO people (tenant_id, canonical_name, email_addresses, confidence_score)
+			VALUES ($1, $2, ARRAY[$3], 0.85)
 		`, l.tenantID, person.CanonicalName, person.Email)
 		if err != nil {
 			return fmt.Errorf("insert person %s: %w", person.CanonicalName, err)

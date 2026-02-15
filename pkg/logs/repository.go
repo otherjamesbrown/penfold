@@ -38,7 +38,7 @@ func (r *Repository) Create(ctx context.Context, input EntryInput) (*Entry, erro
 	err = r.db.QueryRow(ctx, `
 		INSERT INTO service_logs (tenant_id, timestamp, level, service, message, fields, trace_id, span_id, caller)
 		VALUES (COALESCE(NULLIF($1, '')::uuid, '00000000-0000-0000-0000-000000000000'::uuid), $2, $3, $4, $5, $6::jsonb, NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''))
-		RETURNING id, tenant_id, timestamp, level, service, message, fields, trace_id, span_id, caller, created_at
+		RETURNING id, tenant_id, timestamp, level, service, message, fields, COALESCE(trace_id, '') AS trace_id, COALESCE(span_id, '') AS span_id, COALESCE(caller, '') AS caller, created_at
 	`,
 		input.TenantID,
 		timestamp,
@@ -125,7 +125,7 @@ func (r *Repository) CreateBatch(ctx context.Context, inputs []EntryInput) (int6
 // List retrieves log entries matching the filter.
 func (r *Repository) List(ctx context.Context, filter Filter) ([]*Entry, error) {
 	query := `
-		SELECT id, tenant_id, timestamp, level, service, message, fields, trace_id, span_id, caller, created_at
+		SELECT id, tenant_id, timestamp, level, service, message, fields, COALESCE(trace_id, '') AS trace_id, COALESCE(span_id, '') AS span_id, COALESCE(caller, '') AS caller, created_at
 		FROM service_logs
 		WHERE 1=1
 	`
