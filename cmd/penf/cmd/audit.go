@@ -452,7 +452,10 @@ func outputCorrectionsTable(corrections []client.Decision) error {
 // Helper functions
 
 func getTenantID() string {
-	// STUB: Returns hardcoded tenant until multi-tenant context is implemented.
+	if envTenant := os.Getenv("PENF_TENANT_ID"); envTenant != "" {
+		return envTenant
+	}
+	// Default tenant.
 	return "00000001-0000-0000-0000-000000000001"
 }
 
