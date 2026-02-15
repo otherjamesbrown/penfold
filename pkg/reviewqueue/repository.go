@@ -126,6 +126,12 @@ func (r *Repository) List(ctx context.Context, filter ReviewFilter) ([]*ReviewIt
 	args = append(args, filter.Status)
 	argNum++
 
+	if filter.TenantID != "" {
+		query += fmt.Sprintf(" AND tenant_id = $%d", argNum)
+		args = append(args, filter.TenantID)
+		argNum++
+	}
+
 	if filter.QuestionType != "" {
 		query += fmt.Sprintf(" AND question_type = $%d", argNum)
 		args = append(args, filter.QuestionType)

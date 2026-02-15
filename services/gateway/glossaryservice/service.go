@@ -35,6 +35,7 @@ func (s *Service) AddTerm(ctx context.Context, req *glossaryv1.AddTermRequest) (
 	s.logger.Debug("AddTerm called",
 		logging.F("term", req.Term),
 		logging.F("expansion", req.Expansion),
+		logging.F("tenant_id", req.TenantId),
 	)
 
 	if req.Term == "" {
@@ -43,9 +44,12 @@ func (s *Service) AddTerm(ctx context.Context, req *glossaryv1.AddTermRequest) (
 	if req.Expansion == "" {
 		return nil, status.Error(codes.InvalidArgument, "expansion is required")
 	}
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
 
 	// Check if term already exists
-	existing, err := s.repo.GetByTerm(ctx, req.Term)
+	existing, err := s.repo.GetByTerm(ctx, req.TenantId, req.Term)
 	if err != nil {
 		s.logger.Error("Error checking existing term", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to check existing term: %v", err)
@@ -85,15 +89,20 @@ func (s *Service) GetTerm(ctx context.Context, req *glossaryv1.GetTermRequest) (
 	s.logger.Debug("GetTerm called",
 		logging.F("id", req.Id),
 		logging.F("term", req.Term),
+		logging.F("tenant_id", req.TenantId),
 	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
 
 	var term *glossary.Term
 	var err error
 
 	if req.Id > 0 {
-		term, err = s.repo.Get(ctx, req.Id)
+		term, err = s.repo.Get(ctx, req.Id, req.TenantId)
 	} else if req.Term != "" {
-		term, err = s.repo.GetByTerm(ctx, req.Term)
+		term, err = s.repo.GetByTerm(ctx, req.TenantId, req.Term)
 	} else {
 		return nil, status.Error(codes.InvalidArgument, "either id or term is required")
 	}
@@ -113,9 +122,15 @@ func (s *Service) ListTerms(ctx context.Context, req *glossaryv1.ListTermsReques
 	s.logger.Debug("ListTerms called",
 		logging.F("search", req.Search),
 		logging.F("limit", req.Limit),
+		logging.F("tenant_id", req.TenantId),
 	)
 
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+
 	filter := glossary.TermFilter{
+		TenantID:   req.TenantId,
 		Term:       req.Term,
 		Search:     req.Search,
 		Context:    req.Context,
@@ -150,14 +165,18 @@ func (s *Service) ListTerms(ctx context.Context, req *glossaryv1.ListTermsReques
 func (s *Service) UpdateTerm(ctx context.Context, req *glossaryv1.UpdateTermRequest) (*glossaryv1.UpdateTermResponse, error) {
 	s.logger.Debug("UpdateTerm called",
 		logging.F("id", req.Id),
+		logging.F("tenant_id", req.TenantId),
 	)
 
 	if req.Id == 0 {
 		return nil, status.Error(codes.InvalidArgument, "id is required")
 	}
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
 
-	// Get existing term first
-	existing, err := s.repo.Get(ctx, req.Id)
+	// Get existing term first (with tenant verification)
+	existing, err := s.repo.Get(ctx, req.Id, req.TenantId)
 	if err != nil {
 		s.logger.Error("Error getting term for update", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to get term: %v", err)
@@ -208,13 +227,27 @@ func (s *Service) UpdateTerm(ctx context.Context, req *glossaryv1.UpdateTermRequ
 func (s *Service) DeleteTerm(ctx context.Context, req *glossaryv1.DeleteTermRequest) (*glossaryv1.DeleteTermResponse, error) {
 	s.logger.Debug("DeleteTerm called",
 		logging.F("id", req.Id),
+		logging.F("tenant_id", req.TenantId),
 	)
 
 	if req.Id == 0 {
 		return nil, status.Error(codes.InvalidArgument, "id is required")
 	}
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
 
-	err := s.repo.Delete(ctx, req.Id)
+	// Verify the term belongs to this tenant before deleting
+	existing, err := s.repo.Get(ctx, req.Id, req.TenantId)
+	if err != nil {
+		s.logger.Error("Error getting term for delete", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get term: %v", err)
+	}
+	if existing == nil {
+		return nil, status.Errorf(codes.NotFound, "term with id %d not found", req.Id)
+	}
+
+	err = s.repo.Delete(ctx, req.Id)
 	if err != nil {
 		if err.Error() == "term not found" {
 			return nil, status.Errorf(codes.NotFound, "term with id %d not found", req.Id)
@@ -232,13 +265,17 @@ func (s *Service) DeleteTerm(ctx context.Context, req *glossaryv1.DeleteTermRequ
 func (s *Service) ExpandQuery(ctx context.Context, req *glossaryv1.ExpandQueryRequest) (*glossaryv1.ExpandQueryResponse, error) {
 	s.logger.Debug("ExpandQuery called",
 		logging.F("query", req.Query),
+		logging.F("tenant_id", req.TenantId),
 	)
 
 	if req.Query == "" {
 		return nil, status.Error(codes.InvalidArgument, "query is required")
 	}
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
 
-	expansion, err := s.repo.ExpandQuery(ctx, req.Query)
+	expansion, err := s.repo.ExpandQuery(ctx, req.TenantId, req.Query)
 	if err != nil {
 		s.logger.Error("Error expanding query", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to expand query: %v", err)
@@ -265,13 +302,17 @@ func (s *Service) ExpandQuery(ctx context.Context, req *glossaryv1.ExpandQueryRe
 func (s *Service) LookupTerm(ctx context.Context, req *glossaryv1.LookupTermRequest) (*glossaryv1.LookupTermResponse, error) {
 	s.logger.Debug("LookupTerm called",
 		logging.F("term", req.Term),
+		logging.F("tenant_id", req.TenantId),
 	)
 
 	if req.Term == "" {
 		return nil, status.Error(codes.InvalidArgument, "term is required")
 	}
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
 
-	term, err := s.repo.LookupTerm(ctx, req.Term)
+	term, err := s.repo.LookupTerm(ctx, req.TenantId, req.Term)
 	if err != nil {
 		s.logger.Error("Error looking up term", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to lookup term: %v", err)
@@ -330,9 +371,13 @@ func (s *Service) LinkTerm(ctx context.Context, req *glossaryv1.LinkTermRequest)
 		logging.F("term_str", req.TermStr),
 		logging.F("entity_type", req.EntityType),
 		logging.F("entity_id", req.EntityId),
+		logging.F("tenant_id", req.TenantId),
 	)
 
 	// Validate inputs
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
 	if req.EntityType == "" {
 		return nil, status.Error(codes.InvalidArgument, "entity_type is required")
 	}
@@ -345,7 +390,7 @@ func (s *Service) LinkTerm(ctx context.Context, req *glossaryv1.LinkTermRequest)
 	if req.TermId > 0 {
 		termID = req.TermId
 	} else if req.TermStr != "" {
-		term, err := s.repo.GetByTerm(ctx, req.TermStr)
+		term, err := s.repo.GetByTerm(ctx, req.TenantId, req.TermStr)
 		if err != nil {
 			s.logger.Error("Error looking up term", logging.Err(err))
 			return nil, status.Errorf(codes.Internal, "failed to lookup term: %v", err)
@@ -359,7 +404,7 @@ func (s *Service) LinkTerm(ctx context.Context, req *glossaryv1.LinkTermRequest)
 	}
 
 	// Link the entity
-	updated, err := s.repo.LinkEntity(ctx, termID, req.EntityType, req.EntityId)
+	updated, err := s.repo.LinkEntity(ctx, termID, req.TenantId, req.EntityType, req.EntityId)
 	if err != nil {
 		if err.Error() == "term not found" {
 			return nil, status.Errorf(codes.NotFound, "term with id %d not found", termID)
@@ -378,14 +423,19 @@ func (s *Service) UnlinkTerm(ctx context.Context, req *glossaryv1.UnlinkTermRequ
 	s.logger.Debug("UnlinkTerm called",
 		logging.F("term_id", req.TermId),
 		logging.F("term_str", req.TermStr),
+		logging.F("tenant_id", req.TenantId),
 	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
 
 	// Get term ID (either from request or by looking up term string)
 	var termID int64
 	if req.TermId > 0 {
 		termID = req.TermId
 	} else if req.TermStr != "" {
-		term, err := s.repo.GetByTerm(ctx, req.TermStr)
+		term, err := s.repo.GetByTerm(ctx, req.TenantId, req.TermStr)
 		if err != nil {
 			s.logger.Error("Error looking up term", logging.Err(err))
 			return nil, status.Errorf(codes.Internal, "failed to lookup term: %v", err)
@@ -399,7 +449,7 @@ func (s *Service) UnlinkTerm(ctx context.Context, req *glossaryv1.UnlinkTermRequ
 	}
 
 	// Unlink the entity
-	updated, err := s.repo.UnlinkEntity(ctx, termID)
+	updated, err := s.repo.UnlinkEntity(ctx, termID, req.TenantId)
 	if err != nil {
 		if err.Error() == "term not found" {
 			return nil, status.Errorf(codes.NotFound, "term with id %d not found", termID)
@@ -418,9 +468,15 @@ func (s *Service) ListLinkedTerms(ctx context.Context, req *glossaryv1.ListLinke
 	s.logger.Debug("ListLinkedTerms called",
 		logging.F("entity_type", req.EntityType),
 		logging.F("entity_id", req.EntityId),
+		logging.F("tenant_id", req.TenantId),
 	)
 
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+
 	filter := glossary.LinkedTermFilter{
+		TenantID:   req.TenantId,
 		EntityType: req.EntityType,
 		EntityID:   req.EntityId,
 		Limit:      int(req.Limit),

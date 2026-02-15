@@ -825,7 +825,7 @@ func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input
 
 		// Skip if already in glossary
 		if r.glossaryRepo != nil {
-			glossaryTerm, err := r.glossaryRepo.GetByTerm(ctx, normalizedTerm)
+			glossaryTerm, err := r.glossaryRepo.GetByTerm(ctx, input.TenantID, normalizedTerm)
 			if err != nil {
 				logger.Warn("Failed to check glossary for acronym",
 					logging.F("term", normalizedTerm), logging.Err(err))

@@ -137,6 +137,9 @@ message AddTermRequest {
 
   // Whether to use for query expansion (default: true).
   bool expand_in_search = 6;
+
+  // Tenant ID for multi-tenant isolation.
+  string tenant_id = 7;
 }
 
 // AddTermResponse confirms the term was added.
@@ -152,6 +155,9 @@ message GetTermRequest {
 
   // Or get by term string (case-insensitive).
   string term = 2;
+
+  // Tenant ID for multi-tenant isolation.
+  string tenant_id = 3;
 }
 
 // GetTermResponse contains the requested term.
@@ -182,6 +188,9 @@ message ListTermsRequest {
 
   // Pagination offset.
   int32 offset = 7;
+
+  // Tenant ID for multi-tenant isolation.
+  string tenant_id = 8;
 }
 
 // ListTermsResponse contains the list of terms.
@@ -212,6 +221,9 @@ message UpdateTermRequest {
 
   // Update expand_in_search flag.
   optional bool expand_in_search = 6;
+
+  // Tenant ID for multi-tenant isolation.
+  string tenant_id = 7;
 }
 
 // UpdateTermResponse confirms the update.
@@ -224,6 +236,9 @@ message UpdateTermResponse {
 message DeleteTermRequest {
   // ID of the term to delete.
   int64 id = 1;
+
+  // Tenant ID for multi-tenant isolation.
+  string tenant_id = 2;
 }
 
 // DeleteTermResponse confirms deletion.
@@ -239,6 +254,9 @@ message ExpandQueryRequest {
 
   // Only use terms matching these context tags.
   repeated string context = 2;
+
+  // Tenant ID for multi-tenant isolation.
+  string tenant_id = 3;
 }
 
 // ExpandQueryResponse contains the expanded query.
@@ -257,6 +275,9 @@ message ExpandQueryResponse {
 message LookupTermRequest {
   // The term to look up.
   string term = 1;
+
+  // Tenant ID for multi-tenant isolation.
+  string tenant_id = 2;
 }
 
 // LookupTermResponse contains the lookup result.
@@ -281,6 +302,9 @@ message LinkTermRequest {
 
   // Entity ID.
   int64 entity_id = 4;
+
+  // Tenant ID for multi-tenant isolation.
+  string tenant_id = 5;
 }
 
 // LinkTermResponse confirms the link was created.
@@ -296,6 +320,9 @@ message UnlinkTermRequest {
 
   // Term string to unlink (alternative to term_id).
   string term_str = 2;
+
+  // Tenant ID for multi-tenant isolation.
+  string tenant_id = 3;
 }
 
 // UnlinkTermResponse confirms the link was removed.
@@ -317,6 +344,9 @@ message ListLinkedTermsRequest {
 
   // Pagination offset.
   int32 offset = 4;
+
+  // Tenant ID for multi-tenant isolation.
+  string tenant_id = 5;
 }
 
 // ListLinkedTermsResponse contains linked terms.

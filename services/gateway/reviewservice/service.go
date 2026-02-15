@@ -421,7 +421,8 @@ func (s *Service) ListReviewItems(ctx context.Context, req *reviewv1.ListReviewI
 	}
 
 	filter := reviewqueue.ReviewFilter{
-		Limit: int(req.PageSize),
+		TenantID: req.GetTenantId(),
+		Limit:    int(req.PageSize),
 	}
 
 	if filter.Limit <= 0 {

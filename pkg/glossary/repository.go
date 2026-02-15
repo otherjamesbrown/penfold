@@ -26,6 +26,74 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
 }
 
+// scanTerm safely scans a glossary term row, handling NULL and bare-string JSONB edge cases.
+// This pattern mirrors the safe scan logic from List() (lines 239-292).
+func scanTerm(scanner interface {
+	Scan(dest ...interface{}) error
+}, term *Term) error {
+	var definition, source, createdBy sql.NullString
+	var contextRaw, aliasesRaw []byte
+
+	err := scanner.Scan(
+		&term.ID,
+		&term.TenantID,
+		&term.Term,
+		&term.Expansion,
+		&definition,
+		&contextRaw,
+		&aliasesRaw,
+		&term.ExpandInSearch,
+		&source,
+		&term.CreatedAt,
+		&term.UpdatedAt,
+		&createdBy,
+		&term.LinkedEntityType,
+		&term.LinkedEntityID,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Handle nullable string fields
+	if definition.Valid {
+		term.Definition = definition.String
+	}
+	if source.Valid {
+		term.Source = source.String
+	}
+	if createdBy.Valid {
+		term.CreatedBy = &createdBy.String
+	}
+
+	// Handle context - can be array, string, or null
+	if len(contextRaw) > 0 {
+		if contextRaw[0] == '[' {
+			json.Unmarshal(contextRaw, &term.Context)
+		} else if contextRaw[0] == '"' {
+			var singleContext string
+			json.Unmarshal(contextRaw, &singleContext)
+			if singleContext != "" {
+				term.Context = []string{singleContext}
+			}
+		}
+	}
+
+	// Handle aliases similarly
+	if len(aliasesRaw) > 0 {
+		if aliasesRaw[0] == '[' {
+			json.Unmarshal(aliasesRaw, &term.Aliases)
+		} else if aliasesRaw[0] == '"' {
+			var singleAlias string
+			json.Unmarshal(aliasesRaw, &singleAlias)
+			if singleAlias != "" {
+				term.Aliases = []string{singleAlias}
+			}
+		}
+	}
+
+	return nil
+}
+
 // Create adds a new term to the glossary.
 func (r *Repository) Create(ctx context.Context, input TermInput) (*Term, error) {
 	expandInSearch := true
@@ -50,7 +118,7 @@ func (r *Repository) Create(ctx context.Context, input TermInput) (*Term, error)
 		linkedID = *input.LinkedEntityID
 	}
 
-	err := r.db.QueryRow(ctx, `
+	row := r.db.QueryRow(ctx, `
 		INSERT INTO glossary (term, expansion, definition, context, aliases, expand_in_search, source, created_by, linked_entity_type, linked_entity_id)
 		VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10)
 		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
@@ -65,22 +133,8 @@ func (r *Repository) Create(ctx context.Context, input TermInput) (*Term, error)
 		input.CreatedBy,
 		linkedType,
 		linkedID,
-	).Scan(
-		&term.ID,
-		&term.TenantID,
-		&term.Term,
-		&term.Expansion,
-		&term.Definition,
-		&term.Context,
-		&term.Aliases,
-		&term.ExpandInSearch,
-		&term.Source,
-		&term.CreatedAt,
-		&term.UpdatedAt,
-		&term.CreatedBy,
-		&term.LinkedEntityType,
-		&term.LinkedEntityID,
 	)
+	err := scanTerm(row, &term)
 	if err != nil {
 		// Check for unique constraint violation
 		var pgErr *pgconn.PgError
@@ -94,28 +148,21 @@ func (r *Repository) Create(ctx context.Context, input TermInput) (*Term, error)
 }
 
 // Get retrieves a term by ID.
-func (r *Repository) Get(ctx context.Context, id int64) (*Term, error) {
+func (r *Repository) Get(ctx context.Context, id int64, tenantID string) (*Term, error) {
 	var term Term
-	err := r.db.QueryRow(ctx, `
+	query := `
 		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
 		FROM glossary
-		WHERE id = $1
-	`, id).Scan(
-		&term.ID,
-		&term.TenantID,
-		&term.Term,
-		&term.Expansion,
-		&term.Definition,
-		&term.Context,
-		&term.Aliases,
-		&term.ExpandInSearch,
-		&term.Source,
-		&term.CreatedAt,
-		&term.UpdatedAt,
-		&term.CreatedBy,
-		&term.LinkedEntityType,
-		&term.LinkedEntityID,
-	)
+		WHERE id = $1`
+	args := []interface{}{id}
+
+	if tenantID != "" {
+		query += " AND tenant_id = $2"
+		args = append(args, tenantID)
+	}
+
+	row := r.db.QueryRow(ctx, query, args...)
+	err := scanTerm(row, &term)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -126,28 +173,14 @@ func (r *Repository) Get(ctx context.Context, id int64) (*Term, error) {
 }
 
 // GetByTerm retrieves a term by its term string (case-insensitive).
-func (r *Repository) GetByTerm(ctx context.Context, termStr string) (*Term, error) {
+func (r *Repository) GetByTerm(ctx context.Context, tenantID string, termStr string) (*Term, error) {
 	var term Term
-	err := r.db.QueryRow(ctx, `
+	row := r.db.QueryRow(ctx, `
 		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
 		FROM glossary
-		WHERE LOWER(term) = LOWER($1)
-	`, termStr).Scan(
-		&term.ID,
-		&term.TenantID,
-		&term.Term,
-		&term.Expansion,
-		&term.Definition,
-		&term.Context,
-		&term.Aliases,
-		&term.ExpandInSearch,
-		&term.Source,
-		&term.CreatedAt,
-		&term.UpdatedAt,
-		&term.CreatedBy,
-		&term.LinkedEntityType,
-		&term.LinkedEntityID,
-	)
+		WHERE tenant_id = $1 AND LOWER(term) = LOWER($2)
+	`, tenantID, termStr)
+	err := scanTerm(row, &term)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -193,6 +226,12 @@ func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, erro
 	if filter.Source != "" {
 		query += fmt.Sprintf(" AND source = $%d", argNum)
 		args = append(args, filter.Source)
+		argNum++
+	}
+
+	if filter.TenantID != "" {
+		query += fmt.Sprintf(" AND tenant_id = $%d", argNum)
+		args = append(args, filter.TenantID)
 		argNum++
 	}
 
@@ -300,7 +339,7 @@ func (r *Repository) Update(ctx context.Context, id int64, input TermInput) (*Te
 	}
 
 	var term Term
-	err := r.db.QueryRow(ctx, `
+	row := r.db.QueryRow(ctx, `
 		UPDATE glossary
 		SET term = $2, expansion = $3, definition = $4, context = $5::jsonb, aliases = $6::jsonb, expand_in_search = $7, linked_entity_type = $8, linked_entity_id = $9
 		WHERE id = $1
@@ -315,22 +354,8 @@ func (r *Repository) Update(ctx context.Context, id int64, input TermInput) (*Te
 		expandInSearch,
 		linkedType,
 		linkedID,
-	).Scan(
-		&term.ID,
-		&term.TenantID,
-		&term.Term,
-		&term.Expansion,
-		&term.Definition,
-		&term.Context,
-		&term.Aliases,
-		&term.ExpandInSearch,
-		&term.Source,
-		&term.CreatedAt,
-		&term.UpdatedAt,
-		&term.CreatedBy,
-		&term.LinkedEntityType,
-		&term.LinkedEntityID,
 	)
+	err := scanTerm(row, &term)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -366,8 +391,8 @@ func (r *Repository) DeleteByTerm(ctx context.Context, termStr string) error {
 }
 
 // GetAllForExpansion retrieves all terms that should be used for query expansion.
-func (r *Repository) GetAllForExpansion(ctx context.Context) ([]*Term, error) {
-	return r.List(ctx, TermFilter{ExpandOnly: true, Limit: 1000})
+func (r *Repository) GetAllForExpansion(ctx context.Context, tenantID string) ([]*Term, error) {
+	return r.List(ctx, TermFilter{TenantID: tenantID, ExpandOnly: true, Limit: 1000})
 }
 
 // wordBoundaryPattern creates a regex pattern for matching whole words.
@@ -377,8 +402,8 @@ func wordBoundaryPattern(word string) *regexp.Regexp {
 }
 
 // ExpandQuery finds all glossary terms in a query and returns expansion info.
-func (r *Repository) ExpandQuery(ctx context.Context, query string) (*QueryExpansion, error) {
-	terms, err := r.GetAllForExpansion(ctx)
+func (r *Repository) ExpandQuery(ctx context.Context, tenantID string, query string) (*QueryExpansion, error) {
+	terms, err := r.GetAllForExpansion(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -433,9 +458,9 @@ func (r *Repository) ExpandQuery(ctx context.Context, query string) (*QueryExpan
 }
 
 // LookupTerm finds a term by exact match or alias match.
-func (r *Repository) LookupTerm(ctx context.Context, termStr string) (*Term, error) {
+func (r *Repository) LookupTerm(ctx context.Context, tenantID string, termStr string) (*Term, error) {
 	// Try exact term match first
-	term, err := r.GetByTerm(ctx, termStr)
+	term, err := r.GetByTerm(ctx, tenantID, termStr)
 	if err != nil {
 		return nil, err
 	}
@@ -445,26 +470,12 @@ func (r *Repository) LookupTerm(ctx context.Context, termStr string) (*Term, err
 
 	// Try alias match
 	var result Term
-	err = r.db.QueryRow(ctx, `
+	row := r.db.QueryRow(ctx, `
 		SELECT id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
 		FROM glossary
-		WHERE aliases @> $1::jsonb
-	`, fmt.Sprintf(`["%s"]`, strings.ToLower(termStr))).Scan(
-		&result.ID,
-		&result.TenantID,
-		&result.Term,
-		&result.Expansion,
-		&result.Definition,
-		&result.Context,
-		&result.Aliases,
-		&result.ExpandInSearch,
-		&result.Source,
-		&result.CreatedAt,
-		&result.UpdatedAt,
-		&result.CreatedBy,
-		&result.LinkedEntityType,
-		&result.LinkedEntityID,
-	)
+		WHERE tenant_id = $1 AND aliases @> $2::jsonb
+	`, tenantID, fmt.Sprintf(`["%s"]`, strings.ToLower(termStr)))
+	err = scanTerm(row, &result)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -475,7 +486,7 @@ func (r *Repository) LookupTerm(ctx context.Context, termStr string) (*Term, err
 }
 
 // LinkEntity links a glossary term to an entity (product, project, company).
-func (r *Repository) LinkEntity(ctx context.Context, termID int64, entityType string, entityID int64) (*Term, error) {
+func (r *Repository) LinkEntity(ctx context.Context, termID int64, tenantID string, entityType string, entityID int64) (*Term, error) {
 	// Validate entity type
 	validTypes := map[string]bool{"product": true, "project": true, "company": true}
 	if !validTypes[entityType] {
@@ -483,27 +494,22 @@ func (r *Repository) LinkEntity(ctx context.Context, termID int64, entityType st
 	}
 
 	var term Term
-	err := r.db.QueryRow(ctx, `
+	query := `
 		UPDATE glossary
 		SET linked_entity_type = $2, linked_entity_id = $3, updated_at = NOW()
-		WHERE id = $1
-		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
-	`, termID, entityType, entityID).Scan(
-		&term.ID,
-		&term.TenantID,
-		&term.Term,
-		&term.Expansion,
-		&term.Definition,
-		&term.Context,
-		&term.Aliases,
-		&term.ExpandInSearch,
-		&term.Source,
-		&term.CreatedAt,
-		&term.UpdatedAt,
-		&term.CreatedBy,
-		&term.LinkedEntityType,
-		&term.LinkedEntityID,
-	)
+		WHERE id = $1`
+	args := []interface{}{termID, entityType, entityID}
+
+	if tenantID != "" {
+		query += " AND tenant_id = $4"
+		args = append(args, tenantID)
+	}
+
+	query += `
+		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id`
+
+	row := r.db.QueryRow(ctx, query, args...)
+	err := scanTerm(row, &term)
 	if err == pgx.ErrNoRows {
 		return nil, pferrors.ErrNotFound
 	}
@@ -514,29 +520,24 @@ func (r *Repository) LinkEntity(ctx context.Context, termID int64, entityType st
 }
 
 // UnlinkEntity removes the entity link from a glossary term.
-func (r *Repository) UnlinkEntity(ctx context.Context, termID int64) (*Term, error) {
+func (r *Repository) UnlinkEntity(ctx context.Context, termID int64, tenantID string) (*Term, error) {
 	var term Term
-	err := r.db.QueryRow(ctx, `
+	query := `
 		UPDATE glossary
 		SET linked_entity_type = NULL, linked_entity_id = NULL, updated_at = NOW()
-		WHERE id = $1
-		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id
-	`, termID).Scan(
-		&term.ID,
-		&term.TenantID,
-		&term.Term,
-		&term.Expansion,
-		&term.Definition,
-		&term.Context,
-		&term.Aliases,
-		&term.ExpandInSearch,
-		&term.Source,
-		&term.CreatedAt,
-		&term.UpdatedAt,
-		&term.CreatedBy,
-		&term.LinkedEntityType,
-		&term.LinkedEntityID,
-	)
+		WHERE id = $1`
+	args := []interface{}{termID}
+
+	if tenantID != "" {
+		query += " AND tenant_id = $2"
+		args = append(args, tenantID)
+	}
+
+	query += `
+		RETURNING id, tenant_id, term, expansion, definition, context, aliases, expand_in_search, source, created_at, updated_at, created_by, linked_entity_type, linked_entity_id`
+
+	row := r.db.QueryRow(ctx, query, args...)
+	err := scanTerm(row, &term)
 	if err == pgx.ErrNoRows {
 		return nil, pferrors.ErrNotFound
 	}
@@ -548,6 +549,7 @@ func (r *Repository) UnlinkEntity(ctx context.Context, termID int64) (*Term, err
 
 // LinkedTermFilter specifies criteria for listing linked terms.
 type LinkedTermFilter struct {
+	TenantID   string // Filter by tenant
 	EntityType string // Filter by entity type
 	EntityID   int64  // Filter by specific entity ID
 	Limit      int    // Max results (0 = default 100)
@@ -564,6 +566,13 @@ func (r *Repository) ListLinked(ctx context.Context, filter LinkedTermFilter) ([
 	countQuery := `SELECT COUNT(*) FROM glossary WHERE linked_entity_type IS NOT NULL`
 	args := []interface{}{}
 	argNum := 1
+
+	if filter.TenantID != "" {
+		query += fmt.Sprintf(" AND tenant_id = $%d", argNum)
+		countQuery += fmt.Sprintf(" AND tenant_id = $%d", argNum)
+		args = append(args, filter.TenantID)
+		argNum++
+	}
 
 	if filter.EntityType != "" {
 		query += fmt.Sprintf(" AND linked_entity_type = $%d", argNum)
@@ -609,22 +618,7 @@ func (r *Repository) ListLinked(ctx context.Context, filter LinkedTermFilter) ([
 	var terms []*Term
 	for rows.Next() {
 		var term Term
-		err := rows.Scan(
-			&term.ID,
-			&term.TenantID,
-			&term.Term,
-			&term.Expansion,
-			&term.Definition,
-			&term.Context,
-			&term.Aliases,
-			&term.ExpandInSearch,
-			&term.Source,
-			&term.CreatedAt,
-			&term.UpdatedAt,
-			&term.CreatedBy,
-			&term.LinkedEntityType,
-			&term.LinkedEntityID,
-		)
+		err := scanTerm(rows, &term)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan linked term: %w", err)
 		}
@@ -637,7 +631,7 @@ func (r *Repository) ListLinked(ctx context.Context, filter LinkedTermFilter) ([
 // ListForContext returns glossary terms formatted for LLM prompt context.
 // This is the production function that E2E tests should use.
 // Note: For semantic (embedding-based) context, use the Matcher.BuildContext() method instead.
-func (r *Repository) ListForContext(ctx context.Context, limit int) (string, error) {
+func (r *Repository) ListForContext(ctx context.Context, tenantID string, limit int) (string, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 50
 	}
@@ -645,10 +639,10 @@ func (r *Repository) ListForContext(ctx context.Context, limit int) (string, err
 	rows, err := r.db.Query(ctx, `
 		SELECT term, expansion, definition
 		FROM glossary
-		WHERE expansion IS NOT NULL AND expansion != ''
+		WHERE tenant_id = $1 AND expansion IS NOT NULL AND expansion != ''
 		ORDER BY term
-		LIMIT $1
-	`, limit)
+		LIMIT $2
+	`, tenantID, limit)
 	if err != nil {
 		return "", fmt.Errorf("list glossary: %w", err)
 	}

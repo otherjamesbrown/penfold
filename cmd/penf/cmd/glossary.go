@@ -412,8 +412,10 @@ func runGlossaryAdd(ctx context.Context, deps *GlossaryCommandDeps, term, expans
 	defer conn.Close()
 
 	client := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 
 	req := &glossaryv1.AddTermRequest{
+		TenantId:       tenantID,
 		Term:           term,
 		Expansion:      expansion,
 		Definition:     definition,
@@ -458,8 +460,10 @@ func runGlossaryList(ctx context.Context, deps *GlossaryCommandDeps) error {
 	defer conn.Close()
 
 	client := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 
 	req := &glossaryv1.ListTermsRequest{
+		TenantId:   tenantID,
 		Context:    glossaryContext,
 		ExpandOnly: glossaryExpand,
 		Limit:      int32(glossaryLimit),
@@ -492,8 +496,12 @@ func runGlossaryShow(ctx context.Context, deps *GlossaryCommandDeps, termStr str
 	defer conn.Close()
 
 	client := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 
-	resp, err := client.LookupTerm(ctx, &glossaryv1.LookupTermRequest{Term: termStr})
+	resp, err := client.LookupTerm(ctx, &glossaryv1.LookupTermRequest{
+		TenantId: tenantID,
+		Term:     termStr,
+	})
 	if err != nil {
 		return fmt.Errorf("looking up term: %w", err)
 	}
@@ -502,7 +510,10 @@ func runGlossaryShow(ctx context.Context, deps *GlossaryCommandDeps, termStr str
 	}
 
 	// For detailed view, get the full term
-	termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{Term: termStr})
+	termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{
+		TenantId: tenantID,
+		Term:     termStr,
+	})
 	if err != nil {
 		return fmt.Errorf("getting term details: %w", err)
 	}
@@ -529,10 +540,12 @@ func runGlossarySearch(ctx context.Context, deps *GlossaryCommandDeps, query str
 	defer conn.Close()
 
 	client := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 
 	req := &glossaryv1.ListTermsRequest{
-		Search: query,
-		Limit:  int32(glossaryLimit),
+		TenantId: tenantID,
+		Search:   query,
+		Limit:    int32(glossaryLimit),
 	}
 
 	resp, err := client.ListTerms(ctx, req)
@@ -562,13 +575,17 @@ func runGlossaryRemove(ctx context.Context, deps *GlossaryCommandDeps, termStr s
 	defer conn.Close()
 
 	client := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 
 	var termID int64
 	var term *glossaryv1.Term
 
 	if removeID > 0 {
 		// Remove by ID - get the term first to show what we're deleting
-		termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{Id: removeID})
+		termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{
+			TenantId: tenantID,
+			Id:       removeID,
+		})
 		if err != nil {
 			return fmt.Errorf("looking up term by ID: %w", err)
 		}
@@ -579,7 +596,10 @@ func runGlossaryRemove(ctx context.Context, deps *GlossaryCommandDeps, termStr s
 		termID = removeID
 	} else {
 		// Remove by term name - get the term first to show what we're deleting
-		termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{Term: termStr})
+		termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{
+			TenantId: tenantID,
+			Term:     termStr,
+		})
 		if err != nil {
 			return fmt.Errorf("looking up term: %w", err)
 		}
@@ -591,7 +611,10 @@ func runGlossaryRemove(ctx context.Context, deps *GlossaryCommandDeps, termStr s
 	}
 
 	// Delete by ID
-	_, err = client.DeleteTerm(ctx, &glossaryv1.DeleteTermRequest{Id: termID})
+	_, err = client.DeleteTerm(ctx, &glossaryv1.DeleteTermRequest{
+		TenantId: tenantID,
+		Id:       termID,
+	})
 	if err != nil {
 		return fmt.Errorf("deleting term: %w", err)
 	}
@@ -614,8 +637,12 @@ func runGlossaryExpand(ctx context.Context, deps *GlossaryCommandDeps, query str
 	defer conn.Close()
 
 	client := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 
-	resp, err := client.ExpandQuery(ctx, &glossaryv1.ExpandQueryRequest{Query: query})
+	resp, err := client.ExpandQuery(ctx, &glossaryv1.ExpandQueryRequest{
+		TenantId: tenantID,
+		Query:    query,
+	})
 	if err != nil {
 		return fmt.Errorf("expanding query: %w", err)
 	}
@@ -642,9 +669,13 @@ func runGlossaryAlias(ctx context.Context, deps *GlossaryCommandDeps, termStr, n
 	defer conn.Close()
 
 	client := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 
 	// First, look up the existing term
-	termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{Term: termStr})
+	termResp, err := client.GetTerm(ctx, &glossaryv1.GetTermRequest{
+		TenantId: tenantID,
+		Term:     termStr,
+	})
 	if err != nil {
 		return fmt.Errorf("looking up term: %w", err)
 	}
@@ -667,8 +698,9 @@ func runGlossaryAlias(ctx context.Context, deps *GlossaryCommandDeps, termStr, n
 
 	// Update the term with new aliases
 	updateResp, err := client.UpdateTerm(ctx, &glossaryv1.UpdateTermRequest{
-		Id:      existingTerm.Id,
-		Aliases: updatedAliases,
+		TenantId: tenantID,
+		Id:       existingTerm.Id,
+		Aliases:  updatedAliases,
 	})
 	if err != nil {
 		return fmt.Errorf("updating term: %w", err)
@@ -695,8 +727,10 @@ func runGlossaryLink(ctx context.Context, deps *GlossaryCommandDeps, termStr, en
 	defer conn.Close()
 
 	client := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 
 	resp, err := client.LinkTerm(ctx, &glossaryv1.LinkTermRequest{
+		TenantId:   tenantID,
 		TermStr:    termStr,
 		EntityType: entityType,
 		EntityId:   entityID,
@@ -728,9 +762,11 @@ func runGlossaryUnlink(ctx context.Context, deps *GlossaryCommandDeps, termStr s
 	defer conn.Close()
 
 	client := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 
 	resp, err := client.UnlinkTerm(ctx, &glossaryv1.UnlinkTermRequest{
-		TermStr: termStr,
+		TenantId: tenantID,
+		TermStr:  termStr,
 	})
 	if err != nil {
 		return fmt.Errorf("unlinking term: %w", err)
@@ -756,8 +792,10 @@ func runGlossaryLinked(ctx context.Context, deps *GlossaryCommandDeps) error {
 	defer conn.Close()
 
 	client := glossaryv1.NewGlossaryServiceClient(conn)
+	tenantID := getTenantID()
 
 	resp, err := client.ListLinkedTerms(ctx, &glossaryv1.ListLinkedTermsRequest{
+		TenantId:   tenantID,
 		EntityType: glossaryLinkType,
 		Limit:      int32(glossaryLimit),
 	})
