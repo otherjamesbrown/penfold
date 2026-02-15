@@ -547,6 +547,15 @@ func main() {
 		logger.Info("Project tagging activities initialized")
 	}
 
+	// Initialize Threading Activities (Stage 2.5: email threading)
+	if dbPool != nil {
+		sourceRepo := activities.NewPostgresSourceRepository(dbPool, logger)
+		threadRepo := activities.NewPostgresThreadRepository(dbPool, logger)
+		threadActivities := activities.NewThreadActivities(logger, sourceRepo, threadRepo)
+		activityRegistrar.WithThreadActivities(threadActivities)
+		logger.Info("Thread activities initialized with database (Stage 2.5)")
+	}
+
 	workflowRegistrar := workflows.NewRegistrar()
 
 	// Create workers for each configured task queue

@@ -1212,6 +1212,10 @@ func init() {
 	assertionsCmd.GroupID = "query"
 	rootCmd.AddCommand(assertionsCmd)
 
+	threadCmd := cmd.NewThreadCommand(nil)
+	threadCmd.GroupID = "query"
+	rootCmd.AddCommand(threadCmd)
+
 	// Content & Pipeline
 	contentCmd := cmd.NewContentCommand(nil)
 	contentCmd.GroupID = "content"
@@ -1228,6 +1232,10 @@ func init() {
 	workflowCmd := cmd.NewWorkflowCommand(nil)
 	workflowCmd.GroupID = "content"
 	rootCmd.AddCommand(workflowCmd)
+
+	classifyCmd := cmd.NewClassifyCommand(nil)
+	classifyCmd.GroupID = "content"
+	rootCmd.AddCommand(classifyCmd)
 
 	// Entities
 	relationshipCmd := cmd.NewRelationshipCommand(nil)

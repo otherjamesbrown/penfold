@@ -28,6 +28,7 @@ type Registrar struct {
 	pipelineActivities         *PipelineActivities
 	personEnrichmentActivities *PersonEnrichmentActivities
 	projectTaggingActivities   *ProjectTaggingActivities
+	threadActivities           *ThreadActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -106,6 +107,12 @@ func (r *Registrar) WithPersonEnrichmentActivities(pea *PersonEnrichmentActiviti
 // WithProjectTaggingActivities adds project tagging activities to the registrar.
 func (r *Registrar) WithProjectTaggingActivities(pta *ProjectTaggingActivities) *Registrar {
 	r.projectTaggingActivities = pta
+	return r
+}
+
+// WithThreadActivities adds thread activities to the registrar.
+func (r *Registrar) WithThreadActivities(ta *ThreadActivities) *Registrar {
+	r.threadActivities = ta
 	return r
 }
 
@@ -250,6 +257,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.personEnrichmentActivities != nil {
 		w.RegisterActivityWithOptions(r.personEnrichmentActivities.EnrichPersonMetadata, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityEnrichPersonMetadata,
+		})
+	}
+
+	// Thread activities for Stage 2.5 (email threading)
+	if r.threadActivities != nil {
+		w.RegisterActivityWithOptions(r.threadActivities.GroupEmailThread, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGroupEmailThread,
 		})
 	}
 }
@@ -398,6 +412,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// EnrichPersonMetadata
 		if r.personEnrichmentActivities != nil {
+			count += 1
+		}
+		// GroupEmailThread
+		if r.threadActivities != nil {
 			count += 1
 		}
 		return count

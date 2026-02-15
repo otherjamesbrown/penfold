@@ -39,6 +39,7 @@ import (
 	teamsv1 "github.com/otherjamesbrown/penfold/api/proto/teams/v1"
 	tenantv1 "github.com/otherjamesbrown/penfold/api/proto/tenant/v1"
 	assertionsv1 "github.com/otherjamesbrown/penfold/api/proto/assertions/v1"
+	threadsv1 "github.com/otherjamesbrown/penfold/api/proto/threads/v1"
 	watchlistv1 "github.com/otherjamesbrown/penfold/api/proto/watchlist/v1"
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
@@ -90,6 +91,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
 	"github.com/otherjamesbrown/penfold/services/gateway/teamsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/tenantservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/threadsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/watchlistservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/workflowservice"
 )
@@ -397,6 +399,12 @@ func main() {
 	assertionsSvc := assertionsservice.NewService(assertionsRepo, logger)
 	assertionsv1.RegisterAssertionsServiceServer(grpcServer, assertionsSvc)
 	logger.Info("Registered AssertionsService")
+
+	// Register ThreadsService for email thread queries.
+	threadsRepo := threadsservice.NewPostgresRepository(dbPool, logger)
+	threadsSvc := threadsservice.NewService(threadsRepo, logger)
+	threadsv1.RegisterThreadsServiceServer(grpcServer, threadsSvc)
+	logger.Info("Registered ThreadsService")
 
 	// Register QualityService for quality monitoring and issue tracking.
 	qualitySvc := qualityservice.NewService(dbPool, logger)

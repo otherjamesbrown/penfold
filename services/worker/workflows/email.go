@@ -87,6 +87,7 @@ type (
 		SkipDeep         *bool  `json:"skip_deep,omitempty"`
 		AssertionCount   *int   `json:"assertion_count,omitempty"`
 		ContentSubtype   string `json:"content_subtype,omitempty"`
+		SourceSystem     string `json:"source_system,omitempty"`
 	}
 )
 

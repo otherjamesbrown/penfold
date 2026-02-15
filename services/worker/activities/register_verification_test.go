@@ -253,6 +253,9 @@ func newFullRegistrar() *Registrar {
 		WithProjectTaggingActivities(&ProjectTaggingActivities{
 			logger: logger,
 			repo:   &regVerifyProjectTaggingRepo{},
+		}).
+		WithThreadActivities(&ThreadActivities{
+			logger: logger,
 		})
 }
 

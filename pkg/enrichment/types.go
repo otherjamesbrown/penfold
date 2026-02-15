@@ -68,6 +68,21 @@ const (
 	ProfileOCRIfText     ProcessingProfile = "ocr_if_text"
 )
 
+// SourceSystem represents the originating system for the content.
+type SourceSystem string
+
+const (
+	SourceSystemJira            SourceSystem = "jira"
+	SourceSystemAha             SourceSystem = "aha"
+	SourceSystemGoogleDocs      SourceSystem = "google_docs"
+	SourceSystemWebex           SourceSystem = "webex"
+	SourceSystemSmartsheet      SourceSystem = "smartsheet"
+	SourceSystemOutlookCalendar SourceSystem = "outlook_calendar"
+	SourceSystemAutoReply       SourceSystem = "auto_reply"
+	SourceSystemHumanEmail      SourceSystem = "human_email"
+	SourceSystemUnknown         SourceSystem = "unknown"
+)
+
 // EnrichmentStatus represents the processing state.
 type EnrichmentStatus string
 
@@ -129,6 +144,7 @@ type Enrichment struct {
 
 	// Classification (Stage 1)
 	Classification Classification `json:"classification"`
+	SourceSystem   SourceSystem   `json:"source_system"`
 
 	// Processing status
 	Status       EnrichmentStatus `json:"status"`

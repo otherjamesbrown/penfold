@@ -9,6 +9,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
@@ -185,6 +186,17 @@ type DetailedRisk struct {
 	SeverityHint string `json:"severity_hint,omitempty"`
 	OwnerHint    string `json:"owner_hint,omitempty"`
 	Impact       string `json:"impact,omitempty"`
+}
+
+// GroupEmailThreadInput is the input for the GroupEmailThread activity.
+type GroupEmailThreadInput struct {
+	TenantID string `json:"tenant_id"`
+	SourceID int64  `json:"source_id"`
+}
+
+// GroupEmailThreadOutput is the output from the GroupEmailThread activity.
+type GroupEmailThreadOutput struct {
+	ThreadID *string `json:"thread_id,omitempty"` // Root message ID (nil if not threaded)
 }
 
 // BuildContextInput is the input for the BuildContextPackage activity.
@@ -785,7 +797,17 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.status.TotalSteps = pkgtemporal.SkipDeepTotalSteps()
 	}
 
-	// Persist triage results to source metadata (fires for all items)
+	// Classify source_system (deterministic, runs for all items)
+	// Note: Currently only using from_address and subject. message_id and headers
+	// would require expanding FetchSourceOutput to include them from source metadata.
+	sourceSystem := classification.ClassifySourceSystem(
+		input.SenderEmail, // from_address
+		input.Subject,     // subject
+		"",                // message_id (not currently available in pipeline)
+		nil,               // headers (not currently available in pipeline)
+	)
+
+	// Persist triage results and source_system to source metadata (fires for all items)
 	skipDeep := triageOutput.SkipDeep
 	ctxTriageMeta := workflow.WithActivityOptions(ctx, fastOpts)
 	_ = workflow.ExecuteActivity(ctxTriageMeta, "UpdateContentStatus", UpdateContentStatusInput{
@@ -796,6 +818,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		TriageImportance: triageOutput.Importance,
 		SkipDeep:         &skipDeep,
 		ContentSubtype:   triageOutput.ContentSubtype,
+		SourceSystem:     string(sourceSystem),
 	}).Get(ctx, nil)
 
 	// ==================== Stages 2-4.5: Deep Processing ====================
@@ -871,6 +894,32 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 
 		state.status.StepsCompleted = 3
+
+		// Stage 2.5: Email Threading (emails only, non-blocking)
+		var threadID *string
+		if input.ContentType == "email" {
+			logger.Debug("starting email threading",
+				"source_id", input.SourceID,
+			)
+			threadOutput := &GroupEmailThreadOutput{}
+			ctxThread := workflow.WithActivityOptions(ctx, fastOpts)
+			err = workflow.ExecuteActivity(ctxThread, pkgtemporal.ActivityGroupEmailThread, GroupEmailThreadInput{
+				TenantID: input.TenantID,
+				SourceID: input.SourceID,
+			}).Get(ctx, threadOutput)
+			if err != nil {
+				logger.Warn("email threading failed (non-blocking)",
+					"source_id", input.SourceID,
+					"error", err.Error(),
+				)
+			} else if threadOutput != nil && threadOutput.ThreadID != nil {
+				threadID = threadOutput.ThreadID
+				logger.Info("email threading completed",
+					"source_id", input.SourceID,
+					"thread_id", *threadID,
+				)
+			}
+		}
 
 		// Progressive availability: mark as "extracted" (entity-searchable)
 		// Also update assertion count if any assertions were extracted

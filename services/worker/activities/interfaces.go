@@ -351,3 +351,58 @@ type PipelineRunInput struct {
 	OutputData    json.RawMessage // Raw response from stage
 	ParsedData    json.RawMessage // Parsed/structured output
 }
+
+// ThreadRepository defines the interface for email thread data access.
+type ThreadRepository interface {
+	// UpsertThread creates or updates an email thread, returning the thread ID.
+	UpsertThread(ctx context.Context, input *UpsertThreadInput) (int64, error)
+
+	// AddThreadMessage adds a message to a thread with the correct position.
+	AddThreadMessage(ctx context.Context, input *AddThreadMessageInput) error
+
+	// SetContentEnrichmentThreadID updates the thread_id column in content_enrichment.
+	SetContentEnrichmentThreadID(ctx context.Context, sourceID int64, threadID string) error
+
+	// GetThreadByRootMessageID retrieves a thread by its root message ID.
+	GetThreadByRootMessageID(ctx context.Context, tenantID, rootMessageID string) (*EmailThread, error)
+}
+
+// UpsertThreadInput contains data for creating or updating an email thread.
+type UpsertThreadInput struct {
+	TenantID          string
+	RootMessageID     string
+	NormalizedSubject string
+	LatestSourceID    int64
+	FirstMessageAt    time.Time
+	LastMessageAt     time.Time
+}
+
+// AddThreadMessageInput contains data for adding a message to a thread.
+type AddThreadMessageInput struct {
+	ThreadID         int64
+	SourceID         int64
+	MessageID        string
+	PositionInThread int
+	IsReply          bool
+	ReplyToMessageID string
+	MessageDate      time.Time
+}
+
+// EmailThread represents an email thread from the database.
+type EmailThread struct {
+	ID            int64
+	RootMessageID string
+	Subject       string
+	MessageCount  int
+}
+
+// GroupEmailThreadInput is the input for the GroupEmailThread activity.
+type GroupEmailThreadInput struct {
+	TenantID string
+	SourceID int64
+}
+
+// GroupEmailThreadOutput is the output from the GroupEmailThread activity.
+type GroupEmailThreadOutput struct {
+	ThreadID *string // Root message ID (nil if not threaded)
+}
