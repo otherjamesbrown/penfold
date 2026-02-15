@@ -2,6 +2,7 @@ package relationships
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -440,7 +441,7 @@ func (r *Repository) getPeopleEntities(ctx context.Context, filter ListEntitiesF
 			p.confidence_score, p.created_at, p.updated_at,
 			COUNT(DISTINCT pa.id) as alias_count,
 			COUNT(DISTINCT tm.team_id) + COUNT(DISTINCT pm.project_id) as relation_count,
-			p.sent_count, p.received_count
+			p.sent_count, p.received_count, p.entity_resolution_metadata
 		FROM people p
 		LEFT JOIN person_aliases pa ON p.id = pa.person_id
 		LEFT JOIN team_members tm ON p.id = tm.person_id
@@ -489,13 +490,26 @@ func (r *Repository) getPeopleEntities(ctx context.Context, filter ListEntitiesF
 		var createdAt, updatedAt time.Time
 		var aliasCount, relationCount int
 		var sentCount, receivedCount int
+		var resolutionMetadata *[]byte
 
 		if err := rows.Scan(&id, &canonicalName, &primaryEmail, &jobTitle, &department,
-			&confidence, &createdAt, &updatedAt, &aliasCount, &relationCount, &sentCount, &receivedCount); err != nil {
+			&confidence, &createdAt, &updatedAt, &aliasCount, &relationCount, &sentCount, &receivedCount, &resolutionMetadata); err != nil {
 			return nil, 0, fmt.Errorf("scan people entity: %w", err)
 		}
 
 		metadata := map[string]string{}
+
+		// First, parse entity_resolution_metadata JSONB if present
+		if resolutionMetadata != nil && len(*resolutionMetadata) > 0 {
+			var customMetadata map[string]string
+			if err := json.Unmarshal(*resolutionMetadata, &customMetadata); err == nil {
+				for k, v := range customMetadata {
+					metadata[k] = v
+				}
+			}
+		}
+
+		// Then, overlay hardcoded column-level metadata (takes precedence)
 		if primaryEmail != nil && *primaryEmail != "" {
 			metadata["email"] = *primaryEmail
 		}
