@@ -27,13 +27,14 @@ func NewPostgresSourceRepository(pool *pgxpool.Pool, logger logging.Logger) *Pos
 // GetSource fetches source content by ID.
 func (r *PostgresSourceRepository) GetSource(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
 	query := `
-		SELECT id, tenant_id, raw_content, content_type, content_hash, processing_status, metadata
+		SELECT id, tenant_id, raw_content, content_type, content_hash, processing_status, metadata, source_system
 		FROM sources
 		WHERE id = $1 AND tenant_id = $2
 	`
 
 	var source Source
 	var metadataJSON []byte
+	var sourceSystem string
 	err := r.pool.QueryRow(ctx, query, sourceID, tenantID).Scan(
 		&source.ID,
 		&source.TenantID,
@@ -42,10 +43,15 @@ func (r *PostgresSourceRepository) GetSource(ctx context.Context, tenantID strin
 		&source.ContentHash,
 		&source.Status,
 		&metadataJSON,
+		&sourceSystem,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get source: %w", err)
 	}
+
+	// Map source_system to logical content type (e.g., "manual_eml" -> "email")
+	// This overrides the MIME type from content_type column
+	source.ContentType = mapSourceSystemToContentType(sourceSystem)
 
 	// Parse metadata JSON
 	if len(metadataJSON) > 0 {
@@ -58,6 +64,15 @@ func (r *PostgresSourceRepository) GetSource(ctx context.Context, tenantID strin
 		for k, v := range metadata {
 			if s, ok := v.(string); ok {
 				source.Metadata[k] = s
+			} else if arr, ok := v.([]interface{}); ok {
+				// Handle arrays (e.g., references header)
+				// Convert to JSON string representation
+				if jsonBytes, err := json.Marshal(arr); err == nil {
+					source.Metadata[k] = string(jsonBytes)
+				}
+			} else if v != nil {
+				// Handle other types (numbers, booleans, etc.)
+				source.Metadata[k] = fmt.Sprintf("%v", v)
 			}
 		}
 	}

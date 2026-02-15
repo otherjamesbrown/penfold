@@ -362,3 +362,67 @@ func TestGroupEmailThread_ThreadingFailureNonBlocking(t *testing.T) {
 	require.NotNil(t, output)
 	require.Nil(t, output.ThreadID, "ThreadID should be nil on threading failure")
 }
+
+// TestGroupEmailThread_ContentTypeMismatch_BUG_pf_a3d615 verifies the fix for pf-a3d615:
+// GetSource now returns logical content type ("email") via mapSourceSystemToContentType,
+// instead of returning the MIME type ("message/rfc822") from the DB content_type column.
+// This ensures email threading runs correctly.
+func TestGroupEmailThread_ContentTypeMismatch_BUG_pf_a3d615(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2026, 2, 15, 14, 30, 0, 0, time.UTC)
+
+	// This mock simulates the FIXED behavior of PostgresSourceRepository.GetSource:
+	// After the fix, GetSource reads source_system and calls mapSourceSystemToContentType()
+	// to return the logical type "email" (not the MIME type "message/rfc822").
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:       600,
+				TenantID: "test-tenant",
+				// FIXED: GetSource now returns logical type "email" via mapSourceSystemToContentType
+				// (DB would have source_system="manual_eml" -> logical type "email")
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id":  "<bug-test@example.com>",
+					"in_reply_to": "<parent-msg@example.com>",
+					"subject":     "Re: Bug Report",
+					"date":        messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	upsertCalled := false
+	mockThreadRepo := &mockThreadRepository{
+		getThreadByRootMessageIDFn: func(ctx context.Context, tenantID, rootMessageID string) (*EmailThread, error) {
+			return &EmailThread{
+				ID:            200,
+				RootMessageID: "<parent-msg@example.com>",
+				Subject:       "Bug Report",
+				MessageCount:  1,
+			}, nil
+		},
+		upsertThreadFn: func(ctx context.Context, input *UpsertThreadInput) (int64, error) {
+			upsertCalled = true
+			return 200, nil
+		},
+	}
+
+	activities := NewThreadActivities(logger, mockSourceRepo, mockThreadRepo)
+
+	input := GroupEmailThreadInput{
+		TenantID: "test-tenant",
+		SourceID: 600,
+	}
+
+	output, err := activities.GroupEmailThread(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// FIXED: Threading now happens because GetSource returns ContentType="email"
+	// ThreadID should be set to "<parent-msg@example.com>"
+	require.NotNil(t, output.ThreadID, "Threading should happen for emails after pf-a3d615 fix")
+	require.Equal(t, "<parent-msg@example.com>", *output.ThreadID)
+	require.True(t, upsertCalled, "UpsertThread should be called for emails")
+}

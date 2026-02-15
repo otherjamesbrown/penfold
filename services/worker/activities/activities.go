@@ -450,5 +450,22 @@ func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.Upd
 		}
 	}
 
+	// Update source_system in ingestion_metadata if provided
+	if input.SourceSystem != "" {
+		sourceSystemQuery := `
+			UPDATE sources
+			SET ingestion_metadata = COALESCE(ingestion_metadata, '{}'::jsonb) || jsonb_build_object('source_system', $3::text),
+			    updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+		`
+		_, sourceSystemErr := a.db.Exec(ctx, sourceSystemQuery, input.SourceID, tenantID, input.SourceSystem)
+		if sourceSystemErr != nil {
+			logger.Warn("Failed to update source_system in ingestion_metadata",
+				logging.F("error", sourceSystemErr.Error()),
+				logging.F("source_id", input.SourceID),
+			)
+		}
+	}
+
 	return nil
 }
