@@ -12,6 +12,17 @@ Single entry point for all implementation work.
 $ARGUMENTS
 ```
 
+## Phase -1: Load Playbook
+
+If you have not already loaded your playbook this session, run it now:
+```bash
+cxp knowledge show mycroft-playbook
+```
+This contains your identity, operating principles, coding standards, and ways of working.
+**Do not skip this.** If you've already loaded it earlier in this session, proceed to Phase 0.
+
+---
+
 ## Phase 0: Preflight Health Check
 
 **ALWAYS run preflight checks before starting any ingestion work.**
