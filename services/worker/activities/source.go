@@ -134,7 +134,7 @@ func (a *SourceActivities) UpdateSourceStatus(ctx context.Context, input workflo
 
 	// Build triage metadata map if any fields are present
 	var triageMetadata map[string]interface{}
-	if input.TriageCategory != "" || input.TriageImportance != "" || input.SkipDeep != nil || input.ContentSubtype != "" {
+	if input.TriageCategory != "" || input.TriageImportance != "" || input.SkipDeep != nil || input.ContentSubtype != "" || input.SourceSystem != "" {
 		triageMetadata = make(map[string]interface{})
 		if input.TriageCategory != "" {
 			triageMetadata["triage_category"] = input.TriageCategory
@@ -147,6 +147,9 @@ func (a *SourceActivities) UpdateSourceStatus(ctx context.Context, input workflo
 		}
 		if input.ContentSubtype != "" {
 			triageMetadata["content_subtype"] = input.ContentSubtype
+		}
+		if input.SourceSystem != "" {
+			triageMetadata["source_system"] = input.SourceSystem
 		}
 	}
 
