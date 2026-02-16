@@ -13,6 +13,7 @@ type ConversationSummary struct {
 	LastSeen         *time.Time
 	ParticipantCount int32
 	ItemCount        int32
+	State            string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
@@ -27,6 +28,12 @@ type ConversationDetail struct {
 	LastSeen         *time.Time
 	ParticipantCount int32
 	ItemCount        int32
+	StateSummary     *string
+	SummaryVersion   int32
+	SummaryUpdatedAt *time.Time
+	State            string
+	StateReason      *string
+	StateChangedAt   *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	Items            []ConversationItem
@@ -63,4 +70,14 @@ type Conversation struct {
 	Metadata         map[string]interface{}
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+// StateHistoryEntry represents a single state transition in conversation history.
+type StateHistoryEntry struct {
+	ID             int64
+	ConversationID string
+	OldState       string
+	NewState       string
+	Reason         string
+	CreatedAt      time.Time
 }

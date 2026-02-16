@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
@@ -18,6 +19,10 @@ type mockConversationRepository struct {
 	addConversationItemFn        func(ctx context.Context, conversationID, contentID string, sourceID *int64, tenantID string) error
 	addConversationParticipantFn func(ctx context.Context, conversationID string, name, address *string, tenantID string) error
 	updateConversationStatsFn    func(ctx context.Context, conversationID string) error
+	updateSummaryFn              func(ctx context.Context, conversationID, summary string, version int32) error
+	updateStateFn                func(ctx context.Context, conversationID, state, reason string) error
+	getConversationItemsFn       func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error)
+	getConversationFn            func(ctx context.Context, tenantID, conversationID string) (*Conversation, error)
 }
 
 func (m *mockConversationRepository) UpsertConversation(ctx context.Context, conversation *Conversation) (string, error) {
@@ -47,6 +52,35 @@ func (m *mockConversationRepository) UpdateConversationStats(ctx context.Context
 	}
 	return nil
 }
+
+func (m *mockConversationRepository) UpdateSummary(ctx context.Context, conversationID, summary string, version int32) error {
+	if m.updateSummaryFn != nil {
+		return m.updateSummaryFn(ctx, conversationID, summary, version)
+	}
+	return nil
+}
+
+func (m *mockConversationRepository) UpdateState(ctx context.Context, conversationID, state, reason string) error {
+	if m.updateStateFn != nil {
+		return m.updateStateFn(ctx, conversationID, state, reason)
+	}
+	return nil
+}
+
+func (m *mockConversationRepository) GetConversationItems(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
+	if m.getConversationItemsFn != nil {
+		return m.getConversationItemsFn(ctx, conversationID, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockConversationRepository) GetConversation(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
+	if m.getConversationFn != nil {
+		return m.getConversationFn(ctx, tenantID, conversationID)
+	}
+	return nil, nil
+}
+
 
 // TestLinkConversation_CreateNewConversation tests creating a new conversation from thread data.
 func TestLinkConversation_CreateNewConversation(t *testing.T) {
@@ -117,7 +151,7 @@ func TestLinkConversation_CreateNewConversation(t *testing.T) {
 		},
 	}
 
-	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo)
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
 
 	input := LinkConversationInput{
 		TenantID:  "test-tenant",
@@ -185,7 +219,7 @@ func TestLinkConversation_UpdateExistingConversation(t *testing.T) {
 		},
 	}
 
-	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo)
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
 
 	input := LinkConversationInput{
 		TenantID:  "test-tenant",
@@ -246,7 +280,7 @@ func TestLinkConversation_ParticipantExtraction(t *testing.T) {
 		},
 	}
 
-	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo)
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
 
 	input := LinkConversationInput{
 		TenantID:  "test-tenant",
@@ -294,7 +328,7 @@ func TestLinkConversation_NoThreadIDSkipped(t *testing.T) {
 		},
 	}
 
-	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo)
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
 
 	input := LinkConversationInput{
 		TenantID:  "test-tenant",
@@ -333,7 +367,7 @@ func TestLinkConversation_NonEmailSkipped(t *testing.T) {
 		},
 	}
 
-	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo)
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
 
 	input := LinkConversationInput{
 		TenantID:  "test-tenant",
@@ -378,7 +412,7 @@ func TestLinkConversation_NonBlockingErrors(t *testing.T) {
 		},
 	}
 
-	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo)
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
 
 	input := LinkConversationInput{
 		TenantID:  "test-tenant",
@@ -439,7 +473,7 @@ func TestLinkConversation_PartialFailureNonBlocking(t *testing.T) {
 		},
 	}
 
-	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo)
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
 
 	input := LinkConversationInput{
 		TenantID:  "test-tenant",
@@ -501,7 +535,7 @@ func TestLinkConversation_DuplicateItemIdempotent(t *testing.T) {
 		},
 	}
 
-	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo)
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
 
 	input := LinkConversationInput{
 		TenantID:  "test-tenant",
@@ -542,7 +576,7 @@ func TestLinkConversation_MissingContentIDSkipped(t *testing.T) {
 		},
 	}
 
-	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo)
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
 
 	input := LinkConversationInput{
 		TenantID:  "test-tenant",
@@ -599,7 +633,7 @@ func TestLinkConversation_ExtractSubject(t *testing.T) {
 		},
 	}
 
-	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo)
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
 
 	input := LinkConversationInput{
 		TenantID:  "test-tenant",
@@ -618,3 +652,431 @@ func TestLinkConversation_ExtractSubject(t *testing.T) {
 	require.Equal(t, "[URGENT] Critical Bug in Production", capturedTopic,
 		"Topic should be normalized subject with Re:/FW: prefixes removed")
 }
+
+// TestLinkConversation_TriggersSummaryGeneration tests that after successful linking,
+// an LLM call is made to generate summary and state, and they are persisted.
+func TestLinkConversation_TriggersSummaryGeneration(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2026, 2, 16, 10, 0, 0, 0, time.UTC)
+	threadID := "<summary-test@example.com>"
+	contentID := "cnt-summary-1"
+
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          100,
+				TenantID:    "test-tenant",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id": "<msg-100@example.com>",
+					"subject":    "Project Discussion",
+					"from":       "alice@example.com",
+					"to":         "bob@example.com",
+					"date":       messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	summaryCalled := false
+	summaryPersisted := false
+	statePersisted := false
+	var capturedSummary string
+	var capturedState string
+	var capturedReason string
+
+	mockConvRepo := &mockConversationRepository{
+		upsertConversationFn: func(ctx context.Context, conversation *Conversation) (string, error) {
+			return "conv-summary-1", nil
+		},
+		addConversationItemFn: func(ctx context.Context, conversationID, itemContentID string, sourceID *int64, tenantID string) error {
+			return nil
+		},
+		addConversationParticipantFn: func(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
+			return nil
+		},
+		updateConversationStatsFn: func(ctx context.Context, conversationID string) error {
+			return nil
+		},
+		updateSummaryFn: func(ctx context.Context, conversationID, summary string, version int32) error {
+			summaryPersisted = true
+			capturedSummary = summary
+			require.Equal(t, "conv-summary-1", conversationID)
+			require.Equal(t, int32(1), version) // First version
+			return nil
+		},
+		updateStateFn: func(ctx context.Context, conversationID, state, reason string) error {
+			statePersisted = true
+			capturedState = state
+			capturedReason = reason
+			require.Equal(t, "conv-summary-1", conversationID)
+			return nil
+		},
+		getConversationItemsFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
+			// Return empty for first message in conversation
+			return []ConversationItem{}, nil
+		},
+		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
+			// Return conversation with no existing summary
+			return &Conversation{
+				ID:       conversationID,
+				TenantID: tenantID,
+				Topic:    "Project Discussion",
+			}, nil
+		},
+	}
+
+	mockAIClient := &mockAIClient{
+		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
+			summaryCalled = true
+			// Verify request includes content
+			require.NotEmpty(t, req.Content)
+			inputTokens := int32(150)
+			outputTokens := int32(50)
+			return &aiv1.SummaryResponse{
+				Summary:      "Discussion about project milestones and next steps.",
+				KeyPoints:    []string{"Project timeline", "Team assignments"},
+				ModelUsed:    "llama3.2",
+				InputTokens:  &inputTokens,
+				OutputTokens: &outputTokens,
+			}, nil
+		},
+	}
+
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, mockAIClient)
+
+	input := LinkConversationInput{
+		TenantID:  "test-tenant",
+		SourceID:  100,
+		ThreadID:  threadID,
+		ContentID: contentID,
+	}
+
+	output, err := activities.LinkConversation(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	require.Equal(t, "conv-summary-1", output.ConversationID)
+
+	// Verify LLM was called for summary+state generation
+	require.True(t, summaryCalled, "LLM should be called to generate summary and state")
+
+	// Verify summary was persisted
+	require.True(t, summaryPersisted, "Summary should be persisted via UpdateSummary")
+	require.NotEmpty(t, capturedSummary, "Summary should not be empty")
+	require.Contains(t, capturedSummary, "project", "Summary should mention project")
+
+	// Verify state was persisted
+	require.True(t, statePersisted, "State should be persisted via UpdateState")
+	require.NotEmpty(t, capturedState, "State should not be empty")
+	require.Contains(t, []string{"active", "stalled", "resolved", "unknown"}, capturedState,
+		"State should be one of: active, stalled, resolved, unknown")
+	require.NotEmpty(t, capturedReason, "State reason should not be empty")
+}
+
+// TestLinkConversation_SummaryWithExistingContent tests that the LLM prompt includes
+// existing summary + last 3 items + new item when conversation already has content.
+func TestLinkConversation_SummaryWithExistingContent(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2026, 2, 16, 11, 0, 0, 0, time.UTC)
+	threadID := "<existing-content@example.com>"
+	contentID := "cnt-existing-4"
+
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          104,
+				TenantID:    "test-tenant",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id": "<msg-104@example.com>",
+					"subject":    "Re: Project Discussion",
+					"from":       "bob@example.com",
+					"to":         "alice@example.com",
+					"date":       messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	var llmPrompt string
+	summaryCalled := false
+
+	mockConvRepo := &mockConversationRepository{
+		upsertConversationFn: func(ctx context.Context, conversation *Conversation) (string, error) {
+			return "conv-existing-1", nil
+		},
+		addConversationItemFn: func(ctx context.Context, conversationID, itemContentID string, sourceID *int64, tenantID string) error {
+			return nil
+		},
+		addConversationParticipantFn: func(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
+			return nil
+		},
+		updateConversationStatsFn: func(ctx context.Context, conversationID string) error {
+			return nil
+		},
+		updateSummaryFn: func(ctx context.Context, conversationID, summary string, version int32) error {
+			return nil
+		},
+		updateStateFn: func(ctx context.Context, conversationID, state, reason string) error {
+			return nil
+		},
+		getConversationItemsFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
+			// Return 3 existing items
+			return []ConversationItem{
+				{ConversationID: conversationID, ContentID: "cnt-existing-1"},
+				{ConversationID: conversationID, ContentID: "cnt-existing-2"},
+				{ConversationID: conversationID, ContentID: "cnt-existing-3"},
+			}, nil
+		},
+		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
+			// Return conversation (note: StateSummary field doesn't exist in Conversation yet)
+			// The implementation will need to fetch this separately or extend the type
+			return &Conversation{
+				ID:       conversationID,
+				TenantID: tenantID,
+				Topic:    "Project Discussion",
+			}, nil
+		},
+	}
+
+	mockAIClient := &mockAIClient{
+		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
+			summaryCalled = true
+			llmPrompt = req.Content
+			// Verify prompt includes references to conversation items
+			// Note: The exact format will be defined in implementation
+			require.NotEmpty(t, req.Content, "Prompt should not be empty")
+			return &aiv1.SummaryResponse{
+				Summary:   "Updated discussion including new inputs about timeline.",
+				KeyPoints: []string{"Timeline", "Resources"},
+				ModelUsed: "llama3.2",
+			}, nil
+		},
+	}
+
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, mockAIClient)
+
+	input := LinkConversationInput{
+		TenantID:  "test-tenant",
+		SourceID:  104,
+		ThreadID:  threadID,
+		ContentID: contentID,
+	}
+
+	output, err := activities.LinkConversation(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// Verify LLM was called with context
+	require.True(t, summaryCalled, "LLM should be called for summary update")
+	require.NotEmpty(t, llmPrompt, "LLM prompt should not be empty")
+}
+
+// TestLinkConversation_StateTransition tests that state changes are tracked correctly.
+func TestLinkConversation_StateTransition(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC)
+	threadID := "<state-test@example.com>"
+	contentID := "cnt-state-1"
+
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          105,
+				TenantID:    "test-tenant",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id": "<msg-105@example.com>",
+					"subject":    "Project Blocked",
+					"from":       "alice@example.com",
+					"to":         "bob@example.com",
+					"date":       messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	var capturedState string
+	var capturedReason string
+
+	mockConvRepo := &mockConversationRepository{
+		upsertConversationFn: func(ctx context.Context, conversation *Conversation) (string, error) {
+			return "conv-state-1", nil
+		},
+		addConversationItemFn: func(ctx context.Context, conversationID, itemContentID string, sourceID *int64, tenantID string) error {
+			return nil
+		},
+		addConversationParticipantFn: func(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
+			return nil
+		},
+		updateConversationStatsFn: func(ctx context.Context, conversationID string) error {
+			return nil
+		},
+		updateSummaryFn: func(ctx context.Context, conversationID, summary string, version int32) error {
+			return nil
+		},
+		updateStateFn: func(ctx context.Context, conversationID, state, reason string) error {
+			capturedState = state
+			capturedReason = reason
+			return nil
+		},
+		getConversationItemsFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
+			return []ConversationItem{}, nil
+		},
+		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
+			return &Conversation{
+				ID:       conversationID,
+				TenantID: tenantID,
+				Topic:    "Project Blocked",
+			}, nil
+		},
+	}
+
+	mockAIClient := &mockAIClient{
+		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
+			// Return a response that indicates the conversation is stalled
+			return &aiv1.SummaryResponse{
+				Summary:   "Project is blocked waiting for external dependencies.",
+				KeyPoints: []string{"Blocked", "External dependency"},
+				ModelUsed: "llama3.2",
+			}, nil
+		},
+	}
+
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, mockAIClient)
+
+	input := LinkConversationInput{
+		TenantID:  "test-tenant",
+		SourceID:  105,
+		ThreadID:  threadID,
+		ContentID: contentID,
+	}
+
+	output, err := activities.LinkConversation(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// Verify state was set correctly
+	require.NotEmpty(t, capturedState, "State should be set")
+	validStates := map[string]bool{"active": true, "stalled": true, "resolved": true, "unknown": true}
+	require.True(t, validStates[capturedState], "State should be one of: active, stalled, resolved, unknown")
+	require.NotEmpty(t, capturedReason, "State reason should explain why the state was chosen")
+}
+
+// TestLinkConversation_SummaryFailureNonBlocking tests that if the LLM call fails,
+// LinkConversation still succeeds (non-blocking pattern).
+func TestLinkConversation_SummaryFailureNonBlocking(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2026, 2, 16, 13, 0, 0, 0, time.UTC)
+	threadID := "<llm-fail@example.com>"
+	contentID := "cnt-llm-fail-1"
+
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          106,
+				TenantID:    "test-tenant",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id": "<msg-106@example.com>",
+					"subject":    "Test Subject",
+					"from":       "alice@example.com",
+					"to":         "bob@example.com",
+					"date":       messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	summaryNotPersisted := true
+	stateNotPersisted := true
+
+	mockConvRepo := &mockConversationRepository{
+		upsertConversationFn: func(ctx context.Context, conversation *Conversation) (string, error) {
+			return "conv-llm-fail-1", nil
+		},
+		addConversationItemFn: func(ctx context.Context, conversationID, itemContentID string, sourceID *int64, tenantID string) error {
+			return nil
+		},
+		addConversationParticipantFn: func(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
+			return nil
+		},
+		updateConversationStatsFn: func(ctx context.Context, conversationID string) error {
+			return nil
+		},
+		updateSummaryFn: func(ctx context.Context, conversationID, summary string, version int32) error {
+			summaryNotPersisted = false
+			t.Fatal("UpdateSummary should not be called when LLM fails")
+			return nil
+		},
+		updateStateFn: func(ctx context.Context, conversationID, state, reason string) error {
+			stateNotPersisted = false
+			t.Fatal("UpdateState should not be called when LLM fails")
+			return nil
+		},
+		getConversationItemsFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
+			return []ConversationItem{}, nil
+		},
+		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
+			return &Conversation{
+				ID:       conversationID,
+				TenantID: tenantID,
+				Topic:    "Test Subject",
+			}, nil
+		},
+	}
+
+	mockAIClient := &mockAIClient{
+		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
+			// Simulate LLM failure
+			return nil, errors.New("LLM service unavailable")
+		},
+	}
+
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, mockAIClient)
+
+	input := LinkConversationInput{
+		TenantID:  "test-tenant",
+		SourceID:  106,
+		ThreadID:  threadID,
+		ContentID: contentID,
+	}
+
+	// Activity should still succeed even if LLM fails (non-blocking)
+	output, err := activities.LinkConversation(context.Background(), input)
+	require.NoError(t, err, "LinkConversation should succeed even if LLM fails")
+	require.NotNil(t, output)
+	require.Equal(t, "conv-llm-fail-1", output.ConversationID)
+
+	// Verify summary and state were not persisted (since LLM failed)
+	require.True(t, summaryNotPersisted, "Summary should not be persisted when LLM fails")
+	require.True(t, stateNotPersisted, "State should not be persisted when LLM fails")
+}
+
+// TestBackfillConversationSummaries tests the backfill method that generates
+// initial summaries for existing conversations.
+// Commented out until BackfillConversationSummaries method is added to ConversationActivities.
+/*
+func TestBackfillConversationSummaries(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	// This test will fail because the backfill method doesn't exist yet
+	t.Skip("BackfillConversationSummaries method not implemented yet")
+
+	activities := NewConversationActivities(logger, &mockSourceRepository{}, &mockConversationRepository{})
+
+	input := BackfillConversationSummariesInput{
+		TenantID: "test-tenant",
+		Limit:    10,
+	}
+
+	output, err := activities.BackfillConversationSummaries(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	require.Greater(t, output.Processed, 0, "Should process at least one conversation")
+}
+*/

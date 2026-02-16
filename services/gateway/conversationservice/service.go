@@ -15,6 +15,7 @@ import (
 // Repository defines the interface for conversation data access.
 type Repository interface {
 	ListConversations(ctx context.Context, tenantID string, limit, offset int32) ([]ConversationSummary, int64, error)
+	ListConversationsByState(ctx context.Context, tenantID, state string, limit, offset int32) ([]ConversationSummary, int64, error)
 	GetConversation(ctx context.Context, tenantID, conversationID string) (*ConversationDetail, error)
 }
 
@@ -40,8 +41,17 @@ func (s *Service) ListConversations(ctx context.Context, req *conversationv1.Lis
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 
-	// Query conversations
-	conversations, totalCount, err := s.repo.ListConversations(ctx, req.GetTenantId(), req.GetLimit(), req.GetOffset())
+	// Query conversations - use state filter if provided
+	var conversations []ConversationSummary
+	var totalCount int64
+	var err error
+
+	if req.GetState() != "" {
+		conversations, totalCount, err = s.repo.ListConversationsByState(ctx, req.GetTenantId(), req.GetState(), req.GetLimit(), req.GetOffset())
+	} else {
+		conversations, totalCount, err = s.repo.ListConversations(ctx, req.GetTenantId(), req.GetLimit(), req.GetOffset())
+	}
+
 	if err != nil {
 		s.logger.Error("failed to list conversations", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to list conversations: %v", err)
@@ -112,6 +122,10 @@ func conversationSummaryToProto(conv *ConversationSummary) *conversationv1.Conve
 		pb.LastSeen = timestamppb.New(*conv.LastSeen)
 	}
 
+	if conv.State != "" {
+		pb.State = &conv.State
+	}
+
 	return pb
 }
 
@@ -123,6 +137,7 @@ func conversationDetailToProto(conv *ConversationDetail) *conversationv1.ShowCon
 		Topic:            conv.Topic,
 		ParticipantCount: conv.ParticipantCount,
 		ItemCount:        conv.ItemCount,
+		SummaryVersion:   conv.SummaryVersion,
 		CreatedAt:        timestamppb.New(conv.CreatedAt),
 		UpdatedAt:        timestamppb.New(conv.UpdatedAt),
 	}
@@ -138,6 +153,28 @@ func conversationDetailToProto(conv *ConversationDetail) *conversationv1.ShowCon
 
 	if conv.LastSeen != nil {
 		resp.LastSeen = timestamppb.New(*conv.LastSeen)
+	}
+
+	// Summary fields
+	if conv.StateSummary != nil {
+		resp.StateSummary = conv.StateSummary
+	}
+
+	if conv.SummaryUpdatedAt != nil {
+		resp.SummaryUpdatedAt = timestamppb.New(*conv.SummaryUpdatedAt)
+	}
+
+	// State fields
+	if conv.State != "" {
+		resp.State = &conv.State
+	}
+
+	if conv.StateReason != nil {
+		resp.StateReason = conv.StateReason
+	}
+
+	if conv.StateChangedAt != nil {
+		resp.StateChangedAt = timestamppb.New(*conv.StateChangedAt)
 	}
 
 	// Convert items

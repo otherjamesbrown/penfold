@@ -175,6 +175,29 @@ func (r *regVerifyProjectTaggingRepo) CreateContentMention(context.Context, stri
 	return nil
 }
 
+type regVerifyConvRepo struct{}
+
+func (r *regVerifyConvRepo) UpsertConversation(context.Context, *Conversation) (string, error) {
+	return "", nil
+}
+func (r *regVerifyConvRepo) AddConversationItem(context.Context, string, string, *int64, string) error {
+	return nil
+}
+func (r *regVerifyConvRepo) AddConversationParticipant(context.Context, string, *string, *string, string) error {
+	return nil
+}
+func (r *regVerifyConvRepo) UpdateConversationStats(context.Context, string) error { return nil }
+func (r *regVerifyConvRepo) UpdateSummary(context.Context, string, string, int32) error {
+	return nil
+}
+func (r *regVerifyConvRepo) UpdateState(context.Context, string, string, string) error { return nil }
+func (r *regVerifyConvRepo) GetConversationItems(context.Context, string, int) ([]ConversationItem, error) {
+	return nil, nil
+}
+func (r *regVerifyConvRepo) GetConversation(context.Context, string, string) (*Conversation, error) {
+	return nil, nil
+}
+
 // Compile-time interface verification for stubs.
 var (
 	_ AIClient                   = (*regVerifyAIClient)(nil)
@@ -189,6 +212,7 @@ var (
 	_ EntityLookupInterface      = (*regVerifyEntityLookup)(nil)
 	_ PersonRepository           = (*regVerifyPersonRepo)(nil)
 	_ ProjectTaggingRepository   = (*regVerifyProjectTaggingRepo)(nil)
+	_ ConversationRepository     = (*regVerifyConvRepo)(nil)
 )
 
 // newFullRegistrar creates a fully-configured Registrar with all activity types.
@@ -259,6 +283,10 @@ func newFullRegistrar() *Registrar {
 		}).
 		WithEnrichmentActivities(&EnrichmentActivities{
 			logger: logger,
+		}).
+		WithConversationActivities(&ConversationActivities{
+			logger:   logger,
+			convRepo: &regVerifyConvRepo{},
 		})
 }
 

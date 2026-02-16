@@ -31,6 +31,7 @@ message ListConversationsRequest {
   string tenant_id = 1;
   int32 limit = 2;   // Max results
   int32 offset = 3;  // Pagination offset
+  optional string state = 4;  // Filter by state
 }
 
 // ListConversationsResponse returns matching conversations.
@@ -51,6 +52,7 @@ message ConversationSummary {
   int32 item_count = 8;
   google.protobuf.Timestamp created_at = 9;
   google.protobuf.Timestamp updated_at = 10;
+  optional string state = 11;
 }
 
 // =============================================================================
@@ -77,6 +79,12 @@ message ShowConversationResponse {
   google.protobuf.Timestamp updated_at = 10;
   repeated ConversationItem items = 11;
   repeated ConversationParticipant participants = 12;
+  optional string state_summary = 13;
+  int32 summary_version = 14;
+  optional google.protobuf.Timestamp summary_updated_at = 15;
+  optional string state = 16;
+  optional string state_reason = 17;
+  optional google.protobuf.Timestamp state_changed_at = 18;
 }
 
 // ConversationItem represents a content item in a conversation.

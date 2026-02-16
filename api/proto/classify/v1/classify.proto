@@ -1,0 +1,70 @@
+// Classification Suggestion Service Protobuf Definitions
+// Provides gRPC service for LLM classification fallback suggestions
+
+syntax = "proto3";
+
+package penfold.classify.v1;
+
+option go_package = "github.com/otherjamesbrown/penfold/api/proto/classify/v1;classifyv1";
+
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// ClassificationSuggestionService provides gRPC endpoints for managing
+// LLM-generated source system classification suggestions.
+service ClassificationSuggestionService {
+  // List pending classification suggestions
+  rpc ListSuggestions(ListSuggestionsRequest) returns (ListSuggestionsResponse);
+
+  // Approve a classification suggestion
+  rpc ApproveSuggestion(ApproveSuggestionRequest) returns (ApproveSuggestionResponse);
+
+  // Reject a classification suggestion
+  rpc RejectSuggestion(RejectSuggestionRequest) returns (RejectSuggestionResponse);
+}
+
+// =============================================================================
+// Messages
+// =============================================================================
+
+// ClassificationSuggestion represents an LLM-generated classification suggestion.
+message ClassificationSuggestion {
+  int32 id = 1;
+  string content_id = 2;
+  string source_system = 3;
+  string pattern = 4;
+  double confidence = 5;
+  string status = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// ListSuggestionsRequest requests pending classification suggestions.
+message ListSuggestionsRequest {}
+
+// ListSuggestionsResponse returns pending classification suggestions.
+message ListSuggestionsResponse {
+  repeated ClassificationSuggestion suggestions = 1;
+}
+
+// ApproveSuggestionRequest approves a classification suggestion.
+message ApproveSuggestionRequest {
+  int32 id = 1;
+}
+
+// ApproveSuggestionResponse returns the result of approving a suggestion.
+message ApproveSuggestionResponse {
+  bool success = 1;
+}
+
+// RejectSuggestionRequest rejects a classification suggestion.
+message RejectSuggestionRequest {
+  int32 id = 1;
+}
+
+// RejectSuggestionResponse returns the result of rejecting a suggestion.
+message RejectSuggestionResponse {
+  bool success = 1;
+}

@@ -4,6 +4,7 @@ package conversationservice
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,17 +15,12 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
-// Test helpers
+// Test tenant UUID for integration tests
+const testTenantID = "00000000-0000-0000-0000-000000000002" // integration_test tenant
+
+// Test helpers for integration tests
 func strPtr(s string) *string {
 	return &s
-}
-
-func int64Ptr(i int64) *int64 {
-	return &i
-}
-
-func timePtr(t time.Time) *time.Time {
-	return &t
 }
 
 // setupTestDB creates a test database connection.
@@ -36,7 +32,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	}
 
 	// Use DATABASE_URL from environment or default to dev02
-	dbURL := "postgres://penfold:penfold123@dev02.brown.chat:5432/penfold?sslmode=disable"
+	dbURL := "postgres://penfold:penfold123@dev02.brown.chat:5432/penfold?sslmode=require"
 
 	config, err := pgxpool.ParseConfig(dbURL)
 	require.NoError(t, err)
@@ -51,12 +47,21 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// cleanupConversations deletes test conversations for a tenant.
+func cleanupConversations(t *testing.T, pool *pgxpool.Pool, tenantID string, conversationIDs ...string) {
+	t.Helper()
+	ctx := context.Background()
+	for _, id := range conversationIDs {
+		_, _ = pool.Exec(ctx, "DELETE FROM conversations WHERE id = $1 AND tenant_id = $2", id, tenantID)
+	}
+}
+
 // TestListConversations verifies pagination and empty results.
 func TestListConversations(t *testing.T) {
 	pool := setupTestDB(t)
 	repo := NewPostgresRepository(pool, logging.NewNopLogger())
 	ctx := context.Background()
-	tenantID := "test-tenant-1"
+	tenantID := testTenantID
 
 	t.Run("empty list", func(t *testing.T) {
 		// Test pagination with no results
@@ -119,7 +124,7 @@ func TestGetConversation(t *testing.T) {
 	pool := setupTestDB(t)
 	repo := NewPostgresRepository(pool, logging.NewNopLogger())
 	ctx := context.Background()
-	tenantID := "test-tenant-1"
+	tenantID := testTenantID
 
 	t.Run("conversation exists", func(t *testing.T) {
 		// Create conversation with items and participants
@@ -201,7 +206,7 @@ func TestUpsertConversation(t *testing.T) {
 	pool := setupTestDB(t)
 	repo := NewPostgresRepository(pool, logging.NewNopLogger())
 	ctx := context.Background()
-	tenantID := "test-tenant-1"
+	tenantID := testTenantID
 
 	t.Run("create new conversation", func(t *testing.T) {
 		conv := &Conversation{
@@ -285,7 +290,7 @@ func TestAddConversationItem(t *testing.T) {
 	pool := setupTestDB(t)
 	repo := NewPostgresRepository(pool, logging.NewNopLogger())
 	ctx := context.Background()
-	tenantID := "test-tenant-1"
+	tenantID := testTenantID
 
 	t.Run("add item successfully", func(t *testing.T) {
 		// Create conversation
@@ -365,7 +370,7 @@ func TestAddConversationParticipant(t *testing.T) {
 	pool := setupTestDB(t)
 	repo := NewPostgresRepository(pool, logging.NewNopLogger())
 	ctx := context.Background()
-	tenantID := "test-tenant-1"
+	tenantID := testTenantID
 
 	t.Run("add participant with both name and address", func(t *testing.T) {
 		// Create conversation
@@ -471,7 +476,7 @@ func TestUpdateConversationStats(t *testing.T) {
 	pool := setupTestDB(t)
 	repo := NewPostgresRepository(pool, logging.NewNopLogger())
 	ctx := context.Background()
-	tenantID := "test-tenant-1"
+	tenantID := testTenantID
 
 	t.Run("recalculate counts", func(t *testing.T) {
 		// Create conversation
@@ -608,5 +613,486 @@ func TestTenantIsolation(t *testing.T) {
 		assert.Equal(t, int64(1), total2)
 		assert.Len(t, conversations2, 1)
 		assert.Equal(t, "Tenant 2 Conversation", conversations2[0].Topic)
+	})
+}
+
+// TestUpdateSummary verifies that UpdateSummary stores summary and increments version.
+func TestUpdateSummary(t *testing.T) {
+	pool := setupTestDB(t)
+	repo := NewPostgresRepository(pool, logging.NewNopLogger())
+	ctx := context.Background()
+	tenantID := testTenantID
+
+	// Cleanup test data from previous runs
+	cleanupConversations(t, pool, tenantID, "conv-summary-001", "conv-summary-002")
+
+	t.Run("update summary stores text and increments version", func(t *testing.T) {
+		// Create conversation
+		conv := &Conversation{
+			ID:       "conv-summary-001",
+			TenantID: tenantID,
+			Topic:    "Summary Test",
+		}
+		conversationID, err := repo.UpsertConversation(ctx, conv)
+		require.NoError(t, err)
+
+		// Update summary
+		err = repo.UpdateSummary(ctx, conversationID, "Initial summary of the conversation", 1)
+		require.NoError(t, err)
+
+		// Verify summary was stored
+		detail, err := repo.GetConversation(ctx, tenantID, conversationID)
+		require.NoError(t, err)
+		require.NotNil(t, detail)
+		assert.NotNil(t, detail.StateSummary)
+		assert.Equal(t, "Initial summary of the conversation", *detail.StateSummary)
+		assert.Equal(t, int32(1), detail.SummaryVersion)
+		assert.NotNil(t, detail.SummaryUpdatedAt)
+
+		// Update summary again
+		time.Sleep(10 * time.Millisecond) // Ensure timestamp changes
+		err = repo.UpdateSummary(ctx, conversationID, "Updated summary with more details", 2)
+		require.NoError(t, err)
+
+		// Verify summary was updated
+		detail, err = repo.GetConversation(ctx, tenantID, conversationID)
+		require.NoError(t, err)
+		require.NotNil(t, detail)
+		assert.NotNil(t, detail.StateSummary)
+		assert.Equal(t, "Updated summary with more details", *detail.StateSummary)
+		assert.Equal(t, int32(2), detail.SummaryVersion)
+		assert.NotNil(t, detail.SummaryUpdatedAt)
+	})
+
+	t.Run("null summary for new conversations", func(t *testing.T) {
+		// Create conversation without setting summary
+		conv := &Conversation{
+			ID:       "conv-summary-002",
+			TenantID: tenantID,
+			Topic:    "No Summary Test",
+		}
+		conversationID, err := repo.UpsertConversation(ctx, conv)
+		require.NoError(t, err)
+
+		// Verify summary is null
+		detail, err := repo.GetConversation(ctx, tenantID, conversationID)
+		require.NoError(t, err)
+		require.NotNil(t, detail)
+		assert.Nil(t, detail.StateSummary)
+		assert.Equal(t, int32(0), detail.SummaryVersion)
+		assert.Nil(t, detail.SummaryUpdatedAt)
+	})
+}
+
+// TestUpdateState verifies that UpdateState updates state and creates history.
+func TestUpdateState(t *testing.T) {
+	pool := setupTestDB(t)
+	repo := NewPostgresRepository(pool, logging.NewNopLogger())
+	ctx := context.Background()
+	tenantID := testTenantID
+
+	// Cleanup test data from previous runs
+	cleanupConversations(t, pool, tenantID, "conv-state-001", "conv-state-002")
+
+	t.Run("update state stores state and creates history", func(t *testing.T) {
+		// Create conversation
+		conv := &Conversation{
+			ID:       "conv-state-001",
+			TenantID: tenantID,
+			Topic:    "State Test",
+		}
+		conversationID, err := repo.UpsertConversation(ctx, conv)
+		require.NoError(t, err)
+
+		// Update state to active
+		err = repo.UpdateState(ctx, conversationID, "active", "User actively engaged")
+		require.NoError(t, err)
+
+		// Verify state was stored
+		detail, err := repo.GetConversation(ctx, tenantID, conversationID)
+		require.NoError(t, err)
+		require.NotNil(t, detail)
+		assert.Equal(t, "active", detail.State)
+		assert.NotNil(t, detail.StateReason)
+		assert.Equal(t, "User actively engaged", *detail.StateReason)
+		assert.NotNil(t, detail.StateChangedAt)
+
+		// Verify history was created
+		history, err := repo.GetStateHistory(ctx, conversationID)
+		require.NoError(t, err)
+		assert.Len(t, history, 1)
+		assert.Equal(t, "unknown", history[0].OldState)
+		assert.Equal(t, "active", history[0].NewState)
+		assert.Equal(t, "User actively engaged", history[0].Reason)
+
+		// Update state to stalled
+		time.Sleep(10 * time.Millisecond)
+		err = repo.UpdateState(ctx, conversationID, "stalled", "No response for 7 days")
+		require.NoError(t, err)
+
+		// Verify state was updated
+		detail, err = repo.GetConversation(ctx, tenantID, conversationID)
+		require.NoError(t, err)
+		require.NotNil(t, detail)
+		assert.Equal(t, "stalled", detail.State)
+		assert.NotNil(t, detail.StateReason)
+		assert.Equal(t, "No response for 7 days", *detail.StateReason)
+
+		// Verify history now has 2 entries
+		history, err = repo.GetStateHistory(ctx, conversationID)
+		require.NoError(t, err)
+		assert.Len(t, history, 2)
+		assert.Equal(t, "active", history[1].OldState)
+		assert.Equal(t, "stalled", history[1].NewState)
+	})
+
+	t.Run("state transitions are logged in order", func(t *testing.T) {
+		// Create conversation
+		conv := &Conversation{
+			ID:       "conv-state-002",
+			TenantID: tenantID,
+			Topic:    "State Transition Test",
+		}
+		conversationID, err := repo.UpsertConversation(ctx, conv)
+		require.NoError(t, err)
+
+		// Transition through multiple states
+		err = repo.UpdateState(ctx, conversationID, "active", "Started")
+		require.NoError(t, err)
+		time.Sleep(10 * time.Millisecond)
+
+		err = repo.UpdateState(ctx, conversationID, "stalled", "Paused")
+		require.NoError(t, err)
+		time.Sleep(10 * time.Millisecond)
+
+		err = repo.UpdateState(ctx, conversationID, "resolved", "Completed")
+		require.NoError(t, err)
+
+		// Verify history shows all transitions
+		history, err := repo.GetStateHistory(ctx, conversationID)
+		require.NoError(t, err)
+		assert.Len(t, history, 3)
+		assert.Equal(t, "unknown", history[0].OldState)
+		assert.Equal(t, "active", history[0].NewState)
+		assert.Equal(t, "active", history[1].OldState)
+		assert.Equal(t, "stalled", history[1].NewState)
+		assert.Equal(t, "stalled", history[2].OldState)
+		assert.Equal(t, "resolved", history[2].NewState)
+	})
+}
+
+// TestListConversationsWithStateFilter verifies filtering by state.
+func TestListConversationsWithStateFilter(t *testing.T) {
+	pool := setupTestDB(t)
+	repo := NewPostgresRepository(pool, logging.NewNopLogger())
+	ctx := context.Background()
+	tenantID := testTenantID
+
+	t.Run("filter conversations by state", func(t *testing.T) {
+		// Cleanup ALL test conversations before running this test (to ensure clean state)
+		cleanupConversations(t, pool, tenantID,
+			"conv-filter-001", "conv-filter-002", "conv-filter-003", "conv-filter-004",
+			"conv-summary-001", "conv-summary-002",
+			"conv-state-001", "conv-state-002",
+			"conv-fields-001", "conv-fields-002", "conv-fields-003",
+			"conv-default-001",
+			"conv-history-001", "conv-history-002",
+		)
+		defer cleanupConversations(t, pool, tenantID, "conv-filter-001", "conv-filter-002", "conv-filter-003", "conv-filter-004")
+
+		// Create conversations with different states
+		conv1 := &Conversation{
+			ID:       "conv-filter-001",
+			TenantID: tenantID,
+			Topic:    "Active Conversation",
+		}
+		id1, err := repo.UpsertConversation(ctx, conv1)
+		require.NoError(t, err)
+		err = repo.UpdateState(ctx, id1, "active", "Active")
+		require.NoError(t, err)
+
+		conv2 := &Conversation{
+			ID:       "conv-filter-002",
+			TenantID: tenantID,
+			Topic:    "Stalled Conversation",
+		}
+		id2, err := repo.UpsertConversation(ctx, conv2)
+		require.NoError(t, err)
+		err = repo.UpdateState(ctx, id2, "stalled", "Stalled")
+		require.NoError(t, err)
+
+		conv3 := &Conversation{
+			ID:       "conv-filter-003",
+			TenantID: tenantID,
+			Topic:    "Resolved Conversation",
+		}
+		id3, err := repo.UpsertConversation(ctx, conv3)
+		require.NoError(t, err)
+		err = repo.UpdateState(ctx, id3, "resolved", "Resolved")
+		require.NoError(t, err)
+
+		conv4 := &Conversation{
+			ID:       "conv-filter-004",
+			TenantID: tenantID,
+			Topic:    "Another Active Conversation",
+		}
+		id4, err := repo.UpsertConversation(ctx, conv4)
+		require.NoError(t, err)
+		err = repo.UpdateState(ctx, id4, "active", "Active too")
+		require.NoError(t, err)
+
+		// Filter by active state
+		activeConvs, activeTotal, err := repo.ListConversationsByState(ctx, tenantID, "active", 10, 0)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), activeTotal)
+		assert.Len(t, activeConvs, 2)
+
+		// Filter by stalled state
+		stalledConvs, stalledTotal, err := repo.ListConversationsByState(ctx, tenantID, "stalled", 10, 0)
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), stalledTotal)
+		assert.Len(t, stalledConvs, 1)
+		assert.Equal(t, "Stalled Conversation", stalledConvs[0].Topic)
+
+		// Filter by resolved state
+		resolvedConvs, resolvedTotal, err := repo.ListConversationsByState(ctx, tenantID, "resolved", 10, 0)
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), resolvedTotal)
+		assert.Len(t, resolvedConvs, 1)
+		assert.Equal(t, "Resolved Conversation", resolvedConvs[0].Topic)
+
+		// Filter by unknown state (should be empty)
+		unknownConvs, unknownTotal, err := repo.ListConversationsByState(ctx, tenantID, "unknown", 10, 0)
+		require.NoError(t, err)
+		assert.Equal(t, int64(0), unknownTotal)
+		assert.Empty(t, unknownConvs)
+	})
+
+	t.Run("state filter respects pagination", func(t *testing.T) {
+		// Cleanup pagination test data
+		cleanupConversations(t, pool, tenantID, "conv-filter-page-0", "conv-filter-page-1", "conv-filter-page-2", "conv-filter-page-3", "conv-filter-page-4")
+		defer cleanupConversations(t, pool, tenantID, "conv-filter-page-0", "conv-filter-page-1", "conv-filter-page-2", "conv-filter-page-3", "conv-filter-page-4")
+
+		// Create multiple active conversations
+		for i := 0; i < 5; i++ {
+			conv := &Conversation{
+				ID:       fmt.Sprintf("conv-filter-page-%d", i),
+				TenantID: tenantID,
+				Topic:    fmt.Sprintf("Active Page Test %d", i),
+			}
+			id, err := repo.UpsertConversation(ctx, conv)
+			require.NoError(t, err)
+			err = repo.UpdateState(ctx, id, "active", "Test")
+			require.NoError(t, err)
+		}
+
+		// Get first page (limit 2)
+		page1, total1, err := repo.ListConversationsByState(ctx, tenantID, "active", 2, 0)
+		require.NoError(t, err)
+		assert.Len(t, page1, 2)
+		assert.GreaterOrEqual(t, total1, int64(5))
+
+		// Get second page (limit 2, offset 2)
+		page2, total2, err := repo.ListConversationsByState(ctx, tenantID, "active", 2, 2)
+		require.NoError(t, err)
+		assert.Len(t, page2, 2)
+		assert.Equal(t, total1, total2)
+	})
+}
+
+// TestGetConversationIncludesSummaryFields verifies all new fields are returned.
+func TestGetConversationIncludesSummaryFields(t *testing.T) {
+	pool := setupTestDB(t)
+	repo := NewPostgresRepository(pool, logging.NewNopLogger())
+	ctx := context.Background()
+	tenantID := testTenantID
+
+	// Cleanup test data from previous runs
+	cleanupConversations(t, pool, tenantID, "conv-fields-001", "conv-fields-002", "conv-fields-003")
+
+	t.Run("get conversation includes all summary and state fields", func(t *testing.T) {
+		// Create conversation
+		conv := &Conversation{
+			ID:       "conv-fields-001",
+			TenantID: tenantID,
+			Topic:    "Full Fields Test",
+		}
+		conversationID, err := repo.UpsertConversation(ctx, conv)
+		require.NoError(t, err)
+
+		// Set summary
+		err = repo.UpdateSummary(ctx, conversationID, "Detailed summary of conversation", 1)
+		require.NoError(t, err)
+
+		// Set state
+		err = repo.UpdateState(ctx, conversationID, "active", "Currently in progress")
+		require.NoError(t, err)
+
+		// Get conversation and verify all fields
+		detail, err := repo.GetConversation(ctx, tenantID, conversationID)
+		require.NoError(t, err)
+		require.NotNil(t, detail)
+
+		// Verify summary fields
+		assert.NotNil(t, detail.StateSummary)
+		assert.Equal(t, "Detailed summary of conversation", *detail.StateSummary)
+		assert.Equal(t, int32(1), detail.SummaryVersion)
+		assert.NotNil(t, detail.SummaryUpdatedAt)
+
+		// Verify state fields
+		assert.Equal(t, "active", detail.State)
+		assert.NotNil(t, detail.StateReason)
+		assert.Equal(t, "Currently in progress", *detail.StateReason)
+		assert.NotNil(t, detail.StateChangedAt)
+	})
+
+	t.Run("conversation with only summary set", func(t *testing.T) {
+		// Create conversation
+		conv := &Conversation{
+			ID:       "conv-fields-002",
+			TenantID: tenantID,
+			Topic:    "Summary Only Test",
+		}
+		conversationID, err := repo.UpsertConversation(ctx, conv)
+		require.NoError(t, err)
+
+		// Set only summary
+		err = repo.UpdateSummary(ctx, conversationID, "Summary without state", 1)
+		require.NoError(t, err)
+
+		// Get conversation
+		detail, err := repo.GetConversation(ctx, tenantID, conversationID)
+		require.NoError(t, err)
+		require.NotNil(t, detail)
+
+		// Verify summary fields set
+		assert.NotNil(t, detail.StateSummary)
+		assert.Equal(t, "Summary without state", *detail.StateSummary)
+
+		// Verify state is default
+		assert.Equal(t, "unknown", detail.State)
+	})
+
+	t.Run("conversation with only state set", func(t *testing.T) {
+		// Create conversation
+		conv := &Conversation{
+			ID:       "conv-fields-003",
+			TenantID: tenantID,
+			Topic:    "State Only Test",
+		}
+		conversationID, err := repo.UpsertConversation(ctx, conv)
+		require.NoError(t, err)
+
+		// Set only state
+		err = repo.UpdateState(ctx, conversationID, "stalled", "State without summary")
+		require.NoError(t, err)
+
+		// Get conversation
+		detail, err := repo.GetConversation(ctx, tenantID, conversationID)
+		require.NoError(t, err)
+		require.NotNil(t, detail)
+
+		// Verify state fields set
+		assert.Equal(t, "stalled", detail.State)
+		assert.NotNil(t, detail.StateReason)
+
+		// Verify summary is null
+		assert.Nil(t, detail.StateSummary)
+	})
+}
+
+// TestNewConversationDefaultState verifies new conversations have default state.
+func TestNewConversationDefaultState(t *testing.T) {
+	pool := setupTestDB(t)
+	repo := NewPostgresRepository(pool, logging.NewNopLogger())
+	ctx := context.Background()
+	tenantID := testTenantID
+
+	// Cleanup test data from previous runs
+	cleanupConversations(t, pool, tenantID, "conv-default-001")
+
+	t.Run("new conversation has state unknown and null summary", func(t *testing.T) {
+		// Create conversation
+		conv := &Conversation{
+			ID:       "conv-default-001",
+			TenantID: tenantID,
+			Topic:    "Default State Test",
+		}
+		conversationID, err := repo.UpsertConversation(ctx, conv)
+		require.NoError(t, err)
+
+		// Get conversation
+		detail, err := repo.GetConversation(ctx, tenantID, conversationID)
+		require.NoError(t, err)
+		require.NotNil(t, detail)
+
+		// Verify default state
+		assert.Equal(t, "unknown", detail.State)
+		assert.Nil(t, detail.StateReason)
+		assert.Nil(t, detail.StateChangedAt)
+
+		// Verify null summary
+		assert.Nil(t, detail.StateSummary)
+		assert.Equal(t, int32(0), detail.SummaryVersion)
+		assert.Nil(t, detail.SummaryUpdatedAt)
+	})
+}
+
+// TestStateHistoryEdgeCases verifies edge cases in state history.
+func TestStateHistoryEdgeCases(t *testing.T) {
+	pool := setupTestDB(t)
+	repo := NewPostgresRepository(pool, logging.NewNopLogger())
+	ctx := context.Background()
+	tenantID := testTenantID
+
+	// Cleanup test data from previous runs
+	cleanupConversations(t, pool, tenantID, "conv-history-001", "conv-history-002")
+
+	t.Run("state history for conversation with no state changes", func(t *testing.T) {
+		// Create conversation
+		conv := &Conversation{
+			ID:       "conv-history-001",
+			TenantID: tenantID,
+			Topic:    "No History Test",
+		}
+		conversationID, err := repo.UpsertConversation(ctx, conv)
+		require.NoError(t, err)
+
+		// Get history (should be empty)
+		history, err := repo.GetStateHistory(ctx, conversationID)
+		require.NoError(t, err)
+		assert.Empty(t, history)
+	})
+
+	t.Run("state history is ordered by created_at", func(t *testing.T) {
+		// Create conversation
+		conv := &Conversation{
+			ID:       "conv-history-002",
+			TenantID: tenantID,
+			Topic:    "History Order Test",
+		}
+		conversationID, err := repo.UpsertConversation(ctx, conv)
+		require.NoError(t, err)
+
+		// Create multiple state changes
+		err = repo.UpdateState(ctx, conversationID, "active", "First")
+		require.NoError(t, err)
+		time.Sleep(10 * time.Millisecond)
+
+		err = repo.UpdateState(ctx, conversationID, "stalled", "Second")
+		require.NoError(t, err)
+		time.Sleep(10 * time.Millisecond)
+
+		err = repo.UpdateState(ctx, conversationID, "active", "Third")
+		require.NoError(t, err)
+
+		// Get history
+		history, err := repo.GetStateHistory(ctx, conversationID)
+		require.NoError(t, err)
+		assert.Len(t, history, 3)
+
+		// Verify order (should be chronological)
+		assert.True(t, history[0].CreatedAt.Before(history[1].CreatedAt))
+		assert.True(t, history[1].CreatedAt.Before(history[2].CreatedAt))
 	})
 }

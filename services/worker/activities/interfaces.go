@@ -412,6 +412,15 @@ type GroupEmailThreadOutput struct {
 	ThreadID *string `json:"thread_id,omitempty"` // Root message ID (nil if not threaded)
 }
 
+// ConversationItem represents a content item in a conversation.
+type ConversationItem struct {
+	ConversationID string
+	ContentID      string
+	SourceID       *int64
+	AddedAt        time.Time
+	TenantID       string
+}
+
 // ConversationRepository defines the interface for conversation data access.
 type ConversationRepository interface {
 	// UpsertConversation creates or updates a conversation.
@@ -429,4 +438,16 @@ type ConversationRepository interface {
 
 	// UpdateConversationStats recalculates counts and timestamps for a conversation.
 	UpdateConversationStats(ctx context.Context, conversationID string) error
+
+	// UpdateSummary updates the rolling summary for a conversation.
+	UpdateSummary(ctx context.Context, conversationID, summary string, version int32) error
+
+	// UpdateState updates the state of a conversation and logs to history.
+	UpdateState(ctx context.Context, conversationID, state, reason string) error
+
+	// GetConversationItems returns the most recent items for a conversation.
+	GetConversationItems(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error)
+
+	// GetConversation returns a conversation by ID.
+	GetConversation(ctx context.Context, tenantID, conversationID string) (*Conversation, error)
 }

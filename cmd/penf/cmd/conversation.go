@@ -21,6 +21,7 @@ var (
 	conversationLimit  int32
 	conversationOffset int32
 	conversationOutput string
+	conversationState  string
 )
 
 // ConversationCommandDeps holds the dependencies for conversation commands.
@@ -78,11 +79,13 @@ Conversations are ordered by last seen date (most recent first).
 Flags:
   --limit             Maximum results (default 20)
   --offset            Pagination offset
+  --state             Filter by state (active, stalled, resolved, unknown)
   -o, --output        Output format: text, json, yaml
 
 Examples:
   penf conversation list --limit 10
   penf conversation list --offset 20 --limit 10
+  penf conversation list --state active
   penf conversation list -o json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -92,6 +95,7 @@ Examples:
 
 	cmd.Flags().Int32Var(&conversationLimit, "limit", 20, "Maximum results")
 	cmd.Flags().Int32Var(&conversationOffset, "offset", 0, "Pagination offset")
+	cmd.Flags().StringVar(&conversationState, "state", "", "Filter by state (active, stalled, resolved, unknown)")
 	cmd.Flags().StringVarP(&conversationOutput, "output", "o", "", "Output format: text, json, yaml")
 
 	return cmd
@@ -196,6 +200,9 @@ func runConversationList(ctx context.Context, deps *ConversationCommandDeps) err
 		Limit:    conversationLimit,
 		Offset:   conversationOffset,
 	}
+	if conversationState != "" {
+		req.State = &conversationState
+	}
 
 	// Execute request
 	resp, err := client.ListConversations(ctx, req)
@@ -262,20 +269,25 @@ func outputConversationListText(resp *conversationv1.ListConversationsResponse) 
 	}
 
 	// Header
-	fmt.Printf("%-38s %-50s %-8s %-13s %-20s\n",
-		"ID", "TOPIC", "ITEMS", "PARTICIPANTS", "LAST SEEN")
-	fmt.Println("────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────")
+	fmt.Printf("%-38s %-50s %-8s %-13s %-10s %-20s\n",
+		"ID", "TOPIC", "ITEMS", "PARTICIPANTS", "STATE", "LAST SEEN")
+	fmt.Println("──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────")
 
 	// Rows
 	for _, c := range resp.Conversations {
 		topic := truncateThreadString(c.Topic, 50)
 		lastSeen := formatThreadTimestamp(c.LastSeen)
+		state := "N/A"
+		if c.State != nil {
+			state = *c.State
+		}
 
-		fmt.Printf("%-38s %-50s %-8d %-13d %-20s\n",
+		fmt.Printf("%-38s %-50s %-8d %-13d %-10s %-20s\n",
 			c.Id,
 			topic,
 			c.ItemCount,
 			c.ParticipantCount,
+			state,
 			lastSeen)
 	}
 
@@ -306,6 +318,25 @@ func outputConversationDetailText(resp *conversationv1.ShowConversationResponse)
 	fmt.Printf("Participants:     %d\n", resp.ParticipantCount)
 	fmt.Printf("First Seen:       %s\n", formatThreadTimestamp(resp.FirstSeen))
 	fmt.Printf("Last Seen:        %s\n", formatThreadTimestamp(resp.LastSeen))
+
+	// State fields
+	state := "N/A"
+	if resp.State != nil {
+		state = *resp.State
+	}
+	fmt.Printf("State:            %s\n", state)
+
+	stateReason := "N/A"
+	if resp.StateReason != nil {
+		stateReason = *resp.StateReason
+	}
+	fmt.Printf("State Reason:     %s\n", stateReason)
+
+	stateChanged := "N/A"
+	if resp.StateChangedAt != nil {
+		stateChanged = formatThreadTimestamp(resp.StateChangedAt)
+	}
+	fmt.Printf("State Changed:    %s\n", stateChanged)
 
 	// Items
 	if len(resp.Items) > 0 {
@@ -349,6 +380,12 @@ func outputConversationDetailText(resp *conversationv1.ShowConversationResponse)
 				truncateThreadString(name, 30),
 				truncateThreadString(address, 40))
 		}
+	}
+
+	// State Summary
+	if resp.StateSummary != nil && *resp.StateSummary != "" {
+		fmt.Println("\nState Summary:")
+		fmt.Println(*resp.StateSummary)
 	}
 
 	fmt.Println()

@@ -2,10 +2,13 @@ package activities
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
@@ -14,13 +17,16 @@ type ConversationActivities struct {
 	logger     logging.Logger
 	sourceRepo SourceRepository
 	convRepo   ConversationRepository
+	aiClient   AIClient // Optional: for summary+state generation
 }
 
 // NewConversationActivities creates a new ConversationActivities instance.
+// aiClient is optional - if nil, summary generation is skipped (graceful degradation).
 func NewConversationActivities(
 	logger logging.Logger,
 	sourceRepo SourceRepository,
 	convRepo ConversationRepository,
+	aiClient AIClient,
 ) *ConversationActivities {
 	if logger == nil {
 		panic("NewConversationActivities: logger is required")
@@ -35,6 +41,7 @@ func NewConversationActivities(
 		logger:     logger.With(logging.F("component", "conversation_activities")),
 		sourceRepo: sourceRepo,
 		convRepo:   convRepo,
+		aiClient:   aiClient,
 	}
 }
 
@@ -208,6 +215,9 @@ func (a *ConversationActivities) LinkConversation(ctx context.Context, input Lin
 		// Don't fail - conversation and items were created
 	}
 
+	// Generate rolling summary + state (non-blocking)
+	a.generateSummaryAndState(ctx, input.TenantID, existingConvID, input.ContentID)
+
 	logger.Info("conversation linking completed",
 		logging.F("conversation_id", existingConvID),
 		logging.F("thread_id", input.ThreadID),
@@ -276,4 +286,189 @@ func extractParticipants(from, to, cc string) []string {
 	addParticipants(cc)
 
 	return participants
+}
+
+// generateSummaryAndState generates a rolling summary and state assessment for a conversation.
+// This is non-blocking: all errors are logged but not returned.
+func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, tenantID, conversationID, newContentID string) {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("conversation_id", conversationID),
+		logging.F("content_id", newContentID),
+	)
+
+	// Skip if aiClient is nil (graceful degradation)
+	if a.aiClient == nil {
+		logger.Debug("skipping summary generation - AI client not configured")
+		return
+	}
+
+	// Fetch current conversation
+	conversation, err := a.convRepo.GetConversation(ctx, tenantID, conversationID)
+	if err != nil {
+		logger.Warn("failed to fetch conversation for summary generation",
+			logging.F("error", err.Error()),
+		)
+		return
+	}
+
+	// Fetch last 3 conversation items (for context)
+	items, err := a.convRepo.GetConversationItems(ctx, conversationID, 3)
+	if err != nil {
+		logger.Warn("failed to fetch conversation items for summary",
+			logging.F("error", err.Error()),
+		)
+		return
+	}
+
+	// Build LLM prompt with: existing summary + last 3 items + new item
+	prompt := a.buildSummaryPrompt(conversation, items, newContentID)
+
+	// Call AI service for summary generation
+	req := &aiv1.SummaryRequest{
+		Content: prompt,
+		// Use fast-tier model (per-stage model selection already available)
+		// The AIClient should handle model selection internally based on task
+	}
+
+	resp, err := a.aiClient.GenerateSummary(ctx, req)
+	if err != nil {
+		logger.Warn("failed to generate summary via LLM",
+			logging.F("error", err.Error()),
+		)
+		return
+	}
+
+	// Parse response for summary text + state + reason
+	summary := resp.Summary
+	state, reason := a.parseStateFromSummary(resp)
+
+	// Persist summary (version 1 for now - could be enhanced to track versions)
+	err = a.convRepo.UpdateSummary(ctx, conversationID, summary, 1)
+	if err != nil {
+		logger.Warn("failed to persist summary",
+			logging.F("error", err.Error()),
+			logging.F("summary", summary),
+		)
+		// Continue to try persisting state even if summary fails
+	}
+
+	// Persist state + reason
+	err = a.convRepo.UpdateState(ctx, conversationID, state, reason)
+	if err != nil {
+		logger.Warn("failed to persist conversation state",
+			logging.F("error", err.Error()),
+			logging.F("state", state),
+			logging.F("reason", reason),
+		)
+		return
+	}
+
+	logger.Info("conversation summary and state updated",
+		logging.F("state", state),
+		logging.F("summary_length", len(summary)),
+	)
+}
+
+// buildSummaryPrompt constructs a prompt for the LLM to generate summary and assess state.
+func (a *ConversationActivities) buildSummaryPrompt(conversation *Conversation, items []ConversationItem, newContentID string) string {
+	var prompt strings.Builder
+
+	prompt.WriteString("Generate a concise rolling summary (200-400 tokens) and assess the conversation state.\n\n")
+	prompt.WriteString(fmt.Sprintf("Conversation Topic: %s\n", conversation.Topic))
+
+	// Include existing summary if available
+	// Note: Conversation struct doesn't have StateSummary field yet
+	// This will be added by the data-dev layer later
+	// For now, we'll just work with what we have
+
+	if len(items) > 0 {
+		prompt.WriteString("\nRecent conversation items:\n")
+		for i, item := range items {
+			prompt.WriteString(fmt.Sprintf("%d. Content ID: %s\n", i+1, item.ContentID))
+		}
+	}
+
+	prompt.WriteString(fmt.Sprintf("\nNew content item: %s\n", newContentID))
+
+	prompt.WriteString("\nProvide:\n")
+	prompt.WriteString("1. Updated summary paragraph\n")
+	prompt.WriteString("2. State assessment: active, stalled, resolved, or unknown\n")
+	prompt.WriteString("3. Brief reason for state assessment\n")
+
+	return prompt.String()
+}
+
+// parseStateFromSummary extracts state and reason from the LLM response.
+// This is a simple implementation - could be enhanced with structured output.
+func (a *ConversationActivities) parseStateFromSummary(resp *aiv1.SummaryResponse) (state, reason string) {
+	// Default to "active" if we can't determine state
+	state = "active"
+	reason = "New message received"
+
+	// Try to infer state from key points
+	if len(resp.KeyPoints) > 0 {
+		for _, point := range resp.KeyPoints {
+			lowerPoint := strings.ToLower(point)
+			if strings.Contains(lowerPoint, "blocked") || strings.Contains(lowerPoint, "waiting") {
+				state = "stalled"
+				reason = point
+				return
+			}
+			if strings.Contains(lowerPoint, "resolved") || strings.Contains(lowerPoint, "closed") || strings.Contains(lowerPoint, "completed") {
+				state = "resolved"
+				reason = point
+				return
+			}
+		}
+	}
+
+	// Check summary text for state indicators
+	summaryLower := strings.ToLower(resp.Summary)
+	if strings.Contains(summaryLower, "blocked") || strings.Contains(summaryLower, "stalled") || strings.Contains(summaryLower, "waiting") {
+		state = "stalled"
+		reason = "Conversation appears blocked or waiting"
+	} else if strings.Contains(summaryLower, "resolved") || strings.Contains(summaryLower, "closed") {
+		state = "resolved"
+		reason = "Conversation appears resolved"
+	}
+
+	return state, reason
+}
+
+// BackfillConversationSummaries generates summaries for existing conversations.
+type BackfillConversationSummariesInput struct {
+	TenantID string `json:"tenant_id"`
+	Limit    int    `json:"limit"`
+}
+
+// BackfillConversationSummariesOutput contains the results of backfill operation.
+type BackfillConversationSummariesOutput struct {
+	Processed int `json:"processed"`
+	Failed    int `json:"failed"`
+}
+
+// BackfillConversationSummaries generates initial summaries for existing conversations.
+func (a *ConversationActivities) BackfillConversationSummaries(ctx context.Context, input BackfillConversationSummariesInput) (*BackfillConversationSummariesOutput, error) {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "BackfillConversationSummaries"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("limit", input.Limit),
+	)
+
+	logger.Info("starting conversation summary backfill")
+
+	// TODO: Implementation requires a method to list conversations without summaries
+	// This would need to be added to ConversationRepository interface:
+	// - GetConversationsWithoutSummary(ctx, tenantID, limit) ([]string, error)
+	//
+	// For now, return a stub that indicates the method exists but needs data layer support
+
+	output := &BackfillConversationSummariesOutput{
+		Processed: 0,
+		Failed:    0,
+	}
+
+	logger.Warn("backfill not yet implemented - requires data layer support for listing conversations without summaries")
+
+	return output, nil
 }

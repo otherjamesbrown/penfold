@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	classifyv1 "github.com/otherjamesbrown/penfold/api/proto/classify/v1"
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	"github.com/otherjamesbrown/penfold/cmd/penf/client"
 	"github.com/otherjamesbrown/penfold/cmd/penf/config"
@@ -33,10 +35,12 @@ type ClassifyCommandDeps struct {
 	InitClient func(*config.CLIConfig) (*client.GRPCClient, error)
 
 	// Mock function overrides for testing
-	ReprocessContentFn func(ctx context.Context, contentID, reason string) (*contentv1.ReprocessContentResponse, error)
-	ListContentItemsFn func(ctx context.Context, req *contentv1.ListContentItemsRequest) (*contentv1.ListContentItemsResponse, error)
-	GetContentItemFn   func(ctx context.Context, contentID string, includeEmbedding bool) (*contentv1.ContentItem, error)
-	GetContentStatsFn  func(ctx context.Context, tenantID string) (*contentv1.ContentStats, error)
+	ReprocessContentFn  func(ctx context.Context, contentID, reason string) (*contentv1.ReprocessContentResponse, error)
+	ListContentItemsFn  func(ctx context.Context, req *contentv1.ListContentItemsRequest) (*contentv1.ListContentItemsResponse, error)
+	GetContentItemFn    func(ctx context.Context, contentID string, includeEmbedding bool) (*contentv1.ContentItem, error)
+	GetContentStatsFn   func(ctx context.Context, tenantID string) (*contentv1.ContentStats, error)
+	ListSuggestionsFn   func(ctx context.Context) ([]ClassificationSuggestion, error)
+	ApproveSuggestionFn func(ctx context.Context, id int32) (bool, error)
 }
 
 // ReprocessContentResult represents the result of reprocessing a content item.
@@ -69,6 +73,17 @@ type ContentItemDetails struct {
 type ContentStatsResult struct {
 	Total     int            `json:"total"`
 	Breakdown map[string]int `json:"breakdown"`
+}
+
+// ClassificationSuggestion represents an LLM-generated classification suggestion.
+type ClassificationSuggestion struct {
+	ID           int32     `json:"id"`
+	ContentID    string    `json:"content_id"`
+	SourceSystem string    `json:"source_system"`
+	Pattern      string    `json:"pattern"`
+	Confidence   float64   `json:"confidence"`
+	Status       string    `json:"status"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // DefaultClassifyDeps returns the default dependencies for production use.
@@ -132,6 +147,7 @@ For AI assistants:
 	cmd.AddCommand(newClassifyRunCommand(deps))
 	cmd.AddCommand(newClassifyStatsCommand(deps))
 	cmd.AddCommand(newClassifyRulesCommand(deps))
+	cmd.AddCommand(newClassifySuggestionsCommand(deps))
 
 	return cmd
 }
@@ -213,27 +229,37 @@ Examples:
 func newClassifyRulesCommand(deps *ClassifyCommandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rules",
-		Short: "Show active classification rules",
-		Long: `Display the active classification rules table.
+		Short: "Manage classification rules",
+		Long: `Display and manage the active classification rules.
 
 Rules are defined in the codebase and executed in priority order. Each rule
 has conditions that are evaluated with OR logic - if any condition matches,
 the rule fires and assigns the source_system.
 
-This command works without gateway access since rules are hardcoded in the Go code.
+The base command shows the rules table and works without gateway access.
 
 Examples:
   # Show classification rules
   penf classify rules
 
   # Output as JSON
-  penf classify rules --output json`,
+  penf classify rules --output json
+
+  # Add a new rule (placeholder)
+  penf classify rules add jira "from contains 'jira'"
+
+  # Test rules against a content item
+  penf classify rules test em-abc123`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runClassifyRules(cmd.Context(), deps)
 		},
 	}
 
 	cmd.Flags().StringVarP(&classifyOutput, "output", "o", "", "Output format: text, json, yaml")
+
+	// Add subcommands
+	cmd.AddCommand(newClassifyRulesAddCommand(deps))
+	cmd.AddCommand(newClassifyRulesTestCommand(deps))
 
 	return cmd
 }
@@ -672,6 +698,88 @@ func outputClassifyRulesText(rules []ClassificationRule) error {
 	return nil
 }
 
+// newClassifySuggestionsCommand creates the 'classify suggestions' subcommand.
+func newClassifySuggestionsCommand(deps *ClassifyCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "suggestions",
+		Short: "List pending LLM classification suggestions",
+		Long: `Display pending LLM-generated classification suggestions.
+
+When the classification system encounters content items that don't match existing
+rules, it can use an LLM to suggest new classification patterns. This command
+lists those pending suggestions.
+
+Examples:
+  # List pending suggestions
+  penf classify suggestions
+
+  # Output as JSON
+  penf classify suggestions --output json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runClassifySuggestions(cmd.Context(), deps)
+		},
+	}
+
+	cmd.Flags().StringVarP(&classifyOutput, "output", "o", "", "Output format: text, json, yaml")
+
+	return cmd
+}
+
+// newClassifyRulesAddCommand creates the 'classify rules add' subcommand.
+func newClassifyRulesAddCommand(deps *ClassifyCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add <source_system> <pattern>",
+		Short: "Add a classification rule",
+		Long: `Add a new classification rule (placeholder).
+
+Currently, classification rules are hardcoded in the codebase. This command
+is a placeholder for future functionality to dynamically add rules.
+
+Examples:
+  # Add a rule for JIRA detection
+  penf classify rules add jira "from contains 'jira'"`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sourceSystem := args[0]
+			pattern := args[1]
+			return runClassifyRulesAdd(cmd.Context(), deps, sourceSystem, pattern)
+		},
+	}
+
+	cmd.Flags().StringVarP(&classifyOutput, "output", "o", "", "Output format: text, json, yaml")
+
+	return cmd
+}
+
+// newClassifyRulesTestCommand creates the 'classify rules test' subcommand.
+func newClassifyRulesTestCommand(deps *ClassifyCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "test <content-id>",
+		Short: "Test classification rules against a content item",
+		Long: `Test classification rules against a specific content item.
+
+Fetches the content item metadata and runs local classification to show
+which rule would match and what source_system would be assigned. This is
+useful for debugging classification behavior.
+
+Examples:
+  # Test rules against a content item
+  penf classify rules test em-abc123
+
+  # Output as JSON
+  penf classify rules test em-abc123 --output json`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			contentID := args[0]
+			return runClassifyRulesTest(cmd.Context(), deps, contentID)
+		},
+	}
+
+	cmd.Flags().StringVarP(&classifyOutput, "output", "o", "", "Output format: text, json, yaml")
+
+	return cmd
+}
+
 // Verify the classification package is available (for testing)
 var _ = classification.ClassifySourceSystem
 
@@ -760,6 +868,252 @@ func outputClassifyStats(format config.OutputFormat, result *ContentStatsResult)
 		for sourceSystem, count := range result.Breakdown {
 			fmt.Printf("  %-20s: %d\n", sourceSystem, count)
 		}
+		return nil
+	}
+}
+
+// runClassifySuggestions executes the suggestions subcommand.
+func runClassifySuggestions(ctx context.Context, deps *ClassifyCommandDeps) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Determine output format
+	format := cfg.OutputFormat
+	if classifyOutput != "" {
+		format = config.OutputFormat(classifyOutput)
+	}
+
+	// Get suggestions - use mock function if provided, otherwise call real RPC
+	var suggestions []ClassificationSuggestion
+	if deps.ListSuggestionsFn != nil {
+		suggestions, err = deps.ListSuggestionsFn(ctx)
+	} else {
+		// Initialize client if needed
+		if deps.GRPCClient == nil && deps.InitClient != nil {
+			grpcClient, err := deps.InitClient(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing gRPC client: %w", err)
+			}
+			deps.GRPCClient = grpcClient
+		}
+
+		// Call the gRPC service
+		client := classifyv1.NewClassificationSuggestionServiceClient(deps.GRPCClient.GetConnection())
+		resp, err := client.ListSuggestions(ctx, &classifyv1.ListSuggestionsRequest{})
+		if err != nil {
+			return fmt.Errorf("listing suggestions: %w", err)
+		}
+
+		// Convert proto suggestions to our internal type
+		suggestions = make([]ClassificationSuggestion, len(resp.Suggestions))
+		for i, s := range resp.Suggestions {
+			suggestions[i] = ClassificationSuggestion{
+				ID:           s.Id,
+				ContentID:    s.ContentId,
+				SourceSystem: s.SourceSystem,
+				Pattern:      s.Pattern,
+				Confidence:   s.Confidence,
+				Status:       s.Status,
+				CreatedAt:    s.CreatedAt.AsTime(),
+			}
+		}
+	}
+
+	return outputClassifySuggestions(format, suggestions)
+}
+
+// outputClassifySuggestions outputs the classification suggestions.
+func outputClassifySuggestions(format config.OutputFormat, suggestions []ClassificationSuggestion) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]interface{}{
+			"suggestions": suggestions,
+		})
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(map[string]interface{}{
+			"suggestions": suggestions,
+		})
+	default:
+		if len(suggestions) == 0 {
+			fmt.Println("No pending suggestions.")
+			return nil
+		}
+
+		fmt.Printf("Pending Classification Suggestions (%d):\n\n", len(suggestions))
+		fmt.Println("  ID  CONTENT ID    SOURCE SYSTEM      PATTERN                                  CONFIDENCE  STATUS")
+		fmt.Println("  --  ----------    -------------      -------                                  ----------  ------")
+
+		for _, s := range suggestions {
+			// Truncate pattern if too long
+			pattern := s.Pattern
+			if len(pattern) > 40 {
+				pattern = pattern[:37] + "..."
+			}
+
+			fmt.Printf("  %-3d %-13s %-18s %-43s %.2f        %s\n",
+				s.ID,
+				s.ContentID,
+				s.SourceSystem,
+				pattern,
+				s.Confidence,
+				s.Status)
+		}
+
+		fmt.Println()
+		return nil
+	}
+}
+
+// runClassifyRulesAdd executes the rules add subcommand.
+func runClassifyRulesAdd(ctx context.Context, deps *ClassifyCommandDeps, sourceSystem, pattern string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Determine output format
+	format := cfg.OutputFormat
+	if classifyOutput != "" {
+		format = config.OutputFormat(classifyOutput)
+	}
+
+	// For now, this is a placeholder since rules are hardcoded
+	// In the future, this might approve a suggestion or add to a dynamic rule store
+	result := map[string]interface{}{
+		"success":       true,
+		"message":       "Classification rules are currently hardcoded in the codebase. This command is a placeholder for future functionality.",
+		"source_system": sourceSystem,
+		"pattern":       pattern,
+	}
+
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(result)
+	default:
+		fmt.Println("Note: Classification rules are currently hardcoded in the codebase.")
+		fmt.Println("      This command is a placeholder for future functionality.")
+		fmt.Println()
+		fmt.Printf("Proposed rule:\n")
+		fmt.Printf("  Source System: %s\n", sourceSystem)
+		fmt.Printf("  Pattern:       %s\n", pattern)
+		fmt.Println()
+		fmt.Println("To add a rule, modify pkg/enrichment/classification/source_system.go")
+		return nil
+	}
+}
+
+// runClassifyRulesTest executes the rules test subcommand.
+func runClassifyRulesTest(ctx context.Context, deps *ClassifyCommandDeps, contentID string) error {
+	cfg, err := deps.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+	deps.Config = cfg
+
+	// Determine output format
+	format := cfg.OutputFormat
+	if classifyOutput != "" {
+		format = config.OutputFormat(classifyOutput)
+	}
+
+	// Initialize client if needed
+	if deps.GRPCClient == nil && deps.InitClient != nil {
+		grpcClient, err := deps.InitClient(cfg)
+		if err != nil {
+			return fmt.Errorf("initializing gRPC client: %w", err)
+		}
+		deps.GRPCClient = grpcClient
+	}
+
+	// Get the content item
+	var item *contentv1.ContentItem
+	if deps.GetContentItemFn != nil {
+		item, err = deps.GetContentItemFn(ctx, contentID, false)
+	} else {
+		item, err = deps.GRPCClient.GetContentItem(ctx, contentID, false)
+	}
+	if err != nil {
+		return fmt.Errorf("fetching content item %s: %w", contentID, err)
+	}
+
+	// Extract metadata for classification
+	from := ""
+	subject := ""
+	messageID := ""
+	headers := make(map[string]string)
+
+	if item.Metadata != nil {
+		from = item.Metadata["from"]
+		subject = item.Metadata["subject"]
+		messageID = item.Metadata["message_id"]
+		// Pass all metadata as headers for classification
+		for k, v := range item.Metadata {
+			headers[k] = v
+		}
+	}
+
+	// Run classification locally
+	sourceSystem := classification.ClassifySourceSystem(from, subject, messageID, headers)
+
+	// Build result
+	result := map[string]interface{}{
+		"content_id":    contentID,
+		"source_system": string(sourceSystem),
+		"from":          from,
+		"subject":       subject,
+	}
+
+	// Find which rule matched
+	rules := getClassificationRules()
+	for _, rule := range rules {
+		if rule.SourceSystem == sourceSystem {
+			result["matched_rule"] = rule.Name
+			result["priority"] = rule.Priority
+			break
+		}
+	}
+
+	return outputClassifyRulesTestResult(format, result)
+}
+
+// outputClassifyRulesTestResult outputs the rules test result.
+func outputClassifyRulesTestResult(format config.OutputFormat, result map[string]interface{}) error {
+	switch format {
+	case config.OutputFormatJSON:
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	case config.OutputFormatYAML:
+		enc := yaml.NewEncoder(os.Stdout)
+		return enc.Encode(result)
+	default:
+		fmt.Printf("Classification Test Result:\n\n")
+		fmt.Printf("  Content ID:    %s\n", result["content_id"])
+		fmt.Printf("  Source System: %s\n", result["source_system"])
+		if matchedRule, ok := result["matched_rule"].(string); ok {
+			fmt.Printf("  Matched Rule:  %s (priority %v)\n", matchedRule, result["priority"])
+		}
+		fmt.Println()
+		fmt.Printf("Metadata:\n")
+		if from, ok := result["from"].(string); ok && from != "" {
+			fmt.Printf("  From:    %s\n", from)
+		}
+		if subject, ok := result["subject"].(string); ok && subject != "" {
+			fmt.Printf("  Subject: %s\n", subject)
+		}
+		fmt.Println()
 		return nil
 	}
 }

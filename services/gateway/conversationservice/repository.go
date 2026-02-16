@@ -55,6 +55,7 @@ func (r *PostgresRepository) ListConversations(ctx context.Context, tenantID str
 			last_seen,
 			participant_count,
 			item_count,
+			state,
 			created_at,
 			updated_at
 		FROM conversations
@@ -81,6 +82,7 @@ func (r *PostgresRepository) ListConversations(ctx context.Context, tenantID str
 			&conv.LastSeen,
 			&conv.ParticipantCount,
 			&conv.ItemCount,
+			&conv.State,
 			&conv.CreatedAt,
 			&conv.UpdatedAt,
 		)
@@ -110,6 +112,12 @@ func (r *PostgresRepository) GetConversation(ctx context.Context, tenantID, conv
 			last_seen,
 			participant_count,
 			item_count,
+			state_summary,
+			summary_version,
+			summary_updated_at,
+			state,
+			state_reason,
+			state_changed_at,
 			created_at,
 			updated_at
 		FROM conversations
@@ -126,6 +134,12 @@ func (r *PostgresRepository) GetConversation(ctx context.Context, tenantID, conv
 		&detail.LastSeen,
 		&detail.ParticipantCount,
 		&detail.ItemCount,
+		&detail.StateSummary,
+		&detail.SummaryVersion,
+		&detail.SummaryUpdatedAt,
+		&detail.State,
+		&detail.StateReason,
+		&detail.StateChangedAt,
 		&detail.CreatedAt,
 		&detail.UpdatedAt,
 	)
@@ -400,4 +414,198 @@ func (r *PostgresRepository) UpdateConversationStats(ctx context.Context, conver
 	}
 
 	return nil
+}
+
+// UpdateSummary updates the rolling summary for a conversation.
+// Sets state_summary, summary_version, and summary_updated_at.
+func (r *PostgresRepository) UpdateSummary(ctx context.Context, conversationID, summary string, version int32) error {
+	query := `
+		UPDATE conversations
+		SET
+			state_summary = $1,
+			summary_version = $2,
+			summary_updated_at = NOW(),
+			updated_at = NOW()
+		WHERE id = $3
+	`
+
+	_, err := r.pool.Exec(ctx, query, summary, version, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to update conversation summary: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateState updates the conversation state and creates a history entry.
+// Inserts a record into conversation_state_history with the old and new states.
+func (r *PostgresRepository) UpdateState(ctx context.Context, conversationID, state, reason string) error {
+	// Start a transaction to ensure atomic update + history insert
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Get current state
+	var oldState string
+	getStateQuery := `SELECT state FROM conversations WHERE id = $1`
+	err = tx.QueryRow(ctx, getStateQuery, conversationID).Scan(&oldState)
+	if err != nil {
+		return fmt.Errorf("failed to get current state: %w", err)
+	}
+
+	// Update conversation state
+	updateQuery := `
+		UPDATE conversations
+		SET
+			state = $1,
+			state_reason = $2,
+			state_changed_at = NOW(),
+			updated_at = NOW()
+		WHERE id = $3
+	`
+	_, err = tx.Exec(ctx, updateQuery, state, reason, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to update conversation state: %w", err)
+	}
+
+	// Insert state history
+	historyQuery := `
+		INSERT INTO conversation_state_history (
+			conversation_id,
+			old_state,
+			new_state,
+			reason,
+			created_at
+		) VALUES ($1, $2, $3, $4, NOW())
+	`
+	_, err = tx.Exec(ctx, historyQuery, conversationID, oldState, state, reason)
+	if err != nil {
+		return fmt.Errorf("failed to insert state history: %w", err)
+	}
+
+	// Commit transaction
+	err = tx.Commit(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// ListConversationsByState retrieves conversations filtered by state.
+func (r *PostgresRepository) ListConversationsByState(ctx context.Context, tenantID, state string, limit, offset int32) ([]ConversationSummary, int64, error) {
+	// Enforce default limits to prevent memory exhaustion
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
+	// Get total count for this state
+	var totalCount int64
+	countQuery := `SELECT COUNT(*) FROM conversations WHERE tenant_id = $1 AND state = $2`
+	err := r.pool.QueryRow(ctx, countQuery, tenantID, state).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count conversations by state: %w", err)
+	}
+
+	// Get conversations
+	query := `
+		SELECT
+			id,
+			tenant_id,
+			topic,
+			thread_key,
+			first_seen,
+			last_seen,
+			participant_count,
+			item_count,
+			state,
+			created_at,
+			updated_at
+		FROM conversations
+		WHERE tenant_id = $1 AND state = $2
+		ORDER BY last_seen DESC NULLS LAST, created_at DESC
+		LIMIT $3 OFFSET $4
+	`
+
+	rows, err := r.pool.Query(ctx, query, tenantID, state, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query conversations by state: %w", err)
+	}
+	defer rows.Close()
+
+	var conversations []ConversationSummary
+	for rows.Next() {
+		var conv ConversationSummary
+		err := rows.Scan(
+			&conv.ID,
+			&conv.TenantID,
+			&conv.Topic,
+			&conv.ThreadKey,
+			&conv.FirstSeen,
+			&conv.LastSeen,
+			&conv.ParticipantCount,
+			&conv.ItemCount,
+			&conv.State,
+			&conv.CreatedAt,
+			&conv.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan conversation: %w", err)
+		}
+		conversations = append(conversations, conv)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating conversations: %w", err)
+	}
+
+	return conversations, totalCount, nil
+}
+
+// GetStateHistory retrieves the state transition history for a conversation.
+// Returns entries ordered by created_at (chronological order).
+func (r *PostgresRepository) GetStateHistory(ctx context.Context, conversationID string) ([]StateHistoryEntry, error) {
+	query := `
+		SELECT
+			id,
+			conversation_id,
+			old_state,
+			new_state,
+			reason,
+			created_at
+		FROM conversation_state_history
+		WHERE conversation_id = $1
+		ORDER BY created_at ASC
+	`
+
+	rows, err := r.pool.Query(ctx, query, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query state history: %w", err)
+	}
+	defer rows.Close()
+
+	var history []StateHistoryEntry
+	for rows.Next() {
+		var entry StateHistoryEntry
+		err := rows.Scan(
+			&entry.ID,
+			&entry.ConversationID,
+			&entry.OldState,
+			&entry.NewState,
+			&entry.Reason,
+			&entry.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan state history entry: %w", err)
+		}
+		history = append(history, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating state history: %w", err)
+	}
+
+	return history, nil
 }

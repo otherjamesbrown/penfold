@@ -43,7 +43,7 @@ func TestClassifyCommand(t *testing.T) {
 func TestClassifyCommandSubcommands(t *testing.T) {
 	cmd := NewClassifyCommand(nil)
 
-	expectedSubcommands := []string{"run", "stats", "rules"}
+	expectedSubcommands := []string{"run", "stats", "rules", "suggestions"}
 	foundSubcommands := make(map[string]bool)
 
 	for _, subCmd := range cmd.Commands() {
@@ -712,3 +712,469 @@ func TestClassifyStats(t *testing.T) {
 // 	Total     int
 // 	Breakdown map[string]int
 // }
+
+// ========================================
+// FAILING TESTS FOR CLASSIFY SUBCOMMANDS (pf-1046b6)
+// ========================================
+// These tests verify the new subcommands after implementation.
+// They SHOULD FAIL now because:
+// 1. NewClassifyCommand doesn't have a "suggestions" subcommand yet
+// 2. The "rules" command doesn't have "add" and "test" subcommands yet
+// 3. The mock function fields for suggestion RPCs don't exist yet
+
+// TestClassifySuggestionsSubcommandExists tests that classify has a suggestions subcommand.
+func TestClassifySuggestionsSubcommandExists(t *testing.T) {
+	cmd := NewClassifyCommand(nil)
+
+	suggestionsCmd := findSubcommand(cmd, "suggestions")
+	if suggestionsCmd == nil {
+		t.Fatal("suggestions subcommand not found")
+	}
+
+	if suggestionsCmd.Use != "suggestions" {
+		t.Errorf("Use = %q, want %q", suggestionsCmd.Use, "suggestions")
+	}
+
+	if suggestionsCmd.Short == "" {
+		t.Error("Short description is empty")
+	}
+
+	if suggestionsCmd.Long == "" {
+		t.Error("Long description is empty")
+	}
+}
+
+// TestClassifySuggestionsFlags tests the flags on 'classify suggestions' subcommand.
+func TestClassifySuggestionsFlags(t *testing.T) {
+	cmd := NewClassifyCommand(nil)
+
+	suggestionsCmd := findSubcommand(cmd, "suggestions")
+	if suggestionsCmd == nil {
+		t.Fatal("suggestions subcommand not found")
+	}
+
+	// Check for output flag
+	outputFlag := suggestionsCmd.Flags().Lookup("output")
+	if outputFlag == nil {
+		t.Error("Missing flag --output")
+	}
+
+	if outputFlag != nil && outputFlag.Value.Type() != "string" {
+		t.Errorf("Flag --output should be string, got %s", outputFlag.Value.Type())
+	}
+}
+
+// TestClassifyRulesSubcommands tests that 'classify rules' has add and test subcommands.
+func TestClassifyRulesSubcommands(t *testing.T) {
+	cmd := NewClassifyCommand(nil)
+
+	rulesCmd := findSubcommand(cmd, "rules")
+	if rulesCmd == nil {
+		t.Fatal("rules subcommand not found")
+	}
+
+	// Check for "add" subcommand
+	addCmd := findSubcommand(rulesCmd, "add")
+	if addCmd == nil {
+		t.Error("rules add subcommand not found")
+	}
+
+	// Check for "test" subcommand
+	testCmd := findSubcommand(rulesCmd, "test")
+	if testCmd == nil {
+		t.Error("rules test subcommand not found")
+	}
+}
+
+// TestClassifyRulesAddCommand tests the 'classify rules add' subcommand structure.
+func TestClassifyRulesAddCommand(t *testing.T) {
+	cmd := NewClassifyCommand(nil)
+
+	rulesCmd := findSubcommand(cmd, "rules")
+	if rulesCmd == nil {
+		t.Fatal("rules subcommand not found")
+	}
+
+	addCmd := findSubcommand(rulesCmd, "add")
+	if addCmd == nil {
+		t.Fatal("rules add subcommand not found")
+	}
+
+	if addCmd.Use != "add <source_system> <pattern>" {
+		t.Errorf("Use = %q, want %q", addCmd.Use, "add <source_system> <pattern>")
+	}
+
+	// Should require exactly 2 arguments
+	if addCmd.Args != nil {
+		err0 := addCmd.Args(addCmd, []string{})
+		err1 := addCmd.Args(addCmd, []string{"jira"})
+		err2 := addCmd.Args(addCmd, []string{"jira", "from contains jira"})
+		err3 := addCmd.Args(addCmd, []string{"jira", "pattern", "extra"})
+
+		if err0 == nil {
+			t.Error("Args validation should fail for 0 args")
+		}
+		if err1 == nil {
+			t.Error("Args validation should fail for 1 arg")
+		}
+		if err2 != nil {
+			t.Errorf("Args validation should succeed for 2 args, got error: %v", err2)
+		}
+		if err3 == nil {
+			t.Error("Args validation should fail for 3+ args")
+		}
+	}
+}
+
+// TestClassifyRulesAddFlags tests the flags on 'classify rules add' subcommand.
+func TestClassifyRulesAddFlags(t *testing.T) {
+	cmd := NewClassifyCommand(nil)
+
+	rulesCmd := findSubcommand(cmd, "rules")
+	if rulesCmd == nil {
+		t.Fatal("rules subcommand not found")
+	}
+
+	addCmd := findSubcommand(rulesCmd, "add")
+	if addCmd == nil {
+		t.Fatal("rules add subcommand not found")
+	}
+
+	// Check for output flag
+	outputFlag := addCmd.Flags().Lookup("output")
+	if outputFlag == nil {
+		t.Error("Missing flag --output")
+	}
+
+	if outputFlag != nil && outputFlag.Value.Type() != "string" {
+		t.Errorf("Flag --output should be string, got %s", outputFlag.Value.Type())
+	}
+}
+
+// TestClassifyRulesTestCommand tests the 'classify rules test' subcommand structure.
+func TestClassifyRulesTestCommand(t *testing.T) {
+	cmd := NewClassifyCommand(nil)
+
+	rulesCmd := findSubcommand(cmd, "rules")
+	if rulesCmd == nil {
+		t.Fatal("rules subcommand not found")
+	}
+
+	testCmd := findSubcommand(rulesCmd, "test")
+	if testCmd == nil {
+		t.Fatal("rules test subcommand not found")
+	}
+
+	if testCmd.Use != "test <content-id>" {
+		t.Errorf("Use = %q, want %q", testCmd.Use, "test <content-id>")
+	}
+
+	// Should require exactly 1 argument
+	if testCmd.Args != nil {
+		err0 := testCmd.Args(testCmd, []string{})
+		err1 := testCmd.Args(testCmd, []string{"em-abc123"})
+		err2 := testCmd.Args(testCmd, []string{"em-abc123", "extra"})
+
+		if err0 == nil {
+			t.Error("Args validation should fail for 0 args")
+		}
+		if err1 != nil {
+			t.Errorf("Args validation should succeed for 1 arg, got error: %v", err1)
+		}
+		if err2 == nil {
+			t.Error("Args validation should fail for 2+ args")
+		}
+	}
+}
+
+// TestClassifyRulesTestFlags tests the flags on 'classify rules test' subcommand.
+func TestClassifyRulesTestFlags(t *testing.T) {
+	cmd := NewClassifyCommand(nil)
+
+	rulesCmd := findSubcommand(cmd, "rules")
+	if rulesCmd == nil {
+		t.Fatal("rules subcommand not found")
+	}
+
+	testCmd := findSubcommand(rulesCmd, "test")
+	if testCmd == nil {
+		t.Fatal("rules test subcommand not found")
+	}
+
+	// Check for output flag
+	outputFlag := testCmd.Flags().Lookup("output")
+	if outputFlag == nil {
+		t.Error("Missing flag --output")
+	}
+
+	if outputFlag != nil && outputFlag.Value.Type() != "string" {
+		t.Errorf("Flag --output should be string, got %s", outputFlag.Value.Type())
+	}
+}
+
+// TestClassifyCommandSubcommandsUpdated verifies the complete subcommand list including new commands.
+func TestClassifyCommandSubcommandsUpdated(t *testing.T) {
+	cmd := NewClassifyCommand(nil)
+
+	expectedSubcommands := []string{"run", "stats", "rules", "suggestions"}
+	foundSubcommands := make(map[string]bool)
+
+	for _, subCmd := range cmd.Commands() {
+		foundSubcommands[subCmd.Name()] = true
+	}
+
+	for _, expected := range expectedSubcommands {
+		if !foundSubcommands[expected] {
+			t.Errorf("Missing subcommand %q", expected)
+		}
+	}
+
+	if len(foundSubcommands) != len(expectedSubcommands) {
+		t.Errorf("Expected %d subcommands, found %d", len(expectedSubcommands), len(foundSubcommands))
+	}
+}
+
+// TestClassifySuggestionsOutput tests the output format of the suggestions command.
+// After implementation: should call ListSuggestions RPC and display pending suggestions.
+func TestClassifySuggestionsOutput(t *testing.T) {
+	cfg := &config.CLIConfig{
+		ServerAddress: "localhost:50051",
+		Timeout:       30 * time.Second,
+		OutputFormat:  config.OutputFormatJSON,
+		TenantID:      "tenant-test-001",
+	}
+
+	deps := &ClassifyCommandDeps{
+		Config: cfg,
+		LoadConfig: func() (*config.CLIConfig, error) {
+			return cfg, nil
+		},
+		InitClient: func(c *config.CLIConfig) (*client.GRPCClient, error) {
+			return nil, nil
+		},
+		// This will cause a compile error because ListSuggestionsFn doesn't exist yet
+		ListSuggestionsFn: func(ctx context.Context) ([]ClassificationSuggestion, error) {
+			return []ClassificationSuggestion{
+				{
+					ID:           1,
+					ContentID:    "em-001",
+					SourceSystem: "jira",
+					Pattern:      "from contains 'jira'",
+					Confidence:   0.95,
+					Status:       "pending",
+					CreatedAt:    time.Now(),
+				},
+				{
+					ID:           2,
+					ContentID:    "em-002",
+					SourceSystem: "aha",
+					Pattern:      "subject starts with '[AHA]'",
+					Confidence:   0.89,
+					Status:       "pending",
+					CreatedAt:    time.Now().Add(-1 * time.Hour),
+				},
+			}, nil
+		},
+	}
+
+	// Reset global flags
+	oldOutput := classifyOutput
+	classifyOutput = "json"
+	defer func() {
+		classifyOutput = oldOutput
+	}()
+
+	// Capture stdout
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	ctx := context.Background()
+	err := runClassifySuggestions(ctx, deps)
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	output := buf.String()
+
+	// After implementation, this should succeed
+	if err != nil {
+		t.Errorf("runClassifySuggestions should succeed, got error: %v", err)
+	}
+
+	// Verify JSON output contains expected fields
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Errorf("output should be valid JSON: %v", err)
+	}
+
+	// Check suggestions array exists
+	suggestions, ok := result["suggestions"].([]interface{})
+	if !ok {
+		t.Errorf("output should contain suggestions array, got: %v", result["suggestions"])
+	}
+
+	// Verify we have 2 suggestions
+	if len(suggestions) != 2 {
+		t.Errorf("expected 2 suggestions, got: %d", len(suggestions))
+	}
+
+	// Verify first suggestion structure
+	if len(suggestions) > 0 {
+		firstSuggestion := suggestions[0].(map[string]interface{})
+		if firstSuggestion["id"] != float64(1) {
+			t.Errorf("first suggestion id should be 1, got: %v", firstSuggestion["id"])
+		}
+		if firstSuggestion["content_id"] != "em-001" {
+			t.Errorf("first suggestion content_id should be em-001, got: %v", firstSuggestion["content_id"])
+		}
+		if firstSuggestion["source_system"] != "jira" {
+			t.Errorf("first suggestion source_system should be jira, got: %v", firstSuggestion["source_system"])
+		}
+		if firstSuggestion["pattern"] != "from contains 'jira'" {
+			t.Errorf("first suggestion pattern should be 'from contains 'jira'', got: %v", firstSuggestion["pattern"])
+		}
+	}
+}
+
+// TestClassifyRulesAddOutput tests the output format of the rules add command.
+// After implementation: should approve a suggestion or manually add a rule.
+func TestClassifyRulesAddOutput(t *testing.T) {
+	cfg := &config.CLIConfig{
+		ServerAddress: "localhost:50051",
+		Timeout:       30 * time.Second,
+		OutputFormat:  config.OutputFormatJSON,
+		TenantID:      "tenant-test-001",
+	}
+
+	deps := &ClassifyCommandDeps{
+		Config: cfg,
+		LoadConfig: func() (*config.CLIConfig, error) {
+			return cfg, nil
+		},
+		InitClient: func(c *config.CLIConfig) (*client.GRPCClient, error) {
+			return nil, nil
+		},
+		// This will cause a compile error because ApproveSuggestionFn doesn't exist yet
+		ApproveSuggestionFn: func(ctx context.Context, id int32) (bool, error) {
+			return true, nil
+		},
+	}
+
+	// Reset global flags
+	oldOutput := classifyOutput
+	classifyOutput = "json"
+	defer func() {
+		classifyOutput = oldOutput
+	}()
+
+	// Capture stdout
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	ctx := context.Background()
+	err := runClassifyRulesAdd(ctx, deps, "jira", "from contains 'jira'")
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	output := buf.String()
+
+	// After implementation, this should succeed
+	if err != nil {
+		t.Errorf("runClassifyRulesAdd should succeed, got error: %v", err)
+	}
+
+	// Verify JSON output contains success field
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Errorf("output should be valid JSON: %v", err)
+	}
+
+	success, ok := result["success"].(bool)
+	if !ok || !success {
+		t.Errorf("output should contain success=true, got: %v", result["success"])
+	}
+}
+
+// TestClassifyRulesTestOutput tests the output format of the rules test command.
+// After implementation: should test rules against a specific content item.
+func TestClassifyRulesTestOutput(t *testing.T) {
+	cfg := &config.CLIConfig{
+		ServerAddress: "localhost:50051",
+		Timeout:       30 * time.Second,
+		OutputFormat:  config.OutputFormatJSON,
+		TenantID:      "tenant-test-001",
+	}
+
+	deps := &ClassifyCommandDeps{
+		Config: cfg,
+		LoadConfig: func() (*config.CLIConfig, error) {
+			return cfg, nil
+		},
+		InitClient: func(c *config.CLIConfig) (*client.GRPCClient, error) {
+			return nil, nil
+		},
+		// Reuse GetContentItemFn from existing tests
+		GetContentItemFn: func(ctx context.Context, contentID string, includeEmbedding bool) (*contentv1.ContentItem, error) {
+			return &contentv1.ContentItem{
+				Id: contentID,
+				Metadata: map[string]string{
+					"source_system": "unknown",
+					"from":          "jira@example.atlassian.net",
+					"subject":       "[PROJ-123] New issue created",
+				},
+			}, nil
+		},
+	}
+
+	// Reset global flags
+	oldOutput := classifyOutput
+	classifyOutput = "json"
+	defer func() {
+		classifyOutput = oldOutput
+	}()
+
+	// Capture stdout
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	ctx := context.Background()
+	err := runClassifyRulesTest(ctx, deps, "em-test123")
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	output := buf.String()
+
+	// After implementation, this should succeed
+	if err != nil {
+		t.Errorf("runClassifyRulesTest should succeed, got error: %v", err)
+	}
+
+	// Verify JSON output contains expected fields
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Errorf("output should be valid JSON: %v", err)
+	}
+
+	// Should show the content_id and classification result
+	if result["content_id"] != "em-test123" {
+		t.Errorf("output should contain content_id=em-test123, got: %v", result["content_id"])
+	}
+
+	// Should have a matched_rule or source_system field
+	if _, hasRule := result["matched_rule"]; !hasRule {
+		if _, hasSystem := result["source_system"]; !hasSystem {
+			t.Error("output should contain either matched_rule or source_system field")
+		}
+	}
+}

@@ -39,6 +39,7 @@ import (
 	teamsv1 "github.com/otherjamesbrown/penfold/api/proto/teams/v1"
 	tenantv1 "github.com/otherjamesbrown/penfold/api/proto/tenant/v1"
 	assertionsv1 "github.com/otherjamesbrown/penfold/api/proto/assertions/v1"
+	classifyv1 "github.com/otherjamesbrown/penfold/api/proto/classify/v1"
 	conversationv1 "github.com/otherjamesbrown/penfold/api/proto/conversation/v1"
 	threadsv1 "github.com/otherjamesbrown/penfold/api/proto/threads/v1"
 	watchlistv1 "github.com/otherjamesbrown/penfold/api/proto/watchlist/v1"
@@ -48,6 +49,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/assertions"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
+	"github.com/otherjamesbrown/penfold/pkg/classify"
 	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
@@ -69,6 +71,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/services/gateway/auditservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/classifyservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/contentservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/entitymanagementservice"
@@ -403,6 +406,12 @@ func main() {
 	conversationSvc := conversationservice.NewService(conversationRepo, logger)
 	conversationv1.RegisterConversationServiceServer(grpcServer, conversationSvc)
 	logger.Info("Registered ConversationService")
+
+	// Register ClassifyService for classification suggestion management.
+	classifySuggestionRepo := classify.NewClassificationSuggestionRepository(dbPool, logger)
+	classifySvc := classifyservice.NewService(classifySuggestionRepo, logger)
+	classifyv1.RegisterClassificationSuggestionServiceServer(grpcServer, classifySvc)
+	logger.Info("Registered ClassifyService")
 
 	// Register QualityService for quality monitoring and issue tracking.
 	qualitySvc := qualityservice.NewService(dbPool, logger)
