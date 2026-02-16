@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -297,7 +298,11 @@ func TestE2E_ReprocessContent_AlsoRunsThreadGrouper(t *testing.T) {
 	t.Run("cli_thread_list_after_reprocess", func(t *testing.T) {
 		result := env.SafeCLI.Run(ctx, "thread", "list", "-o", "json")
 		if result.ExitCode == 0 {
-			assert.Contains(t, result.Stdout, rootMsgID,
+			// JSON encodes < and > as \u003c and \u003e, so check both forms
+			hasPlain := strings.Contains(result.Stdout, rootMsgID)
+			escapedID := strings.ReplaceAll(strings.ReplaceAll(rootMsgID, "<", `\u003c`), ">", `\u003e`)
+			hasEscaped := strings.Contains(result.Stdout, escapedID)
+			assert.True(t, hasPlain || hasEscaped,
 				"thread list should include our test thread after reprocess")
 		} else {
 			t.Logf("thread list failed (may be expected if no threads created): %s", result.Stderr)
