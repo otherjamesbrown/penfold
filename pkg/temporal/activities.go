@@ -25,6 +25,7 @@ const (
 	ActivityEnrichPersonMetadata     = "EnrichPersonMetadata"
 	ActivityDeepAnalyze              = "DeepAnalyze"
 	ActivityRecordOverrides          = "RecordOverrides"
+	ActivityStartPipelineTracing     = "StartPipelineTracing"
 	ActivityGroupEmailThread         = "GroupEmailThread"
 	ActivityCreateEnrichmentRecord   = "CreateEnrichmentRecord"
 )
@@ -67,6 +68,7 @@ func AllMainQueueActivities() []string {
 		ActivityEnrichPersonMetadata,
 		ActivityDeepAnalyze,
 		ActivityRecordOverrides,
+		ActivityStartPipelineTracing,
 		ActivityGroupEmailThread,
 		ActivityCreateEnrichmentRecord,
 	}

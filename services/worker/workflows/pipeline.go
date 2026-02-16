@@ -428,6 +428,15 @@ type RecordOverridesInput struct {
 	Overrides map[string]string `json:"overrides"`
 }
 
+// StartPipelineTracingInput is the input for the StartPipelineTracing activity.
+// This activity creates the root tracing span for a pipeline run, ensuring all
+// subsequent AI operations are grouped under a single trace in Langfuse.
+type StartPipelineTracingInput struct {
+	PipelineTraceID string `json:"pipeline_trace_id"` // 32-char hex trace ID (or empty to create new root)
+	ContentID       string `json:"content_id"`        // Standard content ID format: <type:2>-<base62:8>
+	ContentType     string `json:"content_type"`      // email, meeting, slack, etc.
+}
+
 
 // pipelineState maintains the internal state of the pipeline workflow.
 type pipelineState struct {
@@ -561,6 +570,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	fastOpts = pkgtemporal.WithNonRetryableErrors(fastOpts, pkgtemporal.NonRetryableErrors()...)
 	embeddingOpts = pkgtemporal.WithNonRetryableErrors(embeddingOpts, pkgtemporal.NonRetryableErrors()...)
 	llmOpts = pkgtemporal.WithNonRetryableErrors(llmOpts, pkgtemporal.NonRetryableErrors()...)
+
+	// Start pipeline tracing span to create root span for Langfuse trace grouping.
+	// This makes the trace title show "slm-pipeline" instead of a sibling span name like "ai.embedding".
+	// Don't fail the pipeline if tracing fails - just log and continue.
+	ctxTracing := workflow.WithActivityOptions(ctx, fastOpts)
+	tracingErr := workflow.ExecuteActivity(ctxTracing, pkgtemporal.ActivityStartPipelineTracing, StartPipelineTracingInput{
+		PipelineTraceID: pipelineTraceID,
+		ContentID:       input.ContentID,
+		ContentType:     input.ContentType,
+	}).Get(ctx, nil)
+	if tracingErr != nil {
+		logger.Warn("Failed to start pipeline tracing span (non-fatal)", "error", tracingErr)
+	}
 
 	// Saga compensation stack
 	var compensations []func(workflow.Context) error

@@ -258,6 +258,9 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.pipelineActivities.RecordOverrides, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityRecordOverrides,
 		})
+		w.RegisterActivityWithOptions(r.pipelineActivities.StartPipelineTracing, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityStartPipelineTracing,
+		})
 	}
 
 	// Person enrichment activities for Stage 3.5 (entity enrichment)
@@ -420,9 +423,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.analysisActivities != nil {
 			count += 1
 		}
-		// RecordOverrides
+		// RecordOverrides, StartPipelineTracing
 		if r.pipelineActivities != nil {
-			count += 1
+			count += 2
 		}
 		// EnrichPersonMetadata
 		if r.personEnrichmentActivities != nil {

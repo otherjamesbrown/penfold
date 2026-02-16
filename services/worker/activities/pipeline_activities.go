@@ -4,11 +4,13 @@ package activities
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
+	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -116,7 +118,60 @@ func (a *PipelineActivities) RecordOverrides(ctx context.Context, input workflow
 	return nil
 }
 
+// contentIDPattern matches the standard content ID format: <type:2>-<base62:8>
+// Example: "em-abc12XYZ"
+var contentIDPattern = regexp.MustCompile(`^[a-z]{2}-[A-Za-z0-9]{8}$`)
+
+// StartPipelineTracing creates a root tracing span for the content processing pipeline.
+// This ensures all AI operations are grouped under a single trace in Langfuse with a
+// meaningful trace title (e.g., "slm-pipeline" instead of "ai.embedding").
+//
+// The pipelineTraceID should be a 32-character hex trace ID. If empty, a new root trace
+// will be created. The contentID must follow the standard format: <type:2>-<base62:8>.
+func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input workflows.StartPipelineTracingInput) error {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "StartPipelineTracing"),
+		logging.F("content_id", input.ContentID),
+		logging.F("content_type", input.ContentType),
+	)
+
+	// Validate input
+	if input.ContentType == "" {
+		return temporal.NewApplicationError(
+			"content_type is required",
+			"ValidationError",
+		)
+	}
+
+	if input.ContentID == "" {
+		return temporal.NewApplicationError(
+			"content_id is required",
+			"ValidationError",
+		)
+	}
+
+	// Validate content ID format: <type:2>-<base62:8> (11 chars total)
+	if !contentIDPattern.MatchString(input.ContentID) {
+		return temporal.NewApplicationError(
+			fmt.Sprintf("invalid content_id format: %s (expected format: <type:2>-<base62:8>)", input.ContentID),
+			"ValidationError",
+		)
+	}
+
+	logger.Info("Starting pipeline tracing span")
+
+	// Create the root pipeline span
+	// This span will be the parent for all AI operations in the pipeline
+	ctx, span := tracing.StartPipeline(ctx, "slm-pipeline", input.ContentID, input.ContentType, input.PipelineTraceID)
+	defer span.End()
+
+	logger.Info("Pipeline tracing span created successfully")
+
+	return nil
+}
+
 // Ensure PipelineActivities implements required interfaces at compile time.
 var _ interface {
 	RecordOverrides(ctx context.Context, input workflows.RecordOverridesInput) error
+	StartPipelineTracing(ctx context.Context, input workflows.StartPipelineTracingInput) error
 } = (*PipelineActivities)(nil)
