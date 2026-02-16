@@ -279,32 +279,31 @@ check_worker_health() {
 check_ml_services() {
     log_header "ML Service Checks"
 
-    # Embeddings service
-    local embeddings_url="${GATEWAY_EMBEDDINGS_URL:-http://dev01.brown.chat:8081}"
-    log_check "Embeddings service"
-    local emb_code
-    emb_code=$(curl -s -o /dev/null -w "%{http_code}" "${embeddings_url}/health" 2>/dev/null)
+    # Ollama (embeddings + LLM) — runs on dev01 port 11434
+    local ollama_url="${OLLAMA_URL:-http://dev01.brown.chat:11434}"
+    log_check "Ollama service"
+    local ollama_response
+    ollama_response=$(curl -s "${ollama_url}/" 2>/dev/null || echo "")
 
-    if [[ "$emb_code" == "200" ]]; then
-        log_pass "embeddings" "Embeddings service healthy"
-    elif [[ "$emb_code" == "000" ]]; then
-        log_skip "embeddings" "Embeddings service not reachable"
+    if [[ "$ollama_response" == *"Ollama is running"* ]]; then
+        log_pass "ollama" "Ollama running"
+    elif [[ -z "$ollama_response" ]]; then
+        log_skip "ollama" "Ollama not reachable at ${ollama_url}"
     else
-        log_fail "embeddings" "Embeddings unhealthy (HTTP $emb_code)" "false"
+        log_fail "ollama" "Unexpected response from Ollama" "false"
     fi
 
-    # LLM service
-    local llm_url="${GATEWAY_LLM_URL:-http://dev01.brown.chat:8080}"
-    log_check "LLM service"
-    local llm_code
-    llm_code=$(curl -s -o /dev/null -w "%{http_code}" "${llm_url}/v1/models" 2>/dev/null)
+    # Verify embedding model is available
+    log_check "Embedding model (mxbai-embed-large)"
+    local models
+    models=$(curl -s "${ollama_url}/api/tags" 2>/dev/null | jq -r '.models[].name' 2>/dev/null || echo "")
 
-    if [[ "$llm_code" == "200" ]]; then
-        log_pass "llm" "LLM service healthy"
-    elif [[ "$llm_code" == "000" ]]; then
-        log_skip "llm" "LLM service not reachable"
+    if echo "$models" | grep -q "mxbai-embed-large"; then
+        log_pass "embedding_model" "mxbai-embed-large available"
+    elif [[ -z "$models" ]]; then
+        log_skip "embedding_model" "Cannot list Ollama models"
     else
-        log_fail "llm" "LLM unhealthy (HTTP $llm_code)" "false"
+        log_fail "embedding_model" "mxbai-embed-large not found in Ollama" "false"
     fi
 }
 
