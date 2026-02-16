@@ -27,7 +27,7 @@ const (
 	AttrLangfuseUserID          = "langfuse.user.id"
 	AttrLangfuseSessionID       = "langfuse.session.id"
 	AttrLangfuseTraceMetadata   = "langfuse.trace.metadata"
-	AttrLangfuseTag             = "langfuse.tag"
+	AttrLangfuseTraceTags       = "langfuse.trace.tags"
 
 	// Penfold-specific attributes
 	AttrPenfoldTenantID = "penfold.tenant_id"
@@ -126,7 +126,7 @@ func StartLLMCall(ctx context.Context, name string, opts LLMCallOptions) (contex
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
 		// Add Langfuse tag for content grouping
-		attrs = append(attrs, attribute.String(AttrLangfuseTag, opts.ContentID))
+		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, []string{opts.ContentID}))
 	}
 	if opts.TaskType != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldTaskType, opts.TaskType))
@@ -269,7 +269,7 @@ func StartEmbedding(ctx context.Context, name string, opts EmbeddingOptions) (co
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
 		// Add Langfuse tag for content grouping
-		attrs = append(attrs, attribute.String(AttrLangfuseTag, opts.ContentID))
+		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, []string{opts.ContentID}))
 	}
 	if opts.BatchSize > 0 {
 		attrs = append(attrs, attribute.Int("batch_size", opts.BatchSize))
@@ -393,7 +393,7 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
 		// Add Langfuse tag for content grouping
-		attrs = append(attrs, attribute.String(AttrLangfuseTag, opts.ContentID))
+		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, []string{opts.ContentID}))
 	}
 	if opts.ContentType != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentType, opts.ContentType))
@@ -449,7 +449,7 @@ func StartPipeline(ctx context.Context, name, contentID, contentType, pipelineTr
 
 	// Add Langfuse tag for content grouping
 	if contentID != "" {
-		attrs = append(attrs, attribute.String(AttrLangfuseTag, contentID))
+		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, []string{contentID}))
 	}
 
 	// If PipelineTraceID is set, create span as child of that trace

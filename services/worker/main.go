@@ -23,6 +23,7 @@ import (
 	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
+	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/logs"
@@ -372,6 +373,14 @@ func main() {
 	if dbPool != nil {
 		pipelineRepo = activities.NewPipelineRepository(dbPool)
 		logger.Info("Pipeline repository initialized for provenance tracking")
+	}
+
+	// Create pipeline activities if pipeline repository is available
+	if pipelineRepo != nil && dbPool != nil {
+		baseRepo := pipeline.NewRepository(dbPool)
+		pipelineActivities := activities.NewPipelineActivities(logger, pipelineRepo, baseRepo)
+		activityRegistrar.WithPipelineActivities(pipelineActivities)
+		logger.Info("Pipeline activities initialized (RecordOverrides, StartPipelineTracing)")
 	}
 
 	// Create parse activities (Stage 0, deterministic - no DB or AI needed)

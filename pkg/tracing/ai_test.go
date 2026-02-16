@@ -180,16 +180,16 @@ func TestStartLLMCall_WithoutPipelineTraceID_IsRoot(t *testing.T) {
 	}
 }
 
-// TestLangfuseTagAttribute verifies that the AttrLangfuseTag constant exists and
-// that spans with ContentID include the langfuse.tag attribute for Langfuse grouping.
-func TestLangfuseTagAttribute(t *testing.T) {
+// TestLangfuseTraceTagsAttribute verifies that the AttrLangfuseTraceTags constant exists and
+// that spans with ContentID include the langfuse.trace.tags attribute for Langfuse grouping.
+func TestLangfuseTraceTagsAttribute(t *testing.T) {
 	// Test 1: Verify the constant exists and has the correct value
-	expectedKey := "langfuse.tag"
-	if AttrLangfuseTag != expectedKey {
-		t.Errorf("expected AttrLangfuseTag to be %q, got %q", expectedKey, AttrLangfuseTag)
+	expectedKey := "langfuse.trace.tags"
+	if AttrLangfuseTraceTags != expectedKey {
+		t.Errorf("expected AttrLangfuseTraceTags to be %q, got %q", expectedKey, AttrLangfuseTraceTags)
 	}
 
-	// Test 2: Verify spans with ContentID include the langfuse.tag attribute
+	// Test 2: Verify spans with ContentID include the langfuse.trace.tags attribute
 	exporter, cleanup := setupAITestTracer(t)
 	defer cleanup()
 
@@ -208,25 +208,22 @@ func TestLangfuseTagAttribute(t *testing.T) {
 		t.Fatalf("expected 1 span, got %d", len(spans))
 	}
 
-	// Verify the span has the langfuse.tag attribute
+	// Verify the span has the langfuse.trace.tags attribute as a string slice
 	spanData := spans[0]
 	found := false
-	var tagValue string
 	for _, attr := range spanData.Attributes {
-		if string(attr.Key) == AttrLangfuseTag {
+		if string(attr.Key) == AttrLangfuseTraceTags {
 			found = true
-			tagValue = attr.Value.AsString()
+			tags := attr.Value.AsStringSlice()
+			if len(tags) != 1 || tags[0] != contentID {
+				t.Errorf("expected langfuse.trace.tags to be [%q], got %v", contentID, tags)
+			}
 			break
 		}
 	}
 
 	if !found {
-		t.Errorf("expected span to have %q attribute, but it was not found", AttrLangfuseTag)
-	}
-
-	// Verify the tag value contains the content ID (for Langfuse grouping)
-	if tagValue != contentID {
-		t.Errorf("expected langfuse.tag value to be %q, got %q", contentID, tagValue)
+		t.Errorf("expected span to have %q attribute, but it was not found", AttrLangfuseTraceTags)
 	}
 
 	_ = ctx
