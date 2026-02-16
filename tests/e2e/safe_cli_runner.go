@@ -154,7 +154,7 @@ func (s *SafeCLIRunner) RunJSON(ctx context.Context, v interface{}, args ...stri
 
 // RunIngest runs the ingest command for a file.
 func (s *SafeCLIRunner) RunIngest(ctx context.Context, contentType, filePath string) *RunResult {
-	return s.Run(ctx, "ingest", contentType, filePath)
+	return s.Run(ctx, "ingest", contentType, filePath, "--source", "e2e-test")
 }
 
 // RunGlossaryAdd adds a glossary term.

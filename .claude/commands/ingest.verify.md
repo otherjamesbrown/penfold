@@ -108,8 +108,14 @@ go test -tags=e2e -v -run TestE2E_FeatureName ./tests/e2e/
 2. Return to Phase 4 with the Penfold test failure output as the error to fix.
 3. The Penfold test is the ground truth. Do NOT modify it to make it pass.
 
-**If the Penfold test passes:** Record the result — include it in the pre-deploy review
-and resolution messages.
+**If the Penfold test fails to compile or run** (setup error, missing flag, import failure,
+build constraint issue): this is a **BLOCKER**, not a skip. It means the test infrastructure
+is broken — either the test was never runnable against the current CLI, or a recent change
+broke it. Report the setup failure to penfold immediately as a new bug. Do NOT mark it N/A,
+do NOT proceed to deploy, do NOT treat a test that can't run as a test that passed.
+
+**If the Penfold test passes:** Record the result — include the full test stdout in the
+pre-deploy review and resolution messages. Not a summary — the actual output.
 
 ## Step 2: Integration Tests
 
@@ -267,7 +273,7 @@ All items built and verified. Ready to deploy.
 ### Bugs Fixed
 1. **[bug title]** — [1-sentence fix summary]
    - Test: [TestName] FAILED before fix, PASSES after fix
-   - Penfold acceptance test: [PASSES ✓ / N/A (no Penfold test provided)]
+   - Penfold acceptance test: [PASSES — paste stdout below / N/A (no Penfold test provided)]
    - Files: [modified files]
 
 ### Features Built
@@ -279,7 +285,7 @@ All items built and verified. Ready to deploy.
 ### Verification
 - Build: all packages compile ✓
 - Unit tests: all passing ✓
-- Penfold acceptance tests: [N/N passing ✓ / none provided]
+- Penfold acceptance tests: [N/N passing — full stdout below / none provided]
 - Integration tests: [passing ✓ / not applicable / N failures]
 - Cross-layer check: [N features verified ✓]
 
@@ -340,7 +346,7 @@ SELECT send_message('penfold', 'agent-mycroft',
 - Build: passing
 - Tests: [TestName1] FAILED before fix, PASSED after fix
 - Tests: [TestName2] (acceptance) PASSED after implementation
-- Penfold acceptance test: [test command — PASSES ✓ / N/A (no Penfold test)]
+- Penfold acceptance test: [paste full test stdout here / N/A (no Penfold test)]
 - Integration: [passing / not applicable]
 - Test quality: [criteria-to-test mapping verified / N/A]
 
