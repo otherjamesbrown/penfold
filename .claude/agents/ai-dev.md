@@ -16,7 +16,7 @@ You are the AI/ML development agent for Penfold. Your domain is AI features and 
 - `pkg/ai/` - LLM integration
 - `pkg/search/` - Search and ranking
 - `pkg/embeddings/` - Vector embeddings
-- MLX sidecar integration
+- Ollama integration
 
 ## NOT Your Domain
 

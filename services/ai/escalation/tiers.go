@@ -140,7 +140,7 @@ func DefaultTierConfig() *TierConfig {
 			{
 				Level:          TierLevelLocal,
 				Name:           "Local",
-				Models:         []string{"mlx-community/Qwen2.5-7B-Instruct-4bit", "mxbai-embed-large-v1"},
+				Models:         []string{"mlx-community/Qwen2.5-7B-Instruct-4bit", "mxbai-embed-large"},
 				PreferredModel: "mlx-community/Qwen2.5-7B-Instruct-4bit",
 				CostMultiplier: 0.0,
 				Capabilities:   []string{"embedding", "summarization", "extraction", "classification"},

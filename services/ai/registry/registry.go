@@ -76,7 +76,7 @@ type RegistryConfig struct {
 // DefaultRegistryConfig returns a configuration with sensible defaults.
 func DefaultRegistryConfig() *RegistryConfig {
 	return &RegistryConfig{
-		MLXEmbeddingsURL:    "http://localhost:8081",
+		MLXEmbeddingsURL:    "http://localhost:11434",
 		MLXLLMURL:           "http://localhost:8080",
 		GeminiEndpoint:      "https://generativelanguage.googleapis.com/v1",
 		HealthCheckInterval: 30 * time.Second,

@@ -68,9 +68,8 @@ Prometheus scrapes metrics from (13 targets):
 - PostgreSQL (via postgres_exporter on dev02:9187)
 - Nomad (dev02:4646/v1/metrics — allocation, node, and server metrics)
 
-**MLX Services (dev01):**
-- MLX LLM Server (dev01:8080/metrics)
-- MLX Embeddings Server (dev01:8081/metrics)
+**Ollama (dev01):**
+- Ollama service health via Gateway (dev01:11434/)
 
 **Node Exporters:**
 - dev02 (localhost:9100)

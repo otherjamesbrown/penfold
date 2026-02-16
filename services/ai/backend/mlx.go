@@ -29,7 +29,7 @@ type MLXBackend struct {
 // MLXConfig holds configuration for the MLX backend.
 type MLXConfig struct {
 	// EmbeddingsURL is the base URL for the embeddings server.
-	// Default: http://localhost:8081
+	// Default: http://localhost:11434
 	EmbeddingsURL string
 
 	// LLMURL is the base URL for the LLM server.
@@ -37,7 +37,7 @@ type MLXConfig struct {
 	LLMURL string
 
 	// DefaultEmbeddingModel is the default model for embeddings.
-	// Default: mxbai-embed-large-v1
+	// Default: mxbai-embed-large
 	DefaultEmbeddingModel string
 
 	// DefaultLLMModel is the default model for LLM completions.
@@ -56,9 +56,9 @@ type MLXConfig struct {
 // DefaultMLXConfig returns a default MLX configuration.
 func DefaultMLXConfig() *MLXConfig {
 	return &MLXConfig{
-		EmbeddingsURL:         "http://localhost:8081",
+		EmbeddingsURL:         "http://localhost:11434",
 		LLMURL:                "http://localhost:8080",
-		DefaultEmbeddingModel: "mxbai-embed-large-v1",
+		DefaultEmbeddingModel: "mxbai-embed-large",
 		DefaultLLMModel:       "mlx-community/Qwen2.5-7B-Instruct-4bit",
 		EmbeddingDimensions:   1024,
 		Timeout:               120 * time.Second,
@@ -74,13 +74,13 @@ func NewMLXBackend(config *MLXConfig) *MLXBackend {
 
 	// Apply defaults for empty values
 	if config.EmbeddingsURL == "" {
-		config.EmbeddingsURL = "http://localhost:8081"
+		config.EmbeddingsURL = "http://localhost:11434"
 	}
 	if config.LLMURL == "" {
 		config.LLMURL = "http://localhost:8080"
 	}
 	if config.DefaultEmbeddingModel == "" {
-		config.DefaultEmbeddingModel = "mxbai-embed-large-v1"
+		config.DefaultEmbeddingModel = "mxbai-embed-large"
 	}
 	if config.DefaultLLMModel == "" {
 		config.DefaultLLMModel = "mlx-community/Qwen2.5-7B-Instruct-4bit"
@@ -414,7 +414,7 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 
 // CheckEmbeddingsHealth checks if the embeddings service is healthy.
 func (b *MLXBackend) CheckEmbeddingsHealth(ctx context.Context) error {
-	url := b.embeddingsURL + "/health"
+	url := b.embeddingsURL + "/"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("%w: create request: %v", ErrRequestFailed, err)

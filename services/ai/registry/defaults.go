@@ -8,7 +8,7 @@ func DefaultModels(mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint string) []*ModelC
 		mlxLLMURL = "http://localhost:8080"
 	}
 	if mlxEmbeddingsURL == "" {
-		mlxEmbeddingsURL = "http://localhost:8081"
+		mlxEmbeddingsURL = "http://localhost:11434"
 	}
 	if geminiEndpoint == "" {
 		geminiEndpoint = "https://generativelanguage.googleapis.com/v1"
@@ -59,10 +59,10 @@ func DefaultModels(mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint string) []*ModelC
 			UpdatedAt: now,
 		},
 		{
-			ID:        "mlx/mxbai-embed-large-v1",
+			ID:        "mlx/mxbai-embed-large",
 			Name:      "MixedBread Embed Large",
 			Provider:  ProviderMLX,
-			ModelName: "mxbai-embed-large-v1",
+			ModelName: "mxbai-embed-large",
 			Endpoint:  mlxEmbeddingsURL,
 			Capabilities: ModelCapabilities{
 				Capabilities:        []Capability{CapabilityEmbedding},

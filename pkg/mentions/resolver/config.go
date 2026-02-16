@@ -34,7 +34,7 @@ type LLMConfig struct {
 	Model    string `json:"model"`    // "mistral-7b-instruct-v0.2", "claude-3-sonnet"
 
 	// Connection
-	BaseURL string        `json:"base_url"` // "http://localhost:8081"
+	BaseURL string        `json:"base_url"` // "http://localhost:11434"
 	Timeout time.Duration `json:"timeout"`  // 30s default
 
 	// Performance
@@ -64,7 +64,7 @@ func DefaultConfig() Config {
 		LLM: LLMConfig{
 			Provider:                "mlx",
 			Model:                   "mistral-7b-instruct-v0.2",
-			BaseURL:                 "http://localhost:8081",
+			BaseURL:                 "http://localhost:11434",
 			Timeout:                 120 * time.Second,
 			MaxRetries:              2,
 			EscalateOnLowConfidence: false,
@@ -90,7 +90,7 @@ func (c *Config) Validate() error {
 		c.LLM.Model = "mistral-7b-instruct-v0.2"
 	}
 	if c.LLM.BaseURL == "" {
-		c.LLM.BaseURL = "http://localhost:8081"
+		c.LLM.BaseURL = "http://localhost:11434"
 	}
 	if c.LLM.Timeout == 0 {
 		c.LLM.Timeout = 120 * time.Second

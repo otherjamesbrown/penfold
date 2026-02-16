@@ -10,7 +10,7 @@ Go-based AI mocking framework for testing Penfold's AI-first architecture using 
 |-----------|-------------|-------------------|----------|
 | Unit | Full Mocking (testify/mock) | <100ms | Component isolation |
 | Integration | Function-Based Mocks | <10s | Multi-component testing |
-| E2E | Real LLM (vLLM-MLX) | <30s per test | Complete workflow validation |
+| E2E | Real LLM (Gemini) or Real Embeddings (Ollama) | <30s per test | Complete workflow validation |
 
 ### Mocking Patterns in Penfold
 
@@ -523,7 +523,7 @@ func NewLLMClient(baseURL string) *LLMClient {
 // Chat sends a chat completion request to the LLM.
 func (c *LLMClient) Chat(ctx context.Context, messages []Message) (string, error) {
     req := ChatCompletionRequest{
-        Model:       "mlx-community/Qwen2.5-7B-Instruct-4bit",
+        Model:       "gemini-2.0-flash",
         Messages:    messages,
         Temperature: 0.0, // Deterministic for testing
         MaxTokens:   2048,
@@ -823,7 +823,7 @@ func RequireGeminiAPIKey(t *testing.T) string {
 | Unit | testify/mock or Function-based | Fast, deterministic component tests |
 | Integration | testify/mock with DB | Database + component interaction |
 | Workflow | Temporal TestSuite + Mock Activities | Temporal workflow testing |
-| E2E | Real LLM (vLLM-MLX) | Full workflow validation |
+| E2E | Real Embeddings (Ollama) or Real LLM (Gemini) | Full workflow validation |
 | Live | Real Cloud APIs | API connectivity verification |
 
 ### Mock Pattern Decision Guide

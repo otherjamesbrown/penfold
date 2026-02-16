@@ -130,7 +130,7 @@ High-performance AI processing pipeline:
 - **Pipeline Process**: Redis-to-Temporal bridge, starts workflows from events
 - **Worker Process**: Executes workflow activities (embedding, LLM, storage)
 - **Temporal Integration**: Workflow orchestration with persistence and visibility
-- **MLX Sidecar**: Local embedding generation service
+- **Ollama**: Local embedding generation service (mxbai-embed-large)
 
 Key packages:
 - `cmd/pipeline/` - Event subscriber and workflow starter
@@ -574,15 +574,15 @@ graph LR
 
 ### Processing Stages
 
-1. **Classification** (Local - Qwen2.5)
+1. **Embedding Generation** (Local - Ollama mxbai-embed-large)
+   - 1024-dimensional content vectors
+   - Similarity search enablement
+   - Clustering and topic discovery
+
+2. **Classification** (Cloud - Gemini)
    - Content type identification
    - Urgency scoring
    - Basic categorization
-
-2. **Embedding Generation** (Local - nomic-embed-text)
-   - 768-dimensional content vectors
-   - Similarity search enablement
-   - Clustering and topic discovery
 
 3. **Entity Extraction** (Cloud - Gemini)
    - Person, project, decision identification
@@ -599,12 +599,12 @@ graph LR
 ```python
 class ModelRouter:
     def select_model(self, task: ProcessingTask) -> ModelConfig:
-        if task.complexity < 0.3:
-            return LocalModelConfig("qwen2.5-14b")
+        if task.task_type == "embedding":
+            return LocalModelConfig("ollama/mxbai-embed-large")
         elif task.requires_accuracy_validation:
             return CloudModelConfig("gemini-pro")
         else:
-            return LocalModelConfig("qwen2.5-14b")
+            return CloudModelConfig("gemini-flash")
 ```
 
 ## Security Architecture
@@ -678,7 +678,7 @@ CELERY_CONFIG = {
 - **Database**: PostgreSQL 16+ with pgvector (dev02:5432)
 - **Queue**: Redis 7+ (dev02:6379)
 - **Temporal**: Temporal Server with PostgreSQL backend (localhost:7233, UI at :8088)
-- **Local AI**: vLLM-MLX with Qwen2.5-14B (:8000), MLX Sidecar (:8001)
+- **Local AI**: Ollama with mxbai-embed-large (:11434)
 - **Python**: 3.12 with async/await
 - **Go**: 1.22+ for pipeline services
 

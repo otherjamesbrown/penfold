@@ -45,13 +45,11 @@ This command directly probes the local services without going through the gatewa
 Useful for verifying the ML infrastructure is running before starting work.
 
 Services checked:
-  - MLX Embeddings (localhost:8081)
-  - MLX LLM Server (localhost:8080)
+  - Ollama Embeddings (localhost:11434)
   - Worker health endpoint (localhost:8085)
 
 Environment variables for custom URLs:
-  - AI_SERVICE_URL: Embeddings service URL (default: http://localhost:8081)
-  - LLM_URL: LLM service URL (default: http://localhost:8080)
+  - AI_SERVICE_URL: Embeddings service URL (default: http://localhost:11434)
   - WORKER_HEALTH_URL: Worker health URL (default: http://localhost:8085)`,
 		RunE: runHealthLocal,
 	}
@@ -69,12 +67,7 @@ func runHealthLocal(cmd *cobra.Command, args []string) error {
 	// Get service URLs from environment or use defaults
 	embeddingsURL := os.Getenv("AI_SERVICE_URL")
 	if embeddingsURL == "" {
-		embeddingsURL = "http://localhost:8081"
-	}
-
-	llmURL := os.Getenv("LLM_URL")
-	if llmURL == "" {
-		llmURL = "http://localhost:8080"
+		embeddingsURL = "http://localhost:11434"
 	}
 
 	workerURL := os.Getenv("WORKER_HEALTH_URL")
@@ -89,17 +82,10 @@ func runHealthLocal(cmd *cobra.Command, args []string) error {
 
 	allHealthy := true
 
-	// Check embeddings service
+	// Check embeddings service (Ollama)
 	embStatus := checkEmbeddings(ctx, embeddingsURL)
 	status.Services["embeddings"] = embStatus
 	if embStatus.Status != "healthy" {
-		allHealthy = false
-	}
-
-	// Check LLM service
-	llmStatus := checkLLM(ctx, llmURL)
-	status.Services["llm"] = llmStatus
-	if llmStatus.Status != "healthy" {
 		allHealthy = false
 	}
 
@@ -127,7 +113,7 @@ func runHealthLocal(cmd *cobra.Command, args []string) error {
 }
 
 func checkEmbeddings(ctx context.Context, baseURL string) LocalServiceStatus {
-	url := baseURL + "/health"
+	url := baseURL + "/"
 	start := time.Now()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -173,67 +159,6 @@ func checkEmbeddings(ctx context.Context, baseURL string) LocalServiceStatus {
 			URL:     baseURL,
 			Latency: latency.Round(time.Millisecond).String(),
 			Details: fmt.Sprintf("model=%s", healthResp.Model),
-		}
-	}
-
-	return LocalServiceStatus{
-		Status:  "healthy",
-		URL:     baseURL,
-		Latency: latency.Round(time.Millisecond).String(),
-	}
-}
-
-func checkLLM(ctx context.Context, baseURL string) LocalServiceStatus {
-	url := baseURL + "/v1/models"
-	start := time.Now()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return LocalServiceStatus{
-			Status: "error",
-			URL:    baseURL,
-			Error:  fmt.Sprintf("create request: %v", err),
-		}
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	latency := time.Since(start)
-
-	if err != nil {
-		return LocalServiceStatus{
-			Status: "unhealthy",
-			URL:    baseURL,
-			Error:  err.Error(),
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return LocalServiceStatus{
-			Status:  "unhealthy",
-			URL:     baseURL,
-			Latency: latency.Round(time.Millisecond).String(),
-			Error:   fmt.Sprintf("HTTP %d", resp.StatusCode),
-		}
-	}
-
-	// Parse response to get model info
-	body, _ := io.ReadAll(resp.Body)
-	var modelsResp struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if json.Unmarshal(body, &modelsResp) == nil && len(modelsResp.Data) > 0 {
-		models := make([]string, 0, len(modelsResp.Data))
-		for _, m := range modelsResp.Data {
-			models = append(models, m.ID)
-		}
-		return LocalServiceStatus{
-			Status:  "healthy",
-			URL:     baseURL,
-			Latency: latency.Round(time.Millisecond).String(),
-			Details: fmt.Sprintf("models=%d", len(models)),
 		}
 	}
 

@@ -256,7 +256,7 @@ func (a *Activities) GenerateEmbedding(ctx context.Context, input workflows.Gene
 	// Call embedding service
 	reqBody := EmbeddingRequest{
 		Input: input.Content,
-		Model: "mxbai-embed-large-v1",
+		Model: "mxbai-embed-large",
 	}
 	reqJSON, err := json.Marshal(reqBody)
 	if err != nil {
@@ -314,7 +314,7 @@ func (a *Activities) GenerateEmbedding(ctx context.Context, input workflows.Gene
 		"source",            // entity_type
 		input.SourceID,      // entity_id
 		input.SourceID,      // source_id
-		"mxbai-embed-large-v1",
+		"mxbai-embed-large",
 		"v1",
 		embeddingFloat64,
 	).Scan(&embeddingID)

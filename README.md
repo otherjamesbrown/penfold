@@ -34,7 +34,7 @@ api/proto/          # Protocol Buffer definitions
 - **Database**: PostgreSQL 16+ with pgvector extension
 - **Workflows**: Temporal for durable execution
 - **API**: gRPC with Protocol Buffers, HTTP gateway
-- **Embeddings**: MLX on Apple Silicon (via sidecar)
+- **Embeddings**: Ollama (mxbai-embed-large on Apple Silicon)
 - **Search**: Hybrid full-text + vector similarity
 
 ## Getting Started
@@ -149,8 +149,7 @@ penf tenant create <name>
 │   ├── gmail/              # Gmail Connector
 │   └── worker/             # Temporal Worker
 ├── specs/                  # Feature specifications
-├── docs/                   # Documentation
-└── penfold-go-pipeline/    # MLX embeddings sidecar
+└── docs/                   # Documentation
 ```
 
 ## Development

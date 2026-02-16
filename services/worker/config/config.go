@@ -165,7 +165,7 @@ func Load() (*Config, error) {
 	if v := os.Getenv("AI_SERVICE_URL"); v != "" {
 		cfg.AIServiceURL = v
 	} else {
-		cfg.AIServiceURL = "http://localhost:8081"
+		cfg.AIServiceURL = "http://localhost:11434"
 	}
 
 	if v := os.Getenv("AI_SERVICE_ADDR"); v != "" {

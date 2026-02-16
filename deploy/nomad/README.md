@@ -11,7 +11,7 @@ Penfold services are orchestrated by [Nomad](https://www.nomadproject.io/) using
 | Node | Role | Meta Tags | Services |
 |------|------|-----------|----------|
 | dev02.brown.chat | Server + Client | `os=linux` | Gateway, AI Coordinator |
-| dev01.brown.chat | Client | `apple-silicon=true` | Worker, MLX Embeddings, MLX LLM, MLX Exporter |
+| dev01.brown.chat | Client | `apple-silicon=true` | Worker |
 
 **Nomad server:** `http://dev02.brown.chat:4646`
 
@@ -24,8 +24,9 @@ Node meta tags control placement constraints — each job spec declares which no
 | `penfold-gateway` | `gateway.nomad.hcl` | `meta.os = linux` | `/opt/penfold/bin/penfold-gateway` | `/etc/penfold/gateway.env` |
 | `penfold-worker` | `worker.nomad.hcl` | `meta.apple-silicon = true` | `/opt/penfold/bin/penfold-worker` | `/etc/penfold/worker.env` |
 | `penfold-ai-coordinator` | `ai-coordinator.nomad.hcl` | `meta.os = linux` | `/opt/penfold/bin/penfold-ai-coordinator` | `/etc/penfold/ai-coordinator.env` |
-| `penfold-mlx` | `mlx-services.nomad.hcl` | `meta.apple-silicon = true` | Python (uvicorn, mlx_lm) | Inline env |
 | `penfold-alert-webhook` | (on dev02 only) | `meta.os = linux` | `/opt/penfold/bin/alert-webhook.py` | - |
+
+**Note**: Ollama runs as a launchd service on dev01, not via Nomad. See `~/Library/LaunchAgents/com.ollama.serve.plist`.
 
 All Go services use the same pattern: source env file, then exec binary via `raw_exec`.
 All services on dev02 run as `user = "james"` (not root).
@@ -144,9 +145,6 @@ All Go services expose HTTP `/health` endpoints. Nomad polls these every 10s:
 | `penfold-gateway` | `:8080/health` | 3s |
 | `penfold-worker` | `:8085/health` | 3s |
 | `penfold-ai-coordinator` | `:8090/health` | 3s |
-| `penfold-mlx` (embeddings) | `:8081/health` | 5s |
-| `penfold-mlx` (llm) | `:8080/health` | 5s |
-| `penfold-mlx` (exporter) | `:9101/metrics` | 5s |
 
 If a health check fails, Nomad restarts the allocation (up to 3 attempts within 5 minutes).
 

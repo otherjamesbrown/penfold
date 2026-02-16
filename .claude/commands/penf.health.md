@@ -193,14 +193,14 @@ echo "--- Prometheus ---"
 curl -s -o /dev/null -w "%{http_code}" http://dev02.brown.chat:9090 2>/dev/null || echo "UNREACHABLE"
 ```
 
-### Step 8: LLM / MLX Services (dev01)
+### Step 8: Ollama Service (dev01)
 
 ```bash
-echo "--- LLM Server ---"
-ssh dev01 "curl -s http://localhost:8080/v1/models" 2>&1 | jq -r '.data[0].id // "not running"' 2>/dev/null || echo "LLM server not running"
+echo "--- Ollama Service ---"
+ssh dev01 "curl -s http://localhost:11434/" 2>&1 | grep -q "Ollama is running" && echo "✅ Ollama running" || echo "❌ Ollama not running"
 
-echo "--- Embedding Server ---"
-ssh dev01 "curl -s http://localhost:8081/health" 2>&1 | jq -r '.model // "not running"' 2>/dev/null || echo "Embedding server not running"
+echo "--- Ollama Models ---"
+ssh dev01 "curl -s http://localhost:11434/api/tags" 2>&1 | jq -r '.models[] | select(.name | contains("mxbai-embed-large")) | .name' 2>/dev/null || echo "mxbai-embed-large not found"
 ```
 
 ### Step 9: Process Age Audit
@@ -210,7 +210,7 @@ Check for stale or rogue processes that may interfere with services. Flag any pe
 **dev01 processes:**
 ```bash
 echo "--- dev01 Process Audit ---"
-ssh dev01 "ps -eo pid,etime,command | grep -E 'penfold|mlx_lm|uvicorn.*8081' | grep -v grep" 2>&1
+ssh dev01 "ps -eo pid,etime,command | grep -E 'penfold|ollama' | grep -v grep" 2>&1
 ```
 
 **dev02 processes:**
@@ -241,40 +241,23 @@ Any docker process running for days (format `D-HH:MM:SS`) is likely stuck and sh
 
 Health endpoints can pass while actual inference fails. Test real inference directly against MLX servers on dev01.
 
-**LLM inference test (direct to MLX on dev01):**
-```bash
-echo "--- Functional LLM Inference Test ---"
-# Get the actual model name from the server
-MODEL=$(ssh dev01 "curl -s http://localhost:8080/v1/models" 2>&1 | jq -r '.data[0].id // "unknown"')
-RESULT=$(ssh dev01 "curl -s -X POST http://localhost:8080/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Say OK\"}],\"max_tokens\":5}' \
-  --max-time 30" 2>&1)
-
-if echo "$RESULT" | jq -e '.choices[0].message.content' > /dev/null 2>&1; then
-  echo "✅ LLM Inference OK ($MODEL): $(echo "$RESULT" | jq -r '.choices[0].message.content')"
-else
-  echo "❌ LLM Inference FAILED: $RESULT"
-fi
-```
-
-**Embedding test (direct to embedding server on dev01):**
+**Embedding test (direct to Ollama on dev01):**
 ```bash
 echo "--- Functional Embedding Test ---"
-RESULT=$(ssh dev01 "curl -s -X POST http://localhost:8081/v1/embeddings \
+RESULT=$(ssh dev01 "curl -s -X POST http://localhost:11434/api/embeddings \
   -H 'Content-Type: application/json' \
-  -d '{\"input\":\"test\"}' \
+  -d '{\"model\":\"mxbai-embed-large\",\"prompt\":\"test\"}' \
   --max-time 10" 2>&1)
 
-if echo "$RESULT" | jq -e '.data[0].embedding' > /dev/null 2>&1; then
-  DIM=$(echo "$RESULT" | jq '.data[0].embedding | length')
+if echo "$RESULT" | jq -e '.embedding' > /dev/null 2>&1; then
+  DIM=$(echo "$RESULT" | jq '.embedding | length')
   echo "✅ Embeddings OK: ${DIM} dimensions"
 else
   echo "❌ Embeddings FAILED: $RESULT"
 fi
 ```
 
-Note: The AI Coordinator on dev02 uses gRPC, not HTTP REST. These tests verify the underlying MLX services are working. If these pass but pipeline processing fails, check the AI Coordinator logs for gRPC errors.
+Note: The AI Coordinator on dev02 uses gRPC, not HTTP REST. These tests verify the underlying Ollama service is working. If these pass but pipeline processing fails, check the AI Coordinator logs for gRPC errors.
 
 ### Step 12: Present Health Summary
 
@@ -302,10 +285,9 @@ Compile all checks into a single summary table.
 
 ### ML Services
 
-| Service          | Host   | Status | Model        |
-|------------------|--------|--------|--------------|
-| LLM Server       | dev01  | ...    | ...          |
-| Embedding Server | dev01  | ...    | ...          |
+| Service          | Host   | Status | Model              |
+|------------------|--------|--------|--------------------|
+| Ollama           | dev01  | ...    | mxbai-embed-large  |
 
 ### Functional Tests
 
@@ -319,8 +301,7 @@ Compile all checks into a single summary table.
 | Host   | Process              | Uptime   | Status |
 |--------|----------------------|----------|--------|
 | dev01  | penfold-worker       | ...      | ...    |
-| dev01  | mlx_lm.server        | ...      | ...    |
-| dev01  | embeddings (uvicorn) | ...      | ...    |
+| dev01  | ollama               | ...      | ...    |
 | dev02  | penfold-gateway      | ...      | ...    |
 | dev02  | penfold-ai-coord     | ...      | ...    |
 
@@ -371,11 +352,11 @@ Based on results:
 - If all green: "All systems healthy. Ready for `/test.unit` -> `/test.integration` -> `/test.e2e`."
 - If service down: "Service X is down. Check logs with: `ssh devXX 'journalctl -u penfold-X -n 50'`"
 - If pending migrations: "Pending migrations found — run `penf migrate up` to apply."
-- If LLM not running: "LLM server not running on dev01. Start with: `ssh dev01 'launchctl load ~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist'`"
+- If Ollama not running: "Ollama server not running on dev01. Start with: `ssh dev01 'launchctl load ~/Library/LaunchAgents/com.ollama.serve.plist'`"
 - If errors found: List the errors and suggest investigation steps.
 - If stale process found: "Stale process detected: `kill <PID>` or investigate why it wasn't restarted."
 - If rogue process found (e.g., `/tmp/penfold-*`): "Rogue process detected. Kill with: `ssh devXX 'kill <PID>'` and check why it was started outside normal deployment."
 - If stuck docker processes: "Stuck docker processes found. Clean up with: `ssh dev02 'docker ps -a | grep -E \"days ago|weeks ago\" | awk \"{print \\$1}\" | xargs docker rm -f'`"
 - If functional inference fails but health passes: "AI Coordinator health passes but inference fails. Check AI coordinator logs: `ssh dev01 'tail -100 /tmp/penfold-ai*.log | grep ERR'` or restart the service."
-- If embeddings fail: "Embeddings not working. Check embedding server: `ssh dev01 'curl -s http://localhost:8081/health'`"
+- If embeddings fail: "Embeddings not working. Check Ollama service: `ssh dev01 'curl -s http://localhost:11434/'`"
 - If worker idle with pending items: "Worker idle but items pending. Run `penf pipeline kick` to start processing. If this happens frequently, check if workflows are completing or failing silently."

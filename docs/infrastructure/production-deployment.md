@@ -93,12 +93,12 @@ docker ps --filter 'name=penfold'
 +--------------+-------------------------------------------------------------------------------+-------------------+
 |                                   dev01.brown.chat (Mac Mini M4)                                                 |
 |                                                                                                                  |
-|  +-----------------------+     +-----------------------+     +----------------------------------------------+   |
-|  |  MLX Embeddings       |     |  MLX LLM Server       |     |  Penfold Worker                              |   |
-|  |  Python sidecar       |     |  Qwen2.5-7B|     |  Go binary                                   |   |
-|  |  :8081                |     |  :8080                |     |  Temporal activities & workflows             |   |
-|  |  mxbai-embed-large-v1 |<----|  (mention resolution) |<----|  Health: :8085                               |   |
-|  +-----------------------+     +-----------------------+     +----------------------------------------------+   |
+|  +-----------------------+     +----------------------------------------------+                                 |
+|  |  Ollama               |     |  Penfold Worker                              |                                 |
+|  |  mxbai-embed-large    |     |  Go binary                                   |                                 |
+|  |  :11434               |<----|  Temporal activities & workflows             |                                 |
+|  |                       |     |  Health: :8085                               |                                 |
+|  +-----------------------+     +----------------------------------------------+                                 |
 |                                                                                                                  |
 +-----------------------------------------------------------------------------------------------------------------+
 ```
@@ -112,8 +112,7 @@ docker ps --filter 'name=penfold'
 | Redis | dev02 | Docker | 6379 | Caching |
 | Temporal | dev02 | Docker | 7233, 8088 (UI) | Workflow orchestration |
 | Worker | dev01 | Go binary | 8085 (health) | Temporal workflow execution |
-| MLX Embeddings | dev01 | Python (uvicorn) | 8081 | Vector embeddings |
-| MLX LLM | dev01 | Python (mlx_lm) | 8080 | LLM inference for mention resolution |
+| Ollama | dev01 | launchd service | 11434 | Embeddings (mxbai-embed-large) |
 
 ### Go Service Modules
 
@@ -163,9 +162,8 @@ export PENFOLD_DB_USER=penfold
 export PENFOLD_DB_PASSWORD=<from secrets>
 export PENFOLD_DB_NAME=penfold
 export PENFOLD_TEMPORAL_HOST=dev02.brown.chat:7233
-export AI_SERVICE_URL=http://localhost:8081   # Local MLX embeddings
-export LLM_URL=http://localhost:8080          # Local MLX LLM
-export LLM_MODEL=mlx-community/Qwen2.5-7B-Instruct-4bit
+export OLLAMA_URL=http://localhost:11434      # Local Ollama embeddings
+export EMBEDDING_MODEL=mxbai-embed-large
 ```
 
 #### dev02 - Gateway Environment
@@ -181,8 +179,7 @@ export PENFOLD_GRPC_PORT=50051
 export PENFOLD_HTTP_PORT=8080
 
 # ML service URLs for health aggregation
-export GATEWAY_EMBEDDINGS_URL=http://dev01.brown.chat:8081
-export GATEWAY_LLM_URL=http://dev01.brown.chat:8080
+export GATEWAY_OLLAMA_URL=http://dev01.brown.chat:11434
 export GATEWAY_WORKER_HEALTH_URL=http://dev01.brown.chat:8085
 ```
 
@@ -358,28 +355,25 @@ Load the service:
 launchctl load ~/Library/LaunchAgents/com.penfold.worker.plist
 ```
 
-### MLX Sidecar Services (dev01)
+### Ollama Service (dev01)
 
-#### Embeddings Sidecar
-
-Located in `penfold-go-pipeline/sidecar/`:
+Ollama runs as a launchd service and provides embedding generation:
 
 ```bash
-# Manual start
-cd ~/github/otherjamesbrown/penfold-go-pipeline/sidecar
-.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8081
+# Manual start (if needed)
+ollama serve
+
+# Test embeddings endpoint
+curl http://localhost:11434/api/embeddings -d '{
+  "model": "mxbai-embed-large",
+  "prompt": "test embedding"
+}'
+
+# Check status
+curl http://localhost:11434/
 ```
 
-Managed by launchd: `~/Library/LaunchAgents/com.penfold.mlx-embeddings.plist`
-
-#### LLM Server
-
-```bash
-# Manual start
-.venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-7B-Instruct-4bit --port 8080 --host 0.0.0.0
-```
-
-Managed by launchd: `~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist`
+Managed by launchd: `~/Library/LaunchAgents/com.ollama.serve.plist`
 
 ---
 
@@ -450,8 +444,7 @@ Services bind to specific interfaces:
 | Gateway | `http://dev02.brown.chat:8080/metrics` | Prometheus metrics |
 | Worker | `http://dev01.brown.chat:8085/health` | Worker health status |
 | Worker | `http://dev01.brown.chat:8085/ready` | Readiness probe |
-| Embeddings | `http://dev01.brown.chat:8081/health` | MLX embeddings health |
-| LLM | `http://dev01.brown.chat:8080/v1/models` | MLX LLM health |
+| Ollama | `http://dev01.brown.chat:11434/` | Ollama service (returns "Ollama is running") |
 
 ### CLI Health Commands
 
@@ -565,16 +558,13 @@ ssh dev02.brown.chat "docker ps --filter 'name=penfold'"
 ssh dev02.brown.chat "source /opt/penfold/.env && \
   nohup /tmp/penfold-gateway > /opt/penfold/logs/gateway.log 2>&1 &"
 
-# 3. Start MLX Embeddings on dev01
-launchctl start com.penfold.mlx-embeddings
+# 3. Start Ollama on dev01 (usually already running)
+launchctl start com.ollama.serve
 
-# 4. Start MLX LLM Server on dev01
-launchctl start com.penfold.mlx-llm-server
-
-# 5. Start Worker on dev01
+# 4. Start Worker on dev01
 launchctl start com.penfold.worker
 
-# 6. Verify CLI connection
+# 5. Verify CLI connection
 penf status
 penf health gateway
 ```
@@ -826,19 +816,22 @@ tail -100 /tmp/penfold-worker.log
 nc -zv dev02.brown.chat 7233
 ```
 
-#### MLX Services Not Responding
+#### Ollama Service Not Responding
 
 ```bash
 # Check launchd status
-launchctl list | grep penfold
+launchctl list | grep ollama
 
 # Check logs
-tail -100 /tmp/mlx-embeddings.log
-tail -100 /tmp/mlx-llm-server.log
+tail -100 /tmp/ollama.out.log
+tail -100 /tmp/ollama.err.log
 
-# Restart services
-launchctl stop com.penfold.mlx-embeddings
-launchctl start com.penfold.mlx-embeddings
+# Restart service
+launchctl stop com.ollama.serve
+launchctl start com.ollama.serve
+
+# Test directly
+curl http://localhost:11434/
 ```
 
 #### Database Connection Issues
@@ -925,7 +918,7 @@ ssh dev02.brown.chat "tail -f /opt/penfold/logs/gateway.log"
 | Credentials | `~/github/otherjamesbrown/secrets/.env.penfold` |
 | CLI config | `~/.penf/config.yaml` |
 | Worker logs | `/tmp/penfold-worker.log` |
-| MLX logs | `/tmp/mlx-embeddings.log`, `/tmp/mlx-llm-server.log` |
+| Ollama logs | `/tmp/ollama.out.log`, `/tmp/ollama.err.log` |
 | Gateway logs | `/opt/penfold/logs/gateway.log` (dev02) |
 | Database data | `/opt/penfold/data/postgres/` (dev02) |
 | Backups | `/opt/penfold/backups/` (dev02) |

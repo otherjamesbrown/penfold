@@ -1,5 +1,5 @@
-// Package embeddings provides MLX embedding generation for semantic search.
-// It integrates with the mxbai-embed-large-v1 model running on Apple Silicon via MLX.
+// Package embeddings provides embedding generation for semantic search.
+// It integrates with the mxbai-embed-large model running on Apple Silicon via Ollama.
 package embeddings
 
 import (
@@ -14,8 +14,8 @@ const (
 	DefaultServerURL = "http://localhost:11434"
 
 	// DefaultModel is the default embedding model to use.
-	// mxbai-embed-large-v1 provides 1024-dimension embeddings optimized for semantic search.
-	DefaultModel = "mxbai-embed-large-v1"
+	// mxbai-embed-large provides 1024-dimension embeddings optimized for semantic search.
+	DefaultModel = "mxbai-embed-large"
 
 	// DefaultBatchSize is the default number of texts to embed in a single request.
 	DefaultBatchSize = 32
@@ -23,7 +23,7 @@ const (
 	// DefaultTimeout is the default timeout for embedding requests.
 	DefaultTimeout = 30 * time.Second
 
-	// DefaultDimensions is the embedding dimension for mxbai-embed-large-v1.
+	// DefaultDimensions is the embedding dimension for mxbai-embed-large.
 	DefaultDimensions = 1024
 
 	// DefaultMaxRetries is the default number of retries for failed requests.
@@ -55,7 +55,7 @@ type Config struct {
 	ServerURL string
 
 	// Model is the name of the embedding model to use.
-	// Default is mxbai-embed-large-v1 which provides 1024-dimension vectors.
+	// Default is mxbai-embed-large which provides 1024-dimension vectors.
 	Model string
 
 	// BatchSize is the maximum number of texts to embed in a single batch request.
@@ -185,7 +185,7 @@ func (c *Config) GetModelInfo() *ModelInfo {
 	return &ModelInfo{
 		Name:        c.Model,
 		Dimensions:  c.Dimensions,
-		MaxTokens:   512, // mxbai-embed-large-v1 typical max
+		MaxTokens:   512, // mxbai-embed-large typical max
 		Provider:    "mlx",
 		IsLocal:     true,
 		Description: "Mixed Bread AI embedding model optimized for semantic search (1024 dims)",

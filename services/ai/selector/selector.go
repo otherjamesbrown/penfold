@@ -625,11 +625,11 @@ func (w *WarmupManager) ResetUsageCount() {
 func RegisterDefaultModels(selector *ModelSelector, mlxLLMURL, mlxEmbeddingsURL, geminiAPIKey string) error {
 	// Local MLX embedding model
 	if err := selector.RegisterModel(&ModelConfig{
-		ModelID:  "mxbai-embed-large-v1",
+		ModelID:  "mxbai-embed-large",
 		Provider: ModelProviderMLX,
 		Endpoint: mlxEmbeddingsURL,
 		Capabilities: &ModelCapabilities{
-			ModelID:             "mxbai-embed-large-v1",
+			ModelID:             "mxbai-embed-large",
 			Provider:            ModelProviderMLX,
 			IsLocal:             true,
 			SupportedTasks:      []TaskType{TaskTypeEmbedding},

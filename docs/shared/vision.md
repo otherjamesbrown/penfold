@@ -58,7 +58,7 @@ The knowledge base improves over time:
 
 - All data stays on infrastructure you control
 - Multi-tenant isolation keeps contexts separate
-- Local AI models (MLX) avoid sending content to external services
+- Local AI models (Ollama) for embeddings, with Gemini for LLM tasks
 - Source tagging lets you control what's searchable
 
 ## The Goal

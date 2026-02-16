@@ -489,7 +489,7 @@ Registry of available AI models (local and remote).
 |-------|-------------|
 | `id` | Model ID (format: `provider/model-name`) |
 | `name` | Display name |
-| `provider` | `ollama`, `gemini`, `openai`, `anthropic`, `mlx` |
+| `provider` | `ollama`, `gemini`, `openai`, `anthropic` |
 | `model_name` | Provider-specific identifier |
 | `capabilities` | Array: `embedding`, `summarization`, `extraction`, `classification` |
 | `context_window` | Max input tokens |
@@ -529,7 +529,7 @@ Task-based model selection rules.
 | `tenant_id` | Multi-tenant isolation |
 | `entity_type` | What was embedded: `source`, `assertion`, `person`, `project`, `team` |
 | `entity_id` | ID of the embedded entity |
-| `embedding_model` | Model used (e.g., `mlx/mxbai-embed-large-v1`) |
+| `embedding_model` | Model used (e.g., `ollama/mxbai-embed-large`) |
 | `model_version` | Model version for cache invalidation |
 | `text_content` | Text that was embedded |
 | `content_hash` | SHA-256 of text (for deduplication) |

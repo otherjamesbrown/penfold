@@ -60,9 +60,9 @@ const (
 	DefaultGRPCPort                 = 50051
 	DefaultHTTPPort                 = 8090
 	DefaultGeminiDefaultModel       = "gemini-2.5-pro"
-	DefaultEmbeddingModel           = "mxbai-embed-large-v1"
+	DefaultEmbeddingModel           = "mxbai-embed-large"
 	DefaultLLMModel                 = "gemini-2.0-flash"
-	DefaultMLXEmbeddingsURL         = "http://localhost:8081"
+	DefaultMLXEmbeddingsURL         = "http://localhost:11434"
 	DefaultMLXLLMURL                = "http://localhost:8080"
 	DefaultEmbeddingDimensions      = 1024
 	DefaultLogLevel                 = "info"
