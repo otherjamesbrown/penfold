@@ -27,6 +27,7 @@ const (
 	AttrLangfuseUserID          = "langfuse.user.id"
 	AttrLangfuseSessionID       = "langfuse.session.id"
 	AttrLangfuseTraceMetadata   = "langfuse.trace.metadata"
+	AttrLangfuseTraceName       = "langfuse.trace.name"
 	AttrLangfuseTraceTags       = "langfuse.trace.tags"
 
 	// Penfold-specific attributes
@@ -142,6 +143,8 @@ func StartLLMCall(ctx context.Context, name string, opts LLMCallOptions) (contex
 	// Otherwise, create a root span (backward compatibility)
 	var startOpts []trace.SpanStartOption
 	if opts.PipelineTraceID != "" {
+		// Set trace name so Langfuse shows "slm-pipeline" instead of a sibling span name
+		attrs = append(attrs, attribute.String(AttrLangfuseTraceName, "slm-pipeline"))
 		// Parse hex trace ID and create remote span context
 		traceID, err := trace.TraceIDFromHex(opts.PipelineTraceID)
 		if err == nil {
@@ -279,6 +282,8 @@ func StartEmbedding(ctx context.Context, name string, opts EmbeddingOptions) (co
 	// Otherwise, create a root span (backward compatibility)
 	var startOpts []trace.SpanStartOption
 	if opts.PipelineTraceID != "" {
+		// Set trace name so Langfuse shows "slm-pipeline" instead of a sibling span name
+		attrs = append(attrs, attribute.String(AttrLangfuseTraceName, "slm-pipeline"))
 		// Parse hex trace ID and create remote span context
 		traceID, err := trace.TraceIDFromHex(opts.PipelineTraceID)
 		if err == nil {
@@ -403,6 +408,8 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 	// Otherwise, create a root span (backward compatibility)
 	var startOpts []trace.SpanStartOption
 	if opts.PipelineTraceID != "" {
+		// Set trace name so Langfuse shows "slm-pipeline" instead of a sibling span name
+		attrs = append(attrs, attribute.String(AttrLangfuseTraceName, "slm-pipeline"))
 		// Parse hex trace ID and create remote span context
 		traceID, err := trace.TraceIDFromHex(opts.PipelineTraceID)
 		if err == nil {
@@ -443,6 +450,7 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 func StartPipeline(ctx context.Context, name, contentID, contentType, pipelineTraceID string) (context.Context, trace.Span) {
 	attrs := []attribute.KeyValue{
 		attribute.String(AttrLangfuseObservationType, ObservationTypeSpan),
+		attribute.String(AttrLangfuseTraceName, name),
 		attribute.String(AttrPenfoldContentID, contentID),
 		attribute.String(AttrPenfoldContentType, contentType),
 	}

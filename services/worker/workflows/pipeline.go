@@ -571,19 +571,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	embeddingOpts = pkgtemporal.WithNonRetryableErrors(embeddingOpts, pkgtemporal.NonRetryableErrors()...)
 	llmOpts = pkgtemporal.WithNonRetryableErrors(llmOpts, pkgtemporal.NonRetryableErrors()...)
 
-	// Start pipeline tracing span to create root span for Langfuse trace grouping.
-	// This makes the trace title show "slm-pipeline" instead of a sibling span name like "ai.embedding".
-	// Don't fail the pipeline if tracing fails - just log and continue.
-	ctxTracing := workflow.WithActivityOptions(ctx, fastOpts)
-	tracingErr := workflow.ExecuteActivity(ctxTracing, pkgtemporal.ActivityStartPipelineTracing, StartPipelineTracingInput{
-		PipelineTraceID: pipelineTraceID,
-		ContentID:       input.ContentID,
-		ContentType:     input.ContentType,
-	}).Get(ctx, nil)
-	if tracingErr != nil {
-		logger.Warn("Failed to start pipeline tracing span (non-fatal)", "error", tracingErr)
-	}
-
 	// Saga compensation stack
 	var compensations []func(workflow.Context) error
 
@@ -660,6 +647,20 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		if input.ContentType == "email" {
 			input.BodyHTML = fetchOut.BodyHTML
 		}
+	}
+
+	// Start pipeline tracing span to create root span for Langfuse trace grouping.
+	// This makes the trace title show "slm-pipeline" instead of a sibling span name like "ai.embedding".
+	// Placed after fetch so ContentType and ContentID are populated.
+	// Don't fail the pipeline if tracing fails - just log and continue.
+	ctxTracing := workflow.WithActivityOptions(ctx, fastOpts)
+	tracingErr := workflow.ExecuteActivity(ctxTracing, pkgtemporal.ActivityStartPipelineTracing, StartPipelineTracingInput{
+		PipelineTraceID: pipelineTraceID,
+		ContentID:       input.ContentID,
+		ContentType:     input.ContentType,
+	}).Get(ctx, nil)
+	if tracingErr != nil {
+		logger.Warn("Failed to start pipeline tracing span (non-fatal)", "error", tracingErr)
 	}
 
 	var parsedContent string
