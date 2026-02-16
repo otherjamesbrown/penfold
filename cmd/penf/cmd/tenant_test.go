@@ -670,7 +670,7 @@ func TestRunTenantList(t *testing.T) {
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runTenantList(context.Background(), deps, false)
+	err := runTenantList(context.Background(), deps, false, nil)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -692,7 +692,7 @@ func TestRunTenantCurrent_WithTenant(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runTenantCurrent(deps)
+	err := runTenantCurrent(deps, nil)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -722,7 +722,7 @@ func TestRunTenantCurrent_NoTenant(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runTenantCurrent(deps)
+	err := runTenantCurrent(deps, nil)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -867,7 +867,7 @@ func TestRunTenantInfo_CurrentTenant(t *testing.T) {
 	os.Stdout = w
 
 	// Call with empty string to use current tenant.
-	err := runTenantShow(context.Background(), deps, "", false)
+	err := runTenantShow(context.Background(), deps, "", false, nil)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -894,7 +894,7 @@ func TestRunTenantInfo_SpecificTenant(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := runTenantShow(context.Background(), deps, "tenant-acme-002", false)
+	err := runTenantShow(context.Background(), deps, "tenant-acme-002", false, nil)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -919,7 +919,7 @@ func TestRunTenantInfo_NoCurrentTenant(t *testing.T) {
 
 	os.Unsetenv("PENF_TENANT_ID")
 
-	err := runTenantShow(context.Background(), deps, "", false)
+	err := runTenantShow(context.Background(), deps, "", false, nil)
 	if err == nil {
 		t.Error("expected error when no current tenant and no argument")
 	}

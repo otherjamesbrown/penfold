@@ -147,6 +147,24 @@ Most commands accept --tenant to override the active tenant for a single operati
 	return cmd
 }
 
+// getOutputFormat reads the --output flag value from the root command's persistent flags.
+func getOutputFormat(cmd *cobra.Command) string {
+	if cmd == nil {
+		return ""
+	}
+	if f := cmd.Root().PersistentFlags().Lookup("output"); f != nil {
+		return f.Value.String()
+	}
+	return ""
+}
+
+// applyOutputFormat applies the root --output flag to a config loaded by tenant commands.
+func applyOutputFormat(cfg *config.CLIConfig, cmd *cobra.Command) {
+	if v := getOutputFormat(cmd); v != "" {
+		cfg.OutputFormat = config.OutputFormat(v)
+	}
+}
+
 // newTenantListCommand creates the 'tenant list' subcommand.
 func newTenantListCommand(deps *TenantCommandDeps) *cobra.Command {
 	return &cobra.Command{
@@ -158,7 +176,7 @@ Displays tenant ID, name, status, and indicates the currently active tenant.
 Use --output to change the output format (text, json, yaml).`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTenantList(cmd.Context(), deps, getInsecureFlag(cmd))
+			return runTenantList(cmd.Context(), deps, getInsecureFlag(cmd), cmd)
 		},
 	}
 }
@@ -202,7 +220,7 @@ Displays the tenant ID from the configuration file or environment variable.
 The environment variable PENF_TENANT_ID takes precedence over the config file.`,
 		Aliases: []string{"whoami"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTenantCurrent(deps)
+			return runTenantCurrent(deps, cmd)
 		},
 	}
 }
@@ -228,21 +246,21 @@ Example:
 			if len(args) > 0 {
 				tenantID = args[0]
 			}
-			return runTenantShow(cmd.Context(), deps, tenantID, getInsecureFlag(cmd))
+			return runTenantShow(cmd.Context(), deps, tenantID, getInsecureFlag(cmd), cmd)
 		},
 	}
 }
 
 // runTenantList executes the tenant list command.
-func runTenantList(ctx context.Context, deps *TenantCommandDeps, insecureFlag bool) error {
+func runTenantList(ctx context.Context, deps *TenantCommandDeps, insecureFlag bool, cmd *cobra.Command) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
-	// Override with command-line flag if set.
 	if insecureFlag {
 		cfg.Insecure = true
 	}
+	applyOutputFormat(cfg, cmd)
 	deps.Config = cfg
 
 	// Get current tenant ID (from env or config).
@@ -343,11 +361,12 @@ func runTenantSwitch(ctx context.Context, deps *TenantCommandDeps, tenantRef str
 }
 
 // runTenantCurrent executes the tenant current command.
-func runTenantCurrent(deps *TenantCommandDeps) error {
+func runTenantCurrent(deps *TenantCommandDeps, cmd *cobra.Command) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
+	applyOutputFormat(cfg, cmd)
 	deps.Config = cfg
 
 	currentTenantID := getCurrentTenantID(cfg)
@@ -395,15 +414,15 @@ func runTenantCurrent(deps *TenantCommandDeps) error {
 }
 
 // runTenantShow executes the tenant info command.
-func runTenantShow(ctx context.Context, deps *TenantCommandDeps, tenantRef string, insecureFlag bool) error {
+func runTenantShow(ctx context.Context, deps *TenantCommandDeps, tenantRef string, insecureFlag bool, cmd *cobra.Command) error {
 	cfg, err := deps.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
-	// Override with command-line flag if set.
 	if insecureFlag {
 		cfg.Insecure = true
 	}
+	applyOutputFormat(cfg, cmd)
 	deps.Config = cfg
 
 	// Use current tenant if none specified.

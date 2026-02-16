@@ -108,13 +108,13 @@ tls:
 	if result.Success() {
 		// Parse tenant response to verify it matches
 		var tenantResp struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			TenantID string `json:"tenant_id"`
+			Source   string `json:"source"`
 		}
 		if err := json.Unmarshal([]byte(result.Stdout), &tenantResp); err != nil {
 			t.Logf("WARNING: Pre-flight check could not parse tenant response: %v", err)
-		} else if tenantResp.ID != tenantID {
-			panic(fmt.Sprintf("PRE-FLIGHT TENANT MISMATCH: Expected tenant %s, got %s", tenantID, tenantResp.ID))
+		} else if tenantResp.TenantID != tenantID {
+			panic(fmt.Sprintf("PRE-FLIGHT TENANT MISMATCH: Expected tenant %s, got %s", tenantID, tenantResp.TenantID))
 		} else {
 			t.Logf("Pre-flight check passed: tenant %s verified", tenantID)
 		}
