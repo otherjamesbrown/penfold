@@ -6,6 +6,7 @@ import "time"
 // ThreadSummary represents a thread in the list view.
 type ThreadSummary struct {
 	ID              int64
+	RootMessageID   string
 	Subject         string
 	MessageCount    int32
 	FirstMessageAt  time.Time

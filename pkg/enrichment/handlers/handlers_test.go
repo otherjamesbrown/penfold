@@ -587,6 +587,120 @@ func TestThreadGrouper_Process(t *testing.T) {
 	}
 }
 
+// TestThreadGrouper_GetReferences_JSONString_BUG_pf_6c7c8f reproduces bug pf-6c7c8f part 2:
+// getReferences (lines 135-173) should handle JSON array strings like "[\"<msg1>\",\"<msg2>\"]"
+// that come from source_repo.go metadata serialization.
+//
+// This test SHOULD FAIL because current getReferences doesn't deserialize JSON strings.
+func TestThreadGrouper_GetReferences_JSONString_BUG_pf_6c7c8f(t *testing.T) {
+	grouper := NewThreadGrouper()
+
+	tests := []struct {
+		name     string
+		metadata map[string]interface{}
+		want     []string
+	}{
+		{
+			name: "references as JSON string",
+			metadata: map[string]interface{}{
+				// BUG: This is how references comes from source_repo.go:67-72
+				"references": "[\"<msg1@example.com>\",\"<msg2@example.com>\",\"<msg3@example.com>\"]",
+			},
+			want: []string{"<msg1@example.com>", "<msg2@example.com>", "<msg3@example.com>"},
+		},
+		{
+			name: "references as actual array (working case)",
+			metadata: map[string]interface{}{
+				"references": []string{"<msg1@example.com>", "<msg2@example.com>"},
+			},
+			want: []string{"<msg1@example.com>", "<msg2@example.com>"},
+		},
+		{
+			name: "references as interface array (working case)",
+			metadata: map[string]interface{}{
+				"references": []interface{}{"<msg1@example.com>", "<msg2@example.com>"},
+			},
+			want: []string{"<msg1@example.com>", "<msg2@example.com>"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source := &processors.Source{
+				Metadata: tt.metadata,
+			}
+
+			got := grouper.getReferences(source)
+
+			if len(got) != len(tt.want) {
+				t.Errorf("getReferences() len = %v, want %v. Got: %v", len(got), len(tt.want), got)
+				return
+			}
+
+			for i, wantRef := range tt.want {
+				if got[i] != wantRef {
+					t.Errorf("getReferences()[%d] = %v, want %v", i, got[i], wantRef)
+				}
+			}
+		})
+	}
+}
+
+// TestThreadGrouper_Process_JSONMetadata_BUG_pf_6c7c8f reproduces the full bug flow:
+// metadata with JSON strings (as they come from source_repo.go) should be parsed correctly
+// so that ThreadData has correct References array.
+//
+// This test SHOULD FAIL because current code doesn't parse JSON strings in metadata.
+func TestThreadGrouper_Process_JSONMetadata_BUG_pf_6c7c8f(t *testing.T) {
+	grouper := NewThreadGrouper()
+
+	// Simulate what thread_activities.go:82-94 passes to ThreadGrouper:
+	// metadata values are still strings (including JSON strings for arrays)
+	source := makeSource(map[string]interface{}{
+		"subject":     "Re: Project Discussion",
+		"message_id":  "<msg3@example.com>",
+		"in_reply_to": "<msg2@example.com>",
+		// BUG: references comes as JSON string from source_repo.go
+		"references": "[\"<msg1@example.com>\",\"<msg2@example.com>\"]",
+	})
+	pctx := makeContext(source)
+	pctx.Enrichment.Classification = enrichment.Classification{
+		ContentType: enrichment.ContentTypeEmail,
+		Subtype:     enrichment.SubtypeEmailThread,
+	}
+
+	err := grouper.Process(context.Background(), pctx)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	threadData, ok := pctx.Enrichment.ExtractedData["thread"].(*ThreadData)
+	if !ok {
+		t.Fatal("Expected thread data in ExtractedData")
+	}
+
+	// EXPECTED (AFTER FIX): References should be parsed from JSON string
+	expectedReferences := []string{"<msg1@example.com>", "<msg2@example.com>"}
+	if len(threadData.References) != len(expectedReferences) {
+		t.Errorf("BUG: References len = %d, want %d. Got: %v (JSON string not parsed)",
+			len(threadData.References), len(expectedReferences), threadData.References)
+	} else {
+		for i, expected := range expectedReferences {
+			if threadData.References[i] != expected {
+				t.Errorf("BUG: References[%d] = %v, want %v (JSON string not parsed)",
+					i, threadData.References[i], expected)
+			}
+		}
+	}
+
+	// EXPECTED (AFTER FIX): ThreadRoot should be first reference (msg1), not in_reply_to (msg2)
+	expectedThreadRoot := "<msg1@example.com>"
+	if threadData.ThreadRoot != expectedThreadRoot {
+		t.Errorf("BUG: ThreadRoot = %v, want %v (should use first reference, not in_reply_to)",
+			threadData.ThreadRoot, expectedThreadRoot)
+	}
+}
+
 // ==================== Interface Compliance Tests ====================
 
 func TestProcessorInterfaces(t *testing.T) {

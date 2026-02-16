@@ -49,6 +49,7 @@ message ThreadSummary {
   repeated int64 participant_ids = 6;
   optional string summary = 7;  // Thread summary (if available)
   int64 latest_source_id = 8;
+  string root_message_id = 9;   // Message-ID of the thread root
 }
 
 // =============================================================================

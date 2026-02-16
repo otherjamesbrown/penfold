@@ -426,3 +426,77 @@ func TestGroupEmailThread_ContentTypeMismatch_BUG_pf_a3d615(t *testing.T) {
 	require.Equal(t, "<parent-msg@example.com>", *output.ThreadID)
 	require.True(t, upsertCalled, "UpsertThread should be called for emails")
 }
+
+// TestGroupEmailThread_JSONArrayMetadata_BUG_pf_6c7c8f reproduces bug pf-6c7c8f part 1:
+// source_repo.go:67-72 converts metadata arrays to JSON strings (e.g. references: ["<id1>","<id2>"] -> "[\"<id1>\",\"<id2>\"]").
+// thread_activities.go:82-94 copies these as-is into map[string]interface{} without deserializing.
+// ThreadGrouper receives JSON strings instead of arrays, can't extract message IDs, returns empty.
+//
+// This test SHOULD FAIL because the current code doesn't parse JSON strings in metadata.
+func TestGroupEmailThread_JSONArrayMetadata_BUG_pf_6c7c8f(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2026, 2, 15, 14, 30, 0, 0, time.UTC)
+
+	// Simulate source_repo.go behavior: references metadata comes as JSON array string
+	// (this is what actually happens when reading from DB)
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          700,
+				TenantID:    "test-tenant",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id":  "<msg-700@example.com>",
+					"in_reply_to": "<msg-600@example.com>",
+					// BUG: references comes as JSON string from source_repo.go:67-72
+					"references": "[\"<msg-500@example.com>\",\"<msg-600@example.com>\"]",
+					"subject":    "Re: Thread Test",
+					"date":       messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	var capturedRootMessageID string
+	mockThreadRepo := &mockThreadRepository{
+		getThreadByRootMessageIDFn: func(ctx context.Context, tenantID, rootMessageID string) (*EmailThread, error) {
+			capturedRootMessageID = rootMessageID
+			return nil, nil
+		},
+		upsertThreadFn: func(ctx context.Context, input *UpsertThreadInput) (int64, error) {
+			return 300, nil
+		},
+		addThreadMessageFn: func(ctx context.Context, input *AddThreadMessageInput) error {
+			return nil
+		},
+		setContentEnrichmentThreadIDFn: func(ctx context.Context, sourceID int64, threadID string) error {
+			return nil
+		},
+	}
+
+	activities := NewThreadActivities(logger, mockSourceRepo, mockThreadRepo)
+
+	input := GroupEmailThreadInput{
+		TenantID: "test-tenant",
+		SourceID: 700,
+	}
+
+	output, err := activities.GroupEmailThread(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// EXPECTED (AFTER FIX): ThreadGrouper should parse the JSON string in references,
+	// extract first reference "<msg-500@example.com>", and use it as thread root
+	expectedRootMessageID := "<msg-500@example.com>"
+
+	// ACTUAL (BUG): ThreadGrouper receives references as string "[\"<msg-500@example.com>\",\"<msg-600@example.com>\"]",
+	// The regex DOES extract the message IDs, so this test may pass even with the bug.
+	// The real issue may be elsewhere (e.g., CreateEnrichmentRecord not being called).
+	require.NotNil(t, output.ThreadID, "Should have a thread ID")
+	t.Logf("Captured root message ID: %s (expected: %s)", capturedRootMessageID, expectedRootMessageID)
+	require.Equal(t, expectedRootMessageID, *output.ThreadID,
+		"BUG: references JSON string not parsed - should use first reference as root, not in_reply_to")
+	require.Equal(t, expectedRootMessageID, capturedRootMessageID,
+		"BUG: thread root should be first reference, not in_reply_to")
+}

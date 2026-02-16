@@ -91,6 +91,7 @@ func (s *Service) GetThread(ctx context.Context, req *threadsv1.GetThreadRequest
 func threadSummaryToProto(thread *ThreadSummary) *threadsv1.ThreadSummary {
 	pb := &threadsv1.ThreadSummary{
 		Id:             thread.ID,
+		RootMessageId:  thread.RootMessageID,
 		Subject:        thread.Subject,
 		MessageCount:   thread.MessageCount,
 		FirstMessageAt: timestamppb.New(thread.FirstMessageAt),

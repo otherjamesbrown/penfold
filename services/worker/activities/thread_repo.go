@@ -38,7 +38,6 @@ func (r *PostgresThreadRepository) UpsertThread(ctx context.Context, input *Upse
 			updated_at
 		) VALUES ($1, $2, $3, 1, $4, $5, $6, NOW(), NOW())
 		ON CONFLICT (tenant_id, root_message_id) DO UPDATE SET
-			message_count = email_threads.message_count + 1,
 			last_message_at = GREATEST(email_threads.last_message_at, EXCLUDED.last_message_at),
 			latest_source_id = EXCLUDED.latest_source_id,
 			updated_at = NOW()
@@ -74,7 +73,7 @@ func (r *PostgresThreadRepository) AddThreadMessage(ctx context.Context, input *
 	// Position is existing count + 1 (1-based)
 	position := existingCount + 1
 
-	// Insert the message
+	// Insert the message (idempotent — skip if already exists for this thread+source)
 	insertQuery := `
 		INSERT INTO thread_messages (
 			thread_id,
@@ -86,6 +85,7 @@ func (r *PostgresThreadRepository) AddThreadMessage(ctx context.Context, input *
 			message_date,
 			added_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		ON CONFLICT (thread_id, source_id) DO NOTHING
 	`
 
 	_, err = r.pool.Exec(ctx, insertQuery,
@@ -101,16 +101,48 @@ func (r *PostgresThreadRepository) AddThreadMessage(ctx context.Context, input *
 		return fmt.Errorf("failed to insert thread message: %w", err)
 	}
 
+	// Update thread message_count from ground truth to handle concurrent workflows
+	updateCountQuery := `
+		UPDATE email_threads
+		SET message_count = (SELECT COUNT(*) FROM thread_messages WHERE thread_id = $1),
+		    updated_at = NOW()
+		WHERE id = $1
+	`
+	_, err = r.pool.Exec(ctx, updateCountQuery, input.ThreadID)
+	if err != nil {
+		return fmt.Errorf("failed to update thread message count: %w", err)
+	}
+
 	return nil
 }
 
-// SetContentEnrichmentThreadID updates the thread_id column in content_enrichment.
+// SetContentEnrichmentThreadID updates the thread_id column in content_enrichment
+// and also stores it in sources.ingestion_metadata for CLI visibility.
 func (r *PostgresThreadRepository) SetContentEnrichmentThreadID(ctx context.Context, sourceID int64, threadID string) error {
 	query := `UPDATE content_enrichment SET thread_id = $1 WHERE source_id = $2`
 
-	_, err := r.pool.Exec(ctx, query, threadID, sourceID)
+	result, err := r.pool.Exec(ctx, query, threadID, sourceID)
 	if err != nil {
 		return fmt.Errorf("failed to set content_enrichment thread_id: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("no content_enrichment row found for source_id %d (thread_id update affected 0 rows)", sourceID)
+	}
+
+	// Also store thread_id in sources.ingestion_metadata so penf content show can display it
+	metaQuery := `
+		UPDATE sources
+		SET ingestion_metadata = COALESCE(ingestion_metadata, '{}'::jsonb) || jsonb_build_object('thread_id', $1::text),
+		    updated_at = NOW()
+		WHERE id = $2
+	`
+	_, metaErr := r.pool.Exec(ctx, metaQuery, threadID, sourceID)
+	if metaErr != nil {
+		r.logger.Warn("failed to store thread_id in ingestion_metadata (content_enrichment updated successfully)",
+			logging.F("source_id", sourceID),
+			logging.F("error", metaErr.Error()),
+		)
 	}
 
 	return nil

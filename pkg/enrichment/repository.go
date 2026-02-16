@@ -70,6 +70,7 @@ func (r *Repository) Create(ctx context.Context, e *Enrichment) error {
 			$19, $20, $21,
 			NOW(), NOW(), $22
 		)
+		ON CONFLICT (source_id) DO NOTHING
 		RETURNING id, created_at, updated_at
 	`
 
@@ -97,6 +98,27 @@ func (r *Repository) Create(ctx context.Context, e *Enrichment) error {
 		e.AIProcessedAt,
 		e.CompletedAt,
 	).Scan(&e.ID, &e.CreatedAt, &e.UpdatedAt)
+
+	// Handle ON CONFLICT case - query existing row
+	if err == pgx.ErrNoRows {
+		err = r.pool.QueryRow(ctx, `
+			SELECT id, created_at, updated_at
+			FROM content_enrichment
+			WHERE source_id = $1
+		`, e.SourceID).Scan(&e.ID, &e.CreatedAt, &e.UpdatedAt)
+		if err != nil {
+			r.logger.Error("Failed to query existing enrichment after conflict",
+				logging.Err(err),
+				logging.F("source_id", e.SourceID),
+			)
+			return fmt.Errorf("failed to query existing enrichment: %w", err)
+		}
+		r.logger.Debug("Enrichment already exists, retrieved existing record",
+			logging.F("source_id", e.SourceID),
+			logging.F("enrichment_id", e.ID),
+		)
+		return nil
+	}
 
 	if err != nil {
 		r.logger.Error("Failed to create enrichment",

@@ -27,7 +27,7 @@ func NewPostgresSourceRepository(pool *pgxpool.Pool, logger logging.Logger) *Pos
 // GetSource fetches source content by ID.
 func (r *PostgresSourceRepository) GetSource(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
 	query := `
-		SELECT id, tenant_id, raw_content, content_type, content_hash, processing_status, metadata, source_system
+		SELECT id, tenant_id, raw_content, content_type, content_hash, processing_status, ingestion_metadata, source_system
 		FROM sources
 		WHERE id = $1 AND tenant_id = $2
 	`

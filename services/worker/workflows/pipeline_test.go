@@ -153,6 +153,11 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.FetchSource, activity.RegisterOptions{Name: "FetchContent"})
 	s.env.RegisterActivityWithOptions(s.activities.GroupEmailThread, activity.RegisterOptions{Name: "GroupEmailThread"})
 	s.env.RegisterActivityWithOptions(s.activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: "CreateEnrichmentRecord"})
+
+	// Default mock expectations for enrichment/threading activities (blocking since pf-67502c fix).
+	// Individual tests can override these with more specific expectations.
+	s.activities.On("CreateEnrichmentRecord", mock.Anything, mock.Anything).Maybe().Return(&CreateEnrichmentRecordOutput{EnrichmentID: 1}, nil)
+	s.activities.On("GroupEmailThread", mock.Anything, mock.Anything).Maybe().Return(&GroupEmailThreadOutput{}, nil)
 }
 
 func (s *SLMPipelineTestSuite) AfterTest(suiteName, testName string) {
@@ -1266,17 +1271,6 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ThreadingRunsForPersonalEmails() 
 
 	// CRITICAL ASSERTION: Stage 2.5 ThreadGrouper SHOULD be called even when SkipDeep=true
 	// BUG pf-68d631: This expectation will FAIL because threading is inside the SkipDeep block
-	threadingCalled := false
-	threadID := "thread-12345"
-	s.activities.On("GroupEmailThread", mock.Anything, mock.MatchedBy(func(in GroupEmailThreadInput) bool {
-		if in.TenantID == "tenant-1" && in.SourceID == 1200 {
-			threadingCalled = true
-			return true
-		}
-		return false
-	})).Return(&GroupEmailThreadOutput{
-		ThreadID: &threadID,
-	}, nil)
 
 	// Stage 5: Embed (SkipDeep means stages 2-4.5 are skipped)
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
@@ -1306,14 +1300,10 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ThreadingRunsForPersonalEmails() 
 	s.activities.AssertNotCalled(s.T(), "PersistFindings", mock.Anything, mock.Anything)
 
 	// CRITICAL ASSERTION: Threading SHOULD have been called
-	// BUG pf-68d631: This assertion will FAIL against current code
-	require.True(s.T(), threadingCalled,
-		"BUG pf-68d631: ThreadGrouper (Stage 2.5) should run for ALL emails, "+
-			"even PERSONAL emails with SkipDeep=true. Currently it's inside the "+
-			"SkipDeep conditional block (lines 898-922 in pipeline.go) so PERSONAL/"+
-			"INTERNAL_COMMS+LOW emails skip threading entirely. Threading only needs "+
-			"TenantID+SourceID and doesn't depend on extraction output, so it should "+
-			"run after triage but before the SkipDeep conditional.")
+	// BUG pf-68d631: ThreadGrouper should run for ALL emails, even personal with SkipDeep=true.
+	s.activities.AssertCalled(s.T(), "GroupEmailThread", mock.Anything, mock.MatchedBy(func(in GroupEmailThreadInput) bool {
+		return in.TenantID == "tenant-1" && in.SourceID == 1200
+	}))
 }
 
 // TestSLMPipeline_CleanupRetryPolicy tests that the cleanup handler in the defer block

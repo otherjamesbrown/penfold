@@ -403,11 +403,11 @@ type EmailThread struct {
 
 // GroupEmailThreadInput is the input for the GroupEmailThread activity.
 type GroupEmailThreadInput struct {
-	TenantID string
-	SourceID int64
+	TenantID string `json:"tenant_id"`
+	SourceID int64  `json:"source_id"`
 }
 
 // GroupEmailThreadOutput is the output from the GroupEmailThread activity.
 type GroupEmailThreadOutput struct {
-	ThreadID *string // Root message ID (nil if not threaded)
+	ThreadID *string `json:"thread_id,omitempty"` // Root message ID (nil if not threaded)
 }

@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
@@ -80,7 +81,7 @@ func (a *ThreadActivities) GroupEmailThread(ctx context.Context, input GroupEmai
 	recordHeartbeat(ctx, "processing thread data")
 
 	// Convert metadata map[string]string to map[string]interface{} for ThreadGrouper
-	// Parse date field if present
+	// Parse date fields and JSON-encoded arrays if present
 	metadata := make(map[string]interface{})
 	for k, v := range source.Metadata {
 		// Parse date fields as time.Time
@@ -90,6 +91,16 @@ func (a *ThreadActivities) GroupEmailThread(ctx context.Context, input GroupEmai
 				continue
 			}
 		}
+
+		// Parse JSON arrays (e.g., references header stored as JSON string)
+		if len(v) > 0 && v[0] == '[' {
+			var arr []interface{}
+			if err := json.Unmarshal([]byte(v), &arr); err == nil {
+				metadata[k] = arr
+				continue
+			}
+		}
+
 		metadata[k] = v
 	}
 

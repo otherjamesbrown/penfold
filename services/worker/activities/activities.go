@@ -383,35 +383,38 @@ func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.Upd
 
 	tenantID := resolveTenantID(input.TenantID)
 
-	// Always update failure fields to support clearing them on success
-	// When status is "completed"/"parsed"/"extracted", empty strings clear previous errors
-	query := `
-		UPDATE sources
-		SET processing_status = $3,
-		    failure_category = NULLIF($4, ''),
-		    failure_reason = NULLIF($5, ''),
-		    updated_at = NOW()
-		WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
-	`
-	args := []interface{}{input.SourceID, tenantID, input.Status, input.FailureCategory, input.FailureReason}
+	// If Status is non-empty, update processing_status and failure fields
+	if input.Status != "" {
+		query := `
+			UPDATE sources
+			SET processing_status = $3,
+			    failure_category = NULLIF($4, ''),
+			    failure_reason = NULLIF($5, ''),
+			    updated_at = NOW()
+			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+		`
+		args := []interface{}{input.SourceID, tenantID, input.Status, input.FailureCategory, input.FailureReason}
 
-	if input.FailureCategory != "" || input.FailureReason != "" {
-		logger.Info("Updating status with failure info",
-			logging.F("category", input.FailureCategory),
-			logging.F("reason", input.FailureReason),
-		)
+		if input.FailureCategory != "" || input.FailureReason != "" {
+			logger.Info("Updating status with failure info",
+				logging.F("category", input.FailureCategory),
+				logging.F("reason", input.FailureReason),
+			)
+		}
+
+		result, err := a.db.Exec(ctx, query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to update source %d status: %w", input.SourceID, err)
+		}
+
+		if result.RowsAffected() == 0 {
+			return NewNotFoundError(fmt.Sprintf("source not found: %d", input.SourceID))
+		}
+
+		logger.Info("Source status updated successfully")
+	} else {
+		logger.Info("Skipping status update (empty status), processing metadata only")
 	}
-
-	result, err := a.db.Exec(ctx, query, args...)
-	if err != nil {
-		return fmt.Errorf("failed to update source %d status: %w", input.SourceID, err)
-	}
-
-	if result.RowsAffected() == 0 {
-		return NewNotFoundError(fmt.Sprintf("source not found: %d", input.SourceID))
-	}
-
-	logger.Info("Source status updated successfully")
 
 	// Merge triage metadata into ingestion_metadata if any triage fields are set
 	if input.TriageCategory != "" || input.TriageImportance != "" || input.SkipDeep != nil || input.ContentSubtype != "" {

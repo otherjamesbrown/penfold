@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"time"
@@ -154,8 +155,15 @@ func (t *ThreadGrouper) getReferences(source *processors.Source) []string {
 		return result
 	}
 
-	// Try as single string (space or comma separated)
+	// Try as single string (space or comma separated, or JSON-encoded array)
 	if refs, ok := source.Metadata["references"].(string); ok && refs != "" {
+		// If it looks like JSON, try parsing it
+		if len(refs) > 0 && refs[0] == '[' {
+			var jsonArray []string
+			if err := json.Unmarshal([]byte(refs), &jsonArray); err == nil {
+				return jsonArray
+			}
+		}
 		return t.parseReferences(refs)
 	}
 

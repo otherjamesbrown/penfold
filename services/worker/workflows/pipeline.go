@@ -900,17 +900,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}).Get(ctx, &enrichmentOutput)
 
 	if err != nil {
-		// Log error but don't fail the pipeline - this is a new feature
-		logger.Warn("failed to create enrichment record (non-blocking)",
-			"source_id", input.SourceID,
-			"error", err.Error(),
-		)
-	} else {
-		logger.Info("enrichment record created",
-			"source_id", input.SourceID,
-			"enrichment_id", enrichmentOutput.EnrichmentID,
-		)
+		return nil, fmt.Errorf("failed to create enrichment record: %w", err)
 	}
+
+	logger.Info("enrichment record created",
+		"source_id", input.SourceID,
+		"enrichment_id", enrichmentOutput.EnrichmentID,
+	)
 
 	// ==================== Stage 2.5: Email Threading ====================
 	// Threading runs for ALL emails (independent of SkipDeep gate)
@@ -1280,7 +1276,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 					_ = workflow.ExecuteActivity(ctxAssertionUpdate, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 						TenantID:       input.TenantID,
 						SourceID:       input.SourceID,
-						Status:         "analyzed",
 						AssertionCount: &totalCount,
 					}).Get(ctx, nil)
 				}

@@ -39,6 +39,7 @@ func (r *PostgresRepository) ListThreads(ctx context.Context, tenantID string, l
 	query := `
 		SELECT
 			id,
+			root_message_id,
 			subject,
 			message_count,
 			first_message_at,
@@ -63,6 +64,7 @@ func (r *PostgresRepository) ListThreads(ctx context.Context, tenantID string, l
 		var thread ThreadSummary
 		err := rows.Scan(
 			&thread.ID,
+			&thread.RootMessageID,
 			&thread.Subject,
 			&thread.MessageCount,
 			&thread.FirstMessageAt,
