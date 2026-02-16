@@ -174,6 +174,23 @@ func outputPipelineInspectOverviewHuman(runs []*pipelinev1.PipelineRunDetail, so
 	fmt.Println("STAGE             STATUS      DURATION  MODEL           VERSION  HAS IO")
 	fmt.Println(strings.Repeat("-", 80))
 
+	// Extract triage information to check for content gating
+	var triageContribution, triageReason string
+	for _, run := range runs {
+		if run.Stage == "triage" && run.Io != nil && run.Io.ParsedData != "" {
+			var triageData map[string]interface{}
+			if err := json.Unmarshal([]byte(run.Io.ParsedData), &triageData); err == nil {
+				if contrib, ok := triageData["content_contribution"].(string); ok {
+					triageContribution = contrib
+				}
+				if reason, ok := triageData["contribution_reason"].(string); ok {
+					triageReason = reason
+				}
+			}
+			break
+		}
+	}
+
 	for _, run := range runs {
 		model := run.ModelId
 		if model == "" {
@@ -205,6 +222,29 @@ func outputPipelineInspectOverviewHuman(runs []*pipelinev1.PipelineRunDetail, so
 			run.Stage, statusColor, run.Status, duration, model, version, hasIO)
 	}
 
+	// Show skipped stages if content contribution gating occurred
+	if triageContribution == "NONE" || triageContribution == "LOW" {
+		fmt.Println()
+		fmt.Println("\033[36mSkipped Stages (Content Gating)\033[0m") // Cyan color
+		fmt.Println(strings.Repeat("-", 80))
+
+		// Determine which stages were skipped based on what ran
+		stagesRan := make(map[string]bool)
+		for _, run := range runs {
+			stagesRan[run.Stage] = true
+		}
+
+		// List of stages that would normally run after triage
+		expectedStages := []string{"extract_ner", "extract_assertions", "analyze", "embeddings"}
+
+		for _, stage := range expectedStages {
+			if !stagesRan[stage] {
+				fmt.Printf("\033[36mStage: %-13s — SKIPPED (content_contribution: %s, reason: %s)\033[0m\n",
+					stage, triageContribution, triageReason)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -212,6 +252,23 @@ func outputPipelineInspectIOHuman(runs []*pipelinev1.PipelineRunDetail, sourceID
 	if len(runs) == 0 {
 		fmt.Printf("No pipeline runs with IO data found for source %d.\n", sourceID)
 		return nil
+	}
+
+	// Extract triage information to show skip context
+	var triageContribution, triageReason string
+	for _, run := range runs {
+		if run.Stage == "triage" && run.Io != nil && run.Io.ParsedData != "" {
+			var triageData map[string]interface{}
+			if err := json.Unmarshal([]byte(run.Io.ParsedData), &triageData); err == nil {
+				if contrib, ok := triageData["content_contribution"].(string); ok {
+					triageContribution = contrib
+				}
+				if reason, ok := triageData["contribution_reason"].(string); ok {
+					triageReason = reason
+				}
+			}
+			break
+		}
 	}
 
 	for i, run := range runs {
@@ -235,6 +292,12 @@ func outputPipelineInspectIOHuman(runs []*pipelinev1.PipelineRunDetail, sourceID
 
 		fmt.Printf("Stage: %s (run #%d)\n", run.Stage, run.Id)
 		fmt.Printf("Status: %s | Duration: %s | Model: %s%s\n", run.Status, duration, model, version)
+
+		// Show content contribution info for triage stage
+		if run.Stage == "triage" && triageContribution != "" {
+			fmt.Printf("Content Contribution: %s (%s)\n", triageContribution, triageReason)
+		}
+
 		fmt.Println()
 
 		if run.Io == nil {

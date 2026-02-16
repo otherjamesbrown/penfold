@@ -557,7 +557,7 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 
 	// Retry loop: up to 2 retries on malformed output
 	const maxTriageRetries = 2
-	var category, importance, reason string
+	var triageResult *triageResult
 	var result *backend.CompletionResult
 	var lastErr error
 	retryCount := 0
@@ -574,7 +574,7 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 		}
 
 		// Try to parse the response
-		category, importance, reason, lastErr = parseTriageResponse(result.Content)
+		triageResult, lastErr = parseTriageResponse(result.Content)
 		if lastErr == nil {
 			// Successfully parsed and validated
 			break
@@ -598,11 +598,19 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 
 	// Build response
 	resp := &aiv1.TriageContentResponse{
-		Category:   category,
-		Importance: importance,
-		Reason:     reason,
+		Category:   triageResult.Category,
+		Importance: triageResult.Importance,
+		Reason:     triageResult.Reason,
 		ModelUsed:  result.Model,
 		Retries:    int32(retryCount),
+	}
+
+	// Add content_contribution fields if present
+	if triageResult.ContentContribution != "" {
+		resp.ContentContribution = &triageResult.ContentContribution
+	}
+	if triageResult.ContributionReason != "" {
+		resp.ContributionReason = &triageResult.ContributionReason
 	}
 
 	if result.InputTokens > 0 {
@@ -643,8 +651,9 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 	}
 
 	s.logger.Debug("TriageContent completed",
-		logging.F("category", category),
-		logging.F("importance", importance),
+		logging.F("category", triageResult.Category),
+		logging.F("importance", triageResult.Importance),
+		logging.F("content_contribution", triageResult.ContentContribution),
 		logging.F("retries", retryCount),
 		logging.F("model_used", result.Model),
 	)

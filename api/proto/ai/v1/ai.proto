@@ -419,6 +419,14 @@ message TriageContentResponse {
 
   // Number of retries needed to get a valid response.
   int32 retries = 7;
+
+  // Content contribution level (how much NEW information the message contributes).
+  // One of: HIGH, MEDIUM, LOW, NONE
+  // Used to gate expensive pipeline stages.
+  optional string content_contribution = 8;
+
+  // Brief explanation for the contribution assessment.
+  optional string contribution_reason = 9;
 }
 
 // =============================================================================

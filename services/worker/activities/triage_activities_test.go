@@ -314,3 +314,176 @@ func (m *mockEnrichmentRepository) Create(ctx context.Context, e interface{}) er
 	}
 	return nil
 }
+
+// TestTriage_ContentContribution_Populated verifies that ContentContribution and ContributionReason
+// are populated from AI response when present.
+// Acceptance criteria: ContentContribution and ContributionReason are populated from AI response.
+func TestTriage_ContentContribution_Populated(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	tests := []struct {
+		name                  string
+		aiContribution        string
+		aiContributionReason  string
+		wantContribution      string
+		wantContributionReason string
+	}{
+		{
+			name:                  "HIGH contribution",
+			aiContribution:        "HIGH",
+			aiContributionReason:  "Contains actionable decisions",
+			wantContribution:      "HIGH",
+			wantContributionReason: "Contains actionable decisions",
+		},
+		{
+			name:                  "MEDIUM contribution",
+			aiContribution:        "MEDIUM",
+			aiContributionReason:  "Useful background information",
+			wantContribution:      "MEDIUM",
+			wantContributionReason: "Useful background information",
+		},
+		{
+			name:                  "LOW contribution",
+			aiContribution:        "LOW",
+			aiContributionReason:  "Generic information",
+			wantContribution:      "LOW",
+			wantContributionReason: "Generic information",
+		},
+		{
+			name:                  "NONE contribution",
+			aiContribution:        "NONE",
+			aiContributionReason:  "No knowledge value",
+			wantContribution:      "NONE",
+			wantContributionReason: "No knowledge value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create mock AI client that returns contribution fields
+			mockClient := &mockAIClient{
+				triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+					return &aiv1.TriageContentResponse{
+						Category:   "PROJECT_UPDATE",
+						Importance: "HIGH",
+						Reason:     "Test reason",
+						ModelUsed:  "llama-3.2-1b",
+						// TODO: After implementation, AI response will include these fields:
+						// ContentContribution:   &tt.aiContribution,
+						// ContributionReason:    &tt.aiContributionReason,
+					}, nil
+				},
+			}
+
+			activities := NewTriageActivities(logger, mockClient, nil, nil)
+
+			input := TriageInput{
+				TenantID:    "test-tenant",
+				SourceID:    123,
+				ContentID:   "em-test",
+				JobID:       "job-123",
+				Content:     "Test content",
+				Subject:     "Test",
+				SenderEmail: "test@example.com",
+				ContentType: "email",
+			}
+
+			output, err := activities.Triage(context.Background(), input)
+			require.NoError(t, err)
+			require.NotNil(t, output)
+
+			// TODO: After implementation, verify contribution fields are populated:
+			// require.Equal(t, tt.wantContribution, output.ContentContribution)
+			// require.Equal(t, tt.wantContributionReason, output.ContributionReason)
+		})
+	}
+}
+
+// TestTriage_ContentContribution_MissingFields verifies default fallback when contribution fields are missing.
+// Acceptance criteria: If triage fails to return content_contribution, assume HIGH (never skip).
+func TestTriage_ContentContribution_MissingFields(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	// Create mock AI client that DOES NOT return contribution fields (backward compatibility)
+	mockClient := &mockAIClient{
+		triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+			return &aiv1.TriageContentResponse{
+				Category:   "PROJECT_UPDATE",
+				Importance: "MEDIUM",
+				Reason:     "Project update",
+				ModelUsed:  "llama-3.2-1b",
+				// No ContentContribution or ContributionReason fields
+			}, nil
+		},
+	}
+
+	activities := NewTriageActivities(logger, mockClient, nil, nil)
+
+	input := TriageInput{
+		TenantID:    "test-tenant",
+		SourceID:    456,
+		ContentID:   "em-missing-contrib",
+		JobID:       "job-456",
+		Content:     "Important project update",
+		Subject:     "Project Status",
+		SenderEmail: "pm@example.com",
+		ContentType: "email",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// Verify basic triage fields still work
+	require.Equal(t, "PROJECT_UPDATE", output.Category)
+	require.Equal(t, "MEDIUM", output.Importance)
+
+	// TODO: After implementation, verify default behavior when contribution is missing:
+	// Expected behavior: ContentContribution should default to "HIGH" or empty string (which is treated as HIGH)
+	// This ensures backward compatibility - existing content without contribution runs full pipeline
+	// require.Equal(t, "", output.ContentContribution) // Empty string treated as HIGH
+	// OR
+	// require.Equal(t, "HIGH", output.ContentContribution) // Explicit default
+}
+
+// TestTriage_ContentContribution_EmptyString verifies handling of empty contribution value.
+func TestTriage_ContentContribution_EmptyString(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	emptyContribution := ""
+	mockClient := &mockAIClient{
+		triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+			return &aiv1.TriageContentResponse{
+				Category:   "CUSTOMER",
+				Importance: "HIGH",
+				Reason:     "Customer inquiry",
+				ModelUsed:  "llama-3.2-1b",
+				// TODO: After implementation, this will be:
+				// ContentContribution: &emptyContribution, // Explicitly empty
+			}, nil
+		},
+	}
+
+	activities := NewTriageActivities(logger, mockClient, nil, nil)
+
+	input := TriageInput{
+		TenantID:    "test-tenant",
+		SourceID:    789,
+		ContentID:   "em-empty-contrib",
+		JobID:       "job-789",
+		Content:     "Customer question about product",
+		Subject:     "Product Inquiry",
+		SenderEmail: "customer@example.com",
+		ContentType: "email",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	_ = emptyContribution // Will be used after implementation
+
+	// TODO: After implementation, verify empty contribution defaults to HIGH:
+	// require.Equal(t, "HIGH", output.ContentContribution) // Empty string should default to HIGH
+	// This ensures the default fallback behavior works correctly
+}

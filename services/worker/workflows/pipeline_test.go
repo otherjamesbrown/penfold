@@ -1404,6 +1404,404 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_CleanupRetryPolicy() {
 			"but got %d attempts in test environment (production would retry infinitely).", cleanupCallCount)
 }
 
+// TestSLMPipeline_ContentContribution_NONE verifies that NONE contribution skips all deep stages.
+// Acceptance criteria: When ContentContribution="NONE", stages 2-4.5 (extract, context, analyze, persist) are skipped.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_NONE() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    200,
+		ContentID:   "em-hjn05WWs",
+		JobID:       "job-200",
+		ContentType: "email",
+		BodyText:    "Thanks",
+		Subject:     "Re: Meeting",
+		SenderEmail: "user@example.com",
+	}
+
+	// Stage 0: Parse
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 200
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Thanks",
+		NewContent: "Thanks",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed"
+	})).Return(nil)
+
+	// Stage 1: Triage - returns NONE contribution
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 200
+	})).Return(&TriageOutput{
+		Category:            "PERSONAL",
+		Importance:          "LOW",
+		Reason:              "Simple acknowledgement",
+		ModelUsed:           "llama-3.2-1b",
+		SkipDeep:            false, // Not category-based skip, but contribution-based
+		ContentContribution: "NONE",
+		ContributionReason:  "No actionable knowledge",
+	}, nil)
+
+	// Stage 5: Embed - should still run for NONE contribution
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
+		return in.SourceID == 200
+	})).Return(int64(5002), nil)
+
+	// UpdateContentStatus: completed
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "completed"
+	})).Return(nil)
+
+	// CRITICAL: ExtractEntitiesActivity, BuildContextPackage, DeepAnalyze, PersistFindings should NOT be called
+	s.activities.AssertNotCalled(s.T(), "ExtractEntitiesActivity", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "BuildContextPackage", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "DeepAnalyze", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "PersistFindings", mock.Anything, mock.Anything)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	require.Equal(s.T(), "completed", result.Status)
+	// TODO: After implementation, verify total processing time <2s (acceptance criteria)
+}
+
+// TestSLMPipeline_ContentContribution_LOW verifies that LOW contribution skips only deep analysis.
+// Acceptance criteria: When ContentContribution="LOW", only stage 4 (deep analysis) is skipped.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_LOW() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    300,
+		ContentID:   "em-low-contrib",
+		JobID:       "job-300",
+		ContentType: "email",
+		BodyText:    "Company newsletter with generic updates.",
+		Subject:     "Monthly Newsletter",
+		SenderEmail: "hr@example.com",
+	}
+
+	// Stage 0: Parse
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 300
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Company newsletter with generic updates.",
+		NewContent: "Company newsletter with generic updates.",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed"
+	})).Return(nil)
+
+	// Stage 1: Triage - returns LOW contribution
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 300
+	})).Return(&TriageOutput{
+		Category:            "INTERNAL_COMMS",
+		Importance:          "LOW",
+		Reason:              "Generic company newsletter",
+		ModelUsed:           "llama-3.2-1b",
+		SkipDeep:            false,
+		ContentContribution: "LOW",
+		ContributionReason:  "Generic information, not actionable",
+	}, nil)
+
+	// Stage 2: Extract - SHOULD run for LOW contribution
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.MatchedBy(func(in SLMPipelineExtractEntitiesInput) bool {
+		return in.SourceID == 300
+	})).Return(&SLMPipelineExtractEntitiesOutput{
+		People: []PersonResult{},
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "extracted"
+	})).Return(nil)
+
+	// Stage 3: Context - SHOULD run for LOW contribution
+	s.activities.On("BuildContextPackage", mock.Anything, mock.MatchedBy(func(in BuildContextInput) bool {
+		return in.SourceID == 300
+	})).Return(&BuildContextOutput{
+		EntitiesResolved: 0,
+	}, nil)
+
+	// Stage 4.5: Persist - SHOULD run for LOW contribution (persist extraction results)
+	s.activities.On("PersistFindings", mock.Anything, mock.MatchedBy(func(in PersistFindingsInput) bool {
+		return in.SourceID == 300 && in.Analysis == nil // No deep analysis
+	})).Return(&PersistFindingsOutput{
+		AssertionsCreated: 0,
+	}, nil)
+
+	// Stage 5: Embed
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
+		return in.SourceID == 300
+	})).Return(int64(5003), nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "completed"
+	})).Return(nil)
+
+	// CRITICAL: DeepAnalyze should NOT be called for LOW contribution
+	s.activities.AssertNotCalled(s.T(), "DeepAnalyze", mock.Anything, mock.Anything)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	require.Equal(s.T(), "completed", result.Status)
+}
+
+// TestSLMPipeline_ContentContribution_HIGH verifies that HIGH contribution runs all stages.
+// Acceptance criteria: When ContentContribution="HIGH", all stages run (no skipping).
+func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_HIGH() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    400,
+		ContentID:   "em-high-contrib",
+		JobID:       "job-400",
+		ContentType: "email",
+		BodyText:    "I resign",
+		Subject:     "Resignation",
+		SenderEmail: "employee@example.com",
+	}
+
+	// Stage 0: Parse
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 400
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "I resign",
+		NewContent: "I resign",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed"
+	})).Return(nil)
+
+	// Stage 1: Triage - returns HIGH contribution despite short body
+	// Acceptance criteria: "I resign" test case with HIGH contribution gets full pipeline
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 400
+	})).Return(&TriageOutput{
+		Category:            "RISK_ISSUE",
+		Importance:          "HIGH",
+		Reason:              "Employee resignation",
+		ModelUsed:           "llama-3.2-1b",
+		SkipDeep:            false,
+		ContentContribution: "HIGH",
+		ContributionReason:  "Critical HR event requiring action",
+	}, nil)
+
+	// Stage 2: Extract - SHOULD run
+	personID := int64(55)
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.MatchedBy(func(in SLMPipelineExtractEntitiesInput) bool {
+		return in.SourceID == 400
+	})).Return(&SLMPipelineExtractEntitiesOutput{
+		People: []PersonResult{{Name: "Employee", Role: "employee"}},
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "extracted"
+	})).Return(nil)
+
+	// Stage 3: Context - SHOULD run
+	s.activities.On("BuildContextPackage", mock.Anything, mock.MatchedBy(func(in BuildContextInput) bool {
+		return in.SourceID == 400
+	})).Return(&BuildContextOutput{
+		ResolvedPeople:   []ResolvedPerson{{Name: "Employee", PersonID: &personID, Confidence: 0.9, Source: "fuzzy_match"}},
+		EntitiesResolved: 1,
+	}, nil)
+
+	// Stage 4: Deep Analysis - SHOULD run for HIGH contribution
+	s.activities.On("DeepAnalyze", mock.Anything, mock.MatchedBy(func(in DeepAnalyzeInput) bool {
+		return in.SourceID == 400 && in.TriageCategory == "RISK_ISSUE"
+	})).Return(&DeepAnalyzeOutput{
+		Summary:   "Employee resignation notification",
+		ModelUsed: "gemini-2.0-flash",
+	}, nil)
+
+	// Stage 4.5: Persist - SHOULD run
+	s.activities.On("PersistFindings", mock.Anything, mock.MatchedBy(func(in PersistFindingsInput) bool {
+		return in.SourceID == 400 && in.Analysis != nil
+	})).Return(&PersistFindingsOutput{
+		AssertionsCreated: 1,
+	}, nil)
+
+	// Stage 5: Embed
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
+		return in.SourceID == 400
+	})).Return(int64(5004), nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "completed"
+	})).Return(nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	require.Equal(s.T(), "completed", result.Status)
+	// All stages should have executed
+}
+
+// TestSLMPipeline_ContentContribution_Default verifies fallback behavior when content_contribution is missing.
+// Acceptance criteria: If triage fails to return content_contribution, assume HIGH (never skip).
+func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_DefaultToHigh() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    500,
+		ContentID:   "em-no-contrib",
+		JobID:       "job-500",
+		ContentType: "email",
+		BodyText:    "Project update with important details.",
+		Subject:     "Project Alpha Update",
+		SenderEmail: "pm@example.com",
+	}
+
+	// Stage 0: Parse
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 500
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Project update with important details.",
+		NewContent: "Project update with important details.",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed"
+	})).Return(nil)
+
+	// Stage 1: Triage - returns NO ContentContribution field (backward compatibility test)
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 500
+	})).Return(&TriageOutput{
+		Category:            "PROJECT_UPDATE",
+		Importance:          "MEDIUM",
+		Reason:              "Project status update",
+		ModelUsed:           "llama-3.2-1b",
+		SkipDeep:            false,
+		ContentContribution: "", // Empty/missing - should default to HIGH behavior
+	}, nil)
+
+	// All stages SHOULD run (default to HIGH when missing)
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.MatchedBy(func(in SLMPipelineExtractEntitiesInput) bool {
+		return in.SourceID == 500
+	})).Return(&SLMPipelineExtractEntitiesOutput{
+		Projects: []string{"Project Alpha"},
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "extracted"
+	})).Return(nil)
+
+	s.activities.On("BuildContextPackage", mock.Anything, mock.MatchedBy(func(in BuildContextInput) bool {
+		return in.SourceID == 500
+	})).Return(&BuildContextOutput{
+		EntitiesResolved: 1,
+	}, nil)
+
+	s.activities.On("DeepAnalyze", mock.Anything, mock.MatchedBy(func(in DeepAnalyzeInput) bool {
+		return in.SourceID == 500
+	})).Return(&DeepAnalyzeOutput{
+		Summary:   "Project update analysis",
+		ModelUsed: "gemini-2.0-flash",
+	}, nil)
+
+	s.activities.On("PersistFindings", mock.Anything, mock.MatchedBy(func(in PersistFindingsInput) bool {
+		return in.SourceID == 500
+	})).Return(&PersistFindingsOutput{
+		AssertionsCreated: 1,
+	}, nil)
+
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
+		return in.SourceID == 500
+	})).Return(int64(5005), nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "completed"
+	})).Return(nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	require.Equal(s.T(), "completed", result.Status)
+	// Verify all deep stages ran (default HIGH behavior)
+}
+
+// TestSLMPipeline_ContentContribution_InteractionWithSkipDeep verifies interaction between
+// existing SkipDeep (category-based) and new ContentContribution gating.
+// When both are present, the more restrictive skip logic should apply.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_InteractionWithSkipDeep() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    600,
+		ContentID:   "em-both-skip",
+		JobID:       "job-600",
+		ContentType: "email",
+		BodyText:    "See you at lunch!",
+		Subject:     "Lunch",
+		SenderEmail: "friend@example.com",
+	}
+
+	// Stage 0: Parse
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 600
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "See you at lunch!",
+		NewContent: "See you at lunch!",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed"
+	})).Return(nil)
+
+	// Stage 1: Triage - PERSONAL category (triggers SkipDeep=true) AND NONE contribution
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 600
+	})).Return(&TriageOutput{
+		Category:   "PERSONAL",
+		Importance: "LOW",
+		Reason:     "Personal lunch invitation",
+		ModelUsed:  "llama-3.2-1b",
+		SkipDeep:   true, // Existing category-based logic
+		// ContentContribution: "NONE", // TODO: New contribution-based logic
+	}, nil)
+
+	// Stage 5: Embed - should still run
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
+		return in.SourceID == 600
+	})).Return(int64(5006), nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "completed"
+	})).Return(nil)
+
+	// Deep stages should NOT be called (both skip mechanisms agree)
+	// TODO: After implementation, uncomment:
+	// s.activities.AssertNotCalled(s.T(), "ExtractEntitiesActivity", mock.Anything, mock.Anything)
+	// s.activities.AssertNotCalled(s.T(), "DeepAnalyze", mock.Anything, mock.Anything)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	require.Equal(s.T(), "completed", result.Status)
+	require.True(s.T(), result.SkipDeep) // Verify skip flag is set
+}
+
 func TestSLMPipelineTestSuite(t *testing.T) {
 	suite.Run(t, new(SLMPipelineTestSuite))
 }

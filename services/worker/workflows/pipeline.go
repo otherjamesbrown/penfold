@@ -58,11 +58,13 @@ type PipelineResult struct {
 	ModelUsed string `json:"model_used,omitempty"`
 
 	// Stage outputs
-	ParsedContent     string `json:"parsed_content,omitempty"`
-	Category          string `json:"category,omitempty"`
-	Importance        string `json:"importance,omitempty"`
-	EmbeddingID       *int64 `json:"embedding_id,omitempty"`
-	AssertionsCreated int    `json:"assertions_created,omitempty"`
+	ParsedContent       string `json:"parsed_content,omitempty"`
+	Category            string `json:"category,omitempty"`
+	Importance          string `json:"importance,omitempty"`
+	EmbeddingID         *int64 `json:"embedding_id,omitempty"`
+	AssertionsCreated   int    `json:"assertions_created,omitempty"`
+	ContentContribution string `json:"content_contribution,omitempty"`
+	ContributionReason  string `json:"contribution_reason,omitempty"`
 }
 
 // PipelineStatus tracks the status of the pipeline workflow.
@@ -128,13 +130,15 @@ type TriageInput struct {
 
 // TriageOutput is the output from the Triage activity.
 type TriageOutput struct {
-	Category       string  `json:"category"`
-	Importance     string  `json:"importance"`
-	Reason         string  `json:"reason"`
-	Confidence     float32 `json:"confidence"`
-	ModelUsed      string  `json:"model_used"`
-	SkipDeep       bool    `json:"skip_deep"`
-	ContentSubtype string  `json:"content_subtype,omitempty"`
+	Category            string  `json:"category"`
+	Importance          string  `json:"importance"`
+	Reason              string  `json:"reason"`
+	Confidence          float32 `json:"confidence"`
+	ModelUsed           string  `json:"model_used"`
+	SkipDeep            bool    `json:"skip_deep"`
+	ContentSubtype      string  `json:"content_subtype,omitempty"`
+	ContentContribution string  `json:"content_contribution,omitempty"`
+	ContributionReason  string  `json:"contribution_reason,omitempty"`
 }
 
 // SLMPipelineExtractEntitiesInput is the input for the ExtractEntities activity (pipeline version with TriageCategory).
@@ -835,6 +839,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	state.result.Importance = triageOutput.Importance
 	state.result.SkipDeep = triageOutput.SkipDeep
 	state.result.ModelUsed = triageOutput.ModelUsed
+	state.result.ContentContribution = triageOutput.ContentContribution
+	state.result.ContributionReason = triageOutput.ContributionReason
 	state.status.StepsCompleted = 2
 
 	if checkCancellation() {
@@ -843,16 +849,68 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
-	// Triage gate: skip Stages 2-4.5 for LOW/PERSONAL content
+	// Contribution-based gating (in addition to existing SkipDeep)
+	// Determine which stages to skip based on content contribution
+	skipExtract := false // Skip stages 2-3.5 (extract, assertions, context, person metadata)
+	skipAnalyze := false // Skip stage 4-4.5 (deep analysis, persist findings)
+
+	contribution := triageOutput.ContentContribution
+	// Default to HIGH if field is missing (never skip by accident)
+	if contribution == "" {
+		contribution = "HIGH"
+	}
+
+	switch contribution {
+	case "NONE":
+		skipExtract = true // Skip stages 2, 2b, 3, 3.5
+		skipAnalyze = true // Skip stage 4, 4.5
+		logger.Info("contribution-based gating: NONE - skipping extract and analyze",
+			"source_id", input.SourceID,
+			"contribution", contribution,
+			"reason", triageOutput.ContributionReason,
+		)
+	case "LOW":
+		skipAnalyze = true // Skip stage 4 only
+		logger.Info("contribution-based gating: LOW - skipping analyze",
+			"source_id", input.SourceID,
+			"contribution", contribution,
+			"reason", triageOutput.ContributionReason,
+		)
+	case "MEDIUM", "HIGH":
+		// Run everything
+		logger.Info("contribution-based gating: running full pipeline",
+			"source_id", input.SourceID,
+			"contribution", contribution,
+			"reason", triageOutput.ContributionReason,
+		)
+	}
+
+	// Merge with existing SkipDeep logic (category/importance-based)
 	if triageOutput.SkipDeep {
+		skipExtract = true
+		skipAnalyze = true
+		logger.Info("category-based gating: skip_deep enabled",
+			"source_id", input.SourceID,
+			"category", triageOutput.Category,
+			"importance", triageOutput.Importance,
+		)
+	}
+
+	// Triage gate: skip Stages 2-4.5 for LOW/PERSONAL content or low contribution
+	if skipExtract || skipAnalyze {
 		// Log skip for each deep processing stage
 		for _, s := range pkgtemporal.SLMPipelineStages {
 			if s.SkipWhenLow {
+				skipReason := "skip_deep"
+				if skipExtract && !triageOutput.SkipDeep {
+					skipReason = "low_contribution"
+				}
 				logger.Info("pipeline stage skipped",
 					"source_id", input.SourceID,
 					"stage", s.Name,
 					"stage_number", s.Number,
-					"reason", "skip_deep",
+					"reason", skipReason,
+					"contribution", contribution,
 				)
 			}
 		}
@@ -978,7 +1036,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	var extractOutput *SLMPipelineExtractEntitiesOutput
 	var contextOutput *BuildContextOutput
 
-	if !triageOutput.SkipDeep {
+	if !skipExtract {
 		// Stage 2: Extract
 		updateStatus("extracting", "ExtractEntities")
 		extractStage := stageByStatus("extracting")
@@ -1166,13 +1224,16 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				)
 			}
 		}
+	} // End of skipExtract block (stages 2-3.5)
 
-		if checkCancellation() {
-			state.result.Status = "cancelled"
-			state.result.Error = state.cancelReason
-			return state.result, nil
-		}
+	if checkCancellation() {
+		state.result.Status = "cancelled"
+		state.result.Error = state.cancelReason
+		return state.result, nil
+	}
 
+	// Stages 4-4.6: Deep Analysis and Findings (gated by skipAnalyze)
+	if !skipAnalyze {
 		// Stage 4: Deep Analysis (optional — failure does NOT block pipeline)
 		updateStatus("analyzing", "DeepAnalyze")
 		analyzeStage := stageByStatus("analyzing")

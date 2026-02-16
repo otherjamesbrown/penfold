@@ -25,6 +25,14 @@ var validImportance = map[string]bool{
 	"LOW":    true,
 }
 
+// Valid content contribution levels.
+var validContribution = map[string]bool{
+	"HIGH":   true,
+	"MEDIUM": true,
+	"LOW":    true,
+	"NONE":   true,
+}
+
 // triagePromptTemplate is the system prompt for content triage.
 // Matches the spec in specs/020-slm-llm-architecture/design.md lines 170-193.
 const triagePromptTemplate = `You are a content classifier for a business knowledge management system.
@@ -41,8 +49,16 @@ Classify this content into exactly ONE category:
 
 Rate importance: HIGH, MEDIUM, LOW
 
+Assess content_contribution (how much NEW information the message body contributes):
+- HIGH: Contains substantial new information (decisions, action items, detailed updates, important facts)
+- MEDIUM: Contains some new information mixed with boilerplate/context
+- LOW: Mostly acknowledgements, brief replies with minimal new content
+- NONE: Pure acknowledgements, automated replies, no actionable information (e.g., "Thanks", "Got it", "OK")
+
+Assess contribution INDEPENDENT of thread importance. A brief "I resign" has HIGH contribution despite being 2 words.
+
 Respond ONLY with JSON:
-{"category": "...", "importance": "...", "reason": "one sentence"}`
+{"category": "...", "importance": "...", "reason": "one sentence", "content_contribution": "...", "contribution_reason": "one sentence"}`
 
 // buildTriagePrompt constructs the triage prompt from subject, sender, and content.
 // Content is truncated to the first 500 characters as specified in the design.
@@ -74,14 +90,16 @@ func buildTriagePrompt(subject, sender, content string) (systemPrompt, userPromp
 
 // triageResult holds the parsed triage response.
 type triageResult struct {
-	Category   string `json:"category"`
-	Importance string `json:"importance"`
-	Reason     string `json:"reason"`
+	Category            string `json:"category"`
+	Importance          string `json:"importance"`
+	Reason              string `json:"reason"`
+	ContentContribution string `json:"content_contribution"`
+	ContributionReason  string `json:"contribution_reason"`
 }
 
 // parseTriageResponse parses the JSON response from the LLM.
-// Returns the category, importance, reason, and any parsing error.
-func parseTriageResponse(jsonStr string) (category, importance, reason string, err error) {
+// Returns the parsed triageResult and any parsing error.
+func parseTriageResponse(jsonStr string) (*triageResult, error) {
 	// Clean up the response
 	jsonStr = strings.TrimSpace(jsonStr)
 	jsonStr = strings.TrimPrefix(jsonStr, "```json")
@@ -91,24 +109,28 @@ func parseTriageResponse(jsonStr string) (category, importance, reason string, e
 
 	var result triageResult
 	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		return "", "", "", fmt.Errorf("json unmarshal: %w", err)
+		return nil, fmt.Errorf("json unmarshal: %w", err)
 	}
 
 	// Validate the parsed result
-	if err := validateTriageResult(result.Category, result.Importance); err != nil {
-		return "", "", "", err
+	if err := validateTriageResult(&result); err != nil {
+		return nil, err
 	}
 
-	return result.Category, result.Importance, result.Reason, nil
+	return &result, nil
 }
 
-// validateTriageResult checks if the category and importance are valid.
-func validateTriageResult(category, importance string) error {
-	if !validCategories[category] {
-		return fmt.Errorf("invalid category: %s (must be one of PROJECT_UPDATE, CUSTOMER, RISK_ISSUE, ACTION_REQUEST, DECISION, INTERNAL_COMMS, PERSONAL, OTHER)", category)
+// validateTriageResult checks if the category, importance, and content_contribution are valid.
+func validateTriageResult(result *triageResult) error {
+	if !validCategories[result.Category] {
+		return fmt.Errorf("invalid category: %s (must be one of PROJECT_UPDATE, CUSTOMER, RISK_ISSUE, ACTION_REQUEST, DECISION, INTERNAL_COMMS, PERSONAL, OTHER)", result.Category)
 	}
-	if !validImportance[importance] {
-		return fmt.Errorf("invalid importance: %s (must be one of HIGH, MEDIUM, LOW)", importance)
+	if !validImportance[result.Importance] {
+		return fmt.Errorf("invalid importance: %s (must be one of HIGH, MEDIUM, LOW)", result.Importance)
+	}
+	// content_contribution is optional; if present, must be valid
+	if result.ContentContribution != "" && !validContribution[result.ContentContribution] {
+		return fmt.Errorf("invalid content_contribution: %s (must be one of HIGH, MEDIUM, LOW, NONE)", result.ContentContribution)
 	}
 	return nil
 }

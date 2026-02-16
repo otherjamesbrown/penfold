@@ -194,18 +194,35 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		return nil, WrapForTemporal(pe)
 	}
 
+	// Extract content_contribution from proto response (with default)
+	contentContribution := ""
+	if resp.ContentContribution != nil {
+		contentContribution = *resp.ContentContribution
+	}
+	// Default to HIGH if not provided (never skip by accident)
+	if contentContribution == "" {
+		contentContribution = "HIGH"
+	}
+
+	contributionReason := ""
+	if resp.ContributionReason != nil {
+		contributionReason = *resp.ContributionReason
+	}
+
 	// Determine if we should skip deep processing (Stage 2-4)
 	skipDeep := shouldSkipDeep(resp.Category, resp.Importance)
 
 	// Convert proto response to domain output
 	output := &workflows.TriageOutput{
-		Category:       resp.Category,
-		Importance:     resp.Importance,
-		Reason:         resp.Reason,
-		Confidence:     0.85, // Default confidence - can be enhanced later
-		ModelUsed:      resp.ModelUsed,
-		SkipDeep:       skipDeep,
-		ContentSubtype: string(subtype),
+		Category:            resp.Category,
+		Importance:          resp.Importance,
+		Reason:              resp.Reason,
+		Confidence:          0.85, // Default confidence - can be enhanced later
+		ModelUsed:           resp.ModelUsed,
+		SkipDeep:            skipDeep,
+		ContentSubtype:      string(subtype),
+		ContentContribution: contentContribution,
+		ContributionReason:  contributionReason,
 	}
 
 	// Record heartbeat after processing

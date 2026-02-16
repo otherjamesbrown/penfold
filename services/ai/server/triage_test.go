@@ -52,18 +52,18 @@ func TestParseTriageResponse_Valid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cat, imp, reason, err := parseTriageResponse(tt.jsonStr)
+			result, err := parseTriageResponse(tt.jsonStr)
 			if err != nil {
 				t.Fatalf("parseTriageResponse() error = %v, want nil", err)
 			}
-			if cat != tt.wantCat {
-				t.Errorf("category = %v, want %v", cat, tt.wantCat)
+			if result.Category != tt.wantCat {
+				t.Errorf("category = %v, want %v", result.Category, tt.wantCat)
 			}
-			if imp != tt.wantImp {
-				t.Errorf("importance = %v, want %v", imp, tt.wantImp)
+			if result.Importance != tt.wantImp {
+				t.Errorf("importance = %v, want %v", result.Importance, tt.wantImp)
 			}
-			if reason != tt.wantReason {
-				t.Errorf("reason = %v, want %v", reason, tt.wantReason)
+			if result.Reason != tt.wantReason {
+				t.Errorf("reason = %v, want %v", result.Reason, tt.wantReason)
 			}
 		})
 	}
@@ -94,7 +94,7 @@ func TestParseTriageResponse_MalformedJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, _, err := parseTriageResponse(tt.jsonStr)
+			_, err := parseTriageResponse(tt.jsonStr)
 			if err == nil {
 				t.Errorf("parseTriageResponse() error = nil, want error for malformed JSON")
 			}
@@ -127,7 +127,7 @@ func TestParseTriageResponse_UnknownCategory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, _, err := parseTriageResponse(tt.jsonStr)
+			_, err := parseTriageResponse(tt.jsonStr)
 			if err == nil {
 				t.Errorf("parseTriageResponse() error = nil, want error containing %q", tt.wantErr)
 			} else if !strings.Contains(err.Error(), tt.wantErr) {
@@ -167,7 +167,7 @@ func TestParseTriageResponse_InvalidImportance(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, _, err := parseTriageResponse(tt.jsonStr)
+			_, err := parseTriageResponse(tt.jsonStr)
 			if err == nil {
 				t.Errorf("parseTriageResponse() error = nil, want error containing %q", tt.wantErr)
 			} else if !strings.Contains(err.Error(), tt.wantErr) {
@@ -295,9 +295,219 @@ func TestValidateTriageResult(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateTriageResult(tt.category, tt.importance)
+			result := &triageResult{
+				Category:   tt.category,
+				Importance: tt.importance,
+			}
+			err := validateTriageResult(result)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateTriageResult() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestParseTriageResponse_WithContentContribution tests parsing when content_contribution field is present.
+// This verifies acceptance criteria: parser handles new content_contribution field.
+func TestParseTriageResponse_WithContentContribution(t *testing.T) {
+	tests := []struct {
+		name               string
+		jsonStr            string
+		wantCat            string
+		wantImp            string
+		wantReason         string
+		wantContribution   string
+		wantContribReason  string
+	}{
+		{
+			name: "HIGH contribution",
+			jsonStr: `{
+				"category": "PROJECT_UPDATE",
+				"importance": "HIGH",
+				"reason": "Sprint planning notes",
+				"content_contribution": "HIGH",
+				"contribution_reason": "Contains actionable decisions and updates"
+			}`,
+			wantCat:           "PROJECT_UPDATE",
+			wantImp:           "HIGH",
+			wantReason:        "Sprint planning notes",
+			wantContribution:  "HIGH",
+			wantContribReason: "Contains actionable decisions and updates",
+		},
+		{
+			name: "MEDIUM contribution",
+			jsonStr: `{
+				"category": "CUSTOMER",
+				"importance": "MEDIUM",
+				"reason": "Customer inquiry",
+				"content_contribution": "MEDIUM",
+				"contribution_reason": "Useful customer feedback"
+			}`,
+			wantCat:           "CUSTOMER",
+			wantImp:           "MEDIUM",
+			wantReason:        "Customer inquiry",
+			wantContribution:  "MEDIUM",
+			wantContribReason: "Useful customer feedback",
+		},
+		{
+			name: "LOW contribution",
+			jsonStr: `{
+				"category": "INTERNAL_COMMS",
+				"importance": "LOW",
+				"reason": "Company newsletter",
+				"content_contribution": "LOW",
+				"contribution_reason": "Generic information, not actionable"
+			}`,
+			wantCat:           "INTERNAL_COMMS",
+			wantImp:           "LOW",
+			wantReason:        "Company newsletter",
+			wantContribution:  "LOW",
+			wantContribReason: "Generic information, not actionable",
+		},
+		{
+			name: "NONE contribution",
+			jsonStr: `{
+				"category": "PERSONAL",
+				"importance": "LOW",
+				"reason": "Social chat",
+				"content_contribution": "NONE",
+				"contribution_reason": "No knowledge value"
+			}`,
+			wantCat:           "PERSONAL",
+			wantImp:           "LOW",
+			wantReason:        "Social chat",
+			wantContribution:  "NONE",
+			wantContribReason: "No knowledge value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseTriageResponse(tt.jsonStr)
+			if err != nil {
+				t.Fatalf("parseTriageResponse() error = %v, want nil", err)
+			}
+			if result.Category != tt.wantCat {
+				t.Errorf("category = %v, want %v", result.Category, tt.wantCat)
+			}
+			if result.Importance != tt.wantImp {
+				t.Errorf("importance = %v, want %v", result.Importance, tt.wantImp)
+			}
+			if result.Reason != tt.wantReason {
+				t.Errorf("reason = %v, want %v", result.Reason, tt.wantReason)
+			}
+			// Verify contribution and contribution_reason fields
+			if result.ContentContribution != tt.wantContribution {
+				t.Errorf("content_contribution = %v, want %v", result.ContentContribution, tt.wantContribution)
+			}
+			if result.ContributionReason != tt.wantContribReason {
+				t.Errorf("contribution_reason = %v, want %v", result.ContributionReason, tt.wantContribReason)
+			}
+		})
+	}
+}
+
+// TestParseTriageResponse_MissingContentContribution verifies backward compatibility.
+// This verifies acceptance criteria: if triage fails to return content_contribution, system still works.
+func TestParseTriageResponse_MissingContentContribution(t *testing.T) {
+	tests := []struct {
+		name       string
+		jsonStr    string
+		wantCat    string
+		wantImp    string
+		wantReason string
+	}{
+		{
+			name:       "no contribution fields - existing format",
+			jsonStr:    `{"category": "PROJECT_UPDATE", "importance": "HIGH", "reason": "Sprint planning"}`,
+			wantCat:    "PROJECT_UPDATE",
+			wantImp:    "HIGH",
+			wantReason: "Sprint planning",
+		},
+		{
+			name: "only contribution_reason, no content_contribution",
+			jsonStr: `{
+				"category": "CUSTOMER",
+				"importance": "MEDIUM",
+				"reason": "Customer inquiry",
+				"contribution_reason": "Has some value"
+			}`,
+			wantCat:    "CUSTOMER",
+			wantImp:    "MEDIUM",
+			wantReason: "Customer inquiry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseTriageResponse(tt.jsonStr)
+			if err != nil {
+				t.Fatalf("parseTriageResponse() error = %v, want nil (should handle missing contribution gracefully)", err)
+			}
+			if result.Category != tt.wantCat {
+				t.Errorf("category = %v, want %v", result.Category, tt.wantCat)
+			}
+			if result.Importance != tt.wantImp {
+				t.Errorf("importance = %v, want %v", result.Importance, tt.wantImp)
+			}
+			if result.Reason != tt.wantReason {
+				t.Errorf("reason = %v, want %v", result.Reason, tt.wantReason)
+			}
+			// Verify that missing content_contribution returns empty string (activity will default to HIGH)
+			if result.ContentContribution != "" {
+				t.Errorf("content_contribution = %v, want empty string when missing", result.ContentContribution)
+			}
+		})
+	}
+}
+
+// TestParseTriageResponse_InvalidContentContribution tests validation of content_contribution values.
+func TestParseTriageResponse_InvalidContentContribution(t *testing.T) {
+	tests := []struct {
+		name    string
+		jsonStr string
+		wantErr string
+	}{
+		{
+			name: "invalid contribution value",
+			jsonStr: `{
+				"category": "PROJECT_UPDATE",
+				"importance": "HIGH",
+				"reason": "test",
+				"content_contribution": "CRITICAL"
+			}`,
+			wantErr: "invalid content_contribution",
+		},
+		{
+			name: "lowercase contribution",
+			jsonStr: `{
+				"category": "PROJECT_UPDATE",
+				"importance": "HIGH",
+				"reason": "test",
+				"content_contribution": "high"
+			}`,
+			wantErr: "invalid content_contribution",
+		},
+		{
+			name: "numeric contribution",
+			jsonStr: `{
+				"category": "PROJECT_UPDATE",
+				"importance": "HIGH",
+				"reason": "test",
+				"content_contribution": "1"
+			}`,
+			wantErr: "invalid content_contribution",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseTriageResponse(tt.jsonStr)
+			// Verify validation rejects invalid content_contribution
+			if err == nil {
+				t.Errorf("parseTriageResponse() error = nil, want error containing %q", tt.wantErr)
+			} else if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("parseTriageResponse() error = %v, want error containing %q", err, tt.wantErr)
 			}
 		})
 	}
