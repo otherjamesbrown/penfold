@@ -92,6 +92,8 @@ for attempt in 1..MAX_RETRIES:
     ## TWO-SIGNAL VERIFICATION (both must agree)
     # Signal 1: Independent build/test check (PRIMARY — ground truth)
     run: go build ./path/to/... && go test ./path/to/... -v
+    # Signal 1b: If Penfold acceptance test exists, run it too (must also pass)
+    run: go test -tags=quality -run TestQuality/NNN ./tests/quality/ (or e2e equivalent)
     # Signal 2: Shard close reason prefix (SECONDARY — agent's self-report)
     read shard close reason
 
@@ -177,9 +179,14 @@ Task(subagent_type="<agent-type>", run_in_background=true,
   6. Check shard progress notes for reproduction test details
   7. Run the reproduction test FIRST to confirm it fails:
      go test ./path/to/... -run TestName -v
-  8. Implement the fix described in the shard
-  9. Run the reproduction test again — it MUST now pass
-  10. Run the full test suite for affected packages:
+  8. Check if a Penfold acceptance test exists (look for 'Penfold Acceptance Test'
+     section in the shard). If so, run it to confirm it also fails:
+     [test command from shard — e.g. go test -tags=quality -run TestQuality/011 ./tests/quality/]
+  9. Implement the fix described in the shard
+  10. Run the reproduction test again — it MUST now pass
+  11. If a Penfold acceptance test exists, run it again — it MUST now pass.
+      Do NOT modify the Penfold test. If it still fails, your fix is incomplete.
+  12. Run the full test suite for affected packages:
       go build ./path/to/...
       go test ./path/to/... -v
 
@@ -192,19 +199,37 @@ Task(subagent_type="<agent-type>", run_in_background=true,
      CLI client struct → CLI command struct → JSON/text output.
      If ANY layer in this chain is missing the field, the fix is incomplete.
 
-  IMPORTANT: Do NOT report completion unless build and tests pass.
+  IMPORTANT: Do NOT report completion unless build and ALL tests pass (including Penfold test).
+  IMPORTANT: Do NOT modify Penfold-provided tests. They define what 'fixed' looks like.
   IMPORTANT: If there is no reproduction test, write one yourself.
 
+  ## Write Implementation Report
+  13. Before closing, write a report to /tmp/report-pf-fix-xxx-impl.md covering:
+      - Approach taken and why
+      - Files modified with summary of changes per file
+      - Challenges encountered and how they were resolved
+      - Test results: full output of test run (pass/fail)
+      - If Penfold test exists: its output
+      - Cross-layer verification results
+
+  14. Create a report shard and link as child:
+      ```bash
+      cxp shard create --type report \
+        --title 'report: [agent-type] phase-4 attempt-[N] — pf-fix-xxx' \
+        --body-file /tmp/report-pf-fix-xxx-impl.md
+      cxp shard link pf-REPORT-ID --child-of pf-fix-xxx
+      ```
+
   ## Completion — EXACT FORMAT REQUIRED
-  11. cxp task progress pf-fix-xxx 'Implemented: [summary]'
-  12. Close with one of these EXACT prefixes:
-      - SUCCESS: cxp task close pf-fix-xxx 'DONE: [summary]. Tests: [TestNames]. Files modified: [list]'
-      - STUCK:   cxp task close pf-fix-xxx 'BLOCKED: [what is blocking]. Needs: [what you need]'
-      - PARTIAL: cxp task close pf-fix-xxx 'FAILED: [what went wrong]. Done so far: [what works]. Remaining: [what is left]'
+  15. cxp task progress pf-fix-xxx 'Implemented: [summary]'
+  16. Close with one of these EXACT prefixes:
+      - SUCCESS: cxp task close pf-fix-xxx 'DONE: [summary]. Tests: [TestNames]. Penfold test: [PASS/N/A]. Files modified: [list]. REPORT: pf-REPORT-ID'
+      - STUCK:   cxp task close pf-fix-xxx 'BLOCKED: [what is blocking]. Needs: [what you need]. REPORT: pf-REPORT-ID'
+      - PARTIAL: cxp task close pf-fix-xxx 'FAILED: [what went wrong]. Done so far: [what works]. Remaining: [what is left]. REPORT: pf-REPORT-ID'
       Use DONE/BLOCKED/FAILED exactly — the orchestrator classifies your result by this prefix.
 
   ## Context Budget
-  Prioritize: (1) working fix that compiles, (2) tests pass, (3) cleanup.
+  Prioritize: (1) working fix that compiles, (2) tests pass (including Penfold test), (3) create report shard.
   If running low, close with FAILED prefix listing what's done and what remains.
 
   CRITICAL: Do NOT run git add, git commit, git push, or any git write commands.
@@ -254,16 +279,33 @@ Task(subagent_type="<agent-type>", run_in_background=true,
   IMPORTANT: Do NOT report completion unless build and ALL tests pass.
   IMPORTANT: If there are no acceptance tests, write them yourself.
 
+  ## Write Implementation Report
+  11. Before closing, write a report to /tmp/report-pf-feat-xxx-impl.md covering:
+      - Approach taken and rationale
+      - Files modified/created with summary of changes per file
+      - How existing pattern was followed (or diverged, with reasoning)
+      - Challenges encountered and how they were resolved
+      - Test results: full output of test run (pass/fail)
+      - Acceptance criteria checklist with pass/fail per criterion
+
+  12. Create a report shard and link as child:
+      ```bash
+      cxp shard create --type report \
+        --title 'report: [agent-type] phase-4 attempt-[N] — pf-feat-xxx' \
+        --body-file /tmp/report-pf-feat-xxx-impl.md
+      cxp shard link pf-REPORT-ID --child-of pf-feat-xxx
+      ```
+
   ## Completion — EXACT FORMAT REQUIRED
-  11. cxp task progress pf-feat-xxx 'Implemented: [summary]'
-  12. Close with one of these EXACT prefixes:
-      - SUCCESS: cxp task close pf-feat-xxx 'DONE: [summary]. Tests: [TestNames]. Acceptance criteria: [list which are met]. Files modified: [list]'
-      - STUCK:   cxp task close pf-feat-xxx 'BLOCKED: [what is blocking]. Needs: [what you need]'
-      - PARTIAL: cxp task close pf-feat-xxx 'FAILED: [what went wrong]. Done so far: [what works]. Remaining: [what is left]'
+  13. cxp task progress pf-feat-xxx 'Implemented: [summary]'
+  14. Close with one of these EXACT prefixes:
+      - SUCCESS: cxp task close pf-feat-xxx 'DONE: [summary]. Tests: [TestNames]. Acceptance criteria: [list which are met]. Files modified: [list]. REPORT: pf-REPORT-ID'
+      - STUCK:   cxp task close pf-feat-xxx 'BLOCKED: [what is blocking]. Needs: [what you need]. REPORT: pf-REPORT-ID'
+      - PARTIAL: cxp task close pf-feat-xxx 'FAILED: [what went wrong]. Done so far: [what works]. Remaining: [what is left]. REPORT: pf-REPORT-ID'
       Use DONE/BLOCKED/FAILED exactly — the orchestrator classifies your result by this prefix.
 
   ## Context Budget
-  Prioritize: (1) working implementation that compiles, (2) tests pass, (3) cleanup.
+  Prioritize: (1) working implementation that compiles, (2) tests pass, (3) create report shard.
   If running low, close with FAILED prefix listing what's done and what remains.
 
   CRITICAL: Do NOT run git add, git commit, git push, or any git write commands.
@@ -365,15 +407,32 @@ Task(subagent_type="<agent-type-from-sub-shard>", run_in_background=true,
     grep -r 'func functionName' cmd/penf/cmd/
   Use existing helpers. Do NOT redefine them.
 
+  ## Write Implementation Report
+  7. Before closing, write a report to /tmp/report-pf-xxx-layer-impl.md covering:
+     - Approach taken for this layer
+     - Files modified/created with summary of changes per file
+     - How existing pattern was followed
+     - Challenges encountered and resolutions
+     - Test results: full output of test run (pass/fail)
+     - Layer acceptance criteria checklist with pass/fail
+
+  8. Create a report shard and link as child:
+     ```bash
+     cxp shard create --type report \
+       --title 'report: [agent-type] phase-4 attempt-[N] — pf-xxx-layer' \
+       --body-file /tmp/report-pf-xxx-layer-impl.md
+     cxp shard link pf-REPORT-ID --child-of pf-xxx-layer
+     ```
+
   ## Completion — EXACT FORMAT REQUIRED
-  7. Close with one of these EXACT prefixes:
-     - SUCCESS: cxp task close pf-xxx-layer 'DONE: [summary]. Tests: [TestNames]. Files: [files modified]'
-     - STUCK:   cxp task close pf-xxx-layer 'BLOCKED: [what is blocking]. Needs: [what you need]'
-     - PARTIAL: cxp task close pf-xxx-layer 'FAILED: [what went wrong]. Done so far: [what works]. Remaining: [what is left]'
+  9. Close with one of these EXACT prefixes:
+     - SUCCESS: cxp task close pf-xxx-layer 'DONE: [summary]. Tests: [TestNames]. Files: [files modified]. REPORT: pf-REPORT-ID'
+     - STUCK:   cxp task close pf-xxx-layer 'BLOCKED: [what is blocking]. Needs: [what you need]. REPORT: pf-REPORT-ID'
+     - PARTIAL: cxp task close pf-xxx-layer 'FAILED: [what went wrong]. Done so far: [what works]. Remaining: [what is left]. REPORT: pf-REPORT-ID'
      Use DONE/BLOCKED/FAILED exactly — the orchestrator classifies your result by this prefix.
 
   ## Context Budget
-  Prioritize: (1) working code that compiles, (2) all tests pass, (3) cleanup.
+  Prioritize: (1) working code that compiles, (2) all tests pass, (3) create report shard.
   If running low, close with FAILED prefix listing what's done and what remains.
   Do NOT defer tests — say explicitly if tests are incomplete.
 

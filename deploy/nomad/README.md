@@ -2,6 +2,10 @@
 
 Penfold services are orchestrated by [Nomad](https://www.nomadproject.io/) using the `raw_exec` driver (no containers).
 
+> **Important:** Nomad is the **sole orchestrator** for Penfold services. The legacy systemd units
+> (`penfold-gateway.service`, `penfold-ai-coordinator.service`) are stopped and masked on dev02.
+> Do not re-enable them — running both Nomad and systemd causes port conflicts and restart loops.
+
 ## Cluster Topology
 
 | Node | Role | Meta Tags | Services |
@@ -21,8 +25,10 @@ Node meta tags control placement constraints — each job spec declares which no
 | `penfold-worker` | `worker.nomad.hcl` | `meta.apple-silicon = true` | `/opt/penfold/bin/penfold-worker` | `/etc/penfold/worker.env` |
 | `penfold-ai-coordinator` | `ai-coordinator.nomad.hcl` | `meta.os = linux` | `/opt/penfold/bin/penfold-ai-coordinator` | `/etc/penfold/ai-coordinator.env` |
 | `penfold-mlx` | `mlx-services.nomad.hcl` | `meta.apple-silicon = true` | Python (uvicorn, mlx_lm) | Inline env |
+| `penfold-alert-webhook` | (on dev02 only) | `meta.os = linux` | `/opt/penfold/bin/alert-webhook.py` | - |
 
 All Go services use the same pattern: source env file, then exec binary via `raw_exec`.
+All services on dev02 run as `user = "james"` (not root).
 
 ## Update Strategy
 
@@ -144,6 +150,9 @@ All Go services expose HTTP `/health` endpoints. Nomad polls these every 10s:
 
 If a health check fails, Nomad restarts the allocation (up to 3 attempts within 5 minutes).
 
+All services also have `check_restart` configured — if a health check fails 3 consecutive times,
+Nomad automatically restarts the task. Both HTTP and gRPC (TCP) ports are checked.
+
 ## Troubleshooting
 
 ### Job Won't Start
@@ -189,6 +198,33 @@ nomad job run deploy/nomad/gateway.nomad.hcl
 # Manual: revert to a specific version
 nomad job history penfold-gateway          # Find version number
 nomad job revert penfold-gateway <version> # Revert
+```
+
+## Nomad Server Configuration
+
+The Nomad server on dev02 requires these settings in `/etc/nomad.d/nomad.hcl`:
+
+```hcl
+# Telemetry — exposes Prometheus metrics at :4646/v1/metrics?format=prometheus
+telemetry {
+  publish_allocation_metrics = true
+  publish_node_metrics       = true
+  prometheus_metrics         = true
+}
+```
+
+The systemd unit needs cgroup delegation for `user` field support in `raw_exec`:
+
+```bash
+# /etc/systemd/system/nomad.service.d/override.conf
+[Service]
+Delegate=yes
+```
+
+The data directory must be traversable (711) for non-root task execution:
+
+```bash
+chmod 711 /opt/nomad/data/
 ```
 
 ## Node Meta Setup

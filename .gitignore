@@ -102,3 +102,8 @@ services/worker/worker
 *.test
 storage.test
 services/worker/worker-darwin-arm64
+services/worker/worker-darwin
+services/ai/ai-coordinator-linux
+/ai-coordinator-darwin-arm64
+/worker
+/worker-darwin-arm64

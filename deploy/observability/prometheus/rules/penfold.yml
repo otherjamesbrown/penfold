@@ -64,6 +64,44 @@ groups:
           summary: "High goroutine count"
           description: "{{ $labels.job }} has {{ $value }} goroutines"
 
+  - name: nomad
+    rules:
+      - alert: NomadJobNotRunning
+        expr: nomad_nomad_job_summary_running == 0 and nomad_nomad_job_summary_queued == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nomad job has no running allocations"
+          description: "Job {{ $labels.exported_job }} has 0 running and 0 queued allocations for {{ $labels.task_group }}"
+
+      - alert: NomadJobFailed
+        expr: nomad_nomad_job_summary_failed > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nomad job has failed allocations"
+          description: "Job {{ $labels.exported_job }} has {{ $value }} failed allocation(s) in task group {{ $labels.task_group }}"
+
+      - alert: NomadAllocRestarts
+        expr: increase(nomad_client_allocs_restart{job="nomad"}[1h]) > 2
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nomad allocation restarting"
+          description: "Allocation for {{ $labels.alloc }} has restarted {{ $value }} times in the last hour"
+
+      - alert: NomadPendingAllocations
+        expr: nomad_nomad_job_summary_queued > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nomad allocations stuck in queue"
+          description: "Job {{ $labels.exported_job }} has {{ $value }} queued allocation(s) for over 10 minutes"
+
   - name: infrastructure
     rules:
       # Disk space low

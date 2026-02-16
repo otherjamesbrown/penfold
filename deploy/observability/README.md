@@ -11,6 +11,7 @@ Prometheus, Loki, Grafana, and Alertmanager stack for monitoring Penfold service
 | Promtail | 9080 | Log shipping agent |
 | Grafana | 3001 | Dashboards and visualization |
 | Alertmanager | 9094 | Alert routing and notifications |
+| Alert Webhook | 9095 | Converts alerts to CXP agent messages (Nomad job, not Docker) |
 
 ## Quick Start
 
@@ -55,7 +56,7 @@ observability/
 
 ## Monitored Services
 
-Prometheus scrapes metrics from:
+Prometheus scrapes metrics from (13 targets):
 
 **Penfold Services:**
 - Gateway (dev02:8080/metrics)
@@ -65,6 +66,7 @@ Prometheus scrapes metrics from:
 **Infrastructure:**
 - Temporal Server (dev02:8233/metrics)
 - PostgreSQL (via postgres_exporter on dev02:9187)
+- Nomad (dev02:4646/v1/metrics — allocation, node, and server metrics)
 
 **MLX Services (dev01):**
 - MLX LLM Server (dev01:8080/metrics)
@@ -92,11 +94,26 @@ Alerts are defined in `prometheus/rules/penfold.yml`:
 - `HighMemoryUsage` - System memory > 90%
 - `HighCPUUsage` - CPU > 80% for 10 minutes
 
+### Nomad Alerts
+- `NomadJobNotRunning` - Job has no running or queued allocations
+- `NomadJobFailed` - Job has failed allocations
+- `NomadAllocRestarts` - Allocation restarted > 2 times in an hour
+- `NomadPendingAllocations` - Allocations stuck in queue > 10 minutes
+
 ### Observability Alerts
 - `PrometheusTargetDown` - Any scrape target down
 - `LokiNotReceivingLogs` - No logs received for 10 minutes
 
 ## Using Grafana
+
+### Dashboards
+
+| Dashboard | UID | Description |
+|-----------|-----|-------------|
+| Penfold Overview | `penfold-overview` | Service health, request rates, latency, connections |
+| Nomad Cluster | `nomad-cluster` | Job status, allocation health, RPC, resources |
+| Temporal Queues | `temporal-queues` | Temporal workflow queues |
+| vLLM-MLX | `vllm-mlx` | MLX model server metrics |
 
 ### Pre-configured Datasources
 
@@ -187,6 +204,19 @@ docker cp grafana:/var/lib/grafana ~/backups/observability/grafana-data
 # Backup Prometheus (metrics)
 docker cp prometheus:/prometheus ~/backups/observability/prometheus-data
 ```
+
+## Alert Webhook Bridge
+
+Alerts are delivered to the Penfold agent inbox via a lightweight webhook receiver:
+
+- **Script:** `/opt/penfold/bin/alert-webhook.py` (Python, stdlib only)
+- **Port:** 9095
+- **Nomad job:** `penfold-alert-webhook`
+- **Flow:** Alertmanager POST -> webhook -> `cxp message send agent-penfold`
+
+Alerts appear as messages in the agent inbox with subjects like:
+- `[FIRING] PenfoldGatewayDown - critical`
+- `[RESOLVED] HighCPUUsage - warning`
 
 ## Adding New Scrape Targets
 

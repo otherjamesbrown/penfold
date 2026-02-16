@@ -1,0 +1,35 @@
+email: "002-incident-response.eml"
+description: >
+  P0 incident report from Daniel Thompson. API Gateway degradation with
+  elevated error rates (15% 5xx, P99 latency 2.5s). DRI is Rob Taylor.
+  Technical metrics, SLO/SLA references, root cause hypothesis (K8s
+  node pool scaling). War room coordination.
+
+last_verified: "2026-02-14"
+model_at_verification: "gemini-2.0-flash"
+
+pipeline:
+  must_complete: [embed, extract_ner, extract_semantic]
+
+triage:
+  importance:
+    one_of: [HIGH, CRITICAL]
+  category:
+    one_of: [RISK_ISSUE, INCIDENT, OPERATIONAL]
+
+people:
+  min_count: 2
+  must_find:
+    - name_contains: "Daniel"
+    - name_contains: "Rob"
+  must_not_find:
+    - name_contains: "Acme Corp"
+
+assertions:
+  min_count: 1
+  must_find:
+    - type: issue
+      description_contains: "API"
+  must_not_find:
+    - type: decision
+      description_contains: "budget"

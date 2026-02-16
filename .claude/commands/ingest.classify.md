@@ -66,6 +66,18 @@ For each message:
 - Could be fixed/built independently by different agents
 - Bugs have root causes; requirements have acceptance criteria
 
+**Detecting Penfold-provided tests:**
+
+Bug reports from Penfold may include a **failing test** (quality golden file or e2e test) that
+defines what "fixed" looks like. Look for these indicators in the message:
+- Golden file path (e.g. `tests/quality/golden/011-risk-escalation.yaml`)
+- Test run command (e.g. `go test -tags=quality -run TestQuality/011 ./tests/quality/`)
+- E2E test name (e.g. `TestE2E_JobTitleExtraction`)
+- Phrases like "failing test:", "test that must pass:", "added to golden file:"
+
+When detected, extract the **test reference** (file path + test command) and include it in the
+shard content. This test is the acceptance criterion — mycroft's job is to make it pass.
+
 ## Step 3: Create Shards (One Per Item)
 
 Create one shard per discrete item, NOT per message.
@@ -76,7 +88,14 @@ All shards from the same message link back to the same original message ID.
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
 SELECT create_task_from('penfold', 'agent-mycroft', 'pf-MESSAGE-ID',
   'investigate: [specific bug title]',
-  'Investigate bug reported by [creator]. [specific symptom from message]',
+  \$body\$Investigate bug reported by [creator]. [specific symptom from message]
+
+[If Penfold-provided test detected:]
+## Penfold Acceptance Test
+Test file: [path to golden file or test file]
+Run command: [exact test command]
+This test currently FAILS and must PASS when the fix is complete.
+\$body\$,
   1, 'agent-mycroft');
 "
 ```

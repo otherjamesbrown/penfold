@@ -122,6 +122,16 @@ SELECT create_impl_shard('penfold', 'agent-mycroft', '<agent-type>',
 - [ ] Code compiles: go build ./...
 - [ ] Tests pass: go test ./...
 - [ ] Regression test added
+[If Penfold acceptance test exists:]
+- [ ] Penfold acceptance test PASSES: [test command]
+
+[If Penfold acceptance test exists:]
+## Penfold Acceptance Test
+Test file: [path]
+Run command: [command]
+This test was provided by Penfold and defines 'fixed'. Do NOT modify this test —
+make your implementation pass it. If you believe the test expectation is wrong,
+message Penfold to discuss before changing it.
 
 ## Original Bug
 pf-[bug-id]: [title]

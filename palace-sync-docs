@@ -1,0 +1,115 @@
+#!/bin/bash
+#
+# palace-sync-docs - Fetch and personalize Context-Palace documentation
+#
+# Reads .palace.yaml from current directory, fetches latest context-palace.md
+# from the central repo, and replaces template values with actual values.
+#
+# Usage: palace-sync-docs [--check]
+#   --check   Show what would change without writing
+
+set -e
+
+CONFIG_FILE=".palace.yaml"
+OUTPUT_FILE="context-palace.md"
+REPO_URL="https://raw.githubusercontent.com/otherjamesbrown/context-palace/main/context-palace.md"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+# Check for config file
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo -e "${RED}Error: $CONFIG_FILE not found${NC}"
+    echo ""
+    echo "Create .palace.yaml with:"
+    echo "  project: yourproject"
+    echo "  agent: agent-yourname"
+    echo "  prefix: xx"
+    exit 1
+fi
+
+# Parse YAML (simple key: value parsing)
+parse_yaml() {
+    local key=$1
+    grep "^${key}:" "$CONFIG_FILE" | sed "s/^${key}:[[:space:]]*//" | tr -d '"' | tr -d "'"
+}
+
+PROJECT=$(parse_yaml "project")
+AGENT=$(parse_yaml "agent")
+PREFIX=$(parse_yaml "prefix")
+
+# Validate config
+if [[ -z "$PROJECT" ]] || [[ -z "$AGENT" ]] || [[ -z "$PREFIX" ]]; then
+    echo -e "${RED}Error: Missing required fields in $CONFIG_FILE${NC}"
+    echo ""
+    echo "Required fields:"
+    echo "  project: $PROJECT"
+    echo "  agent: $AGENT"
+    echo "  prefix: $PREFIX"
+    exit 1
+fi
+
+echo "Config:"
+echo "  project: $PROJECT"
+echo "  agent: $AGENT"
+echo "  prefix: $PREFIX"
+echo ""
+
+# Fetch latest from repo
+echo "Fetching latest context-palace.md..."
+CONTENT=$(curl -sS "$REPO_URL")
+
+if [[ -z "$CONTENT" ]]; then
+    echo -e "${RED}Error: Failed to fetch from $REPO_URL${NC}"
+    exit 1
+fi
+
+# Replace template values
+CONTENT=$(echo "$CONTENT" | sed "s/\[YOURPROJECT\]/$PROJECT/g")
+CONTENT=$(echo "$CONTENT" | sed "s/\[agent-YOURNAME\]/$AGENT/g")
+CONTENT=$(echo "$CONTENT" | sed "s/\[PREFIX\]/$PREFIX/g")
+CONTENT=$(echo "$CONTENT" | sed "s/'PROJECT'/'$PROJECT'/g")
+CONTENT=$(echo "$CONTENT" | sed "s/'agent-NAME'/'$AGENT'/g")
+CONTENT=$(echo "$CONTENT" | sed "s/PREFIX-/$PREFIX-/g")
+
+# Check mode - show diff
+if [[ "$1" == "--check" ]]; then
+    if [[ -f "$OUTPUT_FILE" ]]; then
+        echo "Changes that would be made:"
+        echo "$CONTENT" | diff -u "$OUTPUT_FILE" - || true
+    else
+        echo "Would create new file: $OUTPUT_FILE"
+    fi
+    exit 0
+fi
+
+# Write output
+echo "$CONTENT" > "$OUTPUT_FILE"
+echo -e "${GREEN}Updated $OUTPUT_FILE${NC}"
+
+# Show summary of replacements
+echo ""
+echo "Replacements made:"
+echo "  [YOURPROJECT] -> $PROJECT"
+echo "  [agent-YOURNAME] -> $AGENT"
+echo "  [PREFIX] -> $PREFIX"
+echo "  'PROJECT' -> '$PROJECT'"
+echo "  'agent-NAME' -> '$AGENT'"
+echo "  PREFIX- -> $PREFIX-"
+
+# Fetch project rules from DB
+RULES_ID="${PREFIX}-rules"
+echo ""
+echo "Fetching ${RULES_ID} from database..."
+
+RULES_CONTENT=$(psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -t -A -c "SELECT content FROM shards WHERE id = '${RULES_ID}';" 2>/dev/null)
+
+if [[ -n "$RULES_CONTENT" ]]; then
+    echo "$RULES_CONTENT" > "${RULES_ID}.md"
+    echo -e "${GREEN}Updated ${RULES_ID}.md${NC}"
+else
+    echo -e "${YELLOW}Warning: Could not fetch ${RULES_ID} (may not exist or DB unreachable)${NC}"
+fi

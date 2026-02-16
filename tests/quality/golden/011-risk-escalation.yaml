@@ -1,0 +1,46 @@
+email: "011-risk-escalation.eml"
+description: >
+  Risk escalation from Sarah Chen to John Smith and David Park.
+  3 explicit risks (budget overrun, timeline slip, resource shortage),
+  action items, signature with job title "Product Manager".
+  Financial figures ($450K, 35%), project references (Project Alpha),
+  glossary terms (OKR, TER, K8s, SOW, MVP, WBR, ARR).
+
+last_verified: "2026-02-14"
+model_at_verification: "gemini-2.0-flash"
+
+pipeline:
+  must_complete: [embed, extract_ner, extract_semantic]
+
+triage:
+  importance:
+    one_of: [HIGH, CRITICAL]
+  category:
+    one_of: [RISK_ISSUE, PROJECT_UPDATE]
+
+people:
+  min_count: 4
+  must_find:
+    - name_contains: "Sarah Chen"
+      # NOTE: role_contains:"Product Manager" omitted — pipeline does not currently
+      # extract job titles from signatures into people.job_title (filed as bug)
+    - name_contains: "John Smith"
+    - name_contains: "David Park"
+    - name_contains: "Marcus"
+  must_not_find:
+    - name_contains: "Acme Corp"
+
+assertions:
+  min_count: 3
+  must_find:
+    - type: risk
+      description_contains: "budget"
+    - type: risk
+      description_contains: "MVP target"
+    - type: risk
+      description_contains: "backend engineer"
+  must_not_find:
+    - type: security_incident
+
+# NOTE: projects.must_find omitted — pipeline does not currently set
+# assertions.project_id FK despite mentioning projects in descriptions (filed as bug)

@@ -61,6 +61,12 @@ Task(subagent_type="debugger", run_in_background=true,
   2. cxp knowledge show mycroft-agent-debugger — your domain context
   3. cxp task claim pf-inv-xxx
 
+  ## Penfold Acceptance Test
+  If the shard mentions a Penfold-provided test (quality golden file or e2e test),
+  read it first — it defines exactly what 'fixed' looks like. Your investigation
+  should identify the root cause of WHY that test fails. The test itself is not
+  under investigation — it is the ground truth.
+
   ## Investigation
   4. Investigate using read-only tools (Read, Grep, Glob, Bash for go build/test)
   5. Identify root cause, affected files, and proposed fix
@@ -85,8 +91,26 @@ Task(subagent_type="debugger", run_in_background=true,
     fix garbage data already in the column)
   - Does the metadata key name match the new column name?
 
+  ## Write Investigation Report
+  6. Before closing, write a detailed report to /tmp/report-pf-inv-xxx.md covering:
+     - Files examined and what was found in each (with line numbers)
+     - Chain of reasoning from symptom to root cause
+     - Alternative causes considered and ruled out
+     - Exact error messages, stack traces, or data found
+     - Full affected file list across ALL layers
+     - Proposed fix with specific code locations
+
+  7. Create a report shard and link it as a child:
+     ```bash
+     cxp shard create --type report \
+       --title 'report: debugger phase-2 — pf-inv-xxx' \
+       --body-file /tmp/report-pf-inv-xxx.md
+     # Use the shard ID returned by create (e.g. pf-abc123)
+     cxp shard link pf-REPORT-ID --child-of pf-inv-xxx
+     ```
+
   ## Completion
-  6. cxp task close pf-inv-xxx 'ROOT CAUSE: [category]. [summary]. FILES: [file1, file2, ...ALL files across ALL layers]. FIX: [description]. COMPLEXITY: [Low/Medium/High]. LAYERS: [list which sub-agent domains are needed]'
+  8. cxp task close pf-inv-xxx 'ROOT CAUSE: [category]. [summary]. FILES: [file1, file2, ...ALL files across ALL layers]. FIX: [description]. COMPLEXITY: [Low/Medium/High]. LAYERS: [list which sub-agent domains are needed]. REPORT: pf-REPORT-ID'
 
   Root cause categories: cli_ux, config_drift, temporal_workflow, grpc_wiring, data_layer, proto_mismatch, missing_feature, test_gap")
 ```
@@ -141,8 +165,26 @@ Task(subagent_type="Explore", run_in_background=true,
      - **High** — 3+ layers (e.g. DB + proto + service + CLI), new subsystem,
        cross-cutting concerns, or 10+ files to create/modify
 
+  ## Write Analysis Report
+  8. Before closing, write a detailed report to /tmp/report-pf-anl-xxx.md covering:
+     - Files explored and patterns found (with line numbers)
+     - Existing feature analysis — how the closest pattern works
+     - Dependency map — what imports what, upstream/downstream impacts
+     - Complexity reasoning — why Low/Medium/High
+     - Full file list: existing files to modify, new files to create
+     - Recommended approach with rationale
+
+  9. Create a report shard and link it as a child:
+     ```bash
+     cxp shard create --type report \
+       --title 'report: explorer phase-2 — pf-anl-xxx' \
+       --body-file /tmp/report-pf-anl-xxx.md
+     # Use the shard ID returned by create (e.g. pf-abc123)
+     cxp shard link pf-REPORT-ID --child-of pf-anl-xxx
+     ```
+
   ## Completion
-  8. cxp task close pf-anl-xxx 'COMPLEXITY: [Low/Medium/High]. LAYERS: [db,service,cli,pipeline]. SCOPE: [summary of what to build]. FILES: [file1, file2, new:file3]. PATTERN: [existing feature to follow].'
+  10. cxp task close pf-anl-xxx 'COMPLEXITY: [Low/Medium/High]. LAYERS: [db,service,cli,pipeline]. SCOPE: [summary of what to build]. FILES: [file1, file2, new:file3]. PATTERN: [existing feature to follow]. REPORT: pf-REPORT-ID'
 
   IMPORTANT: Do NOT write any code. Only analyze and report.
   IMPORTANT: The COMPLEXITY and LAYERS fields are critical — they determine how implementation is structured.")

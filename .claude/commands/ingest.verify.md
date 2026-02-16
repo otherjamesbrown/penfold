@@ -90,6 +90,27 @@ git diff --name-only | grep "_test.go"
 If tests are missing, re-launch the agent with explicit test requirements.
 If build fails, fix small issues directly or re-launch agent.
 
+## Step 1.5: Run Penfold Acceptance Tests
+
+**For any bug that included a Penfold-provided test**, run it now as an independent verification.
+This is the acceptance gate — if the Penfold test doesn't pass, the fix is not done.
+
+```bash
+# Quality tests (golden file changes):
+go test -tags=quality -v -timeout 10m -run TestQuality/NNN ./tests/quality/
+
+# E2E tests:
+go test -tags=e2e -v -run TestE2E_FeatureName ./tests/e2e/
+```
+
+**If the Penfold test fails:**
+1. The fix is incomplete — do NOT proceed to deploy.
+2. Return to Phase 4 with the Penfold test failure output as the error to fix.
+3. The Penfold test is the ground truth. Do NOT modify it to make it pass.
+
+**If the Penfold test passes:** Record the result — include it in the pre-deploy review
+and resolution messages.
+
 ## Step 2: Integration Tests
 
 **Run integration tests against the actual codebase** — unit tests alone don't catch
@@ -246,6 +267,7 @@ All items built and verified. Ready to deploy.
 ### Bugs Fixed
 1. **[bug title]** — [1-sentence fix summary]
    - Test: [TestName] FAILED before fix, PASSES after fix
+   - Penfold acceptance test: [PASSES ✓ / N/A (no Penfold test provided)]
    - Files: [modified files]
 
 ### Features Built
@@ -257,6 +279,7 @@ All items built and verified. Ready to deploy.
 ### Verification
 - Build: all packages compile ✓
 - Unit tests: all passing ✓
+- Penfold acceptance tests: [N/N passing ✓ / none provided]
 - Integration tests: [passing ✓ / not applicable / N failures]
 - Cross-layer check: [N features verified ✓]
 
@@ -317,6 +340,7 @@ SELECT send_message('penfold', 'agent-mycroft',
 - Build: passing
 - Tests: [TestName1] FAILED before fix, PASSED after fix
 - Tests: [TestName2] (acceptance) PASSED after implementation
+- Penfold acceptance test: [test command — PASSES ✓ / N/A (no Penfold test)]
 - Integration: [passing / not applicable]
 - Test quality: [criteria-to-test mapping verified / N/A]
 
@@ -381,6 +405,7 @@ cxp session checkpoint "$(cat <<'CKPT'
 
 **Build:** [pass/fail]
 **Unit tests:** [pass/fail — N suites, N tests]
+**Penfold acceptance tests:** [N/N pass / none provided]
 **Integration:** [pass/fail/N/A]
 **Go vet:** [clean/warnings]
 **Pre-deploy review sent:** [message ID]

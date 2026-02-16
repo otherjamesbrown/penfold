@@ -214,6 +214,7 @@ Shard:       pf-fix-aaa (investigation: pf-inv-aaa)
 Bug:         [1-2 sentence summary]
 Fix:         [1-2 sentence summary]
 Test:        [TestName] in [file] — FAILED before fix ✓, PASSED after ✓
+Penfold:     [Acceptance test PASSES ✓: [command] | N/A (no Penfold test)]
 Deploy:      [Gateway ✓ VERIFIED v[hash] | Worker ✓ VERIFIED v[hash] | None needed]
 Smoke:       [penf health ✓ | penf entity list ✓]
 Real-data:   [Reprocessed pf-CONTENT: before=[summary], after=[summary] | N/A (not pipeline)]

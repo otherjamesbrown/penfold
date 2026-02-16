@@ -234,6 +234,59 @@ Each checkpoint is an audit trail of what was decided and why.
 
 Do NOT rely on conversation context carrying forward between phases. Write it down.
 
+## Report Child Shards — Raw Detail Preservation
+
+Every sub-agent (debugger, explorer, test-writer, implementer) creates a **report child shard**
+before closing its work shard. This preserves the raw reasoning and detail that would otherwise
+be lost when sub-agent context is discarded.
+
+### Pattern
+
+```bash
+# Sub-agent writes detailed report to temp file
+# Then creates a report shard and links it as a child of the work shard:
+cxp shard create --type report \
+  --title 'report: [agent-type] phase-[N] attempt-[N] — pf-WORK-SHARD' \
+  --body-file /tmp/report-pf-WORK-SHARD.md
+cxp shard link pf-REPORT-ID --child-of pf-WORK-SHARD
+```
+
+### Naming Convention
+
+```
+report: debugger phase-2 — pf-inv-xxx          # Investigation
+report: explorer phase-2 — pf-anl-xxx          # Analysis
+report: cli-dev phase-3.5 — pf-feat-xxx        # Test writing
+report: data-dev phase-4 attempt-1 — pf-ccc-db # Implementation (1st try)
+report: data-dev phase-4 attempt-2 — pf-ccc-db # Implementation (retry)
+```
+
+### Why Child Shards (Not Updates)
+
+- **No race conditions** — each agent creates its own shard, no contention
+- **Full audit trail** — every agent's contribution preserved, not overwritten
+- **Retry history** — each attempt gets its own report
+- **Drillable** — `cxp shard edges pf-inv-xxx` lists all reports for that work item
+
+### What Reports Contain
+
+| Phase | Report includes |
+|-------|----------------|
+| Phase 2 (debugger) | Files examined, reasoning chain, alternatives ruled out, error messages, full file list |
+| Phase 2 (explorer) | Files explored, pattern analysis, dependency map, complexity reasoning |
+| Phase 3.5 (tests) | Test strategy, file locations, failure output, criteria-to-test mapping |
+| Phase 4 (implement) | Approach and rationale, per-file change summary, challenges, test output, criteria checklist |
+
+### Using Reports
+
+When context is compressed or you need to drill into a previous phase's detail:
+```bash
+cxp shard edges pf-WORK-SHARD      # List all child reports
+cxp shard show pf-REPORT-ID        # Read the full raw detail
+```
+
+The close reason on the work shard remains the summary. The report shard has the full story.
+
 ## Parallel Session Coordination
 
 James often runs 3-4 mycroft sessions simultaneously. Each session runs `/ingest` or

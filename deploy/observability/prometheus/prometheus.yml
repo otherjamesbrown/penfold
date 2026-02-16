@@ -94,3 +94,15 @@ scrape_configs:
       - targets: ['dev01.brown.chat:9100']
         labels:
           instance: 'dev01'
+
+  # ============ Nomad ============
+
+  # Nomad server/client metrics (dev02)
+  - job_name: 'nomad'
+    static_configs:
+      - targets: ['host.docker.internal:4646']
+        labels:
+          instance: 'dev02'
+    metrics_path: /v1/metrics
+    params:
+      format: ['prometheus']

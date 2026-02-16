@@ -16,6 +16,27 @@ DB_CONN: "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify
 CP_CLI: cp
 ```
 
+## Step 0: Check for Penfold-Provided Tests
+
+Before writing any tests, check each shard for a **Penfold acceptance test** section. Bugs
+filed by Penfold may already include a failing quality test (golden YAML file) or e2e test
+that defines what "fixed" looks like.
+
+**If a Penfold test exists:**
+1. **Run it** to confirm it currently FAILS:
+   ```bash
+   # Quality test example:
+   go test -tags=quality -v -timeout 10m -run TestQuality/011 ./tests/quality/
+   # E2E test example:
+   go test -tags=e2e -v -run TestE2E_FeatureName ./tests/e2e/
+   ```
+2. **Record the failure** — this is the acceptance gate for the fix.
+3. **Do NOT write a duplicate** quality/e2e test. Penfold owns that layer.
+4. **Still write unit/integration tests** (Step 2 below) — those are mycroft's layer.
+   The unit test should reproduce the bug at the implementation level.
+
+**If no Penfold test exists:** Proceed normally to Step 1.
+
 ## Step 1: Assess Testability
 
 For each implementation shard (or sub-shard for HIGH items), decide:
@@ -65,15 +86,28 @@ Task(subagent_type="<agent-type>", run_in_background=true,
     go test ./path/to/... -run TestName -v
   The test MUST fail. A passing test means it does not reproduce the bug — revise it.
 
-  ### Step 3: Report
-  Output: test file, test name, whether fix or new, confirmation it fails.
+  ### Step 3: Write Report and Create Report Shard
+  Write a report to /tmp/report-pf-fix-xxx-test.md covering:
+  - Test strategy: what's being tested and why
+  - Test file location and function names
+  - Whether existing test was fixed or new test created
+  - Failure output confirming the test catches the bug
+  - What the test asserts and how it maps to the bug symptom
+
+  Create a report shard and link as child:
+  ```bash
+  cxp shard create --type report \
+    --title 'report: [agent-type] phase-3.5 — pf-fix-xxx' \
+    --body-file /tmp/report-pf-fix-xxx-test.md
+  cxp shard link pf-REPORT-ID --child-of pf-fix-xxx
+  ```
 
   CRITICAL: Do NOT fix the bug itself. Only write/fix the test.
   CRITICAL: Do NOT run git add, git commit, git push, or any git write commands.
 
   ## Context Budget
   If you are running low on context, prioritize: (1) write the test, (2) confirm it fails,
-  (3) report. Skip searching for existing tests if budget is tight.")
+  (3) create report shard. Skip searching for existing tests if budget is tight.")
 ```
 
 **For REQUIREMENT/SPEC shards** (title starts with `feat:`):
@@ -112,15 +146,27 @@ Task(subagent_type="<agent-type>", run_in_background=true,
     go test ./path/to/... -run TestName -v
   Compile failures count as valid failures.
 
-  ### Step 3: Report
-  Output: test file, test names, what each verifies, confirmation they fail.
+  ### Step 3: Write Report and Create Report Shard
+  Write a report to /tmp/report-pf-feat-xxx-test.md covering:
+  - Test strategy and rationale
+  - Test file location and function names
+  - What each test verifies and how it maps to acceptance criteria
+  - Failure output confirming tests fail (feature doesn't exist yet)
+
+  Create a report shard and link as child:
+  ```bash
+  cxp shard create --type report \
+    --title 'report: [agent-type] phase-3.5 — pf-feat-xxx' \
+    --body-file /tmp/report-pf-feat-xxx-test.md
+  cxp shard link pf-REPORT-ID --child-of pf-feat-xxx
+  ```
 
   CRITICAL: Do NOT implement the feature. Only write the tests.
   CRITICAL: Do NOT run git add, git commit, git push, or any git write commands.
 
   ## Context Budget
   If you are running low on context, prioritize: (1) write the most important test (happy
-  path), (2) confirm it fails, (3) report. Skip edge case tests if budget is tight.")
+  path), (2) confirm it fails, (3) create report shard. Skip edge case tests if budget is tight.")
 ```
 
 ### For HIGH Items (Per-Wave Test-First)
@@ -170,15 +216,27 @@ Task(subagent_type="<agent-type-for-this-layer>", run_in_background=true,
     go test ./path/to/... -run TestName -v
   Compile failures count as valid failures.
 
-  ### Step 3: Report
-  Output: test file, test names, what each verifies, confirmation they fail.
+  ### Step 3: Write Report and Create Report Shard
+  Write a report to /tmp/report-pf-xxx-layer-test.md covering:
+  - Test strategy for this layer
+  - Test file location and function names
+  - What each test verifies and how it maps to layer acceptance criteria
+  - Failure output confirming tests fail (layer doesn't exist yet)
+
+  Create a report shard and link as child:
+  ```bash
+  cxp shard create --type report \
+    --title 'report: [agent-type] phase-3.5 — pf-xxx-layer' \
+    --body-file /tmp/report-pf-xxx-layer-test.md
+  cxp shard link pf-REPORT-ID --child-of pf-xxx-layer
+  ```
 
   CRITICAL: Do NOT implement the feature. Only write tests for THIS layer.
   CRITICAL: Do NOT run git add, git commit, git push, or any git write commands.
 
   ## Context Budget
   If you are running low on context, prioritize: (1) write the most important test per
-  acceptance criterion, (2) confirm it fails, (3) report.")
+  acceptance criterion, (2) confirm it fails, (3) create report shard.")
 ```
 
 **IMPORTANT:** The orchestrator must wait for each wave's tests to be written before
@@ -200,7 +258,10 @@ If an agent's test **passes** (wrong — should fail):
 ## Step 4: Update Implementation Shards
 
 ```bash
-# For bugs:
+# For bugs WITH Penfold acceptance test:
+cxp task progress pf-fix-xxx 'Penfold acceptance test FAILS (confirmed): [test command]. Unit reproduction test ready: [TestName] in [file]. Test FAILS on current code.'
+
+# For bugs WITHOUT Penfold test:
 cxp task progress pf-fix-xxx 'Reproduction test ready: [TestName] in [file]. Test FAILS on current code.'
 
 # For requirements/specs:

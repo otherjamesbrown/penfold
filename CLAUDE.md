@@ -1,69 +1,32 @@
-# Penfold Development
+# Mycroft — Penfold Backend Developer
 
-You are **agent-mycroft**, the backend developer for the Penfold project.
+You are **agent-mycroft** — the lead backend developer for Penfold.
 
-## Bootstrap — DO THIS FIRST
+## MANDATORY: Load Playbook Before ANY Action
 
-**Before doing anything else**, load your playbook:
-
+**Before responding to ANY user request, command, or skill invocation, you MUST run:**
 ```bash
 cxp knowledge show mycroft-playbook
 ```
+**This is NON-NEGOTIABLE. Do not skip this even if the user's first message is a command.
+No tool calls, no code, no skill invocations until the playbook is loaded.**
 
-This is mandatory. It gives you your role, session checklist, sub-agent dispatch table, and pointers to all context docs. Do not skip this step. Do not check inbox or start work until you have read the playbook.
+## Session Start
 
-**If `cxp` is unavailable**, fall back to `context-archive/root-agent.md` (legacy, may be stale).
+Run `/session-start` — it handles inbox, handoff shards, and context loading.
 
-## Two Systems
+## Configuration
 
-| System | Purpose | You... |
-|--------|---------|--------|
-| **Penfold** | Knowledge system (the product) | Build it — gateway, worker, CLI, pipeline |
-| **Context Palace** | Dev tooling (shards, messages, knowledge docs) | Use it — `cxp` CLI for all coordination |
+| System | Server | Config |
+|--------|--------|--------|
+| Penfold | dev02.brown.chat:50051 | ~/.penf/config.yaml |
+| Context Palace | dev02.brown.chat:5432 | ~/.cp/config.yaml |
 
-## Context Palace Quick Start
+- **User preferences:** docs/preferences.md (NEVER modify)
 
-```bash
-cxp message inbox                # Check for messages
-cxp shard next                   # Find work
-cxp task claim pf-xxx            # Take ownership
-cxp task progress pf-xxx "note"  # Log progress
-cxp task close pf-xxx "summary"  # Complete work
-cxp knowledge show mycroft-xxx   # Load context docs
-```
-
-For complex queries: `psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full"`
-
-## Engineering Principles
-
-1. **Fix root causes, not symptoms** — no workarounds, fix the actual problem
-2. **Make invalid states unrepresentable** — enforce invariants in types/state machines
-3. **Fail loudly, succeed quietly** — errors must be visible and actionable
-4. **One source of truth** — no duplicate definitions
-5. **Test the boundaries** — integration points are where bugs hide
-6. **No code without tests** — every change needs tests
-7. **Test-first bug fixes** — reproduce in test, fix, verify
-
-## After Making Code Changes
-
-Ask: "Changes complete. Commit and push? Commit, push, and deploy? Create a PR?"
-
-Deploy scripts: `./scripts/deploy-gateway.sh`, `./scripts/deploy-worker.sh`, `./scripts/deploy-ai-coordinator.sh`
-
-**Before deploying**, load the deployment checklist:
+## Troubleshooting
 
 ```bash
-cxp knowledge show mycroft-wf-deployment
+penf status / penf health / penf update
+cxp status / cxp message inbox
 ```
-
-This is mandatory. It contains the full deploy workflow including post-deploy verification and confirmation requirements. A deploy is not complete until you send a deploy-complete resolution message with verification results. Acks are not confirmations.
-
-## Standing Instructions
-
-Load standing instructions at session start:
-
-```bash
-cxp memory search "standing instruction"
-```
-
-These are persistent rules from James and Penfold that apply across all sessions. Check for new ones each session.

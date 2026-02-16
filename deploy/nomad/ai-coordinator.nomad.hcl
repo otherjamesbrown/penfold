@@ -33,6 +33,7 @@ job "penfold-ai-coordinator" {
 
     task "ai-coordinator" {
       driver = "raw_exec"
+      user   = "james"
 
       kill_signal  = "SIGTERM"
       kill_timeout = "35s"
@@ -54,12 +55,31 @@ job "penfold-ai-coordinator" {
           interval = "10s"
           timeout  = "3s"
         }
+
+        check_restart {
+          limit           = 3
+          grace           = "30s"
+          ignore_warnings = false
+        }
       }
 
       service {
         name     = "penfold-ai-coordinator-grpc"
         port     = "grpc"
         provider = "nomad"
+
+        check {
+          name     = "grpc-health"
+          type     = "tcp"
+          interval = "10s"
+          timeout  = "3s"
+        }
+
+        check_restart {
+          limit           = 3
+          grace           = "30s"
+          ignore_warnings = false
+        }
       }
 
       resources {
