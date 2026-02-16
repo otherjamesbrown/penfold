@@ -574,6 +574,15 @@ func main() {
 		logger.Info("Enrichment record activities initialized with database")
 	}
 
+	// Conversation activities for auto-linking (Stage 2.5)
+	if dbPool != nil {
+		sourceRepo := activities.NewPostgresSourceRepository(dbPool, logger)
+		convRepo := activities.NewPostgresConversationRepository(dbPool, logger)
+		conversationActivities := activities.NewConversationActivities(logger, sourceRepo, convRepo, aiClient)
+		activityRegistrar.WithConversationActivities(conversationActivities)
+		logger.Info("Conversation activities initialized with database (auto-linking)")
+	}
+
 	workflowRegistrar := workflows.NewRegistrar()
 
 	// Create workers for each configured task queue

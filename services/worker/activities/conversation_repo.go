@@ -1,0 +1,208 @@
+package activities
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/otherjamesbrown/penfold/pkg/logging"
+)
+
+// PostgresConversationRepository implements ConversationRepository using pgxpool.
+type PostgresConversationRepository struct {
+	pool   *pgxpool.Pool
+	logger logging.Logger
+}
+
+// NewPostgresConversationRepository creates a new PostgresConversationRepository.
+func NewPostgresConversationRepository(pool *pgxpool.Pool, logger logging.Logger) *PostgresConversationRepository {
+	return &PostgresConversationRepository{
+		pool:   pool,
+		logger: logger.With(logging.F("component", "conversation_repository")),
+	}
+}
+
+// UpsertConversation creates or updates a conversation, returning the conversation ID.
+func (r *PostgresConversationRepository) UpsertConversation(ctx context.Context, conversation *Conversation) (string, error) {
+	query := `
+		INSERT INTO conversations (
+			id, tenant_id, thread_key, subject,
+			item_count, first_message_at, last_message_at,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, 0, NOW(), NOW(), NOW(), NOW())
+		ON CONFLICT (tenant_id, thread_key) DO UPDATE SET
+			subject = COALESCE(EXCLUDED.subject, conversations.subject),
+			last_message_at = GREATEST(conversations.last_message_at, NOW()),
+			updated_at = NOW()
+		RETURNING id
+	`
+
+	var id string
+	err := r.pool.QueryRow(ctx, query,
+		conversation.ID,
+		conversation.TenantID,
+		conversation.ThreadKey,
+		conversation.Topic,
+	).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("failed to upsert conversation: %w", err)
+	}
+
+	return id, nil
+}
+
+// AddConversationItem adds a content item to a conversation (idempotent).
+func (r *PostgresConversationRepository) AddConversationItem(ctx context.Context, conversationID, contentID string, sourceID *int64, tenantID string) error {
+	query := `
+		INSERT INTO conversation_items (conversation_id, content_id, source_id, tenant_id, added_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (conversation_id, content_id) DO NOTHING
+	`
+	_, err := r.pool.Exec(ctx, query, conversationID, contentID, sourceID, tenantID)
+	if err != nil {
+		return fmt.Errorf("failed to add conversation item: %w", err)
+	}
+	return nil
+}
+
+// AddConversationParticipant adds a participant to a conversation (idempotent).
+func (r *PostgresConversationRepository) AddConversationParticipant(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
+	query := `
+		INSERT INTO conversation_participants (conversation_id, name, address, tenant_id, first_seen_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (conversation_id, COALESCE(address, ''), COALESCE(name, '')) DO NOTHING
+	`
+	_, err := r.pool.Exec(ctx, query, conversationID, name, address, tenantID)
+	if err != nil {
+		return fmt.Errorf("failed to add conversation participant: %w", err)
+	}
+	return nil
+}
+
+// UpdateConversationStats recalculates counts and timestamps for a conversation.
+func (r *PostgresConversationRepository) UpdateConversationStats(ctx context.Context, conversationID string) error {
+	query := `
+		UPDATE conversations SET
+			item_count = (SELECT COUNT(*) FROM conversation_items WHERE conversation_id = $1),
+			participant_count = (SELECT COUNT(*) FROM conversation_participants WHERE conversation_id = $1),
+			updated_at = NOW()
+		WHERE id = $1
+	`
+	_, err := r.pool.Exec(ctx, query, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to update conversation stats: %w", err)
+	}
+	return nil
+}
+
+// UpdateSummary updates the rolling summary for a conversation.
+func (r *PostgresConversationRepository) UpdateSummary(ctx context.Context, conversationID, summary string, version int32) error {
+	query := `
+		UPDATE conversations SET
+			state_summary = $2,
+			summary_version = $3,
+			summary_updated_at = NOW(),
+			updated_at = NOW()
+		WHERE id = $1
+	`
+	_, err := r.pool.Exec(ctx, query, conversationID, summary, version)
+	if err != nil {
+		return fmt.Errorf("failed to update conversation summary: %w", err)
+	}
+	return nil
+}
+
+// UpdateState updates the state of a conversation and logs to history.
+func (r *PostgresConversationRepository) UpdateState(ctx context.Context, conversationID, state, reason string) error {
+	// Get current state for history
+	var currentState string
+	err := r.pool.QueryRow(ctx,
+		`SELECT COALESCE(state, 'unknown') FROM conversations WHERE id = $1`,
+		conversationID,
+	).Scan(&currentState)
+	if err != nil {
+		return fmt.Errorf("failed to get current conversation state: %w", err)
+	}
+
+	// Update the state
+	query := `
+		UPDATE conversations SET
+			state = $2,
+			state_reason = $3,
+			state_changed_at = NOW(),
+			updated_at = NOW()
+		WHERE id = $1
+	`
+	_, err = r.pool.Exec(ctx, query, conversationID, state, reason)
+	if err != nil {
+		return fmt.Errorf("failed to update conversation state: %w", err)
+	}
+
+	// Insert state history record
+	historyQuery := `
+		INSERT INTO conversation_state_history (conversation_id, old_state, new_state, reason, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
+	`
+	_, err = r.pool.Exec(ctx, historyQuery, conversationID, currentState, state, reason)
+	if err != nil {
+		r.logger.Warn("failed to insert state history (state update succeeded)",
+			logging.F("conversation_id", conversationID),
+			logging.Err(err),
+		)
+	}
+
+	return nil
+}
+
+// GetConversationItems returns the most recent items for a conversation.
+func (r *PostgresConversationRepository) GetConversationItems(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
+	query := `
+		SELECT conversation_id, content_id, source_id, added_at, tenant_id
+		FROM conversation_items
+		WHERE conversation_id = $1
+		ORDER BY added_at DESC
+		LIMIT $2
+	`
+
+	rows, err := r.pool.Query(ctx, query, conversationID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []ConversationItem
+	for rows.Next() {
+		var item ConversationItem
+		if err := rows.Scan(&item.ConversationID, &item.ContentID, &item.SourceID, &item.AddedAt, &item.TenantID); err != nil {
+			return nil, fmt.Errorf("failed to scan conversation item: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// GetConversation returns a conversation by ID.
+func (r *PostgresConversationRepository) GetConversation(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
+	query := `
+		SELECT id, tenant_id, thread_key, subject
+		FROM conversations
+		WHERE id = $1 AND tenant_id = $2
+	`
+
+	var conv Conversation
+	err := r.pool.QueryRow(ctx, query, conversationID, tenantID).Scan(
+		&conv.ID, &conv.TenantID, &conv.ThreadKey, &conv.Topic,
+	)
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get conversation: %w", err)
+	}
+
+	return &conv, nil
+}
+
+// Ensure PostgresConversationRepository implements ConversationRepository at compile time.
+var _ ConversationRepository = (*PostgresConversationRepository)(nil)
