@@ -821,6 +821,34 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		SourceSystem:     string(sourceSystem),
 	}).Get(ctx, nil)
 
+	// ==================== Stage 2.5: Email Threading ====================
+	// Threading runs for ALL emails (independent of SkipDeep gate)
+	// Reads email headers directly from source metadata — does not depend on extraction output
+	var threadID *string
+	if input.ContentType == "email" {
+		logger.Debug("starting email threading",
+			"source_id", input.SourceID,
+		)
+		threadOutput := &GroupEmailThreadOutput{}
+		ctxThread := workflow.WithActivityOptions(ctx, fastOpts)
+		err = workflow.ExecuteActivity(ctxThread, pkgtemporal.ActivityGroupEmailThread, GroupEmailThreadInput{
+			TenantID: input.TenantID,
+			SourceID: input.SourceID,
+		}).Get(ctx, threadOutput)
+		if err != nil {
+			logger.Warn("email threading failed (non-blocking)",
+				"source_id", input.SourceID,
+				"error", err.Error(),
+			)
+		} else if threadOutput != nil && threadOutput.ThreadID != nil {
+			threadID = threadOutput.ThreadID
+			logger.Info("email threading completed",
+				"source_id", input.SourceID,
+				"thread_id", *threadID,
+			)
+		}
+	}
+
 	// ==================== Stages 2-4.5: Deep Processing ====================
 	var extractOutput *SLMPipelineExtractEntitiesOutput
 	var contextOutput *BuildContextOutput
@@ -894,32 +922,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 
 		state.status.StepsCompleted = 3
-
-		// Stage 2.5: Email Threading (emails only, non-blocking)
-		var threadID *string
-		if input.ContentType == "email" {
-			logger.Debug("starting email threading",
-				"source_id", input.SourceID,
-			)
-			threadOutput := &GroupEmailThreadOutput{}
-			ctxThread := workflow.WithActivityOptions(ctx, fastOpts)
-			err = workflow.ExecuteActivity(ctxThread, pkgtemporal.ActivityGroupEmailThread, GroupEmailThreadInput{
-				TenantID: input.TenantID,
-				SourceID: input.SourceID,
-			}).Get(ctx, threadOutput)
-			if err != nil {
-				logger.Warn("email threading failed (non-blocking)",
-					"source_id", input.SourceID,
-					"error", err.Error(),
-				)
-			} else if threadOutput != nil && threadOutput.ThreadID != nil {
-				threadID = threadOutput.ThreadID
-				logger.Info("email threading completed",
-					"source_id", input.SourceID,
-					"thread_id", *threadID,
-				)
-			}
-		}
 
 		// Progressive availability: mark as "extracted" (entity-searchable)
 		// Also update assertion count if any assertions were extracted

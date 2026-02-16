@@ -108,6 +108,14 @@ func (m *PipelineMockActivities) FetchSource(ctx context.Context, input FetchSou
 	return args.Get(0).(*FetchSourceOutput), args.Error(1)
 }
 
+func (m *PipelineMockActivities) GroupEmailThread(ctx context.Context, input GroupEmailThreadInput) (*GroupEmailThreadOutput, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*GroupEmailThreadOutput), args.Error(1)
+}
+
 // SLMPipelineTestSuite tests the SLMPipelineWorkflow.
 type SLMPipelineTestSuite struct {
 	suite.Suite
@@ -135,6 +143,7 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.DeleteEmbedding, activity.RegisterOptions{Name: "DeleteEmbedding"})
 	s.env.RegisterActivityWithOptions(s.activities.RecordOverrides, activity.RegisterOptions{Name: "RecordOverrides"})
 	s.env.RegisterActivityWithOptions(s.activities.FetchSource, activity.RegisterOptions{Name: "FetchContent"})
+	s.env.RegisterActivityWithOptions(s.activities.GroupEmailThread, activity.RegisterOptions{Name: "GroupEmailThread"})
 }
 
 func (s *SLMPipelineTestSuite) AfterTest(suiteName, testName string) {
@@ -1204,6 +1213,98 @@ Example Corp`,
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// TestSLMPipeline_ThreadingRunsForPersonalEmails tests that email threading happens
+// even for PERSONAL emails (SkipDeep=true). This test reproduces bug pf-68d631.
+// Bug: ThreadGrouper (Stage 2.5) is inside the SkipDeep conditional block, so
+// PERSONAL/INTERNAL_COMMS+LOW emails skip threading entirely.
+// Expected: Threading should run for ALL emails because it only needs TenantID+SourceID.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_ThreadingRunsForPersonalEmails() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    1200,
+		ContentID:   "em-test12",
+		JobID:       "job-1200",
+		ContentType: "email",
+		ContentHash: "hash1200",
+		BodyText:    "Hey, lunch at noon?",
+		Subject:     "Lunch",
+		SenderEmail: "friend@example.com",
+	}
+
+	// Stage 0: Parse
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 1200
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Hey, lunch at noon?",
+		NewContent: "Hey, lunch at noon?",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed"
+	})).Return(nil)
+
+	// Stage 1: Triage — PERSONAL (SkipDeep=true)
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 1200
+	})).Return(&TriageOutput{
+		Category:   "PERSONAL",
+		Importance: "LOW",
+		SkipDeep:   true,
+		ModelUsed:  "llama-3.2-1b",
+	}, nil)
+
+	// CRITICAL ASSERTION: Stage 2.5 ThreadGrouper SHOULD be called even when SkipDeep=true
+	// BUG pf-68d631: This expectation will FAIL because threading is inside the SkipDeep block
+	threadingCalled := false
+	threadID := "thread-12345"
+	s.activities.On("GroupEmailThread", mock.Anything, mock.MatchedBy(func(in GroupEmailThreadInput) bool {
+		if in.TenantID == "tenant-1" && in.SourceID == 1200 {
+			threadingCalled = true
+			return true
+		}
+		return false
+	})).Return(&GroupEmailThreadOutput{
+		ThreadID: &threadID,
+	}, nil)
+
+	// Stage 5: Embed (SkipDeep means stages 2-4.5 are skipped)
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
+		return in.SourceID == 1200
+	})).Return(int64(5012), nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "completed"
+	})).Return(nil)
+
+	// Execute workflow
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+	s.Equal("PERSONAL", result.Category)
+	s.True(result.SkipDeep)
+
+	// Verify deep processing activities were NOT called (expected behavior)
+	s.activities.AssertNotCalled(s.T(), "ExtractEntitiesActivity", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "BuildContextPackage", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "DeepAnalyze", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "PersistFindings", mock.Anything, mock.Anything)
+
+	// CRITICAL ASSERTION: Threading SHOULD have been called
+	// BUG pf-68d631: This assertion will FAIL against current code
+	require.True(s.T(), threadingCalled,
+		"BUG pf-68d631: ThreadGrouper (Stage 2.5) should run for ALL emails, "+
+			"even PERSONAL emails with SkipDeep=true. Currently it's inside the "+
+			"SkipDeep conditional block (lines 898-922 in pipeline.go) so PERSONAL/"+
+			"INTERNAL_COMMS+LOW emails skip threading entirely. Threading only needs "+
+			"TenantID+SourceID and doesn't depend on extraction output, so it should "+
+			"run after triage but before the SkipDeep conditional.")
 }
 
 func TestSLMPipelineTestSuite(t *testing.T) {

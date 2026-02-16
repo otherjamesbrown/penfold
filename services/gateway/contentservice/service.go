@@ -654,10 +654,10 @@ func (r *repositoryImpl) GetStats(ctx context.Context, tenantID string) (*StatsR
 
 	// Count by source_system
 	query = `
-		SELECT source_system, COUNT(*) AS count
+		SELECT COALESCE(ingestion_metadata->>'source_system', source_system) AS source_system, COUNT(*) AS count
 		FROM sources
 		WHERE tenant_id = $1 AND (is_deleted IS NULL OR is_deleted = false)
-		GROUP BY source_system
+		GROUP BY COALESCE(ingestion_metadata->>'source_system', source_system)
 	`
 	rows, err := r.db.Query(ctx, query, tenantUUID)
 	if err != nil {

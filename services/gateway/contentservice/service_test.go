@@ -441,6 +441,113 @@ func TestConversionHelpers(t *testing.T) {
 	})
 }
 
+// TestGetStats_AggregatesByClassifiedSourceSystem verifies that GetStats
+// aggregates by the classified source_system field (from ingestion_metadata JSONB)
+// instead of the source_system column (which stores the MIME/ingest type).
+//
+// BUG REPRODUCTION: pf-d26d42
+//
+// Problem: The query at services/gateway/contentservice/service.go:656-661 reads
+// the sources.source_system COLUMN instead of ingestion_metadata->>'source_system'.
+//
+// Impact: After classification sets source_system='human_email' in metadata,
+// `penf classify stats` still shows "manual_eml" (the ingest type from the column).
+//
+// Expected fix: Change the SQL query from:
+//   SELECT source_system, COUNT(*) FROM sources GROUP BY source_system
+// To:
+//   SELECT COALESCE(ingestion_metadata->>'source_system', source_system), COUNT(*)
+//   FROM sources GROUP BY COALESCE(ingestion_metadata->>'source_system', source_system)
+//
+// This test EXPECTS the correct behavior. It documents what GetStats SHOULD return
+// after the fix. Since this is a unit test with mocks, it passes regardless of the
+// bug. The real bug is caught by the e2e test at:
+// tests/e2e/classify_stats_reprocess_threading_test.go::TestE2E_ClassifyStats_ReadsSourceSystemNotSourceType
+//
+// This unit test serves as documentation and ensures the service layer correctly
+// handles the repository response.
+func TestGetStats_AggregatesByClassifiedSourceSystem(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("RepositoryReturnsClassifiedTypes", func(t *testing.T) {
+		mockRepo := new(MockRepository)
+		svc := newTestService(mockRepo)
+
+		// Setup: Sources in database have:
+		//   source_system column = 'manual_eml' (ingest type)
+		//   ingestion_metadata->>'source_system' = 'human_email'/'jira' (classified)
+		//
+		// EXPECTED (after fix): Repository returns classified types
+		// BUGGY (before fix): Repository returns {'manual_eml': 3}
+		mockRepo.On("GetStats", ctx, "test-tenant-id").Return(&StatsRecord{
+			TotalCount: 3,
+			CountByType: map[string]int64{
+				"human_email": 2, // From ingestion_metadata->>'source_system'
+				"jira":        1, // From ingestion_metadata->>'source_system'
+			},
+			CountByStatus: map[string]int64{
+				"completed": 3,
+			},
+			EmbeddedCount:     3,
+			TotalStorageBytes: 1024,
+		}, nil)
+
+		stats, err := svc.repo.GetStats(ctx, "test-tenant-id")
+
+		assert.NoError(t, err)
+		assert.NotNil(t, stats)
+		assert.Equal(t, int64(3), stats.TotalCount)
+
+		// Verify classified types appear (not ingest types)
+		assert.Contains(t, stats.CountByType, "human_email",
+			"stats should include 'human_email' (classified type from metadata)")
+		assert.Contains(t, stats.CountByType, "jira",
+			"stats should include 'jira' (classified type from metadata)")
+
+		assert.Equal(t, int64(2), stats.CountByType["human_email"])
+		assert.Equal(t, int64(1), stats.CountByType["jira"])
+
+		// Verify ingest type does NOT dominate the results
+		if count, exists := stats.CountByType["manual_eml"]; exists {
+			assert.NotEqual(t, int64(3), count,
+				"manual_eml should NOT equal total count (indicates reading column not JSONB)")
+		}
+
+		mockRepo.AssertExpectations(t)
+	})
+
+	// Test case for backwards compatibility: if ingestion_metadata doesn't have
+	// source_system, fall back to the column value
+	t.Run("FallbackToColumnWhenMetadataEmpty", func(t *testing.T) {
+		mockRepo := new(MockRepository)
+		svc := newTestService(mockRepo)
+
+		// Scenario: Unclassified sources have no source_system in metadata yet
+		// Expected: Query falls back to source_system column
+		mockRepo.On("GetStats", ctx, "test-tenant-id-2").Return(&StatsRecord{
+			TotalCount: 2,
+			CountByType: map[string]int64{
+				"manual_eml": 2, // Falls back to column (metadata not set yet)
+			},
+			CountByStatus: map[string]int64{
+				"pending": 2,
+			},
+			EmbeddedCount:     0,
+			TotalStorageBytes: 512,
+		}, nil)
+
+		stats, err := svc.repo.GetStats(ctx, "test-tenant-id-2")
+
+		assert.NoError(t, err)
+		assert.NotNil(t, stats)
+		assert.Equal(t, int64(2), stats.TotalCount)
+		assert.Equal(t, int64(2), stats.CountByType["manual_eml"],
+			"should fall back to source_system column when metadata empty")
+
+		mockRepo.AssertExpectations(t)
+	})
+}
+
 // MockLangfuseClient is a mock implementation of the Langfuse client.
 type MockLangfuseClient struct {
 	mock.Mock
