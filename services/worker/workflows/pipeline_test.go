@@ -116,6 +116,14 @@ func (m *PipelineMockActivities) GroupEmailThread(ctx context.Context, input Gro
 	return args.Get(0).(*GroupEmailThreadOutput), args.Error(1)
 }
 
+func (m *PipelineMockActivities) CreateEnrichmentRecord(ctx context.Context, input CreateEnrichmentRecordInput) (*CreateEnrichmentRecordOutput, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*CreateEnrichmentRecordOutput), args.Error(1)
+}
+
 // SLMPipelineTestSuite tests the SLMPipelineWorkflow.
 type SLMPipelineTestSuite struct {
 	suite.Suite
@@ -144,6 +152,7 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.RecordOverrides, activity.RegisterOptions{Name: "RecordOverrides"})
 	s.env.RegisterActivityWithOptions(s.activities.FetchSource, activity.RegisterOptions{Name: "FetchContent"})
 	s.env.RegisterActivityWithOptions(s.activities.GroupEmailThread, activity.RegisterOptions{Name: "GroupEmailThread"})
+	s.env.RegisterActivityWithOptions(s.activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: "CreateEnrichmentRecord"})
 }
 
 func (s *SLMPipelineTestSuite) AfterTest(suiteName, testName string) {
@@ -1305,6 +1314,104 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ThreadingRunsForPersonalEmails() 
 			"INTERNAL_COMMS+LOW emails skip threading entirely. Threading only needs "+
 			"TenantID+SourceID and doesn't depend on extraction output, so it should "+
 			"run after triage but before the SkipDeep conditional.")
+}
+
+// TestSLMPipeline_CleanupRetryPolicy tests that the cleanup handler in the defer block
+// has a bounded retry policy to prevent infinite retries.
+// This test reproduces bug pf-b0e8e4: cleanup UpdateContentStatus has no RetryPolicy,
+// causing unlimited retries when the activity fails, creating zombie workflows.
+//
+// The defer cleanup (lines 478-507 in pipeline.go) is triggered when the workflow terminates
+// abnormally (timeout or cancellation) WITHOUT reaching a normal error-handling path.
+// We simulate this by canceling the workflow after triage, then making cleanup fail.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_CleanupRetryPolicy() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    1300,
+		ContentID:   "em-test13",
+		JobID:       "job-1300",
+		ContentType: "email",
+		ContentHash: "hash1300",
+		BodyText:    "Test email for cleanup retry policy.",
+		Subject:     "Cleanup Test",
+		SenderEmail: "test@example.com",
+	}
+
+	// Stage 0: Parse succeeds
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 1300
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Test email for cleanup retry policy.",
+		NewContent: "Test email for cleanup retry policy.",
+	}, nil)
+
+	// UpdateContentStatus: parsed (normal path, not cleanup)
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed" && in.SourceID == 1300
+	})).Maybe().Return(nil)
+
+	// Stage 1: Triage succeeds
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 1300
+	})).Return(&TriageOutput{
+		Category:   "PROJECT_UPDATE",
+		Importance: "HIGH",
+		SkipDeep:   false,
+		ModelUsed:  "llama-3.2-1b",
+	}, nil)
+
+	// UpdateContentStatus: triage metadata (normal path, not cleanup)
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed" && in.TriageCategory == "PROJECT_UPDATE"
+	})).Maybe().Return(nil)
+
+	// Cancel the workflow after triage - this triggers the defer cleanup handler
+	s.env.RegisterDelayedCallback(func() {
+		s.env.CancelWorkflow()
+	}, 0)
+
+	// These activities may or may not be called before cancellation
+	s.activities.On("CreateEnrichmentRecord", mock.Anything, mock.Anything).Maybe().Return(&CreateEnrichmentRecordOutput{EnrichmentID: 100}, nil)
+	s.activities.On("GroupEmailThread", mock.Anything, mock.Anything).Maybe().Return(&GroupEmailThreadOutput{}, nil)
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Maybe().Return(&SLMPipelineExtractEntitiesOutput{}, nil)
+	s.activities.On("ExtractAssertions", mock.Anything, mock.Anything).Maybe().Return(0, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Maybe().Return(&BuildContextOutput{}, nil)
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Maybe().Return(&DeepAnalyzeOutput{}, nil)
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Maybe().Return(&PersistFindingsOutput{}, nil)
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
+
+	// CRITICAL: Track how many times cleanup UpdateContentStatus is called
+	// The defer cleanup handler should have bounded retries (MaximumAttempts: 3)
+	cleanupCallCount := 0
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		// The defer cleanup sets status="failed" when workflow doesn't complete normally
+		if in.Status == "failed" && in.SourceID == 1300 {
+			cleanupCallCount++
+			return true
+		}
+		return false
+	})).Return(temporal.NewApplicationError("database connection failed", "DatabaseError"))
+
+	// Execute workflow - it will be canceled, triggering defer cleanup
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+
+	// The workflow should complete even though cleanup failed
+	// BUG pf-b0e8e4: Without a retry policy on the cleanup activity options (pipeline.go:488-490),
+	// Temporal will retry the cleanup UpdateContentStatus infinitely.
+
+	// With proper retry policy (e.g., MaximumAttempts: 3), cleanup should be called at most 3 times.
+	// Without retry policy (current bug), Temporal uses default unlimited retries.
+	// In production this creates zombie workflows. In test environment, it will retry many times.
+
+	// This assertion will FAIL with current code because there's no retry bound.
+	require.LessOrEqual(s.T(), cleanupCallCount, 3,
+		"BUG pf-b0e8e4: Cleanup UpdateContentStatus should have bounded retries (MaximumAttempts: 3). "+
+			"Current code at pipeline.go:488-490 creates ActivityOptions with NO RetryPolicy, "+
+			"causing Temporal to use default unlimited retries. When cleanup fails (e.g., database down), "+
+			"the workflow retries forever, creating zombie workflows. Expected at most 3 cleanup attempts, "+
+			"but got %d attempts in test environment (production would retry infinitely).", cleanupCallCount)
 }
 
 func TestSLMPipelineTestSuite(t *testing.T) {

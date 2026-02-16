@@ -256,6 +256,9 @@ func newFullRegistrar() *Registrar {
 		}).
 		WithThreadActivities(&ThreadActivities{
 			logger: logger,
+		}).
+		WithEnrichmentActivities(&EnrichmentActivities{
+			logger: logger,
 		})
 }
 

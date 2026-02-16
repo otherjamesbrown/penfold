@@ -224,3 +224,37 @@ func TestRepository_SetSeniority_Integration(t *testing.T) {
 	assert.Equal(t, int32(5), result.SeniorityTier)
 	assert.Equal(t, "Senior Engineer", result.Title, "Title should be returned from job_title column")
 }
+
+// TestRepository_GetBriefingAssertions_Integration is a regression test for bug pf-0c849a.
+// The bug: GetBriefingAssertions SQL query uses 'a.type' instead of 'a.assertion_type'.
+// This test will FAIL with the buggy code because the SQL query references a non-existent column.
+func TestRepository_GetBriefingAssertions_Integration(t *testing.T) {
+	pool := setupTestDB(t)
+	if pool == nil {
+		return
+	}
+	defer pool.Close()
+
+	logger := logging.NewLogger(logging.DefaultConfig())
+	repo := NewRepository(pool, logger)
+
+	ctx := context.Background()
+
+	// We don't need to create test data - we just need to verify the query doesn't error.
+	// The query should execute even if it returns zero results.
+	// This test will catch SQL syntax errors like "column a.type does not exist".
+
+	userID := "test-user-" + uuid.New().String()
+	projectID := int64(999999) // Non-existent project, but that's fine
+
+	// Call GetBriefingAssertions - this will fail if SQL query uses 'a.type' instead of 'a.assertion_type'
+	results, err := repo.GetBriefingAssertions(ctx, userID, projectID, 10)
+
+	// Assert no SQL error occurred (the key test - verifies SQL column names are correct)
+	require.NoError(t, err, "GetBriefingAssertions should not fail with SQL error")
+
+	// Results can be nil or empty slice - both are valid for zero results
+	if results != nil {
+		assert.Equal(t, 0, len(results), "Expected zero results for non-existent project")
+	}
+}

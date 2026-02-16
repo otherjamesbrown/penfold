@@ -262,7 +262,7 @@ func (r *Repository) GetBriefingAssertions(ctx context.Context, userID string, p
 	query := `
 		SELECT
 			a.id,
-			a.type,
+			a.assertion_type,
 			a.description,
 			a.severity,
 			COALESCE(a.lifecycle_event, '') as lifecycle_event,
@@ -275,7 +275,7 @@ func (r *Repository) GetBriefingAssertions(ctx context.Context, userID string, p
 				WHEN p.trust_level >= 3 AND (
 					p.trust_domains IS NULL OR
 					array_length(p.trust_domains, 1) IS NULL OR
-					a.type = ANY(p.trust_domains)
+					a.assertion_type = ANY(p.trust_domains)
 				) THEN 2
 				WHEN p.seniority_tier >= 5 THEN 3
 				ELSE 4

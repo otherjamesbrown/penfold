@@ -4,7 +4,7 @@ package temporal
 // These constants provide a single source of truth for activity names,
 // preventing typos and mismatches between registration and invocation.
 
-// Main Task Queue activity names (20 activities).
+// Main Task Queue activity names (21 activities).
 const (
 	ActivityValidateContent          = "ValidateContent"
 	ActivityFetchContent             = "FetchContent"
@@ -26,6 +26,7 @@ const (
 	ActivityDeepAnalyze              = "DeepAnalyze"
 	ActivityRecordOverrides          = "RecordOverrides"
 	ActivityGroupEmailThread         = "GroupEmailThread"
+	ActivityCreateEnrichmentRecord   = "CreateEnrichmentRecord"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -67,6 +68,7 @@ func AllMainQueueActivities() []string {
 		ActivityDeepAnalyze,
 		ActivityRecordOverrides,
 		ActivityGroupEmailThread,
+		ActivityCreateEnrichmentRecord,
 	}
 }
 

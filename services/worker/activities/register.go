@@ -29,6 +29,7 @@ type Registrar struct {
 	personEnrichmentActivities *PersonEnrichmentActivities
 	projectTaggingActivities   *ProjectTaggingActivities
 	threadActivities           *ThreadActivities
+	enrichmentActivities       *EnrichmentActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -113,6 +114,12 @@ func (r *Registrar) WithProjectTaggingActivities(pta *ProjectTaggingActivities) 
 // WithThreadActivities adds thread activities to the registrar.
 func (r *Registrar) WithThreadActivities(ta *ThreadActivities) *Registrar {
 	r.threadActivities = ta
+	return r
+}
+
+// WithEnrichmentActivities adds enrichment activities to the registrar.
+func (r *Registrar) WithEnrichmentActivities(ea *EnrichmentActivities) *Registrar {
+	r.enrichmentActivities = ea
 	return r
 }
 
@@ -266,6 +273,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 			Name: pkgtemporal.ActivityGroupEmailThread,
 		})
 	}
+
+	// Enrichment activities for content_enrichment record creation
+	if r.enrichmentActivities != nil {
+		w.RegisterActivityWithOptions(r.enrichmentActivities.CreateEnrichmentRecord, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityCreateEnrichmentRecord,
+		})
+	}
 }
 
 // registerAIQueueActivities registers activities for the AI task queue.
@@ -416,6 +430,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// GroupEmailThread
 		if r.threadActivities != nil {
+			count += 1
+		}
+		// CreateEnrichmentRecord
+		if r.enrichmentActivities != nil {
 			count += 1
 		}
 		return count

@@ -327,6 +327,11 @@ type EnrichmentRepository interface {
 	GetBySourceID(ctx context.Context, sourceID int64) (*EnrichmentRecord, error)
 	// Update updates an existing enrichment record.
 	Update(ctx context.Context, e *EnrichmentRecord) error
+	// Create inserts a new enrichment record.
+	// Note: This uses enrichment.Enrichment from pkg/enrichment, not EnrichmentRecord.
+	// The activity will need to import "github.com/otherjamesbrown/penfold/pkg/enrichment"
+	// and pass enrichment.Enrichment to this method.
+	Create(ctx context.Context, e interface{}) error
 }
 
 // EnrichmentRecord represents an enrichment record for content subtype updates.

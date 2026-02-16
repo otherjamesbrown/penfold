@@ -291,6 +291,7 @@ func TestTriage_ContentSubtypeClassification_NoEnrichmentRecord(t *testing.T) {
 type mockEnrichmentRepository struct {
 	getBySourceIDFn func(ctx context.Context, sourceID int64) (*EnrichmentRecord, error)
 	updateFn        func(ctx context.Context, e *EnrichmentRecord) error
+	createFn        func(ctx context.Context, e interface{}) error
 }
 
 func (m *mockEnrichmentRepository) GetBySourceID(ctx context.Context, sourceID int64) (*EnrichmentRecord, error) {
@@ -303,6 +304,13 @@ func (m *mockEnrichmentRepository) GetBySourceID(ctx context.Context, sourceID i
 func (m *mockEnrichmentRepository) Update(ctx context.Context, e *EnrichmentRecord) error {
 	if m.updateFn != nil {
 		return m.updateFn(ctx, e)
+	}
+	return nil
+}
+
+func (m *mockEnrichmentRepository) Create(ctx context.Context, e interface{}) error {
+	if m.createFn != nil {
+		return m.createFn(ctx, e)
 	}
 	return nil
 }

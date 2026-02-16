@@ -53,6 +53,7 @@ func (r *Repository) Create(ctx context.Context, e *Enrichment) error {
 			source_id, tenant_id,
 			content_type, content_subtype, processing_profile,
 			classification_confidence, classification_reason,
+			source_system,
 			status, current_stage, error_message, retry_count,
 			participants, resolved_participants, extracted_links,
 			thread_id, project_id, extracted_data,
@@ -62,11 +63,12 @@ func (r *Repository) Create(ctx context.Context, e *Enrichment) error {
 			$1, $2,
 			$3, $4, $5,
 			$6, $7,
-			$8, $9, $10, $11,
-			$12, $13, $14,
-			$15, $16, $17,
-			$18, $19, $20,
-			NOW(), NOW(), $21
+			$8,
+			$9, $10, $11, $12,
+			$13, $14, $15,
+			$16, $17, $18,
+			$19, $20, $21,
+			NOW(), NOW(), $22
 		)
 		RETURNING id, created_at, updated_at
 	`
@@ -79,6 +81,7 @@ func (r *Repository) Create(ctx context.Context, e *Enrichment) error {
 		e.Classification.Profile,
 		e.Classification.Confidence,
 		e.Classification.Reason,
+		e.SourceSystem,
 		e.Status,
 		e.CurrentStage,
 		nullIfEmpty(e.ErrorMessage),

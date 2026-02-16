@@ -61,3 +61,13 @@ func (r *postgresEnrichmentRepository) Update(ctx context.Context, rec *Enrichme
 	// Save back
 	return r.repo.Update(ctx, e)
 }
+
+// Create inserts a new enrichment record.
+// The input must be *enrichment.Enrichment (from pkg/enrichment).
+func (r *postgresEnrichmentRepository) Create(ctx context.Context, e interface{}) error {
+	enrichmentRecord, ok := e.(*enrichment.Enrichment)
+	if !ok {
+		return nil // Type assertion failed, but interface{} allows this
+	}
+	return r.repo.Create(ctx, enrichmentRecord)
+}

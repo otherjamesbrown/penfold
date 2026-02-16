@@ -9,6 +9,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
@@ -186,6 +187,23 @@ type DetailedRisk struct {
 	SeverityHint string `json:"severity_hint,omitempty"`
 	OwnerHint    string `json:"owner_hint,omitempty"`
 	Impact       string `json:"impact,omitempty"`
+}
+
+// CreateEnrichmentRecordInput contains the data needed to create a content_enrichment record.
+type CreateEnrichmentRecordInput struct {
+	SourceID                 int64                         `json:"source_id"`
+	TenantID                 string                        `json:"tenant_id"`
+	ContentType              enrichment.ContentType        `json:"content_type"`
+	ContentSubtype           enrichment.ContentSubtype     `json:"content_subtype"`
+	SourceSystem             enrichment.SourceSystem       `json:"source_system"`
+	ProcessingProfile        enrichment.ProcessingProfile  `json:"processing_profile"`
+	ClassificationConfidence float32                       `json:"classification_confidence"`
+	ClassificationReason     string                        `json:"classification_reason"`
+}
+
+// CreateEnrichmentRecordOutput contains the result of creating a content_enrichment record.
+type CreateEnrichmentRecordOutput struct {
+	EnrichmentID int64 `json:"enrichment_id"`
 }
 
 // GroupEmailThreadInput is the input for the GroupEmailThread activity.
@@ -820,6 +838,73 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		ContentSubtype:   triageOutput.ContentSubtype,
 		SourceSystem:     string(sourceSystem),
 	}).Get(ctx, nil)
+
+	// Create enrichment record (runs for all items after triage)
+	// Map input ContentType to enrichment.ContentType
+	var enrichmentContentType enrichment.ContentType
+	switch input.ContentType {
+	case "email":
+		enrichmentContentType = enrichment.ContentTypeEmail
+	case "calendar", "meeting":
+		enrichmentContentType = enrichment.ContentTypeCalendar
+	case "document":
+		enrichmentContentType = enrichment.ContentTypeDocument
+	case "attachment":
+		enrichmentContentType = enrichment.ContentTypeAttachment
+	default:
+		// Default to email for unknown types
+		enrichmentContentType = enrichment.ContentTypeEmail
+	}
+
+	// Map ContentSubtype string to enrichment.ContentSubtype
+	var enrichmentSubtype enrichment.ContentSubtype
+	if triageOutput.ContentSubtype != "" {
+		enrichmentSubtype = enrichment.ContentSubtype(triageOutput.ContentSubtype)
+	} else {
+		// Default subtype based on content type
+		switch enrichmentContentType {
+		case enrichment.ContentTypeEmail:
+			enrichmentSubtype = enrichment.SubtypeEmailStandalone
+		case enrichment.ContentTypeCalendar:
+			enrichmentSubtype = enrichment.SubtypeCalendarInvite
+		default:
+			enrichmentSubtype = enrichment.ContentSubtype("unknown")
+		}
+	}
+
+	// Map SkipDeep to ProcessingProfile
+	var processingProfile enrichment.ProcessingProfile
+	if triageOutput.SkipDeep {
+		processingProfile = enrichment.ProfileMetadataOnly
+	} else {
+		processingProfile = enrichment.ProfileFullAI
+	}
+
+	ctxEnrichment := workflow.WithActivityOptions(ctx, fastOpts)
+	var enrichmentOutput CreateEnrichmentRecordOutput
+	err = workflow.ExecuteActivity(ctxEnrichment, pkgtemporal.ActivityCreateEnrichmentRecord, CreateEnrichmentRecordInput{
+		SourceID:                 input.SourceID,
+		TenantID:                 input.TenantID,
+		ContentType:              enrichmentContentType,
+		ContentSubtype:           enrichmentSubtype,
+		SourceSystem:             sourceSystem,
+		ProcessingProfile:        processingProfile,
+		ClassificationConfidence: triageOutput.Confidence,
+		ClassificationReason:     triageOutput.Reason,
+	}).Get(ctx, &enrichmentOutput)
+
+	if err != nil {
+		// Log error but don't fail the pipeline - this is a new feature
+		logger.Warn("failed to create enrichment record (non-blocking)",
+			"source_id", input.SourceID,
+			"error", err.Error(),
+		)
+	} else {
+		logger.Info("enrichment record created",
+			"source_id", input.SourceID,
+			"enrichment_id", enrichmentOutput.EnrichmentID,
+		)
+	}
 
 	// ==================== Stage 2.5: Email Threading ====================
 	// Threading runs for ALL emails (independent of SkipDeep gate)
