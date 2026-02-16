@@ -30,6 +30,7 @@ type Registrar struct {
 	projectTaggingActivities   *ProjectTaggingActivities
 	threadActivities           *ThreadActivities
 	enrichmentActivities       *EnrichmentActivities
+	conversationActivities     *ConversationActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -120,6 +121,12 @@ func (r *Registrar) WithThreadActivities(ta *ThreadActivities) *Registrar {
 // WithEnrichmentActivities adds enrichment activities to the registrar.
 func (r *Registrar) WithEnrichmentActivities(ea *EnrichmentActivities) *Registrar {
 	r.enrichmentActivities = ea
+	return r
+}
+
+// WithConversationActivities adds conversation activities to the registrar.
+func (r *Registrar) WithConversationActivities(ca *ConversationActivities) *Registrar {
+	r.conversationActivities = ca
 	return r
 }
 
@@ -283,6 +290,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 			Name: pkgtemporal.ActivityCreateEnrichmentRecord,
 		})
 	}
+
+	// Conversation activities for conversation auto-linking
+	if r.conversationActivities != nil {
+		w.RegisterActivityWithOptions(r.conversationActivities.LinkConversation, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityLinkConversation,
+		})
+	}
 }
 
 // registerAIQueueActivities registers activities for the AI task queue.
@@ -437,6 +451,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// CreateEnrichmentRecord
 		if r.enrichmentActivities != nil {
+			count += 1
+		}
+		// LinkConversation
+		if r.conversationActivities != nil {
 			count += 1
 		}
 		return count

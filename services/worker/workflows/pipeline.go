@@ -224,6 +224,19 @@ type GroupEmailThreadOutput struct {
 	ThreadID *string `json:"thread_id,omitempty"` // Root message ID (nil if not threaded)
 }
 
+// LinkConversationInput is the input for the LinkConversation activity.
+type LinkConversationInput struct {
+	TenantID  string `json:"tenant_id"`
+	SourceID  int64  `json:"source_id"`
+	ThreadID  string `json:"thread_id"`  // Root message ID from threading
+	ContentID string `json:"content_id"` // Content item ID to link
+}
+
+// LinkConversationOutput is the output from the LinkConversation activity.
+type LinkConversationOutput struct {
+	ConversationID string `json:"conversation_id,omitempty"` // Empty if skipped or failed
+}
+
 // BuildContextInput is the input for the BuildContextPackage activity.
 type BuildContextInput struct {
 	TenantID          string                            `json:"tenant_id"`
@@ -1028,6 +1041,38 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			logger.Info("email threading completed",
 				"source_id", input.SourceID,
 				"thread_id", *threadID,
+			)
+		}
+	}
+
+	// ==================== Stage 2.6: Conversation Auto-Linking ====================
+	// After threading, auto-link conversation if a thread_id exists
+	// Runs for ALL emails (independent of SkipDeep gate)
+	if threadID != nil && input.ContentID != "" {
+		logger.Debug("starting conversation linking",
+			"source_id", input.SourceID,
+			"thread_id", *threadID,
+			"content_id", input.ContentID,
+		)
+		convOutput := &LinkConversationOutput{}
+		ctxConv := workflow.WithActivityOptions(ctx, fastOpts)
+		err = workflow.ExecuteActivity(ctxConv, pkgtemporal.ActivityLinkConversation, LinkConversationInput{
+			TenantID:  input.TenantID,
+			SourceID:  input.SourceID,
+			ThreadID:  *threadID,
+			ContentID: input.ContentID,
+		}).Get(ctx, convOutput)
+		if err != nil {
+			logger.Warn("conversation linking failed (non-blocking)",
+				"source_id", input.SourceID,
+				"thread_id", *threadID,
+				"error", err.Error(),
+			)
+		} else if convOutput != nil && convOutput.ConversationID != "" {
+			logger.Info("conversation linking completed",
+				"source_id", input.SourceID,
+				"thread_id", *threadID,
+				"conversation_id", convOutput.ConversationID,
 			)
 		}
 	}

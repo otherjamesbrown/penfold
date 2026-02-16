@@ -1216,6 +1216,10 @@ func init() {
 	threadCmd.GroupID = "query"
 	rootCmd.AddCommand(threadCmd)
 
+	conversationCmd := cmd.NewConversationCommand(nil)
+	conversationCmd.GroupID = "query"
+	rootCmd.AddCommand(conversationCmd)
+
 	// Content & Pipeline
 	contentCmd := cmd.NewContentCommand(nil)
 	contentCmd.GroupID = "content"

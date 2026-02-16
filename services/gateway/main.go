@@ -39,6 +39,7 @@ import (
 	teamsv1 "github.com/otherjamesbrown/penfold/api/proto/teams/v1"
 	tenantv1 "github.com/otherjamesbrown/penfold/api/proto/tenant/v1"
 	assertionsv1 "github.com/otherjamesbrown/penfold/api/proto/assertions/v1"
+	conversationv1 "github.com/otherjamesbrown/penfold/api/proto/conversation/v1"
 	threadsv1 "github.com/otherjamesbrown/penfold/api/proto/threads/v1"
 	watchlistv1 "github.com/otherjamesbrown/penfold/api/proto/watchlist/v1"
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
@@ -72,6 +73,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/entitymanagementservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/assertionsservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/conversationservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/internal/langfuse"
 	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
@@ -405,6 +407,12 @@ func main() {
 	threadsSvc := threadsservice.NewService(threadsRepo, logger)
 	threadsv1.RegisterThreadsServiceServer(grpcServer, threadsSvc)
 	logger.Info("Registered ThreadsService")
+
+	// Register ConversationService for conversation queries.
+	conversationRepo := conversationservice.NewPostgresRepository(dbPool, logger)
+	conversationSvc := conversationservice.NewService(conversationRepo, logger)
+	conversationv1.RegisterConversationServiceServer(grpcServer, conversationSvc)
+	logger.Info("Registered ConversationService")
 
 	// Register QualityService for quality monitoring and issue tracking.
 	qualitySvc := qualityservice.NewService(dbPool, logger)

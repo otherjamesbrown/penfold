@@ -411,3 +411,22 @@ type GroupEmailThreadInput struct {
 type GroupEmailThreadOutput struct {
 	ThreadID *string `json:"thread_id,omitempty"` // Root message ID (nil if not threaded)
 }
+
+// ConversationRepository defines the interface for conversation data access.
+type ConversationRepository interface {
+	// UpsertConversation creates or updates a conversation.
+	// If thread_key matches an existing conversation, updates it and returns the existing ID.
+	// Otherwise, creates a new conversation and returns the new ID.
+	UpsertConversation(ctx context.Context, conversation *Conversation) (string, error)
+
+	// AddConversationItem adds a content item to a conversation.
+	// Idempotent: duplicate (conversation_id, content_id) pairs are ignored.
+	AddConversationItem(ctx context.Context, conversationID, contentID string, sourceID *int64, tenantID string) error
+
+	// AddConversationParticipant adds a participant to a conversation.
+	// Idempotent: duplicate participants are ignored.
+	AddConversationParticipant(ctx context.Context, conversationID string, name, address *string, tenantID string) error
+
+	// UpdateConversationStats recalculates counts and timestamps for a conversation.
+	UpdateConversationStats(ctx context.Context, conversationID string) error
+}
