@@ -19,6 +19,7 @@ import (
 
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
@@ -554,6 +555,14 @@ func main() {
 		threadActivities := activities.NewThreadActivities(logger, sourceRepo, threadRepo)
 		activityRegistrar.WithThreadActivities(threadActivities)
 		logger.Info("Thread activities initialized with database (Stage 2.5)")
+	}
+
+	// Initialize Enrichment Record Activities (creates content_enrichment rows after triage)
+	if dbPool != nil {
+		enrichmentRepo := enrichment.NewRepository(dbPool, logger)
+		enrichmentActivities := activities.NewEnrichmentActivities(logger, enrichmentRepo)
+		activityRegistrar.WithEnrichmentActivities(enrichmentActivities)
+		logger.Info("Enrichment record activities initialized with database")
 	}
 
 	workflowRegistrar := workflows.NewRegistrar()
