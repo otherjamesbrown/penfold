@@ -260,7 +260,34 @@ func createLangfuseExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 		return nil, fmt.Errorf("failed to create Langfuse OTLP HTTP exporter: %w", err)
 	}
 
-	return exporter, nil
+	// Only export AI-related spans to Langfuse, not every Temporal activity
+	return &scopeFilterExporter{
+		inner:      exporter,
+		scopePrefix: "penfold.ai",
+	}, nil
+}
+
+// scopeFilterExporter wraps a SpanExporter and only exports spans from matching instrumentation scopes.
+type scopeFilterExporter struct {
+	inner       sdktrace.SpanExporter
+	scopePrefix string
+}
+
+func (f *scopeFilterExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
+	var filtered []sdktrace.ReadOnlySpan
+	for _, s := range spans {
+		if s.InstrumentationScope().Name == f.scopePrefix {
+			filtered = append(filtered, s)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return f.inner.ExportSpans(ctx, filtered)
+}
+
+func (f *scopeFilterExporter) Shutdown(ctx context.Context) error {
+	return f.inner.Shutdown(ctx)
 }
 
 // LangfuseConfigFromEnv creates a LangfuseConfig from environment variables.
