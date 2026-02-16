@@ -32,7 +32,8 @@ type E2EEnv struct {
 	TenantID   string
 	GatewayURL string
 	FixtureDir string
-	CLI        *CLIRunner
+	CLI        *CLIRunner     // Legacy - use SafeCLI for new code
+	SafeCLI    *SafeCLIRunner // Production-safe CLI runner
 	t          *testing.T
 }
 
@@ -47,7 +48,7 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
 	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
 	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
-	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold_test") // Use test DB
+	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold") // Use production DB with test tenant isolation
 	gatewayURL := getEnvOrDefault("GATEWAY_URL", "http://dev02.brown.chat:8080")
 
 	// Build connection string with SSL cert auth
@@ -101,8 +102,11 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	_, err = db.RunMigrations(ctx, pool, migrationsDir)
 	require.NoError(t, err, "failed to run migrations")
 
-	// Initialize CLI runner
-	cli := NewCLIRunner(t)
+	// Initialize SafeCLIRunner with production tenant protection
+	safeCLI := NewSafeCLIRunner(t, TestTenantID)
+
+	// For backward compatibility, keep CLI field pointing to underlying runner
+	cli := safeCLI.Runner
 
 	// Set environment variables for CLI commands
 	// CLI uses DB_* env vars (see cmd/penf/cmd/ingest_email.go)
@@ -122,8 +126,7 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 	cli.SetEnv("REDIS_HOST", redisHost)
 	cli.SetEnv("REDIS_PORT", redisPort)
 
-	// Set test tenant ID for CLI commands
-	cli.SetEnv("PENF_TENANT_ID", TestTenantID)
+	// PENF_TENANT_ID is already set by SafeCLIRunner
 
 	// Use absolute path for fixtures (CLI runs from project root)
 	fixtureDir := filepath.Join(cli.WorkDir, "tests", "fixtures", "acme-corp")
@@ -135,6 +138,7 @@ func SetupE2EEnvironment(t *testing.T) *E2EEnv {
 		GatewayURL: gatewayURL,
 		FixtureDir: fixtureDir,
 		CLI:        cli,
+		SafeCLI:    safeCLI,
 		t:          t,
 	}
 
@@ -419,4 +423,230 @@ func getEnvOrDefault(key, defaultValue string) string {
 // FixturePath returns the full path to a fixture file.
 func (env *E2EEnv) FixturePath(relativePath string) string {
 	return filepath.Join(env.FixtureDir, relativePath)
+}
+
+// LoadFixtureCLI loads fixture data via CLI commands instead of direct DB inserts.
+// This provides production-safe fixture loading through the Gateway API.
+//
+// Supported fixture sets:
+//   - "acme-corp": Loads teams, people, glossary, projects from tests/fixtures/acme-corp/
+func (env *E2EEnv) LoadFixtureCLI(name string) error {
+	if name != "acme-corp" {
+		return fmt.Errorf("unknown fixture: %s", name)
+	}
+
+	ctx := context.Background()
+
+	// Ensure tenant exists before loading fixtures
+	if err := env.EnsureTenantExists(); err != nil {
+		return fmt.Errorf("ensure tenant exists: %w", err)
+	}
+
+	// Load teams first (people reference teams)
+	if err := env.loadTeamsCLI(ctx); err != nil {
+		return fmt.Errorf("load teams: %w", err)
+	}
+
+	// Load glossary terms
+	if err := env.loadGlossaryCLI(ctx); err != nil {
+		return fmt.Errorf("load glossary: %w", err)
+	}
+
+	// Load projects
+	if err := env.loadProjectsCLI(ctx); err != nil {
+		return fmt.Errorf("load projects: %w", err)
+	}
+
+	// Note: People are not loaded via CLI because there's no "penf people create" command.
+	// People are created implicitly when they appear in content (emails, meetings, etc.)
+	// or via team membership. This is by design - Penfold discovers people from content.
+
+	return nil
+}
+
+// TeamFixture represents a team from the YAML fixture.
+type TeamFixture struct {
+	ID          int     `yaml:"id"`
+	Name        string  `yaml:"name"`
+	Description string  `yaml:"description"`
+	Slug        string  `yaml:"slug"`
+	ParentID    *int    `yaml:"parent_id"`
+	LeadID      *int    `yaml:"lead_id"`
+}
+
+// GlossaryTermFixture represents a glossary term from the YAML fixture.
+type GlossaryTermFixture struct {
+	Term              string   `yaml:"term"`
+	Expansion         string   `yaml:"expansion"`
+	Definition        string   `yaml:"definition"`
+	Context           string   `yaml:"context"`
+	Aliases           []string `yaml:"aliases"`
+	LinkedEntityType  string   `yaml:"linked_entity_type"`
+	LinkedEntityID    int      `yaml:"linked_entity_id"`
+}
+
+// ProjectFixture represents a project from the YAML fixture.
+type ProjectFixture struct {
+	ID          int     `yaml:"id"`
+	Name        string  `yaml:"name"`
+	Slug        string  `yaml:"slug"`
+	Description string  `yaml:"description"`
+	Status      string  `yaml:"status"`
+	OwnerID     int     `yaml:"owner_id"`
+	TeamID      int     `yaml:"team_id"`
+	StartDate   string  `yaml:"start_date"`
+	TargetDate  string  `yaml:"target_date"`
+}
+
+// loadTeamsCLI loads teams via CLI commands.
+func (env *E2EEnv) loadTeamsCLI(ctx context.Context) error {
+	teamsPath := filepath.Join(env.FixtureDir, "teams.yaml")
+	var data struct {
+		Teams []TeamFixture `yaml:"teams"`
+	}
+
+	if err := yaml.Unmarshal(mustReadFile(teamsPath), &data); err != nil {
+		return fmt.Errorf("parse teams.yaml: %w", err)
+	}
+
+	// Create teams in order (parents before children)
+	for _, team := range data.Teams {
+		result := env.SafeCLI.RunTeamCreate(ctx, team.Name, team.Description)
+		if !result.Success() {
+			return fmt.Errorf("create team %s: %w\nstderr: %s", team.Name, result.Err, result.Stderr)
+		}
+		env.t.Logf("Created team: %s", team.Name)
+	}
+
+	return nil
+}
+
+// loadGlossaryCLI loads glossary terms via CLI commands.
+func (env *E2EEnv) loadGlossaryCLI(ctx context.Context) error {
+	glossaryPath := filepath.Join(env.FixtureDir, "glossary.yaml")
+	var data struct {
+		Terms []GlossaryTermFixture `yaml:"terms"`
+	}
+
+	if err := yaml.Unmarshal(mustReadFile(glossaryPath), &data); err != nil {
+		return fmt.Errorf("parse glossary.yaml: %w", err)
+	}
+
+	for _, term := range data.Terms {
+		// Add the main term
+		result := env.SafeCLI.RunGlossaryAdd(ctx, term.Term, term.Expansion, term.Definition, term.Context)
+		if !result.Success() {
+			return fmt.Errorf("add glossary term %s: %w\nstderr: %s", term.Term, result.Err, result.Stderr)
+		}
+
+		// Add aliases
+		for _, alias := range term.Aliases {
+			result := env.SafeCLI.RunGlossaryAlias(ctx, term.Term, alias)
+			if !result.Success() {
+				// Log warning but continue - aliases are non-critical
+				env.t.Logf("WARNING: Failed to add alias %s for term %s: %v", alias, term.Term, result.Err)
+			}
+		}
+
+		env.t.Logf("Created glossary term: %s", term.Term)
+	}
+
+	return nil
+}
+
+// loadProjectsCLI loads projects via CLI commands.
+func (env *E2EEnv) loadProjectsCLI(ctx context.Context) error {
+	projectsPath := filepath.Join(env.FixtureDir, "projects.yaml")
+	var data struct {
+		Projects []ProjectFixture `yaml:"projects"`
+	}
+
+	if err := yaml.Unmarshal(mustReadFile(projectsPath), &data); err != nil {
+		return fmt.Errorf("parse projects.yaml: %w", err)
+	}
+
+	for _, project := range data.Projects {
+		// Extract keywords from description or use slug
+		keywords := []string{project.Slug}
+
+		result := env.SafeCLI.RunProjectAdd(ctx, project.Name, project.Description, keywords)
+		if !result.Success() {
+			return fmt.Errorf("add project %s: %w\nstderr: %s", project.Name, result.Err, result.Stderr)
+		}
+		env.t.Logf("Created project: %s", project.Name)
+	}
+
+	return nil
+}
+
+// mustReadFile reads a file and panics on error.
+func mustReadFile(path string) []byte {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		panic(fmt.Sprintf("failed to read %s: %v", path, err))
+	}
+	return data
+}
+
+// WaitForProcessingCLI polls the CLI for content processing completion.
+// It uses "penf content list --output json" to check processing status.
+//
+// This replaces the DB-based waitForProcessingComplete() with a CLI-based approach
+// that goes through the Gateway API, matching production behavior.
+func (env *E2EEnv) WaitForProcessingCLI(ctx context.Context, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting for content processing after %v", timeout)
+			}
+
+			// Check content status via CLI
+			result := env.SafeCLI.RunContentList(ctx)
+			if !result.Success() {
+				env.t.Logf("WARNING: Content list failed: %v", result.Err)
+				continue
+			}
+
+			// Parse JSON response
+			var contentList struct {
+				Items []struct {
+					ID     string `json:"id"`
+					Status string `json:"status"`
+					Type   string `json:"type"`
+				} `json:"items"`
+			}
+
+			if err := json.Unmarshal([]byte(result.Stdout), &contentList); err != nil {
+				env.t.Logf("WARNING: Failed to parse content list: %v", err)
+				continue
+			}
+
+			// Check if all items are completed
+			allCompleted := true
+			for _, item := range contentList.Items {
+				if item.Status != "COMPLETED" && item.Status != "completed" {
+					allCompleted = false
+					env.t.Logf("Waiting for content %s (type=%s, status=%s)", item.ID, item.Type, item.Status)
+					break
+				}
+			}
+
+			if allCompleted && len(contentList.Items) > 0 {
+				env.t.Logf("All %d content items completed", len(contentList.Items))
+				return nil
+			}
+
+			// If no items yet, keep waiting
+			if len(contentList.Items) == 0 {
+				env.t.Logf("No content items found yet, continuing to wait...")
+			}
+		}
+	}
 }

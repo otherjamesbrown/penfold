@@ -421,9 +421,27 @@ func (env *PipelineE2EEnv) getSourceByID(ctx context.Context, sourceID int64) (*
 	return &s, nil
 }
 
-// createSource inserts a source record for testing.
+// createSource inserts a source record for testing via CLI ingestion.
+// This replaces the old direct DB INSERT approach with CLI-based ingestion
+// that goes through the Gateway (matching production behavior).
 func (env *PipelineE2EEnv) createSource(ctx context.Context, tenantID, sourceSystem, externalID, contentHash, contentType, rawContent string) (int64, error) {
-	// If no content hash provided, compute it
+	// Use CLI-based email ingestion for email content types
+	if contentType == "email" || contentType == "message/rfc822" {
+		opts := emailSourceOpts{
+			MessageID:   externalID,
+			Subject:     "Test Email",
+			FromAddress: "test@example.com",
+			FromName:    "Test Sender",
+			Body:        rawContent,
+			Date:        time.Now(),
+			ExternalID:  externalID,
+		}
+		sourceID := createEmailSourceCLI(env.t, env, opts)
+		return sourceID, nil
+	}
+
+	// For non-email content types, fall back to direct insert
+	// (CLI ingestion for other content types not yet implemented)
 	if contentHash == "" {
 		hash := sha256.Sum256([]byte(rawContent))
 		contentHash = hex.EncodeToString(hash[:])

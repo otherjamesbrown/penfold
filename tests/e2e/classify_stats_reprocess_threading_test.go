@@ -31,73 +31,81 @@ import (
 // `penf classify stats` aggregates by the classified source_system field
 // (from ingestion_metadata JSONB), not the original source_type column.
 //
-// This test does NOT require the pipeline — it inserts sources directly
-// with known source_system values and checks the stats CLI output.
+// This test ingests emails via CLI and waits for classification to populate
+// source_system in metadata, then checks that stats CLI output shows those
+// classified types.
 func TestE2E_ClassifyStats_ReadsSourceSystemNotSourceType(t *testing.T) {
-	env := SetupE2EEnvironment(t)
+	env := SetupPipelineE2E(t)
 	ctx := context.Background()
 
 	testID := fmt.Sprintf("e2e-stats-field-%d", time.Now().UnixNano())
+	baseTime := time.Now().Add(-1 * time.Hour)
 
 	// Ensure test tenant exists
 	err := env.EnsureTenantExists()
 	require.NoError(t, err)
 
-	// Insert sources with source_type='manual_eml' (column) but
-	// source_system='human_email' / 'jira' in ingestion_metadata (JSONB).
-	// If stats reads the column, it'll show manual_eml.
-	// If stats reads the JSONB field, it'll show human_email/jira.
-	testSources := []struct {
-		externalID   string
-		sourceSystem string // goes into ingestion_metadata
+	// Ingest emails that will classify to different source_system values.
+	// These emails are crafted to trigger specific classification rules.
+	testEmails := []struct {
+		name           string
+		fromAddress    string
+		subject        string
+		expectedSystem string
 	}{
-		{fmt.Sprintf("stats-human-1-%s", testID), "human_email"},
-		{fmt.Sprintf("stats-human-2-%s", testID), "human_email"},
-		{fmt.Sprintf("stats-jira-1-%s", testID), "jira"},
+		{
+			name:           "human-1",
+			fromAddress:    "colleague@example.com",
+			subject:        "Project status update",
+			expectedSystem: "human_email",
+		},
+		{
+			name:           "human-2",
+			fromAddress:    "manager@example.com",
+			subject:        "Team meeting notes",
+			expectedSystem: "human_email",
+		},
+		{
+			name:           "jira-1",
+			fromAddress:    "jira@atlassian.net",
+			subject:        "[TRACK-JIRA] PROJ-123 assigned to you",
+			expectedSystem: "jira",
+		},
 	}
 
-	var insertedIDs []int64
-	for _, ts := range testSources {
-		meta := map[string]interface{}{
-			"source_system": ts.sourceSystem,
-			"subject":       "Test email for stats",
-			"from_address":  "test@example.com",
-		}
-		metaJSON, err := json.Marshal(meta)
-		require.NoError(t, err)
-
-		var sourceID int64
-		err = env.DB.QueryRow(ctx, `
-			INSERT INTO sources (
-				tenant_id, source_system, external_id, content_hash,
-				raw_content, content_type, content_size,
-				source_timestamp, ingestion_metadata,
-				processing_status, participant_emails
-			) VALUES (
-				$1, 'manual_eml', $2, encode(sha256($3::bytea), 'hex'),
-				$3, 'message/rfc822', length($3),
-				NOW(), $4::jsonb,
-				'completed', '{}'
-			) RETURNING id
-		`, env.TenantID, ts.externalID,
-			fmt.Sprintf("Test body for %s", ts.externalID),
-			metaJSON,
-		).Scan(&sourceID)
-		require.NoError(t, err, "failed to insert test source %s", ts.externalID)
-		insertedIDs = append(insertedIDs, sourceID)
-	}
-
+	// Clean up thread tables for this tenant
 	t.Cleanup(func() {
-		for _, id := range insertedIDs {
-			env.DB.Exec(ctx, "DELETE FROM sources WHERE id = $1", id)
-		}
+		env.DB.Exec(ctx, `DELETE FROM thread_messages WHERE thread_id IN (SELECT id FROM email_threads WHERE tenant_id = $1)`, testTenantID(env))
+		env.DB.Exec(ctx, `DELETE FROM email_threads WHERE tenant_id = $1`, testTenantID(env))
 	})
 
-	t.Logf("Inserted %d test sources with source_system in metadata", len(insertedIDs))
+	// Ingest all emails via CLI
+	for i, te := range testEmails {
+		opts := emailSourceOpts{
+			MessageID:         fmt.Sprintf("<stats-%s-%s@e2e.test>", te.name, testID),
+			Subject:           te.subject,
+			FromAddress:       te.fromAddress,
+			FromName:          "Test Sender",
+			Body:              fmt.Sprintf("Test email body for stats test %s.", te.name),
+			Date:              baseTime.Add(time.Duration(i) * time.Minute),
+			ExternalID:        fmt.Sprintf("stats-%s-%s", te.name, testID),
+			ParticipantEmails: []string{te.fromAddress},
+		}
+
+		sourceID := createEmailSource(t, env, opts)
+		t.Logf("Ingested email %s (source %d)", te.name, sourceID)
+	}
+
+	// Wait for pipeline to classify all emails
+	// runPipelineAndWait is called inside createEmailSource for each email
+	// Sleep to allow all pipeline workflows to complete
+	time.Sleep(15 * time.Second)
+
+	t.Logf("Ingested %d test emails with expected source_system values", len(testEmails))
 
 	// Run classify stats and check the breakdown
 	t.Run("stats_shows_classified_types_not_source_type", func(t *testing.T) {
-		result := env.CLI.Run(ctx, "classify", "stats", "-o", "json")
+		result := env.SafeCLI.Run(ctx, "classify", "stats", "-o", "json")
 		require.Equal(t, 0, result.ExitCode,
 			"penf classify stats should succeed: %s", result.Stderr)
 
@@ -246,11 +254,11 @@ func TestE2E_ReprocessContent_AlsoRunsThreadGrouper(t *testing.T) {
 	// --- Trigger reprocess via classify run ---
 	// This is what users do to reprocess existing content.
 
-	result := env.CLI.Run(ctx, "classify", "run", rootContentID)
+	result := env.SafeCLI.Run(ctx, "classify", "run", rootContentID)
 	require.Equal(t, 0, result.ExitCode,
 		"penf classify run should succeed: %s", result.Stderr)
 
-	result = env.CLI.Run(ctx, "classify", "run", replyContentID)
+	result = env.SafeCLI.Run(ctx, "classify", "run", replyContentID)
 	require.Equal(t, 0, result.ExitCode,
 		"penf classify run should succeed: %s", result.Stderr)
 
@@ -287,7 +295,7 @@ func TestE2E_ReprocessContent_AlsoRunsThreadGrouper(t *testing.T) {
 	})
 
 	t.Run("cli_thread_list_after_reprocess", func(t *testing.T) {
-		result := env.CLI.Run(ctx, "thread", "list", "-o", "json")
+		result := env.SafeCLI.Run(ctx, "thread", "list", "-o", "json")
 		if result.ExitCode == 0 {
 			assert.Contains(t, result.Stdout, rootMsgID,
 				"thread list should include our test thread after reprocess")

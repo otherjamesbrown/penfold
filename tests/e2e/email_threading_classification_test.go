@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -34,53 +35,94 @@ import (
 //
 // ============================================================================
 
-// createEmailSource inserts a source row with email metadata suitable for
-// pipeline processing. Returns the source ID.
-func createEmailSource(t *testing.T, env *PipelineE2EEnv, opts emailSourceOpts) int64 {
+// createEmailSourceCLI ingests an email via CLI (penf ingest email).
+// Generates a proper RFC 5322 .eml file and ingests it through the Gateway.
+// Returns the source ID (looked up after ingestion).
+//
+// This replaces the old createEmailSource() which inserted directly into DB
+// and bypassed the Gateway (causing CLI/gateway read failures).
+func createEmailSourceCLI(t *testing.T, env *PipelineE2EEnv, opts emailSourceOpts) int64 {
 	t.Helper()
 	ctx := context.Background()
 
-	// The sources table has no 'metadata' column — all metadata goes into
-	// ingestion_metadata (JSONB). Merge email headers into one map.
-	ingestionMeta := map[string]interface{}{
-		"message_id":   opts.MessageID,
-		"subject":      opts.Subject,
-		"from_address": opts.FromAddress,
-		"from_name":    opts.FromName,
-		"date":         opts.Date.Format(time.RFC3339),
-	}
-	if opts.InReplyTo != "" {
-		ingestionMeta["in_reply_to"] = opts.InReplyTo
-	}
-	if len(opts.References) > 0 {
-		ingestionMeta["references"] = opts.References
-	}
-	if len(opts.To) > 0 {
-		ingestionMeta["to"] = opts.To
-	}
+	// Generate RFC 5322 .eml file content
+	emlContent := generateEMLContent(opts)
 
-	ingestionMetaJSON, err := json.Marshal(ingestionMeta)
-	require.NoError(t, err)
+	// Write to temp file
+	tmpFile := fmt.Sprintf("/tmp/e2e-email-%s.eml", opts.ExternalID)
+	err := os.WriteFile(tmpFile, []byte(emlContent), 0644)
+	require.NoError(t, err, "failed to write temp EML file")
+	t.Cleanup(func() {
+		os.Remove(tmpFile)
+	})
 
+	// Ingest via CLI
+	result := env.SafeCLI.RunIngest(ctx, "email", tmpFile)
+	require.True(t, result.Success(), "ingest email should succeed: %v\nstderr: %s", result.Err, result.Stderr)
+
+	// Extract content ID from CLI output (or look up in DB)
+	// The CLI output includes: "Ingested email: <content_id>"
+	// For now, look up the source by external_id (Message-ID)
 	var sourceID int64
 	err = env.DB.QueryRow(ctx, `
-		INSERT INTO sources (
-			tenant_id, source_system, external_id, content_hash,
-			raw_content, content_type, content_size,
-			source_timestamp, ingestion_metadata,
-			processing_status, participant_emails
-		) VALUES (
-			$1, 'manual_eml', $2, encode(sha256($3::bytea), 'hex'),
-			$3, 'message/rfc822', length($3),
-			$4, $5::jsonb,
-			'pending', $6
-		) RETURNING id
-	`, testTenantID(env), opts.ExternalID, opts.Body, opts.Date,
-		ingestionMetaJSON, opts.ParticipantEmails,
-	).Scan(&sourceID)
-	require.NoError(t, err, "failed to insert test email source")
+		SELECT id FROM sources
+		WHERE tenant_id = $1 AND ingestion_metadata->>'message_id' = $2
+		ORDER BY created_at DESC LIMIT 1
+	`, testTenantID(env), opts.MessageID).Scan(&sourceID)
+	require.NoError(t, err, "failed to look up source ID after CLI ingest")
 
 	return sourceID
+}
+
+// generateEMLContent creates RFC 5322 compliant email content from options.
+func generateEMLContent(opts emailSourceOpts) string {
+	var eml strings.Builder
+
+	// Required headers
+	eml.WriteString(fmt.Sprintf("Message-ID: %s\r\n", opts.MessageID))
+	eml.WriteString(fmt.Sprintf("From: %s <%s>\r\n", opts.FromName, opts.FromAddress))
+	eml.WriteString(fmt.Sprintf("Subject: %s\r\n", opts.Subject))
+	eml.WriteString(fmt.Sprintf("Date: %s\r\n", opts.Date.Format(time.RFC1123Z)))
+
+	// Optional headers
+	if opts.InReplyTo != "" {
+		eml.WriteString(fmt.Sprintf("In-Reply-To: %s\r\n", opts.InReplyTo))
+	}
+	if len(opts.References) > 0 {
+		eml.WriteString(fmt.Sprintf("References: %s\r\n", strings.Join(opts.References, " ")))
+	}
+	if len(opts.To) > 0 {
+		toAddrs := make([]string, len(opts.To))
+		for i, to := range opts.To {
+			if name, ok := to["name"]; ok {
+				toAddrs[i] = fmt.Sprintf("%s <%s>", name, to["email"])
+			} else {
+				toAddrs[i] = to["email"]
+			}
+		}
+		eml.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(toAddrs, ", ")))
+	}
+
+	// Content headers
+	eml.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	eml.WriteString("MIME-Version: 1.0\r\n")
+
+	// Empty line separates headers from body
+	eml.WriteString("\r\n")
+
+	// Body
+	eml.WriteString(opts.Body)
+
+	return eml.String()
+}
+
+// createEmailSource is the legacy direct-DB-insert version.
+// DEPRECATED: Use createEmailSourceCLI instead.
+// Kept for reference during migration.
+func createEmailSource(t *testing.T, env *PipelineE2EEnv, opts emailSourceOpts) int64 {
+	t.Helper()
+	// Migration: Replace all calls with createEmailSourceCLI
+	return createEmailSourceCLI(t, env, opts)
 }
 
 type emailSourceOpts struct {
@@ -240,7 +282,7 @@ func TestE2E_EmailThreading_PipelinePopulatesThreads(t *testing.T) {
 	// --- Verify CLI output: penf thread list ---
 
 	t.Run("cli_thread_list_shows_thread", func(t *testing.T) {
-		result := env.CLI.Run(ctx, "thread", "list", "-o", "json")
+		result := env.SafeCLI.Run(ctx, "thread", "list", "-o", "json")
 		if result.ExitCode != 0 {
 			t.Fatalf("penf thread list failed: %s", result.Stderr)
 		}
@@ -271,7 +313,7 @@ func TestE2E_EmailThreading_PipelinePopulatesThreads(t *testing.T) {
 	t.Run("cli_content_show_has_thread_id", func(t *testing.T) {
 		contentID := getContentIDForSource(t, env, replySourceID)
 
-		result := env.CLI.Run(ctx, "content", "show", contentID, "-o", "json")
+		result := env.SafeCLI.Run(ctx, "content", "show", contentID, "-o", "json")
 		require.Equal(t, 0, result.ExitCode, "content show should succeed: %s", result.Stderr)
 
 		var showResp map[string]interface{}
@@ -437,7 +479,7 @@ func TestE2E_SourceClassification_PipelinePersistsSourceSystem(t *testing.T) {
 			t.Run("cli_shows_source_system", func(t *testing.T) {
 				contentID := getContentIDForSource(t, env, sourceID)
 
-				result := env.CLI.Run(ctx, "content", "show", contentID, "-o", "json")
+				result := env.SafeCLI.Run(ctx, "content", "show", contentID, "-o", "json")
 				require.Equal(t, 0, result.ExitCode, "content show should succeed: %s", result.Stderr)
 
 				var showResp map[string]interface{}
@@ -521,7 +563,7 @@ func cliContentShowMetadata(t *testing.T, env *PipelineE2EEnv, contentID string)
 	t.Helper()
 	ctx := context.Background()
 
-	result := env.CLI.Run(ctx, "content", "show", contentID, "-o", "json")
+	result := env.SafeCLI.Run(ctx, "content", "show", contentID, "-o", "json")
 	require.Equal(t, 0, result.ExitCode, "content show failed: %s", result.Stderr)
 
 	var resp map[string]interface{}
@@ -540,7 +582,7 @@ func threadListContains(t *testing.T, env *PipelineE2EEnv, rootMessageID string)
 	t.Helper()
 	ctx := context.Background()
 
-	result := env.CLI.Run(ctx, "thread", "list", "-o", "json")
+	result := env.SafeCLI.Run(ctx, "thread", "list", "-o", "json")
 	if result.ExitCode != 0 {
 		return false
 	}

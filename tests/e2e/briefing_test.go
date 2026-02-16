@@ -39,7 +39,7 @@ import (
 //
 // This catches the a.type vs a.assertion_type column name mismatch.
 func TestE2E_Briefing_DoesNotCrashOnValidProject(t *testing.T) {
-	env := SetupE2EEnvironment(t)
+	env := SetupPipelineE2E(t)
 	ctx := context.Background()
 
 	// Ensure test tenant and project exist
@@ -49,71 +49,35 @@ func TestE2E_Briefing_DoesNotCrashOnValidProject(t *testing.T) {
 	testID := fmt.Sprintf("e2e-briefing-%d", time.Now().UnixNano())
 	projectName := fmt.Sprintf("BriefingTest-%s", testID[:16])
 
-	// Create a test project
-	var projectID int64
-	err = env.DB.QueryRow(ctx, `
-		INSERT INTO projects (tenant_id, name, description, keywords, created_at, updated_at)
-		VALUES ($1, $2, 'Test project for briefing', '{"test"}', NOW(), NOW())
-		RETURNING id
-	`, env.TenantID, projectName).Scan(&projectID)
-	require.NoError(t, err, "failed to create test project")
+	// Create a test project via CLI
+	result := env.SafeCLI.RunProjectAdd(ctx, projectName, "Test project for briefing", []string{"brieftest"})
+	require.True(t, result.Success(), "project add should succeed: %v\nstderr: %s", result.Err, result.Stderr)
+	t.Logf("Created project %q via CLI", projectName)
 
-	t.Cleanup(func() {
-		env.DB.Exec(ctx, "DELETE FROM assertions WHERE project_id = $1 AND tenant_id = $2", projectID, env.TenantID)
-		env.DB.Exec(ctx, "DELETE FROM projects WHERE id = $1 AND tenant_id = $2", projectID, env.TenantID)
-	})
+	// Ingest an email mentioning the project keyword to create assertions
+	// The pipeline will create person, source, and assertions automatically
+	opts := emailSourceOpts{
+		MessageID:         fmt.Sprintf("<briefing-%s@e2e.test>", testID),
+		Subject:           fmt.Sprintf("Update on %s deliverables", projectName),
+		FromAddress:       "briefing-sender@example.com",
+		FromName:          "Briefing Sender",
+		Body:              fmt.Sprintf("The %s is progressing well. We need to address the brieftest issues.", projectName),
+		Date:              time.Now().Add(-1 * time.Hour),
+		ExternalID:        fmt.Sprintf("briefing-%s", testID),
+		ParticipantEmails: []string{"briefing-sender@example.com"},
+	}
 
-	// Create a test person (required for the JOIN in briefing query)
-	var personID int64
-	err = env.DB.QueryRow(ctx, `
-		INSERT INTO people (tenant_id, canonical_name, created_at, updated_at)
-		VALUES ($1, 'Briefing Test Person', NOW(), NOW())
-		RETURNING id
-	`, env.TenantID).Scan(&personID)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		env.DB.Exec(ctx, "DELETE FROM people WHERE id = $1", personID)
-	})
+	sourceID := createEmailSource(t, env, opts)
+	t.Logf("Ingested email (source %d) mentioning project", sourceID)
 
-	// Create a test source (required FK for assertions)
-	var sourceID int64
-	err = env.DB.QueryRow(ctx, `
-		INSERT INTO sources (
-			tenant_id, source_system, external_id, content_hash,
-			raw_content, content_type, content_size,
-			processing_status, source_timestamp
-		) VALUES (
-			$1, 'test', $2, encode(sha256($3::bytea), 'hex'),
-			$3, 'text/plain', 10,
-			'completed', NOW()
-		) RETURNING id
-	`, env.TenantID, fmt.Sprintf("briefing-src-%s", testID),
-		"briefing test content",
-	).Scan(&sourceID)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		env.DB.Exec(ctx, "DELETE FROM sources WHERE id = $1", sourceID)
-	})
+	// Wait for pipeline to complete
+	runPipelineAndWait(t, env, sourceID, 120*time.Second)
 
-	// Create a test assertion tagged with the project
-	_, err = env.DB.Exec(ctx, `
-		INSERT INTO assertions (
-			tenant_id, source_id, assertion_type, description,
-			confidence, severity, project_id, owner_person_id,
-			is_current, created_at, updated_at
-		) VALUES (
-			$1, $2, 'action', 'Test assertion for briefing',
-			0.9, 'medium', $3, $4,
-			true, NOW(), NOW()
-		)
-	`, env.TenantID, sourceID, projectID, personID)
-	require.NoError(t, err)
-
-	t.Logf("Created project %q (ID %d) with 1 assertion", projectName, projectID)
+	t.Logf("Created project %q with email ingested", projectName)
 
 	// Run penf briefing — this should NOT crash with SQL error
 	t.Run("briefing_succeeds", func(t *testing.T) {
-		result := env.CLI.Run(ctx, "briefing", projectName)
+		result := env.SafeCLI.Run(ctx, "briefing", projectName)
 		assert.Equal(t, 0, result.ExitCode,
 			"penf briefing should succeed, got error: %s", result.Stderr)
 		assert.NotContains(t, result.Stderr, "a.type",
@@ -123,7 +87,7 @@ func TestE2E_Briefing_DoesNotCrashOnValidProject(t *testing.T) {
 	})
 
 	t.Run("briefing_json_returns_assertions", func(t *testing.T) {
-		result := env.CLI.Run(ctx, "briefing", projectName, "-o", "json")
+		result := env.SafeCLI.Run(ctx, "briefing", projectName, "-o", "json")
 		if result.ExitCode != 0 {
 			t.Fatalf("penf briefing -o json failed: %s", result.Stderr)
 		}
@@ -147,20 +111,11 @@ func TestE2E_Briefing_ProjectWithAssertions(t *testing.T) {
 	ctx := context.Background()
 
 	testID := fmt.Sprintf("e2e-briefing-full-%d", time.Now().UnixNano())
+	projectName := fmt.Sprintf("BriefFull-%s", testID[:12])
 
-	// Create a project with keywords
-	var projectID int64
-	err := env.DB.QueryRow(ctx, `
-		INSERT INTO projects (tenant_id, name, description, keywords, created_at, updated_at)
-		VALUES ($1, $2, 'Full briefing test', '{"brieftest"}', NOW(), NOW())
-		RETURNING id
-	`, testTenantID(env), fmt.Sprintf("BriefFull-%s", testID[:12])).Scan(&projectID)
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		env.DB.Exec(ctx, "DELETE FROM assertions WHERE project_id = $1", projectID)
-		env.DB.Exec(ctx, "DELETE FROM projects WHERE id = $1", projectID)
-	})
+	// Create a project with keywords via CLI
+	result := env.SafeCLI.RunProjectAdd(ctx, projectName, "Full briefing test", []string{"brieftest"})
+	require.True(t, result.Success(), "project add should succeed: %v\nstderr: %s", result.Err, result.Stderr)
 
 	// Ingest an email mentioning the project keyword
 	sourceID := createEmailSource(t, env, emailSourceOpts{
@@ -178,11 +133,18 @@ func TestE2E_Briefing_ProjectWithAssertions(t *testing.T) {
 
 	// The pipeline should have created assertions with project_id set
 	// (via PersistFindings which resolves project keywords)
+	// Look up project ID by name
+	var projectID int64
+	err := env.DB.QueryRow(ctx, `
+		SELECT id FROM projects WHERE name = $1 AND tenant_id = $2
+	`, projectName, testTenantID(env)).Scan(&projectID)
+	require.NoError(t, err, "project should exist")
+
 	var assertionCount int
 	err = env.DB.QueryRow(ctx, `
 		SELECT COUNT(*) FROM assertions
-		WHERE source_id = $1 AND project_id = $2
-	`, sourceID, projectID).Scan(&assertionCount)
+		WHERE source_id = $1 AND project_id = $2 AND tenant_id = $3
+	`, sourceID, projectID, testTenantID(env)).Scan(&assertionCount)
 	require.NoError(t, err)
 
 	if assertionCount == 0 {
@@ -193,7 +155,7 @@ func TestE2E_Briefing_ProjectWithAssertions(t *testing.T) {
 
 	// Briefing should return these assertions without SQL errors
 	t.Run("briefing_returns_project_assertions", func(t *testing.T) {
-		result := env.CLI.Run(ctx, "briefing", fmt.Sprintf("BriefFull-%s", testID[:12]))
+		result := env.SafeCLI.Run(ctx, "briefing", projectName)
 		assert.Equal(t, 0, result.ExitCode,
 			"penf briefing should succeed: %s", result.Stderr)
 	})
@@ -219,7 +181,7 @@ func TestE2E_Briefing_MTC_RealData(t *testing.T) {
 
 	t.Logf("Found %d assertions tagged with MTC project", count)
 
-	result := env.CLI.Run(ctx, "briefing", "MTC")
+	result := env.SafeCLI.Run(ctx, "briefing", "MTC")
 	assert.Equal(t, 0, result.ExitCode,
 		"penf briefing MTC should not crash with SQL error: %s", result.Stderr)
 	assert.NotContains(t, result.Stderr, "does not exist",
