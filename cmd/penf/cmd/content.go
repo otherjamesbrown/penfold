@@ -87,7 +87,11 @@ JSON Output (for AI processing):
       }
     ],
     "total_count": 42
-  }`,
+  }
+
+Related Commands:
+  penf reprocess   Reprocess content items with updated models or settings
+  penf pipeline    View overall pipeline status and processing statistics`,
 		Aliases: []string{"contents"},
 	}
 

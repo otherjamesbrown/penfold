@@ -1225,6 +1225,10 @@ func init() {
 	pipelineCmd.GroupID = "content"
 	rootCmd.AddCommand(pipelineCmd)
 
+	reprocessCmd := cmd.NewReprocessCommand(nil)
+	reprocessCmd.GroupID = "content"
+	rootCmd.AddCommand(reprocessCmd)
+
 	ingestCmd := cmd.NewIngestCommand(nil)
 	ingestCmd.GroupID = "content"
 	rootCmd.AddCommand(ingestCmd)

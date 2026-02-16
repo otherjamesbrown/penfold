@@ -67,6 +67,7 @@ Documentation:
   System vision:       docs/shared/vision.md
 
 Related Commands:
+  penf reprocess   Shortcut for 'penf pipeline reprocess'
   penf workflow    Monitor individual workflow runs (Temporal)
   penf content     Browse and manage processed content items
   penf logs        View service logs (gateway, worker, AI)`,
