@@ -80,7 +80,8 @@ func TestModelForStage_ExplicitStageConfig(t *testing.T) {
 }
 
 // TestModelForStage_FallbackToDefaultLLM tests fallback to AI_DEFAULT_LLM_MODEL.
-// Acceptance criteria: Missing/empty stage config falls back to AI_DEFAULT_LLM_MODEL.
+// Acceptance criteria: Missing/empty stage config falls back to AI_DEFAULT_LLM_MODEL for LLM stages,
+// and AI_DEFAULT_EMBEDDING_MODEL for embedding stage.
 func TestModelForStage_FallbackToDefaultLLM(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -112,6 +113,14 @@ func TestModelForStage_FallbackToDefaultLLM(t *testing.T) {
 			},
 			wantModel: "gemini-2.5-pro",
 		},
+		{
+			name:  "embedding falls back to default embedding model",
+			stage: "embedding",
+			envVars: map[string]string{
+				"AI_DEFAULT_EMBEDDING_MODEL": "custom-embedding-model",
+			},
+			wantModel: "custom-embedding-model",
+		},
 	}
 
 	for _, tt := range tests {
@@ -131,19 +140,86 @@ func TestModelForStage_FallbackToDefaultLLM(t *testing.T) {
 }
 
 // TestModelForStage_FallbackToHardcodedDefault tests final fallback.
-// Acceptance criteria: If no env vars set, fall back to hardcoded "gemini-2.0-flash".
+// Acceptance criteria: If no env vars set, LLM stages fall back to "gemini-2.0-flash",
+// embedding stage falls back to "mxbai-embed-large".
 func TestModelForStage_FallbackToHardcodedDefault(t *testing.T) {
-	stages := []string{"triage", "extract_entities", "extract_assertions", "deep_analyze", "embedding"}
+	tests := []struct {
+		stage    string
+		expected string
+	}{
+		{"triage", DefaultLLMModel},
+		{"extract_entities", DefaultLLMModel},
+		{"extract_assertions", DefaultLLMModel},
+		{"deep_analyze", DefaultLLMModel},
+		{"embedding", DefaultEmbeddingModel},
+	}
 
-	for _, stage := range stages {
-		t.Run(stage, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.stage, func(t *testing.T) {
 			// No env vars set - should use hardcoded defaults from Load()
 			cfg, err := Load()
 			require.NoError(t, err)
 
-			got := cfg.ModelForStage(stage)
-			// DefaultLLMModel from Load() should be "gemini-2.0-flash" (line 64 in config.go)
-			assert.Equal(t, DefaultLLMModel, got, "ModelForStage(%q) should fall back to hardcoded default", stage)
+			got := cfg.ModelForStage(tt.stage)
+			assert.Equal(t, tt.expected, got, "ModelForStage(%q) should fall back to hardcoded default", tt.stage)
+		})
+	}
+}
+
+// TestModelForStage_EmbeddingFallbackToEmbeddingModel tests that embedding stage
+// falls back to DefaultEmbeddingModel, NOT DefaultLLMModel.
+// This is the core fix for pf-783168.
+func TestModelForStage_EmbeddingFallbackToEmbeddingModel(t *testing.T) {
+	tests := []struct {
+		name      string
+		envVars   map[string]string
+		wantModel string
+	}{
+		{
+			name: "embedding stage falls back to DefaultEmbeddingModel constant when no config",
+			envVars: map[string]string{
+				// No AI_MODEL_EMBEDDING, no AI_DEFAULT_EMBEDDING_MODEL
+			},
+			wantModel: DefaultEmbeddingModel, // Should be "mxbai-embed-large"
+		},
+		{
+			name: "embedding stage falls back to AI_DEFAULT_EMBEDDING_MODEL when set",
+			envVars: map[string]string{
+				"AI_DEFAULT_EMBEDDING_MODEL": "custom-embedding",
+				// No AI_MODEL_EMBEDDING
+			},
+			wantModel: "custom-embedding",
+		},
+		{
+			name: "embedding stage DOES NOT fall back to AI_DEFAULT_LLM_MODEL",
+			envVars: map[string]string{
+				"AI_DEFAULT_LLM_MODEL": "gemini-2.0-flash",
+				// No AI_MODEL_EMBEDDING, no AI_DEFAULT_EMBEDDING_MODEL
+			},
+			wantModel: DefaultEmbeddingModel, // Should use embedding default, NOT LLM default
+		},
+		{
+			name: "embedding stage prefers AI_DEFAULT_EMBEDDING_MODEL over AI_DEFAULT_LLM_MODEL",
+			envVars: map[string]string{
+				"AI_DEFAULT_LLM_MODEL":       "gemini-2.0-flash",
+				"AI_DEFAULT_EMBEDDING_MODEL": "custom-embedding",
+				// No AI_MODEL_EMBEDDING
+			},
+			wantModel: "custom-embedding", // Should use embedding default, NOT LLM default
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.envVars {
+				t.Setenv(k, v)
+			}
+
+			cfg, err := Load()
+			require.NoError(t, err)
+
+			got := cfg.ModelForStage("embedding")
+			assert.Equal(t, tt.wantModel, got, "ModelForStage(\"embedding\") should fall back to embedding model defaults")
 		})
 	}
 }
@@ -336,6 +412,7 @@ func TestLoad_PartialStageModelsConfig(t *testing.T) {
 	t.Setenv("AI_MODEL_TRIAGE", "custom-triage")
 	t.Setenv("AI_MODEL_DEEP_ANALYZE", "custom-analyze")
 	t.Setenv("AI_DEFAULT_LLM_MODEL", "default-model")
+	t.Setenv("AI_DEFAULT_EMBEDDING_MODEL", "default-embedding")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -344,7 +421,10 @@ func TestLoad_PartialStageModelsConfig(t *testing.T) {
 	assert.Equal(t, "custom-triage", cfg.ModelForStage("triage"))
 	assert.Equal(t, "custom-analyze", cfg.ModelForStage("deep_analyze"))
 
-	// Non-configured stages should fall back to default
+	// Non-configured LLM stages should fall back to default LLM model
 	assert.Equal(t, "default-model", cfg.ModelForStage("extract_entities"))
 	assert.Equal(t, "default-model", cfg.ModelForStage("extract_assertions"))
+
+	// Non-configured embedding stage should fall back to default embedding model, NOT LLM model
+	assert.Equal(t, "default-embedding", cfg.ModelForStage("embedding"))
 }

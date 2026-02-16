@@ -266,9 +266,14 @@ func (c *Config) HTTPAddr() string {
 }
 
 // ModelForStage returns the configured model for a given pipeline stage.
-// Resolution order:
+// Resolution order for embedding stage:
+// 1. Stage-specific config (AI_MODEL_EMBEDDING)
+// 2. Global default embedding model (AI_DEFAULT_EMBEDDING_MODEL)
+// 3. Hardcoded default (mxbai-embed-large)
+//
+// Resolution order for other stages:
 // 1. Stage-specific config (e.g., AI_MODEL_TRIAGE)
-// 2. Global default (AI_DEFAULT_LLM_MODEL)
+// 2. Global default LLM model (AI_DEFAULT_LLM_MODEL)
 // 3. Hardcoded default (gemini-2.0-flash)
 //
 // Stage names are case-insensitive.
@@ -281,7 +286,15 @@ func (c *Config) ModelForStage(stage string) string {
 		return model
 	}
 
-	// Fall back to global default
+	// For embedding stage, fall back to embedding model defaults
+	if stage == "embedding" {
+		if c.DefaultEmbeddingModel != "" {
+			return c.DefaultEmbeddingModel
+		}
+		return DefaultEmbeddingModel
+	}
+
+	// For all other stages, fall back to LLM model defaults
 	if c.DefaultLLMModel != "" {
 		return c.DefaultLLMModel
 	}
