@@ -75,14 +75,6 @@ var (
 // Default model catalog (built-in known models).
 var defaultModelCatalog = []ModelCatalogEntry{
 	{
-		ID:              "mlx-community/Qwen2.5-32B-Instruct-4bit",
-		Name:            "Qwen 2.5 32B (4-bit)",
-		Size:            "~18GB",
-		Type:            "mlx",
-		ExpectedLatency: "10-20s",
-		MemoryRequired:  "20GB+",
-	},
-	{
 		ID:              "mlx-community/Qwen2.5-7B-Instruct-4bit",
 		Name:            "Qwen 2.5 7B (4-bit)",
 		Size:            "~4GB",
@@ -1325,9 +1317,8 @@ func resolveModelID(deps *ModelCommandDeps, model string) string {
 	shortNames := map[string]string{
 		"phi":      "mlx-community/Phi-3.5-mini-instruct-4bit",
 		"phi-3.5":  "mlx-community/Phi-3.5-mini-instruct-4bit",
-		"qwen-32b": "mlx-community/Qwen2.5-32B-Instruct-4bit",
-		"qwen-7b":  "mlx-community/Qwen2.5-7B-Instruct-4bit",
-		"qwen":     "mlx-community/Qwen2.5-7B-Instruct-4bit",
+		"qwen-7b": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+		"qwen":    "mlx-community/Qwen2.5-7B-Instruct-4bit",
 		"llama-3b": "mlx-community/Llama-3.2-3B-Instruct-4bit",
 		"llama":    "mlx-community/Llama-3.2-3B-Instruct-4bit",
 		"gemma":    "mlx-community/gemma-2-9b-it-4bit",

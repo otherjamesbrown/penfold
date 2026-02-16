@@ -67,7 +67,7 @@ Configuration is via environment variables:
 | `EMBEDDINGS_MODEL` | mxbai-embed-large-v1 | Embedding model |
 | `EMBEDDINGS_TIMEOUT` | 30s | Request timeout |
 | `LLM_URL` | http://localhost:8000 | vLLM-MLX URL |
-| `LLM_MODEL` | Qwen2.5-32B-4bit | LLM model |
+| `LLM_MODEL` | Qwen2.5-7B-4bit | LLM model |
 | `LLM_TIMEOUT` | 120s | Request timeout |
 
 ### Processing

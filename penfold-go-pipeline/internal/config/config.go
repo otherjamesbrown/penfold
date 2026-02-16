@@ -78,7 +78,7 @@ type AIConfig struct {
 
 	// LLM service (local Qwen2.5 or cloud fallback)
 	LLMURL     string        `env:"LLM_URL" envDefault:"http://localhost:8000"`
-	LLMModel   string        `env:"LLM_MODEL" envDefault:"Qwen2.5-32B-4bit"`
+	LLMModel   string        `env:"LLM_MODEL" envDefault:"Qwen2.5-7B-4bit"`
 	LLMTimeout time.Duration `env:"LLM_TIMEOUT" envDefault:"120s"`
 
 	// Cloud fallback (Gemini)

@@ -206,7 +206,7 @@ export PENFOLD_DB_NAME=penfold_test_e2e
 
 ### LLM Setup (E2E Tests)
 E2E tests require the local LLM server on dev01:
-- **Model**: Qwen2.5-32B-Instruct-4bit via vLLM-MLX
+- **Model**: Qwen2.5-7B-Instruct-4bit via MLX
 - **Endpoint**: http://localhost:8080
 - **API**: OpenAI-compatible
 

@@ -28,7 +28,7 @@
 - Classification into fixed category set (7 categories)
 - Structured extraction of explicitly stated facts
 - Short summarisation, structured JSON output
-- Model: Qwen2.5-32B on Apple Silicon (dev01)
+- Model: Qwen2.5-7B on Apple Silicon (dev01)
 
 **LLM (Remote, Stage 4)**:
 - Cross-context reasoning (connecting email to meeting risks)

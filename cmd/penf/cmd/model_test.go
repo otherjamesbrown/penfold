@@ -145,8 +145,8 @@ func TestResolveModelID(t *testing.T) {
 		},
 		{
 			name:     "partial match from catalog",
-			input:    "Qwen2.5-32B",
-			expected: "mlx-community/Qwen2.5-32B-Instruct-4bit",
+			input:    "Qwen2.5-7B",
+			expected: "mlx-community/Qwen2.5-7B-Instruct-4bit",
 		},
 	}
 

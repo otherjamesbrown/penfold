@@ -318,7 +318,6 @@ Results are still displayed above but not persisted to Langfuse.
 ### Model Short Names
 - `phi` -> `mlx-community/Phi-3.5-mini-instruct-4bit`
 - `qwen-7b` -> `mlx-community/Qwen2.5-7B-Instruct-4bit`
-- `qwen-32b` -> `mlx-community/Qwen2.5-32B-Instruct-4bit`
 - `llama` -> `mlx-community/Llama-3.2-3B-Instruct-4bit`
 - `gemma` -> `mlx-community/gemma-2-9b-it-4bit`
 

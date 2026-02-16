@@ -523,7 +523,7 @@ func NewLLMClient(baseURL string) *LLMClient {
 // Chat sends a chat completion request to the LLM.
 func (c *LLMClient) Chat(ctx context.Context, messages []Message) (string, error) {
     req := ChatCompletionRequest{
-        Model:       "mlx-community/Qwen2.5-32B-Instruct-4bit",
+        Model:       "mlx-community/Qwen2.5-7B-Instruct-4bit",
         Messages:    messages,
         Temperature: 0.0, // Deterministic for testing
         MaxTokens:   2048,

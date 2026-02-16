@@ -95,7 +95,7 @@ docker ps --filter 'name=penfold'
 |                                                                                                                  |
 |  +-----------------------+     +-----------------------+     +----------------------------------------------+   |
 |  |  MLX Embeddings       |     |  MLX LLM Server       |     |  Penfold Worker                              |   |
-|  |  Python sidecar       |     |  Qwen2.5-32B          |     |  Go binary                                   |   |
+|  |  Python sidecar       |     |  Qwen2.5-7B|     |  Go binary                                   |   |
 |  |  :8081                |     |  :8080                |     |  Temporal activities & workflows             |   |
 |  |  mxbai-embed-large-v1 |<----|  (mention resolution) |<----|  Health: :8085                               |   |
 |  +-----------------------+     +-----------------------+     +----------------------------------------------+   |
@@ -165,7 +165,7 @@ export PENFOLD_DB_NAME=penfold
 export PENFOLD_TEMPORAL_HOST=dev02.brown.chat:7233
 export AI_SERVICE_URL=http://localhost:8081   # Local MLX embeddings
 export LLM_URL=http://localhost:8080          # Local MLX LLM
-export LLM_MODEL=mlx-community/Qwen2.5-32B-Instruct-4bit
+export LLM_MODEL=mlx-community/Qwen2.5-7B-Instruct-4bit
 ```
 
 #### dev02 - Gateway Environment
@@ -376,7 +376,7 @@ Managed by launchd: `~/Library/LaunchAgents/com.penfold.mlx-embeddings.plist`
 
 ```bash
 # Manual start
-.venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-32B-Instruct-4bit --port 8080 --host 0.0.0.0
+.venv/bin/mlx_lm.server --model mlx-community/Qwen2.5-7B-Instruct-4bit --port 8080 --host 0.0.0.0
 ```
 
 Managed by launchd: `~/Library/LaunchAgents/com.penfold.mlx-llm-server.plist`
