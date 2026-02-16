@@ -63,12 +63,14 @@ COMMENT ON COLUMN conversation_items.source_id IS 'Optional: source ID for legac
 -- =====================================================
 
 CREATE TABLE conversation_participants (
+    id BIGSERIAL PRIMARY KEY,
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     name TEXT,
     address TEXT,
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    PRIMARY KEY (conversation_id, COALESCE(address, name))
+    tenant_id UUID NOT NULL REFERENCES tenants(id)
 );
+
+CREATE UNIQUE INDEX idx_conversation_participants_unique ON conversation_participants(conversation_id, COALESCE(address, name));
 
 CREATE INDEX idx_conversation_participants_conversation_id ON conversation_participants(conversation_id);
 CREATE INDEX idx_conversation_participants_address ON conversation_participants(address) WHERE address IS NOT NULL;
@@ -140,79 +142,45 @@ JOIN sources s ON tm.source_id = s.id
 ON CONFLICT (conversation_id, content_id) DO NOTHING;
 
 -- Populate conversation_participants from email headers
--- Extract from/to/cc addresses from sources metadata
-WITH participant_extracts AS (
+-- Extract from/to/cc addresses from sources ingestion_metadata
+WITH from_participants AS (
     SELECT DISTINCT
         'conv-thread-' || tm.thread_id AS conversation_id,
         et.tenant_id::uuid AS tenant_id,
-        COALESCE(s.metadata->>'from_name', '') AS from_name,
-        COALESCE(s.metadata->>'from_email', '') AS from_email,
-        -- Extract to/cc addresses from JSONB arrays
-        COALESCE(
-            (SELECT jsonb_agg(DISTINCT addr->'name')
-             FROM jsonb_array_elements(COALESCE(s.metadata->'to', '[]'::jsonb)) AS addr
-             WHERE addr->>'name' IS NOT NULL AND addr->>'name' != ''),
-            '[]'::jsonb
-        ) AS to_names,
-        COALESCE(
-            (SELECT jsonb_agg(DISTINCT addr->'email')
-             FROM jsonb_array_elements(COALESCE(s.metadata->'to', '[]'::jsonb)) AS addr
-             WHERE addr->>'email' IS NOT NULL AND addr->>'email' != ''),
-            '[]'::jsonb
-        ) AS to_emails,
-        COALESCE(
-            (SELECT jsonb_agg(DISTINCT addr->'name')
-             FROM jsonb_array_elements(COALESCE(s.metadata->'cc', '[]'::jsonb)) AS addr
-             WHERE addr->>'name' IS NOT NULL AND addr->>'name' != ''),
-            '[]'::jsonb
-        ) AS cc_names,
-        COALESCE(
-            (SELECT jsonb_agg(DISTINCT addr->'email')
-             FROM jsonb_array_elements(COALESCE(s.metadata->'cc', '[]'::jsonb)) AS addr
-             WHERE addr->>'email' IS NOT NULL AND addr->>'email' != ''),
-            '[]'::jsonb
-        ) AS cc_emails
+        NULLIF(trim(COALESCE(s.ingestion_metadata->>'from_name', '')), '') AS name,
+        NULLIF(trim(COALESCE(s.ingestion_metadata->>'from_email', '')), '') AS address
     FROM thread_messages tm
     JOIN email_threads et ON tm.thread_id = et.id
     JOIN sources s ON tm.source_id = s.id
+    WHERE trim(COALESCE(s.ingestion_metadata->>'from_name', '')) != ''
+       OR trim(COALESCE(s.ingestion_metadata->>'from_email', '')) != ''
 ),
--- Union all from addresses
-from_participants AS (
-    SELECT DISTINCT
-        conversation_id,
-        tenant_id,
-        NULLIF(trim(from_name), '') AS name,
-        NULLIF(trim(from_email), '') AS address
-    FROM participant_extracts
-    WHERE trim(COALESCE(from_name, '')) != '' OR trim(COALESCE(from_email, '')) != ''
-),
--- Union all to addresses
 to_participants AS (
     SELECT DISTINCT
-        pe.conversation_id,
-        pe.tenant_id,
-        NULLIF(trim(name_elem::text, '"'), '') AS name,
-        NULLIF(trim(email_elem::text, '"'), '') AS address
-    FROM participant_extracts pe
-    CROSS JOIN LATERAL jsonb_array_elements_text(pe.to_names) AS name_elem
-    FULL OUTER JOIN LATERAL jsonb_array_elements_text(pe.to_emails) AS email_elem ON true
-    WHERE NULLIF(trim(COALESCE(name_elem::text, ''), '"'), '') IS NOT NULL
-       OR NULLIF(trim(COALESCE(email_elem::text, ''), '"'), '') IS NOT NULL
+        'conv-thread-' || tm.thread_id AS conversation_id,
+        et.tenant_id::uuid AS tenant_id,
+        NULLIF(trim(addr->>'name'), '') AS name,
+        NULLIF(trim(addr->>'email'), '') AS address
+    FROM thread_messages tm
+    JOIN email_threads et ON tm.thread_id = et.id
+    JOIN sources s ON tm.source_id = s.id
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(s.ingestion_metadata->'to', '[]'::jsonb)) AS addr
+    WHERE NULLIF(trim(addr->>'name'), '') IS NOT NULL
+       OR NULLIF(trim(addr->>'email'), '') IS NOT NULL
 ),
--- Union all cc addresses
 cc_participants AS (
     SELECT DISTINCT
-        pe.conversation_id,
-        pe.tenant_id,
-        NULLIF(trim(name_elem::text, '"'), '') AS name,
-        NULLIF(trim(email_elem::text, '"'), '') AS address
-    FROM participant_extracts pe
-    CROSS JOIN LATERAL jsonb_array_elements_text(pe.cc_names) AS name_elem
-    FULL OUTER JOIN LATERAL jsonb_array_elements_text(pe.cc_emails) AS email_elem ON true
-    WHERE NULLIF(trim(COALESCE(name_elem::text, ''), '"'), '') IS NOT NULL
-       OR NULLIF(trim(COALESCE(email_elem::text, ''), '"'), '') IS NOT NULL
+        'conv-thread-' || tm.thread_id AS conversation_id,
+        et.tenant_id::uuid AS tenant_id,
+        NULLIF(trim(addr->>'name'), '') AS name,
+        NULLIF(trim(addr->>'email'), '') AS address
+    FROM thread_messages tm
+    JOIN email_threads et ON tm.thread_id = et.id
+    JOIN sources s ON tm.source_id = s.id
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(s.ingestion_metadata->'cc', '[]'::jsonb)) AS addr
+    WHERE NULLIF(trim(addr->>'name'), '') IS NOT NULL
+       OR NULLIF(trim(addr->>'email'), '') IS NOT NULL
 ),
--- Combine all participants
 all_participants AS (
     SELECT * FROM from_participants
     UNION
@@ -233,7 +201,7 @@ SELECT DISTINCT
     tenant_id
 FROM all_participants
 WHERE name IS NOT NULL OR address IS NOT NULL
-ON CONFLICT (conversation_id, COALESCE(address, name)) DO NOTHING;
+ON CONFLICT (conversation_id, (COALESCE(address, name))) DO NOTHING;
 
 -- Update participant counts in conversations
 UPDATE conversations c

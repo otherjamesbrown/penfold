@@ -352,7 +352,7 @@ func (r *PostgresRepository) AddConversationParticipant(ctx context.Context, con
 			address,
 			tenant_id
 		) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (conversation_id, COALESCE(address, name)) DO NOTHING
+		ON CONFLICT (conversation_id, (COALESCE(address, name))) DO NOTHING
 	`
 
 	_, err := r.pool.Exec(ctx, query, conversationID, name, address, tenantID)
