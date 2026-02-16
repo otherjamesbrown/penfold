@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 
@@ -102,6 +104,9 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 	var participantEmails []string
 	err := a.db.QueryRow(ctx, query, input.SourceID, tenantID).Scan(&content, &sourceSystem, &metadataJSON, &participantEmails)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, NewNotFoundError(fmt.Sprintf("source not found: %d", input.SourceID))
+		}
 		logger.Error("Failed to fetch source from database", logging.Err(err))
 		return nil, fmt.Errorf("failed to fetch source %d: %w", input.SourceID, err)
 	}
@@ -403,7 +408,7 @@ func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.Upd
 	}
 
 	if result.RowsAffected() == 0 {
-		return fmt.Errorf("source not found: %d", input.SourceID)
+		return NewNotFoundError(fmt.Sprintf("source not found: %d", input.SourceID))
 	}
 
 	logger.Info("Source status updated successfully")

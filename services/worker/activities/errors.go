@@ -4,6 +4,7 @@ package activities
 import (
 	"errors"
 
+	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"go.temporal.io/sdk/temporal"
 )
 
@@ -148,4 +149,32 @@ func NonRetryableErrorTypes() []string {
 		ErrorTypePermissionDenied,
 		ErrorTypeInvalidArgument,
 	}
+}
+
+// WrapForTemporal converts non-retryable PipelineError to temporal.ApplicationError
+// so Temporal respects the non-retryable classification.
+//
+// PipelineError uses a different error system than Temporal ApplicationError.
+// Without this bridge, Temporal cannot check NonRetryableErrorTypes and will
+// retry all PipelineErrors regardless of their retryable flag.
+//
+// This function checks if the error is a PipelineError and if it's non-retryable
+// (based on its error code in the ErrorCodeRegistry), then wraps it as a
+// temporal.ApplicationError with type "PipelineError" so Temporal can match it
+// against the NonRetryableErrorTypes list.
+func WrapForTemporal(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var pe *perrors.PipelineError
+	if errors.As(err, &pe) {
+		// Check if this error code is non-retryable
+		if !perrors.IsRetryable(pe.Code) {
+			return temporal.NewApplicationErrorWithCause(
+				pe.Error(), "PipelineError", pe,
+			)
+		}
+	}
+	return err
 }

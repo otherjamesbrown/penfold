@@ -168,10 +168,12 @@ func LongRunningWorkflowOptions(workflowID, taskQueue string) workflow.ChildWork
 // NonRetryableErrors returns a list of error types that should not be retried.
 func NonRetryableErrors() []string {
 	return []string{
+		"ConfigurationError",
 		"ValidationError",
 		"NotFoundError",
 		"PermissionDeniedError",
 		"InvalidArgumentError",
+		"PipelineError",
 	}
 }
 

@@ -76,7 +76,7 @@ func (a *ProjectTaggingActivities) TagProjects(ctx context.Context, input Projec
 	if err != nil {
 		pe := perrors.ClassifyError(err, "tag_projects")
 		logger.Error("Failed to fetch projects with keywords", logging.Err(pe))
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	if len(projects) == 0 {
@@ -95,7 +95,7 @@ func (a *ProjectTaggingActivities) TagProjects(ctx context.Context, input Projec
 	if err != nil {
 		pe := perrors.ClassifyError(err, "tag_projects")
 		logger.Error("Failed to fetch content text", logging.Err(pe))
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	if contentText == "" {

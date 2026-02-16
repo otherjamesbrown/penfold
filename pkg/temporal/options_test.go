@@ -181,10 +181,12 @@ func TestNonRetryableErrors(t *testing.T) {
 	errors := NonRetryableErrors()
 
 	expected := []string{
+		"ConfigurationError",
 		"ValidationError",
 		"NotFoundError",
 		"PermissionDeniedError",
 		"InvalidArgumentError",
+		"PipelineError",
 	}
 
 	if len(errors) != len(expected) {
@@ -230,4 +232,62 @@ func TestWithNonRetryableErrors(t *testing.T) {
 			t.Errorf("expected 1 non-retryable error, got %d", len(opts.RetryPolicy.NonRetryableErrorTypes))
 		}
 	})
+}
+
+// TestNonRetryableErrors_MissingConfigurationError verifies that ConfigurationError
+// is missing from the NonRetryableErrors list. ConfigurationError is defined in
+// services/worker/activities/errors.go but is not registered as non-retryable.
+//
+// This test SHOULD FAIL — proving the bug exists (pf-f3dcc8).
+func TestNonRetryableErrors_MissingConfigurationError(t *testing.T) {
+	types := NonRetryableErrors()
+
+	// ConfigurationError is defined in activities/errors.go as a non-retryable
+	// error type, but it's not included in the NonRetryableErrors() list.
+	found := false
+	for _, typ := range types {
+		if typ == "ConfigurationError" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("ConfigurationError should be in NonRetryableErrors list (defined in activities/errors.go)")
+	}
+}
+
+// TestNonRetryableErrors_MissingPipelineErrorTypes verifies that pipeline error
+// types are missing from the NonRetryableErrors list. Activities return
+// *perrors.PipelineError but these are not registered with Temporal as
+// non-retryable error types.
+//
+// This test SHOULD FAIL — proving the bug exists (pf-f3dcc8).
+func TestNonRetryableErrors_MissingPipelineErrorTypes(t *testing.T) {
+	types := NonRetryableErrors()
+
+	// Non-retryable PipelineError codes (from pkg/errors/codes.go):
+	// - parse_error
+	// - empty_content
+	// - context_cancelled
+	// - content_too_large
+	// - stage_dependency_failed
+	// - duplicate_content
+	// - entity_resolution_failed
+	// - embedding_dimension_mismatch
+	// - processing_error (default/unclassified)
+
+	// PipelineError should be registered as a non-retryable type
+	// (or converted to temporal.ApplicationError before returning)
+	found := false
+	for _, typ := range types {
+		if typ == "PipelineError" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("PipelineError should be in NonRetryableErrors list (activities return *perrors.PipelineError)")
+	}
 }

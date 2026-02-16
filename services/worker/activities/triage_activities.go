@@ -202,7 +202,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			Error:     pe,
 		})
 		logger.Error("Failed to perform triage", logging.Err(pe))
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	// Record LLM result

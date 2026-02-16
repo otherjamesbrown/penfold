@@ -144,7 +144,7 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 	if err != nil {
 		pe := perrors.ClassifyError(err, "resolve")
 		logger.Error("Failed to build context package", logging.Err(pe))
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	output.ContextPackage = contextPackage

@@ -487,6 +487,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			newCtx, _ := workflow.NewDisconnectedContext(ctx)
 			cleanupCtx := workflow.WithActivityOptions(newCtx, workflow.ActivityOptions{
 				StartToCloseTimeout: 30 * time.Second,
+				RetryPolicy: &temporal.RetryPolicy{
+					InitialInterval:        time.Second,
+					BackoffCoefficient:     2.0,
+					MaximumAttempts:        3,
+					NonRetryableErrorTypes: pkgtemporal.NonRetryableErrors(),
+				},
 			})
 
 			// Set failure fields based on workflow state

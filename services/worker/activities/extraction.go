@@ -135,7 +135,7 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 			Error:     pe,
 		})
 		logger.Error("Failed to extract assertions from AI service", logging.Err(pe))
-		return 0, pe
+		return 0, WrapForTemporal(pe)
 	}
 
 	// Record LLM result
@@ -201,7 +201,7 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	if err != nil {
 		pe := perrors.ClassifyError(err, "extract_assertions")
 		logger.Error("Failed to store assertions", logging.Err(pe))
-		return 0, pe
+		return 0, WrapForTemporal(pe)
 	}
 
 	logger.Info("Assertions stored successfully",
@@ -343,7 +343,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 				Error:     pe,
 			})
 			logger.Error("Failed to extract entities from AI service", logging.Err(pe))
-			return nil, pe
+			return nil, WrapForTemporal(pe)
 		}
 		results = append(results, resp)
 	} else {
@@ -381,7 +381,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 					logging.F("chunk_index", i),
 					logging.F("chunk_length", len(chunk.Content)),
 				)
-				return nil, pe
+				return nil, WrapForTemporal(pe)
 			}
 			results = append(results, resp)
 		}

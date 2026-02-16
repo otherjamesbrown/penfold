@@ -115,7 +115,7 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 			Error:     pe,
 		})
 		logger.Error("Failed to perform deep analysis", logging.Err(pe))
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	// Record LLM result

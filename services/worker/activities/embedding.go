@@ -116,7 +116,7 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 			Error:     pe,
 		})
 		logger.Error("Failed to generate embedding from AI service", logging.Err(pe))
-		return 0, pe
+		return 0, WrapForTemporal(pe)
 	}
 
 	// Record embedding result
@@ -154,7 +154,7 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	if err != nil {
 		pe := perrors.ClassifyError(err, "embed")
 		logger.Error("Failed to store embedding", logging.Err(pe))
-		return 0, pe
+		return 0, WrapForTemporal(pe)
 	}
 
 	logger.Info("Embedding stored successfully",
@@ -352,7 +352,7 @@ func (a *EmbeddingActivities) DeleteEmbedding(ctx context.Context, embeddingID i
 	if err := a.embeddingRepo.DeleteEmbedding(ctx, embeddingID); err != nil {
 		pe := perrors.ClassifyError(err, "embed")
 		logger.Error("Failed to delete embedding", logging.Err(pe))
-		return pe
+		return WrapForTemporal(pe)
 	}
 
 	logger.Info("Embedding deleted successfully")

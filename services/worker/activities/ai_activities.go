@@ -262,7 +262,7 @@ func (a *AIActivities) handleSummarizeTask(ctx context.Context, input ProcessWit
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "summarize")
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	return &ProcessWithAIOutput{
@@ -291,7 +291,7 @@ func (a *AIActivities) handleExtractTask(ctx context.Context, input ProcessWithA
 	resp, err := a.aiClient.ExtractAssertions(ctx, req)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "extract")
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	// Format assertions as result
@@ -327,7 +327,7 @@ func (a *AIActivities) handleEmbedTask(ctx context.Context, input ProcessWithAII
 	resp, err := a.aiClient.GenerateEmbedding(ctx, req)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "embed")
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	return &ProcessWithAIOutput{
@@ -359,7 +359,7 @@ func (a *AIActivities) handleCategorizeTask(ctx context.Context, input ProcessWi
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "categorize")
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	return &ProcessWithAIOutput{
@@ -590,7 +590,7 @@ func (a *AIActivities) EscalateRequestActivity(ctx context.Context, input Escala
 	if err != nil {
 		pe := perrors.ClassifyError(err, "escalate")
 		logger.Error("Failed to escalate request", logging.Err(pe))
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	output := &EscalateRequestOutput{

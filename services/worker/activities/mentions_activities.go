@@ -170,7 +170,7 @@ func (a *MentionsActivities) ExtractMentions(ctx context.Context, input ExtractM
 			Error:     pe,
 		})
 		logger.Error("Failed to process mentions through resolver", logging.Err(pe))
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	// Record success metrics

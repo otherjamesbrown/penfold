@@ -107,7 +107,7 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input workflows
 	if err != nil {
 		pe := perrors.ClassifyError(err, "persist")
 		logger.Error("Failed to persist findings", logging.Err(pe))
-		return nil, pe
+		return nil, WrapForTemporal(pe)
 	}
 
 	// Build activity output
