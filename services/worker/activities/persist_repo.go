@@ -242,23 +242,26 @@ func (r *PersistRepo) verifyEntityIDs(ctx context.Context, tx pgx.Tx, input *Per
 	return nil
 }
 
-// computeIdempotencyKey computes SHA256 hash of (source_id, assertion_type, description).
+// computeIdempotencyKey is deprecated - deduplication now uses database unique index
+// on (source_id, assertion_type, source_quote) instead of computing hash keys.
+// Kept for backward compatibility with existing tests, but not used in production code.
 func (r *PersistRepo) computeIdempotencyKey(sourceID int64, assertionType, description string) string {
 	data := fmt.Sprintf("%d:%s:%s", sourceID, assertionType, description)
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:])
 }
 
-// checkExistingAssertion checks if an assertion with the same source_id, type, and description exists.
+// checkExistingAssertion checks if an assertion with the same source_id, type, and source_quote exists.
 // Returns the assertion ID if found, nil otherwise.
-func (r *PersistRepo) checkExistingAssertion(ctx context.Context, tx pgx.Tx, sourceID int64, assertionType, description string) (*int64, error) {
+// Note: Changed from description to source_quote for correct deduplication (pf-35906f).
+func (r *PersistRepo) checkExistingAssertion(ctx context.Context, tx pgx.Tx, sourceID int64, assertionType, sourceQuote string) (*int64, error) {
 	query := `
 		SELECT id FROM assertions
-		WHERE source_id = $1 AND assertion_type = $2 AND description = $3
+		WHERE source_id = $1 AND assertion_type = $2 AND source_quote = $3
 		LIMIT 1
 	`
 	var id int64
-	err := tx.QueryRow(ctx, query, sourceID, assertionType, description).Scan(&id)
+	err := tx.QueryRow(ctx, query, sourceID, assertionType, sourceQuote).Scan(&id)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -272,8 +275,8 @@ func (r *PersistRepo) checkExistingAssertion(ctx context.Context, tx pgx.Tx, sou
 func (r *PersistRepo) persistAction(ctx context.Context, tx pgx.Tx, input *PersistFindingsInput, action *VerifiedActionOutput, output *PersistFindingsOutput) error {
 	assertionType := "action"
 
-	// Check for existing assertion
-	existingID, err := r.checkExistingAssertion(ctx, tx, input.SourceID, assertionType, action.Description)
+	// Check for existing assertion (using source_quote, not description)
+	existingID, err := r.checkExistingAssertion(ctx, tx, input.SourceID, assertionType, action.ContextExcerpt)
 	if err != nil {
 		return err
 	}
@@ -345,8 +348,8 @@ func (r *PersistRepo) persistAction(ctx context.Context, tx pgx.Tx, input *Persi
 func (r *PersistRepo) persistDecision(ctx context.Context, tx pgx.Tx, input *PersistFindingsInput, decision *VerifiedDecisionOutput, output *PersistFindingsOutput) error {
 	assertionType := "decision"
 
-	// Check for existing assertion
-	existingID, err := r.checkExistingAssertion(ctx, tx, input.SourceID, assertionType, decision.Description)
+	// Check for existing assertion (using source_quote, not description)
+	existingID, err := r.checkExistingAssertion(ctx, tx, input.SourceID, assertionType, decision.ContextExcerpt)
 	if err != nil {
 		return err
 	}
@@ -412,8 +415,8 @@ func (r *PersistRepo) persistRisk(ctx context.Context, tx pgx.Tx, input *Persist
 		assertionType = "issue"
 	}
 
-	// Check for existing assertion
-	existingID, err := r.checkExistingAssertion(ctx, tx, input.SourceID, assertionType, risk.Description)
+	// Check for existing assertion (using source_quote, not description)
+	existingID, err := r.checkExistingAssertion(ctx, tx, input.SourceID, assertionType, risk.ContextExcerpt)
 	if err != nil {
 		return err
 	}
@@ -547,8 +550,8 @@ func (r *PersistRepo) persistRisk(ctx context.Context, tx pgx.Tx, input *Persist
 func (r *PersistRepo) persistImplicitAction(ctx context.Context, tx pgx.Tx, input *PersistFindingsInput, action *ImplicitActionOutput, output *PersistFindingsOutput) error {
 	assertionType := "action"
 
-	// Check for existing assertion
-	existingID, err := r.checkExistingAssertion(ctx, tx, input.SourceID, assertionType, action.Description)
+	// Check for existing assertion (using source_quote, not description)
+	existingID, err := r.checkExistingAssertion(ctx, tx, input.SourceID, assertionType, action.ContextExcerpt)
 	if err != nil {
 		return err
 	}

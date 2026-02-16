@@ -642,3 +642,179 @@ func TestExtractQuotedReplyParticipants_WithDisplayNames(t *testing.T) {
 	// Skipping this test as the old function is now just a backwards-compatible wrapper.
 	t.Skip("OBSOLETE reproduction test - bug pf-2c2ab0 is fixed with ExtractQuotedReplyParticipantsWithNames")
 }
+
+// TestSeparateQuotedReply_DateHeader tests detection of Apple Mail / Outlook for Mac format.
+// Apple Mail and Outlook for Mac use "Date:" instead of "Sent:" in quoted reply headers.
+// Example format:
+//   From: John Doe <john@example.com>
+//   Date: Friday, February 14, 2026 at 3:30 PM
+//   To: Jane Smith <jane@example.com>
+//   Subject: Re: Project Update
+//
+// This is part of feature pf-ac639d - fix separateQuotedReply() to detect Date: header.
+func TestSeparateQuotedReply_DateHeader(t *testing.T) {
+	email := `I'll take a look at this today.
+
+From: Sara Martinez <sara@example.com>
+Date: Friday, February 14, 2026 at 3:30 PM
+To: James Brown <james@brown.chat>
+Subject: Re: Q1 Planning
+
+Hi James,
+
+Could you review the attached proposal when you get a chance?
+
+Thanks,
+Sara`
+
+	result := ParseEmailBody(email, "")
+
+	if !result.QuotedReplyDetected {
+		t.Error("Expected quoted reply to be detected with Date: header format")
+	}
+
+	// New content should only be the reply before From:
+	if !strings.Contains(result.NewContent, "I'll take a look") {
+		t.Errorf("New content missing reply text.\nGot: %s", result.NewContent)
+	}
+
+	// New content should NOT contain the quoted reply headers or body
+	if strings.Contains(result.NewContent, "From: Sara") {
+		t.Error("New content should not contain From: header")
+	}
+	if strings.Contains(result.NewContent, "Date: Friday") {
+		t.Error("New content should not contain Date: header")
+	}
+	if strings.Contains(result.NewContent, "Could you review") {
+		t.Error("New content should not contain quoted message body")
+	}
+
+	// Quoted content should have the full original message
+	if !strings.Contains(result.QuotedContent, "From: Sara Martinez") {
+		t.Error("Quoted content should contain From: header")
+	}
+	if !strings.Contains(result.QuotedContent, "Date: Friday") {
+		t.Error("Quoted content should contain Date: header")
+	}
+	if !strings.Contains(result.QuotedContent, "Could you review") {
+		t.Error("Quoted content should contain original message body")
+	}
+}
+
+// TestSeparateQuotedReply_GmailForwardMarker tests detection of Gmail forward marker.
+// Gmail uses "---------- Forwarded message ----------" to mark forwarded emails.
+// When content_subtype == "forward", only the preamble (before the marker) should be processed.
+//
+// This is part of feature pf-ac639d - detect forward markers.
+func TestSeparateQuotedReply_GmailForwardMarker(t *testing.T) {
+	email := `FYI - interesting discussion about the new API design.
+
+---------- Forwarded message ----------
+From: Alice Johnson <alice@example.com>
+Date: Thu, Feb 13, 2026 at 2:15 PM
+Subject: API Design Discussion
+To: Bob Smith <bob@example.com>
+
+Bob,
+
+I wanted to share some thoughts on the new API endpoints.
+
+The REST design looks solid but we should consider GraphQL for the reporting layer.
+
+Best,
+Alice`
+
+	result := ParseEmailBody(email, "")
+
+	if !result.QuotedReplyDetected {
+		t.Error("Expected quoted reply to be detected with Gmail forward marker")
+	}
+
+	// New content should only be the preamble before the forward marker
+	if !strings.Contains(result.NewContent, "FYI - interesting discussion") {
+		t.Errorf("New content missing preamble.\nGot: %s", result.NewContent)
+	}
+
+	// New content should NOT contain the forward marker or forwarded content
+	if strings.Contains(result.NewContent, "Forwarded message") {
+		t.Error("New content should not contain forward marker")
+	}
+	if strings.Contains(result.NewContent, "From: Alice") {
+		t.Error("New content should not contain forwarded message headers")
+	}
+	if strings.Contains(result.NewContent, "API Design Discussion") {
+		t.Error("New content should not contain forwarded message body")
+	}
+
+	// Quoted content should have the forwarded message
+	if !strings.Contains(result.QuotedContent, "Forwarded message") {
+		t.Error("Quoted content should contain forward marker")
+	}
+	if !strings.Contains(result.QuotedContent, "From: Alice Johnson") {
+		t.Error("Quoted content should contain forwarded message From: header")
+	}
+	if !strings.Contains(result.QuotedContent, "thoughts on the new API endpoints") {
+		t.Error("Quoted content should contain forwarded message body")
+	}
+}
+
+// TestSeparateQuotedReply_AppleMailForwardMarker tests detection of Apple Mail forward marker.
+// Apple Mail uses "Begin forwarded message:" to mark forwarded emails.
+// When content_subtype == "forward", only the preamble (before the marker) should be processed.
+//
+// This is part of feature pf-ac639d - detect forward markers.
+func TestSeparateQuotedReply_AppleMailForwardMarker(t *testing.T) {
+	email := `Forwarding this for your review.
+
+Begin forwarded message:
+
+From: Carol White <carol@example.com>
+Date: February 13, 2026 at 4:45:00 PM PST
+To: Dave Black <dave@example.com>
+Subject: Budget Proposal
+
+Dave,
+
+Attached is the Q2 budget proposal for your review.
+
+Please let me know if you have any questions or need clarification on any line items.
+
+Thanks,
+Carol`
+
+	result := ParseEmailBody(email, "")
+
+	if !result.QuotedReplyDetected {
+		t.Error("Expected quoted reply to be detected with Apple Mail forward marker")
+	}
+
+	// New content should only be the preamble before the forward marker
+	if !strings.Contains(result.NewContent, "Forwarding this for your review") {
+		t.Errorf("New content missing preamble.\nGot: %s", result.NewContent)
+	}
+
+	// New content should NOT contain the forward marker or forwarded content
+	if strings.Contains(result.NewContent, "Begin forwarded message") {
+		t.Error("New content should not contain forward marker")
+	}
+	if strings.Contains(result.NewContent, "From: Carol") {
+		t.Error("New content should not contain forwarded message headers")
+	}
+	if strings.Contains(result.NewContent, "Budget Proposal") {
+		t.Error("New content should not contain forwarded message subject")
+	}
+	if strings.Contains(result.NewContent, "Attached is the Q2") {
+		t.Error("New content should not contain forwarded message body")
+	}
+
+	// Quoted content should have the forwarded message
+	if !strings.Contains(result.QuotedContent, "Begin forwarded message") {
+		t.Error("Quoted content should contain forward marker")
+	}
+	if !strings.Contains(result.QuotedContent, "From: Carol White") {
+		t.Error("Quoted content should contain forwarded message From: header")
+	}
+	if !strings.Contains(result.QuotedContent, "Q2 budget proposal") {
+		t.Error("Quoted content should contain forwarded message body")
+	}
+}

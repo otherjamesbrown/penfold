@@ -195,10 +195,17 @@ func separateQuotedReply(text string) (newContent, quotedContent string, detecte
 	// Pattern 4: "-----Original Message-----"
 	originalMessagePattern := regexp.MustCompile(`(?i)^-+\s*original message\s*-+`)
 
+	// Pattern 5: "---------- Forwarded message ----------" (Gmail forward)
+	gmailForwardPattern := regexp.MustCompile(`(?i)^-+\s*forwarded message\s*-+`)
+
+	// Pattern 6: "Begin forwarded message:" (Apple Mail forward)
+	appleForwardPattern := regexp.MustCompile(`(?i)^Begin forwarded message:`)
+
 	// Pattern 3: Outlook-style "From: ... Sent: ..." block
-	// Look for "From:" followed by "Sent:" within a few lines
+	// Look for "From:" followed by "Sent:" or "Date:" within a few lines
+	// "Date:" is used by Apple Mail and Outlook for Mac instead of "Sent:"
 	outlookFromPattern := regexp.MustCompile(`(?i)^From:\s+.+`)
-	outlookSentPattern := regexp.MustCompile(`(?i)^Sent:\s+.+`)
+	outlookSentPattern := regexp.MustCompile(`(?i)^(Sent|Date):\s+.+`)
 
 	splitIndex := -1
 	detectionMethod := ""
@@ -221,7 +228,21 @@ func separateQuotedReply(text string) (newContent, quotedContent string, detecte
 			break
 		}
 
-		// Check for Outlook block (From: followed by Sent: within 5 lines)
+		// Check for "---------- Forwarded message ----------" (Gmail)
+		if gmailForwardPattern.MatchString(trimmed) {
+			splitIndex = i
+			detectionMethod = "gmail-forward"
+			break
+		}
+
+		// Check for "Begin forwarded message:" (Apple Mail)
+		if appleForwardPattern.MatchString(trimmed) {
+			splitIndex = i
+			detectionMethod = "apple-forward"
+			break
+		}
+
+		// Check for Outlook block (From: followed by Sent: or Date: within 5 lines)
 		if outlookFromPattern.MatchString(trimmed) {
 			// Look ahead for Sent: within next 5 lines
 			for j := i + 1; j < len(lines) && j < i+6; j++ {
