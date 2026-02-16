@@ -197,12 +197,16 @@ func (s *Service) GetAssertionSummary(ctx context.Context, req *assertionsv1.Get
 
 // assertionResultToProto converts an AssertionResult to proto.
 func assertionResultToProto(result *assertions.AssertionResult, includeSource bool) *assertionsv1.AssertionDetail {
+	var confidence float32
+	if result.Confidence != nil {
+		confidence = *result.Confidence
+	}
 	detail := &assertionsv1.AssertionDetail{
 		Id:            result.ID,
 		AssertionType: result.AssertionType,
 		Description:   result.Description,
 		SourceQuote:   result.SourceQuote,
-		Confidence:    result.Confidence,
+		Confidence:    confidence,
 		CreatedAt:     timestamppb.New(result.CreatedAt),
 	}
 

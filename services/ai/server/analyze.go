@@ -391,10 +391,12 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 
 	// Start tracing span
 	ctx, span := tracing.StartLLMCall(ctx, "ai.deep_analyze", tracing.LLMCallOptions{
-		Model:    selectedModel,
-		System:   tracing.AISystemMLX,
-		TenantID: req.GetTenantId(),
-		TaskType: "deep_analysis",
+		Model:           selectedModel,
+		System:          tracing.AISystemMLX,
+		TenantID:        req.GetTenantId(),
+		TaskType:        "deep_analysis",
+		PipelineTraceID: req.GetPipelineTraceId(),
+		ContentID:       req.GetContentId(),
 	})
 	defer span.End()
 	startTime := time.Now()

@@ -43,7 +43,7 @@ type AssertionResult struct {
 	AssertionType string
 	Description   string
 	SourceQuote   *string
-	Confidence    float32
+	Confidence    *float32
 	CreatedAt     time.Time
 
 	// Source context (only if requested)
@@ -399,70 +399,69 @@ func (r *Repository) GetAssertionSummary(ctx context.Context, tenantID string, s
 	var args []any
 	argIdx := 1
 
-	baseQuery := `
+	baseFrom := `
 		FROM assertions a
 		JOIN sources s ON s.id = a.source_id
-		WHERE s.tenant_id = $%d
 	`
+	baseWhere := fmt.Sprintf(" WHERE s.tenant_id = $%d", argIdx)
 
 	// Add date filters
 	if since != nil {
-		baseQuery += fmt.Sprintf(" AND s.source_timestamp >= $%d", argIdx+1)
-		args = append(args, tenantID, *since)
 		argIdx++
+		baseWhere += fmt.Sprintf(" AND s.source_timestamp >= $%d", argIdx)
+		args = append(args, tenantID, *since)
 	} else {
 		args = append(args, tenantID)
 	}
 
 	if until != nil {
-		baseQuery += fmt.Sprintf(" AND s.source_timestamp <= $%d", argIdx+1)
-		args = append(args, *until)
 		argIdx++
+		baseWhere += fmt.Sprintf(" AND s.source_timestamp <= $%d", argIdx)
+		args = append(args, *until)
 	}
 
 	switch groupBy {
 	case "type":
-		query = `
+		query = fmt.Sprintf(`
 			SELECT
 				a.assertion_type as key,
 				COUNT(a.id) as count,
 				COUNT(CASE WHEN s.source_timestamp >= $%d THEN 1 END) as this_week,
 				COUNT(CASE WHEN s.source_timestamp >= $%d AND s.source_timestamp < $%d THEN 1 END) as last_week
-			` + baseQuery + `
+			`+baseFrom+baseWhere+`
 			GROUP BY a.assertion_type
 			ORDER BY count DESC
-		`
-		query = fmt.Sprintf(query, argIdx+1, argIdx+2, argIdx+3, 1)
+		`, argIdx+1, argIdx+2, argIdx+3)
 		args = append(args, oneWeekAgo, twoWeeksAgo, oneWeekAgo)
 
 	case "project":
-		query = `
+		query = fmt.Sprintf(`
 			SELECT
 				COALESCE(p.name, 'Unknown') as key,
 				COUNT(a.id) as count,
 				COUNT(CASE WHEN s.source_timestamp >= $%d THEN 1 END) as this_week,
 				COUNT(CASE WHEN s.source_timestamp >= $%d AND s.source_timestamp < $%d THEN 1 END) as last_week
-			` + baseQuery + `
+			`+baseFrom+`
 				LEFT JOIN projects p ON p.id = a.project_id
+			`+baseWhere+`
 			GROUP BY p.name
 			ORDER BY count DESC
-		`
-		query = fmt.Sprintf(query, argIdx+1, argIdx+2, argIdx+3, 1)
+		`, argIdx+1, argIdx+2, argIdx+3)
 		args = append(args, oneWeekAgo, twoWeeksAgo, oneWeekAgo)
 
 	case "person":
-		query = `
+		query = fmt.Sprintf(`
 			SELECT
 				aa.entity_id as key,
 				COUNT(DISTINCT a.id) as count,
 				COUNT(DISTINCT CASE WHEN s.source_timestamp >= $%d THEN a.id END) as this_week,
 				COUNT(DISTINCT CASE WHEN s.source_timestamp >= $%d AND s.source_timestamp < $%d THEN a.id END) as last_week
-			` + baseQuery + `
+			`+baseFrom+`
 				JOIN assertion_attributions aa ON aa.assertion_id = a.id
+			`+baseWhere+`
 			GROUP BY aa.entity_id
 			ORDER BY count DESC
-		`
-		query = fmt.Sprintf(query, argIdx+1, argIdx+2, argIdx+3, 1)
+		`, argIdx+1, argIdx+2, argIdx+3)
 		args = append(args, oneWeekAgo, twoWeeksAgo, oneWeekAgo)
 	}
 

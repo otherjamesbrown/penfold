@@ -116,6 +116,14 @@ message EmbeddingRequest {
 
   // Optional tenant identifier for multi-tenancy support.
   optional string tenant_id = 3;
+
+  // Optional pipeline trace ID for grouping related operations.
+  // When set, this span will be a child of the pipeline trace.
+  optional string pipeline_trace_id = 4;
+
+  // Optional content ID for Langfuse tag attribute.
+  // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
+  optional string content_id = 5;
 }
 
 // EmbeddingResponse contains the generated vector embedding.
@@ -181,6 +189,14 @@ message SummaryRequest {
   // Whether to request JSON-structured output from the LLM.
   // When true, the backend will constrain the model to output valid JSON.
   optional bool json_mode = 6;
+
+  // Optional pipeline trace ID for grouping related operations.
+  // When set, this span will be a child of the pipeline trace.
+  optional string pipeline_trace_id = 7;
+
+  // Optional content ID for Langfuse tag attribute.
+  // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
+  optional string content_id = 8;
 }
 
 // SummaryResponse contains the generated summary and key points.
@@ -231,6 +247,14 @@ message AssertionRequest {
 
   // Optional tenant identifier for multi-tenancy support.
   optional string tenant_id = 5;
+
+  // Optional pipeline trace ID for grouping related operations.
+  // When set, this span will be a child of the pipeline trace.
+  optional string pipeline_trace_id = 6;
+
+  // Optional content ID for Langfuse tag attribute.
+  // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
+  optional string content_id = 7;
 }
 
 // Assertion represents a structured fact or claim extracted from content.
@@ -301,6 +325,14 @@ message ClassifyContentRequest {
 
   // Optional tenant identifier for multi-tenancy support.
   optional string tenant_id = 6;
+
+  // Optional pipeline trace ID for grouping related operations.
+  // When set, this span will be a child of the pipeline trace.
+  optional string pipeline_trace_id = 7;
+
+  // Optional content ID for Langfuse tag attribute.
+  // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
+  optional string content_id = 8;
 }
 
 // Classification represents a single category assignment.
@@ -352,6 +384,14 @@ message TriageContentRequest {
 
   // Optional source ID for pipeline_runs provenance tracking.
   optional int64 source_id = 6;
+
+  // Optional pipeline trace ID for grouping related operations.
+  // When set, this span will be a child of the pipeline trace.
+  optional string pipeline_trace_id = 7;
+
+  // Optional content ID for Langfuse tag attribute.
+  // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
+  optional string content_id = 8;
 }
 
 // TriageContentResponse contains the triage classification results.
@@ -402,6 +442,14 @@ message ExtractEntitiesRequest {
 
   // Optional source ID for provenance tracking.
   optional int64 source_id = 5;
+
+  // Optional pipeline trace ID for grouping related operations.
+  // When set, this span will be a child of the pipeline trace.
+  optional string pipeline_trace_id = 6;
+
+  // Optional content ID for Langfuse tag attribute.
+  // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
+  optional string content_id = 7;
 }
 
 // PersonEntity represents a person extracted from content.
@@ -487,6 +535,10 @@ message DeepAnalyzeRequest {
   optional string tenant_id = 13;
   optional int64 source_id = 14;
   optional string content_id = 15;
+
+  // Optional pipeline trace ID for grouping related operations.
+  // When set, this span will be a child of the pipeline trace.
+  optional string pipeline_trace_id = 16;
 }
 
 // DeepAnalyzeResponse contains the Stage 4 analysis results.

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
@@ -112,16 +113,17 @@ type ParseTranscriptOutput struct {
 
 // TriageInput is the input for the Triage activity.
 type TriageInput struct {
-	TenantID      string            `json:"tenant_id"`
-	SourceID      int64             `json:"source_id"`
-	ContentID     string            `json:"content_id,omitempty"`
-	JobID         string            `json:"job_id"`
-	Content       string            `json:"content"`
-	Subject       string            `json:"subject,omitempty"`
-	SenderEmail   string            `json:"sender_email,omitempty"`
-	ContentType   string            `json:"content_type"`
-	Headers       map[string]string `json:"headers,omitempty"`       // Email headers for subtype classification
-	ModelOverride string            `json:"model_override,omitempty"` // Optional model override for reprocessing
+	TenantID         string            `json:"tenant_id"`
+	SourceID         int64             `json:"source_id"`
+	ContentID        string            `json:"content_id,omitempty"`
+	JobID            string            `json:"job_id"`
+	Content          string            `json:"content"`
+	Subject          string            `json:"subject,omitempty"`
+	SenderEmail      string            `json:"sender_email,omitempty"`
+	ContentType      string            `json:"content_type"`
+	Headers          map[string]string `json:"headers,omitempty"`       // Email headers for subtype classification
+	ModelOverride    string            `json:"model_override,omitempty"` // Optional model override for reprocessing
+	PipelineTraceID  string            `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
 }
 
 // TriageOutput is the output from the Triage activity.
@@ -137,13 +139,14 @@ type TriageOutput struct {
 
 // SLMPipelineExtractEntitiesInput is the input for the ExtractEntities activity (pipeline version with TriageCategory).
 type SLMPipelineExtractEntitiesInput struct {
-	TenantID       string `json:"tenant_id"`
-	SourceID       int64  `json:"source_id"`
-	ContentID      string `json:"content_id,omitempty"`
-	JobID          string `json:"job_id"`
-	Content        string `json:"content"`
-	TriageCategory string `json:"triage_category,omitempty"`
-	ModelOverride  string `json:"model_override,omitempty"` // Optional model override for reprocessing
+	TenantID        string `json:"tenant_id"`
+	SourceID        int64  `json:"source_id"`
+	ContentID       string `json:"content_id,omitempty"`
+	JobID           string `json:"job_id"`
+	Content         string `json:"content"`
+	TriageCategory  string `json:"triage_category,omitempty"`
+	ModelOverride   string `json:"model_override,omitempty"` // Optional model override for reprocessing
+	PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
 }
 
 // SLMPipelineExtractEntitiesOutput is the output from the ExtractEntities activity (pipeline version with DetailedRisks).
@@ -313,6 +316,7 @@ type DeepAnalyzeInput struct {
 	ExtractionResult  *SLMPipelineExtractEntitiesOutput `json:"extraction_result"`
 	BackgroundContext string                            `json:"background_context,omitempty"`
 	ModelOverride     string                            `json:"model_override,omitempty"` // Optional model override for reprocessing
+	PipelineTraceID   string                            `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
 }
 
 // DeepAnalyzeOutput is the output from the DeepAnalyze activity.
@@ -470,6 +474,16 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			SourceID: input.SourceID,
 		},
 	}
+
+	// Generate pipeline trace ID for Langfuse trace grouping.
+	// All AI calls for this document will share this trace ID.
+	// Use workflow.SideEffect for determinism (Temporal workflows must be deterministic).
+	var pipelineTraceID string
+	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+		return uuid.New().String()
+	}).Get(&pipelineTraceID)
+	// Convert UUID to 32-char hex trace ID (remove hyphens for Langfuse)
+	pipelineTraceID = strings.ReplaceAll(pipelineTraceID, "-", "")
 
 	// Cleanup handler: if workflow terminates abnormally (timeout/cancellation),
 	// update status to 'failed' so content doesn't stay stuck in 'pending'.
@@ -749,15 +763,16 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}
 	ctxTriage := workflow.WithActivityOptions(ctx, triageOpts)
 	err := workflow.ExecuteActivity(ctxTriage, pkgtemporal.ActivityTriage, TriageInput{
-		TenantID:      input.TenantID,
-		SourceID:      input.SourceID,
-		ContentID:     input.ContentID,
-		JobID:         input.JobID,
-		Content:       parsedContent,
-		Subject:       input.Subject,
-		SenderEmail:   input.SenderEmail,
-		ContentType:   input.ContentType,
-		ModelOverride: input.ModelOverride,
+		TenantID:        input.TenantID,
+		SourceID:        input.SourceID,
+		ContentID:       input.ContentID,
+		JobID:           input.JobID,
+		Content:         parsedContent,
+		Subject:         input.Subject,
+		SenderEmail:     input.SenderEmail,
+		ContentType:     input.ContentType,
+		ModelOverride:   input.ModelOverride,
+		PipelineTraceID: pipelineTraceID,
 	}).Get(ctx, &triageOutput)
 	if err != nil {
 		// Update status to "rejected" with failure info
@@ -959,24 +974,26 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 		ctxExtract := workflow.WithActivityOptions(ctx, extractOpts)
 		err = workflow.ExecuteActivity(ctxExtract, pkgtemporal.ActivityExtractEntitiesActivity, SLMPipelineExtractEntitiesInput{
-			TenantID:      input.TenantID,
-			SourceID:      input.SourceID,
-			ContentID:     input.ContentID,
-			JobID:         input.JobID,
-			Content:       parsedContent,
-			ModelOverride: input.ModelOverride,
+			TenantID:        input.TenantID,
+			SourceID:        input.SourceID,
+			ContentID:       input.ContentID,
+			JobID:           input.JobID,
+			Content:         parsedContent,
+			ModelOverride:   input.ModelOverride,
+			PipelineTraceID: pipelineTraceID,
 		}).Get(ctx, extractOutput)
 
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
 		var assertionCount int
 		ctxAssertions := workflow.WithActivityOptions(ctx, embeddingOpts)
 		err2 := workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
-			TenantID:    input.TenantID,
-			SourceID:    input.SourceID,
-			ContentID:   input.ContentID,
-			JobID:       input.JobID,
-			Content:     parsedContent,
-			SenderEmail: input.SenderEmail, // Pass sender for owner attribution
+			TenantID:        input.TenantID,
+			SourceID:        input.SourceID,
+			ContentID:       input.ContentID,
+			JobID:           input.JobID,
+			Content:         parsedContent,
+			SenderEmail:     input.SenderEmail, // Pass sender for owner attribution
+			PipelineTraceID: pipelineTraceID,
 		}).Get(ctx, &assertionCount)
 		if err2 != nil {
 			logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err2)
@@ -1163,6 +1180,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			ExtractionResult:  extractOutput,
 			BackgroundContext: "", // Context package content assembled by activity
 			ModelOverride:     input.ModelOverride,
+			PipelineTraceID:   pipelineTraceID,
 		}).Get(ctx, analyzeOutput)
 		if err != nil {
 			durationMs := workflow.Now(ctx).Sub(analyzeStart).Milliseconds()
@@ -1344,11 +1362,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	var embeddingID int64
 	ctxEmbed := workflow.WithActivityOptions(ctx, embeddingOpts)
 	err = workflow.ExecuteActivity(ctxEmbed, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
-		TenantID:    input.TenantID,
-		SourceID:    input.SourceID,
-		ContentID:   input.ContentID,
-		Content:     parsedContent,
-		ContentHash: input.ContentHash,
+		TenantID:        input.TenantID,
+		SourceID:        input.SourceID,
+		ContentID:       input.ContentID,
+		Content:         parsedContent,
+		ContentHash:     input.ContentHash,
+		PipelineTraceID: pipelineTraceID,
 	}).Get(ctx, &embeddingID)
 	if err != nil {
 		runCompensation(ctx)

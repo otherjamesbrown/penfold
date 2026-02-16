@@ -27,6 +27,7 @@ const (
 	AttrLangfuseUserID          = "langfuse.user.id"
 	AttrLangfuseSessionID       = "langfuse.session.id"
 	AttrLangfuseTraceMetadata   = "langfuse.trace.metadata"
+	AttrLangfuseTag             = "langfuse.tag"
 
 	// Penfold-specific attributes
 	AttrPenfoldTenantID = "penfold.tenant_id"
@@ -65,6 +66,10 @@ var AITracer = otel.Tracer("penfold.ai")
 
 // LLMCallOptions holds options for starting an LLM call span.
 type LLMCallOptions struct {
+	// PipelineTraceID is an optional hex-encoded trace ID for grouping related operations.
+	// When set, this span will be a child of the specified trace (not a root span).
+	PipelineTraceID string
+
 	// Model is the model identifier (e.g., "gpt-4", "llama3.2").
 	Model string
 
@@ -120,6 +125,8 @@ func StartLLMCall(ctx context.Context, name string, opts LLMCallOptions) (contex
 	}
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
+		// Add Langfuse tag for content grouping
+		attrs = append(attrs, attribute.String(AttrLangfuseTag, opts.ContentID))
 	}
 	if opts.TaskType != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldTaskType, opts.TaskType))
@@ -131,7 +138,29 @@ func StartLLMCall(ctx context.Context, name string, opts LLMCallOptions) (contex
 		attrs = append(attrs, attribute.String(AttrLangfuseSessionID, opts.SessionID))
 	}
 
-	return AITracer.Start(ctx, name, trace.WithNewRoot(), trace.WithAttributes(attrs...))
+	// If PipelineTraceID is set, create span as child of that trace
+	// Otherwise, create a root span (backward compatibility)
+	var startOpts []trace.SpanStartOption
+	if opts.PipelineTraceID != "" {
+		// Parse hex trace ID and create remote span context
+		traceID, err := trace.TraceIDFromHex(opts.PipelineTraceID)
+		if err == nil {
+			spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
+				TraceID:    traceID,
+				TraceFlags: trace.FlagsSampled,
+				Remote:     true,
+			})
+			ctx = trace.ContextWithRemoteSpanContext(ctx, spanCtx)
+			// Don't use WithNewRoot() - span will be child of remote context
+		}
+		// If parse error, fall through to WithNewRoot() behavior
+	} else {
+		// No PipelineTraceID - create root span (backward compatibility)
+		startOpts = append(startOpts, trace.WithNewRoot())
+	}
+
+	startOpts = append(startOpts, trace.WithAttributes(attrs...))
+	return AITracer.Start(ctx, name, startOpts...)
 }
 
 // LLMResult holds the result of an LLM call for recording.
@@ -190,6 +219,10 @@ func SetLLMResult(span trace.Span, result LLMResult) {
 
 // EmbeddingOptions holds options for starting an embedding span.
 type EmbeddingOptions struct {
+	// PipelineTraceID is an optional hex-encoded trace ID for grouping related operations.
+	// When set, this span will be a child of the specified trace (not a root span).
+	PipelineTraceID string
+
 	// Model is the embedding model identifier.
 	Model string
 
@@ -235,12 +268,36 @@ func StartEmbedding(ctx context.Context, name string, opts EmbeddingOptions) (co
 	}
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
+		// Add Langfuse tag for content grouping
+		attrs = append(attrs, attribute.String(AttrLangfuseTag, opts.ContentID))
 	}
 	if opts.BatchSize > 0 {
 		attrs = append(attrs, attribute.Int("batch_size", opts.BatchSize))
 	}
 
-	return AITracer.Start(ctx, name, trace.WithNewRoot(), trace.WithAttributes(attrs...))
+	// If PipelineTraceID is set, create span as child of that trace
+	// Otherwise, create a root span (backward compatibility)
+	var startOpts []trace.SpanStartOption
+	if opts.PipelineTraceID != "" {
+		// Parse hex trace ID and create remote span context
+		traceID, err := trace.TraceIDFromHex(opts.PipelineTraceID)
+		if err == nil {
+			spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
+				TraceID:    traceID,
+				TraceFlags: trace.FlagsSampled,
+				Remote:     true,
+			})
+			ctx = trace.ContextWithRemoteSpanContext(ctx, spanCtx)
+			// Don't use WithNewRoot() - span will be child of remote context
+		}
+		// If parse error, fall through to WithNewRoot() behavior
+	} else {
+		// No PipelineTraceID - create root span (backward compatibility)
+		startOpts = append(startOpts, trace.WithNewRoot())
+	}
+
+	startOpts = append(startOpts, trace.WithAttributes(attrs...))
+	return AITracer.Start(ctx, name, startOpts...)
 }
 
 // EmbeddingResult holds the result of an embedding operation.
@@ -291,6 +348,10 @@ func SetEmbeddingResult(span trace.Span, result EmbeddingResult) {
 
 // AIProcessingOptions holds options for starting a general AI processing span.
 type AIProcessingOptions struct {
+	// PipelineTraceID is an optional hex-encoded trace ID for grouping related operations.
+	// When set, this span will be a child of the specified trace (not a root span).
+	PipelineTraceID string
+
 	// TaskType is the type of AI task (e.g., "summarize", "classify", "extract").
 	TaskType string
 
@@ -331,12 +392,36 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 	}
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
+		// Add Langfuse tag for content grouping
+		attrs = append(attrs, attribute.String(AttrLangfuseTag, opts.ContentID))
 	}
 	if opts.ContentType != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentType, opts.ContentType))
 	}
 
-	return AITracer.Start(ctx, name, trace.WithNewRoot(), trace.WithAttributes(attrs...))
+	// If PipelineTraceID is set, create span as child of that trace
+	// Otherwise, create a root span (backward compatibility)
+	var startOpts []trace.SpanStartOption
+	if opts.PipelineTraceID != "" {
+		// Parse hex trace ID and create remote span context
+		traceID, err := trace.TraceIDFromHex(opts.PipelineTraceID)
+		if err == nil {
+			spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
+				TraceID:    traceID,
+				TraceFlags: trace.FlagsSampled,
+				Remote:     true,
+			})
+			ctx = trace.ContextWithRemoteSpanContext(ctx, spanCtx)
+			// Don't use WithNewRoot() - span will be child of remote context
+		}
+		// If parse error, fall through to WithNewRoot() behavior
+	} else {
+		// No PipelineTraceID - create root span (backward compatibility)
+		startOpts = append(startOpts, trace.WithNewRoot())
+	}
+
+	startOpts = append(startOpts, trace.WithAttributes(attrs...))
+	return AITracer.Start(ctx, name, startOpts...)
 }
 
 // StartPipeline starts a parent span for an AI processing pipeline.
@@ -345,21 +430,51 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 // The contentID should be in the standard format: <type:2>-<base62:8> (11 chars),
 // e.g., "em-abc12XYZ" for email. Use pkg/contentid.New() to generate IDs.
 //
+// The pipelineTraceID is an optional hex-encoded trace ID. If provided, this pipeline
+// span will continue that trace instead of creating a new root. If empty, a new root
+// trace will be created.
+//
 // Example:
 //
 //	contentID := contentid.New(contentid.TypeEmail) // e.g., "em-abc12XYZ"
-//	ctx, span := tracing.StartPipeline(ctx, "email-enrichment", contentID, "email")
+//	ctx, span := tracing.StartPipeline(ctx, "email-enrichment", contentID, "email", "")
 //	defer span.End()
 //	// ... perform multiple AI operations ...
-func StartPipeline(ctx context.Context, name, contentID, contentType string) (context.Context, trace.Span) {
-	return AITracer.Start(ctx, name,
-		trace.WithNewRoot(),
-		trace.WithAttributes(
-			attribute.String(AttrLangfuseObservationType, ObservationTypeSpan),
-			attribute.String(AttrPenfoldContentID, contentID),
-			attribute.String(AttrPenfoldContentType, contentType),
-		),
-	)
+func StartPipeline(ctx context.Context, name, contentID, contentType, pipelineTraceID string) (context.Context, trace.Span) {
+	attrs := []attribute.KeyValue{
+		attribute.String(AttrLangfuseObservationType, ObservationTypeSpan),
+		attribute.String(AttrPenfoldContentID, contentID),
+		attribute.String(AttrPenfoldContentType, contentType),
+	}
+
+	// Add Langfuse tag for content grouping
+	if contentID != "" {
+		attrs = append(attrs, attribute.String(AttrLangfuseTag, contentID))
+	}
+
+	// If PipelineTraceID is set, create span as child of that trace
+	// Otherwise, create a root span
+	var startOpts []trace.SpanStartOption
+	if pipelineTraceID != "" {
+		// Parse hex trace ID and create remote span context
+		traceID, err := trace.TraceIDFromHex(pipelineTraceID)
+		if err == nil {
+			spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
+				TraceID:    traceID,
+				TraceFlags: trace.FlagsSampled,
+				Remote:     true,
+			})
+			ctx = trace.ContextWithRemoteSpanContext(ctx, spanCtx)
+			// Don't use WithNewRoot() - span will be child of remote context
+		}
+		// If parse error, fall through to WithNewRoot() behavior
+	} else {
+		// No PipelineTraceID - create root span
+		startOpts = append(startOpts, trace.WithNewRoot())
+	}
+
+	startOpts = append(startOpts, trace.WithAttributes(attrs...))
+	return AITracer.Start(ctx, name, startOpts...)
 }
 
 // RecordAIEvent records a discrete event within an AI span.

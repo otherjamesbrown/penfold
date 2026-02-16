@@ -94,6 +94,12 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		Text:     input.Content,
 		TenantId: &input.TenantID,
 	}
+	if input.PipelineTraceID != "" {
+		embeddingReq.PipelineTraceId = &input.PipelineTraceID
+	}
+	if input.ContentID != "" {
+		embeddingReq.ContentId = &input.ContentID
+	}
 
 	// Tracing is handled by the AI server, not duplicated here
 	resp, err := a.aiClient.GenerateEmbedding(ctx, embeddingReq)

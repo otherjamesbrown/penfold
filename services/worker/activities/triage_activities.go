@@ -179,6 +179,12 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	if input.SourceID > 0 {
 		req.SourceId = &input.SourceID
 	}
+	if input.PipelineTraceID != "" {
+		req.PipelineTraceId = &input.PipelineTraceID
+	}
+	if input.ContentID != "" {
+		req.ContentId = &input.ContentID
+	}
 
 	// Call AI service (tracing is handled by the AI server, not duplicated here)
 	resp, err := a.aiClient.TriageContent(ctx, req)

@@ -113,6 +113,12 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 		MaxAssertions: &maxAssertions,
 		TenantId:      &input.TenantID,
 	}
+	if input.PipelineTraceID != "" {
+		assertionReq.PipelineTraceId = &input.PipelineTraceID
+	}
+	if input.ContentID != "" {
+		assertionReq.ContentId = &input.ContentID
+	}
 
 	// Call AI service (tracing is handled by the AI server, not duplicated here)
 	resp, err := a.aiClient.ExtractAssertions(ctx, assertionReq)
@@ -295,6 +301,12 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		if input.TriageCategory != "" {
 			req.TriageCategory = optString(input.TriageCategory)
 		}
+		if input.PipelineTraceID != "" {
+			req.PipelineTraceId = optString(input.PipelineTraceID)
+		}
+		if input.ContentID != "" {
+			req.ContentId = optString(input.ContentID)
+		}
 
 		// Call AI service (tracing is handled by the AI server, not duplicated here)
 		resp, err := a.aiClient.ExtractEntities(ctx, req)
@@ -329,6 +341,12 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			// Only pass triage_category on first chunk for quality gate
 			if i == 0 && input.TriageCategory != "" {
 				req.TriageCategory = optString(input.TriageCategory)
+			}
+			if input.PipelineTraceID != "" {
+				req.PipelineTraceId = optString(input.PipelineTraceID)
+			}
+			if input.ContentID != "" {
+				req.ContentId = optString(input.ContentID)
 			}
 
 			resp, err := a.aiClient.ExtractEntities(ctx, req)

@@ -191,10 +191,12 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 	// Start tracing span
 	ctx, span := tracing.StartLLMCall(ctx, "ai.extract", tracing.LLMCallOptions{
-		Model:    model,
-		System:   tracing.AISystemMLX,
-		TenantID: req.GetTenantId(),
-		TaskType: "extraction",
+		Model:           model,
+		System:          tracing.AISystemMLX,
+		TenantID:        req.GetTenantId(),
+		TaskType:        "extraction",
+		PipelineTraceID: req.GetPipelineTraceId(),
+		ContentID:       req.GetContentId(),
 	})
 	defer span.End()
 	startTime := time.Now()
