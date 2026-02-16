@@ -38,6 +38,14 @@ type Config struct {
 	// MLXLLMURL is the URL of the MLX LLM server.
 	MLXLLMURL string
 
+	// OllamaURL is the URL for Ollama/local models (OpenAI-compatible).
+	// Backward compatible: falls back to MLXLLMURL if not set.
+	OllamaURL string
+
+	// StageModels maps pipeline stage names to their configured models.
+	// Keys: triage, extract_entities, extract_assertions, deep_analyze, embedding
+	StageModels map[string]string
+
 	// EmbeddingDimensions is the expected dimension of embedding vectors.
 	EmbeddingDimensions int
 
@@ -81,6 +89,8 @@ func Load() (*Config, error) {
 		DefaultLLMModel:         DefaultLLMModel,
 		MLXEmbeddingsURL:        DefaultMLXEmbeddingsURL,
 		MLXLLMURL:               DefaultMLXLLMURL,
+		OllamaURL:               "", // Will be set below with fallback
+		StageModels:             make(map[string]string),
 		EmbeddingDimensions:     DefaultEmbeddingDimensions,
 		LogLevel:                DefaultLogLevel,
 		Environment:             DefaultEnvironment,
@@ -131,6 +141,32 @@ func Load() (*Config, error) {
 
 	if v := os.Getenv("AI_MLX_LLM_URL"); v != "" {
 		cfg.MLXLLMURL = v
+	}
+
+	// OllamaURL with backward compatibility: try AI_OLLAMA_URL first, then fall back to AI_MLX_LLM_URL
+	if v := os.Getenv("AI_OLLAMA_URL"); v != "" {
+		cfg.OllamaURL = v
+	} else if cfg.MLXLLMURL != "" {
+		cfg.OllamaURL = cfg.MLXLLMURL
+	} else {
+		cfg.OllamaURL = "http://localhost:11434"
+	}
+
+	// Load per-stage model configuration
+	if v := os.Getenv("AI_MODEL_TRIAGE"); v != "" {
+		cfg.StageModels["triage"] = v
+	}
+	if v := os.Getenv("AI_MODEL_EXTRACT_ENTITIES"); v != "" {
+		cfg.StageModels["extract_entities"] = v
+	}
+	if v := os.Getenv("AI_MODEL_EXTRACT_ASSERTIONS"); v != "" {
+		cfg.StageModels["extract_assertions"] = v
+	}
+	if v := os.Getenv("AI_MODEL_DEEP_ANALYZE"); v != "" {
+		cfg.StageModels["deep_analyze"] = v
+	}
+	if v := os.Getenv("AI_MODEL_EMBEDDING"); v != "" {
+		cfg.StageModels["embedding"] = v
 	}
 
 	if v := os.Getenv("AI_EMBEDDING_DIMENSIONS"); v != "" {
@@ -227,4 +263,29 @@ func (c *Config) GRPCAddr() string {
 // HTTPAddr returns the HTTP server address.
 func (c *Config) HTTPAddr() string {
 	return fmt.Sprintf(":%d", c.HTTPPort)
+}
+
+// ModelForStage returns the configured model for a given pipeline stage.
+// Resolution order:
+// 1. Stage-specific config (e.g., AI_MODEL_TRIAGE)
+// 2. Global default (AI_DEFAULT_LLM_MODEL)
+// 3. Hardcoded default (gemini-2.0-flash)
+//
+// Stage names are case-insensitive.
+func (c *Config) ModelForStage(stage string) string {
+	// Normalize stage name to lowercase
+	stage = strings.ToLower(strings.TrimSpace(stage))
+
+	// Check stage-specific config
+	if model, ok := c.StageModels[stage]; ok && model != "" {
+		return model
+	}
+
+	// Fall back to global default
+	if c.DefaultLLMModel != "" {
+		return c.DefaultLLMModel
+	}
+
+	// Final fallback to hardcoded default
+	return DefaultLLMModel
 }

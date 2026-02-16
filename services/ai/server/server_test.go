@@ -107,9 +107,11 @@ func testConfig() *config.Config {
 		HTTPPort:                8090,
 		MLXLLMURL:               "http://localhost:8080",
 		MLXEmbeddingsURL:        "http://localhost:8081",
+		OllamaURL:               "http://localhost:11434",
 		GeminiDefaultModel:      "gemini-2.5-pro",
 		DefaultEmbeddingModel:   "mxbai-embed-large-v1",
 		DefaultLLMModel:         "mlx-community/Qwen2.5-7B-Instruct-4bit",
+		StageModels:             make(map[string]string),
 		EmbeddingDimensions:     1024,
 		LogLevel:                "info",
 		Environment:             "dev",
@@ -126,6 +128,17 @@ func testLogger() logging.Logger {
 // newTestServer creates a test server with mock backend.
 func newTestServer(be backend.Backend) *AIServer {
 	cfg := testConfig()
+	logger := testLogger()
+	return NewAIServer(cfg, logger, be)
+}
+
+// newTestServerWithEnvConfig creates a test server with config loaded from environment variables.
+// Use this when tests set env vars with t.Setenv and expect the server to pick them up.
+func newTestServerWithEnvConfig(t *testing.T, be backend.Backend) *AIServer {
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
 	logger := testLogger()
 	return NewAIServer(cfg, logger, be)
 }

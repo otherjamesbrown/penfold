@@ -84,6 +84,11 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 	text := strings.TrimSpace(req.GetText())
 	model := req.GetModel()
 
+	// Resolve model: explicit request → stage config → global default → hardcoded fallback
+	if model == "" {
+		model = s.config.ModelForStage("embedding")
+	}
+
 	// Start tracing span
 	ctx, span := tracing.StartEmbedding(ctx, "ai.embedding", tracing.EmbeddingOptions{
 		Model:           model,
@@ -255,6 +260,11 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error) {
 	content := strings.TrimSpace(req.GetContent())
 	model := req.GetModel()
+
+	// Resolve model: explicit request → stage config → global default → hardcoded fallback
+	if model == "" {
+		model = s.config.ModelForStage("extract_assertions")
+	}
 
 	// Start tracing span
 	ctx, span := tracing.StartLLMCall(ctx, "ai.extract_assertions", tracing.LLMCallOptions{
@@ -512,6 +522,11 @@ func (s *AIServer) ClassifyContent(ctx context.Context, req *aiv1.ClassifyConten
 func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
 	content := strings.TrimSpace(req.GetContent())
 	model := req.GetModel()
+
+	// Resolve model: explicit request → stage config → global default → hardcoded fallback
+	if model == "" {
+		model = s.config.ModelForStage("triage")
+	}
 
 	// Start tracing span
 	ctx, span := tracing.StartLLMCall(ctx, "ai.triage", tracing.LLMCallOptions{
@@ -844,6 +859,15 @@ func (s *AIServer) getModelStatusFromBackend(ctx context.Context, req *aiv1.GetM
 }
 
 // Helper methods
+
+// selectBackend determines which backend to use based on the model name.
+// Returns "gemini" for gemini-* models (case-insensitive), "ollama" for all others.
+func selectBackend(model string) string {
+	if strings.Contains(strings.ToLower(model), "gemini") {
+		return "gemini"
+	}
+	return "ollama"
+}
 
 func (s *AIServer) buildSummarySystemPrompt(style aiv1.SummaryStyle, maxLength int32) string {
 	var styleInstruction string

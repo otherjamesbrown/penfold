@@ -289,8 +289,8 @@ func buildPreliminarySection(req *aiv1.DeepAnalyzeRequest) string {
 // - PROJECT_UPDATE + MEDIUM → balanced (Flash)
 // - ACTION_REQUEST + MEDIUM → balanced (Flash)
 // - Anything + LOW → cost optimization (Flash)
-// - Default (no triage) → quality (Pro)
-func selectModelForDeepAnalysis(category, importance, requestedModel string) string {
+// - Default (no triage) → config stage default for deep_analyze
+func selectModelForDeepAnalysis(category, importance, requestedModel, configDefault string) string {
 	// If model explicitly requested, use it
 	if requestedModel != "" {
 		return requestedModel
@@ -305,8 +305,8 @@ func selectModelForDeepAnalysis(category, importance, requestedModel string) str
 		return "gemini-2.5-pro"
 	}
 
-	// CUSTOMER + HIGH → quality
-	if category == "CUSTOMER" && importance == "HIGH" {
+	// CUSTOMER + HIGH or MEDIUM → quality
+	if category == "CUSTOMER" && (importance == "HIGH" || importance == "MEDIUM") {
 		return "gemini-2.5-pro"
 	}
 
@@ -330,7 +330,12 @@ func selectModelForDeepAnalysis(category, importance, requestedModel string) str
 		return "gemini-2.0-flash"
 	}
 
-	// Default: balanced model (use --model override for Pro on specific items)
+	// Default: use config stage default
+	if configDefault != "" {
+		return configDefault
+	}
+
+	// Final fallback: balanced model (use --model override for Pro on specific items)
 	return "gemini-2.0-flash"
 }
 
@@ -382,11 +387,13 @@ func parseDeepAnalysisResponse(jsonStr string) (*deepAnalysisResult, error) {
 func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error) {
 	content := strings.TrimSpace(req.GetContent())
 
-	// Select model based on triage metadata
+	// Select model based on triage metadata, with config default fallback
+	configDefault := s.config.ModelForStage("deep_analyze")
 	selectedModel := selectModelForDeepAnalysis(
 		req.GetTriageCategory(),
 		req.GetTriageImportance(),
 		req.GetModel(),
+		configDefault,
 	)
 
 	// Start tracing span

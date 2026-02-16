@@ -189,6 +189,11 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	content := strings.TrimSpace(req.GetContent())
 	model := req.GetModel()
 
+	// Resolve model: explicit request → stage config → global default → hardcoded fallback
+	if model == "" {
+		model = s.config.ModelForStage("extract_entities")
+	}
+
 	// Start tracing span
 	ctx, span := tracing.StartLLMCall(ctx, "ai.extract", tracing.LLMCallOptions{
 		Model:           model,

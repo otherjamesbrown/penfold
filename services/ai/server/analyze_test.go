@@ -193,10 +193,10 @@ func TestSelectModelForDeepAnalysis(t *testing.T) {
 			want:       "gemini-2.0-flash",
 		},
 		{
-			name:       "No triage metadata defaults to Pro",
+			name:       "No triage metadata defaults to Flash (when no config default)",
 			category:   "",
 			importance: "",
-			want:       "gemini-2.5-pro",
+			want:       "gemini-2.0-flash",
 		},
 		{
 			name:           "Requested model overrides selection",
@@ -215,7 +215,8 @@ func TestSelectModelForDeepAnalysis(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := selectModelForDeepAnalysis(tt.category, tt.importance, tt.requestedModel)
+			// Pass empty configDefault to test the dynamic selection logic without config influence
+			got := selectModelForDeepAnalysis(tt.category, tt.importance, tt.requestedModel, "")
 			if got != tt.want {
 				t.Errorf("selectModelForDeepAnalysis() = %v, want %v", got, tt.want)
 			}
