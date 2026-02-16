@@ -224,25 +224,15 @@ func main() {
 		Timeout:  3 * time.Second,
 	})
 
-	// Register ML service health checks if URLs are configured.
+	// Register Ollama embeddings health check if URL is configured.
 	if cfg.EmbeddingsURL != "" {
 		healthAggregator.RegisterService(gatewayhealth.ServiceConfig{
 			Name:     "embeddings",
-			Client:   gatewayhealth.NewHTTPHealthClient(cfg.EmbeddingsURL, "/health", 5*time.Second),
-			Critical: false, // ML services are not critical for gateway operation
+			Client:   gatewayhealth.NewHTTPHealthClient(cfg.EmbeddingsURL, "/", 5*time.Second),
+			Critical: false, // Embeddings service is not critical for gateway operation
 			Timeout:  5 * time.Second,
 		})
 		logger.Info("Registered embeddings health check", logging.F("url", cfg.EmbeddingsURL))
-	}
-
-	if cfg.LLMURL != "" {
-		healthAggregator.RegisterService(gatewayhealth.ServiceConfig{
-			Name:     "llm",
-			Client:   gatewayhealth.NewHTTPHealthClient(cfg.LLMURL, "/v1/models", 5*time.Second),
-			Critical: false,
-			Timeout:  5 * time.Second,
-		})
-		logger.Info("Registered LLM health check", logging.F("url", cfg.LLMURL))
 	}
 
 	if cfg.WorkerHealthURL != "" {

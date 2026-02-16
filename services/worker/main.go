@@ -635,9 +635,9 @@ func main() {
 		}, health.Critical())
 	}
 
-	// Register legacy embeddings service health check (HTTP-based, will be deprecated)
+	// Register Ollama embeddings health check
 	healthChecker.RegisterCheck("embeddings", func(ctx context.Context) error {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.AIServiceURL+"/health", nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.AIServiceURL+"/", nil)
 		if err != nil {
 			return fmt.Errorf("create request: %w", err)
 		}
