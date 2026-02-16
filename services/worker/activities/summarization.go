@@ -11,7 +11,6 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
-	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -87,18 +86,6 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 	startTime := time.Now()
 	activity.RecordHeartbeat(ctx, "calling AI service for summary generation")
 
-	// Start LLM call trace
-	contentID := input.ContentID
-	if contentID == "" {
-		contentID = fmt.Sprintf("%d", input.SourceID)
-	}
-	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.summarize", tracing.LLMCallOptions{
-		TenantID:  input.TenantID,
-		ContentID: contentID,
-		TaskType:  "summarize",
-	})
-	defer llmSpan.End()
-
 	// Default parameters for summary generation
 	maxLength := int32(150) // tokens
 
@@ -109,27 +96,12 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 		TenantId:  &input.TenantID,
 	}
 
+	// Call AI service (tracing is handled by the AI server, not duplicated here)
 	resp, err := a.aiClient.GenerateSummary(ctx, summaryReq)
 	if err != nil {
-		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     err,
-		})
 		logger.Error("Failed to generate summary from AI service", logging.Err(err))
 		return 0, fmt.Errorf("failed to generate summary: %w", err)
 	}
-
-	// Record LLM result
-	tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-		InputTokens:  int(resp.GetInputTokens()),
-		OutputTokens: int(resp.GetOutputTokens()),
-		Model:        resp.ModelUsed,
-		LatencyMs:    time.Since(startTime).Milliseconds(),
-	})
-	tracing.SetAttributes(llmSpan,
-		tracing.AttrInt("summary.length", len(resp.Summary)),
-		tracing.AttrInt("summary.key_points_count", len(resp.KeyPoints)),
-	)
 
 	// Record heartbeat after AI call
 	activity.RecordHeartbeat(ctx, "summary generated, storing")
@@ -248,23 +220,6 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 	startTime := time.Now()
 	activity.RecordHeartbeat(ctx, "calling AI service")
 
-	// Start LLM call trace
-	contentID := input.ContentID
-	if contentID == "" {
-		contentID = fmt.Sprintf("%d", input.SourceID)
-	}
-	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.summarize", tracing.LLMCallOptions{
-		Model:     input.Model,
-		TenantID:  input.TenantID,
-		ContentID: contentID,
-		TaskType:  "summarize",
-	})
-	defer llmSpan.End()
-	tracing.SetAttributes(llmSpan,
-		tracing.AttrInt("summary.max_length", int(maxLength)),
-		tracing.Attr("summary.style", style.String()),
-	)
-
 	summaryReq := &aiv1.SummaryRequest{
 		Content:   input.Content,
 		MaxLength: &maxLength,
@@ -275,27 +230,12 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 		summaryReq.Model = &input.Model
 	}
 
+	// Tracing is handled by the AI server, not duplicated here
 	resp, err := a.aiClient.GenerateSummary(ctx, summaryReq)
 	if err != nil {
-		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     err,
-		})
 		logger.Error("Failed to generate summary from AI service", logging.Err(err))
 		return nil, fmt.Errorf("failed to generate summary: %w", err)
 	}
-
-	// Record LLM result
-	tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-		InputTokens:  int(resp.GetInputTokens()),
-		OutputTokens: int(resp.GetOutputTokens()),
-		Model:        resp.ModelUsed,
-		LatencyMs:    time.Since(startTime).Milliseconds(),
-	})
-	tracing.SetAttributes(llmSpan,
-		tracing.AttrInt("summary.length", len(resp.Summary)),
-		tracing.AttrInt("summary.key_points_count", len(resp.KeyPoints)),
-	)
 
 	activity.RecordHeartbeat(ctx, "summary generated, storing")
 

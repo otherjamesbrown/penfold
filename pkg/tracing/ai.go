@@ -131,7 +131,7 @@ func StartLLMCall(ctx context.Context, name string, opts LLMCallOptions) (contex
 		attrs = append(attrs, attribute.String(AttrLangfuseSessionID, opts.SessionID))
 	}
 
-	return AITracer.Start(ctx, name, trace.WithAttributes(attrs...))
+	return AITracer.Start(ctx, name, trace.WithNewRoot(), trace.WithAttributes(attrs...))
 }
 
 // LLMResult holds the result of an LLM call for recording.
@@ -220,7 +220,7 @@ type EmbeddingOptions struct {
 //	defer span.End()
 func StartEmbedding(ctx context.Context, name string, opts EmbeddingOptions) (context.Context, trace.Span) {
 	attrs := []attribute.KeyValue{
-		attribute.String(AttrLangfuseObservationType, ObservationTypeSpan),
+		attribute.String(AttrLangfuseObservationType, ObservationTypeGeneration),
 		attribute.String(AttrPenfoldTaskType, "embedding"),
 	}
 
@@ -240,7 +240,7 @@ func StartEmbedding(ctx context.Context, name string, opts EmbeddingOptions) (co
 		attrs = append(attrs, attribute.Int("batch_size", opts.BatchSize))
 	}
 
-	return AITracer.Start(ctx, name, trace.WithAttributes(attrs...))
+	return AITracer.Start(ctx, name, trace.WithNewRoot(), trace.WithAttributes(attrs...))
 }
 
 // EmbeddingResult holds the result of an embedding operation.
@@ -250,6 +250,9 @@ type EmbeddingResult struct {
 
 	// InputTokens is the number of tokens processed.
 	InputTokens int
+
+	// Model is the actual model used for embedding.
+	Model string
 
 	// LatencyMs is the latency in milliseconds.
 	LatencyMs int64
@@ -272,6 +275,9 @@ func SetEmbeddingResult(span trace.Span, result EmbeddingResult) {
 	}
 	if result.InputTokens > 0 {
 		span.SetAttributes(attribute.Int(AttrGenAIUsageInputToken, result.InputTokens))
+	}
+	if result.Model != "" {
+		span.SetAttributes(attribute.String(AttrGenAIResponseModel, result.Model))
 	}
 	if result.LatencyMs > 0 {
 		span.SetAttributes(attribute.Int64("latency_ms", result.LatencyMs))
@@ -330,7 +336,7 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 		attrs = append(attrs, attribute.String(AttrPenfoldContentType, opts.ContentType))
 	}
 
-	return AITracer.Start(ctx, name, trace.WithAttributes(attrs...))
+	return AITracer.Start(ctx, name, trace.WithNewRoot(), trace.WithAttributes(attrs...))
 }
 
 // StartPipeline starts a parent span for an AI processing pipeline.
@@ -347,6 +353,7 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 //	// ... perform multiple AI operations ...
 func StartPipeline(ctx context.Context, name, contentID, contentType string) (context.Context, trace.Span) {
 	return AITracer.Start(ctx, name,
+		trace.WithNewRoot(),
 		trace.WithAttributes(
 			attribute.String(AttrLangfuseObservationType, ObservationTypeSpan),
 			attribute.String(AttrPenfoldContentID, contentID),

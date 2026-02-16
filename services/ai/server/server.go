@@ -132,6 +132,7 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 	tracing.SetEmbeddingResult(span, tracing.EmbeddingResult{
 		Dimensions:  result.Dimensions,
 		InputTokens: tokenCount,
+		Model:       result.Model,
 		LatencyMs:   time.Since(startTime).Milliseconds(),
 	})
 

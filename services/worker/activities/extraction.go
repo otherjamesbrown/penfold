@@ -14,7 +14,6 @@ import (
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
-	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -104,18 +103,6 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	startTime := time.Now()
 	activity.RecordHeartbeat(ctx, "calling AI service for assertion extraction")
 
-	// Start LLM call trace
-	contentID := input.ContentID
-	if contentID == "" {
-		contentID = fmt.Sprintf("%d", input.SourceID)
-	}
-	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.extract_assertions", tracing.LLMCallOptions{
-		TenantID:  input.TenantID,
-		ContentID: contentID,
-		TaskType:  "extract",
-	})
-	defer llmSpan.End()
-
 	// Default parameters for assertion extraction
 	minConfidence := float32(0.5)
 	maxAssertions := int32(20)
@@ -127,27 +114,13 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 		TenantId:      &input.TenantID,
 	}
 
+	// Call AI service (tracing is handled by the AI server, not duplicated here)
 	resp, err := a.aiClient.ExtractAssertions(ctx, assertionReq)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "extract_assertions")
-		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     pe,
-		})
 		logger.Error("Failed to extract assertions from AI service", logging.Err(pe))
 		return 0, WrapForTemporal(pe)
 	}
-
-	// Record LLM result
-	tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-		Model:     resp.ModelUsed,
-		LatencyMs: time.Since(startTime).Milliseconds(),
-	})
-	tracing.SetAttributes(llmSpan,
-		tracing.AttrInt("assertions.found", len(resp.Assertions)),
-		tracing.AttrInt("assertions.total_found", int(resp.TotalFound)),
-		tracing.AttrInt("assertions.filtered_count", int(resp.FilteredCount)),
-	)
 
 	// Record heartbeat after AI call
 	activity.RecordHeartbeat(ctx, "assertions extracted, processing results")
@@ -308,18 +281,6 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	startTime := time.Now()
 	contentRunes := []rune(input.Content)
 
-	// Start LLM call trace
-	contentID := input.ContentID
-	if contentID == "" {
-		contentID = fmt.Sprintf("%d", input.SourceID)
-	}
-	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.extract_entities", tracing.LLMCallOptions{
-		TenantID:  input.TenantID,
-		ContentID: contentID,
-		TaskType:  "extract",
-	})
-	defer llmSpan.End()
-
 	var results []*aiv1.ExtractEntitiesResponse
 
 	if len(contentRunes) <= 6000 {
@@ -335,13 +296,10 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			req.TriageCategory = optString(input.TriageCategory)
 		}
 
+		// Call AI service (tracing is handled by the AI server, not duplicated here)
 		resp, err := a.aiClient.ExtractEntities(ctx, req)
 		if err != nil {
 			pe := perrors.ClassifyError(err, "extract_ner")
-			tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-				LatencyMs: time.Since(startTime).Milliseconds(),
-				Error:     pe,
-			})
 			logger.Error("Failed to extract entities from AI service", logging.Err(pe))
 			return nil, WrapForTemporal(pe)
 		}
@@ -392,24 +350,6 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 
 	// Merge results from all chunks
 	output := mergeExtractionResults(results)
-
-	// Record LLM result for tracing
-	tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-		Model:     output.ModelUsed,
-		LatencyMs: time.Since(startTime).Milliseconds(),
-	})
-
-	// Add extraction counts to trace
-	tracing.SetAttributes(llmSpan,
-		tracing.AttrInt("entities.people", len(output.People)),
-		tracing.AttrInt("entities.dates", len(output.Dates)),
-		tracing.AttrInt("entities.projects", len(output.Projects)),
-		tracing.AttrInt("entities.organisations", len(output.Organisations)),
-		tracing.AttrInt("entities.action_items", len(output.ActionItems)),
-		tracing.AttrInt("entities.decisions", len(output.Decisions)),
-		tracing.AttrInt("entities.risks", len(output.Risks)),
-		tracing.AttrBool("quality_gate_triggered", output.QualityGateTriggered),
-	)
 
 	logger.Info("Entities extracted successfully",
 		logging.F("ai_duration", time.Since(startTime)),

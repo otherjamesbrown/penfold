@@ -4,7 +4,6 @@ package activities
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -13,7 +12,6 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
-	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -160,18 +158,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		)
 	}
 
-	// Start LLM call trace
-	contentID := input.ContentID
-	if contentID == "" {
-		contentID = fmt.Sprintf("%d", input.SourceID)
-	}
 	startTime := time.Now()
-	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.triage_content", tracing.LLMCallOptions{
-		TenantID:  input.TenantID,
-		ContentID: contentID,
-		TaskType:  "triage",
-	})
-	defer llmSpan.End()
 
 	// Record heartbeat before calling AI service
 	recordHeartbeat(ctx, "calling AI service for triage")
@@ -193,23 +180,13 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		req.SourceId = &input.SourceID
 	}
 
-	// Call AI service
+	// Call AI service (tracing is handled by the AI server, not duplicated here)
 	resp, err := a.aiClient.TriageContent(ctx, req)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "triage")
-		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     pe,
-		})
 		logger.Error("Failed to perform triage", logging.Err(pe))
 		return nil, WrapForTemporal(pe)
 	}
-
-	// Record LLM result
-	tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-		Model:     resp.ModelUsed,
-		LatencyMs: time.Since(startTime).Milliseconds(),
-	})
 
 	// Determine if we should skip deep processing (Stage 2-4)
 	skipDeep := shouldSkipDeep(resp.Category, resp.Importance)
@@ -224,13 +201,6 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		SkipDeep:       skipDeep,
 		ContentSubtype: string(subtype),
 	}
-
-	// Add tracing attributes
-	tracing.SetAttributes(llmSpan,
-		tracing.Attr("triage.category", output.Category),
-		tracing.Attr("triage.importance", output.Importance),
-		tracing.AttrBool("triage.skip_deep", output.SkipDeep),
-	)
 
 	// Record heartbeat after processing
 	recordHeartbeat(ctx, "triage complete")

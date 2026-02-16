@@ -13,7 +13,6 @@ import (
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
-	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -91,39 +90,18 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	startTime := time.Now()
 	activity.RecordHeartbeat(ctx, "calling AI service")
 
-	// Start embedding trace span
-	contentID := input.ContentID
-	if contentID == "" {
-		contentID = fmt.Sprintf("%d", input.SourceID)
-	}
-	ctx, embSpan := tracing.StartEmbedding(ctx, "ai.embedding", tracing.EmbeddingOptions{
-		System:    tracing.AISystemMLX,
-		TenantID:  input.TenantID,
-		ContentID: contentID,
-	})
-	defer embSpan.End()
-
 	embeddingReq := &aiv1.EmbeddingRequest{
 		Text:     input.Content,
 		TenantId: &input.TenantID,
 	}
 
+	// Tracing is handled by the AI server, not duplicated here
 	resp, err := a.aiClient.GenerateEmbedding(ctx, embeddingReq)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "embed")
-		tracing.SetEmbeddingResult(embSpan, tracing.EmbeddingResult{
-			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     pe,
-		})
 		logger.Error("Failed to generate embedding from AI service", logging.Err(pe))
 		return 0, WrapForTemporal(pe)
 	}
-
-	// Record embedding result
-	tracing.SetEmbeddingResult(embSpan, tracing.EmbeddingResult{
-		Dimensions: int(resp.Dimensions),
-		LatencyMs:  time.Since(startTime).Milliseconds(),
-	})
 
 	// Record heartbeat after AI call
 	activity.RecordHeartbeat(ctx, "embedding generated, storing")
