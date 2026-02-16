@@ -342,7 +342,7 @@ func (r *Repository) GetProjectContext(ctx context.Context, tenantID, identifier
 		SELECT COUNT(*)
 		FROM sources
 		WHERE tenant_id = $1
-		  AND source_type = 'meeting'
+		  AND source_system = 'meeting'
 		  AND content::jsonb->>'project' = $2
 		  AND created_at > NOW() - INTERVAL '30 days'
 	`

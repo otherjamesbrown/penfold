@@ -93,10 +93,10 @@ func (r *Repository) ListAssertions(ctx context.Context, tenantID string, filter
 				a.confidence,
 				a.created_at,
 				s.content_id,
-				s.source_type,
-				s.subject,
-				s.date as source_date,
-				s.from_name
+				s.source_system,
+				COALESCE(s.ingestion_metadata->>'subject', '') as subject,
+				s.source_timestamp as source_date,
+				COALESCE(s.ingestion_metadata->>'from_name', '') as from_name
 			FROM assertions a
 			JOIN sources s ON s.id = a.source_id
 	`
@@ -120,14 +120,14 @@ func (r *Repository) ListAssertions(ctx context.Context, tenantID string, filter
 
 	// Filter by since date (content date)
 	if filters.Since != nil {
-		whereClauses = append(whereClauses, fmt.Sprintf("s.date >= $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("s.source_timestamp >= $%d", argIdx))
 		args = append(args, *filters.Since)
 		argIdx++
 	}
 
 	// Filter by until date (content date)
 	if filters.Until != nil {
-		whereClauses = append(whereClauses, fmt.Sprintf("s.date <= $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("s.source_timestamp <= $%d", argIdx))
 		args = append(args, *filters.Until)
 		argIdx++
 	}
@@ -260,10 +260,10 @@ func (r *Repository) SearchAssertions(ctx context.Context, tenantID string, quer
 				a.confidence,
 				a.created_at,
 				s.content_id,
-				s.source_type,
-				s.subject,
-				s.date as source_date,
-				s.from_name
+				s.source_system,
+				COALESCE(s.ingestion_metadata->>'subject', '') as subject,
+				s.source_timestamp as source_date,
+				COALESCE(s.ingestion_metadata->>'from_name', '') as from_name
 			FROM assertions a
 			JOIN sources s ON s.id = a.source_id
 	`
@@ -291,14 +291,14 @@ func (r *Repository) SearchAssertions(ctx context.Context, tenantID string, quer
 
 	// Filter by since date
 	if filters.Since != nil {
-		whereClauses = append(whereClauses, fmt.Sprintf("s.date >= $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("s.source_timestamp >= $%d", argIdx))
 		args = append(args, *filters.Since)
 		argIdx++
 	}
 
 	// Filter by until date
 	if filters.Until != nil {
-		whereClauses = append(whereClauses, fmt.Sprintf("s.date <= $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("s.source_timestamp <= $%d", argIdx))
 		args = append(args, *filters.Until)
 		argIdx++
 	}
@@ -407,7 +407,7 @@ func (r *Repository) GetAssertionSummary(ctx context.Context, tenantID string, s
 
 	// Add date filters
 	if since != nil {
-		baseQuery += fmt.Sprintf(" AND s.date >= $%d", argIdx+1)
+		baseQuery += fmt.Sprintf(" AND s.source_timestamp >= $%d", argIdx+1)
 		args = append(args, tenantID, *since)
 		argIdx++
 	} else {
@@ -415,7 +415,7 @@ func (r *Repository) GetAssertionSummary(ctx context.Context, tenantID string, s
 	}
 
 	if until != nil {
-		baseQuery += fmt.Sprintf(" AND s.date <= $%d", argIdx+1)
+		baseQuery += fmt.Sprintf(" AND s.source_timestamp <= $%d", argIdx+1)
 		args = append(args, *until)
 		argIdx++
 	}
@@ -426,8 +426,8 @@ func (r *Repository) GetAssertionSummary(ctx context.Context, tenantID string, s
 			SELECT
 				a.assertion_type as key,
 				COUNT(a.id) as count,
-				COUNT(CASE WHEN s.date >= $%d THEN 1 END) as this_week,
-				COUNT(CASE WHEN s.date >= $%d AND s.date < $%d THEN 1 END) as last_week
+				COUNT(CASE WHEN s.source_timestamp >= $%d THEN 1 END) as this_week,
+				COUNT(CASE WHEN s.source_timestamp >= $%d AND s.source_timestamp < $%d THEN 1 END) as last_week
 			` + baseQuery + `
 			GROUP BY a.assertion_type
 			ORDER BY count DESC
@@ -440,8 +440,8 @@ func (r *Repository) GetAssertionSummary(ctx context.Context, tenantID string, s
 			SELECT
 				COALESCE(p.name, 'Unknown') as key,
 				COUNT(a.id) as count,
-				COUNT(CASE WHEN s.date >= $%d THEN 1 END) as this_week,
-				COUNT(CASE WHEN s.date >= $%d AND s.date < $%d THEN 1 END) as last_week
+				COUNT(CASE WHEN s.source_timestamp >= $%d THEN 1 END) as this_week,
+				COUNT(CASE WHEN s.source_timestamp >= $%d AND s.source_timestamp < $%d THEN 1 END) as last_week
 			` + baseQuery + `
 				LEFT JOIN projects p ON p.id = a.project_id
 			GROUP BY p.name
@@ -455,8 +455,8 @@ func (r *Repository) GetAssertionSummary(ctx context.Context, tenantID string, s
 			SELECT
 				aa.entity_id as key,
 				COUNT(DISTINCT a.id) as count,
-				COUNT(DISTINCT CASE WHEN s.date >= $%d THEN a.id END) as this_week,
-				COUNT(DISTINCT CASE WHEN s.date >= $%d AND s.date < $%d THEN a.id END) as last_week
+				COUNT(DISTINCT CASE WHEN s.source_timestamp >= $%d THEN a.id END) as this_week,
+				COUNT(DISTINCT CASE WHEN s.source_timestamp >= $%d AND s.source_timestamp < $%d THEN a.id END) as last_week
 			` + baseQuery + `
 				JOIN assertion_attributions aa ON aa.assertion_id = a.id
 			GROUP BY aa.entity_id
