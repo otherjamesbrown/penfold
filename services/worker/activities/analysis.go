@@ -4,7 +4,6 @@ package activities
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -12,7 +11,6 @@ import (
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
-	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -87,18 +85,7 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 		)
 	}
 
-	// Start LLM call trace
-	contentID := input.ContentID
-	if contentID == "" {
-		contentID = fmt.Sprintf("%d", input.SourceID)
-	}
 	startTime := time.Now()
-	ctx, llmSpan := tracing.StartLLMCall(ctx, "ai.deep_analyze", tracing.LLMCallOptions{
-		TenantID:  input.TenantID,
-		ContentID: contentID,
-		TaskType:  "analyze",
-	})
-	defer llmSpan.End()
 
 	// Record heartbeat before calling AI service
 	recordHeartbeat(ctx, "calling AI service for deep analysis")
@@ -106,36 +93,16 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 	// Build DeepAnalyzeRequest from input
 	req := buildDeepAnalyzeRequest(input)
 
-	// Call AI service
+	// Call AI service (tracing is handled by the AI server, not duplicated here)
 	resp, err := a.aiClient.DeepAnalyze(ctx, req)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "analyze")
-		tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-			LatencyMs: time.Since(startTime).Milliseconds(),
-			Error:     pe,
-		})
 		logger.Error("Failed to perform deep analysis", logging.Err(pe))
 		return nil, WrapForTemporal(pe)
 	}
 
-	// Record LLM result
-	tracing.SetLLMResult(llmSpan, tracing.LLMResult{
-		Model:     resp.ModelUsed,
-		LatencyMs: time.Since(startTime).Milliseconds(),
-	})
-
 	// Convert proto response to domain output types
 	output := convertDeepAnalyzeResponse(resp)
-
-	// Add tracing attributes
-	tracing.SetAttributes(llmSpan,
-		tracing.AttrInt("analysis.topic_mappings", len(output.TopicMappings)),
-		tracing.AttrInt("analysis.verified_actions", len(output.VerifiedActions)),
-		tracing.AttrInt("analysis.verified_decisions", len(output.VerifiedDecisions)),
-		tracing.AttrInt("analysis.risk_references", len(output.RiskReferences)),
-		tracing.AttrInt("analysis.insights", len(output.Insights)),
-		tracing.AttrInt("analysis.implicit_actions", len(output.ImplicitActions)),
-	)
 
 	// Record heartbeat after processing
 	recordHeartbeat(ctx, "deep analysis complete")

@@ -330,8 +330,8 @@ func selectModelForDeepAnalysis(category, importance, requestedModel string) str
 		return "gemini-2.0-flash"
 	}
 
-	// Default: quality model
-	return "gemini-2.5-pro"
+	// Default: balanced model (use --model override for Pro on specific items)
+	return "gemini-2.0-flash"
 }
 
 // parseDeepAnalysisResponse parses the JSON response from the deep analysis LLM.
