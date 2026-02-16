@@ -27,13 +27,13 @@ func NewPostgresConversationRepository(pool *pgxpool.Pool, logger logging.Logger
 func (r *PostgresConversationRepository) UpsertConversation(ctx context.Context, conversation *Conversation) (string, error) {
 	query := `
 		INSERT INTO conversations (
-			id, tenant_id, thread_key, subject,
-			item_count, first_message_at, last_message_at,
+			id, tenant_id, thread_key, topic,
+			item_count, first_seen, last_seen,
 			created_at, updated_at
 		) VALUES ($1, $2, $3, $4, 0, NOW(), NOW(), NOW(), NOW())
-		ON CONFLICT (tenant_id, thread_key) DO UPDATE SET
-			subject = COALESCE(EXCLUDED.subject, conversations.subject),
-			last_message_at = GREATEST(conversations.last_message_at, NOW()),
+		ON CONFLICT (tenant_id, thread_key) WHERE thread_key IS NOT NULL DO UPDATE SET
+			topic = COALESCE(EXCLUDED.topic, conversations.topic),
+			last_seen = GREATEST(conversations.last_seen, NOW()),
 			updated_at = NOW()
 		RETURNING id
 	`
@@ -69,9 +69,9 @@ func (r *PostgresConversationRepository) AddConversationItem(ctx context.Context
 // AddConversationParticipant adds a participant to a conversation (idempotent).
 func (r *PostgresConversationRepository) AddConversationParticipant(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
 	query := `
-		INSERT INTO conversation_participants (conversation_id, name, address, tenant_id, first_seen_at)
-		VALUES ($1, $2, $3, $4, NOW())
-		ON CONFLICT (conversation_id, COALESCE(address, ''), COALESCE(name, '')) DO NOTHING
+		INSERT INTO conversation_participants (conversation_id, name, address, tenant_id)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (conversation_id, COALESCE(address, name)) DO NOTHING
 	`
 	_, err := r.pool.Exec(ctx, query, conversationID, name, address, tenantID)
 	if err != nil {
@@ -185,7 +185,7 @@ func (r *PostgresConversationRepository) GetConversationItems(ctx context.Contex
 // GetConversation returns a conversation by ID.
 func (r *PostgresConversationRepository) GetConversation(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
 	query := `
-		SELECT id, tenant_id, thread_key, subject
+		SELECT id, tenant_id, thread_key, topic
 		FROM conversations
 		WHERE id = $1 AND tenant_id = $2
 	`
