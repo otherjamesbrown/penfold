@@ -191,16 +191,16 @@ func (env *E2EEnv) GatewayLLMAvailable() bool {
 		return false
 	}
 
-	// Check that the LLM service specifically is healthy.
+	// Check that the AI service specifically is healthy.
 	// Overall status may be "degraded" due to non-critical services (e.g. worker
-	// health check failing) while the pipeline can still process content.
+	// circuit breaker open) while the pipeline can still process content.
 	for _, svc := range health.Services {
-		if svc.Name == "llm" {
+		if svc.Name == "ai_service" {
 			return svc.Status == "healthy"
 		}
 	}
 
-	// LLM service not registered in gateway (might not be configured)
+	// AI service not registered in gateway (might not be configured)
 	return false
 }
 

@@ -10,15 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
-)
-
-var (
-	builtBinaryPath string
-	buildOnce       sync.Once
-	buildErr        error
 )
 
 // CLIRunner executes penf CLI commands and captures output.
@@ -28,55 +21,39 @@ type CLIRunner struct {
 	Env        []string
 }
 
-// NewCLIRunner creates a CLI runner, building the binary if needed.
+// NewCLIRunner creates a CLI runner using the installed penf binary.
+// The penf CLI lives in a separate repo (penf-cli) and is installed to PATH.
+// Use PENF_BINARY env var to override the binary path for testing.
 func NewCLIRunner(t *testing.T) *CLIRunner {
 	t.Helper()
 
-	// Find project root by looking for cmd/penf directory
+	// Allow override via env var
+	binaryPath := os.Getenv("PENF_BINARY")
+	if binaryPath == "" {
+		var err error
+		binaryPath, err = exec.LookPath("penf")
+		if err != nil {
+			t.Fatalf("penf binary not found in PATH (install from penf-cli repo or set PENF_BINARY): %v", err)
+		}
+	}
+
+	// Find penfold repo root (for fixtures, migrations, etc.)
 	workDir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get working directory: %v", err)
 	}
-
-	// Walk up to find cmd/penf (the actual project root, not tests/go.mod)
 	for workDir != "/" {
-		cmdPath := filepath.Join(workDir, "cmd", "penf")
-		if _, err := os.Stat(cmdPath); err == nil {
+		if _, err := os.Stat(filepath.Join(workDir, ".git")); err == nil {
 			break
 		}
 		workDir = filepath.Dir(workDir)
 	}
-
 	if workDir == "/" {
-		t.Fatalf("could not find project root (looking for cmd/penf)")
-	}
-
-	// Build the CLI once across all tests in the package
-	buildOnce.Do(func() {
-		binaryPath := filepath.Join(workDir, "penf")
-		cmdPath := filepath.Join(workDir, "cmd", "penf")
-
-		if _, err := os.Stat(cmdPath); err == nil {
-			t.Log("Building penf CLI...")
-			cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/penf")
-			cmd.Dir = workDir
-			if output, err := cmd.CombinedOutput(); err != nil {
-				buildErr = fmt.Errorf("failed to build penf: %v\n%s", err, output)
-				return
-			}
-			builtBinaryPath = binaryPath
-		} else {
-			buildErr = fmt.Errorf("cmd/penf directory not found")
-		}
-	})
-
-	// Check if build failed
-	if buildErr != nil {
-		t.Fatalf("failed to build penf: %v", buildErr)
+		t.Fatalf("could not find penfold repo root (looking for .git)")
 	}
 
 	return &CLIRunner{
-		BinaryPath: builtBinaryPath,
+		BinaryPath: binaryPath,
 		WorkDir:    workDir,
 		Env:        os.Environ(),
 	}
