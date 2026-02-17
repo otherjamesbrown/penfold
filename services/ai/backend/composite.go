@@ -1,23 +1,27 @@
 // Package backend provides backend connectors for AI services.
 package backend
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
-// CompositeBackend delegates embedding operations to one backend (e.g. MLX)
-// and LLM operations to another (e.g. Gemini). This allows using local
-// embeddings (preserving 1024d vectors) while routing chat completions
-// through a cloud LLM for reliability and quality.
+// CompositeBackend delegates embedding operations to one backend (e.g. MLX/Ollama)
+// and routes LLM operations by model name: gemini-* models go to the Gemini backend,
+// all other models go to the local/Ollama backend.
 type CompositeBackend struct {
 	embeddings Backend // handles GenerateEmbedding + CheckEmbeddingsHealth
-	llm        Backend // handles ChatCompletion + CheckLLMHealth
+	gemini     Backend // handles gemini-* ChatCompletion + CheckLLMHealth
+	ollama     Backend // handles non-gemini ChatCompletion
 }
 
 // NewCompositeBackend creates a backend that routes embeddings to the
-// embeddings backend and LLM calls to the llm backend.
-func NewCompositeBackend(embeddings, llm Backend) *CompositeBackend {
+// embeddings backend and LLM calls based on model name.
+func NewCompositeBackend(embeddings, ollama, gemini Backend) *CompositeBackend {
 	return &CompositeBackend{
 		embeddings: embeddings,
-		llm:        llm,
+		gemini:     gemini,
+		ollama:     ollama,
 	}
 }
 
@@ -26,7 +30,10 @@ func (b *CompositeBackend) GenerateEmbedding(ctx context.Context, text string, m
 }
 
 func (b *CompositeBackend) ChatCompletion(ctx context.Context, messages []Message, opts CompletionOptions) (*CompletionResult, error) {
-	return b.llm.ChatCompletion(ctx, messages, opts)
+	if strings.Contains(strings.ToLower(opts.Model), "gemini") {
+		return b.gemini.ChatCompletion(ctx, messages, opts)
+	}
+	return b.ollama.ChatCompletion(ctx, messages, opts)
 }
 
 func (b *CompositeBackend) CheckEmbeddingsHealth(ctx context.Context) error {
@@ -34,14 +41,18 @@ func (b *CompositeBackend) CheckEmbeddingsHealth(ctx context.Context) error {
 }
 
 func (b *CompositeBackend) CheckLLMHealth(ctx context.Context) error {
-	return b.llm.CheckLLMHealth(ctx)
+	return b.gemini.CheckLLMHealth(ctx)
 }
 
 func (b *CompositeBackend) Close() error {
 	embErr := b.embeddings.Close()
-	llmErr := b.llm.Close()
+	gemErr := b.gemini.Close()
+	ollamaErr := b.ollama.Close()
 	if embErr != nil {
 		return embErr
 	}
-	return llmErr
+	if gemErr != nil {
+		return gemErr
+	}
+	return ollamaErr
 }

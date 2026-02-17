@@ -454,6 +454,19 @@ type StartPipelineTracingInput struct {
 	ContentType     string `json:"content_type"`      // email, meeting, slack, etc.
 }
 
+// KickNextPendingInput is the input for the KickNextPending activity.
+// This activity calls the gateway's KickProcessing RPC to automatically
+// start the next pending pipeline after the current one completes.
+type KickNextPendingInput struct {
+	TenantID string `json:"tenant_id"`
+	Limit    int32  `json:"limit"` // Max items to kick (typically 1)
+}
+
+// KickNextPendingOutput is the output from the KickNextPending activity.
+type KickNextPendingOutput struct {
+	QueuedCount int64  `json:"queued_count"` // Number of items successfully queued
+	Message     string `json:"message"`      // Human-readable result
+}
 
 // pipelineState maintains the internal state of the pipeline workflow.
 type pipelineState struct {
@@ -549,6 +562,25 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				FailureCategory: failureCategory,
 				FailureReason:   failureReason,
 			}).Get(cleanupCtx, nil)
+
+			// Auto-drain: kick next pending item even on failure to maintain concurrency window
+			// This is best-effort — errors are logged but don't affect cleanup
+			var kickOutput KickNextPendingOutput
+			kickErr := workflow.ExecuteActivity(cleanupCtx, pkgtemporal.ActivityKickNextPending, KickNextPendingInput{
+				TenantID: input.TenantID,
+				Limit:    1,
+			}).Get(cleanupCtx, &kickOutput)
+			if kickErr != nil {
+				logger.Warn("Auto-drain kick failed during cleanup (non-blocking)",
+					"source_id", input.SourceID,
+					"error", kickErr,
+				)
+			} else {
+				logger.Info("Auto-drain kick completed during cleanup",
+					"source_id", input.SourceID,
+					"queued_count", kickOutput.QueuedCount,
+				)
+			}
 		}
 	}()
 
@@ -832,6 +864,33 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.result.Status = "rejected"
 		state.result.Error = fmt.Sprintf("%s: %s", pe.Code, err.Error())
 		state.status.ErrorMessage = state.result.Error
+
+		// Auto-drain: kick next pending item even on triage rejection to maintain concurrency window
+		kickCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 15 * time.Second,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval:    time.Second,
+				BackoffCoefficient: 2.0,
+				MaximumAttempts:    2,
+			},
+		})
+		var kickOutput KickNextPendingOutput
+		kickErr := workflow.ExecuteActivity(kickCtx, pkgtemporal.ActivityKickNextPending, KickNextPendingInput{
+			TenantID: input.TenantID,
+			Limit:    1,
+		}).Get(kickCtx, &kickOutput)
+		if kickErr != nil {
+			logger.Warn("Auto-drain kick failed after triage rejection (non-blocking)",
+				"source_id", input.SourceID,
+				"error", kickErr,
+			)
+		} else {
+			logger.Info("Auto-drain kick completed after triage rejection",
+				"source_id", input.SourceID,
+				"queued_count", kickOutput.QueuedCount,
+			)
+		}
+
 		return state.result, nil
 	}
 
@@ -1580,6 +1639,34 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		"skip_deep", triageOutput.SkipDeep,
 		"embedding_id", embeddingID,
 	)
+
+	// Auto-drain: kick next pending item to maintain concurrency window
+	// This is best-effort — if it fails, the pipeline still succeeds
+	kickCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 15 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumAttempts:    2, // Minimal retries - this is best-effort
+		},
+	})
+	var kickOutput KickNextPendingOutput
+	kickErr := workflow.ExecuteActivity(kickCtx, pkgtemporal.ActivityKickNextPending, KickNextPendingInput{
+		TenantID: input.TenantID,
+		Limit:    1, // Kick one item at a time
+	}).Get(kickCtx, &kickOutput)
+	if kickErr != nil {
+		logger.Warn("Auto-drain kick failed (non-blocking)",
+			"source_id", input.SourceID,
+			"error", kickErr,
+		)
+	} else {
+		logger.Info("Auto-drain kick completed",
+			"source_id", input.SourceID,
+			"queued_count", kickOutput.QueuedCount,
+			"message", kickOutput.Message,
+		)
+	}
 
 	return state.result, nil
 }

@@ -128,18 +128,52 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 		logging.F("source_tag", req.SourceTag),
 	)
 
-	// Validate limit
-	limit := int(req.Limit)
-	if limit < 0 {
-		return nil, status.Error(codes.InvalidArgument, "limit must be non-negative")
-	}
-	if limit == 0 {
-		limit = 100 // Default limit
-	}
-
 	// Check if Temporal client is available
 	if s.temporalClient == nil {
 		return nil, status.Error(codes.Unavailable, "Temporal client not configured")
+	}
+
+	// Read max_concurrent from pipeline_config
+	maxConcurrent, err := s.getMaxConcurrent(ctx)
+	if err != nil {
+		s.logger.Error("Error reading max_concurrent config", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to read concurrency config: %v", err)
+	}
+
+	// Count in-flight sources (processing_status = 'processing')
+	inFlightCount, err := s.countInFlightSources(ctx)
+	if err != nil {
+		s.logger.Error("Error counting in-flight sources", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to count in-flight sources: %v", err)
+	}
+
+	// Count pending sources BEFORE kicking (for accurate pending_count in response)
+	pendingCount, err := s.countPendingSources(ctx, req.SourceTag)
+	if err != nil {
+		s.logger.Error("Error counting pending sources", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to count pending sources: %v", err)
+	}
+
+	// Calculate available slots
+	availableSlots := maxConcurrent - inFlightCount
+	if availableSlots <= 0 {
+		s.logger.Info("No available concurrency slots",
+			logging.F("max_concurrent", maxConcurrent),
+			logging.F("in_flight_count", inFlightCount),
+		)
+		return &pipelinev1.KickProcessingResponse{
+			QueuedCount:    0,
+			Message:        fmt.Sprintf("No available slots (max: %d, in-flight: %d)", maxConcurrent, inFlightCount),
+			InFlightCount:  int32(inFlightCount),
+			PendingCount:   pendingCount,
+			MaxConcurrent:  int32(maxConcurrent),
+		}, nil
+	}
+
+	// Apply user-requested limit if provided
+	limit := availableSlots
+	if req.Limit > 0 && int(req.Limit) < availableSlots {
+		limit = int(req.Limit)
 	}
 
 	// Get pending sources from repository
@@ -191,11 +225,17 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 		logging.F("started_count", startedCount),
 		logging.F("total_pending", len(sources)),
 		logging.F("source_tag", req.SourceTag),
+		logging.F("max_concurrent", maxConcurrent),
+		logging.F("in_flight_count", inFlightCount),
+		logging.F("available_slots", availableSlots),
 	)
 
 	return &pipelinev1.KickProcessingResponse{
-		QueuedCount: int64(startedCount),
-		Message:     message,
+		QueuedCount:    int64(startedCount),
+		Message:        message,
+		InFlightCount:  int32(inFlightCount),
+		PendingCount:   pendingCount,
+		MaxConcurrent:  int32(maxConcurrent),
 	}, nil
 }
 
@@ -1417,4 +1457,291 @@ func computeJSONDiff(a, b json.RawMessage) (summary string, diffJSON string) {
 	diffJSON = string(diffBytes)
 
 	return summary, diffJSON
+}
+
+// =============================================================================
+// Concurrency Configuration RPCs
+// =============================================================================
+
+// GetConcurrencyConfig retrieves current concurrency configuration and queue state.
+func (s *Service) GetConcurrencyConfig(ctx context.Context, req *pipelinev1.GetConcurrencyConfigRequest) (*pipelinev1.GetConcurrencyConfigResponse, error) {
+	s.logger.Debug("GetConcurrencyConfig called")
+
+	// Read max_concurrent from pipeline_config
+	maxConcurrent, err := s.getMaxConcurrent(ctx)
+	if err != nil {
+		s.logger.Error("Error reading max_concurrent config", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to read concurrency config: %v", err)
+	}
+
+	// Count in-flight sources
+	inFlightCount, err := s.countInFlightSources(ctx)
+	if err != nil {
+		s.logger.Error("Error counting in-flight sources", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to count in-flight sources: %v", err)
+	}
+
+	// Count pending sources (no filter)
+	pendingCount, err := s.countPendingSources(ctx, "")
+	if err != nil {
+		s.logger.Error("Error counting pending sources", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to count pending sources: %v", err)
+	}
+
+	s.logger.Info("Concurrency config retrieved",
+		logging.F("max_concurrent", maxConcurrent),
+		logging.F("in_flight_count", inFlightCount),
+		logging.F("pending_count", pendingCount),
+	)
+
+	return &pipelinev1.GetConcurrencyConfigResponse{
+		MaxConcurrent:  int32(maxConcurrent),
+		InFlightCount:  int32(inFlightCount),
+		PendingCount:   pendingCount,
+	}, nil
+}
+
+// SetConcurrencyConfig updates the maximum concurrent processing limit.
+func (s *Service) SetConcurrencyConfig(ctx context.Context, req *pipelinev1.SetConcurrencyConfigRequest) (*pipelinev1.SetConcurrencyConfigResponse, error) {
+	s.logger.Info("SetConcurrencyConfig called",
+		logging.F("max_concurrent", req.MaxConcurrent),
+		logging.F("updated_by", req.UpdatedBy),
+	)
+
+	// Validate max_concurrent >= 1
+	if req.MaxConcurrent < 1 {
+		return nil, status.Error(codes.InvalidArgument, "max_concurrent must be >= 1")
+	}
+
+	// Validate updated_by is not empty
+	if req.UpdatedBy == "" {
+		return nil, status.Error(codes.InvalidArgument, "updated_by is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	// Read previous value
+	previousValue, err := s.getMaxConcurrent(ctx)
+	if err != nil {
+		s.logger.Error("Error reading previous max_concurrent", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to read previous value: %v", err)
+	}
+
+	// Update pipeline_config using the helper
+	err = s.setMaxConcurrent(ctx, int(req.MaxConcurrent), req.UpdatedBy)
+	if err != nil {
+		s.logger.Error("Error updating max_concurrent config", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to update concurrency config: %v", err)
+	}
+
+	message := fmt.Sprintf("Updated max_concurrent from %d to %d", previousValue, req.MaxConcurrent)
+
+	s.logger.Info("Concurrency config updated",
+		logging.F("previous_value", previousValue),
+		logging.F("new_value", req.MaxConcurrent),
+		logging.F("updated_by", req.UpdatedBy),
+	)
+
+	return &pipelinev1.SetConcurrencyConfigResponse{
+		MaxConcurrent:  req.MaxConcurrent,
+		PreviousValue:  int32(previousValue),
+		Message:        message,
+	}, nil
+}
+
+// ListPendingSources lists pending sources in the processing queue.
+func (s *Service) ListPendingSources(ctx context.Context, req *pipelinev1.ListPendingSourcesRequest) (*pipelinev1.ListPendingSourcesResponse, error) {
+	s.logger.Debug("ListPendingSources called",
+		logging.F("limit", req.Limit),
+		logging.F("offset", req.Offset),
+		logging.F("source_tag", req.SourceTag),
+	)
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	// Set default limit
+	limit := int(req.Limit)
+	if limit <= 0 {
+		limit = 50
+	}
+
+	offset := int(req.Offset)
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Build query with optional source_tag filter
+	query := `
+		SELECT id, COALESCE(content_type, ''),
+		       COALESCE(ingestion_metadata->>'source_tag', ''),
+		       created_at,
+		       COALESCE(size_bytes, 0),
+		       COALESCE(external_id, '')
+		FROM sources
+		WHERE processing_status = 'pending'
+		  AND is_deleted = false
+		  AND ($1 = '' OR ingestion_metadata->>'source_tag' = $1)
+		ORDER BY created_at ASC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, req.SourceTag, limit, offset)
+	if err != nil {
+		s.logger.Error("Error querying pending sources", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to query pending sources: %v", err)
+	}
+	defer rows.Close()
+
+	var sources []*pipelinev1.PendingSourceSummary
+	for rows.Next() {
+		var source pipelinev1.PendingSourceSummary
+		var createdAt time.Time
+
+		err := rows.Scan(
+			&source.Id,
+			&source.ContentType,
+			&source.SourceTag,
+			&createdAt,
+			&source.SizeBytes,
+			&source.ExternalId,
+		)
+		if err != nil {
+			s.logger.Error("Error scanning pending source", logging.Err(err))
+			continue
+		}
+
+		source.CreatedAt = timestamppb.New(createdAt)
+		sources = append(sources, &source)
+	}
+
+	if err := rows.Err(); err != nil {
+		s.logger.Error("Error iterating pending sources", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to iterate pending sources: %v", err)
+	}
+
+	// Get total count
+	totalCount, err := s.countPendingSources(ctx, req.SourceTag)
+	if err != nil {
+		s.logger.Error("Error counting pending sources", logging.Err(err))
+		totalCount = int64(len(sources))
+	}
+
+	s.logger.Info("Pending sources listed",
+		logging.F("source_count", len(sources)),
+		logging.F("total_count", totalCount),
+		logging.F("source_tag", req.SourceTag),
+	)
+
+	return &pipelinev1.ListPendingSourcesResponse{
+		Sources:    sources,
+		TotalCount: totalCount,
+	}, nil
+}
+
+// =============================================================================
+// Helper functions for concurrency management
+// =============================================================================
+
+// getMaxConcurrent reads the max_concurrent value from pipeline_config.
+func (s *Service) getMaxConcurrent(ctx context.Context) (int, error) {
+	if s.db == nil {
+		return 1, fmt.Errorf("database not available")
+	}
+
+	var valueStr string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT value
+		FROM pipeline_config
+		WHERE key = 'pipeline.max_concurrent' AND value_type = 'integer'
+	`).Scan(&valueStr)
+
+	if err == sql.ErrNoRows {
+		// Return default value if not found
+		return 1, nil
+	}
+	if err != nil {
+		return 1, fmt.Errorf("failed to query max_concurrent: %w", err)
+	}
+
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return 1, fmt.Errorf("failed to parse max_concurrent as integer: %w", err)
+	}
+
+	return value, nil
+}
+
+// setMaxConcurrent updates the max_concurrent value in pipeline_config.
+func (s *Service) setMaxConcurrent(ctx context.Context, value int, updatedBy string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE pipeline_config
+		SET value = $1, updated_at = NOW(), updated_by = $2
+		WHERE key = 'pipeline.max_concurrent' AND value_type = 'integer'
+	`, strconv.Itoa(value), updatedBy)
+
+	if err != nil {
+		return fmt.Errorf("failed to update max_concurrent: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("max_concurrent config not found")
+	}
+
+	return nil
+}
+
+// countInFlightSources counts sources with processing_status = 'processing'.
+func (s *Service) countInFlightSources(ctx context.Context) (int, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not available")
+	}
+
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM sources
+		WHERE processing_status = 'processing' AND is_deleted = false
+	`).Scan(&count)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to count in-flight sources: %w", err)
+	}
+
+	return count, nil
+}
+
+// countPendingSources counts sources with processing_status = 'pending'.
+// If sourceTag is not empty, filters by that tag.
+func (s *Service) countPendingSources(ctx context.Context, sourceTag string) (int64, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not available")
+	}
+
+	var count int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM sources
+		WHERE processing_status = 'pending'
+		  AND is_deleted = false
+		  AND ($1 = '' OR ingestion_metadata->>'source_tag' = $1)
+	`, sourceTag).Scan(&count)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to count pending sources: %w", err)
+	}
+
+	return count, nil
 }

@@ -29,6 +29,7 @@ const (
 	ActivityGroupEmailThread         = "GroupEmailThread"
 	ActivityCreateEnrichmentRecord   = "CreateEnrichmentRecord"
 	ActivityLinkConversation         = "LinkConversation"
+	ActivityKickNextPending          = "KickNextPending"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -73,6 +74,7 @@ func AllMainQueueActivities() []string {
 		ActivityGroupEmailThread,
 		ActivityCreateEnrichmentRecord,
 		ActivityLinkConversation,
+		ActivityKickNextPending,
 	}
 }
 

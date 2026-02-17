@@ -18,10 +18,13 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
+	"github.com/otherjamesbrown/penfold/pkg/models"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/ai/backend"
 	"github.com/otherjamesbrown/penfold/services/ai/config"
 	"github.com/otherjamesbrown/penfold/services/ai/server"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -51,6 +54,7 @@ func main() {
 		logging.F("grpc_port", cfg.GRPCPort),
 		logging.F("http_port", cfg.HTTPPort),
 		logging.F("environment", cfg.Environment),
+		logging.F("db_configured", cfg.DBURL != ""),
 	)
 
 	// Bind gRPC port FIRST - fail fast if port is unavailable
@@ -61,6 +65,53 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Debug("gRPC port bound successfully", logging.F("address", cfg.GRPCAddr()))
+
+	// Optionally initialize database connection for dynamic model config
+	var dbPool *pgxpool.Pool
+	var modelRepo *models.Repository
+	if cfg.DBURL != "" {
+		logger.Info("Initializing database connection for model config",
+			logging.F("db_url", "<redacted>"),
+		)
+
+		poolConfig, err := pgxpool.ParseConfig(cfg.DBURL)
+		if err != nil {
+			logger.Error("Failed to parse database URL", logging.Err(err))
+			os.Exit(1)
+		}
+
+		// Configure connection pool
+		poolConfig.MaxConns = 5 // Small pool for config queries only
+		poolConfig.MinConns = 1
+		poolConfig.MaxConnLifetime = 1 * time.Hour
+		poolConfig.MaxConnIdleTime = 10 * time.Minute
+
+		dbPool, err = pgxpool.NewWithConfig(context.Background(), poolConfig)
+		if err != nil {
+			logger.Error("Failed to create database pool", logging.Err(err))
+			os.Exit(1)
+		}
+
+		// Test connection
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := dbPool.Ping(ctx); err != nil {
+			logger.Error("Failed to ping database", logging.Err(err))
+			dbPool.Close()
+			os.Exit(1)
+		}
+
+		modelRepo = models.NewRepository(dbPool, logger)
+		logger.Info("Database connection established for model config")
+
+		// Note: DBConfigResolver requires a tenant ID for config resolution.
+		// In a multi-tenant system, this would come from request context.
+		// For single-tenant deployment or global config, a fixed tenant ID is used.
+		// The resolver is created but not yet wired to the server (future enhancement).
+		_ = config.NewDBConfigResolver(modelRepo, cfg, uuid.Nil) // Placeholder for future server integration
+	} else {
+		logger.Info("Database not configured, using env var model config only")
+	}
 
 	// Initialize tracing with Langfuse if configured
 	var tracingShutdown tracing.ShutdownFunc
@@ -122,8 +173,8 @@ func main() {
 	if cfg.GeminiAPIKey != "" {
 		geminiConfig.APIKey = cfg.GeminiAPIKey
 	}
-	if cfg.DefaultLLMModel != "" {
-		geminiConfig.DefaultLLMModel = cfg.DefaultLLMModel
+	if cfg.GeminiDefaultModel != "" {
+		geminiConfig.DefaultLLMModel = cfg.GeminiDefaultModel
 	}
 	geminiBackend, err := backend.NewGeminiBackend(geminiConfig)
 	if err != nil {
@@ -131,12 +182,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.Info("Gemini backend configured (LLM)",
-		logging.F("default_llm_model", geminiConfig.DefaultLLMModel),
+	logger.Info("Gemini backend configured",
+		logging.F("default_model", geminiConfig.DefaultLLMModel),
 	)
 
-	// Create composite backend: MLX for embeddings, Gemini for LLM
-	compositeBackend := backend.NewCompositeBackend(mlxBackend, geminiBackend)
+	logger.Info("Ollama backend configured (LLM)",
+		logging.F("url", cfg.MLXLLMURL),
+		logging.F("default_model", cfg.DefaultLLMModel),
+	)
+
+	// Create composite backend: MLX for embeddings, MLX/Ollama for local LLM, Gemini for gemini-* models
+	compositeBackend := backend.NewCompositeBackend(mlxBackend, mlxBackend, geminiBackend)
 	defer func() { _ = compositeBackend.Close() }()
 
 	// Register MLX embeddings health check (non-critical)
@@ -230,6 +286,12 @@ func main() {
 		} else {
 			logger.Info("Tracing shutdown complete")
 		}
+	}
+
+	// Shutdown database pool
+	if dbPool != nil {
+		dbPool.Close()
+		logger.Info("Database pool closed")
 	}
 
 	logger.Info("AI Coordinator service shutdown complete")

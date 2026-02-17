@@ -86,6 +86,15 @@ service PipelineService {
 
   // DiffPipelineRuns compares two pipeline runs for a source to show what changed.
   rpc DiffPipelineRuns(DiffPipelineRunsRequest) returns (DiffPipelineRunsResponse);
+
+  // GetConcurrencyConfig retrieves current concurrency configuration and queue state.
+  rpc GetConcurrencyConfig(GetConcurrencyConfigRequest) returns (GetConcurrencyConfigResponse);
+
+  // SetConcurrencyConfig updates the maximum concurrent processing limit.
+  rpc SetConcurrencyConfig(SetConcurrencyConfigRequest) returns (SetConcurrencyConfigResponse);
+
+  // ListPendingSources lists pending sources in the processing queue.
+  rpc ListPendingSources(ListPendingSourcesRequest) returns (ListPendingSourcesResponse);
 }
 
 // =============================================================================
@@ -281,6 +290,15 @@ message KickProcessingResponse {
 
   // Human-readable message.
   string message = 2;
+
+  // Number of items currently being processed.
+  int32 in_flight_count = 3;
+
+  // Number of items still pending in the queue.
+  int64 pending_count = 4;
+
+  // Maximum concurrent processing limit.
+  int32 max_concurrent = 5;
 }
 
 // RetryFailedRequest retries failed pipeline items.
@@ -985,4 +1003,86 @@ message StageDiff {
 message DiffPipelineRunsResponse {
   // List of differences found.
   repeated StageDiff diffs = 1;
+}
+
+// =============================================================================
+// Concurrency Management Messages
+// =============================================================================
+
+// GetConcurrencyConfigRequest retrieves current concurrency configuration.
+message GetConcurrencyConfigRequest {}
+
+// GetConcurrencyConfigResponse contains concurrency configuration and state.
+message GetConcurrencyConfigResponse {
+  // Maximum number of concurrent processing jobs allowed.
+  int32 max_concurrent = 1;
+
+  // Number of jobs currently being processed.
+  int32 in_flight_count = 2;
+
+  // Number of jobs waiting in the queue.
+  int64 pending_count = 3;
+}
+
+// SetConcurrencyConfigRequest updates the concurrency limit.
+message SetConcurrencyConfigRequest {
+  // New maximum concurrent processing limit (required).
+  int32 max_concurrent = 1;
+
+  // Who is making this change (required for audit trail).
+  string updated_by = 2;
+}
+
+// SetConcurrencyConfigResponse confirms the concurrency update.
+message SetConcurrencyConfigResponse {
+  // New maximum concurrent limit.
+  int32 max_concurrent = 1;
+
+  // Previous maximum concurrent limit.
+  int32 previous_value = 2;
+
+  // Success message.
+  string message = 3;
+}
+
+// ListPendingSourcesRequest lists pending sources.
+message ListPendingSourcesRequest {
+  // Maximum number of sources to return (default: 50).
+  int32 limit = 1;
+
+  // Pagination offset.
+  int32 offset = 2;
+
+  // Filter by source tag (optional).
+  string source_tag = 3;
+}
+
+// PendingSourceSummary represents a pending source in the queue.
+message PendingSourceSummary {
+  // Source ID.
+  int64 id = 1;
+
+  // Content type (e.g., "email", "document").
+  string content_type = 2;
+
+  // Source tag identifying the data source.
+  string source_tag = 3;
+
+  // When the source was created.
+  google.protobuf.Timestamp created_at = 4;
+
+  // Size in bytes.
+  int64 size_bytes = 5;
+
+  // External ID from the source system.
+  string external_id = 6;
+}
+
+// ListPendingSourcesResponse contains the list of pending sources.
+message ListPendingSourcesResponse {
+  // The pending sources.
+  repeated PendingSourceSummary sources = 1;
+
+  // Total count of pending sources.
+  int64 total_count = 2;
 }

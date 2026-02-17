@@ -22,30 +22,33 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PipelineService_GetStats_FullMethodName            = "/penfold.pipeline.v1.PipelineService/GetStats"
-	PipelineService_GetJob_FullMethodName              = "/penfold.pipeline.v1.PipelineService/GetJob"
-	PipelineService_ListJobs_FullMethodName            = "/penfold.pipeline.v1.PipelineService/ListJobs"
-	PipelineService_KickProcessing_FullMethodName      = "/penfold.pipeline.v1.PipelineService/KickProcessing"
-	PipelineService_RetryFailed_FullMethodName         = "/penfold.pipeline.v1.PipelineService/RetryFailed"
-	PipelineService_GetQueueStatus_FullMethodName      = "/penfold.pipeline.v1.PipelineService/GetQueueStatus"
-	PipelineService_GetPipelineHealth_FullMethodName   = "/penfold.pipeline.v1.PipelineService/GetPipelineHealth"
-	PipelineService_GetContentTrace_FullMethodName     = "/penfold.pipeline.v1.PipelineService/GetContentTrace"
-	PipelineService_ListDeletedSources_FullMethodName  = "/penfold.pipeline.v1.PipelineService/ListDeletedSources"
-	PipelineService_UndeleteSource_FullMethodName      = "/penfold.pipeline.v1.PipelineService/UndeleteSource"
-	PipelineService_DescribePipeline_FullMethodName    = "/penfold.pipeline.v1.PipelineService/DescribePipeline"
-	PipelineService_GetPrompt_FullMethodName           = "/penfold.pipeline.v1.PipelineService/GetPrompt"
-	PipelineService_ListPromptVersions_FullMethodName  = "/penfold.pipeline.v1.PipelineService/ListPromptVersions"
-	PipelineService_UpdatePrompt_FullMethodName        = "/penfold.pipeline.v1.PipelineService/UpdatePrompt"
-	PipelineService_RollbackPrompt_FullMethodName      = "/penfold.pipeline.v1.PipelineService/RollbackPrompt"
-	PipelineService_ExportPrompt_FullMethodName        = "/penfold.pipeline.v1.PipelineService/ExportPrompt"
-	PipelineService_GetSourceHistory_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetSourceHistory"
-	PipelineService_ReprocessDryRun_FullMethodName     = "/penfold.pipeline.v1.PipelineService/ReprocessDryRun"
-	PipelineService_GetTimeoutConfig_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetTimeoutConfig"
-	PipelineService_UpdateTimeoutConfig_FullMethodName = "/penfold.pipeline.v1.PipelineService/UpdateTimeoutConfig"
-	PipelineService_GetPipelineErrors_FullMethodName   = "/penfold.pipeline.v1.PipelineService/GetPipelineErrors"
-	PipelineService_InspectStage_FullMethodName        = "/penfold.pipeline.v1.PipelineService/InspectStage"
-	PipelineService_DiffStageRuns_FullMethodName       = "/penfold.pipeline.v1.PipelineService/DiffStageRuns"
-	PipelineService_DiffPipelineRuns_FullMethodName    = "/penfold.pipeline.v1.PipelineService/DiffPipelineRuns"
+	PipelineService_GetStats_FullMethodName             = "/penfold.pipeline.v1.PipelineService/GetStats"
+	PipelineService_GetJob_FullMethodName               = "/penfold.pipeline.v1.PipelineService/GetJob"
+	PipelineService_ListJobs_FullMethodName             = "/penfold.pipeline.v1.PipelineService/ListJobs"
+	PipelineService_KickProcessing_FullMethodName       = "/penfold.pipeline.v1.PipelineService/KickProcessing"
+	PipelineService_RetryFailed_FullMethodName          = "/penfold.pipeline.v1.PipelineService/RetryFailed"
+	PipelineService_GetQueueStatus_FullMethodName       = "/penfold.pipeline.v1.PipelineService/GetQueueStatus"
+	PipelineService_GetPipelineHealth_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetPipelineHealth"
+	PipelineService_GetContentTrace_FullMethodName      = "/penfold.pipeline.v1.PipelineService/GetContentTrace"
+	PipelineService_ListDeletedSources_FullMethodName   = "/penfold.pipeline.v1.PipelineService/ListDeletedSources"
+	PipelineService_UndeleteSource_FullMethodName       = "/penfold.pipeline.v1.PipelineService/UndeleteSource"
+	PipelineService_DescribePipeline_FullMethodName     = "/penfold.pipeline.v1.PipelineService/DescribePipeline"
+	PipelineService_GetPrompt_FullMethodName            = "/penfold.pipeline.v1.PipelineService/GetPrompt"
+	PipelineService_ListPromptVersions_FullMethodName   = "/penfold.pipeline.v1.PipelineService/ListPromptVersions"
+	PipelineService_UpdatePrompt_FullMethodName         = "/penfold.pipeline.v1.PipelineService/UpdatePrompt"
+	PipelineService_RollbackPrompt_FullMethodName       = "/penfold.pipeline.v1.PipelineService/RollbackPrompt"
+	PipelineService_ExportPrompt_FullMethodName         = "/penfold.pipeline.v1.PipelineService/ExportPrompt"
+	PipelineService_GetSourceHistory_FullMethodName     = "/penfold.pipeline.v1.PipelineService/GetSourceHistory"
+	PipelineService_ReprocessDryRun_FullMethodName      = "/penfold.pipeline.v1.PipelineService/ReprocessDryRun"
+	PipelineService_GetTimeoutConfig_FullMethodName     = "/penfold.pipeline.v1.PipelineService/GetTimeoutConfig"
+	PipelineService_UpdateTimeoutConfig_FullMethodName  = "/penfold.pipeline.v1.PipelineService/UpdateTimeoutConfig"
+	PipelineService_GetPipelineErrors_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetPipelineErrors"
+	PipelineService_InspectStage_FullMethodName         = "/penfold.pipeline.v1.PipelineService/InspectStage"
+	PipelineService_DiffStageRuns_FullMethodName        = "/penfold.pipeline.v1.PipelineService/DiffStageRuns"
+	PipelineService_DiffPipelineRuns_FullMethodName     = "/penfold.pipeline.v1.PipelineService/DiffPipelineRuns"
+	PipelineService_GetConcurrencyConfig_FullMethodName = "/penfold.pipeline.v1.PipelineService/GetConcurrencyConfig"
+	PipelineService_SetConcurrencyConfig_FullMethodName = "/penfold.pipeline.v1.PipelineService/SetConcurrencyConfig"
+	PipelineService_ListPendingSources_FullMethodName   = "/penfold.pipeline.v1.PipelineService/ListPendingSources"
 )
 
 // PipelineServiceClient is the client API for PipelineService service.
@@ -102,6 +105,12 @@ type PipelineServiceClient interface {
 	DiffStageRuns(ctx context.Context, in *DiffStageRunsRequest, opts ...grpc.CallOption) (*DiffStageRunsResponse, error)
 	// DiffPipelineRuns compares two pipeline runs for a source to show what changed.
 	DiffPipelineRuns(ctx context.Context, in *DiffPipelineRunsRequest, opts ...grpc.CallOption) (*DiffPipelineRunsResponse, error)
+	// GetConcurrencyConfig retrieves current concurrency configuration and queue state.
+	GetConcurrencyConfig(ctx context.Context, in *GetConcurrencyConfigRequest, opts ...grpc.CallOption) (*GetConcurrencyConfigResponse, error)
+	// SetConcurrencyConfig updates the maximum concurrent processing limit.
+	SetConcurrencyConfig(ctx context.Context, in *SetConcurrencyConfigRequest, opts ...grpc.CallOption) (*SetConcurrencyConfigResponse, error)
+	// ListPendingSources lists pending sources in the processing queue.
+	ListPendingSources(ctx context.Context, in *ListPendingSourcesRequest, opts ...grpc.CallOption) (*ListPendingSourcesResponse, error)
 }
 
 type pipelineServiceClient struct {
@@ -352,6 +361,36 @@ func (c *pipelineServiceClient) DiffPipelineRuns(ctx context.Context, in *DiffPi
 	return out, nil
 }
 
+func (c *pipelineServiceClient) GetConcurrencyConfig(ctx context.Context, in *GetConcurrencyConfigRequest, opts ...grpc.CallOption) (*GetConcurrencyConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetConcurrencyConfigResponse)
+	err := c.cc.Invoke(ctx, PipelineService_GetConcurrencyConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) SetConcurrencyConfig(ctx context.Context, in *SetConcurrencyConfigRequest, opts ...grpc.CallOption) (*SetConcurrencyConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetConcurrencyConfigResponse)
+	err := c.cc.Invoke(ctx, PipelineService_SetConcurrencyConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) ListPendingSources(ctx context.Context, in *ListPendingSourcesRequest, opts ...grpc.CallOption) (*ListPendingSourcesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPendingSourcesResponse)
+	err := c.cc.Invoke(ctx, PipelineService_ListPendingSources_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PipelineServiceServer is the server API for PipelineService service.
 // All implementations must embed UnimplementedPipelineServiceServer
 // for forward compatibility.
@@ -406,6 +445,12 @@ type PipelineServiceServer interface {
 	DiffStageRuns(context.Context, *DiffStageRunsRequest) (*DiffStageRunsResponse, error)
 	// DiffPipelineRuns compares two pipeline runs for a source to show what changed.
 	DiffPipelineRuns(context.Context, *DiffPipelineRunsRequest) (*DiffPipelineRunsResponse, error)
+	// GetConcurrencyConfig retrieves current concurrency configuration and queue state.
+	GetConcurrencyConfig(context.Context, *GetConcurrencyConfigRequest) (*GetConcurrencyConfigResponse, error)
+	// SetConcurrencyConfig updates the maximum concurrent processing limit.
+	SetConcurrencyConfig(context.Context, *SetConcurrencyConfigRequest) (*SetConcurrencyConfigResponse, error)
+	// ListPendingSources lists pending sources in the processing queue.
+	ListPendingSources(context.Context, *ListPendingSourcesRequest) (*ListPendingSourcesResponse, error)
 	mustEmbedUnimplementedPipelineServiceServer()
 }
 
@@ -487,6 +532,15 @@ func (UnimplementedPipelineServiceServer) DiffStageRuns(context.Context, *DiffSt
 }
 func (UnimplementedPipelineServiceServer) DiffPipelineRuns(context.Context, *DiffPipelineRunsRequest) (*DiffPipelineRunsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DiffPipelineRuns not implemented")
+}
+func (UnimplementedPipelineServiceServer) GetConcurrencyConfig(context.Context, *GetConcurrencyConfigRequest) (*GetConcurrencyConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetConcurrencyConfig not implemented")
+}
+func (UnimplementedPipelineServiceServer) SetConcurrencyConfig(context.Context, *SetConcurrencyConfigRequest) (*SetConcurrencyConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetConcurrencyConfig not implemented")
+}
+func (UnimplementedPipelineServiceServer) ListPendingSources(context.Context, *ListPendingSourcesRequest) (*ListPendingSourcesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPendingSources not implemented")
 }
 func (UnimplementedPipelineServiceServer) mustEmbedUnimplementedPipelineServiceServer() {}
 func (UnimplementedPipelineServiceServer) testEmbeddedByValue()                         {}
@@ -941,6 +995,60 @@ func _PipelineService_DiffPipelineRuns_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_GetConcurrencyConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetConcurrencyConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).GetConcurrencyConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_GetConcurrencyConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).GetConcurrencyConfig(ctx, req.(*GetConcurrencyConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_SetConcurrencyConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetConcurrencyConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).SetConcurrencyConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_SetConcurrencyConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).SetConcurrencyConfig(ctx, req.(*SetConcurrencyConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_ListPendingSources_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPendingSourcesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).ListPendingSources(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_ListPendingSources_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).ListPendingSources(ctx, req.(*ListPendingSourcesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PipelineService_ServiceDesc is the grpc.ServiceDesc for PipelineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1043,6 +1151,18 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DiffPipelineRuns",
 			Handler:    _PipelineService_DiffPipelineRuns_Handler,
+		},
+		{
+			MethodName: "GetConcurrencyConfig",
+			Handler:    _PipelineService_GetConcurrencyConfig_Handler,
+		},
+		{
+			MethodName: "SetConcurrencyConfig",
+			Handler:    _PipelineService_SetConcurrencyConfig_Handler,
+		},
+		{
+			MethodName: "ListPendingSources",
+			Handler:    _PipelineService_ListPendingSources_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

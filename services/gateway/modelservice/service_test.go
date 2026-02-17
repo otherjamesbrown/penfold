@@ -19,6 +19,10 @@ func testLogger() logging.Logger {
 	return logging.NewLogger(cfg)
 }
 
+func stringPtr(s string) *string {
+	return &s
+}
+
 // ============ NewService Tests ============
 
 func TestNewService(t *testing.T) {
@@ -202,4 +206,251 @@ func TestUpdateRoutingRuleValidation(t *testing.T) {
 func TestServiceImplementsInterface(t *testing.T) {
 	// Verify that Service implements the AICoordinatorServiceServer interface.
 	var _ aiv1.AICoordinatorServiceServer = (*Service)(nil)
+}
+
+// ============ Model Management Tests (Gateway Feature) ============
+
+// TestGetStageModels_NilDB verifies that when DB is nil, GetStageModels still returns
+// all 5 pipeline stages with env/default sources, without attempting DB queries.
+func TestGetStageModels_NilDB(t *testing.T) {
+	svc := NewService(nil, testLogger())
+	// DB is nil by default in NewService
+
+	ctx := context.Background()
+	req := &aiv1.GetStageModelsRequest{
+		TenantId: stringPtr("default"),
+	}
+
+	resp, err := svc.GetStageModels(ctx, req)
+	require.NoError(t, err, "GetStageModels should succeed even when DB is nil")
+	require.NotNil(t, resp)
+
+	// Should return all 5 stages
+	require.Len(t, resp.Stages, 5, "should return 5 pipeline stages")
+
+	// Verify stage names (in order: parse, triage, extract, context, analyze)
+	expectedStages := []string{"parse", "triage", "extract", "context", "analyze"}
+	for i, expectedStage := range expectedStages {
+		assert.Equal(t, expectedStage, resp.Stages[i].StageName, "stage %d should be %s", i, expectedStage)
+		assert.NotEmpty(t, resp.Stages[i].ModelName, "stage %s should have a model name", expectedStage)
+		assert.Contains(t, []string{"env", "default"}, resp.Stages[i].Source, "source should be env or default when DB is nil")
+		assert.NotEmpty(t, resp.Stages[i].Backend, "backend should be set (ollama or gemini)")
+	}
+}
+
+// TestSetStageModel_Validation verifies that SetStageModel returns InvalidArgument
+// for invalid stage names.
+func TestSetStageModel_Validation(t *testing.T) {
+	svc := NewService(nil, testLogger())
+	ctx := context.Background()
+
+	tests := []struct {
+		name      string
+		stageName string
+		wantCode  codes.Code
+		wantMsg   string
+	}{
+		{
+			name:      "empty stage name",
+			stageName: "",
+			wantCode:  codes.InvalidArgument,
+			wantMsg:   "stage_name is required",
+		},
+		{
+			name:      "invalid stage name",
+			stageName: "invalid_stage",
+			wantCode:  codes.InvalidArgument,
+			wantMsg:   "invalid stage_name",
+		},
+		{
+			name:      "unknown stage",
+			stageName: "unknown",
+			wantCode:  codes.InvalidArgument,
+			wantMsg:   "invalid stage_name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &aiv1.SetStageModelRequest{
+				TenantId:  stringPtr("default"),
+				StageName: tt.stageName,
+				ModelName: "llama3.2",
+			}
+
+			resp, err := svc.SetStageModel(ctx, req)
+			assert.Nil(t, resp)
+			require.Error(t, err)
+
+			st, ok := status.FromError(err)
+			require.True(t, ok, "error should be a gRPC status")
+			assert.Equal(t, tt.wantCode, st.Code(), "should return %s", tt.wantCode)
+			assert.Contains(t, st.Message(), tt.wantMsg, "error message should contain %q", tt.wantMsg)
+		})
+	}
+}
+
+// TestSetStageModel_EmptyModel verifies that SetStageModel returns InvalidArgument
+// when model_name is empty.
+func TestSetStageModel_EmptyModel(t *testing.T) {
+	svc := NewService(nil, testLogger())
+	ctx := context.Background()
+
+	req := &aiv1.SetStageModelRequest{
+		TenantId:  stringPtr("default"),
+		StageName: "parse",
+		ModelName: "", // Empty model name
+	}
+
+	resp, err := svc.SetStageModel(ctx, req)
+	assert.Nil(t, resp)
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+	assert.Contains(t, st.Message(), "model_name is required")
+}
+
+// TestResetStageModel_Validation verifies that ResetStageModel returns InvalidArgument
+// for invalid stage names.
+func TestResetStageModel_Validation(t *testing.T) {
+	svc := NewService(nil, testLogger())
+	ctx := context.Background()
+
+	tests := []struct {
+		name      string
+		stageName string
+		wantCode  codes.Code
+		wantMsg   string
+	}{
+		{
+			name:      "empty stage name",
+			stageName: "",
+			wantCode:  codes.InvalidArgument,
+			wantMsg:   "stage_name is required",
+		},
+		{
+			name:      "invalid stage name",
+			stageName: "bad_stage",
+			wantCode:  codes.InvalidArgument,
+			wantMsg:   "invalid stage_name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &aiv1.ResetStageModelRequest{
+				TenantId:  stringPtr("default"),
+				StageName: tt.stageName,
+			}
+
+			resp, err := svc.ResetStageModel(ctx, req)
+			assert.Nil(t, resp)
+			require.Error(t, err)
+
+			st, ok := status.FromError(err)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantCode, st.Code())
+			assert.Contains(t, st.Message(), tt.wantMsg)
+		})
+	}
+}
+
+// TestGetAvailableModels_NilClient verifies that GetAvailableModels returns Unavailable
+// when the AI client is nil.
+func TestGetAvailableModels_NilClient(t *testing.T) {
+	svc := NewService(nil, testLogger())
+	ctx := context.Background()
+
+	req := &aiv1.GetAvailableModelsRequest{
+		TenantId: stringPtr("default"),
+	}
+
+	resp, err := svc.GetAvailableModels(ctx, req)
+	assert.Nil(t, resp)
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unavailable, st.Code())
+	assert.Contains(t, st.Message(), "AI service is not configured")
+}
+
+// TestTestModel_NilClient verifies that TestModel returns Unavailable
+// when the AI client is nil.
+func TestTestModel_NilClient(t *testing.T) {
+	svc := NewService(nil, testLogger())
+	ctx := context.Background()
+
+	req := &aiv1.TestModelRequest{
+		TenantId:  stringPtr("default"),
+		StageName: "parse",
+		ModelName: "llama3.2",
+	}
+
+	resp, err := svc.TestModel(ctx, req)
+	assert.Nil(t, resp)
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unavailable, st.Code())
+	assert.Contains(t, st.Message(), "AI service is not configured")
+}
+
+// TestTestModel_Validation verifies that TestModel returns InvalidArgument
+// for invalid inputs.
+func TestTestModel_Validation(t *testing.T) {
+	svc := NewService(nil, testLogger())
+	ctx := context.Background()
+
+	tests := []struct {
+		name      string
+		stageName string
+		modelName string
+		wantCode  codes.Code
+		wantMsg   string
+	}{
+		{
+			name:      "empty stage name",
+			stageName: "",
+			modelName: "llama3.2",
+			wantCode:  codes.InvalidArgument,
+			wantMsg:   "stage_name is required",
+		},
+		{
+			name:      "empty model name",
+			stageName: "parse",
+			modelName: "",
+			wantCode:  codes.InvalidArgument,
+			wantMsg:   "model_name is required",
+		},
+		{
+			name:      "invalid stage name",
+			stageName: "invalid",
+			modelName: "llama3.2",
+			wantCode:  codes.InvalidArgument,
+			wantMsg:   "invalid stage_name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &aiv1.TestModelRequest{
+				TenantId:  stringPtr("default"),
+				StageName: tt.stageName,
+				ModelName: tt.modelName,
+			}
+
+			resp, err := svc.TestModel(ctx, req)
+			assert.Nil(t, resp)
+			require.Error(t, err)
+
+			st, ok := status.FromError(err)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantCode, st.Code())
+			assert.Contains(t, st.Message(), tt.wantMsg)
+		})
+	}
 }

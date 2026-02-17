@@ -97,6 +97,30 @@ service AICoordinatorService {
   // AnalyzeByID performs deep analysis on content identified by its ID.
   // Supports sentiment, entity, topic, and action item extraction.
   rpc AnalyzeByID(AnalyzeByIDRequest) returns (AnalyzeByIDResponse);
+
+  // ---------------------------------------------------------------------------
+  // CLI Model Management RPCs (Gateway-only)
+  // ---------------------------------------------------------------------------
+
+  // GetStageModels returns model configuration for all 5 pipeline stages.
+  // Shows current model, source (db/env/default), and backend for each stage.
+  rpc GetStageModels(GetStageModelsRequest) returns (GetStageModelsResponse);
+
+  // SetStageModel sets a model override for a specific pipeline stage.
+  // Writes to model_config table in the database.
+  rpc SetStageModel(SetStageModelRequest) returns (SetStageModelResponse);
+
+  // ResetStageModel removes the DB override for a stage.
+  // Falls back to environment variable or default model.
+  rpc ResetStageModel(ResetStageModelRequest) returns (ResetStageModelResponse);
+
+  // GetAvailableModels queries backends for available models.
+  // Returns list of models with their backends (ollama/gemini).
+  rpc GetAvailableModels(GetAvailableModelsRequest) returns (GetAvailableModelsResponse);
+
+  // TestModel performs a quick inference test for a specific model.
+  // Returns status, latency, and model used.
+  rpc TestModel(TestModelRequest) returns (TestModelResponse);
 }
 
 // =============================================================================
@@ -1310,4 +1334,122 @@ message AnalyzeByIDResponse {
 
   // Execution time in milliseconds.
   optional double latency_ms = 14;
+}
+
+// =============================================================================
+// CLI Model Management Messages (Gateway-only)
+// =============================================================================
+
+// GetStageModelsRequest requests model configuration for all pipeline stages.
+message GetStageModelsRequest {
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 1;
+}
+
+// StageModelInfo contains model configuration for a single pipeline stage.
+message StageModelInfo {
+  // Stage name: "parse", "triage", "extract", "context", or "analyze".
+  string stage_name = 1;
+
+  // Current model name for this stage.
+  string model_name = 2;
+
+  // Configuration source: "db" (model_config table), "env" (environment variable), or "default" (hardcoded).
+  string source = 3;
+
+  // Backend type: "ollama" or "gemini".
+  string backend = 4;
+}
+
+// GetStageModelsResponse contains model configuration for all 5 stages.
+message GetStageModelsResponse {
+  // Model configuration for all 5 pipeline stages.
+  repeated StageModelInfo stages = 1;
+}
+
+// SetStageModelRequest sets a model override for a specific stage.
+message SetStageModelRequest {
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 1;
+
+  // Stage name to configure: "parse", "triage", "extract", "context", or "analyze".
+  string stage_name = 2;
+
+  // Model name to use for this stage.
+  string model_name = 3;
+}
+
+// SetStageModelResponse confirms the model override was set.
+message SetStageModelResponse {
+  // The updated stage model configuration.
+  StageModelInfo stage = 1;
+}
+
+// ResetStageModelRequest removes the DB override for a stage.
+message ResetStageModelRequest {
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 1;
+
+  // Stage name to reset: "parse", "triage", "extract", "context", or "analyze".
+  string stage_name = 2;
+}
+
+// ResetStageModelResponse confirms the override was removed.
+message ResetStageModelResponse {
+  // The stage model configuration after reset (falls back to env/default).
+  StageModelInfo stage = 1;
+}
+
+// GetAvailableModelsRequest queries backends for available models.
+message GetAvailableModelsRequest {
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 1;
+}
+
+// AvailableModel represents a model available from a backend.
+message AvailableModel {
+  // Model name.
+  string name = 1;
+
+  // Backend type: "ollama" or "gemini".
+  string backend = 2;
+}
+
+// GetAvailableModelsResponse contains available models from all backends.
+message GetAvailableModelsResponse {
+  // List of available models.
+  repeated AvailableModel models = 1;
+}
+
+// TestModelRequest performs a quick inference test for a model.
+message TestModelRequest {
+  // Optional tenant identifier for multi-tenancy support.
+  optional string tenant_id = 1;
+
+  // Stage name to test: "parse", "triage", "extract", "context", or "analyze".
+  string stage_name = 2;
+
+  // Model name to test.
+  string model_name = 3;
+}
+
+// TestModelResponse contains the test results.
+message TestModelResponse {
+  // Stage that was tested.
+  string stage_name = 1;
+
+  // Model that was used.
+  string model_used = 2;
+
+  // Backend type: "ollama" or "gemini".
+  string backend = 3;
+
+  // Test status: "success" or "error".
+  string status = 4;
+
+  // Execution time in milliseconds.
+  double latency_ms = 5;
+
+  // Error message if status is "error".
+  optional string error_message = 6;
 }

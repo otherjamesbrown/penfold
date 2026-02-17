@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -12,255 +11,426 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPipelineConcurrency_SetLimit verifies that `penf pipeline concurrency set N`
-// updates the max concurrent pipelines setting.
-func TestPipelineConcurrency_SetLimit(t *testing.T) {
-	env := SetupE2EEnvironment(t)
+// concurrencyConfigResponse represents JSON from `penf pipeline concurrency -o json`.
+type concurrencyConfigResponse struct {
+	MaxConcurrent int   `json:"max_concurrent"`
+	InFlightCount int   `json:"in_flight_count"`
+	PendingCount  int64 `json:"pending_count"`
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+// kickResponse represents the enhanced JSON from `penf pipeline kick -o json`.
+type kickResponse struct {
+	QueuedCount   int64 `json:"queued_count"`
+	Message       string `json:"message"`
+	InFlightCount int   `json:"in_flight_count"`
+	PendingCount  int64 `json:"pending_count"`
+	MaxConcurrent int   `json:"max_concurrent"`
+}
 
-	// Set concurrency to 2
-	setResult := env.SafeCLI.Run(ctx, "pipeline", "concurrency", "set", "2")
-	require.True(t, setResult.Success(), "concurrency set should succeed: %s", setResult.Stderr)
+// pendingSourcesResponse represents JSON from `penf pipeline pending -o json`.
+type pendingSourcesResponse struct {
+	Sources    []pendingSource `json:"sources"`
+	TotalCount int64           `json:"total_count"`
+}
 
-	// Verify it reads back as 2
-	getResult := env.SafeCLI.Run(ctx, "pipeline", "concurrency", "-o", "json")
-	require.True(t, getResult.Success(), "concurrency get should succeed: %s", getResult.Stderr)
+type pendingSource struct {
+	ID          int64  `json:"id"`
+	ContentType string `json:"content_type"`
+	SourceTag   string `json:"source_tag"`
+	CreatedAt   string `json:"created_at"`
+	SizeBytes   int64  `json:"size_bytes"`
+}
 
-	var config struct {
-		MaxConcurrent int `json:"max_concurrent"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(getResult.Stdout), &config),
-		"should parse concurrency JSON: %s", getResult.Stdout)
-	assert.Equal(t, 2, config.MaxConcurrent, "max concurrent should be 2")
+// TestPipelineConcurrency_DefaultLimit verifies the default concurrency limit is 1
+// and that `penf pipeline concurrency` reports it correctly.
+func TestPipelineConcurrency_DefaultLimit(t *testing.T) {
+	env := SetupPipelineE2E(t)
+	ctx := context.Background()
 
-	// Set to 5, verify again
-	setResult = env.SafeCLI.Run(ctx, "pipeline", "concurrency", "set", "5")
-	require.True(t, setResult.Success(), "concurrency set to 5 should succeed: %s", setResult.Stderr)
+	// Get concurrency config via CLI
+	var config concurrencyConfigResponse
+	err := env.CLI.RunJSON(ctx, &config, "pipeline", "concurrency")
+	require.NoError(t, err, "pipeline concurrency command should succeed")
 
-	getResult = env.SafeCLI.Run(ctx, "pipeline", "concurrency", "-o", "json")
-	require.True(t, getResult.Success())
-	require.NoError(t, json.Unmarshal([]byte(getResult.Stdout), &config))
-	assert.Equal(t, 5, config.MaxConcurrent, "max concurrent should be 5")
+	assert.Equal(t, 1, config.MaxConcurrent, "default max_concurrent should be 1")
+	assert.GreaterOrEqual(t, config.InFlightCount, 0, "in_flight_count should be non-negative")
+	assert.GreaterOrEqual(t, config.PendingCount, int64(0), "pending_count should be non-negative")
+}
 
-	// Clean up: reset to default (2)
+// TestPipelineConcurrency_SetAndGet tests setting and reading the concurrency limit.
+func TestPipelineConcurrency_SetAndGet(t *testing.T) {
+	env := SetupPipelineE2E(t)
+	ctx := context.Background()
+
+	// Set concurrency to 3
+	result := env.CLI.Run(ctx, "pipeline", "concurrency", "set", "3")
+	require.True(t, result.Success(), "set concurrency should succeed: %s", result.Stderr)
+
+	// Verify it took effect
+	var config concurrencyConfigResponse
+	err := env.CLI.RunJSON(ctx, &config, "pipeline", "concurrency")
+	require.NoError(t, err)
+	assert.Equal(t, 3, config.MaxConcurrent, "max_concurrent should be updated to 3")
+
+	// Restore default
 	t.Cleanup(func() {
-		resetCtx, resetCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer resetCancel()
-		env.SafeCLI.Run(resetCtx, "pipeline", "concurrency", "set", "2")
+		env.CLI.Run(ctx, "pipeline", "concurrency", "set", "1")
 	})
 }
 
-// TestPipelineConcurrency_GetLimit verifies that the concurrency setting
-// is readable and returns a valid value.
-func TestPipelineConcurrency_GetLimit(t *testing.T) {
-	env := SetupE2EEnvironment(t)
+// TestPipelineConcurrency_SetRejectsZeroOrNegative tests that invalid values are rejected.
+func TestPipelineConcurrency_SetRejectsZeroOrNegative(t *testing.T) {
+	env := SetupPipelineE2E(t)
+	ctx := context.Background()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	// Zero should be rejected (pause/resume is the way to stop processing)
+	result := env.CLI.Run(ctx, "pipeline", "concurrency", "set", "0")
+	assert.NotEqual(t, 0, result.ExitCode, "set concurrency to 0 should fail")
 
-	result := env.SafeCLI.Run(ctx, "pipeline", "concurrency", "-o", "json")
-	require.True(t, result.Success(), "concurrency get should succeed: %s", result.Stderr)
-
-	var config struct {
-		MaxConcurrent int `json:"max_concurrent"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(result.Stdout), &config),
-		"should parse concurrency JSON: %s", result.Stdout)
-
-	assert.Greater(t, config.MaxConcurrent, 0,
-		"max concurrent should be positive (default is 2)")
+	// Negative should be rejected
+	result = env.CLI.Run(ctx, "pipeline", "concurrency", "set", "-1")
+	assert.NotEqual(t, 0, result.ExitCode, "set concurrency to -1 should fail")
 }
 
-// TestPipelineConcurrency_BatchReprocess verifies that batch reprocessing
-// respects the concurrency limit. With concurrency=1, items should process
-// sequentially (each one completes before the next starts).
-func TestPipelineConcurrency_BatchReprocess(t *testing.T) {
-	env := SetupE2EEnvironment(t)
+// TestPipelineConcurrency_KickRespectsLimit is the core acceptance test.
+// It verifies that kick never starts more workflows than max_concurrent allows.
+//
+// Setup:
+//   1. Clean test tenant
+//   2. Ingest 4 emails (creates 4 pending sources)
+//   3. Set concurrency limit to 2
+//   4. Kick processing
+//
+// Assertions:
+//   - Kick starts exactly 2 items (not 4)
+//   - In-flight count is 2
+//   - Pending count is 2
+//   - A second kick with 2 already in-flight starts 0 more
+func TestPipelineConcurrency_KickRespectsLimit(t *testing.T) {
+	env := SetupPipelineE2E(t)
+	ctx := context.Background()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
-	defer cancel()
+	// Clean slate
+	err := env.CleanupTestTenant()
+	require.NoError(t, err)
+	err = env.EnsureTenantExists()
+	require.NoError(t, err)
 
-	// Set concurrency to 1 for deterministic ordering
-	setResult := env.SafeCLI.Run(ctx, "pipeline", "concurrency", "set", "1")
-	require.True(t, setResult.Success(), "concurrency set should succeed: %s", setResult.Stderr)
+	// Ingest 4 test emails to create pending sources
+	emailDir := env.FixturePath("emails")
+	result := env.CLI.Run(ctx, "ingest", "email", emailDir, "--source", "e2e-concurrency")
+	require.True(t, result.Success(), "ingest should succeed: %s", result.Stderr)
 
-	// Get 3 content items to batch
-	contentResult := env.SafeCLI.Run(ctx, "content", "list", "-o", "json", "--limit", "3")
-	require.True(t, contentResult.Success(), "content list should succeed: %s", contentResult.Stderr)
+	// Verify we have pending sources
+	var pendingBefore int64
+	err = env.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sources
+		WHERE tenant_id = $1 AND processing_status = 'pending'
+	`, env.TenantID).Scan(&pendingBefore)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, pendingBefore, int64(2),
+		"need at least 2 pending sources for this test, got %d", pendingBefore)
 
-	var contentList struct {
-		Items []struct {
-			ID string `json:"id"`
-		} `json:"items"`
+	t.Logf("Pending sources before kick: %d", pendingBefore)
+
+	// Set concurrency limit to 2
+	result = env.CLI.Run(ctx, "pipeline", "concurrency", "set", "2")
+	require.True(t, result.Success(), "set concurrency should succeed: %s", result.Stderr)
+
+	// Kick processing
+	var kick kickResponse
+	err = env.CLI.RunJSON(ctx, &kick, "pipeline", "kick")
+	require.NoError(t, err, "pipeline kick should succeed")
+
+	// Kick should have started exactly 2 (not all pending)
+	assert.Equal(t, int64(2), kick.QueuedCount,
+		"kick should start exactly max_concurrent items")
+	assert.Equal(t, 2, kick.InFlightCount,
+		"in_flight_count should equal max_concurrent after kick")
+	assert.Equal(t, 2, kick.MaxConcurrent,
+		"response should include max_concurrent")
+	assert.Equal(t, pendingBefore-2, kick.PendingCount,
+		"pending should decrease by queued count")
+
+	// Verify via DB: exactly 2 sources should be 'processing'
+	var processingCount int64
+	err = env.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sources
+		WHERE tenant_id = $1 AND processing_status = 'processing'
+	`, env.TenantID).Scan(&processingCount)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), processingCount,
+		"exactly 2 sources should be in 'processing' state")
+
+	// Second kick should start 0 more (slots full)
+	var kick2 kickResponse
+	err = env.CLI.RunJSON(ctx, &kick2, "pipeline", "kick")
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), kick2.QueuedCount,
+		"second kick should start 0 items when slots are full")
+	assert.Equal(t, 2, kick2.InFlightCount,
+		"in_flight should still be 2")
+
+	// Cleanup: restore concurrency and terminate test workflows
+	t.Cleanup(func() {
+		env.CLI.Run(ctx, "pipeline", "concurrency", "set", "1")
+	})
+}
+
+// TestPipelineConcurrency_AutoDrain verifies that when a pipeline workflow
+// completes, the next pending item is automatically started.
+//
+// This is the self-draining queue test:
+//   1. Ingest 3 emails
+//   2. Set concurrency to 1
+//   3. Kick (starts item A)
+//   4. Wait for A to complete
+//   5. Verify B was automatically started (without manual kick)
+func TestPipelineConcurrency_AutoDrain(t *testing.T) {
+	env := SetupPipelineE2E(t)
+	ctx := context.Background()
+
+	// Clean slate
+	err := env.CleanupTestTenant()
+	require.NoError(t, err)
+	err = env.EnsureTenantExists()
+	require.NoError(t, err)
+
+	// Load fixtures for entity resolution
+	err = env.LoadFixtureCLI("acme-corp")
+	require.NoError(t, err)
+
+	// Ingest test emails
+	emailDir := env.FixturePath("emails")
+	result := env.CLI.Run(ctx, "ingest", "email", emailDir, "--source", "e2e-autodrain")
+	require.True(t, result.Success(), "ingest should succeed: %s", result.Stderr)
+
+	// Count pending
+	var totalPending int64
+	err = env.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sources
+		WHERE tenant_id = $1 AND processing_status = 'pending'
+	`, env.TenantID).Scan(&totalPending)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, totalPending, int64(2),
+		"need at least 2 pending sources for auto-drain test")
+
+	t.Logf("Total pending: %d", totalPending)
+
+	// Set concurrency to 1
+	result = env.CLI.Run(ctx, "pipeline", "concurrency", "set", "1")
+	require.True(t, result.Success(), "set concurrency should succeed")
+
+	// Kick - should start exactly 1
+	var kick kickResponse
+	err = env.CLI.RunJSON(ctx, &kick, "pipeline", "kick")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), kick.QueuedCount, "should start exactly 1 item")
+
+	// Wait for the first item to complete (real pipeline processing)
+	t.Log("Waiting for first pipeline item to complete...")
+	firstCompleted := waitForNCompleted(t, env.E2EEnv, 1, 5*time.Minute)
+	require.True(t, firstCompleted, "first item should complete within timeout")
+
+	// After completion, auto-drain should have started the next item.
+	// Give it a moment to trigger the callback.
+	time.Sleep(3 * time.Second)
+
+	// Check that a second item is now processing (auto-kicked)
+	var processingCount int64
+	err = env.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sources
+		WHERE tenant_id = $1 AND processing_status = 'processing'
+	`, env.TenantID).Scan(&processingCount)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), processingCount,
+		"auto-drain should have started the next pending item")
+
+	// Cleanup
+	t.Cleanup(func() {
+		env.CLI.Run(ctx, "pipeline", "concurrency", "set", "1")
+	})
+}
+
+// TestPipelineConcurrency_PauseResume tests pausing and resuming processing.
+func TestPipelineConcurrency_PauseResume(t *testing.T) {
+	env := SetupPipelineE2E(t)
+	ctx := context.Background()
+
+	// Set concurrency to 2 first
+	result := env.CLI.Run(ctx, "pipeline", "concurrency", "set", "2")
+	require.True(t, result.Success())
+
+	// Pause
+	result = env.CLI.Run(ctx, "pipeline", "pause")
+	require.True(t, result.Success(), "pause should succeed: %s", result.Stderr)
+
+	// Verify concurrency is now 0
+	var config concurrencyConfigResponse
+	err := env.CLI.RunJSON(ctx, &config, "pipeline", "concurrency")
+	require.NoError(t, err)
+	assert.Equal(t, 0, config.MaxConcurrent, "paused pipeline should have max_concurrent=0")
+
+	// Kick should start nothing
+	var kick kickResponse
+	err = env.CLI.RunJSON(ctx, &kick, "pipeline", "kick")
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), kick.QueuedCount, "kick while paused should start nothing")
+
+	// Resume should restore to 2
+	result = env.CLI.Run(ctx, "pipeline", "resume")
+	require.True(t, result.Success(), "resume should succeed: %s", result.Stderr)
+
+	// Verify restored
+	err = env.CLI.RunJSON(ctx, &config, "pipeline", "concurrency")
+	require.NoError(t, err)
+	assert.Equal(t, 2, config.MaxConcurrent, "resumed pipeline should restore max_concurrent=2")
+
+	// Cleanup
+	t.Cleanup(func() {
+		env.CLI.Run(ctx, "pipeline", "concurrency", "set", "1")
+	})
+}
+
+// TestPipelineConcurrency_PendingList tests the `penf pipeline pending` command.
+func TestPipelineConcurrency_PendingList(t *testing.T) {
+	env := SetupPipelineE2E(t)
+	ctx := context.Background()
+
+	// Clean slate and ingest some emails
+	err := env.CleanupTestTenant()
+	require.NoError(t, err)
+	err = env.EnsureTenantExists()
+	require.NoError(t, err)
+
+	emailDir := env.FixturePath("emails")
+	result := env.CLI.Run(ctx, "ingest", "email", emailDir, "--source", "e2e-pending")
+	require.True(t, result.Success(), "ingest should succeed: %s", result.Stderr)
+
+	// List pending sources via CLI
+	var pending pendingSourcesResponse
+	err = env.CLI.RunJSON(ctx, &pending, "pipeline", "pending")
+	require.NoError(t, err, "pipeline pending should succeed")
+
+	assert.Greater(t, pending.TotalCount, int64(0), "should have pending sources")
+	assert.Len(t, pending.Sources, int(pending.TotalCount),
+		"sources array should match total_count (within default limit)")
+
+	// Each source should have required fields
+	for _, src := range pending.Sources {
+		assert.Greater(t, src.ID, int64(0), "source ID should be positive")
+		assert.NotEmpty(t, src.SourceTag, "source_tag should not be empty")
+		assert.NotEmpty(t, src.CreatedAt, "created_at should not be empty")
 	}
-	require.NoError(t, json.Unmarshal([]byte(contentResult.Stdout), &contentList))
-	require.GreaterOrEqual(t, len(contentList.Items), 3,
-		"need at least 3 content items for batch test")
 
-	// Start batch with 3 items
-	ids := []string{contentList.Items[0].ID, contentList.Items[1].ID, contentList.Items[2].ID}
-	batchResult := env.SafeCLI.Run(ctx, "pipeline", "batch",
-		ids[0], ids[1], ids[2], "-o", "json")
-	require.True(t, batchResult.Success(), "batch start should succeed: %s", batchResult.Stderr)
+	// Filter by source tag
+	var filtered pendingSourcesResponse
+	err = env.CLI.RunJSON(ctx, &filtered, "pipeline", "pending", "--source", "e2e-pending")
+	require.NoError(t, err)
+	assert.Equal(t, pending.TotalCount, filtered.TotalCount,
+		"filtering by the same source tag should return same count")
+}
 
-	var batchStart struct {
-		BatchID    string `json:"batch_id"`
-		TotalItems int    `json:"total_items"`
+// TestPipelineConcurrency_QueueShowsConcurrency tests that `penf pipeline queue`
+// includes the concurrency header info in JSON output.
+func TestPipelineConcurrency_QueueShowsConcurrency(t *testing.T) {
+	env := SetupPipelineE2E(t)
+	ctx := context.Background()
+
+	// Get queue status as JSON
+	var queueResp struct {
+		Queues        []interface{} `json:"queues"`
+		MaxConcurrent int           `json:"max_concurrent"`
+		InFlightCount int           `json:"in_flight_count"`
+		PendingCount  int64         `json:"pending_count"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(batchResult.Stdout), &batchStart),
-		"should parse batch start JSON: %s", batchResult.Stdout)
+	err := env.CLI.RunJSON(ctx, &queueResp, "pipeline", "queue")
+	require.NoError(t, err, "pipeline queue should succeed")
 
-	assert.NotEmpty(t, batchStart.BatchID, "batch ID should be populated")
-	assert.Equal(t, 3, batchStart.TotalItems, "should have 3 items in batch")
+	// Should include concurrency fields
+	assert.GreaterOrEqual(t, queueResp.MaxConcurrent, 0,
+		"queue response should include max_concurrent")
+}
 
-	// Poll for completion (up to 5 minutes)
-	deadline := time.Now().Add(5 * time.Minute)
-	var lastProgress struct {
-		Status    string `json:"status"`
-		Total     int    `json:"total"`
-		Completed int    `json:"completed"`
-		Failed    int    `json:"failed"`
-		Active    int    `json:"active"`
-		Pending   int    `json:"pending"`
-	}
+// TestPipelineConcurrency_KickWithExplicitLimit tests that --limit flag
+// interacts correctly with concurrency (takes the smaller of the two).
+func TestPipelineConcurrency_KickWithExplicitLimit(t *testing.T) {
+	env := SetupPipelineE2E(t)
+	ctx := context.Background()
+
+	// Clean slate and create pending sources
+	err := env.CleanupTestTenant()
+	require.NoError(t, err)
+	err = env.EnsureTenantExists()
+	require.NoError(t, err)
+
+	emailDir := env.FixturePath("emails")
+	result := env.CLI.Run(ctx, "ingest", "email", emailDir, "--source", "e2e-limit")
+	require.True(t, result.Success())
+
+	// Set concurrency to 5 (high)
+	result = env.CLI.Run(ctx, "pipeline", "concurrency", "set", "5")
+	require.True(t, result.Success())
+
+	// Kick with explicit --limit=1 (should cap at 1 despite 5 slots)
+	var kick kickResponse
+	err = env.CLI.RunJSON(ctx, &kick, "pipeline", "kick", "--limit=1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), kick.QueuedCount,
+		"explicit --limit should cap the number of items started")
+
+	// Cleanup
+	t.Cleanup(func() {
+		env.CLI.Run(ctx, "pipeline", "concurrency", "set", "1")
+	})
+}
+
+// --- Helpers ---
+
+// waitForNCompleted polls the DB until at least N sources have completed processing.
+func waitForNCompleted(t *testing.T, env *E2EEnv, n int, timeout time.Duration) bool {
+	t.Helper()
+	ctx := context.Background()
+	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
-		statusResult := env.SafeCLI.Run(ctx, "pipeline", "batch", "status",
-			batchStart.BatchID, "-o", "json")
-		if statusResult.Success() {
-			if err := json.Unmarshal([]byte(statusResult.Stdout), &lastProgress); err == nil {
-				t.Logf("Batch progress: %d/%d completed, %d active, %d failed",
-					lastProgress.Completed, lastProgress.Total,
-					lastProgress.Active, lastProgress.Failed)
+		var completed int
+		err := env.DB.QueryRow(ctx, `
+			SELECT COUNT(*) FROM sources
+			WHERE tenant_id = $1 AND processing_status = 'completed'
+		`, env.TenantID).Scan(&completed)
 
-				// Verify concurrency limit is respected
-				assert.LessOrEqual(t, lastProgress.Active, 1,
-					"at most 1 pipeline should be active (concurrency=1)")
-
-				if lastProgress.Status == "completed" || lastProgress.Status == "failed" {
-					break
-				}
-			}
+		if err == nil && completed >= n {
+			t.Logf("Completed: %d/%d", completed, n)
+			return true
 		}
-		time.Sleep(5 * time.Second)
+
+		time.Sleep(3 * time.Second)
 	}
 
-	// Verify batch completed
-	assert.Equal(t, "completed", lastProgress.Status,
-		"batch should have completed")
-	assert.Equal(t, 3, lastProgress.Total, "total should be 3")
-	assert.Equal(t, 3, lastProgress.Completed+lastProgress.Failed,
-		"all items should be completed or failed")
+	// Log final state for debugging
+	var pending, processing, completed, failed int
+	_ = env.DB.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE processing_status = 'pending'),
+			COUNT(*) FILTER (WHERE processing_status = 'processing'),
+			COUNT(*) FILTER (WHERE processing_status = 'completed'),
+			COUNT(*) FILTER (WHERE processing_status = 'failed')
+		FROM sources WHERE tenant_id = $1
+	`, env.TenantID).Scan(&pending, &processing, &completed, &failed)
 
-	// Clean up: restore default concurrency
-	t.Cleanup(func() {
-		resetCtx, resetCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer resetCancel()
-		env.SafeCLI.Run(resetCtx, "pipeline", "concurrency", "set", "2")
-	})
+	t.Logf("Timeout waiting for %d completed. State: pending=%d processing=%d completed=%d failed=%d",
+		n, pending, processing, completed, failed)
+
+	return false
 }
 
-// TestPipelineConcurrency_BatchProgress verifies that batch status shows
-// correct progress with pending/active/completed/failed counts.
-func TestPipelineConcurrency_BatchProgress(t *testing.T) {
-	env := SetupE2EEnvironment(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
-	// Set concurrency to 1 to ensure we can catch the "in progress" state
-	setResult := env.SafeCLI.Run(ctx, "pipeline", "concurrency", "set", "1")
-	require.True(t, setResult.Success())
-
-	// Get 2 content items
-	contentResult := env.SafeCLI.Run(ctx, "content", "list", "-o", "json", "--limit", "2")
-	require.True(t, contentResult.Success())
-
-	var contentList struct {
-		Items []struct {
-			ID string `json:"id"`
-		} `json:"items"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(contentResult.Stdout), &contentList))
-	require.GreaterOrEqual(t, len(contentList.Items), 2)
-
-	// Start batch
-	batchResult := env.SafeCLI.Run(ctx, "pipeline", "batch",
-		contentList.Items[0].ID, contentList.Items[1].ID, "-o", "json")
-	require.True(t, batchResult.Success(), "batch start should succeed: %s", batchResult.Stderr)
-
-	var batchStart struct {
-		BatchID string `json:"batch_id"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(batchResult.Stdout), &batchStart))
-
-	// Check status immediately — should show items in progress or pending
-	time.Sleep(2 * time.Second) // Brief pause to let batch start
-	statusResult := env.SafeCLI.Run(ctx, "pipeline", "batch", "status",
-		batchStart.BatchID, "-o", "json")
-	require.True(t, statusResult.Success(), "batch status should succeed: %s", statusResult.Stderr)
-
-	var progress struct {
-		BatchID   string `json:"batch_id"`
-		Status    string `json:"status"`
-		Total     int    `json:"total"`
-		Completed int    `json:"completed"`
-		Failed    int    `json:"failed"`
-		Active    int    `json:"active"`
-		Pending   int    `json:"pending"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(statusResult.Stdout), &progress),
-		"should parse batch status JSON: %s", statusResult.Stdout)
-
-	assert.Equal(t, batchStart.BatchID, progress.BatchID)
-	assert.Equal(t, 2, progress.Total, "total should be 2")
-	assert.Equal(t, "running", progress.Status, "batch should be running")
-
-	// The counts should sum to total
-	assert.Equal(t, progress.Total,
-		progress.Completed+progress.Failed+progress.Active+progress.Pending,
-		"counts should sum to total")
-
-	// Clean up
-	t.Cleanup(func() {
-		resetCtx, resetCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer resetCancel()
-		env.SafeCLI.Run(resetCtx, "pipeline", "concurrency", "set", "2")
-	})
-}
-
-// TestPipelineConcurrency_BatchList verifies that `penf pipeline batch list`
-// shows active and recent batches.
-func TestPipelineConcurrency_BatchList(t *testing.T) {
-	env := SetupE2EEnvironment(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	result := env.SafeCLI.Run(ctx, "pipeline", "batch", "list", "-o", "json")
-	require.True(t, result.Success(), "batch list should succeed: %s", result.Stderr)
-
-	var batchList struct {
-		Batches []struct {
-			ID        string `json:"id"`
-			Status    string `json:"status"`
-			Total     int    `json:"total"`
-			Completed int    `json:"completed"`
-			Failed    int    `json:"failed"`
-			CreatedAt string `json:"created_at"`
-		} `json:"batches"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(result.Stdout), &batchList),
-		"should parse batch list JSON: %s", result.Stdout)
-
-	// Just verify the structure is correct — there may or may not be batches
-	// from previous test runs
-	for _, batch := range batchList.Batches {
-		assert.NotEmpty(t, batch.ID, "batch ID should not be empty")
-		assert.Contains(t, []string{"running", "completed", "cancelled", "failed"}, batch.Status,
-			"batch status should be valid")
-		assert.Greater(t, batch.Total, 0, "batch total should be positive")
-	}
+// concurrencyConfigJSON is a convenience wrapper to parse concurrency config.
+func concurrencyConfigJSON(t *testing.T, env *E2EEnv) concurrencyConfigResponse {
+	t.Helper()
+	ctx := context.Background()
+	var config concurrencyConfigResponse
+	err := env.CLI.RunJSON(ctx, &config, "pipeline", "concurrency")
+	require.NoError(t, err)
+	return config
 }

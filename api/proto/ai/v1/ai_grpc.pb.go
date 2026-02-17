@@ -23,23 +23,28 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AICoordinatorService_GenerateEmbedding_FullMethodName = "/penfold.ai.v1.AICoordinatorService/GenerateEmbedding"
-	AICoordinatorService_GenerateSummary_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/GenerateSummary"
-	AICoordinatorService_ExtractAssertions_FullMethodName = "/penfold.ai.v1.AICoordinatorService/ExtractAssertions"
-	AICoordinatorService_ClassifyContent_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/ClassifyContent"
-	AICoordinatorService_TriageContent_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/TriageContent"
-	AICoordinatorService_ExtractEntities_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/ExtractEntities"
-	AICoordinatorService_DeepAnalyze_FullMethodName       = "/penfold.ai.v1.AICoordinatorService/DeepAnalyze"
-	AICoordinatorService_GetModelStatus_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/GetModelStatus"
-	AICoordinatorService_ListModels_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/ListModels"
-	AICoordinatorService_RegisterModel_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/RegisterModel"
-	AICoordinatorService_UpdateModel_FullMethodName       = "/penfold.ai.v1.AICoordinatorService/UpdateModel"
-	AICoordinatorService_DeleteModel_FullMethodName       = "/penfold.ai.v1.AICoordinatorService/DeleteModel"
-	AICoordinatorService_GetRoutingRules_FullMethodName   = "/penfold.ai.v1.AICoordinatorService/GetRoutingRules"
-	AICoordinatorService_UpdateRoutingRule_FullMethodName = "/penfold.ai.v1.AICoordinatorService/UpdateRoutingRule"
-	AICoordinatorService_Query_FullMethodName             = "/penfold.ai.v1.AICoordinatorService/Query"
-	AICoordinatorService_SummarizeByID_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/SummarizeByID"
-	AICoordinatorService_AnalyzeByID_FullMethodName       = "/penfold.ai.v1.AICoordinatorService/AnalyzeByID"
+	AICoordinatorService_GenerateEmbedding_FullMethodName  = "/penfold.ai.v1.AICoordinatorService/GenerateEmbedding"
+	AICoordinatorService_GenerateSummary_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/GenerateSummary"
+	AICoordinatorService_ExtractAssertions_FullMethodName  = "/penfold.ai.v1.AICoordinatorService/ExtractAssertions"
+	AICoordinatorService_ClassifyContent_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/ClassifyContent"
+	AICoordinatorService_TriageContent_FullMethodName      = "/penfold.ai.v1.AICoordinatorService/TriageContent"
+	AICoordinatorService_ExtractEntities_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/ExtractEntities"
+	AICoordinatorService_DeepAnalyze_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/DeepAnalyze"
+	AICoordinatorService_GetModelStatus_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/GetModelStatus"
+	AICoordinatorService_ListModels_FullMethodName         = "/penfold.ai.v1.AICoordinatorService/ListModels"
+	AICoordinatorService_RegisterModel_FullMethodName      = "/penfold.ai.v1.AICoordinatorService/RegisterModel"
+	AICoordinatorService_UpdateModel_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/UpdateModel"
+	AICoordinatorService_DeleteModel_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/DeleteModel"
+	AICoordinatorService_GetRoutingRules_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/GetRoutingRules"
+	AICoordinatorService_UpdateRoutingRule_FullMethodName  = "/penfold.ai.v1.AICoordinatorService/UpdateRoutingRule"
+	AICoordinatorService_Query_FullMethodName              = "/penfold.ai.v1.AICoordinatorService/Query"
+	AICoordinatorService_SummarizeByID_FullMethodName      = "/penfold.ai.v1.AICoordinatorService/SummarizeByID"
+	AICoordinatorService_AnalyzeByID_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/AnalyzeByID"
+	AICoordinatorService_GetStageModels_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/GetStageModels"
+	AICoordinatorService_SetStageModel_FullMethodName      = "/penfold.ai.v1.AICoordinatorService/SetStageModel"
+	AICoordinatorService_ResetStageModel_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/ResetStageModel"
+	AICoordinatorService_GetAvailableModels_FullMethodName = "/penfold.ai.v1.AICoordinatorService/GetAvailableModels"
+	AICoordinatorService_TestModel_FullMethodName          = "/penfold.ai.v1.AICoordinatorService/TestModel"
 )
 
 // AICoordinatorServiceClient is the client API for AICoordinatorService service.
@@ -103,6 +108,21 @@ type AICoordinatorServiceClient interface {
 	// AnalyzeByID performs deep analysis on content identified by its ID.
 	// Supports sentiment, entity, topic, and action item extraction.
 	AnalyzeByID(ctx context.Context, in *AnalyzeByIDRequest, opts ...grpc.CallOption) (*AnalyzeByIDResponse, error)
+	// GetStageModels returns model configuration for all 5 pipeline stages.
+	// Shows current model, source (db/env/default), and backend for each stage.
+	GetStageModels(ctx context.Context, in *GetStageModelsRequest, opts ...grpc.CallOption) (*GetStageModelsResponse, error)
+	// SetStageModel sets a model override for a specific pipeline stage.
+	// Writes to model_config table in the database.
+	SetStageModel(ctx context.Context, in *SetStageModelRequest, opts ...grpc.CallOption) (*SetStageModelResponse, error)
+	// ResetStageModel removes the DB override for a stage.
+	// Falls back to environment variable or default model.
+	ResetStageModel(ctx context.Context, in *ResetStageModelRequest, opts ...grpc.CallOption) (*ResetStageModelResponse, error)
+	// GetAvailableModels queries backends for available models.
+	// Returns list of models with their backends (ollama/gemini).
+	GetAvailableModels(ctx context.Context, in *GetAvailableModelsRequest, opts ...grpc.CallOption) (*GetAvailableModelsResponse, error)
+	// TestModel performs a quick inference test for a specific model.
+	// Returns status, latency, and model used.
+	TestModel(ctx context.Context, in *TestModelRequest, opts ...grpc.CallOption) (*TestModelResponse, error)
 }
 
 type aICoordinatorServiceClient struct {
@@ -283,6 +303,56 @@ func (c *aICoordinatorServiceClient) AnalyzeByID(ctx context.Context, in *Analyz
 	return out, nil
 }
 
+func (c *aICoordinatorServiceClient) GetStageModels(ctx context.Context, in *GetStageModelsRequest, opts ...grpc.CallOption) (*GetStageModelsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetStageModelsResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_GetStageModels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) SetStageModel(ctx context.Context, in *SetStageModelRequest, opts ...grpc.CallOption) (*SetStageModelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetStageModelResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_SetStageModel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) ResetStageModel(ctx context.Context, in *ResetStageModelRequest, opts ...grpc.CallOption) (*ResetStageModelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResetStageModelResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_ResetStageModel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) GetAvailableModels(ctx context.Context, in *GetAvailableModelsRequest, opts ...grpc.CallOption) (*GetAvailableModelsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAvailableModelsResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_GetAvailableModels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aICoordinatorServiceClient) TestModel(ctx context.Context, in *TestModelRequest, opts ...grpc.CallOption) (*TestModelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TestModelResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_TestModel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AICoordinatorServiceServer is the server API for AICoordinatorService service.
 // All implementations must embed UnimplementedAICoordinatorServiceServer
 // for forward compatibility.
@@ -344,6 +414,21 @@ type AICoordinatorServiceServer interface {
 	// AnalyzeByID performs deep analysis on content identified by its ID.
 	// Supports sentiment, entity, topic, and action item extraction.
 	AnalyzeByID(context.Context, *AnalyzeByIDRequest) (*AnalyzeByIDResponse, error)
+	// GetStageModels returns model configuration for all 5 pipeline stages.
+	// Shows current model, source (db/env/default), and backend for each stage.
+	GetStageModels(context.Context, *GetStageModelsRequest) (*GetStageModelsResponse, error)
+	// SetStageModel sets a model override for a specific pipeline stage.
+	// Writes to model_config table in the database.
+	SetStageModel(context.Context, *SetStageModelRequest) (*SetStageModelResponse, error)
+	// ResetStageModel removes the DB override for a stage.
+	// Falls back to environment variable or default model.
+	ResetStageModel(context.Context, *ResetStageModelRequest) (*ResetStageModelResponse, error)
+	// GetAvailableModels queries backends for available models.
+	// Returns list of models with their backends (ollama/gemini).
+	GetAvailableModels(context.Context, *GetAvailableModelsRequest) (*GetAvailableModelsResponse, error)
+	// TestModel performs a quick inference test for a specific model.
+	// Returns status, latency, and model used.
+	TestModel(context.Context, *TestModelRequest) (*TestModelResponse, error)
 	mustEmbedUnimplementedAICoordinatorServiceServer()
 }
 
@@ -404,6 +489,21 @@ func (UnimplementedAICoordinatorServiceServer) SummarizeByID(context.Context, *S
 }
 func (UnimplementedAICoordinatorServiceServer) AnalyzeByID(context.Context, *AnalyzeByIDRequest) (*AnalyzeByIDResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AnalyzeByID not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) GetStageModels(context.Context, *GetStageModelsRequest) (*GetStageModelsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetStageModels not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) SetStageModel(context.Context, *SetStageModelRequest) (*SetStageModelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetStageModel not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) ResetStageModel(context.Context, *ResetStageModelRequest) (*ResetStageModelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResetStageModel not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) GetAvailableModels(context.Context, *GetAvailableModelsRequest) (*GetAvailableModelsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAvailableModels not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) TestModel(context.Context, *TestModelRequest) (*TestModelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TestModel not implemented")
 }
 func (UnimplementedAICoordinatorServiceServer) mustEmbedUnimplementedAICoordinatorServiceServer() {}
 func (UnimplementedAICoordinatorServiceServer) testEmbeddedByValue()                              {}
@@ -732,6 +832,96 @@ func _AICoordinatorService_AnalyzeByID_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AICoordinatorService_GetStageModels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetStageModelsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).GetStageModels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_GetStageModels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).GetStageModels(ctx, req.(*GetStageModelsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_SetStageModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetStageModelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).SetStageModel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_SetStageModel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).SetStageModel(ctx, req.(*SetStageModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_ResetStageModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResetStageModelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).ResetStageModel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_ResetStageModel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).ResetStageModel(ctx, req.(*ResetStageModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_GetAvailableModels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAvailableModelsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).GetAvailableModels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_GetAvailableModels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).GetAvailableModels(ctx, req.(*GetAvailableModelsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AICoordinatorService_TestModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestModelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).TestModel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_TestModel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).TestModel(ctx, req.(*TestModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AICoordinatorService_ServiceDesc is the grpc.ServiceDesc for AICoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -806,6 +996,26 @@ var AICoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AnalyzeByID",
 			Handler:    _AICoordinatorService_AnalyzeByID_Handler,
+		},
+		{
+			MethodName: "GetStageModels",
+			Handler:    _AICoordinatorService_GetStageModels_Handler,
+		},
+		{
+			MethodName: "SetStageModel",
+			Handler:    _AICoordinatorService_SetStageModel_Handler,
+		},
+		{
+			MethodName: "ResetStageModel",
+			Handler:    _AICoordinatorService_ResetStageModel_Handler,
+		},
+		{
+			MethodName: "GetAvailableModels",
+			Handler:    _AICoordinatorService_GetAvailableModels_Handler,
+		},
+		{
+			MethodName: "TestModel",
+			Handler:    _AICoordinatorService_TestModel_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -60,6 +60,10 @@ type Config struct {
 
 	// GracefulShutdownTimeout is the timeout in seconds for graceful shutdown.
 	GracefulShutdownTimeout int
+
+	// DBURL is the PostgreSQL connection string for dynamic model config (optional).
+	// If not set, model config resolution falls back to env vars only.
+	DBURL string
 }
 
 // Default configuration values.
@@ -195,6 +199,11 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid AI_GRACEFUL_SHUTDOWN_TIMEOUT: %w", err)
 		}
 		cfg.GracefulShutdownTimeout = timeout
+	}
+
+	// Load optional DB URL for dynamic model config
+	if v := os.Getenv("AI_DB_URL"); v != "" {
+		cfg.DBURL = v
 	}
 
 	if err := cfg.Validate(); err != nil {

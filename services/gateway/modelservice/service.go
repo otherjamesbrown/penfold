@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -1090,4 +1091,392 @@ func extractJSON(text string) string {
 	}
 
 	return text
+}
+
+// =============================================================================
+// CLI Model Management RPCs (Gateway-only)
+// =============================================================================
+
+// validStages defines the 5 pipeline stages.
+var validStages = map[string]bool{
+	"parse":   true,
+	"triage":  true,
+	"extract": true,
+	"context": true,
+	"analyze": true,
+}
+
+// stageEnvVars maps stage names to their environment variable names.
+var stageEnvVars = map[string]string{
+	"parse":   "AI_MODEL_PARSE",
+	"triage":  "AI_MODEL_TRIAGE",
+	"extract": "AI_MODEL_EXTRACT",
+	"context": "AI_MODEL_CONTEXT",
+	"analyze": "AI_MODEL_ANALYZE",
+}
+
+// stageDefaults maps stage names to their default model names.
+var stageDefaults = map[string]string{
+	"parse":   "llama3.2",
+	"triage":  "llama3.2",
+	"extract": "llama3.2",
+	"context": "llama3.2",
+	"analyze": "gemini-2.0-flash-exp",
+}
+
+// GetStageModels returns model configuration for all 5 pipeline stages.
+func (s *Service) GetStageModels(ctx context.Context, req *aiv1.GetStageModelsRequest) (*aiv1.GetStageModelsResponse, error) {
+	s.logger.Debug("GetStageModels called",
+		logging.F("tenant_id", req.GetTenantId()),
+	)
+
+	tenantID := req.GetTenantId()
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
+	// Load DB overrides if DB is available
+	dbOverrides := make(map[string]string)
+	if s.db != nil {
+		rows, err := s.db.Query(ctx, `
+			SELECT key, value
+			FROM model_config
+			WHERE tenant_id = $1 AND key LIKE 'stage.%'
+		`, tenantID)
+		if err != nil {
+			s.logger.Warn("Failed to load model_config, using env/defaults", logging.Err(err))
+		} else {
+			defer rows.Close()
+			for rows.Next() {
+				var key, value string
+				if err := rows.Scan(&key, &value); err != nil {
+					continue
+				}
+				// key format: "stage.parse" -> "parse"
+				if len(key) > 6 {
+					stageName := key[6:]
+					dbOverrides[stageName] = value
+				}
+			}
+		}
+	}
+
+	// Build response for all 5 stages
+	stages := []string{"parse", "triage", "extract", "context", "analyze"}
+	var stageInfos []*aiv1.StageModelInfo
+
+	for _, stageName := range stages {
+		modelName := ""
+		source := ""
+
+		// Priority: DB > Env > Default
+		if dbModel, ok := dbOverrides[stageName]; ok {
+			modelName = dbModel
+			source = "db"
+		} else if envVar, ok := stageEnvVars[stageName]; ok {
+			if envModel := os.Getenv(envVar); envModel != "" {
+				modelName = envModel
+				source = "env"
+			}
+		}
+
+		if modelName == "" {
+			modelName = stageDefaults[stageName]
+			source = "default"
+		}
+
+		// Determine backend from model name
+		backend := "ollama"
+		if strings.HasPrefix(modelName, "gemini-") {
+			backend = "gemini"
+		}
+
+		stageInfos = append(stageInfos, &aiv1.StageModelInfo{
+			StageName: stageName,
+			ModelName: modelName,
+			Source:    source,
+			Backend:   backend,
+		})
+	}
+
+	s.logger.Debug("GetStageModels completed",
+		logging.F("stage_count", len(stageInfos)),
+	)
+
+	return &aiv1.GetStageModelsResponse{
+		Stages: stageInfos,
+	}, nil
+}
+
+// SetStageModel sets a model override for a specific pipeline stage.
+func (s *Service) SetStageModel(ctx context.Context, req *aiv1.SetStageModelRequest) (*aiv1.SetStageModelResponse, error) {
+	s.logger.Info("SetStageModel called",
+		logging.F("tenant_id", req.GetTenantId()),
+		logging.F("stage_name", req.GetStageName()),
+		logging.F("model_name", req.GetModelName()),
+	)
+
+	// Validate stage name
+	if req.GetStageName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "stage_name is required")
+	}
+	if !validStages[req.GetStageName()] {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, triage, extract, context, analyze)", req.GetStageName())
+	}
+
+	// Validate model name
+	if req.GetModelName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "model_name is required")
+	}
+
+	tenantID := req.GetTenantId()
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
+	// Write to model_config table
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	configKey := "stage." + req.GetStageName()
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO model_config (tenant_id, key, value, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+		ON CONFLICT (tenant_id, key)
+		DO UPDATE SET value = $3, updated_at = NOW()
+	`, tenantID, configKey, req.GetModelName())
+	if err != nil {
+		s.logger.Error("Failed to set model config",
+			logging.F("stage_name", req.GetStageName()),
+			logging.Err(err),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to set model config: %v", err)
+	}
+
+	// Determine backend
+	backend := "ollama"
+	if strings.HasPrefix(req.GetModelName(), "gemini-") {
+		backend = "gemini"
+	}
+
+	s.logger.Info("SetStageModel completed",
+		logging.F("stage_name", req.GetStageName()),
+		logging.F("model_name", req.GetModelName()),
+		logging.F("backend", backend),
+	)
+
+	return &aiv1.SetStageModelResponse{
+		Stage: &aiv1.StageModelInfo{
+			StageName: req.GetStageName(),
+			ModelName: req.GetModelName(),
+			Source:    "db",
+			Backend:   backend,
+		},
+	}, nil
+}
+
+// ResetStageModel removes the DB override for a stage.
+func (s *Service) ResetStageModel(ctx context.Context, req *aiv1.ResetStageModelRequest) (*aiv1.ResetStageModelResponse, error) {
+	s.logger.Info("ResetStageModel called",
+		logging.F("tenant_id", req.GetTenantId()),
+		logging.F("stage_name", req.GetStageName()),
+	)
+
+	// Validate stage name
+	if req.GetStageName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "stage_name is required")
+	}
+	if !validStages[req.GetStageName()] {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, triage, extract, context, analyze)", req.GetStageName())
+	}
+
+	tenantID := req.GetTenantId()
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
+	// Delete from model_config table
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	configKey := "stage." + req.GetStageName()
+	_, err := s.db.Exec(ctx, `
+		DELETE FROM model_config
+		WHERE tenant_id = $1 AND key = $2
+	`, tenantID, configKey)
+	if err != nil {
+		s.logger.Error("Failed to reset model config",
+			logging.F("stage_name", req.GetStageName()),
+			logging.Err(err),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to reset model config: %v", err)
+	}
+
+	// Determine fallback model and source
+	modelName := ""
+	source := ""
+	if envVar, ok := stageEnvVars[req.GetStageName()]; ok {
+		if envModel := os.Getenv(envVar); envModel != "" {
+			modelName = envModel
+			source = "env"
+		}
+	}
+	if modelName == "" {
+		modelName = stageDefaults[req.GetStageName()]
+		source = "default"
+	}
+
+	// Determine backend
+	backend := "ollama"
+	if strings.HasPrefix(modelName, "gemini-") {
+		backend = "gemini"
+	}
+
+	s.logger.Info("ResetStageModel completed",
+		logging.F("stage_name", req.GetStageName()),
+		logging.F("fallback_model", modelName),
+		logging.F("source", source),
+	)
+
+	return &aiv1.ResetStageModelResponse{
+		Stage: &aiv1.StageModelInfo{
+			StageName: req.GetStageName(),
+			ModelName: modelName,
+			Source:    source,
+			Backend:   backend,
+		},
+	}, nil
+}
+
+// GetAvailableModels queries backends for available models.
+func (s *Service) GetAvailableModels(ctx context.Context, req *aiv1.GetAvailableModelsRequest) (*aiv1.GetAvailableModelsResponse, error) {
+	s.logger.Debug("GetAvailableModels called",
+		logging.F("tenant_id", req.GetTenantId()),
+	)
+
+	if err := s.checkClient(); err != nil {
+		return nil, err
+	}
+
+	// Query AI service for model status
+	statusResp, err := s.aiClient.GetModelStatus(ctx, &aiv1.GetModelStatusRequest{})
+	if err != nil {
+		s.logger.Error("Failed to get model status", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get model status: %v", err)
+	}
+
+	// Build list of available models
+	var models []*aiv1.AvailableModel
+	seenModels := make(map[string]bool)
+
+	for _, modelInfo := range statusResp.GetModels() {
+		modelName := modelInfo.GetModelName()
+		if modelName == "" || seenModels[modelName] {
+			continue
+		}
+		seenModels[modelName] = true
+
+		backend := "ollama"
+		if strings.HasPrefix(modelName, "gemini-") {
+			backend = "gemini"
+		}
+
+		models = append(models, &aiv1.AvailableModel{
+			Name:    modelName,
+			Backend: backend,
+		})
+	}
+
+	s.logger.Debug("GetAvailableModels completed",
+		logging.F("model_count", len(models)),
+	)
+
+	return &aiv1.GetAvailableModelsResponse{
+		Models: models,
+	}, nil
+}
+
+// TestModel performs a quick inference test for a specific model.
+func (s *Service) TestModel(ctx context.Context, req *aiv1.TestModelRequest) (*aiv1.TestModelResponse, error) {
+	startTime := time.Now()
+
+	s.logger.Debug("TestModel called",
+		logging.F("tenant_id", req.GetTenantId()),
+		logging.F("stage_name", req.GetStageName()),
+		logging.F("model_name", req.GetModelName()),
+	)
+
+	// Validate inputs
+	if req.GetStageName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "stage_name is required")
+	}
+	if !validStages[req.GetStageName()] {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, triage, extract, context, analyze)", req.GetStageName())
+	}
+	if req.GetModelName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "model_name is required")
+	}
+
+	if err := s.checkClient(); err != nil {
+		return nil, err
+	}
+
+	tenantID := req.GetTenantId()
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
+	// Determine backend
+	backend := "ollama"
+	if strings.HasPrefix(req.GetModelName(), "gemini-") {
+		backend = "gemini"
+	}
+
+	// Perform a simple test summary request
+	testContent := "This is a test message to verify model availability and performance."
+	maxLen := int32(50)
+	summaryReq := &aiv1.SummaryRequest{
+		Content:   testContent,
+		MaxLength: &maxLen,
+		Style:     aiv1.SummaryStyle_SUMMARY_STYLE_BRIEF,
+		Model:     &req.ModelName,
+		TenantId:  &tenantID,
+	}
+
+	summaryResp, err := s.aiClient.GenerateSummary(ctx, summaryReq)
+	latencyMs := float64(time.Since(startTime).Milliseconds())
+
+	if err != nil {
+		s.logger.Warn("TestModel failed",
+			logging.F("stage_name", req.GetStageName()),
+			logging.F("model_name", req.GetModelName()),
+			logging.Err(err),
+		)
+
+		errMsg := err.Error()
+		return &aiv1.TestModelResponse{
+			StageName:    req.GetStageName(),
+			ModelUsed:    req.GetModelName(),
+			Backend:      backend,
+			Status:       "error",
+			LatencyMs:    latencyMs,
+			ErrorMessage: &errMsg,
+		}, nil
+	}
+
+	s.logger.Debug("TestModel completed",
+		logging.F("stage_name", req.GetStageName()),
+		logging.F("model_used", summaryResp.GetModelUsed()),
+		logging.F("latency_ms", latencyMs),
+	)
+
+	return &aiv1.TestModelResponse{
+		StageName: req.GetStageName(),
+		ModelUsed: summaryResp.GetModelUsed(),
+		Backend:   backend,
+		Status:    "success",
+		LatencyMs: latencyMs,
+	}, nil
 }
