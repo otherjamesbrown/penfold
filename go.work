@@ -24,8 +24,7 @@ use (
 	./api/proto/tenant/v1
 	./api/proto/workflow/v1
 
-	// CLI and pipeline
-	./cmd/penf
+	// Pipeline
 	./penfold-go-pipeline
 
 	// Core packages

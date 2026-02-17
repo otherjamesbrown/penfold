@@ -212,7 +212,7 @@ check_gateway_services() {
 
     # Check if penf CLI is available
     if ! command -v penf &>/dev/null; then
-        log_skip "cli_available" "penf CLI not found - install with: go install ./cmd/penf"
+        log_skip "cli_available" "penf CLI not found - install from github.com/otherjamesbrown/penf-cli"
         return 0
     fi
 

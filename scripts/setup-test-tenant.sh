@@ -36,7 +36,7 @@ check_prerequisites() {
     log_info "Checking prerequisites..."
 
     if ! command -v penf &> /dev/null; then
-        log_error "penf CLI not found. Install with: go install ./cmd/penf"
+        log_error "penf CLI not found. Install from github.com/otherjamesbrown/penf-cli"
         exit 1
     fi
 

@@ -168,11 +168,9 @@ run_migrations() {
         return 0
     fi
 
-    # Check if penf CLI is available locally
+    # Check if penf CLI is available
     local penf_bin=""
-    if [[ -x "${PROJECT_ROOT}/cmd/penf/penf" ]]; then
-        penf_bin="${PROJECT_ROOT}/cmd/penf/penf"
-    elif command -v penf &>/dev/null; then
+    if command -v penf &>/dev/null; then
         penf_bin="penf"
     else
         log_warn "penf CLI not found, skipping migrations (run 'penf db migrate' manually)"
