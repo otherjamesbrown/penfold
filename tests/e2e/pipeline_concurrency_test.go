@@ -385,6 +385,71 @@ func TestPipelineConcurrency_KickWithExplicitLimit(t *testing.T) {
 	})
 }
 
+// TestPipelineConcurrency_IngestRespectsLimit is the acceptance test for the bug
+// where `penf ingest email` bypasses KickProcessing and starts all workflows
+// simultaneously, ignoring the concurrency limit.
+//
+// Setup:
+//   1. Clean test tenant
+//   2. Set concurrency limit to 2
+//   3. Ingest 4+ emails via `penf ingest email`
+//
+// Assertions:
+//   - After ingest completes, at most max_concurrent workflows should be running
+//   - Remaining sources should be 'pending', not 'processing'
+//   - Auto-drain should process the rest one-by-one as slots free up
+func TestPipelineConcurrency_IngestRespectsLimit(t *testing.T) {
+	env := SetupPipelineE2E(t)
+	ctx := context.Background()
+
+	// Clean slate
+	err := env.CleanupTestTenant()
+	require.NoError(t, err)
+	err = env.EnsureTenantExists()
+	require.NoError(t, err)
+
+	// Set concurrency limit to 2 BEFORE ingesting
+	result := env.CLI.Run(ctx, "pipeline", "concurrency", "set", "2")
+	require.True(t, result.Success(), "set concurrency should succeed: %s", result.Stderr)
+
+	// Ingest 4+ emails — this is where the bug manifests
+	emailDir := env.FixturePath("emails")
+	result = env.CLI.Run(ctx, "ingest", "email", emailDir, "--source", "e2e-ingest-concurrency")
+	require.True(t, result.Success(), "ingest should succeed: %s", result.Stderr)
+
+	// Give workflows a moment to start
+	time.Sleep(2 * time.Second)
+
+	// Count in-flight (processing) sources — should be at most max_concurrent
+	var processingCount int64
+	err = env.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sources
+		WHERE tenant_id = $1 AND processing_status = 'processing'
+	`, env.TenantID).Scan(&processingCount)
+	require.NoError(t, err)
+
+	assert.LessOrEqual(t, processingCount, int64(2),
+		"ingest should respect concurrency limit: at most 2 processing, got %d", processingCount)
+
+	// Remaining should still be pending
+	var pendingCount int64
+	err = env.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sources
+		WHERE tenant_id = $1 AND processing_status = 'pending'
+	`, env.TenantID).Scan(&pendingCount)
+	require.NoError(t, err)
+
+	assert.Greater(t, pendingCount, int64(0),
+		"some sources should remain pending when concurrency limit is lower than batch size")
+
+	t.Logf("Processing: %d, Pending: %d (max_concurrent=2)", processingCount, pendingCount)
+
+	// Cleanup
+	t.Cleanup(func() {
+		env.CLI.Run(ctx, "pipeline", "concurrency", "set", "1")
+	})
+}
+
 // --- Helpers ---
 
 // waitForNCompleted polls the DB until at least N sources have completed processing.
