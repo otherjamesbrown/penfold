@@ -29,7 +29,7 @@ func TestPerStageModel_EmbeddingUsesEmbeddingModel(t *testing.T) {
 	defer cancel()
 
 	// Find a content item to reprocess
-	contentResult := env.SafeCLI.RunWithArgs(ctx, "content", "list", "-o", "json", "--limit", "1")
+	contentResult := env.SafeCLI.Run(ctx, "content", "list", "-o", "json", "--limit", "1")
 	require.True(t, contentResult.Success(), "content list should succeed: %s", contentResult.Stderr)
 
 	var contentList struct {
@@ -45,14 +45,14 @@ func TestPerStageModel_EmbeddingUsesEmbeddingModel(t *testing.T) {
 	sourceID := contentList.Items[0].SourceID
 
 	// Reprocess the content
-	reprocessResult := env.SafeCLI.RunWithArgs(ctx, "reprocess", contentID)
+	reprocessResult := env.SafeCLI.Run(ctx, "reprocess", contentID)
 	require.True(t, reprocessResult.Success(), "reprocess should succeed: %s", reprocessResult.Stderr)
 
 	// Wait for pipeline to complete
 	time.Sleep(45 * time.Second)
 
 	// Check content state — should NOT be FAILED
-	showResult := env.SafeCLI.RunWithArgs(ctx, "content", "show", contentID, "-o", "json")
+	showResult := env.SafeCLI.Run(ctx, "content", "show", contentID, "-o", "json")
 	require.True(t, showResult.Success(), "content show should succeed: %s", showResult.Stderr)
 
 	var content struct {
@@ -69,7 +69,7 @@ func TestPerStageModel_EmbeddingUsesEmbeddingModel(t *testing.T) {
 
 	// If the content completed, verify the embedding stage used the right model
 	if content.State == "COMPLETED" || content.State == "completed" {
-		inspectResult := env.SafeCLI.RunWithArgs(ctx, "pipeline", "inspect",
+		inspectResult := env.SafeCLI.Run(ctx, "pipeline", "inspect",
 			string(rune(sourceID+'0')), "--limit", "1", "-o", "json")
 		if inspectResult.Success() {
 			// The embedding model should contain "mxbai" or "embed", not "gemini"

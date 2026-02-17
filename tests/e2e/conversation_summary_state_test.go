@@ -23,7 +23,7 @@ func TestConversation_SummaryPopulatedAfterReprocess(t *testing.T) {
 	defer cancel()
 
 	// List conversations and find ones with multiple items
-	convResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	convResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, convResult.Success(), "conversation list should succeed: %s", convResult.Stderr)
 
 	var convList struct {
@@ -47,7 +47,7 @@ func TestConversation_SummaryPopulatedAfterReprocess(t *testing.T) {
 	require.NotEmpty(t, targetID, "need at least one conversation with 2+ items")
 
 	// Show conversation detail — should have summary fields
-	showResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "show", targetID, "-o", "json")
+	showResult := env.SafeCLI.Run(ctx, "conversation", "show", targetID, "-o", "json")
 	require.True(t, showResult.Success(), "conversation show should succeed: %s", showResult.Stderr)
 
 	var detail struct {
@@ -75,7 +75,7 @@ func TestConversation_SummaryUpdatesOnNewContent(t *testing.T) {
 	defer cancel()
 
 	// List conversations and find one with items
-	convResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	convResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, convResult.Success(), "conversation list should succeed: %s", convResult.Stderr)
 
 	var convList struct {
@@ -96,7 +96,7 @@ func TestConversation_SummaryUpdatesOnNewContent(t *testing.T) {
 	}
 	require.NotEmpty(t, targetID, "need a conversation with 2+ items")
 
-	showBefore := env.SafeCLI.RunWithArgs(ctx, "conversation", "show", targetID, "-o", "json")
+	showBefore := env.SafeCLI.Run(ctx, "conversation", "show", targetID, "-o", "json")
 	require.True(t, showBefore.Success(), "conversation show should succeed: %s", showBefore.Stderr)
 
 	var before struct {
@@ -122,7 +122,7 @@ func TestConversation_StateFieldsPopulated(t *testing.T) {
 	defer cancel()
 
 	// List conversations
-	convResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	convResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, convResult.Success(), "conversation list should succeed: %s", convResult.Stderr)
 
 	var convList struct {
@@ -156,7 +156,7 @@ func TestConversation_ShowIncludesStateAndReason(t *testing.T) {
 	defer cancel()
 
 	// Get first conversation with items (more likely to have state assessment)
-	convResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	convResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, convResult.Success(), "conversation list should succeed: %s", convResult.Stderr)
 
 	var convList struct {
@@ -179,7 +179,7 @@ func TestConversation_ShowIncludesStateAndReason(t *testing.T) {
 		targetID = convList.Conversations[0].ID
 	}
 
-	showResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "show", targetID, "-o", "json")
+	showResult := env.SafeCLI.Run(ctx, "conversation", "show", targetID, "-o", "json")
 	require.True(t, showResult.Success(), "conversation show should succeed: %s", showResult.Stderr)
 
 	var detail struct {
@@ -204,7 +204,7 @@ func TestConversation_SummaryAccessibleViaShow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	convResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	convResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, convResult.Success(), "conversation list should succeed: %s", convResult.Stderr)
 
 	var convList struct {
@@ -215,7 +215,7 @@ func TestConversation_SummaryAccessibleViaShow(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(convResult.Stdout), &convList))
 	require.NotEmpty(t, convList.Conversations)
 
-	showResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "show", convList.Conversations[0].ID, "-o", "json")
+	showResult := env.SafeCLI.Run(ctx, "conversation", "show", convList.Conversations[0].ID, "-o", "json")
 	require.True(t, showResult.Success(), "conversation show should succeed: %s", showResult.Stderr)
 
 	// Verify the JSON response contains the state_summary field

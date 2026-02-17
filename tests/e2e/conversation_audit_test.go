@@ -24,7 +24,7 @@ func TestConversation_AuditRunsWithoutErrors(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	auditResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "audit", "-o", "json")
+	auditResult := env.SafeCLI.Run(ctx, "conversation", "audit", "-o", "json")
 	require.True(t, auditResult.Success(),
 		"conversation audit should succeed: %s", auditResult.Stderr)
 
@@ -60,7 +60,7 @@ func TestConversation_AuditFlaggedItemsHaveReasons(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	auditResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "audit", "-o", "json")
+	auditResult := env.SafeCLI.Run(ctx, "conversation", "audit", "-o", "json")
 	require.True(t, auditResult.Success(),
 		"conversation audit should succeed: %s", auditResult.Stderr)
 
@@ -98,7 +98,7 @@ func TestConversation_AuditOrphansHaveSuggestions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	auditResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "audit", "-o", "json")
+	auditResult := env.SafeCLI.Run(ctx, "conversation", "audit", "-o", "json")
 	require.True(t, auditResult.Success(),
 		"conversation audit should succeed: %s", auditResult.Stderr)
 
@@ -132,7 +132,7 @@ func TestConversation_AuditResultsVisibleViaCLI(t *testing.T) {
 	defer cancel()
 
 	// Run without -o json to get text output
-	textResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "audit")
+	textResult := env.SafeCLI.Run(ctx, "conversation", "audit")
 	require.True(t, textResult.Success(),
 		"conversation audit (text) should succeed: %s", textResult.Stderr)
 

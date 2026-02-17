@@ -24,7 +24,7 @@ func TestConversation_AutoPopulateFromThreads(t *testing.T) {
 	defer cancel()
 
 	// List threads to get current count
-	threadResult := env.SafeCLI.RunWithArgs(ctx, "thread", "list", "-o", "json")
+	threadResult := env.SafeCLI.Run(ctx, "thread", "list", "-o", "json")
 	require.True(t, threadResult.Success(), "thread list should succeed: %s", threadResult.Stderr)
 
 	var threadList struct {
@@ -38,7 +38,7 @@ func TestConversation_AutoPopulateFromThreads(t *testing.T) {
 	require.NotEmpty(t, threadList.Threads, "should have threads to backfill from")
 
 	// List conversations
-	convResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	convResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, convResult.Success(), "conversation list should succeed: %s", convResult.Stderr)
 
 	var convList struct {
@@ -63,7 +63,7 @@ func TestConversation_ShowIncludesContentItems(t *testing.T) {
 	defer cancel()
 
 	// List conversations and pick one with multiple items
-	convResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	convResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, convResult.Success(), "conversation list should succeed: %s", convResult.Stderr)
 
 	var convList struct {
@@ -93,7 +93,7 @@ func TestConversation_ShowIncludesContentItems(t *testing.T) {
 	}
 
 	// Show conversation detail
-	showResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "show", targetID, "-o", "json")
+	showResult := env.SafeCLI.Run(ctx, "conversation", "show", targetID, "-o", "json")
 	require.True(t, showResult.Success(), "conversation show should succeed: %s", showResult.Stderr)
 
 	var detail struct {
@@ -135,7 +135,7 @@ func TestConversation_TopicFromSubject(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	convResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	convResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, convResult.Success(), "conversation list should succeed: %s", convResult.Stderr)
 
 	var convList struct {
@@ -163,7 +163,7 @@ func TestConversation_ParticipantsFromThread(t *testing.T) {
 	defer cancel()
 
 	// List conversations and find one with items
-	convResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	convResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, convResult.Success(), "conversation list should succeed: %s", convResult.Stderr)
 
 	var convList struct {
@@ -203,7 +203,7 @@ func TestConversation_IngestAutoLinks(t *testing.T) {
 	defer cancel()
 
 	// Get current conversation state
-	beforeResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	beforeResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, beforeResult.Success(), "conversation list should succeed: %s", beforeResult.Stderr)
 
 	var beforeList struct {
@@ -215,14 +215,14 @@ func TestConversation_IngestAutoLinks(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(beforeResult.Stdout), &beforeList))
 
 	// Reprocess a known threaded email (em-goJuvK1X is in the CLIC/Juniper thread)
-	reprocessResult := env.SafeCLI.RunWithArgs(ctx, "reprocess", "em-goJuvK1X")
+	reprocessResult := env.SafeCLI.Run(ctx, "reprocess", "em-goJuvK1X")
 	require.True(t, reprocessResult.Success(), "reprocess should succeed: %s", reprocessResult.Stderr)
 
 	// Wait for pipeline to complete
 	time.Sleep(30 * time.Second)
 
 	// Verify the conversation still has the item linked
-	afterResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	afterResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, afterResult.Success(), "conversation list should succeed: %s", afterResult.Stderr)
 
 	var afterList struct {

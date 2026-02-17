@@ -25,7 +25,7 @@ func TestConversation_ListFilterByState(t *testing.T) {
 	defer cancel()
 
 	// Get all conversations first to know what states exist
-	allResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	allResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, allResult.Success(), "conversation list should succeed: %s", allResult.Stderr)
 
 	var allList struct {
@@ -53,7 +53,7 @@ func TestConversation_ListFilterByState(t *testing.T) {
 	}
 	require.NotEmpty(t, filterState, "need at least one conversation with a state")
 
-	filteredResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "--state", filterState, "-o", "json")
+	filteredResult := env.SafeCLI.Run(ctx, "conversation", "list", "--state", filterState, "-o", "json")
 	require.True(t, filteredResult.Success(), "conversation list --state should succeed: %s", filteredResult.Stderr)
 
 	var filteredList struct {
@@ -86,7 +86,7 @@ func TestConversation_ListFilterByParticipant(t *testing.T) {
 	defer cancel()
 
 	// Find a conversation with known participants
-	allResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	allResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, allResult.Success(), "conversation list should succeed: %s", allResult.Stderr)
 
 	var allList struct {
@@ -116,7 +116,7 @@ func TestConversation_ListFilterByParticipant(t *testing.T) {
 	require.NotEmpty(t, participantName, "need at least one conversation with a named participant")
 
 	// Filter by that participant
-	filteredResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "--participant", participantName, "-o", "json")
+	filteredResult := env.SafeCLI.Run(ctx, "conversation", "list", "--participant", participantName, "-o", "json")
 	require.True(t, filteredResult.Success(),
 		"conversation list --participant should succeed: %s", filteredResult.Stderr)
 
@@ -155,7 +155,7 @@ func TestConversation_ShowParticipantRoles(t *testing.T) {
 	defer cancel()
 
 	// Find a conversation with multiple items (more interesting roles)
-	listResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	listResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, listResult.Success(), "conversation list should succeed: %s", listResult.Stderr)
 
 	var convList struct {
@@ -178,7 +178,7 @@ func TestConversation_ShowParticipantRoles(t *testing.T) {
 		targetID = convList.Conversations[0].ID
 	}
 
-	showResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "show", targetID, "-o", "json")
+	showResult := env.SafeCLI.Run(ctx, "conversation", "show", targetID, "-o", "json")
 	require.True(t, showResult.Success(), "conversation show should succeed: %s", showResult.Stderr)
 
 	var detail struct {
@@ -215,7 +215,7 @@ func TestConversation_MergeTwo(t *testing.T) {
 	defer cancel()
 
 	// List conversations and find two with items
-	listResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	listResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, listResult.Success(), "conversation list should succeed: %s", listResult.Stderr)
 
 	var convList struct {
@@ -232,7 +232,7 @@ func TestConversation_MergeTwo(t *testing.T) {
 	expectedMinItems := conv1.ItemCount + conv2.ItemCount
 
 	// Merge conv2 into conv1
-	mergeResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "merge", conv1.ID, conv2.ID, "-o", "json")
+	mergeResult := env.SafeCLI.Run(ctx, "conversation", "merge", conv1.ID, conv2.ID, "-o", "json")
 	require.True(t, mergeResult.Success(), "conversation merge should succeed: %s", mergeResult.Stderr)
 
 	var merged struct {
@@ -246,7 +246,7 @@ func TestConversation_MergeTwo(t *testing.T) {
 		"merged conversation should have items from both sources")
 
 	// Original conv2 should no longer exist
-	show2Result := env.SafeCLI.RunWithArgs(ctx, "conversation", "show", conv2.ID, "-o", "json")
+	show2Result := env.SafeCLI.Run(ctx, "conversation", "show", conv2.ID, "-o", "json")
 	assert.False(t, show2Result.Success(),
 		"merged-away conversation %s should no longer exist", conv2.ID)
 }
@@ -262,7 +262,7 @@ func TestConversation_SplitItems(t *testing.T) {
 	defer cancel()
 
 	// Find a conversation with 3+ items (enough to split meaningfully)
-	listResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "-o", "json")
+	listResult := env.SafeCLI.Run(ctx, "conversation", "list", "-o", "json")
 	require.True(t, listResult.Success(), "conversation list should succeed: %s", listResult.Stderr)
 
 	var convList struct {
@@ -285,7 +285,7 @@ func TestConversation_SplitItems(t *testing.T) {
 	}
 
 	// Get the conversation's items
-	showResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "show", targetID, "-o", "json")
+	showResult := env.SafeCLI.Run(ctx, "conversation", "show", targetID, "-o", "json")
 	require.True(t, showResult.Success(), "conversation show should succeed: %s", showResult.Stderr)
 
 	var detail struct {
@@ -300,7 +300,7 @@ func TestConversation_SplitItems(t *testing.T) {
 
 	// Split the last item into a new conversation
 	splitItemID := detail.Items[len(detail.Items)-1].ID
-	splitResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "split", targetID, "--items", splitItemID, "-o", "json")
+	splitResult := env.SafeCLI.Run(ctx, "conversation", "split", targetID, "--items", splitItemID, "-o", "json")
 	require.True(t, splitResult.Success(), "conversation split should succeed: %s", splitResult.Stderr)
 
 	var newConv struct {
@@ -313,7 +313,7 @@ func TestConversation_SplitItems(t *testing.T) {
 	assert.Equal(t, 1, newConv.ItemCount, "new conversation should have the split item")
 
 	// Original should have one fewer item
-	showAfter := env.SafeCLI.RunWithArgs(ctx, "conversation", "show", targetID, "-o", "json")
+	showAfter := env.SafeCLI.Run(ctx, "conversation", "show", targetID, "-o", "json")
 	require.True(t, showAfter.Success(), "conversation show should succeed: %s", showAfter.Stderr)
 
 	var afterDetail struct {
@@ -336,7 +336,7 @@ func TestConversation_MergeOutputJSON(t *testing.T) {
 	defer cancel()
 
 	// Just verify the --help mentions json output (non-destructive check)
-	helpResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "merge", "--help")
+	helpResult := env.SafeCLI.Run(ctx, "conversation", "merge", "--help")
 	require.True(t, helpResult.Success(), "conversation merge --help should succeed: %s", helpResult.Stderr)
 
 	assert.Contains(t, helpResult.Stdout, "json",
@@ -354,7 +354,7 @@ func TestConversation_ListSinceFilter(t *testing.T) {
 	defer cancel()
 
 	// Filter with a date far in the past — should return all conversations
-	allResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "--since", "2020-01-01", "-o", "json")
+	allResult := env.SafeCLI.Run(ctx, "conversation", "list", "--since", "2020-01-01", "-o", "json")
 	require.True(t, allResult.Success(), "conversation list --since should succeed: %s", allResult.Stderr)
 
 	var allList struct {
@@ -365,7 +365,7 @@ func TestConversation_ListSinceFilter(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(allResult.Stdout), &allList))
 
 	// Filter with a date far in the future — should return no conversations
-	noneResult := env.SafeCLI.RunWithArgs(ctx, "conversation", "list", "--since", "2099-01-01", "-o", "json")
+	noneResult := env.SafeCLI.Run(ctx, "conversation", "list", "--since", "2099-01-01", "-o", "json")
 	require.True(t, noneResult.Success(), "conversation list --since should succeed: %s", noneResult.Stderr)
 
 	var noneList struct {

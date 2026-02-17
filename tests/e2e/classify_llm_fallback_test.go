@@ -23,7 +23,7 @@ func TestClassify_LLMFallbackForUnknownSource(t *testing.T) {
 	defer cancel()
 
 	// List all content and check classification status
-	contentResult := env.SafeCLI.RunWithArgs(ctx, "content", "list", "-o", "json")
+	contentResult := env.SafeCLI.Run(ctx, "content", "list", "-o", "json")
 	require.True(t, contentResult.Success(), "content list should succeed: %s", contentResult.Stderr)
 
 	var contentList struct {
@@ -53,7 +53,7 @@ func TestClassify_SuggestionsCommand(t *testing.T) {
 	defer cancel()
 
 	// The suggestions command should exist and return valid output
-	suggestResult := env.SafeCLI.RunWithArgs(ctx, "classify", "suggestions", "-o", "json")
+	suggestResult := env.SafeCLI.Run(ctx, "classify", "suggestions", "-o", "json")
 	require.True(t, suggestResult.Success(),
 		"classify suggestions should succeed: %s", suggestResult.Stderr)
 
@@ -81,7 +81,7 @@ func TestClassify_ExistingRulesUnaffected(t *testing.T) {
 	defer cancel()
 
 	// Get current rules
-	rulesResult := env.SafeCLI.RunWithArgs(ctx, "classify", "rules", "-o", "json")
+	rulesResult := env.SafeCLI.Run(ctx, "classify", "rules", "-o", "json")
 	require.True(t, rulesResult.Success(), "classify rules should succeed: %s", rulesResult.Stderr)
 
 	var rules struct {
@@ -97,7 +97,7 @@ func TestClassify_ExistingRulesUnaffected(t *testing.T) {
 	initialCount := len(rules.Rules)
 
 	// Re-run rules list to confirm no auto-additions
-	rulesResult2 := env.SafeCLI.RunWithArgs(ctx, "classify", "rules", "-o", "json")
+	rulesResult2 := env.SafeCLI.Run(ctx, "classify", "rules", "-o", "json")
 	require.True(t, rulesResult2.Success(), "classify rules should succeed: %s", rulesResult2.Stderr)
 
 	var rules2 struct {
