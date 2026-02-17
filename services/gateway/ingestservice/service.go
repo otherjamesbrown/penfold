@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -23,7 +22,6 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/parse"
 	"github.com/otherjamesbrown/penfold/pkg/repository"
-	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
 // Repository defines the interface for ingest storage operations.
@@ -231,38 +229,6 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 		logging.F("message_id", req.MessageId),
 		logging.F("content_id", createdSource.ContentID),
 	)
-
-	// Start ContentIngestionWorkflow if Temporal client is available
-	if s.temporalClient != nil {
-		// Use the actual source system to generate a consistent workflow ID.
-		// This prevents duplicate workflows when KickProcessing also starts workflows.
-		workflowID := pkgtemporal.GenerateIngestWorkflowID(tenantID, emailSource.SourceSystem, strconv.FormatInt(createdSource.ID, 10))
-		input := pkgtemporal.SLMPipelineInput{
-			TenantID:    tenantID,
-			SourceID:    createdSource.ID,
-			ContentID:   createdSource.ContentID,
-			ContentHash: req.ContentHash,
-			JobID:       workflowID, // Use workflow ID as job ID for tracing
-		}
-		opts := client.StartWorkflowOptions{
-			ID:        workflowID,
-			TaskQueue: "penfold-main",
-		}
-		_, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "SLMPipelineWorkflow", input)
-		if err != nil {
-			s.logger.Warn("Failed to start workflow for source",
-				logging.F("source_id", createdSource.ID),
-				logging.Err(err),
-			)
-			// Don't fail ingestion, continue
-		} else {
-			s.logger.Info("Started SLMPipelineWorkflow",
-				logging.F("workflow_id", workflowID),
-				logging.F("source_id", createdSource.ID),
-				logging.F("content_id", createdSource.ContentID),
-			)
-		}
-	}
 
 	return &ingestv1.IngestEmailResponse{
 		SourceId:     fmt.Sprintf("%d", createdSource.ID),
