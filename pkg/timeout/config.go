@@ -150,6 +150,57 @@ var hardcodedDefaults = map[string]ConfigEntry{
 		MaxValue:     14400 * time.Second,
 		DefaultValue: 3600 * time.Second,
 	},
+	// Per-stage timeout keys (defaults mirror current category assignments)
+	"timeout.stage.triage.start_to_close": {
+		Key: "timeout.stage.triage.start_to_close", Value: 120 * time.Second,
+		ValueType: "duration", Description: "Triage stage StartToClose timeout",
+		MinValue: 10 * time.Second, MaxValue: 600 * time.Second, DefaultValue: 120 * time.Second,
+	},
+	"timeout.stage.triage.heartbeat": {
+		Key: "timeout.stage.triage.heartbeat", Value: 30 * time.Second,
+		ValueType: "duration", Description: "Triage stage heartbeat timeout",
+		MinValue: 5 * time.Second, MaxValue: 120 * time.Second, DefaultValue: 30 * time.Second,
+	},
+	"timeout.stage.extract_entities.start_to_close": {
+		Key: "timeout.stage.extract_entities.start_to_close", Value: 120 * time.Second,
+		ValueType: "duration", Description: "Extract entities StartToClose timeout",
+		MinValue: 10 * time.Second, MaxValue: 600 * time.Second, DefaultValue: 120 * time.Second,
+	},
+	"timeout.stage.extract_entities.heartbeat": {
+		Key: "timeout.stage.extract_entities.heartbeat", Value: 30 * time.Second,
+		ValueType: "duration", Description: "Extract entities heartbeat timeout",
+		MinValue: 5 * time.Second, MaxValue: 120 * time.Second, DefaultValue: 30 * time.Second,
+	},
+	"timeout.stage.extract_assertions.start_to_close": {
+		Key: "timeout.stage.extract_assertions.start_to_close", Value: 120 * time.Second,
+		ValueType: "duration", Description: "Extract assertions StartToClose timeout",
+		MinValue: 10 * time.Second, MaxValue: 600 * time.Second, DefaultValue: 120 * time.Second,
+	},
+	"timeout.stage.extract_assertions.heartbeat": {
+		Key: "timeout.stage.extract_assertions.heartbeat", Value: 30 * time.Second,
+		ValueType: "duration", Description: "Extract assertions heartbeat timeout",
+		MinValue: 5 * time.Second, MaxValue: 120 * time.Second, DefaultValue: 30 * time.Second,
+	},
+	"timeout.stage.deep_analyze.start_to_close": {
+		Key: "timeout.stage.deep_analyze.start_to_close", Value: 600 * time.Second,
+		ValueType: "duration", Description: "Deep analyze StartToClose timeout",
+		MinValue: 60 * time.Second, MaxValue: 1800 * time.Second, DefaultValue: 600 * time.Second,
+	},
+	"timeout.stage.deep_analyze.heartbeat": {
+		Key: "timeout.stage.deep_analyze.heartbeat", Value: 300 * time.Second,
+		ValueType: "duration", Description: "Deep analyze heartbeat timeout",
+		MinValue: 30 * time.Second, MaxValue: 900 * time.Second, DefaultValue: 300 * time.Second,
+	},
+	"timeout.stage.embedding.start_to_close": {
+		Key: "timeout.stage.embedding.start_to_close", Value: 120 * time.Second,
+		ValueType: "duration", Description: "Embedding StartToClose timeout",
+		MinValue: 10 * time.Second, MaxValue: 600 * time.Second, DefaultValue: 120 * time.Second,
+	},
+	"timeout.stage.embedding.heartbeat": {
+		Key: "timeout.stage.embedding.heartbeat", Value: 30 * time.Second,
+		ValueType: "duration", Description: "Embedding heartbeat timeout",
+		MinValue: 5 * time.Second, MaxValue: 120 * time.Second, DefaultValue: 30 * time.Second,
+	},
 }
 
 // New creates a new Config with hardcoded defaults.

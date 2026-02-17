@@ -202,8 +202,8 @@ func TestAll_ReturnsAllEntries(t *testing.T) {
 	cfg := New(nil)
 
 	all := cfg.All()
-	if len(all) != 12 {
-		t.Errorf("expected 12 entries, got %d", len(all))
+	if len(all) != 22 {
+		t.Errorf("expected 22 entries, got %d", len(all))
 	}
 }
 

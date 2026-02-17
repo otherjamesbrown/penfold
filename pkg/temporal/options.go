@@ -2,8 +2,10 @@
 package temporal
 
 import (
+	"fmt"
 	"time"
 
+	timeoutpkg "github.com/otherjamesbrown/penfold/pkg/timeout"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
@@ -162,6 +164,35 @@ func LongRunningWorkflowOptions(workflowID, taskQueue string) workflow.ChildWork
 		TaskQueue:                taskQueue,
 		WorkflowExecutionTimeout: 7 * 24 * time.Hour,
 		WorkflowRunTimeout:       1 * time.Hour,
+	}
+}
+
+// StageActivityOptions returns activity options for a specific pipeline stage,
+// reading per-stage timeout values from the timeout config. Falls back to
+// category defaults if per-stage keys are not set.
+func StageActivityOptions(cfg *timeoutpkg.Config, stage string) workflow.ActivityOptions {
+	stcKey := fmt.Sprintf("timeout.stage.%s.start_to_close", stage)
+	hbKey := fmt.Sprintf("timeout.stage.%s.heartbeat", stage)
+
+	stc := cfg.Get(stcKey)
+	hb := cfg.Get(hbKey)
+
+	// Fall back to category defaults if per-stage not set
+	if stc == 0 {
+		stc = 120 * time.Second
+	}
+	if hb == 0 {
+		hb = 30 * time.Second
+	}
+
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: stc,
+		HeartbeatTimeout:    hb,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    2 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumAttempts:    3,
+		},
 	}
 }
 

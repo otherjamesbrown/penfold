@@ -89,6 +89,10 @@ type SLMPipelineInput struct {
 	ContentID   string `json:"content_id,omitempty"`
 	ContentHash string `json:"content_hash,omitempty"`
 	JobID       string `json:"job_id"` // Required for tracing and activity context
+
+	// Per-stage timeout overrides (populated from pipeline_config at dispatch time).
+	StageTimeouts   map[string]time.Duration `json:"stage_timeouts,omitempty"`
+	StageHeartbeats map[string]time.Duration `json:"stage_heartbeats,omitempty"`
 }
 
 // ContentIngestionInput is the input for content ingestion workflows.

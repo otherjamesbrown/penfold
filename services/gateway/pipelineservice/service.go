@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/client"
@@ -183,16 +184,21 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 		return nil, status.Errorf(codes.Internal, "failed to get pending sources: %v", err)
 	}
 
+	// Resolve per-stage timeouts once for all workflows in this batch
+	stageTimeouts, stageHeartbeats := s.resolveStageTimeouts(ctx)
+
 	// Start a workflow for each pending source
 	var startedCount int
 	for _, src := range sources {
 		workflowID := pkgtemporal.GenerateIngestWorkflowID(src.TenantID, src.SourceSystem, strconv.FormatInt(src.ID, 10))
 		input := pkgtemporal.SLMPipelineInput{
-			TenantID:    src.TenantID,
-			SourceID:    src.ID,
-			ContentID:   src.ContentID,
-			ContentHash: src.ContentHash,
-			JobID:       workflowID, // Use workflow ID as job ID for tracing
+			TenantID:        src.TenantID,
+			SourceID:        src.ID,
+			ContentID:       src.ContentID,
+			ContentHash:     src.ContentHash,
+			JobID:           workflowID, // Use workflow ID as job ID for tracing
+			StageTimeouts:   stageTimeouts,
+			StageHeartbeats: stageHeartbeats,
 		}
 		opts := client.StartWorkflowOptions{
 			ID:        workflowID,
@@ -1721,6 +1727,206 @@ func (s *Service) countInFlightSources(ctx context.Context) (int, error) {
 	}
 
 	return count, nil
+}
+
+// GetStageConfig retrieves unified per-stage configuration (model + timeout).
+func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageConfigRequest) (*pipelinev1.GetStageConfigResponse, error) {
+	s.logger.Debug("GetStageConfig called", logging.F("stage", req.Stage))
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	// Known pipeline stages
+	stages := []string{"triage", "extract_entities", "extract_assertions", "deep_analyze", "embedding"}
+	if req.Stage != "" {
+		stages = []string{req.Stage}
+	}
+
+	// Build a map of all timeout.stage.* and model_config entries
+	timeoutMap := make(map[string]string)   // key -> value
+	timeoutSourceMap := make(map[string]string) // stage -> source
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT key, value, default_value
+		FROM pipeline_config
+		WHERE key LIKE 'timeout.stage.%'
+		ORDER BY key
+	`)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to query stage timeouts: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var key, value, defaultValue string
+		if err := rows.Scan(&key, &value, &defaultValue); err != nil {
+			continue
+		}
+		timeoutMap[key] = value
+		// Determine source: if value differs from default, it was explicitly set
+		if value != defaultValue {
+			// Extract stage name from key (timeout.stage.<stage>.<type>)
+			parts := splitStageKey(key)
+			if parts != "" {
+				timeoutSourceMap[parts] = "db"
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to iterate stage timeouts: %v", err)
+	}
+
+	// Query model_config for per-stage models
+	modelMap := make(map[string]string)       // stage -> model
+	modelSourceMap := make(map[string]string)  // stage -> source
+	modelRows, err := s.db.QueryContext(ctx, `
+		SELECT stage, model_id, config_source
+		FROM model_config
+		WHERE stage != ''
+		ORDER BY priority DESC
+	`)
+	if err != nil {
+		// model_config table may not exist yet — non-fatal
+		s.logger.Debug("Could not query model_config", logging.Err(err))
+	} else {
+		defer modelRows.Close()
+		for modelRows.Next() {
+			var stage, modelID, source string
+			if err := modelRows.Scan(&stage, &modelID, &source); err != nil {
+				continue
+			}
+			// Higher priority rows come first, keep only the first (highest priority)
+			if _, exists := modelMap[stage]; !exists {
+				modelMap[stage] = modelID
+				modelSourceMap[stage] = source
+			}
+		}
+	}
+
+	// Build response
+	var entries []*pipelinev1.StageConfigEntry
+	for _, stage := range stages {
+		stcKey := fmt.Sprintf("timeout.stage.%s.start_to_close", stage)
+		hbKey := fmt.Sprintf("timeout.stage.%s.heartbeat", stage)
+
+		timeout := timeoutMap[stcKey]
+		heartbeat := timeoutMap[hbKey]
+
+		// Use defaults if not in DB
+		if timeout == "" {
+			timeout = stageDefaultTimeout(stage)
+		}
+		if heartbeat == "" {
+			heartbeat = stageDefaultHeartbeat(stage)
+		}
+
+		timeoutSrc := "default"
+		if src, ok := timeoutSourceMap[stage]; ok {
+			timeoutSrc = src
+		}
+
+		modelSrc := "default"
+		if src, ok := modelSourceMap[stage]; ok {
+			modelSrc = src
+		}
+
+		entries = append(entries, &pipelinev1.StageConfigEntry{
+			Stage:         stage,
+			Model:         modelMap[stage],
+			Timeout:       timeout,
+			Heartbeat:     heartbeat,
+			ModelSource:   modelSrc,
+			TimeoutSource: timeoutSrc,
+		})
+	}
+
+	return &pipelinev1.GetStageConfigResponse{Stages: entries}, nil
+}
+
+// splitStageKey extracts the stage name from a timeout.stage.<stage>.<type> key.
+func splitStageKey(key string) string {
+	// key format: timeout.stage.triage.start_to_close
+	const prefix = "timeout.stage."
+	if len(key) <= len(prefix) {
+		return ""
+	}
+	rest := key[len(prefix):]
+	// Find last dot to split stage from type
+	for i := len(rest) - 1; i >= 0; i-- {
+		if rest[i] == '.' {
+			return rest[:i]
+		}
+	}
+	return ""
+}
+
+func stageDefaultTimeout(stage string) string {
+	if stage == "deep_analyze" {
+		return "600s"
+	}
+	return "120s"
+}
+
+func stageDefaultHeartbeat(stage string) string {
+	if stage == "deep_analyze" {
+		return "300s"
+	}
+	return "30s"
+}
+
+// resolveStageTimeouts reads per-stage timeout values from pipeline_config.
+// Returns maps of stage->duration for start_to_close and heartbeat.
+// Returns nil maps (not error) if DB is unavailable — workflow falls back to defaults.
+func (s *Service) resolveStageTimeouts(ctx context.Context) (map[string]time.Duration, map[string]time.Duration) {
+	if s.db == nil {
+		return nil, nil
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT key, value, default_value
+		FROM pipeline_config
+		WHERE key LIKE 'timeout.stage.%'
+	`)
+	if err != nil {
+		s.logger.Debug("Could not resolve stage timeouts", logging.Err(err))
+		return nil, nil
+	}
+	defer rows.Close()
+
+	timeouts := make(map[string]time.Duration)
+	heartbeats := make(map[string]time.Duration)
+	hasOverride := false
+
+	for rows.Next() {
+		var key, value, defaultValue string
+		if err := rows.Scan(&key, &value, &defaultValue); err != nil {
+			continue
+		}
+		// Only include if value differs from default (reduces payload for common case)
+		if value == defaultValue {
+			continue
+		}
+		dur, err := time.ParseDuration(value)
+		if err != nil {
+			continue
+		}
+		stage := splitStageKey(key)
+		if stage == "" {
+			continue
+		}
+		hasOverride = true
+		if strings.HasSuffix(key, ".start_to_close") {
+			timeouts[stage] = dur
+		} else if strings.HasSuffix(key, ".heartbeat") {
+			heartbeats[stage] = dur
+		}
+	}
+
+	if !hasOverride {
+		return nil, nil
+	}
+	return timeouts, heartbeats
 }
 
 // countPendingSources counts sources with processing_status = 'pending'.

@@ -47,6 +47,11 @@ type PipelineInput struct {
 	// Reprocessing overrides
 	ModelOverride   string        `json:"model_override,omitempty"`   // If set, use this model instead of default
 	TimeoutOverride time.Duration `json:"timeout_override,omitempty"` // If set, use this timeout for activities
+
+	// Per-stage timeout overrides (populated from pipeline_config at workflow dispatch time).
+	// Keys: "triage", "extract_entities", "extract_assertions", "deep_analyze", "embedding"
+	StageTimeouts map[string]time.Duration `json:"stage_timeouts,omitempty"` // stage -> start_to_close
+	StageHeartbeats map[string]time.Duration `json:"stage_heartbeats,omitempty"` // stage -> heartbeat
 }
 
 // PipelineResult is the output from the SLM pipeline workflow.
@@ -620,6 +625,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	embeddingOpts = pkgtemporal.WithNonRetryableErrors(embeddingOpts, pkgtemporal.NonRetryableErrors()...)
 	llmOpts = pkgtemporal.WithNonRetryableErrors(llmOpts, pkgtemporal.NonRetryableErrors()...)
 
+	// Per-stage timeout helper: returns activity options using per-stage config if available,
+	// falling back to the provided category defaults.
+	stageOpts := func(stage string, fallback workflow.ActivityOptions) workflow.ActivityOptions {
+		opts := fallback
+		if stc, ok := input.StageTimeouts[stage]; ok && stc > 0 {
+			opts.StartToCloseTimeout = stc
+		}
+		if hb, ok := input.StageHeartbeats[stage]; ok && hb > 0 {
+			opts.HeartbeatTimeout = hb
+		}
+		return opts
+	}
+
 	// Saga compensation stack
 	var compensations []func(workflow.Context) error
 
@@ -829,7 +847,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	triageStart := workflow.Now(ctx)
 
 	var triageOutput TriageOutput
-	triageOpts := embeddingOpts
+	triageOpts := stageOpts("triage", embeddingOpts)
 	if input.TimeoutOverride > 0 {
 		triageOpts.StartToCloseTimeout = input.TimeoutOverride
 	}
@@ -1153,7 +1171,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		extractStart := workflow.Now(ctx)
 
 		extractOutput = &SLMPipelineExtractEntitiesOutput{}
-		extractOpts := embeddingOpts
+		extractOpts := stageOpts("extract_entities", embeddingOpts)
 		if input.TimeoutOverride > 0 {
 			extractOpts.StartToCloseTimeout = input.TimeoutOverride
 		}
@@ -1170,7 +1188,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
 		var assertionCount int
-		ctxAssertions := workflow.WithActivityOptions(ctx, embeddingOpts)
+		assertionOpts := stageOpts("extract_assertions", embeddingOpts)
+		ctxAssertions := workflow.WithActivityOptions(ctx, assertionOpts)
 		err2 := workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
 			TenantID:        input.TenantID,
 			SourceID:        input.SourceID,
@@ -1350,7 +1369,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		analyzeStart := workflow.Now(ctx)
 
 		var analyzeOutput *DeepAnalyzeOutput
-		analyzeOpts := llmOpts
+		analyzeOpts := stageOpts("deep_analyze", llmOpts)
 		if input.TimeoutOverride > 0 {
 			analyzeOpts.StartToCloseTimeout = input.TimeoutOverride
 		}
@@ -1548,7 +1567,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	embedStart := workflow.Now(ctx)
 
 	var embeddingID int64
-	ctxEmbed := workflow.WithActivityOptions(ctx, embeddingOpts)
+	embedOpts := stageOpts("embedding", embeddingOpts)
+	ctxEmbed := workflow.WithActivityOptions(ctx, embedOpts)
 	err = workflow.ExecuteActivity(ctxEmbed, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
 		TenantID:        input.TenantID,
 		SourceID:        input.SourceID,
