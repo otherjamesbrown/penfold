@@ -26,11 +26,13 @@ import (
 //
 // Configuration:
 //   - 30 second timeout
+//   - 2 minute schedule-to-close timeout (safety net for retries)
 //   - 3 retries with exponential backoff (1s, 2s, 4s)
 //   - No heartbeat (operations complete quickly)
 func FastActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
+		StartToCloseTimeout:    30 * time.Second,
+		ScheduleToCloseTimeout: 2 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    time.Second,
 			BackoffCoefficient: 2.0,
@@ -44,12 +46,14 @@ func FastActivityOptions() workflow.ActivityOptions {
 //
 // Configuration:
 //   - 30 second timeout
+//   - 5 minute schedule-to-close timeout (safety net for retries and heartbeat rescheduling)
 //   - 10 second heartbeat interval
 //   - 3 retries with exponential backoff (2s, 4s, 8s)
 func EmbeddingActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		HeartbeatTimeout:    10 * time.Second,
+		StartToCloseTimeout:    30 * time.Second,
+		ScheduleToCloseTimeout: 5 * time.Minute,
+		HeartbeatTimeout:       10 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    2 * time.Second,
 			BackoffCoefficient: 2.0,
@@ -85,12 +89,14 @@ func LLMActivityOptions() workflow.ActivityOptions {
 //
 // Configuration:
 //   - 5 minute timeout
+//   - 10 minute schedule-to-close timeout (allows for retries)
 //   - 30 second heartbeat interval
 //   - 2 retries with exponential backoff
 func BatchActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-		HeartbeatTimeout:    30 * time.Second,
+		StartToCloseTimeout:    5 * time.Minute,
+		ScheduleToCloseTimeout: 10 * time.Minute,
+		HeartbeatTimeout:       30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    10 * time.Second,
 			BackoffCoefficient: 2.0,
@@ -104,12 +110,14 @@ func BatchActivityOptions() workflow.ActivityOptions {
 //
 // Configuration:
 //   - 30 minute timeout
+//   - 1 hour schedule-to-close timeout (allows for retries)
 //   - 1 minute heartbeat interval
 //   - 1 retry (long operations are usually idempotent)
 func LongRunningActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Minute,
-		HeartbeatTimeout:    1 * time.Minute,
+		StartToCloseTimeout:    30 * time.Minute,
+		ScheduleToCloseTimeout: 1 * time.Hour,
+		HeartbeatTimeout:       1 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    30 * time.Second,
 			BackoffCoefficient: 2.0,

@@ -847,7 +847,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	triageStart := workflow.Now(ctx)
 
 	var triageOutput TriageOutput
-	triageOpts := stageOpts("triage", embeddingOpts)
+	triageOpts := stageOpts("triage", llmOpts)
 	if input.TimeoutOverride > 0 {
 		triageOpts.StartToCloseTimeout = input.TimeoutOverride
 	}

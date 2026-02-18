@@ -291,3 +291,97 @@ func TestNonRetryableErrors_MissingPipelineErrorTypes(t *testing.T) {
 		t.Errorf("PipelineError should be in NonRetryableErrors list (activities return *perrors.PipelineError)")
 	}
 }
+
+// TestAllActivityOptionsHaveScheduleToClose verifies that all exported activity
+// option presets have a non-zero ScheduleToCloseTimeout.
+//
+// Background (pf-c31214):
+// When ScheduleToCloseTimeout is not set (zero value), Temporal will reschedule
+// activities indefinitely if they exceed HeartbeatTimeout. This caused triage to
+// loop infinitely when using EmbeddingActivityOptions (which had no ScheduleToClose).
+//
+// This is a safety net test to prevent similar bugs in the future.
+//
+// This test WILL FAIL before the fix because EmbeddingActivityOptions currently
+// does not set ScheduleToCloseTimeout.
+//
+// Expected behavior after fix:
+// - EmbeddingActivityOptions gets ScheduleToCloseTimeout (suggested: 5min)
+// - All other exported options already have it set or should have it set
+func TestAllActivityOptionsHaveScheduleToClose(t *testing.T) {
+	tests := []struct {
+		name string
+		opts workflow.ActivityOptions
+	}{
+		{
+			name: "FastActivityOptions",
+			opts: FastActivityOptions(),
+		},
+		{
+			name: "EmbeddingActivityOptions",
+			opts: EmbeddingActivityOptions(),
+		},
+		{
+			name: "LLMActivityOptions",
+			opts: LLMActivityOptions(),
+		},
+		{
+			name: "BatchActivityOptions",
+			opts: BatchActivityOptions(),
+		},
+		{
+			name: "LongRunningActivityOptions",
+			opts: LongRunningActivityOptions(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.opts.ScheduleToCloseTimeout == 0 {
+				t.Errorf("%s must have non-zero ScheduleToCloseTimeout to prevent infinite rescheduling on heartbeat timeout (see pf-c31214)", tt.name)
+			}
+		})
+	}
+}
+
+// TestAllActivityOptionsHaveScheduleToClose_ExceedsStartToClose verifies that
+// ScheduleToCloseTimeout is always >= StartToCloseTimeout.
+//
+// ScheduleToCloseTimeout includes time waiting in queue + retries + execution,
+// so it should always be at least as large as StartToCloseTimeout.
+func TestAllActivityOptionsHaveScheduleToClose_ExceedsStartToClose(t *testing.T) {
+	tests := []struct {
+		name string
+		opts workflow.ActivityOptions
+	}{
+		{
+			name: "FastActivityOptions",
+			opts: FastActivityOptions(),
+		},
+		{
+			name: "EmbeddingActivityOptions",
+			opts: EmbeddingActivityOptions(),
+		},
+		{
+			name: "LLMActivityOptions",
+			opts: LLMActivityOptions(),
+		},
+		{
+			name: "BatchActivityOptions",
+			opts: BatchActivityOptions(),
+		},
+		{
+			name: "LongRunningActivityOptions",
+			opts: LongRunningActivityOptions(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.opts.ScheduleToCloseTimeout != 0 && tt.opts.ScheduleToCloseTimeout < tt.opts.StartToCloseTimeout {
+				t.Errorf("%s has ScheduleToCloseTimeout (%v) < StartToCloseTimeout (%v), should be >=",
+					tt.name, tt.opts.ScheduleToCloseTimeout, tt.opts.StartToCloseTimeout)
+			}
+		})
+	}
+}
