@@ -115,8 +115,8 @@ systemd_restart() {
     # Wait for service to become active
     local attempts=0
     while [[ $attempts -lt $timeout ]]; do
-        local status=$(ssh "$host" "systemctl is-active ${service_name}" 2>/dev/null)
-        if [[ "$status" == "active" ]]; then
+        local svc_state=$(ssh "$host" "systemctl is-active ${service_name}" 2>/dev/null)
+        if [[ "$svc_state" == "active" ]]; then
             log_success "${service_name} is active"
             return 0
         fi
