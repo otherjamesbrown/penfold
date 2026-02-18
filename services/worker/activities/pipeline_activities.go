@@ -126,12 +126,14 @@ var contentIDPattern = regexp.MustCompile(`^[a-z]{2}-[A-Za-z0-9]{8}$`)
 // This ensures all AI operations are grouped under a single trace in Langfuse with a
 // meaningful trace title (e.g., "slm-pipeline" instead of "ai.embedding").
 //
-// Returns the 16-char hex SpanID of the root span so it can be propagated to child
-// activities for proper parent-child hierarchy in Langfuse.
+// Returns the actual OTel TraceID and SpanID from the created span. The TraceID may differ
+// from the input pipelineTraceID when OTel creates a new root span (e.g., when the
+// SpanContext is invalid). This ensures the workflow propagates the correct TraceID to
+// all downstream activities for proper trace grouping in Langfuse.
 //
 // The pipelineTraceID should be a 32-character hex trace ID. If empty, a new root trace
 // will be created. The contentID must follow the standard format: <type:2>-<base62:8>.
-func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input workflows.StartPipelineTracingInput) (string, error) {
+func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input workflows.StartPipelineTracingInput) (workflows.StartPipelineTracingOutput, error) {
 	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "StartPipelineTracing"),
 		logging.F("content_id", input.ContentID),
@@ -140,14 +142,14 @@ func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input wor
 
 	// Validate input
 	if input.ContentType == "" {
-		return "", temporal.NewApplicationError(
+		return workflows.StartPipelineTracingOutput{}, temporal.NewApplicationError(
 			"content_type is required",
 			"ValidationError",
 		)
 	}
 
 	if input.ContentID == "" {
-		return "", temporal.NewApplicationError(
+		return workflows.StartPipelineTracingOutput{}, temporal.NewApplicationError(
 			"content_id is required",
 			"ValidationError",
 		)
@@ -155,7 +157,7 @@ func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input wor
 
 	// Validate content ID format: <type:2>-<base62:8> (11 chars total)
 	if !contentIDPattern.MatchString(input.ContentID) {
-		return "", temporal.NewApplicationError(
+		return workflows.StartPipelineTracingOutput{}, temporal.NewApplicationError(
 			fmt.Sprintf("invalid content_id format: %s (expected format: <type:2>-<base62:8>)", input.ContentID),
 			"ValidationError",
 		)
@@ -168,18 +170,24 @@ func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input wor
 	ctx, span := tracing.StartPipeline(ctx, "slm-pipeline", input.ContentID, input.ContentType, input.PipelineTraceID)
 	defer span.End()
 
-	// Extract the SpanID to propagate to child activities
-	pipelineSpanID := span.SpanContext().SpanID().String()
+	// Extract the actual TraceID and SpanID from the created span
+	// Note: The TraceID may differ from input.PipelineTraceID if OTel created a new root span
+	actualTraceID := span.SpanContext().TraceID().String()
+	actualSpanID := span.SpanContext().SpanID().String()
 
 	logger.Info("Pipeline tracing span created successfully",
-		logging.F("pipeline_span_id", pipelineSpanID),
+		logging.F("actual_trace_id", actualTraceID),
+		logging.F("actual_span_id", actualSpanID),
 	)
 
-	return pipelineSpanID, nil
+	return workflows.StartPipelineTracingOutput{
+		TraceID: actualTraceID,
+		SpanID:  actualSpanID,
+	}, nil
 }
 
 // Ensure PipelineActivities implements required interfaces at compile time.
 var _ interface {
 	RecordOverrides(ctx context.Context, input workflows.RecordOverridesInput) error
-	StartPipelineTracing(ctx context.Context, input workflows.StartPipelineTracingInput) (string, error)
+	StartPipelineTracing(ctx context.Context, input workflows.StartPipelineTracingInput) (workflows.StartPipelineTracingOutput, error)
 } = (*PipelineActivities)(nil)

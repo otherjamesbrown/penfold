@@ -462,6 +462,14 @@ type StartPipelineTracingInput struct {
 	ContentType     string `json:"content_type"`      // email, meeting, slack, etc.
 }
 
+// StartPipelineTracingOutput is the output from the StartPipelineTracing activity.
+// It returns the actual OTel TraceID and SpanID from the created span, which may differ
+// from the pre-generated pipelineTraceID when OTel creates a new root span.
+type StartPipelineTracingOutput struct {
+	TraceID string `json:"trace_id"` // Actual 32-char hex trace ID from the OTel span
+	SpanID  string `json:"span_id"`  // 16-char hex span ID from the OTel span
+}
+
 // KickNextPendingInput is the input for the KickNextPending activity.
 // This activity calls the gateway's KickProcessing RPC to automatically
 // start the next pending pipeline after the current one completes.
@@ -725,13 +733,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Don't fail the pipeline if tracing fails - just log and continue.
 	ctxTracing := workflow.WithActivityOptions(ctx, fastOpts)
 	var pipelineSpanID string
+	var tracingOutput StartPipelineTracingOutput
 	tracingErr := workflow.ExecuteActivity(ctxTracing, pkgtemporal.ActivityStartPipelineTracing, StartPipelineTracingInput{
 		PipelineTraceID: pipelineTraceID,
 		ContentID:       input.ContentID,
 		ContentType:     input.ContentType,
-	}).Get(ctx, &pipelineSpanID)
+	}).Get(ctx, &tracingOutput)
 	if tracingErr != nil {
 		logger.Warn("Failed to start pipeline tracing span (non-fatal)", "error", tracingErr)
+	} else {
+		// Override the pre-generated trace ID with the actual OTel trace ID
+		// This ensures all downstream activities create child spans under the same trace
+		pipelineTraceID = tracingOutput.TraceID
+		pipelineSpanID = tracingOutput.SpanID
 	}
 
 	var parsedContent string

@@ -83,9 +83,12 @@ func (m *ReprocessMockActivities) CreateEnrichmentRecord(ctx context.Context, in
 	return args.Get(0).(*CreateEnrichmentRecordOutput), args.Error(1)
 }
 
-func (m *ReprocessMockActivities) StartPipelineTracing(ctx context.Context, input StartPipelineTracingInput) error {
+func (m *ReprocessMockActivities) StartPipelineTracing(ctx context.Context, input StartPipelineTracingInput) (*StartPipelineTracingOutput, error) {
 	args := m.Called(ctx, input)
-	return args.Error(0)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*StartPipelineTracingOutput), args.Error(1)
 }
 
 func (m *ReprocessMockActivities) KickNextPending(ctx context.Context, input KickNextPendingInput) (*KickNextPendingOutput, error) {
@@ -148,7 +151,10 @@ func TestReprocessThreadingEmailPath(t *testing.T) {
 
 	// Stage 0.5: StartPipelineTracing (non-blocking)
 	activities.On("StartPipelineTracing", mock.Anything, mock.Anything).
-		Return(nil)
+		Return(&StartPipelineTracingOutput{
+			TraceID: "0123456789abcdef0123456789abcdef",
+			SpanID:  "0123456789abcdef",
+		}, nil)
 
 	// Stage 0.6: UpdateContentStatus (parsed)
 	activities.On("UpdateContentStatus", mock.Anything, mock.Anything).
@@ -266,7 +272,10 @@ func TestReprocessThreadingMeetingPath(t *testing.T) {
 		}, nil)
 
 	activities.On("StartPipelineTracing", mock.Anything, mock.Anything).
-		Return(nil)
+		Return(&StartPipelineTracingOutput{
+			TraceID: "0123456789abcdef0123456789abcdef",
+			SpanID:  "0123456789abcdef",
+		}, nil)
 	activities.On("UpdateContentStatus", mock.Anything, mock.Anything).
 		Return(nil)
 
