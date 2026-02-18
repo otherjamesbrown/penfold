@@ -31,7 +31,7 @@ func TestStartPipelineTracing_ActivityExists(t *testing.T) {
 	}
 
 	// This will fail to compile because StartPipelineTracing doesn't exist yet
-	err := acts.StartPipelineTracing(ctx, input)
+	_, err := acts.StartPipelineTracing(ctx, input)
 
 	// Once implemented, the activity should succeed with valid input
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestStartPipelineTracing_EmptyTraceID(t *testing.T) {
 	}
 
 	// This will fail to compile because StartPipelineTracing doesn't exist yet
-	err := acts.StartPipelineTracing(ctx, input)
+	_, err := acts.StartPipelineTracing(ctx, input)
 
 	// Should succeed - empty trace ID is valid (creates new root)
 	require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestStartPipelineTracing_InvalidContentID(t *testing.T) {
 			}
 
 			// This will fail to compile because StartPipelineTracing doesn't exist yet
-			err := acts.StartPipelineTracing(ctx, input)
+			_, err := acts.StartPipelineTracing(ctx, input)
 
 			if tc.expectError {
 				assert.Error(t, err, "Expected error for invalid content ID: %s", tc.contentID)
@@ -133,7 +133,7 @@ func TestStartPipelineTracing_MissingContentType(t *testing.T) {
 	}
 
 	// This will fail to compile because StartPipelineTracing doesn't exist yet
-	err := acts.StartPipelineTracing(ctx, input)
+	_, err := acts.StartPipelineTracing(ctx, input)
 
 	// Content type should be required
 	require.Error(t, err)

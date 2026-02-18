@@ -131,6 +131,7 @@ type TriageInput struct {
 	Headers          map[string]string `json:"headers,omitempty"`       // Email headers for subtype classification
 	ModelOverride    string            `json:"model_override,omitempty"` // Optional model override for reprocessing
 	PipelineTraceID  string            `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
+	PipelineSpanID   string            `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 }
 
 // TriageOutput is the output from the Triage activity.
@@ -156,6 +157,7 @@ type SLMPipelineExtractEntitiesInput struct {
 	TriageCategory  string `json:"triage_category,omitempty"`
 	ModelOverride   string `json:"model_override,omitempty"` // Optional model override for reprocessing
 	PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
+	PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 }
 
 // SLMPipelineExtractEntitiesOutput is the output from the ExtractEntities activity (pipeline version with DetailedRisks).
@@ -339,6 +341,7 @@ type DeepAnalyzeInput struct {
 	BackgroundContext string                            `json:"background_context,omitempty"`
 	ModelOverride     string                            `json:"model_override,omitempty"` // Optional model override for reprocessing
 	PipelineTraceID   string                            `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
+	PipelineSpanID    string                            `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 }
 
 // DeepAnalyzeOutput is the output from the DeepAnalyze activity.
@@ -721,11 +724,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Placed after fetch so ContentType and ContentID are populated.
 	// Don't fail the pipeline if tracing fails - just log and continue.
 	ctxTracing := workflow.WithActivityOptions(ctx, fastOpts)
+	var pipelineSpanID string
 	tracingErr := workflow.ExecuteActivity(ctxTracing, pkgtemporal.ActivityStartPipelineTracing, StartPipelineTracingInput{
 		PipelineTraceID: pipelineTraceID,
 		ContentID:       input.ContentID,
 		ContentType:     input.ContentType,
-	}).Get(ctx, nil)
+	}).Get(ctx, &pipelineSpanID)
 	if tracingErr != nil {
 		logger.Warn("Failed to start pipeline tracing span (non-fatal)", "error", tracingErr)
 	}
@@ -863,6 +867,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		ContentType:     input.ContentType,
 		ModelOverride:   input.ModelOverride,
 		PipelineTraceID: pipelineTraceID,
+		PipelineSpanID:  pipelineSpanID,
 	}).Get(ctx, &triageOutput)
 	if err != nil {
 		// Update status to "rejected" with failure info
@@ -1184,6 +1189,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			Content:         parsedContent,
 			ModelOverride:   input.ModelOverride,
 			PipelineTraceID: pipelineTraceID,
+			PipelineSpanID:  pipelineSpanID,
 		}).Get(ctx, extractOutput)
 
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
@@ -1198,6 +1204,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			Content:         parsedContent,
 			SenderEmail:     input.SenderEmail, // Pass sender for owner attribution
 			PipelineTraceID: pipelineTraceID,
+			PipelineSpanID:  pipelineSpanID,
 		}).Get(ctx, &assertionCount)
 		if err2 != nil {
 			logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err2)
@@ -1388,6 +1395,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			BackgroundContext: "", // Context package content assembled by activity
 			ModelOverride:     input.ModelOverride,
 			PipelineTraceID:   pipelineTraceID,
+			PipelineSpanID:    pipelineSpanID,
 		}).Get(ctx, analyzeOutput)
 		if err != nil {
 			durationMs := workflow.Now(ctx).Sub(analyzeStart).Milliseconds()
@@ -1576,6 +1584,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		Content:         parsedContent,
 		ContentHash:     input.ContentHash,
 		PipelineTraceID: pipelineTraceID,
+		PipelineSpanID:  pipelineSpanID,
 	}).Get(ctx, &embeddingID)
 	if err != nil {
 		runCompensation(ctx)

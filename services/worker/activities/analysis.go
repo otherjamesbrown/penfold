@@ -176,6 +176,9 @@ func buildDeepAnalyzeRequest(input workflows.DeepAnalyzeInput) *aiv1.DeepAnalyze
 	if input.PipelineTraceID != "" {
 		req.PipelineTraceId = &input.PipelineTraceID
 	}
+	if input.PipelineSpanID != "" {
+		req.PipelineSpanId = &input.PipelineSpanID
+	}
 
 	// Convert workflows.SLMPipelineExtractEntitiesOutput to proto types
 	if input.ExtractionResult != nil {

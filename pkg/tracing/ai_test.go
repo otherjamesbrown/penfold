@@ -518,6 +518,89 @@ func TestTraceLLMCall_PipelineTraceNesting(t *testing.T) {
 	_ = ctx3
 }
 
+// TestStartLLMCall_WithPipelineSpanID verifies that when both a pipeline trace ID
+// and span ID are provided, the AI span becomes a proper child of that parent span.
+// This is the fix for Langfuse showing 3 separate traces instead of 1 nested trace.
+func TestStartLLMCall_WithPipelineSpanID(t *testing.T) {
+	exporter, cleanup := setupAITestTracer(t)
+	defer cleanup()
+
+	pipelineTraceID := "0123456789abcdef0123456789abcdef"
+	pipelineSpanID := "abcdef0123456789" // 16-char hex
+
+	// Call StartLLMCall with both PipelineTraceID and PipelineSpanID
+	ctx, span := StartLLMCall(context.Background(), "test-llm-with-parent", LLMCallOptions{
+		PipelineTraceID: pipelineTraceID,
+		PipelineSpanID:  pipelineSpanID,
+		Model:           "llama3.2",
+		System:          AISystemOllama,
+		ContentID:       "em-abc12XYZ",
+		TaskType:        "summarize",
+	})
+	span.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+
+	spanData := spans[0]
+
+	// Verify the span's trace ID matches the pipeline trace ID
+	actualTraceID := spanData.SpanContext.TraceID().String()
+	if actualTraceID != pipelineTraceID {
+		t.Errorf("expected trace ID %s, got %s", pipelineTraceID, actualTraceID)
+	}
+
+	// Verify the span has the pipeline span as its parent
+	if !spanData.Parent.IsValid() {
+		t.Error("expected span to have a valid parent (the pipeline span), but it has no parent")
+	}
+	parentSpanID := spanData.Parent.SpanID().String()
+	if parentSpanID != pipelineSpanID {
+		t.Errorf("expected parent span ID %s, got %s", pipelineSpanID, parentSpanID)
+	}
+
+	spanCtx := trace.SpanFromContext(ctx).SpanContext()
+	if !spanCtx.IsValid() {
+		t.Error("expected valid span context")
+	}
+}
+
+// TestStartEmbedding_WithPipelineSpanID verifies embedding spans also nest correctly.
+func TestStartEmbedding_WithPipelineSpanID(t *testing.T) {
+	exporter, cleanup := setupAITestTracer(t)
+	defer cleanup()
+
+	pipelineTraceID := "fedcba9876543210fedcba9876543210"
+	pipelineSpanID := "1234567890abcdef"
+
+	_, span := StartEmbedding(context.Background(), "test-embedding-child", EmbeddingOptions{
+		PipelineTraceID: pipelineTraceID,
+		PipelineSpanID:  pipelineSpanID,
+		Model:           "mxbai-embed-large-v1",
+		System:          AISystemMLX,
+		ContentID:       "em-xyz98ABC",
+	})
+	span.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+
+	spanData := spans[0]
+
+	// Verify parent span ID
+	if !spanData.Parent.IsValid() {
+		t.Error("expected span to have a valid parent")
+	}
+	parentSpanID := spanData.Parent.SpanID().String()
+	if parentSpanID != pipelineSpanID {
+		t.Errorf("expected parent span ID %s, got %s", pipelineSpanID, parentSpanID)
+	}
+}
+
 // TestTraceLLMCall_LangfuseMetadataPopulated verifies acceptance criterion 2:
 // Every AI span has non-empty session_id, user_id, tags with source_tag.
 //

@@ -116,6 +116,9 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	if input.PipelineTraceID != "" {
 		assertionReq.PipelineTraceId = &input.PipelineTraceID
 	}
+	if input.PipelineSpanID != "" {
+		assertionReq.PipelineSpanId = &input.PipelineSpanID
+	}
 	if input.ContentID != "" {
 		assertionReq.ContentId = &input.ContentID
 	}
@@ -304,6 +307,9 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		if input.PipelineTraceID != "" {
 			req.PipelineTraceId = optString(input.PipelineTraceID)
 		}
+		if input.PipelineSpanID != "" {
+			req.PipelineSpanId = optString(input.PipelineSpanID)
+		}
 		if input.ContentID != "" {
 			req.ContentId = optString(input.ContentID)
 		}
@@ -344,6 +350,9 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			}
 			if input.PipelineTraceID != "" {
 				req.PipelineTraceId = optString(input.PipelineTraceID)
+			}
+			if input.PipelineSpanID != "" {
+				req.PipelineSpanId = optString(input.PipelineSpanID)
 			}
 			if input.ContentID != "" {
 				req.ContentId = optString(input.ContentID)

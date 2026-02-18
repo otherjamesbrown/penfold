@@ -519,6 +519,7 @@ type SummarizeContentInput struct {
 	MaxLength       int32  `json:"max_length,omitempty"`
 	Style           string `json:"style,omitempty"` // brief, detailed, bullet_points
 	PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
+	PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 }
 
 // SummarizeContentOutput is the output from the SummarizeContent activity.
@@ -590,6 +591,9 @@ func (a *ContentActivities) SummarizeContentActivity(ctx context.Context, input 
 	}
 	if input.PipelineTraceID != "" {
 		req.PipelineTraceId = &input.PipelineTraceID
+	}
+	if input.PipelineSpanID != "" {
+		req.PipelineSpanId = &input.PipelineSpanID
 	}
 
 	resp, err := a.aiClient.GenerateSummary(ctx, req)

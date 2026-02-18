@@ -53,6 +53,7 @@ type (
 		Content         string `json:"content"`
 		ContentHash     string `json:"content_hash"`
 		PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
+		PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 	}
 
 	// GenerateSummaryInput is the input for the GenerateSummary activity.
@@ -64,6 +65,7 @@ type (
 		JobID           string `json:"job_id"`
 		Content         string `json:"content"`
 		PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
+		PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 	}
 
 	// ExtractAssertionsInput is the input for the ExtractAssertions activity.
@@ -76,6 +78,7 @@ type (
 		Content         string `json:"content"`
 		SenderEmail     string `json:"sender_email,omitempty"` // Email sender, gets "owner" attribution
 		PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
+		PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 	}
 
 	// UpdateSourceStatusInput is the input for the UpdateSourceStatus activity.

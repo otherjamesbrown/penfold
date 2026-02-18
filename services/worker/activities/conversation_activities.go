@@ -68,6 +68,7 @@ type LinkConversationInput struct {
 	ThreadID        string `json:"thread_id"`  // Root message ID from threading
 	ContentID       string `json:"content_id"` // Content item ID to link
 	PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
+	PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 }
 
 // LinkConversationOutput is the output from the LinkConversation activity.

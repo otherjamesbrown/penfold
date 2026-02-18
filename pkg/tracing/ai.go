@@ -67,12 +67,17 @@ const (
 var AITracer = otel.Tracer("penfold.ai")
 
 // applyPipelineTrace configures the context and start options based on the provided
-// pipeline trace ID. It handles parsing the trace ID and falls back to creating a root
-// span if the ID is empty or invalid.
+// pipeline trace ID and optional span ID. It handles parsing the IDs and falls back
+// to creating a root span if they are empty or invalid.
+//
+// When both pipelineTraceID and pipelineSpanID are provided, the resulting SpanContext
+// is valid (IsValid() returns true) and OTel creates proper parent-child links.
+// Without a SpanID, OTel considers the context invalid and creates root spans.
 //
 // Parameters:
 //   - ctx: the context to potentially augment with remote span context
 //   - pipelineTraceID: hex-encoded trace ID to parse (may be empty)
+//   - pipelineSpanID: hex-encoded span ID of the root pipeline span (may be empty)
 //   - attrs: pointer to attributes slice; trace name attr is added if traceName is non-empty
 //   - startOpts: pointer to span start options; WithNewRoot() is added when appropriate
 //   - traceName: optional trace name to add as AttrLangfuseTraceName (pass "" to skip)
@@ -81,6 +86,7 @@ var AITracer = otel.Tracer("penfold.ai")
 func applyPipelineTrace(
 	ctx context.Context,
 	pipelineTraceID string,
+	pipelineSpanID string,
 	attrs *[]attribute.KeyValue,
 	startOpts *[]trace.SpanStartOption,
 	traceName string,
@@ -107,7 +113,7 @@ func applyPipelineTrace(
 		return ctx
 	}
 
-	// Parse hex trace ID and create remote span context
+	// Parse hex trace ID
 	traceID, err := trace.TraceIDFromHex(pipelineTraceID)
 	if err != nil {
 		// Parse failed - log warning and fall back to root span
@@ -119,16 +125,28 @@ func applyPipelineTrace(
 		return ctx
 	}
 
-	// Parse succeeded - create remote span context to parent this span under the pipeline trace
-	// Note: We only set TraceID here, not SpanID, because we don't have the parent span ID
-	// from the string-based pipelineTraceID. This creates spans that share the trace ID but
-	// don't have explicit parent-child links. For proper parent-child relationships, the
-	// pipeline span should be in the context (handled above).
-	spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
+	// Build span context config with trace ID
+	scConfig := trace.SpanContextConfig{
 		TraceID:    traceID,
 		TraceFlags: trace.FlagsSampled,
 		Remote:     true,
-	})
+	}
+
+	// If we have a span ID, include it for proper parent-child hierarchy.
+	// Without SpanID, SpanContext.IsValid() returns false and OTel creates root spans.
+	if pipelineSpanID != "" {
+		spanID, err := trace.SpanIDFromHex(pipelineSpanID)
+		if err != nil {
+			slog.Warn("failed to parse pipeline span ID, continuing without parent link",
+				"pipeline_span_id", pipelineSpanID,
+				"error", err,
+			)
+		} else {
+			scConfig.SpanID = spanID
+		}
+	}
+
+	spanCtx := trace.NewSpanContext(scConfig)
 	return trace.ContextWithRemoteSpanContext(ctx, spanCtx)
 }
 
@@ -137,6 +155,10 @@ type LLMCallOptions struct {
 	// PipelineTraceID is an optional hex-encoded trace ID for grouping related operations.
 	// When set, this span will be a child of the specified trace (not a root span).
 	PipelineTraceID string
+
+	// PipelineSpanID is an optional hex-encoded span ID of the root pipeline span.
+	// When set together with PipelineTraceID, creates proper parent-child hierarchy.
+	PipelineSpanID string
 
 	// Model is the model identifier (e.g., "gpt-4", "llama3.2").
 	Model string
@@ -208,7 +230,7 @@ func StartLLMCall(ctx context.Context, name string, opts LLMCallOptions) (contex
 
 	// Apply pipeline trace ID (if set) or create a root span
 	var startOpts []trace.SpanStartOption
-	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, &attrs, &startOpts, "slm-pipeline")
+	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, opts.PipelineSpanID, &attrs, &startOpts, "slm-pipeline")
 
 	startOpts = append(startOpts, trace.WithAttributes(attrs...))
 	return AITracer.Start(ctx, name, startOpts...)
@@ -274,6 +296,10 @@ type EmbeddingOptions struct {
 	// When set, this span will be a child of the specified trace (not a root span).
 	PipelineTraceID string
 
+	// PipelineSpanID is an optional hex-encoded span ID of the root pipeline span.
+	// When set together with PipelineTraceID, creates proper parent-child hierarchy.
+	PipelineSpanID string
+
 	// Model is the embedding model identifier.
 	Model string
 
@@ -328,7 +354,7 @@ func StartEmbedding(ctx context.Context, name string, opts EmbeddingOptions) (co
 
 	// Apply pipeline trace ID (if set) or create a root span
 	var startOpts []trace.SpanStartOption
-	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, &attrs, &startOpts, "slm-pipeline")
+	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, opts.PipelineSpanID, &attrs, &startOpts, "slm-pipeline")
 
 	startOpts = append(startOpts, trace.WithAttributes(attrs...))
 	return AITracer.Start(ctx, name, startOpts...)
@@ -386,6 +412,10 @@ type AIProcessingOptions struct {
 	// When set, this span will be a child of the specified trace (not a root span).
 	PipelineTraceID string
 
+	// PipelineSpanID is an optional hex-encoded span ID of the root pipeline span.
+	// When set together with PipelineTraceID, creates proper parent-child hierarchy.
+	PipelineSpanID string
+
 	// TaskType is the type of AI task (e.g., "summarize", "classify", "extract").
 	TaskType string
 
@@ -435,7 +465,7 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 
 	// Apply pipeline trace ID (if set) or create a root span
 	var startOpts []trace.SpanStartOption
-	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, &attrs, &startOpts, "slm-pipeline")
+	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, opts.PipelineSpanID, &attrs, &startOpts, "slm-pipeline")
 
 	startOpts = append(startOpts, trace.WithAttributes(attrs...))
 	return AITracer.Start(ctx, name, startOpts...)
@@ -471,9 +501,10 @@ func StartPipeline(ctx context.Context, name, contentID, contentType, pipelineTr
 	}
 
 	// Apply pipeline trace ID (if set) or create a root span
-	// Note: pass empty string for traceName since it's already set above (line 453)
+	// Note: pass empty string for traceName since it's already set above
+	// StartPipeline creates the root span, so there's no parent span ID to pass.
 	var startOpts []trace.SpanStartOption
-	ctx = applyPipelineTrace(ctx, pipelineTraceID, &attrs, &startOpts, "")
+	ctx = applyPipelineTrace(ctx, pipelineTraceID, "", &attrs, &startOpts, "")
 
 	startOpts = append(startOpts, trace.WithAttributes(attrs...))
 	return AITracer.Start(ctx, name, startOpts...)

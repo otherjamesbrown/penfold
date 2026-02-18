@@ -67,6 +67,7 @@ type (
 		Subject         string `json:"subject,omitempty"`
 		JobID           string `json:"job_id,omitempty"`
 		PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
+		PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 	}
 
 	// ExtractMentionsOutput is the output from the ExtractMentions activity.

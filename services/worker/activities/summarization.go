@@ -98,6 +98,9 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 	if input.PipelineTraceID != "" {
 		summaryReq.PipelineTraceId = &input.PipelineTraceID
 	}
+	if input.PipelineSpanID != "" {
+		summaryReq.PipelineSpanId = &input.PipelineSpanID
+	}
 
 	// Call AI service (tracing is handled by the AI server, not duplicated here)
 	resp, err := a.aiClient.GenerateSummary(ctx, summaryReq)
@@ -157,6 +160,7 @@ type GenerateSummaryWithOptionsInput struct {
 	Style           aiv1.SummaryStyle `json:"style,omitempty"`
 	Model           string            `json:"model,omitempty"`
 	PipelineTraceID string            `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
+	PipelineSpanID  string            `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 }
 
 // GenerateSummaryOutput contains the result of summary generation.
@@ -235,6 +239,9 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 	}
 	if input.PipelineTraceID != "" {
 		summaryReq.PipelineTraceId = &input.PipelineTraceID
+	}
+	if input.PipelineSpanID != "" {
+		summaryReq.PipelineSpanId = &input.PipelineSpanID
 	}
 
 	// Tracing is handled by the AI server, not duplicated here

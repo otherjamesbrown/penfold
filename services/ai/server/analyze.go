@@ -403,6 +403,7 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 		TenantID:        req.GetTenantId(),
 		TaskType:        "deep_analysis",
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()

@@ -182,6 +182,9 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	if input.PipelineTraceID != "" {
 		req.PipelineTraceId = &input.PipelineTraceID
 	}
+	if input.PipelineSpanID != "" {
+		req.PipelineSpanId = &input.PipelineSpanID
+	}
 	if input.ContentID != "" {
 		req.ContentId = &input.ContentID
 	}

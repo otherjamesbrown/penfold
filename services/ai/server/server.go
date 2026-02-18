@@ -95,6 +95,7 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 		System:          tracing.AISystemMLX,
 		TenantID:        req.GetTenantId(),
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()
@@ -164,6 +165,7 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 		TenantID:        req.GetTenantId(),
 		TaskType:        "summarize",
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()
@@ -273,6 +275,7 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 		TenantID:        req.GetTenantId(),
 		TaskType:        "extraction",
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()
@@ -401,6 +404,7 @@ func (s *AIServer) ClassifyContent(ctx context.Context, req *aiv1.ClassifyConten
 		TenantID:        req.GetTenantId(),
 		TaskType:        "classification",
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()
@@ -535,6 +539,7 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 		TenantID:        req.GetTenantId(),
 		TaskType:        "triage",
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()

@@ -201,6 +201,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		TenantID:        req.GetTenantId(),
 		TaskType:        "extraction",
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()

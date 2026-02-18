@@ -126,9 +126,12 @@ var contentIDPattern = regexp.MustCompile(`^[a-z]{2}-[A-Za-z0-9]{8}$`)
 // This ensures all AI operations are grouped under a single trace in Langfuse with a
 // meaningful trace title (e.g., "slm-pipeline" instead of "ai.embedding").
 //
+// Returns the 16-char hex SpanID of the root span so it can be propagated to child
+// activities for proper parent-child hierarchy in Langfuse.
+//
 // The pipelineTraceID should be a 32-character hex trace ID. If empty, a new root trace
 // will be created. The contentID must follow the standard format: <type:2>-<base62:8>.
-func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input workflows.StartPipelineTracingInput) error {
+func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input workflows.StartPipelineTracingInput) (string, error) {
 	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "StartPipelineTracing"),
 		logging.F("content_id", input.ContentID),
@@ -137,14 +140,14 @@ func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input wor
 
 	// Validate input
 	if input.ContentType == "" {
-		return temporal.NewApplicationError(
+		return "", temporal.NewApplicationError(
 			"content_type is required",
 			"ValidationError",
 		)
 	}
 
 	if input.ContentID == "" {
-		return temporal.NewApplicationError(
+		return "", temporal.NewApplicationError(
 			"content_id is required",
 			"ValidationError",
 		)
@@ -152,7 +155,7 @@ func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input wor
 
 	// Validate content ID format: <type:2>-<base62:8> (11 chars total)
 	if !contentIDPattern.MatchString(input.ContentID) {
-		return temporal.NewApplicationError(
+		return "", temporal.NewApplicationError(
 			fmt.Sprintf("invalid content_id format: %s (expected format: <type:2>-<base62:8>)", input.ContentID),
 			"ValidationError",
 		)
@@ -165,13 +168,18 @@ func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input wor
 	ctx, span := tracing.StartPipeline(ctx, "slm-pipeline", input.ContentID, input.ContentType, input.PipelineTraceID)
 	defer span.End()
 
-	logger.Info("Pipeline tracing span created successfully")
+	// Extract the SpanID to propagate to child activities
+	pipelineSpanID := span.SpanContext().SpanID().String()
 
-	return nil
+	logger.Info("Pipeline tracing span created successfully",
+		logging.F("pipeline_span_id", pipelineSpanID),
+	)
+
+	return pipelineSpanID, nil
 }
 
 // Ensure PipelineActivities implements required interfaces at compile time.
 var _ interface {
 	RecordOverrides(ctx context.Context, input workflows.RecordOverridesInput) error
-	StartPipelineTracing(ctx context.Context, input workflows.StartPipelineTracingInput) error
+	StartPipelineTracing(ctx context.Context, input workflows.StartPipelineTracingInput) (string, error)
 } = (*PipelineActivities)(nil)

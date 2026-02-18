@@ -129,6 +129,9 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		if input.PipelineTraceID != "" {
 			embeddingReq.PipelineTraceId = &input.PipelineTraceID
 		}
+		if input.PipelineSpanID != "" {
+			embeddingReq.PipelineSpanId = &input.PipelineSpanID
+		}
 		if input.ContentID != "" {
 			embeddingReq.ContentId = &input.ContentID
 		}
