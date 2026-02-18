@@ -60,9 +60,10 @@ type (
 		TenantID string `json:"tenant_id"`
 		SourceID int64  `json:"source_id"`
 		// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
-		ContentID string `json:"content_id,omitempty"`
-		JobID    string `json:"job_id"`
-		Content  string `json:"content"`
+		ContentID       string `json:"content_id,omitempty"`
+		JobID           string `json:"job_id"`
+		Content         string `json:"content"`
+		PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
 	}
 
 	// ExtractAssertionsInput is the input for the ExtractAssertions activity.

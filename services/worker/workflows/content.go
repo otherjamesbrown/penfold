@@ -60,12 +60,13 @@ type (
 		SourceID    int64  `json:"source_id"`
 		ContentID   int64  `json:"content_id"`
 		// ContentTraceID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
-		ContentTraceID string `json:"content_trace_id,omitempty"`
-		ContentType    string `json:"content_type"`
-		Content        string `json:"content"`
-		ProjectID      *int64 `json:"project_id,omitempty"`
-		Subject        string `json:"subject,omitempty"`
-		JobID          string `json:"job_id,omitempty"`
+		ContentTraceID  string `json:"content_trace_id,omitempty"`
+		ContentType     string `json:"content_type"`
+		Content         string `json:"content"`
+		ProjectID       *int64 `json:"project_id,omitempty"`
+		Subject         string `json:"subject,omitempty"`
+		JobID           string `json:"job_id,omitempty"`
+		PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
 	}
 
 	// ExtractMentionsOutput is the output from the ExtractMentions activity.

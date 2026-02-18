@@ -9,8 +9,9 @@ job "penfold-gateway" {
 
   update {
     max_parallel     = 1
+    canary           = 0
     min_healthy_time = "10s"
-    healthy_deadline = "90s"
+    healthy_deadline = "2m"
     auto_revert      = true
   }
 
@@ -33,8 +34,9 @@ job "penfold-gateway" {
       driver = "raw_exec"
       user   = "james"
 
-      kill_signal  = "SIGTERM"
-      kill_timeout = "35s"
+      shutdown_delay = "5s"
+      kill_signal    = "SIGTERM"
+      kill_timeout   = "35s"
 
       config {
         command = "/bin/sh"

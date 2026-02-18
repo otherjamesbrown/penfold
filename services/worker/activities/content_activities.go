@@ -512,12 +512,13 @@ func truncateContent(content string, maxLen int) string {
 
 // SummarizeContentInput is the input for the SummarizeContent activity.
 type SummarizeContentInput struct {
-	TenantID   string `json:"tenant_id"`
-	SourceID   int64  `json:"source_id"`
-	JobID      string `json:"job_id"`
-	Content    string `json:"content"`
-	MaxLength  int32  `json:"max_length,omitempty"`
-	Style      string `json:"style,omitempty"` // brief, detailed, bullet_points
+	TenantID        string `json:"tenant_id"`
+	SourceID        int64  `json:"source_id"`
+	JobID           string `json:"job_id"`
+	Content         string `json:"content"`
+	MaxLength       int32  `json:"max_length,omitempty"`
+	Style           string `json:"style,omitempty"` // brief, detailed, bullet_points
+	PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
 }
 
 // SummarizeContentOutput is the output from the SummarizeContent activity.
@@ -586,6 +587,9 @@ func (a *ContentActivities) SummarizeContentActivity(ctx context.Context, input 
 		MaxLength: &maxLength,
 		Style:     style,
 		TenantId:  &input.TenantID,
+	}
+	if input.PipelineTraceID != "" {
+		req.PipelineTraceId = &input.PipelineTraceID
 	}
 
 	resp, err := a.aiClient.GenerateSummary(ctx, req)

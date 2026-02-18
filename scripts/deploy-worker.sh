@@ -120,9 +120,6 @@ cmd_full_deploy() {
     nomad_run_job "$NOMAD_JOB_FILE"
     echo ""
 
-    nomad_restart_job "$NOMAD_JOB_NAME"
-    echo ""
-
     if ! nomad_wait_healthy "$NOMAD_JOB_NAME" 60; then
         log_error "Deployment failed - Nomad will auto-revert if configured"
         exit 1

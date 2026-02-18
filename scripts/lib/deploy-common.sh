@@ -51,13 +51,31 @@ nomad_restart_job() {
 nomad_wait_healthy() {
     local job_name="$1"
     local timeout="${2:-60}"
-    log_info "Waiting for ${job_name} to be healthy..."
+    local health_url=""
+
+    # Map job name to health endpoint
+    case "$job_name" in
+        penfold-worker)
+            health_url="http://dev01.brown.chat:8085/health"
+            ;;
+        penfold-gateway)
+            health_url="http://dev02.brown.chat:8080/health"
+            ;;
+        penfold-ai-coordinator)
+            health_url="http://dev02.brown.chat:8090/health"
+            ;;
+        *)
+            log_error "Unknown job name: ${job_name}"
+            return 1
+            ;;
+    esac
+
+    log_info "Waiting for ${job_name} to be healthy at ${health_url}..."
     local attempts=0
-    local job_status=""
     while [[ $attempts -lt $timeout ]]; do
-        job_status=$(NOMAD_ADDR="$NOMAD_ADDR" nomad job status -short "$job_name" 2>/dev/null | grep "Status" | awk '{print $NF}')
-        if [[ "$job_status" == "running" ]]; then
-            log_success "${job_name} is running"
+        local health_status=$(curl -s -o /dev/null -w "%{http_code}" "$health_url" 2>/dev/null || echo "000")
+        if [[ "$health_status" == "200" ]]; then
+            log_success "${job_name} health check passed"
             return 0
         fi
         ((attempts++))

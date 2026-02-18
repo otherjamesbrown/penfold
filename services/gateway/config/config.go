@@ -75,6 +75,9 @@ type GatewayConfig struct {
 
 	// Langfuse contains Langfuse observability platform configuration.
 	Langfuse LangfuseConfig
+
+	// GracefulShutdownTimeout is the timeout for graceful server shutdown.
+	GracefulShutdownTimeout time.Duration
 }
 
 // TemporalConfig holds Temporal connection configuration.
@@ -244,6 +247,9 @@ const (
 	// TLS defaults.
 	DefaultTLSEnabled    = false
 	DefaultTLSClientAuth = "none"
+
+	// Shutdown defaults.
+	DefaultGracefulShutdownTimeout = 30 * time.Second
 )
 
 // Load loads the gateway configuration from environment variables.
@@ -295,6 +301,7 @@ func Load() (*GatewayConfig, error) {
 			Enabled:    DefaultTLSEnabled,
 			ClientAuth: DefaultTLSClientAuth,
 		},
+		GracefulShutdownTimeout: DefaultGracefulShutdownTimeout,
 	}
 
 	// Override from environment variables.
@@ -512,6 +519,13 @@ func loadGatewayEnv(cfg *GatewayConfig) {
 	}
 	if v := os.Getenv("LANGFUSE_SECRET_KEY"); v != "" {
 		cfg.Langfuse.SecretKey = v
+	}
+
+	// Graceful shutdown timeout
+	if v := os.Getenv("GATEWAY_GRACEFUL_SHUTDOWN_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.GracefulShutdownTimeout = d
+		}
 	}
 }
 

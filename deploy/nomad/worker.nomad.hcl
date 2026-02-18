@@ -9,6 +9,7 @@ job "penfold-worker" {
 
   update {
     max_parallel     = 1
+    canary           = 0
     min_healthy_time = "10s"
     healthy_deadline = "3m"
     auto_revert      = true
@@ -33,9 +34,11 @@ job "penfold-worker" {
 
     task "worker" {
       driver = "raw_exec"
+      user   = "james"
 
-      kill_signal  = "SIGTERM"
-      kill_timeout = "35s"
+      shutdown_delay = "5s"
+      kill_signal    = "SIGTERM"
+      kill_timeout   = "35s"
 
       config {
         command = "/bin/sh"
@@ -53,6 +56,12 @@ job "penfold-worker" {
           path     = "/health"
           interval = "10s"
           timeout  = "3s"
+        }
+
+        check_restart {
+          limit           = 3
+          grace           = "30s"
+          ignore_warnings = false
         }
       }
 

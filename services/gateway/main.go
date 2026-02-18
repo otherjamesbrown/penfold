@@ -597,7 +597,7 @@ func main() {
 	logger.Info("Initiating graceful shutdown...")
 
 	// Create shutdown context with timeout.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.GracefulShutdownTimeout)
 	defer cancel()
 
 	// Shutdown HTTP server.

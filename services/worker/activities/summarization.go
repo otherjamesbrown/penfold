@@ -95,6 +95,9 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 		Style:     aiv1.SummaryStyle_SUMMARY_STYLE_BRIEF,
 		TenantId:  &input.TenantID,
 	}
+	if input.PipelineTraceID != "" {
+		summaryReq.PipelineTraceId = &input.PipelineTraceID
+	}
 
 	// Call AI service (tracing is handled by the AI server, not duplicated here)
 	resp, err := a.aiClient.GenerateSummary(ctx, summaryReq)
@@ -147,12 +150,13 @@ type GenerateSummaryWithOptionsInput struct {
 	TenantID  string            `json:"tenant_id"`
 	SourceID  int64             `json:"source_id"`
 	// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
-	ContentID string            `json:"content_id,omitempty"`
-	JobID     string            `json:"job_id"`
-	Content   string            `json:"content"`
-	MaxLength int32             `json:"max_length,omitempty"`
-	Style     aiv1.SummaryStyle `json:"style,omitempty"`
-	Model     string            `json:"model,omitempty"`
+	ContentID       string            `json:"content_id,omitempty"`
+	JobID           string            `json:"job_id"`
+	Content         string            `json:"content"`
+	MaxLength       int32             `json:"max_length,omitempty"`
+	Style           aiv1.SummaryStyle `json:"style,omitempty"`
+	Model           string            `json:"model,omitempty"`
+	PipelineTraceID string            `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
 }
 
 // GenerateSummaryOutput contains the result of summary generation.
@@ -228,6 +232,9 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 	}
 	if input.Model != "" {
 		summaryReq.Model = &input.Model
+	}
+	if input.PipelineTraceID != "" {
+		summaryReq.PipelineTraceId = &input.PipelineTraceID
 	}
 
 	// Tracing is handled by the AI server, not duplicated here

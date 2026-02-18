@@ -85,15 +85,26 @@ func applyPipelineTrace(
 	startOpts *[]trace.SpanStartOption,
 	traceName string,
 ) context.Context {
-	if pipelineTraceID == "" {
-		// No pipeline trace ID - create a root span
-		*startOpts = append(*startOpts, trace.WithNewRoot())
-		return ctx
-	}
-
 	// Add trace name attribute if provided
 	if traceName != "" {
 		*attrs = append(*attrs, attribute.String(AttrLangfuseTraceName, traceName))
+	}
+
+	// Check if the context already has an active span
+	activeSpan := trace.SpanFromContext(ctx)
+	if activeSpan.SpanContext().IsValid() {
+		// Context has an active span - use it as the parent.
+		// This handles the case where the pipeline span is in the context
+		// and we want AI spans to be children of it.
+		// The active span's trace ID should match the pipelineTraceID (if provided).
+		return ctx
+	}
+
+	// No active span in context
+	if pipelineTraceID == "" {
+		// No pipeline trace ID either - create a root span
+		*startOpts = append(*startOpts, trace.WithNewRoot())
+		return ctx
 	}
 
 	// Parse hex trace ID and create remote span context
@@ -109,6 +120,10 @@ func applyPipelineTrace(
 	}
 
 	// Parse succeeded - create remote span context to parent this span under the pipeline trace
+	// Note: We only set TraceID here, not SpanID, because we don't have the parent span ID
+	// from the string-based pipelineTraceID. This creates spans that share the trace ID but
+	// don't have explicit parent-child links. For proper parent-child relationships, the
+	// pipeline span should be in the context (handled above).
 	spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
 		TraceFlags: trace.FlagsSampled,

@@ -63,10 +63,11 @@ type Conversation struct {
 
 // LinkConversationInput is the input for the LinkConversation activity.
 type LinkConversationInput struct {
-	TenantID  string `json:"tenant_id"`
-	SourceID  int64  `json:"source_id"`
-	ThreadID  string `json:"thread_id"`  // Root message ID from threading
-	ContentID string `json:"content_id"` // Content item ID to link
+	TenantID        string `json:"tenant_id"`
+	SourceID        int64  `json:"source_id"`
+	ThreadID        string `json:"thread_id"`  // Root message ID from threading
+	ContentID       string `json:"content_id"` // Content item ID to link
+	PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
 }
 
 // LinkConversationOutput is the output from the LinkConversation activity.
@@ -329,6 +330,10 @@ func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, te
 		// Use fast-tier model (per-stage model selection already available)
 		// The AIClient should handle model selection internally based on task
 	}
+	// Note: LinkConversation is called by the workflow which should pass PipelineTraceID
+	// through the LinkConversationInput struct. However, generateAndUpdateSummary is
+	// called internally and doesn't have direct access to the input. For now, we skip
+	// PipelineTraceID here since this is an async background task triggered post-linking.
 
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {
