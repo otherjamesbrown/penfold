@@ -101,6 +101,41 @@ verify_deployed_version() {
     return 1
 }
 
+# --- Systemd Helpers (for dev02 services: gateway, ai-coordinator) ---
+
+# systemd_restart restarts a systemd service on a remote host and waits for it to become active.
+systemd_restart() {
+    local host="$1"
+    local service_name="$2"
+    local timeout="${3:-30}"
+
+    log_info "Restarting ${service_name} via systemd on ${host}..."
+    ssh "$host" "sudo systemctl restart ${service_name}"
+
+    # Wait for service to become active
+    local attempts=0
+    while [[ $attempts -lt $timeout ]]; do
+        local status=$(ssh "$host" "systemctl is-active ${service_name}" 2>/dev/null)
+        if [[ "$status" == "active" ]]; then
+            log_success "${service_name} is active"
+            return 0
+        fi
+        ((attempts++))
+        sleep 1
+    done
+
+    log_error "${service_name} failed to become active within ${timeout}s"
+    ssh "$host" "sudo journalctl -u ${service_name} --no-pager -n 20" 2>/dev/null
+    return 1
+}
+
+# systemd_status shows the status of a systemd service on a remote host.
+systemd_status() {
+    local host="$1"
+    local service_name="$2"
+    ssh "$host" "systemctl status ${service_name} --no-pager" 2>/dev/null
+}
+
 # --- Remote/Local Deploy Helpers ---
 
 # is_local_host checks if the target host is the current machine.

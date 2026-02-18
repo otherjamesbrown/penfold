@@ -1,16 +1,15 @@
 #!/bin/zsh
 #
-# Penfold AI Coordinator Deployment (Nomad)
-# Cross-compiles, uploads, and deploys AI coordinator via Nomad
+# Penfold AI Coordinator Deployment (systemd)
+# Cross-compiles, uploads, and deploys AI coordinator via systemd on dev02
 #
 # Usage:
-#   ./scripts/deploy-ai-coordinator.sh           # Build, upload, and deploy via Nomad
+#   ./scripts/deploy-ai-coordinator.sh           # Build, upload, and deploy
 #   ./scripts/deploy-ai-coordinator.sh --build   # Build only (no deploy)
-#   ./scripts/deploy-ai-coordinator.sh --status  # Check Nomad job status
+#   ./scripts/deploy-ai-coordinator.sh --status  # Check service status
 #
 # Environment:
 #   AI_HOST     Target host for binary upload (default: dev02)
-#   NOMAD_ADDR  Nomad server address (default: http://dev02.brown.chat:4646)
 
 set -e
 
@@ -23,9 +22,7 @@ source "${SCRIPT_DIR}/lib/deploy-common.sh"
 AI_HOST="${AI_HOST:-dev02}"
 BINARY_PATH="/opt/penfold/bin/penfold-ai-coordinator"
 BUILD_OUTPUT="${PROJECT_ROOT}/services/ai/ai-coordinator-linux"
-NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
-NOMAD_JOB_FILE="deploy/nomad/ai-coordinator.nomad.hcl"
-NOMAD_JOB_NAME="penfold-ai-coordinator"
+SYSTEMD_SERVICE="penfold-ai-coordinator"
 AI_URL="http://dev02.brown.chat:8090"
 
 # --- Build & Deploy ---
@@ -54,9 +51,9 @@ deploy_binary() {
 }
 
 check_status() {
-    log_info "Checking AI coordinator Nomad job status..."
+    log_info "Checking AI coordinator service status..."
     echo ""
-    nomad_job_status "$NOMAD_JOB_NAME" || log_warn "Job not found or Nomad not reachable"
+    systemd_status "$AI_HOST" "$SYSTEMD_SERVICE" || log_warn "Service not found or host not reachable"
 
     # Also check health endpoint
     echo ""
@@ -71,7 +68,7 @@ check_status() {
 # --- Commands ---
 
 cmd_full_deploy() {
-    echo "${CYAN}=== Penfold AI Coordinator Deployment (Nomad) ===${NC}"
+    echo "${CYAN}=== Penfold AI Coordinator Deployment (systemd) ===${NC}"
     echo ""
 
     # Capture old commit before deploy
@@ -84,15 +81,9 @@ cmd_full_deploy() {
     deploy_binary
     echo ""
 
-    log_info "Submitting Nomad job..."
-    nomad_run_job "$NOMAD_JOB_FILE"
-    echo ""
-
-    nomad_restart_job "$NOMAD_JOB_NAME"
-    echo ""
-
-    if ! nomad_wait_healthy "$NOMAD_JOB_NAME" 60; then
-        log_error "Deployment failed - Nomad will auto-revert if configured"
+    # Restart via systemd
+    if ! systemd_restart "$AI_HOST" "$SYSTEMD_SERVICE" 30; then
+        log_error "Deployment failed — service did not become active"
         exit 1
     fi
 
@@ -103,7 +94,7 @@ cmd_full_deploy() {
     echo ""
     if ! verify_deployed_version "$AI_URL" "$EXPECTED_COMMIT" 30 "ai-coordinator"; then
         log_error "Version verification failed — binary may not have been picked up"
-        log_error "Try: nomad job restart $NOMAD_JOB_NAME"
+        log_error "Try: ssh $AI_HOST 'sudo systemctl restart $SYSTEMD_SERVICE'"
         exit 1
     fi
 
@@ -147,13 +138,12 @@ case "${1:-}" in
         echo "Usage: $0 [--build|--status]"
         echo ""
         echo "Options:"
-        echo "  (no args)  Build, upload, and deploy AI coordinator via Nomad"
+        echo "  (no args)  Build, upload, and deploy AI coordinator via systemd"
         echo "  --build    Build only (cross-compile for Linux)"
-        echo "  --status   Check Nomad job status and health"
+        echo "  --status   Check service status and health"
         echo ""
         echo "Environment:"
         echo "  AI_HOST     Target host for binary upload (default: dev02)"
-        echo "  NOMAD_ADDR  Nomad server address (default: http://dev02.brown.chat:4646)"
         ;;
     "")
         cmd_full_deploy

@@ -1,16 +1,15 @@
 #!/bin/zsh
 #
-# Penfold Gateway Deployment (Nomad)
-# Cross-compiles, uploads, and deploys gateway via Nomad
+# Penfold Gateway Deployment (systemd)
+# Cross-compiles, uploads, and deploys gateway via systemd on dev02
 #
 # Usage:
-#   ./scripts/deploy-gateway.sh           # Build, upload, and deploy via Nomad
+#   ./scripts/deploy-gateway.sh           # Build, upload, and deploy
 #   ./scripts/deploy-gateway.sh --build   # Build only (no deploy)
-#   ./scripts/deploy-gateway.sh --status  # Check Nomad job status
+#   ./scripts/deploy-gateway.sh --status  # Check service status
 #
 # Environment:
 #   GATEWAY_HOST  Target host for binary upload (default: dev02)
-#   NOMAD_ADDR    Nomad server address (default: http://dev02.brown.chat:4646)
 
 set -e
 
@@ -23,9 +22,7 @@ source "${SCRIPT_DIR}/lib/deploy-common.sh"
 GATEWAY_HOST="${GATEWAY_HOST:-dev02}"
 BINARY_PATH="/opt/penfold/bin/penfold-gateway"
 BUILD_OUTPUT="${PROJECT_ROOT}/services/gateway/gateway-linux"
-NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
-NOMAD_JOB_FILE="deploy/nomad/gateway.nomad.hcl"
-NOMAD_JOB_NAME="penfold-gateway"
+SYSTEMD_SERVICE="penfold-gateway"
 GATEWAY_URL="http://dev02.brown.chat:8080"
 
 # --- Build & Deploy ---
@@ -54,9 +51,9 @@ deploy_binary() {
 }
 
 check_status() {
-    log_info "Checking gateway Nomad job status..."
+    log_info "Checking gateway service status..."
     echo ""
-    nomad_job_status "$NOMAD_JOB_NAME" || log_warn "Job not found or Nomad not reachable"
+    systemd_status "$GATEWAY_HOST" "$SYSTEMD_SERVICE" || log_warn "Service not found or host not reachable"
 
     # Also check health endpoint
     echo ""
@@ -123,7 +120,7 @@ run_migrations() {
 }
 
 cmd_full_deploy() {
-    echo "${CYAN}=== Penfold Gateway Deployment (Nomad) ===${NC}"
+    echo "${CYAN}=== Penfold Gateway Deployment (systemd) ===${NC}"
     echo ""
 
     # Capture old commit before deploy
@@ -140,15 +137,9 @@ cmd_full_deploy() {
     run_migrations
     echo ""
 
-    log_info "Submitting Nomad job..."
-    nomad_run_job "$NOMAD_JOB_FILE"
-    echo ""
-
-    nomad_restart_job "$NOMAD_JOB_NAME"
-    echo ""
-
-    if ! nomad_wait_healthy "$NOMAD_JOB_NAME" 60; then
-        log_error "Deployment failed - Nomad will auto-revert if configured"
+    # Restart via systemd
+    if ! systemd_restart "$GATEWAY_HOST" "$SYSTEMD_SERVICE" 30; then
+        log_error "Deployment failed — service did not become active"
         exit 1
     fi
 
@@ -159,7 +150,7 @@ cmd_full_deploy() {
     echo ""
     if ! verify_deployed_version "$GATEWAY_URL" "$EXPECTED_COMMIT" 30 "gateway"; then
         log_error "Version verification failed — binary may not have been picked up"
-        log_error "Try: nomad job restart $NOMAD_JOB_NAME"
+        log_error "Try: ssh $GATEWAY_HOST 'sudo systemctl restart $SYSTEMD_SERVICE'"
         exit 1
     fi
 
@@ -206,13 +197,12 @@ case "${1:-}" in
         echo "Usage: $0 [--build|--status]"
         echo ""
         echo "Options:"
-        echo "  (no args)  Build, upload, and deploy gateway via Nomad"
+        echo "  (no args)  Build, upload, and deploy gateway via systemd"
         echo "  --build    Build only (cross-compile for Linux)"
-        echo "  --status   Check Nomad job status and health"
+        echo "  --status   Check service status and health"
         echo ""
         echo "Environment:"
         echo "  GATEWAY_HOST  Target host for binary upload (default: dev02)"
-        echo "  NOMAD_ADDR    Nomad server address (default: http://dev02.brown.chat:4646)"
         ;;
     "")
         cmd_full_deploy
