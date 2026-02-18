@@ -19,13 +19,6 @@ PROJECT_ROOT="${SCRIPT_DIR}/.."
 
 source "${SCRIPT_DIR}/lib/deploy-common.sh"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
 # Configuration
 AI_HOST="${AI_HOST:-dev02}"
 BINARY_PATH="/opt/penfold/bin/penfold-ai-coordinator"
@@ -34,58 +27,6 @@ NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
 NOMAD_JOB_FILE="deploy/nomad/ai-coordinator.nomad.hcl"
 NOMAD_JOB_NAME="penfold-ai-coordinator"
 AI_URL="http://dev02.brown.chat:8090"
-
-log_info() { echo "${CYAN}[INFO]${NC} $1"; }
-log_success() { echo "${GREEN}[OK]${NC} $1"; }
-log_error() { echo "${RED}[ERROR]${NC} $1"; }
-log_warn() { echo "${YELLOW}[WARN]${NC} $1"; }
-
-# --- Nomad Helpers ---
-
-nomad_run_job() {
-    local job_file="$1"
-    log_info "Running Nomad job: ${job_file}..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job run "${PROJECT_ROOT}/${job_file}"
-}
-
-nomad_restart_job() {
-    local job_name="$1"
-    log_info "Restarting ${job_name} to pick up new binary..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job restart -on-error=fail "$job_name"
-}
-
-nomad_wait_healthy() {
-    local job_name="$1"
-    local timeout="${2:-60}"
-    log_info "Waiting for ${job_name} to be healthy..."
-    local attempts=0
-    local job_status=""
-    while [[ $attempts -lt $timeout ]]; do
-        job_status=$(NOMAD_ADDR="$NOMAD_ADDR" nomad job status -short "$job_name" 2>/dev/null | grep "Status" | awk '{print $NF}')
-        if [[ "$job_status" == "running" ]]; then
-            log_success "${job_name} is running"
-            return 0
-        fi
-        ((attempts++))
-        sleep 1
-    done
-    log_error "${job_name} failed to become healthy within ${timeout}s"
-    return 1
-}
-
-nomad_job_status() {
-    local job_name="$1"
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job status "$job_name" 2>/dev/null
-}
-
-# --- Build Helpers ---
-
-build_ldflags() {
-    local ver=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
-    local cmt=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-    local bt=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-    echo "-X github.com/otherjamesbrown/penfold/pkg/buildinfo.Version=${ver} -X github.com/otherjamesbrown/penfold/pkg/buildinfo.Commit=${cmt} -X github.com/otherjamesbrown/penfold/pkg/buildinfo.BuildTime=${bt}"
-}
 
 # --- Build & Deploy ---
 
@@ -104,17 +45,12 @@ build_ai() {
 }
 
 deploy_binary() {
-    log_info "Deploying binary to ${AI_HOST}:${BINARY_PATH}..."
-
     if [[ ! -f "$BUILD_OUTPUT" ]]; then
         log_error "Binary not found: ${BUILD_OUTPUT}"
         return 1
     fi
 
-    # Copy new binary
-    scp "$BUILD_OUTPUT" "${AI_HOST}:${BINARY_PATH}.new"
-    ssh "$AI_HOST" "chmod +x ${BINARY_PATH}.new && mv ${BINARY_PATH}.new ${BINARY_PATH}"
-    log_success "Binary uploaded"
+    deploy_file "$BUILD_OUTPUT" "$AI_HOST" "$BINARY_PATH"
 }
 
 check_status() {
@@ -160,13 +96,15 @@ cmd_full_deploy() {
         exit 1
     fi
 
-    # Verify health endpoint
+    # Get expected commit
+    EXPECTED_COMMIT=$(git rev-parse --short HEAD)
+
+    # Verify deployed version matches
     echo ""
-    local health=$(curl -s -o /dev/null -w "%{http_code}" "${AI_URL}/health" 2>/dev/null || echo "000")
-    if [[ "$health" == "200" ]]; then
-        log_success "Health endpoint: OK"
-    else
-        log_warn "Health endpoint: HTTP ${health}"
+    if ! verify_deployed_version "$AI_URL" "$EXPECTED_COMMIT" 30 "ai-coordinator"; then
+        log_error "Version verification failed — binary may not have been picked up"
+        log_error "Try: nomad job restart $NOMAD_JOB_NAME"
+        exit 1
     fi
 
     # Get new commit from freshly deployed service

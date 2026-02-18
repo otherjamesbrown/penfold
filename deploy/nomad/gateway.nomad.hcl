@@ -9,11 +9,9 @@ job "penfold-gateway" {
 
   update {
     max_parallel     = 1
-    canary           = 1
     min_healthy_time = "10s"
-    healthy_deadline = "60s"
+    healthy_deadline = "90s"
     auto_revert      = true
-    auto_promote     = true
   }
 
   group "gateway" {
