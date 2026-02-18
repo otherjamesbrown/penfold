@@ -42,8 +42,12 @@ func TestE2E_ClassifyStats_ReadsSourceSystemNotSourceType(t *testing.T) {
 	testID := fmt.Sprintf("e2e-stats-field-%d", time.Now().UnixNano())
 	baseTime := time.Now().Add(-1 * time.Hour)
 
+	// Clean slate - remove all tenant data from prior runs
+	err := env.CleanupTestTenant()
+	require.NoError(t, err)
+
 	// Ensure test tenant exists
-	err := env.EnsureTenantExists()
+	err = env.EnsureTenantExists()
 	require.NoError(t, err)
 
 	// Ingest emails that will classify to different source_system values.
@@ -80,7 +84,7 @@ func TestE2E_ClassifyStats_ReadsSourceSystemNotSourceType(t *testing.T) {
 		env.DB.Exec(ctx, `DELETE FROM email_threads WHERE tenant_id = $1`, testTenantID(env))
 	})
 
-	// Ingest all emails via CLI
+	// Ingest all emails via CLI and wait for pipeline completion
 	for i, te := range testEmails {
 		opts := emailSourceOpts{
 			MessageID:         fmt.Sprintf("<stats-%s-%s@e2e.test>", te.name, testID),
@@ -95,12 +99,10 @@ func TestE2E_ClassifyStats_ReadsSourceSystemNotSourceType(t *testing.T) {
 
 		sourceID := createEmailSource(t, env, opts)
 		t.Logf("Ingested email %s (source %d)", te.name, sourceID)
-	}
 
-	// Wait for pipeline to classify all emails
-	// runPipelineAndWait is called inside createEmailSource for each email
-	// Sleep to allow all pipeline workflows to complete
-	time.Sleep(15 * time.Second)
+		// Wait for pipeline (including classification) to complete for this source
+		runPipelineAndWait(t, env, sourceID, 120*time.Second)
+	}
 
 	t.Logf("Ingested %d test emails with expected source_system values", len(testEmails))
 
@@ -175,6 +177,14 @@ func TestE2E_ReprocessContent_AlsoRunsThreadGrouper(t *testing.T) {
 	testID := fmt.Sprintf("e2e-reprocess-thread-%d", time.Now().UnixNano())
 	baseTime := time.Date(2026, 2, 16, 10, 0, 0, 0, time.UTC)
 
+	// Clean slate - remove all tenant data from prior runs
+	err := env.CleanupTestTenant()
+	require.NoError(t, err)
+
+	// Ensure test tenant exists
+	err = env.EnsureTenantExists()
+	require.NoError(t, err)
+
 	rootMsgID := fmt.Sprintf("<reprocess-root-%s@e2e.test>", testID)
 	replyMsgID := fmt.Sprintf("<reprocess-reply-%s@e2e.test>", testID)
 
@@ -224,30 +234,31 @@ func TestE2E_ReprocessContent_AlsoRunsThreadGrouper(t *testing.T) {
 	// --- Delete thread data to simulate pre-fix state ---
 	// This simulates emails that were processed before the threading fix.
 
-	_, err := env.DB.Exec(ctx, `
+	var execErr error
+	_, execErr = env.DB.Exec(ctx, `
 		DELETE FROM thread_messages
 		WHERE thread_id IN (SELECT id FROM email_threads WHERE tenant_id = $1)
 	`, testTenantID(env))
-	require.NoError(t, err)
+	require.NoError(t, execErr)
 
-	_, err = env.DB.Exec(ctx, `
+	_, execErr = env.DB.Exec(ctx, `
 		DELETE FROM email_threads WHERE tenant_id = $1
 	`, testTenantID(env))
-	require.NoError(t, err)
+	require.NoError(t, execErr)
 
 	// Clear thread_id from content_enrichment
-	_, err = env.DB.Exec(ctx, `
+	_, execErr = env.DB.Exec(ctx, `
 		UPDATE content_enrichment SET thread_id = NULL
 		WHERE source_id IN ($1, $2) AND tenant_id = $3
 	`, rootSourceID, replySourceID, testTenantID(env))
-	require.NoError(t, err)
+	require.NoError(t, execErr)
 
 	// Verify threads are gone
 	var threadCount int
-	err = env.DB.QueryRow(ctx, `
+	execErr = env.DB.QueryRow(ctx, `
 		SELECT COUNT(*) FROM email_threads WHERE tenant_id = $1
 	`, testTenantID(env)).Scan(&threadCount)
-	require.NoError(t, err)
+	require.NoError(t, execErr)
 	require.Equal(t, 0, threadCount, "threads should be deleted (simulating pre-fix state)")
 
 	t.Log("Cleared thread data — simulating pre-fix state")

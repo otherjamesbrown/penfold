@@ -92,6 +92,17 @@ func NewProcessor(
 	// Enable attachment content loading for extraction
 	parseOpts := eml.DefaultParseOptions()
 	parseOpts.IncludeAttachmentContent = true
+	// Preserve headers needed for content classification
+	parseOpts.PreserveHeaders = []string{
+		"Auto-Submitted",
+		"Precedence",
+		"X-Auto-Response-Suppress",
+		"X-Mailer",
+		"X-MS-Exchange-Organization-AuthAs",
+		"X-Jira-Issue",
+		"X-Jira-Fingerprint",
+		"X-Aha-Issue",
+	}
 
 	// Create attachment extractor
 	extractor, err := attachments.NewExtractor(repo, logger)
@@ -417,6 +428,30 @@ func (p *Processor) processFile(ctx context.Context, jobID, filePath string) out
 		metadata["references"] = email.References
 	}
 
+	// Store preserved headers for content classification
+	if len(email.Headers) > 0 {
+		metadata["headers"] = email.Headers
+	}
+
+	// Store attachment metadata for classification
+	if len(email.Attachments) > 0 {
+		attachmentMeta := make([]map[string]interface{}, len(email.Attachments))
+		for i, att := range email.Attachments {
+			attachmentMeta[i] = map[string]interface{}{
+				"filename":   att.Filename,
+				"mime_type":  att.MimeType,
+				"size_bytes": att.Size,
+			}
+			if att.ContentID != "" {
+				attachmentMeta[i]["content_id"] = att.ContentID
+			}
+			if att.IsInline {
+				attachmentMeta[i]["is_inline"] = true
+			}
+		}
+		metadata["attachments"] = attachmentMeta
+	}
+
 	source := &storage.EmailSource{
 		TenantID:          p.cfg.TenantID,
 		SourceSystem:      storage.SourceSystemManualEML,
@@ -609,6 +644,30 @@ func (p *Processor) HandleEmbeddedEmail(ctx context.Context, params attachments.
 	}
 	if len(email.References) > 0 {
 		metadata["references"] = email.References
+	}
+
+	// Store preserved headers for content classification
+	if len(email.Headers) > 0 {
+		metadata["headers"] = email.Headers
+	}
+
+	// Store attachment metadata for classification
+	if len(email.Attachments) > 0 {
+		attachmentMeta := make([]map[string]interface{}, len(email.Attachments))
+		for i, att := range email.Attachments {
+			attachmentMeta[i] = map[string]interface{}{
+				"filename":   att.Filename,
+				"mime_type":  att.MimeType,
+				"size_bytes": att.Size,
+			}
+			if att.ContentID != "" {
+				attachmentMeta[i]["content_id"] = att.ContentID
+			}
+			if att.IsInline {
+				attachmentMeta[i]["is_inline"] = true
+			}
+		}
+		metadata["attachments"] = attachmentMeta
 	}
 
 	source := &storage.EmailSource{
