@@ -3,6 +3,7 @@ package tracing
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -64,6 +65,57 @@ const (
 
 // AITracer provides a tracer for AI operations.
 var AITracer = otel.Tracer("penfold.ai")
+
+// applyPipelineTrace configures the context and start options based on the provided
+// pipeline trace ID. It handles parsing the trace ID and falls back to creating a root
+// span if the ID is empty or invalid.
+//
+// Parameters:
+//   - ctx: the context to potentially augment with remote span context
+//   - pipelineTraceID: hex-encoded trace ID to parse (may be empty)
+//   - attrs: pointer to attributes slice; trace name attr is added if traceName is non-empty
+//   - startOpts: pointer to span start options; WithNewRoot() is added when appropriate
+//   - traceName: optional trace name to add as AttrLangfuseTraceName (pass "" to skip)
+//
+// Returns the modified context (which may have a remote span context attached).
+func applyPipelineTrace(
+	ctx context.Context,
+	pipelineTraceID string,
+	attrs *[]attribute.KeyValue,
+	startOpts *[]trace.SpanStartOption,
+	traceName string,
+) context.Context {
+	if pipelineTraceID == "" {
+		// No pipeline trace ID - create a root span
+		*startOpts = append(*startOpts, trace.WithNewRoot())
+		return ctx
+	}
+
+	// Add trace name attribute if provided
+	if traceName != "" {
+		*attrs = append(*attrs, attribute.String(AttrLangfuseTraceName, traceName))
+	}
+
+	// Parse hex trace ID and create remote span context
+	traceID, err := trace.TraceIDFromHex(pipelineTraceID)
+	if err != nil {
+		// Parse failed - log warning and fall back to root span
+		slog.Warn("failed to parse pipeline trace ID, falling back to root span",
+			"pipeline_trace_id", pipelineTraceID,
+			"error", err,
+		)
+		*startOpts = append(*startOpts, trace.WithNewRoot())
+		return ctx
+	}
+
+	// Parse succeeded - create remote span context to parent this span under the pipeline trace
+	spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		TraceFlags: trace.FlagsSampled,
+		Remote:     true,
+	})
+	return trace.ContextWithRemoteSpanContext(ctx, spanCtx)
+}
 
 // LLMCallOptions holds options for starting an LLM call span.
 type LLMCallOptions struct {
@@ -139,28 +191,9 @@ func StartLLMCall(ctx context.Context, name string, opts LLMCallOptions) (contex
 		attrs = append(attrs, attribute.String(AttrLangfuseSessionID, opts.SessionID))
 	}
 
-	// If PipelineTraceID is set, create span as child of that trace
-	// Otherwise, create a root span (backward compatibility)
+	// Apply pipeline trace ID (if set) or create a root span
 	var startOpts []trace.SpanStartOption
-	if opts.PipelineTraceID != "" {
-		// Set trace name so Langfuse shows "slm-pipeline" instead of a sibling span name
-		attrs = append(attrs, attribute.String(AttrLangfuseTraceName, "slm-pipeline"))
-		// Parse hex trace ID and create remote span context
-		traceID, err := trace.TraceIDFromHex(opts.PipelineTraceID)
-		if err == nil {
-			spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
-				TraceID:    traceID,
-				TraceFlags: trace.FlagsSampled,
-				Remote:     true,
-			})
-			ctx = trace.ContextWithRemoteSpanContext(ctx, spanCtx)
-			// Don't use WithNewRoot() - span will be child of remote context
-		}
-		// If parse error, fall through to WithNewRoot() behavior
-	} else {
-		// No PipelineTraceID - create root span (backward compatibility)
-		startOpts = append(startOpts, trace.WithNewRoot())
-	}
+	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, &attrs, &startOpts, "slm-pipeline")
 
 	startOpts = append(startOpts, trace.WithAttributes(attrs...))
 	return AITracer.Start(ctx, name, startOpts...)
@@ -278,28 +311,9 @@ func StartEmbedding(ctx context.Context, name string, opts EmbeddingOptions) (co
 		attrs = append(attrs, attribute.Int("batch_size", opts.BatchSize))
 	}
 
-	// If PipelineTraceID is set, create span as child of that trace
-	// Otherwise, create a root span (backward compatibility)
+	// Apply pipeline trace ID (if set) or create a root span
 	var startOpts []trace.SpanStartOption
-	if opts.PipelineTraceID != "" {
-		// Set trace name so Langfuse shows "slm-pipeline" instead of a sibling span name
-		attrs = append(attrs, attribute.String(AttrLangfuseTraceName, "slm-pipeline"))
-		// Parse hex trace ID and create remote span context
-		traceID, err := trace.TraceIDFromHex(opts.PipelineTraceID)
-		if err == nil {
-			spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
-				TraceID:    traceID,
-				TraceFlags: trace.FlagsSampled,
-				Remote:     true,
-			})
-			ctx = trace.ContextWithRemoteSpanContext(ctx, spanCtx)
-			// Don't use WithNewRoot() - span will be child of remote context
-		}
-		// If parse error, fall through to WithNewRoot() behavior
-	} else {
-		// No PipelineTraceID - create root span (backward compatibility)
-		startOpts = append(startOpts, trace.WithNewRoot())
-	}
+	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, &attrs, &startOpts, "slm-pipeline")
 
 	startOpts = append(startOpts, trace.WithAttributes(attrs...))
 	return AITracer.Start(ctx, name, startOpts...)
@@ -404,28 +418,9 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 		attrs = append(attrs, attribute.String(AttrPenfoldContentType, opts.ContentType))
 	}
 
-	// If PipelineTraceID is set, create span as child of that trace
-	// Otherwise, create a root span (backward compatibility)
+	// Apply pipeline trace ID (if set) or create a root span
 	var startOpts []trace.SpanStartOption
-	if opts.PipelineTraceID != "" {
-		// Set trace name so Langfuse shows "slm-pipeline" instead of a sibling span name
-		attrs = append(attrs, attribute.String(AttrLangfuseTraceName, "slm-pipeline"))
-		// Parse hex trace ID and create remote span context
-		traceID, err := trace.TraceIDFromHex(opts.PipelineTraceID)
-		if err == nil {
-			spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
-				TraceID:    traceID,
-				TraceFlags: trace.FlagsSampled,
-				Remote:     true,
-			})
-			ctx = trace.ContextWithRemoteSpanContext(ctx, spanCtx)
-			// Don't use WithNewRoot() - span will be child of remote context
-		}
-		// If parse error, fall through to WithNewRoot() behavior
-	} else {
-		// No PipelineTraceID - create root span (backward compatibility)
-		startOpts = append(startOpts, trace.WithNewRoot())
-	}
+	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, &attrs, &startOpts, "slm-pipeline")
 
 	startOpts = append(startOpts, trace.WithAttributes(attrs...))
 	return AITracer.Start(ctx, name, startOpts...)
@@ -460,26 +455,10 @@ func StartPipeline(ctx context.Context, name, contentID, contentType, pipelineTr
 		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, []string{contentID}))
 	}
 
-	// If PipelineTraceID is set, create span as child of that trace
-	// Otherwise, create a root span
+	// Apply pipeline trace ID (if set) or create a root span
+	// Note: pass empty string for traceName since it's already set above (line 453)
 	var startOpts []trace.SpanStartOption
-	if pipelineTraceID != "" {
-		// Parse hex trace ID and create remote span context
-		traceID, err := trace.TraceIDFromHex(pipelineTraceID)
-		if err == nil {
-			spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
-				TraceID:    traceID,
-				TraceFlags: trace.FlagsSampled,
-				Remote:     true,
-			})
-			ctx = trace.ContextWithRemoteSpanContext(ctx, spanCtx)
-			// Don't use WithNewRoot() - span will be child of remote context
-		}
-		// If parse error, fall through to WithNewRoot() behavior
-	} else {
-		// No PipelineTraceID - create root span
-		startOpts = append(startOpts, trace.WithNewRoot())
-	}
+	ctx = applyPipelineTrace(ctx, pipelineTraceID, &attrs, &startOpts, "")
 
 	startOpts = append(startOpts, trace.WithAttributes(attrs...))
 	return AITracer.Start(ctx, name, startOpts...)

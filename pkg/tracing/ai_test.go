@@ -313,3 +313,57 @@ func TestTraceIDFromContext(t *testing.T) {
 		t.Errorf("TraceID() returned %s, but span has %s", traceID, actualTraceID)
 	}
 }
+
+// TestStartLLMCall_WithInvalidPipelineTraceID verifies that when an invalid pipeline
+// trace ID is provided, the span falls back to creating a root span instead of
+// creating an orphaned span.
+func TestStartLLMCall_WithInvalidPipelineTraceID(t *testing.T) {
+	exporter, cleanup := setupAITestTracer(t)
+	defer cleanup()
+
+	// Use an invalid trace ID (not valid hex, wrong length, etc.)
+	invalidTraceID := "not-a-valid-hex-string"
+
+	// Call StartLLMCall with invalid PipelineTraceID
+	ctx, span := StartLLMCall(context.Background(), "test-llm-invalid-trace", LLMCallOptions{
+		PipelineTraceID: invalidTraceID,
+		Model:           "test-model",
+		System:          AISystemOllama,
+		ContentID:       "em-test123",
+	})
+	span.End()
+
+	// Verify the span was created
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+
+	// Verify the span is a root span (has no parent)
+	spanData := spans[0]
+	if spanData.Parent.IsValid() {
+		t.Error("expected span to be a root span (no parent), but it has a parent")
+	}
+
+	// Verify the span's trace ID is NOT the invalid string
+	// (it should be a newly generated valid trace ID)
+	actualTraceID := spanData.SpanContext.TraceID().String()
+	if actualTraceID == invalidTraceID {
+		t.Errorf("span should not have the invalid trace ID %s", invalidTraceID)
+	}
+
+	// Verify it's a valid 32-character hex string
+	if len(actualTraceID) != 32 {
+		t.Errorf("expected trace ID length 32, got %d", len(actualTraceID))
+	}
+	_, err := hex.DecodeString(actualTraceID)
+	if err != nil {
+		t.Errorf("expected valid hex trace ID, got error: %v", err)
+	}
+
+	// Verify the context has a valid span
+	spanCtx := trace.SpanFromContext(ctx).SpanContext()
+	if !spanCtx.IsValid() {
+		t.Error("expected valid span context")
+	}
+}
