@@ -74,7 +74,6 @@ func AllMainQueueActivities() []string {
 		ActivityGroupEmailThread,
 		ActivityCreateEnrichmentRecord,
 		ActivityLinkConversation,
-		ActivityKickNextPending,
 	}
 }
 

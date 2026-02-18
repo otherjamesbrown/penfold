@@ -2,6 +2,7 @@ package entities
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,9 +28,14 @@ func TestIncrementSentCount(t *testing.T) {
 	// Connect to test database
 	pool, err := pgxpool.New(ctx, getTestDatabaseURL())
 	if err != nil {
-		t.Fatalf("Failed to connect to test database: %v", err)
+		t.Skipf("Skipping: test database not available: %v", err)
 	}
 	defer pool.Close()
+
+	// Verify database is actually reachable
+	if err := pool.Ping(ctx); err != nil {
+		t.Skipf("Skipping: test database not available: %v", err)
+	}
 
 	logger := logging.MustGlobal()
 	repo := NewRepository(pool, logger)
@@ -122,9 +128,14 @@ func TestIncrementReceivedCount(t *testing.T) {
 	// Connect to test database
 	pool, err := pgxpool.New(ctx, getTestDatabaseURL())
 	if err != nil {
-		t.Fatalf("Failed to connect to test database: %v", err)
+		t.Skipf("Skipping: test database not available: %v", err)
 	}
 	defer pool.Close()
+
+	// Verify database is actually reachable
+	if err := pool.Ping(ctx); err != nil {
+		t.Skipf("Skipping: test database not available: %v", err)
+	}
 
 	logger := logging.MustGlobal()
 	repo := NewRepository(pool, logger)
@@ -217,9 +228,14 @@ func TestIncrementMessageCounts_Independent(t *testing.T) {
 	// Connect to test database
 	pool, err := pgxpool.New(ctx, getTestDatabaseURL())
 	if err != nil {
-		t.Fatalf("Failed to connect to test database: %v", err)
+		t.Skipf("Skipping: test database not available: %v", err)
 	}
 	defer pool.Close()
+
+	// Verify database is actually reachable
+	if err := pool.Ping(ctx); err != nil {
+		t.Skipf("Skipping: test database not available: %v", err)
+	}
 
 	logger := logging.MustGlobal()
 	repo := NewRepository(pool, logger)
@@ -277,7 +293,9 @@ func TestIncrementMessageCounts_Independent(t *testing.T) {
 // Helper functions for test setup/teardown
 
 func getTestDatabaseURL() string {
-	// TODO: Read from environment or test config
+	if url := os.Getenv("PENFOLD_TEST_DB_URL"); url != "" {
+		return url
+	}
 	return "postgres://postgres:postgres@localhost:5432/penfold_test?sslmode=disable"
 }
 
