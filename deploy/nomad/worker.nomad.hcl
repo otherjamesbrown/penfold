@@ -34,7 +34,6 @@ job "penfold-worker" {
 
     task "worker" {
       driver = "raw_exec"
-      user   = "james"
 
       shutdown_delay = "5s"
       kill_signal    = "SIGTERM"
