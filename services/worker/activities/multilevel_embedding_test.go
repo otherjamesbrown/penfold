@@ -9,7 +9,29 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
+
+// Test-First Development for Chunking (pf-963a0e)
+//
+// The chunking tests below (TestGenerateMultiLevelEmbeddings_ChunksLongContent,
+// TestGenerateMultiLevelEmbeddings_ShortContentSingleChunk) are written BEFORE
+// implementation to define the expected behavior:
+//
+// 1. Long content (>400 tokens) should be chunked and produce multiple content embeddings
+// 2. Short content (<400 tokens) should produce a single content embedding with chunk_index=0, chunk_total=1
+// 3. Each chunk embedding should have ChunkIndex and ChunkTotal metadata stored
+//
+// Implementation TODO (see pf-963a0e):
+// - Add ChunkIndex and ChunkTotal fields to MultiLevelEmbeddingInput (interfaces.go)
+// - Import pkg/chunking in multilevel_embedding.go and embedding.go
+// - Call chunking.ChunkContent() before generating embeddings
+// - Loop over chunks and store each with proper chunk metadata
+// - Update embedding_repo.go to INSERT chunk_index and chunk_total columns
+//
+// When implementation is complete:
+// - Uncomment the TODO sections in the tests below that verify chunk metadata
+// - All tests should pass
 
 // mockSourceRepo is a mock implementation of SourceRepository for testing.
 type mockSourceRepo struct {
@@ -582,4 +604,254 @@ func TestReEmbedBatch_ValidationErrors(t *testing.T) {
 	require.Error(t, err3)
 	require.Nil(t, output3)
 	require.Contains(t, err3.Error(), "batch_size must be positive")
+}
+
+// TestGenerateMultiLevelEmbeddings_ChunksLongContent verifies that content over
+// the chunking token limit produces MULTIPLE content embeddings, one per chunk.
+// This test will FAIL until the chunking implementation is added.
+func TestGenerateMultiLevelEmbeddings_ChunksLongContent(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	// Track all AI client embedding calls
+	var embeddingCalls []string
+	mockClient := &mockAIClient{
+		generateEmbeddingFn: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+			embeddingCalls = append(embeddingCalls, req.Text)
+			return &aiv1.EmbeddingResponse{
+				Vector:     make([]float32, 1024),
+				Dimensions: 1024,
+				ModelUsed:  "mxbai-embed-large-v1",
+			}, nil
+		},
+	}
+
+	mockRepo := &mlMockEmbeddingRepo{
+		storeMultiLevelIDs: []int64{100, 101, 102, 103, 104, 105, 106, 107},
+		getEmbeddingMap: map[int64]*Embedding{
+			100: {
+				ID:           100,
+				Model:        "mxbai-embed-large-v1",
+				ModelVersion: "mxbai-embed-large-v1",
+			},
+		},
+	}
+
+	activities := NewMultiLevelEmbeddingActivities(logger, mockClient, mockRepo, nil)
+
+	// Create long content (~2500 chars = ~625 tokens at chars/4 estimate)
+	// This is over 400 tokens (chunking threshold) and over 512 tokens (embedding model limit)
+	longContent := `This is a test email about our quarterly planning process. We need to coordinate across multiple teams to ensure alignment on key initiatives. The product team has identified several critical features that need to be delivered in Q2, and we need engineering capacity to support these initiatives.
+
+First, let's discuss the user authentication overhaul. This has been on our roadmap for six months, and we can't delay it any longer. The current system is showing signs of strain, and we've had three security incidents in the last quarter that could have been prevented with better auth infrastructure.
+
+Second, the data pipeline refactoring is becoming urgent. Our ETL jobs are taking increasingly long to complete, and we're starting to miss SLA commitments to enterprise customers. The engineering team estimates this will take 8-10 weeks of focused effort with a team of three senior engineers.
+
+Third, we need to address technical debt in the frontend codebase. The migration to the new component library has stalled at 60% completion, and this is creating maintenance burden and slowing down feature development. We should allocate dedicated time to finish this migration.
+
+Fourth, the mobile app needs performance improvements. Load times have increased by 40% over the last three releases, and our app store ratings are starting to reflect user frustration. This should be prioritized alongside the auth work.
+
+Finally, we need to invest in observability and monitoring. The recent outages revealed gaps in our ability to diagnose production issues quickly. A two-week sprint focused on improving our telemetry, dashboards, and alerting would pay dividends in reduced MTTR.
+
+In summary, we have five major initiatives competing for limited engineering resources. We need to make hard choices about prioritization and sequencing. Let's schedule a planning session for next week to work through the tradeoffs and commit to a realistic roadmap for Q2.`
+
+	input := GenerateMultiLevelInput{
+		TenantID:    "test-tenant",
+		SourceID:    42,
+		ContentID:   "em-longtest",
+		Content:     longContent,
+		ContentType: "email",
+		Analysis: &DeepAnalyzeOutput{
+			Summary: "Summary of the long content",
+			VerifiedActions: []VerifiedActionOutput{
+				{Description: "Schedule planning session", Status: "confirmed"},
+			},
+		},
+		AssertionIDs: map[string]int64{
+			"action:0": 200,
+		},
+	}
+
+	output, err := activities.GenerateMultiLevelEmbeddings(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// CRITICAL ASSERTION: The current implementation produces 3 total embeddings:
+	// 1 content (truncated) + 1 summary + 1 action
+	// After chunking implementation, we expect MORE than 3:
+	// N content chunks (should be 2-3 chunks for ~2500 chars) + 1 summary + 1 action
+	//
+	// This assertion will FAIL now because total_generated will be 3, not >= 4
+	require.GreaterOrEqual(t, output.TotalGenerated, 4,
+		"Expected at least 4 embeddings (2+ content chunks + summary + action), got %d",
+		output.TotalGenerated)
+
+	// Verify we got multiple content embeddings (chunks)
+	contentEmbeddingCount := 0
+	for _, call := range mockRepo.storeMultiLevelCalls {
+		if call.RepresentationType == "content" {
+			contentEmbeddingCount++
+		}
+	}
+	// This will FAIL - current implementation produces 1 content embedding
+	require.GreaterOrEqual(t, contentEmbeddingCount, 2,
+		"Expected at least 2 content chunk embeddings for long content, got %d",
+		contentEmbeddingCount)
+
+	// Verify chunk metadata on stored embeddings
+	chunkIndex := 0
+	for _, call := range mockRepo.storeMultiLevelCalls {
+		if call.RepresentationType == "content" {
+			require.Equal(t, chunkIndex, call.ChunkIndex,
+				"Expected chunk_index=%d for content chunk %d", chunkIndex, chunkIndex)
+			require.Greater(t, call.ChunkTotal, 1,
+				"Expected chunk_total > 1 for chunked content")
+			chunkIndex++
+		}
+	}
+}
+
+// TestGenerateMultiLevelEmbeddings_ShortContentSingleChunk verifies backward
+// compatibility: short content (under MaxTokens) produces exactly 1 content
+// embedding with chunk_index=0 and chunk_total=1.
+func TestGenerateMultiLevelEmbeddings_ShortContentSingleChunk(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	mockClient := &mockAIClient{
+		generateEmbeddingFn: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+			return &aiv1.EmbeddingResponse{
+				Vector:     make([]float32, 1024),
+				Dimensions: 1024,
+				ModelUsed:  "mxbai-embed-large-v1",
+			}, nil
+		},
+	}
+
+	mockRepo := &mlMockEmbeddingRepo{
+		storeMultiLevelIDs: []int64{100, 101, 102},
+		getEmbeddingMap: map[int64]*Embedding{
+			100: {
+				ID:           100,
+				Model:        "mxbai-embed-large-v1",
+				ModelVersion: "mxbai-embed-large-v1",
+			},
+		},
+	}
+
+	activities := NewMultiLevelEmbeddingActivities(logger, mockClient, mockRepo, nil)
+
+	// Short content (~200 chars = ~50 tokens, well under 400 token threshold)
+	shortContent := "This is a brief email about tomorrow's standup. Let's meet at 9am in the main conference room. Please bring your status updates and any blockers you're facing."
+
+	input := GenerateMultiLevelInput{
+		TenantID:    "test-tenant",
+		SourceID:    42,
+		ContentID:   "em-shorttest",
+		Content:     shortContent,
+		ContentType: "email",
+		Analysis: &DeepAnalyzeOutput{
+			Summary: "Brief standup reminder",
+			VerifiedActions: []VerifiedActionOutput{
+				{Description: "Attend standup", Status: "confirmed"},
+			},
+		},
+		AssertionIDs: map[string]int64{
+			"action:0": 200,
+		},
+	}
+
+	output, err := activities.GenerateMultiLevelEmbeddings(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// Should produce exactly 3 embeddings: 1 content + 1 summary + 1 action
+	require.Equal(t, 3, output.TotalGenerated)
+
+	// Verify exactly 1 content embedding
+	contentEmbeddings := []MultiLevelEmbeddingInput{}
+	for _, call := range mockRepo.storeMultiLevelCalls {
+		if call.RepresentationType == "content" {
+			contentEmbeddings = append(contentEmbeddings, call)
+		}
+	}
+	require.Len(t, contentEmbeddings, 1, "Expected exactly 1 content embedding for short content")
+
+	// Verify chunk metadata indicates single chunk
+	require.Equal(t, 0, contentEmbeddings[0].ChunkIndex,
+		"Expected chunk_index=0 for single chunk")
+	require.Equal(t, 1, contentEmbeddings[0].ChunkTotal,
+		"Expected chunk_total=1 for single chunk")
+}
+
+// TestGenerateEmbedding_ChunksLongContent verifies that the single-path
+// GenerateEmbedding activity also chunks long content into multiple embeddings.
+//
+// NOTE: This test is currently skipped because GenerateEmbedding calls RecordHeartbeat
+// which requires a Temporal activity context. After implementation, this test should be
+// moved to embedding_test.go with proper Temporal test harness OR the implementation
+// should be refactored to make the chunking logic testable without Temporal context.
+func TestGenerateEmbedding_ChunksLongContent(t *testing.T) {
+	t.Skip("Skipping - requires Temporal activity context for RecordHeartbeat. Move to embedding_test.go with proper test harness after implementation.")
+
+	logger := logging.NewNopLogger()
+
+	var embeddingCalls []string
+	mockClient := &mockAIClient{
+		generateEmbeddingFn: func(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
+			embeddingCalls = append(embeddingCalls, req.Text)
+			return &aiv1.EmbeddingResponse{
+				Vector:     make([]float32, 1024),
+				Dimensions: 1024,
+				ModelUsed:  "mxbai-embed-large-v1",
+			}, nil
+		},
+	}
+
+	// Track StoreMultiLevelEmbedding calls
+	mockRepo := &mlMockEmbeddingRepo{
+		storeMultiLevelIDs: []int64{100, 101, 102},
+	}
+
+	// Create embedding activities (not multilevel)
+	embeddingActivities := NewEmbeddingActivities(logger, mockClient, mockRepo, nil)
+
+	// Long content that should be chunked
+	longContent := `This is a test email about our quarterly planning process. We need to coordinate across multiple teams to ensure alignment on key initiatives. The product team has identified several critical features that need to be delivered in Q2, and we need engineering capacity to support these initiatives.
+
+First, let's discuss the user authentication overhaul. This has been on our roadmap for six months, and we can't delay it any longer. The current system is showing signs of strain, and we've had three security incidents in the last quarter that could have been prevented with better auth infrastructure.
+
+Second, the data pipeline refactoring is becoming urgent. Our ETL jobs are taking increasingly long to complete, and we're starting to miss SLA commitments to enterprise customers. The engineering team estimates this will take 8-10 weeks of focused effort with a team of three senior engineers.
+
+Third, we need to address technical debt in the frontend codebase. The migration to the new component library has stalled at 60% completion, and this is creating maintenance burden and slowing down feature development. We should allocate dedicated time to finish this migration.
+
+Fourth, the mobile app needs performance improvements. Load times have increased by 40% over the last three releases, and our app store ratings are starting to reflect user frustration. This should be prioritized alongside the auth work.`
+
+	// Note: The current GenerateEmbedding signature returns a single int64 embedding ID
+	// After implementation, it should either:
+	// 1. Return the first chunk's ID (for backward compatibility), OR
+	// 2. Change signature to return []int64
+	//
+	// For now, this test will FAIL because we're checking the mock repo calls
+	embeddingID, err := embeddingActivities.GenerateEmbedding(context.Background(), workflows.GenerateEmbeddingInput{
+		TenantID:    "test-tenant",
+		SourceID:    42,
+		Content:     longContent,
+		ContentHash: "hash123",
+	})
+	require.NoError(t, err)
+	require.NotZero(t, embeddingID)
+
+	// Verify multiple StoreEmbedding or StoreMultiLevelEmbedding calls were made
+	// This will FAIL - current implementation only calls StoreEmbedding once
+	require.GreaterOrEqual(t, len(mockRepo.storeMultiLevelCalls), 2,
+		"Expected at least 2 store calls for chunked content, got %d",
+		len(mockRepo.storeMultiLevelCalls))
+
+	// TODO: After ChunkIndex and ChunkTotal fields are added to MultiLevelEmbeddingInput:
+	// Verify chunk metadata is set correctly
+	// for i, call := range mockRepo.storeMultiLevelCalls {
+	// 	require.Equal(t, i, call.ChunkIndex,
+	// 		"Expected chunk_index=%d for chunk %d", i, i)
+	// 	require.Greater(t, call.ChunkTotal, 1,
+	// 		"Expected chunk_total > 1 for chunked content")
+	// }
 }

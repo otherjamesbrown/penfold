@@ -1193,22 +1193,16 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 		return nil, status.Error(codes.InvalidArgument, "reason is required")
 	}
 
-	// Parse the new value to validate it's a valid duration (before DB check)
-	newDuration, err := time.ParseDuration(req.Value)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid duration value: %v", err)
-	}
-
 	if s.db == nil {
 		return nil, status.Error(codes.Unavailable, "database not available")
 	}
 
-	// Get current entry to check min/max and previous value
+	// Get current entry to check value_type and min/max bounds
 	var entry pipelinev1.TimeoutEntry
 	var previousValue string
 	var updatedAt time.Time
 
-	err = s.db.QueryRowContext(ctx, `
+	err := s.db.QueryRowContext(ctx, `
 		SELECT key, value, value_type, description,
 		       min_value, max_value, default_value,
 		       COALESCE(updated_at, now()), COALESCE(updated_by, '')
@@ -1234,19 +1228,30 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 		return nil, status.Errorf(codes.Internal, "failed to get config entry: %v", err)
 	}
 
-	// Validate min/max bounds
-	if entry.MinValue != "" {
-		minDuration, err := time.ParseDuration(entry.MinValue)
-		if err == nil && newDuration < minDuration {
-			return nil, status.Errorf(codes.InvalidArgument, "value %s is below minimum %s", req.Value, entry.MinValue)
+	// Type-specific validation
+	if entry.ValueType == "duration" {
+		// Parse and validate duration values
+		newDuration, err := time.ParseDuration(req.Value)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid duration value: %v", err)
+		}
+
+		// Validate min/max bounds for duration
+		if entry.MinValue != "" {
+			minDuration, err := time.ParseDuration(entry.MinValue)
+			if err == nil && newDuration < minDuration {
+				return nil, status.Errorf(codes.InvalidArgument, "value %s is below minimum %s", req.Value, entry.MinValue)
+			}
+		}
+		if entry.MaxValue != "" {
+			maxDuration, err := time.ParseDuration(entry.MaxValue)
+			if err == nil && newDuration > maxDuration {
+				return nil, status.Errorf(codes.InvalidArgument, "value %s is above maximum %s", req.Value, entry.MaxValue)
+			}
 		}
 	}
-	if entry.MaxValue != "" {
-		maxDuration, err := time.ParseDuration(entry.MaxValue)
-		if err == nil && newDuration > maxDuration {
-			return nil, status.Errorf(codes.InvalidArgument, "value %s is above maximum %s", req.Value, entry.MaxValue)
-		}
-	}
+	// For string type (model names), no parsing or min/max validation needed
+	// For integer, float, boolean types: validation could be added here in the future
 
 	// Update the value in database
 	_, err = s.db.ExecContext(ctx, `

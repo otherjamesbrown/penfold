@@ -8,6 +8,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/chunking"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
@@ -147,8 +148,17 @@ func (a *MultiLevelEmbeddingActivities) GenerateMultiLevelEmbeddings(
 	embeddingCount := 0
 	totalEmbeddings := 0
 
+	// Chunk content for embedding
+	chunks := chunking.ChunkContent(input.Content, chunking.ChunkOptions{
+		MaxTokens:     400,
+		OverlapTokens: 50,
+	})
+	if len(chunks) == 0 {
+		chunks = []chunking.Chunk{{Index: 0, Text: input.Content, Start: 0, End: len(input.Content)}}
+	}
+
 	// Count total embeddings we'll generate
-	totalEmbeddings++ // content
+	totalEmbeddings += len(chunks) // content chunks
 	if input.Analysis.Summary != "" {
 		totalEmbeddings++ // summary
 	}
@@ -164,27 +174,24 @@ func (a *MultiLevelEmbeddingActivities) GenerateMultiLevelEmbeddings(
 	}
 	totalEmbeddings += len(input.Analysis.RiskReferences)
 
-	// 1. Generate content embedding
-	recordHeartbeat(ctx, fmt.Sprintf("embedding 1/%d: content", totalEmbeddings))
-	contentText := input.Content
-	// Truncate to 8192 chars for embedding model limit
-	if len(contentText) > 8192 {
-		contentText = contentText[:8192]
-	}
+	// 1. Generate content embeddings (one per chunk)
+	for _, chunk := range chunks {
+		embeddingCount++
+		recordHeartbeat(ctx, fmt.Sprintf("embedding %d/%d: content chunk %d/%d", embeddingCount, totalEmbeddings, chunk.Index+1, len(chunks)))
 
-	contentID, err := a.generateAndStoreEmbedding(ctx, input.TenantID, input.SourceID, "source", input.SourceID, "content", contentText)
-	if err != nil {
-		logger.Error("Failed to generate content embedding", logging.Err(err))
-		return nil, fmt.Errorf("failed to generate content embedding: %w", err)
+		contentID, err := a.generateAndStoreEmbedding(ctx, input.TenantID, input.SourceID, "source", input.SourceID, "content", chunk.Text, chunk.Index, len(chunks))
+		if err != nil {
+			logger.Error("Failed to generate content embedding chunk", logging.Err(err), logging.F("chunk_index", chunk.Index))
+			return nil, fmt.Errorf("failed to generate content embedding chunk %d: %w", chunk.Index, err)
+		}
+		output.SourceEmbeddingIDs = append(output.SourceEmbeddingIDs, contentID)
+		output.TotalGenerated++
 	}
-	output.SourceEmbeddingIDs = append(output.SourceEmbeddingIDs, contentID)
-	output.TotalGenerated++
-	embeddingCount++
 
 	// Capture model info from first successful response
-	if output.ModelUsed == "" {
-		// Get model info from the embedding we just stored
-		if emb, err := a.embeddingRepo.GetEmbedding(ctx, input.TenantID, contentID); err == nil && emb != nil {
+	if output.ModelUsed == "" && len(output.SourceEmbeddingIDs) > 0 {
+		// Get model info from the first embedding we just stored
+		if emb, err := a.embeddingRepo.GetEmbedding(ctx, input.TenantID, output.SourceEmbeddingIDs[0]); err == nil && emb != nil {
 			output.ModelUsed = emb.Model
 			output.ModelVersion = emb.ModelVersion
 		}
@@ -195,7 +202,7 @@ func (a *MultiLevelEmbeddingActivities) GenerateMultiLevelEmbeddings(
 		embeddingCount++
 		recordHeartbeat(ctx, fmt.Sprintf("embedding %d/%d: summary", embeddingCount, totalEmbeddings))
 
-		summaryID, err := a.generateAndStoreEmbedding(ctx, input.TenantID, input.SourceID, "source", input.SourceID, "summary", input.Analysis.Summary)
+		summaryID, err := a.generateAndStoreEmbedding(ctx, input.TenantID, input.SourceID, "source", input.SourceID, "summary", input.Analysis.Summary, 0, 1)
 		if err != nil {
 			logger.Error("Failed to generate summary embedding", logging.Err(err))
 			return nil, fmt.Errorf("failed to generate summary embedding: %w", err)
@@ -222,7 +229,7 @@ func (a *MultiLevelEmbeddingActivities) GenerateMultiLevelEmbeddings(
 			entityType = "assertion"
 		}
 
-		actionID, err := a.generateAndStoreEmbedding(ctx, input.TenantID, input.SourceID, entityType, entityID, "action_item", action.Description)
+		actionID, err := a.generateAndStoreEmbedding(ctx, input.TenantID, input.SourceID, entityType, entityID, "action_item", action.Description, 0, 1)
 		if err != nil {
 			logger.Warn("Failed to generate action item embedding",
 				logging.F("action_index", i),
@@ -253,7 +260,7 @@ func (a *MultiLevelEmbeddingActivities) GenerateMultiLevelEmbeddings(
 			entityType = "assertion"
 		}
 
-		decisionID, err := a.generateAndStoreEmbedding(ctx, input.TenantID, input.SourceID, entityType, entityID, "decision", decision.Description)
+		decisionID, err := a.generateAndStoreEmbedding(ctx, input.TenantID, input.SourceID, entityType, entityID, "decision", decision.Description, 0, 1)
 		if err != nil {
 			logger.Warn("Failed to generate decision embedding",
 				logging.F("decision_index", i),
@@ -280,7 +287,7 @@ func (a *MultiLevelEmbeddingActivities) GenerateMultiLevelEmbeddings(
 			entityType = "assertion"
 		}
 
-		riskID, err := a.generateAndStoreEmbedding(ctx, input.TenantID, input.SourceID, entityType, entityID, "risk", risk.Description)
+		riskID, err := a.generateAndStoreEmbedding(ctx, input.TenantID, input.SourceID, entityType, entityID, "risk", risk.Description, 0, 1)
 		if err != nil {
 			logger.Warn("Failed to generate risk embedding",
 				logging.F("risk_index", i),
@@ -316,6 +323,8 @@ func (a *MultiLevelEmbeddingActivities) generateAndStoreEmbedding(
 	entityID int64,
 	representationType string,
 	text string,
+	chunkIndex int,
+	chunkTotal int,
 ) (int64, error) {
 	// Call AI service to generate embedding
 	resp, err := a.aiClient.GenerateEmbedding(ctx, &aiv1.EmbeddingRequest{
@@ -337,6 +346,8 @@ func (a *MultiLevelEmbeddingActivities) generateAndStoreEmbedding(
 		Model:              resp.ModelUsed,
 		ModelVersion:       resp.ModelUsed, // Use model name as version for now
 		TextContent:        text,
+		ChunkIndex:         chunkIndex,
+		ChunkTotal:         chunkTotal,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("failed to store embedding: %w", err)
@@ -468,18 +479,31 @@ func (a *MultiLevelEmbeddingActivities) ReEmbedBatch(
 			continue
 		}
 
-		// Generate new content embedding
-		contentText := source.ContentText
-		if len(contentText) > 8192 {
-			contentText = contentText[:8192]
+		// Chunk content for embedding
+		chunks := chunking.ChunkContent(source.ContentText, chunking.ChunkOptions{
+			MaxTokens:     400,
+			OverlapTokens: 50,
+		})
+		if len(chunks) == 0 {
+			chunks = []chunking.Chunk{{Index: 0, Text: source.ContentText, Start: 0, End: len(source.ContentText)}}
 		}
 
-		_, err = a.generateAndStoreEmbedding(ctx, input.TenantID, sourceID, "source", sourceID, "content", contentText)
-		if err != nil {
-			logger.Warn("Failed to generate new content embedding",
-				logging.F("source_id", sourceID),
-				logging.Err(err),
-			)
+		// Generate embeddings for each chunk
+		chunkFailed := false
+		for _, chunk := range chunks {
+			_, err = a.generateAndStoreEmbedding(ctx, input.TenantID, sourceID, "source", sourceID, "content", chunk.Text, chunk.Index, len(chunks))
+			if err != nil {
+				logger.Warn("Failed to generate new content embedding chunk",
+					logging.F("source_id", sourceID),
+					logging.F("chunk_index", chunk.Index),
+					logging.Err(err),
+				)
+				chunkFailed = true
+				break
+			}
+		}
+
+		if chunkFailed {
 			output.Errors++
 			continue
 		}

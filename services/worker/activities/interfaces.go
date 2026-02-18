@@ -70,6 +70,8 @@ type MultiLevelEmbeddingInput struct {
 	ModelVersion       string
 	TextContent        string // The text that was embedded
 	ContentHash        string // SHA-256 for deduplication
+	ChunkIndex         int    // 0-indexed position of this chunk
+	ChunkTotal         int    // Total number of chunks for this content
 }
 
 // Embedding represents a stored embedding vector.

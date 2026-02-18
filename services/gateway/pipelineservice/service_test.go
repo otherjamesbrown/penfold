@@ -235,6 +235,9 @@ func TestUpdateTimeoutConfig_Validation(t *testing.T) {
 	})
 
 	t.Run("invalid duration value", func(t *testing.T) {
+		// NOTE: With nil DB, this test now returns Unavailable (DB check happens before parsing).
+		// This is correct behavior after fix for pf-881da1. To test invalid duration validation,
+		// use an integration test with a real DB and a duration-type config entry.
 		_, err := svc.UpdateTimeoutConfig(context.Background(), &pipelinev1.UpdateTimeoutConfigRequest{
 			Key:       "timeout.ai_client.request",
 			Value:     "invalid",
@@ -244,7 +247,8 @@ func TestUpdateTimeoutConfig_Validation(t *testing.T) {
 		require.Error(t, err)
 		st, ok := status.FromError(err)
 		require.True(t, ok)
-		assert.Equal(t, codes.InvalidArgument, st.Code())
+		// After pf-881da1 fix: DB check happens first, so nil DB returns Unavailable
+		assert.Equal(t, codes.Unavailable, st.Code())
 	})
 
 	t.Run("nil db returns error", func(t *testing.T) {
@@ -271,5 +275,48 @@ func TestUpdateTimeoutConfig_Validation(t *testing.T) {
 		assert.Equal(t, "180s", req.Value)
 		assert.Equal(t, "test-user", req.UpdatedBy)
 		assert.Equal(t, "Extended for longer requests", req.Reason)
+	})
+
+	// BUG REPRODUCTION TEST [pf-881da1]
+	// This test reproduces the bug where UpdateTimeoutConfig unconditionally
+	// parses all values as durations before checking value_type from the DB.
+	// When the CLI sends a model config value like "qwen2.5:7b" via
+	// UpdateTimeoutConfig with key "model.stage.triage", the handler rejects
+	// it with "invalid duration value" because it tries to parse the model
+	// name as a Go duration.
+	//
+	// Expected behavior: The handler should check value_type from the DB first,
+	// and only parse as duration when value_type=="duration".
+	//
+	// This test SHOULD FAIL with current code (proving we catch the bug).
+	t.Run("model config value should not be parsed as duration [pf-881da1]", func(t *testing.T) {
+		// This test currently FAILS because the handler unconditionally parses
+		// the value as a duration at line ~1197, before querying value_type.
+		// The correct behavior would be to accept this model name value.
+		_, err := svc.UpdateTimeoutConfig(context.Background(), &pipelinev1.UpdateTimeoutConfigRequest{
+			Key:       "model.stage.triage",
+			Value:     "qwen2.5:7b",
+			UpdatedBy: "test",
+			Reason:    "test model config",
+		})
+
+		// BUG: Currently fails with InvalidArgument "invalid duration value"
+		// EXPECTED: Should fail with Unavailable (nil db) NOT InvalidArgument (duration parse)
+		// Once fixed, this should pass the duration parse and fail on nil db check instead.
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+
+		// BUG ASSERTION: Current code returns InvalidArgument because it tries
+		// to parse "qwen2.5:7b" as a duration before checking value_type.
+		// After the fix, this should return Unavailable (nil db) instead.
+		//
+		// This assertion SHOULD FAIL with current code, proving the bug exists.
+		assert.Equal(t, codes.Unavailable, st.Code(),
+			"Expected Unavailable (nil db), but got %v with message: %q. "+
+			"This indicates the handler is incorrectly parsing the value as a duration "+
+			"before checking value_type from the database. "+
+			"The handler should check value_type first and only parse as duration "+
+			"when value_type=='duration'.", st.Code(), st.Message())
 	})
 }

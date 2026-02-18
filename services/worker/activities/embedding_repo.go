@@ -111,6 +111,8 @@ func (r *PostgresEmbeddingRepository) StoreMultiLevelEmbedding(
 			embedding,
 			text_content,
 			content_hash,
+			chunk_index,
+			chunk_total,
 			created_at,
 			updated_at
 		) VALUES (
@@ -124,6 +126,8 @@ func (r *PostgresEmbeddingRepository) StoreMultiLevelEmbedding(
 			$8,
 			$9,
 			$10,
+			$11,
+			$12,
 			NOW(),
 			NOW()
 		)
@@ -144,6 +148,8 @@ func (r *PostgresEmbeddingRepository) StoreMultiLevelEmbedding(
 		embeddingFloat64,
 		input.TextContent,
 		input.ContentHash,
+		input.ChunkIndex,
+		input.ChunkTotal,
 	).Scan(&embeddingID)
 
 	if err != nil {

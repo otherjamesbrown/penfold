@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/chunking"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
@@ -86,64 +87,103 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		)
 	}
 
-	// Call AI service to generate embedding
-	startTime := time.Now()
-	activity.RecordHeartbeat(ctx, "calling AI service")
-
-	embeddingReq := &aiv1.EmbeddingRequest{
-		Text:     input.Content,
-		TenantId: &input.TenantID,
-	}
-	if input.PipelineTraceID != "" {
-		embeddingReq.PipelineTraceId = &input.PipelineTraceID
-	}
-	if input.ContentID != "" {
-		embeddingReq.ContentId = &input.ContentID
-	}
-
-	// Tracing is handled by the AI server, not duplicated here
-	resp, err := a.aiClient.GenerateEmbedding(ctx, embeddingReq)
-	if err != nil {
-		pe := perrors.ClassifyError(err, "embed")
-		logger.Error("Failed to generate embedding from AI service", logging.Err(pe))
-		return 0, WrapForTemporal(pe)
-	}
-
-	// Record heartbeat after AI call
-	activity.RecordHeartbeat(ctx, "embedding generated, storing")
-
-	logger.Info("Embedding generated successfully",
-		logging.F("ai_duration", time.Since(startTime)),
-		logging.F("dimensions", int(resp.Dimensions)),
-		logging.F("model", resp.ModelUsed),
-	)
-
 	// Check if repository is available for storage
 	if a.embeddingRepo == nil {
 		logger.Warn("Embedding repository not configured, skipping storage")
-		// Return 0 to indicate no stored embedding, but operation was successful
 		return 0, nil
 	}
 
-	// Store the embedding
-	storeStart := time.Now()
-	embeddingID, err := a.embeddingRepo.StoreEmbedding(
-		ctx,
-		input.TenantID,
-		input.SourceID,
-		resp.Vector,
-		resp.ModelUsed,
-		resp.Dimensions,
-	)
-	if err != nil {
+	// Delete existing embeddings for this source before creating new chunks
+	activity.RecordHeartbeat(ctx, "deleting existing embeddings")
+	if err := a.embeddingRepo.DeleteEmbeddingsForSource(ctx, input.TenantID, input.SourceID); err != nil {
 		pe := perrors.ClassifyError(err, "embed")
-		logger.Error("Failed to store embedding", logging.Err(pe))
+		logger.Error("Failed to delete existing embeddings", logging.Err(pe))
 		return 0, WrapForTemporal(pe)
 	}
 
-	logger.Info("Embedding stored successfully",
-		logging.F("store_duration", time.Since(storeStart)),
-		logging.F("embedding_id", embeddingID),
+	// Chunk content for embedding
+	chunks := chunking.ChunkContent(input.Content, chunking.ChunkOptions{
+		MaxTokens:     400,
+		OverlapTokens: 50,
+	})
+	if len(chunks) == 0 {
+		chunks = []chunking.Chunk{{Index: 0, Text: input.Content, Start: 0, End: len(input.Content)}}
+	}
+
+	logger.Info("Chunked content for embedding",
+		logging.F("chunk_count", len(chunks)),
+	)
+
+	// Track the first chunk's embedding ID for backward compatibility
+	var firstEmbeddingID int64
+	startTime := time.Now()
+
+	// Generate and store embeddings for each chunk
+	for _, chunk := range chunks {
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("generating embedding for chunk %d/%d", chunk.Index+1, len(chunks)))
+
+		embeddingReq := &aiv1.EmbeddingRequest{
+			Text:     chunk.Text,
+			TenantId: &input.TenantID,
+		}
+		if input.PipelineTraceID != "" {
+			embeddingReq.PipelineTraceId = &input.PipelineTraceID
+		}
+		if input.ContentID != "" {
+			embeddingReq.ContentId = &input.ContentID
+		}
+
+		// Call AI service to generate embedding
+		resp, err := a.aiClient.GenerateEmbedding(ctx, embeddingReq)
+		if err != nil {
+			pe := perrors.ClassifyError(err, "embed")
+			logger.Error("Failed to generate embedding from AI service",
+				logging.Err(pe),
+				logging.F("chunk_index", chunk.Index),
+			)
+			return 0, WrapForTemporal(pe)
+		}
+
+		// Store the embedding with chunk metadata
+		embeddingID, err := a.embeddingRepo.StoreMultiLevelEmbedding(ctx, &MultiLevelEmbeddingInput{
+			TenantID:           input.TenantID,
+			SourceID:           input.SourceID,
+			EntityType:         "source",
+			EntityID:           input.SourceID,
+			RepresentationType: "content",
+			Vector:             resp.Vector,
+			Model:              resp.ModelUsed,
+			ModelVersion:       resp.ModelUsed,
+			TextContent:        chunk.Text,
+			ContentHash:        input.ContentHash,
+			ChunkIndex:         chunk.Index,
+			ChunkTotal:         len(chunks),
+		})
+		if err != nil {
+			pe := perrors.ClassifyError(err, "embed")
+			logger.Error("Failed to store embedding",
+				logging.Err(pe),
+				logging.F("chunk_index", chunk.Index),
+			)
+			return 0, WrapForTemporal(pe)
+		}
+
+		// Record the first chunk's ID for return value
+		if chunk.Index == 0 {
+			firstEmbeddingID = embeddingID
+		}
+
+		logger.Debug("Chunk embedding stored",
+			logging.F("chunk_index", chunk.Index),
+			logging.F("chunk_total", len(chunks)),
+			logging.F("embedding_id", embeddingID),
+		)
+	}
+
+	logger.Info("All chunk embeddings stored successfully",
+		logging.F("total_duration", time.Since(startTime)),
+		logging.F("chunk_count", len(chunks)),
+		logging.F("first_embedding_id", firstEmbeddingID),
 	)
 
 	// Record pipeline run for provenance tracking (Stage 5: embed)
@@ -153,23 +193,23 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		// Capture IO data
 		inputJSON, _ := json.Marshal(map[string]interface{}{
 			"content_length": len(input.Content),
-			"content_hash": input.ContentHash,
-			"tenant_id": input.TenantID,
+			"content_hash":   input.ContentHash,
+			"tenant_id":      input.TenantID,
+			"chunk_count":    len(chunks),
 		})
 		outputJSON, _ := json.Marshal(map[string]interface{}{
-			"dimensions": resp.Dimensions,
-			"model_used": resp.ModelUsed,
-			"embedding_id": embeddingID,
+			"chunk_count":        len(chunks),
+			"first_embedding_id": firstEmbeddingID,
 		})
 		parsedJSON, _ := json.Marshal(map[string]interface{}{
-			"embedding_id": embeddingID,
-			"dimensions": resp.Dimensions,
+			"first_embedding_id": firstEmbeddingID,
+			"chunk_count":        len(chunks),
 		})
 
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:   input.SourceID,
 			Stage:      "embed",
-			ModelID:    resp.ModelUsed,
+			ModelID:    "chunked", // Model is recorded per-chunk, overall operation is chunked
 			Status:     "completed",
 			DurationMS: durationMS,
 			InputData:  inputJSON,
@@ -181,7 +221,7 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		}
 	}
 
-	return embeddingID, nil
+	return firstEmbeddingID, nil
 }
 
 // GenerateEmbeddingBatch generates embeddings for multiple content items.
