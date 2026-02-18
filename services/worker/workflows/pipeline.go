@@ -2,6 +2,8 @@
 package workflows
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -732,7 +734,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Placed after fetch so ContentType and ContentID are populated.
 	// Don't fail the pipeline if tracing fails - just log and continue.
 	ctxTracing := workflow.WithActivityOptions(ctx, fastOpts)
-	var pipelineSpanID string
 	var tracingOutput StartPipelineTracingOutput
 	tracingErr := workflow.ExecuteActivity(ctxTracing, pkgtemporal.ActivityStartPipelineTracing, StartPipelineTracingInput{
 		PipelineTraceID: pipelineTraceID,
@@ -743,9 +744,10 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		logger.Warn("Failed to start pipeline tracing span (non-fatal)", "error", tracingErr)
 	} else {
 		// Override the pre-generated trace ID with the actual OTel trace ID
-		// This ensures all downstream activities create child spans under the same trace
+		// This ensures all downstream activities create child spans under the same trace.
+		// The root span ID (tracingOutput.SpanID) is no longer passed directly to activities;
+		// each AI stage generates its own stage-level span ID via workflow.SideEffect.
 		pipelineTraceID = tracingOutput.TraceID
-		pipelineSpanID = tracingOutput.SpanID
 	}
 
 	var parsedContent string
@@ -864,6 +866,15 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	)
 	triageStart := workflow.Now(ctx)
 
+	// Generate deterministic stage span ID for triage.
+	// Using workflow.SideEffect to preserve Temporal workflow determinism.
+	var triageStageSpanID string
+	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+		b := make([]byte, 8)
+		_, _ = rand.Read(b)
+		return hex.EncodeToString(b)
+	}).Get(&triageStageSpanID)
+
 	var triageOutput TriageOutput
 	triageOpts := stageOpts("triage", llmOpts)
 	if input.TimeoutOverride > 0 {
@@ -881,11 +892,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		ContentType:     input.ContentType,
 		ModelOverride:   input.ModelOverride,
 		PipelineTraceID: pipelineTraceID,
-		PipelineSpanID:  pipelineSpanID,
+		PipelineSpanID:  triageStageSpanID,
 	}).Get(ctx, &triageOutput)
 	if err != nil {
 		// Update status to "rejected" with failure info
 		pe := perrors.ClassifyError(err, "triage")
+		logger.Warn("pipeline stage span error",
+			"stage.name", "triage",
+			"stage.span_id", triageStageSpanID,
+			"error.type", classifyTemporalError(err),
+			"error.detail", err.Error(),
+			"stage.duration_ms", workflow.Now(ctx).Sub(triageStart).Milliseconds(),
+		)
 		logger.Info("Triage failed, marking as rejected",
 			"error", err,
 			"error_code", pe.Code,
@@ -931,6 +949,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
+	logger.Info("pipeline stage span completed",
+		"stage.name", "triage",
+		"stage.span_id", triageStageSpanID,
+		"stage.duration_ms", workflow.Now(ctx).Sub(triageStart).Milliseconds(),
+		"stage.timeout_start_to_close_ms", triageOpts.StartToCloseTimeout.Milliseconds(),
+	)
 	logger.Info("pipeline stage completed",
 		"source_id", input.SourceID,
 		"stage", triageStage.Name,
@@ -1189,6 +1213,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 		extractStart := workflow.Now(ctx)
 
+		// Generate deterministic stage span ID for extract_entities.
+		var extractStageSpanID string
+		_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+			b := make([]byte, 8)
+			_, _ = rand.Read(b)
+			return hex.EncodeToString(b)
+		}).Get(&extractStageSpanID)
+
 		extractOutput = &SLMPipelineExtractEntitiesOutput{}
 		extractOpts := stageOpts("extract_entities", embeddingOpts)
 		if input.TimeoutOverride > 0 {
@@ -1203,10 +1235,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			Content:         parsedContent,
 			ModelOverride:   input.ModelOverride,
 			PipelineTraceID: pipelineTraceID,
-			PipelineSpanID:  pipelineSpanID,
+			PipelineSpanID:  extractStageSpanID,
 		}).Get(ctx, extractOutput)
 
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
+		// Generate deterministic stage span ID for extract_assertions.
+		var assertionsStageSpanID string
+		_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+			b := make([]byte, 8)
+			_, _ = rand.Read(b)
+			return hex.EncodeToString(b)
+		}).Get(&assertionsStageSpanID)
+
 		var assertionCount int
 		assertionOpts := stageOpts("extract_assertions", embeddingOpts)
 		ctxAssertions := workflow.WithActivityOptions(ctx, assertionOpts)
@@ -1218,15 +1258,34 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			Content:         parsedContent,
 			SenderEmail:     input.SenderEmail, // Pass sender for owner attribution
 			PipelineTraceID: pipelineTraceID,
-			PipelineSpanID:  pipelineSpanID,
+			PipelineSpanID:  assertionsStageSpanID,
 		}).Get(ctx, &assertionCount)
 		if err2 != nil {
+			logger.Warn("pipeline stage span error",
+				"stage.name", "extract_assertions",
+				"stage.span_id", assertionsStageSpanID,
+				"error.type", classifyTemporalError(err2),
+				"error.detail", err2.Error(),
+			)
 			logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err2)
 			assertionCount = 0
+		} else {
+			logger.Info("pipeline stage span completed",
+				"stage.name", "extract_assertions",
+				"stage.span_id", assertionsStageSpanID,
+				"stage.timeout_start_to_close_ms", assertionOpts.StartToCloseTimeout.Milliseconds(),
+			)
 		}
 		state.result.AssertionsCreated = assertionCount
 
 		if err != nil {
+			logger.Warn("pipeline stage span error",
+				"stage.name", "extract_entities",
+				"stage.span_id", extractStageSpanID,
+				"error.type", classifyTemporalError(err),
+				"error.detail", err.Error(),
+				"stage.duration_ms", workflow.Now(ctx).Sub(extractStart).Milliseconds(),
+			)
 			logger.Warn("pipeline stage failed (non-blocking)",
 				"source_id", input.SourceID,
 				"stage", extractStage.Name,
@@ -1237,6 +1296,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			)
 			extractOutput = &SLMPipelineExtractEntitiesOutput{}
 		} else {
+			logger.Info("pipeline stage span completed",
+				"stage.name", "extract_entities",
+				"stage.span_id", extractStageSpanID,
+				"stage.duration_ms", workflow.Now(ctx).Sub(extractStart).Milliseconds(),
+				"stage.timeout_start_to_close_ms", extractOpts.StartToCloseTimeout.Milliseconds(),
+			)
 			logger.Info("pipeline stage completed",
 				"source_id", input.SourceID,
 				"stage", extractStage.Name,
@@ -1389,6 +1454,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 		analyzeStart := workflow.Now(ctx)
 
+		// Generate deterministic stage span ID for deep_analyze.
+		var analyzeStageSpanID string
+		_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+			b := make([]byte, 8)
+			_, _ = rand.Read(b)
+			return hex.EncodeToString(b)
+		}).Get(&analyzeStageSpanID)
+
 		var analyzeOutput *DeepAnalyzeOutput
 		analyzeOpts := stageOpts("deep_analyze", llmOpts)
 		if input.TimeoutOverride > 0 {
@@ -1409,10 +1482,17 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			BackgroundContext: "", // Context package content assembled by activity
 			ModelOverride:     input.ModelOverride,
 			PipelineTraceID:   pipelineTraceID,
-			PipelineSpanID:    pipelineSpanID,
+			PipelineSpanID:    analyzeStageSpanID,
 		}).Get(ctx, analyzeOutput)
 		if err != nil {
 			durationMs := workflow.Now(ctx).Sub(analyzeStart).Milliseconds()
+			logger.Warn("pipeline stage span error",
+				"stage.name", "deep_analyze",
+				"stage.span_id", analyzeStageSpanID,
+				"error.type", classifyTemporalError(err),
+				"error.detail", err.Error(),
+				"stage.duration_ms", durationMs,
+			)
 			logger.Warn("pipeline stage failed (non-blocking)",
 				"source_id", input.SourceID,
 				"stage", analyzeStage.Name,
@@ -1432,6 +1512,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			}
 			analyzeOutput = nil // Skip persist if analysis failed
 		} else {
+			logger.Info("pipeline stage span completed",
+				"stage.name", "deep_analyze",
+				"stage.span_id", analyzeStageSpanID,
+				"stage.duration_ms", workflow.Now(ctx).Sub(analyzeStart).Milliseconds(),
+				"stage.timeout_start_to_close_ms", analyzeOpts.StartToCloseTimeout.Milliseconds(),
+			)
 			logger.Info("pipeline stage completed",
 				"source_id", input.SourceID,
 				"stage", analyzeStage.Name,
@@ -1588,6 +1674,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	)
 	embedStart := workflow.Now(ctx)
 
+	// Generate deterministic stage span ID for embedding.
+	var embedStageSpanID string
+	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+		b := make([]byte, 8)
+		_, _ = rand.Read(b)
+		return hex.EncodeToString(b)
+	}).Get(&embedStageSpanID)
+
 	var embeddingID int64
 	embedOpts := stageOpts("embedding", embeddingOpts)
 	ctxEmbed := workflow.WithActivityOptions(ctx, embedOpts)
@@ -1598,11 +1692,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		Content:         parsedContent,
 		ContentHash:     input.ContentHash,
 		PipelineTraceID: pipelineTraceID,
-		PipelineSpanID:  pipelineSpanID,
+		PipelineSpanID:  embedStageSpanID,
 	}).Get(ctx, &embeddingID)
 	if err != nil {
 		runCompensation(ctx)
 		pe := perrors.ClassifyError(err, "embedding")
+		logger.Warn("pipeline stage span error",
+			"stage.name", "embedding",
+			"stage.span_id", embedStageSpanID,
+			"error.type", classifyTemporalError(err),
+			"error.detail", err.Error(),
+			"stage.duration_ms", workflow.Now(ctx).Sub(embedStart).Milliseconds(),
+		)
 		state.result.Status = "failed"
 		state.result.Error = fmt.Sprintf("embedding_failed: %v", err)
 		state.status.ErrorMessage = state.result.Error
@@ -1621,6 +1722,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
+	logger.Info("pipeline stage span completed",
+		"stage.name", "embedding",
+		"stage.span_id", embedStageSpanID,
+		"stage.duration_ms", workflow.Now(ctx).Sub(embedStart).Milliseconds(),
+		"stage.timeout_start_to_close_ms", embedOpts.StartToCloseTimeout.Milliseconds(),
+	)
 	logger.Info("pipeline stage completed",
 		"source_id", input.SourceID,
 		"stage", embedStage.Name,

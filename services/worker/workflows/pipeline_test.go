@@ -1802,6 +1802,168 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_InteractionWi
 	require.True(s.T(), result.SkipDeep) // Verify skip flag is set
 }
 
+// TestSLMPipeline_StageSpanPropagation verifies that each AI-calling stage receives a
+// stage-specific SpanID (not the root pipeline SpanID) as its PipelineSpanID.
+//
+// This is the acceptance test for pf-9c71dd: worker-side stage spans for Langfuse error visibility.
+//
+// Acceptance criteria verified:
+// 1. Each AI stage (triage, extract_entities, deep_analyze, embedding) gets a wrapping stage span.
+// 2. The stage span's SpanID is passed to the activity input as PipelineSpanID (not the root).
+// 3. Each activity receives a UNIQUE SpanID (stage-specific, not the same root SpanID).
+//
+// The test fails pre-implementation because currently all activities receive the same root
+// pipelineSpanID from StartPipelineTracing — there are no per-stage span wrappers.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_StageSpanPropagation() {
+	const rootPipelineSpanID = "aabbccddeeff0011" // 16-char hex, simulates what StartPipelineTracing returns
+
+	input := PipelineInput{
+		TenantID:    "tenant-span",
+		SourceID:    9900,
+		ContentID:   "em-spantest",
+		JobID:       "job-9900",
+		ContentType: "email",
+		ContentHash: "hashspan",
+		BodyText:    "Project Alpha deadline has moved. This impacts the Q2 roadmap.",
+		Subject:     "Deadline Change",
+		SenderEmail: "pm@example.com",
+	}
+
+	// Capture the PipelineSpanID received by each AI activity.
+	var (
+		triageSpanID     string
+		extractSpanID    string
+		deepAnalyzeSpanID string
+		embeddingSpanID  string
+	)
+
+	// Stage 0: Parse (non-AI, no span capture needed).
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 9900
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Project Alpha deadline has moved. This impacts the Q2 roadmap.",
+		NewContent: "Project Alpha deadline has moved. This impacts the Q2 roadmap.",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "parsed"
+	})).Return(nil)
+
+	// Stage 1: Triage — capture the SpanID passed to this AI activity.
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		if in.SourceID == 9900 {
+			triageSpanID = in.PipelineSpanID
+		}
+		return in.SourceID == 9900
+	})).Return(&TriageOutput{
+		Category:   "RISK_ISSUE",
+		Importance: "HIGH",
+		Reason:     "Deadline slippage",
+		ModelUsed:  "llama-3.2-1b",
+		SkipDeep:   false,
+	}, nil)
+
+	// Stage 2: ExtractEntities — capture the SpanID.
+	personID := int64(42)
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.MatchedBy(func(in SLMPipelineExtractEntitiesInput) bool {
+		if in.SourceID == 9900 {
+			extractSpanID = in.PipelineSpanID
+		}
+		return in.SourceID == 9900
+	})).Return(&SLMPipelineExtractEntitiesOutput{
+		People:   []PersonResult{{Name: "PM User", Role: "project_manager"}},
+		Projects: []string{"Project Alpha"},
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "extracted"
+	})).Return(nil)
+
+	// Stage 3: BuildContextPackage (non-AI coordinator, uses resolved entities).
+	s.activities.On("BuildContextPackage", mock.Anything, mock.MatchedBy(func(in BuildContextInput) bool {
+		return in.SourceID == 9900
+	})).Return(&BuildContextOutput{
+		ResolvedPeople:   []ResolvedPerson{{Name: "PM User", PersonID: &personID, Confidence: 0.95, Source: "exact_match"}},
+		EntitiesResolved: 1,
+	}, nil)
+
+	// Stage 4: DeepAnalyze — capture the SpanID.
+	s.activities.On("DeepAnalyze", mock.Anything, mock.MatchedBy(func(in DeepAnalyzeInput) bool {
+		if in.SourceID == 9900 {
+			deepAnalyzeSpanID = in.PipelineSpanID
+		}
+		return in.SourceID == 9900
+	})).Return(&DeepAnalyzeOutput{
+		Summary:   "Deadline slippage for Project Alpha",
+		ModelUsed: "gemini-2.0-flash",
+	}, nil)
+
+	// Stage 4.5: PersistFindings (persistence, not AI caller).
+	s.activities.On("PersistFindings", mock.Anything, mock.MatchedBy(func(in PersistFindingsInput) bool {
+		return in.SourceID == 9900
+	})).Return(&PersistFindingsOutput{
+		AssertionsCreated: 1,
+	}, nil)
+
+	// Stage 5: GenerateContentEmbedding — capture the SpanID.
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
+		if in.SourceID == 9900 {
+			embeddingSpanID = in.PipelineSpanID
+		}
+		return in.SourceID == 9900
+	})).Return(int64(9001), nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "completed"
+	})).Return(nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+
+	// CRITICAL ASSERTIONS: Each AI activity must receive a non-empty SpanID.
+	// Pre-implementation: all of these may be empty or equal to rootPipelineSpanID.
+	// Post-implementation: each must be a unique, non-empty stage span ID.
+	s.NotEmpty(triageSpanID,
+		"Triage must receive a non-empty PipelineSpanID (stage span, not root)")
+	s.NotEmpty(extractSpanID,
+		"ExtractEntities must receive a non-empty PipelineSpanID (stage span, not root)")
+	s.NotEmpty(deepAnalyzeSpanID,
+		"DeepAnalyze must receive a non-empty PipelineSpanID (stage span, not root)")
+	s.NotEmpty(embeddingSpanID,
+		"GenerateContentEmbedding must receive a non-empty PipelineSpanID (stage span, not root)")
+
+	// Each stage span ID must be DIFFERENT from the root pipeline span ID.
+	// This is the key invariant: activities get the stage span, not the root pipeline span.
+	s.NotEqual(rootPipelineSpanID, triageSpanID,
+		"Triage PipelineSpanID must be a stage-specific span, not the root pipeline span")
+	s.NotEqual(rootPipelineSpanID, extractSpanID,
+		"ExtractEntities PipelineSpanID must be a stage-specific span, not the root pipeline span")
+	s.NotEqual(rootPipelineSpanID, deepAnalyzeSpanID,
+		"DeepAnalyze PipelineSpanID must be a stage-specific span, not the root pipeline span")
+	s.NotEqual(rootPipelineSpanID, embeddingSpanID,
+		"GenerateContentEmbedding PipelineSpanID must be a stage-specific span, not the root pipeline span")
+
+	// Each stage span ID must be UNIQUE (different from one another).
+	// Each stage wraps a different activity so each gets its own span.
+	allSpanIDs := []string{triageSpanID, extractSpanID, deepAnalyzeSpanID, embeddingSpanID}
+	seen := make(map[string]string) // spanID -> stage name
+	stageNames := []string{"triage", "extract_entities", "deep_analyze", "embedding"}
+	for i, spanID := range allSpanIDs {
+		if prior, exists := seen[spanID]; exists {
+			s.Failf("duplicate stage span ID",
+				"Stage %q received the same PipelineSpanID %q as stage %q — each stage must get a unique span",
+				stageNames[i], spanID, prior)
+		}
+		seen[spanID] = stageNames[i]
+	}
+}
+
 func TestSLMPipelineTestSuite(t *testing.T) {
 	suite.Run(t, new(SLMPipelineTestSuite))
 }
