@@ -14,6 +14,7 @@ import (
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -103,6 +104,17 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	startTime := time.Now()
 	activity.RecordHeartbeat(ctx, "calling AI service for assertion extraction")
 
+	// Create stage span wrapping the gRPC call
+	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.extract_assertions", tracing.StageSpanOptions{
+		PipelineTraceID: input.PipelineTraceID,
+		ContentID:       input.ContentID,
+		TenantID:        input.TenantID,
+	})
+	defer stageSpan.End()
+
+	// Extract real SpanID from the stage span
+	spanID := stageSpan.SpanContext().SpanID().String()
+
 	// Default parameters for assertion extraction
 	minConfidence := float32(0.5)
 	maxAssertions := int32(20)
@@ -116,15 +128,14 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	if input.PipelineTraceID != "" {
 		assertionReq.PipelineTraceId = &input.PipelineTraceID
 	}
-	if input.PipelineSpanID != "" {
-		assertionReq.PipelineSpanId = &input.PipelineSpanID
-	}
+	// Pass real SpanID (not phantom random ID)
+	assertionReq.PipelineSpanId = &spanID
 	if input.ContentID != "" {
 		assertionReq.ContentId = &input.ContentID
 	}
 
-	// Call AI service (tracing is handled by the AI server, not duplicated here)
-	resp, err := a.aiClient.ExtractAssertions(ctx, assertionReq)
+	// Call AI service with stage span context
+	resp, err := a.aiClient.ExtractAssertions(stageCtx, assertionReq)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "extract_assertions")
 		logger.Error("Failed to extract assertions from AI service", logging.Err(pe))
@@ -290,11 +301,22 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	startTime := time.Now()
 	contentRunes := []rune(input.Content)
 
+	// Create stage span wrapping ALL gRPC calls (single or chunked)
+	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.extract_entities", tracing.StageSpanOptions{
+		PipelineTraceID: input.PipelineTraceID,
+		ContentID:       input.ContentID,
+		TenantID:        input.TenantID,
+	})
+	defer stageSpan.End()
+
+	// Extract real SpanID from the stage span
+	spanID := stageSpan.SpanContext().SpanID().String()
+
 	var results []*aiv1.ExtractEntitiesResponse
 
 	if len(contentRunes) <= 6000 {
 		// Single call for short content
-		recordHeartbeat(ctx, "calling AI service for entity extraction (single call)")
+		recordHeartbeat(stageCtx, "calling AI service for entity extraction (single call)")
 		logger.Info("Content under 6K chars, making single RPC call")
 
 		req := &aiv1.ExtractEntitiesRequest{
@@ -307,15 +329,14 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		if input.PipelineTraceID != "" {
 			req.PipelineTraceId = optString(input.PipelineTraceID)
 		}
-		if input.PipelineSpanID != "" {
-			req.PipelineSpanId = optString(input.PipelineSpanID)
-		}
+		// Pass real SpanID (not phantom random ID)
+		req.PipelineSpanId = optString(spanID)
 		if input.ContentID != "" {
 			req.ContentId = optString(input.ContentID)
 		}
 
-		// Call AI service (tracing is handled by the AI server, not duplicated here)
-		resp, err := a.aiClient.ExtractEntities(ctx, req)
+		// Call AI service with stage span context
+		resp, err := a.aiClient.ExtractEntities(stageCtx, req)
 		if err != nil {
 			pe := perrors.ClassifyError(err, "extract_ner")
 			logger.Error("Failed to extract entities from AI service", logging.Err(pe))
@@ -324,7 +345,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		results = append(results, resp)
 	} else {
 		// Chunked extraction for long content
-		recordHeartbeat(ctx, "calling AI service for entity extraction (chunked)")
+		recordHeartbeat(stageCtx, "calling AI service for entity extraction (chunked)")
 		logger.Info("Content over 6K chars, splitting into chunks",
 			logging.F("content_runes", len(contentRunes)),
 		)
@@ -334,11 +355,11 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 
 		for i, chunk := range chunks {
 			// Check for cancellation between chunks
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
+			if stageCtx.Err() != nil {
+				return nil, stageCtx.Err()
 			}
 
-			recordHeartbeat(ctx, fmt.Sprintf("extracting entities from chunk %d/%d", i+1, len(chunks)))
+			recordHeartbeat(stageCtx, fmt.Sprintf("extracting entities from chunk %d/%d", i+1, len(chunks)))
 
 			req := &aiv1.ExtractEntitiesRequest{
 				Content:  chunk.Content,
@@ -351,14 +372,13 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			if input.PipelineTraceID != "" {
 				req.PipelineTraceId = optString(input.PipelineTraceID)
 			}
-			if input.PipelineSpanID != "" {
-				req.PipelineSpanId = optString(input.PipelineSpanID)
-			}
+			// Pass real SpanID (not phantom random ID)
+			req.PipelineSpanId = optString(spanID)
 			if input.ContentID != "" {
 				req.ContentId = optString(input.ContentID)
 			}
 
-			resp, err := a.aiClient.ExtractEntities(ctx, req)
+			resp, err := a.aiClient.ExtractEntities(stageCtx, req)
 			if err != nil {
 				pe := perrors.ClassifyError(err, "extract_ner")
 				logger.Error("Failed to extract entities from chunk",

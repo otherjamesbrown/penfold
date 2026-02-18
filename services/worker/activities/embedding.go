@@ -14,6 +14,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/chunking"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -118,9 +119,20 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	var firstEmbeddingID int64
 	startTime := time.Now()
 
+	// Create stage span wrapping ALL chunk embedding calls
+	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.embedding", tracing.StageSpanOptions{
+		PipelineTraceID: input.PipelineTraceID,
+		ContentID:       input.ContentID,
+		TenantID:        input.TenantID,
+	})
+	defer stageSpan.End()
+
+	// Extract real SpanID from the stage span
+	spanID := stageSpan.SpanContext().SpanID().String()
+
 	// Generate and store embeddings for each chunk
 	for _, chunk := range chunks {
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("generating embedding for chunk %d/%d", chunk.Index+1, len(chunks)))
+		activity.RecordHeartbeat(stageCtx, fmt.Sprintf("generating embedding for chunk %d/%d", chunk.Index+1, len(chunks)))
 
 		embeddingReq := &aiv1.EmbeddingRequest{
 			Text:     chunk.Text,
@@ -129,15 +141,14 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		if input.PipelineTraceID != "" {
 			embeddingReq.PipelineTraceId = &input.PipelineTraceID
 		}
-		if input.PipelineSpanID != "" {
-			embeddingReq.PipelineSpanId = &input.PipelineSpanID
-		}
+		// Pass real SpanID (not phantom random ID)
+		embeddingReq.PipelineSpanId = &spanID
 		if input.ContentID != "" {
 			embeddingReq.ContentId = &input.ContentID
 		}
 
-		// Call AI service to generate embedding
-		resp, err := a.aiClient.GenerateEmbedding(ctx, embeddingReq)
+		// Call AI service to generate embedding with stage span context
+		resp, err := a.aiClient.GenerateEmbedding(stageCtx, embeddingReq)
 		if err != nil {
 			pe := perrors.ClassifyError(err, "embed")
 			logger.Error("Failed to generate embedding from AI service",

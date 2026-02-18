@@ -3,9 +3,11 @@ package contentservice
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -1003,15 +1005,17 @@ type Service struct {
 	tenantRepo     *tenant.Repository
 	pipelineRepo   *pipeline.Repository
 	temporalClient client.Client
+	db             *sql.DB
 	logger         logging.Logger
 	langfuseClient *langfuse.Client
 }
 
 // NewService creates a new content service.
-func NewService(db *pgxpool.Pool, tenantRepo *tenant.Repository, logger logging.Logger, langfuseClient *langfuse.Client) *Service {
+func NewService(dbPool *pgxpool.Pool, tenantRepo *tenant.Repository, logger logging.Logger, langfuseClient *langfuse.Client, sqlDB *sql.DB) *Service {
 	return &Service{
-		repo:           newRepository(db, logger),
+		repo:           newRepository(dbPool, logger),
 		tenantRepo:     tenantRepo,
+		db:             sqlDB,
 		logger:         logger,
 		langfuseClient: langfuseClient,
 	}
@@ -1212,14 +1216,19 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		)
 	}
 
+	// Resolve per-stage timeouts from pipeline_config
+	stageTimeouts, stageHeartbeats := s.resolveStageTimeouts(ctx)
+
 	// Start ContentIngestionWorkflow via Temporal
 	workflowID := pkgtemporal.GenerateIngestWorkflowID(source.TenantID, source.SourceSystem, strconv.FormatInt(source.ID, 10))
 	input := pkgtemporal.SLMPipelineInput{
-		TenantID:    source.TenantID,
-		SourceID:    source.ID,
-		ContentID:   source.ContentID,
-		ContentHash: source.ContentHash,
-		JobID:       workflowID, // Use workflow ID as job ID for tracing
+		TenantID:        source.TenantID,
+		SourceID:        source.ID,
+		ContentID:       source.ContentID,
+		ContentHash:     source.ContentHash,
+		JobID:           workflowID, // Use workflow ID as job ID for tracing
+		StageTimeouts:   stageTimeouts,
+		StageHeartbeats: stageHeartbeats,
 	}
 	// TODO: Worker layer will add ModelOverride and TimeoutOverride fields to SLMPipelineInput
 	// For now, overrides are read and logged but not passed to the workflow
@@ -1967,4 +1976,74 @@ func (s *Service) ClearError(ctx context.Context, req *contentv1.ClearErrorReque
 		ContentId: req.ContentId,
 		Message:   "Error fields cleared successfully",
 	}, nil
+}
+
+// splitStageKey extracts the stage name from a timeout.stage.<stage>.<type> key.
+func splitStageKey(key string) string {
+	// key format: timeout.stage.triage.start_to_close
+	const prefix = "timeout.stage."
+	if len(key) <= len(prefix) {
+		return ""
+	}
+	rest := key[len(prefix):]
+	// Find last dot to split stage from type
+	for i := len(rest) - 1; i >= 0; i-- {
+		if rest[i] == '.' {
+			return rest[:i]
+		}
+	}
+	return ""
+}
+
+// resolveStageTimeouts reads per-stage timeout values from pipeline_config.
+// Returns maps of stage->duration for start_to_close and heartbeat.
+// Returns nil maps (not error) if DB is unavailable — workflow falls back to defaults.
+func (s *Service) resolveStageTimeouts(ctx context.Context) (map[string]time.Duration, map[string]time.Duration) {
+	if s.db == nil {
+		return nil, nil
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT key, value, default_value
+		FROM pipeline_config
+		WHERE key LIKE 'timeout.stage.%'
+	`)
+	if err != nil {
+		s.logger.Debug("Could not resolve stage timeouts", logging.Err(err))
+		return nil, nil
+	}
+	defer rows.Close()
+
+	timeouts := make(map[string]time.Duration)
+	heartbeats := make(map[string]time.Duration)
+	hasOverride := false
+
+	for rows.Next() {
+		var key, value, defaultValue string
+		if err := rows.Scan(&key, &value, &defaultValue); err != nil {
+			continue
+		}
+		// Parse the configured value regardless of whether it matches the default.
+		// Even if value == default, we still want to pass it through so the worker
+		// has explicit config rather than falling back to hardcoded defaults.
+		dur, err := time.ParseDuration(value)
+		if err != nil {
+			continue
+		}
+		stage := splitStageKey(key)
+		if stage == "" {
+			continue
+		}
+		hasOverride = true
+		if strings.HasSuffix(key, ".start_to_close") {
+			timeouts[stage] = dur
+		} else if strings.HasSuffix(key, ".heartbeat") {
+			heartbeats[stage] = dur
+		}
+	}
+
+	if !hasOverride {
+		return nil, nil
+	}
+	return timeouts, heartbeats
 }

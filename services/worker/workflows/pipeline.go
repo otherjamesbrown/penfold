@@ -464,6 +464,7 @@ type StartPipelineTracingInput struct {
 	PipelineTraceID string `json:"pipeline_trace_id"` // 32-char hex trace ID (or empty to create new root)
 	ContentID       string `json:"content_id"`        // Standard content ID format: <type:2>-<base62:8>
 	ContentType     string `json:"content_type"`      // email, meeting, slack, etc.
+	TenantID        string `json:"tenant_id"`         // Penfold tenant identifier
 }
 
 // StartPipelineTracingOutput is the output from the StartPipelineTracing activity.
@@ -741,6 +742,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		PipelineTraceID: pipelineTraceID,
 		ContentID:       input.ContentID,
 		ContentType:     input.ContentType,
+		TenantID:        input.TenantID,
 	}).Get(ctx, &tracingOutput)
 	if tracingErr != nil {
 		logger.Warn("Failed to start pipeline tracing span (non-fatal)", "error", tracingErr)
@@ -1257,7 +1259,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}).Get(&assertionsStageSpanID)
 
 		var assertionCount int
-		assertionOpts := stageOpts("extract_assertions", embeddingOpts)
+		assertionOpts := stageOpts("extract_assertions", llmOpts)
 		ctxAssertions := workflow.WithActivityOptions(ctx, assertionOpts)
 		err2 := workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
 			TenantID:        input.TenantID,

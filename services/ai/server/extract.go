@@ -194,21 +194,15 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		model = s.config.ModelForStage("extract_entities")
 	}
 
-	// Start stage.extract_entities span wrapping the ai.extract generation span.
-	ctx, stageSpan := tracing.StartStageSpan(ctx, "stage.extract_entities", tracing.StageSpanOptions{
-		PipelineTraceID: req.GetPipelineTraceId(),
-		ContentID:       req.GetContentId(),
-		TenantID:        req.GetTenantId(),
-	})
-	defer stageSpan.End()
-
-	// Start tracing span. Context carries stage.extract_entities as parent.
+	// Start tracing span for the entity extraction.
+	// The worker creates the stage.extract_entities span; this handler only creates ai.extract.
 	ctx, span := tracing.StartLLMCall(ctx, "ai.extract", tracing.LLMCallOptions{
 		Model:           model,
 		System:          tracing.AISystemMLX,
 		TenantID:        req.GetTenantId(),
 		TaskType:        "extraction",
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()
@@ -232,11 +226,15 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	const maxExtractRetries = 2
 	totalRetries := 0
 
+	// Hoist prompts to function scope for tracing
+	var nerPrompt string
+	var semPrompt string
+
 	// Stage 2a: NER extraction
 	var nerResp *nerResult
 	var nerResult *backend.CompletionResult
 	{
-		nerPrompt := buildNERPrompt(content)
+		nerPrompt = buildNERPrompt(content)
 		messages := []backend.Message{
 			{Role: "user", Content: nerPrompt},
 		}
@@ -288,7 +286,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var semResp *semanticResult
 	var semResult *backend.CompletionResult
 	{
-		semPrompt := buildSemanticPrompt(content)
+		semPrompt = buildSemanticPrompt(content)
 		messages := []backend.Message{
 			{Role: "user", Content: semPrompt},
 		}
@@ -464,6 +462,8 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		OutputTokens: totalOutputTokens,
 		Model:        nerResult.Model,
 		LatencyMs:    time.Since(startTime).Milliseconds(),
+		Prompt:       nerPrompt + "\n\n---\n\n" + semPrompt,
+		Completion:   nerResult.Content + "\n\n---\n\n" + semResult.Content,
 	})
 
 	s.logger.Debug("ExtractEntities completed",

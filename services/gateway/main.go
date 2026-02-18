@@ -190,6 +190,10 @@ func main() {
 		logging.F("database", cfg.Base.Database.Name),
 	)
 
+	// Get stdlib database handle from pgxpool for services that need it
+	// (e.g., for querying pipeline_config, service_logs)
+	db := stdlib.OpenDBFromPool(dbPool)
+
 	// Initialize DB log sink for async log persistence.
 	// Create adapter from logging.LogWriter to logs.Repository.
 	logsRepo := logs.NewRepository(dbPool)
@@ -360,7 +364,7 @@ func main() {
 	} else {
 		logger.Info("Langfuse not configured (tracing will not be available)")
 	}
-	contentSvc := contentservice.NewService(dbPool, tenantRepo, logger, langfuseClient)
+	contentSvc := contentservice.NewService(dbPool, tenantRepo, logger, langfuseClient, db)
 	contentSvc.SetPipelineRepo(pipelineRepo)
 	contentv1.RegisterContentProcessorServiceServer(grpcServer, contentSvc)
 	logger.Info("Registered ContentProcessorService")
@@ -520,8 +524,6 @@ func main() {
 	}
 
 	// Now initialize PipelineService with all dependencies (including optional Temporal client).
-	// We need to get stdlib database handle from pgxpool for service_logs queries.
-	db := stdlib.OpenDBFromPool(dbPool)
 	pipelineSvc = pipelineservice.NewService(pipelineRepo, logger, temporalClient, db, cfg.Temporal.Namespace)
 	pipelinev1.RegisterPipelineServiceServer(grpcServer, pipelineSvc)
 	logger.Info("Registered PipelineService")

@@ -76,6 +76,12 @@ var (
 		"mention":     true,
 	}
 
+	validSignificanceLevels = map[string]bool{
+		"primary":   true,
+		"secondary": true,
+		"passing":   true,
+	}
+
 	validAssertionTypes = map[string]bool{
 		"risk":       true,
 		"issue":      true,
@@ -187,8 +193,8 @@ func (r *PersistRepo) validateInput(input *PersistFindingsInput) error {
 				return fmt.Errorf("risk reference [%d] has invalid lifecycle_event: %s", i, *risk.LifecycleChange)
 			}
 		}
-		if !validReferenceTypes[risk.Significance] {
-			return fmt.Errorf("risk reference [%d] has invalid reference_type: %s", i, risk.Significance)
+		if !validSignificanceLevels[risk.Significance] {
+			return fmt.Errorf("risk reference [%d] has invalid significance: %s", i, risk.Significance)
 		}
 	}
 

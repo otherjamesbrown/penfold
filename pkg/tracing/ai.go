@@ -215,8 +215,12 @@ func StartLLMCall(ctx context.Context, name string, opts LLMCallOptions) (contex
 	}
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
-		// Add Langfuse tag for content grouping
-		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, []string{opts.ContentID}))
+		// Add Langfuse tags for content and tenant grouping
+		tags := []string{opts.ContentID}
+		if opts.TenantID != "" {
+			tags = append(tags, "tenant:"+opts.TenantID)
+		}
+		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, tags))
 	}
 	if opts.TaskType != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldTaskType, opts.TaskType))
@@ -345,8 +349,12 @@ func StartEmbedding(ctx context.Context, name string, opts EmbeddingOptions) (co
 	}
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
-		// Add Langfuse tag for content grouping
-		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, []string{opts.ContentID}))
+		// Add Langfuse tags for content and tenant grouping
+		tags := []string{opts.ContentID}
+		if opts.TenantID != "" {
+			tags = append(tags, "tenant:"+opts.TenantID)
+		}
+		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, tags))
 	}
 	if opts.BatchSize > 0 {
 		attrs = append(attrs, attribute.Int("batch_size", opts.BatchSize))
@@ -377,6 +385,9 @@ type EmbeddingResult struct {
 	// Cached indicates if the result was from cache.
 	Cached bool
 
+	// Input is the input text for the embedding (optional, for debugging).
+	Input string
+
 	// Error is any error that occurred.
 	Error error
 }
@@ -400,6 +411,10 @@ func SetEmbeddingResult(span trace.Span, result EmbeddingResult) {
 		span.SetAttributes(attribute.Int64("latency_ms", result.LatencyMs))
 	}
 	span.SetAttributes(attribute.Bool("cached", result.Cached))
+
+	if result.Input != "" {
+		span.SetAttributes(attribute.String(AttrGenAIPrompt, result.Input))
+	}
 
 	if result.Error != nil {
 		SetError(span, result.Error)
@@ -456,8 +471,12 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 	}
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
-		// Add Langfuse tag for content grouping
-		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, []string{opts.ContentID}))
+		// Add Langfuse tags for content and tenant grouping
+		tags := []string{opts.ContentID}
+		if opts.TenantID != "" {
+			tags = append(tags, "tenant:"+opts.TenantID)
+		}
+		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, tags))
 	}
 	if opts.ContentType != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentType, opts.ContentType))
@@ -477,6 +496,9 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 // The contentID should be in the standard format: <type:2>-<base62:8> (11 chars),
 // e.g., "em-abc12XYZ" for email. Use pkg/contentid.New() to generate IDs.
 //
+// The tenantID is the Penfold tenant identifier. If provided, it will be added
+// to the trace tags for filtering by tenant.
+//
 // The pipelineTraceID is an optional hex-encoded trace ID. If provided, this pipeline
 // span will continue that trace instead of creating a new root. If empty, a new root
 // trace will be created.
@@ -484,10 +506,10 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 // Example:
 //
 //	contentID := contentid.New(contentid.TypeEmail) // e.g., "em-abc12XYZ"
-//	ctx, span := tracing.StartPipeline(ctx, "email-enrichment", contentID, "email", "")
+//	ctx, span := tracing.StartPipeline(ctx, "email-enrichment", contentID, "email", "tenant123", "")
 //	defer span.End()
 //	// ... perform multiple AI operations ...
-func StartPipeline(ctx context.Context, name, contentID, contentType, pipelineTraceID string) (context.Context, trace.Span) {
+func StartPipeline(ctx context.Context, name, contentID, contentType, tenantID, pipelineTraceID string) (context.Context, trace.Span) {
 	attrs := []attribute.KeyValue{
 		attribute.String(AttrLangfuseObservationType, ObservationTypeSpan),
 		attribute.String(AttrLangfuseTraceName, name),
@@ -495,9 +517,18 @@ func StartPipeline(ctx context.Context, name, contentID, contentType, pipelineTr
 		attribute.String(AttrPenfoldContentType, contentType),
 	}
 
-	// Add Langfuse tag for content grouping
+	// Add TenantID attribute if provided
+	if tenantID != "" {
+		attrs = append(attrs, attribute.String(AttrPenfoldTenantID, tenantID))
+	}
+
+	// Add Langfuse tags for content and tenant grouping
 	if contentID != "" {
-		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, []string{contentID}))
+		tags := []string{contentID}
+		if tenantID != "" {
+			tags = append(tags, "tenant:"+tenantID)
+		}
+		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, tags))
 	}
 
 	// Apply pipeline trace ID (if set) or create a root span
@@ -558,7 +589,12 @@ func StartStageSpan(ctx context.Context, name string, opts StageSpanOptions) (co
 	}
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
-		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, []string{opts.ContentID}))
+		// Add Langfuse tags for content and tenant grouping
+		tags := []string{opts.ContentID}
+		if opts.TenantID != "" {
+			tags = append(tags, "tenant:"+opts.TenantID)
+		}
+		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, tags))
 	}
 
 	// Apply pipeline trace context. Pass empty PipelineSpanID so the stage span

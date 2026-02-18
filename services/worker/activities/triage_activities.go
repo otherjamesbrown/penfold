@@ -12,6 +12,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -163,6 +164,17 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	// Record heartbeat before calling AI service
 	recordHeartbeat(ctx, "calling AI service for triage")
 
+	// Create stage span wrapping the gRPC call
+	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.triage", tracing.StageSpanOptions{
+		PipelineTraceID: input.PipelineTraceID,
+		ContentID:       input.ContentID,
+		TenantID:        input.TenantID,
+	})
+	defer stageSpan.End()
+
+	// Extract real SpanID from the stage span
+	spanID := stageSpan.SpanContext().SpanID().String()
+
 	// Build TriageContentRequest
 	req := &aiv1.TriageContentRequest{
 		Content: input.Content,
@@ -182,15 +194,14 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	if input.PipelineTraceID != "" {
 		req.PipelineTraceId = &input.PipelineTraceID
 	}
-	if input.PipelineSpanID != "" {
-		req.PipelineSpanId = &input.PipelineSpanID
-	}
+	// Pass real SpanID (not phantom random ID)
+	req.PipelineSpanId = &spanID
 	if input.ContentID != "" {
 		req.ContentId = &input.ContentID
 	}
 
-	// Call AI service (tracing is handled by the AI server, not duplicated here)
-	resp, err := a.aiClient.TriageContent(ctx, req)
+	// Call AI service with stage span context
+	resp, err := a.aiClient.TriageContent(stageCtx, req)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "triage")
 		logger.Error("Failed to perform triage", logging.Err(pe))

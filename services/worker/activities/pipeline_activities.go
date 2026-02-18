@@ -138,6 +138,7 @@ func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input wor
 		logging.F("activity", "StartPipelineTracing"),
 		logging.F("content_id", input.ContentID),
 		logging.F("content_type", input.ContentType),
+		logging.F("tenant_id", input.TenantID),
 	)
 
 	// Validate input
@@ -175,7 +176,7 @@ func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input wor
 	// In a future enhancement a FinishPipelineTracing activity could be added
 	// to record the span with the real pipeline end timestamp; for now the
 	// back-dated start ensures the span is visible with non-zero duration.
-	_, span := tracing.StartPipeline(ctx, "slm-pipeline", input.ContentID, input.ContentType, input.PipelineTraceID)
+	_, span := tracing.StartPipeline(ctx, "slm-pipeline", input.ContentID, input.ContentType, input.TenantID, input.PipelineTraceID)
 
 	// Extract the actual TraceID and SpanID from the created span
 	// Note: The TraceID may differ from input.PipelineTraceID if OTel created a new root span

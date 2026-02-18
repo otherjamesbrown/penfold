@@ -190,7 +190,7 @@ func TestLangfuseTraceTagsAttribute(t *testing.T) {
 		t.Errorf("expected AttrLangfuseTraceTags to be %q, got %q", expectedKey, AttrLangfuseTraceTags)
 	}
 
-	// Test 2: Verify spans with ContentID include the langfuse.trace.tags attribute
+	// Test 2: Verify spans with ContentID only include the content ID tag
 	exporter, cleanup := setupAITestTracer(t)
 	defer cleanup()
 
@@ -218,6 +218,56 @@ func TestLangfuseTraceTagsAttribute(t *testing.T) {
 			tags := attr.Value.AsStringSlice()
 			if len(tags) != 1 || tags[0] != contentID {
 				t.Errorf("expected langfuse.trace.tags to be [%q], got %v", contentID, tags)
+			}
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("expected span to have %q attribute, but it was not found", AttrLangfuseTraceTags)
+	}
+
+	_ = ctx
+}
+
+// TestLangfuseTraceTagsAttribute_WithTenant verifies that when TenantID is provided,
+// the langfuse.trace.tags includes both content ID and tenant tag.
+func TestLangfuseTraceTagsAttribute_WithTenant(t *testing.T) {
+	exporter, cleanup := setupAITestTracer(t)
+	defer cleanup()
+
+	contentID := "em-test123"
+	tenantID := "tenant-456"
+
+	ctx, span := StartLLMCall(context.Background(), "test-tag-with-tenant", LLMCallOptions{
+		Model:     "test-model",
+		System:    AISystemOpenAI,
+		ContentID: contentID,
+		TenantID:  tenantID,
+	})
+	span.End()
+
+	// Verify the span was created
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+
+	// Verify the span has the langfuse.trace.tags attribute with both tags
+	spanData := spans[0]
+	found := false
+	for _, attr := range spanData.Attributes {
+		if string(attr.Key) == AttrLangfuseTraceTags {
+			found = true
+			tags := attr.Value.AsStringSlice()
+			expectedTags := []string{contentID, "tenant:" + tenantID}
+			if len(tags) != 2 {
+				t.Errorf("expected langfuse.trace.tags to have 2 tags, got %d: %v", len(tags), tags)
+			}
+			for i, expectedTag := range expectedTags {
+				if i >= len(tags) || tags[i] != expectedTag {
+					t.Errorf("expected tag[%d] to be %q, got tags: %v", i, expectedTag, tags)
+				}
 			}
 			break
 		}
@@ -675,15 +725,15 @@ func TestTraceLLMCall_LangfuseMetadataPopulated(t *testing.T) {
 		}
 	})
 
-	// Test: langfuse.trace.tags contains the content ID (source_tag)
-	t.Run("trace_tags_with_source_tag", func(t *testing.T) {
+	// Test: langfuse.trace.tags contains the content ID and tenant tag
+	t.Run("trace_tags_with_source_and_tenant_tags", func(t *testing.T) {
 		val, ok := attrs[AttrLangfuseTraceTags]
 		if !ok {
 			t.Errorf("span missing attribute %s", AttrLangfuseTraceTags)
 			return
 		}
 
-		// The value should be a string slice containing the content ID
+		// The value should be a string slice containing the content ID and tenant tag
 		// The attribute package may return []string or []interface{}
 		var tags []string
 		switch v := val.(type) {
@@ -701,8 +751,8 @@ func TestTraceLLMCall_LangfuseMetadataPopulated(t *testing.T) {
 			return
 		}
 
-		if len(tags) == 0 {
-			t.Errorf("attribute %s is empty, expected to contain %s", AttrLangfuseTraceTags, contentID)
+		if len(tags) < 2 {
+			t.Errorf("attribute %s should have at least 2 tags (content ID and tenant), got %d: %v", AttrLangfuseTraceTags, len(tags), tags)
 			return
 		}
 
@@ -718,6 +768,21 @@ func TestTraceLLMCall_LangfuseMetadataPopulated(t *testing.T) {
 		if !foundContentID {
 			t.Errorf("attribute %s = %v, expected to contain content ID %s",
 				AttrLangfuseTraceTags, tags, contentID)
+		}
+
+		// Check if tenant tag is in the tags
+		expectedTenantTag := "tenant:" + tenantID
+		foundTenantTag := false
+		for _, tag := range tags {
+			if tag == expectedTenantTag {
+				foundTenantTag = true
+				break
+			}
+		}
+
+		if !foundTenantTag {
+			t.Errorf("attribute %s = %v, expected to contain tenant tag %s",
+				AttrLangfuseTraceTags, tags, expectedTenantTag)
 		}
 	})
 

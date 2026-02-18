@@ -89,23 +89,14 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 		model = s.config.ModelForStage("embedding")
 	}
 
-	// Start stage.embedding span that wraps the ai.embedding generation span.
-	// The stage span is a real OTel span parented to the pipeline trace so that
-	// Langfuse shows: slm-pipeline → stage.embedding → ai.embedding.
-	ctx, stageSpan := tracing.StartStageSpan(ctx, "stage.embedding", tracing.StageSpanOptions{
-		PipelineTraceID: req.GetPipelineTraceId(),
-		ContentID:       req.GetContentId(),
-		TenantID:        req.GetTenantId(),
-	})
-	defer stageSpan.End()
-
-	// Start tracing span. The context now carries stage.embedding as the active
-	// span, so ai.embedding becomes its child automatically.
+	// Start tracing span for the embedding generation.
+	// The worker creates the stage.embedding span; this handler only creates ai.embedding.
 	ctx, span := tracing.StartEmbedding(ctx, "ai.embedding", tracing.EmbeddingOptions{
 		Model:           model,
 		System:          tracing.AISystemMLX,
 		TenantID:        req.GetTenantId(),
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()
@@ -152,6 +143,7 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 		InputTokens: tokenCount,
 		Model:       result.Model,
 		LatencyMs:   time.Since(startTime).Milliseconds(),
+		Input:       text,
 	})
 
 	s.logger.Debug("GenerateEmbedding completed",
@@ -168,21 +160,15 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 	content := strings.TrimSpace(req.GetContent())
 	model := req.GetModel()
 
-	// Start stage.summarize span wrapping the ai.summarize generation span.
-	ctx, stageSpan := tracing.StartStageSpan(ctx, "stage.summarize", tracing.StageSpanOptions{
-		PipelineTraceID: req.GetPipelineTraceId(),
-		ContentID:       req.GetContentId(),
-		TenantID:        req.GetTenantId(),
-	})
-	defer stageSpan.End()
-
-	// Start tracing span. Context carries stage.summarize as parent.
+	// Start tracing span for the summary generation.
+	// The worker creates the stage.summarize span; this handler only creates ai.summarize.
 	ctx, span := tracing.StartLLMCall(ctx, "ai.summarize", tracing.LLMCallOptions{
 		Model:           model,
 		System:          tracing.AISystemMLX,
 		TenantID:        req.GetTenantId(),
 		TaskType:        "summarize",
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()
@@ -285,21 +271,15 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 		model = s.config.ModelForStage("extract_assertions")
 	}
 
-	// Start stage.extract_assertions span wrapping the ai.extract_assertions span.
-	ctx, stageSpan := tracing.StartStageSpan(ctx, "stage.extract_assertions", tracing.StageSpanOptions{
-		PipelineTraceID: req.GetPipelineTraceId(),
-		ContentID:       req.GetContentId(),
-		TenantID:        req.GetTenantId(),
-	})
-	defer stageSpan.End()
-
-	// Start tracing span. Context carries stage.extract_assertions as parent.
+	// Start tracing span for the assertion extraction.
+	// The worker creates the stage.extract_assertions span; this handler only creates ai.extract_assertions.
 	ctx, span := tracing.StartLLMCall(ctx, "ai.extract_assertions", tracing.LLMCallOptions{
 		Model:           model,
 		System:          tracing.AISystemMLX,
 		TenantID:        req.GetTenantId(),
 		TaskType:        "extraction",
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()
@@ -556,26 +536,15 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 		model = s.config.ModelForStage("triage")
 	}
 
-	// Start stage.triage span that wraps the ai.triage generation span.
-	// This creates a real OTel span parented to the pipeline trace so that
-	// Langfuse shows: slm-pipeline → stage.triage → ai.triage.
-	// The PipelineSpanID from the request (previously a phantom random ID) is
-	// intentionally not used here; the AI coordinator creates its own stage spans.
-	ctx, stageSpan := tracing.StartStageSpan(ctx, "stage.triage", tracing.StageSpanOptions{
-		PipelineTraceID: req.GetPipelineTraceId(),
-		ContentID:       req.GetContentId(),
-		TenantID:        req.GetTenantId(),
-	})
-	defer stageSpan.End()
-
-	// Start tracing span. The context now carries stage.triage as the active span,
-	// so ai.triage becomes its child automatically via OTel context propagation.
+	// Start tracing span for the triage generation.
+	// The worker creates the stage.triage span; this handler only creates ai.triage.
 	ctx, span := tracing.StartLLMCall(ctx, "ai.triage", tracing.LLMCallOptions{
 		Model:           model,
 		System:          tracing.AISystemMLX,
 		TenantID:        req.GetTenantId(),
 		TaskType:        "triage",
 		PipelineTraceID: req.GetPipelineTraceId(),
+		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()

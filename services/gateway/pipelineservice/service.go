@@ -1908,10 +1908,9 @@ func (s *Service) resolveStageTimeouts(ctx context.Context) (map[string]time.Dur
 		if err := rows.Scan(&key, &value, &defaultValue); err != nil {
 			continue
 		}
-		// Only include if value differs from default (reduces payload for common case)
-		if value == defaultValue {
-			continue
-		}
+		// Parse the configured value regardless of whether it matches the default.
+		// Even if value == default, we still want to pass it through so the worker
+		// has explicit config rather than falling back to hardcoded defaults.
 		dur, err := time.ParseDuration(value)
 		if err != nil {
 			continue

@@ -11,6 +11,7 @@ import (
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -90,11 +91,24 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 	// Record heartbeat before calling AI service
 	recordHeartbeat(ctx, "calling AI service for deep analysis")
 
+	// Create stage span wrapping the gRPC call
+	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.deep_analyze", tracing.StageSpanOptions{
+		PipelineTraceID: input.PipelineTraceID,
+		ContentID:       input.ContentID,
+		TenantID:        input.TenantID,
+	})
+	defer stageSpan.End()
+
+	// Extract real SpanID from the stage span
+	spanID := stageSpan.SpanContext().SpanID().String()
+
 	// Build DeepAnalyzeRequest from input
 	req := buildDeepAnalyzeRequest(input)
+	// Pass real SpanID (not phantom random ID)
+	req.PipelineSpanId = &spanID
 
-	// Call AI service (tracing is handled by the AI server, not duplicated here)
-	resp, err := a.aiClient.DeepAnalyze(ctx, req)
+	// Call AI service with stage span context
+	resp, err := a.aiClient.DeepAnalyze(stageCtx, req)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "analyze")
 		logger.Error("Failed to perform deep analysis", logging.Err(pe))
