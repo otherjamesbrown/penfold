@@ -165,15 +165,26 @@ func (a *PipelineActivities) StartPipelineTracing(ctx context.Context, input wor
 
 	logger.Info("Starting pipeline tracing span")
 
-	// Create the root pipeline span
-	// This span will be the parent for all AI operations in the pipeline
-	ctx, span := tracing.StartPipeline(ctx, "slm-pipeline", input.ContentID, input.ContentType, input.PipelineTraceID)
-	defer span.End()
+	// Create the root pipeline span.
+	// IMPORTANT: Do NOT use defer span.End() here. If span.End() is deferred,
+	// the slm-pipeline span ends when this activity returns (giving it zero
+	// duration). Instead, the span is ended immediately after recording its
+	// IDs. The span's start time is back-dated by pkg/tracing.StartPipeline
+	// (2ms) to ensure measurable duration in observability tooling.
+	//
+	// In a future enhancement a FinishPipelineTracing activity could be added
+	// to record the span with the real pipeline end timestamp; for now the
+	// back-dated start ensures the span is visible with non-zero duration.
+	_, span := tracing.StartPipeline(ctx, "slm-pipeline", input.ContentID, input.ContentType, input.PipelineTraceID)
 
 	// Extract the actual TraceID and SpanID from the created span
 	// Note: The TraceID may differ from input.PipelineTraceID if OTel created a new root span
 	actualTraceID := span.SpanContext().TraceID().String()
 	actualSpanID := span.SpanContext().SpanID().String()
+
+	// End the span now that we have captured the IDs. The span has a back-dated
+	// start time (set by StartPipeline), so its recorded duration is > 0.
+	span.End()
 
 	logger.Info("Pipeline tracing span created successfully",
 		logging.F("actual_trace_id", actualTraceID),

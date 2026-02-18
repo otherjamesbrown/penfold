@@ -396,14 +396,21 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 		configDefault,
 	)
 
-	// Start tracing span
+	// Start stage.deep_analyze span wrapping the ai.deep_analyze generation span.
+	ctx, stageSpan := tracing.StartStageSpan(ctx, "stage.deep_analyze", tracing.StageSpanOptions{
+		PipelineTraceID: req.GetPipelineTraceId(),
+		ContentID:       req.GetContentId(),
+		TenantID:        req.GetTenantId(),
+	})
+	defer stageSpan.End()
+
+	// Start tracing span. Context carries stage.deep_analyze as parent.
 	ctx, span := tracing.StartLLMCall(ctx, "ai.deep_analyze", tracing.LLMCallOptions{
 		Model:           selectedModel,
 		System:          tracing.AISystemMLX,
 		TenantID:        req.GetTenantId(),
 		TaskType:        "deep_analysis",
 		PipelineTraceID: req.GetPipelineTraceId(),
-		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()

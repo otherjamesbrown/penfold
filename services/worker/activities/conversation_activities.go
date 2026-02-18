@@ -218,7 +218,7 @@ func (a *ConversationActivities) LinkConversation(ctx context.Context, input Lin
 	}
 
 	// Generate rolling summary + state (non-blocking)
-	a.generateSummaryAndState(ctx, input.TenantID, existingConvID, input.ContentID)
+	a.generateSummaryAndState(ctx, input.TenantID, existingConvID, input.ContentID, input.PipelineTraceID, input.PipelineSpanID)
 
 	logger.Info("conversation linking completed",
 		logging.F("conversation_id", existingConvID),
@@ -292,7 +292,7 @@ func extractParticipants(from, to, cc string) []string {
 
 // generateSummaryAndState generates a rolling summary and state assessment for a conversation.
 // This is non-blocking: all errors are logged but not returned.
-func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, tenantID, conversationID, newContentID string) {
+func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, tenantID, conversationID, newContentID, pipelineTraceID, pipelineSpanID string) {
 	logger := a.logger.WithContext(ctx).With(
 		logging.F("conversation_id", conversationID),
 		logging.F("content_id", newContentID),
@@ -331,10 +331,12 @@ func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, te
 		// Use fast-tier model (per-stage model selection already available)
 		// The AIClient should handle model selection internally based on task
 	}
-	// Note: LinkConversation is called by the workflow which should pass PipelineTraceID
-	// through the LinkConversationInput struct. However, generateAndUpdateSummary is
-	// called internally and doesn't have direct access to the input. For now, we skip
-	// PipelineTraceID here since this is an async background task triggered post-linking.
+	if pipelineTraceID != "" {
+		req.PipelineTraceId = &pipelineTraceID
+	}
+	if pipelineSpanID != "" {
+		req.PipelineSpanId = &pipelineSpanID
+	}
 
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {

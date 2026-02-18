@@ -235,10 +235,12 @@ type GroupEmailThreadOutput struct {
 
 // LinkConversationInput is the input for the LinkConversation activity.
 type LinkConversationInput struct {
-	TenantID  string `json:"tenant_id"`
-	SourceID  int64  `json:"source_id"`
-	ThreadID  string `json:"thread_id"`  // Root message ID from threading
-	ContentID string `json:"content_id"` // Content item ID to link
+	TenantID        string `json:"tenant_id"`
+	SourceID        int64  `json:"source_id"`
+	ThreadID        string `json:"thread_id"`         // Root message ID from threading
+	ContentID       string `json:"content_id"`        // Content item ID to link
+	PipelineTraceID string `json:"pipeline_trace_id"` // Pipeline trace ID for Langfuse grouping
+	PipelineSpanID  string `json:"pipeline_span_id"`  // Pipeline span ID for parent-child hierarchy
 }
 
 // LinkConversationOutput is the output from the LinkConversation activity.
@@ -866,8 +868,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	)
 	triageStart := workflow.Now(ctx)
 
-	// Generate deterministic stage span ID for triage.
-	// Using workflow.SideEffect to preserve Temporal workflow determinism.
+	// Generate a per-stage correlation ID for the triage stage.
+	// This ID is passed to the AI coordinator as PipelineSpanID for logging/correlation.
+	// NOTE: The AI coordinator (server-side) creates its own real OTel stage.X spans
+	// and ignores this value for span parenting — see fix pf-9b868f. The ID is preserved
+	// here for backwards compatibility and for the stage-span correlation log fields.
 	var triageStageSpanID string
 	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 		b := make([]byte, 8)
@@ -1177,10 +1182,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		convOutput := &LinkConversationOutput{}
 		ctxConv := workflow.WithActivityOptions(ctx, fastOpts)
 		err = workflow.ExecuteActivity(ctxConv, pkgtemporal.ActivityLinkConversation, LinkConversationInput{
-			TenantID:  input.TenantID,
-			SourceID:  input.SourceID,
-			ThreadID:  *threadID,
-			ContentID: input.ContentID,
+			TenantID:        input.TenantID,
+			SourceID:        input.SourceID,
+			ThreadID:        *threadID,
+			ContentID:       input.ContentID,
+			PipelineTraceID: pipelineTraceID,
+			PipelineSpanID:  triageStageSpanID,
 		}).Get(ctx, convOutput)
 		if err != nil {
 			logger.Warn("conversation linking failed (non-blocking)",
@@ -1213,7 +1220,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 		extractStart := workflow.Now(ctx)
 
-		// Generate deterministic stage span ID for extract_entities.
+		// Per-stage correlation ID for extract_entities. The AI coordinator ignores
+		// this value for OTel span parenting (it creates its own stage.extract_entities
+		// spans server-side) but uses it for logging/correlation. See fix pf-9b868f.
 		var extractStageSpanID string
 		_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 			b := make([]byte, 8)
@@ -1239,7 +1248,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}).Get(ctx, extractOutput)
 
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
-		// Generate deterministic stage span ID for extract_assertions.
+		// Per-stage correlation ID for extract_assertions. See fix pf-9b868f.
 		var assertionsStageSpanID string
 		_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 			b := make([]byte, 8)
@@ -1454,7 +1463,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 		analyzeStart := workflow.Now(ctx)
 
-		// Generate deterministic stage span ID for deep_analyze.
+		// Per-stage correlation ID for deep_analyze. The AI coordinator ignores
+		// this for OTel span parenting (creates its own stage.deep_analyze spans
+		// server-side). See fix pf-9b868f.
 		var analyzeStageSpanID string
 		_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 			b := make([]byte, 8)
@@ -1674,7 +1685,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	)
 	embedStart := workflow.Now(ctx)
 
-	// Generate deterministic stage span ID for embedding.
+	// Per-stage correlation ID for embedding. The AI coordinator ignores this for
+	// OTel span parenting (creates its own stage.embedding spans server-side).
+	// See fix pf-9b868f.
 	var embedStageSpanID string
 	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 		b := make([]byte, 8)

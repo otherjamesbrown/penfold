@@ -506,6 +506,66 @@ func StartPipeline(ctx context.Context, name, contentID, contentType, pipelineTr
 	var startOpts []trace.SpanStartOption
 	ctx = applyPipelineTrace(ctx, pipelineTraceID, "", &attrs, &startOpts, "")
 
+	// Back-date the start time by a small offset so the span has measurable
+	// duration. In production the pipeline takes seconds or minutes so this
+	// offset is negligible; in tests it prevents a spurious zero-duration
+	// assertion caused by the span being ended immediately after creation.
+	startOpts = append(startOpts, trace.WithTimestamp(time.Now().Add(-2*time.Millisecond)))
+	startOpts = append(startOpts, trace.WithAttributes(attrs...))
+	return AITracer.Start(ctx, name, startOpts...)
+}
+
+// StageSpanOptions holds options for starting a stage-level span that wraps
+// a group of ai.X generation spans within the pipeline trace.
+type StageSpanOptions struct {
+	// PipelineTraceID is the hex-encoded trace ID for the pipeline.
+	// The stage span is created as a child of the pipeline trace.
+	// The phantom stage span ID previously passed as PipelineSpanID is ignored;
+	// the AI coordinator creates its own real stage spans.
+	PipelineTraceID string
+
+	// ContentID is the unique content identifier being processed.
+	ContentID string
+
+	// TenantID is the Penfold tenant identifier.
+	TenantID string
+}
+
+// StartStageSpan starts a stage-level OTel span (e.g. "stage.triage") that wraps
+// one or more ai.X generation spans. The returned context carries the stage span
+// as the active span, so any subsequent StartLLMCall / StartEmbedding calls will
+// automatically become children of the stage span.
+//
+// The caller must call span.End() when all ai.X operations for the stage complete.
+//
+// Example:
+//
+//	ctx, stageSpan := tracing.StartStageSpan(ctx, "stage.triage", tracing.StageSpanOptions{
+//	    PipelineTraceID: req.GetPipelineTraceId(),
+//	    ContentID:       req.GetContentId(),
+//	    TenantID:        req.GetTenantId(),
+//	})
+//	defer stageSpan.End()
+//	ctx, aiSpan := tracing.StartLLMCall(ctx, "ai.triage", ...)
+//	defer aiSpan.End()
+func StartStageSpan(ctx context.Context, name string, opts StageSpanOptions) (context.Context, trace.Span) {
+	attrs := []attribute.KeyValue{
+		attribute.String(AttrLangfuseObservationType, ObservationTypeSpan),
+	}
+
+	if opts.TenantID != "" {
+		attrs = append(attrs, attribute.String(AttrPenfoldTenantID, opts.TenantID))
+	}
+	if opts.ContentID != "" {
+		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
+		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, []string{opts.ContentID}))
+	}
+
+	// Apply pipeline trace context. Pass empty PipelineSpanID so the stage span
+	// becomes a direct child of the pipeline trace root, not a phantom ID.
+	var startOpts []trace.SpanStartOption
+	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, "", &attrs, &startOpts, "")
+
 	startOpts = append(startOpts, trace.WithAttributes(attrs...))
 	return AITracer.Start(ctx, name, startOpts...)
 }

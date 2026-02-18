@@ -1057,6 +1057,123 @@ func TestLinkConversation_SummaryFailureNonBlocking(t *testing.T) {
 	require.True(t, stateNotPersisted, "State should not be persisted when LLM fails")
 }
 
+// TestLinkConversation_SummaryRequestContainsPipelineTraceID is a reproduction test for bug pf-d1bcab.
+//
+// Bug: The conversation summarize activity creates an orphan Langfuse trace because
+// trace context is not propagated through the LinkConversation activity path.
+//
+// Root cause:
+//  1. generateSummaryAndState() does not accept PipelineTraceID/PipelineSpanID
+//  2. SummaryRequest is constructed with no PipelineTraceId field
+//
+// This test MUST FAIL against unfixed code: the SummaryRequest will have an empty
+// PipelineTraceId even though the LinkConversationInput carries a non-empty PipelineTraceID.
+func TestLinkConversation_SummaryRequestContainsPipelineTraceID(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	const wantTraceID = "trace-abc123deadbeef"
+	const wantSpanID = "span-deadbeef0001"
+
+	messageDate := time.Date(2026, 2, 18, 9, 0, 0, 0, time.UTC)
+	threadID := "<trace-propagation-test@example.com>"
+	contentID := "cnt-trace-test-1"
+
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          999,
+				TenantID:    "test-tenant",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id": "<msg-trace-test@example.com>",
+					"subject":    "Trace Propagation Test",
+					"from":       "alice@example.com",
+					"to":         "bob@example.com",
+					"date":       messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	mockConvRepo := &mockConversationRepository{
+		upsertConversationFn: func(ctx context.Context, conversation *Conversation) (string, error) {
+			return "conv-trace-test-1", nil
+		},
+		addConversationItemFn: func(ctx context.Context, conversationID, itemContentID string, sourceID *int64, tenantID string) error {
+			return nil
+		},
+		addConversationParticipantFn: func(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
+			return nil
+		},
+		updateConversationStatsFn: func(ctx context.Context, conversationID string) error {
+			return nil
+		},
+		updateSummaryFn: func(ctx context.Context, conversationID, summary string, version int32) error {
+			return nil
+		},
+		updateStateFn: func(ctx context.Context, conversationID, state, reason string) error {
+			return nil
+		},
+		getConversationItemsFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
+			return []ConversationItem{}, nil
+		},
+		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
+			return &Conversation{
+				ID:       conversationID,
+				TenantID: tenantID,
+				Topic:    "Trace Propagation Test",
+			}, nil
+		},
+	}
+
+	var capturedTraceID string
+	var capturedSpanID string
+
+	mockAIClient := &mockAIClient{
+		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
+			// Capture the trace IDs from the SummaryRequest sent to the AI coordinator.
+			// Bug pf-d1bcab: these will be empty because generateSummaryAndState() does not
+			// accept or forward PipelineTraceID/PipelineSpanID from LinkConversationInput.
+			capturedTraceID = req.GetPipelineTraceId()
+			capturedSpanID = req.GetPipelineSpanId()
+			return &aiv1.SummaryResponse{
+				Summary:   "Test conversation summary.",
+				KeyPoints: []string{"Test"},
+				ModelUsed: "llama3.2",
+			}, nil
+		},
+	}
+
+	acts := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, mockAIClient)
+
+	// The input carries a PipelineTraceID — the workflow sets this from the pipeline's
+	// own trace context so that Langfuse can nest the summary span under the pipeline trace.
+	input := LinkConversationInput{
+		TenantID:        "test-tenant",
+		SourceID:        999,
+		ThreadID:        threadID,
+		ContentID:       contentID,
+		PipelineTraceID: wantTraceID,
+		PipelineSpanID:  wantSpanID,
+	}
+
+	output, err := acts.LinkConversation(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	require.Equal(t, "conv-trace-test-1", output.ConversationID)
+
+	// Key assertion: the SummaryRequest sent to the AI coordinator must carry the pipeline
+	// trace IDs so Langfuse can attach the summary span to the correct pipeline trace.
+	// BUG pf-d1bcab: this assertion FAILS because generateSummaryAndState() ignores
+	// PipelineTraceID/PipelineSpanID from the input and builds SummaryRequest with empty fields.
+	require.Equal(t, wantTraceID, capturedTraceID,
+		"SummaryRequest.PipelineTraceId must be forwarded from LinkConversationInput.PipelineTraceID; "+
+			"got empty string — orphan Langfuse trace (bug pf-d1bcab)")
+	require.Equal(t, wantSpanID, capturedSpanID,
+		"SummaryRequest.PipelineSpanId must be forwarded from LinkConversationInput.PipelineSpanID; "+
+			"got empty string — orphan Langfuse trace (bug pf-d1bcab)")
+}
+
 // TestBackfillConversationSummaries tests the backfill method that generates
 // initial summaries for existing conversations.
 // Commented out until BackfillConversationSummaries method is added to ConversationActivities.

@@ -194,14 +194,21 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		model = s.config.ModelForStage("extract_entities")
 	}
 
-	// Start tracing span
+	// Start stage.extract_entities span wrapping the ai.extract generation span.
+	ctx, stageSpan := tracing.StartStageSpan(ctx, "stage.extract_entities", tracing.StageSpanOptions{
+		PipelineTraceID: req.GetPipelineTraceId(),
+		ContentID:       req.GetContentId(),
+		TenantID:        req.GetTenantId(),
+	})
+	defer stageSpan.End()
+
+	// Start tracing span. Context carries stage.extract_entities as parent.
 	ctx, span := tracing.StartLLMCall(ctx, "ai.extract", tracing.LLMCallOptions{
 		Model:           model,
 		System:          tracing.AISystemMLX,
 		TenantID:        req.GetTenantId(),
 		TaskType:        "extraction",
 		PipelineTraceID: req.GetPipelineTraceId(),
-		PipelineSpanID:  req.GetPipelineSpanId(),
 		ContentID:       req.GetContentId(),
 	})
 	defer span.End()
