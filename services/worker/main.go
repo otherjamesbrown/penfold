@@ -38,8 +38,10 @@ import (
 	"github.com/otherjamesbrown/penfold/services/worker/activities"
 	"github.com/otherjamesbrown/penfold/services/worker/config"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
+	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
 )
 
@@ -295,6 +297,18 @@ func main() {
 		logging.F("metrics", true),
 		logging.F("logging", true),
 	)
+
+	// Create Temporal OTel tracing interceptor for automatic trace context propagation.
+	// This propagates the OTel trace context from workflow to activities, enabling
+	// stage spans created in activities to be children of the workflow trace.
+	temporalTracingInterceptor, err := temporalotel.NewTracingInterceptor(temporalotel.TracerOptions{})
+	if err != nil {
+		logger.Error("Failed to create Temporal OTel tracing interceptor", logging.Err(err))
+		os.Exit(1)
+	}
+	// Combine: OTel tracing interceptor first, then existing metrics/logging interceptors.
+	allInterceptors := append([]interceptor.WorkerInterceptor{temporalTracingInterceptor}, obsInterceptors...)
+	logger.Info("Temporal OTel tracing interceptor initialized")
 
 	// Create Temporal client configuration
 	temporalCfg := &pkgtemporal.Config{
@@ -595,7 +609,7 @@ func main() {
 				MaxConcurrentWorkflows:  cfg.MaxConcurrentWorkflows,
 			},
 			pkgtemporal.WithWorkerStopTimeout(time.Duration(cfg.GracefulShutdownTimeout)*time.Second),
-			pkgtemporal.WithInterceptors(obsInterceptors...),
+			pkgtemporal.WithInterceptors(allInterceptors...),
 		)
 
 		// Register workflows and activities for this queue

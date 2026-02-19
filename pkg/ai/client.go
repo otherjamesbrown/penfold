@@ -8,6 +8,7 @@ import (
 	"time"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -53,6 +54,11 @@ func NewClient(addr string, opts ...ClientOption) (*Client, error) {
 	if !options.useTLS {
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
+
+	// Add OTel gRPC stats handler to inject traceparent headers into outgoing gRPC calls.
+	// This propagates the active OTel span context (e.g., from a Temporal activity) into
+	// the gRPC metadata so the AI coordinator can extract and continue the trace.
+	dialOpts = append(dialOpts, grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 
 	// Append any additional dial options
 	dialOpts = append(dialOpts, options.dialOptions...)

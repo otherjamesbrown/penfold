@@ -141,17 +141,17 @@ message EmbeddingRequest {
   // Optional tenant identifier for multi-tenancy support.
   optional string tenant_id = 3;
 
-  // Optional pipeline trace ID for grouping related operations.
-  // When set, this span will be a child of the pipeline trace.
-  optional string pipeline_trace_id = 4;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_trace_id = 4 [deprecated = true];
 
   // Optional content ID for Langfuse tag attribute.
   // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
   optional string content_id = 5;
 
-  // Optional pipeline span ID for proper parent-child hierarchy.
-  // 16-char hex span ID from the root pipeline span.
-  optional string pipeline_span_id = 6;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_span_id = 6 [deprecated = true];
 }
 
 // EmbeddingResponse contains the generated vector embedding.
@@ -218,17 +218,17 @@ message SummaryRequest {
   // When true, the backend will constrain the model to output valid JSON.
   optional bool json_mode = 6;
 
-  // Optional pipeline trace ID for grouping related operations.
-  // When set, this span will be a child of the pipeline trace.
-  optional string pipeline_trace_id = 7;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_trace_id = 7 [deprecated = true];
 
   // Optional content ID for Langfuse tag attribute.
   // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
   optional string content_id = 8;
 
-  // Optional pipeline span ID for proper parent-child hierarchy.
-  // 16-char hex span ID from the root pipeline span.
-  optional string pipeline_span_id = 9;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_span_id = 9 [deprecated = true];
 }
 
 // SummaryResponse contains the generated summary and key points.
@@ -280,17 +280,17 @@ message AssertionRequest {
   // Optional tenant identifier for multi-tenancy support.
   optional string tenant_id = 5;
 
-  // Optional pipeline trace ID for grouping related operations.
-  // When set, this span will be a child of the pipeline trace.
-  optional string pipeline_trace_id = 6;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_trace_id = 6 [deprecated = true];
 
   // Optional content ID for Langfuse tag attribute.
   // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
   optional string content_id = 7;
 
-  // Optional pipeline span ID for proper parent-child hierarchy.
-  // 16-char hex span ID from the root pipeline span.
-  optional string pipeline_span_id = 8;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_span_id = 8 [deprecated = true];
 }
 
 // Assertion represents a structured fact or claim extracted from content.
@@ -425,17 +425,17 @@ message TriageContentRequest {
   // Optional source ID for pipeline_runs provenance tracking.
   optional int64 source_id = 6;
 
-  // Optional pipeline trace ID for grouping related operations.
-  // When set, this span will be a child of the pipeline trace.
-  optional string pipeline_trace_id = 7;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_trace_id = 7 [deprecated = true];
 
   // Optional content ID for Langfuse tag attribute.
   // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
   optional string content_id = 8;
 
-  // Optional pipeline span ID for proper parent-child hierarchy.
-  // 16-char hex span ID from the root pipeline span.
-  optional string pipeline_span_id = 9;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_span_id = 9 [deprecated = true];
 }
 
 // TriageContentResponse contains the triage classification results.
@@ -495,17 +495,17 @@ message ExtractEntitiesRequest {
   // Optional source ID for provenance tracking.
   optional int64 source_id = 5;
 
-  // Optional pipeline trace ID for grouping related operations.
-  // When set, this span will be a child of the pipeline trace.
-  optional string pipeline_trace_id = 6;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_trace_id = 6 [deprecated = true];
 
   // Optional content ID for Langfuse tag attribute.
   // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
   optional string content_id = 7;
 
-  // Optional pipeline span ID for proper parent-child hierarchy.
-  // 16-char hex span ID from the root pipeline span.
-  optional string pipeline_span_id = 8;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_span_id = 8 [deprecated = true];
 }
 
 // PersonEntity represents a person extracted from content.
@@ -592,13 +592,13 @@ message DeepAnalyzeRequest {
   optional int64 source_id = 14;
   optional string content_id = 15;
 
-  // Optional pipeline trace ID for grouping related operations.
-  // When set, this span will be a child of the pipeline trace.
-  optional string pipeline_trace_id = 16;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_trace_id = 16 [deprecated = true];
 
-  // Optional pipeline span ID for proper parent-child hierarchy.
-  // 16-char hex span ID from the root pipeline span.
-  optional string pipeline_span_id = 17;
+  // Deprecated: OTel interceptors propagate trace context automatically.
+  // Field retained for wire compatibility. Do not set in new code.
+  optional string pipeline_span_id = 17 [deprecated = true];
 }
 
 // DeepAnalyzeResponse contains the Stage 4 analysis results.

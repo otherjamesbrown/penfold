@@ -99,13 +99,9 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 	})
 	defer stageSpan.End()
 
-	// Extract real SpanID from the stage span
-	spanID := stageSpan.SpanContext().SpanID().String()
-
 	// Build DeepAnalyzeRequest from input
 	req := buildDeepAnalyzeRequest(input)
-	// Pass real SpanID (not phantom random ID)
-	req.PipelineSpanId = &spanID
+	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
 	// Call AI service with stage span context
 	resp, err := a.aiClient.DeepAnalyze(stageCtx, req)
@@ -187,12 +183,7 @@ func buildDeepAnalyzeRequest(input workflows.DeepAnalyzeInput) *aiv1.DeepAnalyze
 	if input.ContentID != "" {
 		req.ContentId = &input.ContentID
 	}
-	if input.PipelineTraceID != "" {
-		req.PipelineTraceId = &input.PipelineTraceID
-	}
-	if input.PipelineSpanID != "" {
-		req.PipelineSpanId = &input.PipelineSpanID
-	}
+	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
 	// Convert workflows.SLMPipelineExtractEntitiesOutput to proto types
 	if input.ExtractionResult != nil {

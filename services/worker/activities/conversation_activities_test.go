@@ -1057,17 +1057,15 @@ func TestLinkConversation_SummaryFailureNonBlocking(t *testing.T) {
 	require.True(t, stateNotPersisted, "State should not be persisted when LLM fails")
 }
 
-// TestLinkConversation_SummaryRequestContainsPipelineTraceID is a reproduction test for bug pf-d1bcab.
+// TestLinkConversation_SummaryRequestContainsPipelineTraceID verifies that
+// SummaryRequest no longer forwards PipelineTraceId/PipelineSpanId.
 //
-// Bug: The conversation summarize activity creates an orphan Langfuse trace because
-// trace context is not propagated through the LinkConversation activity path.
+// Phase 4 cleanup: OTel interceptors (Temporal + otelgrpc) now propagate trace context
+// automatically. The manual PipelineTraceID/PipelineSpanID forwarding through proto fields
+// has been removed. The SummaryRequest fields are deprecated and should NOT be set.
 //
-// Root cause:
-//  1. generateSummaryAndState() does not accept PipelineTraceID/PipelineSpanID
-//  2. SummaryRequest is constructed with no PipelineTraceId field
-//
-// This test MUST FAIL against unfixed code: the SummaryRequest will have an empty
-// PipelineTraceId even though the LinkConversationInput carries a non-empty PipelineTraceID.
+// Trace context propagation now relies on the OTel context carried by the gRPC call itself,
+// not on explicit trace ID fields in the proto message.
 func TestLinkConversation_SummaryRequestContainsPipelineTraceID(t *testing.T) {
 	logger := logging.NewNopLogger()
 
@@ -1162,16 +1160,19 @@ func TestLinkConversation_SummaryRequestContainsPipelineTraceID(t *testing.T) {
 	require.NotNil(t, output)
 	require.Equal(t, "conv-trace-test-1", output.ConversationID)
 
-	// Key assertion: the SummaryRequest sent to the AI coordinator must carry the pipeline
-	// trace IDs so Langfuse can attach the summary span to the correct pipeline trace.
-	// BUG pf-d1bcab: this assertion FAILS because generateSummaryAndState() ignores
-	// PipelineTraceID/PipelineSpanID from the input and builds SummaryRequest with empty fields.
-	require.Equal(t, wantTraceID, capturedTraceID,
-		"SummaryRequest.PipelineTraceId must be forwarded from LinkConversationInput.PipelineTraceID; "+
-			"got empty string — orphan Langfuse trace (bug pf-d1bcab)")
-	require.Equal(t, wantSpanID, capturedSpanID,
-		"SummaryRequest.PipelineSpanId must be forwarded from LinkConversationInput.PipelineSpanID; "+
-			"got empty string — orphan Langfuse trace (bug pf-d1bcab)")
+	// Phase 4: PipelineTraceId and PipelineSpanId are deprecated proto fields.
+	// They must NOT be set on gRPC requests — OTel interceptors propagate trace context
+	// automatically via the gRPC context. The captured values should be empty.
+	require.Empty(t, capturedTraceID,
+		"SummaryRequest.PipelineTraceId must be empty: OTel interceptors propagate trace context "+
+			"automatically. Manual proto field forwarding removed in Phase 4 cleanup.")
+	require.Empty(t, capturedSpanID,
+		"SummaryRequest.PipelineSpanId must be empty: OTel interceptors propagate trace context "+
+			"automatically. Manual proto field forwarding removed in Phase 4 cleanup.")
+
+	// Suppress unused variable warnings for the original constants
+	_ = wantTraceID
+	_ = wantSpanID
 }
 
 // TestBackfillConversationSummaries tests the backfill method that generates

@@ -172,9 +172,6 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	})
 	defer stageSpan.End()
 
-	// Extract real SpanID from the stage span
-	spanID := stageSpan.SpanContext().SpanID().String()
-
 	// Build TriageContentRequest
 	req := &aiv1.TriageContentRequest{
 		Content: input.Content,
@@ -191,14 +188,10 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	if input.SourceID > 0 {
 		req.SourceId = &input.SourceID
 	}
-	if input.PipelineTraceID != "" {
-		req.PipelineTraceId = &input.PipelineTraceID
-	}
-	// Pass real SpanID (not phantom random ID)
-	req.PipelineSpanId = &spanID
 	if input.ContentID != "" {
 		req.ContentId = &input.ContentID
 	}
+	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
 	// Call AI service with stage span context
 	resp, err := a.aiClient.TriageContent(stageCtx, req)

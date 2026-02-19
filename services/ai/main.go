@@ -25,6 +25,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/ai/server"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -205,8 +206,13 @@ func main() {
 		return geminiBackend.CheckLLMHealth(ctx)
 	})
 
-	// Create gRPC server
+	// Create gRPC server.
+	// The otelgrpc stats handler extracts traceparent from incoming gRPC metadata,
+	// so the ai-coordinator's context inherits the worker's active span.
+	// This allows applyPipelineTrace in pkg/tracing/ai.go to detect an active span
+	// and use it as the parent instead of falling through to the manual trace ID path.
 	grpcServer := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
 			loggingInterceptor(logger),
 			metricsInterceptor(svcMetrics),

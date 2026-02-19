@@ -1802,21 +1802,20 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_InteractionWi
 	require.True(s.T(), result.SkipDeep) // Verify skip flag is set
 }
 
-// TestSLMPipeline_StageSpanPropagation verifies that each AI-calling stage receives a
-// stage-specific SpanID (not the root pipeline SpanID) as its PipelineSpanID.
+// TestSLMPipeline_StageSpanPropagation verifies Phase 4 OTel cleanup behaviour:
+// PipelineSpanID must NOT be populated in workflow activity inputs because OTel
+// interceptors (Temporal + otelgrpc) propagate span context automatically via
+// gRPC metadata (traceparent). The deprecated pipeline_span_id proto field must
+// remain empty.
 //
-// This is the acceptance test for pf-9c71dd: worker-side stage spans for Langfuse error visibility.
+// Historical context:
+// - pf-9c71dd (Phase 3): added per-stage SideEffect span IDs in workflow inputs
+// - pf-e1b307 (Phase 4): removed phantom SideEffect span IDs; OTel handles propagation
 //
 // Acceptance criteria verified:
-// 1. Each AI stage (triage, extract_entities, deep_analyze, embedding) gets a wrapping stage span.
-// 2. The stage span's SpanID is passed to the activity input as PipelineSpanID (not the root).
-// 3. Each activity receives a UNIQUE SpanID (stage-specific, not the same root SpanID).
-//
-// The test fails pre-implementation because currently all activities receive the same root
-// pipelineSpanID from StartPipelineTracing — there are no per-stage span wrappers.
+// 1. PipelineSpanID is empty in all AI-calling activity inputs (no manual plumbing).
+// 2. The workflow still completes successfully (OTel propagation is transparent).
 func (s *SLMPipelineTestSuite) TestSLMPipeline_StageSpanPropagation() {
-	const rootPipelineSpanID = "aabbccddeeff0011" // 16-char hex, simulates what StartPipelineTracing returns
-
 	input := PipelineInput{
 		TenantID:    "tenant-span",
 		SourceID:    9900,
@@ -1830,11 +1829,12 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_StageSpanPropagation() {
 	}
 
 	// Capture the PipelineSpanID received by each AI activity.
+	// Phase 4: all of these must be EMPTY — OTel handles propagation, not workflow inputs.
 	var (
-		triageSpanID     string
-		extractSpanID    string
+		triageSpanID      string
+		extractSpanID     string
 		deepAnalyzeSpanID string
-		embeddingSpanID  string
+		embeddingSpanID   string
 	)
 
 	// Stage 0: Parse (non-AI, no span capture needed).
@@ -1846,10 +1846,10 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_StageSpanPropagation() {
 	}, nil)
 
 	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
-		return in.Status == "parsed"
-	})).Return(nil)
+		return in.SourceID == 9900
+	})).Maybe().Return(nil)
 
-	// Stage 1: Triage — capture the SpanID passed to this AI activity.
+	// Stage 1: Triage — verify SpanID is NOT passed in workflow input.
 	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
 		if in.SourceID == 9900 {
 			triageSpanID = in.PipelineSpanID
@@ -1863,7 +1863,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_StageSpanPropagation() {
 		SkipDeep:   false,
 	}, nil)
 
-	// Stage 2: ExtractEntities — capture the SpanID.
+	// Stage 2: ExtractEntities — verify SpanID is NOT passed in workflow input.
 	personID := int64(42)
 	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.MatchedBy(func(in SLMPipelineExtractEntitiesInput) bool {
 		if in.SourceID == 9900 {
@@ -1875,10 +1875,6 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_StageSpanPropagation() {
 		Projects: []string{"Project Alpha"},
 	}, nil)
 
-	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
-		return in.Status == "extracted"
-	})).Return(nil)
-
 	// Stage 3: BuildContextPackage (non-AI coordinator, uses resolved entities).
 	s.activities.On("BuildContextPackage", mock.Anything, mock.MatchedBy(func(in BuildContextInput) bool {
 		return in.SourceID == 9900
@@ -1887,7 +1883,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_StageSpanPropagation() {
 		EntitiesResolved: 1,
 	}, nil)
 
-	// Stage 4: DeepAnalyze — capture the SpanID.
+	// Stage 4: DeepAnalyze — verify SpanID is NOT passed in workflow input.
 	s.activities.On("DeepAnalyze", mock.Anything, mock.MatchedBy(func(in DeepAnalyzeInput) bool {
 		if in.SourceID == 9900 {
 			deepAnalyzeSpanID = in.PipelineSpanID
@@ -1905,17 +1901,13 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_StageSpanPropagation() {
 		AssertionsCreated: 1,
 	}, nil)
 
-	// Stage 5: GenerateContentEmbedding — capture the SpanID.
+	// Stage 5: GenerateContentEmbedding — verify SpanID is NOT passed in workflow input.
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
 		if in.SourceID == 9900 {
 			embeddingSpanID = in.PipelineSpanID
 		}
 		return in.SourceID == 9900
 	})).Return(int64(9001), nil)
-
-	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
-		return in.Status == "completed"
-	})).Return(nil)
 
 	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
 
@@ -1926,42 +1918,16 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_StageSpanPropagation() {
 	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
 	s.Equal("completed", result.Status)
 
-	// CRITICAL ASSERTIONS: Each AI activity must receive a non-empty SpanID.
-	// Pre-implementation: all of these may be empty or equal to rootPipelineSpanID.
-	// Post-implementation: each must be a unique, non-empty stage span ID.
-	s.NotEmpty(triageSpanID,
-		"Triage must receive a non-empty PipelineSpanID (stage span, not root)")
-	s.NotEmpty(extractSpanID,
-		"ExtractEntities must receive a non-empty PipelineSpanID (stage span, not root)")
-	s.NotEmpty(deepAnalyzeSpanID,
-		"DeepAnalyze must receive a non-empty PipelineSpanID (stage span, not root)")
-	s.NotEmpty(embeddingSpanID,
-		"GenerateContentEmbedding must receive a non-empty PipelineSpanID (stage span, not root)")
-
-	// Each stage span ID must be DIFFERENT from the root pipeline span ID.
-	// This is the key invariant: activities get the stage span, not the root pipeline span.
-	s.NotEqual(rootPipelineSpanID, triageSpanID,
-		"Triage PipelineSpanID must be a stage-specific span, not the root pipeline span")
-	s.NotEqual(rootPipelineSpanID, extractSpanID,
-		"ExtractEntities PipelineSpanID must be a stage-specific span, not the root pipeline span")
-	s.NotEqual(rootPipelineSpanID, deepAnalyzeSpanID,
-		"DeepAnalyze PipelineSpanID must be a stage-specific span, not the root pipeline span")
-	s.NotEqual(rootPipelineSpanID, embeddingSpanID,
-		"GenerateContentEmbedding PipelineSpanID must be a stage-specific span, not the root pipeline span")
-
-	// Each stage span ID must be UNIQUE (different from one another).
-	// Each stage wraps a different activity so each gets its own span.
-	allSpanIDs := []string{triageSpanID, extractSpanID, deepAnalyzeSpanID, embeddingSpanID}
-	seen := make(map[string]string) // spanID -> stage name
-	stageNames := []string{"triage", "extract_entities", "deep_analyze", "embedding"}
-	for i, spanID := range allSpanIDs {
-		if prior, exists := seen[spanID]; exists {
-			s.Failf("duplicate stage span ID",
-				"Stage %q received the same PipelineSpanID %q as stage %q — each stage must get a unique span",
-				stageNames[i], spanID, prior)
-		}
-		seen[spanID] = stageNames[i]
-	}
+	// Phase 4 CRITICAL ASSERTIONS: PipelineSpanID must be EMPTY in all activity inputs.
+	// OTel interceptors propagate span context via gRPC metadata — no manual plumbing needed.
+	s.Empty(triageSpanID,
+		"Triage must NOT receive PipelineSpanID in workflow input (Phase 4: OTel propagates spans)")
+	s.Empty(extractSpanID,
+		"ExtractEntities must NOT receive PipelineSpanID in workflow input (Phase 4: OTel propagates spans)")
+	s.Empty(deepAnalyzeSpanID,
+		"DeepAnalyze must NOT receive PipelineSpanID in workflow input (Phase 4: OTel propagates spans)")
+	s.Empty(embeddingSpanID,
+		"GenerateContentEmbedding must NOT receive PipelineSpanID in workflow input (Phase 4: OTel propagates spans)")
 }
 
 func TestSLMPipelineTestSuite(t *testing.T) {

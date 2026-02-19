@@ -2,8 +2,6 @@
 package workflows
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -475,6 +473,19 @@ type StartPipelineTracingOutput struct {
 	SpanID  string `json:"span_id"`  // 16-char hex span ID from the OTel span
 }
 
+// FinishPipelineTracingInput is the input for the FinishPipelineTracing activity.
+// It carries the span context from StartPipelineTracing so that a child span can be
+// created under the root pipeline span at the end of the workflow. This gives the
+// root email-processing span real duration in Langfuse (Langfuse computes trace
+// duration from first to last observation).
+type FinishPipelineTracingInput struct {
+	TraceID     string `json:"trace_id"`     // 32-char hex trace ID from StartPipelineTracing
+	SpanID      string `json:"span_id"`      // 16-char hex span ID from StartPipelineTracing
+	ContentID   string `json:"content_id"`   // Standard content ID format: <type:2>-<base62:8>
+	ContentType string `json:"content_type"` // email, meeting, slack, etc.
+	TenantID    string `json:"tenant_id"`    // Penfold tenant identifier
+}
+
 // KickNextPendingInput is the input for the KickNextPending activity.
 // This activity calls the gateway's KickProcessing RPC to automatically
 // start the next pending pipeline after the current one completes.
@@ -733,7 +744,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}
 
 	// Start pipeline tracing span to create root span for Langfuse trace grouping.
-	// This makes the trace title show "slm-pipeline" instead of a sibling span name like "ai.embedding".
+	// This makes the trace title show "email-processing" instead of a sibling span name like "ai.embedding".
 	// Placed after fetch so ContentType and ContentID are populated.
 	// Don't fail the pipeline if tracing fails - just log and continue.
 	ctxTracing := workflow.WithActivityOptions(ctx, fastOpts)
@@ -870,18 +881,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	)
 	triageStart := workflow.Now(ctx)
 
-	// Generate a per-stage correlation ID for the triage stage.
-	// This ID is passed to the AI coordinator as PipelineSpanID for logging/correlation.
-	// NOTE: The AI coordinator (server-side) creates its own real OTel stage.X spans
-	// and ignores this value for span parenting — see fix pf-9b868f. The ID is preserved
-	// here for backwards compatibility and for the stage-span correlation log fields.
-	var triageStageSpanID string
-	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		b := make([]byte, 8)
-		_, _ = rand.Read(b)
-		return hex.EncodeToString(b)
-	}).Get(&triageStageSpanID)
-
 	var triageOutput TriageOutput
 	triageOpts := stageOpts("triage", llmOpts)
 	if input.TimeoutOverride > 0 {
@@ -889,24 +888,21 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}
 	ctxTriage := workflow.WithActivityOptions(ctx, triageOpts)
 	err := workflow.ExecuteActivity(ctxTriage, pkgtemporal.ActivityTriage, TriageInput{
-		TenantID:        input.TenantID,
-		SourceID:        input.SourceID,
-		ContentID:       input.ContentID,
-		JobID:           input.JobID,
-		Content:         parsedContent,
-		Subject:         input.Subject,
-		SenderEmail:     input.SenderEmail,
-		ContentType:     input.ContentType,
-		ModelOverride:   input.ModelOverride,
-		PipelineTraceID: pipelineTraceID,
-		PipelineSpanID:  triageStageSpanID,
+		TenantID:      input.TenantID,
+		SourceID:      input.SourceID,
+		ContentID:     input.ContentID,
+		JobID:         input.JobID,
+		Content:       parsedContent,
+		Subject:       input.Subject,
+		SenderEmail:   input.SenderEmail,
+		ContentType:   input.ContentType,
+		ModelOverride: input.ModelOverride,
 	}).Get(ctx, &triageOutput)
 	if err != nil {
 		// Update status to "rejected" with failure info
 		pe := perrors.ClassifyError(err, "triage")
 		logger.Warn("pipeline stage span error",
 			"stage.name", "triage",
-			"stage.span_id", triageStageSpanID,
 			"error.type", classifyTemporalError(err),
 			"error.detail", err.Error(),
 			"stage.duration_ms", workflow.Now(ctx).Sub(triageStart).Milliseconds(),
@@ -958,7 +954,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	logger.Info("pipeline stage span completed",
 		"stage.name", "triage",
-		"stage.span_id", triageStageSpanID,
 		"stage.duration_ms", workflow.Now(ctx).Sub(triageStart).Milliseconds(),
 		"stage.timeout_start_to_close_ms", triageOpts.StartToCloseTimeout.Milliseconds(),
 	)
@@ -1184,12 +1179,10 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		convOutput := &LinkConversationOutput{}
 		ctxConv := workflow.WithActivityOptions(ctx, fastOpts)
 		err = workflow.ExecuteActivity(ctxConv, pkgtemporal.ActivityLinkConversation, LinkConversationInput{
-			TenantID:        input.TenantID,
-			SourceID:        input.SourceID,
-			ThreadID:        *threadID,
-			ContentID:       input.ContentID,
-			PipelineTraceID: pipelineTraceID,
-			PipelineSpanID:  triageStageSpanID,
+			TenantID:  input.TenantID,
+			SourceID:  input.SourceID,
+			ThreadID:  *threadID,
+			ContentID: input.ContentID,
 		}).Get(ctx, convOutput)
 		if err != nil {
 			logger.Warn("conversation linking failed (non-blocking)",
@@ -1222,16 +1215,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 		extractStart := workflow.Now(ctx)
 
-		// Per-stage correlation ID for extract_entities. The AI coordinator ignores
-		// this value for OTel span parenting (it creates its own stage.extract_entities
-		// spans server-side) but uses it for logging/correlation. See fix pf-9b868f.
-		var extractStageSpanID string
-		_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-			b := make([]byte, 8)
-			_, _ = rand.Read(b)
-			return hex.EncodeToString(b)
-		}).Get(&extractStageSpanID)
-
 		extractOutput = &SLMPipelineExtractEntitiesOutput{}
 		extractOpts := stageOpts("extract_entities", embeddingOpts)
 		if input.TimeoutOverride > 0 {
@@ -1239,42 +1222,29 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 		ctxExtract := workflow.WithActivityOptions(ctx, extractOpts)
 		err = workflow.ExecuteActivity(ctxExtract, pkgtemporal.ActivityExtractEntitiesActivity, SLMPipelineExtractEntitiesInput{
-			TenantID:        input.TenantID,
-			SourceID:        input.SourceID,
-			ContentID:       input.ContentID,
-			JobID:           input.JobID,
-			Content:         parsedContent,
-			ModelOverride:   input.ModelOverride,
-			PipelineTraceID: pipelineTraceID,
-			PipelineSpanID:  extractStageSpanID,
+			TenantID:      input.TenantID,
+			SourceID:      input.SourceID,
+			ContentID:     input.ContentID,
+			JobID:         input.JobID,
+			Content:       parsedContent,
+			ModelOverride: input.ModelOverride,
 		}).Get(ctx, extractOutput)
 
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
-		// Per-stage correlation ID for extract_assertions. See fix pf-9b868f.
-		var assertionsStageSpanID string
-		_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-			b := make([]byte, 8)
-			_, _ = rand.Read(b)
-			return hex.EncodeToString(b)
-		}).Get(&assertionsStageSpanID)
-
 		var assertionCount int
 		assertionOpts := stageOpts("extract_assertions", llmOpts)
 		ctxAssertions := workflow.WithActivityOptions(ctx, assertionOpts)
 		err2 := workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
-			TenantID:        input.TenantID,
-			SourceID:        input.SourceID,
-			ContentID:       input.ContentID,
-			JobID:           input.JobID,
-			Content:         parsedContent,
-			SenderEmail:     input.SenderEmail, // Pass sender for owner attribution
-			PipelineTraceID: pipelineTraceID,
-			PipelineSpanID:  assertionsStageSpanID,
+			TenantID:    input.TenantID,
+			SourceID:    input.SourceID,
+			ContentID:   input.ContentID,
+			JobID:       input.JobID,
+			Content:     parsedContent,
+			SenderEmail: input.SenderEmail, // Pass sender for owner attribution
 		}).Get(ctx, &assertionCount)
 		if err2 != nil {
 			logger.Warn("pipeline stage span error",
 				"stage.name", "extract_assertions",
-				"stage.span_id", assertionsStageSpanID,
 				"error.type", classifyTemporalError(err2),
 				"error.detail", err2.Error(),
 			)
@@ -1283,7 +1253,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		} else {
 			logger.Info("pipeline stage span completed",
 				"stage.name", "extract_assertions",
-				"stage.span_id", assertionsStageSpanID,
 				"stage.timeout_start_to_close_ms", assertionOpts.StartToCloseTimeout.Milliseconds(),
 			)
 		}
@@ -1292,7 +1261,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		if err != nil {
 			logger.Warn("pipeline stage span error",
 				"stage.name", "extract_entities",
-				"stage.span_id", extractStageSpanID,
 				"error.type", classifyTemporalError(err),
 				"error.detail", err.Error(),
 				"stage.duration_ms", workflow.Now(ctx).Sub(extractStart).Milliseconds(),
@@ -1309,7 +1277,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		} else {
 			logger.Info("pipeline stage span completed",
 				"stage.name", "extract_entities",
-				"stage.span_id", extractStageSpanID,
 				"stage.duration_ms", workflow.Now(ctx).Sub(extractStart).Milliseconds(),
 				"stage.timeout_start_to_close_ms", extractOpts.StartToCloseTimeout.Milliseconds(),
 			)
@@ -1465,16 +1432,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 		analyzeStart := workflow.Now(ctx)
 
-		// Per-stage correlation ID for deep_analyze. The AI coordinator ignores
-		// this for OTel span parenting (creates its own stage.deep_analyze spans
-		// server-side). See fix pf-9b868f.
-		var analyzeStageSpanID string
-		_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-			b := make([]byte, 8)
-			_, _ = rand.Read(b)
-			return hex.EncodeToString(b)
-		}).Get(&analyzeStageSpanID)
-
 		var analyzeOutput *DeepAnalyzeOutput
 		analyzeOpts := stageOpts("deep_analyze", llmOpts)
 		if input.TimeoutOverride > 0 {
@@ -1494,14 +1451,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			ExtractionResult:  extractOutput,
 			BackgroundContext: "", // Context package content assembled by activity
 			ModelOverride:     input.ModelOverride,
-			PipelineTraceID:   pipelineTraceID,
-			PipelineSpanID:    analyzeStageSpanID,
 		}).Get(ctx, analyzeOutput)
 		if err != nil {
 			durationMs := workflow.Now(ctx).Sub(analyzeStart).Milliseconds()
 			logger.Warn("pipeline stage span error",
 				"stage.name", "deep_analyze",
-				"stage.span_id", analyzeStageSpanID,
 				"error.type", classifyTemporalError(err),
 				"error.detail", err.Error(),
 				"stage.duration_ms", durationMs,
@@ -1527,7 +1481,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		} else {
 			logger.Info("pipeline stage span completed",
 				"stage.name", "deep_analyze",
-				"stage.span_id", analyzeStageSpanID,
 				"stage.duration_ms", workflow.Now(ctx).Sub(analyzeStart).Milliseconds(),
 				"stage.timeout_start_to_close_ms", analyzeOpts.StartToCloseTimeout.Milliseconds(),
 			)
@@ -1687,34 +1640,21 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	)
 	embedStart := workflow.Now(ctx)
 
-	// Per-stage correlation ID for embedding. The AI coordinator ignores this for
-	// OTel span parenting (creates its own stage.embedding spans server-side).
-	// See fix pf-9b868f.
-	var embedStageSpanID string
-	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		b := make([]byte, 8)
-		_, _ = rand.Read(b)
-		return hex.EncodeToString(b)
-	}).Get(&embedStageSpanID)
-
 	var embeddingID int64
 	embedOpts := stageOpts("embedding", embeddingOpts)
 	ctxEmbed := workflow.WithActivityOptions(ctx, embedOpts)
 	err = workflow.ExecuteActivity(ctxEmbed, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
-		TenantID:        input.TenantID,
-		SourceID:        input.SourceID,
-		ContentID:       input.ContentID,
-		Content:         parsedContent,
-		ContentHash:     input.ContentHash,
-		PipelineTraceID: pipelineTraceID,
-		PipelineSpanID:  embedStageSpanID,
+		TenantID:    input.TenantID,
+		SourceID:    input.SourceID,
+		ContentID:   input.ContentID,
+		Content:     parsedContent,
+		ContentHash: input.ContentHash,
 	}).Get(ctx, &embeddingID)
 	if err != nil {
 		runCompensation(ctx)
 		pe := perrors.ClassifyError(err, "embedding")
 		logger.Warn("pipeline stage span error",
 			"stage.name", "embedding",
-			"stage.span_id", embedStageSpanID,
 			"error.type", classifyTemporalError(err),
 			"error.detail", err.Error(),
 			"stage.duration_ms", workflow.Now(ctx).Sub(embedStart).Milliseconds(),
@@ -1739,7 +1679,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	logger.Info("pipeline stage span completed",
 		"stage.name", "embedding",
-		"stage.span_id", embedStageSpanID,
 		"stage.duration_ms", workflow.Now(ctx).Sub(embedStart).Milliseconds(),
 		"stage.timeout_start_to_close_ms", embedOpts.StartToCloseTimeout.Milliseconds(),
 	)
@@ -1804,6 +1743,23 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		"skip_deep", triageOutput.SkipDeep,
 		"embedding_id", embeddingID,
 	)
+
+	// Finish pipeline tracing: create a terminal child span under the root email-processing
+	// span so that the Langfuse trace duration reflects the full pipeline execution time.
+	// This is best-effort — a failure here must not affect the pipeline result.
+	if tracingErr == nil && tracingOutput.TraceID != "" {
+		ctxFinishTracing := workflow.WithActivityOptions(ctx, fastOpts)
+		finishTracingErr := workflow.ExecuteActivity(ctxFinishTracing, pkgtemporal.ActivityFinishPipelineTracing, FinishPipelineTracingInput{
+			TraceID:     tracingOutput.TraceID,
+			SpanID:      tracingOutput.SpanID,
+			ContentID:   input.ContentID,
+			ContentType: input.ContentType,
+			TenantID:    input.TenantID,
+		}).Get(ctxFinishTracing, nil)
+		if finishTracingErr != nil {
+			logger.Warn("Failed to finish pipeline tracing span (non-fatal)", "error", finishTracingErr)
+		}
+	}
 
 	// Auto-drain: kick next pending item to maintain concurrency window
 	// This is best-effort — if it fails, the pipeline still succeeds

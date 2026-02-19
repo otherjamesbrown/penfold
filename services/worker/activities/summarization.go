@@ -95,12 +95,7 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 		Style:     aiv1.SummaryStyle_SUMMARY_STYLE_BRIEF,
 		TenantId:  &input.TenantID,
 	}
-	if input.PipelineTraceID != "" {
-		summaryReq.PipelineTraceId = &input.PipelineTraceID
-	}
-	if input.PipelineSpanID != "" {
-		summaryReq.PipelineSpanId = &input.PipelineSpanID
-	}
+	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
 	// Call AI service (tracing is handled by the AI server, not duplicated here)
 	resp, err := a.aiClient.GenerateSummary(ctx, summaryReq)
@@ -237,12 +232,7 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 	if input.Model != "" {
 		summaryReq.Model = &input.Model
 	}
-	if input.PipelineTraceID != "" {
-		summaryReq.PipelineTraceId = &input.PipelineTraceID
-	}
-	if input.PipelineSpanID != "" {
-		summaryReq.PipelineSpanId = &input.PipelineSpanID
-	}
+	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
 	// Tracing is handled by the AI server, not duplicated here
 	resp, err := a.aiClient.GenerateSummary(ctx, summaryReq)

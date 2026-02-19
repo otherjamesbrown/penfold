@@ -589,12 +589,7 @@ func (a *ContentActivities) SummarizeContentActivity(ctx context.Context, input 
 		Style:     style,
 		TenantId:  &input.TenantID,
 	}
-	if input.PipelineTraceID != "" {
-		req.PipelineTraceId = &input.PipelineTraceID
-	}
-	if input.PipelineSpanID != "" {
-		req.PipelineSpanId = &input.PipelineSpanID
-	}
+	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {

@@ -220,3 +220,90 @@ func TestStartPipelineTracing_ReturnsActualTraceID(t *testing.T) {
 	// In production with real tracing (Langfuse), the IDs will be non-zero and valid.
 	// In unit tests, they may be zero (no-op tracer), which is acceptable.
 }
+
+// TestFinishPipelineTracing_HappyPath verifies that FinishPipelineTracing succeeds with
+// valid trace ID and span ID (as returned by StartPipelineTracing).
+func TestFinishPipelineTracing_HappyPath(t *testing.T) {
+	logger := logging.NewNopLogger()
+	acts := &PipelineActivities{
+		logger: logger,
+	}
+
+	ctx := context.Background()
+
+	// Simulate values returned by StartPipelineTracing in production.
+	input := workflows.FinishPipelineTracingInput{
+		TraceID:     "0123456789abcdef0123456789abcdef",
+		SpanID:      "0123456789abcdef",
+		ContentID:   "em-abc12XYZ",
+		ContentType: "email",
+		TenantID:    "test-tenant",
+	}
+
+	// Should succeed without error — creates a no-op child span in test context.
+	err := acts.FinishPipelineTracing(ctx, input)
+	require.NoError(t, err)
+}
+
+// TestFinishPipelineTracing_EmptyTraceID verifies that FinishPipelineTracing is a no-op
+// when called with an empty trace ID (e.g., when StartPipelineTracing failed).
+func TestFinishPipelineTracing_EmptyTraceID(t *testing.T) {
+	logger := logging.NewNopLogger()
+	acts := &PipelineActivities{
+		logger: logger,
+	}
+
+	ctx := context.Background()
+	input := workflows.FinishPipelineTracingInput{
+		TraceID:     "", // Empty — StartPipelineTracing may have failed
+		SpanID:      "",
+		ContentID:   "em-abc12XYZ",
+		ContentType: "email",
+	}
+
+	// Should succeed silently — skips span creation when no trace ID is available.
+	err := acts.FinishPipelineTracing(ctx, input)
+	require.NoError(t, err)
+}
+
+// TestFinishPipelineTracing_InvalidTraceID verifies that FinishPipelineTracing handles
+// an invalid (unparseable) trace ID gracefully without returning an error.
+func TestFinishPipelineTracing_InvalidTraceID(t *testing.T) {
+	logger := logging.NewNopLogger()
+	acts := &PipelineActivities{
+		logger: logger,
+	}
+
+	ctx := context.Background()
+	input := workflows.FinishPipelineTracingInput{
+		TraceID:     "not-a-valid-hex-trace-id",
+		SpanID:      "0123456789abcdef",
+		ContentID:   "em-abc12XYZ",
+		ContentType: "email",
+	}
+
+	// Should succeed — invalid trace ID is logged as warning and skipped.
+	err := acts.FinishPipelineTracing(ctx, input)
+	require.NoError(t, err)
+}
+
+// TestFinishPipelineTracing_InvalidSpanID verifies that FinishPipelineTracing handles
+// an invalid span ID gracefully — still creates a child span using only the trace ID.
+func TestFinishPipelineTracing_InvalidSpanID(t *testing.T) {
+	logger := logging.NewNopLogger()
+	acts := &PipelineActivities{
+		logger: logger,
+	}
+
+	ctx := context.Background()
+	input := workflows.FinishPipelineTracingInput{
+		TraceID:     "0123456789abcdef0123456789abcdef",
+		SpanID:      "not-a-valid-span-id",
+		ContentID:   "em-abc12XYZ",
+		ContentType: "email",
+	}
+
+	// Should succeed — invalid span ID is logged as warning; trace root is still used as parent.
+	err := acts.FinishPipelineTracing(ctx, input)
+	require.NoError(t, err)
+}

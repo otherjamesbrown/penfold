@@ -140,26 +140,28 @@ func TestTriageContent_NoStageSpanFromHandler(t *testing.T) {
 	}
 
 	// -------------------------------------------------------------------
-	// ASSERTION 4: ai.triage trace ID matches the pipeline trace.
-	// applyPipelineTrace should set the correct trace ID.
+	// ASSERTION 4: Phase 4 — ai.triage trace ID is auto-generated (NOT the pipelineTraceID).
+	// applyPipelineTrace no longer reconstructs span context from string IDs.
+	// OTel interceptors propagate trace context via gRPC metadata instead.
 	// -------------------------------------------------------------------
 	aiTraceID := aiSpan.SpanContext.TraceID().String()
-	if aiTraceID != pipelineTraceID {
-		t.Errorf("ai.triage trace ID = %s, want %s", aiTraceID, pipelineTraceID)
+	if aiTraceID == pipelineTraceID {
+		t.Errorf("Phase 4: ai.triage trace ID should be auto-generated, not pipelineTraceID. Got %s", aiTraceID)
+	}
+	if aiTraceID == "" {
+		t.Error("expected a non-empty auto-generated trace ID")
 	}
 
 	// -------------------------------------------------------------------
-	// ASSERTION 5: ai.triage parent is set via applyPipelineTrace.
-	// The worker passes PipelineSpanID, which applyPipelineTrace uses as parent.
-	// (In this test, that's the phantom ID because we're testing the handler only.)
+	// ASSERTION 5: Phase 4 — ai.triage is a root span (no parent from manual reconstruction).
+	// In production, the parent comes from OTel gRPC interceptors, not string IDs.
 	// -------------------------------------------------------------------
 	aiParentSpanID := aiSpan.Parent.SpanID().String()
-	t.Logf("ai.triage parent span ID = %s (set via applyPipelineTrace from PipelineSpanID)",
-		aiParentSpanID)
+	t.Logf("Phase 4: ai.triage parent span ID = %s (root span — no manual reconstruction)", aiParentSpanID)
 }
 
 // TestStartPipelineTracing_ZeroDurationSpan_BugReproduction reproduces the
-// second aspect of bug pf-9b868f: the slm-pipeline span has zero duration
+// second aspect of bug pf-9b868f: the email-processing span has zero duration
 // because StartPipelineTracing uses `defer span.End()` (line 171 of
 // pipeline_activities.go). The span ends the moment the activity returns,
 // capturing none of the pipeline's actual work.
@@ -195,7 +197,7 @@ func TestStartPipelineTracing_ZeroDurationSpan_BugReproduction(t *testing.T) {
 	// immediately end it (defer fires on return).
 	simulateActivityBehavior := func() (startTime, endTime time.Time) {
 		ctx := context.Background()
-		_, span := tracing.StartPipeline(ctx, "slm-pipeline", contentID, contentType, "tenant-1", pipelineTraceID)
+		_, span := tracing.StartPipeline(ctx, "email-processing", contentID, contentType, "tenant-1", pipelineTraceID)
 		startTime = time.Now()
 		// Activity returns here — defer span.End() fires immediately.
 		defer span.End()
@@ -210,13 +212,13 @@ func TestStartPipelineTracing_ZeroDurationSpan_BugReproduction(t *testing.T) {
 
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
-		t.Fatalf("expected 1 span (slm-pipeline), got %d", len(spans))
+		t.Fatalf("expected 1 span (email-processing), got %d", len(spans))
 	}
 
 	pipelineSpan := spans[0]
 
-	if pipelineSpan.Name != "slm-pipeline" {
-		t.Errorf("expected span name 'slm-pipeline', got %q", pipelineSpan.Name)
+	if pipelineSpan.Name != "email-processing" {
+		t.Errorf("expected span name 'email-processing', got %q", pipelineSpan.Name)
 	}
 
 	// The span duration as captured by OTel
@@ -239,7 +241,7 @@ func TestStartPipelineTracing_ZeroDurationSpan_BugReproduction(t *testing.T) {
 	// — it ends immediately when the activity returns).
 	//
 	// This documents the bug: in production, the pipeline takes seconds but
-	// the slm-pipeline span records near-zero duration.
+	// the email-processing span records near-zero duration.
 	if spanDuration >= 100*time.Millisecond {
 		// Unexpectedly long — this would mean the span actually lives long enough.
 		// This is the DESIRED behavior after the fix. If this assertion fails it
@@ -247,14 +249,14 @@ func TestStartPipelineTracing_ZeroDurationSpan_BugReproduction(t *testing.T) {
 		t.Logf("NOTE: span duration %v is >= 100ms — this is the desired fixed behavior", spanDuration)
 	} else {
 		// The span ends almost immediately — this is the BUG.
-		t.Logf("BUG pf-9b868f: slm-pipeline span duration is %v (near-zero)", spanDuration)
+		t.Logf("BUG pf-9b868f: email-processing span duration is %v (near-zero)", spanDuration)
 		t.Log("The span ends when StartPipelineTracing activity returns (defer span.End()),")
 		t.Log("not when the pipeline workflow completes. In Langfuse this appears as a")
 		t.Log("zero-duration root observation with no child observations under it.")
 	}
 
 	// The actual assertion that documents the bug symptom:
-	// The slm-pipeline span must NOT end before the pipeline does real work.
+	// The email-processing span must NOT end before the pipeline does real work.
 	// The fix requires the span to outlive the activity that creates it.
 	//
 	// We enforce: the span duration must be >= 1ms to be considered meaningful.
@@ -267,7 +269,7 @@ func TestStartPipelineTracing_ZeroDurationSpan_BugReproduction(t *testing.T) {
 	// The fix must change the architecture so the span is NOT ended in the activity.
 	const minExpectedDuration = 1 * time.Millisecond
 	if spanDuration < minExpectedDuration {
-		t.Errorf("BUG pf-9b868f: slm-pipeline span duration %v is less than %v — "+
+		t.Errorf("BUG pf-9b868f: email-processing span duration %v is less than %v — "+
 			"the span ends when StartPipelineTracing activity returns (defer span.End()), "+
 			"not when the pipeline workflow completes. "+
 			"Fix: do not use defer span.End() in the activity; the span must outlive the activity.",
@@ -345,24 +347,25 @@ func TestTriageContent_HandlerUsesApplyPipelineTrace(t *testing.T) {
 		t.Fatal("ai.triage span not found in exports")
 	}
 
-	// Verify applyPipelineTrace set the trace ID correctly.
+	// Phase 4: applyPipelineTrace no longer reconstructs span context from string IDs.
+	// OTel interceptors propagate trace context via gRPC metadata instead.
+
+	// Verify trace ID is auto-generated (NOT the provided pipelineTraceID).
 	aiTraceID := aiSpan.SpanContext.TraceID().String()
-	if aiTraceID != pipelineTraceID {
-		t.Errorf("ai.triage trace ID = %s, want %s (applyPipelineTrace should set this)",
-			aiTraceID, pipelineTraceID)
+	if aiTraceID == pipelineTraceID {
+		t.Errorf("Phase 4: ai.triage trace ID should be auto-generated, not pipelineTraceID %s", pipelineTraceID)
+	}
+	if aiTraceID == "" {
+		t.Error("expected a non-empty auto-generated trace ID")
 	}
 
-	// Verify applyPipelineTrace set the parent span ID from PipelineSpanID.
-	// In this test, PipelineSpanID is the phantomStageSpanID (which will be a
-	// real stage span ID when the worker creates stage spans in pf-e6f1d3).
+	// Verify span is a root span (no parent from manual reconstruction).
+	// In production, the parent comes from OTel gRPC interceptors, not string IDs.
 	aiParentSpanID := aiSpan.Parent.SpanID().String()
-	if aiParentSpanID != phantomStageSpanID {
-		t.Errorf("ai.triage parent span ID = %s, want %s (from PipelineSpanID via applyPipelineTrace)",
-			aiParentSpanID, phantomStageSpanID)
-	} else {
-		t.Logf("CORRECT: ai.triage parent span ID = %s (set from PipelineSpanID)", aiParentSpanID)
-		t.Logf("(In production, this will be a real stage span ID created by the worker)")
+	if aiSpan.Parent.IsValid() {
+		t.Errorf("Phase 4: ai.triage should be a root span (no parent from manual reconstruction). Parent: %s", aiParentSpanID)
 	}
+	t.Logf("Phase 4: ai.triage is a root span (parent span ID = %s). OTel handles propagation in production.", aiParentSpanID)
 }
 
 // spanNames returns the names of all spans for use in diagnostic messages.

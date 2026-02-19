@@ -331,12 +331,7 @@ func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, te
 		// Use fast-tier model (per-stage model selection already available)
 		// The AIClient should handle model selection internally based on task
 	}
-	if pipelineTraceID != "" {
-		req.PipelineTraceId = &pipelineTraceID
-	}
-	if pipelineSpanID != "" {
-		req.PipelineSpanId = &pipelineSpanID
-	}
+	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {

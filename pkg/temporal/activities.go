@@ -26,6 +26,7 @@ const (
 	ActivityDeepAnalyze              = "DeepAnalyze"
 	ActivityRecordOverrides          = "RecordOverrides"
 	ActivityStartPipelineTracing     = "StartPipelineTracing"
+	ActivityFinishPipelineTracing    = "FinishPipelineTracing"
 	ActivityGroupEmailThread         = "GroupEmailThread"
 	ActivityCreateEnrichmentRecord   = "CreateEnrichmentRecord"
 	ActivityLinkConversation         = "LinkConversation"
@@ -71,6 +72,7 @@ func AllMainQueueActivities() []string {
 		ActivityDeepAnalyze,
 		ActivityRecordOverrides,
 		ActivityStartPipelineTracing,
+		ActivityFinishPipelineTracing,
 		ActivityGroupEmailThread,
 		ActivityCreateEnrichmentRecord,
 		ActivityLinkConversation,

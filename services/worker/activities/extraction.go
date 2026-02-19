@@ -112,9 +112,6 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	})
 	defer stageSpan.End()
 
-	// Extract real SpanID from the stage span
-	spanID := stageSpan.SpanContext().SpanID().String()
-
 	// Default parameters for assertion extraction
 	minConfidence := float32(0.5)
 	maxAssertions := int32(20)
@@ -125,14 +122,10 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 		MaxAssertions: &maxAssertions,
 		TenantId:      &input.TenantID,
 	}
-	if input.PipelineTraceID != "" {
-		assertionReq.PipelineTraceId = &input.PipelineTraceID
-	}
-	// Pass real SpanID (not phantom random ID)
-	assertionReq.PipelineSpanId = &spanID
 	if input.ContentID != "" {
 		assertionReq.ContentId = &input.ContentID
 	}
+	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
 	// Call AI service with stage span context
 	resp, err := a.aiClient.ExtractAssertions(stageCtx, assertionReq)
@@ -309,9 +302,6 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	})
 	defer stageSpan.End()
 
-	// Extract real SpanID from the stage span
-	spanID := stageSpan.SpanContext().SpanID().String()
-
 	var results []*aiv1.ExtractEntitiesResponse
 
 	if len(contentRunes) <= 6000 {
@@ -326,14 +316,10 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		if input.TriageCategory != "" {
 			req.TriageCategory = optString(input.TriageCategory)
 		}
-		if input.PipelineTraceID != "" {
-			req.PipelineTraceId = optString(input.PipelineTraceID)
-		}
-		// Pass real SpanID (not phantom random ID)
-		req.PipelineSpanId = optString(spanID)
 		if input.ContentID != "" {
 			req.ContentId = optString(input.ContentID)
 		}
+		// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
 		// Call AI service with stage span context
 		resp, err := a.aiClient.ExtractEntities(stageCtx, req)
@@ -369,14 +355,10 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			if i == 0 && input.TriageCategory != "" {
 				req.TriageCategory = optString(input.TriageCategory)
 			}
-			if input.PipelineTraceID != "" {
-				req.PipelineTraceId = optString(input.PipelineTraceID)
-			}
-			// Pass real SpanID (not phantom random ID)
-			req.PipelineSpanId = optString(spanID)
 			if input.ContentID != "" {
 				req.ContentId = optString(input.ContentID)
 			}
+			// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
 			resp, err := a.aiClient.ExtractEntities(stageCtx, req)
 			if err != nil {

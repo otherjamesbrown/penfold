@@ -127,9 +127,6 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	})
 	defer stageSpan.End()
 
-	// Extract real SpanID from the stage span
-	spanID := stageSpan.SpanContext().SpanID().String()
-
 	// Generate and store embeddings for each chunk
 	for _, chunk := range chunks {
 		activity.RecordHeartbeat(stageCtx, fmt.Sprintf("generating embedding for chunk %d/%d", chunk.Index+1, len(chunks)))
@@ -138,14 +135,10 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 			Text:     chunk.Text,
 			TenantId: &input.TenantID,
 		}
-		if input.PipelineTraceID != "" {
-			embeddingReq.PipelineTraceId = &input.PipelineTraceID
-		}
-		// Pass real SpanID (not phantom random ID)
-		embeddingReq.PipelineSpanId = &spanID
 		if input.ContentID != "" {
 			embeddingReq.ContentId = &input.ContentID
 		}
+		// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
 		// Call AI service to generate embedding with stage span context
 		resp, err := a.aiClient.GenerateEmbedding(stageCtx, embeddingReq)
