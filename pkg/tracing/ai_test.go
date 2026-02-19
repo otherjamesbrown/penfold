@@ -25,129 +25,30 @@ func setupAITestTracer(t *testing.T) (*tracetest.InMemoryExporter, func()) {
 	}
 }
 
-// TestStartLLMCall_WithPipelineTraceID verifies Phase 4 behaviour:
-// PipelineTraceID is no longer used for span context reconstruction.
-// When no active OTel span is in context, a root span is created with
-// an auto-generated trace ID (OTel propagation handles context, not string IDs).
-func TestStartLLMCall_WithPipelineTraceID(t *testing.T) {
+// TestStartLLMCall_CreatesSpan verifies that StartLLMCall creates an OTel span
+// with the expected attributes.
+func TestStartLLMCall_CreatesSpan(t *testing.T) {
 	exporter, cleanup := setupAITestTracer(t)
 	defer cleanup()
 
-	// Phase 4: pipelineTraceID is retained for API compatibility but no longer
-	// used to set the span's trace ID. OTel interceptors propagate trace context.
-	pipelineTraceID := "0123456789abcdef0123456789abcdef"
-
-	// Call StartLLMCall with PipelineTraceID set
 	ctx, span := StartLLMCall(context.Background(), "test-llm-call", LLMCallOptions{
-		PipelineTraceID: pipelineTraceID,
-		Model:           "llama3.2",
-		System:          AISystemOllama,
-		ContentID:       "em-abc12XYZ",
-		TaskType:        "summarize",
+		Model:     "llama3.2",
+		System:    AISystemOllama,
+		ContentID: "em-abc12XYZ",
+		TaskType:  "summarize",
 	})
 	span.End()
 
-	// Verify the span was created
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("expected 1 span, got %d", len(spans))
 	}
 
-	// Phase 4: span gets an auto-generated trace ID (not the provided pipelineTraceID)
-	// because OTel propagation is used, not manual string reconstruction.
-	actualTraceID := spans[0].SpanContext.TraceID().String()
-	if actualTraceID == pipelineTraceID {
-		t.Errorf("Phase 4: trace ID should be auto-generated, not the deprecated pipelineTraceID. Got %s", actualTraceID)
-	}
-	if actualTraceID == "" {
-		t.Error("expected a non-empty auto-generated trace ID")
-	}
+	spanData := spans[0]
 
-	// Verify the span is a root span (no parent, since no active OTel span in context)
-	spanCtx := trace.SpanFromContext(ctx).SpanContext()
-	if !spanCtx.IsValid() {
-		t.Error("expected valid span context")
-	}
-	if !spanCtx.HasTraceID() {
-		t.Error("expected span to have trace ID")
-	}
-}
-
-// TestStartEmbedding_WithPipelineTraceID verifies that StartEmbedding uses the provided
-// pipeline trace ID instead of creating a new root span.
-// TestStartEmbedding_WithPipelineTraceID verifies Phase 4 behaviour:
-// PipelineTraceID is no longer used for span context reconstruction.
-func TestStartEmbedding_WithPipelineTraceID(t *testing.T) {
-	exporter, cleanup := setupAITestTracer(t)
-	defer cleanup()
-
-	// Phase 4: pipelineTraceID is retained for API compatibility but no longer used.
-	pipelineTraceID := "fedcba9876543210fedcba9876543210"
-
-	// Call StartEmbedding with PipelineTraceID set
-	ctx, span := StartEmbedding(context.Background(), "test-embedding", EmbeddingOptions{
-		PipelineTraceID: pipelineTraceID,
-		Model:           "mxbai-embed-large-v1",
-		System:          AISystemMLX,
-		ContentID:       "em-xyz98ABC",
-		BatchSize:       10,
-	})
-	span.End()
-
-	// Verify the span was created
-	spans := exporter.GetSpans()
-	if len(spans) != 1 {
-		t.Fatalf("expected 1 span, got %d", len(spans))
-	}
-
-	// Phase 4: span gets an auto-generated trace ID (not the provided pipelineTraceID)
-	actualTraceID := spans[0].SpanContext.TraceID().String()
-	if actualTraceID == pipelineTraceID {
-		t.Errorf("Phase 4: trace ID should be auto-generated, not the deprecated pipelineTraceID. Got %s", actualTraceID)
-	}
-	if actualTraceID == "" {
-		t.Error("expected a non-empty auto-generated trace ID")
-	}
-
-	// Verify the span has a valid context with the trace ID
-	spanCtx := trace.SpanFromContext(ctx).SpanContext()
-	if !spanCtx.IsValid() {
-		t.Error("expected valid span context")
-	}
-}
-
-// TestStartAIProcessing_WithPipelineTraceID verifies Phase 4 behaviour:
-// PipelineTraceID is no longer used for span context reconstruction.
-func TestStartAIProcessing_WithPipelineTraceID(t *testing.T) {
-	exporter, cleanup := setupAITestTracer(t)
-	defer cleanup()
-
-	// Phase 4: pipelineTraceID is retained for API compatibility but no longer used.
-	pipelineTraceID := "aabbccddeeff00112233445566778899"
-
-	// Call StartAIProcessing with PipelineTraceID set
-	ctx, span := StartAIProcessing(context.Background(), "test-ai-processing", AIProcessingOptions{
-		PipelineTraceID: pipelineTraceID,
-		TaskType:        "classify",
-		TenantID:        "tenant-123",
-		ContentID:       "dc-def45GHI",
-		ContentType:     "document",
-	})
-	span.End()
-
-	// Verify the span was created
-	spans := exporter.GetSpans()
-	if len(spans) != 1 {
-		t.Fatalf("expected 1 span, got %d", len(spans))
-	}
-
-	// Phase 4: span gets an auto-generated trace ID (not the provided pipelineTraceID)
-	actualTraceID := spans[0].SpanContext.TraceID().String()
-	if actualTraceID == pipelineTraceID {
-		t.Errorf("Phase 4: trace ID should be auto-generated, not the deprecated pipelineTraceID. Got %s", actualTraceID)
-	}
-	if actualTraceID == "" {
-		t.Error("expected a non-empty auto-generated trace ID")
+	// Verify span name
+	if spanData.Name != "test-llm-call" {
+		t.Errorf("expected span name 'test-llm-call', got %q", spanData.Name)
 	}
 
 	// Verify the span has a valid context
@@ -155,16 +56,33 @@ func TestStartAIProcessing_WithPipelineTraceID(t *testing.T) {
 	if !spanCtx.IsValid() {
 		t.Error("expected valid span context")
 	}
+
+	// Verify attributes
+	attrs := make(map[string]interface{})
+	for _, attr := range spanData.Attributes {
+		attrs[string(attr.Key)] = attr.Value.AsInterface()
+	}
+
+	if v, ok := attrs[AttrGenAIRequestModel]; !ok || v != "llama3.2" {
+		t.Errorf("expected %s = llama3.2, got %v", AttrGenAIRequestModel, v)
+	}
+	if v, ok := attrs[AttrGenAISystem]; !ok || v != AISystemOllama {
+		t.Errorf("expected %s = %s, got %v", AttrGenAISystem, AISystemOllama, v)
+	}
+	if v, ok := attrs[AttrPenfoldContentID]; !ok || v != "em-abc12XYZ" {
+		t.Errorf("expected %s = em-abc12XYZ, got %v", AttrPenfoldContentID, v)
+	}
+	if v, ok := attrs[AttrPenfoldTaskType]; !ok || v != "summarize" {
+		t.Errorf("expected %s = summarize, got %v", AttrPenfoldTaskType, v)
+	}
 }
 
-// TestStartLLMCall_WithoutPipelineTraceID_IsRoot verifies backward compatibility:
-// when no pipeline trace ID is provided, StartLLMCall should create a new root span
-// as it currently does.
-func TestStartLLMCall_WithoutPipelineTraceID_IsRoot(t *testing.T) {
+// TestStartLLMCall_IsRootSpanWithNoParent verifies that when no active OTel span
+// is in context, StartLLMCall creates a new root span.
+func TestStartLLMCall_IsRootSpanWithNoParent(t *testing.T) {
 	exporter, cleanup := setupAITestTracer(t)
 	defer cleanup()
 
-	// Call StartLLMCall WITHOUT PipelineTraceID (empty string)
 	ctx, span := StartLLMCall(context.Background(), "test-llm-root", LLMCallOptions{
 		Model:     "gpt-4",
 		System:    AISystemOpenAI,
@@ -172,171 +90,135 @@ func TestStartLLMCall_WithoutPipelineTraceID_IsRoot(t *testing.T) {
 	})
 	span.End()
 
-	// Verify the span was created
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("expected 1 span, got %d", len(spans))
 	}
 
-	// Verify this is a root span (no parent span ID)
-	// A root span has a valid span context but its parent span ID should be invalid
-	spanData := spans[0]
-	if !spanData.Parent.IsValid() {
-		// This is good - no parent means it's a root span
-		// This is the backward-compatible behavior we want to preserve
+	// Root span has no parent
+	if spans[0].Parent.IsValid() {
+		t.Error("expected span to be a root span (no parent)")
 	}
 
-	// Also verify the context contains a valid span
 	spanCtx := trace.SpanFromContext(ctx).SpanContext()
 	if !spanCtx.IsValid() {
 		t.Error("expected valid span context")
 	}
 }
 
-// TestLangfuseTraceTagsAttribute verifies that the AttrLangfuseTraceTags constant exists and
-// that spans with ContentID include the langfuse.trace.tags attribute for Langfuse grouping.
-func TestLangfuseTraceTagsAttribute(t *testing.T) {
-	// Test 1: Verify the constant exists and has the correct value
-	expectedKey := "langfuse.trace.tags"
-	if AttrLangfuseTraceTags != expectedKey {
-		t.Errorf("expected AttrLangfuseTraceTags to be %q, got %q", expectedKey, AttrLangfuseTraceTags)
-	}
-
-	// Test 2: Verify spans with ContentID only include the content ID tag
+// TestStartEmbedding_CreatesSpan verifies that StartEmbedding creates an OTel span.
+func TestStartEmbedding_CreatesSpan(t *testing.T) {
 	exporter, cleanup := setupAITestTracer(t)
 	defer cleanup()
 
-	contentID := "em-test789"
-
-	ctx, span := StartLLMCall(context.Background(), "test-tag-span", LLMCallOptions{
-		Model:     "test-model",
-		System:    AISystemOpenAI,
-		ContentID: contentID,
+	ctx, span := StartEmbedding(context.Background(), "test-embedding", EmbeddingOptions{
+		Model:     "mxbai-embed-large-v1",
+		System:    AISystemMLX,
+		ContentID: "em-xyz98ABC",
+		BatchSize: 10,
 	})
 	span.End()
 
-	// Verify the span was created
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("expected 1 span, got %d", len(spans))
 	}
 
-	// Verify the span has the langfuse.trace.tags attribute as a string slice
 	spanData := spans[0]
-	found := false
+
+	attrs := make(map[string]interface{})
 	for _, attr := range spanData.Attributes {
-		if string(attr.Key) == AttrLangfuseTraceTags {
-			found = true
-			tags := attr.Value.AsStringSlice()
-			if len(tags) != 1 || tags[0] != contentID {
-				t.Errorf("expected langfuse.trace.tags to be [%q], got %v", contentID, tags)
-			}
-			break
-		}
+		attrs[string(attr.Key)] = attr.Value.AsInterface()
 	}
 
-	if !found {
-		t.Errorf("expected span to have %q attribute, but it was not found", AttrLangfuseTraceTags)
+	if v, ok := attrs[AttrGenAIRequestModel]; !ok || v != "mxbai-embed-large-v1" {
+		t.Errorf("expected %s = mxbai-embed-large-v1, got %v", AttrGenAIRequestModel, v)
+	}
+	if v, ok := attrs[AttrPenfoldTaskType]; !ok || v != "embedding" {
+		t.Errorf("expected %s = embedding, got %v", AttrPenfoldTaskType, v)
 	}
 
-	_ = ctx
+	spanCtx := trace.SpanFromContext(ctx).SpanContext()
+	if !spanCtx.IsValid() {
+		t.Error("expected valid span context")
+	}
 }
 
-// TestLangfuseTraceTagsAttribute_WithTenant verifies that when TenantID is provided,
-// the langfuse.trace.tags includes both content ID and tenant tag.
-func TestLangfuseTraceTagsAttribute_WithTenant(t *testing.T) {
+// TestStartAIProcessing_CreatesSpan verifies that StartAIProcessing creates an OTel span.
+func TestStartAIProcessing_CreatesSpan(t *testing.T) {
 	exporter, cleanup := setupAITestTracer(t)
 	defer cleanup()
 
-	contentID := "em-test123"
-	tenantID := "tenant-456"
-
-	ctx, span := StartLLMCall(context.Background(), "test-tag-with-tenant", LLMCallOptions{
-		Model:     "test-model",
-		System:    AISystemOpenAI,
-		ContentID: contentID,
-		TenantID:  tenantID,
+	ctx, span := StartAIProcessing(context.Background(), "test-ai-processing", AIProcessingOptions{
+		TaskType:    "classify",
+		TenantID:    "tenant-123",
+		ContentID:   "dc-def45GHI",
+		ContentType: "document",
 	})
 	span.End()
 
-	// Verify the span was created
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("expected 1 span, got %d", len(spans))
 	}
 
-	// Verify the span has the langfuse.trace.tags attribute with both tags
 	spanData := spans[0]
-	found := false
+
+	attrs := make(map[string]interface{})
 	for _, attr := range spanData.Attributes {
-		if string(attr.Key) == AttrLangfuseTraceTags {
-			found = true
-			tags := attr.Value.AsStringSlice()
-			expectedTags := []string{contentID, "tenant:" + tenantID}
-			if len(tags) != 2 {
-				t.Errorf("expected langfuse.trace.tags to have 2 tags, got %d: %v", len(tags), tags)
-			}
-			for i, expectedTag := range expectedTags {
-				if i >= len(tags) || tags[i] != expectedTag {
-					t.Errorf("expected tag[%d] to be %q, got tags: %v", i, expectedTag, tags)
-				}
-			}
-			break
-		}
+		attrs[string(attr.Key)] = attr.Value.AsInterface()
 	}
 
-	if !found {
-		t.Errorf("expected span to have %q attribute, but it was not found", AttrLangfuseTraceTags)
+	if v, ok := attrs[AttrPenfoldTaskType]; !ok || v != "classify" {
+		t.Errorf("expected %s = classify, got %v", AttrPenfoldTaskType, v)
+	}
+	if v, ok := attrs[AttrPenfoldTenantID]; !ok || v != "tenant-123" {
+		t.Errorf("expected %s = tenant-123, got %v", AttrPenfoldTenantID, v)
+	}
+	if v, ok := attrs[AttrPenfoldContentID]; !ok || v != "dc-def45GHI" {
+		t.Errorf("expected %s = dc-def45GHI, got %v", AttrPenfoldContentID, v)
+	}
+	if v, ok := attrs[AttrPenfoldContentType]; !ok || v != "document" {
+		t.Errorf("expected %s = document, got %v", AttrPenfoldContentType, v)
 	}
 
-	_ = ctx
+	spanCtx := trace.SpanFromContext(ctx).SpanContext()
+	if !spanCtx.IsValid() {
+		t.Error("expected valid span context")
+	}
 }
 
-// TestPipelineTraceIDPropagation verifies Phase 4 OTel-based trace propagation:
-// When a parent span is in context, child spans created from that context inherit
-// the same trace ID via OTel (not via pipelineTraceID string reconstruction).
-func TestPipelineTraceIDPropagation(t *testing.T) {
+// TestOTelContextPropagation verifies that when a parent span is in context,
+// child spans created from that context inherit the same trace ID via OTel propagation.
+func TestOTelContextPropagation(t *testing.T) {
 	exporter, cleanup := setupAITestTracer(t)
 	defer cleanup()
-
-	// Phase 4: pipelineTraceID is no longer used for span context reconstruction.
-	// Trace propagation now happens via OTel context (the ctx passed between calls).
-	pipelineTraceID := "1122334455667788aabbccddeeff0011"
 
 	// Start a parent LLM call — with no active OTel span in context, creates a root span.
 	ctx1, span1 := StartLLMCall(context.Background(), "parent-llm", LLMCallOptions{
-		PipelineTraceID: pipelineTraceID, // retained for API compat, not used for trace ID
-		Model:           "gpt-4",
-		ContentID:       "em-parent1",
+		Model:     "gpt-4",
+		ContentID: "em-parent1",
 	})
 
 	// Start a child embedding operation — ctx1 has the parent span in it, so
 	// the child inherits the parent's trace ID via OTel context propagation.
 	ctx2, span2 := StartEmbedding(ctx1, "child-embedding", EmbeddingOptions{
-		PipelineTraceID: pipelineTraceID, // retained for API compat, not used for trace ID
-		Model:           "embed-model",
-		ContentID:       "em-parent1",
+		Model:     "embed-model",
+		ContentID: "em-parent1",
 	})
 
 	span2.End()
 	span1.End()
 
-	// Verify both spans were created
 	spans := exporter.GetSpans()
 	if len(spans) != 2 {
 		t.Fatalf("expected 2 spans, got %d", len(spans))
 	}
 
-	// Verify both spans share the same trace ID (via OTel context, not string reconstruction)
+	// Verify both spans share the same trace ID (via OTel context propagation)
 	traceID1 := spans[0].SpanContext.TraceID().String()
 	traceID2 := spans[1].SpanContext.TraceID().String()
 
-	// Phase 4: trace IDs are auto-generated, not the provided pipelineTraceID
-	if traceID1 == pipelineTraceID || traceID2 == pipelineTraceID {
-		t.Errorf("Phase 4: trace IDs should be auto-generated, not the deprecated pipelineTraceID")
-	}
-
-	// Both spans must share the same auto-generated trace ID (OTel propagation via ctx1)
 	if traceID1 != traceID2 {
 		t.Errorf("spans should share the same trace ID via OTel context: %s vs %s", traceID1, traceID2)
 	}
@@ -345,7 +227,7 @@ func TestPipelineTraceIDPropagation(t *testing.T) {
 }
 
 // TestTraceIDFromContext verifies the helper function that extracts trace ID from
-// a span context (used for pipeline trace ID generation).
+// a span context.
 func TestTraceIDFromContext(t *testing.T) {
 	exporter, cleanup := setupAITestTracer(t)
 	defer cleanup()
@@ -381,72 +263,13 @@ func TestTraceIDFromContext(t *testing.T) {
 	}
 }
 
-// TestStartLLMCall_WithInvalidPipelineTraceID verifies that when an invalid pipeline
-// trace ID is provided, the span falls back to creating a root span instead of
-// creating an orphaned span.
-func TestStartLLMCall_WithInvalidPipelineTraceID(t *testing.T) {
-	exporter, cleanup := setupAITestTracer(t)
-	defer cleanup()
-
-	// Use an invalid trace ID (not valid hex, wrong length, etc.)
-	invalidTraceID := "not-a-valid-hex-string"
-
-	// Call StartLLMCall with invalid PipelineTraceID
-	ctx, span := StartLLMCall(context.Background(), "test-llm-invalid-trace", LLMCallOptions{
-		PipelineTraceID: invalidTraceID,
-		Model:           "test-model",
-		System:          AISystemOllama,
-		ContentID:       "em-test123",
-	})
-	span.End()
-
-	// Verify the span was created
-	spans := exporter.GetSpans()
-	if len(spans) != 1 {
-		t.Fatalf("expected 1 span, got %d", len(spans))
-	}
-
-	// Verify the span is a root span (has no parent)
-	spanData := spans[0]
-	if spanData.Parent.IsValid() {
-		t.Error("expected span to be a root span (no parent), but it has a parent")
-	}
-
-	// Verify the span's trace ID is NOT the invalid string
-	// (it should be a newly generated valid trace ID)
-	actualTraceID := spanData.SpanContext.TraceID().String()
-	if actualTraceID == invalidTraceID {
-		t.Errorf("span should not have the invalid trace ID %s", invalidTraceID)
-	}
-
-	// Verify it's a valid 32-character hex string
-	if len(actualTraceID) != 32 {
-		t.Errorf("expected trace ID length 32, got %d", len(actualTraceID))
-	}
-	_, err := hex.DecodeString(actualTraceID)
-	if err != nil {
-		t.Errorf("expected valid hex trace ID, got error: %v", err)
-	}
-
-	// Verify the context has a valid span
-	spanCtx := trace.SpanFromContext(ctx).SpanContext()
-	if !spanCtx.IsValid() {
-		t.Error("expected valid span context")
-	}
-}
-
-// --- ACCEPTANCE TESTS FOR pf-aba512 ---
-
-// TestTraceLLMCall_PipelineTraceNesting verifies acceptance criterion 1:
-// All AI spans share TraceID with pipeline span, proper parent-child nesting, no orphaned traces.
+// TestTraceLLMCall_PipelineTraceNesting verifies that OTel context propagation
+// correctly nests AI spans under a pipeline span.
 //
 // This test simulates the full pipeline flow:
-// 1. Create a pipeline span using penfold.pipeline tracer (like observability.StartPipeline)
-// 2. Extract the trace ID from that pipeline span
-// 3. Create AI spans (LLM, embedding, processing) using the pipeline trace ID
-// 4. Verify all spans share the same trace ID
-// 5. Verify proper parent-child relationships exist
-// 6. Verify there are no orphaned traces (all spans belong to the pipeline trace)
+// 1. Create a pipeline span using penfold.pipeline tracer
+// 2. Create AI spans using the context with the active pipeline span
+// 3. Verify all spans share the same trace ID via context propagation
 func TestTraceLLMCall_PipelineTraceNesting(t *testing.T) {
 	// Set up test tracer with in-memory exporter
 	exporter, cleanup := setupTestTracer(t)
@@ -458,14 +281,12 @@ func TestTraceLLMCall_PipelineTraceNesting(t *testing.T) {
 	defer func() { AITracer = oldAITracer }()
 
 	// Step 1: Create a pipeline span using the penfold.pipeline tracer
-	// This simulates what observability.StartPipeline does
 	pipelineTracer := otel.Tracer("penfold.pipeline")
 	ctx, pipelineSpan := pipelineTracer.Start(context.Background(), "pipeline.email",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("penfold.content_id", "em-test123"),
 			attribute.String("penfold.content_type", "email"),
-			attribute.String("langfuse.session.id", "workflow-456"),
 		),
 	)
 
@@ -475,36 +296,31 @@ func TestTraceLLMCall_PipelineTraceNesting(t *testing.T) {
 		t.Fatalf("expected 32-char trace ID, got %d chars: %s", len(pipelineTraceID), pipelineTraceID)
 	}
 
-	// Step 2: Create AI spans that should nest under the pipeline trace
-	// Simulate multiple AI operations in a pipeline
+	// Step 2: Create AI spans using ctx (which has the active pipeline span).
+	// These should inherit the pipeline trace ID via OTel context propagation.
 
-	// AI span 1: LLM call for extraction
+	// AI span 1: LLM call
 	ctx1, span1 := StartLLMCall(ctx, "extract-assertions", LLMCallOptions{
-		PipelineTraceID: pipelineTraceID,
-		Model:           "llama3.2",
-		System:          AISystemOllama,
-		ContentID:       "em-test123",
-		TaskType:        "extraction",
-		SessionID:       "workflow-456",
-		UserID:          "user-789",
+		Model:     "llama3.2",
+		System:    AISystemOllama,
+		ContentID: "em-test123",
+		TaskType:  "extraction",
 	})
 	span1.End()
 
 	// AI span 2: Embedding generation
 	ctx2, span2 := StartEmbedding(ctx, "generate-embedding", EmbeddingOptions{
-		PipelineTraceID: pipelineTraceID,
-		Model:           "mxbai-embed-large-v1",
-		System:          AISystemMLX,
-		ContentID:       "em-test123",
+		Model:     "mxbai-embed-large-v1",
+		System:    AISystemMLX,
+		ContentID: "em-test123",
 	})
 	span2.End()
 
-	// AI span 3: General AI processing (mention resolution)
+	// AI span 3: General AI processing
 	ctx3, span3 := StartAIProcessing(ctx, "resolve-mentions", AIProcessingOptions{
-		PipelineTraceID: pipelineTraceID,
-		TaskType:        "resolution",
-		ContentID:       "em-test123",
-		ContentType:     "email",
+		TaskType:    "resolution",
+		ContentID:   "em-test123",
+		ContentType: "email",
 	})
 	span3.End()
 
@@ -519,7 +335,7 @@ func TestTraceLLMCall_PipelineTraceNesting(t *testing.T) {
 		t.Fatalf("expected 4 spans (1 pipeline + 3 AI), got %d", len(spans))
 	}
 
-	// Step 4: Verify all spans share the same trace ID
+	// Step 4: Verify all spans share the same trace ID via OTel context propagation
 	seenTraceIDs := make(map[string]int)
 	for i, span := range spans {
 		traceID := span.SpanContext.TraceID().String()
@@ -530,21 +346,15 @@ func TestTraceLLMCall_PipelineTraceNesting(t *testing.T) {
 		}
 	}
 
-	// Verify there's only ONE trace ID across all spans (no orphaned traces)
 	if len(seenTraceIDs) != 1 {
 		t.Errorf("expected all spans to share 1 trace ID, but found %d different trace IDs: %v",
 			len(seenTraceIDs), seenTraceIDs)
 	}
 
 	// Step 5: Verify parent-child relationships
-	// The pipeline span should be the root (no parent)
-	// The AI spans should all have the pipeline span as their parent
-
-	// First pass: find the pipeline span
 	var pipelineSpanID trace.SpanID
 	for _, span := range spans {
 		if span.InstrumentationScope.Name == "penfold.pipeline" {
-			// This is the pipeline span - should have no parent
 			if span.Parent.IsValid() {
 				t.Errorf("pipeline span should not have a parent, but has parent span ID %s",
 					span.Parent.SpanID().String())
@@ -558,11 +368,9 @@ func TestTraceLLMCall_PipelineTraceNesting(t *testing.T) {
 		t.Fatal("did not find pipeline span in exported spans")
 	}
 
-	// Second pass: verify AI spans have correct parent
 	aiSpanCount := 0
 	for _, span := range spans {
 		if span.InstrumentationScope.Name == "penfold.ai" {
-			// This is an AI span - should have the pipeline span as parent
 			aiSpanCount++
 			if !span.Parent.IsValid() {
 				t.Errorf("AI span %s should have a parent, but has no parent", span.Name)
@@ -573,374 +381,43 @@ func TestTraceLLMCall_PipelineTraceNesting(t *testing.T) {
 		}
 	}
 
-	// Verify we found all AI spans
 	if aiSpanCount != 3 {
 		t.Errorf("expected 3 AI spans with pipeline parent, found %d", aiSpanCount)
 	}
 
-	// Use contexts to avoid unused variable warnings
 	_ = ctx1
 	_ = ctx2
 	_ = ctx3
 }
 
-// TestStartLLMCall_WithPipelineSpanID verifies Phase 4 behaviour:
-// PipelineSpanID is no longer used for parent span context reconstruction.
-// When no active OTel span is in context, a root span is created regardless
-// of what pipelineSpanID is provided.
-func TestStartLLMCall_WithPipelineSpanID(t *testing.T) {
+// TestStartStageSpan_CreatesSpan verifies that StartStageSpan creates an OTel span
+// and that child spans created from the returned context are properly nested.
+func TestStartStageSpan_CreatesSpan(t *testing.T) {
 	exporter, cleanup := setupAITestTracer(t)
 	defer cleanup()
 
-	// Phase 4: pipelineTraceID and pipelineSpanID are retained for API compatibility
-	// but are no longer used to reconstruct span context. OTel interceptors handle this.
-	pipelineTraceID := "0123456789abcdef0123456789abcdef"
-	pipelineSpanID := "abcdef0123456789" // 16-char hex
-
-	// Call StartLLMCall with both PipelineTraceID and PipelineSpanID
-	ctx, span := StartLLMCall(context.Background(), "test-llm-with-parent", LLMCallOptions{
-		PipelineTraceID: pipelineTraceID,
-		PipelineSpanID:  pipelineSpanID,
-		Model:           "llama3.2",
-		System:          AISystemOllama,
-		ContentID:       "em-abc12XYZ",
-		TaskType:        "summarize",
+	ctx, stageSpan := StartStageSpan(context.Background(), "stage.triage", StageSpanOptions{
+		ContentID: "em-abc12XYZ",
+		TenantID:  "tenant-1",
 	})
-	span.End()
+
+	// Create a child AI span under the stage span
+	_, aiSpan := StartLLMCall(ctx, "ai.triage", LLMCallOptions{
+		Model:     "llama3.2",
+		ContentID: "em-abc12XYZ",
+	})
+	aiSpan.End()
+	stageSpan.End()
 
 	spans := exporter.GetSpans()
-	if len(spans) != 1 {
-		t.Fatalf("expected 1 span, got %d", len(spans))
+	if len(spans) != 2 {
+		t.Fatalf("expected 2 spans, got %d", len(spans))
 	}
 
-	spanData := spans[0]
-
-	// Phase 4: span gets an auto-generated trace ID (not the provided pipelineTraceID)
-	actualTraceID := spanData.SpanContext.TraceID().String()
-	if actualTraceID == pipelineTraceID {
-		t.Errorf("Phase 4: trace ID should be auto-generated, not the deprecated pipelineTraceID. Got %s", actualTraceID)
-	}
-
-	// Phase 4: span is a root span (no parent), because manual reconstruction is removed.
-	// In production, OTel interceptors propagate the parent via gRPC metadata.
-	if spanData.Parent.IsValid() {
-		t.Errorf("Phase 4: span should be a root span (no parent from manual reconstruction). Parent: %s", spanData.Parent.SpanID())
-	}
-
-	spanCtx := trace.SpanFromContext(ctx).SpanContext()
-	if !spanCtx.IsValid() {
-		t.Error("expected valid span context")
-	}
-}
-
-// TestStartEmbedding_WithPipelineSpanID verifies Phase 4 behaviour:
-// PipelineSpanID is no longer used for parent span context reconstruction.
-func TestStartEmbedding_WithPipelineSpanID(t *testing.T) {
-	exporter, cleanup := setupAITestTracer(t)
-	defer cleanup()
-
-	// Phase 4: pipelineTraceID and pipelineSpanID are retained for API compatibility
-	// but are no longer used to reconstruct span context.
-	pipelineTraceID := "fedcba9876543210fedcba9876543210"
-	pipelineSpanID := "1234567890abcdef"
-
-	_, span := StartEmbedding(context.Background(), "test-embedding-child", EmbeddingOptions{
-		PipelineTraceID: pipelineTraceID,
-		PipelineSpanID:  pipelineSpanID,
-		Model:           "mxbai-embed-large-v1",
-		System:          AISystemMLX,
-		ContentID:       "em-xyz98ABC",
-	})
-	span.End()
-
-	spans := exporter.GetSpans()
-	if len(spans) != 1 {
-		t.Fatalf("expected 1 span, got %d", len(spans))
-	}
-
-	spanData := spans[0]
-
-	// Phase 4: span is a root span (no parent from manual reconstruction).
-	// In production, OTel interceptors propagate the parent via gRPC metadata.
-	if spanData.Parent.IsValid() {
-		t.Errorf("Phase 4: span should be a root span (no parent from manual reconstruction). Parent: %s", spanData.Parent.SpanID())
-	}
-
-	// Phase 4: span gets an auto-generated trace ID (not the provided pipelineTraceID)
-	actualTraceID := spanData.SpanContext.TraceID().String()
-	if actualTraceID == pipelineTraceID {
-		t.Errorf("Phase 4: trace ID should be auto-generated, not the deprecated pipelineTraceID")
-	}
-}
-
-// TestTraceLLMCall_LangfuseMetadataPopulated verifies acceptance criterion 2:
-// Every AI span has non-empty session_id, user_id, tags with source_tag.
-//
-// This test verifies that when AI spans are created with metadata, that metadata
-// is correctly recorded as span attributes using the Langfuse attribute keys.
-func TestTraceLLMCall_LangfuseMetadataPopulated(t *testing.T) {
-	exporter, cleanup := setupAITestTracer(t)
-	defer cleanup()
-
-	// Create an LLM call with all metadata fields populated
-	sessionID := "session-abc123"
-	userID := "user-xyz789"
-	contentID := "em-test456" // This becomes a tag
-	tenantID := "tenant-001"
-
-	ctx, span := StartLLMCall(context.Background(), "test-metadata-span", LLMCallOptions{
-		PipelineTraceID: "aabbccddeeff00112233445566778899",
-		Model:           "gpt-4",
-		System:          AISystemOpenAI,
-		TenantID:        tenantID,
-		ContentID:       contentID,
-		TaskType:        "summarize",
-		UserID:          userID,
-		SessionID:       sessionID,
-	})
-	span.End()
-
-	// Verify the span was created
-	spans := exporter.GetSpans()
-	if len(spans) != 1 {
-		t.Fatalf("expected 1 span, got %d", len(spans))
-	}
-
-	spanData := spans[0]
-
-	// Create a map of attributes for easier checking
-	attrs := make(map[string]interface{})
-	for _, attr := range spanData.Attributes {
-		key := string(attr.Key)
-		attrs[key] = attr.Value.AsInterface()
-	}
-
-	// Test: langfuse.session.id is set and non-empty
-	t.Run("session_id", func(t *testing.T) {
-		val, ok := attrs[AttrLangfuseSessionID]
-		if !ok {
-			t.Errorf("span missing attribute %s", AttrLangfuseSessionID)
-			return
-		}
-		if val == "" {
-			t.Errorf("attribute %s is empty, expected %s", AttrLangfuseSessionID, sessionID)
-			return
-		}
-		if val != sessionID {
-			t.Errorf("attribute %s = %v, expected %s", AttrLangfuseSessionID, val, sessionID)
-		}
-	})
-
-	// Test: langfuse.user.id is set and non-empty
-	t.Run("user_id", func(t *testing.T) {
-		val, ok := attrs[AttrLangfuseUserID]
-		if !ok {
-			t.Errorf("span missing attribute %s", AttrLangfuseUserID)
-			return
-		}
-		if val == "" {
-			t.Errorf("attribute %s is empty, expected %s", AttrLangfuseUserID, userID)
-			return
-		}
-		if val != userID {
-			t.Errorf("attribute %s = %v, expected %s", AttrLangfuseUserID, val, userID)
-		}
-	})
-
-	// Test: langfuse.trace.tags contains the content ID and tenant tag
-	t.Run("trace_tags_with_source_and_tenant_tags", func(t *testing.T) {
-		val, ok := attrs[AttrLangfuseTraceTags]
-		if !ok {
-			t.Errorf("span missing attribute %s", AttrLangfuseTraceTags)
-			return
-		}
-
-		// The value should be a string slice containing the content ID and tenant tag
-		// The attribute package may return []string or []interface{}
-		var tags []string
-		switch v := val.(type) {
-		case []string:
-			tags = v
-		case []interface{}:
-			tags = make([]string, len(v))
-			for i, item := range v {
-				if s, ok := item.(string); ok {
-					tags[i] = s
-				}
-			}
-		default:
-			t.Errorf("attribute %s is not a string slice, got type %T", AttrLangfuseTraceTags, val)
-			return
-		}
-
-		if len(tags) < 2 {
-			t.Errorf("attribute %s should have at least 2 tags (content ID and tenant), got %d: %v", AttrLangfuseTraceTags, len(tags), tags)
-			return
-		}
-
-		// Check if content ID is in the tags
-		foundContentID := false
-		for _, tag := range tags {
-			if tag == contentID {
-				foundContentID = true
-				break
-			}
-		}
-
-		if !foundContentID {
-			t.Errorf("attribute %s = %v, expected to contain content ID %s",
-				AttrLangfuseTraceTags, tags, contentID)
-		}
-
-		// Check if tenant tag is in the tags
-		expectedTenantTag := "tenant:" + tenantID
-		foundTenantTag := false
-		for _, tag := range tags {
-			if tag == expectedTenantTag {
-				foundTenantTag = true
-				break
-			}
-		}
-
-		if !foundTenantTag {
-			t.Errorf("attribute %s = %v, expected to contain tenant tag %s",
-				AttrLangfuseTraceTags, tags, expectedTenantTag)
-		}
-	})
-
-	// Test: Other important attributes are also present
-	t.Run("other_attributes", func(t *testing.T) {
-		// Verify tenant_id
-		if val, ok := attrs[AttrPenfoldTenantID]; !ok || val == "" {
-			t.Errorf("attribute %s missing or empty", AttrPenfoldTenantID)
-		}
-
-		// Verify content_id
-		if val, ok := attrs[AttrPenfoldContentID]; !ok || val == "" {
-			t.Errorf("attribute %s missing or empty", AttrPenfoldContentID)
-		}
-
-		// Verify task_type
-		if val, ok := attrs[AttrPenfoldTaskType]; !ok || val == "" {
-			t.Errorf("attribute %s missing or empty", AttrPenfoldTaskType)
-		}
-
-		// Verify observation type
-		if val, ok := attrs[AttrLangfuseObservationType]; !ok || val == "" {
-			t.Errorf("attribute %s missing or empty", AttrLangfuseObservationType)
-		}
-	})
-
-	_ = ctx
-}
-
-// TestTraceLLMCall_AllProtoRequestsPassPipelineTraceID verifies Phase 4 behaviour:
-// All AI tracing functions (StartLLMCall, StartEmbedding, StartAIProcessing) still
-// accept PipelineTraceID for API compatibility, but no longer use it to set the
-// span's trace ID. OTel interceptors propagate trace context automatically.
-//
-// This test verifies that:
-// 1. Spans are still created successfully when PipelineTraceID is provided
-// 2. The span's trace ID is auto-generated (not the provided pipelineTraceID)
-// 3. Instrumentation scope and observation type attributes are still correct
-func TestTraceLLMCall_AllProtoRequestsPassPipelineTraceID(t *testing.T) {
-	testCases := []struct {
-		name            string
-		createSpan      func(ctx context.Context, pipelineTraceID string) (context.Context, trace.Span)
-		expectedScope   string
-		expectedObsType string
-	}{
-		{
-			name: "LLMCallOptions_PipelineTraceID",
-			createSpan: func(ctx context.Context, pipelineTraceID string) (context.Context, trace.Span) {
-				return StartLLMCall(ctx, "test-llm", LLMCallOptions{
-					PipelineTraceID: pipelineTraceID,
-					Model:           "test-model",
-					ContentID:       "em-test123",
-				})
-			},
-			expectedScope:   "penfold.ai",
-			expectedObsType: ObservationTypeGeneration,
-		},
-		{
-			name: "EmbeddingOptions_PipelineTraceID",
-			createSpan: func(ctx context.Context, pipelineTraceID string) (context.Context, trace.Span) {
-				return StartEmbedding(ctx, "test-embedding", EmbeddingOptions{
-					PipelineTraceID: pipelineTraceID,
-					Model:           "test-model",
-					ContentID:       "em-test123",
-				})
-			},
-			expectedScope:   "penfold.ai",
-			expectedObsType: ObservationTypeGeneration,
-		},
-		{
-			name: "AIProcessingOptions_PipelineTraceID",
-			createSpan: func(ctx context.Context, pipelineTraceID string) (context.Context, trace.Span) {
-				return StartAIProcessing(ctx, "test-processing", AIProcessingOptions{
-					PipelineTraceID: pipelineTraceID,
-					TaskType:        "test-task",
-					ContentID:       "em-test123",
-				})
-			},
-			expectedScope:   "penfold.ai",
-			expectedObsType: ObservationTypeSpan,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			exporter, cleanup := setupAITestTracer(t)
-			defer cleanup()
-
-			// Use a known pipeline trace ID (retained for API compat, not used for trace ID)
-			pipelineTraceID := "1234567890abcdef1234567890abcdef"
-
-			// Create the span with pipeline trace ID
-			ctx, span := tc.createSpan(context.Background(), pipelineTraceID)
-			span.End()
-
-			// Verify the span was created
-			spans := exporter.GetSpans()
-			if len(spans) != 1 {
-				t.Fatalf("expected 1 span, got %d", len(spans))
-			}
-
-			spanData := spans[0]
-
-			// Phase 4: span gets an auto-generated trace ID (not the provided pipelineTraceID)
-			actualTraceID := spanData.SpanContext.TraceID().String()
-			if actualTraceID == pipelineTraceID {
-				t.Errorf("Phase 4: trace ID should be auto-generated, not the deprecated pipelineTraceID. Got %s", actualTraceID)
-			}
-			if actualTraceID == "" {
-				t.Error("expected a non-empty auto-generated trace ID")
-			}
-
-			// Verify the span has the correct instrumentation scope
-			if spanData.InstrumentationScope.Name != tc.expectedScope {
-				t.Errorf("expected scope %s, got %s",
-					tc.expectedScope, spanData.InstrumentationScope.Name)
-			}
-
-			// Verify the observation type attribute
-			foundObsType := false
-			for _, attr := range spanData.Attributes {
-				if string(attr.Key) == AttrLangfuseObservationType {
-					foundObsType = true
-					if attr.Value.AsString() != tc.expectedObsType {
-						t.Errorf("expected observation type %s, got %s",
-							tc.expectedObsType, attr.Value.AsString())
-					}
-					break
-				}
-			}
-
-			if !foundObsType {
-				t.Errorf("span missing attribute %s", AttrLangfuseObservationType)
-			}
-
-			_ = ctx
-		})
+	// Both spans should share the same trace ID
+	traceID1 := spans[0].SpanContext.TraceID().String()
+	traceID2 := spans[1].SpanContext.TraceID().String()
+	if traceID1 != traceID2 {
+		t.Errorf("stage and AI spans should share trace ID: %s vs %s", traceID1, traceID2)
 	}
 }

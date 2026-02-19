@@ -20,6 +20,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
+	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
@@ -172,28 +173,43 @@ func main() {
 		logging.F("environment", cfg.Environment),
 	)
 
-	// Initialize tracing with Langfuse if configured
+	// Initialize tracing (no-op exporter; OTel context propagation is handled via gRPC interceptors)
 	var tracingShutdown tracing.ShutdownFunc
-	if lfConfig := tracing.LangfuseConfigFromEnv(); lfConfig != nil && lfConfig.Host != "" {
+	{
 		tracingCfg := &tracing.Config{
 			ServiceName: cfg.ServiceName,
 			Environment: cfg.Environment,
 			SampleRate:  1.0,
-			Exporter:    tracing.ExporterLangfuse,
-			Langfuse:    lfConfig,
+			Exporter:    tracing.ExporterNone,
 		}
 		var err error
 		tracingShutdown, err = tracing.InitTracer(tracingCfg)
 		if err != nil {
-			logger.Error("Failed to initialize Langfuse tracing", logging.Err(err))
+			logger.Error("Failed to initialize tracing", logging.Err(err))
 			// Continue without tracing - not fatal
 		} else {
-			logger.Info("Langfuse tracing initialized",
-				logging.F("host", lfConfig.Host),
+			logger.Info("Tracing initialized (no-op exporter)")
+		}
+	}
+
+	// Initialize Langfuse direct ingestion client for pipeline trace reporting.
+	// This is separate from the OTel-based tracing above and uses the Langfuse batch API directly.
+	// If env vars are not set, langfuseIngestion will be nil and all activities will be no-ops.
+	var langfuseIngestion *langfuse.Ingestion
+	if lfIngestionCfg := langfuse.ConfigFromEnv(); lfIngestionCfg != nil {
+		langfuseClient, lfErr := langfuse.NewClient(lfIngestionCfg)
+		if lfErr != nil {
+			logger.Warn("Failed to create Langfuse ingestion client (pipeline tracing disabled)",
+				logging.F("error", lfErr),
+			)
+		} else {
+			langfuseIngestion = langfuse.NewIngestion(langfuseClient)
+			logger.Info("Langfuse direct ingestion initialized for pipeline phase tracking",
+				logging.F("host", lfIngestionCfg.Host),
 			)
 		}
 	} else {
-		logger.Info("Langfuse not configured - tracing disabled (set LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY to enable)")
+		logger.Info("Langfuse ingestion not configured — pipeline phase tracking disabled")
 	}
 
 	// Initialize database pool if configured
@@ -394,7 +410,7 @@ func main() {
 		baseRepo := pipeline.NewRepository(dbPool)
 		pipelineActivities := activities.NewPipelineActivities(logger, pipelineRepo, baseRepo)
 		activityRegistrar.WithPipelineActivities(pipelineActivities)
-		logger.Info("Pipeline activities initialized (RecordOverrides, StartPipelineTracing)")
+		logger.Info("Pipeline activities initialized (RecordOverrides)")
 	}
 
 	// Create parse activities (Stage 0, deterministic - no DB or AI needed)
@@ -595,6 +611,16 @@ func main() {
 		conversationActivities := activities.NewConversationActivities(logger, sourceRepo, convRepo, aiClient)
 		activityRegistrar.WithConversationActivities(conversationActivities)
 		logger.Info("Conversation activities initialized with database (auto-linking)")
+	}
+
+	// Langfuse activities for pipeline trace/phase reporting.
+	// langfuseIngestion may be nil if Langfuse is not configured; activities will be no-ops.
+	langfuseActivities := activities.NewLangfuseActivities(langfuseIngestion, logger)
+	activityRegistrar.WithLangfuseActivities(langfuseActivities)
+	if langfuseIngestion != nil {
+		logger.Info("Langfuse pipeline activities initialized (CreateTrace, ReportPhase, ReportGeneration, FinishTrace)")
+	} else {
+		logger.Info("Langfuse pipeline activities registered as no-ops (Langfuse not configured)")
 	}
 
 	workflowRegistrar := workflows.NewRegistrar()

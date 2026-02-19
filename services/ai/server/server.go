@@ -92,12 +92,10 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 	// Start tracing span for the embedding generation.
 	// The worker creates the stage.embedding span; this handler only creates ai.embedding.
 	ctx, span := tracing.StartEmbedding(ctx, "ai.embedding", tracing.EmbeddingOptions{
-		Model:           model,
-		System:          tracing.AISystemMLX,
-		TenantID:        req.GetTenantId(),
-		PipelineTraceID: req.GetPipelineTraceId(),
-		PipelineSpanID:  req.GetPipelineSpanId(),
-		ContentID:       req.GetContentId(),
+		Model:     model,
+		System:    tracing.AISystemMLX,
+		TenantID:  req.GetTenantId(),
+		ContentID: req.GetContentId(),
 	})
 	defer span.End()
 	startTime := time.Now()
@@ -163,13 +161,11 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 	// Start tracing span for the summary generation.
 	// The worker creates the stage.summarize span; this handler only creates ai.summarize.
 	ctx, span := tracing.StartLLMCall(ctx, "ai.summarize", tracing.LLMCallOptions{
-		Model:           model,
-		System:          tracing.AISystemMLX,
-		TenantID:        req.GetTenantId(),
-		TaskType:        "summarize",
-		PipelineTraceID: req.GetPipelineTraceId(),
-		PipelineSpanID:  req.GetPipelineSpanId(),
-		ContentID:       req.GetContentId(),
+		Model:     model,
+		System:    tracing.AISystemMLX,
+		TenantID:  req.GetTenantId(),
+		TaskType:  "summarize",
+		ContentID: req.GetContentId(),
 	})
 	defer span.End()
 	startTime := time.Now()
@@ -274,13 +270,11 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 	// Start tracing span for the assertion extraction.
 	// The worker creates the stage.extract_assertions span; this handler only creates ai.extract_assertions.
 	ctx, span := tracing.StartLLMCall(ctx, "ai.extract_assertions", tracing.LLMCallOptions{
-		Model:           model,
-		System:          tracing.AISystemMLX,
-		TenantID:        req.GetTenantId(),
-		TaskType:        "extraction",
-		PipelineTraceID: req.GetPipelineTraceId(),
-		PipelineSpanID:  req.GetPipelineSpanId(),
-		ContentID:       req.GetContentId(),
+		Model:     model,
+		System:    tracing.AISystemMLX,
+		TenantID:  req.GetTenantId(),
+		TaskType:  "extraction",
+		ContentID: req.GetContentId(),
 	})
 	defer span.End()
 	startTime := time.Now()
@@ -403,13 +397,11 @@ func (s *AIServer) ClassifyContent(ctx context.Context, req *aiv1.ClassifyConten
 
 	// Start tracing span
 	ctx, span := tracing.StartLLMCall(ctx, "ai.classify", tracing.LLMCallOptions{
-		Model:           model,
-		System:          tracing.AISystemMLX,
-		TenantID:        req.GetTenantId(),
-		TaskType:        "classification",
-		PipelineTraceID: req.GetPipelineTraceId(),
-		PipelineSpanID:  req.GetPipelineSpanId(),
-		ContentID:       req.GetContentId(),
+		Model:     model,
+		System:    tracing.AISystemMLX,
+		TenantID:  req.GetTenantId(),
+		TaskType:  "classification",
+		ContentID: req.GetContentId(),
 	})
 	defer span.End()
 	startTime := time.Now()
@@ -539,13 +531,11 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 	// Start tracing span for the triage generation.
 	// The worker creates the stage.triage span; this handler only creates ai.triage.
 	ctx, span := tracing.StartLLMCall(ctx, "ai.triage", tracing.LLMCallOptions{
-		Model:           model,
-		System:          tracing.AISystemMLX,
-		TenantID:        req.GetTenantId(),
-		TaskType:        "triage",
-		PipelineTraceID: req.GetPipelineTraceId(),
-		PipelineSpanID:  req.GetPipelineSpanId(),
-		ContentID:       req.GetContentId(),
+		Model:     model,
+		System:    tracing.AISystemMLX,
+		TenantID:  req.GetTenantId(),
+		TaskType:  "triage",
+		ContentID: req.GetContentId(),
 	})
 	defer span.End()
 	startTime := time.Now()

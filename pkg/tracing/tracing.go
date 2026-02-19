@@ -5,7 +5,6 @@ package tracing
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +12,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -34,23 +32,7 @@ const (
 
 	// ExporterNone disables tracing (useful for testing).
 	ExporterNone ExporterType = "none"
-
-	// ExporterLangfuse uses OTLP HTTP exporter configured for Langfuse.
-	// Requires LangfuseConfig to be set in Config.
-	ExporterLangfuse ExporterType = "langfuse"
 )
-
-// LangfuseConfig holds Langfuse-specific configuration.
-type LangfuseConfig struct {
-	// Host is the Langfuse server URL (e.g., "http://dev02.brown.chat:3000").
-	Host string
-
-	// PublicKey is the Langfuse public key (pk-lf-xxx).
-	PublicKey string
-
-	// SecretKey is the Langfuse secret key (sk-lf-xxx).
-	SecretKey string
-}
 
 // Config holds configuration for initializing the tracer.
 type Config struct {
@@ -78,10 +60,6 @@ type Config struct {
 	// Insecure disables TLS for the OTLP connection.
 	// Should only be true for development environments.
 	Insecure bool
-
-	// Langfuse holds Langfuse-specific configuration.
-	// Required when Exporter is ExporterLangfuse.
-	Langfuse *LangfuseConfig
 }
 
 // DefaultConfig returns a Config with sensible defaults for development.
@@ -177,8 +155,6 @@ func createExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 	switch cfg.Exporter {
 	case ExporterOTLP:
 		return createOTLPExporter(cfg)
-	case ExporterLangfuse:
-		return createLangfuseExporter(cfg)
 	case ExporterStdout:
 		return createStdoutExporter(cfg)
 	case ExporterNone:
@@ -222,90 +198,6 @@ func createStdoutExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 	}
 
 	return exporter, nil
-}
-
-// createLangfuseExporter creates an OTLP HTTP exporter configured for Langfuse.
-// Langfuse uses HTTP/protobuf (not gRPC) with Basic auth.
-func createLangfuseExporter(cfg *Config) (sdktrace.SpanExporter, error) {
-	if cfg.Langfuse == nil {
-		return nil, fmt.Errorf("langfuse configuration is required for ExporterLangfuse")
-	}
-
-	lf := cfg.Langfuse
-	if lf.Host == "" || lf.PublicKey == "" || lf.SecretKey == "" {
-		return nil, fmt.Errorf("langfuse Host, PublicKey, and SecretKey are required")
-	}
-
-	// Langfuse expects Basic auth with base64-encoded "pk:sk"
-	auth := base64.StdEncoding.EncodeToString([]byte(lf.PublicKey + ":" + lf.SecretKey))
-
-	// Build endpoint URL - Langfuse expects /api/public/otel/v1/traces for traces
-	// Note: WithEndpointURL uses the exact URL, doesn't append /v1/traces
-	endpoint := lf.Host + "/api/public/otel/v1/traces"
-
-	opts := []otlptracehttp.Option{
-		otlptracehttp.WithEndpointURL(endpoint),
-		otlptracehttp.WithHeaders(map[string]string{
-			"Authorization": "Basic " + auth,
-		}),
-	}
-
-	// Use insecure for http:// URLs
-	if len(lf.Host) >= 7 && lf.Host[:7] == "http://" {
-		opts = append(opts, otlptracehttp.WithInsecure())
-	}
-
-	exporter, err := otlptracehttp.New(context.Background(), opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Langfuse OTLP HTTP exporter: %w", err)
-	}
-
-	// Only export AI-related spans to Langfuse, not every Temporal activity
-	return &scopeFilterExporter{
-		inner:      exporter,
-		scopePrefix: "penfold.ai",
-	}, nil
-}
-
-// scopeFilterExporter wraps a SpanExporter and only exports spans from matching instrumentation scopes.
-type scopeFilterExporter struct {
-	inner       sdktrace.SpanExporter
-	scopePrefix string
-}
-
-func (f *scopeFilterExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
-	var filtered []sdktrace.ReadOnlySpan
-	for _, s := range spans {
-		if s.InstrumentationScope().Name == f.scopePrefix {
-			filtered = append(filtered, s)
-		}
-	}
-	if len(filtered) == 0 {
-		return nil
-	}
-	return f.inner.ExportSpans(ctx, filtered)
-}
-
-func (f *scopeFilterExporter) Shutdown(ctx context.Context) error {
-	return f.inner.Shutdown(ctx)
-}
-
-// LangfuseConfigFromEnv creates a LangfuseConfig from environment variables.
-// It reads LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, and LANGFUSE_SECRET_KEY.
-func LangfuseConfigFromEnv() *LangfuseConfig {
-	host := os.Getenv("LANGFUSE_HOST")
-	publicKey := os.Getenv("LANGFUSE_PUBLIC_KEY")
-	secretKey := os.Getenv("LANGFUSE_SECRET_KEY")
-
-	if host == "" && publicKey == "" && secretKey == "" {
-		return nil
-	}
-
-	return &LangfuseConfig{
-		Host:      host,
-		PublicKey: publicKey,
-		SecretKey: secretKey,
-	}
 }
 
 // Tracer returns a named tracer from the global tracer provider.

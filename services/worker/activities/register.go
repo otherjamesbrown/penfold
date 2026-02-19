@@ -31,6 +31,7 @@ type Registrar struct {
 	threadActivities           *ThreadActivities
 	enrichmentActivities       *EnrichmentActivities
 	conversationActivities     *ConversationActivities
+	langfuseActivities         *LangfuseActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -127,6 +128,12 @@ func (r *Registrar) WithEnrichmentActivities(ea *EnrichmentActivities) *Registra
 // WithConversationActivities adds conversation activities to the registrar.
 func (r *Registrar) WithConversationActivities(ca *ConversationActivities) *Registrar {
 	r.conversationActivities = ca
+	return r
+}
+
+// WithLangfuseActivities adds Langfuse ingestion activities to the registrar.
+func (r *Registrar) WithLangfuseActivities(la *LangfuseActivities) *Registrar {
+	r.langfuseActivities = la
 	return r
 }
 
@@ -265,12 +272,6 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.pipelineActivities.RecordOverrides, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityRecordOverrides,
 		})
-		w.RegisterActivityWithOptions(r.pipelineActivities.StartPipelineTracing, activity.RegisterOptions{
-			Name: pkgtemporal.ActivityStartPipelineTracing,
-		})
-		w.RegisterActivityWithOptions(r.pipelineActivities.FinishPipelineTracing, activity.RegisterOptions{
-			Name: pkgtemporal.ActivityFinishPipelineTracing,
-		})
 	}
 
 	// Person enrichment activities for Stage 3.5 (entity enrichment)
@@ -298,6 +299,22 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.conversationActivities != nil {
 		w.RegisterActivityWithOptions(r.conversationActivities.LinkConversation, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityLinkConversation,
+		})
+	}
+
+	// Langfuse ingestion activities for pipeline trace reporting
+	if r.langfuseActivities != nil {
+		w.RegisterActivityWithOptions(r.langfuseActivities.CreateLangfuseTrace, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityCreateLangfuseTrace,
+		})
+		w.RegisterActivityWithOptions(r.langfuseActivities.ReportLangfusePhase, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityReportLangfusePhase,
+		})
+		w.RegisterActivityWithOptions(r.langfuseActivities.ReportLangfuseGeneration, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityReportLangfuseGeneration,
+		})
+		w.RegisterActivityWithOptions(r.langfuseActivities.FinishLangfuseTrace, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityFinishLangfuseTrace,
 		})
 	}
 }
@@ -440,9 +457,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.analysisActivities != nil {
 			count += 1
 		}
-		// RecordOverrides, StartPipelineTracing, FinishPipelineTracing
+		// RecordOverrides
 		if r.pipelineActivities != nil {
-			count += 3
+			count += 1
 		}
 		// EnrichPersonMetadata
 		if r.personEnrichmentActivities != nil {
@@ -459,6 +476,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// LinkConversation
 		if r.conversationActivities != nil {
 			count += 1
+		}
+		// CreateLangfuseTrace, ReportLangfusePhase, ReportLangfuseGeneration, FinishLangfuseTrace
+		if r.langfuseActivities != nil {
+			count += 4
 		}
 		return count
 	case config.AITaskQueue:

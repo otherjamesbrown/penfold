@@ -8,7 +8,7 @@ func TestAllMainQueueActivities(t *testing.T) {
 	activities := AllMainQueueActivities()
 
 	// Test count
-	expectedCount := 23
+	expectedCount := 26
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -34,10 +34,14 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"DeepAnalyze",
 		"RecordOverrides",
 		"EnrichPersonMetadata",
-		"StartPipelineTracing",
 		"GroupEmailThread",
 		"CreateEnrichmentRecord",
 		"LinkConversation",
+		// Langfuse direct ingestion activities
+		"CreateLangfuseTrace",
+		"ReportLangfusePhase",
+		"ReportLangfuseGeneration",
+		"FinishLangfuseTrace",
 	}
 
 	activityMap := make(map[string]bool)

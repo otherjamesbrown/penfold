@@ -46,14 +46,12 @@ type (
 
 	// GenerateEmbeddingInput is the input for the GenerateEmbedding activity.
 	GenerateEmbeddingInput struct {
-		TenantID    string `json:"tenant_id"`
-		SourceID    int64  `json:"source_id"`
+		TenantID string `json:"tenant_id"`
+		SourceID int64  `json:"source_id"`
 		// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
-		ContentID       string `json:"content_id,omitempty"`
-		Content         string `json:"content"`
-		ContentHash     string `json:"content_hash"`
-		PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
-		PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
+		ContentID   string `json:"content_id,omitempty"`
+		Content     string `json:"content"`
+		ContentHash string `json:"content_hash"`
 	}
 
 	// GenerateSummaryInput is the input for the GenerateSummary activity.
@@ -61,24 +59,20 @@ type (
 		TenantID string `json:"tenant_id"`
 		SourceID int64  `json:"source_id"`
 		// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
-		ContentID       string `json:"content_id,omitempty"`
-		JobID           string `json:"job_id"`
-		Content         string `json:"content"`
-		PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
-		PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
+		ContentID string `json:"content_id,omitempty"`
+		JobID     string `json:"job_id"`
+		Content   string `json:"content"`
 	}
 
 	// ExtractAssertionsInput is the input for the ExtractAssertions activity.
 	ExtractAssertionsInput struct {
-		TenantID    string `json:"tenant_id"`
-		SourceID    int64  `json:"source_id"`
+		TenantID string `json:"tenant_id"`
+		SourceID int64  `json:"source_id"`
 		// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
-		ContentID       string `json:"content_id,omitempty"`
-		JobID           string `json:"job_id"`
-		Content         string `json:"content"`
-		SenderEmail     string `json:"sender_email,omitempty"` // Email sender, gets "owner" attribution
-		PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
-		PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
+		ContentID   string `json:"content_id,omitempty"`
+		JobID       string `json:"job_id"`
+		Content     string `json:"content"`
+		SenderEmail string `json:"sender_email,omitempty"` // Email sender, gets "owner" attribution
 	}
 
 	// UpdateSourceStatusInput is the input for the UpdateSourceStatus activity.

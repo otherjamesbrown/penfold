@@ -166,9 +166,8 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 
 	// Create stage span wrapping the gRPC call
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.triage", tracing.StageSpanOptions{
-		PipelineTraceID: input.PipelineTraceID,
-		ContentID:       input.ContentID,
-		TenantID:        input.TenantID,
+		ContentID: input.ContentID,
+		TenantID:  input.TenantID,
 	})
 	defer stageSpan.End()
 

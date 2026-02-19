@@ -287,7 +287,8 @@ func newFullRegistrar() *Registrar {
 		WithConversationActivities(&ConversationActivities{
 			logger:   logger,
 			convRepo: &regVerifyConvRepo{},
-		})
+		}).
+		WithLangfuseActivities(NewLangfuseActivities(nil, logger))
 }
 
 // TestAllMainQueueActivitiesRegistered verifies that all expected main queue activities are registered.

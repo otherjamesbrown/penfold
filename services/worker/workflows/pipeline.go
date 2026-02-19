@@ -127,11 +127,9 @@ type TriageInput struct {
 	Content          string            `json:"content"`
 	Subject          string            `json:"subject,omitempty"`
 	SenderEmail      string            `json:"sender_email,omitempty"`
-	ContentType      string            `json:"content_type"`
-	Headers          map[string]string `json:"headers,omitempty"`       // Email headers for subtype classification
-	ModelOverride    string            `json:"model_override,omitempty"` // Optional model override for reprocessing
-	PipelineTraceID  string            `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
-	PipelineSpanID   string            `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
+	ContentType   string            `json:"content_type"`
+	Headers       map[string]string `json:"headers,omitempty"`        // Email headers for subtype classification
+	ModelOverride string            `json:"model_override,omitempty"` // Optional model override for reprocessing
 }
 
 // TriageOutput is the output from the Triage activity.
@@ -154,10 +152,8 @@ type SLMPipelineExtractEntitiesInput struct {
 	ContentID       string `json:"content_id,omitempty"`
 	JobID           string `json:"job_id"`
 	Content         string `json:"content"`
-	TriageCategory  string `json:"triage_category,omitempty"`
-	ModelOverride   string `json:"model_override,omitempty"` // Optional model override for reprocessing
-	PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
-	PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
+	TriageCategory string `json:"triage_category,omitempty"`
+	ModelOverride  string `json:"model_override,omitempty"` // Optional model override for reprocessing
 }
 
 // SLMPipelineExtractEntitiesOutput is the output from the ExtractEntities activity (pipeline version with DetailedRisks).
@@ -233,12 +229,10 @@ type GroupEmailThreadOutput struct {
 
 // LinkConversationInput is the input for the LinkConversation activity.
 type LinkConversationInput struct {
-	TenantID        string `json:"tenant_id"`
-	SourceID        int64  `json:"source_id"`
-	ThreadID        string `json:"thread_id"`         // Root message ID from threading
-	ContentID       string `json:"content_id"`        // Content item ID to link
-	PipelineTraceID string `json:"pipeline_trace_id"` // Pipeline trace ID for Langfuse grouping
-	PipelineSpanID  string `json:"pipeline_span_id"`  // Pipeline span ID for parent-child hierarchy
+	TenantID  string `json:"tenant_id"`
+	SourceID  int64  `json:"source_id"`
+	ThreadID  string `json:"thread_id"`  // Root message ID from threading
+	ContentID string `json:"content_id"` // Content item ID to link
 }
 
 // LinkConversationOutput is the output from the LinkConversation activity.
@@ -340,10 +334,8 @@ type DeepAnalyzeInput struct {
 	TriageCategory    string                            `json:"triage_category"`
 	TriageImportance  string                            `json:"triage_importance"`
 	ExtractionResult  *SLMPipelineExtractEntitiesOutput `json:"extraction_result"`
-	BackgroundContext string                            `json:"background_context,omitempty"`
-	ModelOverride     string                            `json:"model_override,omitempty"` // Optional model override for reprocessing
-	PipelineTraceID   string                            `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
-	PipelineSpanID    string                            `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
+	BackgroundContext string `json:"background_context,omitempty"`
+	ModelOverride    string `json:"model_override,omitempty"` // Optional model override for reprocessing
 }
 
 // DeepAnalyzeOutput is the output from the DeepAnalyze activity.
@@ -455,37 +447,6 @@ type RecordOverridesInput struct {
 	Overrides map[string]string `json:"overrides"`
 }
 
-// StartPipelineTracingInput is the input for the StartPipelineTracing activity.
-// This activity creates the root tracing span for a pipeline run, ensuring all
-// subsequent AI operations are grouped under a single trace in Langfuse.
-type StartPipelineTracingInput struct {
-	PipelineTraceID string `json:"pipeline_trace_id"` // 32-char hex trace ID (or empty to create new root)
-	ContentID       string `json:"content_id"`        // Standard content ID format: <type:2>-<base62:8>
-	ContentType     string `json:"content_type"`      // email, meeting, slack, etc.
-	TenantID        string `json:"tenant_id"`         // Penfold tenant identifier
-}
-
-// StartPipelineTracingOutput is the output from the StartPipelineTracing activity.
-// It returns the actual OTel TraceID and SpanID from the created span, which may differ
-// from the pre-generated pipelineTraceID when OTel creates a new root span.
-type StartPipelineTracingOutput struct {
-	TraceID string `json:"trace_id"` // Actual 32-char hex trace ID from the OTel span
-	SpanID  string `json:"span_id"`  // 16-char hex span ID from the OTel span
-}
-
-// FinishPipelineTracingInput is the input for the FinishPipelineTracing activity.
-// It carries the span context from StartPipelineTracing so that a child span can be
-// created under the root pipeline span at the end of the workflow. This gives the
-// root email-processing span real duration in Langfuse (Langfuse computes trace
-// duration from first to last observation).
-type FinishPipelineTracingInput struct {
-	TraceID     string `json:"trace_id"`     // 32-char hex trace ID from StartPipelineTracing
-	SpanID      string `json:"span_id"`      // 16-char hex span ID from StartPipelineTracing
-	ContentID   string `json:"content_id"`   // Standard content ID format: <type:2>-<base62:8>
-	ContentType string `json:"content_type"` // email, meeting, slack, etc.
-	TenantID    string `json:"tenant_id"`    // Penfold tenant identifier
-}
-
 // KickNextPendingInput is the input for the KickNextPending activity.
 // This activity calls the gateway's KickProcessing RPC to automatically
 // start the next pending pipeline after the current one completes.
@@ -545,16 +506,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			SourceID: input.SourceID,
 		},
 	}
-
-	// Generate pipeline trace ID for Langfuse trace grouping.
-	// All AI calls for this document will share this trace ID.
-	// Use workflow.SideEffect for determinism (Temporal workflows must be deterministic).
-	var pipelineTraceID string
-	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		return uuid.New().String()
-	}).Get(&pipelineTraceID)
-	// Convert UUID to 32-char hex trace ID (remove hyphens for Langfuse)
-	pipelineTraceID = strings.ReplaceAll(pipelineTraceID, "-", "")
 
 	// Cleanup handler: if workflow terminates abnormally (timeout/cancellation),
 	// update status to 'failed' so content doesn't stay stuck in 'pending'.
@@ -743,26 +694,24 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 	}
 
-	// Start pipeline tracing span to create root span for Langfuse trace grouping.
-	// This makes the trace title show "email-processing" instead of a sibling span name like "ai.embedding".
-	// Placed after fetch so ContentType and ContentID are populated.
-	// Don't fail the pipeline if tracing fails - just log and continue.
-	ctxTracing := workflow.WithActivityOptions(ctx, fastOpts)
-	var tracingOutput StartPipelineTracingOutput
-	tracingErr := workflow.ExecuteActivity(ctxTracing, pkgtemporal.ActivityStartPipelineTracing, StartPipelineTracingInput{
-		PipelineTraceID: pipelineTraceID,
-		ContentID:       input.ContentID,
-		ContentType:     input.ContentType,
-		TenantID:        input.TenantID,
-	}).Get(ctx, &tracingOutput)
-	if tracingErr != nil {
-		logger.Warn("Failed to start pipeline tracing span (non-fatal)", "error", tracingErr)
-	} else {
-		// Override the pre-generated trace ID with the actual OTel trace ID
-		// This ensures all downstream activities create child spans under the same trace.
-		// The root span ID (tracingOutput.SpanID) is no longer passed directly to activities;
-		// each AI stage generates its own stage-level span ID via workflow.SideEffect.
-		pipelineTraceID = tracingOutput.TraceID
+	// Generate Langfuse trace ID for the direct Langfuse ingestion API.
+	langfuseTraceID := sideEffectUUID(ctx)
+
+	// Create a Langfuse trace for this pipeline run (best-effort, non-blocking).
+	langfuseTraceTags := []string{input.ContentID}
+	if input.TenantID != "" {
+		langfuseTraceTags = append(langfuseTraceTags, "tenant:"+input.TenantID)
+	}
+	ctxLangfuse := workflow.WithActivityOptions(ctx, fastOpts)
+	langfuseErr := workflow.ExecuteActivity(ctxLangfuse, pkgtemporal.ActivityCreateLangfuseTrace, CreateLangfuseTraceInput{
+		TraceID:   langfuseTraceID,
+		Name:      "email-processing",
+		ContentID: input.ContentID,
+		TenantID:  input.TenantID,
+		Tags:      langfuseTraceTags,
+	}).Get(ctx, nil)
+	if langfuseErr != nil {
+		logger.Warn("Failed to create Langfuse trace (non-fatal)", "error", langfuseErr)
 	}
 
 	var parsedContent string
@@ -970,6 +919,35 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		"model_used", triageOutput.ModelUsed,
 	)
 
+	// Langfuse: report Triage phase and generation (best-effort, non-blocking).
+	triageEnd := workflow.Now(ctx)
+	triagePhaseID := sideEffectUUID(ctx)
+	_ = workflow.ExecuteActivity(
+		workflow.WithActivityOptions(ctx, fastOpts),
+		pkgtemporal.ActivityReportLangfuseGeneration,
+		ReportLangfuseGenerationInput{
+			TraceID:   langfuseTraceID,
+			PhaseID:   triagePhaseID,
+			Name:      "ai.triage",
+			Model:     triageOutput.ModelUsed,
+			StartTime: triageStart,
+			EndTime:   triageEnd,
+			Input:     parsedContent,
+			Output:    triageOutput.Category + " / " + triageOutput.Importance,
+		},
+	).Get(ctx, nil)
+	_ = workflow.ExecuteActivity(
+		workflow.WithActivityOptions(ctx, fastOpts),
+		pkgtemporal.ActivityReportLangfusePhase,
+		ReportLangfusePhaseInput{
+			PhaseID:   triagePhaseID,
+			TraceID:   langfuseTraceID,
+			PhaseName: "Triage",
+			StartTime: triageStart,
+			EndTime:   triageEnd,
+		},
+	).Get(ctx, nil)
+
 	state.result.Category = triageOutput.Category
 	state.result.Importance = triageOutput.Importance
 	state.result.SkipDeep = triageOutput.SkipDeep
@@ -1176,6 +1154,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			"thread_id", *threadID,
 			"content_id", input.ContentID,
 		)
+		summarizeStart := workflow.Now(ctx)
 		convOutput := &LinkConversationOutput{}
 		ctxConv := workflow.WithActivityOptions(ctx, fastOpts)
 		err = workflow.ExecuteActivity(ctxConv, pkgtemporal.ActivityLinkConversation, LinkConversationInput{
@@ -1196,6 +1175,33 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"thread_id", *threadID,
 				"conversation_id", convOutput.ConversationID,
 			)
+			// Langfuse: report Summarize phase for conversation linking (best-effort).
+			summarizeEnd := workflow.Now(ctx)
+			summarizePhaseID := sideEffectUUID(ctx)
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, fastOpts),
+				pkgtemporal.ActivityReportLangfuseGeneration,
+				ReportLangfuseGenerationInput{
+					TraceID:   langfuseTraceID,
+					PhaseID:   summarizePhaseID,
+					Name:      "ai.summarize",
+					StartTime: summarizeStart,
+					EndTime:   summarizeEnd,
+					Input:     parsedContent,
+					Output:    convOutput.ConversationID,
+				},
+			).Get(ctx, nil)
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, fastOpts),
+				pkgtemporal.ActivityReportLangfusePhase,
+				ReportLangfusePhaseInput{
+					PhaseID:   summarizePhaseID,
+					TraceID:   langfuseTraceID,
+					PhaseName: "Summarize",
+					StartTime: summarizeStart,
+					EndTime:   summarizeEnd,
+				},
+			).Get(ctx, nil)
 		}
 	}
 
@@ -1292,6 +1298,51 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"model_used", extractOutput.ModelUsed,
 			)
 		}
+
+		// Langfuse: report Extract phase (covers both entity and assertion extraction).
+		// One phase span groups both sub-activities under a single "Extract" phase.
+		extractPhaseEnd := workflow.Now(ctx)
+		extractPhaseID := sideEffectUUID(ctx)
+		if err == nil {
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, fastOpts),
+				pkgtemporal.ActivityReportLangfuseGeneration,
+				ReportLangfuseGenerationInput{
+					TraceID:   langfuseTraceID,
+					PhaseID:   extractPhaseID,
+					Name:      "ai.extract_entities",
+					Model:     extractOutput.ModelUsed,
+					StartTime: extractStart,
+					EndTime:   extractPhaseEnd,
+					Input:     parsedContent,
+				},
+			).Get(ctx, nil)
+		}
+		if err2 == nil {
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, fastOpts),
+				pkgtemporal.ActivityReportLangfuseGeneration,
+				ReportLangfuseGenerationInput{
+					TraceID:   langfuseTraceID,
+					PhaseID:   extractPhaseID,
+					Name:      "ai.extract_assertions",
+					StartTime: extractStart,
+					EndTime:   extractPhaseEnd,
+					Input:     parsedContent,
+				},
+			).Get(ctx, nil)
+		}
+		_ = workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, fastOpts),
+			pkgtemporal.ActivityReportLangfusePhase,
+			ReportLangfusePhaseInput{
+				PhaseID:   extractPhaseID,
+				TraceID:   langfuseTraceID,
+				PhaseName: "Extract",
+				StartTime: extractStart,
+				EndTime:   extractPhaseEnd,
+			},
+		).Get(ctx, nil)
 
 		state.status.StepsCompleted = 3
 
@@ -1494,6 +1545,38 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"has_summary", analyzeOutput.Summary != "",
 			)
 		}
+
+		// Langfuse: report Analyze phase and generation (only if it ran, best-effort).
+		if analyzeOutput != nil {
+			analyzeEnd := workflow.Now(ctx)
+			analyzePhaseID := sideEffectUUID(ctx)
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, fastOpts),
+				pkgtemporal.ActivityReportLangfuseGeneration,
+				ReportLangfuseGenerationInput{
+					TraceID:   langfuseTraceID,
+					PhaseID:   analyzePhaseID,
+					Name:      "ai.deep_analyze",
+					Model:     analyzeOutput.ModelUsed,
+					StartTime: analyzeStart,
+					EndTime:   analyzeEnd,
+					Input:     parsedContent,
+					Output:    analyzeOutput.Summary,
+				},
+			).Get(ctx, nil)
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, fastOpts),
+				pkgtemporal.ActivityReportLangfusePhase,
+				ReportLangfusePhaseInput{
+					PhaseID:   analyzePhaseID,
+					TraceID:   langfuseTraceID,
+					PhaseName: "Analyze",
+					StartTime: analyzeStart,
+					EndTime:   analyzeEnd,
+				},
+			).Get(ctx, nil)
+		}
+
 		state.status.StepsCompleted = 5
 
 		if checkCancellation() {
@@ -1691,6 +1774,33 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		"embedding_id", embeddingID,
 	)
 
+	// Langfuse: report Embeddings phase (best-effort, non-blocking).
+	embedEnd := workflow.Now(ctx)
+	embedPhaseID := sideEffectUUID(ctx)
+	_ = workflow.ExecuteActivity(
+		workflow.WithActivityOptions(ctx, fastOpts),
+		pkgtemporal.ActivityReportLangfuseGeneration,
+		ReportLangfuseGenerationInput{
+			TraceID:   langfuseTraceID,
+			PhaseID:   embedPhaseID,
+			Name:      "ai.embedding",
+			StartTime: embedStart,
+			EndTime:   embedEnd,
+			Input:     parsedContent,
+		},
+	).Get(ctx, nil)
+	_ = workflow.ExecuteActivity(
+		workflow.WithActivityOptions(ctx, fastOpts),
+		pkgtemporal.ActivityReportLangfusePhase,
+		ReportLangfusePhaseInput{
+			PhaseID:   embedPhaseID,
+			TraceID:   langfuseTraceID,
+			PhaseName: "Embeddings",
+			StartTime: embedStart,
+			EndTime:   embedEnd,
+		},
+	).Get(ctx, nil)
+
 	state.result.EmbeddingID = &embeddingID
 
 	// Add compensation to delete embedding on downstream failure
@@ -1744,22 +1854,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		"embedding_id", embeddingID,
 	)
 
-	// Finish pipeline tracing: create a terminal child span under the root email-processing
-	// span so that the Langfuse trace duration reflects the full pipeline execution time.
-	// This is best-effort — a failure here must not affect the pipeline result.
-	if tracingErr == nil && tracingOutput.TraceID != "" {
-		ctxFinishTracing := workflow.WithActivityOptions(ctx, fastOpts)
-		finishTracingErr := workflow.ExecuteActivity(ctxFinishTracing, pkgtemporal.ActivityFinishPipelineTracing, FinishPipelineTracingInput{
-			TraceID:     tracingOutput.TraceID,
-			SpanID:      tracingOutput.SpanID,
-			ContentID:   input.ContentID,
-			ContentType: input.ContentType,
-			TenantID:    input.TenantID,
-		}).Get(ctxFinishTracing, nil)
-		if finishTracingErr != nil {
-			logger.Warn("Failed to finish pipeline tracing span (non-fatal)", "error", finishTracingErr)
-		}
-	}
+	// Finish Langfuse trace: flush any remaining buffered events (best-effort).
+	_ = workflow.ExecuteActivity(
+		workflow.WithActivityOptions(ctx, fastOpts),
+		pkgtemporal.ActivityFinishLangfuseTrace,
+		FinishLangfuseTraceInput{
+			TraceID: langfuseTraceID,
+		},
+	).Get(ctx, nil)
 
 	// Auto-drain: kick next pending item to maintain concurrency window
 	// This is best-effort — if it fails, the pipeline still succeeds
@@ -2058,6 +2160,17 @@ func extractSignaturesPerSender(bodyText string, people []ResolvedPerson) map[st
 	}
 
 	return result
+}
+
+// sideEffectUUID generates a deterministic UUID via workflow.SideEffect.
+// This is safe to call from workflow code because workflow.SideEffect memoises
+// the result across replays, preserving determinism.
+func sideEffectUUID(ctx workflow.Context) string {
+	var id string
+	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+		return uuid.New().String()
+	}).Get(&id)
+	return id
 }
 
 // Ensure temporal package is used to avoid import errors during development.

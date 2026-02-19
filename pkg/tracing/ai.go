@@ -1,4 +1,4 @@
-// Package tracing provides AI-specific tracing helpers for Langfuse integration.
+// Package tracing provides AI-specific tracing helpers for OTel integration.
 package tracing
 
 import (
@@ -10,8 +10,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// AI tracing attribute keys following OpenTelemetry semantic conventions
-// and Langfuse-specific extensions.
+// AI tracing attribute keys following OpenTelemetry semantic conventions.
 const (
 	// GenAI semantic conventions
 	AttrGenAISystem           = "gen_ai.system"
@@ -21,14 +20,6 @@ const (
 	AttrGenAIUsageOutputToken = "gen_ai.usage.output_tokens"
 	AttrGenAIPrompt           = "gen_ai.prompt"
 	AttrGenAICompletion       = "gen_ai.completion"
-
-	// Langfuse-specific attributes
-	AttrLangfuseObservationType = "langfuse.observation.type"
-	AttrLangfuseUserID          = "langfuse.user.id"
-	AttrLangfuseSessionID       = "langfuse.session.id"
-	AttrLangfuseTraceMetadata   = "langfuse.trace.metadata"
-	AttrLangfuseTraceName       = "langfuse.trace.name"
-	AttrLangfuseTraceTags       = "langfuse.trace.tags"
 
 	// Penfold-specific attributes
 	AttrPenfoldTenantID = "penfold.tenant_id"
@@ -45,13 +36,6 @@ const (
 	AttrPenfoldTaskType    = "penfold.task_type"
 )
 
-// Langfuse observation types
-const (
-	ObservationTypeGeneration = "generation"
-	ObservationTypeSpan       = "span"
-	ObservationTypeEvent      = "event"
-)
-
 // AI system identifiers
 const (
 	AISystemOpenAI    = "openai"
@@ -65,65 +49,8 @@ const (
 // AITracer provides a tracer for AI operations.
 var AITracer = otel.Tracer("penfold.ai")
 
-// applyPipelineTrace configures the context and start options for an AI span.
-//
-// With OTel interceptors wired (Temporal + otelgrpc), the incoming context always
-// carries an active span from the pipeline trace. This function checks for that
-// active span and uses it as the parent. If no active span exists in context
-// (e.g., in tests or standalone calls), a root span is created.
-//
-// The pipelineTraceID and pipelineSpanID parameters are retained for backward
-// compatibility with callers that still pass them, but the manual remote span
-// context reconstruction path has been removed — OTel propagation handles this.
-//
-// Parameters:
-//   - ctx: the context to potentially augment
-//   - pipelineTraceID: retained for API compatibility, no longer used for span context
-//   - pipelineSpanID: retained for API compatibility, no longer used for span context
-//   - attrs: pointer to attributes slice; trace name attr is added if traceName is non-empty
-//   - startOpts: pointer to span start options; WithNewRoot() is added when no active span
-//   - traceName: optional trace name to add as AttrLangfuseTraceName (pass "" to skip)
-//
-// Returns the context unchanged (the active span from OTel propagation is used as parent).
-func applyPipelineTrace(
-	ctx context.Context,
-	pipelineTraceID string,
-	pipelineSpanID string,
-	attrs *[]attribute.KeyValue,
-	startOpts *[]trace.SpanStartOption,
-	traceName string,
-) context.Context {
-	// Add trace name attribute if provided
-	if traceName != "" {
-		*attrs = append(*attrs, attribute.String(AttrLangfuseTraceName, traceName))
-	}
-
-	// Check if the context already has an active span (propagated by OTel interceptors).
-	// When Temporal OTel interceptor + otelgrpc are wired, this is always true in
-	// production. AI spans become children of the active span automatically.
-	activeSpan := trace.SpanFromContext(ctx)
-	if activeSpan.SpanContext().IsValid() {
-		return ctx
-	}
-
-	// No active span in context (e.g., in tests or standalone invocations).
-	// Create a root span rather than attempting manual span context reconstruction.
-	// The manual reconstruction path from pipelineTraceID/pipelineSpanID strings
-	// has been removed: OTel interceptors now handle all trace context propagation.
-	*startOpts = append(*startOpts, trace.WithNewRoot())
-	return ctx
-}
-
 // LLMCallOptions holds options for starting an LLM call span.
 type LLMCallOptions struct {
-	// PipelineTraceID is an optional hex-encoded trace ID for grouping related operations.
-	// When set, this span will be a child of the specified trace (not a root span).
-	PipelineTraceID string
-
-	// PipelineSpanID is an optional hex-encoded span ID of the root pipeline span.
-	// When set together with PipelineTraceID, creates proper parent-child hierarchy.
-	PipelineSpanID string
-
 	// Model is the model identifier (e.g., "gpt-4", "llama3.2").
 	Model string
 
@@ -142,10 +69,10 @@ type LLMCallOptions struct {
 	// TaskType describes the AI task (e.g., "summarize", "extract", "classify").
 	TaskType string
 
-	// UserID is the Langfuse user identifier.
+	// UserID is an optional user identifier for tracing.
 	UserID string
 
-	// SessionID is the Langfuse session identifier.
+	// SessionID is an optional session identifier for tracing.
 	SessionID string
 }
 
@@ -164,9 +91,7 @@ type LLMCallOptions struct {
 //	// ... perform LLM call ...
 //	tracing.SetLLMResult(span, result)
 func StartLLMCall(ctx context.Context, name string, opts LLMCallOptions) (context.Context, trace.Span) {
-	attrs := []attribute.KeyValue{
-		attribute.String(AttrLangfuseObservationType, ObservationTypeGeneration),
-	}
+	var attrs []attribute.KeyValue
 
 	if opts.Model != "" {
 		attrs = append(attrs, attribute.String(AttrGenAIRequestModel, opts.Model))
@@ -179,28 +104,12 @@ func StartLLMCall(ctx context.Context, name string, opts LLMCallOptions) (contex
 	}
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
-		// Add Langfuse tags for content and tenant grouping
-		tags := []string{opts.ContentID}
-		if opts.TenantID != "" {
-			tags = append(tags, "tenant:"+opts.TenantID)
-		}
-		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, tags))
 	}
 	if opts.TaskType != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldTaskType, opts.TaskType))
 	}
-	if opts.UserID != "" {
-		attrs = append(attrs, attribute.String(AttrLangfuseUserID, opts.UserID))
-	}
-	if opts.SessionID != "" {
-		attrs = append(attrs, attribute.String(AttrLangfuseSessionID, opts.SessionID))
-	}
 
-	// Apply pipeline trace ID (if set) or create a root span
-	var startOpts []trace.SpanStartOption
-	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, opts.PipelineSpanID, &attrs, &startOpts, "email-processing")
-
-	startOpts = append(startOpts, trace.WithAttributes(attrs...))
+	startOpts := []trace.SpanStartOption{trace.WithAttributes(attrs...)}
 	return AITracer.Start(ctx, name, startOpts...)
 }
 
@@ -260,14 +169,6 @@ func SetLLMResult(span trace.Span, result LLMResult) {
 
 // EmbeddingOptions holds options for starting an embedding span.
 type EmbeddingOptions struct {
-	// PipelineTraceID is an optional hex-encoded trace ID for grouping related operations.
-	// When set, this span will be a child of the specified trace (not a root span).
-	PipelineTraceID string
-
-	// PipelineSpanID is an optional hex-encoded span ID of the root pipeline span.
-	// When set together with PipelineTraceID, creates proper parent-child hierarchy.
-	PipelineSpanID string
-
 	// Model is the embedding model identifier.
 	Model string
 
@@ -298,7 +199,6 @@ type EmbeddingOptions struct {
 //	defer span.End()
 func StartEmbedding(ctx context.Context, name string, opts EmbeddingOptions) (context.Context, trace.Span) {
 	attrs := []attribute.KeyValue{
-		attribute.String(AttrLangfuseObservationType, ObservationTypeGeneration),
 		attribute.String(AttrPenfoldTaskType, "embedding"),
 	}
 
@@ -313,22 +213,12 @@ func StartEmbedding(ctx context.Context, name string, opts EmbeddingOptions) (co
 	}
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
-		// Add Langfuse tags for content and tenant grouping
-		tags := []string{opts.ContentID}
-		if opts.TenantID != "" {
-			tags = append(tags, "tenant:"+opts.TenantID)
-		}
-		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, tags))
 	}
 	if opts.BatchSize > 0 {
 		attrs = append(attrs, attribute.Int("batch_size", opts.BatchSize))
 	}
 
-	// Apply pipeline trace ID (if set) or create a root span
-	var startOpts []trace.SpanStartOption
-	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, opts.PipelineSpanID, &attrs, &startOpts, "email-processing")
-
-	startOpts = append(startOpts, trace.WithAttributes(attrs...))
+	startOpts := []trace.SpanStartOption{trace.WithAttributes(attrs...)}
 	return AITracer.Start(ctx, name, startOpts...)
 }
 
@@ -387,14 +277,6 @@ func SetEmbeddingResult(span trace.Span, result EmbeddingResult) {
 
 // AIProcessingOptions holds options for starting a general AI processing span.
 type AIProcessingOptions struct {
-	// PipelineTraceID is an optional hex-encoded trace ID for grouping related operations.
-	// When set, this span will be a child of the specified trace (not a root span).
-	PipelineTraceID string
-
-	// PipelineSpanID is an optional hex-encoded span ID of the root pipeline span.
-	// When set together with PipelineTraceID, creates proper parent-child hierarchy.
-	PipelineSpanID string
-
 	// TaskType is the type of AI task (e.g., "summarize", "classify", "extract").
 	TaskType string
 
@@ -423,9 +305,7 @@ type AIProcessingOptions struct {
 //	})
 //	defer span.End()
 func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOptions) (context.Context, trace.Span) {
-	attrs := []attribute.KeyValue{
-		attribute.String(AttrLangfuseObservationType, ObservationTypeSpan),
-	}
+	var attrs []attribute.KeyValue
 
 	if opts.TaskType != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldTaskType, opts.TaskType))
@@ -435,90 +315,18 @@ func StartAIProcessing(ctx context.Context, name string, opts AIProcessingOption
 	}
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
-		// Add Langfuse tags for content and tenant grouping
-		tags := []string{opts.ContentID}
-		if opts.TenantID != "" {
-			tags = append(tags, "tenant:"+opts.TenantID)
-		}
-		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, tags))
 	}
 	if opts.ContentType != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentType, opts.ContentType))
 	}
 
-	// Apply pipeline trace ID (if set) or create a root span
-	var startOpts []trace.SpanStartOption
-	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, opts.PipelineSpanID, &attrs, &startOpts, "email-processing")
-
-	startOpts = append(startOpts, trace.WithAttributes(attrs...))
-	return AITracer.Start(ctx, name, startOpts...)
-}
-
-// StartPipeline starts a parent span for an AI processing pipeline.
-// Use this to group multiple AI operations under a single trace.
-//
-// The contentID should be in the standard format: <type:2>-<base62:8> (11 chars),
-// e.g., "em-abc12XYZ" for email. Use pkg/contentid.New() to generate IDs.
-//
-// The tenantID is the Penfold tenant identifier. If provided, it will be added
-// to the trace tags for filtering by tenant.
-//
-// The pipelineTraceID is an optional hex-encoded trace ID. If provided, this pipeline
-// span will continue that trace instead of creating a new root. If empty, a new root
-// trace will be created.
-//
-// Example:
-//
-//	contentID := contentid.New(contentid.TypeEmail) // e.g., "em-abc12XYZ"
-//	ctx, span := tracing.StartPipeline(ctx, "email-enrichment", contentID, "email", "tenant123", "")
-//	defer span.End()
-//	// ... perform multiple AI operations ...
-func StartPipeline(ctx context.Context, name, contentID, contentType, tenantID, pipelineTraceID string) (context.Context, trace.Span) {
-	attrs := []attribute.KeyValue{
-		attribute.String(AttrLangfuseObservationType, ObservationTypeSpan),
-		attribute.String(AttrLangfuseTraceName, name),
-		attribute.String(AttrPenfoldContentID, contentID),
-		attribute.String(AttrPenfoldContentType, contentType),
-	}
-
-	// Add TenantID attribute if provided
-	if tenantID != "" {
-		attrs = append(attrs, attribute.String(AttrPenfoldTenantID, tenantID))
-	}
-
-	// Add Langfuse tags for content and tenant grouping
-	if contentID != "" {
-		tags := []string{contentID}
-		if tenantID != "" {
-			tags = append(tags, "tenant:"+tenantID)
-		}
-		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, tags))
-	}
-
-	// Apply pipeline trace ID (if set) or create a root span
-	// Note: pass empty string for traceName since it's already set above
-	// StartPipeline creates the root span, so there's no parent span ID to pass.
-	var startOpts []trace.SpanStartOption
-	ctx = applyPipelineTrace(ctx, pipelineTraceID, "", &attrs, &startOpts, "")
-
-	// Back-date the start time by a small offset so the span has measurable
-	// duration. In production the pipeline takes seconds or minutes so this
-	// offset is negligible; in tests it prevents a spurious zero-duration
-	// assertion caused by the span being ended immediately after creation.
-	startOpts = append(startOpts, trace.WithTimestamp(time.Now().Add(-2*time.Millisecond)))
-	startOpts = append(startOpts, trace.WithAttributes(attrs...))
+	startOpts := []trace.SpanStartOption{trace.WithAttributes(attrs...)}
 	return AITracer.Start(ctx, name, startOpts...)
 }
 
 // StageSpanOptions holds options for starting a stage-level span that wraps
-// a group of ai.X generation spans within the pipeline trace.
+// a group of AI generation spans within a pipeline trace.
 type StageSpanOptions struct {
-	// PipelineTraceID is the hex-encoded trace ID for the pipeline.
-	// The stage span is created as a child of the pipeline trace.
-	// The phantom stage span ID previously passed as PipelineSpanID is ignored;
-	// the AI coordinator creates its own real stage spans.
-	PipelineTraceID string
-
 	// ContentID is the unique content identifier being processed.
 	ContentID string
 
@@ -527,46 +335,32 @@ type StageSpanOptions struct {
 }
 
 // StartStageSpan starts a stage-level OTel span (e.g. "stage.triage") that wraps
-// one or more ai.X generation spans. The returned context carries the stage span
+// one or more AI generation spans. The returned context carries the stage span
 // as the active span, so any subsequent StartLLMCall / StartEmbedding calls will
 // automatically become children of the stage span.
 //
-// The caller must call span.End() when all ai.X operations for the stage complete.
+// The caller must call span.End() when all AI operations for the stage complete.
 //
 // Example:
 //
 //	ctx, stageSpan := tracing.StartStageSpan(ctx, "stage.triage", tracing.StageSpanOptions{
-//	    PipelineTraceID: req.GetPipelineTraceId(),
-//	    ContentID:       req.GetContentId(),
-//	    TenantID:        req.GetTenantId(),
+//	    ContentID: req.GetContentId(),
+//	    TenantID:  req.GetTenantId(),
 //	})
 //	defer stageSpan.End()
 //	ctx, aiSpan := tracing.StartLLMCall(ctx, "ai.triage", ...)
 //	defer aiSpan.End()
 func StartStageSpan(ctx context.Context, name string, opts StageSpanOptions) (context.Context, trace.Span) {
-	attrs := []attribute.KeyValue{
-		attribute.String(AttrLangfuseObservationType, ObservationTypeSpan),
-	}
+	var attrs []attribute.KeyValue
 
 	if opts.TenantID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldTenantID, opts.TenantID))
 	}
 	if opts.ContentID != "" {
 		attrs = append(attrs, attribute.String(AttrPenfoldContentID, opts.ContentID))
-		// Add Langfuse tags for content and tenant grouping
-		tags := []string{opts.ContentID}
-		if opts.TenantID != "" {
-			tags = append(tags, "tenant:"+opts.TenantID)
-		}
-		attrs = append(attrs, attribute.StringSlice(AttrLangfuseTraceTags, tags))
 	}
 
-	// Apply pipeline trace context. Pass empty PipelineSpanID so the stage span
-	// becomes a direct child of the pipeline trace root, not a phantom ID.
-	var startOpts []trace.SpanStartOption
-	ctx = applyPipelineTrace(ctx, opts.PipelineTraceID, "", &attrs, &startOpts, "")
-
-	startOpts = append(startOpts, trace.WithAttributes(attrs...))
+	startOpts := []trace.SpanStartOption{trace.WithAttributes(attrs...)}
 	return AITracer.Start(ctx, name, startOpts...)
 }
 

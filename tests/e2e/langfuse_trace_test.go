@@ -16,21 +16,21 @@ import (
 // ============================================================================
 // Langfuse Trace Assertion Test Harness
 //
-// This file contains the acceptance test for the distributed tracing
-// architecture. It validates trace structure in Langfuse after pipeline
-// processing and is designed to FAIL on the current codebase (f70a646)
-// to demonstrate what Phase 2/3/4 will fix.
+// This file contains the acceptance test for the direct Langfuse integration
+// with domain-level phases (pf-62044a). It validates trace structure in Langfuse
+// after pipeline processing and is designed to FAIL on the current codebase
+// (OTel-based approach) to demonstrate what the new phase-based integration will fix.
 //
 // Run with:
 //   go test -tags e2e ./tests/e2e/ -run TestPipelineTraceLangfuse -v -timeout 5m
 //
-// Expected failures on f70a646:
+// Expected failures on current codebase (OTel approach):
 //   - AssertNoOrphanTraces: stage spans end up in separate orphaned traces
-//   - AssertStageSpansExist: stage spans may not appear in the main pipeline trace
-//   - AssertGenerationsNestedUnderStages: generations not parented to stage spans
-//   - AssertPipelineSpanDuration: root span ends immediately (near-zero duration)
+//   - AssertPhases: phase SPANs ("Triage", "Summarize", etc.) do not appear in the trace
+//   - AssertGenerationsNestedUnderPhases: generations not parented to phase spans
+//   - AssertTraceDuration: root span ends immediately (near-zero duration)
 //
-// Expected passes on f70a646:
+// Expected passes on current codebase:
 //   - AssertTenantTag: tenant tag is attached to the trace
 //   - AssertGenerationsHaveIO: most generations have input/output populated
 // ============================================================================
@@ -67,9 +67,6 @@ func GetTraceForContent(t *testing.T, contentID string) *TraceAssertion {
 
 	// Prefer the named pipeline trace (email-processing) over unnamed orphaned traces.
 	// The API returns traces ordered by timestamp.desc so the most recent is first.
-	// Current behaviour on f70a646: there are often two traces — one named
-	// "email-processing" (the real pipeline root) and one unnamed (an orphaned span tree
-	// from the worker OTel context). We pick the named one as the canonical trace.
 	var trace LangfuseTrace
 	for _, tr := range traces {
 		if tr.Name == "email-processing" {
@@ -131,11 +128,11 @@ func (ta *TraceAssertion) AssertSingleTrace(contentID string) {
 	}
 
 	if len(recent) != 1 {
-		ta.t.Logf("AssertSingleTrace: found %d recent traces for %s (last 5m), expected 1:", len(recent), contentID)
+		ta.t.Logf("AssertSingleTrace: found %d recent traces for %s (last 10m), expected 1:", len(recent), contentID)
 		for _, tr := range recent {
 			ta.t.Logf("  trace id=%s name=%q ts=%s", tr.ID, tr.Name, tr.Timestamp)
 		}
-		assert.Len(ta.t, recent, 1, "expected exactly 1 trace for content %s in last 5 minutes, got %d", contentID, len(recent))
+		assert.Len(ta.t, recent, 1, "expected exactly 1 trace for content %s in last 10 minutes, got %d", contentID, len(recent))
 	}
 }
 
@@ -143,7 +140,7 @@ func (ta *TraceAssertion) AssertSingleTrace(contentID string) {
 //   - Were created after the 'since' timestamp
 //   - Are unnamed (name="") indicating a worker-side orphaned trace
 //
-// On current code (f70a646) this will FAIL because the worker creates stage spans
+// On current code this will FAIL because the worker creates stage spans
 // in its own OTel provider without propagating the pipeline trace context,
 // producing separate unnamed orphaned traces with the same content tags.
 func (ta *TraceAssertion) AssertNoOrphanTraces(since time.Time) {
@@ -154,8 +151,6 @@ func (ta *TraceAssertion) AssertNoOrphanTraces(since time.Time) {
 
 	// Fetch recent traces. We look for any traces created after 'since' that are
 	// unnamed (name="") — these are orphaned span trees from the worker's OTel provider.
-	// The Langfuse API doesn't have a direct "unnamed" filter, so we fetch recent
-	// traces and inspect them.
 	apiURL := fmt.Sprintf("%s/api/public/traces?limit=30&orderBy=timestamp.desc", ta.client.host)
 
 	var result struct {
@@ -190,17 +185,23 @@ func (ta *TraceAssertion) AssertNoOrphanTraces(since time.Time) {
 		}
 		assert.Empty(ta.t, orphans,
 			"expected no unnamed orphan traces after %s — "+
-				"unnamed traces (name=\"\") indicate worker stage spans are created in an isolated OTel context "+
-				"without inheriting the pipeline trace. This is the primary failure on f70a646. "+
-				"Phases 2-4 (Temporal OTel interceptors + otelgrpc) will fix this.",
+				"unnamed traces (name=\"\") indicate worker spans are created in an isolated context "+
+				"without inheriting the pipeline trace. "+
+				"The new domain-level phase integration (pf-62044a) fixes this.",
 			since.Format(time.RFC3339))
 	}
 }
 
-// AssertStageSpansExist asserts that each stage name in 'stages' has a corresponding
-// SPAN observation in the trace. Missing stage spans indicate the worker is not
-// creating spans within the pipeline trace context.
-func (ta *TraceAssertion) AssertStageSpansExist(stages []string) {
+// AssertPhases asserts that each phase name in 'phases' has a corresponding
+// SPAN observation in the trace. Missing phase spans indicate the pipeline
+// is not recording domain-level phases in Langfuse.
+//
+// Phase names are domain-level: "Triage", "Summarize", "Extract", "Analyze", "Embeddings".
+// "Extract" is a single phase grouping both entity and assertion extraction.
+//
+// On the current codebase (OTel approach) this will FAIL because the worker
+// creates OTel spans with names like "stage.triage", not the new phase names.
+func (ta *TraceAssertion) AssertPhases(phases []string) {
 	ta.t.Helper()
 
 	// Index observations by type and name.
@@ -211,25 +212,25 @@ func (ta *TraceAssertion) AssertStageSpansExist(stages []string) {
 		}
 	}
 
-	ta.t.Logf("AssertStageSpansExist: found SPAN observations: %v", spanNames)
+	ta.t.Logf("AssertPhases: found SPAN observations: %v", spanNames)
 
-	for _, stage := range stages {
-		if !spanNames[stage] {
+	for _, phase := range phases {
+		if !spanNames[phase] {
 			ta.t.Errorf(
-				"AssertStageSpansExist: SPAN %q not found in trace %s — "+
-					"expected stage span to appear in the main pipeline trace. "+
-					"Current behavior (f70a646): stage spans are created in the worker's own "+
-					"OTel provider and land in separate orphaned traces, not here.",
-				stage, ta.traceID,
+				"AssertPhases: SPAN %q not found in trace %s — "+
+					"expected domain-level phase span to appear in the pipeline trace. "+
+					"Current behavior (OTel approach): stage spans use names like 'stage.triage' "+
+					"and land in separate orphaned traces, not here with the new phase names.",
+				phase, ta.traceID,
 			)
 		}
 	}
 }
 
-// AssertGenerationsNestedUnderStages asserts that every GENERATION observation
+// AssertGenerationsNestedUnderPhases asserts that every GENERATION observation
 // has a parentObservationId that refers to a SPAN observation in the same trace.
-// On current code this will FAIL because generations are not nested under stage spans.
-func (ta *TraceAssertion) AssertGenerationsNestedUnderStages() {
+// On current code this will FAIL because generations are not nested under phase spans.
+func (ta *TraceAssertion) AssertGenerationsNestedUnderPhases() {
 	ta.t.Helper()
 
 	// Build a set of SPAN observation IDs.
@@ -251,7 +252,7 @@ func (ta *TraceAssertion) AssertGenerationsNestedUnderStages() {
 
 		if obs.ParentObservationID == nil {
 			violations = append(violations, fmt.Sprintf(
-				"GENERATION %q (id=%s) has no parent — expected a SPAN parent",
+				"GENERATION %q (id=%s) has no parent — expected a phase SPAN parent",
 				obs.Name, obs.ID,
 			))
 			continue
@@ -266,30 +267,13 @@ func (ta *TraceAssertion) AssertGenerationsNestedUnderStages() {
 		}
 	}
 
-	ta.t.Logf("AssertGenerationsNestedUnderStages: checked %d GENERATIONs, %d violations", generations, len(violations))
+	ta.t.Logf("AssertGenerationsNestedUnderPhases: checked %d GENERATIONs, %d violations", generations, len(violations))
 
 	for _, v := range violations {
-		ta.t.Errorf("AssertGenerationsNestedUnderStages: %s — "+
-			"On f70a646, generations appear as direct children of the trace root or "+
-			"in separate orphaned traces without SPAN parents.", v)
+		ta.t.Errorf("AssertGenerationsNestedUnderPhases: %s — "+
+			"On the current codebase, generations appear as direct children of the trace root "+
+			"or in separate orphaned traces without phase SPAN parents.", v)
 	}
-}
-
-// AssertStageCardinality asserts that exactly 'expected' SPAN observations exist
-// with the given stage name. Used to detect duplicate stage spans.
-func (ta *TraceAssertion) AssertStageCardinality(stage string, expected int) {
-	ta.t.Helper()
-
-	var count int
-	for _, obs := range ta.observations {
-		if obs.Type == "SPAN" && obs.Name == stage {
-			count++
-		}
-	}
-
-	assert.Equal(ta.t, expected, count,
-		"AssertStageCardinality: expected %d SPAN(s) named %q in trace %s, got %d",
-		expected, stage, ta.traceID, count)
 }
 
 // AssertGenerationsHaveIO asserts that all GENERATION observations have non-null
@@ -369,13 +353,13 @@ func (ta *TraceAssertion) AssertTenantTag(tenantID string) {
 		ta.traceID, expected, ta.trace.Tags)
 }
 
-// AssertPipelineSpanDuration asserts that the root-level SPAN (the pipeline trace
-// root) has a duration of at least minSeconds. A near-zero duration indicates
-// that the pipeline span was ended immediately rather than at pipeline completion.
+// AssertTraceDuration asserts that the root-level SPAN (the pipeline trace root)
+// has a duration of at least minSeconds. A near-zero duration indicates that the
+// pipeline span was ended immediately rather than at pipeline completion.
 //
-// On f70a646 this FAILS because StartPipelineTracing starts and ends the root
-// span as a no-op — the span has zero or near-zero duration.
-func (ta *TraceAssertion) AssertPipelineSpanDuration(minSeconds float64) {
+// On the current codebase this FAILS because the OTel-based approach ends the
+// root span immediately — the span has zero or near-zero duration.
+func (ta *TraceAssertion) AssertTraceDuration(minSeconds float64) {
 	ta.t.Helper()
 
 	// Find the root SPAN (parentObservationId == nil) — this is the pipeline span.
@@ -388,28 +372,28 @@ func (ta *TraceAssertion) AssertPipelineSpanDuration(minSeconds float64) {
 	}
 
 	if rootSpan == nil {
-		ta.t.Errorf("AssertPipelineSpanDuration: no root SPAN found in trace %s "+
+		ta.t.Errorf("AssertTraceDuration: no root SPAN found in trace %s "+
 			"(expected a SPAN with no parent representing the pipeline root). "+
-			"On f70a646 the pipeline trace spans are created in separate contexts.",
+			"On the current codebase pipeline trace spans are created in separate contexts.",
 			ta.traceID)
 		return
 	}
 
 	if rootSpan.EndTime == nil {
-		ta.t.Errorf("AssertPipelineSpanDuration: root SPAN %q (id=%s) has no EndTime — "+
+		ta.t.Errorf("AssertTraceDuration: root SPAN %q (id=%s) has no EndTime — "+
 			"span was never properly closed. Duration cannot be computed.",
 			rootSpan.Name, rootSpan.ID)
 		return
 	}
 
 	duration := rootSpan.EndTime.Sub(rootSpan.StartTime).Seconds()
-	ta.t.Logf("AssertPipelineSpanDuration: root SPAN %q duration=%.1fs (min=%.1fs)",
+	ta.t.Logf("AssertTraceDuration: root SPAN %q duration=%.1fs (min=%.1fs)",
 		rootSpan.Name, duration, minSeconds)
 
 	assert.GreaterOrEqual(ta.t, duration, minSeconds,
-		"AssertPipelineSpanDuration: root SPAN %q has duration %.1fs, expected >= %.1fs. "+
-			"On f70a646 StartPipelineTracing returns immediately, so the span duration is ~0s. "+
-			"Phase 4 (FinishPipelineTracing activity) will fix this.",
+		"AssertTraceDuration: root SPAN %q has duration %.1fs, expected >= %.1fs. "+
+			"The FinishLangfuseTrace activity at the end of the workflow will fix this "+
+			"by properly closing the trace span after all phases complete.",
 		rootSpan.Name, duration, minSeconds)
 }
 
@@ -417,19 +401,21 @@ func (ta *TraceAssertion) AssertPipelineSpanDuration(minSeconds float64) {
 // TestPipelineTraceLangfuse — the acceptance test
 // ============================================================================
 
-// TestPipelineTraceLangfuse is the acceptance test for the distributed tracing
-// architecture. It processes a known content item through the pipeline and
-// validates the resulting Langfuse trace structure.
+// TestPipelineTraceLangfuse is the acceptance test for the direct Langfuse
+// integration with domain-level phases (pf-62044a). It processes a known content
+// item through the pipeline and validates the resulting Langfuse trace structure.
 //
-// This test is designed to FAIL on the current codebase (f70a646):
+// This test is designed to FAIL on the current codebase (OTel-based approach):
 //   - Orphan traces (stage spans land in separate traces, not the main pipeline trace)
-//   - Missing stage span nesting (generations not under stage spans)
-//   - Zero-duration pipeline span (StartPipelineTracing ends immediately)
+//   - Missing phase spans (trace has "stage.triage" etc., not "Triage", "Summarize", etc.)
+//   - Missing phase span nesting (generations not under phase spans)
+//   - Zero-duration pipeline span (root span ends immediately)
 //
-// It is designed to PASS once Phases 2-4 are implemented:
-//   - Phase 2: Temporal OTel interceptors (context propagation workflow→activity)
-//   - Phase 3: otelgrpc handlers (context propagation activity→ai-coordinator)
-//   - Phase 4: FinishPipelineTracing activity (real pipeline span duration)
+// It is designed to PASS once pf-62044a is implemented:
+//   - Domain-level phases: Triage, Summarize, Extract, Analyze, Embeddings
+//   - All generations nested under their phase span
+//   - Single consolidated trace (no orphans)
+//   - Real duration from trace start to FinishLangfuseTrace activity
 func TestPipelineTraceLangfuse(t *testing.T) {
 	// This test operates against the production tenant.
 	// Do NOT use SafeCLIRunner (it would panic for the production tenant ID).
@@ -449,9 +435,8 @@ func TestPipelineTraceLangfuse(t *testing.T) {
 	before := time.Now()
 
 	// Trigger reprocessing and wait for the pipeline to fully complete.
-	// reprocessAndWait waits for a NEW trace (created after triggerTime) with
-	// the "email-processing.finish" span, indicating all stages have completed.
-	// The pipeline typically takes 2-4 minutes for a full run.
+	// reprocessAndWait polls until all expected phase spans appear, indicating
+	// the full pipeline has run. The pipeline typically takes 2-4 minutes.
 	reprocessAndWait(t, contentID, 5*time.Minute)
 
 	// Fetch the latest trace for this content item.
@@ -459,45 +444,36 @@ func TestPipelineTraceLangfuse(t *testing.T) {
 
 	// === Assertions ===
 
-	// 1. Only ONE trace should exist for this content in the last 5 minutes.
+	// 1. Only ONE trace should exist for this content in the last 10 minutes.
 	ta.AssertSingleTrace(contentID)
 
 	// 2. No orphaned traces (untagged traces created after we started).
-	// EXPECTED TO FAIL on f70a646: the worker creates stage spans in its own
+	// EXPECTED TO FAIL on current codebase: the worker creates stage spans in its own
 	// OTel provider, producing orphaned traces separate from the pipeline trace.
 	ta.AssertNoOrphanTraces(before)
 
 	// 3. The trace must have the tenant tag.
-	// EXPECTED TO PASS on f70a646.
+	// EXPECTED TO PASS on current codebase.
 	ta.AssertTenantTag(tenantID)
 
-	// 4. All six stage SPANs must appear in the trace.
-	// EXPECTED TO FAIL on f70a646: stage spans land in orphaned traces.
-	ta.AssertStageSpansExist([]string{
-		"stage.triage",
-		"stage.extract_entities",
-		"stage.extract_assertions",
-		"stage.deep_analyze",
-		"stage.embedding",
-		"stage.summarize",
-	})
+	// 4. All five domain-level phase SPANs must appear in the trace.
+	// EXPECTED TO FAIL on current codebase: spans have "stage.triage" etc. (OTel names),
+	// not the new domain-level phase names. "Extract" groups both entity and assertion
+	// extraction under a single phase span.
+	ta.AssertPhases([]string{"Triage", "Summarize", "Extract", "Analyze", "Embeddings"})
 
-	// 5. Every GENERATION must be parented to a SPAN.
-	// EXPECTED TO FAIL on f70a646: generations appear as root-level or unparented.
-	ta.AssertGenerationsNestedUnderStages()
+	// 5. Every GENERATION must be parented to a phase SPAN.
+	// EXPECTED TO FAIL on current codebase: generations appear as root-level or unparented.
+	ta.AssertGenerationsNestedUnderPhases()
 
-	// 6. Each high-cardinality stage should have exactly 1 span.
-	ta.AssertStageCardinality("stage.extract_entities", 1)
-	ta.AssertStageCardinality("stage.embedding", 1)
-
-	// 7. All GENERATIONs must have non-null input and output.
-	// EXPECTED TO MOSTLY PASS on f70a646 (generations in orphaned traces still have I/O).
+	// 6. All GENERATIONs must have non-null input and output.
+	// EXPECTED TO MOSTLY PASS on current codebase (generations in orphaned traces still have I/O).
 	ta.AssertGenerationsHaveIO()
 
-	// 8. No ERROR-level observations.
+	// 7. No ERROR-level observations.
 	ta.AssertNoErrors()
 
-	// 9. The root pipeline span must have duration >= 30 seconds.
-	// EXPECTED TO FAIL on f70a646: StartPipelineTracing ends immediately (~0s duration).
-	ta.AssertPipelineSpanDuration(30.0)
+	// 8. The root pipeline span must have duration >= 30 seconds.
+	// EXPECTED TO FAIL on current codebase: root span ends immediately (~0s duration).
+	ta.AssertTraceDuration(30.0)
 }

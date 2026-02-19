@@ -121,9 +121,8 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 
 	// Create stage span wrapping ALL chunk embedding calls
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.embedding", tracing.StageSpanOptions{
-		PipelineTraceID: input.PipelineTraceID,
-		ContentID:       input.ContentID,
-		TenantID:        input.TenantID,
+		ContentID: input.ContentID,
+		TenantID:  input.TenantID,
 	})
 	defer stageSpan.End()
 

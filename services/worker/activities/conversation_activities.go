@@ -63,12 +63,10 @@ type Conversation struct {
 
 // LinkConversationInput is the input for the LinkConversation activity.
 type LinkConversationInput struct {
-	TenantID        string `json:"tenant_id"`
-	SourceID        int64  `json:"source_id"`
-	ThreadID        string `json:"thread_id"`  // Root message ID from threading
-	ContentID       string `json:"content_id"` // Content item ID to link
-	PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
-	PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
+	TenantID  string `json:"tenant_id"`
+	SourceID  int64  `json:"source_id"`
+	ThreadID  string `json:"thread_id"`  // Root message ID from threading
+	ContentID string `json:"content_id"` // Content item ID to link
 }
 
 // LinkConversationOutput is the output from the LinkConversation activity.
@@ -218,7 +216,7 @@ func (a *ConversationActivities) LinkConversation(ctx context.Context, input Lin
 	}
 
 	// Generate rolling summary + state (non-blocking)
-	a.generateSummaryAndState(ctx, input.TenantID, existingConvID, input.ContentID, input.PipelineTraceID, input.PipelineSpanID)
+	a.generateSummaryAndState(ctx, input.TenantID, existingConvID, input.ContentID)
 
 	logger.Info("conversation linking completed",
 		logging.F("conversation_id", existingConvID),
@@ -292,7 +290,7 @@ func extractParticipants(from, to, cc string) []string {
 
 // generateSummaryAndState generates a rolling summary and state assessment for a conversation.
 // This is non-blocking: all errors are logged but not returned.
-func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, tenantID, conversationID, newContentID, pipelineTraceID, pipelineSpanID string) {
+func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, tenantID, conversationID, newContentID string) {
 	logger := a.logger.WithContext(ctx).With(
 		logging.F("conversation_id", conversationID),
 		logging.F("content_id", newContentID),

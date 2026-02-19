@@ -106,9 +106,8 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 
 	// Create stage span wrapping the gRPC call
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.extract_assertions", tracing.StageSpanOptions{
-		PipelineTraceID: input.PipelineTraceID,
-		ContentID:       input.ContentID,
-		TenantID:        input.TenantID,
+		ContentID: input.ContentID,
+		TenantID:  input.TenantID,
 	})
 	defer stageSpan.End()
 
@@ -296,9 +295,8 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 
 	// Create stage span wrapping ALL gRPC calls (single or chunked)
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.extract_entities", tracing.StageSpanOptions{
-		PipelineTraceID: input.PipelineTraceID,
-		ContentID:       input.ContentID,
-		TenantID:        input.TenantID,
+		ContentID: input.ContentID,
+		TenantID:  input.TenantID,
 	})
 	defer stageSpan.End()
 

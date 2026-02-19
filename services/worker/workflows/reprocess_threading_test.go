@@ -83,14 +83,6 @@ func (m *ReprocessMockActivities) CreateEnrichmentRecord(ctx context.Context, in
 	return args.Get(0).(*CreateEnrichmentRecordOutput), args.Error(1)
 }
 
-func (m *ReprocessMockActivities) StartPipelineTracing(ctx context.Context, input StartPipelineTracingInput) (*StartPipelineTracingOutput, error) {
-	args := m.Called(ctx, input)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*StartPipelineTracingOutput), args.Error(1)
-}
-
 func (m *ReprocessMockActivities) KickNextPending(ctx context.Context, input KickNextPendingInput) (*KickNextPendingOutput, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
@@ -126,7 +118,6 @@ func TestReprocessThreadingEmailPath(t *testing.T) {
 	env.RegisterActivityWithOptions(activities.GenerateContentEmbedding, activity.RegisterOptions{Name: pkgtemporal.ActivityGenerateContentEmbedding})
 	env.RegisterActivityWithOptions(activities.UpdateContentStatus, activity.RegisterOptions{Name: pkgtemporal.ActivityUpdateContentStatus})
 	env.RegisterActivityWithOptions(activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: pkgtemporal.ActivityCreateEnrichmentRecord})
-	env.RegisterActivityWithOptions(activities.StartPipelineTracing, activity.RegisterOptions{Name: pkgtemporal.ActivityStartPipelineTracing})
 	env.RegisterActivityWithOptions(activities.KickNextPending, activity.RegisterOptions{Name: pkgtemporal.ActivityKickNextPending})
 
 	// Stage -1: FetchContent (minimal input path — simulates reprocess)
@@ -147,13 +138,6 @@ func TestReprocessThreadingEmailPath(t *testing.T) {
 			NewContent:    "New content",
 			QuotedContent: "",
 			IsReply:       false,
-		}, nil)
-
-	// Stage 0.5: StartPipelineTracing (non-blocking)
-	activities.On("StartPipelineTracing", mock.Anything, mock.Anything).
-		Return(&StartPipelineTracingOutput{
-			TraceID: "0123456789abcdef0123456789abcdef",
-			SpanID:  "0123456789abcdef",
 		}, nil)
 
 	// Stage 0.6: UpdateContentStatus (parsed)
@@ -252,7 +236,6 @@ func TestReprocessThreadingMeetingPath(t *testing.T) {
 	env.RegisterActivityWithOptions(activities.GenerateContentEmbedding, activity.RegisterOptions{Name: pkgtemporal.ActivityGenerateContentEmbedding})
 	env.RegisterActivityWithOptions(activities.UpdateContentStatus, activity.RegisterOptions{Name: pkgtemporal.ActivityUpdateContentStatus})
 	env.RegisterActivityWithOptions(activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: pkgtemporal.ActivityCreateEnrichmentRecord})
-	env.RegisterActivityWithOptions(activities.StartPipelineTracing, activity.RegisterOptions{Name: pkgtemporal.ActivityStartPipelineTracing})
 	env.RegisterActivityWithOptions(activities.KickNextPending, activity.RegisterOptions{Name: pkgtemporal.ActivityKickNextPending})
 
 	// Stage -1: FetchContent returns meeting content
@@ -269,12 +252,6 @@ func TestReprocessThreadingMeetingPath(t *testing.T) {
 			Speakers:   []string{"Speaker1"},
 			DurationMs: 3600000,
 			Format:     "text",
-		}, nil)
-
-	activities.On("StartPipelineTracing", mock.Anything, mock.Anything).
-		Return(&StartPipelineTracingOutput{
-			TraceID: "0123456789abcdef0123456789abcdef",
-			SpanID:  "0123456789abcdef",
 		}, nil)
 	activities.On("UpdateContentStatus", mock.Anything, mock.Anything).
 		Return(nil)

@@ -4,7 +4,7 @@ package temporal
 // These constants provide a single source of truth for activity names,
 // preventing typos and mismatches between registration and invocation.
 
-// Main Task Queue activity names (23 activities).
+// Main Task Queue activity names (21 activities).
 const (
 	ActivityValidateContent          = "ValidateContent"
 	ActivityFetchContent             = "FetchContent"
@@ -25,8 +25,6 @@ const (
 	ActivityEnrichPersonMetadata     = "EnrichPersonMetadata"
 	ActivityDeepAnalyze              = "DeepAnalyze"
 	ActivityRecordOverrides          = "RecordOverrides"
-	ActivityStartPipelineTracing     = "StartPipelineTracing"
-	ActivityFinishPipelineTracing    = "FinishPipelineTracing"
 	ActivityGroupEmailThread         = "GroupEmailThread"
 	ActivityCreateEnrichmentRecord   = "CreateEnrichmentRecord"
 	ActivityLinkConversation         = "LinkConversation"
@@ -47,6 +45,14 @@ const (
 const (
 	ActivityFetchSource       = "FetchSource"
 	ActivityUpdateSourceStatus = "UpdateSourceStatus"
+)
+
+// Langfuse activity name constants (registered on the main task queue).
+const (
+	ActivityCreateLangfuseTrace      = "CreateLangfuseTrace"
+	ActivityReportLangfusePhase      = "ReportLangfusePhase"
+	ActivityReportLangfuseGeneration = "ReportLangfuseGeneration"
+	ActivityFinishLangfuseTrace      = "FinishLangfuseTrace"
 )
 
 // AllMainQueueActivities returns all activity names for the main task queue.
@@ -71,11 +77,13 @@ func AllMainQueueActivities() []string {
 		ActivityEnrichPersonMetadata,
 		ActivityDeepAnalyze,
 		ActivityRecordOverrides,
-		ActivityStartPipelineTracing,
-		ActivityFinishPipelineTracing,
 		ActivityGroupEmailThread,
 		ActivityCreateEnrichmentRecord,
 		ActivityLinkConversation,
+		ActivityCreateLangfuseTrace,
+		ActivityReportLangfusePhase,
+		ActivityReportLangfuseGeneration,
+		ActivityFinishLangfuseTrace,
 	}
 }
 

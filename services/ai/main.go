@@ -114,28 +114,23 @@ func main() {
 		logger.Info("Database not configured, using env var model config only")
 	}
 
-	// Initialize tracing with Langfuse if configured
+	// Initialize tracing (no-op by default; configure ExporterOTLP for production)
 	var tracingShutdown tracing.ShutdownFunc
-	if lfConfig := tracing.LangfuseConfigFromEnv(); lfConfig != nil && lfConfig.Host != "" {
+	{
 		tracingCfg := &tracing.Config{
 			ServiceName: cfg.ServiceName,
 			Environment: cfg.Environment,
 			SampleRate:  1.0,
-			Exporter:    tracing.ExporterLangfuse,
-			Langfuse:    lfConfig,
+			Exporter:    tracing.ExporterNone,
 		}
 		var err error
 		tracingShutdown, err = tracing.InitTracer(tracingCfg)
 		if err != nil {
-			logger.Error("Failed to initialize Langfuse tracing", logging.Err(err))
+			logger.Error("Failed to initialize tracing", logging.Err(err))
 			// Continue without tracing - not fatal
 		} else {
-			logger.Info("Langfuse tracing initialized",
-				logging.F("host", lfConfig.Host),
-			)
+			logger.Info("Tracing initialized (no-op exporter)")
 		}
-	} else {
-		logger.Info("Langfuse not configured - tracing disabled (set LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY to enable)")
 	}
 
 	// Initialize metrics
@@ -209,8 +204,7 @@ func main() {
 	// Create gRPC server.
 	// The otelgrpc stats handler extracts traceparent from incoming gRPC metadata,
 	// so the ai-coordinator's context inherits the worker's active span.
-	// This allows applyPipelineTrace in pkg/tracing/ai.go to detect an active span
-	// and use it as the parent instead of falling through to the manual trace ID path.
+	// This allows the ai-coordinator's OTel spans to inherit the caller's trace context.
 	grpcServer := grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(

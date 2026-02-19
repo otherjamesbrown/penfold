@@ -151,8 +151,11 @@ func (c *langfuseClient) fetchObservations(ctx context.Context, traceID string) 
 // reprocessAndWait triggers pipeline reprocessing for a content item and waits
 // for the pipeline to fully complete. It invokes `penf reprocess <contentID>` using
 // the real penf binary found in PATH, then polls the Langfuse API until the
-// "email-processing.finish" span appears in a NEW trace (created after the reprocess
-// trigger), indicating all pipeline stages have run.
+// "Embeddings" phase SPAN appears in a NEW trace (created after the reprocess
+// trigger), indicating all pipeline phases have run.
+//
+// "Embeddings" is the last phase to execute in the pipeline (pf-62044a). Waiting
+// for it ensures the full pipeline has completed before assertions run.
 //
 // timeout is the maximum time to wait for reprocessing to complete.
 func reprocessAndWait(t *testing.T, contentID string, timeout time.Duration) {
@@ -178,8 +181,10 @@ func reprocessAndWait(t *testing.T, contentID string, timeout time.Duration) {
 	}
 
 	// Wait for a NEW Langfuse trace (created after triggerTime) tagged with the
-	// contentID, then continue polling until the "email-processing.finish" span
-	// appears (created by FinishPipelineTracing at the very end of the pipeline).
+	// contentID, then continue polling until the "Embeddings" phase SPAN appears.
+	// This is the last phase executed by the pipeline (pf-62044a architecture).
+	// We poll for it rather than a "finish" marker since the new architecture
+	// uses domain-level phase names rather than OTel span names.
 	lf := newLangfuseClient(t)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -192,11 +197,11 @@ func reprocessAndWait(t *testing.T, contentID string, timeout time.Duration) {
 		select {
 		case <-ctx.Done():
 			if traceID != "" {
-				t.Fatalf("reprocessAndWait: timeout waiting for pipeline completion (trace %s found but email-processing.finish span never appeared)", traceID)
+				t.Fatalf("reprocessAndWait: timeout waiting for pipeline completion (trace %s found but Embeddings phase span never appeared)", traceID)
 			}
 			t.Fatalf("reprocessAndWait: timeout waiting for NEW Langfuse trace for content %s (after %s)", contentID, triggerTime.Format(time.RFC3339))
 		case <-ticker.C:
-			// Phase 1: Find a NEW trace (created after triggerTime).
+			// Step 1: Find a NEW trace (created after triggerTime).
 			if traceID == "" {
 				traces, err := lf.fetchTracesByTag(ctx, contentID)
 				if err != nil {
@@ -220,21 +225,21 @@ func reprocessAndWait(t *testing.T, contentID string, timeout time.Duration) {
 				}
 			}
 
-			// Phase 2: Wait for the finish span.
+			// Step 2: Wait for the Embeddings phase SPAN (last pipeline phase).
 			observations, err := lf.fetchObservations(ctx, traceID)
 			if err != nil {
 				t.Logf("reprocessAndWait: observation poll error (will retry): %v", err)
 				continue
 			}
 			for _, obs := range observations {
-				if obs.Name == "email-processing.finish" {
-					t.Logf("reprocessAndWait: pipeline complete — found email-processing.finish span (%d total observations)", len(observations))
+				if obs.Type == "SPAN" && obs.Name == "Embeddings" {
+					t.Logf("reprocessAndWait: pipeline complete — found Embeddings phase SPAN (%d total observations)", len(observations))
 					// Brief delay for any remaining observations to flush to Langfuse.
 					time.Sleep(5 * time.Second)
 					return
 				}
 			}
-			t.Logf("reprocessAndWait: trace %s has %d observations but no finish span yet...", traceID, len(observations))
+			t.Logf("reprocessAndWait: trace %s has %d observations but no Embeddings phase SPAN yet...", traceID, len(observations))
 		}
 	}
 }

@@ -93,9 +93,8 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 
 	// Create stage span wrapping the gRPC call
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.deep_analyze", tracing.StageSpanOptions{
-		PipelineTraceID: input.PipelineTraceID,
-		ContentID:       input.ContentID,
-		TenantID:        input.TenantID,
+		ContentID: input.ContentID,
+		TenantID:  input.TenantID,
 	})
 	defer stageSpan.End()
 

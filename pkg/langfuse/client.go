@@ -266,3 +266,100 @@ func (c *Client) GetDatasetRuns(ctx context.Context, datasetName string) ([]Data
 func (c *Client) Host() string {
 	return c.host
 }
+
+// TraceQueryOpts holds options for querying traces from Langfuse.
+type TraceQueryOpts struct {
+	Tags    []string
+	Limit   int
+	OrderBy string
+}
+
+// Trace represents a Langfuse trace.
+type Trace struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Timestamp time.Time `json:"timestamp"`
+	Tags      []string  `json:"tags"`
+	Input     any       `json:"input"`
+	Output    any       `json:"output"`
+}
+
+// Observation represents a Langfuse observation (SPAN or GENERATION).
+type Observation struct {
+	ID                  string     `json:"id"`
+	TraceID             string     `json:"traceId"`
+	ParentObservationID *string    `json:"parentObservationId"`
+	Type                string     `json:"type"` // "SPAN" or "GENERATION"
+	Name                string     `json:"name"`
+	StartTime           time.Time  `json:"startTime"`
+	EndTime             *time.Time `json:"endTime"`
+	Level               string     `json:"level"`
+	StatusMessage       *string    `json:"statusMessage"`
+	Model               *string    `json:"model"`
+	Input               any        `json:"input"`
+	Output              any        `json:"output"`
+	PromptTokens        *int       `json:"promptTokens"`
+	CompletionTokens    *int       `json:"completionTokens"`
+}
+
+// tracesResponse is the API response envelope for listing traces.
+type tracesResponse struct {
+	Data []Trace `json:"data"`
+}
+
+// observationsResponse is the API response envelope for listing observations.
+type observationsResponse struct {
+	Data []Observation `json:"data"`
+}
+
+// GetTraces queries traces from Langfuse using the given options.
+// Calls GET /api/public/traces with optional tag filtering, limit, and ordering.
+func (c *Client) GetTraces(ctx context.Context, opts TraceQueryOpts) ([]Trace, error) {
+	path := "/api/public/traces?"
+
+	if len(opts.Tags) > 0 {
+		for _, tag := range opts.Tags {
+			path += "tags=" + tag + "&"
+		}
+	}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	path += fmt.Sprintf("limit=%d", limit)
+
+	if opts.OrderBy != "" {
+		path += "&orderBy=" + opts.OrderBy
+	}
+
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("GetTraces: %w", err)
+	}
+
+	result, err := parseResponse[tracesResponse](resp)
+	if err != nil {
+		return nil, fmt.Errorf("GetTraces: %w", err)
+	}
+
+	return result.Data, nil
+}
+
+// GetObservations retrieves all observations for the given trace ID.
+// Calls GET /api/public/observations?traceId=<traceID>&limit=100
+func (c *Client) GetObservations(ctx context.Context, traceID string) ([]Observation, error) {
+	path := fmt.Sprintf("/api/public/observations?traceId=%s&limit=100", traceID)
+
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("GetObservations traceID=%q: %w", traceID, err)
+	}
+
+	result, err := parseResponse[observationsResponse](resp)
+	if err != nil {
+		return nil, fmt.Errorf("GetObservations traceID=%q: %w", traceID, err)
+	}
+
+	return result.Data, nil
+}
