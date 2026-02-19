@@ -58,6 +58,7 @@ type ContentItemRecord struct {
 	AssertionCount   int
 	FailureCategory  *string
 	FailureReason    *string
+	LangfuseTraceID  *string
 	Metadata         map[string]interface{}
 }
 
@@ -146,6 +147,7 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 			COUNT(DISTINCT a.id) AS assertion_count,
 			s.failure_category,
 			s.failure_reason,
+			s.langfuse_trace_id,
 			s.ingestion_metadata
 		FROM sources s
 		LEFT JOIN embeddings e ON s.id = e.source_id
@@ -169,6 +171,7 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 		&rec.AssertionCount,
 		&rec.FailureCategory,
 		&rec.FailureReason,
+		&rec.LangfuseTraceID,
 		&metadataJSON,
 	)
 
@@ -235,6 +238,7 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 			COUNT(DISTINCT a.id) AS assertion_count,
 			s.failure_category,
 			s.failure_reason,
+			s.langfuse_trace_id,
 			s.ingestion_metadata
 		FROM sources s
 		LEFT JOIN embeddings e ON s.id = e.source_id
@@ -275,6 +279,7 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 			&rec.AssertionCount,
 			&rec.FailureCategory,
 			&rec.FailureReason,
+			&rec.LangfuseTraceID,
 			&metadataJSON,
 		)
 		if err != nil {
@@ -1711,6 +1716,9 @@ func recordToProto(rec *ContentItemRecord) *contentv1.ContentItem {
 	}
 	if rec.FailureReason != nil {
 		item.FailureReason = rec.FailureReason
+	}
+	if rec.LangfuseTraceID != nil {
+		item.LangfuseTraceId = rec.LangfuseTraceID
 	}
 
 	return item
