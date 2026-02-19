@@ -151,11 +151,15 @@ func (c *langfuseClient) fetchObservations(ctx context.Context, traceID string) 
 // reprocessAndWait triggers pipeline reprocessing for a content item and waits
 // for the pipeline to fully complete. It invokes `penf reprocess <contentID>` using
 // the real penf binary found in PATH, then polls the Langfuse API until the
-// "email-processing.finish" span appears, indicating all pipeline stages have run.
+// "email-processing.finish" span appears in a NEW trace (created after the reprocess
+// trigger), indicating all pipeline stages have run.
 //
 // timeout is the maximum time to wait for reprocessing to complete.
 func reprocessAndWait(t *testing.T, contentID string, timeout time.Duration) {
 	t.Helper()
+
+	// Record the time before triggering reprocess so we can filter out old traces.
+	triggerTime := time.Now()
 
 	cli := NewCLIRunner(t)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -173,16 +177,15 @@ func reprocessAndWait(t *testing.T, contentID string, timeout time.Duration) {
 		t.Logf("reprocess triggered for %s: %s", contentID, result.Stdout)
 	}
 
-	// Wait for the pipeline to produce a Langfuse trace tagged with the contentID.
-	// We poll the Langfuse API every 5s until we see a trace, then continue polling
-	// until the "email-processing.finish" span appears (created by FinishPipelineTracing
-	// at the very end of the pipeline workflow).
+	// Wait for a NEW Langfuse trace (created after triggerTime) tagged with the
+	// contentID, then continue polling until the "email-processing.finish" span
+	// appears (created by FinishPipelineTracing at the very end of the pipeline).
 	lf := newLangfuseClient(t)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	// Give the pipeline a moment to start before first poll.
-	time.Sleep(5 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	var traceID string
 	for {
@@ -191,30 +194,30 @@ func reprocessAndWait(t *testing.T, contentID string, timeout time.Duration) {
 			if traceID != "" {
 				t.Fatalf("reprocessAndWait: timeout waiting for pipeline completion (trace %s found but email-processing.finish span never appeared)", traceID)
 			}
-			t.Fatalf("reprocessAndWait: timeout waiting for Langfuse trace for content %s", contentID)
+			t.Fatalf("reprocessAndWait: timeout waiting for NEW Langfuse trace for content %s (after %s)", contentID, triggerTime.Format(time.RFC3339))
 		case <-ticker.C:
-			// Phase 1: Find the trace.
+			// Phase 1: Find a NEW trace (created after triggerTime).
 			if traceID == "" {
 				traces, err := lf.fetchTracesByTag(ctx, contentID)
 				if err != nil {
 					t.Logf("reprocessAndWait: poll error (will retry): %v", err)
 					continue
 				}
-				if len(traces) == 0 {
-					t.Logf("reprocessAndWait: no traces yet for content %s, continuing to poll...", contentID)
-					continue
-				}
-				// Prefer the named pipeline trace.
+				// Filter to traces created after we triggered the reprocess.
+				// This prevents picking up old traces from previous pipeline runs.
 				for _, tr := range traces {
-					if tr.Name == "email-processing" {
+					if tr.Timestamp.After(triggerTime) && tr.Name == "email-processing" {
 						traceID = tr.ID
+						t.Logf("reprocessAndWait: found NEW trace %s (ts=%s) for content %s, waiting for pipeline completion...",
+							traceID, tr.Timestamp.Format(time.RFC3339), contentID)
 						break
 					}
 				}
 				if traceID == "" {
-					traceID = traces[0].ID
+					t.Logf("reprocessAndWait: no NEW traces yet for content %s (checked %d, all before %s)...",
+						contentID, len(traces), triggerTime.Format(time.RFC3339))
+					continue
 				}
-				t.Logf("reprocessAndWait: found trace %s for content %s, waiting for pipeline completion...", traceID, contentID)
 			}
 
 			// Phase 2: Wait for the finish span.

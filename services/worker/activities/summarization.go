@@ -11,6 +11,7 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -86,6 +87,13 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 	startTime := time.Now()
 	activity.RecordHeartbeat(ctx, "calling AI service for summary generation")
 
+	// Create stage span wrapping the gRPC call
+	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.summarize", tracing.StageSpanOptions{
+		ContentID: input.ContentID,
+		TenantID:  input.TenantID,
+	})
+	defer stageSpan.End()
+
 	// Default parameters for summary generation
 	maxLength := int32(150) // tokens
 
@@ -95,10 +103,8 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 		Style:     aiv1.SummaryStyle_SUMMARY_STYLE_BRIEF,
 		TenantId:  &input.TenantID,
 	}
-	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
-	// Call AI service (tracing is handled by the AI server, not duplicated here)
-	resp, err := a.aiClient.GenerateSummary(ctx, summaryReq)
+	resp, err := a.aiClient.GenerateSummary(stageCtx, summaryReq)
 	if err != nil {
 		logger.Error("Failed to generate summary from AI service", logging.Err(err))
 		return 0, fmt.Errorf("failed to generate summary: %w", err)

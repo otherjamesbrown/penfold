@@ -120,8 +120,9 @@ func (ta *TraceAssertion) AssertSingleTrace(contentID string) {
 		return
 	}
 
-	// Filter to traces within the last 5 minutes to avoid old runs.
-	cutoff := time.Now().Add(-5 * time.Minute)
+	// Filter to traces within the last 10 minutes to avoid old runs.
+	// The pipeline can take 2-4 minutes, plus polling overhead.
+	cutoff := time.Now().Add(-10 * time.Minute)
 	var recent []LangfuseTrace
 	for _, tr := range traces {
 		if tr.Timestamp.After(cutoff) {
@@ -448,10 +449,10 @@ func TestPipelineTraceLangfuse(t *testing.T) {
 	before := time.Now()
 
 	// Trigger reprocessing and wait for the pipeline to fully complete.
-	// reprocessAndWait polls until the "email-processing.finish" span appears
-	// in Langfuse, which is created by FinishPipelineTracing at pipeline end.
-	// The pipeline typically takes 60-120 seconds for a full run.
-	reprocessAndWait(t, contentID, 3*time.Minute)
+	// reprocessAndWait waits for a NEW trace (created after triggerTime) with
+	// the "email-processing.finish" span, indicating all stages have completed.
+	// The pipeline typically takes 2-4 minutes for a full run.
+	reprocessAndWait(t, contentID, 5*time.Minute)
 
 	// Fetch the latest trace for this content item.
 	ta := GetTraceForContent(t, contentID)
