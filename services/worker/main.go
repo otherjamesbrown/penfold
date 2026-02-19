@@ -252,7 +252,14 @@ func main() {
 
 	// Initialize timeout configuration
 	ctx := context.Background()
-	timeoutCfg := timeout.New(dbPool)
+	// Guard against nil-pointer-in-interface: a nil *pgxpool.Pool passed as
+	// timeout.DB creates a non-nil interface wrapping a nil concrete value,
+	// which bypasses the db==nil check in Config.Refresh and panics.
+	var timeoutDB timeout.DB
+	if dbPool != nil {
+		timeoutDB = dbPool
+	}
+	timeoutCfg := timeout.New(timeoutDB)
 
 	// Load timeout config from database (non-fatal if fails — uses defaults)
 	if err := timeoutCfg.Refresh(ctx); err != nil {
