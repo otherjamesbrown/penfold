@@ -447,9 +447,10 @@ func TestPipelineTraceLangfuse(t *testing.T) {
 
 	before := time.Now()
 
-	// Trigger reprocessing and wait for the pipeline to produce a trace.
-	// reprocessAndWait uses a 3-minute timeout — the pipeline typically
-	// takes 45-90 seconds for a full run.
+	// Trigger reprocessing and wait for the pipeline to fully complete.
+	// reprocessAndWait polls until the "email-processing.finish" span appears
+	// in Langfuse, which is created by FinishPipelineTracing at pipeline end.
+	// The pipeline typically takes 60-120 seconds for a full run.
 	reprocessAndWait(t, contentID, 3*time.Minute)
 
 	// Fetch the latest trace for this content item.
