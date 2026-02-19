@@ -55,6 +55,7 @@ func (s *LangfuseMetadataPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.FetchSource, activity.RegisterOptions{Name: pkgtemporal.ActivityFetchContent})
 	s.env.RegisterActivityWithOptions(s.activities.GroupEmailThread, activity.RegisterOptions{Name: pkgtemporal.ActivityGroupEmailThread})
 	s.env.RegisterActivityWithOptions(s.activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: pkgtemporal.ActivityCreateEnrichmentRecord})
+	s.env.RegisterActivityWithOptions(s.activities.GenerateContentSummary, activity.RegisterOptions{Name: pkgtemporal.ActivityGenerateContentSummary})
 
 	// Register Langfuse activities that are STILL VALID post-feature:
 	// CreateLangfuseTrace, ReportLangfusePhase, FinishLangfuseTrace.
@@ -84,6 +85,8 @@ func (s *LangfuseMetadataPipelineTestSuite) SetupTest() {
 	// Default mock expectations for enrichment/threading activities.
 	s.activities.On("CreateEnrichmentRecord", mock.Anything, mock.Anything).Maybe().Return(&CreateEnrichmentRecordOutput{EnrichmentID: 1}, nil)
 	s.activities.On("GroupEmailThread", mock.Anything, mock.Anything).Maybe().Return(&GroupEmailThreadOutput{}, nil)
+	// Stage 1.5 Summarize is non-blocking; default to success.
+	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
 }
 
 func (s *LangfuseMetadataPipelineTestSuite) AfterTest(suiteName, testName string) {

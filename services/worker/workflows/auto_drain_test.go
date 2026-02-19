@@ -46,10 +46,12 @@ func (s *AutoDrainTestSuite) SetupTest() {
 
 	// Register the kick activity that should be called after completion
 	s.env.RegisterActivityWithOptions(s.activities.KickNextPending, activity.RegisterOptions{Name: "KickNextPending"})
+	s.env.RegisterActivityWithOptions(s.activities.GenerateContentSummary, activity.RegisterOptions{Name: "GenerateContentSummary"})
 
 	// Default mock expectations for enrichment/threading activities (blocking since pf-67502c fix).
 	s.activities.On("CreateEnrichmentRecord", mock.Anything, mock.Anything).Maybe().Return(&CreateEnrichmentRecordOutput{EnrichmentID: 1}, nil)
 	s.activities.On("GroupEmailThread", mock.Anything, mock.Anything).Maybe().Return(&GroupEmailThreadOutput{}, nil)
+	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
 }
 
 func (s *AutoDrainTestSuite) AfterTest(suiteName, testName string) {

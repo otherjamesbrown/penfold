@@ -177,6 +177,28 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 		Input:       text,
 	})
 
+	// Report generation to Langfuse if configured and trace metadata is present.
+	if s.langfuse != nil {
+		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+		if lfTraceID != "" {
+			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+				ID:           uuid.New().String(),
+				TraceID:      lfTraceID,
+				ParentID:     lfPhaseID,
+				Name:         "ai.embedding",
+				Model:        result.Model,
+				Input:        text,
+				Output:       fmt.Sprintf("vector[%d]", result.Dimensions),
+				PromptTokens: tokenCount,
+				StartTime:    startTime,
+				EndTime:      time.Now(),
+			})
+			if err := s.langfuse.Flush(ctx); err != nil {
+				s.logger.Warn("Langfuse generation flush failed", logging.Err(err))
+			}
+		}
+	}
+
 	s.logger.Debug("GenerateEmbedding completed",
 		logging.F("dimensions", result.Dimensions),
 		logging.F("model_used", result.Model),

@@ -1224,10 +1224,19 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 	// Resolve per-stage timeouts from pipeline_config
 	stageTimeouts, stageHeartbeats := s.resolveStageTimeouts(ctx)
 
+	// Look up tenant name for Langfuse environment labelling (best-effort, non-blocking).
+	var tenantName string
+	if s.tenantRepo != nil {
+		if t, err := s.tenantRepo.Get(ctx, source.TenantID); err == nil && t != nil {
+			tenantName = t.Name
+		}
+	}
+
 	// Start ContentIngestionWorkflow via Temporal
 	workflowID := pkgtemporal.GenerateIngestWorkflowID(source.TenantID, source.SourceSystem, strconv.FormatInt(source.ID, 10))
 	input := pkgtemporal.SLMPipelineInput{
 		TenantID:        source.TenantID,
+		TenantName:      tenantName,
 		SourceID:        source.ID,
 		ContentID:       source.ContentID,
 		ContentHash:     source.ContentHash,

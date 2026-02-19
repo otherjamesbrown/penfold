@@ -9,6 +9,7 @@ import (
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
+	"google.golang.org/grpc/metadata"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/chunking"
@@ -126,9 +127,19 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	})
 	defer stageSpan.End()
 
+	// Attach Langfuse tracing metadata for AI coordinator to use when creating generation spans.
+	embeddingCallCtx := stageCtx
+	if input.LangfuseTraceID != "" {
+		md := metadata.Pairs(
+			"x-langfuse-trace-id", input.LangfuseTraceID,
+			"x-langfuse-phase-id", input.LangfusePhaseID,
+		)
+		embeddingCallCtx = metadata.NewOutgoingContext(stageCtx, md)
+	}
+
 	// Generate and store embeddings for each chunk
 	for _, chunk := range chunks {
-		activity.RecordHeartbeat(stageCtx, fmt.Sprintf("generating embedding for chunk %d/%d", chunk.Index+1, len(chunks)))
+		activity.RecordHeartbeat(embeddingCallCtx, fmt.Sprintf("generating embedding for chunk %d/%d", chunk.Index+1, len(chunks)))
 
 		embeddingReq := &aiv1.EmbeddingRequest{
 			Text:     chunk.Text,
@@ -139,8 +150,8 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		}
 		// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
-		// Call AI service to generate embedding with stage span context
-		resp, err := a.aiClient.GenerateEmbedding(stageCtx, embeddingReq)
+		// Call AI service to generate embedding with stage span context and Langfuse metadata
+		resp, err := a.aiClient.GenerateEmbedding(embeddingCallCtx, embeddingReq)
 		if err != nil {
 			pe := perrors.ClassifyError(err, "embed")
 			logger.Error("Failed to generate embedding from AI service",

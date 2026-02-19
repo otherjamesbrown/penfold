@@ -193,6 +193,7 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 		workflowID := pkgtemporal.GenerateIngestWorkflowID(src.TenantID, src.SourceSystem, strconv.FormatInt(src.ID, 10))
 		input := pkgtemporal.SLMPipelineInput{
 			TenantID:        src.TenantID,
+			TenantName:      src.TenantName,
 			SourceID:        src.ID,
 			ContentID:       src.ContentID,
 			ContentHash:     src.ContentHash,

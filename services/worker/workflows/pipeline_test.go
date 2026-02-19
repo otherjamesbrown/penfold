@@ -124,6 +124,11 @@ func (m *PipelineMockActivities) CreateEnrichmentRecord(ctx context.Context, inp
 	return args.Get(0).(*CreateEnrichmentRecordOutput), args.Error(1)
 }
 
+func (m *PipelineMockActivities) GenerateContentSummary(ctx context.Context, input GenerateSummaryInput) (int64, error) {
+	args := m.Called(ctx, input)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 // SLMPipelineTestSuite tests the SLMPipelineWorkflow.
 type SLMPipelineTestSuite struct {
 	suite.Suite
@@ -153,11 +158,14 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.FetchSource, activity.RegisterOptions{Name: "FetchContent"})
 	s.env.RegisterActivityWithOptions(s.activities.GroupEmailThread, activity.RegisterOptions{Name: "GroupEmailThread"})
 	s.env.RegisterActivityWithOptions(s.activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: "CreateEnrichmentRecord"})
+	s.env.RegisterActivityWithOptions(s.activities.GenerateContentSummary, activity.RegisterOptions{Name: pkgtemporal.ActivityGenerateContentSummary})
 
 	// Default mock expectations for enrichment/threading activities (blocking since pf-67502c fix).
 	// Individual tests can override these with more specific expectations.
 	s.activities.On("CreateEnrichmentRecord", mock.Anything, mock.Anything).Maybe().Return(&CreateEnrichmentRecordOutput{EnrichmentID: 1}, nil)
 	s.activities.On("GroupEmailThread", mock.Anything, mock.Anything).Maybe().Return(&GroupEmailThreadOutput{}, nil)
+	// Stage 1.5 Summarize is non-blocking; default to success so tests don't log ActivityNotRegistered warnings.
+	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
 }
 
 func (s *SLMPipelineTestSuite) AfterTest(suiteName, testName string) {

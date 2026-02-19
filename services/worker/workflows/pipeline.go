@@ -26,6 +26,7 @@ const (
 // PipelineInput is the input for the SLM pipeline workflow.
 type PipelineInput struct {
 	TenantID    string `json:"tenant_id"`
+	TenantName  string `json:"tenant_name,omitempty"` // Human-readable tenant name for Langfuse environment; falls back to TenantID if empty
 	SourceID    int64  `json:"source_id"`
 	ContentID   string `json:"content_id,omitempty"`
 	JobID       string `json:"job_id"`
@@ -718,7 +719,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		ContentID:    input.ContentID,
 		TenantID:     input.TenantID,
 		Tags:         langfuseTraceTags,
-		TenantName:   input.TenantID, // Use TenantID for now — only one tenant currently
+		TenantName:   input.TenantName, // Human-readable name for Langfuse environment; falls back to TenantID if empty
 		SourceSystem: input.ContentType,
 		Subject:      input.Subject,
 		ContentType:  input.ContentType,
@@ -976,6 +977,45 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
+	// ==================== Stage 1.5: Summarize (non-blocking) ====================
+	// Generate a concise summary for the content. Failure does NOT block the pipeline.
+	// The Langfuse Summarize phase span wraps this LLM call.
+	{
+		summarizeStart := workflow.Now(ctx)
+		summarizePhaseID := sideEffectUUID(ctx)
+		summarizeOpts := stageOpts("summarize", llmOpts)
+		ctxSummarize := workflow.WithActivityOptions(ctx, summarizeOpts)
+		var summaryID int64
+		summarizeErr := workflow.ExecuteActivity(ctxSummarize, pkgtemporal.ActivityGenerateContentSummary, GenerateSummaryInput{
+			TenantID:        input.TenantID,
+			SourceID:        input.SourceID,
+			ContentID:       input.ContentID,
+			JobID:           input.JobID,
+			Content:         parsedContent,
+			LangfuseTraceID: langfuseTraceID,
+			LangfusePhaseID: summarizePhaseID,
+		}).Get(ctx, &summaryID)
+		if summarizeErr != nil {
+			logger.Warn("Stage 1.5 GenerateSummary failed (non-blocking)", "error", summarizeErr)
+		} else {
+			logger.Debug("Summary generated", "summary_id", summaryID)
+		}
+		// Langfuse: report Summarize phase span (best-effort, non-blocking).
+		// Generation is reported by the AI coordinator via gRPC metadata.
+		summarizeEnd := workflow.Now(ctx)
+		_ = workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, fastOpts),
+			pkgtemporal.ActivityReportLangfusePhase,
+			ReportLangfusePhaseInput{
+				PhaseID:   summarizePhaseID,
+				TraceID:   langfuseTraceID,
+				PhaseName: "Summarize",
+				StartTime: summarizeStart,
+				EndTime:   summarizeEnd,
+			},
+		).Get(ctx, nil)
+	}
+
 	// Contribution-based gating (in addition to existing SkipDeep)
 	// Determine which stages to skip based on content contribution
 	skipExtract := false // Skip stages 2-3.5 (extract, assertions, context, person metadata)
@@ -1168,7 +1208,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			"thread_id", *threadID,
 			"content_id", input.ContentID,
 		)
-		summarizeStart := workflow.Now(ctx)
 		convOutput := &LinkConversationOutput{}
 		ctxConv := workflow.WithActivityOptions(ctx, fastOpts)
 		err = workflow.ExecuteActivity(ctxConv, pkgtemporal.ActivityLinkConversation, LinkConversationInput{
@@ -1189,21 +1228,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"thread_id", *threadID,
 				"conversation_id", convOutput.ConversationID,
 			)
-			// Langfuse: report Summarize phase span for conversation linking (best-effort).
-			// Generation is now reported by the AI coordinator via gRPC metadata.
-			summarizeEnd := workflow.Now(ctx)
-			summarizePhaseID := sideEffectUUID(ctx)
-			_ = workflow.ExecuteActivity(
-				workflow.WithActivityOptions(ctx, fastOpts),
-				pkgtemporal.ActivityReportLangfusePhase,
-				ReportLangfusePhaseInput{
-					PhaseID:   summarizePhaseID,
-					TraceID:   langfuseTraceID,
-					PhaseName: "Summarize",
-					StartTime: summarizeStart,
-					EndTime:   summarizeEnd,
-				},
-			).Get(ctx, nil)
 		}
 	}
 
@@ -1689,16 +1713,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		"total_steps", state.status.TotalSteps,
 	)
 	embedStart := workflow.Now(ctx)
+	embedPhaseID := sideEffectUUID(ctx)
 
 	var embeddingID int64
 	embedOpts := stageOpts("embedding", embeddingOpts)
 	ctxEmbed := workflow.WithActivityOptions(ctx, embedOpts)
 	err = workflow.ExecuteActivity(ctxEmbed, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
-		TenantID:    input.TenantID,
-		SourceID:    input.SourceID,
-		ContentID:   input.ContentID,
-		Content:     parsedContent,
-		ContentHash: input.ContentHash,
+		TenantID:        input.TenantID,
+		SourceID:        input.SourceID,
+		ContentID:       input.ContentID,
+		Content:         parsedContent,
+		ContentHash:     input.ContentHash,
+		LangfuseTraceID: langfuseTraceID,
+		LangfusePhaseID: embedPhaseID,
 	}).Get(ctx, &embeddingID)
 	if err != nil {
 		runCompensation(ctx)
@@ -1744,7 +1771,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Langfuse: report Embeddings phase span (best-effort, non-blocking).
 	// Generation is now reported by the AI coordinator via gRPC metadata.
 	embedEnd := workflow.Now(ctx)
-	embedPhaseID := sideEffectUUID(ctx)
 	_ = workflow.ExecuteActivity(
 		workflow.WithActivityOptions(ctx, fastOpts),
 		pkgtemporal.ActivityReportLangfusePhase,

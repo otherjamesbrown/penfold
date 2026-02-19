@@ -52,6 +52,9 @@ type (
 		ContentID   string `json:"content_id,omitempty"`
 		Content     string `json:"content"`
 		ContentHash string `json:"content_hash"`
+		// Langfuse tracing: passed via gRPC metadata to AI coordinator.
+		LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
+		LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
 	}
 
 	// GenerateSummaryInput is the input for the GenerateSummary activity.

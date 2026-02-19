@@ -213,12 +213,14 @@ func (r *Repository) CountJobs(ctx context.Context, filter JobFilter) (int64, er
 // KickPendingProcessing queries pending sources from the database.
 func (r *Repository) KickPendingProcessing(ctx context.Context, limit int, sourceTag string) ([]PendingSource, int, error) {
 	query := `
-		SELECT id, tenant_id, source_system, COALESCE(content_hash, ''), COALESCE(content_id, '')
-		FROM sources
-		WHERE processing_status = 'pending'
-		  AND is_deleted = false
-		  AND ($1 = '' OR ingestion_metadata->>'source_tag' = $1)
-		ORDER BY created_at ASC
+		SELECT s.id, s.tenant_id, COALESCE(t.display_name, ''), s.source_system,
+		       COALESCE(s.content_hash, ''), COALESCE(s.content_id, '')
+		FROM sources s
+		LEFT JOIN tenants t ON t.id = s.tenant_id::uuid AND NOT t.is_deleted
+		WHERE s.processing_status = 'pending'
+		  AND s.is_deleted = false
+		  AND ($1 = '' OR s.ingestion_metadata->>'source_tag' = $1)
+		ORDER BY s.created_at ASC
 		LIMIT $2
 	`
 
@@ -231,7 +233,7 @@ func (r *Repository) KickPendingProcessing(ctx context.Context, limit int, sourc
 	var sources []PendingSource
 	for rows.Next() {
 		var s PendingSource
-		if err := rows.Scan(&s.ID, &s.TenantID, &s.SourceSystem, &s.ContentHash, &s.ContentID); err != nil {
+		if err := rows.Scan(&s.ID, &s.TenantID, &s.TenantName, &s.SourceSystem, &s.ContentHash, &s.ContentID); err != nil {
 			return nil, 0, fmt.Errorf("scanning pending source: %w", err)
 		}
 		sources = append(sources, s)

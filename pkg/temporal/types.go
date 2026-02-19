@@ -85,6 +85,7 @@ type NetworkStats struct {
 // The workflow fetches content and metadata from the database via FetchSource.
 type SLMPipelineInput struct {
 	TenantID    string `json:"tenant_id"`
+	TenantName  string `json:"tenant_name,omitempty"` // Human-readable tenant name for Langfuse environment; falls back to TenantID if empty
 	SourceID    int64  `json:"source_id"`
 	ContentID   string `json:"content_id,omitempty"`
 	ContentHash string `json:"content_hash,omitempty"`
