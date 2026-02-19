@@ -616,6 +616,7 @@ func main() {
 	// Langfuse activities for pipeline trace/phase reporting.
 	// langfuseIngestion may be nil if Langfuse is not configured; activities will be no-ops.
 	langfuseActivities := activities.NewLangfuseActivities(langfuseIngestion, logger)
+	langfuseActivities.WithDB(dbPool)
 	activityRegistrar.WithLangfuseActivities(langfuseActivities)
 	if langfuseIngestion != nil {
 		logger.Info("Langfuse pipeline activities initialized (CreateTrace, ReportPhase, ReportGeneration, FinishTrace)")
