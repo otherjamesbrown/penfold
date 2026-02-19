@@ -8,6 +8,7 @@ import (
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
+	"google.golang.org/grpc/metadata"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -104,7 +105,17 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 		TenantId:  &input.TenantID,
 	}
 
-	resp, err := a.aiClient.GenerateSummary(stageCtx, summaryReq)
+	// Attach Langfuse tracing metadata for AI coordinator to use when creating generation spans.
+	summaryCallCtx := stageCtx
+	if input.LangfuseTraceID != "" {
+		md := metadata.Pairs(
+			"x-langfuse-trace-id", input.LangfuseTraceID,
+			"x-langfuse-phase-id", input.LangfusePhaseID,
+		)
+		summaryCallCtx = metadata.NewOutgoingContext(stageCtx, md)
+	}
+
+	resp, err := a.aiClient.GenerateSummary(summaryCallCtx, summaryReq)
 	if err != nil {
 		logger.Error("Failed to generate summary from AI service", logging.Err(err))
 		return 0, fmt.Errorf("failed to generate summary: %w", err)

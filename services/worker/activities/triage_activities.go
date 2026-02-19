@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.temporal.io/sdk/temporal"
+	"google.golang.org/grpc/metadata"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
@@ -192,8 +193,18 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	}
 	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
+	// Attach Langfuse tracing metadata for AI coordinator to use when creating generation spans.
+	callCtx := stageCtx
+	if input.LangfuseTraceID != "" {
+		md := metadata.Pairs(
+			"x-langfuse-trace-id", input.LangfuseTraceID,
+			"x-langfuse-phase-id", input.LangfusePhaseID,
+		)
+		callCtx = metadata.NewOutgoingContext(stageCtx, md)
+	}
+
 	// Call AI service with stage span context
-	resp, err := a.aiClient.TriageContent(stageCtx, req)
+	resp, err := a.aiClient.TriageContent(callCtx, req)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "triage")
 		logger.Error("Failed to perform triage", logging.Err(pe))

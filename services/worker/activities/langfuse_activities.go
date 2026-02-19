@@ -3,10 +3,11 @@ package activities
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	"go.temporal.io/sdk/activity"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -18,6 +19,7 @@ import (
 type LangfuseActivities struct {
 	ingestion *langfuse.Ingestion
 	logger    logging.Logger
+	db        *pgxpool.Pool
 }
 
 // NewLangfuseActivities creates a new LangfuseActivities.
@@ -29,6 +31,13 @@ func NewLangfuseActivities(ingestion *langfuse.Ingestion, logger logging.Logger)
 	}
 }
 
+// WithDB sets the database pool for activities that require database access (e.g. PersistLangfuseTraceID).
+// If db is nil, those activities will be no-ops.
+func (a *LangfuseActivities) WithDB(db *pgxpool.Pool) *LangfuseActivities {
+	a.db = db
+	return a
+}
+
 // newLangfuseID generates a fresh UUID for use as Langfuse observation IDs.
 func newLangfuseID() string {
 	return uuid.New().String()
@@ -38,30 +47,42 @@ func newLangfuseID() string {
 // This is the top-level container for all pipeline observations.
 // If Langfuse is not configured, this is a no-op.
 func (a *LangfuseActivities) CreateLangfuseTrace(ctx context.Context, input workflows.CreateLangfuseTraceInput) (*workflows.CreateLangfuseTraceOutput, error) {
-	logger := activity.GetLogger(ctx)
-
 	if a.ingestion == nil {
-		logger.Debug("Langfuse not configured — skipping CreateLangfuseTrace")
+		a.logger.Debug("Langfuse not configured — skipping CreateLangfuseTrace")
 		return &workflows.CreateLangfuseTraceOutput{TraceID: input.TraceID}, nil
+	}
+
+	// Resolve Environment: use TenantName if set, fall back to TenantID.
+	env := input.TenantName
+	if env == "" {
+		env = input.TenantID
+	}
+
+	// Build enriched metadata map starting with required fields.
+	metadata := map[string]any{
+		"content_id": input.ContentID,
+		"tenant_id":  input.TenantID,
+	}
+	if input.SourceSystem != "" {
+		metadata["source_system"] = input.SourceSystem
+	}
+	if input.Subject != "" {
+		metadata["subject"] = input.Subject
+	}
+	if input.ContentType != "" {
+		metadata["content_type"] = input.ContentType
 	}
 
 	a.ingestion.CreateTrace(langfuse.TraceEvent{
-		ID:        input.TraceID,
-		Name:      input.Name,
-		Tags:      input.Tags,
-		Timestamp: time.Now(),
-		Metadata: map[string]any{
-			"content_id": input.ContentID,
-			"tenant_id":  input.TenantID,
-		},
+		ID:          input.TraceID,
+		Name:        input.Name,
+		Tags:        input.Tags,
+		Timestamp:   time.Now(),
+		Environment: env,
+		Metadata:    metadata,
 	})
 
-	if err := a.ingestion.Flush(ctx); err != nil {
-		// Non-fatal: log and continue
-		logger.Warn("Langfuse CreateLangfuseTrace flush failed", "error", err)
-		return &workflows.CreateLangfuseTraceOutput{TraceID: input.TraceID}, nil
-	}
-
+	// Event is buffered; FinishLangfuseTrace will flush the batch at pipeline end.
 	return &workflows.CreateLangfuseTraceOutput{TraceID: input.TraceID}, nil
 }
 
@@ -69,10 +90,8 @@ func (a *LangfuseActivities) CreateLangfuseTrace(ctx context.Context, input work
 // The span captures the wall-clock duration of the phase.
 // If Langfuse is not configured, this is a no-op.
 func (a *LangfuseActivities) ReportLangfusePhase(ctx context.Context, input workflows.ReportLangfusePhaseInput) error {
-	logger := activity.GetLogger(ctx)
-
 	if a.ingestion == nil {
-		logger.Debug("Langfuse not configured — skipping ReportLangfusePhase")
+		a.logger.Debug("Langfuse not configured — skipping ReportLangfusePhase")
 		return nil
 	}
 
@@ -87,40 +106,7 @@ func (a *LangfuseActivities) ReportLangfusePhase(ctx context.Context, input work
 
 	if err := a.ingestion.Flush(ctx); err != nil {
 		// Non-fatal: log and continue
-		logger.Warn("Langfuse ReportLangfusePhase flush failed", "error", err, "phase", input.PhaseName)
-	}
-
-	return nil
-}
-
-// ReportLangfuseGeneration creates a generation observation in Langfuse nested under a phase span.
-// A generation captures an individual LLM/AI call with its model, tokens, and I/O.
-// If Langfuse is not configured, this is a no-op.
-func (a *LangfuseActivities) ReportLangfuseGeneration(ctx context.Context, input workflows.ReportLangfuseGenerationInput) error {
-	logger := activity.GetLogger(ctx)
-
-	if a.ingestion == nil {
-		logger.Debug("Langfuse not configured — skipping ReportLangfuseGeneration")
-		return nil
-	}
-
-	a.ingestion.CreateGeneration(langfuse.GenerationEvent{
-		ID:               newLangfuseID(),
-		TraceID:          input.TraceID,
-		ParentID:         input.PhaseID,
-		Name:             input.Name,
-		Model:            input.Model,
-		Input:            input.Input,
-		Output:           input.Output,
-		PromptTokens:     input.InputTokens,
-		CompletionTokens: input.OutputTokens,
-		StartTime:        input.StartTime,
-		EndTime:          input.EndTime,
-	})
-
-	if err := a.ingestion.Flush(ctx); err != nil {
-		// Non-fatal: log and continue
-		logger.Warn("Langfuse ReportLangfuseGeneration flush failed", "error", err, "name", input.Name)
+		a.logger.Warn("Langfuse ReportLangfusePhase flush failed", logging.Err(err), logging.F("phase", input.PhaseName))
 	}
 
 	return nil
@@ -130,16 +116,33 @@ func (a *LangfuseActivities) ReportLangfuseGeneration(ctx context.Context, input
 // This ensures all events are delivered to Langfuse before the workflow completes.
 // If Langfuse is not configured, this is a no-op.
 func (a *LangfuseActivities) FinishLangfuseTrace(ctx context.Context, input workflows.FinishLangfuseTraceInput) error {
-	logger := activity.GetLogger(ctx)
-
 	if a.ingestion == nil {
-		logger.Debug("Langfuse not configured — skipping FinishLangfuseTrace")
+		a.logger.Debug("Langfuse not configured — skipping FinishLangfuseTrace")
 		return nil
 	}
 
 	if err := a.ingestion.Flush(ctx); err != nil {
 		// Non-fatal: log and continue
-		logger.Warn("Langfuse FinishLangfuseTrace flush failed", "error", err, "trace_id", input.TraceID)
+		a.logger.Warn("Langfuse FinishLangfuseTrace flush failed", logging.Err(err), logging.F("trace_id", input.TraceID))
+	}
+
+	return nil
+}
+
+// PersistLangfuseTraceID persists the Langfuse trace ID back to the sources table.
+// If no database pool is configured, this is a no-op.
+func (a *LangfuseActivities) PersistLangfuseTraceID(ctx context.Context, input workflows.PersistLangfuseTraceIDInput) error {
+	if a.db == nil {
+		a.logger.Debug("No DB configured — skipping PersistLangfuseTraceID")
+		return nil
+	}
+
+	_, err := a.db.Exec(ctx,
+		"UPDATE sources SET langfuse_trace_id = $1 WHERE id = $2",
+		input.TraceID, input.SourceID,
+	)
+	if err != nil {
+		return fmt.Errorf("PersistLangfuseTraceID: %w", err)
 	}
 
 	return nil

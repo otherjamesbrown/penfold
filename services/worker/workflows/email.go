@@ -62,6 +62,9 @@ type (
 		ContentID string `json:"content_id,omitempty"`
 		JobID     string `json:"job_id"`
 		Content   string `json:"content"`
+		// Langfuse tracing: passed via gRPC metadata to AI coordinator.
+		LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
+		LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
 	}
 
 	// ExtractAssertionsInput is the input for the ExtractAssertions activity.
@@ -73,6 +76,9 @@ type (
 		JobID       string `json:"job_id"`
 		Content     string `json:"content"`
 		SenderEmail string `json:"sender_email,omitempty"` // Email sender, gets "owner" attribution
+		// Langfuse tracing: passed via gRPC metadata to AI coordinator.
+		LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
+		LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
 	}
 
 	// UpdateSourceStatusInput is the input for the UpdateSourceStatus activity.

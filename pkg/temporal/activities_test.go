@@ -7,7 +7,7 @@ import (
 func TestAllMainQueueActivities(t *testing.T) {
 	activities := AllMainQueueActivities()
 
-	// Test count
+	// Test count (pf-37ebe8: removed ReportLangfuseGeneration, added PersistLangfuseTraceID)
 	expectedCount := 26
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
@@ -38,10 +38,12 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"CreateEnrichmentRecord",
 		"LinkConversation",
 		// Langfuse direct ingestion activities
+		// Note: ReportLangfuseGeneration was removed in pf-37ebe8.
+		// Generation reporting now happens in the AI coordinator via gRPC metadata.
 		"CreateLangfuseTrace",
 		"ReportLangfusePhase",
-		"ReportLangfuseGeneration",
 		"FinishLangfuseTrace",
+		"PersistLangfuseTraceID",
 	}
 
 	activityMap := make(map[string]bool)

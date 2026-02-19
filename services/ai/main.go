@@ -16,6 +16,7 @@ import (
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	"github.com/otherjamesbrown/penfold/pkg/health"
+	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	"github.com/otherjamesbrown/penfold/pkg/models"
@@ -213,8 +214,27 @@ func main() {
 		),
 	)
 
+	// Initialize Langfuse ingestion for generation reporting (optional).
+	// If env vars are not set, langfuseIngestion will be nil and all handlers are no-ops.
+	var langfuseIngestion *langfuse.Ingestion
+	if lfCfg := langfuse.ConfigFromEnv(); lfCfg != nil {
+		lfClient, lfErr := langfuse.NewClient(lfCfg)
+		if lfErr != nil {
+			logger.Warn("Failed to create Langfuse ingestion client (generation reporting disabled)",
+				logging.F("error", lfErr),
+			)
+		} else {
+			langfuseIngestion = langfuse.NewIngestion(lfClient)
+			logger.Info("Langfuse direct ingestion initialized for generation reporting",
+				logging.F("host", lfCfg.Host),
+			)
+		}
+	} else {
+		logger.Info("Langfuse ingestion not configured — generation reporting disabled")
+	}
+
 	// Register AI service
-	aiServer := server.NewAIServer(cfg, logger, compositeBackend)
+	aiServer := server.NewAIServerWithLangfuse(cfg, logger, compositeBackend, langfuseIngestion)
 	aiv1.RegisterAICoordinatorServiceServer(grpcServer, aiServer)
 
 	// Enable gRPC reflection for debugging

@@ -10,6 +10,7 @@ import (
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
+	"google.golang.org/grpc/metadata"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
@@ -126,8 +127,18 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	}
 	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
+	// Attach Langfuse tracing metadata for AI coordinator to use when creating generation spans.
+	assertionCallCtx := stageCtx
+	if input.LangfuseTraceID != "" {
+		md := metadata.Pairs(
+			"x-langfuse-trace-id", input.LangfuseTraceID,
+			"x-langfuse-phase-id", input.LangfusePhaseID,
+		)
+		assertionCallCtx = metadata.NewOutgoingContext(stageCtx, md)
+	}
+
 	// Call AI service with stage span context
-	resp, err := a.aiClient.ExtractAssertions(stageCtx, assertionReq)
+	resp, err := a.aiClient.ExtractAssertions(assertionCallCtx, assertionReq)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "extract_assertions")
 		logger.Error("Failed to extract assertions from AI service", logging.Err(pe))
@@ -300,11 +311,21 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	})
 	defer stageSpan.End()
 
+	// Attach Langfuse tracing metadata for AI coordinator to use when creating generation spans.
+	entityCallCtx := stageCtx
+	if input.LangfuseTraceID != "" {
+		md := metadata.Pairs(
+			"x-langfuse-trace-id", input.LangfuseTraceID,
+			"x-langfuse-phase-id", input.LangfusePhaseID,
+		)
+		entityCallCtx = metadata.NewOutgoingContext(stageCtx, md)
+	}
+
 	var results []*aiv1.ExtractEntitiesResponse
 
 	if len(contentRunes) <= 6000 {
 		// Single call for short content
-		recordHeartbeat(stageCtx, "calling AI service for entity extraction (single call)")
+		recordHeartbeat(entityCallCtx, "calling AI service for entity extraction (single call)")
 		logger.Info("Content under 6K chars, making single RPC call")
 
 		req := &aiv1.ExtractEntitiesRequest{
@@ -319,8 +340,8 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		}
 		// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
-		// Call AI service with stage span context
-		resp, err := a.aiClient.ExtractEntities(stageCtx, req)
+		// Call AI service with stage span context (and Langfuse metadata if set)
+		resp, err := a.aiClient.ExtractEntities(entityCallCtx, req)
 		if err != nil {
 			pe := perrors.ClassifyError(err, "extract_ner")
 			logger.Error("Failed to extract entities from AI service", logging.Err(pe))
@@ -329,7 +350,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		results = append(results, resp)
 	} else {
 		// Chunked extraction for long content
-		recordHeartbeat(stageCtx, "calling AI service for entity extraction (chunked)")
+		recordHeartbeat(entityCallCtx, "calling AI service for entity extraction (chunked)")
 		logger.Info("Content over 6K chars, splitting into chunks",
 			logging.F("content_runes", len(contentRunes)),
 		)
@@ -339,11 +360,11 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 
 		for i, chunk := range chunks {
 			// Check for cancellation between chunks
-			if stageCtx.Err() != nil {
-				return nil, stageCtx.Err()
+			if entityCallCtx.Err() != nil {
+				return nil, entityCallCtx.Err()
 			}
 
-			recordHeartbeat(stageCtx, fmt.Sprintf("extracting entities from chunk %d/%d", i+1, len(chunks)))
+			recordHeartbeat(entityCallCtx, fmt.Sprintf("extracting entities from chunk %d/%d", i+1, len(chunks)))
 
 			req := &aiv1.ExtractEntitiesRequest{
 				Content:  chunk.Content,
@@ -358,7 +379,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			}
 			// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
 
-			resp, err := a.aiClient.ExtractEntities(stageCtx, req)
+			resp, err := a.aiClient.ExtractEntities(entityCallCtx, req)
 			if err != nil {
 				pe := perrors.ClassifyError(err, "extract_ner")
 				logger.Error("Failed to extract entities from chunk",

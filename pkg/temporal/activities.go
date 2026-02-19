@@ -49,10 +49,20 @@ const (
 
 // Langfuse activity name constants (registered on the main task queue).
 const (
-	ActivityCreateLangfuseTrace      = "CreateLangfuseTrace"
-	ActivityReportLangfusePhase      = "ReportLangfusePhase"
+	ActivityCreateLangfuseTrace    = "CreateLangfuseTrace"
+	ActivityReportLangfusePhase    = "ReportLangfusePhase"
+	ActivityFinishLangfuseTrace    = "FinishLangfuseTrace"
+	ActivityPersistLangfuseTraceID = "PersistLangfuseTraceID"
+)
+
+// Deprecated Langfuse activity name constants — removed from the main queue in pf-37ebe8.
+// Kept here for reference in tests that verify the constant is no longer registered.
+const (
+	// ActivityReportLangfuseGeneration was removed in pf-37ebe8.
+	// Generation reporting is now handled by the AI coordinator via gRPC metadata.
+	// This constant is retained only so test code that asserts its absence from
+	// AllMainQueueActivities() can still compile.
 	ActivityReportLangfuseGeneration = "ReportLangfuseGeneration"
-	ActivityFinishLangfuseTrace      = "FinishLangfuseTrace"
 )
 
 // AllMainQueueActivities returns all activity names for the main task queue.
@@ -82,8 +92,8 @@ func AllMainQueueActivities() []string {
 		ActivityLinkConversation,
 		ActivityCreateLangfuseTrace,
 		ActivityReportLangfusePhase,
-		ActivityReportLangfuseGeneration,
 		ActivityFinishLangfuseTrace,
+		ActivityPersistLangfuseTraceID,
 	}
 }
 

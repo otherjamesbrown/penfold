@@ -5,11 +5,21 @@ import "time"
 
 // CreateLangfuseTraceInput is the input for the CreateLangfuseTrace activity.
 type CreateLangfuseTraceInput struct {
-	TraceID   string   `json:"trace_id"`
-	Name      string   `json:"name"`
-	ContentID string   `json:"content_id,omitempty"`
-	TenantID  string   `json:"tenant_id,omitempty"`
-	Tags      []string `json:"tags,omitempty"`
+	TraceID      string   `json:"trace_id"`
+	Name         string   `json:"name"`
+	ContentID    string   `json:"content_id,omitempty"`
+	TenantID     string   `json:"tenant_id,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
+	TenantName   string   `json:"tenant_name,omitempty"`   // For Langfuse Environment; falls back to TenantID if empty
+	SourceSystem string   `json:"source_system,omitempty"` // e.g. "gmail", "human_email"
+	Subject      string   `json:"subject,omitempty"`       // Email subject line
+	ContentType  string   `json:"content_type,omitempty"`  // e.g. "email", "meeting"
+}
+
+// PersistLangfuseTraceIDInput is the input for the PersistLangfuseTraceID activity.
+type PersistLangfuseTraceIDInput struct {
+	SourceID string `json:"source_id"`
+	TraceID  string `json:"trace_id"`
 }
 
 // CreateLangfuseTraceOutput is the output from the CreateLangfuseTrace activity.
@@ -26,7 +36,10 @@ type ReportLangfusePhaseInput struct {
 	EndTime   time.Time `json:"end_time"`
 }
 
-// ReportLangfuseGenerationInput is the input for the ReportLangfuseGeneration activity.
+// ReportLangfuseGenerationInput was the input for the ReportLangfuseGeneration activity.
+// Deprecated: Removed in pf-37ebe8 — generation reporting now happens in the AI coordinator
+// via gRPC metadata. This type is retained only for test code that must compile against it
+// to verify the activity is no longer called.
 type ReportLangfuseGenerationInput struct {
 	TraceID      string    `json:"trace_id"`
 	PhaseID      string    `json:"phase_id"` // parent span ID

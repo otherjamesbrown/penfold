@@ -11,9 +11,11 @@ import (
 	"google.golang.org/grpc/status"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
-	"github.com/otherjamesbrown/penfold/services/ai/backend"
+	"github.com/google/uuid"
+	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
+	"github.com/otherjamesbrown/penfold/services/ai/backend"
 )
 
 // NER prompt template for Stage 2a entity extraction.
@@ -231,9 +233,10 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	// Stage 2a: NER extraction
 	var nerResp *nerResult
 	var nerResult *backend.CompletionResult
+	var nerMessages []backend.Message
 	{
 		nerPrompt = buildNERPrompt(content)
-		messages := []backend.Message{
+		nerMessages = []backend.Message{
 			{Role: "user", Content: nerPrompt},
 		}
 
@@ -246,7 +249,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 		var lastErr error
 		for attempt := 0; attempt <= maxExtractRetries; attempt++ {
-			nerResult, lastErr = s.backend.ChatCompletion(ctx, messages, opts)
+			nerResult, lastErr = s.backend.ChatCompletion(ctx, nerMessages, opts)
 			if lastErr != nil {
 				s.logger.Error("ExtractEntities NER ChatCompletion failed",
 					logging.F("attempt", attempt),
@@ -280,12 +283,36 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		}
 	}
 
+	// Report NER generation to Langfuse if configured and trace metadata is present.
+	if s.langfuse != nil {
+		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+		if lfTraceID != "" {
+			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+				ID:               uuid.New().String(),
+				TraceID:          lfTraceID,
+				ParentID:         lfPhaseID,
+				Name:             "ai.extract_entities",
+				Model:            nerResult.Model,
+				Input:            nerMessages,
+				Output:           nerResult.Content,
+				PromptTokens:     nerResult.InputTokens,
+				CompletionTokens: nerResult.OutputTokens,
+				StartTime:        startTime,
+				EndTime:          time.Now(),
+			})
+			if err := s.langfuse.Flush(ctx); err != nil {
+				s.logger.Warn("Langfuse generation flush failed", logging.Err(err))
+			}
+		}
+	}
+
 	// Stage 2b: Semantic extraction
 	var semResp *semanticResult
 	var semResult *backend.CompletionResult
+	var semMessages []backend.Message
 	{
 		semPrompt = buildSemanticPrompt(content)
-		messages := []backend.Message{
+		semMessages = []backend.Message{
 			{Role: "user", Content: semPrompt},
 		}
 
@@ -298,7 +325,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 		var lastErr error
 		for attempt := 0; attempt <= maxExtractRetries; attempt++ {
-			semResult, lastErr = s.backend.ChatCompletion(ctx, messages, opts)
+			semResult, lastErr = s.backend.ChatCompletion(ctx, semMessages, opts)
 			if lastErr != nil {
 				s.logger.Error("ExtractEntities Semantic ChatCompletion failed",
 					logging.F("attempt", attempt),
@@ -328,6 +355,31 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 				parseErr := status.Error(codes.Internal, fmt.Sprintf("failed to parse Semantic response after %d retries: %v", maxExtractRetries, lastErr))
 				tracing.SetError(span, parseErr)
 				return nil, parseErr
+			}
+		}
+	}
+
+	// Report semantic generation to Langfuse — use semStartTime captured before the block.
+	// We use startTime here since semStartTime isn't separately tracked, and the intent is
+	// to report that the extraction happened as part of the overall handler invocation.
+	if s.langfuse != nil {
+		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+		if lfTraceID != "" {
+			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+				ID:               uuid.New().String(),
+				TraceID:          lfTraceID,
+				ParentID:         lfPhaseID,
+				Name:             "ai.extract_entities",
+				Model:            semResult.Model,
+				Input:            semMessages,
+				Output:           semResult.Content,
+				PromptTokens:     semResult.InputTokens,
+				CompletionTokens: semResult.OutputTokens,
+				StartTime:        startTime,
+				EndTime:          time.Now(),
+			})
+			if err := s.langfuse.Flush(ctx); err != nil {
+				s.logger.Warn("Langfuse generation flush failed", logging.Err(err))
 			}
 		}
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
+	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/ai/backend"
@@ -19,6 +20,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/ai/registry"
 	"github.com/otherjamesbrown/penfold/services/ai/router"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -31,6 +33,7 @@ type AIServer struct {
 	backend  backend.Backend          // Direct backend for backwards compatibility
 	router   *router.ModelRouter      // Multi-model routing (optional)
 	registry *registry.DBRegistry     // Model registry (optional)
+	langfuse *langfuse.Ingestion      // Langfuse generation reporting (optional, nil = disabled)
 }
 
 // NewAIServer creates a new AI server instance with a single backend.
@@ -76,6 +79,36 @@ func NewAIServerWithAll(
 		router:   r,
 		registry: reg,
 	}
+}
+
+// NewAIServerWithLangfuse creates a new AI server instance with Langfuse generation reporting.
+// Pass a nil ingestion to disable generation reporting (all handlers remain functional).
+func NewAIServerWithLangfuse(
+	cfg *config.Config,
+	logger logging.Logger,
+	be backend.Backend,
+	lf *langfuse.Ingestion,
+) *AIServer {
+	s := NewAIServer(cfg, logger, be)
+	s.langfuse = lf
+	return s
+}
+
+// extractLangfuseMetadata reads x-langfuse-trace-id and x-langfuse-phase-id from
+// incoming gRPC metadata. Returns empty strings if metadata is absent or the keys
+// are not present.
+func extractLangfuseMetadata(ctx context.Context) (traceID, phaseID string) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return "", ""
+	}
+	if vals := md.Get("x-langfuse-trace-id"); len(vals) > 0 {
+		traceID = vals[0]
+	}
+	if vals := md.Get("x-langfuse-phase-id"); len(vals) > 0 {
+		phaseID = vals[0]
+	}
+	return traceID, phaseID
 }
 
 // GenerateEmbedding creates a vector embedding for the given text.
@@ -212,6 +245,29 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 		return nil, s.convertError(err)
 	}
 
+	// Report generation to Langfuse if configured and trace metadata is present.
+	if s.langfuse != nil {
+		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+		if lfTraceID != "" {
+			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+				ID:               uuid.New().String(),
+				TraceID:          lfTraceID,
+				ParentID:         lfPhaseID,
+				Name:             "ai.summarize",
+				Model:            result.Model,
+				Input:            messages,
+				Output:           result.Content,
+				PromptTokens:     result.InputTokens,
+				CompletionTokens: result.OutputTokens,
+				StartTime:        startTime,
+				EndTime:          time.Now(),
+			})
+			if err := s.langfuse.Flush(ctx); err != nil {
+				s.logger.Warn("Langfuse generation flush failed", logging.Err(err))
+			}
+		}
+	}
+
 	// Parse the response to extract summary and key points
 	summary, keyPoints := s.parseSummaryResponse(result.Content)
 
@@ -316,6 +372,29 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 		)
 		tracing.SetError(span, err)
 		return nil, s.convertError(err)
+	}
+
+	// Report generation to Langfuse if configured and trace metadata is present.
+	if s.langfuse != nil {
+		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+		if lfTraceID != "" {
+			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+				ID:               uuid.New().String(),
+				TraceID:          lfTraceID,
+				ParentID:         lfPhaseID,
+				Name:             "ai.extract_assertions",
+				Model:            result.Model,
+				Input:            messages,
+				Output:           result.Content,
+				PromptTokens:     result.InputTokens,
+				CompletionTokens: result.OutputTokens,
+				StartTime:        startTime,
+				EndTime:          time.Now(),
+			})
+			if err := s.langfuse.Flush(ctx); err != nil {
+				s.logger.Warn("Langfuse generation flush failed", logging.Err(err))
+			}
+		}
 	}
 
 	// Parse the JSON response
@@ -608,6 +687,29 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 			parseErr := status.Error(codes.Internal, fmt.Sprintf("failed to parse triage response after %d retries: %v", maxTriageRetries, lastErr))
 			tracing.SetError(span, parseErr)
 			return nil, parseErr
+		}
+	}
+
+	// Report generation to Langfuse if configured and trace metadata is present.
+	if s.langfuse != nil {
+		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+		if lfTraceID != "" {
+			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+				ID:               uuid.New().String(),
+				TraceID:          lfTraceID,
+				ParentID:         lfPhaseID,
+				Name:             "ai.triage",
+				Model:            result.Model,
+				Input:            messages,
+				Output:           result.Content,
+				PromptTokens:     result.InputTokens,
+				CompletionTokens: result.OutputTokens,
+				StartTime:        startTime,
+				EndTime:          time.Now(),
+			})
+			if err := s.langfuse.Flush(ctx); err != nil {
+				s.logger.Warn("Langfuse generation flush failed", logging.Err(err))
+			}
 		}
 	}
 
