@@ -353,6 +353,71 @@ func (ta *TraceAssertion) AssertTenantTag(tenantID string) {
 		ta.traceID, expected, ta.trace.Tags)
 }
 
+// AssertEnvironment asserts that the trace's environment field is set to the
+// expected human-readable tenant name (e.g. "Akamai"), not a UUID.
+//
+// Currently FAILS because pipeline.go:721 passes input.TenantID (the UUID)
+// as TenantName to CreateLangfuseTrace.
+func (ta *TraceAssertion) AssertEnvironment(expected string) {
+	ta.t.Helper()
+
+	ta.t.Logf("AssertEnvironment: trace environment=%q, expected=%q", ta.trace.Environment, expected)
+
+	assert.Equal(ta.t, expected, ta.trace.Environment,
+		"AssertEnvironment: trace %s has environment=%q, expected=%q. "+
+			"The pipeline passes TenantID (UUID) as TenantName to CreateLangfuseTrace "+
+			"(pipeline.go:721). Fix: thread the actual tenant name through PipelineInput.",
+		ta.traceID, ta.trace.Environment, expected)
+}
+
+// AssertPhasesHaveGenerations asserts that each named phase SPAN has at least
+// one GENERATION child observation. A phase span without generations means the
+// LLM call for that stage is not being reported to Langfuse.
+//
+// Currently FAILS for "Summarize" (span wraps wrong activity + missing Langfuse
+// metadata on GenerateSummaryInput) and "Embeddings" (no Langfuse fields on
+// GenerateEmbeddingInput + no CreateGeneration in AI server handler).
+func (ta *TraceAssertion) AssertPhasesHaveGenerations(phases []string) {
+	ta.t.Helper()
+
+	// Build map of SPAN name -> observation ID.
+	spanIDByName := make(map[string]string)
+	for _, obs := range ta.observations {
+		if obs.Type == "SPAN" {
+			spanIDByName[obs.Name] = obs.ID
+		}
+	}
+
+	// Count GENERATION children per parent observation ID.
+	generationCountByParent := make(map[string]int)
+	for _, obs := range ta.observations {
+		if obs.Type == "GENERATION" && obs.ParentObservationID != nil {
+			generationCountByParent[*obs.ParentObservationID]++
+		}
+	}
+
+	for _, phase := range phases {
+		spanID, exists := spanIDByName[phase]
+		if !exists {
+			ta.t.Errorf("AssertPhasesHaveGenerations: phase SPAN %q not found in trace %s "+
+				"— cannot check for child generations", phase, ta.traceID)
+			continue
+		}
+
+		count := generationCountByParent[spanID]
+		ta.t.Logf("AssertPhasesHaveGenerations: phase %q (span %s) has %d generation(s)", phase, spanID, count)
+
+		if count == 0 {
+			ta.t.Errorf(
+				"AssertPhasesHaveGenerations: phase SPAN %q (id=%s) has no GENERATION children — "+
+					"the LLM call for this stage is not being reported to Langfuse. "+
+					"Check that the activity input passes LangfuseTraceID/LangfusePhaseID "+
+					"and the AI server handler calls CreateGeneration.",
+				phase, spanID)
+		}
+	}
+}
+
 // AssertTraceDuration asserts that the root-level SPAN (the pipeline trace root)
 // has a duration of at least minSeconds. A near-zero duration indicates that the
 // pipeline span was ended immediately rather than at pipeline completion.
@@ -456,6 +521,10 @@ func TestPipelineTraceLangfuse(t *testing.T) {
 	// EXPECTED TO PASS on current codebase.
 	ta.AssertTenantTag(tenantID)
 
+	// 3b. The trace environment must be the tenant NAME, not the UUID.
+	// EXPECTED TO FAIL: pipeline.go:721 passes TenantID as TenantName.
+	ta.AssertEnvironment("Akamai")
+
 	// 4. All five domain-level phase SPANs must appear in the trace.
 	// EXPECTED TO FAIL on current codebase: spans have "stage.triage" etc. (OTel names),
 	// not the new domain-level phase names. "Extract" groups both entity and assertion
@@ -469,6 +538,14 @@ func TestPipelineTraceLangfuse(t *testing.T) {
 	// 6. All GENERATIONs must have non-null input and output.
 	// EXPECTED TO MOSTLY PASS on current codebase (generations in orphaned traces still have I/O).
 	ta.AssertGenerationsHaveIO()
+
+	// 6b. Each phase SPAN that involves an LLM call must have at least one GENERATION child.
+	// EXPECTED TO FAIL for "Summarize" and "Embeddings":
+	//   - Summarize: span wraps LinkConversation (not LLM call) + GenerateSummaryInput
+	//     callsites don't pass LangfuseTraceID/LangfusePhaseID
+	//   - Embeddings: GenerateEmbeddingInput has no Langfuse fields + AI server
+	//     GenerateEmbedding handler has no CreateGeneration block
+	ta.AssertPhasesHaveGenerations([]string{"Triage", "Summarize", "Extract", "Analyze", "Embeddings"})
 
 	// 7. No ERROR-level observations.
 	ta.AssertNoErrors()

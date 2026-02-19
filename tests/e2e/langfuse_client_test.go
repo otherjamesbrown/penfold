@@ -27,10 +27,11 @@ type langfuseClient struct {
 
 // LangfuseTrace represents a Langfuse trace object from the API.
 type LangfuseTrace struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Timestamp time.Time `json:"timestamp"`
-	Tags      []string  `json:"tags"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Timestamp   time.Time `json:"timestamp"`
+	Tags        []string  `json:"tags"`
+	Environment string    `json:"environment"`
 	// Input and output are present but may be arbitrary JSON.
 	Input  interface{} `json:"input"`
 	Output interface{} `json:"output"`
