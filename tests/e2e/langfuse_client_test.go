@@ -57,7 +57,7 @@ type LangfuseObservation struct {
 func newLangfuseClient(t *testing.T) *langfuseClient {
 	t.Helper()
 
-	host := getEnvOrDefault("LANGFUSE_HOST", "http://home-01.brown.chat:3000")
+	host := getEnvOrDefault("LANGFUSE_HOST", "http://dev02.brown.chat:3000")
 	publicKey := getEnvOrDefault("LANGFUSE_PUBLIC_KEY", "pk-lf-penfold")
 	secretKey := getEnvOrDefault("LANGFUSE_SECRET_KEY", "sk-lf-penfold-secret")
 
@@ -244,5 +244,5 @@ func langfuseHostFromEnv() string {
 	if h := os.Getenv("LANGFUSE_HOST"); h != "" {
 		return h
 	}
-	return "http://home-01.brown.chat:3000"
+	return "http://dev02.brown.chat:3000"
 }
