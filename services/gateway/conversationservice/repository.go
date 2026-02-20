@@ -101,31 +101,33 @@ func (r *PostgresRepository) ListConversations(ctx context.Context, tenantID str
 
 // GetConversation retrieves a single conversation with items and participants.
 func (r *PostgresRepository) GetConversation(ctx context.Context, tenantID, conversationID string) (*ConversationDetail, error) {
-	// Get conversation metadata
-	query := `
-		SELECT
-			id,
-			tenant_id,
-			topic,
-			thread_key,
-			first_seen,
-			last_seen,
-			participant_count,
-			item_count,
-			state_summary,
-			summary_version,
-			summary_updated_at,
-			state,
-			state_reason,
-			state_changed_at,
-			created_at,
-			updated_at
+	// Get conversation metadata.
+	// When tenantID is empty (e.g. GetConversationProcessingStatus which only
+	// receives conversation_id), look up by id alone — it's the primary key.
+	var query string
+	var args []interface{}
+	if tenantID != "" {
+		query = `
+		SELECT id, tenant_id, topic, thread_key, first_seen, last_seen,
+			participant_count, item_count, state_summary, summary_version,
+			summary_updated_at, state, state_reason, state_changed_at,
+			created_at, updated_at
 		FROM conversations
-		WHERE tenant_id = $1 AND id = $2
-	`
+		WHERE tenant_id = $1 AND id = $2`
+		args = []interface{}{tenantID, conversationID}
+	} else {
+		query = `
+		SELECT id, tenant_id, topic, thread_key, first_seen, last_seen,
+			participant_count, item_count, state_summary, summary_version,
+			summary_updated_at, state, state_reason, state_changed_at,
+			created_at, updated_at
+		FROM conversations
+		WHERE id = $1`
+		args = []interface{}{conversationID}
+	}
 
 	var detail ConversationDetail
-	err := r.pool.QueryRow(ctx, query, tenantID, conversationID).Scan(
+	err := r.pool.QueryRow(ctx, query, args...).Scan(
 		&detail.ID,
 		&detail.TenantID,
 		&detail.Topic,
