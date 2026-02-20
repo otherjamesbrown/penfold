@@ -66,12 +66,15 @@ func (r *PostgresConversationRepository) AddConversationItem(ctx context.Context
 	return nil
 }
 
-// AddConversationParticipant adds a participant to a conversation (idempotent).
+// AddConversationParticipant adds a participant to a conversation with upsert semantics.
+// On conflict (same address), the name is updated to the latest value. This allows
+// reprocessing after a parsing fix to correct mangled names without creating duplicates.
 func (r *PostgresConversationRepository) AddConversationParticipant(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
 	query := `
 		INSERT INTO conversation_participants (conversation_id, name, address, tenant_id)
 		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (conversation_id, COALESCE(address, name)) DO NOTHING
+		ON CONFLICT (conversation_id, COALESCE(address, name)) DO UPDATE SET
+			name = EXCLUDED.name
 	`
 	_, err := r.pool.Exec(ctx, query, conversationID, name, address, tenantID)
 	if err != nil {
@@ -204,18 +207,21 @@ func (r *PostgresConversationRepository) GetConversation(ctx context.Context, te
 	return &conv, nil
 }
 
-// DeleteConversationParticipants removes all existing participants for a conversation.
-// This is used on reprocess to avoid accumulating stale participant entries.
-func (r *PostgresConversationRepository) DeleteConversationParticipants(ctx context.Context, conversationID, tenantID string) error {
+// CleanInvalidParticipants removes conversation participants with obviously-invalid
+// addresses (containing JSON artifacts like {, [, ", }, ] from the old comma-split
+// parser that mangled JSON array fields). Valid email addresses never contain these.
+func (r *PostgresConversationRepository) CleanInvalidParticipants(ctx context.Context, conversationID, tenantID string) (int64, error) {
 	query := `
 		DELETE FROM conversation_participants
 		WHERE conversation_id = $1 AND tenant_id = $2
+		AND address IS NOT NULL
+		AND address ~ '[{}\[\]"]'
 	`
-	_, err := r.pool.Exec(ctx, query, conversationID, tenantID)
+	tag, err := r.pool.Exec(ctx, query, conversationID, tenantID)
 	if err != nil {
-		return fmt.Errorf("failed to delete conversation participants: %w", err)
+		return 0, fmt.Errorf("failed to clean invalid conversation participants: %w", err)
 	}
-	return nil
+	return tag.RowsAffected(), nil
 }
 
 // Ensure PostgresConversationRepository implements ConversationRepository at compile time.

@@ -196,20 +196,10 @@ func (a *ConversationActivities) LinkConversation(ctx context.Context, input Lin
 		// Don't fail - conversation was created
 	}
 
-	recordHeartbeat(ctx, "clearing existing participants")
-
-	// Delete existing participants before re-adding (prevents duplicates on reprocess)
-	if err := a.convRepo.DeleteConversationParticipants(ctx, existingConvID, input.TenantID); err != nil {
-		logger.Warn("failed to delete existing conversation participants",
-			logging.F("conversation_id", existingConvID),
-			logging.F("error", err.Error()),
-		)
-		// Don't fail — continue with adding participants
-	}
-
 	recordHeartbeat(ctx, "adding participants")
 
-	// Extract and add participants
+	// Extract and upsert participants (ON CONFLICT updates name, preserving participants
+	// from other emails in the conversation)
 	participants := extractParticipants(from, to, cc)
 	for _, p := range participants {
 		var namePtr *string
@@ -225,6 +215,20 @@ func (a *ConversationActivities) LinkConversation(ctx context.Context, input Lin
 			)
 			// Don't fail - continue with other participants
 		}
+	}
+
+	// Clean up garbage participants from old JSON-split parser (addresses containing {, [, " etc)
+	cleaned, cleanErr := a.convRepo.CleanInvalidParticipants(ctx, existingConvID, input.TenantID)
+	if cleanErr != nil {
+		logger.Warn("failed to clean invalid participants",
+			logging.F("conversation_id", existingConvID),
+			logging.F("error", cleanErr.Error()),
+		)
+	} else if cleaned > 0 {
+		logger.Info("cleaned invalid participant entries",
+			logging.F("conversation_id", existingConvID),
+			logging.F("cleaned_count", cleaned),
+		)
 	}
 
 	recordHeartbeat(ctx, "updating conversation stats")

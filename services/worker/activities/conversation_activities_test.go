@@ -15,15 +15,15 @@ import (
 
 // mockConversationRepository is a mock implementation of the ConversationRepository interface for testing.
 type mockConversationRepository struct {
-	upsertConversationFn              func(ctx context.Context, conversation *Conversation) (string, error)
-	addConversationItemFn             func(ctx context.Context, conversationID, contentID string, sourceID *int64, tenantID string) error
-	addConversationParticipantFn      func(ctx context.Context, conversationID string, name, address *string, tenantID string) error
-	deleteConversationParticipantsFn  func(ctx context.Context, conversationID, tenantID string) error
-	updateConversationStatsFn         func(ctx context.Context, conversationID string) error
-	updateSummaryFn                   func(ctx context.Context, conversationID, summary string, version int32) error
-	updateStateFn                     func(ctx context.Context, conversationID, state, reason string) error
-	getConversationItemsFn            func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error)
-	getConversationFn                 func(ctx context.Context, tenantID, conversationID string) (*Conversation, error)
+	upsertConversationFn          func(ctx context.Context, conversation *Conversation) (string, error)
+	addConversationItemFn         func(ctx context.Context, conversationID, contentID string, sourceID *int64, tenantID string) error
+	addConversationParticipantFn  func(ctx context.Context, conversationID string, name, address *string, tenantID string) error
+	cleanInvalidParticipantsFn    func(ctx context.Context, conversationID, tenantID string) (int64, error)
+	updateConversationStatsFn     func(ctx context.Context, conversationID string) error
+	updateSummaryFn               func(ctx context.Context, conversationID, summary string, version int32) error
+	updateStateFn                 func(ctx context.Context, conversationID, state, reason string) error
+	getConversationItemsFn        func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error)
+	getConversationFn             func(ctx context.Context, tenantID, conversationID string) (*Conversation, error)
 }
 
 func (m *mockConversationRepository) UpsertConversation(ctx context.Context, conversation *Conversation) (string, error) {
@@ -47,11 +47,11 @@ func (m *mockConversationRepository) AddConversationParticipant(ctx context.Cont
 	return nil
 }
 
-func (m *mockConversationRepository) DeleteConversationParticipants(ctx context.Context, conversationID, tenantID string) error {
-	if m.deleteConversationParticipantsFn != nil {
-		return m.deleteConversationParticipantsFn(ctx, conversationID, tenantID)
+func (m *mockConversationRepository) CleanInvalidParticipants(ctx context.Context, conversationID, tenantID string) (int64, error) {
+	if m.cleanInvalidParticipantsFn != nil {
+		return m.cleanInvalidParticipantsFn(ctx, conversationID, tenantID)
 	}
-	return nil
+	return 0, nil
 }
 
 func (m *mockConversationRepository) UpdateConversationStats(ctx context.Context, conversationID string) error {
@@ -1374,66 +1374,41 @@ func TestBackfillConversationSummaries(t *testing.T) {
 // TestLinkConversation_ParticipantDedup_OnReprocess reproduces bug pf-8d613c.
 //
 // When the same conversation is processed twice (e.g. after a parsing fix),
-// LinkConversation adds participants from the new source on top of any participants
-// added during the first pass.  Because the ON CONFLICT key in
-// AddConversationParticipant is (conversation_id, COALESCE(address, name)), a
-// changed address (e.g. mangled -> clean) does NOT conflict, so duplicates
-// accumulate silently.
+// LinkConversation must handle participants correctly:
+// 1. UPSERT participants (ON CONFLICT updates name) — so clean names replace mangled ones
+// 2. Clean up invalid participant addresses (JSON artifacts from old comma-split parser)
+// 3. Preserve participants from other emails in the conversation (no delete-all)
 //
-// The correct fix is for LinkConversation to call DeleteConversationParticipants
-// before re-adding.  This test asserts that behaviour: it expects
-// DeleteConversationParticipants to be called on each invocation.  The test
-// therefore FAILS against the current code because LinkConversation never calls
-// that method.
+// The previous delete-all approach over-corrected: it removed all 136 participants
+// (including those from other emails) and re-added only ~4 from the current email.
 func TestLinkConversation_ParticipantDedup_OnReprocess(t *testing.T) {
 	logger := logging.NewNopLogger()
 
 	messageDate := time.Date(2026, 2, 20, 9, 0, 0, 0, time.UTC)
 	threadID := "<reprocess-dedup@example.com>"
 
-	// First source: mangled addresses (pre-fix parsing).
-	firstSource := &Source{
+	source := &Source{
 		ID:          901,
 		TenantID:    "test-tenant",
 		ContentType: "email",
 		Metadata: map[string]string{
 			"message_id": "<msg-901@example.com>",
 			"subject":    "Reprocess Dedup Test",
-			"from":       "alice=40example.com@mangled.invalid", // mangled pre-fix address
-			"to":         "bob=40example.com@mangled.invalid",   // mangled pre-fix address
+			"from":       "alice@example.com",
+			"to":         `[{"address":"bob@example.com","name":"Bob Jones"},{"address":"carol@example.com","name":"Carol White"}]`,
 			"date":       messageDate.Format(time.RFC3339),
 		},
 	}
 
-	// Second source: clean addresses (post-fix parsing) — same logical conversation.
-	secondSource := &Source{
-		ID:          902,
-		TenantID:    "test-tenant",
-		ContentType: "email",
-		Metadata: map[string]string{
-			"message_id": "<msg-902@example.com>",
-			"subject":    "Reprocess Dedup Test",
-			"from":       "alice@example.com", // clean post-fix address
-			"to":         "bob@example.com",   // clean post-fix address
-			"date":       messageDate.Format(time.RFC3339),
-		},
-	}
-
-	callCount := 0
 	mockSourceRepo := &mockSourceRepository{
 		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
-			callCount++
-			if callCount == 1 {
-				return firstSource, nil
-			}
-			return secondSource, nil
+			return source, nil
 		},
 	}
 
-	// Track every call to DeleteConversationParticipants.
-	deleteCallCount := 0
-	// Track every address passed to AddConversationParticipant across both calls.
-	var allAddedAddresses []string
+	// Track calls to AddConversationParticipant and CleanInvalidParticipants.
+	var addedAddresses []string
+	cleanCallCount := 0
 
 	mockConvRepo := &mockConversationRepository{
 		upsertConversationFn: func(ctx context.Context, conversation *Conversation) (string, error) {
@@ -1442,20 +1417,15 @@ func TestLinkConversation_ParticipantDedup_OnReprocess(t *testing.T) {
 		addConversationItemFn: func(ctx context.Context, conversationID, itemContentID string, sourceID *int64, tenantID string) error {
 			return nil
 		},
-		deleteConversationParticipantsFn: func(ctx context.Context, conversationID, tenantID string) error {
-			// Record that the delete was called.
-			deleteCallCount++
-			// Also clear our tracking slice to mirror what a real DELETE would do,
-			// so that the address count after the second call reflects only the
-			// second set of participants.
-			allAddedAddresses = nil
-			return nil
-		},
 		addConversationParticipantFn: func(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
 			if address != nil {
-				allAddedAddresses = append(allAddedAddresses, *address)
+				addedAddresses = append(addedAddresses, *address)
 			}
 			return nil
+		},
+		cleanInvalidParticipantsFn: func(ctx context.Context, conversationID, tenantID string) (int64, error) {
+			cleanCallCount++
+			return 3, nil // simulate cleaning 3 garbage entries
 		},
 		updateConversationStatsFn: func(ctx context.Context, conversationID string) error {
 			return nil
@@ -1464,41 +1434,27 @@ func TestLinkConversation_ParticipantDedup_OnReprocess(t *testing.T) {
 
 	act := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
 
-	// First call — simulates original ingest with mangled addresses.
-	out1, err := act.LinkConversation(context.Background(), LinkConversationInput{
+	output, err := act.LinkConversation(context.Background(), LinkConversationInput{
 		TenantID:  "test-tenant",
 		SourceID:  901,
 		ThreadID:  threadID,
 		ContentID: "cnt-901",
 	})
 	require.NoError(t, err)
-	require.NotNil(t, out1)
-	require.Equal(t, "conv-reprocess-1", out1.ConversationID)
+	require.NotNil(t, output)
+	require.Equal(t, "conv-reprocess-1", output.ConversationID)
 
-	// Second call — simulates reprocess with clean addresses on the same thread.
-	out2, err := act.LinkConversation(context.Background(), LinkConversationInput{
-		TenantID:  "test-tenant",
-		SourceID:  902,
-		ThreadID:  threadID,
-		ContentID: "cnt-902",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, out2)
-	require.Equal(t, "conv-reprocess-1", out2.ConversationID)
+	// ASSERTION 1: Participants from the current email are upserted (not preceded by delete-all).
+	// 3 participants: alice (from), bob and carol (to JSON array).
+	require.Len(t, addedAddresses, 3,
+		"Should upsert all participants from the current email's from/to/cc headers")
+	require.Contains(t, addedAddresses, "alice@example.com")
+	require.Contains(t, addedAddresses, "bob@example.com")
+	require.Contains(t, addedAddresses, "carol@example.com")
 
-	// ASSERTION 1: DeleteConversationParticipants must be called on every
-	// LinkConversation invocation so that stale participants are cleared before
-	// re-adding.  Currently this is NEVER called, so this assertion fails.
-	require.Equal(t, 2, deleteCallCount,
-		"DeleteConversationParticipants must be called once per LinkConversation invocation "+
-			"to prevent duplicate participant accumulation on reprocess (bug pf-8d613c)")
-
-	// ASSERTION 2: After two calls, only the participants from the most-recent
-	// source should be present — not a union of both sets.  With the delete-then-add
-	// pattern in place (and the mock clearing allAddedAddresses on delete), the
-	// final slice should contain exactly the 2 clean addresses from the second call.
-	// Without the fix, mangled addresses from the first call are still present.
-	require.Len(t, allAddedAddresses, 2,
-		"After reprocess, only the participants from the latest source should be present; "+
-			"got accumulated participants instead (bug pf-8d613c)")
+	// ASSERTION 2: CleanInvalidParticipants is called to remove garbage entries
+	// from the old JSON-split parser (addresses containing {, [, " etc).
+	require.Equal(t, 1, cleanCallCount,
+		"CleanInvalidParticipants must be called once per LinkConversation invocation "+
+			"to remove garbage participant entries from old parser (bug pf-8d613c)")
 }

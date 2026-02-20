@@ -347,16 +347,20 @@ type EnrichmentRecord struct {
 
 // PipelineRunInput contains the data needed to record a pipeline run.
 type PipelineRunInput struct {
-	SourceID      int64
-	Stage         string
-	ModelID       string
-	PromptVersion int
-	ConfigHash    string
-	Status        string
-	DurationMS    int
-	InputData     json.RawMessage // Prompt/input sent to stage
-	OutputData    json.RawMessage // Raw response from stage
-	ParsedData    json.RawMessage // Parsed/structured output
+	SourceID        int64
+	Stage           string
+	ModelID         string
+	PromptVersion   int
+	ConfigHash      string
+	Status          string
+	DurationMS      int
+	InputData       json.RawMessage // Prompt/input sent to stage
+	OutputData      json.RawMessage // Raw response from stage
+	ParsedData      json.RawMessage // Parsed/structured output
+	InputTokens     int             // LLM input token count, 0 for code-only stages
+	OutputTokens    int             // LLM output token count, 0 for code-only stages
+	SkipReason      string          // e.g. "contribution_gating:LOW", empty if not skipped
+	LangfuseTraceID string          // trace ID for Langfuse drill-through
 }
 
 // ThreadRepository defines the interface for email thread data access.
@@ -438,9 +442,9 @@ type ConversationRepository interface {
 	// Idempotent: duplicate participants are ignored.
 	AddConversationParticipant(ctx context.Context, conversationID string, name, address *string, tenantID string) error
 
-	// DeleteConversationParticipants removes all existing participants for a conversation.
-	// Called before re-adding participants on reprocess to avoid accumulating stale entries.
-	DeleteConversationParticipants(ctx context.Context, conversationID, tenantID string) error
+	// CleanInvalidParticipants removes participants with obviously-invalid addresses
+	// (JSON artifacts from old comma-split parser). Returns count of deleted rows.
+	CleanInvalidParticipants(ctx context.Context, conversationID, tenantID string) (int64, error)
 
 	// UpdateConversationStats recalculates counts and timestamps for a conversation.
 	UpdateConversationStats(ctx context.Context, conversationID string) error
