@@ -1110,156 +1110,17 @@ func (s *Service) GetProcessingStatus(ctx context.Context, req *contentv1.GetPro
 		return nil, status.Errorf(codes.Internal, "failed to fetch pipeline runs: %v", err)
 	}
 
-	// 4. Build per-stage results using the latest run per stage.
+	// 4. Use the shared helper to build per-stage results and extract contribution info.
 	// Since runs are ordered DESC, the first occurrence of each stage is the latest.
-	seenStages := make(map[string]bool)
-	var stageResults []*contentv1.StageResult
-	var triageParsedData json.RawMessage
-	var overallStartedAt *time.Time
-	var overallFinishedAt *time.Time
-	var langfuseTraceID *string
-	var totalInputTokens int32
-	var totalOutputTokens int32
-	var totalDurationMS int64
+	ps := pipeline.BuildProcessingStatus(runs)
 
-	// Stage name to proto enum mapping.
-	stageNameToEnum := map[string]contentv1.ProcessingStage{
-		"parse":            contentv1.ProcessingStage_PROCESSING_STAGE_PARSE,
-		"segment":          contentv1.ProcessingStage_PROCESSING_STAGE_SEGMENT,
-		"triage":           contentv1.ProcessingStage_PROCESSING_STAGE_TRIAGE,
-		"extract_ner":      contentv1.ProcessingStage_PROCESSING_STAGE_EXTRACT_NER,
-		"extract_semantic": contentv1.ProcessingStage_PROCESSING_STAGE_EXTRACT_SEMANTIC,
-		"resolve":          contentv1.ProcessingStage_PROCESSING_STAGE_RESOLVE,
-		"analyze":          contentv1.ProcessingStage_PROCESSING_STAGE_ANALYZE,
-		"persist":          contentv1.ProcessingStage_PROCESSING_STAGE_PERSIST,
-		"embed":            contentv1.ProcessingStage_PROCESSING_STAGE_EMBED,
-	}
-
-	// Track oldest started_at and latest finished_at across all runs.
-	for i := range runs {
-		run := &runs[i]
-
-		// Accumulate token counts across all runs (not just latest per stage).
-		if run.InputTokens != nil {
-			totalInputTokens += int32(*run.InputTokens)
-		}
-		if run.OutputTokens != nil {
-			totalOutputTokens += int32(*run.OutputTokens)
-		}
-		if run.DurationMS != nil {
-			totalDurationMS += int64(*run.DurationMS)
-		}
-
-		// Track Langfuse trace ID (prefer the most recent non-nil value).
-		if run.LangfuseTraceID != nil && langfuseTraceID == nil {
-			langfuseTraceID = run.LangfuseTraceID
-		}
-
-		// Track time bounds.
-		if overallStartedAt == nil || run.CreatedAt.Before(*overallStartedAt) {
-			t := run.CreatedAt
-			overallStartedAt = &t
-		}
-		if run.DurationMS != nil {
-			finishedAt := run.CreatedAt.Add(time.Duration(*run.DurationMS) * time.Millisecond)
-			if overallFinishedAt == nil || finishedAt.After(*overallFinishedAt) {
-				overallFinishedAt = &finishedAt
-			}
-		}
-
-		// Build stage result only for the latest run per stage.
-		if seenStages[run.Stage] {
-			continue
-		}
-		seenStages[run.Stage] = true
-
-		// Capture triage parsed_data for contribution info extraction.
-		if run.Stage == "triage" && len(run.ParsedData) > 0 {
-			triageParsedData = run.ParsedData
-		}
-
-		protoStage, known := stageNameToEnum[run.Stage]
-		if !known {
-			// Unknown stage — skip it to avoid polluting the result.
-			continue
-		}
-
-		sr := &contentv1.StageResult{
-			Stage:  protoStage,
-			Status: dbRunStatusToStageStatus(run.Status),
-		}
-		if run.DurationMS != nil {
-			ms := int64(*run.DurationMS)
-			sr.DurationMs = &ms
-		}
-		if run.ModelID != nil {
-			sr.ModelId = run.ModelID
-		}
-		if run.SkipReason != nil {
-			sr.SkipReason = run.SkipReason
-		}
-		if run.InputTokens != nil {
-			v := int32(*run.InputTokens)
-			sr.InputTokens = &v
-		}
-		if run.OutputTokens != nil {
-			v := int32(*run.OutputTokens)
-			sr.OutputTokens = &v
-		}
-
-		stageResults = append(stageResults, sr)
-	}
-
-	// 5. Extract contribution info from triage parsed_data.
-	var contentContribution, contributionReason, triageCategory, triageImportance string
-	if len(triageParsedData) > 0 {
-		var triageData map[string]interface{}
-		if err := json.Unmarshal(triageParsedData, &triageData); err == nil {
-			if v, ok := triageData["content_contribution"].(string); ok {
-				contentContribution = v
-			}
-			if v, ok := triageData["contribution_reason"].(string); ok {
-				contributionReason = v
-			}
-			if v, ok := triageData["category"].(string); ok {
-				triageCategory = v
-			}
-			if v, ok := triageData["importance"].(string); ok {
-				triageImportance = v
-			}
-		}
-	}
-
-	// 6. Build the response.
+	// 5. Build the response using shared helper results.
 	result := &contentv1.ProcessingStatus{
-		ContentId:           req.ContentId,
-		SourceId:            source.ID,
-		State:               dbStatusToState(rec.ProcessingStatus),
-		Stages:              stageResults,
-		ContentContribution: contentContribution,
-		ContributionReason:  contributionReason,
-		TriageCategory:      triageCategory,
-		TriageImportance:    triageImportance,
+		ContentId: req.ContentId,
+		SourceId:  source.ID,
+		State:     dbStatusToState(rec.ProcessingStatus),
 	}
-
-	if overallStartedAt != nil {
-		result.StartedAt = timestamppb.New(*overallStartedAt)
-	}
-	if overallFinishedAt != nil {
-		result.FinishedAt = timestamppb.New(*overallFinishedAt)
-	}
-	if totalDurationMS > 0 {
-		result.TotalDurationMs = &totalDurationMS
-	}
-	if langfuseTraceID != nil {
-		result.LangfuseTraceId = langfuseTraceID
-	}
-	if totalInputTokens > 0 {
-		result.TotalInputTokens = &totalInputTokens
-	}
-	if totalOutputTokens > 0 {
-		result.TotalOutputTokens = &totalOutputTokens
-	}
+	pipeline.ApplyToProtoProcessingStatus(ps, result)
 
 	return result, nil
 }
