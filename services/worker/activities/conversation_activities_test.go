@@ -235,7 +235,8 @@ func TestLinkConversation_UpdateExistingConversation(t *testing.T) {
 	require.True(t, upsertCalled, "UpsertConversation should update existing conversation")
 }
 
-// TestLinkConversation_ParticipantExtraction tests that participants are correctly extracted from email headers.
+// TestLinkConversation_ParticipantExtraction tests that participants are correctly extracted from email headers
+// using JSON array format for to/cc fields and verifying both name and address are passed.
 func TestLinkConversation_ParticipantExtraction(t *testing.T) {
 	logger := logging.NewNopLogger()
 
@@ -252,15 +253,19 @@ func TestLinkConversation_ParticipantExtraction(t *testing.T) {
 					"message_id": "<msg-300@example.com>",
 					"subject":    "Team Meeting Notes",
 					"from":       "alice@example.com",
-					"to":         "bob@example.com,charlie@example.com,dave@example.com",
-					"cc":         "eve@example.com,frank@example.com",
+					"to":         `[{"address":"bob@example.com","name":"Bob Smith"},{"address":"charlie@example.com","name":"Charlie Jones"},{"address":"dave@example.com","name":"Dave Brown"}]`,
+					"cc":         `[{"address":"eve@example.com","name":"Eve White"},{"address":"frank@example.com","name":"Frank Black"}]`,
 					"date":       messageDate.Format(time.RFC3339),
 				},
 			}, nil
 		},
 	}
 
-	participantEmails := make(map[string]bool)
+	type captured struct {
+		name    string
+		address string
+	}
+	participantsByAddr := make(map[string]captured)
 
 	mockConvRepo := &mockConversationRepository{
 		upsertConversationFn: func(ctx context.Context, conversation *Conversation) (string, error) {
@@ -271,7 +276,11 @@ func TestLinkConversation_ParticipantExtraction(t *testing.T) {
 		},
 		addConversationParticipantFn: func(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
 			if address != nil {
-				participantEmails[*address] = true
+				c := captured{address: *address}
+				if name != nil {
+					c.name = *name
+				}
+				participantsByAddr[*address] = c
 			}
 			return nil
 		},
@@ -293,21 +302,21 @@ func TestLinkConversation_ParticipantExtraction(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, output)
 
-	// Verify all participants were extracted
-	expectedParticipants := []string{
-		"alice@example.com",
-		"bob@example.com",
-		"charlie@example.com",
-		"dave@example.com",
-		"eve@example.com",
-		"frank@example.com",
-	}
+	// Verify all 6 participants were extracted (1 from plain from + 3 JSON to + 2 JSON cc)
+	require.Len(t, participantsByAddr, 6, "Should extract all unique participants from from/to/cc")
 
-	require.Len(t, participantEmails, len(expectedParticipants), "Should extract all unique participants from from/to/cc")
+	// from field — plain string, no name
+	require.True(t, participantsByAddr["alice@example.com"].address == "alice@example.com", "Should have alice")
+	require.Equal(t, "", participantsByAddr["alice@example.com"].name, "Plain from should have empty name")
 
-	for _, email := range expectedParticipants {
-		require.True(t, participantEmails[email], "Should have participant %s", email)
-	}
+	// to field — JSON array, names present
+	require.Equal(t, "Bob Smith", participantsByAddr["bob@example.com"].name)
+	require.Equal(t, "Charlie Jones", participantsByAddr["charlie@example.com"].name)
+	require.Equal(t, "Dave Brown", participantsByAddr["dave@example.com"].name)
+
+	// cc field — JSON array, names present
+	require.Equal(t, "Eve White", participantsByAddr["eve@example.com"].name)
+	require.Equal(t, "Frank Black", participantsByAddr["frank@example.com"].name)
 }
 
 // TestLinkConversation_NoThreadIDSkipped tests that emails without a thread_id are skipped.
@@ -1055,6 +1064,171 @@ func TestLinkConversation_SummaryFailureNonBlocking(t *testing.T) {
 	// Verify summary and state were not persisted (since LLM failed)
 	require.True(t, summaryNotPersisted, "Summary should not be persisted when LLM fails")
 	require.True(t, stateNotPersisted, "State should not be persisted when LLM fails")
+}
+
+// TestExtractParticipants_JSONArray tests the extractParticipants helper directly
+// for all supported input formats.
+func TestExtractParticipants_JSONArray(t *testing.T) {
+	t.Run("JSON array input returns correct name+address pairs", func(t *testing.T) {
+		to := `[{"address":"tdunn@akamai.com","name":"Dunn, Tim"},{"address":"jabrown@akamai.com","name":"Brown, James"}]`
+		results := extractParticipants("", to, "")
+		require.Len(t, results, 2)
+		require.Equal(t, "tdunn@akamai.com", results[0].address)
+		require.Equal(t, "Dunn, Tim", results[0].name)
+		require.Equal(t, "jabrown@akamai.com", results[1].address)
+		require.Equal(t, "Brown, James", results[1].name)
+	})
+
+	t.Run("JSON array with commas in names is parsed correctly", func(t *testing.T) {
+		to := `[{"address":"smith.john@example.com","name":"Smith, John"},{"address":"doe.jane@example.com","name":"Doe, Jane"}]`
+		results := extractParticipants("", to, "")
+		require.Len(t, results, 2)
+		require.Equal(t, "Smith, John", results[0].name)
+		require.Equal(t, "Doe, Jane", results[1].name)
+	})
+
+	t.Run("plain comma-separated emails — backward compat, no names", func(t *testing.T) {
+		results := extractParticipants("alice@example.com", "bob@example.com,charlie@example.com", "")
+		require.Len(t, results, 3)
+		for _, p := range results {
+			require.Empty(t, p.name, "plain addresses should have no name")
+		}
+		addrs := []string{results[0].address, results[1].address, results[2].address}
+		require.Contains(t, addrs, "alice@example.com")
+		require.Contains(t, addrs, "bob@example.com")
+		require.Contains(t, addrs, "charlie@example.com")
+	})
+
+	t.Run("mixed: plain from, JSON to and cc", func(t *testing.T) {
+		from := "alice@example.com"
+		to := `[{"address":"bob@example.com","name":"Bob Smith"}]`
+		cc := `[{"address":"charlie@example.com","name":"Charlie Jones"}]`
+		results := extractParticipants(from, to, cc)
+		require.Len(t, results, 3)
+
+		byAddr := make(map[string]emailParticipant)
+		for _, p := range results {
+			byAddr[p.address] = p
+		}
+		require.Equal(t, "", byAddr["alice@example.com"].name)
+		require.Equal(t, "Bob Smith", byAddr["bob@example.com"].name)
+		require.Equal(t, "Charlie Jones", byAddr["charlie@example.com"].name)
+	})
+
+	t.Run("empty string returns empty result", func(t *testing.T) {
+		results := extractParticipants("", "", "")
+		require.Empty(t, results)
+	})
+
+	t.Run("malformed JSON falls back to comma split", func(t *testing.T) {
+		// Starts with '[' but is malformed — falls back to treating the whole string as one address.
+		malformed := `[not valid json`
+		results := extractParticipants("", malformed, "")
+		// Falls back to comma-split; the single token is the whole malformed string.
+		require.Len(t, results, 1)
+		require.Equal(t, malformed, results[0].address)
+		require.Empty(t, results[0].name)
+	})
+
+	t.Run("deduplication by address case-insensitive", func(t *testing.T) {
+		// Same email in from (plain) and in to (JSON array), different case.
+		from := "Alice@example.com"
+		to := `[{"address":"alice@example.com","name":"Alice Smith"}]`
+		results := extractParticipants(from, to, "")
+		require.Len(t, results, 1, "duplicate address should be deduplicated")
+		require.Equal(t, "Alice@example.com", results[0].address, "first-seen address is kept")
+	})
+}
+
+// TestLinkConversation_JSONParticipants exercises the full LinkConversation flow
+// with JSON array metadata and verifies correct participant count, name+address
+// passing, and deduplication.
+func TestLinkConversation_JSONParticipants(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2026, 2, 20, 9, 0, 0, 0, time.UTC)
+	threadID := "<json-participants@example.com>"
+
+	// from is a plain string; to/cc are JSON arrays.
+	// alice@example.com appears in both from and to — should be deduplicated to 1 entry.
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          400,
+				TenantID:    "test-tenant",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id": "<msg-400@example.com>",
+					"subject":    "JSON Participant Test",
+					"from":       "alice@example.com",
+					"to":         `[{"address":"alice@example.com","name":"Alice Smith"},{"address":"bob@example.com","name":"Bob Jones"}]`,
+					"cc":         `[{"address":"carol@example.com","name":"Carol White"}]`,
+					"date":       messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	type capturedParticipant struct {
+		name    string
+		address string
+	}
+	var capturedParticipants []capturedParticipant
+
+	mockConvRepo := &mockConversationRepository{
+		upsertConversationFn: func(ctx context.Context, conversation *Conversation) (string, error) {
+			return "conv-json-1", nil
+		},
+		addConversationItemFn: func(ctx context.Context, conversationID, itemContentID string, sourceID *int64, tenantID string) error {
+			return nil
+		},
+		addConversationParticipantFn: func(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
+			cp := capturedParticipant{}
+			if address != nil {
+				cp.address = *address
+			}
+			if name != nil {
+				cp.name = *name
+			}
+			capturedParticipants = append(capturedParticipants, cp)
+			return nil
+		},
+		updateConversationStatsFn: func(ctx context.Context, conversationID string) error {
+			return nil
+		},
+	}
+
+	activities := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
+
+	output, err := activities.LinkConversation(context.Background(), LinkConversationInput{
+		TenantID:  "test-tenant",
+		SourceID:  400,
+		ThreadID:  threadID,
+		ContentID: "cnt-400",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	require.Equal(t, "conv-json-1", output.ConversationID)
+
+	// alice in from + alice in to JSON = 1 unique; bob + carol = 3 total.
+	require.Len(t, capturedParticipants, 3, "Should have 3 unique participants (from dedup removes duplicate alice)")
+
+	byAddr := make(map[string]capturedParticipant)
+	for _, cp := range capturedParticipants {
+		byAddr[cp.address] = cp
+	}
+
+	// alice comes from the plain from field (first seen), no name
+	require.Contains(t, byAddr, "alice@example.com")
+	require.Empty(t, byAddr["alice@example.com"].name, "alice from plain from should have no name")
+
+	// bob comes from JSON to, should have name
+	require.Contains(t, byAddr, "bob@example.com")
+	require.Equal(t, "Bob Jones", byAddr["bob@example.com"].name)
+
+	// carol comes from JSON cc, should have name
+	require.Contains(t, byAddr, "carol@example.com")
+	require.Equal(t, "Carol White", byAddr["carol@example.com"].name)
 }
 
 // TestBackfillConversationSummaries tests the backfill method that generates

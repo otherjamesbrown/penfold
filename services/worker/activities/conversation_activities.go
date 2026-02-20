@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -191,12 +192,16 @@ func (a *ConversationActivities) LinkConversation(ctx context.Context, input Lin
 
 	// Extract and add participants
 	participants := extractParticipants(from, to, cc)
-	for _, participant := range participants {
-		err := a.convRepo.AddConversationParticipant(ctx, existingConvID, nil, &participant, input.TenantID)
+	for _, p := range participants {
+		var namePtr *string
+		if p.name != "" {
+			namePtr = &p.name
+		}
+		err := a.convRepo.AddConversationParticipant(ctx, existingConvID, namePtr, &p.address, input.TenantID)
 		if err != nil {
 			logger.Warn("failed to add conversation participant",
 				logging.F("conversation_id", existingConvID),
-				logging.F("participant", participant),
+				logging.F("participant", p.address),
 				logging.F("error", err.Error()),
 			)
 			// Don't fail - continue with other participants
@@ -256,34 +261,75 @@ func normalizeSubject(subject string) string {
 	return normalized
 }
 
-// extractParticipants extracts unique email addresses from from/to/cc headers.
-func extractParticipants(from, to, cc string) []string {
-	seen := make(map[string]bool)
-	var participants []string
+// emailParticipant holds a parsed name and address for a single participant.
+type emailParticipant struct {
+	name    string
+	address string
+}
 
-	// Helper to add participants from a comma-separated list
-	addParticipants := func(addresses string) {
-		if addresses == "" {
+// extractParticipants extracts unique participants from from/to/cc headers.
+// The to/cc fields may contain JSON arrays like:
+//
+//	[{"address":"alice@example.com","name":"Alice Smith"},...]
+//
+// The from field is typically a plain email string.
+// Falls back to comma-splitting for plain strings and on JSON parse failure.
+func extractParticipants(from, to, cc string) []emailParticipant {
+	// seen is keyed on lowercase address for case-insensitive dedup.
+	seen := make(map[string]bool)
+	var participants []emailParticipant
+
+	// parseField attempts JSON array parsing; if that fails or the input
+	// doesn't start with '[', it falls back to comma-splitting.
+	parseField := func(field string) {
+		if field == "" {
 			return
 		}
-		parts := strings.Split(addresses, ",")
+
+		// Try JSON array path first.
+		if strings.HasPrefix(strings.TrimSpace(field), "[") {
+			var entries []struct {
+				Address string `json:"address"`
+				Name    string `json:"name"`
+			}
+			if err := json.Unmarshal([]byte(field), &entries); err == nil {
+				for _, e := range entries {
+					addr := strings.TrimSpace(e.Address)
+					if addr == "" {
+						continue
+					}
+					key := strings.ToLower(addr)
+					if !seen[key] {
+						seen[key] = true
+						participants = append(participants, emailParticipant{
+							name:    strings.TrimSpace(e.Name),
+							address: addr,
+						})
+					}
+				}
+				return
+			}
+			// JSON parse failed — fall through to comma-split.
+		}
+
+		// Plain comma-separated fallback (no names).
+		parts := strings.Split(field, ",")
 		for _, part := range parts {
-			email := strings.TrimSpace(part)
-			if email != "" && !seen[email] {
-				seen[email] = true
-				participants = append(participants, email)
+			addr := strings.TrimSpace(part)
+			if addr == "" {
+				continue
+			}
+			key := strings.ToLower(addr)
+			if !seen[key] {
+				seen[key] = true
+				participants = append(participants, emailParticipant{address: addr})
 			}
 		}
 	}
 
-	// Add from address
-	addParticipants(from)
-
-	// Add to addresses
-	addParticipants(to)
-
-	// Add cc addresses
-	addParticipants(cc)
+	parseField(from)
+	parseField(to)
+	parseField(cc)
 
 	return participants
 }
