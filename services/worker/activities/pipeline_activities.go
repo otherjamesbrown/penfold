@@ -173,6 +173,55 @@ func (a *PipelineActivities) RecordOverrides(ctx context.Context, input workflow
 	return nil
 }
 
+// RecordSkippedStage records pipeline_runs rows with status "skipped" for all stages
+// that were bypassed due to contribution-based or category-based gating.
+// It is best-effort: failures are logged but do not fail the calling workflow.
+func (a *PipelineActivities) RecordSkippedStage(ctx context.Context, input workflows.RecordSkippedStageInput) error {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "RecordSkippedStage"),
+		logging.F("source_id", input.SourceID),
+		logging.F("stage_count", len(input.Stages)),
+	)
+
+	// Record initial heartbeat
+	recordHeartbeat(ctx, "starting record skipped stages")
+
+	logger.Info("Recording skipped pipeline stages")
+
+	if len(input.Stages) == 0 {
+		logger.Warn("RecordSkippedStage called with no stages, skipping")
+		return nil
+	}
+
+	for _, s := range input.Stages {
+		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+			SourceID:        input.SourceID,
+			Stage:           s.Stage,
+			Status:          "skipped",
+			SkipReason:      s.SkipReason,
+			LangfuseTraceID: input.LangfuseTraceID,
+			// DurationMS, InputTokens, OutputTokens are all 0 for skipped stages
+		})
+		if runErr != nil {
+			logger.Warn("Failed to record skipped pipeline run",
+				logging.F("stage", s.Stage),
+				logging.F("skip_reason", s.SkipReason),
+				logging.Err(runErr),
+			)
+			// Continue recording the other stages even if one fails
+		} else {
+			logger.Info("Recorded skipped stage",
+				logging.F("stage", s.Stage),
+				logging.F("skip_reason", s.SkipReason),
+			)
+		}
+	}
+
+	recordHeartbeat(ctx, "record skipped stages complete")
+
+	return nil
+}
+
 // contentIDPattern matches the standard content ID format: <type:2>-<base62:8>
 // Example: "em-abc12XYZ"
 var contentIDPattern = regexp.MustCompile(`^[a-z]{2}-[A-Za-z0-9]{8}$`)
@@ -181,4 +230,5 @@ var contentIDPattern = regexp.MustCompile(`^[a-z]{2}-[A-Za-z0-9]{8}$`)
 var _ interface {
 	RecordOverrides(ctx context.Context, input workflows.RecordOverridesInput) error
 	KickNextPending(ctx context.Context, input workflows.KickNextPendingInput) (*workflows.KickNextPendingOutput, error)
+	RecordSkippedStage(ctx context.Context, input workflows.RecordSkippedStageInput) error
 } = (*PipelineActivities)(nil)

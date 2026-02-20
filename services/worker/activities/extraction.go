@@ -418,6 +418,13 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	if a.pipelineRepo != nil {
 		durationMS := int(time.Since(startTime).Milliseconds())
 
+		// Accumulate token counts across all chunk responses
+		var totalInputTokens, totalOutputTokens int
+		for _, r := range results {
+			totalInputTokens += int(r.GetInputTokens())
+			totalOutputTokens += int(r.GetOutputTokens())
+		}
+
 		// Capture IO data
 		inputJSON, _ := json.Marshal(map[string]interface{}{
 			"content_length": len(input.Content),
@@ -430,30 +437,34 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		})
 		parsedJSON, _ := json.Marshal(output)
 
-		// Record as extract_ner stage (primary extraction stage)
+		// Record as extract_ner stage (primary extraction stage; attribute all tokens here)
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
-			SourceID:   input.SourceID,
-			Stage:      "extract_ner",
-			ModelID:    output.ModelUsed,
-			Status:     "completed",
-			DurationMS: durationMS,
-			InputData:  inputJSON,
-			OutputData: outputJSON,
-			ParsedData: parsedJSON,
+			SourceID:        input.SourceID,
+			Stage:           "extract_ner",
+			ModelID:         output.ModelUsed,
+			Status:          "completed",
+			DurationMS:      durationMS,
+			InputData:       inputJSON,
+			OutputData:      outputJSON,
+			ParsedData:      parsedJSON,
+			InputTokens:     totalInputTokens,
+			OutputTokens:    totalOutputTokens,
+			LangfuseTraceID: input.LangfuseTraceID,
 		})
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run for extract_ner", logging.Err(runErr))
 		}
-		// Also record extract_semantic since this activity does both
+		// Also record extract_semantic since this activity does both (token counts already attributed to extract_ner)
 		runErr = a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
-			SourceID:   input.SourceID,
-			Stage:      "extract_semantic",
-			ModelID:    output.ModelUsed,
-			Status:     "completed",
-			DurationMS: durationMS,
-			InputData:  inputJSON,
-			OutputData: outputJSON,
-			ParsedData: parsedJSON,
+			SourceID:        input.SourceID,
+			Stage:           "extract_semantic",
+			ModelID:         output.ModelUsed,
+			Status:          "completed",
+			DurationMS:      durationMS,
+			InputData:       inputJSON,
+			OutputData:      outputJSON,
+			ParsedData:      parsedJSON,
+			LangfuseTraceID: input.LangfuseTraceID,
 		})
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run for extract_semantic", logging.Err(runErr))

@@ -471,6 +471,20 @@ type KickNextPendingOutput struct {
 	Message     string `json:"message"`      // Human-readable result
 }
 
+// SkippedStage describes a pipeline stage that was skipped due to gating logic.
+type SkippedStage struct {
+	Stage      string `json:"stage"`       // Stage name, e.g. "extract_ner", "analyze"
+	SkipReason string `json:"skip_reason"` // e.g. "contribution_gating:NONE", "category_skip:PERSONAL/LOW"
+}
+
+// RecordSkippedStageInput is the input for the RecordSkippedStage activity.
+// It records pipeline_runs rows with status "skipped" for all skipped stages in a single call.
+type RecordSkippedStageInput struct {
+	SourceID        int64          `json:"source_id"`
+	Stages          []SkippedStage `json:"stages"`
+	LangfuseTraceID string         `json:"langfuse_trace_id,omitempty"`
+}
+
 // pipelineState maintains the internal state of the pipeline workflow.
 type pipelineState struct {
 	status          PipelineStatus
@@ -1063,13 +1077,22 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Triage gate: skip Stages 2-4.5 for LOW/PERSONAL content or low contribution
 	if skipExtract || skipAnalyze {
+		// Determine skip reason for logging and provenance recording
+		skipReason := "skip_deep"
+		if skipExtract && !triageOutput.SkipDeep {
+			// Contribution-based: NONE skips everything
+			skipReason = fmt.Sprintf("contribution_gating:%s", contribution)
+		} else if !skipExtract && skipAnalyze {
+			// LOW contribution: only analyze/persist are skipped
+			skipReason = fmt.Sprintf("contribution_gating:%s", contribution)
+		} else if triageOutput.SkipDeep {
+			// Category/importance-based skip
+			skipReason = fmt.Sprintf("category_skip:%s/%s", triageOutput.Category, triageOutput.Importance)
+		}
+
 		// Log skip for each deep processing stage
 		for _, s := range pkgtemporal.SLMPipelineStages {
 			if s.SkipWhenLow {
-				skipReason := "skip_deep"
-				if skipExtract && !triageOutput.SkipDeep {
-					skipReason = "low_contribution"
-				}
 				logger.Info("pipeline stage skipped",
 					"source_id", input.SourceID,
 					"stage", s.Name,
@@ -1079,6 +1102,36 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				)
 			}
 		}
+
+		// Build list of skipped DB stage names for provenance recording.
+		// DB stage names differ from the pipeline Stage.Name labels.
+		var skippedStages []SkippedStage
+		if skipExtract {
+			// All deep stages are skipped: extract, resolve, analyze, persist
+			skippedStages = append(skippedStages,
+				SkippedStage{Stage: "extract_ner", SkipReason: skipReason},
+				SkippedStage{Stage: "extract_semantic", SkipReason: skipReason},
+				SkippedStage{Stage: "resolve", SkipReason: skipReason},
+				SkippedStage{Stage: "analyze", SkipReason: skipReason},
+				SkippedStage{Stage: "persist", SkipReason: skipReason},
+			)
+		} else if skipAnalyze {
+			// Only analyze and persist are skipped
+			skippedStages = append(skippedStages,
+				SkippedStage{Stage: "analyze", SkipReason: skipReason},
+				SkippedStage{Stage: "persist", SkipReason: skipReason},
+			)
+		}
+
+		if len(skippedStages) > 0 {
+			ctxSkip := workflow.WithActivityOptions(ctx, fastOpts)
+			_ = workflow.ExecuteActivity(ctxSkip, pkgtemporal.ActivityRecordSkippedStage, RecordSkippedStageInput{
+				SourceID:        input.SourceID,
+				Stages:          skippedStages,
+				LangfuseTraceID: langfuseTraceID,
+			}).Get(ctx, nil)
+		}
+
 		state.status.TotalSteps = pkgtemporal.SkipDeepTotalSteps()
 	}
 

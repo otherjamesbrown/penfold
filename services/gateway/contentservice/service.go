@@ -1069,11 +1069,217 @@ func (s *Service) ProcessContent(ctx context.Context, req *contentv1.ProcessCont
 func (s *Service) GetProcessingStatus(ctx context.Context, req *contentv1.GetProcessingStatusRequest) (*contentv1.ProcessingStatus, error) {
 	s.logger.Debug("GetProcessingStatus called",
 		logging.F("content_id", req.ContentId),
-		logging.F("job_id", req.JobId),
 	)
 
-	// TODO: Implement status retrieval from database
-	return nil, status.Error(codes.Unimplemented, "GetProcessingStatus not yet implemented")
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	if s.pipelineRepo == nil {
+		return nil, status.Error(codes.Unavailable, "pipeline repository not configured")
+	}
+
+	// 1. Get the overall processing state from the content repo.
+	rec, err := s.repo.GetByContentID(ctx, req.ContentId)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, status.Errorf(codes.NotFound, "content item not found: %s", req.ContentId)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to get content item: %v", err)
+	}
+	if rec == nil {
+		return nil, status.Errorf(codes.NotFound, "content item not found: %s", req.ContentId)
+	}
+
+	// 2. Look up the source to get the source ID for pipeline run queries.
+	source, err := s.pipelineRepo.GetSourceByContentID(ctx, req.ContentId)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			// Content item exists but has no pipeline source record yet.
+			return &contentv1.ProcessingStatus{
+				ContentId: req.ContentId,
+				State:     dbStatusToState(rec.ProcessingStatus),
+			}, nil
+		}
+		return nil, status.Errorf(codes.Internal, "failed to get pipeline source: %v", err)
+	}
+
+	// 3. Query all pipeline runs for this source (ordered by created_at DESC).
+	runs, err := s.pipelineRepo.ListSourceHistory(ctx, source.ID, "")
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to fetch pipeline runs: %v", err)
+	}
+
+	// 4. Build per-stage results using the latest run per stage.
+	// Since runs are ordered DESC, the first occurrence of each stage is the latest.
+	seenStages := make(map[string]bool)
+	var stageResults []*contentv1.StageResult
+	var triageParsedData json.RawMessage
+	var overallStartedAt *time.Time
+	var overallFinishedAt *time.Time
+	var langfuseTraceID *string
+	var totalInputTokens int32
+	var totalOutputTokens int32
+	var totalDurationMS int64
+
+	// Stage name to proto enum mapping.
+	stageNameToEnum := map[string]contentv1.ProcessingStage{
+		"parse":            contentv1.ProcessingStage_PROCESSING_STAGE_PARSE,
+		"segment":          contentv1.ProcessingStage_PROCESSING_STAGE_SEGMENT,
+		"triage":           contentv1.ProcessingStage_PROCESSING_STAGE_TRIAGE,
+		"extract_ner":      contentv1.ProcessingStage_PROCESSING_STAGE_EXTRACT_NER,
+		"extract_semantic": contentv1.ProcessingStage_PROCESSING_STAGE_EXTRACT_SEMANTIC,
+		"resolve":          contentv1.ProcessingStage_PROCESSING_STAGE_RESOLVE,
+		"analyze":          contentv1.ProcessingStage_PROCESSING_STAGE_ANALYZE,
+		"persist":          contentv1.ProcessingStage_PROCESSING_STAGE_PERSIST,
+		"embed":            contentv1.ProcessingStage_PROCESSING_STAGE_EMBED,
+	}
+
+	// Track oldest started_at and latest finished_at across all runs.
+	for i := range runs {
+		run := &runs[i]
+
+		// Accumulate token counts across all runs (not just latest per stage).
+		if run.InputTokens != nil {
+			totalInputTokens += int32(*run.InputTokens)
+		}
+		if run.OutputTokens != nil {
+			totalOutputTokens += int32(*run.OutputTokens)
+		}
+		if run.DurationMS != nil {
+			totalDurationMS += int64(*run.DurationMS)
+		}
+
+		// Track Langfuse trace ID (prefer the most recent non-nil value).
+		if run.LangfuseTraceID != nil && langfuseTraceID == nil {
+			langfuseTraceID = run.LangfuseTraceID
+		}
+
+		// Track time bounds.
+		if overallStartedAt == nil || run.CreatedAt.Before(*overallStartedAt) {
+			t := run.CreatedAt
+			overallStartedAt = &t
+		}
+		if run.DurationMS != nil {
+			finishedAt := run.CreatedAt.Add(time.Duration(*run.DurationMS) * time.Millisecond)
+			if overallFinishedAt == nil || finishedAt.After(*overallFinishedAt) {
+				overallFinishedAt = &finishedAt
+			}
+		}
+
+		// Build stage result only for the latest run per stage.
+		if seenStages[run.Stage] {
+			continue
+		}
+		seenStages[run.Stage] = true
+
+		// Capture triage parsed_data for contribution info extraction.
+		if run.Stage == "triage" && len(run.ParsedData) > 0 {
+			triageParsedData = run.ParsedData
+		}
+
+		protoStage, known := stageNameToEnum[run.Stage]
+		if !known {
+			// Unknown stage — skip it to avoid polluting the result.
+			continue
+		}
+
+		sr := &contentv1.StageResult{
+			Stage:  protoStage,
+			Status: dbRunStatusToStageStatus(run.Status),
+		}
+		if run.DurationMS != nil {
+			ms := int64(*run.DurationMS)
+			sr.DurationMs = &ms
+		}
+		if run.ModelID != nil {
+			sr.ModelId = run.ModelID
+		}
+		if run.SkipReason != nil {
+			sr.SkipReason = run.SkipReason
+		}
+		if run.InputTokens != nil {
+			v := int32(*run.InputTokens)
+			sr.InputTokens = &v
+		}
+		if run.OutputTokens != nil {
+			v := int32(*run.OutputTokens)
+			sr.OutputTokens = &v
+		}
+
+		stageResults = append(stageResults, sr)
+	}
+
+	// 5. Extract contribution info from triage parsed_data.
+	var contentContribution, contributionReason, triageCategory, triageImportance string
+	if len(triageParsedData) > 0 {
+		var triageData map[string]interface{}
+		if err := json.Unmarshal(triageParsedData, &triageData); err == nil {
+			if v, ok := triageData["content_contribution"].(string); ok {
+				contentContribution = v
+			}
+			if v, ok := triageData["contribution_reason"].(string); ok {
+				contributionReason = v
+			}
+			if v, ok := triageData["category"].(string); ok {
+				triageCategory = v
+			}
+			if v, ok := triageData["importance"].(string); ok {
+				triageImportance = v
+			}
+		}
+	}
+
+	// 6. Build the response.
+	result := &contentv1.ProcessingStatus{
+		ContentId:           req.ContentId,
+		SourceId:            source.ID,
+		State:               dbStatusToState(rec.ProcessingStatus),
+		Stages:              stageResults,
+		ContentContribution: contentContribution,
+		ContributionReason:  contributionReason,
+		TriageCategory:      triageCategory,
+		TriageImportance:    triageImportance,
+	}
+
+	if overallStartedAt != nil {
+		result.StartedAt = timestamppb.New(*overallStartedAt)
+	}
+	if overallFinishedAt != nil {
+		result.FinishedAt = timestamppb.New(*overallFinishedAt)
+	}
+	if totalDurationMS > 0 {
+		result.TotalDurationMs = &totalDurationMS
+	}
+	if langfuseTraceID != nil {
+		result.LangfuseTraceId = langfuseTraceID
+	}
+	if totalInputTokens > 0 {
+		result.TotalInputTokens = &totalInputTokens
+	}
+	if totalOutputTokens > 0 {
+		result.TotalOutputTokens = &totalOutputTokens
+	}
+
+	return result, nil
+}
+
+// dbRunStatusToStageStatus converts a pipeline_run status string to proto StageStatus.
+func dbRunStatusToStageStatus(s string) contentv1.StageStatus {
+	switch s {
+	case "pending":
+		return contentv1.StageStatus_STAGE_STATUS_PENDING
+	case "running":
+		return contentv1.StageStatus_STAGE_STATUS_RUNNING
+	case "completed":
+		return contentv1.StageStatus_STAGE_STATUS_COMPLETED
+	case "failed":
+		return contentv1.StageStatus_STAGE_STATUS_FAILED
+	case "skipped":
+		return contentv1.StageStatus_STAGE_STATUS_SKIPPED
+	default:
+		return contentv1.StageStatus_STAGE_STATUS_UNSPECIFIED
+	}
 }
 
 // GetContentItem retrieves a specific content item by ID.
@@ -1278,7 +1484,6 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		JobId:     jobID,
 		Status: &contentv1.ProcessingStatus{
 			ContentId: req.ContentId,
-			JobId:     jobID,
 			State:     contentv1.ProcessingState_PROCESSING_STATE_PENDING,
 		},
 	}, nil

@@ -143,16 +143,20 @@ type testPipelineRepositoryAdapter struct {
 
 func (a *testPipelineRepositoryAdapter) CreateRun(ctx context.Context, input PipelineRunInput) error {
 	return a.mockRepo.CreateRun(ctx, pipeline.PipelineRunInput{
-		SourceID:      input.SourceID,
-		Stage:         input.Stage,
-		ModelID:       input.ModelID,
-		PromptVersion: input.PromptVersion,
-		ConfigHash:    input.ConfigHash,
-		Status:        input.Status,
-		DurationMS:    input.DurationMS,
-		InputData:     input.InputData,
-		OutputData:    input.OutputData,
-		ParsedData:    input.ParsedData,
+		SourceID:        input.SourceID,
+		Stage:           input.Stage,
+		ModelID:         input.ModelID,
+		PromptVersion:   input.PromptVersion,
+		ConfigHash:      input.ConfigHash,
+		Status:          input.Status,
+		DurationMS:      input.DurationMS,
+		InputData:       input.InputData,
+		OutputData:      input.OutputData,
+		ParsedData:      input.ParsedData,
+		InputTokens:     input.InputTokens,
+		OutputTokens:    input.OutputTokens,
+		SkipReason:      input.SkipReason,
+		LangfuseTraceID: input.LangfuseTraceID,
 	})
 }
 

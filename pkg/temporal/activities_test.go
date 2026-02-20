@@ -9,8 +9,9 @@ func TestAllMainQueueActivities(t *testing.T) {
 
 	// Test count (pf-37ebe8: removed ReportLangfuseGeneration, added PersistLangfuseTraceID;
 	// pf-b1ee4e: added UpdateLangfuseTraceTags;
-	// pf-eead20: added KickNextPending)
-	expectedCount := 28
+	// pf-eead20: added KickNextPending;
+	// pf-0656f5: added RecordSkippedStage)
+	expectedCount := 29
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -49,6 +50,8 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"UpdateLangfuseTraceTags",
 		// Auto-drain activity
 		"KickNextPending",
+		// Skipped stage provenance recording
+		"RecordSkippedStage",
 	}
 
 	activityMap := make(map[string]bool)

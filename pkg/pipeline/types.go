@@ -109,18 +109,22 @@ type PromptTemplate struct {
 
 // PipelineRun represents a single pipeline execution.
 type PipelineRun struct {
-	ID            int64
-	SourceID      int64
-	Stage         string
-	ModelID       *string
-	PromptVersion *int
-	ConfigHash    *string
-	Status        string
-	CreatedAt     time.Time
-	DurationMS    *int
-	InputData     json.RawMessage // JSONB snapshot of input data (prompt + context)
-	OutputData    json.RawMessage // JSONB snapshot of raw output (model response)
-	ParsedData    json.RawMessage // JSONB snapshot of parsed/structured output
+	ID              int64
+	SourceID        int64
+	Stage           string
+	ModelID         *string
+	PromptVersion   *int
+	ConfigHash      *string
+	Status          string
+	CreatedAt       time.Time
+	DurationMS      *int
+	InputData       json.RawMessage // JSONB snapshot of input data (prompt + context)
+	OutputData      json.RawMessage // JSONB snapshot of raw output (model response)
+	ParsedData      json.RawMessage // JSONB snapshot of parsed/structured output
+	InputTokens     *int
+	OutputTokens    *int
+	SkipReason      *string
+	LangfuseTraceID *string
 }
 
 // Batch represents a pipeline batch processing job.

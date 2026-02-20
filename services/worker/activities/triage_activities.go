@@ -273,14 +273,17 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		parsedJSON, _ := json.Marshal(output)
 
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
-			SourceID:   input.SourceID,
-			Stage:      "triage",
-			ModelID:    output.ModelUsed,
-			Status:     "completed",
-			DurationMS: durationMS,
-			InputData:  inputJSON,
-			OutputData: outputJSON,
-			ParsedData: parsedJSON,
+			SourceID:        input.SourceID,
+			Stage:           "triage",
+			ModelID:         output.ModelUsed,
+			Status:          "completed",
+			DurationMS:      durationMS,
+			InputData:       inputJSON,
+			OutputData:      outputJSON,
+			ParsedData:      parsedJSON,
+			InputTokens:     int(resp.GetInputTokens()),
+			OutputTokens:    int(resp.GetOutputTokens()),
+			LangfuseTraceID: input.LangfuseTraceID,
 		})
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run", logging.Err(runErr))

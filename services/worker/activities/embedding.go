@@ -118,6 +118,8 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 
 	// Track the first chunk's embedding ID for backward compatibility
 	var firstEmbeddingID int64
+	// Track total token count across all chunks (EmbeddingResponse.TokenCount is input tokens)
+	var totalEmbedInputTokens int
 	startTime := time.Now()
 
 	// Create stage span wrapping ALL chunk embedding calls
@@ -190,6 +192,9 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 			firstEmbeddingID = embeddingID
 		}
 
+		// Accumulate token count (embedding has input tokens only, no output tokens)
+		totalEmbedInputTokens += int(resp.GetTokenCount())
+
 		logger.Debug("Chunk embedding stored",
 			logging.F("chunk_index", chunk.Index),
 			logging.F("chunk_total", len(chunks)),
@@ -224,14 +229,16 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		})
 
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
-			SourceID:   input.SourceID,
-			Stage:      "embed",
-			ModelID:    "chunked", // Model is recorded per-chunk, overall operation is chunked
-			Status:     "completed",
-			DurationMS: durationMS,
-			InputData:  inputJSON,
-			OutputData: outputJSON,
-			ParsedData: parsedJSON,
+			SourceID:        input.SourceID,
+			Stage:           "embed",
+			ModelID:         "chunked", // Model is recorded per-chunk, overall operation is chunked
+			Status:          "completed",
+			DurationMS:      durationMS,
+			InputData:       inputJSON,
+			OutputData:      outputJSON,
+			ParsedData:      parsedJSON,
+			InputTokens:     totalEmbedInputTokens,
+			LangfuseTraceID: input.LangfuseTraceID,
 		})
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run", logging.Err(runErr))

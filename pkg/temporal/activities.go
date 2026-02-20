@@ -29,6 +29,7 @@ const (
 	ActivityCreateEnrichmentRecord   = "CreateEnrichmentRecord"
 	ActivityLinkConversation         = "LinkConversation"
 	ActivityKickNextPending          = "KickNextPending"
+	ActivityRecordSkippedStage       = "RecordSkippedStage"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -97,6 +98,7 @@ func AllMainQueueActivities() []string {
 		ActivityPersistLangfuseTraceID,
 		ActivityUpdateLangfuseTraceTags,
 		ActivityKickNextPending,
+		ActivityRecordSkippedStage,
 	}
 }
 

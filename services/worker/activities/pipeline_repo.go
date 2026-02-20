@@ -23,16 +23,20 @@ func NewPipelineRepository(db *pgxpool.Pool) PipelineRepository {
 // CreateRun records a pipeline run for provenance tracking.
 func (a *pipelineRepositoryAdapter) CreateRun(ctx context.Context, input PipelineRunInput) error {
 	return a.repo.CreateRun(ctx, pipeline.PipelineRunInput{
-		SourceID:      input.SourceID,
-		Stage:         input.Stage,
-		ModelID:       input.ModelID,
-		PromptVersion: input.PromptVersion,
-		ConfigHash:    input.ConfigHash,
-		Status:        input.Status,
-		DurationMS:    input.DurationMS,
-		InputData:     input.InputData,
-		OutputData:    input.OutputData,
-		ParsedData:    input.ParsedData,
+		SourceID:        input.SourceID,
+		Stage:           input.Stage,
+		ModelID:         input.ModelID,
+		PromptVersion:   input.PromptVersion,
+		ConfigHash:      input.ConfigHash,
+		Status:          input.Status,
+		DurationMS:      input.DurationMS,
+		InputData:       input.InputData,
+		OutputData:      input.OutputData,
+		ParsedData:      input.ParsedData,
+		InputTokens:     input.InputTokens,
+		OutputTokens:    input.OutputTokens,
+		SkipReason:      input.SkipReason,
+		LangfuseTraceID: input.LangfuseTraceID,
 	})
 }
 

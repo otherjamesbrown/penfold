@@ -276,6 +276,10 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.pipelineActivities.KickNextPending, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityKickNextPending,
 		})
+		// RecordSkippedStage - records pipeline_runs rows for stages skipped by gating logic
+		w.RegisterActivityWithOptions(r.pipelineActivities.RecordSkippedStage, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityRecordSkippedStage,
+		})
 	}
 
 	// Person enrichment activities for Stage 3.5 (entity enrichment)
@@ -464,9 +468,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.analysisActivities != nil {
 			count += 1
 		}
-		// RecordOverrides, KickNextPending
+		// RecordOverrides, KickNextPending, RecordSkippedStage
 		if r.pipelineActivities != nil {
-			count += 2
+			count += 3
 		}
 		// EnrichPersonMetadata
 		if r.personEnrichmentActivities != nil {
