@@ -11,7 +11,7 @@ trace back to original messages, and send pre-deploy review to penfold.
 
 ```yaml
 DB_CONN: "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full"
-PALACE_CLI: /Users/dev/bin/palace
+PALACE_CLI: cxp
 ```
 
 ## Step 1: Verify Build and Unit Tests
@@ -79,7 +79,7 @@ and erode trust in the test suite. Filing them creates accountability.
 
 After cross-layer verification passes, close the parent impl shard:
 ```bash
-/Users/dev/bin/palace task close pf-PARENT-SHARD 'All layers complete and verified. Sub-shards: [list]. All builds pass, all tests pass.'
+cxp task close pf-PARENT-SHARD 'All layers complete and verified. Sub-shards: [list]. All builds pass, all tests pass.'
 ```
 
 **Test coverage check:**
@@ -256,132 +256,63 @@ SELECT * FROM msg;
 "
 ```
 
-## Step 4: Pre-Deploy Review to Penfold
+## Step 4: Update Shards with Evidence and Mark for Review
 
-**Before deploying**, send a review message to penfold with what was built. This is the
-last checkpoint before changes go live.
+**Before deploying**, update each shard's content with verification evidence, then set
+status to `needs-review`. Penfold sees these on the session board.
 
-```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
-SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-penfold'],
-  'Pre-deploy review: [N items ready]',
-  \$body\${\"poll_hint\":\"review\",\"type\":\"progress\"}
-## Pre-Deploy Review
+**The shard content IS the evidence.** If penfold reads the shard and can't find test
+output, file list, or verification results, the work will be sent back. Terminal output
+alone is not enough — it must be written to the shard.
 
-All items built and verified. Ready to deploy.
-
-### Bugs Fixed
-1. **[bug title]** — [1-sentence fix summary]
-   - Test: [TestName] FAILED before fix, PASSES after fix
-   - Penfold acceptance test: [PASSES — paste stdout below / N/A (no Penfold test provided)]
-   - Files: [modified files]
-
-### Features Built
-1. **[feature title]** — [1-sentence summary]
-   - Tests: [TestName1, TestName2] PASS
-   - Files: [modified/created files]
-   - Acceptance criteria: [N/N met]
-
-### Verification
-- Build: all packages compile ✓
-- Unit tests: all passing ✓
-- Penfold acceptance tests: [N/N passing — full stdout below / none provided]
-- Integration tests: [passing ✓ / not applicable / N failures]
-- Cross-layer check: [N features verified ✓]
-
-### What Will Be Deployed
-- [Gateway: yes/no]
-- [Worker: yes/no]
-- [CLI: yes/no — version bump to vX.Y.Z]
-
-Proceeding to deploy. Reply if you want to hold.
-
--- agent-mycroft
-\$body\$,
-  NULL, 'progress', NULL);
-"
-```
-
-**Do NOT block on penfold's response.** Continue to deploy phase. But if penfold replies
-with "hold" or corrections before deploy completes, pause and incorporate.
-
-## Step 5: Send Resolution Replies
-
-**Group replies by original message.** If one message contained 3 items, send ONE reply.
-
-Wait until ALL items from a message are resolved before replying.
+For each completed shard, append evidence to the shard body:
 
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
-SELECT send_message('penfold', 'agent-mycroft',
-  ARRAY['agent-penfold'],
-  'Resolved: [original message subject]',
-  \$body\${\"poll_hint\":\"done\",\"type\":\"resolution\"}
+cxp shard update pf-SHARD-ID --body-file <(cat <<'EOF'
+[preserve existing shard content above — read it first with cxp shard show]
 
-## Resolved: [original message subject]
+---
+**[TIMESTAMP] agent-mycroft:** VERIFIED — ready to deploy.
 
-### Bugs Fixed
+**Summary:** [1-sentence description of what was done]
+**Files modified:** [list every file changed]
+**Tests:**
+- [TestName]: FAILED before fix, PASSES after
+- [paste actual go test stdout — not a summary, the real output]
+**Penfold acceptance test:** [PASSES with stdout / N/A — no test provided]
+**Deploy targets:** [gateway/worker/CLI]
 
-**1. [bug title]**
-[summary from implementation agent]
-- Investigation: pf-inv-aaa (closed)
-- Fix: pf-fix-aaa (closed)
+[For pipeline changes — include real-data verification:]
+**Before:** [paste penf command output before fix]
+**After:** [paste penf command output after fix]
+EOF
+)
 
-### Requirements Implemented
-
-**2. [requirement title]**
-[summary from implementation agent]
-- Analysis: pf-anl-bbb (closed)
-- Implementation: pf-feat-bbb (closed)
-
-### Specs Implemented
-
-**3. [spec title]**
-[summary from implementation agent]
-- Spec: pf-spc-ccc (closed)
-- Implementation: pf-feat-ccc (closed)
-- Acceptance criteria met: [N/N]
-
-### Verification
-- Build: passing
-- Tests: [TestName1] FAILED before fix, PASSED after fix
-- Tests: [TestName2] (acceptance) PASSED after implementation
-- Penfold acceptance test: [paste full test stdout here / N/A (no Penfold test)]
-- Integration: [passing / not applicable]
-- Test quality: [criteria-to-test mapping verified / N/A]
-
-### Real-Data Verification (pipeline changes only)
-Content ID: pf-CONTENT-ID
-Before (pre-fix output):
-[paste actual output]
-After (post-fix, reprocessed output):
-[paste actual output]
-What changed: [specific differences]
-
-### Deployment
-[List what was deployed: gateway, worker, CLI vX.Y.Z, etc.]
-[Deployed version verified: commit [hash] running on [service]]
-
-### Action Required
-[If CLI was updated: \"Please run penf update to get the changes.\"]
-[If server-side only: \"No action required — changes are live.\"]
-
--- agent-mycroft
-\$body\$,
-  NULL, 'resolution', 'pf-ORIGINAL-MESSAGE-ID');
-"
+# Then set status — surfaces in board's "Needs Review" section
+cxp shard status pf-SHARD-ID needs-review
 ```
 
-If a message contained only bugs or only requirements, omit the empty section header.
+**Required evidence by type:**
+
+| Type | Must include |
+|------|-------------|
+| Bug fix | Test name, before/after test output, files modified |
+| Feature | Acceptance criteria mapping (N/N met), test output, files modified |
+| Pipeline change | All of the above PLUS before/after CLI output from reprocessed content |
+
+**Do NOT proceed to deploy if evidence is missing from any shard.**
+
+**Do NOT close shards here.** Closing happens in Phase 6+7 after commit + deploy, when
+the commit hash exists. Setting `needs-review` is the pre-deploy signal.
 
 ## Step 6: Close Remaining Shards
 
 If any investigation, analysis, or spec shards are still open, close them:
 
 ```bash
-/Users/dev/bin/palace task close pf-inv-xxx "Investigation complete, fix deployed"
-/Users/dev/bin/palace task close pf-anl-xxx "Analysis complete, feature deployed"
-/Users/dev/bin/palace task close pf-spc-xxx "Spec implemented and deployed"
+cxp task close pf-inv-xxx "Investigation complete, fix deployed"
+cxp task close pf-anl-xxx "Analysis complete, feature deployed"
+cxp task close pf-spc-xxx "Spec implemented and deployed"
 ```
 
 ## Show Progress
@@ -394,11 +325,9 @@ UNIT TESTS:   N test files, all passing ✓
 INTEGRATION:  [N tests passing ✓ / smoke checks pass ✓]
 CROSS-CHECK:  [N decomposed features verified across layers ✓]
 
-PRE-DEPLOY REVIEW: Sent to penfold (non-blocking) ✓
-
-REPLIES:
-  pf-msg-aaa: Resolved (3 items: 2 bugs, 1 feature) → agent-penfold ✓
-  pf-msg-bbb: Resolved (1 item: 1 spec) → agent-penfold ✓
+SHARDS IN needs-review:
+  pf-fix-aaa: [bug title] — verified, ready to deploy
+  pf-feat-bbb: [feature title] — verified, ready to deploy
 ```
 
 ## Checkpoint (MANDATORY)
@@ -414,8 +343,7 @@ cxp session checkpoint "$(cat <<'CKPT'
 **Penfold acceptance tests:** [N/N pass / none provided]
 **Integration:** [pass/fail/N/A]
 **Go vet:** [clean/warnings]
-**Pre-deploy review sent:** [message ID]
-**Resolution replies sent:** [message IDs]
+**Shards in needs-review:** [shard IDs]
 **Failures encountered:** [list any — pre-existing or new, with bug shard IDs filed]
 **Files to commit:** [count, list paths]
 **Deploy targets:** [gateway/worker/CLI — based on changed packages]

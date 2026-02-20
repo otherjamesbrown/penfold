@@ -14,12 +14,13 @@ $ARGUMENTS
 
 ## Phase -1: Load Playbook
 
-If you have not already loaded your playbook this session, run it now:
+The playbook (`pf-2b76b4`) is loaded by the SessionStart hook. If it's not in your context
+(e.g. after a compact), reload it:
 ```bash
-cxp knowledge show mycroft-playbook
+cxp knowledge show pf-2b76b4
 ```
 This contains your identity, operating principles, coding standards, and ways of working.
-**Do not skip this.** If you've already loaded it earlier in this session, proceed to Phase 0.
+If you've already loaded it earlier in this session, proceed to Phase 0.
 
 ---
 
@@ -193,8 +194,23 @@ Phase 6+7: /ingest.deploy        — Loop for unblocked work, then commit/deploy
   successful shards; leave failed ones for `/ingest next` after penfold provides guidance.
 
 **After Phase 5 (Verify):**
-- If all builds + unit tests + integration tests pass → send pre-deploy review to penfold
+- If all builds + unit tests + integration tests pass → check evidence gate below
 - Proceed to Phase 6+7 (Deploy)
+
+**Evidence gate (after Phase 5, before Phase 6+7):**
+
+Before proceeding to deploy, read each shard back and verify it contains evidence:
+```bash
+cxp shard show pf-SHARD-ID
+```
+Check for:
+- Test output (actual stdout, not "tests pass")
+- Files modified (explicit list)
+- For pipeline changes: before/after CLI output
+
+**If any shard is missing evidence, do NOT proceed to deploy.** Go back to Phase 5 Step 4
+and add the missing evidence. This gate exists because sub-agents under context pressure
+drop evidence — it's the first thing they skip.
 
 ### Invoking Phases
 
@@ -341,14 +357,38 @@ James often runs 3-4 mycroft sessions simultaneously. Each session runs `/ingest
 
 ## Definition of Done
 
-Resolution messages to penfold must meet the Definition of Done defined in:
-`docs/ways-of-working.md`
+Every shard closed by this pipeline MUST contain the following evidence in its body.
+Penfold will reject and send back any shard missing these. "Tests pass" is not evidence.
 
-Every resolution MUST include sample output from the running system. "Tests pass" is not
-evidence — penfold will reject resolutions without observable proof.
+**Required in every closed shard:**
 
-For pipeline/data changes, reprocess at least one affected content item and include the
-before/after output in the resolution.
+| Evidence | Where it's written | Phase |
+|----------|-------------------|-------|
+| Test output (actual stdout) | Shard body | Phase 5 Step 4 |
+| Files modified (explicit list) | Shard body | Phase 5 Step 4 |
+| Commit hash | Shard body | Phase 6+7 Step 6 |
+| Version verification | Shard body | Phase 6+7 Step 6 |
+
+**Additionally required for pipeline/data changes:**
+
+| Evidence | Where it's written | Phase |
+|----------|-------------------|-------|
+| Before/after CLI output | Shard body | Phase 5 Step 2.6 + Phase 6+7 Step 6 |
+| Reprocessed content ID | Shard body | Phase 6+7 Step 6 |
+
+**Penfold's review process:** Penfold reads the shard, runs the acceptance test, checks
+the deployed version, and spot-checks real output. If the shard body doesn't contain the
+evidence above, the shard is sent back to `ready` with review feedback appended.
+
+## Handling Sent-Back Shards
+
+Shards that penfold sends back appear in the ready queue with review feedback appended
+to the shard body. When picking up a sent-back shard:
+
+1. **Read the full shard** — the review feedback is at the bottom after a `---` separator
+2. **Address the specific feedback** — penfold explains exactly what's missing or wrong
+3. **Re-run the full verify → deploy cycle** — don't just patch the evidence, verify the fix
+4. **Include all evidence** on the second pass — sent-back shards get extra scrutiny
 
 ## Key Principles
 
@@ -361,13 +401,14 @@ before/after output in the resolution.
    previous one. Verify between waves.
 6. **Tests are mandatory** — LOW/MEDIUM: test-first (Phase 3.5). HIGH: test-first per wave.
    No layer is complete without tests.
-7. **Feedback to penfold** — send progress updates at phase boundaries. Don't just ack and
-   then go silent until resolution. Key checkpoints: after investigation findings, after HIGH
-   decomposition, before deploy.
+7. **Update shards, not messages** — penfold tracks progress via the session board, not the
+   inbox. Update shard status and content directly as you work. Set status `needs-review`
+   when ready for penfold to verify (`cxp shard status <id> needs-review`). Use label
+   `blocked` when stuck (`cxp shard label add <id> blocked`). Do NOT send
+   ack/progress/resolution messages — shard state IS the communication.
 8. **Auto-continue** — don't stop between phases unless there's an error or penfold intervenes
-9. **Reply to penfold** — every item gets an ack and a resolution reply
-10. **Deploy changes** — implementation isn't done until deployed and **verified running**
-11. **Trace edges** — maintain the chain: message → investigation/analysis → implementation
+9. **Deploy changes** — implementation isn't done until deployed and **verified running**
+10. **Trace edges** — maintain the chain: message → investigation/analysis → implementation
 12. **Verify deployed version** — after deploy, confirm the running binary matches the commit.
     Nomad is unreliable — binaries upload but allocations don't always restart.
 13. **Context budget awareness** — tell agents to prioritize: working code > tests > cleanup.

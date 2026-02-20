@@ -203,6 +203,64 @@ penf content list --limit 5
 **This applies to ALL failures** — smoke tests, unit tests, go vet warnings, build warnings.
 Pre-existing failures that aren't tracked become invisible and mask new regressions.
 
+### Step 6: Close Shards with Evidence
+
+**MANDATORY. After commit + deploy + version verification, close each shard with the
+commit hash and deployment evidence.** This is the permanent record penfold reviews.
+
+The commit hash was generated in Step 1. The version was verified in Step 4. Write both
+to each shard now.
+
+```bash
+COMMIT_HASH=$(git rev-parse --short HEAD)
+
+# For each shard processed in this session:
+cxp shard update pf-SHARD-ID --body-file <(cat <<EOF
+[read existing shard content first with cxp shard show — preserve it]
+
+---
+**[TIMESTAMP] agent-mycroft:** DEPLOYED and verified.
+
+**Commit:** $COMMIT_HASH
+**Deploy targets:** [gateway v$COMMIT_HASH / worker v$COMMIT_HASH / CLI vX.Y.Z]
+**Version verified:** [gateway RUNNING v$COMMIT_HASH ✓ / worker RUNNING v$COMMIT_HASH ✓]
+**Smoke tests:** [penf health ✓ / penf content stats ✓ / etc]
+
+[For pipeline changes — reprocess and include output:]
+**Reprocessed:** [content-id]
+**Output after deploy:**
+[paste penf content show output]
+EOF
+)
+
+# Close the shard — this is the "done" signal to penfold
+cxp shard close pf-SHARD-ID
+```
+
+**Every closed shard MUST contain:**
+1. Commit hash (from this step)
+2. Test output (from Phase 5 Step 4)
+3. Files modified (from Phase 5 Step 4)
+4. Version verification (from Step 4 above)
+
+**If any of these are missing, DO NOT close the shard.** Go back and add the evidence first.
+
+### Checkpoint (MANDATORY)
+
+```bash
+cxp session checkpoint "$(cat <<'CKPT'
+## Phase 6+7 Complete: Deploy
+
+**Commit:** [hash] "[message]"
+**Deployed:** [gateway ✓ / worker ✓ / CLI vX.Y.Z ✓]
+**Version verified:** [gateway v[hash] ✓ / worker v[hash] ✓]
+**Smoke tests:** [N/N passed]
+**Shards closed:** [list shard IDs]
+**Shards still open:** [list any not deployed, with reason]
+CKPT
+)"
+```
+
 ### Show Final Summary
 
 ```
