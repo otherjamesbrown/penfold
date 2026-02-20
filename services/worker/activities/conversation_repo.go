@@ -204,5 +204,19 @@ func (r *PostgresConversationRepository) GetConversation(ctx context.Context, te
 	return &conv, nil
 }
 
+// DeleteConversationParticipants removes all existing participants for a conversation.
+// This is used on reprocess to avoid accumulating stale participant entries.
+func (r *PostgresConversationRepository) DeleteConversationParticipants(ctx context.Context, conversationID, tenantID string) error {
+	query := `
+		DELETE FROM conversation_participants
+		WHERE conversation_id = $1 AND tenant_id = $2
+	`
+	_, err := r.pool.Exec(ctx, query, conversationID, tenantID)
+	if err != nil {
+		return fmt.Errorf("failed to delete conversation participants: %w", err)
+	}
+	return nil
+}
+
 // Ensure PostgresConversationRepository implements ConversationRepository at compile time.
 var _ ConversationRepository = (*PostgresConversationRepository)(nil)

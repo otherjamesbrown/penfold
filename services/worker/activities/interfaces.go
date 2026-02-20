@@ -438,6 +438,10 @@ type ConversationRepository interface {
 	// Idempotent: duplicate participants are ignored.
 	AddConversationParticipant(ctx context.Context, conversationID string, name, address *string, tenantID string) error
 
+	// DeleteConversationParticipants removes all existing participants for a conversation.
+	// Called before re-adding participants on reprocess to avoid accumulating stale entries.
+	DeleteConversationParticipants(ctx context.Context, conversationID, tenantID string) error
+
 	// UpdateConversationStats recalculates counts and timestamps for a conversation.
 	UpdateConversationStats(ctx context.Context, conversationID string) error
 

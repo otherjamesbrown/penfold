@@ -197,6 +197,9 @@ func (r *regVerifyConvRepo) GetConversationItems(context.Context, string, int) (
 func (r *regVerifyConvRepo) GetConversation(context.Context, string, string) (*Conversation, error) {
 	return nil, nil
 }
+func (r *regVerifyConvRepo) DeleteConversationParticipants(context.Context, string, string) error {
+	return nil
+}
 
 // Compile-time interface verification for stubs.
 var (

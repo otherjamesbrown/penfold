@@ -15,14 +15,15 @@ import (
 
 // mockConversationRepository is a mock implementation of the ConversationRepository interface for testing.
 type mockConversationRepository struct {
-	upsertConversationFn         func(ctx context.Context, conversation *Conversation) (string, error)
-	addConversationItemFn        func(ctx context.Context, conversationID, contentID string, sourceID *int64, tenantID string) error
-	addConversationParticipantFn func(ctx context.Context, conversationID string, name, address *string, tenantID string) error
-	updateConversationStatsFn    func(ctx context.Context, conversationID string) error
-	updateSummaryFn              func(ctx context.Context, conversationID, summary string, version int32) error
-	updateStateFn                func(ctx context.Context, conversationID, state, reason string) error
-	getConversationItemsFn       func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error)
-	getConversationFn            func(ctx context.Context, tenantID, conversationID string) (*Conversation, error)
+	upsertConversationFn              func(ctx context.Context, conversation *Conversation) (string, error)
+	addConversationItemFn             func(ctx context.Context, conversationID, contentID string, sourceID *int64, tenantID string) error
+	addConversationParticipantFn      func(ctx context.Context, conversationID string, name, address *string, tenantID string) error
+	deleteConversationParticipantsFn  func(ctx context.Context, conversationID, tenantID string) error
+	updateConversationStatsFn         func(ctx context.Context, conversationID string) error
+	updateSummaryFn                   func(ctx context.Context, conversationID, summary string, version int32) error
+	updateStateFn                     func(ctx context.Context, conversationID, state, reason string) error
+	getConversationItemsFn            func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error)
+	getConversationFn                 func(ctx context.Context, tenantID, conversationID string) (*Conversation, error)
 }
 
 func (m *mockConversationRepository) UpsertConversation(ctx context.Context, conversation *Conversation) (string, error) {
@@ -42,6 +43,13 @@ func (m *mockConversationRepository) AddConversationItem(ctx context.Context, co
 func (m *mockConversationRepository) AddConversationParticipant(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
 	if m.addConversationParticipantFn != nil {
 		return m.addConversationParticipantFn(ctx, conversationID, name, address, tenantID)
+	}
+	return nil
+}
+
+func (m *mockConversationRepository) DeleteConversationParticipants(ctx context.Context, conversationID, tenantID string) error {
+	if m.deleteConversationParticipantsFn != nil {
+		return m.deleteConversationParticipantsFn(ctx, conversationID, tenantID)
 	}
 	return nil
 }
@@ -1231,6 +1239,114 @@ func TestLinkConversation_JSONParticipants(t *testing.T) {
 	require.Equal(t, "Carol White", byAddr["carol@example.com"].name)
 }
 
+// TestLinkConversation_TypedNilAIClient_ReturnsOutput reproduces bug pf-60104c:
+// the Go nil-pointer-in-interface trap in generateSummaryAndState.
+//
+// When main.go does:
+//
+//	var aiClient *ai.Client  // typed nil pointer
+//	conversationActivities := activities.NewConversationActivities(..., aiClient)
+//
+// NewConversationActivities accepts an AIClient interface. Go wraps the typed nil
+// *ai.Client in a non-nil interface value. The guard at conversation_activities.go:346
+// (`if a.aiClient == nil`) evaluates to FALSE because the interface wrapper is
+// non-nil, so execution continues to call a.aiClient.GenerateSummary() on a nil
+// concrete value. This panics. The panic propagates up to the defer/recover in
+// LinkConversation, which catches it — but because the output local variable has not
+// yet been assigned at that point, the recover block leaves the function returns at
+// their zero values (nil, nil), so the caller receives no ConversationID.
+//
+// This test FAILS before the fix: output is nil because the panic causes
+// LinkConversation's defer/recover to fire before the return statement is reached.
+// After the fix (passing a properly-nil AIClient interface in main.go), the nil guard
+// works correctly, summary generation is skipped, and the function returns valid output.
+func TestLinkConversation_TypedNilAIClient_ReturnsOutput(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2026, 2, 20, 10, 0, 0, 0, time.UTC)
+	threadID := "<typed-nil-ai@example.com>"
+	contentID := "cnt-typed-nil-1"
+
+	// Construct the typed-nil AIClient: a *mockAIClient nil pointer wrapped in the
+	// AIClient interface. The interface value is non-nil (it has a type), but the
+	// concrete pointer inside is nil. This is the exact state that main.go creates
+	// when it declares `var aiClient *ai.Client` and passes it into NewConversationActivities.
+	var nilMock *mockAIClient = nil
+	var typedNilAI AIClient = nilMock // non-nil interface, nil concrete pointer
+
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          900,
+				TenantID:    "test-tenant",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id": "<msg-900@example.com>",
+					"subject":    "Typed Nil AI Test",
+					"from":       "sender@example.com",
+					"to":         "recipient@example.com",
+					"date":       messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	mockConvRepo := &mockConversationRepository{
+		upsertConversationFn: func(ctx context.Context, conversation *Conversation) (string, error) {
+			return "conv-typed-nil-1", nil
+		},
+		addConversationItemFn: func(ctx context.Context, conversationID, itemContentID string, sourceID *int64, tenantID string) error {
+			return nil
+		},
+		addConversationParticipantFn: func(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
+			return nil
+		},
+		updateConversationStatsFn: func(ctx context.Context, conversationID string) error {
+			return nil
+		},
+		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
+			return &Conversation{
+				ID:       conversationID,
+				TenantID: tenantID,
+				Topic:    "Typed Nil AI Test",
+			}, nil
+		},
+		getConversationItemsFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
+			return []ConversationItem{
+				{ConversationID: conversationID, ContentID: "cnt-prev-1"},
+			}, nil
+		},
+	}
+
+	// Pass the typed-nil interface directly to NewConversationActivities.
+	// This replicates the exact bug: the nil guard inside generateSummaryAndState
+	// (`if a.aiClient == nil`) will NOT fire because the interface itself is non-nil.
+	ca := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, typedNilAI)
+
+	input := LinkConversationInput{
+		TenantID:  "test-tenant",
+		SourceID:  900,
+		ThreadID:  threadID,
+		ContentID: contentID,
+	}
+
+	output, err := ca.LinkConversation(context.Background(), input)
+
+	// These assertions FAIL with the bug:
+	//   - generateSummaryAndState passes the nil guard (interface is non-nil)
+	//   - a.aiClient.GenerateSummary() panics (nil concrete method dispatch)
+	//   - LinkConversation's defer/recover catches the panic
+	//   - the deferred recover returns (nil, nil) — output was never assigned
+	//
+	// After the fix (main.go passes a proper nil AIClient interface instead of a typed
+	// nil), the nil guard at conversation_activities.go:346 fires, summary is skipped,
+	// and LinkConversation reaches its final return with a valid ConversationID.
+	require.NoError(t, err)
+	require.NotNil(t, output, "output should not be nil — typed nil AIClient caused panic in generateSummaryAndState, which triggered LinkConversation defer/recover and returned nil output")
+	require.NotEmpty(t, output.ConversationID, "conversation ID should be returned even when AI client is a typed nil")
+	require.Equal(t, "conv-typed-nil-1", output.ConversationID)
+}
+
 // TestBackfillConversationSummaries tests the backfill method that generates
 // initial summaries for existing conversations.
 // Commented out until BackfillConversationSummaries method is added to ConversationActivities.
@@ -1254,3 +1370,135 @@ func TestBackfillConversationSummaries(t *testing.T) {
 	require.Greater(t, output.Processed, 0, "Should process at least one conversation")
 }
 */
+
+// TestLinkConversation_ParticipantDedup_OnReprocess reproduces bug pf-8d613c.
+//
+// When the same conversation is processed twice (e.g. after a parsing fix),
+// LinkConversation adds participants from the new source on top of any participants
+// added during the first pass.  Because the ON CONFLICT key in
+// AddConversationParticipant is (conversation_id, COALESCE(address, name)), a
+// changed address (e.g. mangled -> clean) does NOT conflict, so duplicates
+// accumulate silently.
+//
+// The correct fix is for LinkConversation to call DeleteConversationParticipants
+// before re-adding.  This test asserts that behaviour: it expects
+// DeleteConversationParticipants to be called on each invocation.  The test
+// therefore FAILS against the current code because LinkConversation never calls
+// that method.
+func TestLinkConversation_ParticipantDedup_OnReprocess(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2026, 2, 20, 9, 0, 0, 0, time.UTC)
+	threadID := "<reprocess-dedup@example.com>"
+
+	// First source: mangled addresses (pre-fix parsing).
+	firstSource := &Source{
+		ID:          901,
+		TenantID:    "test-tenant",
+		ContentType: "email",
+		Metadata: map[string]string{
+			"message_id": "<msg-901@example.com>",
+			"subject":    "Reprocess Dedup Test",
+			"from":       "alice=40example.com@mangled.invalid", // mangled pre-fix address
+			"to":         "bob=40example.com@mangled.invalid",   // mangled pre-fix address
+			"date":       messageDate.Format(time.RFC3339),
+		},
+	}
+
+	// Second source: clean addresses (post-fix parsing) — same logical conversation.
+	secondSource := &Source{
+		ID:          902,
+		TenantID:    "test-tenant",
+		ContentType: "email",
+		Metadata: map[string]string{
+			"message_id": "<msg-902@example.com>",
+			"subject":    "Reprocess Dedup Test",
+			"from":       "alice@example.com", // clean post-fix address
+			"to":         "bob@example.com",   // clean post-fix address
+			"date":       messageDate.Format(time.RFC3339),
+		},
+	}
+
+	callCount := 0
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			callCount++
+			if callCount == 1 {
+				return firstSource, nil
+			}
+			return secondSource, nil
+		},
+	}
+
+	// Track every call to DeleteConversationParticipants.
+	deleteCallCount := 0
+	// Track every address passed to AddConversationParticipant across both calls.
+	var allAddedAddresses []string
+
+	mockConvRepo := &mockConversationRepository{
+		upsertConversationFn: func(ctx context.Context, conversation *Conversation) (string, error) {
+			return "conv-reprocess-1", nil
+		},
+		addConversationItemFn: func(ctx context.Context, conversationID, itemContentID string, sourceID *int64, tenantID string) error {
+			return nil
+		},
+		deleteConversationParticipantsFn: func(ctx context.Context, conversationID, tenantID string) error {
+			// Record that the delete was called.
+			deleteCallCount++
+			// Also clear our tracking slice to mirror what a real DELETE would do,
+			// so that the address count after the second call reflects only the
+			// second set of participants.
+			allAddedAddresses = nil
+			return nil
+		},
+		addConversationParticipantFn: func(ctx context.Context, conversationID string, name, address *string, tenantID string) error {
+			if address != nil {
+				allAddedAddresses = append(allAddedAddresses, *address)
+			}
+			return nil
+		},
+		updateConversationStatsFn: func(ctx context.Context, conversationID string) error {
+			return nil
+		},
+	}
+
+	act := NewConversationActivities(logger, mockSourceRepo, mockConvRepo, nil)
+
+	// First call — simulates original ingest with mangled addresses.
+	out1, err := act.LinkConversation(context.Background(), LinkConversationInput{
+		TenantID:  "test-tenant",
+		SourceID:  901,
+		ThreadID:  threadID,
+		ContentID: "cnt-901",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out1)
+	require.Equal(t, "conv-reprocess-1", out1.ConversationID)
+
+	// Second call — simulates reprocess with clean addresses on the same thread.
+	out2, err := act.LinkConversation(context.Background(), LinkConversationInput{
+		TenantID:  "test-tenant",
+		SourceID:  902,
+		ThreadID:  threadID,
+		ContentID: "cnt-902",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out2)
+	require.Equal(t, "conv-reprocess-1", out2.ConversationID)
+
+	// ASSERTION 1: DeleteConversationParticipants must be called on every
+	// LinkConversation invocation so that stale participants are cleared before
+	// re-adding.  Currently this is NEVER called, so this assertion fails.
+	require.Equal(t, 2, deleteCallCount,
+		"DeleteConversationParticipants must be called once per LinkConversation invocation "+
+			"to prevent duplicate participant accumulation on reprocess (bug pf-8d613c)")
+
+	// ASSERTION 2: After two calls, only the participants from the most-recent
+	// source should be present — not a union of both sets.  With the delete-then-add
+	// pattern in place (and the mock clearing allAddedAddresses on delete), the
+	// final slice should contain exactly the 2 clean addresses from the second call.
+	// Without the fix, mangled addresses from the first call are still present.
+	require.Len(t, allAddedAddresses, 2,
+		"After reprocess, only the participants from the latest source should be present; "+
+			"got accumulated participants instead (bug pf-8d613c)")
+}

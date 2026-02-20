@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -37,6 +38,13 @@ func NewConversationActivities(
 	}
 	if convRepo == nil {
 		panic("NewConversationActivities: convRepo is required")
+	}
+	// Guard against the nil-pointer-in-interface trap: a typed nil concrete value
+	// (e.g. *ai.Client(nil)) passed as an AIClient interface is non-nil from Go's
+	// perspective, bypassing `if a.aiClient == nil` checks and causing panics when
+	// methods are dispatched on the nil concrete pointer. Normalize to a proper nil.
+	if aiClient != nil && reflect.ValueOf(aiClient).IsNil() {
+		aiClient = nil
 	}
 	return &ConversationActivities{
 		logger:     logger.With(logging.F("component", "conversation_activities")),
@@ -186,6 +194,17 @@ func (a *ConversationActivities) LinkConversation(ctx context.Context, input Lin
 			logging.F("error", err.Error()),
 		)
 		// Don't fail - conversation was created
+	}
+
+	recordHeartbeat(ctx, "clearing existing participants")
+
+	// Delete existing participants before re-adding (prevents duplicates on reprocess)
+	if err := a.convRepo.DeleteConversationParticipants(ctx, existingConvID, input.TenantID); err != nil {
+		logger.Warn("failed to delete existing conversation participants",
+			logging.F("conversation_id", existingConvID),
+			logging.F("error", err.Error()),
+		)
+		// Don't fail — continue with adding participants
 	}
 
 	recordHeartbeat(ctx, "adding participants")

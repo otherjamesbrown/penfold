@@ -638,7 +638,12 @@ func main() {
 	if dbPool != nil {
 		sourceRepo := activities.NewPostgresSourceRepository(dbPool, logger)
 		convRepo := activities.NewPostgresConversationRepository(dbPool, logger)
-		conversationActivities := activities.NewConversationActivities(logger, sourceRepo, convRepo, aiClient)
+		// Guard against nil-pointer-in-interface: pass properly nil interface when aiClient is nil.
+		var convAIClient activities.AIClient
+		if aiClient != nil {
+			convAIClient = aiClient
+		}
+		conversationActivities := activities.NewConversationActivities(logger, sourceRepo, convRepo, convAIClient)
 		activityRegistrar.WithConversationActivities(conversationActivities)
 		logger.Info("Conversation activities initialized with database (auto-linking)")
 	}
