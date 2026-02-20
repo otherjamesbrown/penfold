@@ -96,6 +96,7 @@ func AllMainQueueActivities() []string {
 		ActivityFinishLangfuseTrace,
 		ActivityPersistLangfuseTraceID,
 		ActivityUpdateLangfuseTraceTags,
+		ActivityKickNextPending,
 	}
 }
 

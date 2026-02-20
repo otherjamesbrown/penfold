@@ -98,6 +98,18 @@ service PipelineService {
 
   // GetStageConfig retrieves unified per-stage configuration (model + timeout).
   rpc GetStageConfig(GetStageConfigRequest) returns (GetStageConfigResponse);
+
+  // StartBatchPipeline creates a batch processing job.
+  rpc StartBatchPipeline(StartBatchPipelineRequest) returns (StartBatchPipelineResponse);
+
+  // GetBatchStatus retrieves the status of a batch processing job.
+  rpc GetBatchStatus(GetBatchStatusRequest) returns (GetBatchStatusResponse);
+
+  // ListBatches lists recent batch processing jobs.
+  rpc ListBatches(ListBatchesRequest) returns (ListBatchesResponse);
+
+  // CancelBatch cancels a running batch processing job.
+  rpc CancelBatch(CancelBatchRequest) returns (CancelBatchResponse);
 }
 
 // =============================================================================
@@ -1125,4 +1137,134 @@ message StageConfigEntry {
 message GetStageConfigResponse {
   // Configuration for each pipeline stage.
   repeated StageConfigEntry stages = 1;
+}
+
+// =============================================================================
+// Batch Pipeline Messages
+// =============================================================================
+
+// StartBatchPipelineRequest creates a new batch processing job.
+message StartBatchPipelineRequest {
+  // Tenant ID (required for multi-tenant support).
+  string tenant_id = 1;
+
+  // Specific source IDs to process (if empty, processes all pending).
+  repeated int64 content_ids = 2;
+
+  // Maximum concurrent pipelines (0 = use default from config).
+  int32 max_concurrent = 3;
+
+  // Filter by source tag when content_ids is empty (optional).
+  string source_tag = 4;
+}
+
+// StartBatchPipelineResponse contains the result of starting a batch.
+message StartBatchPipelineResponse {
+  // Unique batch identifier.
+  string batch_id = 1;
+
+  // Temporal workflow ID for the batch.
+  string workflow_id = 2;
+
+  // Total number of items in the batch.
+  int32 total_items = 3;
+
+  // Maximum concurrent processing limit being used.
+  int32 max_concurrent = 4;
+
+  // Human-readable message.
+  string message = 5;
+}
+
+// GetBatchStatusRequest retrieves batch status.
+message GetBatchStatusRequest {
+  // Batch ID to query (required).
+  string batch_id = 1;
+}
+
+// GetBatchStatusResponse contains batch status information.
+message GetBatchStatusResponse {
+  // Batch ID.
+  string batch_id = 1;
+
+  // Current status: running, completed, cancelled.
+  string status = 2;
+
+  // Total items in the batch.
+  int32 total_items = 3;
+
+  // Number of completed items.
+  int32 completed_items = 4;
+
+  // Number of failed items.
+  int32 failed_items = 5;
+
+  // Number of pending items.
+  int32 pending_items = 6;
+
+  // Number of currently active items.
+  int32 active_items = 7;
+
+  // Source IDs currently being processed.
+  repeated int64 active_source_ids = 8;
+
+  // When the batch was started.
+  google.protobuf.Timestamp created_at = 9;
+}
+
+// ListBatchesRequest lists batch processing jobs.
+message ListBatchesRequest {
+  // Tenant ID filter (optional).
+  string tenant_id = 1;
+
+  // Maximum number of batches to return (default: 20).
+  int32 limit = 2;
+}
+
+// ListBatchesResponse contains the list of batches.
+message ListBatchesResponse {
+  // The batches.
+  repeated BatchSummary batches = 1;
+}
+
+// BatchSummary represents a batch processing job.
+message BatchSummary {
+  // Batch ID.
+  string id = 1;
+
+  // Temporal workflow ID.
+  string workflow_id = 2;
+
+  // Current status: running, completed, cancelled.
+  string status = 3;
+
+  // Total items in the batch.
+  int32 total_items = 4;
+
+  // Number of completed items.
+  int32 completed_items = 5;
+
+  // Number of failed items.
+  int32 failed_items = 6;
+
+  // When the batch was created.
+  google.protobuf.Timestamp created_at = 7;
+
+  // When the batch was last updated.
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// CancelBatchRequest cancels a running batch.
+message CancelBatchRequest {
+  // Batch ID to cancel (required).
+  string batch_id = 1;
+}
+
+// CancelBatchResponse confirms batch cancellation.
+message CancelBatchResponse {
+  // Whether the cancellation was accepted.
+  bool cancelled = 1;
+
+  // Human-readable message.
+  string message = 2;
 }

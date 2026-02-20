@@ -8,8 +8,9 @@ func TestAllMainQueueActivities(t *testing.T) {
 	activities := AllMainQueueActivities()
 
 	// Test count (pf-37ebe8: removed ReportLangfuseGeneration, added PersistLangfuseTraceID;
-	// pf-b1ee4e: added UpdateLangfuseTraceTags)
-	expectedCount := 27
+	// pf-b1ee4e: added UpdateLangfuseTraceTags;
+	// pf-eead20: added KickNextPending)
+	expectedCount := 28
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -46,6 +47,8 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"FinishLangfuseTrace",
 		"PersistLangfuseTraceID",
 		"UpdateLangfuseTraceTags",
+		// Auto-drain activity
+		"KickNextPending",
 	}
 
 	activityMap := make(map[string]bool)

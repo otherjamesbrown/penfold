@@ -50,6 +50,10 @@ const (
 	PipelineService_SetConcurrencyConfig_FullMethodName = "/penfold.pipeline.v1.PipelineService/SetConcurrencyConfig"
 	PipelineService_ListPendingSources_FullMethodName   = "/penfold.pipeline.v1.PipelineService/ListPendingSources"
 	PipelineService_GetStageConfig_FullMethodName       = "/penfold.pipeline.v1.PipelineService/GetStageConfig"
+	PipelineService_StartBatchPipeline_FullMethodName   = "/penfold.pipeline.v1.PipelineService/StartBatchPipeline"
+	PipelineService_GetBatchStatus_FullMethodName       = "/penfold.pipeline.v1.PipelineService/GetBatchStatus"
+	PipelineService_ListBatches_FullMethodName          = "/penfold.pipeline.v1.PipelineService/ListBatches"
+	PipelineService_CancelBatch_FullMethodName          = "/penfold.pipeline.v1.PipelineService/CancelBatch"
 )
 
 // PipelineServiceClient is the client API for PipelineService service.
@@ -114,6 +118,14 @@ type PipelineServiceClient interface {
 	ListPendingSources(ctx context.Context, in *ListPendingSourcesRequest, opts ...grpc.CallOption) (*ListPendingSourcesResponse, error)
 	// GetStageConfig retrieves unified per-stage configuration (model + timeout).
 	GetStageConfig(ctx context.Context, in *GetStageConfigRequest, opts ...grpc.CallOption) (*GetStageConfigResponse, error)
+	// StartBatchPipeline creates a batch processing job.
+	StartBatchPipeline(ctx context.Context, in *StartBatchPipelineRequest, opts ...grpc.CallOption) (*StartBatchPipelineResponse, error)
+	// GetBatchStatus retrieves the status of a batch processing job.
+	GetBatchStatus(ctx context.Context, in *GetBatchStatusRequest, opts ...grpc.CallOption) (*GetBatchStatusResponse, error)
+	// ListBatches lists recent batch processing jobs.
+	ListBatches(ctx context.Context, in *ListBatchesRequest, opts ...grpc.CallOption) (*ListBatchesResponse, error)
+	// CancelBatch cancels a running batch processing job.
+	CancelBatch(ctx context.Context, in *CancelBatchRequest, opts ...grpc.CallOption) (*CancelBatchResponse, error)
 }
 
 type pipelineServiceClient struct {
@@ -404,6 +416,46 @@ func (c *pipelineServiceClient) GetStageConfig(ctx context.Context, in *GetStage
 	return out, nil
 }
 
+func (c *pipelineServiceClient) StartBatchPipeline(ctx context.Context, in *StartBatchPipelineRequest, opts ...grpc.CallOption) (*StartBatchPipelineResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartBatchPipelineResponse)
+	err := c.cc.Invoke(ctx, PipelineService_StartBatchPipeline_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) GetBatchStatus(ctx context.Context, in *GetBatchStatusRequest, opts ...grpc.CallOption) (*GetBatchStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetBatchStatusResponse)
+	err := c.cc.Invoke(ctx, PipelineService_GetBatchStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) ListBatches(ctx context.Context, in *ListBatchesRequest, opts ...grpc.CallOption) (*ListBatchesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListBatchesResponse)
+	err := c.cc.Invoke(ctx, PipelineService_ListBatches_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) CancelBatch(ctx context.Context, in *CancelBatchRequest, opts ...grpc.CallOption) (*CancelBatchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelBatchResponse)
+	err := c.cc.Invoke(ctx, PipelineService_CancelBatch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PipelineServiceServer is the server API for PipelineService service.
 // All implementations must embed UnimplementedPipelineServiceServer
 // for forward compatibility.
@@ -466,6 +518,14 @@ type PipelineServiceServer interface {
 	ListPendingSources(context.Context, *ListPendingSourcesRequest) (*ListPendingSourcesResponse, error)
 	// GetStageConfig retrieves unified per-stage configuration (model + timeout).
 	GetStageConfig(context.Context, *GetStageConfigRequest) (*GetStageConfigResponse, error)
+	// StartBatchPipeline creates a batch processing job.
+	StartBatchPipeline(context.Context, *StartBatchPipelineRequest) (*StartBatchPipelineResponse, error)
+	// GetBatchStatus retrieves the status of a batch processing job.
+	GetBatchStatus(context.Context, *GetBatchStatusRequest) (*GetBatchStatusResponse, error)
+	// ListBatches lists recent batch processing jobs.
+	ListBatches(context.Context, *ListBatchesRequest) (*ListBatchesResponse, error)
+	// CancelBatch cancels a running batch processing job.
+	CancelBatch(context.Context, *CancelBatchRequest) (*CancelBatchResponse, error)
 	mustEmbedUnimplementedPipelineServiceServer()
 }
 
@@ -559,6 +619,18 @@ func (UnimplementedPipelineServiceServer) ListPendingSources(context.Context, *L
 }
 func (UnimplementedPipelineServiceServer) GetStageConfig(context.Context, *GetStageConfigRequest) (*GetStageConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetStageConfig not implemented")
+}
+func (UnimplementedPipelineServiceServer) StartBatchPipeline(context.Context, *StartBatchPipelineRequest) (*StartBatchPipelineResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartBatchPipeline not implemented")
+}
+func (UnimplementedPipelineServiceServer) GetBatchStatus(context.Context, *GetBatchStatusRequest) (*GetBatchStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBatchStatus not implemented")
+}
+func (UnimplementedPipelineServiceServer) ListBatches(context.Context, *ListBatchesRequest) (*ListBatchesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListBatches not implemented")
+}
+func (UnimplementedPipelineServiceServer) CancelBatch(context.Context, *CancelBatchRequest) (*CancelBatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CancelBatch not implemented")
 }
 func (UnimplementedPipelineServiceServer) mustEmbedUnimplementedPipelineServiceServer() {}
 func (UnimplementedPipelineServiceServer) testEmbeddedByValue()                         {}
@@ -1085,6 +1157,78 @@ func _PipelineService_GetStageConfig_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_StartBatchPipeline_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartBatchPipelineRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).StartBatchPipeline(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_StartBatchPipeline_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).StartBatchPipeline(ctx, req.(*StartBatchPipelineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_GetBatchStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBatchStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).GetBatchStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_GetBatchStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).GetBatchStatus(ctx, req.(*GetBatchStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_ListBatches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBatchesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).ListBatches(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_ListBatches_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).ListBatches(ctx, req.(*ListBatchesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_CancelBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelBatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).CancelBatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_CancelBatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).CancelBatch(ctx, req.(*CancelBatchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PipelineService_ServiceDesc is the grpc.ServiceDesc for PipelineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1203,6 +1347,22 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetStageConfig",
 			Handler:    _PipelineService_GetStageConfig_Handler,
+		},
+		{
+			MethodName: "StartBatchPipeline",
+			Handler:    _PipelineService_StartBatchPipeline_Handler,
+		},
+		{
+			MethodName: "GetBatchStatus",
+			Handler:    _PipelineService_GetBatchStatus_Handler,
+		},
+		{
+			MethodName: "ListBatches",
+			Handler:    _PipelineService_ListBatches_Handler,
+		},
+		{
+			MethodName: "CancelBatch",
+			Handler:    _PipelineService_CancelBatch_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

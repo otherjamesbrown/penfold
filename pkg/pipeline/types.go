@@ -123,6 +123,19 @@ type PipelineRun struct {
 	ParsedData    json.RawMessage // JSONB snapshot of parsed/structured output
 }
 
+// Batch represents a pipeline batch processing job.
+type Batch struct {
+	ID             string    `json:"id"`
+	TenantID       string    `json:"tenant_id"`
+	WorkflowID     string    `json:"workflow_id"`
+	TotalItems     int       `json:"total_items"`
+	CompletedItems int       `json:"completed_items"`
+	FailedItems    int       `json:"failed_items"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 // StageDiff represents a difference between two pipeline runs.
 type StageDiff struct {
 	Stage      string // Pipeline stage (e.g., "triage", "extract_ner")

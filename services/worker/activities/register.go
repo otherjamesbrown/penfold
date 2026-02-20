@@ -272,6 +272,10 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.pipelineActivities.RecordOverrides, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityRecordOverrides,
 		})
+		// KickNextPending - auto-drain: kicks next pending item after workflow completion
+		w.RegisterActivityWithOptions(r.pipelineActivities.KickNextPending, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityKickNextPending,
+		})
 	}
 
 	// Person enrichment activities for Stage 3.5 (entity enrichment)
@@ -460,9 +464,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.analysisActivities != nil {
 			count += 1
 		}
-		// RecordOverrides
+		// RecordOverrides, KickNextPending
 		if r.pipelineActivities != nil {
-			count += 1
+			count += 2
 		}
 		// EnrichPersonMetadata
 		if r.personEnrichmentActivities != nil {

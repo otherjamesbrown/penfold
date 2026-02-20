@@ -16,7 +16,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
+	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
@@ -392,6 +395,23 @@ func main() {
 		}
 	}
 
+	// Create gateway pipeline client for KickNextPending auto-drain
+	var pipelineClient pipelinev1.PipelineServiceClient
+	if cfg.GatewayAddr != "" {
+		gwConn, err := grpc.NewClient(cfg.GatewayAddr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		if err != nil {
+			logger.Error("Failed to create gateway pipeline client", logging.Err(err))
+		} else {
+			defer gwConn.Close()
+			pipelineClient = pipelinev1.NewPipelineServiceClient(gwConn)
+			logger.Info("Gateway pipeline client created",
+				logging.F("gateway_addr", cfg.GatewayAddr),
+			)
+		}
+	}
+
 	// Create activity and workflow registrars
 	var activityImpl *activities.Activities
 	if dbPool != nil {
@@ -416,8 +436,11 @@ func main() {
 	if pipelineRepo != nil && dbPool != nil {
 		baseRepo := pipeline.NewRepository(dbPool)
 		pipelineActivities := activities.NewPipelineActivities(logger, pipelineRepo, baseRepo)
+		if pipelineClient != nil {
+			pipelineActivities.WithPipelineClient(pipelineClient)
+		}
 		activityRegistrar.WithPipelineActivities(pipelineActivities)
-		logger.Info("Pipeline activities initialized (RecordOverrides)")
+		logger.Info("Pipeline activities initialized (RecordOverrides, KickNextPending)")
 	}
 
 	// Create parse activities (Stage 0, deterministic - no DB or AI needed)

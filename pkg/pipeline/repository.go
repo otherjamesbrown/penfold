@@ -4,11 +4,16 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ErrBatchNotFound is returned when a batch cannot be found by ID.
+var ErrBatchNotFound = errors.New("batch not found")
 
 // Repository handles database operations for pipeline stats and jobs.
 type Repository struct {
@@ -1033,6 +1038,145 @@ func jsonValueToString(val interface{}) string {
 		return fmt.Sprintf("%v", val)
 	}
 	return string(b)
+}
+
+// CreateBatch creates a new pipeline batch record and returns the generated UUID.
+func (r *Repository) CreateBatch(ctx context.Context, batch *Batch) (string, error) {
+	query := `
+		INSERT INTO pipeline_batches (tenant_id, workflow_id, total_items, completed_items, failed_items, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id
+	`
+
+	var id string
+	err := r.db.QueryRow(ctx, query,
+		batch.TenantID,
+		batch.WorkflowID,
+		batch.TotalItems,
+		batch.CompletedItems,
+		batch.FailedItems,
+		batch.Status,
+	).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("creating batch: %w", err)
+	}
+
+	return id, nil
+}
+
+// UpdateBatchProgress updates the completed and failed item counts for a batch.
+func (r *Repository) UpdateBatchProgress(ctx context.Context, batchID string, completed, failed int) error {
+	result, err := r.db.Exec(ctx, `
+		UPDATE pipeline_batches
+		SET completed_items = $2,
+		    failed_items = $3,
+		    updated_at = NOW()
+		WHERE id = $1
+	`, batchID, completed, failed)
+	if err != nil {
+		return fmt.Errorf("updating batch progress for %s: %w", batchID, err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("updating batch progress %s: %w", batchID, ErrBatchNotFound)
+	}
+
+	return nil
+}
+
+// UpdateBatchStatus updates the status of a batch.
+func (r *Repository) UpdateBatchStatus(ctx context.Context, batchID string, status string) error {
+	result, err := r.db.Exec(ctx, `
+		UPDATE pipeline_batches
+		SET status = $2,
+		    updated_at = NOW()
+		WHERE id = $1
+	`, batchID, status)
+	if err != nil {
+		return fmt.Errorf("updating batch status for %s: %w", batchID, err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("updating batch status %s: %w", batchID, ErrBatchNotFound)
+	}
+
+	return nil
+}
+
+// GetBatch retrieves a batch by ID.
+func (r *Repository) GetBatch(ctx context.Context, batchID string) (*Batch, error) {
+	query := `
+		SELECT id, tenant_id, workflow_id, total_items, completed_items, failed_items, status, created_at, updated_at
+		FROM pipeline_batches
+		WHERE id = $1
+	`
+
+	var b Batch
+	err := r.db.QueryRow(ctx, query, batchID).Scan(
+		&b.ID,
+		&b.TenantID,
+		&b.WorkflowID,
+		&b.TotalItems,
+		&b.CompletedItems,
+		&b.FailedItems,
+		&b.Status,
+		&b.CreatedAt,
+		&b.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrBatchNotFound
+		}
+		return nil, fmt.Errorf("getting batch %s: %w", batchID, err)
+	}
+
+	return &b, nil
+}
+
+// ListBatches lists recent batches for a tenant, ordered by created_at descending.
+// limit is capped at 1000.
+func (r *Repository) ListBatches(ctx context.Context, tenantID string, limit int) ([]*Batch, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	query := `
+		SELECT id, tenant_id, workflow_id, total_items, completed_items, failed_items, status, created_at, updated_at
+		FROM pipeline_batches
+		WHERE tenant_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`
+
+	rows, err := r.db.Query(ctx, query, tenantID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing batches for tenant %s: %w", tenantID, err)
+	}
+	defer rows.Close()
+
+	var batches []*Batch
+	for rows.Next() {
+		var b Batch
+		if err := rows.Scan(
+			&b.ID,
+			&b.TenantID,
+			&b.WorkflowID,
+			&b.TotalItems,
+			&b.CompletedItems,
+			&b.FailedItems,
+			&b.Status,
+			&b.CreatedAt,
+			&b.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning batch: %w", err)
+		}
+		batches = append(batches, &b)
+	}
+
+	return batches, rows.Err()
 }
 
 // RecordOverrides stores override parameters in pipeline_runs input_data JSONB.

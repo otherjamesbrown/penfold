@@ -8,6 +8,7 @@ import (
 
 	"go.temporal.io/sdk/temporal"
 
+	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
@@ -15,9 +16,10 @@ import (
 
 // PipelineActivities holds dependencies for pipeline metadata activities.
 type PipelineActivities struct {
-	logger       logging.Logger
-	pipelineRepo PipelineRepository
-	baseRepo     *pipeline.Repository // Direct access for lookups
+	logger         logging.Logger
+	pipelineRepo   PipelineRepository
+	baseRepo       *pipeline.Repository // Direct access for lookups
+	pipelineClient pipelinev1.PipelineServiceClient
 }
 
 // NewPipelineActivities creates a new PipelineActivities instance.
@@ -40,6 +42,60 @@ func NewPipelineActivities(
 		pipelineRepo: pipelineRepo,
 		baseRepo:     baseRepo,
 	}
+}
+
+// WithPipelineClient sets the gateway pipeline client for KickNextPending activity.
+// The client is optional — if nil, KickNextPending will be a no-op.
+func (a *PipelineActivities) WithPipelineClient(client pipelinev1.PipelineServiceClient) *PipelineActivities {
+	a.pipelineClient = client
+	return a
+}
+
+// KickNextPending triggers the gateway's KickProcessing RPC to auto-drain the pending queue.
+// This is a best-effort activity: if the client is nil or the RPC fails, a warning is logged
+// but the calling workflow is not failed.
+func (a *PipelineActivities) KickNextPending(ctx context.Context, input workflows.KickNextPendingInput) (*workflows.KickNextPendingOutput, error) {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "KickNextPending"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("limit", input.Limit),
+	)
+
+	// Record initial heartbeat
+	recordHeartbeat(ctx, "starting kick next pending")
+
+	if a.pipelineClient == nil {
+		logger.Warn("KickNextPending: pipeline client not configured, skipping auto-drain")
+		return &workflows.KickNextPendingOutput{}, nil
+	}
+
+	logger.Info("Kicking next pending pipeline item")
+
+	resp, err := a.pipelineClient.KickProcessing(ctx, &pipelinev1.KickProcessingRequest{
+		TenantId: input.TenantID,
+		Limit:    input.Limit,
+	})
+	if err != nil {
+		logger.Error("KickProcessing RPC failed", logging.Err(err))
+		return nil, temporal.NewApplicationErrorWithCause(
+			"KickProcessing RPC failed",
+			"GRPCError",
+			err,
+		)
+	}
+
+	// Record heartbeat after successful RPC
+	recordHeartbeat(ctx, "kick next pending complete")
+
+	logger.Info("KickNextPending complete",
+		logging.F("queued_count", resp.QueuedCount),
+		logging.F("message", resp.Message),
+	)
+
+	return &workflows.KickNextPendingOutput{
+		QueuedCount: resp.QueuedCount,
+		Message:     resp.Message,
+	}, nil
 }
 
 // RecordOverrides records override parameters in the latest pipeline run for a source.
@@ -124,4 +180,5 @@ var contentIDPattern = regexp.MustCompile(`^[a-z]{2}-[A-Za-z0-9]{8}$`)
 // Ensure PipelineActivities implements required interfaces at compile time.
 var _ interface {
 	RecordOverrides(ctx context.Context, input workflows.RecordOverridesInput) error
+	KickNextPending(ctx context.Context, input workflows.KickNextPendingInput) (*workflows.KickNextPendingOutput, error)
 } = (*PipelineActivities)(nil)

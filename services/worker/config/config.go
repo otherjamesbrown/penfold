@@ -66,6 +66,9 @@ type Config struct {
 
 	// AIServiceAddr is the gRPC address for the AI Coordinator service.
 	AIServiceAddr string
+
+	// GatewayAddr is the gRPC address for the Gateway service (pipeline service).
+	GatewayAddr string
 }
 
 // Default configuration values.
@@ -172,6 +175,12 @@ func Load() (*Config, error) {
 		cfg.AIServiceAddr = v
 	} else {
 		cfg.AIServiceAddr = "localhost:50055"
+	}
+
+	if v := os.Getenv("GATEWAY_ADDR"); v != "" {
+		cfg.GatewayAddr = v
+	} else {
+		cfg.GatewayAddr = "dev02.brown.chat:50051"
 	}
 
 	if err := cfg.Validate(); err != nil {
