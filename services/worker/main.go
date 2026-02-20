@@ -16,8 +16,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"crypto/tls"
+
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
@@ -399,7 +401,7 @@ func main() {
 	var pipelineClient pipelinev1.PipelineServiceClient
 	if cfg.GatewayAddr != "" {
 		gwConn, err := grpc.NewClient(cfg.GatewayAddr,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})),
 		)
 		if err != nil {
 			logger.Error("Failed to create gateway pipeline client", logging.Err(err))
