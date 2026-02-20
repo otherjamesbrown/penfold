@@ -293,6 +293,69 @@ func TestIngestion_FlushEmpty(t *testing.T) {
 	}
 }
 
+// TestIngestion_UpdateTrace verifies that UpdateTrace buffers a trace-create event with
+// only id and tags — no name, environment, metadata, or other fields.
+func TestIngestion_UpdateTrace(t *testing.T) {
+	client, err := langfuse.NewClient(&langfuse.Config{
+		Host:      "http://localhost:3000",
+		PublicKey: "pk-test",
+		SecretKey: "sk-test",
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	ing := langfuse.NewIngestion(client)
+
+	ing.UpdateTrace("trace-upd-001", []string{"content-abc", "conv:conv-thread-63"})
+
+	events := ing.PendingEvents()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 buffered event, got %d", len(events))
+	}
+	if events[0].Type != "trace-create" {
+		t.Errorf("expected event type 'trace-create', got %q", events[0].Type)
+	}
+	if events[0].ID == "" {
+		t.Error("expected non-empty envelope ID")
+	}
+
+	// Round-trip the body through JSON to inspect fields.
+	raw, err := json.Marshal(events[0].Body)
+	if err != nil {
+		t.Fatalf("json.Marshal body: %v", err)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("json.Unmarshal body: %v", err)
+	}
+
+	// Must have id field.
+	if body["id"] != "trace-upd-001" {
+		t.Errorf("expected id=%q, got %v", "trace-upd-001", body["id"])
+	}
+
+	// Tags must be present.
+	tagsRaw, ok := body["tags"].([]interface{})
+	if !ok {
+		t.Fatalf("expected tags to be a []interface{}, got %T: %v", body["tags"], body["tags"])
+	}
+	if len(tagsRaw) != 2 {
+		t.Errorf("expected 2 tags, got %d: %v", len(tagsRaw), tagsRaw)
+	}
+
+	// Must NOT have name, environment, metadata fields.
+	if _, has := body["name"]; has {
+		t.Errorf("UpdateTrace must not include 'name' field, got %v", body["name"])
+	}
+	if _, has := body["environment"]; has {
+		t.Errorf("UpdateTrace must not include 'environment' field, got %v", body["environment"])
+	}
+	if _, has := body["metadata"]; has {
+		t.Errorf("UpdateTrace must not include 'metadata' field, got %v", body["metadata"])
+	}
+}
+
 // TestIngestion_FlushError verifies that when the server returns 500, Flush returns an
 // error and the buffer is NOT cleared (events are preserved for retry).
 func TestIngestion_FlushError(t *testing.T) {

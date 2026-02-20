@@ -129,6 +129,24 @@ func (a *LangfuseActivities) FinishLangfuseTrace(ctx context.Context, input work
 	return nil
 }
 
+// UpdateLangfuseTraceTags updates the tags on an existing Langfuse trace.
+// Uses the Langfuse upsert semantics (trace-create with same ID updates the trace).
+// If Langfuse is not configured, this is a no-op.
+func (a *LangfuseActivities) UpdateLangfuseTraceTags(ctx context.Context, input workflows.UpdateLangfuseTraceTagsInput) error {
+	if a.ingestion == nil {
+		a.logger.Debug("Langfuse not configured — skipping UpdateLangfuseTraceTags")
+		return nil
+	}
+
+	a.ingestion.UpdateTrace(input.TraceID, input.Tags)
+
+	if err := a.ingestion.Flush(ctx); err != nil {
+		a.logger.Warn("Langfuse UpdateLangfuseTraceTags flush failed", logging.Err(err), logging.F("trace_id", input.TraceID))
+	}
+
+	return nil
+}
+
 // PersistLangfuseTraceID persists the Langfuse trace ID back to the sources table.
 // If no database pool is configured, this is a no-op.
 func (a *LangfuseActivities) PersistLangfuseTraceID(ctx context.Context, input workflows.PersistLangfuseTraceIDInput) error {

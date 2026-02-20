@@ -7,8 +7,9 @@ import (
 func TestAllMainQueueActivities(t *testing.T) {
 	activities := AllMainQueueActivities()
 
-	// Test count (pf-37ebe8: removed ReportLangfuseGeneration, added PersistLangfuseTraceID)
-	expectedCount := 26
+	// Test count (pf-37ebe8: removed ReportLangfuseGeneration, added PersistLangfuseTraceID;
+	// pf-b1ee4e: added UpdateLangfuseTraceTags)
+	expectedCount := 27
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -44,6 +45,7 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"ReportLangfusePhase",
 		"FinishLangfuseTrace",
 		"PersistLangfuseTraceID",
+		"UpdateLangfuseTraceTags",
 	}
 
 	activityMap := make(map[string]bool)

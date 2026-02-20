@@ -708,10 +708,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	langfuseTraceID := sideEffectUUID(ctx)
 
 	// Create a Langfuse trace for this pipeline run (best-effort, non-blocking).
+	// Tenant is identified via the Environment field (TenantName), not a tag.
 	langfuseTraceTags := []string{input.ContentID}
-	if input.TenantID != "" {
-		langfuseTraceTags = append(langfuseTraceTags, "tenant:"+input.TenantID)
-	}
 	ctxLangfuse := workflow.WithActivityOptions(ctx, fastOpts)
 	langfuseErr := workflow.ExecuteActivity(ctxLangfuse, pkgtemporal.ActivityCreateLangfuseTrace, CreateLangfuseTraceInput{
 		TraceID:      langfuseTraceID,
@@ -1228,6 +1226,17 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"thread_id", *threadID,
 				"conversation_id", convOutput.ConversationID,
 			)
+
+			// Update Langfuse trace tags with conversation_id (best-effort, non-blocking).
+			updatedTags := []string{input.ContentID, "conv:" + convOutput.ConversationID}
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, fastOpts),
+				pkgtemporal.ActivityUpdateLangfuseTraceTags,
+				UpdateLangfuseTraceTagsInput{
+					TraceID: langfuseTraceID,
+					Tags:    updatedTags,
+				},
+			).Get(ctx, nil)
 		}
 	}
 

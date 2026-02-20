@@ -316,6 +316,9 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.langfuseActivities.PersistLangfuseTraceID, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityPersistLangfuseTraceID,
 		})
+		w.RegisterActivityWithOptions(r.langfuseActivities.UpdateLangfuseTraceTags, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityUpdateLangfuseTraceTags,
+		})
 	}
 }
 
@@ -477,9 +480,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.conversationActivities != nil {
 			count += 1
 		}
-		// CreateLangfuseTrace, ReportLangfusePhase, FinishLangfuseTrace, PersistLangfuseTraceID
+		// CreateLangfuseTrace, ReportLangfusePhase, FinishLangfuseTrace, PersistLangfuseTraceID, UpdateLangfuseTraceTags
 		if r.langfuseActivities != nil {
-			count += 4
+			count += 5
 		}
 		return count
 	case config.AITaskQueue:

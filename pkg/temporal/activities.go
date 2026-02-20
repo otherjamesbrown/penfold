@@ -4,7 +4,7 @@ package temporal
 // These constants provide a single source of truth for activity names,
 // preventing typos and mismatches between registration and invocation.
 
-// Main Task Queue activity names (21 activities).
+// Main Task Queue activity names (22 activities).
 const (
 	ActivityValidateContent          = "ValidateContent"
 	ActivityFetchContent             = "FetchContent"
@@ -49,10 +49,11 @@ const (
 
 // Langfuse activity name constants (registered on the main task queue).
 const (
-	ActivityCreateLangfuseTrace    = "CreateLangfuseTrace"
-	ActivityReportLangfusePhase    = "ReportLangfusePhase"
-	ActivityFinishLangfuseTrace    = "FinishLangfuseTrace"
-	ActivityPersistLangfuseTraceID = "PersistLangfuseTraceID"
+	ActivityCreateLangfuseTrace      = "CreateLangfuseTrace"
+	ActivityReportLangfusePhase      = "ReportLangfusePhase"
+	ActivityFinishLangfuseTrace      = "FinishLangfuseTrace"
+	ActivityPersistLangfuseTraceID   = "PersistLangfuseTraceID"
+	ActivityUpdateLangfuseTraceTags  = "UpdateLangfuseTraceTags"
 )
 
 // Deprecated Langfuse activity name constants — removed from the main queue in pf-37ebe8.
@@ -94,6 +95,7 @@ func AllMainQueueActivities() []string {
 		ActivityReportLangfusePhase,
 		ActivityFinishLangfuseTrace,
 		ActivityPersistLangfuseTraceID,
+		ActivityUpdateLangfuseTraceTags,
 	}
 }
 

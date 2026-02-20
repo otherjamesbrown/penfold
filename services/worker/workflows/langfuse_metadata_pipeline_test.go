@@ -69,9 +69,21 @@ func (s *LangfuseMetadataPipelineTestSuite) SetupTest() {
 	noopFinishTrace := func(ctx context.Context, input FinishLangfuseTraceInput) error {
 		return nil
 	}
+	noopPersistTraceID := func(ctx context.Context, input PersistLangfuseTraceIDInput) error {
+		return nil
+	}
+	noopUpdateTraceTags := func(ctx context.Context, input UpdateLangfuseTraceTagsInput) error {
+		return nil
+	}
+	noopLinkConversation := func(ctx context.Context, input LinkConversationInput) (*LinkConversationOutput, error) {
+		return &LinkConversationOutput{}, nil
+	}
 	s.env.RegisterActivityWithOptions(noopLangfuseTrace, activity.RegisterOptions{Name: pkgtemporal.ActivityCreateLangfuseTrace})
 	s.env.RegisterActivityWithOptions(noopLangfusePhase, activity.RegisterOptions{Name: pkgtemporal.ActivityReportLangfusePhase})
 	s.env.RegisterActivityWithOptions(noopFinishTrace, activity.RegisterOptions{Name: pkgtemporal.ActivityFinishLangfuseTrace})
+	s.env.RegisterActivityWithOptions(noopPersistTraceID, activity.RegisterOptions{Name: pkgtemporal.ActivityPersistLangfuseTraceID})
+	s.env.RegisterActivityWithOptions(noopUpdateTraceTags, activity.RegisterOptions{Name: pkgtemporal.ActivityUpdateLangfuseTraceTags})
+	s.env.RegisterActivityWithOptions(noopLinkConversation, activity.RegisterOptions{Name: pkgtemporal.ActivityLinkConversation})
 
 	// Register ActivityReportLangfuseGeneration as a call-counting activity.
 	// This MUST NOT be called after pf-37ebe8 is implemented.

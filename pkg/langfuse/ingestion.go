@@ -183,6 +183,27 @@ func (i *Ingestion) CreateGeneration(e GenerationEvent) {
 	i.mu.Unlock()
 }
 
+// UpdateTrace buffers a trace-create event with only the specified fields.
+// The Langfuse API treats trace-create with an existing ID as an upsert,
+// so only the provided fields are updated.
+func (i *Ingestion) UpdateTrace(id string, tags []string) {
+	body := struct {
+		ID   string   `json:"id"`
+		Tags []string `json:"tags,omitempty"`
+	}{ID: id, Tags: tags}
+
+	evt := Event{
+		ID:        newEnvelopeID(),
+		Type:      "trace-create",
+		Timestamp: isoNow(),
+		Body:      body,
+	}
+
+	i.mu.Lock()
+	i.batch = append(i.batch, evt)
+	i.mu.Unlock()
+}
+
 // UpdateSpan buffers a span-update event that sets the end time of an existing span.
 func (i *Ingestion) UpdateSpan(id string, endTime time.Time) {
 	body := spanUpdateBody{

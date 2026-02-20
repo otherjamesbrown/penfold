@@ -31,7 +31,6 @@ import (
 //   - AssertTraceDuration: root span ends immediately (near-zero duration)
 //
 // Expected passes on current codebase:
-//   - AssertTenantTag: tenant tag is attached to the trace
 //   - AssertGenerationsHaveIO: most generations have input/output populated
 // ============================================================================
 
@@ -337,22 +336,6 @@ func (ta *TraceAssertion) AssertNoErrors() {
 	}
 }
 
-// AssertTenantTag asserts that the trace has a tag "tenant:<tenantID>".
-func (ta *TraceAssertion) AssertTenantTag(tenantID string) {
-	ta.t.Helper()
-
-	expected := "tenant:" + tenantID
-	for _, tag := range ta.trace.Tags {
-		if tag == expected {
-			ta.t.Logf("AssertTenantTag: found expected tenant tag %q", expected)
-			return
-		}
-	}
-
-	ta.t.Errorf("AssertTenantTag: trace %s does not have tag %q, got tags: %v",
-		ta.traceID, expected, ta.trace.Tags)
-}
-
 // AssertEnvironment asserts that the trace's environment field is set to the
 // expected human-readable tenant name (e.g. "Akamai"), not a UUID.
 //
@@ -517,9 +500,8 @@ func TestPipelineTraceLangfuse(t *testing.T) {
 	// OTel provider, producing orphaned traces separate from the pipeline trace.
 	ta.AssertNoOrphanTraces(before)
 
-	// 3. The trace must have the tenant tag.
-	// EXPECTED TO PASS on current codebase.
-	ta.AssertTenantTag(tenantID)
+	// 3. Tenant is identified via the Environment field (TenantName), not a tag.
+	// The tenant:UUID tag has been removed (pf-da3dbc); use AssertEnvironment instead.
 
 	// 3b. The trace environment must be the tenant NAME, not the UUID.
 	// EXPECTED TO FAIL: pipeline.go:721 passes TenantID as TenantName.

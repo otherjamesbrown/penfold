@@ -57,3 +57,9 @@ type ReportLangfuseGenerationInput struct {
 type FinishLangfuseTraceInput struct {
 	TraceID string `json:"trace_id"`
 }
+
+// UpdateLangfuseTraceTagsInput is the input for the UpdateLangfuseTraceTags activity.
+type UpdateLangfuseTraceTagsInput struct {
+	TraceID string   `json:"trace_id"`
+	Tags    []string `json:"tags"`
+}

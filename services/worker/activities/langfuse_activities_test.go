@@ -296,3 +296,68 @@ func TestPersistLangfuseTraceID_NoopWhenIngestionNil(t *testing.T) {
 	err := acts.PersistLangfuseTraceID(ctx, input)
 	assert.NoError(t, err, "PersistLangfuseTraceID must be a no-op when ingestion is nil")
 }
+
+// -----------------------------------------------------------------------------
+// Tests for UpdateLangfuseTraceTags activity (pf-b1ee4e)
+// -----------------------------------------------------------------------------
+
+// TestUpdateLangfuseTraceTags_BuffersTraceCreateEvent verifies that
+// UpdateLangfuseTraceTags buffers a trace-create event with only id and tags,
+// then flushes it to the server.
+func TestUpdateLangfuseTraceTags_BuffersTraceCreateEvent(t *testing.T) {
+	server := newOKServer(t)
+	defer server.Close()
+
+	ing := newTestLangfuseIngestion(t, server.URL)
+	logger := logging.NewNopLogger()
+	acts := NewLangfuseActivities(ing, logger)
+
+	input := workflows.UpdateLangfuseTraceTagsInput{
+		TraceID: "trace-conv-001",
+		Tags:    []string{"content-abc", "conv:conv-thread-42"},
+	}
+
+	ctx := context.Background()
+	err := acts.UpdateLangfuseTraceTags(ctx, input)
+	require.NoError(t, err)
+
+	// After flush, buffer should be empty (events were sent to OK server).
+	events := ing.PendingEvents()
+	assert.Empty(t, events, "buffer should be empty after successful flush")
+}
+
+// TestUpdateLangfuseTraceTags_NoopWhenIngestionNil verifies that
+// UpdateLangfuseTraceTags is a no-op when Langfuse is not configured.
+func TestUpdateLangfuseTraceTags_NoopWhenIngestionNil(t *testing.T) {
+	logger := logging.NewNopLogger()
+	acts := NewLangfuseActivities(nil, logger) // nil ingestion = Langfuse disabled
+
+	input := workflows.UpdateLangfuseTraceTagsInput{
+		TraceID: "trace-noop-001",
+		Tags:    []string{"content-xyz", "conv:conv-thread-99"},
+	}
+
+	ctx := context.Background()
+	err := acts.UpdateLangfuseTraceTags(ctx, input)
+	assert.NoError(t, err, "UpdateLangfuseTraceTags must be a no-op when ingestion is nil")
+}
+
+// TestUpdateLangfuseTraceTags_ActivityRegistered verifies that the activity
+// is registered on the main task queue.
+func TestUpdateLangfuseTraceTags_ActivityRegistered(t *testing.T) {
+	const wantName = pkgtemporal.ActivityUpdateLangfuseTraceTags
+
+	w := newMockWorker()
+	server := newOKServer(t)
+	defer server.Close()
+
+	ing := newTestLangfuseIngestion(t, server.URL)
+	logger := logging.NewNopLogger()
+	acts := NewLangfuseActivities(ing, logger)
+
+	r := NewRegistrar(nil).WithLangfuseActivities(acts)
+	r.RegisterAll(w, "penfold-main")
+
+	assert.Contains(t, w.registeredActivities, wantName,
+		"UpdateLangfuseTraceTags must be registered on the main task queue")
+}
