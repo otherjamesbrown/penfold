@@ -424,6 +424,7 @@ func (r *Repository) ExpandQuery(ctx context.Context, tenantID string, query str
 			matchedTerms[strings.ToLower(term.Term)] = true
 			result.ExpandedTerms = append(result.ExpandedTerms, ExpansionResult{
 				OriginalTerm: term.Term,
+				TermName:     term.Term,
 				Expansion:    term.Expansion,
 				Aliases:      term.Aliases,
 				Definition:   term.Definition,
@@ -438,6 +439,7 @@ func (r *Repository) ExpandQuery(ctx context.Context, tenantID string, query str
 				matchedTerms[strings.ToLower(term.Term)] = true
 				result.ExpandedTerms = append(result.ExpandedTerms, ExpansionResult{
 					OriginalTerm: alias,
+					TermName:     term.Term,
 					Expansion:    term.Expansion,
 					Aliases:      term.Aliases,
 					Definition:   term.Definition,

@@ -18,6 +18,7 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	searchv1 "github.com/otherjamesbrown/penfold/api/proto/search/v1"
+	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tenant"
 )
@@ -28,6 +29,12 @@ type EmbeddingGenerator interface {
 	GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error)
 }
 
+// QueryExpander expands a search query using glossary aliases and synonyms.
+// Implemented by *glossary.Repository.
+type QueryExpander interface {
+	ExpandQuery(ctx context.Context, tenantID string, query string) (*glossary.QueryExpansion, error)
+}
+
 // Service implements the SearchServiceServer using direct database queries.
 type Service struct {
 	searchv1.UnimplementedSearchServiceServer
@@ -35,6 +42,7 @@ type Service struct {
 	db         *pgxpool.Pool
 	tenantRepo *tenant.Repository
 	embedder   EmbeddingGenerator
+	expander   QueryExpander
 	logger     logging.Logger
 }
 
@@ -55,6 +63,64 @@ func NewService(db *pgxpool.Pool, logger logging.Logger) *Service {
 // When nil, Search() uses keyword-only scoring (ts_rank_cd).
 func (s *Service) SetEmbedder(e EmbeddingGenerator) {
 	s.embedder = e
+}
+
+// SetQueryExpander configures an optional glossary expander for alias-based query expansion.
+// When set, Search() expands the keyword query to include glossary aliases.
+// When nil, Search() uses the original query unchanged.
+func (s *Service) SetQueryExpander(e QueryExpander) {
+	s.expander = e
+}
+
+// buildAliasQuery builds a websearch_to_tsquery-compatible OR query from glossary expansion.
+// It includes the original query, the canonical term name, and all aliases.
+// Each term is double-quoted (phrase match) and any embedded double-quotes are stripped.
+func buildAliasQuery(originalQuery string, expansion *glossary.QueryExpansion) string {
+	seen := map[string]bool{}
+	parts := []string{}
+
+	addPart := func(s string) {
+		// Strip embedded double-quotes to avoid malformed websearch_to_tsquery input
+		s = strings.ReplaceAll(s, `"`, "")
+		s = strings.TrimSpace(s)
+		lower := strings.ToLower(s)
+		if s != "" && !seen[lower] {
+			seen[lower] = true
+			parts = append(parts, `"`+s+`"`)
+		}
+	}
+
+	addPart(originalQuery)
+	for _, term := range expansion.ExpandedTerms {
+		addPart(term.TermName)
+		addPart(term.OriginalTerm)
+		for _, alias := range term.Aliases {
+			addPart(alias)
+		}
+	}
+
+	if len(parts) == 0 {
+		return originalQuery
+	}
+	return strings.Join(parts, " OR ")
+}
+
+// buildExpansionInfo formats a human-readable description of the expansion applied.
+// Example: "36QDD expanded via Juniper Border Routers (3 aliases)"
+func buildExpansionInfo(expansion *glossary.QueryExpansion) string {
+	if len(expansion.ExpandedTerms) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(expansion.ExpandedTerms))
+	for _, term := range expansion.ExpandedTerms {
+		aliasCount := len(term.Aliases)
+		if aliasCount == 1 {
+			parts = append(parts, fmt.Sprintf("%s expanded via %s (1 alias)", expansion.OriginalQuery, term.TermName))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s expanded via %s (%d aliases)", expansion.OriginalQuery, term.TermName, aliasCount))
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 // resolveTenantID resolves a tenant reference (slug or UUID) to a UUID.
@@ -170,16 +236,35 @@ func (s *Service) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 
 	startTime := time.Now()
 
-	// Try to embed the query for hybrid scoring
+	// Expand the keyword query via glossary aliases (optional).
+	// The vector embedding always uses the original query for best semantic recall.
+	keywordQuery := query
+	expansionInfo := ""
+	if s.expander != nil {
+		expansion, expErr := s.expander.ExpandQuery(ctx, tenantID, query)
+		if expErr != nil {
+			s.logger.Warn("Glossary expansion failed, using original query", logging.Err(expErr))
+		} else if len(expansion.ExpandedTerms) > 0 {
+			keywordQuery = buildAliasQuery(query, expansion)
+			expansionInfo = buildExpansionInfo(expansion)
+			s.logger.Debug("Query expanded via glossary",
+				logging.F("original", query),
+				logging.F("expanded", keywordQuery),
+				logging.F("expansion_info", expansionInfo),
+			)
+		}
+	}
+
+	// Try to embed the ORIGINAL query for hybrid scoring (not the expanded one).
 	queryVecStr := s.embedQuery(ctx, query, tenantID)
 	useHybrid := queryVecStr != ""
 
 	var results []*searchv1.SearchResult
 
 	if useHybrid {
-		results, err = s.hybridSearch(ctx, query, tenantID, queryVecStr, textWeight, vectorWeight, limit, offset)
+		results, err = s.hybridSearch(ctx, keywordQuery, tenantID, queryVecStr, textWeight, vectorWeight, limit, offset)
 	} else {
-		results, err = s.keywordOnlySearch(ctx, query, tenantID, limit, offset)
+		results, err = s.keywordOnlySearch(ctx, keywordQuery, tenantID, limit, offset)
 	}
 	if err != nil {
 		return nil, err
@@ -191,8 +276,8 @@ func (s *Service) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 		SELECT COUNT(*)
 		FROM sources
 		WHERE tenant_id = $1
-			AND to_tsvector('english', COALESCE(raw_content, '')) @@ plainto_tsquery('english', $2)
-	`, tenantID, query).Scan(&totalCount)
+			AND to_tsvector('english', COALESCE(raw_content, '')) @@ websearch_to_tsquery('english', $2)
+	`, tenantID, keywordQuery).Scan(&totalCount)
 	if err != nil {
 		s.logger.Warn("Failed to get total count", logging.Err(err))
 		totalCount = int64(len(results))
@@ -208,9 +293,10 @@ func (s *Service) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 	)
 
 	return &searchv1.SearchResponse{
-		Results:     results,
-		TotalCount:  totalCount,
-		QueryTimeMs: queryTimeMs,
+		Results:       results,
+		TotalCount:    totalCount,
+		QueryTimeMs:   queryTimeMs,
+		ExpansionInfo: expansionInfo,
 	}, nil
 }
 
@@ -230,14 +316,14 @@ func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, quer
 				s.source_system,
 				COALESCE(m.title, s.ingestion_metadata->>'subject', s.content_type, 'Untitled') as title,
 				LEFT(s.raw_content, 500) as snippet,
-				ts_rank_cd(to_tsvector('english', COALESCE(s.raw_content, '')), plainto_tsquery('english', $1)) as text_score,
+				ts_rank_cd(to_tsvector('english', COALESCE(s.raw_content, '')), websearch_to_tsquery('english', $1)) as text_score,
 				s.content_type,
 				s.source_timestamp,
 				s.created_at
 			FROM sources s
 			LEFT JOIN meetings m ON s.meeting_id = m.id
 			WHERE s.tenant_id = $2
-				AND to_tsvector('english', COALESCE(s.raw_content, '')) @@ plainto_tsquery('english', $1)
+				AND to_tsvector('english', COALESCE(s.raw_content, '')) @@ websearch_to_tsquery('english', $1)
 		),
 		best_vectors AS (
 			SELECT DISTINCT ON (e.entity_id)
@@ -336,14 +422,14 @@ func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string,
 			s.source_system,
 			COALESCE(m.title, s.ingestion_metadata->>'subject', s.content_type, 'Untitled') as title,
 			LEFT(s.raw_content, 500) as snippet,
-			ts_rank_cd(to_tsvector('english', COALESCE(s.raw_content, '')), plainto_tsquery('english', $1)) as score,
+			ts_rank_cd(to_tsvector('english', COALESCE(s.raw_content, '')), websearch_to_tsquery('english', $1)) as score,
 			s.content_type,
 			s.source_timestamp,
 			s.created_at
 		FROM sources s
 		LEFT JOIN meetings m ON s.meeting_id = m.id
 		WHERE s.tenant_id = $2
-			AND to_tsvector('english', COALESCE(s.raw_content, '')) @@ plainto_tsquery('english', $1)
+			AND to_tsvector('english', COALESCE(s.raw_content, '')) @@ websearch_to_tsquery('english', $1)
 		ORDER BY score DESC, s.created_at DESC
 		LIMIT $3 OFFSET $4
 	`, query, tenantID, limit, offset)

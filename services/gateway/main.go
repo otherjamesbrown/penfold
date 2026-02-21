@@ -480,6 +480,9 @@ func main() {
 		searchSvc.SetEmbedder(aiClient)
 		logger.Info("SearchService: hybrid search enabled (keyword + vector)")
 	}
+	// Wire glossary alias expansion so searches for aliases find canonical terms.
+	searchSvc.SetQueryExpander(glossaryRepo)
+	logger.Info("SearchService: glossary alias expansion enabled")
 	searchv1.RegisterSearchServiceServer(grpcServer, searchSvc)
 	logger.Info("Registered SearchService (database-backed)")
 

@@ -62,6 +62,7 @@ type LinkedEntity struct {
 // ExpansionResult represents a term expansion for query enhancement.
 type ExpansionResult struct {
 	OriginalTerm string   `json:"original_term"`
+	TermName     string   `json:"term_name"`     // Canonical term name (term.Term), always set
 	Expansion    string   `json:"expansion"`
 	Aliases      []string `json:"aliases,omitempty"`
 	Definition   string   `json:"definition,omitempty"`
