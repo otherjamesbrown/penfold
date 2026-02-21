@@ -207,7 +207,7 @@ func separateQuotedReply(text string) (newContent, quotedContent string, detecte
 	// Note: No ^ anchor — after HTML-to-text, "From:" may not be at line start
 	// (e.g., Outlook separator text preceding "From:" on same line).
 	// The Sent/Date lookahead prevents false positives.
-	outlookFromPattern := regexp.MustCompile(`(?i)From:\s+.+`)
+	outlookFromPattern := regexp.MustCompile(`(?i)From:\s*.+`)
 	outlookSentPattern := regexp.MustCompile(`(?i)^(Sent|Date):\s+.+`)
 
 	splitIndex := -1

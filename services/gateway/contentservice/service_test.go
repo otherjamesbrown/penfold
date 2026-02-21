@@ -625,6 +625,8 @@ func TestGetAssertions(t *testing.T) {
 		now := time.Now()
 		sourceQuote := "This is a risky assumption"
 		extractionModel := "gemini-2.0-flash"
+		conf1 := float32(0.85)
+		conf2 := float32(0.92)
 
 		mockRepo.On("GetAssertions", ctx, "test-content-id", (*string)(nil)).Return([]*AssertionRecord{
 			{
@@ -632,7 +634,7 @@ func TestGetAssertions(t *testing.T) {
 				AssertionType:   "risk",
 				Description:     "Project timeline at risk due to dependencies",
 				SourceQuote:     &sourceQuote,
-				Confidence:      0.85,
+				Confidence:      &conf1,
 				ExtractionModel: &extractionModel,
 				CreatedAt:       now,
 			},
@@ -641,7 +643,7 @@ func TestGetAssertions(t *testing.T) {
 				AssertionType:   "action_item",
 				Description:     "Sarah to review security audit",
 				SourceQuote:     nil,
-				Confidence:      0.92,
+				Confidence:      &conf2,
 				ExtractionModel: &extractionModel,
 				CreatedAt:       now,
 			},
@@ -685,6 +687,7 @@ func TestGetAssertions(t *testing.T) {
 		sourceQuote := "This is a risky assumption"
 		extractionModel := "gemini-2.0-flash"
 		assertionType := "risk"
+		conf := float32(0.85)
 
 		mockRepo.On("GetAssertions", ctx, "test-content-id", &assertionType).Return([]*AssertionRecord{
 			{
@@ -692,7 +695,7 @@ func TestGetAssertions(t *testing.T) {
 				AssertionType:   "risk",
 				Description:     "Project timeline at risk due to dependencies",
 				SourceQuote:     &sourceQuote,
-				Confidence:      0.85,
+				Confidence:      &conf,
 				ExtractionModel: &extractionModel,
 				CreatedAt:       now,
 			},

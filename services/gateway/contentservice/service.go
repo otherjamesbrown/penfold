@@ -112,7 +112,7 @@ type AssertionRecord struct {
 	AssertionType   string
 	Description     string
 	SourceQuote     *string
-	Confidence      float32
+	Confidence      *float32
 	ExtractionModel *string
 	CreatedAt       time.Time
 }
@@ -2076,11 +2076,15 @@ func (s *Service) GetAssertions(ctx context.Context, req *contentv1.GetAssertion
 	// Convert to proto
 	protoAssertions := make([]*contentv1.Assertion, len(assertions))
 	for i, rec := range assertions {
+		var confidence float32
+		if rec.Confidence != nil {
+			confidence = *rec.Confidence
+		}
 		protoAssertions[i] = &contentv1.Assertion{
 			Id:            rec.ID,
 			AssertionType: rec.AssertionType,
 			Description:   rec.Description,
-			Confidence:    rec.Confidence,
+			Confidence:    confidence,
 			CreatedAt:     timestamppb.New(rec.CreatedAt),
 		}
 

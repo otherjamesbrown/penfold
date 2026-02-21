@@ -852,3 +852,72 @@ Here is the original message content.`
 		t.Error("Quoted content should contain original message body")
 	}
 }
+
+// TestOutlookQuotedReply_QuotedNameInFrom is a REPRODUCTION TEST for bug pf-d34d8f.
+//
+// BUG: When Outlook HTML uses <b>From: </b>"Dunn, Tim" the HTML tokenizer
+// emits two separate text tokens:
+//   1. "From: " (from inside <b>) — TrimSpace'd to "From:" at line 112 of email.go
+//   2. "\"Dunn, Tim\"" (outside <b>) — starts with '"' (double-quote)
+//
+// The punctuation guard at email.go:118 lists '"' as punctuation, so no space is
+// inserted between the two tokens. The assembled line becomes:
+//   From:"Dunn, Tim" <tdunn@example.com>
+//
+// The outlookFromPattern at email.go:210 is:
+//   (?i)From:\s+.+
+// which requires one or more whitespace characters after "From:". The colon is
+// followed immediately by '"', so the pattern does not match and quoted reply
+// detection fails entirely.
+//
+// CONSEQUENCE: The full email body — including Subject: lines from the reply chain —
+// is passed to assertion extraction as if it were new content.
+//
+// EXPECTED BEHAVIOR: QuotedReplyDetected == true; NewContent does NOT contain "Subject:".
+// This test FAILS against current code (the regex does not match).
+func TestOutlookQuotedReply_QuotedNameInFrom(t *testing.T) {
+	// Realistic Outlook HTML where the sender display name is wrapped in double-quotes.
+	// <b>From: </b> produces token "From: " → TrimSpace → "From:"
+	// then the next text node starts with '"' which the punctuation guard prevents
+	// a space being inserted before, yielding "From:\"Dunn, Tim\"" in the output.
+	htmlInput := `<div>
+<p>Sara's response text here.</p>
+</div>
+<div style="border:none;border-top:solid #B5C4DF 1.0pt;padding:3.0pt 0in 0in 0in">
+<p><b>From: </b>"Dunn, Tim" &lt;tdunn@example.com&gt;<br>
+<b>Date: </b>Thursday, December 4, 2025 at 10:33 AM<br>
+<b>To: </b>someone@example.com<br>
+<b>Subject: </b>Re: Important Topic</p>
+</div>
+<div><p>Original email content</p></div>`
+
+	result := ParseEmailBody("", htmlInput)
+
+	// PRIMARY ASSERTION: quoted reply must be detected.
+	// FAILS against current code: From:"Dunn, Tim" does not match (?i)From:\s+.+
+	if !result.QuotedReplyDetected {
+		t.Errorf("Expected QuotedReplyDetected=true for Outlook HTML with quoted sender name.\n"+
+			"CleanBody was:\n%s", result.CleanBody)
+	}
+
+	// SECONDARY ASSERTION: new content must not contain a Subject: line.
+	// When detection fails the entire body becomes NewContent, which includes
+	// "Subject: Re: Important Topic" from the reply chain.
+	if strings.Contains(result.NewContent, "Subject:") {
+		t.Errorf("NewContent must not contain 'Subject:' — quoted reply was not separated.\n"+
+			"NewContent was:\n%s", result.NewContent)
+	}
+
+	// TERTIARY ASSERTION: Sara's text must be in NewContent (not lost).
+	if !strings.Contains(result.NewContent, "Sara's response text here") {
+		t.Errorf("NewContent should contain the reply text.\nGot:\n%s", result.NewContent)
+	}
+
+	// QUATERNARY ASSERTION: the From: line must appear in QuotedContent only.
+	if strings.Contains(result.NewContent, "Dunn, Tim") {
+		t.Errorf("NewContent should not contain the quoted From: sender.\nGot:\n%s", result.NewContent)
+	}
+	if !strings.Contains(result.QuotedContent, "Dunn, Tim") {
+		t.Errorf("QuotedContent should contain the original sender.\nGot:\n%s", result.QuotedContent)
+	}
+}

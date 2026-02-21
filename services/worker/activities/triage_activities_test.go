@@ -446,6 +446,175 @@ func TestTriage_ContentContribution_MissingFields(t *testing.T) {
 	// require.Equal(t, "HIGH", output.ContentContribution) // Explicit default
 }
 
+// TestTriage_AutoReply_ShortCircuit_pf64dcc4 is the reproduction test for bug pf-64dcc4.
+//
+// Bug: An auto-reply email (subject "Automatic reply: ...") is classified as MEDIUM
+// contribution by the LLM triage activity because the Triage activity calls the AI
+// without first checking whether the email is an auto-reply. ClassifySourceSystem
+// (which detects "Automatic reply:" subjects) runs at pipeline.go line ~1185, well
+// AFTER the AI triage call at line ~916. By then the MEDIUM label is already committed.
+//
+// Expected (after fix): The Triage activity should detect the "Automatic reply:" subject
+// prefix, skip the AI call, and return ContentContribution = "NONE" (or "LOW") without
+// hitting the LLM. This test must FAIL against unpatched code.
+func TestTriage_AutoReply_ShortCircuit_pf64dcc4(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	// Track whether the AI client was called - it must NOT be called for an auto-reply.
+	aiCalled := false
+	mockClient := &mockAIClient{
+		triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+			aiCalled = true
+			// Simulate what the LLM does today: classifies the auto-reply body as MEDIUM
+			// because it sees "out of office" content without understanding it is a robot reply.
+			contribution := "MEDIUM"
+			return &aiv1.TriageContentResponse{
+				Category:            "INTERNAL_COMMS",
+				Importance:          "LOW",
+				Reason:              "Out-of-office auto-reply",
+				ModelUsed:           "llama-3.2-1b",
+				ContentContribution: &contribution,
+			}, nil
+		},
+	}
+
+	activities := NewTriageActivities(logger, mockClient, nil, nil)
+
+	// Email em-w4XTS5St: Mark Henry out-of-office auto-reply.
+	// The subject prefix "Automatic reply:" is the canonical signal used by
+	// ClassifySourceSystem (pkg/enrichment/classification/source_system.go priority 6)
+	// to detect auto-replies. The triage activity must honour the same signal.
+	input := TriageInput{
+		TenantID:    "test-tenant",
+		SourceID:    99999,
+		ContentID:   "em-w4XTS5St",
+		JobID:       "job-autoreply",
+		Subject:     "Automatic reply: Q3 roadmap discussion",
+		SenderEmail: "mark.henry@example.com",
+		Content: "I am currently traveling and will have limited access to email. " +
+			"I will respond to your message when I return on Monday. " +
+			"If you need immediate assistance, please contact my colleague.",
+		ContentType: "email",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// The AI must NOT have been called: auto-reply detection must short-circuit before the LLM.
+	// FAILS on unpatched code because the Triage activity has no auto-reply check.
+	require.False(t, aiCalled,
+		"bug pf-64dcc4: Triage activity called the AI for an auto-reply email. "+
+			"The 'Automatic reply:' subject prefix must be detected before the LLM call "+
+			"so that auto-replies are short-circuited without LLM inference.")
+
+	// After the fix, contribution must be NONE or LOW — never MEDIUM/HIGH for an auto-reply.
+	// FAILS on unpatched code because the AI returns MEDIUM which is propagated verbatim.
+	validAutoReplyContributions := []string{"NONE", "LOW"}
+	require.Contains(t, validAutoReplyContributions, output.ContentContribution,
+		"bug pf-64dcc4: auto-reply email got ContentContribution=%q, want NONE or LOW. "+
+			"The LLM classified the body as MEDIUM because ClassifySourceSystem runs after triage. "+
+			"The fix must detect 'Automatic reply:' in the Triage activity itself.",
+		output.ContentContribution)
+}
+
+// TestTriage_AutoReply_CaseInsensitive_pf64dcc4 verifies the auto-reply short-circuit
+// is case-insensitive, matching the behaviour of ClassifySourceSystem which lowercases
+// the subject before checking HasPrefix("automatic reply:").
+func TestTriage_AutoReply_CaseInsensitive_pf64dcc4(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	aiCalled := false
+	mockClient := &mockAIClient{
+		triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+			aiCalled = true
+			contribution := "HIGH"
+			return &aiv1.TriageContentResponse{
+				Category:            "CUSTOMER",
+				Importance:          "HIGH",
+				Reason:              "Mistakenly classified auto-reply",
+				ModelUsed:           "llama-3.2-1b",
+				ContentContribution: &contribution,
+			}, nil
+		},
+	}
+
+	activities := NewTriageActivities(logger, mockClient, nil, nil)
+
+	// Outlook sometimes capitalises the prefix differently.
+	input := TriageInput{
+		TenantID:    "test-tenant",
+		SourceID:    99998,
+		ContentID:   "em-autoreply-caps",
+		JobID:       "job-autoreply-caps",
+		Subject:     "AUTOMATIC REPLY: Weekly sync follow-up",
+		SenderEmail: "ooo@example.com",
+		Content:     "Thank you for your message. I am out of the office until further notice.",
+		ContentType: "email",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// FAILS on unpatched code.
+	require.False(t, aiCalled,
+		"bug pf-64dcc4 (case-insensitive): AI called for an all-caps 'AUTOMATIC REPLY:' subject. "+
+			"Detection must be case-insensitive to match ClassifySourceSystem behaviour.")
+
+	validAutoReplyContributions := []string{"NONE", "LOW"}
+	require.Contains(t, validAutoReplyContributions, output.ContentContribution,
+		"bug pf-64dcc4 (case-insensitive): ContentContribution=%q for auto-reply, want NONE or LOW",
+		output.ContentContribution)
+}
+
+// TestTriage_NonAutoReply_NotShortCircuited_pf64dcc4 is the negative control: a normal
+// email whose subject starts with "Re:" (reply but NOT an auto-reply) must still go
+// through the AI triage call. This verifies the fix does not over-trigger.
+func TestTriage_NonAutoReply_NotShortCircuited_pf64dcc4(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	aiCalled := false
+	mockClient := &mockAIClient{
+		triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+			aiCalled = true
+			contribution := "HIGH"
+			return &aiv1.TriageContentResponse{
+				Category:            "PROJECT_UPDATE",
+				Importance:          "HIGH",
+				Reason:              "Normal reply with project content",
+				ModelUsed:           "llama-3.2-1b",
+				ContentContribution: &contribution,
+			}, nil
+		},
+	}
+
+	activities := NewTriageActivities(logger, mockClient, nil, nil)
+
+	input := TriageInput{
+		TenantID:    "test-tenant",
+		SourceID:    99997,
+		ContentID:   "em-normal-reply",
+		JobID:       "job-normal-reply",
+		Subject:     "Re: Q3 roadmap discussion",
+		SenderEmail: "alice@example.com",
+		Content:     "Thanks for sharing the roadmap. I think we should prioritise the API work in Q3.",
+		ContentType: "email",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// Normal reply emails MUST go through the AI — only "Automatic reply:" is short-circuited.
+	require.True(t, aiCalled,
+		"bug pf-64dcc4 (negative control): AI was NOT called for a normal 'Re:' reply. "+
+			"The auto-reply short-circuit must only fire for 'Automatic reply:' subjects.")
+
+	require.Equal(t, "HIGH", output.ContentContribution,
+		"Normal reply should keep the AI-assigned contribution level")
+}
+
 // TestTriage_ContentContribution_EmptyString verifies handling of empty contribution value.
 func TestTriage_ContentContribution_EmptyString(t *testing.T) {
 	logger := logging.NewNopLogger()

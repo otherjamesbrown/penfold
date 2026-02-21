@@ -4,6 +4,7 @@ package activities
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -112,6 +113,38 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 				logging.F("source_id", input.SourceID),
 			)
 		}
+	}
+
+	// Handle auto-reply emails (pf-64dcc4)
+	// Auto-replies are system-generated messages with no meaningful content contribution.
+	// Detect by subject prefix "automatic reply:" (case-insensitive), matching the same
+	// heuristic used by ClassifySourceSystem in pkg/enrichment/classification/source_system.go.
+	// Short-circuit before the AI call to avoid the LLM mis-classifying OOO body text.
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(input.Subject)), "automatic reply:") {
+		logger.Info("Auto-reply email detected, skipping AI triage",
+			logging.F("subject", input.Subject),
+		)
+
+		output := &workflows.TriageOutput{
+			Category:            "INTERNAL_COMMS",
+			Importance:          "LOW",
+			Reason:              "Auto-reply email (subject prefix: 'Automatic reply:')",
+			Confidence:          1.0,
+			ModelUsed:           "subject-classifier",
+			SkipDeep:            true,
+			ContentSubtype:      string(subtype),
+			ContentContribution: "NONE",
+			ContributionReason:  "Auto-reply emails do not contribute meaningful content",
+		}
+
+		logger.Info("Triage completed (auto-reply short-circuit)",
+			logging.F("category", output.Category),
+			logging.F("importance", output.Importance),
+			logging.F("content_contribution", output.ContentContribution),
+			logging.F("skip_deep", output.SkipDeep),
+		)
+
+		return output, nil
 	}
 
 	// Handle calendar invites with empty body (pf-479452)
