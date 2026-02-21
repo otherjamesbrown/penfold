@@ -135,30 +135,37 @@ func (r *PersistRepo) PersistFindings(ctx context.Context, input *PersistFinding
 		)
 	}
 
+	// Resolve thread context for cross-thread dedup.
+	// If the pipeline didn't pass a thread_id, look it up from thread_messages.
+	tc := r.resolveThreadContext(ctx, tx, input.SourceID)
+	if tc != nil && input.ThreadID == nil {
+		input.ThreadID = &tc.threadID
+	}
+
 	// Process verified actions
 	for _, action := range input.Analysis.VerifiedActions {
-		if err := r.persistAction(ctx, tx, input, &action, output); err != nil {
+		if err := r.persistAction(ctx, tx, input, tc, &action, output); err != nil {
 			return nil, fmt.Errorf("failed to persist action: %w", err)
 		}
 	}
 
 	// Process verified decisions
 	for _, decision := range input.Analysis.VerifiedDecisions {
-		if err := r.persistDecision(ctx, tx, input, &decision, output); err != nil {
+		if err := r.persistDecision(ctx, tx, input, tc, &decision, output); err != nil {
 			return nil, fmt.Errorf("failed to persist decision: %w", err)
 		}
 	}
 
 	// Process risk references
 	for _, risk := range input.Analysis.RiskReferences {
-		if err := r.persistRisk(ctx, tx, input, &risk, output); err != nil {
+		if err := r.persistRisk(ctx, tx, input, tc, &risk, output); err != nil {
 			return nil, fmt.Errorf("failed to persist risk: %w", err)
 		}
 	}
 
 	// Process implicit actions
 	for _, action := range input.Analysis.ImplicitActions {
-		if err := r.persistImplicitAction(ctx, tx, input, &action, output); err != nil {
+		if err := r.persistImplicitAction(ctx, tx, input, tc, &action, output); err != nil {
 			return nil, fmt.Errorf("failed to persist implicit action: %w", err)
 		}
 	}
@@ -166,6 +173,13 @@ func (r *PersistRepo) PersistFindings(ctx context.Context, input *PersistFinding
 	// Update entity project affinity
 	if err := r.updateAffinity(ctx, tx, input, output); err != nil {
 		return nil, fmt.Errorf("failed to update affinity: %w", err)
+	}
+
+	if output.AssertionsDeduplicated > 0 {
+		r.logger.Info("Cross-thread dedup skipped duplicate assertions from quoted text",
+			logging.F("source_id", input.SourceID),
+			logging.F("deduplicated_count", output.AssertionsDeduplicated),
+		)
 	}
 
 	// Commit transaction
@@ -292,9 +306,64 @@ func (r *PersistRepo) checkExistingAssertion(ctx context.Context, tx pgx.Tx, sou
 	return &id, nil
 }
 
+// threadContext holds thread membership data for the current source, used for cross-thread dedup.
+type threadContext struct {
+	threadID    int64
+	messageDate time.Time
+}
+
+// resolveThreadContext looks up the email thread membership for a source from the thread_messages table.
+// Returns nil if the source is not part of any thread.
+func (r *PersistRepo) resolveThreadContext(ctx context.Context, tx pgx.Tx, sourceID int64) *threadContext {
+	query := `
+		SELECT tm.thread_id, tm.message_date
+		FROM thread_messages tm
+		WHERE tm.source_id = $1
+		LIMIT 1
+	`
+	var tc threadContext
+	err := tx.QueryRow(ctx, query, sourceID).Scan(&tc.threadID, &tc.messageDate)
+	if err != nil {
+		// Not in a thread, or query failed — cross-thread dedup won't apply
+		return nil
+	}
+	return &tc
+}
+
+// isQuotedTextDuplicate checks if the same source_quote already exists as an assertion
+// in an earlier message within the same email thread. This catches duplicates from
+// quoted reply chains where the LLM extracts the same assertion from quoted text.
+//
+// Only checks messages with an earlier message_date to ensure the original assertion
+// is preserved and only the later quoted copies are deduplicated.
+func (r *PersistRepo) isQuotedTextDuplicate(ctx context.Context, tx pgx.Tx, sourceID int64, tc *threadContext, sourceQuote string) bool {
+	if tc == nil || sourceQuote == "" {
+		return false
+	}
+
+	query := `
+		SELECT 1 FROM assertions a
+		JOIN thread_messages tm ON a.source_id = tm.source_id AND tm.thread_id = $1
+		WHERE a.source_quote = $2
+		AND a.source_id != $3
+		AND tm.message_date < $4
+		LIMIT 1
+	`
+	var dummy int
+	err := tx.QueryRow(ctx, query, tc.threadID, sourceQuote, sourceID, tc.messageDate).Scan(&dummy)
+	return err == nil // found match = is duplicate from quoted text
+}
+
 // persistAction persists a verified action assertion.
-func (r *PersistRepo) persistAction(ctx context.Context, tx pgx.Tx, input *PersistFindingsInput, action *VerifiedActionOutput, output *PersistFindingsOutput) error {
+func (r *PersistRepo) persistAction(ctx context.Context, tx pgx.Tx, input *PersistFindingsInput, tc *threadContext, action *VerifiedActionOutput, output *PersistFindingsOutput) error {
 	assertionType := "action"
+
+	// Cross-thread dedup: skip if identical quote exists in an earlier message in same thread.
+	// This catches assertions extracted from quoted reply text that duplicate the original.
+	if r.isQuotedTextDuplicate(ctx, tx, input.SourceID, tc, action.ContextExcerpt) {
+		output.AssertionsDeduplicated++
+		return nil
+	}
 
 	// Check for existing assertion (using source_quote, not description)
 	existingID, err := r.checkExistingAssertion(ctx, tx, input.SourceID, assertionType, action.ContextExcerpt)
@@ -366,8 +435,14 @@ func (r *PersistRepo) persistAction(ctx context.Context, tx pgx.Tx, input *Persi
 }
 
 // persistDecision persists a verified decision assertion.
-func (r *PersistRepo) persistDecision(ctx context.Context, tx pgx.Tx, input *PersistFindingsInput, decision *VerifiedDecisionOutput, output *PersistFindingsOutput) error {
+func (r *PersistRepo) persistDecision(ctx context.Context, tx pgx.Tx, input *PersistFindingsInput, tc *threadContext, decision *VerifiedDecisionOutput, output *PersistFindingsOutput) error {
 	assertionType := "decision"
+
+	// Cross-thread dedup: skip if identical quote exists in an earlier message in same thread.
+	if r.isQuotedTextDuplicate(ctx, tx, input.SourceID, tc, decision.ContextExcerpt) {
+		output.AssertionsDeduplicated++
+		return nil
+	}
 
 	// Check for existing assertion (using source_quote, not description)
 	existingID, err := r.checkExistingAssertion(ctx, tx, input.SourceID, assertionType, decision.ContextExcerpt)
@@ -430,10 +505,17 @@ func (r *PersistRepo) persistDecision(ctx context.Context, tx pgx.Tx, input *Per
 }
 
 // persistRisk persists a risk or issue assertion.
-func (r *PersistRepo) persistRisk(ctx context.Context, tx pgx.Tx, input *PersistFindingsInput, risk *RiskReferenceOutput, output *PersistFindingsOutput) error {
+func (r *PersistRepo) persistRisk(ctx context.Context, tx pgx.Tx, input *PersistFindingsInput, tc *threadContext, risk *RiskReferenceOutput, output *PersistFindingsOutput) error {
 	assertionType := "risk"
 	if !risk.IsNew && risk.RootID != nil {
 		assertionType = "issue"
+	}
+
+	// Cross-thread dedup: skip if identical quote exists in an earlier message in same thread.
+	// Exception: explicit RootID updates (lifecycle changes) should not be deduped.
+	if risk.RootID == nil && r.isQuotedTextDuplicate(ctx, tx, input.SourceID, tc, risk.ContextExcerpt) {
+		output.AssertionsDeduplicated++
+		return nil
 	}
 
 	// Check for existing assertion (using source_quote, not description)
@@ -568,8 +650,14 @@ func (r *PersistRepo) persistRisk(ctx context.Context, tx pgx.Tx, input *Persist
 }
 
 // persistImplicitAction persists an implicit action assertion.
-func (r *PersistRepo) persistImplicitAction(ctx context.Context, tx pgx.Tx, input *PersistFindingsInput, action *ImplicitActionOutput, output *PersistFindingsOutput) error {
+func (r *PersistRepo) persistImplicitAction(ctx context.Context, tx pgx.Tx, input *PersistFindingsInput, tc *threadContext, action *ImplicitActionOutput, output *PersistFindingsOutput) error {
 	assertionType := "action"
+
+	// Cross-thread dedup: skip if identical quote exists in an earlier message in same thread.
+	if r.isQuotedTextDuplicate(ctx, tx, input.SourceID, tc, action.ContextExcerpt) {
+		output.AssertionsDeduplicated++
+		return nil
+	}
 
 	// Check for existing assertion (using source_quote, not description)
 	existingID, err := r.checkExistingAssertion(ctx, tx, input.SourceID, assertionType, action.ContextExcerpt)

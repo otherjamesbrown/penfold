@@ -204,7 +204,10 @@ func separateQuotedReply(text string) (newContent, quotedContent string, detecte
 	// Pattern 3: Outlook-style "From: ... Sent: ..." block
 	// Look for "From:" followed by "Sent:" or "Date:" within a few lines
 	// "Date:" is used by Apple Mail and Outlook for Mac instead of "Sent:"
-	outlookFromPattern := regexp.MustCompile(`(?i)^From:\s+.+`)
+	// Note: No ^ anchor — after HTML-to-text, "From:" may not be at line start
+	// (e.g., Outlook separator text preceding "From:" on same line).
+	// The Sent/Date lookahead prevents false positives.
+	outlookFromPattern := regexp.MustCompile(`(?i)From:\s+.+`)
 	outlookSentPattern := regexp.MustCompile(`(?i)^(Sent|Date):\s+.+`)
 
 	splitIndex := -1

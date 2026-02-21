@@ -818,3 +818,37 @@ Carol`
 		t.Error("Quoted content should contain forwarded message body")
 	}
 }
+
+// TestSeparateQuotedReply_OutlookMidLineFrom tests that Outlook-style quoted
+// replies are detected even when "From:" appears mid-line after HTML-to-text
+// conversion concatenates separator text with the header block.
+// Bug: pf-eddc2d (contributing cause #2)
+func TestSeparateQuotedReply_OutlookMidLineFrom(t *testing.T) {
+	// Simulates HTML-to-text output where separator and From: end up on same line
+	email := `Great, thanks for confirming.
+
+________________________________ From: alice@example.com
+Sent: Tuesday, January 30, 2024 9:00 AM
+To: bob@example.com
+Subject: Re: Project Update
+
+Here is the original message content.`
+
+	result := ParseEmailBody(email, "")
+
+	if !result.QuotedReplyDetected {
+		t.Error("Expected quoted reply to be detected with mid-line From:")
+	}
+
+	if !strings.Contains(result.NewContent, "Great, thanks for confirming") {
+		t.Errorf("New content should contain the reply text.\nGot: %s", result.NewContent)
+	}
+
+	if !strings.Contains(result.QuotedContent, "From: alice@example.com") {
+		t.Error("Quoted content should contain From header")
+	}
+
+	if !strings.Contains(result.QuotedContent, "Here is the original message content") {
+		t.Error("Quoted content should contain original message body")
+	}
+}

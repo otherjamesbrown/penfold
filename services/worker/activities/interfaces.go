@@ -306,11 +306,12 @@ type PersistFindingsInput struct {
 
 // PersistFindingsOutput is the output from persisting findings.
 type PersistFindingsOutput struct {
-	AssertionsCreated    int
-	AssertionsSuperseded int
-	ReferencesCreated    int
-	ReviewItemsCreated   int
-	AffinityUpdates      int
+	AssertionsCreated      int
+	AssertionsSuperseded   int
+	AssertionsDeduplicated int // Cross-thread dedup: skipped because identical quote exists in earlier thread message
+	ReferencesCreated      int
+	ReviewItemsCreated     int
+	AffinityUpdates        int
 	// For saga compensation
 	CreatedAssertionIDs []int64
 	CreatedReferenceIDs []int64
@@ -415,7 +416,8 @@ type GroupEmailThreadInput struct {
 
 // GroupEmailThreadOutput is the output from the GroupEmailThread activity.
 type GroupEmailThreadOutput struct {
-	ThreadID *string `json:"thread_id,omitempty"` // Root message ID (nil if not threaded)
+	ThreadID      *string `json:"thread_id,omitempty"`       // Root message ID (nil if not threaded)
+	EmailThreadID *int64  `json:"email_thread_id,omitempty"` // Numeric email_threads.id for assertion dedup
 }
 
 // ConversationItem represents a content item in a conversation.

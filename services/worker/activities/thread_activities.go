@@ -219,7 +219,7 @@ func (a *ThreadActivities) GroupEmailThread(ctx context.Context, input GroupEmai
 		logging.F("is_reply", threadData.IsReply),
 	)
 
-	return &GroupEmailThreadOutput{ThreadID: &rootMessageID}, nil
+	return &GroupEmailThreadOutput{ThreadID: &rootMessageID, EmailThreadID: &threadID}, nil
 }
 
 // extractThreadData is a helper to extract thread data from a source.

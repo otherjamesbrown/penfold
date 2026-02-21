@@ -231,7 +231,8 @@ type GroupEmailThreadInput struct {
 
 // GroupEmailThreadOutput is the output from the GroupEmailThread activity.
 type GroupEmailThreadOutput struct {
-	ThreadID *string `json:"thread_id,omitempty"` // Root message ID (nil if not threaded)
+	ThreadID      *string `json:"thread_id,omitempty"`       // Root message ID (nil if not threaded)
+	EmailThreadID *int64  `json:"email_thread_id,omitempty"` // Numeric email_threads.id for assertion dedup
 }
 
 // LinkConversationInput is the input for the LinkConversation activity.
@@ -428,11 +429,12 @@ type PersistFindingsInput struct {
 
 // PersistFindingsOutput is the output from the PersistFindings activity.
 type PersistFindingsOutput struct {
-	AssertionsCreated    int `json:"assertions_created"`
-	AssertionsSuperseded int `json:"assertions_superseded"`
-	ReferencesCreated    int `json:"references_created"`
-	ReviewItemsCreated   int `json:"review_items_created"`
-	AffinityUpdates      int `json:"affinity_updates"`
+	AssertionsCreated      int `json:"assertions_created"`
+	AssertionsSuperseded   int `json:"assertions_superseded"`
+	AssertionsDeduplicated int `json:"assertions_deduplicated"`
+	ReferencesCreated      int `json:"references_created"`
+	ReviewItemsCreated     int `json:"review_items_created"`
+	AffinityUpdates        int `json:"affinity_updates"`
 }
 
 // EnrichPersonMetadataInput is the input for the EnrichPersonMetadata activity (Stage 3.5).
@@ -1274,6 +1276,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Threading runs for ALL emails (independent of SkipDeep gate)
 	// Reads email headers directly from source metadata — does not depend on extraction output
 	var threadID *string
+	var emailThreadID *int64 // Numeric email_threads.id for assertion dedup
 	if input.ContentType == "email" {
 		logger.Debug("starting email threading",
 			"source_id", input.SourceID,
@@ -1291,6 +1294,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			)
 		} else if threadOutput != nil && threadOutput.ThreadID != nil {
 			threadID = threadOutput.ThreadID
+			emailThreadID = threadOutput.EmailThreadID
 			logger.Info("email threading completed",
 				"source_id", input.SourceID,
 				"thread_id", *threadID,
@@ -1730,6 +1734,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			err = workflow.ExecuteActivity(ctxPersist, pkgtemporal.ActivityPersistFindings, PersistFindingsInput{
 				TenantID:       input.TenantID,
 				SourceID:       input.SourceID,
+				ThreadID:       emailThreadID,
 				ProjectID:      projectID,
 				Analysis:       analyzeOutput,
 				ResolvedPeople: resolvedPeople,

@@ -112,11 +112,12 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input workflows
 
 	// Build activity output
 	output := &workflows.PersistFindingsOutput{
-		AssertionsCreated:    repoOutput.AssertionsCreated,
-		AssertionsSuperseded: repoOutput.AssertionsSuperseded,
-		ReferencesCreated:    repoOutput.ReferencesCreated,
-		ReviewItemsCreated:   repoOutput.ReviewItemsCreated,
-		AffinityUpdates:      repoOutput.AffinityUpdates,
+		AssertionsCreated:      repoOutput.AssertionsCreated,
+		AssertionsSuperseded:   repoOutput.AssertionsSuperseded,
+		AssertionsDeduplicated: repoOutput.AssertionsDeduplicated,
+		ReferencesCreated:      repoOutput.ReferencesCreated,
+		ReviewItemsCreated:     repoOutput.ReviewItemsCreated,
+		AffinityUpdates:        repoOutput.AffinityUpdates,
 	}
 
 	// Record heartbeat after processing
@@ -125,6 +126,7 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input workflows
 	logger.Info("Persist findings completed successfully",
 		logging.F("assertions_created", output.AssertionsCreated),
 		logging.F("assertions_superseded", output.AssertionsSuperseded),
+		logging.F("assertions_deduplicated", output.AssertionsDeduplicated),
 		logging.F("references_created", output.ReferencesCreated),
 		logging.F("review_items_created", output.ReviewItemsCreated),
 		logging.F("affinity_updates", output.AffinityUpdates),
@@ -145,6 +147,7 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input workflows
 		outputJSON, _ := json.Marshal(map[string]interface{}{
 			"assertions_created": repoOutput.AssertionsCreated,
 			"assertions_superseded": repoOutput.AssertionsSuperseded,
+			"assertions_deduplicated": repoOutput.AssertionsDeduplicated,
 			"references_created": repoOutput.ReferencesCreated,
 			"review_items_created": repoOutput.ReviewItemsCreated,
 			"affinity_updates": repoOutput.AffinityUpdates,
