@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -416,6 +417,176 @@ func TestMLXBackend_ErrorClassification(t *testing.T) {
 			t.Errorf("expected ErrModelUnavailable, got %s", pe.Code)
 		}
 	})
+}
+
+// TestMLXBackend_ContextLengthTruncation tests that context length errors trigger
+// automatic truncation and retry.
+func TestMLXBackend_ContextLengthTruncation(t *testing.T) {
+	t.Run("truncates and retries on context length error", func(t *testing.T) {
+		requestCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestCount++
+
+			// Parse the request to see what text was sent
+			var req openaiEmbedRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("failed to decode request: %v", err)
+			}
+
+			// First request: reject with context length error
+			// Second request (truncated): accept
+			if len(req.Input) > 100 {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"message":"the input length exceeds the context length"}}`))
+				return
+			}
+
+			resp := openaiEmbedResponse{
+				Object: "list",
+				Data: []struct {
+					Object    string    `json:"object"`
+					Embedding []float64 `json:"embedding"`
+					Index     int       `json:"index"`
+				}{
+					{Object: "embedding", Embedding: []float64{0.1, 0.2, 0.3}, Index: 0},
+				},
+				Model: "test-model",
+				Usage: struct {
+					PromptTokens int `json:"prompt_tokens"`
+					TotalTokens  int `json:"total_tokens"`
+				}{PromptTokens: 10, TotalTokens: 10},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		be := NewMLXBackend(&MLXConfig{
+			EmbeddingsURL: server.URL,
+			Timeout:       5 * time.Second,
+		})
+
+		// Send text longer than 100 chars to trigger context length error on first try
+		longText := strings.Repeat("word ", 30) // 150 chars
+		result, err := be.GenerateEmbedding(context.Background(), longText, "")
+		if err != nil {
+			t.Fatalf("expected success after truncation retry, got: %v", err)
+		}
+
+		if requestCount < 2 {
+			t.Errorf("expected at least 2 requests (original + truncated), got %d", requestCount)
+		}
+
+		if len(result.Vector) != 3 {
+			t.Errorf("expected 3 dimensions, got %d", len(result.Vector))
+		}
+	})
+
+	t.Run("returns ErrContentTooLarge when all truncation attempts fail", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Always reject with context length error
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"the input length exceeds the context length"}}`))
+		}))
+		defer server.Close()
+
+		be := NewMLXBackend(&MLXConfig{
+			EmbeddingsURL: server.URL,
+			Timeout:       5 * time.Second,
+		})
+
+		_, err := be.GenerateEmbedding(context.Background(), "some text that is always too long", "")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+
+		var pe *perrors.PipelineError
+		if !errors.As(err, &pe) {
+			t.Fatalf("expected PipelineError, got %T: %v", err, err)
+		}
+		if pe.Code != perrors.ErrContentTooLarge {
+			t.Errorf("expected ErrContentTooLarge, got %s", pe.Code)
+		}
+	})
+
+	t.Run("non-context-length 400 errors are not retried", func(t *testing.T) {
+		requestCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestCount++
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"invalid model name"}}`))
+		}))
+		defer server.Close()
+
+		be := NewMLXBackend(&MLXConfig{
+			EmbeddingsURL: server.URL,
+			Timeout:       5 * time.Second,
+		})
+
+		_, err := be.GenerateEmbedding(context.Background(), "test", "")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+
+		if requestCount != 1 {
+			t.Errorf("expected exactly 1 request (no retry for non-context-length errors), got %d", requestCount)
+		}
+	})
+}
+
+func TestTruncateText(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		fraction float64
+		wantLen  bool // just check it's shorter
+	}{
+		{"75% of text", "hello world this is a test string", 0.75, true},
+		{"50% of text", "hello world this is a test string", 0.50, true},
+		{"100% returns original", "hello world", 1.0, false},
+		{"0% returns original", "hello world", 0.0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := truncateText(tt.text, tt.fraction)
+			if tt.wantLen {
+				if len(result) >= len(tt.text) {
+					t.Errorf("expected truncated text to be shorter than %d, got %d", len(tt.text), len(result))
+				}
+				if len(result) == 0 {
+					t.Error("expected non-empty truncated text")
+				}
+			} else {
+				if result != tt.text {
+					t.Errorf("expected original text, got %q", result)
+				}
+			}
+		})
+	}
+}
+
+func TestIsContextLengthBody(t *testing.T) {
+	tests := []struct {
+		body string
+		want bool
+	}{
+		{`{"error":{"message":"the input length exceeds the context length"}}`, true},
+		{`{"error":{"message":"Input length exceeds model context"}}`, true},
+		{`{"error":{"message":"context length exceeded"}}`, true},
+		{`{"error":{"message":"invalid model name"}}`, false},
+		{`{"error":{"message":"rate limit exceeded"}}`, false},
+		{"internal server error", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.body[:min(40, len(tt.body))], func(t *testing.T) {
+			got := isContextLengthBody(tt.body)
+			if got != tt.want {
+				t.Errorf("isContextLengthBody(%q) = %v, want %v", tt.body, got, tt.want)
+			}
+		})
+	}
 }
 
 // TestMLXBackend_ChatCompletion_ErrorClassification tests error classification for chat completion.

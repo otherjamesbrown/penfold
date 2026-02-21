@@ -96,8 +96,9 @@ func ClassifyError(err error, stage string) *PipelineError {
 		return pe
 	}
 
-	// Content too large patterns
-	if strings.Contains(lower, "too large") || strings.Contains(lower, "exceeds maximum") || strings.Contains(lower, "content size") {
+	// Content too large patterns (includes embedding context length errors)
+	if strings.Contains(lower, "too large") || strings.Contains(lower, "exceeds maximum") || strings.Contains(lower, "content size") ||
+		strings.Contains(lower, "context length") || strings.Contains(lower, "input length exceeds") {
 		pe.Code = ErrContentTooLarge
 		pe.Message = msg
 		return pe

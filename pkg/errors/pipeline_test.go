@@ -350,6 +350,34 @@ func TestPipelineError_Error_WithDurationAndTimeout(t *testing.T) {
 	}
 }
 
+func TestClassifyError_ContentTooLarge(t *testing.T) {
+	tests := []struct {
+		name     string
+		errorMsg string
+	}{
+		{"too large", "content is too large to process"},
+		{"exceeds maximum", "request exceeds maximum allowed size"},
+		{"content size", "content size limit reached"},
+		{"context length", "the input length exceeds the context length"},
+		{"input length exceeds", "input length exceeds model limit"},
+		{"Context Length uppercase", "Context Length exceeded for embedding"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := errors.New(tt.errorMsg)
+			result := ClassifyError(err, "embed")
+
+			if result == nil {
+				t.Fatal("Expected non-nil PipelineError")
+			}
+			if result.Code != ErrContentTooLarge {
+				t.Errorf("Expected ErrContentTooLarge for '%s', got %s", tt.errorMsg, result.Code)
+			}
+		})
+	}
+}
+
 func TestClassifyError_WrappedErrors(t *testing.T) {
 	// Test that context.DeadlineExceeded works even when wrapped
 	wrappedErr := fmt.Errorf("wrapped: %w", context.DeadlineExceeded)

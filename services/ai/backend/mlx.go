@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -168,7 +169,40 @@ type chatUsage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
+// contextLengthError is a sentinel type for context-length-exceeded responses.
+type contextLengthError struct {
+	body string
+}
+
+func (e *contextLengthError) Error() string {
+	return fmt.Sprintf("context length exceeded: %s", e.body)
+}
+
+// isContextLengthBody checks if an HTTP response body indicates a context length error.
+func isContextLengthBody(body string) bool {
+	lower := strings.ToLower(body)
+	return strings.Contains(lower, "context length") ||
+		strings.Contains(lower, "input length")
+}
+
+// truncateText truncates text to the given fraction of its current rune length,
+// breaking at the last word boundary before the limit.
+func truncateText(text string, fraction float64) string {
+	runes := []rune(text)
+	target := int(float64(len(runes)) * fraction)
+	if target >= len(runes) || target <= 0 {
+		return text
+	}
+	truncated := string(runes[:target])
+	if lastSpace := strings.LastIndex(truncated, " "); lastSpace > len(truncated)/2 {
+		truncated = truncated[:lastSpace]
+	}
+	return truncated
+}
+
 // GenerateEmbedding creates a vector embedding for the given text.
+// If the text exceeds the model's context length, it is automatically
+// truncated and retried with progressively smaller fractions.
 func (b *MLXBackend) GenerateEmbedding(ctx context.Context, text string, model string) (*EmbeddingResult, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -179,6 +213,50 @@ func (b *MLXBackend) GenerateEmbedding(ctx context.Context, text string, model s
 		model = b.defaultEmbeddingModel
 	}
 
+	// Try the full text first, then truncate on context length errors.
+	fractions := []float64{1.0, 0.75, 0.5}
+	currentText := text
+
+	for i, frac := range fractions {
+		if i > 0 {
+			currentText = strings.TrimSpace(truncateText(text, frac))
+			if currentText == "" {
+				break
+			}
+		}
+
+		result, err := b.doEmbeddingRequest(ctx, currentText, model)
+		if err == nil {
+			return result, nil
+		}
+
+		// Only retry on context length errors
+		var ctxLenErr *contextLengthError
+		if !errors.As(err, &ctxLenErr) {
+			return nil, err
+		}
+
+		// Last attempt — return a structured error
+		if i == len(fractions)-1 {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrContentTooLarge,
+				Stage:   "mlx-embedding",
+				Message: fmt.Sprintf("text exceeds embedding model context length after truncation to %.0f%%: %s", frac*100, ctxLenErr.body),
+				Cause:   ctxLenErr,
+			}
+		}
+	}
+
+	return nil, &perrors.PipelineError{
+		Code:    perrors.ErrContentTooLarge,
+		Stage:   "mlx-embedding",
+		Message: "text exceeds embedding model context length",
+	}
+}
+
+// doEmbeddingRequest performs a single embedding HTTP request.
+// Returns a *contextLengthError when the server rejects the input as too long.
+func (b *MLXBackend) doEmbeddingRequest(ctx context.Context, text string, model string) (*EmbeddingResult, error) {
 	url := b.embeddingsURL + "/v1/embeddings"
 
 	reqBody := openaiEmbedRequest{
@@ -240,21 +318,28 @@ func (b *MLXBackend) GenerateEmbedding(ctx context.Context, text string, model s
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		bodyStr := string(body)
+
+		// Detect context length errors for retry with truncation
+		if resp.StatusCode == http.StatusBadRequest && isContextLengthBody(bodyStr) {
+			return nil, &contextLengthError{body: bodyStr}
+		}
+
 		if resp.StatusCode == http.StatusTooManyRequests {
 			return nil, &perrors.PipelineError{
 				Code:    perrors.ErrRateLimit,
 				Stage:   "mlx-embedding",
-				Message: fmt.Sprintf("rate limit exceeded: HTTP %d: %s", resp.StatusCode, string(body)),
+				Message: fmt.Sprintf("rate limit exceeded: HTTP %d: %s", resp.StatusCode, bodyStr),
 			}
 		}
 		if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
 			return nil, &perrors.PipelineError{
 				Code:    perrors.ErrModelUnavailable,
 				Stage:   "mlx-embedding",
-				Message: fmt.Sprintf("service unavailable: HTTP %d: %s", resp.StatusCode, string(body)),
+				Message: fmt.Sprintf("service unavailable: HTTP %d: %s", resp.StatusCode, bodyStr),
 			}
 		}
-		return nil, fmt.Errorf("%w: HTTP %d: %s", ErrRequestFailed, resp.StatusCode, string(body))
+		return nil, fmt.Errorf("%w: HTTP %d: %s", ErrRequestFailed, resp.StatusCode, bodyStr)
 	}
 
 	var embedResp openaiEmbedResponse
