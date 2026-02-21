@@ -50,6 +50,31 @@ var stageNameToEnum = map[string]contentv1.ProcessingStage{
 	"embed":            contentv1.ProcessingStage_PROCESSING_STAGE_EMBED,
 }
 
+// DBStatusToProtoState maps a sources.processing_status DB string to a
+// contentv1.ProcessingState proto enum. This is the authoritative mapping for
+// the sources table status field and is shared by contentservice and
+// conversationservice.
+func DBStatusToProtoState(s string) contentv1.ProcessingState {
+	switch s {
+	case "pending":
+		return contentv1.ProcessingState_PROCESSING_STATE_PENDING
+	case "processing":
+		return contentv1.ProcessingState_PROCESSING_STATE_IN_PROGRESS
+	case "completed":
+		return contentv1.ProcessingState_PROCESSING_STATE_COMPLETED
+	case "failed":
+		return contentv1.ProcessingState_PROCESSING_STATE_FAILED
+	case "cancelled":
+		return contentv1.ProcessingState_PROCESSING_STATE_CANCELLED
+	case "rejected":
+		return contentv1.ProcessingState_PROCESSING_STATE_REJECTED
+	case "skipped":
+		return contentv1.ProcessingState_PROCESSING_STATE_SKIPPED
+	default:
+		return contentv1.ProcessingState_PROCESSING_STATE_PENDING
+	}
+}
+
 // DBRunStatusToStageStatus converts a pipeline_run status string to proto StageStatus.
 func DBRunStatusToStageStatus(s string) contentv1.StageStatus {
 	switch s {

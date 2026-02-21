@@ -277,11 +277,12 @@ func (r *Repository) GetSourceByContentID(ctx context.Context, contentID string)
 		       tenant_id,
 		       source_system,
 		       COALESCE(content_hash, '') AS content_hash,
-		       COALESCE(content_id, '') AS content_id
+		       COALESCE(content_id, '') AS content_id,
+		       COALESCE(processing_status, 'pending') AS processing_status
 		FROM sources
 		WHERE content_id = $1
 		  AND is_deleted = false
-	`, contentID).Scan(&src.ID, &src.TenantID, &src.SourceSystem, &src.ContentHash, &src.ContentID)
+	`, contentID).Scan(&src.ID, &src.TenantID, &src.SourceSystem, &src.ContentHash, &src.ContentID, &src.ProcessingStatus)
 	if err != nil {
 		return nil, fmt.Errorf("getting source by content_id: %w", err)
 	}

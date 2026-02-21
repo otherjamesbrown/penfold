@@ -165,6 +165,23 @@ func (s *Service) GetConversationProcessingStatus(ctx context.Context, req *conv
 
 		summary.SourceId = *item.SourceID
 
+		// Look up the source record to get the authoritative processing_status.
+		// This field is reset to 'pending' or 'processing' when ReprocessContent is
+		// called, while old pipeline_runs from the prior cycle may still show completed.
+		src, err := s.pipelineRepo.GetSourceByContentID(ctx, item.ContentID)
+		if err != nil {
+			// Log and continue — don't fail the whole request for one item.
+			s.logger.Error("failed to get source for item",
+				logging.Err(err),
+				logging.F("content_id", item.ContentID),
+				logging.F("source_id", *item.SourceID),
+			)
+			summary.State = contentv1.ProcessingState_PROCESSING_STATE_PENDING
+			totalPending++
+			items = append(items, summary)
+			continue
+		}
+
 		// Get pipeline runs for this source.
 		runs, err := s.pipelineRepo.ListSourceHistory(ctx, *item.SourceID, "")
 		if err != nil {
@@ -183,8 +200,16 @@ func (s *Service) GetConversationProcessingStatus(ctx context.Context, req *conv
 		// Use shared helper to build stage results and contribution info.
 		ps := pipeline.BuildProcessingStatus(runs)
 
-		// Derive overall state from pipeline runs.
-		summary.State = pipeline.DeriveProcessingState(runs)
+		// Derive overall state: use the authoritative sources.processing_status when it
+		// indicates the source is actively queued or in-flight (pending/processing).
+		// Otherwise fall back to DeriveProcessingState from pipeline_runs, which gives
+		// more granular completed/failed differentiation.
+		switch src.ProcessingStatus {
+		case "pending", "processing":
+			summary.State = pipeline.DBStatusToProtoState(src.ProcessingStatus)
+		default:
+			summary.State = pipeline.DeriveProcessingState(runs)
+		}
 		summary.ContentContribution = ps.ContentContribution
 		summary.ContributionReason = ps.ContributionReason
 		summary.Stages = ps.Stages

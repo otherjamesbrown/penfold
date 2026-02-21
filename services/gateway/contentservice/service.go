@@ -1248,6 +1248,36 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		return nil, status.Error(codes.Unavailable, "Temporal client not configured")
 	}
 
+	// Check concurrency limit before allowing reprocessing.
+	// Reads pipeline.max_concurrent from pipeline_config and counts in-flight
+	// sources (processing_status = 'processing'). Returns ResourceExhausted if
+	// at or over the limit — same logic as KickProcessing in pipelineservice.
+	if s.db != nil {
+		maxConcurrent, err := s.getMaxConcurrent(ctx)
+		if err != nil {
+			s.logger.Error("Error reading max_concurrent config", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to read concurrency config: %v", err)
+		}
+
+		inFlightCount, err := s.countInFlightSources(ctx)
+		if err != nil {
+			s.logger.Error("Error counting in-flight sources", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to count in-flight sources: %v", err)
+		}
+
+		if inFlightCount >= maxConcurrent {
+			s.logger.Info("ReprocessContent rejected: concurrency limit reached",
+				logging.F("content_id", req.ContentId),
+				logging.F("in_flight_count", inFlightCount),
+				logging.F("max_concurrent", maxConcurrent),
+			)
+			return nil, status.Errorf(codes.ResourceExhausted,
+				"concurrency limit reached (%d/%d in-flight); retry when processing completes",
+				inFlightCount, maxConcurrent,
+			)
+		}
+	}
+
 	// Look up source by content_id
 	source, err := s.pipelineRepo.GetSourceByContentID(ctx, req.ContentId)
 	if err != nil {
@@ -1348,6 +1378,51 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 			State:     contentv1.ProcessingState_PROCESSING_STATE_PENDING,
 		},
 	}, nil
+}
+
+// =============================================================================
+// Helper functions for concurrency management
+// =============================================================================
+
+// getMaxConcurrent reads the max_concurrent value from pipeline_config.
+func (s *Service) getMaxConcurrent(ctx context.Context) (int, error) {
+	var valueStr string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT value
+		FROM pipeline_config
+		WHERE key = 'pipeline.max_concurrent' AND value_type = 'integer'
+	`).Scan(&valueStr)
+
+	if err == sql.ErrNoRows {
+		// Return default value if not found
+		return 1, nil
+	}
+	if err != nil {
+		return 1, fmt.Errorf("failed to query max_concurrent: %w", err)
+	}
+
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return 1, fmt.Errorf("failed to parse max_concurrent as integer: %w", err)
+	}
+
+	return value, nil
+}
+
+// countInFlightSources counts sources with processing_status = 'processing'.
+func (s *Service) countInFlightSources(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM sources
+		WHERE processing_status = 'processing' AND is_deleted = false
+	`).Scan(&count)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to count in-flight sources: %w", err)
+	}
+
+	return count, nil
 }
 
 // DeleteContentItem removes a content item and all derived data.

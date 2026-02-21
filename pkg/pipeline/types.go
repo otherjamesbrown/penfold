@@ -62,12 +62,13 @@ type JobFilter struct {
 
 // PendingSource represents a source pending processing.
 type PendingSource struct {
-	ID           int64
-	TenantID     string
-	TenantName   string // Human-readable tenant name for Langfuse environment; may be empty
-	SourceSystem string
-	ContentHash  string
-	ContentID    string
+	ID               int64
+	TenantID         string
+	TenantName       string // Human-readable tenant name for Langfuse environment; may be empty
+	SourceSystem     string
+	ContentHash      string
+	ContentID        string
+	ProcessingStatus string // Authoritative processing status from the sources table
 }
 
 // DeletedSource represents a soft-deleted source.

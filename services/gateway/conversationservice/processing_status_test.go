@@ -676,3 +676,128 @@ func TestGetConversationProcessingStatus_ItemsWithNoSourceID(t *testing.T) {
 		"item with no source must be PENDING")
 	assert.Empty(t, noSourceItem.Stages, "item with no source must have no stage details")
 }
+
+// ============ Bug Regression Test: pf-a5912d ============
+
+// TestGetConversationProcessingStatus_ReprocessedItemShowsStaleCompleted is a
+// regression test for pf-a5912d.
+//
+// Bug: GetConversationProcessingStatus derives state exclusively from
+// pipeline_runs via DeriveProcessingState. When ReprocessContent resets
+// sources.processing_status to 'pending', the old pipeline_runs from the
+// previous processing cycle still show all stages as 'completed'. The handler
+// therefore returns COMPLETED for the item instead of PENDING.
+//
+// The single-item GetProcessingStatus (contentservice) correctly reads the
+// authoritative processing_status field from the source record. This
+// conversation-level handler does not.
+//
+// Fix path (DO NOT implement here — see pf-a5912d):
+//  1. Add ProcessingStatus field to pipeline.PendingSource in pkg/pipeline/types.go
+//  2. Update GetSourceByContentID in pkg/pipeline/repository.go to SELECT processing_status
+//  3. In GetConversationProcessingStatus, call GetSourceByContentID and check its
+//     ProcessingStatus before calling DeriveProcessingState on the old pipeline_runs.
+//     If ProcessingStatus is 'pending' or 'processing', use that instead.
+//
+// After the fix, this test must pass. It currently FAILS because the handler
+// returns PROCESSING_STATE_COMPLETED instead of PROCESSING_STATE_PENDING.
+//
+// NOTE: When the fix lands, update GetSourceByContentIDFunc below to set
+// ProcessingStatus: "pending" on the returned *pipeline.PendingSource once that
+// field has been added to the struct (pkg/pipeline/types.go).
+func TestGetConversationProcessingStatus_ReprocessedItemShowsStaleCompleted(t *testing.T) {
+	// Scenario: a single conversation item whose source was reprocessed.
+	// The source's processing_status has been reset to 'pending' by ReprocessContent,
+	// but the pipeline_runs table still contains the completed runs from the previous cycle.
+	reprocessedSourceID := int64(9001)
+
+	items := []ConversationItem{
+		{
+			ConversationID: "conv-reprocess-bug",
+			ContentID:      "content-reprocessed",
+			SourceID:       &reprocessedSourceID,
+			TenantID:       "tenant-test",
+		},
+	}
+
+	mockRepo := &MockRepository{
+		GetConversationFunc: func(ctx context.Context, tenantID, conversationID string) (*ConversationDetail, error) {
+			return &ConversationDetail{
+				ID:       "conv-reprocess-bug",
+				TenantID: tenantID,
+				Topic:    "Reprocess Bug Repro",
+				Items:    items,
+			}, nil
+		},
+	}
+
+	pipelineRepo := &MockPipelineRepository{
+		// GetSourceByContentIDFunc returns the source record with processing_status='pending'.
+		// The current handler NEVER calls this function — it only calls ListSourceHistory.
+		// After the fix, the handler must call this and honour the returned ProcessingStatus.
+		//
+		// IMPORTANT: Once pipeline.PendingSource gains a ProcessingStatus field (part of the
+		// fix in pkg/pipeline/types.go), update this func to set:
+		//   ProcessingStatus: "pending"
+		// on the returned *pipeline.PendingSource so the fixed handler can read it.
+		GetSourceByContentIDFunc: func(ctx context.Context, contentID string) (*pipeline.PendingSource, error) {
+			// Returns the source as it exists after ReprocessContent reset its status.
+			// ProcessingStatus is "pending" because ReprocessContent reset it.
+			return &pipeline.PendingSource{
+				ID:               reprocessedSourceID,
+				ContentID:        contentID,
+				ProcessingStatus: "pending",
+			}, nil
+		},
+
+		// ListSourceHistoryFunc returns old completed runs from the PREVIOUS processing cycle.
+		// These runs are stale — the source was reprocessed and is pending again, but
+		// the pipeline_runs table has not yet been updated for the new cycle.
+		ListSourceHistoryFunc: func(ctx context.Context, sourceID int64, stageFilter string) ([]pipeline.PipelineRun, error) {
+			// All stages from the prior run: completed. This is what DeriveProcessingState
+			// sees and it incorrectly concludes the item is COMPLETED.
+			return []pipeline.PipelineRun{
+				makeCompletedRun(sourceID, "parse", 0, 0),
+				makeTriageRunWithContribution(sourceID, 100, 30, "MEDIUM", "relevant"),
+				makeCompletedRun(sourceID, "segment", 0, 0),
+				makeCompletedRun(sourceID, "extract_ner", 200, 80),
+				makeCompletedRun(sourceID, "analyze", 300, 100),
+				makeCompletedRun(sourceID, "persist", 0, 0),
+			}, nil
+		},
+	}
+
+	svc := NewServiceWithPipeline(mockRepo, pipelineRepo, testLogger())
+
+	req := &conversationv1.GetConversationProcessingStatusRequest{
+		ConversationId: "conv-reprocess-bug",
+	}
+
+	resp, err := svc.GetConversationProcessingStatus(context.Background(), req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Len(t, resp.Items, 1, "conversation must have exactly 1 item")
+
+	item := resp.Items[0]
+	assert.Equal(t, "content-reprocessed", item.ContentId)
+
+	// The source was just reprocessed: processing_status='pending' in the DB.
+	// Old pipeline_runs from the prior cycle all show 'completed'.
+	// Correct behaviour: the item must be reported as PENDING.
+	// Bug behaviour (current code): the item is reported as COMPLETED because
+	// DeriveProcessingState only reads the stale pipeline_runs.
+	assert.Equal(t, contentv1.ProcessingState_PROCESSING_STATE_PENDING, item.State,
+		"reprocessed item must be PENDING even when old pipeline_runs show completed: "+
+			"GetConversationProcessingStatus must check sources.processing_status (via GetSourceByContentID), "+
+			"not only derive state from stale pipeline_runs")
+
+	// Aggregate counters must reflect the pending state.
+	assert.Equal(t, int32(1), resp.TotalItems)
+	assert.Equal(t, int32(0), resp.Completed,
+		"completed count must be 0 — the item was reprocessed and is pending")
+	assert.Equal(t, int32(1), resp.Pending,
+		"pending count must be 1 — the item is awaiting its new processing cycle")
+	assert.Equal(t, int32(0), resp.Processing)
+	assert.Equal(t, int32(0), resp.Failed)
+}
