@@ -152,14 +152,14 @@ var hardcodedDefaults = map[string]ConfigEntry{
 	},
 	// Per-stage timeout keys (defaults mirror current category assignments)
 	"timeout.stage.triage.start_to_close": {
-		Key: "timeout.stage.triage.start_to_close", Value: 120 * time.Second,
-		ValueType: "duration", Description: "Triage stage StartToClose timeout",
-		MinValue: 10 * time.Second, MaxValue: 600 * time.Second, DefaultValue: 120 * time.Second,
+		Key: "timeout.stage.triage.start_to_close", Value: 600 * time.Second,
+		ValueType: "duration", Description: "Triage stage StartToClose timeout (LLM preset)",
+		MinValue: 60 * time.Second, MaxValue: 1800 * time.Second, DefaultValue: 600 * time.Second,
 	},
 	"timeout.stage.triage.heartbeat": {
-		Key: "timeout.stage.triage.heartbeat", Value: 30 * time.Second,
-		ValueType: "duration", Description: "Triage stage heartbeat timeout",
-		MinValue: 5 * time.Second, MaxValue: 120 * time.Second, DefaultValue: 30 * time.Second,
+		Key: "timeout.stage.triage.heartbeat", Value: 300 * time.Second,
+		ValueType: "duration", Description: "Triage stage heartbeat timeout (LLM preset)",
+		MinValue: 30 * time.Second, MaxValue: 900 * time.Second, DefaultValue: 300 * time.Second,
 	},
 	"timeout.stage.extract_entities.start_to_close": {
 		Key: "timeout.stage.extract_entities.start_to_close", Value: 120 * time.Second,
