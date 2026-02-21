@@ -200,14 +200,14 @@ func (s *Service) GetConversationProcessingStatus(ctx context.Context, req *conv
 		// Use shared helper to build stage results and contribution info.
 		ps := pipeline.BuildProcessingStatus(runs)
 
-		// Derive overall state: use the authoritative sources.processing_status when it
-		// indicates the source is actively queued or in-flight (pending/processing).
-		// Otherwise fall back to DeriveProcessingState from pipeline_runs, which gives
-		// more granular completed/failed differentiation.
-		switch src.ProcessingStatus {
-		case "pending", "processing":
+		// Use the authoritative sources.processing_status when it is set.
+		// DeriveProcessingState reads only pipeline_runs and cannot detect terminal
+		// states like "rejected" or requeued states like "pending" that are
+		// recorded in the sources table. When ProcessingStatus is empty (e.g. legacy
+		// records or test stubs), fall back to deriving state from pipeline runs.
+		if src.ProcessingStatus != "" {
 			summary.State = pipeline.DBStatusToProtoState(src.ProcessingStatus)
-		default:
+		} else {
 			summary.State = pipeline.DeriveProcessingState(runs)
 		}
 		summary.ContentContribution = ps.ContentContribution
@@ -224,7 +224,9 @@ func (s *Service) GetConversationProcessingStatus(ctx context.Context, req *conv
 			totalCompleted++
 		case contentv1.ProcessingState_PROCESSING_STATE_IN_PROGRESS:
 			totalProcessing++
-		case contentv1.ProcessingState_PROCESSING_STATE_FAILED:
+		case contentv1.ProcessingState_PROCESSING_STATE_FAILED,
+			contentv1.ProcessingState_PROCESSING_STATE_REJECTED,
+			contentv1.ProcessingState_PROCESSING_STATE_CANCELLED:
 			totalFailed++
 		default:
 			totalPending++

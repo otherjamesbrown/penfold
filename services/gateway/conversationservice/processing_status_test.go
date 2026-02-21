@@ -801,3 +801,128 @@ func TestGetConversationProcessingStatus_ReprocessedItemShowsStaleCompleted(t *t
 	assert.Equal(t, int32(0), resp.Processing)
 	assert.Equal(t, int32(0), resp.Failed)
 }
+
+// ============ Bug Regression Test: pf-5648b0 ============
+
+// TestGetConversationProcessingStatus_RejectedItemNotMaskedAsCompleted is a
+// reproduction test for pf-5648b0.
+//
+// Bug: GetConversationProcessingStatus has a switch on sources.processing_status
+// (lines 207-212 of service.go) that only guards "pending" and "processing" as
+// authoritative DB states. The value "rejected" falls through to the default
+// branch, which calls DeriveProcessingState(runs). When the item has 7
+// completed pipeline_runs (all stages done), DeriveProcessingState returns
+// PROCESSING_STATE_COMPLETED — silently discarding the authoritative "rejected"
+// status from the sources table.
+//
+// Secondary bug: The counter switch (lines 222-231) has no case for
+// PROCESSING_STATE_REJECTED, so a correctly-mapped REJECTED item would land in
+// the default branch (totalPending) rather than totalFailed.
+//
+// This test MUST FAIL on unpatched code because:
+//   - The switch lets "rejected" fall through to DeriveProcessingState.
+//   - DeriveProcessingState sees 7 completed runs and returns COMPLETED.
+//   - The item therefore reports State = PROCESSING_STATE_COMPLETED.
+//
+// After the fix, "rejected" must be handled explicitly in the state switch
+// (mapping to PROCESSING_STATE_REJECTED) and in the counter switch (mapping to
+// totalFailed). This test will then pass.
+func TestGetConversationProcessingStatus_RejectedItemNotMaskedAsCompleted(t *testing.T) {
+	// Scenario: a single conversation item whose source was permanently rejected
+	// (e.g. with failure_category="timeout_heartbeat"). The pipeline_runs table
+	// contains 7 completed runs from before the rejection was recorded, which is
+	// the typical state after the source is marked rejected post-processing.
+	rejectedSourceID := int64(5648)
+
+	items := []ConversationItem{
+		{
+			ConversationID: "conv-rejected-bug",
+			ContentID:      "content-rejected",
+			SourceID:       &rejectedSourceID,
+			TenantID:       "tenant-test",
+		},
+	}
+
+	mockRepo := &MockRepository{
+		GetConversationFunc: func(ctx context.Context, tenantID, conversationID string) (*ConversationDetail, error) {
+			return &ConversationDetail{
+				ID:       "conv-rejected-bug",
+				TenantID: tenantID,
+				Topic:    "Rejected Item Bug Repro",
+				Items:    items,
+			}, nil
+		},
+	}
+
+	pipelineRepo := &MockPipelineRepository{
+		// GetSourceByContentIDFunc returns the source record with
+		// processing_status="rejected". The current handler switch only guards
+		// "pending" and "processing" — "rejected" falls through to
+		// DeriveProcessingState, masking the authoritative DB state.
+		GetSourceByContentIDFunc: func(ctx context.Context, contentID string) (*pipeline.PendingSource, error) {
+			return &pipeline.PendingSource{
+				ID:               rejectedSourceID,
+				ContentID:        contentID,
+				ProcessingStatus: "rejected",
+			}, nil
+		},
+
+		// ListSourceHistoryFunc returns 7 completed pipeline runs — all stages
+		// finished. This is what DeriveProcessingState sees and incorrectly uses
+		// to conclude COMPLETED, discarding the authoritative "rejected" status.
+		ListSourceHistoryFunc: func(ctx context.Context, sourceID int64, stageFilter string) ([]pipeline.PipelineRun, error) {
+			return []pipeline.PipelineRun{
+				makeCompletedRun(sourceID, "parse", 0, 0),
+				makeTriageRunWithContribution(sourceID, 100, 30, "MEDIUM", "relevant"),
+				makeCompletedRun(sourceID, "segment", 0, 0),
+				makeCompletedRun(sourceID, "extract_ner", 200, 80),
+				makeCompletedRun(sourceID, "analyze", 300, 100),
+				makeCompletedRun(sourceID, "persist", 0, 0),
+				makeCompletedRun(sourceID, "embed", 0, 0),
+			}, nil
+		},
+	}
+
+	svc := NewServiceWithPipeline(mockRepo, pipelineRepo, testLogger())
+
+	req := &conversationv1.GetConversationProcessingStatusRequest{
+		ConversationId: "conv-rejected-bug",
+	}
+
+	resp, err := svc.GetConversationProcessingStatus(context.Background(), req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Len(t, resp.Items, 1, "conversation must have exactly 1 item")
+
+	item := resp.Items[0]
+	assert.Equal(t, "content-rejected", item.ContentId)
+
+	// The source is permanently rejected: processing_status="rejected" in the DB.
+	// The 7 completed pipeline_runs are from the processing cycle that ended in rejection.
+	// Correct behaviour: the item must be reported as REJECTED, not COMPLETED.
+	// Bug behaviour (current code): the item is reported as COMPLETED because
+	// the switch lets "rejected" fall through to DeriveProcessingState, which
+	// sees all-completed runs and returns PROCESSING_STATE_COMPLETED.
+	assert.Equal(t, contentv1.ProcessingState_PROCESSING_STATE_REJECTED, item.State,
+		"rejected item must be reported as PROCESSING_STATE_REJECTED, not COMPLETED: "+
+			"the switch in GetConversationProcessingStatus (service.go:207) only guards "+
+			"'pending' and 'processing'; 'rejected' falls through to DeriveProcessingState "+
+			"which incorrectly returns COMPLETED when all pipeline_runs are completed")
+
+	// Aggregate counters must reflect the rejected state.
+	// A rejected item is a terminal failure — it must increment Failed, not Completed.
+	// Secondary bug: the counter switch (service.go:222) has no PROCESSING_STATE_REJECTED
+	// case, so even if state were correctly set to REJECTED, it would land in the
+	// default branch (totalPending) rather than totalFailed.
+	assert.Equal(t, int32(1), resp.TotalItems)
+	assert.Equal(t, int32(0), resp.Completed,
+		"completed count must be 0 — the item was rejected, not completed")
+	assert.Equal(t, int32(0), resp.Pending,
+		"pending count must be 0 — a rejected item is terminal, not pending")
+	assert.Equal(t, int32(0), resp.Processing,
+		"processing count must be 0 — the item is not in-flight")
+	assert.GreaterOrEqual(t, resp.Failed, int32(1),
+		"failed count must be >= 1 — rejected items are a terminal failure state "+
+			"and must be counted under Failed in the absence of a dedicated Rejected counter")
+}

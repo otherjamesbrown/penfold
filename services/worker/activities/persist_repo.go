@@ -120,6 +120,21 @@ func (r *PersistRepo) PersistFindings(ctx context.Context, input *PersistFinding
 		return nil, fmt.Errorf("entity verification failed: %w", err)
 	}
 
+	// Clear existing assertions for this source before inserting new ones.
+	// This ensures reprocessing always reflects the latest extraction output.
+	// ON DELETE CASCADE on assertion_references handles reference cleanup.
+	// Self-referencing FKs (assertion_root_id, superseded_by) use ON DELETE SET NULL.
+	deleteTag, err := tx.Exec(ctx, `DELETE FROM assertions WHERE source_id = $1`, input.SourceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to clear existing assertions for source %d: %w", input.SourceID, err)
+	}
+	if n := deleteTag.RowsAffected(); n > 0 {
+		r.logger.Info("Cleared stale assertions before reprocess",
+			logging.F("source_id", input.SourceID),
+			logging.F("deleted_count", n),
+		)
+	}
+
 	// Process verified actions
 	for _, action := range input.Analysis.VerifiedActions {
 		if err := r.persistAction(ctx, tx, input, &action, output); err != nil {
