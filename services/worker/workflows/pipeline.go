@@ -562,13 +562,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				failureReason = state.result.Error
 			}
 
-			_ = workflow.ExecuteActivity(cleanupCtx, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+			if err := workflow.ExecuteActivity(cleanupCtx, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 				TenantID:        input.TenantID,
 				SourceID:        input.SourceID,
 				Status:          "failed",
 				FailureCategory: failureCategory,
 				FailureReason:   failureReason,
-			}).Get(cleanupCtx, nil)
+			}).Get(cleanupCtx, nil); err != nil {
+				logger.Error("Failed to update content status",
+					"source_id", input.SourceID,
+					"target_status", "failed",
+					"error", err,
+				)
+			}
 
 			// Auto-drain: kick next pending item even on failure to maintain concurrency window
 			// This is best-effort — errors are logged but don't affect cleanup
@@ -696,10 +702,16 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			state.status.ErrorMessage = state.result.Error
 			logger.Error("FetchSource failed", "error", err, "error_code", pe.Code)
 			ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
-			_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+			if err := workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 				TenantID: input.TenantID, SourceID: input.SourceID,
 				Status: "failed", FailureCategory: string(pe.Code), FailureReason: err.Error(),
-			}).Get(ctx, nil)
+			}).Get(ctx, nil); err != nil {
+				logger.Error("Failed to update content status",
+					"source_id", input.SourceID,
+					"target_status", "failed",
+					"error", err,
+				)
+			}
 			return state.result, nil
 		}
 		input.ContentType = fetchOut.ContentType
@@ -771,10 +783,16 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			state.status.ErrorMessage = state.result.Error
 			logger.Error("Stage 0 ParseEmail failed", "error", err, "error_code", pe.Code)
 			ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
-			_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+			if err := workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 				TenantID: input.TenantID, SourceID: input.SourceID,
 				Status: "failed", FailureCategory: string(pe.Code), FailureReason: err.Error(),
-			}).Get(ctx, nil)
+			}).Get(ctx, nil); err != nil {
+				logger.Error("Failed to update content status",
+					"source_id", input.SourceID,
+					"target_status", "failed",
+					"error", err,
+				)
+			}
 			return state.result, nil
 		}
 		if parseOutput.NewContent != "" {
@@ -809,10 +827,16 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			state.status.ErrorMessage = state.result.Error
 			logger.Error("Stage 0 ParseTranscript failed", "error", err, "error_code", pe.Code)
 			ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
-			_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+			if err := workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 				TenantID: input.TenantID, SourceID: input.SourceID,
 				Status: "failed", FailureCategory: string(pe.Code), FailureReason: err.Error(),
-			}).Get(ctx, nil)
+			}).Get(ctx, nil); err != nil {
+				logger.Error("Failed to update content status",
+					"source_id", input.SourceID,
+					"target_status", "failed",
+					"error", err,
+				)
+			}
 			return state.result, nil
 		}
 		parsedContent = parseOutput.CleanText
@@ -832,11 +856,17 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.status.ErrorMessage = state.result.Error
 		logger.Error("Unsupported content type", "content_type", input.ContentType)
 		ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
-		_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+		if err := workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID: input.TenantID, SourceID: input.SourceID,
 			Status: "failed", FailureCategory: "processing_error",
 			FailureReason: state.result.Error,
-		}).Get(ctx, nil)
+		}).Get(ctx, nil); err != nil {
+			logger.Error("Failed to update content status",
+				"source_id", input.SourceID,
+				"target_status", "failed",
+				"error", err,
+			)
+		}
 		return state.result, nil
 	}
 
@@ -845,11 +875,17 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Progressive availability: mark as "parsed" (keyword-searchable)
 	ctxStatus := workflow.WithActivityOptions(ctx, fastOpts)
-	_ = workflow.ExecuteActivity(ctxStatus, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+	if err := workflow.ExecuteActivity(ctxStatus, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 		Status:   "parsed",
-	}).Get(ctx, nil)
+	}).Get(ctx, nil); err != nil {
+		logger.Error("Failed to update content status",
+			"source_id", input.SourceID,
+			"target_status", "parsed",
+			"error", err,
+		)
+	}
 
 	if checkCancellation() {
 		state.result.Status = "cancelled"
@@ -902,13 +938,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			"error_code", pe.Code,
 		)
 		ctxTriageUpdate := workflow.WithActivityOptions(ctx, fastOpts)
-		_ = workflow.ExecuteActivity(ctxTriageUpdate, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+		if err := workflow.ExecuteActivity(ctxTriageUpdate, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID:        input.TenantID,
 			SourceID:        input.SourceID,
 			Status:          "rejected",
 			FailureCategory: string(pe.Code),
 			FailureReason:   err.Error(),
-		}).Get(ctx, nil)
+		}).Get(ctx, nil); err != nil {
+			logger.Error("Failed to update content status",
+				"source_id", input.SourceID,
+				"target_status", "rejected",
+				"error", err,
+			)
+		}
 		state.result.Status = "rejected"
 		state.result.Error = fmt.Sprintf("%s: %s", pe.Code, err.Error())
 		state.status.ErrorMessage = state.result.Error
@@ -1148,7 +1190,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Persist triage results and source_system to source metadata (fires for all items)
 	skipDeep := triageOutput.SkipDeep
 	ctxTriageMeta := workflow.WithActivityOptions(ctx, fastOpts)
-	_ = workflow.ExecuteActivity(ctxTriageMeta, "UpdateContentStatus", UpdateContentStatusInput{
+	if err := workflow.ExecuteActivity(ctxTriageMeta, "UpdateContentStatus", UpdateContentStatusInput{
 		TenantID:         input.TenantID,
 		SourceID:         input.SourceID,
 		Status:           "parsed",
@@ -1157,7 +1199,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		SkipDeep:         &skipDeep,
 		ContentSubtype:   triageOutput.ContentSubtype,
 		SourceSystem:     string(sourceSystem),
-	}).Get(ctx, nil)
+	}).Get(ctx, nil); err != nil {
+		logger.Error("Failed to update content status",
+			"source_id", input.SourceID,
+			"target_status", "parsed",
+			"error", err,
+		)
+	}
 
 	// Create enrichment record (runs for all items after triage)
 	// Map input ContentType to enrichment.ContentType
@@ -1421,7 +1469,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		if assertionCount > 0 {
 			updateInput.AssertionCount = &assertionCount
 		}
-		_ = workflow.ExecuteActivity(ctxStatus2, pkgtemporal.ActivityUpdateContentStatus, updateInput).Get(ctx, nil)
+		if err := workflow.ExecuteActivity(ctxStatus2, pkgtemporal.ActivityUpdateContentStatus, updateInput).Get(ctx, nil); err != nil {
+			logger.Error("Failed to update content status",
+				"source_id", input.SourceID,
+				"target_status", "extracted",
+				"error", err,
+			)
+		}
 
 		if checkCancellation() {
 			state.result.Status = "cancelled"
@@ -1708,11 +1762,17 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				if state.result.AssertionsCreated > 0 {
 					totalCount := state.result.AssertionsCreated
 					ctxAssertionUpdate := workflow.WithActivityOptions(ctx, fastOpts)
-					_ = workflow.ExecuteActivity(ctxAssertionUpdate, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+					if err := workflow.ExecuteActivity(ctxAssertionUpdate, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 						TenantID:       input.TenantID,
 						SourceID:       input.SourceID,
 						AssertionCount: &totalCount,
-					}).Get(ctx, nil)
+					}).Get(ctx, nil); err != nil {
+						logger.Error("Failed to update content status",
+							"source_id", input.SourceID,
+							"target_status", "assertion_count",
+							"error", err,
+						)
+					}
 				}
 			}
 		}
@@ -1805,13 +1865,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		// Update status to failed
 		ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
-		_ = workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+		if err := workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 			TenantID:        input.TenantID,
 			SourceID:        input.SourceID,
 			Status:          "failed",
 			FailureCategory: string(pe.Code),
 			FailureReason:   err.Error(),
-		}).Get(ctx, nil)
+		}).Get(ctx, nil); err != nil {
+			logger.Error("Failed to update content status",
+				"source_id", input.SourceID,
+				"target_status", "failed",
+				"error", err,
+			)
+		}
 
 		return state.result, nil
 	}
@@ -1881,11 +1947,17 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Final status update
 	ctxComplete := workflow.WithActivityOptions(ctx, fastOpts)
-	_ = workflow.ExecuteActivity(ctxComplete, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+	if err := workflow.ExecuteActivity(ctxComplete, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
 		TenantID: input.TenantID,
 		SourceID: input.SourceID,
 		Status:   "completed",
-	}).Get(ctx, nil)
+	}).Get(ctx, nil); err != nil {
+		logger.Error("Failed to update content status",
+			"source_id", input.SourceID,
+			"target_status", "completed",
+			"error", err,
+		)
+	}
 
 	state.result.Status = "completed"
 	updateStatus("completed", "")
