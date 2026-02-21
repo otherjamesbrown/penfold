@@ -3,12 +3,26 @@ package storage
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
+
+// float64sToVecString converts a float64 slice to pgvector text format "[0.1,0.2,0.3]".
+func float64sToVecString(v []float64) string {
+	if len(v) == 0 {
+		return ""
+	}
+	parts := make([]string, len(v))
+	for i, x := range v {
+		parts[i] = strconv.FormatFloat(x, 'g', -1, 64)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
 
 // Embedding represents a vector embedding stored in the database.
 type Embedding struct {
@@ -43,16 +57,20 @@ func NewEmbeddingRepository(pool *pgxpool.Pool, logger zerolog.Logger) *Embeddin
 
 // Store inserts a new embedding in the database.
 func (r *EmbeddingRepository) Store(ctx context.Context, e *Embedding) error {
+	// Convert embedding to pgvector string format for the vector column.
+	// pgx sends []float64 as binary float8[] which can't be directly cast to vector.
+	vecStr := float64sToVecString(e.Embedding)
+
 	query := `
 		INSERT INTO embeddings (
 			tenant_id, entity_type, entity_id, source_id,
-			embedding, embedding_model, model_version,
+			embedding, embedding_vec, embedding_model, model_version,
 			text_content, content_hash, generation_confidence,
 			created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4,
-			$5, $6, $7,
-			$8, $9, $10,
+			$5, NULLIF($6, '')::vector, $7, $8,
+			$9, $10, $11,
 			NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at
@@ -64,6 +82,7 @@ func (r *EmbeddingRepository) Store(ctx context.Context, e *Embedding) error {
 		e.EntityID,
 		e.SourceID,
 		e.Embedding,
+		vecStr,
 		e.EmbeddingModel,
 		e.ModelVersion,
 		e.TextContent,
@@ -103,16 +122,17 @@ func (r *EmbeddingRepository) StoreBatch(ctx context.Context, embeddings []*Embe
 	defer tx.Rollback(ctx)
 
 	for _, e := range embeddings {
+		vecStr := float64sToVecString(e.Embedding)
 		query := `
 			INSERT INTO embeddings (
 				tenant_id, entity_type, entity_id, source_id,
-				embedding, embedding_model, model_version,
+				embedding, embedding_vec, embedding_model, model_version,
 				text_content, content_hash, generation_confidence,
 				created_at, updated_at
 			) VALUES (
 				$1, $2, $3, $4,
-				$5, $6, $7,
-				$8, $9, $10,
+				$5, NULLIF($6, '')::vector, $7, $8,
+				$9, $10, $11,
 				NOW(), NOW()
 			)
 			RETURNING id, created_at, updated_at
@@ -124,6 +144,7 @@ func (r *EmbeddingRepository) StoreBatch(ctx context.Context, embeddings []*Embe
 			e.EntityID,
 			e.SourceID,
 			e.Embedding,
+			vecStr,
 			e.EmbeddingModel,
 			e.ModelVersion,
 			e.TextContent,

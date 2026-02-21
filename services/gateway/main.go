@@ -473,9 +473,13 @@ func main() {
 	logsv1.RegisterLogsServiceServer(grpcServer, logsSvc)
 	logger.Info("Registered LogsService")
 
-	// Register SearchService using direct database queries.
-	// This allows CLI to use gateway address for search without a separate service.
+	// Register SearchService using direct database queries with optional hybrid search.
+	// When AI client is available, search blends keyword (ts_rank_cd) with vector similarity.
 	searchSvc := searchservice.NewService(dbPool, logger)
+	if aiClient != nil {
+		searchSvc.SetEmbedder(aiClient)
+		logger.Info("SearchService: hybrid search enabled (keyword + vector)")
+	}
 	searchv1.RegisterSearchServiceServer(grpcServer, searchSvc)
 	logger.Info("Registered SearchService (database-backed)")
 
