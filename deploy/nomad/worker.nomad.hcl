@@ -41,7 +41,7 @@ job "penfold-worker" {
 
       config {
         command = "/bin/sh"
-        args    = ["-c", "set -a; . /etc/penfold/worker.env; set +a; exec /opt/penfold/bin/penfold-worker"]
+        args    = ["-c", "exec sudo -u james /bin/sh -c 'set -a; . /etc/penfold/worker.env; set +a; exec /opt/penfold/bin/penfold-worker'"]
       }
 
       service {
