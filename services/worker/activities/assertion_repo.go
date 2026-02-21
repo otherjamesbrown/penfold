@@ -63,6 +63,15 @@ func (r *PostgresAssertionRepository) StoreAssertions(
 	}
 	defer tx.Rollback(ctx)
 
+	// Delete existing assertions for this source before inserting fresh ones.
+	// This ensures reprocessing replaces rather than accumulates assertions.
+	// assertion_attributions rows are deleted automatically via ON DELETE CASCADE.
+	_, err = tx.Exec(ctx, "DELETE FROM assertions WHERE source_id = $1 AND tenant_id = $2::uuid", sourceID, tenantID)
+	if err != nil {
+		logger.Error("Failed to delete existing assertions", logging.Err(err))
+		return 0, fmt.Errorf("failed to delete existing assertions: %w", err)
+	}
+
 	insertedCount := 0
 
 	// Insert each assertion

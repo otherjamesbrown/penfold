@@ -1033,7 +1033,6 @@ func (r *PersistRepo) collectStage2Texts(ctx context.Context, sourceID int64) []
 		FROM assertions
 		WHERE source_id = $1
 		  AND extraction_model IS NOT NULL
-		  AND is_deleted = false
 		ORDER BY created_at DESC
 		LIMIT 100
 	`

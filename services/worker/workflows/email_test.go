@@ -478,6 +478,61 @@ func (s *EmailProcessingWorkflowTestSuite) TestEmailProcessingWorkflow_MinimalIn
 	s.Equal("completed", result.Status)
 }
 
+// TestEmailProcessingWorkflow_AssertionExtractionExcludesSubject reproduces bug pf-91c6ab.
+// The bug: buildEmailContext() prepends "Subject: <text>" into the emailContext string, and
+// line 192 passes that full emailContext (including the subject header) to ExtractAssertionsInput.Content.
+// This causes the LLM to treat the subject line as an assertion, producing tautological results.
+// The fix will pass fetchOutput.ContentText (body only) instead of emailContext to assertion extraction.
+// This test MUST FAIL on the current code because emailContext contains "Subject: Important Budget Meeting".
+func (s *EmailProcessingWorkflowTestSuite) TestEmailProcessingWorkflow_AssertionExtractionExcludesSubject() {
+	subject := "Important Budget Meeting"
+	bodyText := "Please review the attached budget proposal."
+
+	// Capture the Content field passed to ExtractAssertions.
+	var capturedAssertionContent string
+	s.activities.On("FetchSource", mock.Anything, mock.Anything).Return(&FetchSourceOutput{
+		ContentText: bodyText,
+		ContentType: "text/plain",
+	}, nil)
+
+	s.activities.On("GenerateEmbedding", mock.Anything, mock.Anything).Return(int64(100), nil)
+	s.activities.On("GenerateSummary", mock.Anything, mock.Anything).Return(int64(200), nil)
+
+	s.activities.On("ExtractAssertions", mock.Anything, mock.MatchedBy(func(input ExtractAssertionsInput) bool {
+		capturedAssertionContent = input.Content
+		return true
+	})).Return(3, nil)
+
+	s.activities.On("UpdateSourceStatus", mock.Anything, mock.Anything).Return(nil)
+
+	fromName := "Finance Team"
+	s.env.ExecuteWorkflow(EmailProcessingWorkflow, pkgtemporal.EmailProcessingInput{
+		TenantID:    "tenant-123",
+		SourceID:    456,
+		MessageID:   "msg-789",
+		ThreadID:    "thread-abc",
+		FromEmail:   "finance@example.com",
+		FromName:    &fromName,
+		Subject:     &subject,
+		ToEmails:    []string{"manager@example.com"},
+		EmailDate:   time.Date(2024, 3, 10, 9, 0, 0, 0, time.UTC),
+		ContentHash: "hash-budget",
+		JobID:       "job-budget-001",
+	})
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	// The content passed to ExtractAssertions must be the email body only.
+	// It must NOT contain the subject line header — that is metadata, not a statement of fact.
+	s.NotContains(capturedAssertionContent, "Subject: "+subject,
+		"ExtractAssertions must not receive the subject header; got: %q", capturedAssertionContent)
+
+	// Sanity check: body text should be present so we know content is non-empty.
+	s.Contains(capturedAssertionContent, bodyText,
+		"ExtractAssertions must receive the email body text")
+}
+
 func TestEmailProcessingWorkflowTestSuite(t *testing.T) {
 	suite.Run(t, new(EmailProcessingWorkflowTestSuite))
 }

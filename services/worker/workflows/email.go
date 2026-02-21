@@ -189,8 +189,8 @@ func EmailProcessingWorkflow(ctx workflow.Context, input EmailProcessingInput) (
 		SourceID:    input.SourceID,
 		ContentID:   input.ContentID,
 		JobID:       input.JobID,
-		Content:     emailContext,
-		SenderEmail: input.FromEmail, // Pass sender for owner attribution
+		Content:     fetchOutput.ContentText, // pf-91c6ab: body only — subject header produces tautological assertions
+		SenderEmail: input.FromEmail,         // Pass sender for owner attribution
 	}).Get(ctx, &assertionCount)
 	if err != nil {
 		logger.Warn("Assertion extraction failed, continuing", "error", err)
