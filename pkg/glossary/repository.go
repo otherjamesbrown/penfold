@@ -94,6 +94,18 @@ func scanTerm(scanner interface {
 	return nil
 }
 
+// lowercaseAliases normalizes aliases to lowercase for case-insensitive JSONB containment queries.
+func lowercaseAliases(aliases []string) []string {
+	if aliases == nil {
+		return nil
+	}
+	out := make([]string, len(aliases))
+	for i, a := range aliases {
+		out[i] = strings.ToLower(a)
+	}
+	return out
+}
+
 // Create adds a new term to the glossary.
 func (r *Repository) Create(ctx context.Context, tenantID string, input TermInput) (*Term, error) {
 	expandInSearch := true
@@ -107,7 +119,7 @@ func (r *Repository) Create(ctx context.Context, tenantID string, input TermInpu
 	}
 
 	contextJSON, _ := json.Marshal(input.Context)
-	aliasesJSON, _ := json.Marshal(input.Aliases)
+	aliasesJSON, _ := json.Marshal(lowercaseAliases(input.Aliases))
 
 	var term Term
 	var linkedType, linkedID interface{}
@@ -326,7 +338,7 @@ func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, erro
 // Update modifies an existing term.
 func (r *Repository) Update(ctx context.Context, id int64, input TermInput) (*Term, error) {
 	contextJSON, _ := json.Marshal(input.Context)
-	aliasesJSON, _ := json.Marshal(input.Aliases)
+	aliasesJSON, _ := json.Marshal(lowercaseAliases(input.Aliases))
 
 	expandInSearch := true
 	if input.ExpandInSearch != nil {

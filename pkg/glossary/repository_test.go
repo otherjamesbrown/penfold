@@ -32,6 +32,26 @@ func TestWordBoundaryPattern(t *testing.T) {
 	}
 }
 
+func TestLowercaseAliases(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  []string
+		expect []string
+	}{
+		{"nil input", nil, nil},
+		{"empty slice", []string{}, []string{}},
+		{"already lowercase", []string{"border routers"}, []string{"border routers"}},
+		{"mixed case", []string{"36QDD", "Border Routers"}, []string{"36qdd", "border routers"}},
+		{"all uppercase", []string{"ABC", "DEF"}, []string{"abc", "def"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := lowercaseAliases(tc.input)
+			assert.Equal(t, tc.expect, result)
+		})
+	}
+}
+
 func TestTermInput_Defaults(t *testing.T) {
 	input := TermInput{
 		Term:      "TEST",

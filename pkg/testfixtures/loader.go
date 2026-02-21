@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"gopkg.in/yaml.v3"
@@ -276,7 +277,7 @@ func (l *Loader) LoadGlossary(ctx context.Context) error {
 				if i > 0 {
 					aliasesJSON += ","
 				}
-				aliasesJSON += fmt.Sprintf("%q", alias)
+				aliasesJSON += fmt.Sprintf("%q", strings.ToLower(alias))
 			}
 			aliasesJSON += "]"
 		}

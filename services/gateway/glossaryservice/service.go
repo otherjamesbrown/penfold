@@ -102,7 +102,8 @@ func (s *Service) GetTerm(ctx context.Context, req *glossaryv1.GetTermRequest) (
 	if req.Id > 0 {
 		term, err = s.repo.Get(ctx, req.Id, req.TenantId)
 	} else if req.Term != "" {
-		term, err = s.repo.GetByTerm(ctx, req.TenantId, req.Term)
+		// Try exact term match first, then fall back to alias lookup
+		term, err = s.repo.LookupTerm(ctx, req.TenantId, req.Term)
 	} else {
 		return nil, status.Error(codes.InvalidArgument, "either id or term is required")
 	}
