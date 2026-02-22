@@ -166,6 +166,35 @@ func classifyEmailThreading(inReplyTo string, subject string) ContentSubtype {
 	return SubtypeEmailStandalone
 }
 
+// ClassifyContentStructure determines the structural classification of a content item.
+// For emails: FORWARD (FW:/Fwd: prefix), REPLY (In-Reply-To or Re: prefix), STANDALONE.
+// For all other content types: UNSPECIFIED.
+func ClassifyContentStructure(headers map[string]string, subject string, contentType string) ContentStructure {
+	// Only classify structure for emails
+	if contentType != "email" {
+		return ContentStructureUnspecified
+	}
+
+	subjectLower := strings.ToLower(strings.TrimSpace(subject))
+
+	// Check for forward first (FW: or Fwd:)
+	if strings.HasPrefix(subjectLower, "fw:") || strings.HasPrefix(subjectLower, "fwd:") {
+		return ContentStructureForward
+	}
+
+	// Check for reply: In-Reply-To header present OR Re: subject prefix
+	if headers != nil {
+		if irt, ok := headers["In-Reply-To"]; ok && strings.TrimSpace(irt) != "" {
+			return ContentStructureReply
+		}
+	}
+	if strings.HasPrefix(subjectLower, "re:") {
+		return ContentStructureReply
+	}
+
+	return ContentStructureStandalone
+}
+
 // matchesPattern checks if an email address matches a pattern.
 // Supports wildcards (* matches any sequence).
 func matchesPattern(email, pattern string) bool {

@@ -120,6 +120,8 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	var firstEmbeddingID int64
 	// Track total token count across all chunks (EmbeddingResponse.TokenCount is input tokens)
 	var totalEmbedInputTokens int
+	// Track the model used — all chunks use the same embedding model; capture from first response.
+	var embedModelUsed string
 	startTime := time.Now()
 
 	// Create stage span wrapping ALL chunk embedding calls
@@ -187,9 +189,10 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 			return 0, WrapForTemporal(pe)
 		}
 
-		// Record the first chunk's ID for return value
+		// Record the first chunk's ID and model for return value / pipeline tracking
 		if chunk.Index == 0 {
 			firstEmbeddingID = embeddingID
+			embedModelUsed = resp.ModelUsed
 		}
 
 		// Accumulate token count (embedding has input tokens only, no output tokens)
@@ -231,7 +234,7 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:        input.SourceID,
 			Stage:           "embed",
-			ModelID:         "chunked", // Model is recorded per-chunk, overall operation is chunked
+			ModelID:         embedModelUsed, // Model reported by AI coordinator for the embedding (same for all chunks)
 			Status:          "completed",
 			DurationMS:      durationMS,
 			InputData:       inputJSON,

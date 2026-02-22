@@ -13,6 +13,7 @@ type ContentType string
 
 const (
 	ContentTypeEmail      ContentType = "email"
+	ContentTypeMeeting    ContentType = "meeting"
 	ContentTypeCalendar   ContentType = "calendar"
 	ContentTypeDocument   ContentType = "document"
 	ContentTypeAttachment ContentType = "attachment"
@@ -27,10 +28,16 @@ const (
 	SubtypeEmailThread        ContentSubtype = "thread"
 	SubtypeEmailForward       ContentSubtype = "forward"
 	SubtypeEmailStandalone    ContentSubtype = "standalone"
+	SubtypeEmailNewsletter    ContentSubtype = "newsletter"
 	SubtypeNotificationJira   ContentSubtype = "notification/jira"
 	SubtypeNotificationGoogle ContentSubtype = "notification/google"
 	SubtypeNotificationSlack  ContentSubtype = "notification/slack"
 	SubtypeNotificationOther  ContentSubtype = "notification/other"
+)
+
+// Meeting subtypes
+const (
+	SubtypeMeetingTranscript ContentSubtype = "transcript"
 )
 
 // Calendar subtypes
@@ -80,7 +87,20 @@ const (
 	SourceSystemOutlookCalendar SourceSystem = "outlook_calendar"
 	SourceSystemAutoReply       SourceSystem = "auto_reply"
 	SourceSystemHumanEmail      SourceSystem = "human_email"
+	SourceSystemTeams           SourceSystem = "teams"
+	SourceSystemZoom            SourceSystem = "zoom"
+	SourceSystemGoogleMeet      SourceSystem = "google_meet"
 	SourceSystemUnknown         SourceSystem = "unknown"
+)
+
+// ContentStructure classifies the structural relationship of a content item.
+type ContentStructure string
+
+const (
+	ContentStructureUnspecified ContentStructure = ""
+	ContentStructureStandalone  ContentStructure = "standalone"
+	ContentStructureReply       ContentStructure = "reply"
+	ContentStructureForward     ContentStructure = "forward"
 )
 
 // EnrichmentStatus represents the processing state.
@@ -143,8 +163,9 @@ type Enrichment struct {
 	TenantID string `json:"tenant_id"`
 
 	// Classification (Stage 1)
-	Classification Classification `json:"classification"`
-	SourceSystem   SourceSystem   `json:"source_system"`
+	Classification   Classification   `json:"classification"`
+	SourceSystem     SourceSystem     `json:"source_system"`
+	ContentStructure ContentStructure `json:"content_structure,omitempty"`
 
 	// Processing status
 	Status       EnrichmentStatus `json:"status"`
