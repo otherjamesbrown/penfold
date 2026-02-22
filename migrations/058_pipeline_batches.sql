@@ -1,8 +1,6 @@
 -- 058_pipeline_batches.sql
 -- Add pipeline_batches table for tracking batch processing jobs with progress and status
 
-BEGIN;
-
 CREATE TABLE IF NOT EXISTS pipeline_batches (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id),
@@ -15,7 +13,5 @@ CREATE TABLE IF NOT EXISTS pipeline_batches (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_pipeline_batches_tenant ON pipeline_batches(tenant_id);
-CREATE INDEX idx_pipeline_batches_status ON pipeline_batches(status);
-
-COMMIT;
+CREATE INDEX IF NOT EXISTS idx_pipeline_batches_tenant ON pipeline_batches(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_batches_status ON pipeline_batches(status);

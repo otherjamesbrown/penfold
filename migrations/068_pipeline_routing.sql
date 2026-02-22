@@ -1,9 +1,8 @@
--- +goose Up
 -- Pipeline routing table: data-driven routing from classification to pipeline stages.
 -- Items with no matching route skip all pipelines (zero processing cost).
 -- Part of epic pf-778226, task pf-47a0bb.
 
-CREATE TABLE pipeline_routing (
+CREATE TABLE IF NOT EXISTS pipeline_routing (
   id SERIAL PRIMARY KEY,
   tenant_id UUID NOT NULL REFERENCES tenants(id),
   content_type VARCHAR(20),          -- NULL = any content type
@@ -13,8 +12,8 @@ CREATE TABLE pipeline_routing (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_pipeline_routing_tenant ON pipeline_routing (tenant_id, active);
-CREATE INDEX idx_pipeline_routing_lookup ON pipeline_routing (tenant_id, content_type, content_subtype, active);
+CREATE INDEX IF NOT EXISTS idx_pipeline_routing_tenant ON pipeline_routing (tenant_id, active);
+CREATE INDEX IF NOT EXISTS idx_pipeline_routing_lookup ON pipeline_routing (tenant_id, content_type, content_subtype, active);
 
 -- Seed default routing for the first tenant.
 DO $$
@@ -28,23 +27,27 @@ BEGIN
 
   -- Human emails → standard pipeline (full processing)
   INSERT INTO pipeline_routing (tenant_id, content_type, content_subtype, pipeline)
-  VALUES (t_id, 'EMAIL', 'HUMAN', 'standard');
+  SELECT t_id, 'EMAIL', 'HUMAN', 'standard'
+  WHERE NOT EXISTS (SELECT 1 FROM pipeline_routing WHERE tenant_id = t_id AND content_type = 'EMAIL' AND content_subtype = 'HUMAN');
 
   -- Notification emails → standard pipeline
   INSERT INTO pipeline_routing (tenant_id, content_type, content_subtype, pipeline)
-  VALUES (t_id, 'EMAIL', 'NOTIFICATION', 'standard');
+  SELECT t_id, 'EMAIL', 'NOTIFICATION', 'standard'
+  WHERE NOT EXISTS (SELECT 1 FROM pipeline_routing WHERE tenant_id = t_id AND content_type = 'EMAIL' AND content_subtype = 'NOTIFICATION');
 
   -- Calendar invites → attendees_only pipeline (extract attendees, no triage LLM)
   INSERT INTO pipeline_routing (tenant_id, content_type, content_subtype, pipeline)
-  VALUES (t_id, 'CALENDAR', 'INVITE', 'attendees_only');
+  SELECT t_id, 'CALENDAR', 'INVITE', 'attendees_only'
+  WHERE NOT EXISTS (SELECT 1 FROM pipeline_routing WHERE tenant_id = t_id AND content_type = 'CALENDAR' AND content_subtype = 'INVITE');
 
   -- Meeting transcripts → standard pipeline
   INSERT INTO pipeline_routing (tenant_id, content_type, content_subtype, pipeline)
-  VALUES (t_id, 'MEETING', 'TRANSCRIPT', 'standard');
+  SELECT t_id, 'MEETING', 'TRANSCRIPT', 'standard'
+  WHERE NOT EXISTS (SELECT 1 FROM pipeline_routing WHERE tenant_id = t_id AND content_type = 'MEETING' AND content_subtype = 'TRANSCRIPT');
 
   -- No rows for: EMAIL/AUTO_REPLY, CALENDAR/CANCELLATION, CALENDAR/UPDATE, CALENDAR/RESPONSE
   -- These are skipped (no pipeline processing).
 END $$;
 
--- +goose Down
-DROP TABLE IF EXISTS pipeline_routing;
+-- Rollback (manual):
+-- DROP TABLE IF EXISTS pipeline_routing;

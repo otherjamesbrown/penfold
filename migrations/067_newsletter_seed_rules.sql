@@ -1,4 +1,3 @@
--- +goose Up
 -- Seed newsletter detection rule for the classification rule engine.
 -- Priority 90: lower than notification rules (10-50), so notifications
 -- with List-Unsubscribe headers are not reclassified as newsletters.
@@ -11,6 +10,11 @@ BEGIN
   SELECT id INTO t_id FROM tenants LIMIT 1;
   IF t_id IS NULL THEN
     RAISE EXCEPTION 'No tenant found for seeding newsletter classification rule';
+  END IF;
+
+  -- Skip if newsletter rule already exists (idempotent)
+  IF EXISTS (SELECT 1 FROM classification_rules WHERE tenant_id = t_id AND name = 'newsletter' LIMIT 1) THEN
+    RETURN;
   END IF;
 
   -- Priority 90: Newsletter
@@ -26,8 +30,8 @@ BEGIN
     (currval('classification_rules_id_seq'), 'subject', 'contains', 'Weekly Digest', false);
 END $$;
 
--- +goose Down
-DELETE FROM classification_match_conditions WHERE rule_id IN (
-  SELECT id FROM classification_rules WHERE name = 'newsletter'
-);
-DELETE FROM classification_rules WHERE name = 'newsletter';
+-- Rollback (manual):
+-- DELETE FROM classification_match_conditions WHERE rule_id IN (
+--   SELECT id FROM classification_rules WHERE name = 'newsletter'
+-- );
+-- DELETE FROM classification_rules WHERE name = 'newsletter';
