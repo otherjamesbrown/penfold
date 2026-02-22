@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
@@ -36,7 +37,7 @@ func TestTriage_Success(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -76,7 +77,7 @@ func TestTriage_SkipDeep_Personal(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -112,7 +113,7 @@ func TestTriage_SkipDeep_LowInternalComms(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -149,7 +150,7 @@ func TestTriage_NoSkip_HighInternalComms(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -174,7 +175,7 @@ func TestTriage_NoSkip_HighInternalComms(t *testing.T) {
 func TestTriage_EmptyContent(t *testing.T) {
 	logger := logging.NewNopLogger()
 	mockClient := &mockAIClient{}
-	activities := NewTriageActivities(logger, mockClient, nil, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -200,7 +201,7 @@ func TestTriage_AIClientError(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -252,7 +253,7 @@ func TestTriage_ContentSubtypeClassification_NoEnrichmentRecord(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, mockEnrichmentRepo)
+	activities := NewTriageActivities(logger, mockClient, nil, mockEnrichmentRepo, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -375,7 +376,7 @@ func TestTriage_ContentContribution_Populated(t *testing.T) {
 				},
 			}
 
-			activities := NewTriageActivities(logger, mockClient, nil, nil)
+			activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 			input := TriageInput{
 				TenantID:    "test-tenant",
@@ -417,7 +418,7 @@ func TestTriage_ContentContribution_MissingFields(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -478,7 +479,7 @@ func TestTriage_AutoReply_ShortCircuit_pf64dcc4(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	// Email em-w4XTS5St: Mark Henry out-of-office auto-reply.
 	// The subject prefix "Automatic reply:" is the canonical signal used by
@@ -539,7 +540,7 @@ func TestTriage_AutoReply_CaseInsensitive_pf64dcc4(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	// Outlook sometimes capitalises the prefix differently.
 	input := TriageInput{
@@ -589,7 +590,7 @@ func TestTriage_NonAutoReply_NotShortCircuited_pf64dcc4(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -633,7 +634,7 @@ func TestTriage_ContentContribution_EmptyString(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -655,4 +656,89 @@ func TestTriage_ContentContribution_EmptyString(t *testing.T) {
 	// TODO: After implementation, verify empty contribution defaults to HIGH:
 	// require.Equal(t, "HIGH", output.ContentContribution) // Empty string should default to HIGH
 	// This ensures the default fallback behavior works correctly
+}
+
+// TestMapToSourceSystem verifies that mapToSourceSystem converts ClassificationResult
+// to the correct legacy SourceSystem string.
+func TestMapToSourceSystem(t *testing.T) {
+	tests := []struct {
+		name           string
+		result         classification.ClassificationResult
+		wantSourceSystem string
+	}{
+		{
+			name: "NOTIFICATION with jira source",
+			result: classification.ClassificationResult{
+				ContentType:        "EMAIL",
+				ContentSubtype:     "NOTIFICATION",
+				NotificationSource: "jira",
+			},
+			wantSourceSystem: "jira",
+		},
+		{
+			name: "NOTIFICATION with aha source",
+			result: classification.ClassificationResult{
+				ContentType:        "EMAIL",
+				ContentSubtype:     "NOTIFICATION",
+				NotificationSource: "aha",
+			},
+			wantSourceSystem: "aha",
+		},
+		{
+			name: "NOTIFICATION with empty notification source falls back to human_email",
+			result: classification.ClassificationResult{
+				ContentType:        "EMAIL",
+				ContentSubtype:     "NOTIFICATION",
+				NotificationSource: "",
+			},
+			wantSourceSystem: "human_email",
+		},
+		{
+			name: "AUTO_REPLY maps to auto_reply",
+			result: classification.ClassificationResult{
+				ContentType:    "EMAIL",
+				ContentSubtype: "AUTO_REPLY",
+			},
+			wantSourceSystem: "auto_reply",
+		},
+		{
+			name: "CANCELLATION maps to outlook_calendar",
+			result: classification.ClassificationResult{
+				ContentType:    "CALENDAR",
+				ContentSubtype: "CANCELLATION",
+			},
+			wantSourceSystem: "outlook_calendar",
+		},
+		{
+			name: "INVITE maps to outlook_calendar",
+			result: classification.ClassificationResult{
+				ContentType:    "CALENDAR",
+				ContentSubtype: "INVITE",
+			},
+			wantSourceSystem: "outlook_calendar",
+		},
+		{
+			name: "HUMAN maps to human_email",
+			result: classification.ClassificationResult{
+				ContentType:    "EMAIL",
+				ContentSubtype: "HUMAN",
+			},
+			wantSourceSystem: "human_email",
+		},
+		{
+			name: "empty subtype maps to human_email",
+			result: classification.ClassificationResult{
+				ContentType:    "EMAIL",
+				ContentSubtype: "",
+			},
+			wantSourceSystem: "human_email",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mapToSourceSystem(tt.result)
+			require.Equal(t, tt.wantSourceSystem, got)
+		})
+	}
 }

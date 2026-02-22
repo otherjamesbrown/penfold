@@ -26,6 +26,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	"github.com/otherjamesbrown/penfold/pkg/langfuse"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
 	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
@@ -497,8 +498,15 @@ func main() {
 			logger.Info("Enrichment repository initialized for content subtype classification")
 		}
 
+		// Create classification repository if database is available
+		var classificationRepo activities.ClassificationRepository
+		if dbPool != nil {
+			classificationRepo = classification.NewRepository(dbPool, logger)
+			logger.Info("Classification repository initialized for rule engine")
+		}
+
 		// Create triage activities (Stage 1)
-		triageActivities := activities.NewTriageActivities(logger, aiClient, pipelineRepo, enrichmentRepo)
+		triageActivities := activities.NewTriageActivities(logger, aiClient, pipelineRepo, enrichmentRepo, classificationRepo)
 		activityRegistrar.WithTriageActivities(triageActivities)
 		logger.Info("Triage activities initialized with AI client (Stage 1)")
 

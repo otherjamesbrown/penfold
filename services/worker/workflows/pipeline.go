@@ -11,7 +11,6 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
-	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
@@ -147,6 +146,7 @@ type TriageOutput struct {
 	ContentSubtype      string  `json:"content_subtype,omitempty"`
 	ContentContribution string  `json:"content_contribution,omitempty"`
 	ContributionReason  string  `json:"contribution_reason,omitempty"`
+	SourceSystem        string  `json:"source_system,omitempty"` // classified by rule engine in Triage activity
 }
 
 // SLMPipelineExtractEntitiesInput is the input for the ExtractEntities activity (pipeline version with TriageCategory).
@@ -1183,15 +1183,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.status.TotalSteps = pkgtemporal.SkipDeepTotalSteps()
 	}
 
-	// Classify source_system (deterministic, runs for all items)
-	// Note: Currently only using from_address and subject. message_id and headers
-	// would require expanding FetchSourceOutput to include them from source metadata.
-	sourceSystem := classification.ClassifySourceSystem(
-		input.SenderEmail, // from_address
-		input.Subject,     // subject
-		"",                // message_id (not currently available in pipeline)
-		nil,               // headers (not currently available in pipeline)
-	)
+	// Source system now classified in Triage activity via rule engine.
+	// Fall back to human_email if the field is empty (e.g. early return paths).
+	sourceSystem := enrichment.SourceSystem(triageOutput.SourceSystem)
+	if sourceSystem == "" {
+		sourceSystem = enrichment.SourceSystemHumanEmail
+	}
 
 	// Persist triage results and source_system to source metadata (fires for all items)
 	skipDeep := triageOutput.SkipDeep

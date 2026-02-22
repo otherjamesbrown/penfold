@@ -7,6 +7,7 @@ import (
 	"time"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
 )
 
 // SourceRepository defines the interface for source data access.
@@ -322,6 +323,11 @@ type PersistFindingsOutput struct {
 type PipelineRepository interface {
 	CreateRun(ctx context.Context, input PipelineRunInput) error
 	RecordOverrides(ctx context.Context, runID int64, overrides map[string]string) error
+}
+
+// ClassificationRepository defines the interface for loading classification rules.
+type ClassificationRepository interface {
+	LoadRules(ctx context.Context, tenantID string) ([]classification.ClassificationRule, error)
 }
 
 // EnrichmentRepository defines the interface for enrichment data access.

@@ -92,7 +92,7 @@ func (c *contextCapturingAIClient) GenerateEmbedding(ctx context.Context, req *a
 func TestTriage_PassesLangfuseMetadata(t *testing.T) {
 	logger := logging.NewNopLogger()
 	capturingClient := &contextCapturingAIClient{inner: &mockAIClient{}}
-	activities := NewTriageActivities(logger, capturingClient, nil, nil)
+	activities := NewTriageActivities(logger, capturingClient, nil, nil, nil)
 
 	input := workflows.TriageInput{
 		TenantID:    "test-tenant",
@@ -137,7 +137,7 @@ func TestTriage_PassesLangfuseMetadata(t *testing.T) {
 func TestTriage_NoMetadata_WhenTraceIDEmpty(t *testing.T) {
 	logger := logging.NewNopLogger()
 	capturingClient := &contextCapturingAIClient{inner: &mockAIClient{}}
-	activities := NewTriageActivities(logger, capturingClient, nil, nil)
+	activities := NewTriageActivities(logger, capturingClient, nil, nil, nil)
 
 	input := workflows.TriageInput{
 		TenantID:    "test-tenant",

@@ -12,6 +12,7 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
@@ -20,10 +21,11 @@ import (
 
 // TriageActivities holds dependencies for triage-related activities.
 type TriageActivities struct {
-	logger         logging.Logger
-	aiClient       AIClient
-	pipelineRepo   PipelineRepository
-	enrichmentRepo EnrichmentRepository
+	logger             logging.Logger
+	aiClient           AIClient
+	pipelineRepo       PipelineRepository
+	enrichmentRepo     EnrichmentRepository
+	classificationRepo ClassificationRepository // optional: rule engine for source system classification
 }
 
 // NewTriageActivities creates a new TriageActivities instance.
@@ -32,6 +34,7 @@ func NewTriageActivities(
 	aiClient AIClient,
 	pipelineRepo PipelineRepository,
 	enrichmentRepo EnrichmentRepository,
+	classificationRepo ClassificationRepository, // optional: rule engine for source system classification
 ) *TriageActivities {
 	if logger == nil {
 		panic("NewTriageActivities: logger is required")
@@ -41,11 +44,13 @@ func NewTriageActivities(
 	}
 	// pipelineRepo is optional (provenance recording)
 	// enrichmentRepo is optional (for content subtype classification)
+	// classificationRepo is optional (for rule-engine source system classification)
 	return &TriageActivities{
-		logger:         logger.With(logging.F("component", "triage_activities")),
-		aiClient:       aiClient,
-		pipelineRepo:   pipelineRepo,
-		enrichmentRepo: enrichmentRepo,
+		logger:             logger.With(logging.F("component", "triage_activities")),
+		aiClient:           aiClient,
+		pipelineRepo:       pipelineRepo,
+		enrichmentRepo:     enrichmentRepo,
+		classificationRepo: classificationRepo,
 	}
 }
 
@@ -115,6 +120,38 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		}
 	}
 
+	// Classify source system using rule engine (replaces ClassifySourceSystem in pipeline.go)
+	var sourceSystem string
+	if a.classificationRepo != nil {
+		rules, err := a.classificationRepo.LoadRules(ctx, input.TenantID)
+		if err != nil {
+			logger.Warn("Failed to load classification rules, falling back to default",
+				logging.Err(err),
+			)
+			sourceSystem = string(enrichment.SourceSystemHumanEmail)
+		} else {
+			engine := classification.NewEngine(rules)
+			// Build metadata map from available inputs
+			metadata := map[string]string{
+				"from_address": input.SenderEmail,
+				"subject":      input.Subject,
+			}
+			// Add headers (header:Name format)
+			for k, v := range input.Headers {
+				metadata["header:"+k] = v
+			}
+			result := engine.Classify(input.ContentType, metadata)
+			sourceSystem = mapToSourceSystem(result)
+			logger.Info("Source system classified via rule engine",
+				logging.F("source_system", sourceSystem),
+				logging.F("rule_name", result.RuleName),
+				logging.F("content_subtype", result.ContentSubtype),
+			)
+		}
+	} else {
+		sourceSystem = string(enrichment.SourceSystemHumanEmail)
+	}
+
 	// Handle auto-reply emails (pf-64dcc4)
 	// Auto-replies are system-generated messages with no meaningful content contribution.
 	// Detect by subject prefix "automatic reply:" (case-insensitive), matching the same
@@ -135,6 +172,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			ContentSubtype:      string(subtype),
 			ContentContribution: "NONE",
 			ContributionReason:  "Auto-reply emails do not contribute meaningful content",
+			SourceSystem:        sourceSystem,
 		}
 
 		logger.Info("Triage completed (auto-reply short-circuit)",
@@ -164,6 +202,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			ModelUsed:      "metadata-classifier",
 			SkipDeep:       true, // Skip deep processing (Stages 2-4)
 			ContentSubtype: string(subtype),
+			SourceSystem:   sourceSystem,
 		}
 
 		logger.Info("Triage completed (metadata-only)",
@@ -273,6 +312,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		ContentSubtype:      string(subtype),
 		ContentContribution: contentContribution,
 		ContributionReason:  contributionReason,
+		SourceSystem:        sourceSystem,
 	}
 
 	// Record heartbeat after processing
@@ -340,6 +380,24 @@ func shouldSkipDeep(category, importance string) bool {
 		return true
 	}
 	return false
+}
+
+// mapToSourceSystem converts a ClassificationResult to the legacy SourceSystem string.
+// This bridges the rule engine output to the enrichment.SourceSystem constants.
+func mapToSourceSystem(result classification.ClassificationResult) string {
+	switch result.ContentSubtype {
+	case "NOTIFICATION":
+		if result.NotificationSource != "" {
+			return result.NotificationSource // "jira", "aha", etc.
+		}
+		return string(enrichment.SourceSystemHumanEmail)
+	case "AUTO_REPLY":
+		return string(enrichment.SourceSystemAutoReply)
+	case "CANCELLATION", "INVITE":
+		return string(enrichment.SourceSystemOutlookCalendar)
+	default:
+		return string(enrichment.SourceSystemHumanEmail)
+	}
 }
 
 // Ensure TriageActivities implements required interfaces at compile time.

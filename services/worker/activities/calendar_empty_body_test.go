@@ -48,7 +48,7 @@ func TestTriage_CalendarInvite_EmptyBody(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, mockEnrichmentRepo)
+	activities := NewTriageActivities(logger, mockClient, nil, mockEnrichmentRepo, nil)
 
 	// Calendar invite with empty body but calendar headers
 	input := workflows.TriageInput{
@@ -110,7 +110,7 @@ func TestTriage_CalendarInvite_WithBody(t *testing.T) {
 		},
 	}
 
-	activities := NewTriageActivities(logger, mockClient, nil, mockEnrichmentRepo)
+	activities := NewTriageActivities(logger, mockClient, nil, mockEnrichmentRepo, nil)
 
 	input := workflows.TriageInput{
 		TenantID:    "test-tenant",
