@@ -54,6 +54,7 @@ const (
 	PipelineService_GetBatchStatus_FullMethodName       = "/penfold.pipeline.v1.PipelineService/GetBatchStatus"
 	PipelineService_ListBatches_FullMethodName          = "/penfold.pipeline.v1.PipelineService/ListBatches"
 	PipelineService_CancelBatch_FullMethodName          = "/penfold.pipeline.v1.PipelineService/CancelBatch"
+	PipelineService_ListModels_FullMethodName           = "/penfold.pipeline.v1.PipelineService/ListModels"
 )
 
 // PipelineServiceClient is the client API for PipelineService service.
@@ -126,6 +127,9 @@ type PipelineServiceClient interface {
 	ListBatches(ctx context.Context, in *ListBatchesRequest, opts ...grpc.CallOption) (*ListBatchesResponse, error)
 	// CancelBatch cancels a running batch processing job.
 	CancelBatch(ctx context.Context, in *CancelBatchRequest, opts ...grpc.CallOption) (*CancelBatchResponse, error)
+	// ListModels returns the model registry: which models are configured, their
+	// backend, and which pipeline stages they are assigned to.
+	ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error)
 }
 
 type pipelineServiceClient struct {
@@ -456,6 +460,16 @@ func (c *pipelineServiceClient) CancelBatch(ctx context.Context, in *CancelBatch
 	return out, nil
 }
 
+func (c *pipelineServiceClient) ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListModelsResponse)
+	err := c.cc.Invoke(ctx, PipelineService_ListModels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PipelineServiceServer is the server API for PipelineService service.
 // All implementations must embed UnimplementedPipelineServiceServer
 // for forward compatibility.
@@ -526,6 +540,9 @@ type PipelineServiceServer interface {
 	ListBatches(context.Context, *ListBatchesRequest) (*ListBatchesResponse, error)
 	// CancelBatch cancels a running batch processing job.
 	CancelBatch(context.Context, *CancelBatchRequest) (*CancelBatchResponse, error)
+	// ListModels returns the model registry: which models are configured, their
+	// backend, and which pipeline stages they are assigned to.
+	ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error)
 	mustEmbedUnimplementedPipelineServiceServer()
 }
 
@@ -631,6 +648,9 @@ func (UnimplementedPipelineServiceServer) ListBatches(context.Context, *ListBatc
 }
 func (UnimplementedPipelineServiceServer) CancelBatch(context.Context, *CancelBatchRequest) (*CancelBatchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CancelBatch not implemented")
+}
+func (UnimplementedPipelineServiceServer) ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListModels not implemented")
 }
 func (UnimplementedPipelineServiceServer) mustEmbedUnimplementedPipelineServiceServer() {}
 func (UnimplementedPipelineServiceServer) testEmbeddedByValue()                         {}
@@ -1229,6 +1249,24 @@ func _PipelineService_CancelBatch_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_ListModels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListModelsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).ListModels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_ListModels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).ListModels(ctx, req.(*ListModelsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PipelineService_ServiceDesc is the grpc.ServiceDesc for PipelineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1363,6 +1401,10 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CancelBatch",
 			Handler:    _PipelineService_CancelBatch_Handler,
+		},
+		{
+			MethodName: "ListModels",
+			Handler:    _PipelineService_ListModels_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

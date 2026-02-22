@@ -110,6 +110,10 @@ service PipelineService {
 
   // CancelBatch cancels a running batch processing job.
   rpc CancelBatch(CancelBatchRequest) returns (CancelBatchResponse);
+
+  // ListModels returns the model registry: which models are configured, their
+  // backend, and which pipeline stages they are assigned to.
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
 }
 
 // =============================================================================
@@ -1267,4 +1271,37 @@ message CancelBatchResponse {
 
   // Human-readable message.
   string message = 2;
+}
+
+// =============================================================================
+// Model Registry Messages
+// =============================================================================
+
+// ModelInfo describes a single model in the registry.
+message ModelInfo {
+  // Model name as used in configuration (e.g., "qwen2.5:7b", "gemini-2.0-flash").
+  string name = 1;
+
+  // Inference backend: "ollama" or "gemini".
+  string backend = 2;
+
+  // Pipeline stages this model is assigned to (e.g., "triage", "extract_entities").
+  // Empty if the model is not explicitly assigned to any stage (e.g., embedding models).
+  repeated string stages = 3;
+
+  // Whether this model is the global default LLM.
+  bool is_default = 4;
+
+  // Human-readable availability status: "available" (always reported as available;
+  // actual reachability is not checked at this layer).
+  string status = 5;
+}
+
+// ListModelsRequest requests the model registry.
+message ListModelsRequest {}
+
+// ListModelsResponse contains all known models and their configuration.
+message ListModelsResponse {
+  // All models known to the system (from DB config + hardcoded defaults).
+  repeated ModelInfo models = 1;
 }

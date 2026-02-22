@@ -1872,6 +1872,168 @@ func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageCo
 	return &pipelinev1.GetStageConfigResponse{Stages: entries}, nil
 }
 
+// ListModels returns the model registry: models known to the system, their
+// inferred backend, and which pipeline stages they are assigned to.
+//
+// Data sources (merged in priority order):
+//  1. model_config rows with config_key "stage.{stage}" — per-stage overrides
+//  2. model_config row with config_key "default.llm"    — global default
+//  3. Hardcoded known models (qwen2.5:7b, mxbai-embed-large, gemini models)
+//     that may not be in the DB at all.
+func (s *Service) ListModels(ctx context.Context, req *pipelinev1.ListModelsRequest) (*pipelinev1.ListModelsResponse, error) {
+	s.logger.Debug("ListModels called")
+
+	// knownStages lists the pipeline stages that use LLM models.
+	knownStages := []string{"triage", "extract_entities", "extract_assertions", "deep_analyze", "embedding"}
+
+	// knownModels is the set of models we always include even if they have no
+	// DB config rows.  Maps model name → backend.
+	knownModels := map[string]string{
+		"qwen2.5:7b":        "ollama",
+		"mxbai-embed-large": "ollama",
+		"gemini-2.0-flash":  "gemini",
+		"gemini-2.5-pro":    "gemini",
+	}
+
+	// modelStages accumulates the stages assigned to each model name.
+	modelStages := make(map[string][]string)
+	// globalDefault tracks which model is marked as the global default.
+	globalDefault := ""
+
+	if s.db != nil {
+		// Read all model_config rows in one query to avoid N+1 per stage.
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT config_key, model_name
+			FROM model_config
+			ORDER BY config_key
+		`)
+		if err != nil {
+			// model_config table may not exist in older deployments — non-fatal.
+			s.logger.Debug("Could not query model_config for ListModels", logging.Err(err))
+		} else {
+			defer rows.Close()
+			for rows.Next() {
+				var configKey, modelName string
+				if err := rows.Scan(&configKey, &modelName); err != nil {
+					continue
+				}
+				if modelName == "" {
+					continue
+				}
+				if configKey == "default.llm" {
+					globalDefault = modelName
+					continue
+				}
+				// stage.{stage} rows map directly to a stage name.
+				if strings.HasPrefix(configKey, "stage.") {
+					stageName := strings.TrimPrefix(configKey, "stage.")
+					modelStages[modelName] = append(modelStages[modelName], stageName)
+				}
+			}
+			if err := rows.Err(); err != nil {
+				s.logger.Debug("Error iterating model_config rows", logging.Err(err))
+			}
+		}
+	}
+
+	// If no per-stage overrides exist, assign the fallback model to all LLM stages.
+	// This mirrors the logic in GetStageConfig / selectBackend.
+	if globalDefault == "" && len(modelStages) == 0 {
+		// Pure-default deployment: qwen2.5:7b handles all LLM stages.
+		for _, stage := range knownStages {
+			if stage != "embedding" {
+				modelStages["qwen2.5:7b"] = append(modelStages["qwen2.5:7b"], stage)
+			}
+		}
+	} else if globalDefault != "" && len(modelStages) == 0 {
+		// Global default set but no per-stage overrides.
+		for _, stage := range knownStages {
+			if stage != "embedding" {
+				modelStages[globalDefault] = append(modelStages[globalDefault], stage)
+			}
+		}
+	}
+
+	// Embedding model (mxbai-embed-large) is always assigned to the embedding stage.
+	// If the DB has no entry for it, ensure it still appears.
+	if _, ok := modelStages["mxbai-embed-large"]; !ok {
+		modelStages["mxbai-embed-large"] = []string{"embedding"}
+	}
+
+	// Build the unified model set: start with known models, add any DB models.
+	allModels := make(map[string]string) // model name → backend
+	for name, backend := range knownModels {
+		allModels[name] = backend
+	}
+	// Add any models found in DB that are not in knownModels.
+	for name := range modelStages {
+		if _, ok := allModels[name]; !ok {
+			allModels[name] = selectBackend(name)
+		}
+	}
+	if globalDefault != "" {
+		if _, ok := allModels[globalDefault]; !ok {
+			allModels[globalDefault] = selectBackend(globalDefault)
+		}
+	}
+
+	// Determine the effective global default model name for the is_default flag.
+	effectiveDefault := globalDefault
+	if effectiveDefault == "" {
+		effectiveDefault = "qwen2.5:7b"
+	}
+
+	// Build the response list in a stable order.
+	result := make([]*pipelinev1.ModelInfo, 0, len(allModels))
+	for name, backend := range allModels {
+		info := &pipelinev1.ModelInfo{
+			Name:      name,
+			Backend:   backend,
+			Stages:    modelStages[name],
+			IsDefault: name == effectiveDefault,
+			Status:    "available",
+		}
+		result = append(result, info)
+	}
+
+	// Sort for deterministic output: default first, then alphabetical.
+	sortModelInfos(result)
+
+	s.logger.Info("ListModels completed", logging.F("model_count", len(result)))
+
+	return &pipelinev1.ListModelsResponse{Models: result}, nil
+}
+
+// selectBackend mirrors the backend detection logic in services/ai/server/server.go.
+// Returns "gemini" if the model name contains "gemini" (case-insensitive), else "ollama".
+func selectBackend(model string) string {
+	if strings.Contains(strings.ToLower(model), "gemini") {
+		return "gemini"
+	}
+	return "ollama"
+}
+
+// sortModelInfos sorts models so the default comes first, then alphabetically by name.
+func sortModelInfos(models []*pipelinev1.ModelInfo) {
+	for i := 1; i < len(models); i++ {
+		for j := 0; j < len(models)-i; j++ {
+			a, b := models[j], models[j+1]
+			// Default model always sorts first.
+			if b.IsDefault && !a.IsDefault {
+				models[j], models[j+1] = b, a
+				continue
+			}
+			if a.IsDefault && !b.IsDefault {
+				continue
+			}
+			// Otherwise alphabetical by name.
+			if a.Name > b.Name {
+				models[j], models[j+1] = b, a
+			}
+		}
+	}
+}
+
 // splitStageKey extracts the stage name from a timeout.stage.<stage>.<type> key.
 func splitStageKey(key string) string {
 	// key format: timeout.stage.triage.start_to_close
