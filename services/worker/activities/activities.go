@@ -201,6 +201,7 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 		ContentText:       content,
 		ContentType:       contentType,
 		ContentID:         resolvedContentID, // pf-3418d4: needed for conversation linking
+		SourceSystem:      sourceSystem,      // pf-e494df: pass through raw source_system from DB
 		Subject:           subject,
 		SenderEmail:       senderEmail,
 		SenderName:        senderName,

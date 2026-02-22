@@ -36,14 +36,15 @@ func NewEnrichmentActivities(
 
 // CreateEnrichmentRecordInput contains the data needed to create a content_enrichment record.
 type CreateEnrichmentRecordInput struct {
-	SourceID                   int64                       `json:"source_id"`
-	TenantID                   string                      `json:"tenant_id"`
-	ContentType                enrichment.ContentType      `json:"content_type"`
-	ContentSubtype             enrichment.ContentSubtype   `json:"content_subtype"`
-	SourceSystem               enrichment.SourceSystem     `json:"source_system"`
+	SourceID                   int64                        `json:"source_id"`
+	TenantID                   string                       `json:"tenant_id"`
+	ContentType                enrichment.ContentType       `json:"content_type"`
+	ContentSubtype             enrichment.ContentSubtype    `json:"content_subtype"`
+	SourceSystem               enrichment.SourceSystem      `json:"source_system"`
 	ProcessingProfile          enrichment.ProcessingProfile `json:"processing_profile"`
-	ClassificationConfidence   float32                     `json:"classification_confidence"`
-	ClassificationReason       string                      `json:"classification_reason"`
+	ClassificationConfidence   float32                      `json:"classification_confidence"`
+	ClassificationReason       string                       `json:"classification_reason"`
+	ContentStructure           enrichment.ContentStructure  `json:"content_structure,omitempty"` // pf-43acf2
 }
 
 // CreateEnrichmentRecordOutput contains the result of creating a content_enrichment record.
@@ -119,6 +120,7 @@ func (a *EnrichmentActivities) CreateEnrichmentRecord(ctx context.Context, input
 			Reason:      input.ClassificationReason,
 		},
 		SourceSystem:         input.SourceSystem,
+		ContentStructure:     input.ContentStructure, // pf-43acf2
 		Status:               enrichment.StatusPending,
 		CurrentStage:         "triage_complete",
 		RetryCount:           0,

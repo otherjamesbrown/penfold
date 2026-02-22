@@ -53,7 +53,7 @@ func (r *Repository) Create(ctx context.Context, e *Enrichment) error {
 			source_id, tenant_id,
 			content_type, content_subtype, processing_profile,
 			classification_confidence, classification_reason,
-			source_system,
+			source_system, content_structure,
 			status, current_stage, error_message, retry_count,
 			participants, resolved_participants, extracted_links,
 			thread_id, project_id, extracted_data,
@@ -63,12 +63,12 @@ func (r *Repository) Create(ctx context.Context, e *Enrichment) error {
 			$1, $2,
 			$3, $4, $5,
 			$6, $7,
-			$8,
-			$9, $10, $11, $12,
-			$13, $14, $15,
-			$16, $17, $18,
-			$19, $20, $21,
-			NOW(), NOW(), $22
+			$8, $9,
+			$10, $11, $12, $13,
+			$14, $15, $16,
+			$17, $18, $19,
+			$20, $21, $22,
+			NOW(), NOW(), $23
 		)
 		ON CONFLICT (source_id) DO NOTHING
 		RETURNING id, created_at, updated_at
@@ -83,6 +83,7 @@ func (r *Repository) Create(ctx context.Context, e *Enrichment) error {
 		e.Classification.Confidence,
 		e.Classification.Reason,
 		e.SourceSystem,
+		nullIfEmpty(string(e.ContentStructure)),
 		e.Status,
 		e.CurrentStage,
 		nullIfEmpty(e.ErrorMessage),
@@ -144,6 +145,7 @@ func (r *Repository) GetBySourceID(ctx context.Context, sourceID int64) (*Enrich
 			id, source_id, tenant_id,
 			content_type, content_subtype, processing_profile,
 			classification_confidence, classification_reason,
+			source_system, content_structure,
 			status, current_stage, error_message, retry_count,
 			participants, resolved_participants, extracted_links,
 			thread_id, project_id, extracted_data,
@@ -163,6 +165,7 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*Enrichment, error)
 			id, source_id, tenant_id,
 			content_type, content_subtype, processing_profile,
 			classification_confidence, classification_reason,
+			source_system, content_structure,
 			status, current_stage, error_message, retry_count,
 			participants, resolved_participants, extracted_links,
 			thread_id, project_id, extracted_data,
@@ -204,20 +207,21 @@ func (r *Repository) Update(ctx context.Context, e *Enrichment) error {
 			processing_profile = $4,
 			classification_confidence = $5,
 			classification_reason = $6,
-			status = $7,
-			current_stage = $8,
-			error_message = $9,
-			retry_count = $10,
-			participants = $11,
-			resolved_participants = $12,
-			extracted_links = $13,
-			thread_id = $14,
-			project_id = $15,
-			extracted_data = $16,
-			ai_processed = $17,
-			ai_skip_reason = $18,
-			ai_processed_at = $19,
-			completed_at = $20,
+			content_structure = $7,
+			status = $8,
+			current_stage = $9,
+			error_message = $10,
+			retry_count = $11,
+			participants = $12,
+			resolved_participants = $13,
+			extracted_links = $14,
+			thread_id = $15,
+			project_id = $16,
+			extracted_data = $17,
+			ai_processed = $18,
+			ai_skip_reason = $19,
+			ai_processed_at = $20,
+			completed_at = $21,
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING updated_at
@@ -230,6 +234,7 @@ func (r *Repository) Update(ctx context.Context, e *Enrichment) error {
 		e.Classification.Profile,
 		e.Classification.Confidence,
 		e.Classification.Reason,
+		nullIfEmpty(string(e.ContentStructure)),
 		e.Status,
 		e.CurrentStage,
 		nullIfEmpty(e.ErrorMessage),
@@ -333,6 +338,7 @@ func (r *Repository) ListPending(ctx context.Context, tenantID string, limit int
 			id, source_id, tenant_id,
 			content_type, content_subtype, processing_profile,
 			classification_confidence, classification_reason,
+			source_system, content_structure,
 			status, current_stage, error_message, retry_count,
 			participants, resolved_participants, extracted_links,
 			thread_id, project_id, extracted_data,
@@ -373,6 +379,7 @@ func (r *Repository) ListFailed(ctx context.Context, tenantID string, maxRetries
 			id, source_id, tenant_id,
 			content_type, content_subtype, processing_profile,
 			classification_confidence, classification_reason,
+			source_system, content_structure,
 			status, current_stage, error_message, retry_count,
 			participants, resolved_participants, extracted_links,
 			thread_id, project_id, extracted_data,
@@ -584,6 +591,7 @@ func (r *Repository) scanEnrichmentFromRow(row pgx.Row) (*Enrichment, error) {
 	e := &Enrichment{}
 	var participantsJSON, resolvedJSON, linksJSON, extractedDataJSON []byte
 	var contentType, subtype, profile string
+	var sourceSystem, contentStructure *string
 	var threadID, classificationReason, currentStage, errorMessage, aiSkipReason *string
 
 	err := row.Scan(
@@ -595,6 +603,8 @@ func (r *Repository) scanEnrichmentFromRow(row pgx.Row) (*Enrichment, error) {
 		&profile,
 		&e.Classification.Confidence,
 		&classificationReason,
+		&sourceSystem,
+		&contentStructure,
 		&e.Status,
 		&currentStage,
 		&errorMessage,
@@ -624,6 +634,8 @@ func (r *Repository) scanEnrichmentFromRow(row pgx.Row) (*Enrichment, error) {
 	e.Classification.Subtype = ContentSubtype(subtype)
 	e.Classification.Profile = ProcessingProfile(profile)
 	e.Classification.Reason = derefString(classificationReason)
+	e.SourceSystem = SourceSystem(derefString(sourceSystem))
+	e.ContentStructure = ContentStructure(derefString(contentStructure))
 	e.CurrentStage = derefString(currentStage)
 	e.ErrorMessage = derefString(errorMessage)
 	e.ThreadID = derefString(threadID)
@@ -649,6 +661,7 @@ func (r *Repository) scanEnrichmentRow(rows pgx.Rows) (*Enrichment, error) {
 	e := &Enrichment{}
 	var participantsJSON, resolvedJSON, linksJSON, extractedDataJSON []byte
 	var contentType, subtype, profile string
+	var sourceSystem, contentStructure *string
 	var threadID, classificationReason, currentStage, errorMessage, aiSkipReason *string
 
 	err := rows.Scan(
@@ -660,6 +673,8 @@ func (r *Repository) scanEnrichmentRow(rows pgx.Rows) (*Enrichment, error) {
 		&profile,
 		&e.Classification.Confidence,
 		&classificationReason,
+		&sourceSystem,
+		&contentStructure,
 		&e.Status,
 		&currentStage,
 		&errorMessage,
@@ -686,6 +701,8 @@ func (r *Repository) scanEnrichmentRow(rows pgx.Rows) (*Enrichment, error) {
 	e.Classification.Subtype = ContentSubtype(subtype)
 	e.Classification.Profile = ProcessingProfile(profile)
 	e.Classification.Reason = derefString(classificationReason)
+	e.SourceSystem = SourceSystem(derefString(sourceSystem))
+	e.ContentStructure = ContentStructure(derefString(contentStructure))
 	e.CurrentStage = derefString(currentStage)
 	e.ErrorMessage = derefString(errorMessage)
 	e.ThreadID = derefString(threadID)

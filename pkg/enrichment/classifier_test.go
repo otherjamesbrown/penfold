@@ -483,3 +483,126 @@ func TestClassifyContentSubtype_PriorityOrder(t *testing.T) {
 		})
 	}
 }
+
+// TestClassifyContentStructure tests the structural classification of content items.
+// pf-43acf2: content structure detection for emails (forward/reply/standalone) and
+// non-email content (unspecified).
+func TestClassifyContentStructure(t *testing.T) {
+	tests := []struct {
+		name        string
+		headers     map[string]string
+		subject     string
+		contentType string
+		want        ContentStructure
+	}{
+		{
+			name:        "standalone email (no FW/Re/In-Reply-To)",
+			headers:     map[string]string{},
+			subject:     "Project update for Q1",
+			contentType: "email",
+			want:        ContentStructureStandalone,
+		},
+		{
+			name: "reply with In-Reply-To header",
+			headers: map[string]string{
+				"In-Reply-To": "<original-msg-id@domain.com>",
+			},
+			subject:     "Project update for Q1",
+			contentType: "email",
+			want:        ContentStructureReply,
+		},
+		{
+			name:        "reply with Re: subject only",
+			headers:     map[string]string{},
+			subject:     "Re: Project update for Q1",
+			contentType: "email",
+			want:        ContentStructureReply,
+		},
+		{
+			name:        "reply with RE: subject (case insensitive)",
+			headers:     nil,
+			subject:     "RE: Budget review",
+			contentType: "email",
+			want:        ContentStructureReply,
+		},
+		{
+			name:        "forward with FW: prefix",
+			headers:     nil,
+			subject:     "FW: Customer feedback",
+			contentType: "email",
+			want:        ContentStructureForward,
+		},
+		{
+			name:        "forward with Fwd: prefix",
+			headers:     nil,
+			subject:     "Fwd: Important announcement",
+			contentType: "email",
+			want:        ContentStructureForward,
+		},
+		{
+			name:        "forward with fwd: (lowercase)",
+			headers:     nil,
+			subject:     "fwd: Meeting notes",
+			contentType: "email",
+			want:        ContentStructureForward,
+		},
+		{
+			name:        "forward takes precedence over Re: when FW: comes first",
+			headers:     nil,
+			subject:     "FW: Re: Discussion thread",
+			contentType: "email",
+			want:        ContentStructureForward,
+		},
+		{
+			name:        "meeting content returns unspecified",
+			headers:     nil,
+			subject:     "Q1 All Hands transcript",
+			contentType: "meeting",
+			want:        ContentStructureUnspecified,
+		},
+		{
+			name:        "calendar content returns unspecified",
+			headers:     nil,
+			subject:     "Accepted: Team Standup",
+			contentType: "calendar",
+			want:        ContentStructureUnspecified,
+		},
+		{
+			name:        "document content returns unspecified",
+			headers:     nil,
+			subject:     "Q4 Plan",
+			contentType: "document",
+			want:        ContentStructureUnspecified,
+		},
+		{
+			name:        "empty content type returns unspecified",
+			headers:     nil,
+			subject:     "Re: Something",
+			contentType: "",
+			want:        ContentStructureUnspecified,
+		},
+		{
+			name:        "email with empty subject returns standalone",
+			headers:     nil,
+			subject:     "",
+			contentType: "email",
+			want:        ContentStructureStandalone,
+		},
+		{
+			name:        "email with nil headers and plain subject returns standalone",
+			headers:     nil,
+			subject:     "Quarterly review",
+			contentType: "email",
+			want:        ContentStructureStandalone,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ClassifyContentStructure(tt.headers, tt.subject, tt.contentType)
+			if got != tt.want {
+				t.Errorf("ClassifyContentStructure() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

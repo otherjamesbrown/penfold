@@ -216,6 +216,7 @@ type CreateEnrichmentRecordInput struct {
 	ProcessingProfile        enrichment.ProcessingProfile  `json:"processing_profile"`
 	ClassificationConfidence float32                       `json:"classification_confidence"`
 	ClassificationReason     string                        `json:"classification_reason"`
+	ContentStructure         enrichment.ContentStructure   `json:"content_structure,omitempty"` // pf-43acf2
 }
 
 // CreateEnrichmentRecordOutput contains the result of creating a content_enrichment record.
@@ -688,6 +689,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	)
 	parseStart := workflow.Now(ctx)
 
+	// originalSourceSystem holds the raw source_system value from the DB (e.g. "teams", "zoom").
+	// Populated only when FetchSource is called (i.e. ContentType was empty on entry).
+	// Used after triage to restore the correct source_system for non-email content (pf-e494df).
+	var originalSourceSystem string
+
 	// If ContentType is empty, the workflow was started with SLMPipelineInput
 	// (minimal contract). Fetch content and metadata from the database.
 	if input.ContentType == "" {
@@ -722,6 +728,10 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		input.SenderEmail = fetchOut.SenderEmail
 		input.SenderName = fetchOut.SenderName
 		input.ParticipantEmails = fetchOut.ParticipantEmails
+		// pf-e494df: remember original source_system from DB for non-email content
+		if fetchOut.SourceSystem != "" {
+			originalSourceSystem = fetchOut.SourceSystem
+		}
 		// pf-3418d4: populate ContentID from DB if not already set (needed for conversation linking)
 		if input.ContentID == "" && fetchOut.ContentID != "" {
 			input.ContentID = fetchOut.ContentID
@@ -1189,6 +1199,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	if sourceSystem == "" {
 		sourceSystem = enrichment.SourceSystemHumanEmail
 	}
+	// pf-e494df: For non-email content (meeting, calendar, etc.) the triage rule engine
+	// has no matching rules and defaults to human_email. Restore the original source_system
+	// from the DB when we have it.
+	if input.ContentType != "email" && originalSourceSystem != "" {
+		sourceSystem = enrichment.SourceSystem(originalSourceSystem)
+	}
 
 	// Persist triage results and source_system to source metadata (fires for all items)
 	skipDeep := triageOutput.SkipDeep
@@ -1216,8 +1232,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	switch input.ContentType {
 	case "email":
 		enrichmentContentType = enrichment.ContentTypeEmail
-	case "calendar", "meeting":
+	case "calendar":
 		enrichmentContentType = enrichment.ContentTypeCalendar
+	case "meeting":
+		// pf-e494df: meeting is distinct from calendar; use ContentTypeMeeting
+		enrichmentContentType = enrichment.ContentTypeMeeting
 	case "document":
 		enrichmentContentType = enrichment.ContentTypeDocument
 	case "attachment":
@@ -1238,6 +1257,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			enrichmentSubtype = enrichment.SubtypeEmailStandalone
 		case enrichment.ContentTypeCalendar:
 			enrichmentSubtype = enrichment.SubtypeCalendarInvite
+		case enrichment.ContentTypeMeeting:
+			// pf-e494df: default subtype for meeting content is transcript
+			enrichmentSubtype = enrichment.SubtypeMeetingTranscript
 		default:
 			enrichmentSubtype = enrichment.ContentSubtype("unknown")
 		}
@@ -1251,6 +1273,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		processingProfile = enrichment.ProfileFullAI
 	}
 
+	// pf-43acf2: Classify content structure (standalone, reply, forward).
+	// Subject-based detection (FW:/Fwd: → forward, Re: → reply) covers the majority of cases.
+	// In-Reply-To header detection is limited here because raw email headers are not currently
+	// propagated through the pipeline input; thread membership via email_threads provides
+	// the REPLY signal in that case.
+	contentStructure := enrichment.ClassifyContentStructure(nil, input.Subject, input.ContentType)
+
 	ctxEnrichment := workflow.WithActivityOptions(ctx, fastOpts)
 	var enrichmentOutput CreateEnrichmentRecordOutput
 	err = workflow.ExecuteActivity(ctxEnrichment, pkgtemporal.ActivityCreateEnrichmentRecord, CreateEnrichmentRecordInput{
@@ -1262,6 +1291,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		ProcessingProfile:        processingProfile,
 		ClassificationConfidence: triageOutput.Confidence,
 		ClassificationReason:     triageOutput.Reason,
+		ContentStructure:         contentStructure,
 	}).Get(ctx, &enrichmentOutput)
 
 	if err != nil {

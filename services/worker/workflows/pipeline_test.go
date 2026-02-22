@@ -1810,6 +1810,85 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_InteractionWi
 	require.True(s.T(), result.SkipDeep) // Verify skip flag is set
 }
 
+// TestSLMPipeline_TeamsClassification verifies that Teams meeting content is classified
+// with content_type=meeting and source_system=teams (not human_email) after the triage
+// rule engine runs. pf-e494df + pf-43acf2.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_TeamsClassification() {
+	// Minimal input - no ContentType set, so FetchSource will be called.
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    1100,
+		ContentID:   "mt-teams01",
+		JobID:       "job-1100",
+		ContentType: "", // Empty triggers FetchSource fallback
+		ContentHash: "hashTeams01",
+	}
+
+	// FetchSource returns meeting content type with Teams as the original source_system.
+	s.activities.On("FetchSource", mock.Anything, mock.MatchedBy(func(in FetchSourceInput) bool {
+		return in.SourceID == 1100
+	})).Return(&FetchSourceOutput{
+		ContentType:  "meeting",
+		SourceSystem: "teams", // raw source_system from DB (pf-e494df)
+		ContentText:  "User A: Hello everyone. User B: Let's start the standup.",
+		Subject:      "Teams Standup Transcript",
+	}, nil)
+
+	// ParseTranscript for meeting content.
+	s.activities.On("ParseTranscript", mock.Anything, mock.MatchedBy(func(in ParseTranscriptInput) bool {
+		return in.SourceID == 1100
+	})).Return(&ParseTranscriptOutput{
+		CleanText:  "User A: Hello everyone. User B: Let's start the standup.",
+		Speakers:   []string{"User A", "User B"},
+		DurationMs: 5000,
+		Format:     "plain",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+
+	// Triage: the rule engine won't match Teams content and returns empty SourceSystem.
+	// The pipeline should override this with the original "teams" source_system.
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 1100 && in.ContentType == "meeting"
+	})).Return(&TriageOutput{
+		Category:    "MEETING",
+		Importance:  "MEDIUM",
+		SkipDeep:    false,
+		ModelUsed:   "llama-3.2-1b",
+		SourceSystem: "", // rule engine returns empty for non-email content
+	}, nil)
+
+	// CreateEnrichmentRecord: verify content_type=meeting and source_system=teams.
+	s.activities.On("CreateEnrichmentRecord", mock.Anything, mock.MatchedBy(func(in CreateEnrichmentRecordInput) bool {
+		if in.SourceID != 1100 {
+			return false
+		}
+		s.Equal("meeting", string(in.ContentType), "expected content_type=meeting for Teams content")
+		s.Equal("teams", string(in.SourceSystem), "expected source_system=teams (not human_email) for Teams content")
+		s.Equal("transcript", string(in.ContentSubtype), "expected content_subtype=transcript for meeting content")
+		return true
+	})).Return(&CreateEnrichmentRecordOutput{EnrichmentID: 1100}, nil)
+
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{
+		People: []PersonResult{{Name: "User A"}, {Name: "User B"}},
+	}, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{
+		Summary: "Teams standup discussion", ModelUsed: "gemini-2.0-flash",
+	}, nil)
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&PersistFindingsOutput{}, nil)
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(5100), nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+}
+
 func TestSLMPipelineTestSuite(t *testing.T) {
 	suite.Run(t, new(SLMPipelineTestSuite))
 }

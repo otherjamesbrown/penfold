@@ -38,6 +38,7 @@ type (
 		ContentText        string        `json:"content_text"`
 		ContentType        string        `json:"content_type"`
 		ContentID          string        `json:"content_id,omitempty"` // pf-3418d4: needed for conversation linking
+		SourceSystem       string        `json:"source_system,omitempty"` // pf-e494df: raw source_system from DB
 		Subject            string        `json:"subject,omitempty"`
 		SenderEmail        string        `json:"sender_email,omitempty"`
 		SenderName         string        `json:"sender_name,omitempty"`
