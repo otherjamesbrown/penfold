@@ -170,23 +170,26 @@ func parseQualityGateResponse(jsonStr string) (*qualityGateResult, error) {
 
 // buildNERPrompt constructs the NER extraction prompt.
 // Tries the DB prompt store for stage "extract_ner"; falls back to nerPromptTemplate on error.
-func (s *AIServer) buildNERPrompt(ctx context.Context, content string) string {
-	tmpl := s.getPrompt(ctx, "extract_ner", nerPromptTemplate)
-	return fmt.Sprintf(tmpl, content)
+// Returns the prompt string and the prompt version (0 when using hardcoded fallback).
+func (s *AIServer) buildNERPrompt(ctx context.Context, content string) (string, int32) {
+	tmpl, version := s.getPrompt(ctx, "extract_ner", nerPromptTemplate)
+	return fmt.Sprintf(tmpl, content), version
 }
 
 // buildSemanticPrompt constructs the semantic extraction prompt.
 // Tries the DB prompt store for stage "extract_semantic"; falls back to semanticPromptTemplate on error.
-func (s *AIServer) buildSemanticPrompt(ctx context.Context, content string) string {
-	tmpl := s.getPrompt(ctx, "extract_semantic", semanticPromptTemplate)
-	return fmt.Sprintf(tmpl, content)
+// Returns the prompt string and the prompt version (0 when using hardcoded fallback).
+func (s *AIServer) buildSemanticPrompt(ctx context.Context, content string) (string, int32) {
+	tmpl, version := s.getPrompt(ctx, "extract_semantic", semanticPromptTemplate)
+	return fmt.Sprintf(tmpl, content), version
 }
 
 // buildQualityGatePrompt constructs the quality gate risk-focused prompt.
 // Tries the DB prompt store for stage "quality_gate_risk"; falls back to qualityGateRiskPromptTemplate on error.
-func (s *AIServer) buildQualityGatePrompt(ctx context.Context, content string) string {
-	tmpl := s.getPrompt(ctx, "quality_gate_risk", qualityGateRiskPromptTemplate)
-	return fmt.Sprintf(tmpl, content)
+// Returns the prompt string and the prompt version (0 when using hardcoded fallback).
+func (s *AIServer) buildQualityGatePrompt(ctx context.Context, content string) (string, int32) {
+	tmpl, version := s.getPrompt(ctx, "quality_gate_risk", qualityGateRiskPromptTemplate)
+	return fmt.Sprintf(tmpl, content), version
 }
 
 // ExtractEntities performs two-pass entity extraction from content.
@@ -235,13 +238,14 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	// Hoist prompts to function scope for tracing
 	var nerPrompt string
 	var semPrompt string
+	var nerPromptVersion int32
 
 	// Stage 2a: NER extraction
 	var nerResp *nerResult
 	var nerResult *backend.CompletionResult
 	var nerMessages []backend.Message
 	{
-		nerPrompt = s.buildNERPrompt(ctx, content)
+		nerPrompt, nerPromptVersion = s.buildNERPrompt(ctx, content)
 		nerMessages = []backend.Message{
 			{Role: "user", Content: nerPrompt},
 		}
@@ -317,7 +321,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var semResult *backend.CompletionResult
 	var semMessages []backend.Message
 	{
-		semPrompt = s.buildSemanticPrompt(ctx, content)
+		semPrompt, _ = s.buildSemanticPrompt(ctx, content)
 		semMessages = []backend.Message{
 			{Role: "user", Content: semPrompt},
 		}
@@ -401,7 +405,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 		qualityGateTriggered = true
 
-		qgPrompt := s.buildQualityGatePrompt(ctx, content)
+		qgPrompt, _ := s.buildQualityGatePrompt(ctx, content)
 		messages := []backend.Message{
 			{Role: "user", Content: qgPrompt},
 		}
@@ -461,6 +465,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		QualityGateTriggered: qualityGateTriggered,
 		ModelUsed:            nerResult.Model, // Use model from first pass
 		Retries:              int32(totalRetries),
+		PromptVersion:        nerPromptVersion,
 	}
 
 	// Convert NER people

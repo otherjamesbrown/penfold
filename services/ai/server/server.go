@@ -113,9 +113,10 @@ func (s *AIServer) WithPromptStore(ps PromptStore) *AIServer {
 // getPrompt retrieves the active prompt for the given stage from the DB prompt store.
 // If the store is not configured, the DB is unreachable, or no active prompt exists,
 // it falls back to the provided hardcoded default without failing the request.
-func (s *AIServer) getPrompt(ctx context.Context, stage, hardcoded string) string {
+// Returns the prompt content and the prompt version (0 when using the hardcoded fallback).
+func (s *AIServer) getPrompt(ctx context.Context, stage, hardcoded string) (string, int32) {
 	if s.promptStore == nil {
-		return hardcoded
+		return hardcoded, 0
 	}
 	pt, err := s.promptStore.GetPromptByStage(ctx, stage, 0)
 	if err != nil {
@@ -123,12 +124,12 @@ func (s *AIServer) getPrompt(ctx context.Context, stage, hardcoded string) strin
 			logging.F("stage", stage),
 			logging.Err(err),
 		)
-		return hardcoded
+		return hardcoded, 0
 	}
 	if pt == nil {
-		return hardcoded
+		return hardcoded, 0
 	}
-	return pt.Content
+	return pt.Content, int32(pt.Version)
 }
 
 // extractLangfuseMetadata reads x-langfuse-trace-id and x-langfuse-phase-id from
@@ -694,7 +695,7 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 	}
 
 	// Build the triage prompt
-	systemPrompt, userPrompt := s.buildTriagePrompt(ctx, req.GetSubject(), req.GetSender(), content)
+	systemPrompt, userPrompt, triagePromptVersion := s.buildTriagePrompt(ctx, req.GetSubject(), req.GetSender(), content)
 
 	messages := []backend.Message{
 		{Role: "system", Content: systemPrompt},
@@ -774,11 +775,12 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 
 	// Build response
 	resp := &aiv1.TriageContentResponse{
-		Category:   triageResult.Category,
-		Importance: triageResult.Importance,
-		Reason:     triageResult.Reason,
-		ModelUsed:  result.Model,
-		Retries:    int32(retryCount),
+		Category:      triageResult.Category,
+		Importance:    triageResult.Importance,
+		Reason:        triageResult.Reason,
+		ModelUsed:     result.Model,
+		Retries:       int32(retryCount),
+		PromptVersion: triagePromptVersion,
 	}
 
 	// Add content_contribution fields if present
@@ -1174,7 +1176,8 @@ Respond with a JSON object:
     }
   ]
 }`
-	return s.getPrompt(ctx, "extract_assertions", hardcoded)
+	content, _ := s.getPrompt(ctx, "extract_assertions", hardcoded)
+	return content
 }
 
 type assertionsJSON struct {

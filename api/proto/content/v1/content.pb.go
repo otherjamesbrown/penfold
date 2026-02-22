@@ -684,7 +684,9 @@ type ContentItem struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Unique identifier for this content item.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Type of source this content originated from: "email", "document", "meeting", "slack".
+	// Deprecated: Use content_type_enum (field 18) and content_subtype_enum (field 19) instead.
+	// Previously indicated source type ("email", "document", "meeting", "slack").
+	// No longer populated for new items; retained for wire compatibility.
 	SourceType string `protobuf:"bytes,2,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
 	// Identifier of the source record in the originating system.
 	SourceId string `protobuf:"bytes,3,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`

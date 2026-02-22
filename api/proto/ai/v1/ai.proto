@@ -456,6 +456,10 @@ message TriageContentResponse {
 
   // Brief explanation for the contribution assessment.
   optional string contribution_reason = 9;
+
+  // Version of the prompt template used for this triage call.
+  // 0 means the hardcoded fallback was used (no DB prompt active).
+  int32 prompt_version = 10;
 }
 
 // =============================================================================
@@ -539,6 +543,10 @@ message ExtractEntitiesResponse {
   optional int32 input_tokens = 11;
   optional int32 output_tokens = 12;
   int32 retries = 13;
+
+  // Version of the NER prompt template used for this extraction call.
+  // 0 means the hardcoded fallback was used (no DB prompt active).
+  int32 prompt_version = 14;
 }
 
 // =============================================================================
@@ -594,6 +602,10 @@ message DeepAnalyzeResponse {
   string model_used = 9;
   optional int32 input_tokens = 10;
   optional int32 output_tokens = 11;
+
+  // Version of the prompt template used for this deep analysis call.
+  // 0 means the hardcoded fallback was used (no DB prompt active).
+  int32 prompt_version = 12;
 }
 
 // DeepSentiment contains business-context-aware sentiment analysis.

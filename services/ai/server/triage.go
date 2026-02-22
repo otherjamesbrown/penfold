@@ -64,8 +64,9 @@ Respond ONLY with JSON:
 // buildTriagePrompt constructs the triage prompt from subject, sender, and content.
 // Content is truncated to the first 500 characters as specified in the design.
 // It tries the DB prompt store first; falls back to the hardcoded triagePromptTemplate on error.
-func (s *AIServer) buildTriagePrompt(ctx context.Context, subject, sender, content string) (systemPrompt, userPrompt string) {
-	systemPrompt = s.getPrompt(ctx, "triage", triagePromptTemplate)
+// Returns the system prompt, user prompt, and the prompt version (0 when using hardcoded fallback).
+func (s *AIServer) buildTriagePrompt(ctx context.Context, subject, sender, content string) (systemPrompt, userPrompt string, promptVersion int32) {
+	systemPrompt, promptVersion = s.getPrompt(ctx, "triage", triagePromptTemplate)
 
 	// Truncate content to first 500 characters
 	truncatedContent := content
@@ -87,7 +88,7 @@ func (s *AIServer) buildTriagePrompt(ctx context.Context, subject, sender, conte
 	}
 
 	userPrompt = strings.Join(parts, "\n")
-	return systemPrompt, userPrompt
+	return systemPrompt, userPrompt, promptVersion
 }
 
 // triageResult holds the parsed triage response.

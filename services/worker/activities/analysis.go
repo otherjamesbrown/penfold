@@ -160,6 +160,7 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 			SourceID:        input.SourceID,
 			Stage:           "analyze",
 			ModelID:         output.ModelUsed,
+			PromptVersion:   int(resp.GetPromptVersion()),
 			Status:          "completed",
 			DurationMS:      durationMS,
 			InputData:       inputJSON,

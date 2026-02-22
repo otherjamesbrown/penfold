@@ -262,8 +262,11 @@ func TestParseQualityGateResponse_Valid(t *testing.T) {
 func TestBuildNERPrompt(t *testing.T) {
 	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	content := "Dan Spataro is the CEO of CLIC. Meeting on January 15th."
-	prompt := s.buildNERPrompt(context.Background(), content)
+	prompt, version := s.buildNERPrompt(context.Background(), content)
 
+	if version != 0 {
+		t.Errorf("buildNERPrompt() version = %d, want 0 (hardcoded fallback)", version)
+	}
 	if !containsString(prompt, content) {
 		t.Errorf("buildNERPrompt() should contain the content")
 	}
@@ -278,8 +281,11 @@ func TestBuildNERPrompt(t *testing.T) {
 func TestBuildSemanticPrompt(t *testing.T) {
 	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	content := "Alice should fix the bug by next week. We decided to approve the budget."
-	prompt := s.buildSemanticPrompt(context.Background(), content)
+	prompt, version := s.buildSemanticPrompt(context.Background(), content)
 
+	if version != 0 {
+		t.Errorf("buildSemanticPrompt() version = %d, want 0 (hardcoded fallback)", version)
+	}
 	if !containsString(prompt, content) {
 		t.Errorf("buildSemanticPrompt() should contain the content")
 	}
@@ -294,8 +300,11 @@ func TestBuildSemanticPrompt(t *testing.T) {
 func TestBuildQualityGatePrompt(t *testing.T) {
 	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	content := "There is a critical database outage affecting production."
-	prompt := s.buildQualityGatePrompt(context.Background(), content)
+	prompt, version := s.buildQualityGatePrompt(context.Background(), content)
 
+	if version != 0 {
+		t.Errorf("buildQualityGatePrompt() version = %d, want 0 (hardcoded fallback)", version)
+	}
 	if !containsString(prompt, content) {
 		t.Errorf("buildQualityGatePrompt() should contain the content")
 	}

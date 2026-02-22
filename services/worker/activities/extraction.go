@@ -419,21 +419,26 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		durationMS := int(time.Since(startTime).Milliseconds())
 
 		// Accumulate token counts across all chunk responses
+		// Capture prompt_version from the first result (all chunks use the same prompt template)
 		var totalInputTokens, totalOutputTokens int
-		for _, r := range results {
+		var extractPromptVersion int32
+		for i, r := range results {
 			totalInputTokens += int(r.GetInputTokens())
 			totalOutputTokens += int(r.GetOutputTokens())
+			if i == 0 {
+				extractPromptVersion = r.GetPromptVersion()
+			}
 		}
 
 		// Capture IO data
 		inputJSON, _ := json.Marshal(map[string]interface{}{
-			"content_length": len(input.Content),
+			"content_length":  len(input.Content),
 			"triage_category": input.TriageCategory,
-			"tenant_id": input.TenantID,
+			"tenant_id":       input.TenantID,
 		})
 		outputJSON, _ := json.Marshal(map[string]interface{}{
 			"response_count": len(results),
-			"model_used": output.ModelUsed,
+			"model_used":     output.ModelUsed,
 		})
 		parsedJSON, _ := json.Marshal(output)
 
@@ -442,6 +447,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			SourceID:        input.SourceID,
 			Stage:           "extract_ner",
 			ModelID:         output.ModelUsed,
+			PromptVersion:   int(extractPromptVersion),
 			Status:          "completed",
 			DurationMS:      durationMS,
 			InputData:       inputJSON,
@@ -459,6 +465,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			SourceID:        input.SourceID,
 			Stage:           "extract_semantic",
 			ModelID:         output.ModelUsed,
+			PromptVersion:   int(extractPromptVersion),
 			Status:          "completed",
 			DurationMS:      durationMS,
 			InputData:       inputJSON,

@@ -407,6 +407,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			SourceID:        input.SourceID,
 			Stage:           "triage",
 			ModelID:         output.ModelUsed,
+			PromptVersion:   int(resp.GetPromptVersion()),
 			Status:          "completed",
 			DurationMS:      durationMS,
 			InputData:       inputJSON,

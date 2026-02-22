@@ -223,7 +223,7 @@ func TestBuildTriagePrompt(t *testing.T) {
 	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			system, user := s.buildTriagePrompt(context.Background(), tt.subject, tt.sender, tt.content)
+			system, user, _ := s.buildTriagePrompt(context.Background(), tt.subject, tt.sender, tt.content)
 			if system != tt.wantSystem {
 				t.Errorf("system prompt mismatch")
 			}
@@ -247,7 +247,7 @@ func TestBuildTriagePrompt(t *testing.T) {
 func TestBuildTriagePrompt_Truncation(t *testing.T) {
 	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	longContent := strings.Repeat("x", 600)
-	_, user := s.buildTriagePrompt(context.Background(), "Subject", "sender@example.com", longContent)
+	_, user, _ := s.buildTriagePrompt(context.Background(), "Subject", "sender@example.com", longContent)
 
 	// The user prompt should contain the truncated content (500 chars), not the full 600
 	if strings.Contains(user, strings.Repeat("x", 600)) {
