@@ -969,7 +969,7 @@ func TestBug_pf4a3aba_NewLifecycleEventNotAccepted(t *testing.T) {
 					{
 						Description:     "Security vulnerability detected",
 						ContextExcerpt:  "We discovered a SQL injection vulnerability in the login form",
-						Significance:    "origination",
+						Significance:    "primary",
 						LifecycleChange: &newEvent, // AI model returns 'new' for new risks
 						IsNew:           true,       // This is a new risk
 					},
@@ -1013,7 +1013,7 @@ func TestBug_pf4a3aba_NewLifecycleEventNotAccepted(t *testing.T) {
 		riskRef := RiskReferenceOutput{
 			Description:     "New security vulnerability in authentication system",
 			ContextExcerpt:  "Alice reported a critical security flaw in our auth module",
-			Significance:    "origination",
+			Significance:    "primary",
 			LifecycleChange: &newEvent, // AI model output
 			IsNew:           true,
 			SeverityChange:  stringPtr("high"),
@@ -1023,7 +1023,7 @@ func TestBug_pf4a3aba_NewLifecycleEventNotAccepted(t *testing.T) {
 		// This is VALID AI model output - it correctly identifies a new risk
 		assert.True(t, riskRef.IsNew, "This is a new risk")
 		assert.Equal(t, "new", *riskRef.LifecycleChange, "AI model returns 'new' for new risks")
-		assert.Equal(t, "origination", riskRef.Significance, "This is the originating mention")
+		assert.Equal(t, "primary", riskRef.Significance, "This is the primary mention")
 
 		// FIXED: validateInput now accepts this legitimate output
 		input := &PersistFindingsInput{

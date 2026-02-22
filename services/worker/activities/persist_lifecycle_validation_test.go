@@ -37,7 +37,7 @@ func TestBug_pf322dc7_LifecycleEventValidation(t *testing.T) {
 					{
 						Description:     "Security vulnerability identified in auth module",
 						ContextExcerpt:  "Alice identified a potential SQL injection vulnerability",
-						Significance:    "origination",
+						Significance:    "primary",
 						LifecycleChange: &identifiedEvent, // LLM output: risk was "identified"
 						IsNew:           true,
 					},
@@ -70,7 +70,7 @@ func TestBug_pf322dc7_LifecycleEventValidation(t *testing.T) {
 					{
 						Description:     "Performance degradation confirmed in production",
 						ContextExcerpt:  "Bob confirmed the latency issue affects all users",
-						Significance:    "escalation",
+						Significance:    "secondary",
 						LifecycleChange: &confirmedEvent, // LLM output: risk was "confirmed"
 						IsNew:           false,
 						RootID:          int64Ptr(50),
@@ -104,7 +104,7 @@ func TestBug_pf322dc7_LifecycleEventValidation(t *testing.T) {
 					{
 						Description:     "Risk escalated to management",
 						ContextExcerpt:  "This issue has been escalated to senior leadership",
-						Significance:    "escalation",
+						Significance:    "primary",
 						LifecycleChange: &escalatedEvent, // Valid existing value
 						IsNew:           false,
 						RootID:          int64Ptr(75),
@@ -135,7 +135,7 @@ func TestBug_pf322dc7_LifecycleEventValidation(t *testing.T) {
 					{
 						Description:     "Some risk",
 						ContextExcerpt:  "Context here",
-						Significance:    "origination",
+						Significance:    "primary",
 						LifecycleChange: &invalidEvent, // Invalid value
 						IsNew:           true,
 					},
@@ -183,7 +183,7 @@ func TestBug_pf322dc7_LifecycleEventValidation(t *testing.T) {
 						{
 							Description:     "Test risk for " + event,
 							ContextExcerpt:  "Context for " + event,
-							Significance:    "origination",
+							Significance:    "primary",
 							LifecycleChange: &eventCopy,
 							IsNew:           true,
 						},
