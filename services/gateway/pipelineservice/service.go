@@ -1783,30 +1783,52 @@ func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageCo
 		return nil, status.Errorf(codes.Internal, "failed to iterate stage timeouts: %v", err)
 	}
 
-	// Query model_config for per-stage models
-	modelMap := make(map[string]string)       // stage -> model
-	modelSourceMap := make(map[string]string)  // stage -> source
-	modelRows, err := s.db.QueryContext(ctx, `
-		SELECT stage, model_id, config_source
+	// Query model_config for per-stage models.
+	// Resolution chain per stage:
+	//   1. stage-specific override: config_key = "stage.{stage}"  → source "stage_config"
+	//   2. global default:          config_key = "default.llm"    → source "global"
+	//   3. hardcoded fallback:      "qwen2.5:7b"                  → source "default"
+	modelMap := make(map[string]string)       // stage -> resolved model name
+	modelSourceMap := make(map[string]string) // stage -> source label
+
+	// Fetch global default once.
+	const fallbackModel = "qwen2.5:7b"
+	globalDefault := fallbackModel
+	globalSource := "default"
+
+	var globalModel string
+	globalErr := s.db.QueryRowContext(ctx, `
+		SELECT model_name
 		FROM model_config
-		WHERE stage != ''
-		ORDER BY priority DESC
-	`)
-	if err != nil {
+		WHERE config_key = 'default.llm'
+		LIMIT 1
+	`).Scan(&globalModel)
+	if globalErr == nil && globalModel != "" {
+		globalDefault = globalModel
+		globalSource = "global"
+	} else if globalErr != nil && globalErr != sql.ErrNoRows {
 		// model_config table may not exist yet — non-fatal
-		s.logger.Debug("Could not query model_config", logging.Err(err))
-	} else {
-		defer modelRows.Close()
-		for modelRows.Next() {
-			var stage, modelID, source string
-			if err := modelRows.Scan(&stage, &modelID, &source); err != nil {
-				continue
-			}
-			// Higher priority rows come first, keep only the first (highest priority)
-			if _, exists := modelMap[stage]; !exists {
-				modelMap[stage] = modelID
-				modelSourceMap[stage] = source
-			}
+		s.logger.Debug("Could not query model_config for default.llm", logging.Err(globalErr))
+	}
+
+	// For each stage, look up a stage-specific override first.
+	for _, stage := range stages {
+		stageKey := fmt.Sprintf("stage.%s", stage)
+		var stageName string
+		stageErr := s.db.QueryRowContext(ctx, `
+			SELECT model_name
+			FROM model_config
+			WHERE config_key = $1
+			LIMIT 1
+		`, stageKey).Scan(&stageName)
+
+		if stageErr == nil && stageName != "" {
+			modelMap[stage] = stageName
+			modelSourceMap[stage] = "stage_config"
+		} else {
+			// Fall back to global default (or hardcoded fallback).
+			modelMap[stage] = globalDefault
+			modelSourceMap[stage] = globalSource
 		}
 	}
 
