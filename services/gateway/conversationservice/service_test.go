@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -19,9 +20,29 @@ import (
 
 // MockRepository is a mock implementation of the conversation repository.
 type MockRepository struct {
-	ListConversationsFunc        func(ctx context.Context, tenantID string, limit, offset int32) ([]ConversationSummary, int64, error)
-	ListConversationsByStateFunc func(ctx context.Context, tenantID, state string, limit, offset int32) ([]ConversationSummary, int64, error)
-	GetConversationFunc          func(ctx context.Context, tenantID, conversationID string) (*ConversationDetail, error)
+	ListConversationsFunc         func(ctx context.Context, tenantID string, limit, offset int32) ([]ConversationSummary, int64, error)
+	ListConversationsByStateFunc  func(ctx context.Context, tenantID, state string, limit, offset int32) ([]ConversationSummary, int64, error)
+	ListConversationsFilteredFunc func(ctx context.Context, tenantID string, state *string, minItems *int32, limit, offset int32) ([]ConversationSummary, int64, error)
+	GetConversationFunc           func(ctx context.Context, tenantID, conversationID string) (*ConversationDetail, error)
+	BeginTxFunc                   func(ctx context.Context) (pgx.Tx, error)
+	MoveItemsFunc                 func(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string) (int32, int32, error)
+	MoveSpecificItemsFunc         func(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string, contentIDs []string) (int32, error)
+	MergeParticipantsFunc         func(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string) error
+	UpdateConversationStatsTxFunc func(ctx context.Context, tx pgx.Tx, conversationID string) error
+	CreateConversationFunc        func(ctx context.Context, tx pgx.Tx, conv *Conversation) (string, error)
+	RemoveItemFunc                func(ctx context.Context, conversationID, contentID string) error
+	DeleteConversationFunc        func(ctx context.Context, conversationID string) error
+	UpdateConversationStatsFunc   func(ctx context.Context, conversationID string) error
+	InvalidateSummaryFunc         func(ctx context.Context, conversationID string) error
+	GetItemCountFunc              func(ctx context.Context, conversationID string) (int32, error)
+	DeleteConversationTxFunc      func(ctx context.Context, tx pgx.Tx, conversationID string) error
+}
+
+func (m *MockRepository) DeleteConversationTx(ctx context.Context, tx pgx.Tx, conversationID string) error {
+	if m.DeleteConversationTxFunc != nil {
+		return m.DeleteConversationTxFunc(ctx, tx, conversationID)
+	}
+	return nil
 }
 
 func (m *MockRepository) ListConversations(ctx context.Context, tenantID string, limit, offset int32) ([]ConversationSummary, int64, error) {
@@ -38,11 +59,95 @@ func (m *MockRepository) ListConversationsByState(ctx context.Context, tenantID,
 	return nil, 0, errors.New("ListConversationsByStateFunc not implemented")
 }
 
+func (m *MockRepository) ListConversationsFiltered(ctx context.Context, tenantID string, state *string, minItems *int32, limit, offset int32) ([]ConversationSummary, int64, error) {
+	if m.ListConversationsFilteredFunc != nil {
+		return m.ListConversationsFilteredFunc(ctx, tenantID, state, minItems, limit, offset)
+	}
+	return nil, 0, errors.New("ListConversationsFilteredFunc not implemented")
+}
+
 func (m *MockRepository) GetConversation(ctx context.Context, tenantID, conversationID string) (*ConversationDetail, error) {
 	if m.GetConversationFunc != nil {
 		return m.GetConversationFunc(ctx, tenantID, conversationID)
 	}
 	return nil, errors.New("GetConversationFunc not implemented")
+}
+
+func (m *MockRepository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	if m.BeginTxFunc != nil {
+		return m.BeginTxFunc(ctx)
+	}
+	return nil, errors.New("BeginTxFunc not implemented")
+}
+
+func (m *MockRepository) MoveItems(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string) (int32, int32, error) {
+	if m.MoveItemsFunc != nil {
+		return m.MoveItemsFunc(ctx, tx, sourceConvID, targetConvID)
+	}
+	return 0, 0, errors.New("MoveItemsFunc not implemented")
+}
+
+func (m *MockRepository) MoveSpecificItems(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string, contentIDs []string) (int32, error) {
+	if m.MoveSpecificItemsFunc != nil {
+		return m.MoveSpecificItemsFunc(ctx, tx, sourceConvID, targetConvID, contentIDs)
+	}
+	return 0, errors.New("MoveSpecificItemsFunc not implemented")
+}
+
+func (m *MockRepository) MergeParticipants(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string) error {
+	if m.MergeParticipantsFunc != nil {
+		return m.MergeParticipantsFunc(ctx, tx, sourceConvID, targetConvID)
+	}
+	return nil
+}
+
+func (m *MockRepository) UpdateConversationStatsTx(ctx context.Context, tx pgx.Tx, conversationID string) error {
+	if m.UpdateConversationStatsTxFunc != nil {
+		return m.UpdateConversationStatsTxFunc(ctx, tx, conversationID)
+	}
+	return nil
+}
+
+func (m *MockRepository) CreateConversation(ctx context.Context, tx pgx.Tx, conv *Conversation) (string, error) {
+	if m.CreateConversationFunc != nil {
+		return m.CreateConversationFunc(ctx, tx, conv)
+	}
+	return conv.ID, nil
+}
+
+func (m *MockRepository) RemoveItem(ctx context.Context, conversationID, contentID string) error {
+	if m.RemoveItemFunc != nil {
+		return m.RemoveItemFunc(ctx, conversationID, contentID)
+	}
+	return nil
+}
+
+func (m *MockRepository) DeleteConversation(ctx context.Context, conversationID string) error {
+	if m.DeleteConversationFunc != nil {
+		return m.DeleteConversationFunc(ctx, conversationID)
+	}
+	return nil
+}
+
+func (m *MockRepository) UpdateConversationStats(ctx context.Context, conversationID string) error {
+	if m.UpdateConversationStatsFunc != nil {
+		return m.UpdateConversationStatsFunc(ctx, conversationID)
+	}
+	return nil
+}
+
+func (m *MockRepository) InvalidateSummary(ctx context.Context, conversationID string) error {
+	if m.InvalidateSummaryFunc != nil {
+		return m.InvalidateSummaryFunc(ctx, conversationID)
+	}
+	return nil
+}
+
+func (m *MockRepository) GetItemCount(ctx context.Context, conversationID string) (int32, error) {
+	if m.GetItemCountFunc != nil {
+		return m.GetItemCountFunc(ctx, conversationID)
+	}
+	return 0, nil
 }
 
 // ============ Test Helpers ============

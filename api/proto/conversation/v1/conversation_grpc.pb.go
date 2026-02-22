@@ -25,13 +25,17 @@ const (
 	ConversationService_ListConversations_FullMethodName               = "/penfold.conversation.v1.ConversationService/ListConversations"
 	ConversationService_ShowConversation_FullMethodName                = "/penfold.conversation.v1.ConversationService/ShowConversation"
 	ConversationService_GetConversationProcessingStatus_FullMethodName = "/penfold.conversation.v1.ConversationService/GetConversationProcessingStatus"
+	ConversationService_MergeConversations_FullMethodName              = "/penfold.conversation.v1.ConversationService/MergeConversations"
+	ConversationService_SplitConversation_FullMethodName               = "/penfold.conversation.v1.ConversationService/SplitConversation"
+	ConversationService_UnlinkItem_FullMethodName                      = "/penfold.conversation.v1.ConversationService/UnlinkItem"
+	ConversationService_RunConversationAudit_FullMethodName            = "/penfold.conversation.v1.ConversationService/RunConversationAudit"
 )
 
 // ConversationServiceClient is the client API for ConversationService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// ConversationService provides gRPC endpoints for querying conversations.
+// ConversationService provides gRPC endpoints for querying and managing conversations.
 type ConversationServiceClient interface {
 	// List conversations with pagination
 	ListConversations(ctx context.Context, in *ListConversationsRequest, opts ...grpc.CallOption) (*ListConversationsResponse, error)
@@ -39,6 +43,14 @@ type ConversationServiceClient interface {
 	ShowConversation(ctx context.Context, in *ShowConversationRequest, opts ...grpc.CallOption) (*ShowConversationResponse, error)
 	// GetConversationProcessingStatus returns aggregated processing status for all items in a conversation.
 	GetConversationProcessingStatus(ctx context.Context, in *GetConversationProcessingStatusRequest, opts ...grpc.CallOption) (*ConversationProcessingStatus, error)
+	// MergeConversations moves all items from source into target, then deletes source.
+	MergeConversations(ctx context.Context, in *MergeConversationsRequest, opts ...grpc.CallOption) (*MergeConversationsResponse, error)
+	// SplitConversation extracts specified items into a new conversation.
+	SplitConversation(ctx context.Context, in *SplitConversationRequest, opts ...grpc.CallOption) (*SplitConversationResponse, error)
+	// UnlinkItem removes a single item from a conversation.
+	UnlinkItem(ctx context.Context, in *UnlinkItemRequest, opts ...grpc.CallOption) (*UnlinkItemResponse, error)
+	// RunConversationAudit detects orphans, duplicates, and merge candidates.
+	RunConversationAudit(ctx context.Context, in *RunConversationAuditRequest, opts ...grpc.CallOption) (*RunConversationAuditResponse, error)
 }
 
 type conversationServiceClient struct {
@@ -79,11 +91,51 @@ func (c *conversationServiceClient) GetConversationProcessingStatus(ctx context.
 	return out, nil
 }
 
+func (c *conversationServiceClient) MergeConversations(ctx context.Context, in *MergeConversationsRequest, opts ...grpc.CallOption) (*MergeConversationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MergeConversationsResponse)
+	err := c.cc.Invoke(ctx, ConversationService_MergeConversations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *conversationServiceClient) SplitConversation(ctx context.Context, in *SplitConversationRequest, opts ...grpc.CallOption) (*SplitConversationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SplitConversationResponse)
+	err := c.cc.Invoke(ctx, ConversationService_SplitConversation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *conversationServiceClient) UnlinkItem(ctx context.Context, in *UnlinkItemRequest, opts ...grpc.CallOption) (*UnlinkItemResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UnlinkItemResponse)
+	err := c.cc.Invoke(ctx, ConversationService_UnlinkItem_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *conversationServiceClient) RunConversationAudit(ctx context.Context, in *RunConversationAuditRequest, opts ...grpc.CallOption) (*RunConversationAuditResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunConversationAuditResponse)
+	err := c.cc.Invoke(ctx, ConversationService_RunConversationAudit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ConversationServiceServer is the server API for ConversationService service.
 // All implementations must embed UnimplementedConversationServiceServer
 // for forward compatibility.
 //
-// ConversationService provides gRPC endpoints for querying conversations.
+// ConversationService provides gRPC endpoints for querying and managing conversations.
 type ConversationServiceServer interface {
 	// List conversations with pagination
 	ListConversations(context.Context, *ListConversationsRequest) (*ListConversationsResponse, error)
@@ -91,6 +143,14 @@ type ConversationServiceServer interface {
 	ShowConversation(context.Context, *ShowConversationRequest) (*ShowConversationResponse, error)
 	// GetConversationProcessingStatus returns aggregated processing status for all items in a conversation.
 	GetConversationProcessingStatus(context.Context, *GetConversationProcessingStatusRequest) (*ConversationProcessingStatus, error)
+	// MergeConversations moves all items from source into target, then deletes source.
+	MergeConversations(context.Context, *MergeConversationsRequest) (*MergeConversationsResponse, error)
+	// SplitConversation extracts specified items into a new conversation.
+	SplitConversation(context.Context, *SplitConversationRequest) (*SplitConversationResponse, error)
+	// UnlinkItem removes a single item from a conversation.
+	UnlinkItem(context.Context, *UnlinkItemRequest) (*UnlinkItemResponse, error)
+	// RunConversationAudit detects orphans, duplicates, and merge candidates.
+	RunConversationAudit(context.Context, *RunConversationAuditRequest) (*RunConversationAuditResponse, error)
 	mustEmbedUnimplementedConversationServiceServer()
 }
 
@@ -109,6 +169,18 @@ func (UnimplementedConversationServiceServer) ShowConversation(context.Context, 
 }
 func (UnimplementedConversationServiceServer) GetConversationProcessingStatus(context.Context, *GetConversationProcessingStatusRequest) (*ConversationProcessingStatus, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConversationProcessingStatus not implemented")
+}
+func (UnimplementedConversationServiceServer) MergeConversations(context.Context, *MergeConversationsRequest) (*MergeConversationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MergeConversations not implemented")
+}
+func (UnimplementedConversationServiceServer) SplitConversation(context.Context, *SplitConversationRequest) (*SplitConversationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SplitConversation not implemented")
+}
+func (UnimplementedConversationServiceServer) UnlinkItem(context.Context, *UnlinkItemRequest) (*UnlinkItemResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnlinkItem not implemented")
+}
+func (UnimplementedConversationServiceServer) RunConversationAudit(context.Context, *RunConversationAuditRequest) (*RunConversationAuditResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RunConversationAudit not implemented")
 }
 func (UnimplementedConversationServiceServer) mustEmbedUnimplementedConversationServiceServer() {}
 func (UnimplementedConversationServiceServer) testEmbeddedByValue()                             {}
@@ -185,6 +257,78 @@ func _ConversationService_GetConversationProcessingStatus_Handler(srv interface{
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ConversationService_MergeConversations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MergeConversationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConversationServiceServer).MergeConversations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConversationService_MergeConversations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConversationServiceServer).MergeConversations(ctx, req.(*MergeConversationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ConversationService_SplitConversation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SplitConversationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConversationServiceServer).SplitConversation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConversationService_SplitConversation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConversationServiceServer).SplitConversation(ctx, req.(*SplitConversationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ConversationService_UnlinkItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnlinkItemRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConversationServiceServer).UnlinkItem(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConversationService_UnlinkItem_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConversationServiceServer).UnlinkItem(ctx, req.(*UnlinkItemRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ConversationService_RunConversationAudit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunConversationAuditRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConversationServiceServer).RunConversationAudit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConversationService_RunConversationAudit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConversationServiceServer).RunConversationAudit(ctx, req.(*RunConversationAuditRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ConversationService_ServiceDesc is the grpc.ServiceDesc for ConversationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -203,6 +347,22 @@ var ConversationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetConversationProcessingStatus",
 			Handler:    _ConversationService_GetConversationProcessingStatus_Handler,
+		},
+		{
+			MethodName: "MergeConversations",
+			Handler:    _ConversationService_MergeConversations_Handler,
+		},
+		{
+			MethodName: "SplitConversation",
+			Handler:    _ConversationService_SplitConversation_Handler,
+		},
+		{
+			MethodName: "UnlinkItem",
+			Handler:    _ConversationService_UnlinkItem_Handler,
+		},
+		{
+			MethodName: "RunConversationAudit",
+			Handler:    _ConversationService_RunConversationAudit_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -611,3 +611,297 @@ func (r *PostgresRepository) GetStateHistory(ctx context.Context, conversationID
 
 	return history, nil
 }
+
+// MoveItems moves all items from one conversation to another, skipping duplicates.
+// Returns (moved, skipped) counts. Runs in the provided transaction.
+func (r *PostgresRepository) MoveItems(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string) (int32, int32, error) {
+	// Get source items
+	rows, err := tx.Query(ctx, `
+		SELECT content_id, source_id, added_at, tenant_id
+		FROM conversation_items
+		WHERE conversation_id = $1
+		ORDER BY added_at ASC
+	`, sourceConvID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to query source items: %w", err)
+	}
+	defer rows.Close()
+
+	type item struct {
+		ContentID string
+		SourceID  *int64
+		AddedAt   interface{}
+		TenantID  string
+	}
+	var items []item
+	for rows.Next() {
+		var it item
+		if err := rows.Scan(&it.ContentID, &it.SourceID, &it.AddedAt, &it.TenantID); err != nil {
+			return 0, 0, fmt.Errorf("failed to scan source item: %w", err)
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, fmt.Errorf("error iterating source items: %w", err)
+	}
+
+	var moved, skipped int32
+	for _, it := range items {
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO conversation_items (conversation_id, content_id, source_id, added_at, tenant_id)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (conversation_id, content_id) DO NOTHING
+		`, targetConvID, it.ContentID, it.SourceID, it.AddedAt, it.TenantID)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to move item %s: %w", it.ContentID, err)
+		}
+		if tag.RowsAffected() > 0 {
+			moved++
+		} else {
+			skipped++
+		}
+	}
+
+	// Delete source items
+	_, err = tx.Exec(ctx, `DELETE FROM conversation_items WHERE conversation_id = $1`, sourceConvID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to delete source items: %w", err)
+	}
+
+	return moved, skipped, nil
+}
+
+// MoveSpecificItems moves specified items from one conversation to another.
+// Returns the count of items moved. Runs in the provided transaction.
+func (r *PostgresRepository) MoveSpecificItems(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string, contentIDs []string) (int32, error) {
+	var moved int32
+	for _, contentID := range contentIDs {
+		// Get source item
+		var sourceID *int64
+		var addedAt interface{}
+		var tenantID string
+		err := tx.QueryRow(ctx, `
+			SELECT source_id, added_at, tenant_id
+			FROM conversation_items
+			WHERE conversation_id = $1 AND content_id = $2
+		`, sourceConvID, contentID).Scan(&sourceID, &addedAt, &tenantID)
+		if err != nil {
+			if err == pgx.ErrNoRows {
+				return 0, fmt.Errorf("item %s not found in conversation %s", contentID, sourceConvID)
+			}
+			return 0, fmt.Errorf("failed to get item %s: %w", contentID, err)
+		}
+
+		// Insert into target
+		_, err = tx.Exec(ctx, `
+			INSERT INTO conversation_items (conversation_id, content_id, source_id, added_at, tenant_id)
+			VALUES ($1, $2, $3, $4, $5)
+		`, targetConvID, contentID, sourceID, addedAt, tenantID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to insert item %s into target: %w", contentID, err)
+		}
+
+		// Delete from source
+		_, err = tx.Exec(ctx, `
+			DELETE FROM conversation_items
+			WHERE conversation_id = $1 AND content_id = $2
+		`, sourceConvID, contentID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to remove item %s from source: %w", contentID, err)
+		}
+		moved++
+	}
+	return moved, nil
+}
+
+// RemoveItem removes a single item from a conversation.
+// Returns error if the item doesn't exist in the conversation.
+func (r *PostgresRepository) RemoveItem(ctx context.Context, conversationID, contentID string) error {
+	tag, err := r.pool.Exec(ctx, `
+		DELETE FROM conversation_items
+		WHERE conversation_id = $1 AND content_id = $2
+	`, conversationID, contentID)
+	if err != nil {
+		return fmt.Errorf("failed to remove item: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("item %s not found in conversation %s", contentID, conversationID)
+	}
+	return nil
+}
+
+// DeleteConversation deletes a conversation and all its items/participants (via CASCADE).
+func (r *PostgresRepository) DeleteConversation(ctx context.Context, conversationID string) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM conversations WHERE id = $1`, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to delete conversation: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("conversation %s not found", conversationID)
+	}
+	return nil
+}
+
+// DeleteConversationTx deletes a conversation within a transaction (CASCADE removes items, participants, state_history).
+func (r *PostgresRepository) DeleteConversationTx(ctx context.Context, tx pgx.Tx, conversationID string) error {
+	tag, err := tx.Exec(ctx, `DELETE FROM conversations WHERE id = $1`, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to delete conversation: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("conversation %s not found", conversationID)
+	}
+	return nil
+}
+
+// InvalidateSummary clears the summary for a conversation so the backfill will regenerate it.
+func (r *PostgresRepository) InvalidateSummary(ctx context.Context, conversationID string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE conversations
+		SET state_summary = NULL, summary_updated_at = NULL, updated_at = NOW()
+		WHERE id = $1
+	`, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to invalidate summary: %w", err)
+	}
+	return nil
+}
+
+// CreateConversation inserts a new conversation record.
+func (r *PostgresRepository) CreateConversation(ctx context.Context, tx pgx.Tx, conv *Conversation) (string, error) {
+	metadataJSON, err := json.Marshal(conv.Metadata)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	var insertedID string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO conversations (
+			id, tenant_id, topic, thread_key, first_seen, last_seen,
+			participant_count, item_count, metadata, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+		RETURNING id
+	`, conv.ID, conv.TenantID, conv.Topic, conv.ThreadKey, conv.FirstSeen, conv.LastSeen,
+		conv.ParticipantCount, conv.ItemCount, metadataJSON).Scan(&insertedID)
+	if err != nil {
+		return "", fmt.Errorf("failed to create conversation: %w", err)
+	}
+	return insertedID, nil
+}
+
+// UpdateConversationStatsTx recalculates counts and timestamps within a transaction.
+func (r *PostgresRepository) UpdateConversationStatsTx(ctx context.Context, tx pgx.Tx, conversationID string) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE conversations
+		SET
+			item_count = (SELECT COUNT(*) FROM conversation_items WHERE conversation_id = $1),
+			participant_count = (SELECT COUNT(*) FROM conversation_participants WHERE conversation_id = $1),
+			first_seen = (SELECT MIN(added_at) FROM conversation_items WHERE conversation_id = $1),
+			last_seen = (SELECT MAX(added_at) FROM conversation_items WHERE conversation_id = $1),
+			updated_at = NOW()
+		WHERE id = $1
+	`, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to update conversation stats: %w", err)
+	}
+	return nil
+}
+
+// MergeParticipants copies participants from source to target (skipping duplicates).
+func (r *PostgresRepository) MergeParticipants(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO conversation_participants (conversation_id, name, address, tenant_id)
+		SELECT $2, name, address, tenant_id
+		FROM conversation_participants
+		WHERE conversation_id = $1
+		ON CONFLICT (conversation_id, (COALESCE(address, name))) DO NOTHING
+	`, sourceConvID, targetConvID)
+	if err != nil {
+		return fmt.Errorf("failed to merge participants: %w", err)
+	}
+	return nil
+}
+
+// GetItemCount returns the number of items in a conversation.
+func (r *PostgresRepository) GetItemCount(ctx context.Context, conversationID string) (int32, error) {
+	var count int32
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM conversation_items WHERE conversation_id = $1
+	`, conversationID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count items: %w", err)
+	}
+	return count, nil
+}
+
+// BeginTx starts a new transaction.
+func (r *PostgresRepository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	return r.pool.Begin(ctx)
+}
+
+// ListConversationsFiltered retrieves conversations with combined filters.
+func (r *PostgresRepository) ListConversationsFiltered(ctx context.Context, tenantID string, state *string, minItems *int32, limit, offset int32) ([]ConversationSummary, int64, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
+	// Build dynamic WHERE clause
+	where := "WHERE tenant_id = $1"
+	args := []interface{}{tenantID}
+	argIdx := 2
+
+	if state != nil && *state != "" {
+		where += fmt.Sprintf(" AND state = $%d", argIdx)
+		args = append(args, *state)
+		argIdx++
+	}
+	if minItems != nil && *minItems > 0 {
+		where += fmt.Sprintf(" AND item_count >= $%d", argIdx)
+		args = append(args, *minItems)
+		argIdx++
+	}
+
+	// Count
+	var totalCount int64
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM conversations %s", where)
+	err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count conversations: %w", err)
+	}
+
+	// Query
+	query := fmt.Sprintf(`
+		SELECT id, tenant_id, topic, thread_key, first_seen, last_seen,
+			participant_count, item_count, state, created_at, updated_at
+		FROM conversations
+		%s
+		ORDER BY last_seen DESC NULLS LAST, created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, where, argIdx, argIdx+1)
+	args = append(args, limit, offset)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query conversations: %w", err)
+	}
+	defer rows.Close()
+
+	var conversations []ConversationSummary
+	for rows.Next() {
+		var conv ConversationSummary
+		err := rows.Scan(
+			&conv.ID, &conv.TenantID, &conv.Topic, &conv.ThreadKey,
+			&conv.FirstSeen, &conv.LastSeen, &conv.ParticipantCount,
+			&conv.ItemCount, &conv.State, &conv.CreatedAt, &conv.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan conversation: %w", err)
+		}
+		conversations = append(conversations, conv)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating conversations: %w", err)
+	}
+
+	return conversations, totalCount, nil
+}

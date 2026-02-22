@@ -3,7 +3,9 @@ package conversationservice
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -18,7 +20,44 @@ import (
 type Repository interface {
 	ListConversations(ctx context.Context, tenantID string, limit, offset int32) ([]ConversationSummary, int64, error)
 	ListConversationsByState(ctx context.Context, tenantID, state string, limit, offset int32) ([]ConversationSummary, int64, error)
+	ListConversationsFiltered(ctx context.Context, tenantID string, state *string, minItems *int32, limit, offset int32) ([]ConversationSummary, int64, error)
 	GetConversation(ctx context.Context, tenantID, conversationID string) (*ConversationDetail, error)
+	BeginTx(ctx context.Context) (pgx.Tx, error)
+	MoveItems(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string) (moved, skipped int32, err error)
+	MoveSpecificItems(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string, contentIDs []string) (int32, error)
+	MergeParticipants(ctx context.Context, tx pgx.Tx, sourceConvID, targetConvID string) error
+	UpdateConversationStatsTx(ctx context.Context, tx pgx.Tx, conversationID string) error
+	CreateConversation(ctx context.Context, tx pgx.Tx, conv *Conversation) (string, error)
+	RemoveItem(ctx context.Context, conversationID, contentID string) error
+	DeleteConversation(ctx context.Context, conversationID string) error
+	DeleteConversationTx(ctx context.Context, tx pgx.Tx, conversationID string) error
+	UpdateConversationStats(ctx context.Context, conversationID string) error
+	InvalidateSummary(ctx context.Context, conversationID string) error
+	GetItemCount(ctx context.Context, conversationID string) (int32, error)
+}
+
+// AuditRepository defines the interface for conversation audit queries.
+type AuditRepository interface {
+	// FindOrphansWithThread finds content items that have a thread_id in
+	// content_enrichment but no entry in conversation_items.
+	FindOrphansWithThread(ctx context.Context, tenantID string) ([]AuditOrphan, error)
+
+	// FindOrphansWithReplySubject finds content items whose subject starts
+	// with Re:/FW:/Fwd: but have no thread_id (parser missed References header).
+	FindOrphansWithReplySubject(ctx context.Context, tenantID string) ([]AuditOrphan, error)
+
+	// FindDuplicateMemberships finds content items linked to multiple conversations.
+	FindDuplicateMemberships(ctx context.Context, tenantID string) ([]AuditDuplicate, error)
+
+	// FindMergeCandidatesByOverlap finds conversations that share content items.
+	FindMergeCandidatesByOverlap(ctx context.Context, tenantID string) ([]AuditMergeCandidate, error)
+
+	// FindMergeCandidatesByTopic finds conversations with similar topics
+	// (after stripping Re:/FW:/Fwd: prefixes).
+	FindMergeCandidatesByTopic(ctx context.Context, tenantID string) ([]AuditMergeCandidate, error)
+
+	// CountConversations returns the total conversation count for a tenant.
+	CountConversations(ctx context.Context, tenantID string) (int32, error)
 }
 
 // PipelineRepository defines the interface for pipeline data access used by
@@ -33,6 +72,7 @@ type Service struct {
 	conversationv1.UnimplementedConversationServiceServer
 	repo         Repository
 	pipelineRepo PipelineRepository
+	auditRepo    AuditRepository
 	logger       logging.Logger
 }
 
@@ -59,19 +99,29 @@ func (s *Service) SetPipelineRepo(repo PipelineRepository) {
 	s.pipelineRepo = repo
 }
 
+// SetAuditRepo sets the audit repository for conversation audit queries.
+func (s *Service) SetAuditRepo(repo AuditRepository) {
+	s.auditRepo = repo
+}
+
 // ListConversations lists conversations with pagination.
 func (s *Service) ListConversations(ctx context.Context, req *conversationv1.ListConversationsRequest) (*conversationv1.ListConversationsResponse, error) {
-	// Validate tenant ID
 	if req.GetTenantId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 
-	// Query conversations - use state filter if provided
 	var conversations []ConversationSummary
 	var totalCount int64
 	var err error
 
-	if req.GetState() != "" {
+	// Use filtered query when min_items is set, otherwise use existing queries
+	if req.MinItems != nil {
+		var statePtr *string
+		if req.State != nil {
+			statePtr = req.State
+		}
+		conversations, totalCount, err = s.repo.ListConversationsFiltered(ctx, req.GetTenantId(), statePtr, req.MinItems, req.GetLimit(), req.GetOffset())
+	} else if req.GetState() != "" {
 		conversations, totalCount, err = s.repo.ListConversationsByState(ctx, req.GetTenantId(), req.GetState(), req.GetLimit(), req.GetOffset())
 	} else {
 		conversations, totalCount, err = s.repo.ListConversations(ctx, req.GetTenantId(), req.GetLimit(), req.GetOffset())
@@ -82,7 +132,6 @@ func (s *Service) ListConversations(ctx context.Context, req *conversationv1.Lis
 		return nil, status.Errorf(codes.Internal, "failed to list conversations: %v", err)
 	}
 
-	// Convert to proto
 	protoConversations := make([]*conversationv1.ConversationSummary, len(conversations))
 	for i, conv := range conversations {
 		protoConversations[i] = conversationSummaryToProto(&conv)
@@ -252,6 +301,361 @@ func (s *Service) GetConversationProcessingStatus(ctx context.Context, req *conv
 	if totalOutputTokens > 0 {
 		resp.TotalOutputTokens = &totalOutputTokens
 	}
+
+	return resp, nil
+}
+
+// MergeConversations moves all items from source into target, then deletes source.
+func (s *Service) MergeConversations(ctx context.Context, req *conversationv1.MergeConversationsRequest) (*conversationv1.MergeConversationsResponse, error) {
+	if req.GetTenantId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.GetSourceConversationId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "source_conversation_id is required")
+	}
+	if req.GetTargetConversationId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "target_conversation_id is required")
+	}
+	if req.GetSourceConversationId() == req.GetTargetConversationId() {
+		return nil, status.Error(codes.InvalidArgument, "source and target must be different conversations")
+	}
+
+	// Verify both conversations exist
+	source, err := s.repo.GetConversation(ctx, req.GetTenantId(), req.GetSourceConversationId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get source conversation: %v", err)
+	}
+	if source == nil {
+		return nil, status.Error(codes.NotFound, "source conversation not found")
+	}
+
+	target, err := s.repo.GetConversation(ctx, req.GetTenantId(), req.GetTargetConversationId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get target conversation: %v", err)
+	}
+	if target == nil {
+		return nil, status.Error(codes.NotFound, "target conversation not found")
+	}
+
+	// Run merge in a transaction
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	moved, skipped, err := s.repo.MoveItems(ctx, tx, req.GetSourceConversationId(), req.GetTargetConversationId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to move items: %v", err)
+	}
+
+	if err := s.repo.MergeParticipants(ctx, tx, req.GetSourceConversationId(), req.GetTargetConversationId()); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to merge participants: %v", err)
+	}
+
+	if err := s.repo.UpdateConversationStatsTx(ctx, tx, req.GetTargetConversationId()); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to update target stats: %v", err)
+	}
+
+	// Delete source conversation (CASCADE removes remaining items, participants, state_history)
+	if err := s.repo.DeleteConversationTx(ctx, tx, req.GetSourceConversationId()); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to delete source conversation: %v", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to commit merge: %v", err)
+	}
+
+	// Invalidate summary so backfill regenerates it
+	if err := s.repo.InvalidateSummary(ctx, req.GetTargetConversationId()); err != nil {
+		s.logger.Error("failed to invalidate summary after merge", logging.Err(err))
+	}
+
+	s.logger.Info("merged conversations",
+		logging.F("source", req.GetSourceConversationId()),
+		logging.F("target", req.GetTargetConversationId()),
+		logging.F("moved", moved),
+		logging.F("skipped", skipped),
+	)
+
+	return &conversationv1.MergeConversationsResponse{
+		ConversationId:    req.GetTargetConversationId(),
+		ItemsMoved:        moved,
+		DuplicatesSkipped: skipped,
+	}, nil
+}
+
+// SplitConversation extracts specified items into a new conversation.
+func (s *Service) SplitConversation(ctx context.Context, req *conversationv1.SplitConversationRequest) (*conversationv1.SplitConversationResponse, error) {
+	if req.GetTenantId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.GetConversationId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "conversation_id is required")
+	}
+	if len(req.GetContentIds()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one content_id is required")
+	}
+
+	// Verify source conversation exists
+	source, err := s.repo.GetConversation(ctx, req.GetTenantId(), req.GetConversationId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get conversation: %v", err)
+	}
+	if source == nil {
+		return nil, status.Error(codes.NotFound, "conversation not found")
+	}
+
+	// Validate: can't extract all items
+	if len(req.GetContentIds()) >= len(source.Items) {
+		return nil, status.Error(codes.InvalidArgument, "cannot extract all items from a conversation")
+	}
+
+	// Validate: all content_ids exist in the source conversation
+	itemSet := make(map[string]bool, len(source.Items))
+	for _, item := range source.Items {
+		itemSet[item.ContentID] = true
+	}
+	for _, contentID := range req.GetContentIds() {
+		if !itemSet[contentID] {
+			return nil, status.Errorf(codes.InvalidArgument, "item %s not found in conversation", contentID)
+		}
+	}
+
+	topic := req.GetNewTopic()
+	if topic == "" {
+		topic = fmt.Sprintf("Split from: %s", source.Topic)
+	}
+
+	// Generate new conversation ID
+	newConvID := fmt.Sprintf("conv-%s", generateShortID())
+
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Create new conversation
+	newConv := &Conversation{
+		ID:       newConvID,
+		TenantID: req.GetTenantId(),
+		Topic:    topic,
+		Metadata: map[string]interface{}{},
+	}
+	_, err = s.repo.CreateConversation(ctx, tx, newConv)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create new conversation: %v", err)
+	}
+
+	// Move specified items
+	moved, err := s.repo.MoveSpecificItems(ctx, tx, req.GetConversationId(), newConvID, req.GetContentIds())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to move items: %v", err)
+	}
+
+	// Update stats on both conversations
+	if err := s.repo.UpdateConversationStatsTx(ctx, tx, req.GetConversationId()); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to update source stats: %v", err)
+	}
+	if err := s.repo.UpdateConversationStatsTx(ctx, tx, newConvID); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to update new conversation stats: %v", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to commit split: %v", err)
+	}
+
+	// Invalidate summaries on both conversations
+	if err := s.repo.InvalidateSummary(ctx, req.GetConversationId()); err != nil {
+		s.logger.Error("failed to invalidate source summary after split", logging.Err(err))
+	}
+	if err := s.repo.InvalidateSummary(ctx, newConvID); err != nil {
+		s.logger.Error("failed to invalidate new conversation summary after split", logging.Err(err))
+	}
+
+	s.logger.Info("split conversation",
+		logging.F("source", req.GetConversationId()),
+		logging.F("new", newConvID),
+		logging.F("moved", moved),
+		logging.F("topic", topic),
+	)
+
+	return &conversationv1.SplitConversationResponse{
+		NewConversationId: newConvID,
+		ItemsMoved:        moved,
+		Topic:             topic,
+	}, nil
+}
+
+// UnlinkItem removes a single item from a conversation.
+func (s *Service) UnlinkItem(ctx context.Context, req *conversationv1.UnlinkItemRequest) (*conversationv1.UnlinkItemResponse, error) {
+	if req.GetTenantId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.GetConversationId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "conversation_id is required")
+	}
+	if req.GetContentId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	// Verify conversation exists
+	conv, err := s.repo.GetConversation(ctx, req.GetTenantId(), req.GetConversationId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get conversation: %v", err)
+	}
+	if conv == nil {
+		return nil, status.Error(codes.NotFound, "conversation not found")
+	}
+
+	// Check it's not the last item
+	if len(conv.Items) <= 1 {
+		return nil, status.Error(codes.FailedPrecondition, "cannot remove the last item from a conversation")
+	}
+
+	// Remove the item
+	if err := s.repo.RemoveItem(ctx, req.GetConversationId(), req.GetContentId()); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to remove item: %v", err)
+	}
+
+	// Update stats
+	if err := s.repo.UpdateConversationStats(ctx, req.GetConversationId()); err != nil {
+		s.logger.Error("failed to update stats after unlink", logging.Err(err))
+	}
+
+	// Invalidate summary
+	if err := s.repo.InvalidateSummary(ctx, req.GetConversationId()); err != nil {
+		s.logger.Error("failed to invalidate summary after unlink", logging.Err(err))
+	}
+
+	remaining, err := s.repo.GetItemCount(ctx, req.GetConversationId())
+	if err != nil {
+		s.logger.Error("failed to get remaining count", logging.Err(err))
+		remaining = int32(len(conv.Items) - 1) // fallback estimate
+	}
+
+	s.logger.Info("unlinked item from conversation",
+		logging.F("conversation_id", req.GetConversationId()),
+		logging.F("content_id", req.GetContentId()),
+		logging.F("remaining", remaining),
+	)
+
+	return &conversationv1.UnlinkItemResponse{
+		RemainingItems: remaining,
+	}, nil
+}
+
+// RunConversationAudit detects orphans, duplicates, and merge candidates.
+func (s *Service) RunConversationAudit(ctx context.Context, req *conversationv1.RunConversationAuditRequest) (*conversationv1.RunConversationAuditResponse, error) {
+	if req.GetTenantId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+
+	if s.auditRepo == nil {
+		return nil, status.Error(codes.FailedPrecondition, "audit repository not configured")
+	}
+
+	tenantID := req.GetTenantId()
+	runAll := !req.GetOrphansOnly() && !req.GetDuplicatesOnly() && !req.GetMergeOnly()
+
+	resp := &conversationv1.RunConversationAuditResponse{}
+
+	// Count conversations audited.
+	count, err := s.auditRepo.CountConversations(ctx, tenantID)
+	if err != nil {
+		s.logger.Error("failed to count conversations for audit", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to count conversations: %v", err)
+	}
+	resp.ConversationsAudited = count
+
+	// 1. Orphan detection
+	if runAll || req.GetOrphansOnly() {
+		orphansThread, err := s.auditRepo.FindOrphansWithThread(ctx, tenantID)
+		if err != nil {
+			s.logger.Error("audit: orphan thread detection failed", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "orphan detection failed: %v", err)
+		}
+		for _, o := range orphansThread {
+			resp.Orphans = append(resp.Orphans, &conversationv1.AuditOrphan{
+				ContentId:               o.ContentID,
+				Reason:                  o.Reason,
+				SuggestedConversationId: o.SuggestedConversationID,
+			})
+		}
+
+		orphansReply, err := s.auditRepo.FindOrphansWithReplySubject(ctx, tenantID)
+		if err != nil {
+			s.logger.Error("audit: orphan reply subject detection failed", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "orphan detection failed: %v", err)
+		}
+		for _, o := range orphansReply {
+			resp.Orphans = append(resp.Orphans, &conversationv1.AuditOrphan{
+				ContentId:               o.ContentID,
+				Reason:                  o.Reason,
+				SuggestedConversationId: o.SuggestedConversationID,
+			})
+		}
+	}
+
+	// 2. Duplicate membership detection
+	if runAll || req.GetDuplicatesOnly() {
+		duplicates, err := s.auditRepo.FindDuplicateMemberships(ctx, tenantID)
+		if err != nil {
+			s.logger.Error("audit: duplicate membership detection failed", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "duplicate detection failed: %v", err)
+		}
+		for _, d := range duplicates {
+			resp.Flagged = append(resp.Flagged, &conversationv1.AuditFinding{
+				ConversationId:  d.ConversationIDs[0],
+				ItemId:          d.ContentID,
+				Reason:          fmt.Sprintf("item linked to %d conversations: %v", len(d.ConversationIDs), d.ConversationIDs),
+				SuggestedAction: "merge",
+			})
+		}
+	}
+
+	// 3. Merge candidate detection
+	if runAll || req.GetMergeOnly() {
+		overlapCandidates, err := s.auditRepo.FindMergeCandidatesByOverlap(ctx, tenantID)
+		if err != nil {
+			s.logger.Error("audit: merge candidate overlap detection failed", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "merge candidate detection failed: %v", err)
+		}
+		for _, mc := range overlapCandidates {
+			resp.MergeCandidates = append(resp.MergeCandidates, &conversationv1.AuditMergeCandidate{
+				ConversationIdA: mc.ConversationIDA,
+				ConversationIdB: mc.ConversationIDB,
+				TopicA:          mc.TopicA,
+				TopicB:          mc.TopicB,
+				Reason:          mc.Reason,
+				SharedItems:     mc.SharedItems,
+			})
+		}
+
+		topicCandidates, err := s.auditRepo.FindMergeCandidatesByTopic(ctx, tenantID)
+		if err != nil {
+			s.logger.Error("audit: merge candidate topic detection failed", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "merge candidate detection failed: %v", err)
+		}
+		for _, mc := range topicCandidates {
+			resp.MergeCandidates = append(resp.MergeCandidates, &conversationv1.AuditMergeCandidate{
+				ConversationIdA: mc.ConversationIDA,
+				ConversationIdB: mc.ConversationIDB,
+				TopicA:          mc.TopicA,
+				TopicB:          mc.TopicB,
+				Reason:          mc.Reason,
+			})
+		}
+	}
+
+	s.logger.Info("conversation audit completed",
+		logging.F("tenant_id", tenantID),
+		logging.F("conversations_audited", count),
+		logging.F("orphans", len(resp.Orphans)),
+		logging.F("flagged", len(resp.Flagged)),
+		logging.F("merge_candidates", len(resp.MergeCandidates)),
+	)
 
 	return resp, nil
 }

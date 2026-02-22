@@ -1,7 +1,18 @@
 // Package conversationservice types
 package conversationservice
 
-import "time"
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"time"
+)
+
+// generateShortID returns a random 8-character hex string for conversation IDs.
+func generateShortID() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 // ConversationSummary represents a conversation in the list view.
 type ConversationSummary struct {
@@ -80,4 +91,27 @@ type StateHistoryEntry struct {
 	NewState       string
 	Reason         string
 	CreatedAt      time.Time
+}
+
+// AuditOrphan represents a content item that should be in a conversation but isn't.
+type AuditOrphan struct {
+	ContentID              string
+	Reason                 string
+	SuggestedConversationID string
+}
+
+// AuditDuplicate represents an item linked to multiple conversations.
+type AuditDuplicate struct {
+	ContentID       string
+	ConversationIDs []string
+}
+
+// AuditMergeCandidate represents two conversations that may need merging.
+type AuditMergeCandidate struct {
+	ConversationIDA string
+	ConversationIDB string
+	TopicA          string
+	TopicB          string
+	Reason          string
+	SharedItems     []string
 }

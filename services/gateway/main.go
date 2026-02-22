@@ -409,6 +409,7 @@ func main() {
 	conversationRepo := conversationservice.NewPostgresRepository(dbPool, logger)
 	conversationSvc := conversationservice.NewService(conversationRepo, logger)
 	conversationSvc.SetPipelineRepo(pipelineRepo)
+	conversationSvc.SetAuditRepo(conversationservice.NewAuditPostgresRepository(dbPool, logger))
 	conversationv1.RegisterConversationServiceServer(grpcServer, conversationSvc)
 	logger.Info("Registered ConversationService")
 
