@@ -48,6 +48,13 @@ func TestParseTriageResponse_Valid(t *testing.T) {
 			wantImp:    "MEDIUM",
 			wantReason: "Architecture decision required",
 		},
+		{
+			name:       "valid FYI category",
+			jsonStr:    `{"category": "FYI", "importance": "LOW", "reason": "General information, no action needed"}`,
+			wantCat:    "FYI",
+			wantImp:    "LOW",
+			wantReason: "General information, no action needed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -268,10 +275,16 @@ func TestValidateTriageResult(t *testing.T) {
 			wantErr:    false,
 		},
 		{
-			name:       "valid OTHER LOW",
-			category:   "OTHER",
+			name:       "valid FYI LOW",
+			category:   "FYI",
 			importance: "LOW",
 			wantErr:    false,
+		},
+		{
+			name:       "OTHER no longer valid",
+			category:   "OTHER",
+			importance: "HIGH",
+			wantErr:    true,
 		},
 		{
 			name:       "invalid category",

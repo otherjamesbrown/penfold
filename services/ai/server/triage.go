@@ -15,7 +15,7 @@ var validCategories = map[string]bool{
 	"DECISION":        true,
 	"INTERNAL_COMMS":  true,
 	"PERSONAL":        true,
-	"OTHER":           true,
+	"FYI":             true,
 }
 
 // Valid importance levels.
@@ -45,7 +45,7 @@ Classify this content into exactly ONE category:
 - DECISION: a decision has been made or is being requested
 - INTERNAL_COMMS: HR, training, company announcements, policy changes
 - PERSONAL: lunch, social, casual conversation
-- OTHER: does not fit any category above
+- FYI: informational content, no action required, does not fit any category above
 
 Rate importance: HIGH, MEDIUM, LOW
 
@@ -123,7 +123,7 @@ func parseTriageResponse(jsonStr string) (*triageResult, error) {
 // validateTriageResult checks if the category, importance, and content_contribution are valid.
 func validateTriageResult(result *triageResult) error {
 	if !validCategories[result.Category] {
-		return fmt.Errorf("invalid category: %s (must be one of PROJECT_UPDATE, CUSTOMER, RISK_ISSUE, ACTION_REQUEST, DECISION, INTERNAL_COMMS, PERSONAL, OTHER)", result.Category)
+		return fmt.Errorf("invalid category: %s (must be one of PROJECT_UPDATE, CUSTOMER, RISK_ISSUE, ACTION_REQUEST, DECISION, INTERNAL_COMMS, PERSONAL, FYI)", result.Category)
 	}
 	if !validImportance[result.Importance] {
 		return fmt.Errorf("invalid importance: %s (must be one of HIGH, MEDIUM, LOW)", result.Importance)
