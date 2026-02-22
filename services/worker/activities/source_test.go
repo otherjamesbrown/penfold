@@ -309,3 +309,221 @@ func TestUpdateSourceStatus_SourceSystemNotInMetadata(t *testing.T) {
 	// No metadata map should be passed since only SourceSystem is set (no SkipDeep)
 	require.Nil(t, capturedTriageMetadata, "No JSONB metadata should be written when only SourceSystem is set")
 }
+
+// --- FetchSource tests (pf-cb680e) ---
+
+// TestFetchSource_PopulatesAllFields verifies that FetchSource returns all available
+// fields from the Source record: Subject, SenderEmail, SenderName, BodyHTML,
+// SourceSystem, ContentID, and ParticipantEmails.
+func TestFetchSource_PopulatesAllFields(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+
+	mockRepo := &mockSourceRepositoryTracking{
+		getSourceFunc: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:           sourceID,
+				TenantID:     tenantID,
+				ContentText:  "Hello, please review this.",
+				ContentType:  "email",
+				ContentHash:  "abc123",
+				Status:       "pending",
+				SourceSystem: "gmail_api",
+				ContentID:    "em-AbCdEfGh",
+				Metadata: map[string]string{
+					"subject":      "Project Update Q1",
+					"from_address": "alice@example.com",
+					"from_name":    "Alice Smith",
+					"body_html":    "<p>Hello</p>",
+					"to":           `[{"name":"Bob Jones","address":"bob@example.com"}]`,
+					"cc":           `[{"name":"Carol White","address":"carol@example.com"}]`,
+				},
+			}, nil
+		},
+	}
+
+	logger := logging.NewNopLogger()
+	acts := NewSourceActivities(logger, mockRepo)
+	env.RegisterActivity(acts.FetchSource)
+
+	input := workflows.FetchSourceInput{
+		TenantID: "test-tenant",
+		SourceID: 42,
+	}
+
+	val, err := env.ExecuteActivity(acts.FetchSource, input)
+	require.NoError(t, err)
+
+	var out workflows.FetchSourceOutput
+	require.NoError(t, val.Get(&out))
+
+	require.Equal(t, "Hello, please review this.", out.ContentText)
+	require.Equal(t, "email", out.ContentType)
+	require.Equal(t, "em-AbCdEfGh", out.ContentID)
+	require.Equal(t, "gmail_api", out.SourceSystem)
+	require.Equal(t, "Project Update Q1", out.Subject)
+	require.Equal(t, "alice@example.com", out.SenderEmail)
+	require.Equal(t, "Alice Smith", out.SenderName)
+	require.Equal(t, "<p>Hello</p>", out.BodyHTML)
+
+	require.Len(t, out.ParticipantEmails, 2)
+	require.Equal(t, "bob@example.com", out.ParticipantEmails[0].Email)
+	require.Equal(t, "Bob Jones", out.ParticipantEmails[0].DisplayName)
+	require.Equal(t, "carol@example.com", out.ParticipantEmails[1].Email)
+	require.Equal(t, "Carol White", out.ParticipantEmails[1].DisplayName)
+}
+
+// TestFetchSource_EmptyMetadata verifies that FetchSource does not panic and returns
+// only ContentText and ContentType when no metadata is present (e.g. non-email sources).
+func TestFetchSource_EmptyMetadata(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+
+	mockRepo := &mockSourceRepositoryTracking{
+		getSourceFunc: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          sourceID,
+				TenantID:    tenantID,
+				ContentText: "Plain text note.",
+				ContentType: "text/plain",
+				Metadata:    map[string]string{},
+			}, nil
+		},
+	}
+
+	logger := logging.NewNopLogger()
+	acts := NewSourceActivities(logger, mockRepo)
+	env.RegisterActivity(acts.FetchSource)
+
+	val, err := env.ExecuteActivity(acts.FetchSource, workflows.FetchSourceInput{
+		TenantID: "test-tenant",
+		SourceID: 7,
+	})
+	require.NoError(t, err)
+
+	var out workflows.FetchSourceOutput
+	require.NoError(t, val.Get(&out))
+
+	require.Equal(t, "Plain text note.", out.ContentText)
+	require.Empty(t, out.Subject)
+	require.Empty(t, out.SenderEmail)
+	require.Empty(t, out.ContentID)
+	require.Empty(t, out.SourceSystem)
+	require.Nil(t, out.ParticipantEmails)
+}
+
+// TestFetchSource_SubjectPopulated verifies the specific fix for pf-cb680e:
+// FetchSource must return Subject from ingestion_metadata so the auto-reply
+// short-circuit in triage fires correctly during reprocess.
+func TestFetchSource_SubjectPopulated(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+
+	mockRepo := &mockSourceRepositoryTracking{
+		getSourceFunc: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          sourceID,
+				TenantID:    tenantID,
+				ContentText: "Thank you for your email.",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"subject": "Automatic reply: Out of office",
+				},
+			}, nil
+		},
+	}
+
+	logger := logging.NewNopLogger()
+	acts := NewSourceActivities(logger, mockRepo)
+	env.RegisterActivity(acts.FetchSource)
+
+	val, err := env.ExecuteActivity(acts.FetchSource, workflows.FetchSourceInput{
+		TenantID: "test-tenant",
+		SourceID: 99,
+	})
+	require.NoError(t, err)
+
+	var out workflows.FetchSourceOutput
+	require.NoError(t, val.Get(&out))
+
+	// The auto-reply short-circuit checks HasPrefix(ToLower(TrimSpace(Subject)), "automatic reply:")
+	require.Equal(t, "Automatic reply: Out of office", out.Subject,
+		"Subject must be populated from ingestion_metadata so triage auto-reply detection fires")
+}
+
+// TestFetchSource_MalformedParticipantJSON verifies that FetchSource silently skips
+// malformed JSON in "to"/"cc" metadata rather than failing the activity.
+func TestFetchSource_MalformedParticipantJSON(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+
+	mockRepo := &mockSourceRepositoryTracking{
+		getSourceFunc: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          sourceID,
+				TenantID:    tenantID,
+				ContentText: "Hello.",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"subject": "Test",
+					"to":      "not-valid-json",
+					"cc":      `[{"name":"Valid","address":"valid@example.com"}]`,
+				},
+			}, nil
+		},
+	}
+
+	logger := logging.NewNopLogger()
+	acts := NewSourceActivities(logger, mockRepo)
+	env.RegisterActivity(acts.FetchSource)
+
+	val, err := env.ExecuteActivity(acts.FetchSource, workflows.FetchSourceInput{
+		TenantID: "test-tenant",
+		SourceID: 55,
+	})
+	require.NoError(t, err)
+
+	var out workflows.FetchSourceOutput
+	require.NoError(t, val.Get(&out))
+
+	// Malformed "to" is skipped; valid "cc" is included.
+	require.Len(t, out.ParticipantEmails, 1)
+	require.Equal(t, "valid@example.com", out.ParticipantEmails[0].Email)
+}
+
+// TestFetchSource_ParticipantWithoutAddress verifies that participant entries
+// missing an address are omitted from ParticipantEmails.
+func TestFetchSource_ParticipantWithoutAddress(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+
+	mockRepo := &mockSourceRepositoryTracking{
+		getSourceFunc: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          sourceID,
+				TenantID:    tenantID,
+				ContentText: "Hello.",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"to": `[{"name":"No Address","address":""},{"name":"Has Address","address":"has@example.com"}]`,
+				},
+			}, nil
+		},
+	}
+
+	logger := logging.NewNopLogger()
+	acts := NewSourceActivities(logger, mockRepo)
+	env.RegisterActivity(acts.FetchSource)
+
+	val, err := env.ExecuteActivity(acts.FetchSource, workflows.FetchSourceInput{
+		TenantID: "test-tenant",
+		SourceID: 66,
+	})
+	require.NoError(t, err)
+
+	var out workflows.FetchSourceOutput
+	require.NoError(t, val.Get(&out))
+
+	require.Len(t, out.ParticipantEmails, 1, "Entry without address must be omitted")
+	require.Equal(t, "has@example.com", out.ParticipantEmails[0].Email)
+}

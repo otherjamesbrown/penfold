@@ -27,7 +27,7 @@ func NewPostgresSourceRepository(pool *pgxpool.Pool, logger logging.Logger) *Pos
 // GetSource fetches source content by ID.
 func (r *PostgresSourceRepository) GetSource(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
 	query := `
-		SELECT id, tenant_id, raw_content, content_type, content_hash, processing_status, ingestion_metadata, source_system
+		SELECT id, tenant_id, raw_content, content_type, content_hash, processing_status, ingestion_metadata, source_system, content_id
 		FROM sources
 		WHERE id = $1 AND tenant_id = $2
 	`
@@ -35,6 +35,7 @@ func (r *PostgresSourceRepository) GetSource(ctx context.Context, tenantID strin
 	var source Source
 	var metadataJSON []byte
 	var sourceSystem string
+	var contentID *string // nullable: content_id may be NULL (added via migration 021)
 	err := r.pool.QueryRow(ctx, query, sourceID, tenantID).Scan(
 		&source.ID,
 		&source.TenantID,
@@ -44,9 +45,18 @@ func (r *PostgresSourceRepository) GetSource(ctx context.Context, tenantID strin
 		&source.Status,
 		&metadataJSON,
 		&sourceSystem,
+		&contentID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get source: %w", err)
+	}
+
+	// Store the raw source_system value so callers can use it.
+	source.SourceSystem = sourceSystem
+
+	// Store content_id if present.
+	if contentID != nil {
+		source.ContentID = *contentID
 	}
 
 	// Map source_system to logical content type (e.g., "manual_eml" -> "email")

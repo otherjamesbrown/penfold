@@ -26,13 +26,15 @@ type SourceRepository interface {
 
 // Source represents a content source record from the database.
 type Source struct {
-	ID          int64
-	TenantID    string
-	ContentText string
-	ContentType string
-	ContentHash string
-	Status      string
-	Metadata    map[string]string
+	ID           int64
+	TenantID     string
+	ContentText  string
+	ContentType  string
+	ContentHash  string
+	Status       string
+	Metadata     map[string]string
+	SourceSystem string // raw source_system value from DB (e.g. "manual_eml", "gmail_api")
+	ContentID    string // content_id from DB (may be empty if not yet set)
 }
 
 // EmbeddingRepository defines the interface for embedding data access.

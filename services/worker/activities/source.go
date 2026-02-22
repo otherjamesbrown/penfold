@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -73,10 +74,62 @@ func (a *SourceActivities) FetchSource(ctx context.Context, input workflows.Fetc
 		logging.F("content_type", source.ContentType),
 	)
 
+	// Parse participant emails from "to" and "cc" metadata keys.
+	// These are stored as JSON arrays of {name, address} objects.
+	participants := parseParticipants(source.Metadata)
+
 	return &workflows.FetchSourceOutput{
-		ContentText: source.ContentText,
-		ContentType: source.ContentType,
+		ContentText:       source.ContentText,
+		ContentType:       source.ContentType,
+		ContentID:         source.ContentID,
+		SourceSystem:      source.SourceSystem,
+		Subject:           source.Metadata["subject"],
+		SenderEmail:       source.Metadata["from_address"],
+		SenderName:        source.Metadata["from_name"],
+		BodyHTML:          source.Metadata["body_html"],
+		ParticipantEmails: participants,
 	}, nil
+}
+
+// participantEntry mirrors the {name, address} shape stored in metadata JSON arrays.
+type participantEntry struct {
+	Name    string `json:"name"`
+	Address string `json:"address"`
+}
+
+// parseParticipants extracts Participant values from the "to" and "cc" metadata keys.
+// Each key holds a JSON-encoded array of {name, address} objects.
+func parseParticipants(metadata map[string]string) []workflows.Participant {
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	var participants []workflows.Participant
+
+	for _, key := range []string{"to", "cc"} {
+		raw, ok := metadata[key]
+		if !ok || raw == "" {
+			continue
+		}
+
+		var entries []participantEntry
+		if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+			// Malformed JSON is silently skipped; the field is best-effort.
+			continue
+		}
+
+		for _, e := range entries {
+			if e.Address == "" {
+				continue
+			}
+			participants = append(participants, workflows.Participant{
+				Email:       e.Address,
+				DisplayName: e.Name,
+			})
+		}
+	}
+
+	return participants
 }
 
 // UpdateSourceStatus updates the processing status of a source.
