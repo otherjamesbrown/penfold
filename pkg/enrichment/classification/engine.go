@@ -117,6 +117,8 @@ func matchCondition(cond MatchCondition, fieldValue string) bool {
 		return matchesPatternEngine(v, condValue)
 	case "exact":
 		return v == condValue
+	case "exists":
+		return fieldValue != ""
 	default:
 		return false
 	}

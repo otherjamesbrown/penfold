@@ -27,6 +27,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/routing"
 	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
@@ -505,8 +506,18 @@ func main() {
 			logger.Info("Classification repository initialized for rule engine")
 		}
 
+		// Create routing repository if database is available
+		var routingRepo activities.RoutingRepository
+		if dbPool != nil {
+			routingRepo = routing.NewRepository(dbPool)
+			logger.Info("Routing repository initialized for pipeline routing")
+		}
+
 		// Create triage activities (Stage 1)
 		triageActivities := activities.NewTriageActivities(logger, aiClient, pipelineRepo, enrichmentRepo, classificationRepo)
+		if routingRepo != nil {
+			triageActivities.WithRoutingRepo(routingRepo)
+		}
 		activityRegistrar.WithTriageActivities(triageActivities)
 		logger.Info("Triage activities initialized with AI client (Stage 1)")
 

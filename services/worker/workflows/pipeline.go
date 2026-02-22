@@ -147,6 +147,13 @@ type TriageOutput struct {
 	ContentContribution string  `json:"content_contribution,omitempty"`
 	ContributionReason  string  `json:"contribution_reason,omitempty"`
 	SourceSystem        string  `json:"source_system,omitempty"` // classified by rule engine in Triage activity
+
+	// Pipeline routing: classification keys and resolved pipelines.
+	// RoutingContentType and RoutingSubtype are the uppercase keys used for route lookup.
+	// Pipelines contains the matched pipeline names from the routing table.
+	RoutingContentType string   `json:"routing_content_type,omitempty"`
+	RoutingSubtype     string   `json:"routing_subtype,omitempty"`
+	Pipelines          []string `json:"pipelines,omitempty"` // matched pipeline names; empty = skip all
 }
 
 // SLMPipelineExtractEntitiesInput is the input for the ExtractEntities activity (pipeline version with TriageCategory).
@@ -1045,6 +1052,65 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.result.Status = "cancelled"
 		state.result.Error = state.cancelReason
 		return state.result, nil
+	}
+
+	// ==================== Pipeline Routing ====================
+	// If routing was resolved (Pipelines field populated), check if any pipelines match.
+	// No matched pipelines = item is skipped entirely (no further processing).
+	if triageOutput.Pipelines != nil && len(triageOutput.Pipelines) == 0 {
+		logger.Info("Pipeline routing: no pipelines matched, skipping all stages",
+			"source_id", input.SourceID,
+			"routing_content_type", triageOutput.RoutingContentType,
+			"routing_subtype", triageOutput.RoutingSubtype,
+		)
+
+		// Record all stages as skipped
+		skipReason := fmt.Sprintf("routing:no_pipeline:%s/%s", triageOutput.RoutingContentType, triageOutput.RoutingSubtype)
+		ctxSkip := workflow.WithActivityOptions(ctx, fastOpts)
+		_ = workflow.ExecuteActivity(ctxSkip, pkgtemporal.ActivityRecordSkippedStage, RecordSkippedStageInput{
+			SourceID: input.SourceID,
+			Stages: []SkippedStage{
+				{Stage: "summarize", SkipReason: skipReason},
+				{Stage: "extract_ner", SkipReason: skipReason},
+				{Stage: "extract_semantic", SkipReason: skipReason},
+				{Stage: "resolve", SkipReason: skipReason},
+				{Stage: "analyze", SkipReason: skipReason},
+				{Stage: "persist", SkipReason: skipReason},
+				{Stage: "embed", SkipReason: skipReason},
+			},
+			LangfuseTraceID: langfuseTraceID,
+		}).Get(ctx, nil)
+
+		// Mark as completed (processed with no pipeline)
+		ctxStatus := workflow.WithActivityOptions(ctx, fastOpts)
+		_ = workflow.ExecuteActivity(ctxStatus, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+			TenantID: input.TenantID,
+			SourceID: input.SourceID,
+			Status:   "completed",
+		}).Get(ctx, nil)
+
+		state.result.Status = "completed"
+		state.result.SkipDeep = true
+
+		// Langfuse: finish trace
+		_ = workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, fastOpts),
+			pkgtemporal.ActivityFinishLangfuseTrace,
+			FinishLangfuseTraceInput{
+				TraceID: langfuseTraceID,
+			},
+		).Get(ctx, nil)
+
+		return state.result, nil
+	}
+	// Log routing decision for items that enter pipelines
+	if len(triageOutput.Pipelines) > 0 {
+		logger.Info("Pipeline routing: item enters pipelines",
+			"source_id", input.SourceID,
+			"pipelines", triageOutput.Pipelines,
+			"routing_content_type", triageOutput.RoutingContentType,
+			"routing_subtype", triageOutput.RoutingSubtype,
+		)
 	}
 
 	// ==================== Stage 1.5: Summarize (non-blocking) ====================

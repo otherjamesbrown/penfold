@@ -123,6 +123,23 @@ func buildSeededRules() []ClassificationRule {
 				{ID: 13, Field: "header:Content-Type", MatchType: "contains", Value: "text/calendar", CaseSensitive: false},
 			},
 		},
+		{
+			ID:               9,
+			TenantID:         "tenant-a",
+			Name:             "newsletter",
+			Priority:         90,
+			ContentTypeScope: "EMAIL",
+			ContentType:      "EMAIL",
+			ContentSubtype:   "NEWSLETTER",
+			Active:           true,
+			Conditions: []MatchCondition{
+				{ID: 14, Field: "header:Precedence", MatchType: "exact", Value: "bulk", CaseSensitive: false},
+				{ID: 15, Field: "header:Precedence", MatchType: "exact", Value: "list", CaseSensitive: false},
+				{ID: 16, Field: "header:List-Unsubscribe", MatchType: "exists", Value: "", CaseSensitive: false},
+				{ID: 17, Field: "subject", MatchType: "contains", Value: "Newsletter", CaseSensitive: false},
+				{ID: 18, Field: "subject", MatchType: "contains", Value: "Weekly Digest", CaseSensitive: false},
+			},
+		},
 	}
 }
 
@@ -843,6 +860,18 @@ func TestMatchCondition_AllMatchTypes(t *testing.T) {
 			input:     "jira@company.com",
 			wantMatch: false,
 		},
+		{
+			name:      "exists - match (non-empty value)",
+			cond:      MatchCondition{MatchType: "exists", Value: "", CaseSensitive: false},
+			input:     "<mailto:unsub@example.com>",
+			wantMatch: true,
+		},
+		{
+			name:      "exists - no match (empty value)",
+			cond:      MatchCondition{MatchType: "exists", Value: "", CaseSensitive: false},
+			input:     "",
+			wantMatch: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -852,5 +881,90 @@ func TestMatchCondition_AllMatchTypes(t *testing.T) {
 				t.Errorf("matchCondition(%v, %q) = %v, want %v", tt.cond, tt.input, got, tt.wantMatch)
 			}
 		})
+	}
+}
+
+// TestRuleEngine_Newsletter verifies that emails with bulk Precedence header → EMAIL/NEWSLETTER.
+func TestRuleEngine_Newsletter(t *testing.T) {
+	engine := NewEngine(buildSeededRules())
+
+	result := engine.Classify("EMAIL", map[string]string{
+		"from_address":      "news@company.com",
+		"subject":           "Company Updates",
+		"header:Precedence": "bulk",
+	})
+
+	if result.ContentType != "EMAIL" {
+		t.Errorf("expected ContentType=EMAIL, got %q", result.ContentType)
+	}
+	if result.ContentSubtype != "NEWSLETTER" {
+		t.Errorf("expected ContentSubtype=NEWSLETTER, got %q", result.ContentSubtype)
+	}
+	if result.RuleName != "newsletter" {
+		t.Errorf("expected RuleName=newsletter, got %q", result.RuleName)
+	}
+}
+
+// TestRuleEngine_NewsletterListUnsubscribe verifies that List-Unsubscribe header triggers newsletter.
+func TestRuleEngine_NewsletterListUnsubscribe(t *testing.T) {
+	engine := NewEngine(buildSeededRules())
+
+	result := engine.Classify("EMAIL", map[string]string{
+		"from_address":            "marketing@example.com",
+		"subject":                 "Weekly Updates",
+		"header:List-Unsubscribe": "<mailto:unsub@example.com>",
+	})
+
+	if result.ContentSubtype != "NEWSLETTER" {
+		t.Errorf("expected ContentSubtype=NEWSLETTER, got %q", result.ContentSubtype)
+	}
+}
+
+// TestRuleEngine_NewsletterSubjectContains verifies subject-based newsletter detection.
+func TestRuleEngine_NewsletterSubjectContains(t *testing.T) {
+	engine := NewEngine(buildSeededRules())
+
+	tests := []struct {
+		name    string
+		subject string
+	}{
+		{"Newsletter in subject", "Monthly Newsletter - January"},
+		{"Weekly Digest in subject", "Weekly Digest: Top Stories"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := engine.Classify("EMAIL", map[string]string{
+				"from_address": "sender@example.com",
+				"subject":      tt.subject,
+			})
+
+			if result.ContentSubtype != "NEWSLETTER" {
+				t.Errorf("expected ContentSubtype=NEWSLETTER for subject %q, got %q", tt.subject, result.ContentSubtype)
+			}
+		})
+	}
+}
+
+// TestRuleEngine_NewsletterNotOverrideNotification verifies that notification rules
+// (lower priority number = higher priority) win over newsletter rules.
+// A Jira notification with List-Unsubscribe header should stay as NOTIFICATION.
+func TestRuleEngine_NewsletterNotOverrideNotification(t *testing.T) {
+	engine := NewEngine(buildSeededRules())
+
+	result := engine.Classify("EMAIL", map[string]string{
+		"from_address":            "jira@company.atlassian.net",
+		"subject":                 "Issue Updated",
+		"header:List-Unsubscribe": "<mailto:unsub@atlassian.com>",
+	})
+
+	if result.ContentSubtype != "NOTIFICATION" {
+		t.Errorf("expected ContentSubtype=NOTIFICATION (jira wins over newsletter), got %q", result.ContentSubtype)
+	}
+	if result.NotificationSource != "jira" {
+		t.Errorf("expected NotificationSource=jira, got %q", result.NotificationSource)
+	}
+	if result.RuleName != "jira" {
+		t.Errorf("expected RuleName=jira (priority 10 beats newsletter priority 90), got %q", result.RuleName)
 	}
 }

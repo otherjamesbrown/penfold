@@ -13,6 +13,7 @@ import (
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/routing"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
@@ -26,6 +27,7 @@ type TriageActivities struct {
 	pipelineRepo       PipelineRepository
 	enrichmentRepo     EnrichmentRepository
 	classificationRepo ClassificationRepository // optional: rule engine for source system classification
+	routingRepo        RoutingRepository        // optional: pipeline routing table lookup
 }
 
 // NewTriageActivities creates a new TriageActivities instance.
@@ -52,6 +54,12 @@ func NewTriageActivities(
 		enrichmentRepo:     enrichmentRepo,
 		classificationRepo: classificationRepo,
 	}
+}
+
+// WithRoutingRepo sets the routing repository for pipeline route lookup.
+func (a *TriageActivities) WithRoutingRepo(repo RoutingRepository) *TriageActivities {
+	a.routingRepo = repo
+	return a
 }
 
 // Triage performs Stage 1 content triage using an SLM.
@@ -122,6 +130,9 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 
 	// Classify source system using rule engine (replaces ClassifySourceSystem in pipeline.go)
 	var sourceSystem string
+	var routingContentType, routingSubtype string
+	var matchedPipelines []string
+
 	if a.classificationRepo != nil {
 		rules, err := a.classificationRepo.LoadRules(ctx, input.TenantID)
 		if err != nil {
@@ -142,6 +153,8 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			}
 			result := engine.Classify(input.ContentType, metadata)
 			sourceSystem = mapToSourceSystem(result)
+			routingContentType = result.ContentType
+			routingSubtype = result.ContentSubtype
 			logger.Info("Source system classified via rule engine",
 				logging.F("source_system", sourceSystem),
 				logging.F("rule_name", result.RuleName),
@@ -150,6 +163,40 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		}
 	} else {
 		sourceSystem = string(enrichment.SourceSystemHumanEmail)
+	}
+
+	// Derive routing keys for non-email content where rule engine defaults to EMAIL/HUMAN.
+	if routingContentType == "" {
+		routingContentType = strings.ToUpper(input.ContentType)
+	}
+	if routingContentType == "EMAIL" && routingSubtype == "HUMAN" && !strings.EqualFold(input.ContentType, "email") {
+		routingContentType = strings.ToUpper(input.ContentType)
+		switch routingContentType {
+		case "MEETING":
+			routingSubtype = "TRANSCRIPT"
+		}
+	}
+	if routingSubtype == "" {
+		routingSubtype = "HUMAN"
+	}
+
+	// Pipeline routing: look up which pipelines this item enters.
+	if a.routingRepo != nil {
+		routes, err := a.routingRepo.LoadRoutes(ctx, input.TenantID)
+		if err != nil {
+			logger.Warn("Failed to load routing rules",
+				logging.Err(err),
+			)
+		} else {
+			router := routing.NewRouter(routes)
+			matchedPipelines = router.Resolve(routingContentType, routingSubtype)
+			logger.Info("Pipeline routing resolved",
+				logging.F("routing_content_type", routingContentType),
+				logging.F("routing_subtype", routingSubtype),
+				logging.F("pipelines", matchedPipelines),
+				logging.F("route_count", len(matchedPipelines)),
+			)
+		}
 	}
 
 	// Handle auto-reply emails (pf-64dcc4)
@@ -173,6 +220,9 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			ContentContribution: "NONE",
 			ContributionReason:  "Auto-reply emails do not contribute meaningful content",
 			SourceSystem:        sourceSystem,
+			RoutingContentType:  routingContentType,
+			RoutingSubtype:      routingSubtype,
+			Pipelines:           matchedPipelines,
 		}
 
 		logger.Info("Triage completed (auto-reply short-circuit)",
@@ -180,6 +230,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			logging.F("importance", output.Importance),
 			logging.F("content_contribution", output.ContentContribution),
 			logging.F("skip_deep", output.SkipDeep),
+			logging.F("pipelines", matchedPipelines),
 		)
 
 		return output, nil
@@ -195,20 +246,24 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 
 		// Return metadata-only result without calling AI
 		output := &workflows.TriageOutput{
-			Category:       "MEETING",
-			Importance:     "MEDIUM",
-			Reason:         "Calendar invite with no body text (metadata-only)",
-			Confidence:     1.0, // High confidence - deterministic classification
-			ModelUsed:      "metadata-classifier",
-			SkipDeep:       true, // Skip deep processing (Stages 2-4)
-			ContentSubtype: string(subtype),
-			SourceSystem:   sourceSystem,
+			Category:           "MEETING",
+			Importance:         "MEDIUM",
+			Reason:             "Calendar invite with no body text (metadata-only)",
+			Confidence:         1.0, // High confidence - deterministic classification
+			ModelUsed:          "metadata-classifier",
+			SkipDeep:           true, // Skip deep processing (Stages 2-4)
+			ContentSubtype:     string(subtype),
+			SourceSystem:       sourceSystem,
+			RoutingContentType: routingContentType,
+			RoutingSubtype:     routingSubtype,
+			Pipelines:          matchedPipelines,
 		}
 
 		logger.Info("Triage completed (metadata-only)",
 			logging.F("category", output.Category),
 			logging.F("importance", output.Importance),
 			logging.F("skip_deep", output.SkipDeep),
+			logging.F("pipelines", matchedPipelines),
 		)
 
 		return output, nil
@@ -313,6 +368,9 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		ContentContribution: contentContribution,
 		ContributionReason:  contributionReason,
 		SourceSystem:        sourceSystem,
+		RoutingContentType:  routingContentType,
+		RoutingSubtype:      routingSubtype,
+		Pipelines:           matchedPipelines,
 	}
 
 	// Record heartbeat after processing
