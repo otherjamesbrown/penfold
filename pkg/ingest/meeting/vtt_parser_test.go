@@ -145,6 +145,75 @@ func TestParseVTT_RealFile(t *testing.T) {
 	t.Logf("Speakers: %v", result.Speakers)
 }
 
+func TestParseVTT_TeamsFormat(t *testing.T) {
+	// Teams VTT: bare sequence numbers, speaker in <angle brackets> in text
+	vttContent := `WEBVTT
+
+1
+00:00:16.000 --> 00:00:16.000
+<Massiel Campos> Hello.
+
+2
+00:00:19.000 --> 00:00:19.000
+<Adam Weingarten> Did you do a thread.
+
+3
+00:00:22.000 --> 00:00:22.000
+<Adam Weingarten> We may have a new problem.
+`
+
+	result, err := ParseVTT(strings.NewReader(vttContent))
+	require.NoError(t, err)
+
+	// Should extract 3 segments
+	assert.Len(t, result.Segments, 3)
+
+	// Should extract 2 unique speakers
+	assert.Len(t, result.Speakers, 2)
+	assert.Contains(t, result.Speakers, "Massiel Campos")
+	assert.Contains(t, result.Speakers, "Adam Weingarten")
+
+	// Check first segment
+	assert.Equal(t, "Massiel Campos", result.Segments[0].Speaker)
+	assert.Equal(t, "Hello.", result.Segments[0].Text)
+	assert.Equal(t, 16000, result.Segments[0].StartMs)
+
+	// Check second segment
+	assert.Equal(t, "Adam Weingarten", result.Segments[1].Speaker)
+	assert.Equal(t, "Did you do a thread.", result.Segments[1].Text)
+
+	// FullText should contain all dialogue without angle bracket markup
+	assert.Contains(t, result.FullText, "Hello.")
+	assert.Contains(t, result.FullText, "Did you do a thread.")
+	assert.Contains(t, result.FullText, "We may have a new problem.")
+	assert.NotContains(t, result.FullText, "<Massiel Campos>")
+
+	// Duration should be set
+	assert.Equal(t, 22, result.DurationSeconds)
+}
+
+func TestParseVTT_TeamsFormatMultiLine(t *testing.T) {
+	// Teams VTT segment with multi-line text (speaker only on first line)
+	vttContent := `WEBVTT
+
+1
+00:00:00.000 --> 00:00:10.000
+<Alice Smith> First line of text.
+Second line continues.
+
+2
+00:00:10.000 --> 00:00:20.000
+<Bob Jones> Another segment.
+`
+
+	result, err := ParseVTT(strings.NewReader(vttContent))
+	require.NoError(t, err)
+
+	assert.Len(t, result.Segments, 2)
+	assert.Equal(t, "Alice Smith", result.Segments[0].Speaker)
+	assert.Equal(t, "First line of text. Second line continues.", result.Segments[0].Text)
+}
+
 func TestParseVTT_EmptyInput(t *testing.T) {
 	result, err := ParseVTT(strings.NewReader(""))
 	require.NoError(t, err)

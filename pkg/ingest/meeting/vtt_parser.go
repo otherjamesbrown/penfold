@@ -13,6 +13,12 @@ var (
 	// Matches segment header: 1 "Speaker Name" (speaker_id) or just: 1 "" (0)
 	vttSegmentHeaderRegex = regexp.MustCompile(`^\d+\s+"([^"]*)"(?:\s+\((\d+)\))?`)
 
+	// Matches bare sequence number (Teams VTT format): just "1", "2", "3" etc.
+	vttBareSequenceRegex = regexp.MustCompile(`^\d+$`)
+
+	// Matches speaker attribution in angle brackets (Teams VTT format): <Speaker Name>
+	vttAngleBracketSpeakerRegex = regexp.MustCompile(`^<([^>]+)>\s*(.*)$`)
+
 	// Matches timestamp line: 00:00:05.579 --> 00:00:06.858
 	vttTimestampRegex = regexp.MustCompile(`^(\d{2}:\d{2}:\d{2}\.\d{3})\s+-->\s+(\d{2}:\d{2}:\d{2}\.\d{3})`)
 )
@@ -31,6 +37,7 @@ func ParseVTT(r io.Reader) (*TranscriptResult, error) {
 
 	var currentSegment *TranscriptSegment
 	var lastEndMs int
+	var pendingTimestamp bool // true after we see a bare sequence number (Teams format)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -66,6 +73,19 @@ func ParseVTT(r io.Reader) (*TranscriptResult, error) {
 			continue
 		}
 
+		// Try to match bare sequence number (Teams VTT format: just "1", "2", etc.)
+		if vttBareSequenceRegex.MatchString(line) {
+			// Save previous segment if exists
+			if currentSegment != nil && currentSegment.Text != "" {
+				result.Segments = append(result.Segments, *currentSegment)
+			}
+
+			// Create segment without speaker — speaker comes from text content
+			currentSegment = &TranscriptSegment{}
+			pendingTimestamp = true
+			continue
+		}
+
 		// Try to match timestamp line
 		if matches := vttTimestampRegex.FindStringSubmatch(line); matches != nil {
 			startMs := parseVTTTimestamp(matches[1])
@@ -79,22 +99,45 @@ func ParseVTT(r io.Reader) (*TranscriptResult, error) {
 			if endMs > lastEndMs {
 				lastEndMs = endMs
 			}
+			pendingTimestamp = false
 			continue
 		}
 
 		// Must be text content
 		if currentSegment != nil {
-			if currentSegment.Text != "" {
-				currentSegment.Text += " "
-			}
-			currentSegment.Text += line
+			text := line
 
-			// Add to full text
-			if textBuilder.Len() > 0 {
-				textBuilder.WriteString(" ")
+			// Check for Teams-style speaker attribution: <Speaker Name> text
+			if matches := vttAngleBracketSpeakerRegex.FindStringSubmatch(line); matches != nil {
+				speaker := matches[1]
+				text = matches[2]
+
+				// Set speaker on current segment if not already set
+				if currentSegment.Speaker == "" {
+					currentSegment.Speaker = speaker
+				}
+
+				// Track unique speakers
+				if !speakerSet[speaker] {
+					speakerSet[speaker] = true
+					result.Speakers = append(result.Speakers, speaker)
+				}
 			}
-			textBuilder.WriteString(line)
+
+			if text != "" {
+				if currentSegment.Text != "" {
+					currentSegment.Text += " "
+				}
+				currentSegment.Text += text
+
+				// Add to full text
+				if textBuilder.Len() > 0 {
+					textBuilder.WriteString(" ")
+				}
+				textBuilder.WriteString(text)
+			}
 		}
+		_ = pendingTimestamp
 	}
 
 	// Don't forget the last segment
