@@ -30,10 +30,10 @@ func NewAuditPostgresRepository(pool *pgxpool.Pool, logger logging.Logger) *Audi
 // content_enrichment but no entry in conversation_items.
 func (r *AuditPostgresRepository) FindOrphansWithThread(ctx context.Context, tenantID string) ([]AuditOrphan, error) {
 	query := `
-		SELECT ce.content_id, ce.thread_id
+		SELECT s.content_id, ce.thread_id
 		FROM content_enrichment ce
-		JOIN sources s ON s.content_id = ce.content_id
-		LEFT JOIN conversation_items ci ON ci.content_id = ce.content_id
+		JOIN sources s ON s.id = ce.source_id
+		LEFT JOIN conversation_items ci ON ci.content_id = s.content_id
 		WHERE ce.thread_id IS NOT NULL
 		AND ce.thread_id != ''
 		AND ci.conversation_id IS NULL
@@ -72,7 +72,7 @@ func (r *AuditPostgresRepository) FindOrphansWithReplySubject(ctx context.Contex
 	query := `
 		SELECT s.content_id, s.ingestion_metadata->>'subject' AS subject
 		FROM sources s
-		LEFT JOIN content_enrichment ce ON ce.content_id = s.content_id
+		LEFT JOIN content_enrichment ce ON ce.source_id = s.id
 		LEFT JOIN conversation_items ci ON ci.content_id = s.content_id
 		WHERE s.tenant_id = $1
 		AND s.content_id IS NOT NULL
