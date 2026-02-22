@@ -1104,6 +1104,10 @@ Category definitions:
 
 Focus on business-meaningful assertions: decisions made, risks identified, actions assigned, commitments given, and dependencies noted. Skip trivial metadata like attendee lists or meeting logistics.
 
+Deduplicate before responding: do not extract multiple assertions that describe the same action, decision, or fact in different words. If two assertions are semantically equivalent, keep only the more specific one.
+
+Always include a confidence score for every assertion. Never omit the confidence field.
+
 Respond with a JSON object:
 {
   "assertions": [
