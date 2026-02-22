@@ -533,6 +533,25 @@ func TestThreadGrouper_DetermineThreadRoot(t *testing.T) {
 			},
 			want: "",
 		},
+		{
+			name: "forward without headers uses own message-id (pf-37abf1)",
+			data: &ThreadData{
+				MessageID: "<fwd-msg@example.com>",
+				IsReply:   false,
+				IsForward: true,
+			},
+			want: "<fwd-msg@example.com>",
+		},
+		{
+			name: "forward with references uses References[0] (pf-37abf1)",
+			data: &ThreadData{
+				MessageID:  "<fwd-msg@example.com>",
+				References: []string{"<original@example.com>", "<mid@example.com>"},
+				IsReply:    false,
+				IsForward:  true,
+			},
+			want: "<original@example.com>",
+		},
 	}
 
 	for _, tt := range tests {

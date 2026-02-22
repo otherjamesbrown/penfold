@@ -38,6 +38,7 @@ type mockThreadRepository struct {
 	addThreadMessageFn           func(ctx context.Context, input *AddThreadMessageInput) error
 	setContentEnrichmentThreadIDFn func(ctx context.Context, sourceID int64, threadID string) error
 	getThreadByRootMessageIDFn   func(ctx context.Context, tenantID, rootMessageID string) (*EmailThread, error)
+	getThreadByMemberMessageIDFn func(ctx context.Context, tenantID, messageID string) (*EmailThread, error)
 }
 
 func (m *mockThreadRepository) UpsertThread(ctx context.Context, input *UpsertThreadInput) (int64, error) {
@@ -64,6 +65,13 @@ func (m *mockThreadRepository) SetContentEnrichmentThreadID(ctx context.Context,
 func (m *mockThreadRepository) GetThreadByRootMessageID(ctx context.Context, tenantID, rootMessageID string) (*EmailThread, error) {
 	if m.getThreadByRootMessageIDFn != nil {
 		return m.getThreadByRootMessageIDFn(ctx, tenantID, rootMessageID)
+	}
+	return nil, nil
+}
+
+func (m *mockThreadRepository) GetThreadByMemberMessageID(ctx context.Context, tenantID, messageID string) (*EmailThread, error) {
+	if m.getThreadByMemberMessageIDFn != nil {
+		return m.getThreadByMemberMessageIDFn(ctx, tenantID, messageID)
 	}
 	return nil, nil
 }
@@ -499,4 +507,199 @@ func TestGroupEmailThread_JSONArrayMetadata_BUG_pf_6c7c8f(t *testing.T) {
 		"BUG: references JSON string not parsed - should use first reference as root, not in_reply_to")
 	require.Equal(t, expectedRootMessageID, capturedRootMessageID,
 		"BUG: thread root should be first reference, not in_reply_to")
+}
+
+// TestGroupEmailThread_OutlookTruncatedReferences_BUG_pf_6ef95b verifies that when
+// Outlook truncates the References header (dropping the original root), the threading
+// activity detects that References[0] is a mid-chain member of an existing thread
+// and uses that thread's root instead of creating a new thread.
+func TestGroupEmailThread_OutlookTruncatedReferences_BUG_pf_6ef95b(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2026, 1, 10, 9, 0, 0, 0, time.UTC)
+
+	// Simulate an Outlook email where References[0] is a mid-chain message-id
+	// because Outlook truncated the original root from the References header.
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          800,
+				TenantID:    "test-tenant",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id": "<outlook-reply@contoso.com>",
+					// References[0] is a mid-chain ID (Outlook dropped the real root)
+					"references": "<mid-chain@contoso.com> <recent-reply@contoso.com>",
+					"in_reply_to": "<recent-reply@contoso.com>",
+					"subject":     "RE: GPU requirements",
+					"date":        messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	var capturedRootMessageID string
+
+	mockThreadRepo := &mockThreadRepository{
+		// Cross-thread dedup: <mid-chain@contoso.com> is already a member of the
+		// existing thread rooted at <gmail-root@gmail.com>
+		getThreadByMemberMessageIDFn: func(ctx context.Context, tenantID, messageID string) (*EmailThread, error) {
+			if messageID == "<mid-chain@contoso.com>" {
+				return &EmailThread{
+					ID:            50,
+					RootMessageID: "<gmail-root@gmail.com>",
+					Subject:       "GPU requirements",
+					MessageCount:  5,
+				}, nil
+			}
+			return nil, nil
+		},
+		getThreadByRootMessageIDFn: func(ctx context.Context, tenantID, rootMessageID string) (*EmailThread, error) {
+			capturedRootMessageID = rootMessageID
+			if rootMessageID == "<gmail-root@gmail.com>" {
+				return &EmailThread{
+					ID:            50,
+					RootMessageID: "<gmail-root@gmail.com>",
+					Subject:       "GPU requirements",
+					MessageCount:  5,
+				}, nil
+			}
+			return nil, nil
+		},
+		upsertThreadFn: func(ctx context.Context, input *UpsertThreadInput) (int64, error) {
+			// Should use the EXISTING thread's root, not the truncated References[0]
+			require.Equal(t, "<gmail-root@gmail.com>", input.RootMessageID,
+				"should use existing thread root, not truncated References[0]")
+			return 50, nil
+		},
+		addThreadMessageFn: func(ctx context.Context, input *AddThreadMessageInput) error {
+			return nil
+		},
+		setContentEnrichmentThreadIDFn: func(ctx context.Context, sourceID int64, threadID string) error {
+			require.Equal(t, "<gmail-root@gmail.com>", threadID,
+				"enrichment thread_id should be the existing root")
+			return nil
+		},
+	}
+
+	activities := NewThreadActivities(logger, mockSourceRepo, mockThreadRepo)
+
+	output, err := activities.GroupEmailThread(context.Background(), GroupEmailThreadInput{
+		TenantID: "test-tenant",
+		SourceID: 800,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	require.NotNil(t, output.ThreadID)
+	require.Equal(t, "<gmail-root@gmail.com>", *output.ThreadID,
+		"should resolve to existing thread root via cross-thread dedup")
+	require.Equal(t, "<gmail-root@gmail.com>", capturedRootMessageID)
+}
+
+// TestGroupEmailThread_ForwardWithReferences_BUG_pf_37abf1 verifies that forwarded
+// emails with valid References headers get a thread_id (not empty).
+func TestGroupEmailThread_ForwardWithReferences_BUG_pf_37abf1(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2025, 12, 16, 10, 0, 0, 0, time.UTC)
+
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          900,
+				TenantID:    "test-tenant",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id":  "<forward-msg@example.com>",
+					"in_reply_to": "<original-root@gmail.com>",
+					"references":  "<original-root@gmail.com> <mid-msg@gmail.com>",
+					"subject":     "FW: GPU requirements",
+					"date":        messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	var capturedRootMessageID string
+
+	mockThreadRepo := &mockThreadRepository{
+		getThreadByRootMessageIDFn: func(ctx context.Context, tenantID, rootMessageID string) (*EmailThread, error) {
+			capturedRootMessageID = rootMessageID
+			return nil, nil
+		},
+		upsertThreadFn: func(ctx context.Context, input *UpsertThreadInput) (int64, error) {
+			return 103, nil
+		},
+		addThreadMessageFn: func(ctx context.Context, input *AddThreadMessageInput) error {
+			return nil
+		},
+		setContentEnrichmentThreadIDFn: func(ctx context.Context, sourceID int64, threadID string) error {
+			return nil
+		},
+	}
+
+	activities := NewThreadActivities(logger, mockSourceRepo, mockThreadRepo)
+
+	output, err := activities.GroupEmailThread(context.Background(), GroupEmailThreadInput{
+		TenantID: "test-tenant",
+		SourceID: 900,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	require.NotNil(t, output.ThreadID, "forwarded email with References should get a thread_id")
+	require.Equal(t, "<original-root@gmail.com>", *output.ThreadID,
+		"should use References[0] as thread root")
+	require.Equal(t, "<original-root@gmail.com>", capturedRootMessageID)
+}
+
+// TestGroupEmailThread_ForwardNoReferences_BUG_pf_37abf1 verifies that forwarded
+// emails WITHOUT References still get a thread_id (their own message-id).
+func TestGroupEmailThread_ForwardNoReferences_BUG_pf_37abf1(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	messageDate := time.Date(2025, 12, 16, 10, 0, 0, 0, time.UTC)
+
+	mockSourceRepo := &mockSourceRepository{
+		getSourceFn: func(ctx context.Context, tenantID string, sourceID int64) (*Source, error) {
+			return &Source{
+				ID:          901,
+				TenantID:    "test-tenant",
+				ContentType: "email",
+				Metadata: map[string]string{
+					"message_id": "<forward-no-refs@example.com>",
+					"subject":    "FW: Some topic",
+					"date":       messageDate.Format(time.RFC3339),
+				},
+			}, nil
+		},
+	}
+
+	mockThreadRepo := &mockThreadRepository{
+		getThreadByRootMessageIDFn: func(ctx context.Context, tenantID, rootMessageID string) (*EmailThread, error) {
+			return nil, nil
+		},
+		upsertThreadFn: func(ctx context.Context, input *UpsertThreadInput) (int64, error) {
+			require.Equal(t, "<forward-no-refs@example.com>", input.RootMessageID,
+				"forward without refs should use own message-id as root")
+			return 104, nil
+		},
+		addThreadMessageFn: func(ctx context.Context, input *AddThreadMessageInput) error {
+			return nil
+		},
+		setContentEnrichmentThreadIDFn: func(ctx context.Context, sourceID int64, threadID string) error {
+			return nil
+		},
+	}
+
+	activities := NewThreadActivities(logger, mockSourceRepo, mockThreadRepo)
+
+	output, err := activities.GroupEmailThread(context.Background(), GroupEmailThreadInput{
+		TenantID: "test-tenant",
+		SourceID: 901,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	require.NotNil(t, output.ThreadID,
+		"BUG pf-37abf1: forward without refs should still get thread_id (own message-id)")
+	require.Equal(t, "<forward-no-refs@example.com>", *output.ThreadID)
 }

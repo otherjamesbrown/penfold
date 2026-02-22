@@ -127,6 +127,32 @@ func (a *ThreadActivities) GroupEmailThread(ctx context.Context, input GroupEmai
 
 	recordHeartbeat(ctx, "checking existing thread")
 
+	// Cross-thread dedup: when References[0] is a mid-chain message-id (e.g. Outlook
+	// truncated the References header), check if it's already a member of an existing
+	// thread. If so, use that thread's root instead of creating a new thread.
+	if len(threadData.References) > 0 {
+		for _, ref := range threadData.References {
+			memberThread, memberErr := a.threadRepo.GetThreadByMemberMessageID(ctx, input.TenantID, ref)
+			if memberErr != nil {
+				logger.Warn("failed to check thread membership for reference",
+					logging.F("reference", ref),
+					logging.F("error", memberErr.Error()),
+				)
+				continue
+			}
+			if memberThread != nil && memberThread.RootMessageID != rootMessageID {
+				logger.Info("cross-thread dedup: reference found in existing thread, using its root",
+					logging.F("original_root", rootMessageID),
+					logging.F("matched_reference", ref),
+					logging.F("existing_thread_root", memberThread.RootMessageID),
+					logging.F("existing_thread_id", memberThread.ID),
+				)
+				rootMessageID = memberThread.RootMessageID
+				break
+			}
+		}
+	}
+
 	// Check if thread exists
 	existingThread, err := a.threadRepo.GetThreadByRootMessageID(ctx, input.TenantID, rootMessageID)
 	if err != nil {

@@ -300,6 +300,106 @@ func TestReprocessThreadingMeetingPath(t *testing.T) {
 	activities.AssertNotCalled(t, "GroupEmailThread", mock.Anything, mock.Anything)
 }
 
+// TestReprocessThreadingContentID_BUG_pf_3418d4 verifies that when the pipeline
+// runs via the FetchContent path (ContentType empty, e.g. reprocess), ContentID
+// is populated from the DB so that conversation linking can proceed.
+//
+// Bug: pf-3418d4 — emails with contribution=NONE get a thread_id but skip
+// conversation linking because input.ContentID was empty.
+func TestReprocessThreadingContentID_BUG_pf_3418d4(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+	activities := &ReprocessMockActivities{}
+
+	// Register activities
+	env.RegisterActivityWithOptions(activities.FetchSource, activity.RegisterOptions{Name: pkgtemporal.ActivityFetchContent})
+	env.RegisterActivityWithOptions(activities.ParseEmail, activity.RegisterOptions{Name: pkgtemporal.ActivityParseEmail})
+	env.RegisterActivityWithOptions(activities.Triage, activity.RegisterOptions{Name: pkgtemporal.ActivityTriage})
+	env.RegisterActivityWithOptions(activities.GroupEmailThread, activity.RegisterOptions{Name: pkgtemporal.ActivityGroupEmailThread})
+	env.RegisterActivityWithOptions(activities.LinkConversation, activity.RegisterOptions{Name: pkgtemporal.ActivityLinkConversation})
+	env.RegisterActivityWithOptions(activities.GenerateContentEmbedding, activity.RegisterOptions{Name: pkgtemporal.ActivityGenerateContentEmbedding})
+	env.RegisterActivityWithOptions(activities.UpdateContentStatus, activity.RegisterOptions{Name: pkgtemporal.ActivityUpdateContentStatus})
+	env.RegisterActivityWithOptions(activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: pkgtemporal.ActivityCreateEnrichmentRecord})
+	env.RegisterActivityWithOptions(activities.KickNextPending, activity.RegisterOptions{Name: pkgtemporal.ActivityKickNextPending})
+
+	// FetchContent returns ContentID from DB
+	activities.On("FetchSource", mock.Anything, mock.Anything).
+		Return(&FetchSourceOutput{
+			ContentType: "email",
+			ContentID:   "em-fromDB123", // pf-3418d4: ContentID now returned by FetchSource
+			ContentText: "Test email body",
+			Subject:     "Re: GPU requirements",
+			SenderEmail: "sender@example.com",
+		}, nil)
+
+	activities.On("ParseEmail", mock.Anything, mock.Anything).
+		Return(&ParseEmailOutput{
+			CleanBody:  "Clean body",
+			NewContent: "New content",
+		}, nil)
+
+	activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+
+	activities.On("Triage", mock.Anything, mock.Anything).
+		Return(&TriageOutput{
+			Category:            "INTERNAL_COMMS",
+			Importance:          "LOW",
+			Reason:              "Test",
+			Confidence:          0.9,
+			ModelUsed:           "test",
+			SkipDeep:            false,
+			ContentContribution: "NONE", // NONE contribution — this is the key scenario
+			ContributionReason:  "Duplicate content",
+		}, nil)
+
+	activities.On("CreateEnrichmentRecord", mock.Anything, mock.Anything).
+		Return(&CreateEnrichmentRecordOutput{EnrichmentID: 456}, nil)
+
+	activities.On("GroupEmailThread", mock.Anything, mock.Anything).
+		Return(&GroupEmailThreadOutput{
+			ThreadID: stringPtr("thread-gpu-root"),
+		}, nil)
+
+	// THE CRITICAL ASSERTION: LinkConversation MUST be called with the ContentID
+	// that was fetched from the DB via FetchSource, even though the pipeline
+	// was started with empty ContentID.
+	linkCalled := false
+	activities.On("LinkConversation", mock.Anything, mock.MatchedBy(func(input LinkConversationInput) bool {
+		linkCalled = true
+		return input.ContentID == "em-fromDB123" && input.ThreadID == "thread-gpu-root"
+	})).Return(&LinkConversationOutput{
+		ConversationID: "conv-test789",
+	}, nil)
+
+	activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).
+		Return(int64(101), nil)
+
+	activities.On("KickNextPending", mock.Anything, mock.Anything).
+		Return(&KickNextPendingOutput{}, nil)
+
+	// Start pipeline with EMPTY ContentID (simulates reprocess or old dispatch)
+	input := PipelineInput{
+		TenantID:    "test-tenant",
+		SourceID:    3401,
+		ContentID:   "", // Empty — this is the bug scenario
+		JobID:       "job-pf-3418d4-test",
+		ContentType: "", // Triggers FetchContent path
+	}
+
+	env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(t, env.IsWorkflowCompleted(), "workflow should complete")
+	require.NoError(t, env.GetWorkflowError(), "workflow should not error")
+
+	// Verify LinkConversation was called (not skipped due to empty ContentID)
+	require.True(t, linkCalled,
+		"BUG pf-3418d4: LinkConversation should be called even when pipeline started with empty ContentID")
+
+	var result PipelineResult
+	require.NoError(t, env.GetWorkflowResult(&result))
+	require.Equal(t, "completed", result.Status)
+}
+
 // stringPtr is a helper to create string pointers for test data
 func stringPtr(s string) *string {
 	return &s

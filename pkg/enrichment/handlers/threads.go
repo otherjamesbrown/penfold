@@ -248,8 +248,9 @@ func (t *ThreadGrouper) determineThreadRoot(data *ThreadData) string {
 		return data.InReplyTo
 	}
 
-	// Priority 3: This message is potentially a root (no thread indicators)
-	if !data.IsReply && !data.IsForward {
+	// Priority 3: This message is potentially a root (no thread indicators),
+	// OR it's a forward without References/InReplyTo (starts its own thread)
+	if !data.IsReply || data.IsForward {
 		return data.MessageID
 	}
 

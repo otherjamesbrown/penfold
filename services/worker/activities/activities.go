@@ -94,7 +94,7 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 	tenantID := resolveTenantID(input.TenantID)
 
 	query := `
-		SELECT raw_content, source_system, ingestion_metadata, participant_emails
+		SELECT raw_content, source_system, ingestion_metadata, participant_emails, content_id
 		FROM sources
 		WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
 	`
@@ -102,7 +102,8 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 	var content, sourceSystem string
 	var metadataJSON []byte
 	var participantEmails []string
-	err := a.db.QueryRow(ctx, query, input.SourceID, tenantID).Scan(&content, &sourceSystem, &metadataJSON, &participantEmails)
+	var contentID *string
+	err := a.db.QueryRow(ctx, query, input.SourceID, tenantID).Scan(&content, &sourceSystem, &metadataJSON, &participantEmails, &contentID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, NewNotFoundError(fmt.Sprintf("source not found: %d", input.SourceID))
@@ -190,9 +191,16 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 		logging.F("participant_count", len(participants)),
 	)
 
+	// Resolve ContentID from nullable column
+	resolvedContentID := ""
+	if contentID != nil {
+		resolvedContentID = *contentID
+	}
+
 	return &workflows.FetchSourceOutput{
 		ContentText:       content,
 		ContentType:       contentType,
+		ContentID:         resolvedContentID, // pf-3418d4: needed for conversation linking
 		Subject:           subject,
 		SenderEmail:       senderEmail,
 		SenderName:        senderName,

@@ -37,6 +37,7 @@ type (
 	FetchSourceOutput struct {
 		ContentText        string        `json:"content_text"`
 		ContentType        string        `json:"content_type"`
+		ContentID          string        `json:"content_id,omitempty"` // pf-3418d4: needed for conversation linking
 		Subject            string        `json:"subject,omitempty"`
 		SenderEmail        string        `json:"sender_email,omitempty"`
 		SenderName         string        `json:"sender_name,omitempty"`

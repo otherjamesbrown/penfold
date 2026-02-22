@@ -172,3 +172,31 @@ func (r *PostgresThreadRepository) GetThreadByRootMessageID(ctx context.Context,
 
 	return &thread, nil
 }
+
+// GetThreadByMemberMessageID retrieves the thread that contains a given message ID.
+// This checks thread_messages.message_id (any position in the thread), not just the root.
+func (r *PostgresThreadRepository) GetThreadByMemberMessageID(ctx context.Context, tenantID, messageID string) (*EmailThread, error) {
+	query := `
+		SELECT et.id, et.root_message_id, et.subject, et.message_count
+		FROM email_threads et
+		JOIN thread_messages tm ON tm.thread_id = et.id
+		WHERE et.tenant_id = $1 AND tm.message_id = $2
+		LIMIT 1
+	`
+
+	var thread EmailThread
+	err := r.pool.QueryRow(ctx, query, tenantID, messageID).Scan(
+		&thread.ID,
+		&thread.RootMessageID,
+		&thread.Subject,
+		&thread.MessageCount,
+	)
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get thread by member message ID: %w", err)
+	}
+
+	return &thread, nil
+}

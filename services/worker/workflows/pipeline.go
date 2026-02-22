@@ -722,6 +722,10 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		input.SenderEmail = fetchOut.SenderEmail
 		input.SenderName = fetchOut.SenderName
 		input.ParticipantEmails = fetchOut.ParticipantEmails
+		// pf-3418d4: populate ContentID from DB if not already set (needed for conversation linking)
+		if input.ContentID == "" && fetchOut.ContentID != "" {
+			input.ContentID = fetchOut.ContentID
+		}
 		// For meeting content, also populate TranscriptContent so ParseTranscript has data (pf-0065d5)
 		if input.ContentType == "meeting" {
 			input.TranscriptContent = fetchOut.ContentText

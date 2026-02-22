@@ -377,6 +377,10 @@ type ThreadRepository interface {
 
 	// GetThreadByRootMessageID retrieves a thread by its root message ID.
 	GetThreadByRootMessageID(ctx context.Context, tenantID, rootMessageID string) (*EmailThread, error)
+
+	// GetThreadByMemberMessageID retrieves the thread containing a given message ID
+	// (looks up thread_messages.message_id, not just the root). Returns nil if not found.
+	GetThreadByMemberMessageID(ctx context.Context, tenantID, messageID string) (*EmailThread, error)
 }
 
 // UpsertThreadInput contains data for creating or updating an email thread.
