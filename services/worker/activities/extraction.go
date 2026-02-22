@@ -460,7 +460,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run for extract_ner", logging.Err(runErr))
 		}
-		// Also record extract_semantic since this activity does both (token counts already attributed to extract_ner)
+		// Also record extract_semantic since this activity does both
 		runErr = a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:        input.SourceID,
 			Stage:           "extract_semantic",
@@ -471,6 +471,8 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			InputData:       inputJSON,
 			OutputData:      outputJSON,
 			ParsedData:      parsedJSON,
+			InputTokens:     totalInputTokens,
+			OutputTokens:    totalOutputTokens,
 			LangfuseTraceID: input.LangfuseTraceID,
 		})
 		if runErr != nil {
