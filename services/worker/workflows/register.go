@@ -62,6 +62,16 @@ func (r *Registrar) registerMainQueueWorkflows(w worker.Worker) {
 	w.RegisterWorkflowWithOptions(BatchPipelineWorkflow, workflow.RegisterOptions{
 		Name: "BatchPipelineWorkflow",
 	})
+
+	// Conversation maintenance workflow (stale detection, scheduled daily)
+	w.RegisterWorkflowWithOptions(ConversationMaintenanceWorkflow, workflow.RegisterOptions{
+		Name: "ConversationMaintenanceWorkflow",
+	})
+
+	// Conversation backfill workflow (one-shot summary backfill)
+	w.RegisterWorkflowWithOptions(ConversationBackfillWorkflow, workflow.RegisterOptions{
+		Name: "ConversationBackfillWorkflow",
+	})
 }
 
 // registerAIQueueWorkflows registers workflows for the AI task queue.
@@ -96,7 +106,7 @@ func (r *Registrar) registerCommonWorkflows(w worker.Worker) {
 func (r *Registrar) WorkflowCount(taskQueue string) int {
 	switch taskQueue {
 	case config.MainTaskQueue:
-		return 5 // SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow
+		return 7 // SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow
 	case config.AITaskQueue:
 		return 1 // AnalysisWorkflow
 	case config.EmailTaskQueue:

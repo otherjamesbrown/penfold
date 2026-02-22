@@ -10,8 +10,9 @@ func TestAllMainQueueActivities(t *testing.T) {
 	// Test count (pf-37ebe8: removed ReportLangfuseGeneration, added PersistLangfuseTraceID;
 	// pf-b1ee4e: added UpdateLangfuseTraceTags;
 	// pf-eead20: added KickNextPending;
-	// pf-0656f5: added RecordSkippedStage)
-	expectedCount := 29
+	// pf-0656f5: added RecordSkippedStage;
+	// pf-8da0b0: added BackfillConversationSummaries, RegenerateConversationSummary, CheckStaleConversations)
+	expectedCount := 32
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -40,6 +41,9 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"GroupEmailThread",
 		"CreateEnrichmentRecord",
 		"LinkConversation",
+		"BackfillConversationSummaries",
+		"RegenerateConversationSummary",
+		"CheckStaleConversations",
 		// Langfuse direct ingestion activities
 		// Note: ReportLangfuseGeneration was removed in pf-37ebe8.
 		// Generation reporting now happens in the AI coordinator via gRPC metadata.

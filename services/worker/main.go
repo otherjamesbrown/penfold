@@ -777,6 +777,13 @@ func main() {
 		}(taskQueue, w)
 	}
 
+	// Ensure Temporal schedules are registered (idempotent)
+	if cfg.HasTaskQueue(config.MainTaskQueue) {
+		schedCtx, schedCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ensureSchedules(schedCtx, temporalClient, logger)
+		schedCancel()
+	}
+
 	// Wait for shutdown signal or worker error
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

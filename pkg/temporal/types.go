@@ -241,3 +241,34 @@ type ExtractedEntity struct {
 	Mentions   int               `json:"mentions"`
 	Attributes map[string]string `json:"attributes,omitempty"`
 }
+
+// ConversationMaintenanceInput is the input for the stale conversation detection workflow.
+type ConversationMaintenanceInput struct {
+	TenantID  string `json:"tenant_id"`
+	StaleDays int    `json:"stale_days"` // days of inactivity before checking (default 14)
+	Limit     int    `json:"limit"`      // max conversations to check (default 100)
+}
+
+// ConversationMaintenanceResult is the result of the stale conversation detection workflow.
+type ConversationMaintenanceResult struct {
+	Checked      int    `json:"checked"`
+	Transitioned int    `json:"transitioned"`
+	Failed       int    `json:"failed"`
+	Status       string `json:"status"` // completed, failed
+	Error        string `json:"error,omitempty"`
+}
+
+// ConversationBackfillInput is the input for the conversation summary backfill workflow.
+type ConversationBackfillInput struct {
+	TenantID string `json:"tenant_id"`
+	Limit    int    `json:"limit"` // max conversations to process (0 = default 200)
+}
+
+// ConversationBackfillResult is the result of the conversation summary backfill workflow.
+type ConversationBackfillResult struct {
+	Processed int    `json:"processed"`
+	Failed    int    `json:"failed"`
+	Skipped   int    `json:"skipped"`
+	Status    string `json:"status"` // completed, failed
+	Error     string `json:"error,omitempty"`
+}

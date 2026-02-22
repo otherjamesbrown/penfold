@@ -6,11 +6,13 @@ package temporal
 
 // Main Task Queue workflow names.
 const (
-	WorkflowSLMPipeline            = "SLMPipelineWorkflow"
-	WorkflowContentIngestion       = "ContentIngestionWorkflow"
-	WorkflowRelationshipDiscovery  = "RelationshipDiscoveryWorkflow"
-	WorkflowDailyReview            = "DailyReviewWorkflow"
-	WorkflowBatchPipeline          = "BatchPipelineWorkflow"
+	WorkflowSLMPipeline               = "SLMPipelineWorkflow"
+	WorkflowContentIngestion          = "ContentIngestionWorkflow"
+	WorkflowRelationshipDiscovery     = "RelationshipDiscoveryWorkflow"
+	WorkflowDailyReview               = "DailyReviewWorkflow"
+	WorkflowBatchPipeline             = "BatchPipelineWorkflow"
+	WorkflowConversationMaintenance   = "ConversationMaintenanceWorkflow"
+	WorkflowConversationBackfill      = "ConversationBackfillWorkflow"
 )
 
 // AI Task Queue workflow names.
