@@ -118,6 +118,9 @@ func (m *mockPipelineClient) ListBatches(ctx context.Context, in *pipelinev1.Lis
 func (m *mockPipelineClient) CancelBatch(ctx context.Context, in *pipelinev1.CancelBatchRequest, opts ...grpc.CallOption) (*pipelinev1.CancelBatchResponse, error) {
 	return nil, nil
 }
+func (m *mockPipelineClient) ListModels(ctx context.Context, in *pipelinev1.ListModelsRequest, opts ...grpc.CallOption) (*pipelinev1.ListModelsResponse, error) {
+	return nil, nil
+}
 
 // Compile-time check that mockPipelineClient satisfies the interface.
 var _ pipelinev1.PipelineServiceClient = (*mockPipelineClient)(nil)
