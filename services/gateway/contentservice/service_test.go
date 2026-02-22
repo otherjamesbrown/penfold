@@ -756,3 +756,214 @@ func TestGetAssertions(t *testing.T) {
 		assert.Equal(t, codes.InvalidArgument, st.Code())
 	})
 }
+
+// =============================================================================
+// Content classification enum mapping tests
+// =============================================================================
+
+// TestRecordToProto_ContentTypeEnum verifies DB content_type maps to proto enum.
+func TestRecordToProto_ContentTypeEnum(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		dbType   string
+		expected contentv1.ContentType
+	}{
+		{"email", contentv1.ContentType_CONTENT_TYPE_EMAIL},
+		{"meeting", contentv1.ContentType_CONTENT_TYPE_MEETING},
+		{"calendar", contentv1.ContentType_CONTENT_TYPE_CALENDAR},
+		{"document", contentv1.ContentType_CONTENT_TYPE_DOCUMENT},
+		{"attachment", contentv1.ContentType_CONTENT_TYPE_ATTACHMENT},
+		{"unknown", contentv1.ContentType_CONTENT_TYPE_UNSPECIFIED},
+		{"", contentv1.ContentType_CONTENT_TYPE_UNSPECIFIED},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.dbType, func(t *testing.T) {
+			dbType := tc.dbType
+			rec := &ContentItemRecord{
+				ContentID:             "test-id",
+				ProcessingStatus:      "completed",
+				CreatedAt:             now,
+				UpdatedAt:             now,
+				EnrichmentContentType: &dbType,
+			}
+			item := recordToProto(rec)
+			assert.Equal(t, tc.expected, item.ContentTypeEnum)
+		})
+	}
+}
+
+// TestRecordToProto_ContentSubtypeNotification verifies notification/source → NOTIFICATION + source field.
+func TestRecordToProto_ContentSubtypeNotification(t *testing.T) {
+	now := time.Now()
+	dbSubtype := "notification/jira"
+	rec := &ContentItemRecord{
+		ContentID:                "test-id",
+		ProcessingStatus:         "completed",
+		CreatedAt:                now,
+		UpdatedAt:                now,
+		EnrichmentContentSubtype: &dbSubtype,
+	}
+	item := recordToProto(rec)
+
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_NOTIFICATION, item.ContentSubtypeEnum)
+	assert.Equal(t, "jira", item.NotificationSource)
+}
+
+// TestRecordToProto_ContentStructure verifies standalone/reply/forward structure mapping.
+func TestRecordToProto_ContentStructure(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		dbStructure string
+		expected    contentv1.ContentStructure
+	}{
+		{"standalone", contentv1.ContentStructure_CONTENT_STRUCTURE_STANDALONE},
+		{"reply", contentv1.ContentStructure_CONTENT_STRUCTURE_REPLY},
+		{"forward", contentv1.ContentStructure_CONTENT_STRUCTURE_FORWARD},
+		{"unknown", contentv1.ContentStructure_CONTENT_STRUCTURE_UNSPECIFIED},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.dbStructure, func(t *testing.T) {
+			dbStructure := tc.dbStructure
+			rec := &ContentItemRecord{
+				ContentID:                  "test-id",
+				ProcessingStatus:           "completed",
+				CreatedAt:                  now,
+				UpdatedAt:                  now,
+				EnrichmentContentStructure: &dbStructure,
+			}
+			item := recordToProto(rec)
+			assert.Equal(t, tc.expected, item.ContentStructure)
+		})
+	}
+}
+
+// TestRecordToProto_AttachmentType verifies attachment content type mapping.
+func TestRecordToProto_AttachmentType(t *testing.T) {
+	now := time.Now()
+	dbType := "attachment"
+	rec := &ContentItemRecord{
+		ContentID:             "test-id",
+		ProcessingStatus:      "completed",
+		CreatedAt:             now,
+		UpdatedAt:             now,
+		EnrichmentContentType: &dbType,
+	}
+	item := recordToProto(rec)
+	assert.Equal(t, contentv1.ContentType_CONTENT_TYPE_ATTACHMENT, item.ContentTypeEnum)
+}
+
+// TestRecordToProto_UnknownSubtype verifies unknown subtype returns UNSPECIFIED without crashing.
+func TestRecordToProto_UnknownSubtype(t *testing.T) {
+	now := time.Now()
+	dbSubtype := "totally_unknown_subtype"
+	rec := &ContentItemRecord{
+		ContentID:                "test-id",
+		ProcessingStatus:         "completed",
+		CreatedAt:                now,
+		UpdatedAt:                now,
+		EnrichmentContentSubtype: &dbSubtype,
+	}
+	// Must not panic.
+	item := recordToProto(rec)
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_UNSPECIFIED, item.ContentSubtypeEnum)
+	assert.Equal(t, "", item.NotificationSource)
+}
+
+// TestRecordToProto_NilEnrichmentFields verifies nil enrichment fields result in UNSPECIFIED (no panic).
+func TestRecordToProto_NilEnrichmentFields(t *testing.T) {
+	now := time.Now()
+	rec := &ContentItemRecord{
+		ContentID:        "test-id",
+		ProcessingStatus: "pending",
+		CreatedAt:        now,
+		UpdatedAt:        now,
+		// All enrichment fields nil (LEFT JOIN returned no row).
+	}
+	item := recordToProto(rec)
+	assert.Equal(t, contentv1.ContentType_CONTENT_TYPE_UNSPECIFIED, item.ContentTypeEnum)
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_UNSPECIFIED, item.ContentSubtypeEnum)
+	assert.Equal(t, contentv1.ContentStructure_CONTENT_STRUCTURE_UNSPECIFIED, item.ContentStructure)
+	assert.Equal(t, "", item.NotificationSource)
+}
+
+// TestMapDBContentTypeToProto tests all content type mappings.
+func TestMapDBContentTypeToProto(t *testing.T) {
+	assert.Equal(t, contentv1.ContentType_CONTENT_TYPE_EMAIL, mapDBContentTypeToProto("email"))
+	assert.Equal(t, contentv1.ContentType_CONTENT_TYPE_MEETING, mapDBContentTypeToProto("meeting"))
+	assert.Equal(t, contentv1.ContentType_CONTENT_TYPE_CALENDAR, mapDBContentTypeToProto("calendar"))
+	assert.Equal(t, contentv1.ContentType_CONTENT_TYPE_DOCUMENT, mapDBContentTypeToProto("document"))
+	assert.Equal(t, contentv1.ContentType_CONTENT_TYPE_ATTACHMENT, mapDBContentTypeToProto("attachment"))
+	assert.Equal(t, contentv1.ContentType_CONTENT_TYPE_UNSPECIFIED, mapDBContentTypeToProto(""))
+	assert.Equal(t, contentv1.ContentType_CONTENT_TYPE_UNSPECIFIED, mapDBContentTypeToProto("unknown"))
+}
+
+// TestMapDBContentSubtypeToProto tests subtype mapping including notification sources.
+func TestMapDBContentSubtypeToProto(t *testing.T) {
+	// Human subtypes
+	subtype, src := mapDBContentSubtypeToProto("thread")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_HUMAN, subtype)
+	assert.Equal(t, "", src)
+
+	subtype, src = mapDBContentSubtypeToProto("standalone")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_HUMAN, subtype)
+	assert.Equal(t, "", src)
+
+	subtype, src = mapDBContentSubtypeToProto("forward")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_HUMAN, subtype)
+	assert.Equal(t, "", src)
+
+	// Notification with source
+	subtype, src = mapDBContentSubtypeToProto("notification/jira")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_NOTIFICATION, subtype)
+	assert.Equal(t, "jira", src)
+
+	subtype, src = mapDBContentSubtypeToProto("notification/aha")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_NOTIFICATION, subtype)
+	assert.Equal(t, "aha", src)
+
+	// Notification without source
+	subtype, src = mapDBContentSubtypeToProto("notification")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_NOTIFICATION, subtype)
+	assert.Equal(t, "", src)
+
+	// Other subtypes
+	subtype, _ = mapDBContentSubtypeToProto("auto_reply")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_AUTO_REPLY, subtype)
+
+	subtype, _ = mapDBContentSubtypeToProto("newsletter")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_NEWSLETTER, subtype)
+
+	subtype, _ = mapDBContentSubtypeToProto("invite")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_INVITE, subtype)
+
+	subtype, _ = mapDBContentSubtypeToProto("cancellation")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_CANCELLATION, subtype)
+
+	subtype, _ = mapDBContentSubtypeToProto("update")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_UPDATE, subtype)
+
+	subtype, _ = mapDBContentSubtypeToProto("response")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_RESPONSE, subtype)
+
+	subtype, _ = mapDBContentSubtypeToProto("transcript")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_TRANSCRIPT, subtype)
+
+	// Unknown
+	subtype, src = mapDBContentSubtypeToProto("unknown_value")
+	assert.Equal(t, contentv1.ContentSubtype_CONTENT_SUBTYPE_UNSPECIFIED, subtype)
+	assert.Equal(t, "", src)
+}
+
+// TestProtoContentTypeToDBString tests enum-to-DB-string reverse mapping for filters.
+func TestProtoContentTypeToDBString(t *testing.T) {
+	assert.Equal(t, "email", protoContentTypeToDBString(contentv1.ContentType_CONTENT_TYPE_EMAIL))
+	assert.Equal(t, "meeting", protoContentTypeToDBString(contentv1.ContentType_CONTENT_TYPE_MEETING))
+	assert.Equal(t, "calendar", protoContentTypeToDBString(contentv1.ContentType_CONTENT_TYPE_CALENDAR))
+	assert.Equal(t, "document", protoContentTypeToDBString(contentv1.ContentType_CONTENT_TYPE_DOCUMENT))
+	assert.Equal(t, "attachment", protoContentTypeToDBString(contentv1.ContentType_CONTENT_TYPE_ATTACHMENT))
+	assert.Equal(t, "", protoContentTypeToDBString(contentv1.ContentType_CONTENT_TYPE_UNSPECIFIED))
+}

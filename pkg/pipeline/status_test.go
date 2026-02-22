@@ -266,3 +266,104 @@ func TestDBRunStatusToStageStatus(t *testing.T) {
 		})
 	}
 }
+
+// TestApplyToProtoProcessingStatus_TriageEnums verifies that enum fields are
+// populated alongside the deprecated string fields when applying triage data.
+func TestApplyToProtoProcessingStatus_TriageEnums(t *testing.T) {
+	ps := &ProcessingStatusResult{
+		TriageCategory:   "ACTION_REQUEST",
+		TriageImportance: "HIGH",
+	}
+	proto := &contentv1.ProcessingStatus{}
+
+	ApplyToProtoProcessingStatus(ps, proto)
+
+	// Deprecated string fields must still be populated.
+	assert.Equal(t, "ACTION_REQUEST", proto.TriageCategory)
+	assert.Equal(t, "HIGH", proto.TriageImportance)
+
+	// New enum fields must also be populated.
+	assert.Equal(t, contentv1.TriageCategory_TRIAGE_CATEGORY_ACTION_REQUEST, proto.TriageCategoryEnum)
+	assert.Equal(t, contentv1.TriageImportance_TRIAGE_IMPORTANCE_HIGH, proto.TriageImportanceEnum)
+}
+
+// TestMapTriageCategoryToProto tests all triage category mappings including aliases.
+func TestMapTriageCategoryToProto(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected contentv1.TriageCategory
+	}{
+		{"ACTION_REQUEST", contentv1.TriageCategory_TRIAGE_CATEGORY_ACTION_REQUEST},
+		{"action_request", contentv1.TriageCategory_TRIAGE_CATEGORY_ACTION_REQUEST}, // case-insensitive
+		{"PROJECT_UPDATE", contentv1.TriageCategory_TRIAGE_CATEGORY_PROJECT_UPDATE},
+		{"RISK_ISSUE", contentv1.TriageCategory_TRIAGE_CATEGORY_RISK_ISSUE},
+		{"CUSTOMER", contentv1.TriageCategory_TRIAGE_CATEGORY_CUSTOMER},
+		{"DECISION", contentv1.TriageCategory_TRIAGE_CATEGORY_DECISION},
+		{"INTERNAL_COMMS", contentv1.TriageCategory_TRIAGE_CATEGORY_INTERNAL_COMMS},
+		{"PERSONAL", contentv1.TriageCategory_TRIAGE_CATEGORY_PERSONAL},
+		{"FYI", contentv1.TriageCategory_TRIAGE_CATEGORY_FYI},
+		{"OTHER", contentv1.TriageCategory_TRIAGE_CATEGORY_FYI}, // legacy alias
+		{"", contentv1.TriageCategory_TRIAGE_CATEGORY_UNSPECIFIED},
+		{"UNKNOWN", contentv1.TriageCategory_TRIAGE_CATEGORY_UNSPECIFIED},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.input, func(t *testing.T) {
+			result := mapTriageCategoryToProto(tc.input)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+// TestMapTriageImportanceToProto tests all triage importance mappings.
+func TestMapTriageImportanceToProto(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected contentv1.TriageImportance
+	}{
+		{"HIGH", contentv1.TriageImportance_TRIAGE_IMPORTANCE_HIGH},
+		{"high", contentv1.TriageImportance_TRIAGE_IMPORTANCE_HIGH}, // case-insensitive
+		{"MEDIUM", contentv1.TriageImportance_TRIAGE_IMPORTANCE_MEDIUM},
+		{"LOW", contentv1.TriageImportance_TRIAGE_IMPORTANCE_LOW},
+		{"", contentv1.TriageImportance_TRIAGE_IMPORTANCE_UNSPECIFIED},
+		{"UNKNOWN", contentv1.TriageImportance_TRIAGE_IMPORTANCE_UNSPECIFIED},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.input, func(t *testing.T) {
+			result := mapTriageImportanceToProto(tc.input)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+// TestApplyToProtoProcessingStatus_TriageEnums_EmptyStrings verifies empty
+// triage strings map to UNSPECIFIED enums without error.
+func TestApplyToProtoProcessingStatus_TriageEnums_EmptyStrings(t *testing.T) {
+	ps := &ProcessingStatusResult{
+		TriageCategory:   "",
+		TriageImportance: "",
+	}
+	proto := &contentv1.ProcessingStatus{}
+
+	ApplyToProtoProcessingStatus(ps, proto)
+
+	assert.Equal(t, contentv1.TriageCategory_TRIAGE_CATEGORY_UNSPECIFIED, proto.TriageCategoryEnum)
+	assert.Equal(t, contentv1.TriageImportance_TRIAGE_IMPORTANCE_UNSPECIFIED, proto.TriageImportanceEnum)
+}
+
+// TestApplyToProtoProcessingStatus_TriageFYIAlias verifies the "OTHER" → FYI alias.
+func TestApplyToProtoProcessingStatus_TriageFYIAlias(t *testing.T) {
+	ps := &ProcessingStatusResult{
+		TriageCategory:   "OTHER",
+		TriageImportance: "MEDIUM",
+	}
+	proto := &contentv1.ProcessingStatus{}
+
+	ApplyToProtoProcessingStatus(ps, proto)
+
+	assert.Equal(t, contentv1.TriageCategory_TRIAGE_CATEGORY_FYI, proto.TriageCategoryEnum)
+	assert.Equal(t, contentv1.TriageImportance_TRIAGE_IMPORTANCE_MEDIUM, proto.TriageImportanceEnum)
+}

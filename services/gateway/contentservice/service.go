@@ -60,6 +60,12 @@ type ContentItemRecord struct {
 	FailureReason    *string
 	LangfuseTraceID  *string
 	Metadata         map[string]interface{}
+
+	// Enrichment fields (from LEFT JOIN content_enrichment).
+	EnrichmentContentType     *string // content_enrichment.content_type
+	EnrichmentContentSubtype  *string // content_enrichment.content_subtype
+	EnrichmentSourceSystem    *string // content_enrichment.source_system
+	EnrichmentContentStructure *string // content_enrichment.content_structure
 }
 
 // ListFilter represents filter criteria for listing content items.
@@ -67,6 +73,7 @@ type ListFilter struct {
 	TenantID         string
 	SourceType       *string
 	ProcessingStatus *string
+	ContentType      *contentv1.ContentType // filter by content type enum
 	PageSize         int
 	PageToken        string
 }
@@ -148,12 +155,17 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 			s.failure_category,
 			s.failure_reason,
 			s.langfuse_trace_id,
-			s.ingestion_metadata
+			s.ingestion_metadata,
+			ce.content_type AS enrichment_content_type,
+			ce.content_subtype AS enrichment_content_subtype,
+			ce.source_system AS enrichment_source_system,
+			ce.content_structure AS enrichment_content_structure
 		FROM sources s
 		LEFT JOIN embeddings e ON s.id = e.source_id
 		LEFT JOIN assertions a ON s.id = a.source_id
+		LEFT JOIN content_enrichment ce ON s.id = ce.source_id
 		WHERE s.content_id = $1 AND (s.is_deleted IS NULL OR s.is_deleted = false)
-		GROUP BY s.id
+		GROUP BY s.id, ce.content_type, ce.content_subtype, ce.source_system, ce.content_structure
 	`
 
 	var rec ContentItemRecord
@@ -173,6 +185,10 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 		&rec.FailureReason,
 		&rec.LangfuseTraceID,
 		&metadataJSON,
+		&rec.EnrichmentContentType,
+		&rec.EnrichmentContentSubtype,
+		&rec.EnrichmentSourceSystem,
+		&rec.EnrichmentContentStructure,
 	)
 
 	if err == pgx.ErrNoRows {
@@ -223,6 +239,16 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 		argCount++
 	}
 
+	// Optional content_type filter (maps proto enum to DB string via content_enrichment).
+	if filter.ContentType != nil {
+		dbContentType := protoContentTypeToDBString(*filter.ContentType)
+		if dbContentType != "" {
+			whereClauses = append(whereClauses, fmt.Sprintf("ce.content_type = $%d", argCount))
+			args = append(args, dbContentType)
+			argCount++
+		}
+	}
+
 	// Build final query
 	query := fmt.Sprintf(`
 		SELECT
@@ -239,12 +265,17 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 			s.failure_category,
 			s.failure_reason,
 			s.langfuse_trace_id,
-			s.ingestion_metadata
+			s.ingestion_metadata,
+			ce.content_type AS enrichment_content_type,
+			ce.content_subtype AS enrichment_content_subtype,
+			ce.source_system AS enrichment_source_system,
+			ce.content_structure AS enrichment_content_structure
 		FROM sources s
 		LEFT JOIN embeddings e ON s.id = e.source_id
 		LEFT JOIN assertions a ON s.id = a.source_id
+		LEFT JOIN content_enrichment ce ON s.id = ce.source_id
 		WHERE %s
-		GROUP BY s.id
+		GROUP BY s.id, ce.content_type, ce.content_subtype, ce.source_system, ce.content_structure
 		ORDER BY s.created_at DESC
 		LIMIT $%d
 	`, joinWhere(whereClauses), argCount)
@@ -281,6 +312,10 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 			&rec.FailureReason,
 			&rec.LangfuseTraceID,
 			&metadataJSON,
+			&rec.EnrichmentContentType,
+			&rec.EnrichmentContentSubtype,
+			&rec.EnrichmentSourceSystem,
+			&rec.EnrichmentContentStructure,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan content item: %w", err)
@@ -1206,6 +1241,11 @@ func (s *Service) ListContentItems(ctx context.Context, req *contentv1.ListConte
 		filter.ProcessingStatus = &statusStr
 	}
 
+	if req.ContentTypeFilter != nil {
+		ct := *req.ContentTypeFilter
+		filter.ContentType = &ct
+	}
+
 	records, err := s.repo.ListByTenant(ctx, filter)
 	if err != nil {
 		s.logger.Error("Failed to list content items",
@@ -1871,6 +1911,21 @@ func recordToProto(rec *ContentItemRecord) *contentv1.ContentItem {
 		item.LangfuseTraceId = rec.LangfuseTraceID
 	}
 
+	// Populate content classification enums from enrichment data.
+	if rec.EnrichmentContentType != nil {
+		item.ContentTypeEnum = mapDBContentTypeToProto(*rec.EnrichmentContentType)
+	}
+	if rec.EnrichmentContentSubtype != nil {
+		subtypeEnum, notifSource := mapDBContentSubtypeToProto(*rec.EnrichmentContentSubtype)
+		item.ContentSubtypeEnum = subtypeEnum
+		if notifSource != "" {
+			item.NotificationSource = notifSource
+		}
+	}
+	if rec.EnrichmentContentStructure != nil {
+		item.ContentStructure = mapDBContentStructureToProto(*rec.EnrichmentContentStructure)
+	}
+
 	return item
 }
 
@@ -1922,6 +1977,91 @@ func dbStatusToState(status string) contentv1.ProcessingState {
 func convertToStruct(data map[string]interface{}) (*structpb.Struct, error) {
 	// Use structpb.NewStruct for proper conversion
 	return structpb.NewStruct(data)
+}
+
+// =============================================================================
+// Content classification enum mapping helpers
+// =============================================================================
+
+// mapDBContentTypeToProto maps content_enrichment.content_type string to proto enum.
+func mapDBContentTypeToProto(dbType string) contentv1.ContentType {
+	switch dbType {
+	case "email":
+		return contentv1.ContentType_CONTENT_TYPE_EMAIL
+	case "meeting":
+		return contentv1.ContentType_CONTENT_TYPE_MEETING
+	case "calendar":
+		return contentv1.ContentType_CONTENT_TYPE_CALENDAR
+	case "document":
+		return contentv1.ContentType_CONTENT_TYPE_DOCUMENT
+	case "attachment":
+		return contentv1.ContentType_CONTENT_TYPE_ATTACHMENT
+	default:
+		return contentv1.ContentType_CONTENT_TYPE_UNSPECIFIED
+	}
+}
+
+// mapDBContentSubtypeToProto maps content_enrichment.content_subtype string to proto enum.
+// Returns the subtype enum and, for notification subtypes, the notification source string.
+func mapDBContentSubtypeToProto(dbSubtype string) (contentv1.ContentSubtype, string) {
+	switch {
+	case dbSubtype == "thread" || dbSubtype == "standalone" || dbSubtype == "forward":
+		return contentv1.ContentSubtype_CONTENT_SUBTYPE_HUMAN, ""
+	case strings.HasPrefix(dbSubtype, "notification/"):
+		source := strings.TrimPrefix(dbSubtype, "notification/")
+		return contentv1.ContentSubtype_CONTENT_SUBTYPE_NOTIFICATION, source
+	case dbSubtype == "notification":
+		return contentv1.ContentSubtype_CONTENT_SUBTYPE_NOTIFICATION, ""
+	case dbSubtype == "auto_reply":
+		return contentv1.ContentSubtype_CONTENT_SUBTYPE_AUTO_REPLY, ""
+	case dbSubtype == "newsletter":
+		return contentv1.ContentSubtype_CONTENT_SUBTYPE_NEWSLETTER, ""
+	case dbSubtype == "invite":
+		return contentv1.ContentSubtype_CONTENT_SUBTYPE_INVITE, ""
+	case dbSubtype == "cancellation":
+		return contentv1.ContentSubtype_CONTENT_SUBTYPE_CANCELLATION, ""
+	case dbSubtype == "update":
+		return contentv1.ContentSubtype_CONTENT_SUBTYPE_UPDATE, ""
+	case dbSubtype == "response":
+		return contentv1.ContentSubtype_CONTENT_SUBTYPE_RESPONSE, ""
+	case dbSubtype == "transcript":
+		return contentv1.ContentSubtype_CONTENT_SUBTYPE_TRANSCRIPT, ""
+	default:
+		return contentv1.ContentSubtype_CONTENT_SUBTYPE_UNSPECIFIED, ""
+	}
+}
+
+// mapDBContentStructureToProto maps content_enrichment.content_structure string to proto enum.
+func mapDBContentStructureToProto(dbStructure string) contentv1.ContentStructure {
+	switch dbStructure {
+	case "standalone":
+		return contentv1.ContentStructure_CONTENT_STRUCTURE_STANDALONE
+	case "reply":
+		return contentv1.ContentStructure_CONTENT_STRUCTURE_REPLY
+	case "forward":
+		return contentv1.ContentStructure_CONTENT_STRUCTURE_FORWARD
+	default:
+		return contentv1.ContentStructure_CONTENT_STRUCTURE_UNSPECIFIED
+	}
+}
+
+// protoContentTypeToDBString maps proto ContentType enum to the DB string used in
+// content_enrichment.content_type for query filtering.
+func protoContentTypeToDBString(ct contentv1.ContentType) string {
+	switch ct {
+	case contentv1.ContentType_CONTENT_TYPE_EMAIL:
+		return "email"
+	case contentv1.ContentType_CONTENT_TYPE_MEETING:
+		return "meeting"
+	case contentv1.ContentType_CONTENT_TYPE_CALENDAR:
+		return "calendar"
+	case contentv1.ContentType_CONTENT_TYPE_DOCUMENT:
+		return "document"
+	case contentv1.ContentType_CONTENT_TYPE_ATTACHMENT:
+		return "attachment"
+	default:
+		return ""
+	}
 }
 
 // GetContentTrace retrieves Langfuse traces associated with a content item.

@@ -3,6 +3,7 @@ package pipeline
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
@@ -258,6 +259,10 @@ func ApplyToProtoProcessingStatus(ps *ProcessingStatusResult, proto *contentv1.P
 	proto.TriageCategory = ps.TriageCategory
 	proto.TriageImportance = ps.TriageImportance
 
+	// Populate structured enum fields alongside the deprecated string fields.
+	proto.TriageCategoryEnum = mapTriageCategoryToProto(ps.TriageCategory)
+	proto.TriageImportanceEnum = mapTriageImportanceToProto(ps.TriageImportance)
+
 	if ps.StartedAt != nil {
 		proto.StartedAt = timestamppb.New(*ps.StartedAt)
 	}
@@ -275,5 +280,45 @@ func ApplyToProtoProcessingStatus(ps *ProcessingStatusResult, proto *contentv1.P
 	}
 	if ps.TotalOutputTokens > 0 {
 		proto.TotalOutputTokens = &ps.TotalOutputTokens
+	}
+}
+
+// mapTriageCategoryToProto maps a triage category string to the proto enum.
+// Unknown values return TRIAGE_CATEGORY_UNSPECIFIED (never panics).
+func mapTriageCategoryToProto(category string) contentv1.TriageCategory {
+	switch strings.ToUpper(category) {
+	case "ACTION_REQUEST":
+		return contentv1.TriageCategory_TRIAGE_CATEGORY_ACTION_REQUEST
+	case "PROJECT_UPDATE":
+		return contentv1.TriageCategory_TRIAGE_CATEGORY_PROJECT_UPDATE
+	case "RISK_ISSUE":
+		return contentv1.TriageCategory_TRIAGE_CATEGORY_RISK_ISSUE
+	case "CUSTOMER":
+		return contentv1.TriageCategory_TRIAGE_CATEGORY_CUSTOMER
+	case "DECISION":
+		return contentv1.TriageCategory_TRIAGE_CATEGORY_DECISION
+	case "INTERNAL_COMMS":
+		return contentv1.TriageCategory_TRIAGE_CATEGORY_INTERNAL_COMMS
+	case "PERSONAL":
+		return contentv1.TriageCategory_TRIAGE_CATEGORY_PERSONAL
+	case "FYI", "OTHER":
+		return contentv1.TriageCategory_TRIAGE_CATEGORY_FYI
+	default:
+		return contentv1.TriageCategory_TRIAGE_CATEGORY_UNSPECIFIED
+	}
+}
+
+// mapTriageImportanceToProto maps a triage importance string to the proto enum.
+// Unknown values return TRIAGE_IMPORTANCE_UNSPECIFIED (never panics).
+func mapTriageImportanceToProto(importance string) contentv1.TriageImportance {
+	switch strings.ToUpper(importance) {
+	case "HIGH":
+		return contentv1.TriageImportance_TRIAGE_IMPORTANCE_HIGH
+	case "MEDIUM":
+		return contentv1.TriageImportance_TRIAGE_IMPORTANCE_MEDIUM
+	case "LOW":
+		return contentv1.TriageImportance_TRIAGE_IMPORTANCE_LOW
+	default:
+		return contentv1.TriageImportance_TRIAGE_IMPORTANCE_UNSPECIFIED
 	}
 }
