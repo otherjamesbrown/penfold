@@ -225,6 +225,8 @@ func (s *Service) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 		vectorWeight = float64(*req.VectorWeight)
 	}
 
+	sortOrder := req.GetSortOrder()
+
 	s.logger.Debug("Search request",
 		logging.F("tenant_id", tenantID),
 		logging.F("query", query),
@@ -232,6 +234,7 @@ func (s *Service) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 		logging.F("offset", offset),
 		logging.F("text_weight", textWeight),
 		logging.F("vector_weight", vectorWeight),
+		logging.F("sort_order", sortOrder.String()),
 	)
 
 	startTime := time.Now()
@@ -262,9 +265,9 @@ func (s *Service) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 	var results []*searchv1.SearchResult
 
 	if useHybrid {
-		results, err = s.hybridSearch(ctx, keywordQuery, tenantID, queryVecStr, textWeight, vectorWeight, limit, offset)
+		results, err = s.hybridSearch(ctx, keywordQuery, tenantID, queryVecStr, textWeight, vectorWeight, limit, offset, sortOrder)
 	} else {
-		results, err = s.keywordOnlySearch(ctx, keywordQuery, tenantID, limit, offset)
+		results, err = s.keywordOnlySearch(ctx, keywordQuery, tenantID, limit, offset, sortOrder)
 	}
 	if err != nil {
 		return nil, err
@@ -303,18 +306,31 @@ func (s *Service) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 // hybridSearch runs keyword + vector blend. Text matches are required (keyword
 // match gate), but vector similarity re-ranks results for much better
 // score differentiation.
-func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, queryVecStr string, textWeight, vectorWeight float64, limit, offset int32) ([]*searchv1.SearchResult, error) {
+func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, queryVecStr string, textWeight, vectorWeight float64, limit, offset int32, sortOrder searchv1.SortOrder) ([]*searchv1.SearchResult, error) {
+	// Determine SQL ORDER BY clause based on requested sort order.
+	// For relevance (default), order by blended score; for date sorts, order by created_at.
+	var sqlOrderBy string
+	switch sortOrder {
+	case searchv1.SortOrder_SORT_ORDER_DATE_DESC:
+		sqlOrderBy = "tm.created_at DESC, ($6::float8 * tm.text_score + $7::float8 * COALESCE(bv.vector_score, 0)) DESC"
+	case searchv1.SortOrder_SORT_ORDER_DATE_ASC:
+		sqlOrderBy = "tm.created_at ASC, ($6::float8 * tm.text_score + $7::float8 * COALESCE(bv.vector_score, 0)) DESC"
+	default:
+		// SORT_ORDER_UNSPECIFIED and SORT_ORDER_RELEVANCE both rank by score
+		sqlOrderBy = "($6::float8 * tm.text_score + $7::float8 * COALESCE(bv.vector_score, 0)) DESC, tm.created_at DESC"
+	}
+
 	// CTE approach:
 	// 1. text_matches: find keyword-matching sources with ts_rank_cd
 	// 2. best_vectors: for those sources, compute best cosine similarity from embeddings
 	// 3. Blend and re-rank
-	rows, err := s.db.Query(ctx, `
+	sqlQuery := fmt.Sprintf(`
 		WITH text_matches AS (
 			SELECT
 				s.id,
 				s.external_id,
 				s.source_system,
-				COALESCE(m.title, s.ingestion_metadata->>'subject', s.content_type, 'Untitled') as title,
+				COALESCE(m.title, s.ingestion_metadata->>'title', s.ingestion_metadata->>'subject', s.content_type, 'Untitled') as title,
 				LEFT(s.raw_content, 500) as snippet,
 				ts_rank_cd(to_tsvector('english', COALESCE(s.raw_content, '')), websearch_to_tsquery('english', $1)) as text_score,
 				s.content_type,
@@ -349,9 +365,11 @@ func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, quer
 			tm.created_at
 		FROM text_matches tm
 		LEFT JOIN best_vectors bv ON tm.id = bv.source_id
-		ORDER BY ($6::float8 * tm.text_score + $7::float8 * COALESCE(bv.vector_score, 0)) DESC, tm.created_at DESC
+		ORDER BY %s
 		LIMIT $3 OFFSET $4
-	`, query, tenantID, limit, offset, queryVecStr, textWeight, vectorWeight)
+	`, sqlOrderBy)
+
+	rows, err := s.db.Query(ctx, sqlQuery, query, tenantID, limit, offset, queryVecStr, textWeight, vectorWeight)
 	if err != nil {
 		s.logger.Error("Hybrid search query failed", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "search query failed: %v", err)
@@ -403,24 +421,58 @@ func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, quer
 	}
 
 	// Normalize scores: text_score to [0,1] by dividing by max, then blend.
-	// Re-sort since normalization changes relative ordering.
+	// Re-sort since normalization changes relative ordering after normalization.
 	normalizeAndBlend(results, maxTextScore, float32(textWeight), float32(vectorWeight))
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
-	})
+	switch sortOrder {
+	case searchv1.SortOrder_SORT_ORDER_DATE_DESC:
+		sort.Slice(results, func(i, j int) bool {
+			ti := results[i].CreatedAt.AsTime()
+			tj := results[j].CreatedAt.AsTime()
+			if ti.Equal(tj) {
+				return results[i].Score > results[j].Score
+			}
+			return ti.After(tj)
+		})
+	case searchv1.SortOrder_SORT_ORDER_DATE_ASC:
+		sort.Slice(results, func(i, j int) bool {
+			ti := results[i].CreatedAt.AsTime()
+			tj := results[j].CreatedAt.AsTime()
+			if ti.Equal(tj) {
+				return results[i].Score > results[j].Score
+			}
+			return ti.Before(tj)
+		})
+	default:
+		// SORT_ORDER_UNSPECIFIED and SORT_ORDER_RELEVANCE: rank by blended score
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].Score > results[j].Score
+		})
+	}
 
 	return results, nil
 }
 
 // keywordOnlySearch runs ts_rank_cd without vector scoring.
 // Used when the embedder is unavailable.
-func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string, limit, offset int32) ([]*searchv1.SearchResult, error) {
-	rows, err := s.db.Query(ctx, `
+func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string, limit, offset int32, sortOrder searchv1.SortOrder) ([]*searchv1.SearchResult, error) {
+	// Determine SQL ORDER BY clause based on requested sort order.
+	var sqlOrderBy string
+	switch sortOrder {
+	case searchv1.SortOrder_SORT_ORDER_DATE_DESC:
+		sqlOrderBy = "s.created_at DESC, score DESC"
+	case searchv1.SortOrder_SORT_ORDER_DATE_ASC:
+		sqlOrderBy = "s.created_at ASC, score DESC"
+	default:
+		// SORT_ORDER_UNSPECIFIED and SORT_ORDER_RELEVANCE: rank by score
+		sqlOrderBy = "score DESC, s.created_at DESC"
+	}
+
+	sqlQuery := fmt.Sprintf(`
 		SELECT
 			s.id,
 			s.external_id,
 			s.source_system,
-			COALESCE(m.title, s.ingestion_metadata->>'subject', s.content_type, 'Untitled') as title,
+			COALESCE(m.title, s.ingestion_metadata->>'title', s.ingestion_metadata->>'subject', s.content_type, 'Untitled') as title,
 			LEFT(s.raw_content, 500) as snippet,
 			ts_rank_cd(to_tsvector('english', COALESCE(s.raw_content, '')), websearch_to_tsquery('english', $1)) as score,
 			s.content_type,
@@ -430,9 +482,11 @@ func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string,
 		LEFT JOIN meetings m ON s.meeting_id = m.id
 		WHERE s.tenant_id = $2
 			AND to_tsvector('english', COALESCE(s.raw_content, '')) @@ websearch_to_tsquery('english', $1)
-		ORDER BY score DESC, s.created_at DESC
+		ORDER BY %s
 		LIMIT $3 OFFSET $4
-	`, query, tenantID, limit, offset)
+	`, sqlOrderBy)
+
+	rows, err := s.db.Query(ctx, sqlQuery, query, tenantID, limit, offset)
 	if err != nil {
 		s.logger.Error("Keyword search query failed", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "search query failed: %v", err)
@@ -482,12 +536,37 @@ func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string,
 		return nil, status.Errorf(codes.Internal, "error reading results: %v", err)
 	}
 
-	// Normalize text scores to [0,1] for the Score field
+	// Normalize text scores to [0,1] for the Score field.
+	// Note: normalization may reorder equal scores, so re-sort if needed.
 	if maxScore > 0 {
 		for _, r := range results {
 			r.Score = r.Score / maxScore
 		}
 	}
+
+	// Re-sort after normalization when date sort is requested (score field changed).
+	switch sortOrder {
+	case searchv1.SortOrder_SORT_ORDER_DATE_DESC:
+		sort.Slice(results, func(i, j int) bool {
+			ti := results[i].CreatedAt.AsTime()
+			tj := results[j].CreatedAt.AsTime()
+			if ti.Equal(tj) {
+				return results[i].Score > results[j].Score
+			}
+			return ti.After(tj)
+		})
+	case searchv1.SortOrder_SORT_ORDER_DATE_ASC:
+		sort.Slice(results, func(i, j int) bool {
+			ti := results[i].CreatedAt.AsTime()
+			tj := results[j].CreatedAt.AsTime()
+			if ti.Equal(tj) {
+				return results[i].Score > results[j].Score
+			}
+			return ti.Before(tj)
+		})
+	}
+	// For relevance sort (default), SQL already ordered by score DESC; normalization
+	// preserves relative ordering, so no re-sort needed.
 
 	return results, nil
 }
@@ -588,7 +667,7 @@ func (s *Service) SemanticSearch(ctx context.Context, req *searchv1.SemanticSear
 			s.id,
 			s.external_id,
 			s.source_system,
-			COALESCE(m.title, s.ingestion_metadata->>'subject', s.content_type, 'Untitled') as title,
+			COALESCE(m.title, s.ingestion_metadata->>'title', s.ingestion_metadata->>'subject', s.content_type, 'Untitled') as title,
 			LEFT(s.raw_content, 500) as snippet,
 			vr.similarity as score,
 			s.content_type,

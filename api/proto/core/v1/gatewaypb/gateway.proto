@@ -144,6 +144,24 @@ message SearchRequest {
 
   // Include full content in results (default: false, returns snippets only).
   bool include_content = 10;
+
+  // Sort order for results (default: SORT_ORDER_UNSPECIFIED which behaves as SORT_ORDER_RELEVANCE)
+  SortOrder sort_order = 11;
+}
+
+// SortOrder specifies the ordering of search results.
+enum SortOrder {
+  // Unspecified, defaults to relevance
+  SORT_ORDER_UNSPECIFIED = 0;
+
+  // Sort by relevance score (default)
+  SORT_ORDER_RELEVANCE = 1;
+
+  // Sort by creation date, newest first
+  SORT_ORDER_DATE_DESC = 2;
+
+  // Sort by creation date, oldest first
+  SORT_ORDER_DATE_ASC = 3;
 }
 
 // SearchMode specifies the search algorithm to use.

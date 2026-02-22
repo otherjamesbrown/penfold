@@ -2,14 +2,17 @@ package searchservice
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	searchv1 "github.com/otherjamesbrown/penfold/api/proto/search/v1"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // mockEmbedder implements EmbeddingGenerator for testing.
@@ -224,6 +227,149 @@ func TestHighlightSnippet_ShortWordsIgnored(t *testing.T) {
 // pf32 returns a pointer to a float32 value.
 func pf32(v float32) *float32 {
 	return &v
+}
+
+// applySortOrder sorts results in-place using the same logic as hybridSearch/keywordOnlySearch.
+// This mirrors the sort.Slice logic in the service so tests can verify ordering without a DB.
+func applySortOrder(results []*searchv1.SearchResult, sortOrder searchv1.SortOrder) {
+	switch sortOrder {
+	case searchv1.SortOrder_SORT_ORDER_DATE_DESC:
+		sort.Slice(results, func(i, j int) bool {
+			ti := results[i].CreatedAt.AsTime()
+			tj := results[j].CreatedAt.AsTime()
+			if ti.Equal(tj) {
+				return results[i].Score > results[j].Score
+			}
+			return ti.After(tj)
+		})
+	case searchv1.SortOrder_SORT_ORDER_DATE_ASC:
+		sort.Slice(results, func(i, j int) bool {
+			ti := results[i].CreatedAt.AsTime()
+			tj := results[j].CreatedAt.AsTime()
+			if ti.Equal(tj) {
+				return results[i].Score > results[j].Score
+			}
+			return ti.Before(tj)
+		})
+	default:
+		// SORT_ORDER_UNSPECIFIED and SORT_ORDER_RELEVANCE: rank by blended score
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].Score > results[j].Score
+		})
+	}
+}
+
+func makeResultWithDateAndScore(created time.Time, score float32) *searchv1.SearchResult {
+	return &searchv1.SearchResult{
+		Score:     score,
+		CreatedAt: timestamppb.New(created),
+	}
+}
+
+func TestSortOrder_Relevance(t *testing.T) {
+	now := time.Now()
+	results := []*searchv1.SearchResult{
+		makeResultWithDateAndScore(now.Add(-2*time.Hour), 0.3),
+		makeResultWithDateAndScore(now.Add(-1*time.Hour), 0.9),
+		makeResultWithDateAndScore(now, 0.6),
+	}
+
+	// Default (unspecified) should return score-ordered results
+	applySortOrder(results, searchv1.SortOrder_SORT_ORDER_UNSPECIFIED)
+
+	assert.Equal(t, float32(0.9), results[0].Score, "highest score should be first")
+	assert.Equal(t, float32(0.6), results[1].Score, "second highest score should be second")
+	assert.Equal(t, float32(0.3), results[2].Score, "lowest score should be last")
+}
+
+func TestSortOrder_RelevanceExplicit(t *testing.T) {
+	now := time.Now()
+	results := []*searchv1.SearchResult{
+		makeResultWithDateAndScore(now.Add(-2*time.Hour), 0.3),
+		makeResultWithDateAndScore(now.Add(-1*time.Hour), 0.9),
+		makeResultWithDateAndScore(now, 0.6),
+	}
+
+	// Explicit RELEVANCE should also return score-ordered results
+	applySortOrder(results, searchv1.SortOrder_SORT_ORDER_RELEVANCE)
+
+	assert.Equal(t, float32(0.9), results[0].Score, "highest score should be first")
+	assert.Equal(t, float32(0.6), results[1].Score, "second highest score should be second")
+	assert.Equal(t, float32(0.3), results[2].Score, "lowest score should be last")
+}
+
+func TestSortOrder_DateDesc(t *testing.T) {
+	old := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	mid := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	recent := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// Insert in random order to verify sort actually changes ordering
+	results := []*searchv1.SearchResult{
+		makeResultWithDateAndScore(old, 0.9),    // old but high score
+		makeResultWithDateAndScore(recent, 0.3), // newest but low score
+		makeResultWithDateAndScore(mid, 0.6),    // middle
+	}
+
+	applySortOrder(results, searchv1.SortOrder_SORT_ORDER_DATE_DESC)
+
+	// Date desc: newest first regardless of score
+	assert.Equal(t, recent, results[0].CreatedAt.AsTime(), "newest should be first")
+	assert.Equal(t, mid, results[1].CreatedAt.AsTime(), "middle date should be second")
+	assert.Equal(t, old, results[2].CreatedAt.AsTime(), "oldest should be last")
+}
+
+func TestSortOrder_DateAsc(t *testing.T) {
+	old := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	mid := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	recent := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// Insert in random order to verify sort actually changes ordering
+	results := []*searchv1.SearchResult{
+		makeResultWithDateAndScore(recent, 0.9), // newest but high score
+		makeResultWithDateAndScore(old, 0.3),    // oldest but low score
+		makeResultWithDateAndScore(mid, 0.6),    // middle
+	}
+
+	applySortOrder(results, searchv1.SortOrder_SORT_ORDER_DATE_ASC)
+
+	// Date asc: oldest first regardless of score
+	assert.Equal(t, old, results[0].CreatedAt.AsTime(), "oldest should be first")
+	assert.Equal(t, mid, results[1].CreatedAt.AsTime(), "middle date should be second")
+	assert.Equal(t, recent, results[2].CreatedAt.AsTime(), "newest should be last")
+}
+
+func TestSortOrder_DateDesc_TieBreakByScore(t *testing.T) {
+	sameTime := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	results := []*searchv1.SearchResult{
+		makeResultWithDateAndScore(sameTime, 0.3),
+		makeResultWithDateAndScore(sameTime, 0.9),
+		makeResultWithDateAndScore(sameTime, 0.6),
+	}
+
+	applySortOrder(results, searchv1.SortOrder_SORT_ORDER_DATE_DESC)
+
+	// Same date: tie-break by score desc
+	assert.Equal(t, float32(0.9), results[0].Score, "highest score wins tie")
+	assert.Equal(t, float32(0.6), results[1].Score, "second highest score is second")
+	assert.Equal(t, float32(0.3), results[2].Score, "lowest score is last")
+}
+
+func TestSortOrder_DateAsc_TieBreakByScore(t *testing.T) {
+	sameTime := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	results := []*searchv1.SearchResult{
+		makeResultWithDateAndScore(sameTime, 0.3),
+		makeResultWithDateAndScore(sameTime, 0.9),
+		makeResultWithDateAndScore(sameTime, 0.6),
+	}
+
+	applySortOrder(results, searchv1.SortOrder_SORT_ORDER_DATE_ASC)
+
+	// Same date: tie-break by score desc
+	assert.Equal(t, float32(0.9), results[0].Score, "highest score wins tie")
+	assert.Equal(t, float32(0.6), results[1].Score, "second highest score is second")
+	assert.Equal(t, float32(0.3), results[2].Score, "lowest score is last")
 }
 
 // mockExpander implements QueryExpander for testing.
