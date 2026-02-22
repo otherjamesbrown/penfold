@@ -65,6 +65,8 @@ type Conversation struct {
 	LastSeen         *time.Time
 	ParticipantCount int32
 	ItemCount        int32
+	StateSummary     *string
+	SummaryVersion   int32
 	Metadata         map[string]interface{}
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -357,6 +359,16 @@ func extractParticipants(from, to, cc string) []emailParticipant {
 	return participants
 }
 
+// summaryResponse is the structured JSON response from the summary+state LLM call.
+type summaryResponse struct {
+	Summary     string `json:"summary"`
+	State       string `json:"state"`
+	StateReason string `json:"state_reason"`
+}
+
+// maxContentPerItem is the max characters of source content to include per item in the prompt.
+const maxContentPerItem = 600
+
 // generateSummaryAndState generates a rolling summary and state assessment for a conversation.
 // This is non-blocking: all errors are logged but not returned.
 func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, tenantID, conversationID, newContentID string) {
@@ -371,7 +383,7 @@ func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, te
 		return
 	}
 
-	// Fetch current conversation
+	// Fetch current conversation (includes summary fields for version tracking)
 	conversation, err := a.convRepo.GetConversation(ctx, tenantID, conversationID)
 	if err != nil {
 		logger.Warn("failed to fetch conversation for summary generation",
@@ -380,8 +392,8 @@ func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, te
 		return
 	}
 
-	// Fetch last 3 conversation items (for context)
-	items, err := a.convRepo.GetConversationItems(ctx, conversationID, 3)
+	// Fetch recent items with content text for meaningful summaries
+	items, err := a.convRepo.GetConversationItemsWithContent(ctx, conversationID, 5)
 	if err != nil {
 		logger.Warn("failed to fetch conversation items for summary",
 			logging.F("error", err.Error()),
@@ -389,16 +401,19 @@ func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, te
 		return
 	}
 
-	// Build LLM prompt with: existing summary + last 3 items + new item
-	prompt := a.buildSummaryPrompt(conversation, items, newContentID)
-
-	// Call AI service for summary generation
-	req := &aiv1.SummaryRequest{
-		Content: prompt,
-		// Use fast-tier model (per-stage model selection already available)
-		// The AIClient should handle model selection internally based on task
+	if len(items) == 0 {
+		logger.Debug("skipping summary generation - no items in conversation")
+		return
 	}
-	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
+
+	// Build prompt with actual content and request structured JSON
+	prompt := buildSummaryPrompt(conversation.Topic, conversation.StateSummary, items)
+
+	jsonMode := true
+	req := &aiv1.SummaryRequest{
+		Content:  prompt,
+		JsonMode: &jsonMode,
+	}
 
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {
@@ -408,16 +423,17 @@ func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, te
 		return
 	}
 
-	// Parse response for summary text + state + reason
-	summary := resp.Summary
-	state, reason := a.parseStateFromSummary(resp)
+	// Parse structured JSON response (with keyword fallback)
+	summary, state, reason := parseSummaryResponse(resp)
 
-	// Persist summary (version 1 for now - could be enhanced to track versions)
-	err = a.convRepo.UpdateSummary(ctx, conversationID, summary, 1)
+	// Increment version
+	newVersion := conversation.SummaryVersion + 1
+
+	// Persist summary
+	err = a.convRepo.UpdateSummary(ctx, conversationID, summary, newVersion)
 	if err != nil {
 		logger.Warn("failed to persist summary",
 			logging.F("error", err.Error()),
-			logging.F("summary", summary),
 		)
 		// Continue to try persisting state even if summary fails
 	}
@@ -435,51 +451,90 @@ func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, te
 
 	logger.Info("conversation summary and state updated",
 		logging.F("state", state),
+		logging.F("summary_version", newVersion),
 		logging.F("summary_length", len(summary)),
 	)
 }
 
 // buildSummaryPrompt constructs a prompt for the LLM to generate summary and assess state.
-func (a *ConversationActivities) buildSummaryPrompt(conversation *Conversation, items []ConversationItem, newContentID string) string {
+// Uses actual email content (not just IDs) for meaningful summaries.
+func buildSummaryPrompt(topic string, existingSummary *string, items []ConversationItemWithContent) string {
 	var prompt strings.Builder
 
-	prompt.WriteString("Generate a concise rolling summary (200-400 tokens) and assess the conversation state.\n\n")
-	prompt.WriteString(fmt.Sprintf("Conversation Topic: %s\n", conversation.Topic))
+	prompt.WriteString("You are analyzing an email conversation to produce a rolling summary and assess its current state.\n\n")
+	prompt.WriteString(fmt.Sprintf("Conversation Topic: %s\n", topic))
 
-	// Include existing summary if available
-	// Note: Conversation struct doesn't have StateSummary field yet
-	// This will be added by the data-dev layer later
-	// For now, we'll just work with what we have
-
-	if len(items) > 0 {
-		prompt.WriteString("\nRecent conversation items:\n")
-		for i, item := range items {
-			prompt.WriteString(fmt.Sprintf("%d. Content ID: %s\n", i+1, item.ContentID))
-		}
+	// Include existing summary for incremental updates
+	if existingSummary != nil && *existingSummary != "" {
+		prompt.WriteString(fmt.Sprintf("\nPrevious summary:\n%s\n", *existingSummary))
 	}
 
-	prompt.WriteString(fmt.Sprintf("\nNew content item: %s\n", newContentID))
+	if len(items) > 0 {
+		prompt.WriteString("\nMessages in this conversation (chronological):\n")
+		for _, item := range items {
+			prompt.WriteString("---\n")
+			if item.From != "" {
+				prompt.WriteString(fmt.Sprintf("From: %s\n", item.From))
+			}
+			if item.Subject != "" {
+				prompt.WriteString(fmt.Sprintf("Subject: %s\n", item.Subject))
+			}
+			prompt.WriteString(fmt.Sprintf("Date: %s\n", item.AddedAt.Format("2006-01-02")))
+			content := item.ContentText
+			if len(content) > maxContentPerItem {
+				content = content[:maxContentPerItem] + "..."
+			}
+			if content != "" {
+				prompt.WriteString(content)
+				prompt.WriteString("\n")
+			}
+		}
+		prompt.WriteString("---\n")
+	}
 
-	prompt.WriteString("\nProvide:\n")
-	prompt.WriteString("1. Updated summary paragraph\n")
-	prompt.WriteString("2. State assessment: active, stalled, resolved, or unknown\n")
-	prompt.WriteString("3. Brief reason for state assessment\n")
+	prompt.WriteString("\nRespond with a JSON object (no other text):\n")
+	prompt.WriteString(`{
+  "summary": "A concise 200-400 token summary: what happened, who did what, decisions made, what's pending",
+  "state": "active OR stalled OR resolved OR unknown",
+  "state_reason": "Brief explanation for the state assessment (e.g. 'Waiting on Tim for Juniper timeline estimate')"
+}`)
+	prompt.WriteString("\n\nState definitions:\n")
+	prompt.WriteString("- active: ongoing conversation with recent exchanges or pending follow-ups\n")
+	prompt.WriteString("- stalled: waiting on someone, no progress, blocked\n")
+	prompt.WriteString("- resolved: concluded, decision made, no further action expected\n")
+	prompt.WriteString("- unknown: insufficient data to determine state\n")
 
 	return prompt.String()
 }
 
-// parseStateFromSummary extracts state and reason from the LLM response.
-// This is a simple implementation - could be enhanced with structured output.
-func (a *ConversationActivities) parseStateFromSummary(resp *aiv1.SummaryResponse) (state, reason string) {
-	// Default to "active" if we can't determine state
+// parseSummaryResponse extracts summary, state, and reason from the LLM response.
+// Tries JSON parsing first, falls back to keyword-based heuristics.
+func parseSummaryResponse(resp *aiv1.SummaryResponse) (summary, state, reason string) {
+	// Default values
+	summary = resp.Summary
 	state = "active"
 	reason = "New message received"
 
-	// Try to infer state from key points
+	// Try JSON parsing of the summary field (LLM may return JSON as the summary)
+	var parsed summaryResponse
+	if err := json.Unmarshal([]byte(resp.Summary), &parsed); err == nil {
+		if parsed.Summary != "" {
+			summary = parsed.Summary
+		}
+		if isValidState(parsed.State) {
+			state = parsed.State
+		}
+		if parsed.StateReason != "" {
+			reason = parsed.StateReason
+		}
+		return summary, state, reason
+	}
+
+	// Fallback: keyword-based state detection from summary text and key points
 	if len(resp.KeyPoints) > 0 {
 		for _, point := range resp.KeyPoints {
 			lowerPoint := strings.ToLower(point)
-			if strings.Contains(lowerPoint, "blocked") || strings.Contains(lowerPoint, "waiting") {
+			if strings.Contains(lowerPoint, "blocked") || strings.Contains(lowerPoint, "waiting") || strings.Contains(lowerPoint, "stalled") {
 				state = "stalled"
 				reason = point
 				return
@@ -492,7 +547,6 @@ func (a *ConversationActivities) parseStateFromSummary(resp *aiv1.SummaryRespons
 		}
 	}
 
-	// Check summary text for state indicators
 	summaryLower := strings.ToLower(resp.Summary)
 	if strings.Contains(summaryLower, "blocked") || strings.Contains(summaryLower, "stalled") || strings.Contains(summaryLower, "waiting") {
 		state = "stalled"
@@ -502,22 +556,34 @@ func (a *ConversationActivities) parseStateFromSummary(resp *aiv1.SummaryRespons
 		reason = "Conversation appears resolved"
 	}
 
-	return state, reason
+	return summary, state, reason
 }
 
-// BackfillConversationSummaries generates summaries for existing conversations.
+// isValidState checks if a state string is one of the valid conversation states.
+func isValidState(s string) bool {
+	switch strings.ToLower(s) {
+	case "active", "stalled", "resolved", "unknown":
+		return true
+	}
+	return false
+}
+
+// BackfillConversationSummariesInput is the input for the backfill activity.
 type BackfillConversationSummariesInput struct {
 	TenantID string `json:"tenant_id"`
-	Limit    int    `json:"limit"`
+	Limit    int    `json:"limit"` // max conversations to process (0 = all)
 }
 
 // BackfillConversationSummariesOutput contains the results of backfill operation.
 type BackfillConversationSummariesOutput struct {
 	Processed int `json:"processed"`
 	Failed    int `json:"failed"`
+	Skipped   int `json:"skipped"`
 }
 
-// BackfillConversationSummaries generates initial summaries for existing conversations.
+// BackfillConversationSummaries generates summaries and state for conversations without them.
+// Processes conversations chronologically, fetching content for each and generating
+// summary + state via the LLM.
 func (a *ConversationActivities) BackfillConversationSummaries(ctx context.Context, input BackfillConversationSummariesInput) (*BackfillConversationSummariesOutput, error) {
 	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "BackfillConversationSummaries"),
@@ -527,18 +593,339 @@ func (a *ConversationActivities) BackfillConversationSummaries(ctx context.Conte
 
 	logger.Info("starting conversation summary backfill")
 
-	// TODO: Implementation requires a method to list conversations without summaries
-	// This would need to be added to ConversationRepository interface:
-	// - GetConversationsWithoutSummary(ctx, tenantID, limit) ([]string, error)
-	//
-	// For now, return a stub that indicates the method exists but needs data layer support
-
-	output := &BackfillConversationSummariesOutput{
-		Processed: 0,
-		Failed:    0,
+	if a.aiClient == nil {
+		return nil, fmt.Errorf("AI client is required for summary generation")
 	}
 
-	logger.Warn("backfill not yet implemented - requires data layer support for listing conversations without summaries")
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 200 // default cap
+	}
+
+	conversations, err := a.convRepo.GetConversationsWithoutSummary(ctx, input.TenantID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversations without summary: %w", err)
+	}
+
+	logger.Info("found conversations to backfill",
+		logging.F("count", len(conversations)),
+	)
+
+	output := &BackfillConversationSummariesOutput{}
+
+	for _, conv := range conversations {
+		recordHeartbeat(ctx, fmt.Sprintf("backfill %s", conv.ID))
+
+		items, err := a.convRepo.GetConversationItemsWithContent(ctx, conv.ID, 20)
+		if err != nil {
+			logger.Warn("failed to get items for conversation",
+				logging.F("conversation_id", conv.ID),
+				logging.F("error", err.Error()),
+			)
+			output.Failed++
+			continue
+		}
+
+		if len(items) == 0 {
+			output.Skipped++
+			continue
+		}
+
+		prompt := buildSummaryPrompt(conv.Topic, nil, items)
+
+		jsonMode := true
+		req := &aiv1.SummaryRequest{
+			Content:  prompt,
+			JsonMode: &jsonMode,
+		}
+
+		resp, err := a.aiClient.GenerateSummary(ctx, req)
+		if err != nil {
+			logger.Warn("LLM summary generation failed",
+				logging.F("conversation_id", conv.ID),
+				logging.F("error", err.Error()),
+			)
+			output.Failed++
+			continue
+		}
+
+		summary, state, reason := parseSummaryResponse(resp)
+
+		if err := a.convRepo.UpdateSummary(ctx, conv.ID, summary, int32(len(items))); err != nil {
+			logger.Warn("failed to persist backfill summary",
+				logging.F("conversation_id", conv.ID),
+				logging.F("error", err.Error()),
+			)
+			output.Failed++
+			continue
+		}
+
+		if err := a.convRepo.UpdateState(ctx, conv.ID, state, reason); err != nil {
+			logger.Warn("failed to persist backfill state",
+				logging.F("conversation_id", conv.ID),
+				logging.F("error", err.Error()),
+			)
+			// Summary was saved, so count as processed
+		}
+
+		output.Processed++
+		logger.Info("backfilled conversation",
+			logging.F("conversation_id", conv.ID),
+			logging.F("state", state),
+			logging.F("items", len(items)),
+		)
+	}
+
+	logger.Info("backfill complete",
+		logging.F("processed", output.Processed),
+		logging.F("failed", output.Failed),
+		logging.F("skipped", output.Skipped),
+	)
 
 	return output, nil
+}
+
+// RegenerateConversationSummaryInput is the input for regenerating a single conversation's summary.
+type RegenerateConversationSummaryInput struct {
+	TenantID       string `json:"tenant_id"`
+	ConversationID string `json:"conversation_id"`
+}
+
+// RegenerateConversationSummaryOutput contains the regenerated summary and state.
+type RegenerateConversationSummaryOutput struct {
+	Summary        string `json:"summary"`
+	State          string `json:"state"`
+	StateReason    string `json:"state_reason"`
+	SummaryVersion int32  `json:"summary_version"`
+	ItemCount      int    `json:"item_count"`
+}
+
+// RegenerateConversationSummary rebuilds a conversation's summary from scratch.
+// Used after merge/split operations to ensure the summary reflects the current state.
+func (a *ConversationActivities) RegenerateConversationSummary(ctx context.Context, input RegenerateConversationSummaryInput) (*RegenerateConversationSummaryOutput, error) {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "RegenerateConversationSummary"),
+		logging.F("conversation_id", input.ConversationID),
+	)
+
+	if a.aiClient == nil {
+		return nil, fmt.Errorf("AI client is required for summary generation")
+	}
+
+	conv, err := a.convRepo.GetConversation(ctx, input.TenantID, input.ConversationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation: %w", err)
+	}
+	if conv == nil {
+		return nil, fmt.Errorf("conversation not found: %s", input.ConversationID)
+	}
+
+	items, err := a.convRepo.GetConversationItemsWithContent(ctx, input.ConversationID, 50)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation items: %w", err)
+	}
+
+	if len(items) == 0 {
+		return &RegenerateConversationSummaryOutput{
+			Summary:        "",
+			State:          "unknown",
+			StateReason:    "No items in conversation",
+			SummaryVersion: 0,
+			ItemCount:      0,
+		}, nil
+	}
+
+	// Build prompt WITHOUT existing summary (full regeneration)
+	prompt := buildSummaryPrompt(conv.Topic, nil, items)
+
+	jsonMode := true
+	resp, err := a.aiClient.GenerateSummary(ctx, &aiv1.SummaryRequest{
+		Content:  prompt,
+		JsonMode: &jsonMode,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("LLM summary generation failed: %w", err)
+	}
+
+	summary, state, reason := parseSummaryResponse(resp)
+	newVersion := int32(len(items))
+
+	if err := a.convRepo.UpdateSummary(ctx, input.ConversationID, summary, newVersion); err != nil {
+		return nil, fmt.Errorf("failed to persist regenerated summary: %w", err)
+	}
+
+	if err := a.convRepo.UpdateState(ctx, input.ConversationID, state, reason); err != nil {
+		return nil, fmt.Errorf("failed to persist regenerated state: %w", err)
+	}
+
+	logger.Info("conversation summary regenerated",
+		logging.F("state", state),
+		logging.F("summary_version", newVersion),
+		logging.F("items", len(items)),
+	)
+
+	return &RegenerateConversationSummaryOutput{
+		Summary:        summary,
+		State:          state,
+		StateReason:    reason,
+		SummaryVersion: newVersion,
+		ItemCount:      len(items),
+	}, nil
+}
+
+// CheckStaleConversationsInput is the input for the stale detection activity.
+type CheckStaleConversationsInput struct {
+	TenantID  string `json:"tenant_id"`
+	StaleDays int    `json:"stale_days"` // days of inactivity before checking (default 14)
+	Limit     int    `json:"limit"`
+}
+
+// CheckStaleConversationsOutput contains the results of stale detection.
+type CheckStaleConversationsOutput struct {
+	Checked      int `json:"checked"`
+	Transitioned int `json:"transitioned"`
+	Failed       int `json:"failed"`
+}
+
+// CheckStaleConversations evaluates active conversations with no recent activity
+// and transitions them to stalled or resolved if appropriate.
+func (a *ConversationActivities) CheckStaleConversations(ctx context.Context, input CheckStaleConversationsInput) (*CheckStaleConversationsOutput, error) {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "CheckStaleConversations"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("stale_days", input.StaleDays),
+	)
+
+	if a.aiClient == nil {
+		return nil, fmt.Errorf("AI client is required for stale detection")
+	}
+
+	staleDays := input.StaleDays
+	if staleDays <= 0 {
+		staleDays = 14
+	}
+
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+
+	conversations, err := a.convRepo.GetStaleActiveConversations(ctx, input.TenantID, staleDays, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stale conversations: %w", err)
+	}
+
+	logger.Info("found stale conversations to check",
+		logging.F("count", len(conversations)),
+	)
+
+	output := &CheckStaleConversationsOutput{}
+
+	for _, conv := range conversations {
+		recordHeartbeat(ctx, fmt.Sprintf("stale-check %s", conv.ID))
+
+		items, err := a.convRepo.GetConversationItemsWithContent(ctx, conv.ID, 10)
+		if err != nil {
+			logger.Warn("failed to get items for stale check",
+				logging.F("conversation_id", conv.ID),
+				logging.F("error", err.Error()),
+			)
+			output.Failed++
+			continue
+		}
+
+		prompt := buildStaleCheckPrompt(conv, items)
+
+		jsonMode := true
+		resp, err := a.aiClient.GenerateSummary(ctx, &aiv1.SummaryRequest{
+			Content:  prompt,
+			JsonMode: &jsonMode,
+		})
+		if err != nil {
+			logger.Warn("LLM stale check failed",
+				logging.F("conversation_id", conv.ID),
+				logging.F("error", err.Error()),
+			)
+			output.Failed++
+			continue
+		}
+
+		_, newState, reason := parseSummaryResponse(resp)
+		output.Checked++
+
+		if newState != "active" {
+			if err := a.convRepo.UpdateState(ctx, conv.ID, newState, reason); err != nil {
+				logger.Warn("failed to update stale conversation state",
+					logging.F("conversation_id", conv.ID),
+					logging.F("error", err.Error()),
+				)
+				output.Failed++
+				continue
+			}
+			output.Transitioned++
+			logger.Info("stale conversation transitioned",
+				logging.F("conversation_id", conv.ID),
+				logging.F("new_state", newState),
+				logging.F("reason", reason),
+			)
+		}
+	}
+
+	logger.Info("stale check complete",
+		logging.F("checked", output.Checked),
+		logging.F("transitioned", output.Transitioned),
+		logging.F("failed", output.Failed),
+	)
+
+	return output, nil
+}
+
+// buildStaleCheckPrompt constructs a prompt for evaluating whether a stale conversation
+// should transition from active to stalled or resolved.
+func buildStaleCheckPrompt(conv ConversationForSummary, items []ConversationItemWithContent) string {
+	var prompt strings.Builder
+
+	prompt.WriteString("You are evaluating whether an email conversation that has gone quiet should be considered stalled or resolved.\n\n")
+	prompt.WriteString(fmt.Sprintf("Conversation Topic: %s\n", conv.Topic))
+
+	if conv.StateSummary != nil && *conv.StateSummary != "" {
+		prompt.WriteString(fmt.Sprintf("Current summary: %s\n", *conv.StateSummary))
+	}
+
+	if conv.LastSeen != nil {
+		prompt.WriteString(fmt.Sprintf("Last activity: %s\n", conv.LastSeen.Format("2006-01-02")))
+	}
+
+	if len(items) > 0 {
+		prompt.WriteString("\nRecent messages:\n")
+		for _, item := range items {
+			prompt.WriteString("---\n")
+			if item.From != "" {
+				prompt.WriteString(fmt.Sprintf("From: %s\n", item.From))
+			}
+			if item.Subject != "" {
+				prompt.WriteString(fmt.Sprintf("Subject: %s\n", item.Subject))
+			}
+			prompt.WriteString(fmt.Sprintf("Date: %s\n", item.AddedAt.Format("2006-01-02")))
+			content := item.ContentText
+			if len(content) > maxContentPerItem {
+				content = content[:maxContentPerItem] + "..."
+			}
+			if content != "" {
+				prompt.WriteString(content)
+				prompt.WriteString("\n")
+			}
+		}
+		prompt.WriteString("---\n")
+	}
+
+	prompt.WriteString("\nRespond with a JSON object (no other text):\n")
+	prompt.WriteString(`{
+  "summary": "Keep the existing summary unchanged",
+  "state": "stalled OR resolved OR active",
+  "state_reason": "Brief explanation (e.g. 'No response in 3 weeks, waiting on vendor pricing')"
+}`)
+	prompt.WriteString("\n\nOnly change state from active if there is clear evidence the conversation is stalled or resolved.\n")
+
+	return prompt.String()
 }

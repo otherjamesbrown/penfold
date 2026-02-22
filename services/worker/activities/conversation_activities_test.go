@@ -15,15 +15,18 @@ import (
 
 // mockConversationRepository is a mock implementation of the ConversationRepository interface for testing.
 type mockConversationRepository struct {
-	upsertConversationFn          func(ctx context.Context, conversation *Conversation) (string, error)
-	addConversationItemFn         func(ctx context.Context, conversationID, contentID string, sourceID *int64, tenantID string) error
-	addConversationParticipantFn  func(ctx context.Context, conversationID string, name, address *string, tenantID string) error
-	cleanInvalidParticipantsFn    func(ctx context.Context, conversationID, tenantID string) (int64, error)
-	updateConversationStatsFn     func(ctx context.Context, conversationID string) error
-	updateSummaryFn               func(ctx context.Context, conversationID, summary string, version int32) error
-	updateStateFn                 func(ctx context.Context, conversationID, state, reason string) error
-	getConversationItemsFn        func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error)
-	getConversationFn             func(ctx context.Context, tenantID, conversationID string) (*Conversation, error)
+	upsertConversationFn                func(ctx context.Context, conversation *Conversation) (string, error)
+	addConversationItemFn               func(ctx context.Context, conversationID, contentID string, sourceID *int64, tenantID string) error
+	addConversationParticipantFn        func(ctx context.Context, conversationID string, name, address *string, tenantID string) error
+	cleanInvalidParticipantsFn          func(ctx context.Context, conversationID, tenantID string) (int64, error)
+	updateConversationStatsFn           func(ctx context.Context, conversationID string) error
+	updateSummaryFn                     func(ctx context.Context, conversationID, summary string, version int32) error
+	updateStateFn                       func(ctx context.Context, conversationID, state, reason string) error
+	getConversationItemsFn              func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error)
+	getConversationFn                   func(ctx context.Context, tenantID, conversationID string) (*Conversation, error)
+	getConversationItemsWithContentFn   func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error)
+	getConversationsWithoutSummaryFn    func(ctx context.Context, tenantID string, limit int) ([]ConversationForSummary, error)
+	getStaleActiveConversationsFn       func(ctx context.Context, tenantID string, staleDays int, limit int) ([]ConversationForSummary, error)
 }
 
 func (m *mockConversationRepository) UpsertConversation(ctx context.Context, conversation *Conversation) (string, error) {
@@ -89,6 +92,26 @@ func (m *mockConversationRepository) GetConversation(ctx context.Context, tenant
 	return nil, nil
 }
 
+func (m *mockConversationRepository) GetConversationItemsWithContent(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+	if m.getConversationItemsWithContentFn != nil {
+		return m.getConversationItemsWithContentFn(ctx, conversationID, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockConversationRepository) GetConversationsWithoutSummary(ctx context.Context, tenantID string, limit int) ([]ConversationForSummary, error) {
+	if m.getConversationsWithoutSummaryFn != nil {
+		return m.getConversationsWithoutSummaryFn(ctx, tenantID, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockConversationRepository) GetStaleActiveConversations(ctx context.Context, tenantID string, staleDays int, limit int) ([]ConversationForSummary, error) {
+	if m.getStaleActiveConversationsFn != nil {
+		return m.getStaleActiveConversationsFn(ctx, tenantID, staleDays, limit)
+	}
+	return nil, nil
+}
 
 // TestLinkConversation_CreateNewConversation tests creating a new conversation from thread data.
 func TestLinkConversation_CreateNewConversation(t *testing.T) {
@@ -720,7 +743,7 @@ func TestLinkConversation_TriggersSummaryGeneration(t *testing.T) {
 			summaryPersisted = true
 			capturedSummary = summary
 			require.Equal(t, "conv-summary-1", conversationID)
-			require.Equal(t, int32(1), version) // First version
+			require.Equal(t, int32(1), version) // First version (0 + 1)
 			return nil
 		},
 		updateStateFn: func(ctx context.Context, conversationID, state, reason string) error {
@@ -730,16 +753,17 @@ func TestLinkConversation_TriggersSummaryGeneration(t *testing.T) {
 			require.Equal(t, "conv-summary-1", conversationID)
 			return nil
 		},
-		getConversationItemsFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
-			// Return empty for first message in conversation
-			return []ConversationItem{}, nil
+		getConversationItemsWithContentFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+			return []ConversationItemWithContent{
+				{ContentID: contentID, ContentText: "Discussion about project milestones", Subject: "Project Discussion", From: "alice@example.com"},
+			}, nil
 		},
 		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
-			// Return conversation with no existing summary
 			return &Conversation{
-				ID:       conversationID,
-				TenantID: tenantID,
-				Topic:    "Project Discussion",
+				ID:             conversationID,
+				TenantID:       tenantID,
+				Topic:          "Project Discussion",
+				SummaryVersion: 0,
 			}, nil
 		},
 	}
@@ -747,16 +771,12 @@ func TestLinkConversation_TriggersSummaryGeneration(t *testing.T) {
 	mockAIClient := &mockAIClient{
 		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
 			summaryCalled = true
-			// Verify request includes content
 			require.NotEmpty(t, req.Content)
-			inputTokens := int32(150)
-			outputTokens := int32(50)
+			// Return JSON structured response
 			return &aiv1.SummaryResponse{
-				Summary:      "Discussion about project milestones and next steps.",
-				KeyPoints:    []string{"Project timeline", "Team assignments"},
-				ModelUsed:    "llama3.2",
-				InputTokens:  &inputTokens,
-				OutputTokens: &outputTokens,
+				Summary:   `{"summary":"Discussion about project milestones and next steps.","state":"active","state_reason":"Ongoing project discussion"}`,
+				KeyPoints: []string{"Project timeline", "Team assignments"},
+				ModelUsed: "llama3.2",
 			}, nil
 		},
 	}
@@ -820,6 +840,7 @@ func TestLinkConversation_SummaryWithExistingContent(t *testing.T) {
 	var llmPrompt string
 	summaryCalled := false
 
+	existingSummary := "Initial discussion about project milestones."
 	mockConvRepo := &mockConversationRepository{
 		upsertConversationFn: func(ctx context.Context, conversation *Conversation) (string, error) {
 			return "conv-existing-1", nil
@@ -839,21 +860,21 @@ func TestLinkConversation_SummaryWithExistingContent(t *testing.T) {
 		updateStateFn: func(ctx context.Context, conversationID, state, reason string) error {
 			return nil
 		},
-		getConversationItemsFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
-			// Return 3 existing items
-			return []ConversationItem{
-				{ConversationID: conversationID, ContentID: "cnt-existing-1"},
-				{ConversationID: conversationID, ContentID: "cnt-existing-2"},
-				{ConversationID: conversationID, ContentID: "cnt-existing-3"},
+		getConversationItemsWithContentFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+			return []ConversationItemWithContent{
+				{ContentID: "cnt-existing-1", ContentText: "First email about project", Subject: "Project Discussion", From: "alice@example.com"},
+				{ContentID: "cnt-existing-2", ContentText: "Reply with updates", Subject: "Re: Project Discussion", From: "bob@example.com"},
+				{ContentID: "cnt-existing-3", ContentText: "Follow up on timeline", Subject: "Re: Project Discussion", From: "alice@example.com"},
+				{ContentID: contentID, ContentText: "New input about resources", Subject: "Re: Project Discussion", From: "bob@example.com"},
 			}, nil
 		},
 		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
-			// Return conversation (note: StateSummary field doesn't exist in Conversation yet)
-			// The implementation will need to fetch this separately or extend the type
 			return &Conversation{
-				ID:       conversationID,
-				TenantID: tenantID,
-				Topic:    "Project Discussion",
+				ID:             conversationID,
+				TenantID:       tenantID,
+				Topic:          "Project Discussion",
+				StateSummary:   &existingSummary,
+				SummaryVersion: 3,
 			}, nil
 		},
 	}
@@ -862,11 +883,9 @@ func TestLinkConversation_SummaryWithExistingContent(t *testing.T) {
 		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
 			summaryCalled = true
 			llmPrompt = req.Content
-			// Verify prompt includes references to conversation items
-			// Note: The exact format will be defined in implementation
 			require.NotEmpty(t, req.Content, "Prompt should not be empty")
 			return &aiv1.SummaryResponse{
-				Summary:   "Updated discussion including new inputs about timeline.",
+				Summary:   `{"summary":"Updated discussion including new inputs about timeline.","state":"active","state_reason":"Ongoing discussion"}`,
 				KeyPoints: []string{"Timeline", "Resources"},
 				ModelUsed: "llama3.2",
 			}, nil
@@ -940,23 +959,26 @@ func TestLinkConversation_StateTransition(t *testing.T) {
 			capturedReason = reason
 			return nil
 		},
-		getConversationItemsFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
-			return []ConversationItem{}, nil
+		getConversationItemsWithContentFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+			return []ConversationItemWithContent{
+				{ContentID: contentID, ContentText: "Project is blocked waiting for vendor pricing", Subject: "Project Blocked", From: "alice@example.com"},
+			}, nil
 		},
 		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
 			return &Conversation{
-				ID:       conversationID,
-				TenantID: tenantID,
-				Topic:    "Project Blocked",
+				ID:             conversationID,
+				TenantID:       tenantID,
+				Topic:          "Project Blocked",
+				SummaryVersion: 0,
 			}, nil
 		},
 	}
 
 	mockAIClient := &mockAIClient{
 		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
-			// Return a response that indicates the conversation is stalled
+			// Return a JSON response that indicates the conversation is stalled
 			return &aiv1.SummaryResponse{
-				Summary:   "Project is blocked waiting for external dependencies.",
+				Summary:   `{"summary":"Project is blocked waiting for external dependencies.","state":"stalled","state_reason":"Waiting on vendor pricing"}`,
 				KeyPoints: []string{"Blocked", "External dependency"},
 				ModelUsed: "llama3.2",
 			}, nil
@@ -1035,14 +1057,17 @@ func TestLinkConversation_SummaryFailureNonBlocking(t *testing.T) {
 			t.Fatal("UpdateState should not be called when LLM fails")
 			return nil
 		},
-		getConversationItemsFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
-			return []ConversationItem{}, nil
+		getConversationItemsWithContentFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+			return []ConversationItemWithContent{
+				{ContentID: contentID, ContentText: "Test content", Subject: "Test Subject", From: "alice@example.com"},
+			}, nil
 		},
 		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
 			return &Conversation{
-				ID:       conversationID,
-				TenantID: tenantID,
-				Topic:    "Test Subject",
+				ID:             conversationID,
+				TenantID:       tenantID,
+				Topic:          "Test Subject",
+				SummaryVersion: 0,
 			}, nil
 		},
 	}
@@ -1306,14 +1331,15 @@ func TestLinkConversation_TypedNilAIClient_ReturnsOutput(t *testing.T) {
 		},
 		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
 			return &Conversation{
-				ID:       conversationID,
-				TenantID: tenantID,
-				Topic:    "Typed Nil AI Test",
+				ID:             conversationID,
+				TenantID:       tenantID,
+				Topic:          "Typed Nil AI Test",
+				SummaryVersion: 0,
 			}, nil
 		},
-		getConversationItemsFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItem, error) {
-			return []ConversationItem{
-				{ConversationID: conversationID, ContentID: "cnt-prev-1"},
+		getConversationItemsWithContentFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+			return []ConversationItemWithContent{
+				{ContentID: "cnt-prev-1", ContentText: "Previous content"},
 			}, nil
 		},
 	}
@@ -1457,4 +1483,408 @@ func TestLinkConversation_ParticipantDedup_OnReprocess(t *testing.T) {
 	require.Equal(t, 1, cleanCallCount,
 		"CleanInvalidParticipants must be called once per LinkConversation invocation "+
 			"to remove garbage participant entries from old parser (bug pf-8d613c)")
+}
+
+// =============================================================================
+// buildSummaryPrompt Tests
+// =============================================================================
+
+func TestBuildSummaryPrompt_IncludesContent(t *testing.T) {
+	items := []ConversationItemWithContent{
+		{
+			ContentID:   "cnt-1",
+			ContentText: "Hi team, let's discuss the project timeline.",
+			Subject:     "Project Timeline",
+			From:        "alice@example.com",
+		},
+		{
+			ContentID:   "cnt-2",
+			ContentText: "I think we should target Q2 for delivery.",
+			Subject:     "Re: Project Timeline",
+			From:        "bob@example.com",
+		},
+	}
+
+	prompt := buildSummaryPrompt("Project Timeline", nil, items)
+
+	require.Contains(t, prompt, "Project Timeline")
+	require.Contains(t, prompt, "alice@example.com")
+	require.Contains(t, prompt, "bob@example.com")
+	require.Contains(t, prompt, "discuss the project timeline")
+	require.Contains(t, prompt, "target Q2")
+	require.Contains(t, prompt, `"summary"`)
+	require.Contains(t, prompt, `"state"`)
+	require.Contains(t, prompt, `"state_reason"`)
+}
+
+func TestBuildSummaryPrompt_IncludesExistingSummary(t *testing.T) {
+	existing := "Previous discussion about milestones."
+	items := []ConversationItemWithContent{
+		{ContentID: "cnt-1", ContentText: "New update"},
+	}
+
+	prompt := buildSummaryPrompt("Topic", &existing, items)
+
+	require.Contains(t, prompt, "Previous summary:")
+	require.Contains(t, prompt, "Previous discussion about milestones.")
+}
+
+func TestBuildSummaryPrompt_TruncatesLongContent(t *testing.T) {
+	longContent := ""
+	for i := 0; i < 200; i++ {
+		longContent += "word "
+	}
+	items := []ConversationItemWithContent{
+		{ContentID: "cnt-1", ContentText: longContent},
+	}
+
+	prompt := buildSummaryPrompt("Topic", nil, items)
+
+	// Content should be truncated to maxContentPerItem + "..."
+	require.Contains(t, prompt, "...")
+	// But should not contain the full content
+	require.Less(t, len(prompt), len(longContent)+500)
+}
+
+// =============================================================================
+// parseSummaryResponse Tests
+// =============================================================================
+
+func TestParseSummaryResponse_JSON(t *testing.T) {
+	resp := &aiv1.SummaryResponse{
+		Summary: `{"summary":"Project kickoff complete, awaiting vendor proposals.","state":"active","state_reason":"Waiting on three vendor proposals due next week"}`,
+	}
+
+	summary, state, reason := parseSummaryResponse(resp)
+
+	require.Equal(t, "Project kickoff complete, awaiting vendor proposals.", summary)
+	require.Equal(t, "active", state)
+	require.Equal(t, "Waiting on three vendor proposals due next week", reason)
+}
+
+func TestParseSummaryResponse_JSONStalled(t *testing.T) {
+	resp := &aiv1.SummaryResponse{
+		Summary: `{"summary":"Discussion about pricing stalled.","state":"stalled","state_reason":"Waiting on Tim for pricing"}`,
+	}
+
+	summary, state, reason := parseSummaryResponse(resp)
+
+	require.Equal(t, "Discussion about pricing stalled.", summary)
+	require.Equal(t, "stalled", state)
+	require.Equal(t, "Waiting on Tim for pricing", reason)
+}
+
+func TestParseSummaryResponse_JSONResolved(t *testing.T) {
+	resp := &aiv1.SummaryResponse{
+		Summary: `{"summary":"Contract signed with Acme Corp.","state":"resolved","state_reason":"Contract executed, no further action needed"}`,
+	}
+
+	_, state, _ := parseSummaryResponse(resp)
+	require.Equal(t, "resolved", state)
+}
+
+func TestParseSummaryResponse_FallbackKeywords(t *testing.T) {
+	// When JSON parsing fails, fall back to keyword detection
+	resp := &aiv1.SummaryResponse{
+		Summary:   "The project is blocked waiting for external resources.",
+		KeyPoints: []string{"Blocked on vendor"},
+	}
+
+	_, state, reason := parseSummaryResponse(resp)
+
+	require.Equal(t, "stalled", state)
+	require.Equal(t, "Blocked on vendor", reason)
+}
+
+func TestParseSummaryResponse_FallbackNoKeywords(t *testing.T) {
+	resp := &aiv1.SummaryResponse{
+		Summary: "Ongoing discussion about features.",
+	}
+
+	_, state, reason := parseSummaryResponse(resp)
+
+	require.Equal(t, "active", state)
+	require.Equal(t, "New message received", reason)
+}
+
+// =============================================================================
+// BackfillConversationSummaries Tests
+// =============================================================================
+
+func TestBackfillConversationSummaries_ProcessesConversations(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	var summaryIDs []string
+	var stateIDs []string
+
+	mockConvRepo := &mockConversationRepository{
+		getConversationsWithoutSummaryFn: func(ctx context.Context, tenantID string, limit int) ([]ConversationForSummary, error) {
+			return []ConversationForSummary{
+				{ID: "conv-1", TenantID: "test-tenant", Topic: "Topic 1", ItemCount: 3},
+				{ID: "conv-2", TenantID: "test-tenant", Topic: "Topic 2", ItemCount: 1},
+			}, nil
+		},
+		getConversationItemsWithContentFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+			return []ConversationItemWithContent{
+				{ContentID: "cnt-1", ContentText: "Email content", Subject: "Subject", From: "alice@example.com"},
+			}, nil
+		},
+		updateSummaryFn: func(ctx context.Context, conversationID, summary string, version int32) error {
+			summaryIDs = append(summaryIDs, conversationID)
+			return nil
+		},
+		updateStateFn: func(ctx context.Context, conversationID, state, reason string) error {
+			stateIDs = append(stateIDs, conversationID)
+			return nil
+		},
+	}
+
+	mockAIClient := &mockAIClient{
+		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
+			return &aiv1.SummaryResponse{
+				Summary: `{"summary":"Test summary","state":"active","state_reason":"New discussion"}`,
+			}, nil
+		},
+	}
+
+	activities := NewConversationActivities(logger, &mockSourceRepository{}, mockConvRepo, mockAIClient)
+
+	output, err := activities.BackfillConversationSummaries(context.Background(), BackfillConversationSummariesInput{
+		TenantID: "test-tenant",
+		Limit:    100,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	require.Equal(t, 2, output.Processed)
+	require.Equal(t, 0, output.Failed)
+	require.Equal(t, 0, output.Skipped)
+	require.Len(t, summaryIDs, 2)
+	require.Len(t, stateIDs, 2)
+	require.Contains(t, summaryIDs, "conv-1")
+	require.Contains(t, summaryIDs, "conv-2")
+}
+
+func TestBackfillConversationSummaries_SkipsEmpty(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	mockConvRepo := &mockConversationRepository{
+		getConversationsWithoutSummaryFn: func(ctx context.Context, tenantID string, limit int) ([]ConversationForSummary, error) {
+			return []ConversationForSummary{
+				{ID: "conv-empty", TenantID: "test-tenant", Topic: "Empty", ItemCount: 1},
+			}, nil
+		},
+		getConversationItemsWithContentFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+			return nil, nil // no items
+		},
+	}
+
+	activities := NewConversationActivities(logger, &mockSourceRepository{}, mockConvRepo, &mockAIClient{})
+
+	output, err := activities.BackfillConversationSummaries(context.Background(), BackfillConversationSummariesInput{
+		TenantID: "test-tenant",
+		Limit:    100,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 0, output.Processed)
+	require.Equal(t, 1, output.Skipped)
+}
+
+func TestBackfillConversationSummaries_RequiresAIClient(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	activities := NewConversationActivities(logger, &mockSourceRepository{}, &mockConversationRepository{}, nil)
+
+	_, err := activities.BackfillConversationSummaries(context.Background(), BackfillConversationSummariesInput{
+		TenantID: "test-tenant",
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "AI client is required")
+}
+
+// =============================================================================
+// RegenerateConversationSummary Tests
+// =============================================================================
+
+func TestRegenerateConversationSummary_RebuildFromScratch(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	var capturedVersion int32
+	var capturedSummary string
+
+	mockConvRepo := &mockConversationRepository{
+		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
+			existingSummary := "Old summary that should be replaced"
+			return &Conversation{
+				ID:             conversationID,
+				TenantID:       tenantID,
+				Topic:          "Contract Negotiation",
+				StateSummary:   &existingSummary,
+				SummaryVersion: 5,
+				ItemCount:      3,
+			}, nil
+		},
+		getConversationItemsWithContentFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+			return []ConversationItemWithContent{
+				{ContentID: "cnt-1", ContentText: "Initial proposal", Subject: "Contract", From: "alice@example.com"},
+				{ContentID: "cnt-2", ContentText: "Counter offer", Subject: "Re: Contract", From: "bob@example.com"},
+				{ContentID: "cnt-3", ContentText: "Agreement reached", Subject: "Re: Contract", From: "alice@example.com"},
+			}, nil
+		},
+		updateSummaryFn: func(ctx context.Context, conversationID, summary string, version int32) error {
+			capturedSummary = summary
+			capturedVersion = version
+			return nil
+		},
+		updateStateFn: func(ctx context.Context, conversationID, state, reason string) error {
+			return nil
+		},
+	}
+
+	mockAIClient := &mockAIClient{
+		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
+			// Verify prompt does NOT include existing summary (regeneration)
+			require.NotContains(t, req.Content, "Previous summary:")
+			return &aiv1.SummaryResponse{
+				Summary: `{"summary":"Contract negotiation completed with agreement.","state":"resolved","state_reason":"Agreement reached by both parties"}`,
+			}, nil
+		},
+	}
+
+	activities := NewConversationActivities(logger, &mockSourceRepository{}, mockConvRepo, mockAIClient)
+
+	output, err := activities.RegenerateConversationSummary(context.Background(), RegenerateConversationSummaryInput{
+		TenantID:       "test-tenant",
+		ConversationID: "conv-regen-1",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	require.Equal(t, "resolved", output.State)
+	require.Equal(t, int32(3), capturedVersion, "Version should equal item count on regeneration")
+	require.Equal(t, 3, output.ItemCount)
+	require.NotEmpty(t, capturedSummary)
+}
+
+func TestRegenerateConversationSummary_EmptyConversation(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	mockConvRepo := &mockConversationRepository{
+		getConversationFn: func(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
+			return &Conversation{
+				ID:       conversationID,
+				TenantID: tenantID,
+				Topic:    "Empty",
+			}, nil
+		},
+		getConversationItemsWithContentFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+			return nil, nil
+		},
+	}
+
+	activities := NewConversationActivities(logger, &mockSourceRepository{}, mockConvRepo, &mockAIClient{})
+
+	output, err := activities.RegenerateConversationSummary(context.Background(), RegenerateConversationSummaryInput{
+		TenantID:       "test-tenant",
+		ConversationID: "conv-empty",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "unknown", output.State)
+	require.Equal(t, 0, output.ItemCount)
+}
+
+// =============================================================================
+// CheckStaleConversations Tests
+// =============================================================================
+
+func TestCheckStaleConversations_TransitionsStalled(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	var transitionedIDs []string
+
+	mockConvRepo := &mockConversationRepository{
+		getStaleActiveConversationsFn: func(ctx context.Context, tenantID string, staleDays int, limit int) ([]ConversationForSummary, error) {
+			existingSummary := "Discussion about vendor pricing"
+			return []ConversationForSummary{
+				{ID: "conv-stale-1", TenantID: "test-tenant", Topic: "Vendor Pricing", StateSummary: &existingSummary, ItemCount: 5},
+			}, nil
+		},
+		getConversationItemsWithContentFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+			return []ConversationItemWithContent{
+				{ContentID: "cnt-1", ContentText: "Waiting on vendor to respond", Subject: "Vendor Pricing", From: "alice@example.com"},
+			}, nil
+		},
+		updateStateFn: func(ctx context.Context, conversationID, state, reason string) error {
+			transitionedIDs = append(transitionedIDs, conversationID)
+			return nil
+		},
+	}
+
+	mockAIClient := &mockAIClient{
+		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
+			return &aiv1.SummaryResponse{
+				Summary: `{"summary":"Vendor pricing discussion","state":"stalled","state_reason":"No response from vendor in 3 weeks"}`,
+			}, nil
+		},
+	}
+
+	activities := NewConversationActivities(logger, &mockSourceRepository{}, mockConvRepo, mockAIClient)
+
+	output, err := activities.CheckStaleConversations(context.Background(), CheckStaleConversationsInput{
+		TenantID:  "test-tenant",
+		StaleDays: 14,
+		Limit:     100,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, output.Checked)
+	require.Equal(t, 1, output.Transitioned)
+	require.Equal(t, 0, output.Failed)
+	require.Contains(t, transitionedIDs, "conv-stale-1")
+}
+
+func TestCheckStaleConversations_KeepsActive(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	stateUpdated := false
+
+	mockConvRepo := &mockConversationRepository{
+		getStaleActiveConversationsFn: func(ctx context.Context, tenantID string, staleDays int, limit int) ([]ConversationForSummary, error) {
+			return []ConversationForSummary{
+				{ID: "conv-still-active", TenantID: "test-tenant", Topic: "Active Topic", ItemCount: 3},
+			}, nil
+		},
+		getConversationItemsWithContentFn: func(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+			return []ConversationItemWithContent{
+				{ContentID: "cnt-1", ContentText: "Still relevant discussion", Subject: "Active Topic", From: "alice@example.com"},
+			}, nil
+		},
+		updateStateFn: func(ctx context.Context, conversationID, state, reason string) error {
+			stateUpdated = true
+			return nil
+		},
+	}
+
+	mockAIClient := &mockAIClient{
+		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
+			return &aiv1.SummaryResponse{
+				Summary: `{"summary":"Discussion still ongoing","state":"active","state_reason":"Expected follow-up next month"}`,
+			}, nil
+		},
+	}
+
+	activities := NewConversationActivities(logger, &mockSourceRepository{}, mockConvRepo, mockAIClient)
+
+	output, err := activities.CheckStaleConversations(context.Background(), CheckStaleConversationsInput{
+		TenantID:  "test-tenant",
+		StaleDays: 14,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, output.Checked)
+	require.Equal(t, 0, output.Transitioned, "Should not transition when LLM says still active")
+	require.False(t, stateUpdated, "State should not be updated when remaining active")
 }

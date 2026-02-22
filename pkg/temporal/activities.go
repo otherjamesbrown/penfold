@@ -27,9 +27,12 @@ const (
 	ActivityRecordOverrides          = "RecordOverrides"
 	ActivityGroupEmailThread         = "GroupEmailThread"
 	ActivityCreateEnrichmentRecord   = "CreateEnrichmentRecord"
-	ActivityLinkConversation         = "LinkConversation"
-	ActivityKickNextPending          = "KickNextPending"
-	ActivityRecordSkippedStage       = "RecordSkippedStage"
+	ActivityLinkConversation                = "LinkConversation"
+	ActivityBackfillConversationSummaries  = "BackfillConversationSummaries"
+	ActivityRegenerateConversationSummary  = "RegenerateConversationSummary"
+	ActivityCheckStaleConversations        = "CheckStaleConversations"
+	ActivityKickNextPending                = "KickNextPending"
+	ActivityRecordSkippedStage             = "RecordSkippedStage"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -92,6 +95,9 @@ func AllMainQueueActivities() []string {
 		ActivityGroupEmailThread,
 		ActivityCreateEnrichmentRecord,
 		ActivityLinkConversation,
+		ActivityBackfillConversationSummaries,
+		ActivityRegenerateConversationSummary,
+		ActivityCheckStaleConversations,
 		ActivityCreateLangfuseTrace,
 		ActivityReportLangfusePhase,
 		ActivityFinishLangfuseTrace,

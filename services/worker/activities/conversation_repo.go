@@ -185,10 +185,11 @@ func (r *PostgresConversationRepository) GetConversationItems(ctx context.Contex
 	return items, rows.Err()
 }
 
-// GetConversation returns a conversation by ID.
+// GetConversation returns a conversation by ID, including summary fields.
 func (r *PostgresConversationRepository) GetConversation(ctx context.Context, tenantID, conversationID string) (*Conversation, error) {
 	query := `
-		SELECT id, tenant_id, thread_key, topic
+		SELECT id, tenant_id, thread_key, topic,
+			state_summary, summary_version, item_count
 		FROM conversations
 		WHERE id = $1 AND tenant_id = $2
 	`
@@ -196,6 +197,7 @@ func (r *PostgresConversationRepository) GetConversation(ctx context.Context, te
 	var conv Conversation
 	err := r.pool.QueryRow(ctx, query, conversationID, tenantID).Scan(
 		&conv.ID, &conv.TenantID, &conv.ThreadKey, &conv.Topic,
+		&conv.StateSummary, &conv.SummaryVersion, &conv.ItemCount,
 	)
 	if err != nil {
 		if err.Error() == "no rows in result set" {
@@ -222,6 +224,107 @@ func (r *PostgresConversationRepository) CleanInvalidParticipants(ctx context.Co
 		return 0, fmt.Errorf("failed to clean invalid conversation participants: %w", err)
 	}
 	return tag.RowsAffected(), nil
+}
+
+// GetConversationItemsWithContent returns items joined with source content text.
+func (r *PostgresConversationRepository) GetConversationItemsWithContent(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error) {
+	query := `
+		SELECT ci.content_id, ci.source_id, ci.added_at,
+			COALESCE(s.raw_content, ''),
+			COALESCE(s.ingestion_metadata->>'subject', ''),
+			COALESCE(s.ingestion_metadata->>'from', '')
+		FROM conversation_items ci
+		LEFT JOIN sources s ON ci.source_id = s.id
+		WHERE ci.conversation_id = $1
+		ORDER BY ci.added_at ASC
+		LIMIT $2
+	`
+
+	rows, err := r.pool.Query(ctx, query, conversationID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation items with content: %w", err)
+	}
+	defer rows.Close()
+
+	var items []ConversationItemWithContent
+	for rows.Next() {
+		var item ConversationItemWithContent
+		if err := rows.Scan(
+			&item.ContentID, &item.SourceID, &item.AddedAt,
+			&item.ContentText, &item.Subject, &item.From,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan conversation item with content: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// GetConversationsWithoutSummary returns conversations that have items but no summary.
+func (r *PostgresConversationRepository) GetConversationsWithoutSummary(ctx context.Context, tenantID string, limit int) ([]ConversationForSummary, error) {
+	query := `
+		SELECT id, tenant_id, topic, item_count,
+			state_summary, summary_version, last_seen
+		FROM conversations
+		WHERE tenant_id = $1
+			AND (state_summary IS NULL OR state_summary = '')
+			AND item_count > 0
+		ORDER BY created_at ASC
+		LIMIT $2
+	`
+
+	rows, err := r.pool.Query(ctx, query, tenantID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversations without summary: %w", err)
+	}
+	defer rows.Close()
+
+	var conversations []ConversationForSummary
+	for rows.Next() {
+		var conv ConversationForSummary
+		if err := rows.Scan(
+			&conv.ID, &conv.TenantID, &conv.Topic, &conv.ItemCount,
+			&conv.StateSummary, &conv.SummaryVersion, &conv.LastSeen,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan conversation for summary: %w", err)
+		}
+		conversations = append(conversations, conv)
+	}
+	return conversations, rows.Err()
+}
+
+// GetStaleActiveConversations returns conversations in 'active' state with no
+// activity for the given number of days.
+func (r *PostgresConversationRepository) GetStaleActiveConversations(ctx context.Context, tenantID string, staleDays int, limit int) ([]ConversationForSummary, error) {
+	query := `
+		SELECT id, tenant_id, topic, item_count,
+			state_summary, summary_version, last_seen
+		FROM conversations
+		WHERE tenant_id = $1
+			AND state = 'active'
+			AND last_seen < NOW() - ($2 || ' days')::interval
+		ORDER BY last_seen ASC
+		LIMIT $3
+	`
+
+	rows, err := r.pool.Query(ctx, query, tenantID, staleDays, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stale active conversations: %w", err)
+	}
+	defer rows.Close()
+
+	var conversations []ConversationForSummary
+	for rows.Next() {
+		var conv ConversationForSummary
+		if err := rows.Scan(
+			&conv.ID, &conv.TenantID, &conv.Topic, &conv.ItemCount,
+			&conv.StateSummary, &conv.SummaryVersion, &conv.LastSeen,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan stale conversation: %w", err)
+		}
+		conversations = append(conversations, conv)
+	}
+	return conversations, rows.Err()
 }
 
 // Ensure PostgresConversationRepository implements ConversationRepository at compile time.

@@ -433,6 +433,28 @@ type ConversationItem struct {
 	TenantID       string
 }
 
+// ConversationItemWithContent extends ConversationItem with source content text
+// for use in summary prompt construction.
+type ConversationItemWithContent struct {
+	ContentID   string
+	SourceID    *int64
+	AddedAt     time.Time
+	ContentText string // raw_content from sources table
+	Subject     string // ingestion_metadata->>'subject'
+	From        string // ingestion_metadata->>'from'
+}
+
+// ConversationForSummary is a lightweight conversation record for backfill/stale queries.
+type ConversationForSummary struct {
+	ID             string
+	TenantID       string
+	Topic          string
+	ItemCount      int32
+	StateSummary   *string
+	SummaryVersion int32
+	LastSeen       *time.Time
+}
+
 // ConversationRepository defines the interface for conversation data access.
 type ConversationRepository interface {
 	// UpsertConversation creates or updates a conversation.
@@ -466,4 +488,15 @@ type ConversationRepository interface {
 
 	// GetConversation returns a conversation by ID.
 	GetConversation(ctx context.Context, tenantID, conversationID string) (*Conversation, error)
+
+	// GetConversationItemsWithContent returns items joined with source content text.
+	// Used for building summary prompts with actual email content.
+	GetConversationItemsWithContent(ctx context.Context, conversationID string, limit int) ([]ConversationItemWithContent, error)
+
+	// GetConversationsWithoutSummary returns conversations that have items but no summary.
+	GetConversationsWithoutSummary(ctx context.Context, tenantID string, limit int) ([]ConversationForSummary, error)
+
+	// GetStaleActiveConversations returns conversations in 'active' state with no activity
+	// for the given number of days.
+	GetStaleActiveConversations(ctx context.Context, tenantID string, staleDays int, limit int) ([]ConversationForSummary, error)
 }

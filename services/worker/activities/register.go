@@ -303,10 +303,19 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
-	// Conversation activities for conversation auto-linking
+	// Conversation activities for conversation auto-linking and management
 	if r.conversationActivities != nil {
 		w.RegisterActivityWithOptions(r.conversationActivities.LinkConversation, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityLinkConversation,
+		})
+		w.RegisterActivityWithOptions(r.conversationActivities.BackfillConversationSummaries, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityBackfillConversationSummaries,
+		})
+		w.RegisterActivityWithOptions(r.conversationActivities.RegenerateConversationSummary, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityRegenerateConversationSummary,
+		})
+		w.RegisterActivityWithOptions(r.conversationActivities.CheckStaleConversations, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityCheckStaleConversations,
 		})
 	}
 
@@ -484,9 +493,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.enrichmentActivities != nil {
 			count += 1
 		}
-		// LinkConversation
+		// LinkConversation, BackfillConversationSummaries, RegenerateConversationSummary, CheckStaleConversations
 		if r.conversationActivities != nil {
-			count += 1
+			count += 4
 		}
 		// CreateLangfuseTrace, ReportLangfusePhase, FinishLangfuseTrace, PersistLangfuseTraceID, UpdateLangfuseTraceTags
 		if r.langfuseActivities != nil {

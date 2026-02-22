@@ -200,6 +200,15 @@ func (r *regVerifyConvRepo) GetConversation(context.Context, string, string) (*C
 func (r *regVerifyConvRepo) CleanInvalidParticipants(context.Context, string, string) (int64, error) {
 	return 0, nil
 }
+func (r *regVerifyConvRepo) GetConversationItemsWithContent(context.Context, string, int) ([]ConversationItemWithContent, error) {
+	return nil, nil
+}
+func (r *regVerifyConvRepo) GetConversationsWithoutSummary(context.Context, string, int) ([]ConversationForSummary, error) {
+	return nil, nil
+}
+func (r *regVerifyConvRepo) GetStaleActiveConversations(context.Context, string, int, int) ([]ConversationForSummary, error) {
+	return nil, nil
+}
 
 // Compile-time interface verification for stubs.
 var (
