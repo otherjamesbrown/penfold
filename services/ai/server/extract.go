@@ -169,18 +169,24 @@ func parseQualityGateResponse(jsonStr string) (*qualityGateResult, error) {
 }
 
 // buildNERPrompt constructs the NER extraction prompt.
-func buildNERPrompt(content string) string {
-	return fmt.Sprintf(nerPromptTemplate, content)
+// Tries the DB prompt store for stage "extract_ner"; falls back to nerPromptTemplate on error.
+func (s *AIServer) buildNERPrompt(ctx context.Context, content string) string {
+	tmpl := s.getPrompt(ctx, "extract_ner", nerPromptTemplate)
+	return fmt.Sprintf(tmpl, content)
 }
 
 // buildSemanticPrompt constructs the semantic extraction prompt.
-func buildSemanticPrompt(content string) string {
-	return fmt.Sprintf(semanticPromptTemplate, content)
+// Tries the DB prompt store for stage "extract_semantic"; falls back to semanticPromptTemplate on error.
+func (s *AIServer) buildSemanticPrompt(ctx context.Context, content string) string {
+	tmpl := s.getPrompt(ctx, "extract_semantic", semanticPromptTemplate)
+	return fmt.Sprintf(tmpl, content)
 }
 
 // buildQualityGatePrompt constructs the quality gate risk-focused prompt.
-func buildQualityGatePrompt(content string) string {
-	return fmt.Sprintf(qualityGateRiskPromptTemplate, content)
+// Tries the DB prompt store for stage "quality_gate_risk"; falls back to qualityGateRiskPromptTemplate on error.
+func (s *AIServer) buildQualityGatePrompt(ctx context.Context, content string) string {
+	tmpl := s.getPrompt(ctx, "quality_gate_risk", qualityGateRiskPromptTemplate)
+	return fmt.Sprintf(tmpl, content)
 }
 
 // ExtractEntities performs two-pass entity extraction from content.
@@ -235,7 +241,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var nerResult *backend.CompletionResult
 	var nerMessages []backend.Message
 	{
-		nerPrompt = buildNERPrompt(content)
+		nerPrompt = s.buildNERPrompt(ctx, content)
 		nerMessages = []backend.Message{
 			{Role: "user", Content: nerPrompt},
 		}
@@ -311,7 +317,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var semResult *backend.CompletionResult
 	var semMessages []backend.Message
 	{
-		semPrompt = buildSemanticPrompt(content)
+		semPrompt = s.buildSemanticPrompt(ctx, content)
 		semMessages = []backend.Message{
 			{Role: "user", Content: semPrompt},
 		}
@@ -395,7 +401,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 		qualityGateTriggered = true
 
-		qgPrompt := buildQualityGatePrompt(content)
+		qgPrompt := s.buildQualityGatePrompt(ctx, content)
 		messages := []backend.Message{
 			{Role: "user", Content: qgPrompt},
 		}

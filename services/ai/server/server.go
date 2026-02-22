@@ -14,6 +14,7 @@ import (
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
 	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/ai/backend"
 	"github.com/otherjamesbrown/penfold/services/ai/config"
@@ -24,16 +25,23 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// PromptStore is a minimal interface for retrieving active prompt templates by stage.
+// Version 0 means "return the active prompt"; version > 0 returns a specific version.
+type PromptStore interface {
+	GetPromptByStage(ctx context.Context, stage string, version int) (*pipeline.PromptTemplate, error)
+}
+
 // AIServer implements the AICoordinatorService gRPC server.
 type AIServer struct {
 	aiv1.UnimplementedAICoordinatorServiceServer
 
-	config   *config.Config
-	logger   logging.Logger
-	backend  backend.Backend          // Direct backend for backwards compatibility
-	router   *router.ModelRouter      // Multi-model routing (optional)
-	registry *registry.DBRegistry     // Model registry (optional)
-	langfuse *langfuse.Ingestion      // Langfuse generation reporting (optional, nil = disabled)
+	config      *config.Config
+	logger      logging.Logger
+	backend     backend.Backend       // Direct backend for backwards compatibility
+	router      *router.ModelRouter   // Multi-model routing (optional)
+	registry    *registry.DBRegistry  // Model registry (optional)
+	langfuse    *langfuse.Ingestion   // Langfuse generation reporting (optional, nil = disabled)
+	promptStore PromptStore           // DB-backed prompt store (optional, nil = use hardcoded fallbacks)
 }
 
 // NewAIServer creates a new AI server instance with a single backend.
@@ -92,6 +100,35 @@ func NewAIServerWithLangfuse(
 	s := NewAIServer(cfg, logger, be)
 	s.langfuse = lf
 	return s
+}
+
+// WithPromptStore sets the DB-backed prompt store on an existing AIServer.
+// Call this after constructing the server to enable DB-driven prompts with
+// hardcoded fallbacks when DB is unavailable.
+func (s *AIServer) WithPromptStore(ps PromptStore) *AIServer {
+	s.promptStore = ps
+	return s
+}
+
+// getPrompt retrieves the active prompt for the given stage from the DB prompt store.
+// If the store is not configured, the DB is unreachable, or no active prompt exists,
+// it falls back to the provided hardcoded default without failing the request.
+func (s *AIServer) getPrompt(ctx context.Context, stage, hardcoded string) string {
+	if s.promptStore == nil {
+		return hardcoded
+	}
+	pt, err := s.promptStore.GetPromptByStage(ctx, stage, 0)
+	if err != nil {
+		s.logger.Warn("prompt store lookup failed, using hardcoded fallback",
+			logging.F("stage", stage),
+			logging.Err(err),
+		)
+		return hardcoded
+	}
+	if pt == nil {
+		return hardcoded
+	}
+	return pt.Content
 }
 
 // extractLangfuseMetadata reads x-langfuse-trace-id and x-langfuse-phase-id from
@@ -240,7 +277,7 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 	}
 
 	// Build the system prompt based on style
-	systemPrompt := s.buildSummarySystemPrompt(req.GetStyle(), req.GetMaxLength())
+	systemPrompt := s.buildSummarySystemPrompt(ctx, req.GetStyle(), req.GetMaxLength())
 
 	messages := []backend.Message{
 		{Role: "system", Content: systemPrompt},
@@ -371,7 +408,7 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 		return nil, err
 	}
 
-	systemPrompt := s.buildAssertionSystemPrompt()
+	systemPrompt := s.buildAssertionSystemPrompt(ctx)
 	userPrompt := fmt.Sprintf("Extract assertions from the following content:\n\n%s", content)
 
 	messages := []backend.Message{
@@ -530,7 +567,7 @@ func (s *AIServer) ClassifyContent(ctx context.Context, req *aiv1.ClassifyConten
 		multiLabel = req.GetMultiLabel()
 	}
 
-	systemPrompt := s.buildClassificationSystemPrompt(categories, multiLabel)
+	systemPrompt := s.buildClassificationSystemPrompt(ctx, categories, multiLabel)
 	userPrompt := fmt.Sprintf("Classify the following content:\n\n%s", content)
 
 	messages := []backend.Message{
@@ -657,7 +694,7 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 	}
 
 	// Build the triage prompt
-	systemPrompt, userPrompt := buildTriagePrompt(req.GetSubject(), req.GetSender(), content)
+	systemPrompt, userPrompt := s.buildTriagePrompt(ctx, req.GetSubject(), req.GetSender(), content)
 
 	messages := []backend.Message{
 		{Role: "system", Content: systemPrompt},
@@ -993,7 +1030,7 @@ func selectBackend(model string) string {
 	return "ollama"
 }
 
-func (s *AIServer) buildSummarySystemPrompt(style aiv1.SummaryStyle, maxLength int32) string {
+func (s *AIServer) buildSummarySystemPrompt(ctx context.Context, style aiv1.SummaryStyle, maxLength int32) string {
 	var styleInstruction string
 	switch style {
 	case aiv1.SummaryStyle_SUMMARY_STYLE_BRIEF:
@@ -1013,7 +1050,7 @@ func (s *AIServer) buildSummarySystemPrompt(style aiv1.SummaryStyle, maxLength i
 		lengthInstruction = fmt.Sprintf(" Keep the summary under %d words.", maxLength)
 	}
 
-	return fmt.Sprintf(`You are a summarization assistant. %s%s
+	hardcoded := fmt.Sprintf(`You are a summarization assistant. %s%s
 
 After the summary, provide 3-5 key points as a JSON array.
 
@@ -1023,6 +1060,22 @@ SUMMARY:
 
 KEY_POINTS:
 ["point 1", "point 2", "point 3"]`, styleInstruction, lengthInstruction)
+
+	if s.promptStore != nil {
+		pt, err := s.promptStore.GetPromptByStage(ctx, "summary", 0)
+		if err == nil && pt != nil {
+			// Replace runtime placeholders in the DB template.
+			r := strings.NewReplacer(
+				"{style_instruction}", styleInstruction,
+				"{length_instruction}", lengthInstruction,
+			)
+			return r.Replace(pt.Content)
+		}
+		if err != nil {
+			s.logger.Warn("prompt store lookup failed for summary, using hardcoded fallback", logging.Err(err))
+		}
+	}
+	return hardcoded
 }
 
 func (s *AIServer) parseSummaryResponse(content string) (string, []string) {
@@ -1079,8 +1132,8 @@ func (s *AIServer) extractKeyPointsFallback(text string) []string {
 	return points
 }
 
-func (s *AIServer) buildAssertionSystemPrompt() string {
-	return `You are a business intelligence extraction assistant. Extract meaningful business assertions from the content as subject-predicate-object triples.
+func (s *AIServer) buildAssertionSystemPrompt(ctx context.Context) string {
+	const hardcoded = `You are a business intelligence extraction assistant. Extract meaningful business assertions from the content as subject-predicate-object triples.
 
 For each assertion, provide:
 - subject: The entity being discussed (a person, team, project, or system)
@@ -1121,6 +1174,7 @@ Respond with a JSON object:
     }
   ]
 }`
+	return s.getPrompt(ctx, "extract_assertions", hardcoded)
 }
 
 type assertionsJSON struct {
@@ -1176,7 +1230,7 @@ func (s *AIServer) parseAssertionsFallback(content string) []*aiv1.Assertion {
 	return []*aiv1.Assertion{}
 }
 
-func (s *AIServer) buildClassificationSystemPrompt(categories []string, multiLabel bool) string {
+func (s *AIServer) buildClassificationSystemPrompt(ctx context.Context, categories []string, multiLabel bool) string {
 	categoryInstruction := ""
 	if len(categories) > 0 {
 		categoryInstruction = fmt.Sprintf("Classify into these categories: %s\n", strings.Join(categories, ", "))
@@ -1191,7 +1245,7 @@ func (s *AIServer) buildClassificationSystemPrompt(categories []string, multiLab
 		multiLabelInstruction = "Choose only the single most appropriate category."
 	}
 
-	return fmt.Sprintf(`You are a content classification assistant. %s%s
+	hardcoded := fmt.Sprintf(`You are a content classification assistant. %s%s
 
 Respond with a JSON object:
 {
@@ -1205,6 +1259,22 @@ Respond with a JSON object:
 }
 
 Order classifications by confidence (highest first).`, categoryInstruction, multiLabelInstruction)
+
+	if s.promptStore != nil {
+		pt, err := s.promptStore.GetPromptByStage(ctx, "classification", 0)
+		if err == nil && pt != nil {
+			// Replace runtime placeholders in the DB template.
+			r := strings.NewReplacer(
+				"{category_instruction}", categoryInstruction,
+				"{multi_label_instruction}", multiLabelInstruction,
+			)
+			return r.Replace(pt.Content)
+		}
+		if err != nil {
+			s.logger.Warn("prompt store lookup failed for classification, using hardcoded fallback", logging.Err(err))
+		}
+	}
+	return hardcoded
 }
 
 type classificationsJSON struct {

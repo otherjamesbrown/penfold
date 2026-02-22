@@ -20,6 +20,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	"github.com/otherjamesbrown/penfold/pkg/models"
+	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/ai/backend"
 	"github.com/otherjamesbrown/penfold/services/ai/config"
@@ -68,9 +69,10 @@ func main() {
 	}
 	logger.Debug("gRPC port bound successfully", logging.F("address", cfg.GRPCAddr()))
 
-	// Optionally initialize database connection for dynamic model config
+	// Optionally initialize database connection for dynamic model config and prompt store
 	var dbPool *pgxpool.Pool
 	var modelRepo *models.Repository
+	var promptRepo *pipeline.Repository
 	if cfg.DBURL != "" {
 		logger.Info("Initializing database connection for model config",
 			logging.F("db_url", "<redacted>"),
@@ -104,7 +106,8 @@ func main() {
 		}
 
 		modelRepo = models.NewRepository(dbPool, logger)
-		logger.Info("Database connection established for model config")
+		promptRepo = pipeline.NewRepository(dbPool)
+		logger.Info("Database connection established for model config and prompt store")
 
 		// Note: DBConfigResolver requires a tenant ID for config resolution.
 		// In a multi-tenant system, this would come from request context.
@@ -235,6 +238,14 @@ func main() {
 
 	// Register AI service
 	aiServer := server.NewAIServerWithLangfuse(cfg, logger, compositeBackend, langfuseIngestion)
+	// Wire DB-backed prompt store if database is configured.
+	// The server falls back to hardcoded prompts when the store is nil or unavailable.
+	if promptRepo != nil {
+		aiServer.WithPromptStore(promptRepo)
+		logger.Info("DB-backed prompt store wired into AI server")
+	} else {
+		logger.Info("No DB configured — AI server will use hardcoded prompt fallbacks")
+	}
 	aiv1.RegisterAICoordinatorServiceServer(grpcServer, aiServer)
 
 	// Enable gRPC reflection for debugging

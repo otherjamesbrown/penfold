@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -62,8 +63,9 @@ Respond ONLY with JSON:
 
 // buildTriagePrompt constructs the triage prompt from subject, sender, and content.
 // Content is truncated to the first 500 characters as specified in the design.
-func buildTriagePrompt(subject, sender, content string) (systemPrompt, userPrompt string) {
-	systemPrompt = triagePromptTemplate
+// It tries the DB prompt store first; falls back to the hardcoded triagePromptTemplate on error.
+func (s *AIServer) buildTriagePrompt(ctx context.Context, subject, sender, content string) (systemPrompt, userPrompt string) {
+	systemPrompt = s.getPrompt(ctx, "triage", triagePromptTemplate)
 
 	// Truncate content to first 500 characters
 	truncatedContent := content

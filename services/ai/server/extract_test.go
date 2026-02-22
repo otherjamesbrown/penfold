@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"testing"
 )
 
@@ -259,8 +260,9 @@ func TestParseQualityGateResponse_Valid(t *testing.T) {
 }
 
 func TestBuildNERPrompt(t *testing.T) {
+	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	content := "Dan Spataro is the CEO of CLIC. Meeting on January 15th."
-	prompt := buildNERPrompt(content)
+	prompt := s.buildNERPrompt(context.Background(), content)
 
 	if !containsString(prompt, content) {
 		t.Errorf("buildNERPrompt() should contain the content")
@@ -274,8 +276,9 @@ func TestBuildNERPrompt(t *testing.T) {
 }
 
 func TestBuildSemanticPrompt(t *testing.T) {
+	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	content := "Alice should fix the bug by next week. We decided to approve the budget."
-	prompt := buildSemanticPrompt(content)
+	prompt := s.buildSemanticPrompt(context.Background(), content)
 
 	if !containsString(prompt, content) {
 		t.Errorf("buildSemanticPrompt() should contain the content")
@@ -289,8 +292,9 @@ func TestBuildSemanticPrompt(t *testing.T) {
 }
 
 func TestBuildQualityGatePrompt(t *testing.T) {
+	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	content := "There is a critical database outage affecting production."
-	prompt := buildQualityGatePrompt(content)
+	prompt := s.buildQualityGatePrompt(context.Background(), content)
 
 	if !containsString(prompt, content) {
 		t.Errorf("buildQualityGatePrompt() should contain the content")
