@@ -17,8 +17,8 @@ const (
 	// ScheduleIDStaleConversations is the Temporal schedule ID for stale conversation detection.
 	ScheduleIDStaleConversations = "conversation-stale-check"
 
-	// DefaultTenantID is the default tenant for single-tenant deployments.
-	DefaultTenantID = "00000001-0000-0000-0000-000000000001"
+	// DefaultTenantID is the primary tenant for the Penfold deployment.
+	DefaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
 )
 
 // ensureSchedules creates or updates Temporal schedules for recurring maintenance tasks.
