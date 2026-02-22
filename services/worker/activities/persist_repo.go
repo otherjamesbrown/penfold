@@ -392,14 +392,15 @@ func (r *PersistRepo) persistAction(ctx context.Context, tx pgx.Tx, input *Persi
 		output.AssertionsSuperseded++
 	} else {
 		// Insert new assertion
+		// confidence: deep-analysis results use 0.85 (more thorough than Stage 2 SLM extraction)
 		query := `
 			INSERT INTO assertions (
 				tenant_id, source_id, thread_id, project_id,
 				assertion_type, description, source_quote,
 				assignee_person_id, status, lifecycle_event,
-				assertion_root_id, is_current
+				assertion_root_id, is_current, confidence
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
 			) RETURNING id
 		`
 		err := tx.QueryRow(ctx, query,
@@ -408,6 +409,7 @@ func (r *PersistRepo) persistAction(ctx context.Context, tx pgx.Tx, input *Persi
 			assigneePersonID, "open", lifecycleEvent,
 			nil, // assertion_root_id will be updated below
 			true,
+			float32(0.85), // deep-analysis confidence
 		).Scan(&assertionID)
 		if err != nil {
 			return fmt.Errorf("failed to insert action assertion: %w", err)
@@ -463,13 +465,14 @@ func (r *PersistRepo) persistDecision(ctx context.Context, tx pgx.Tx, input *Per
 		output.AssertionsSuperseded++
 	} else {
 		// Insert new assertion
+		// confidence: deep-analysis results use 0.85 (more thorough than Stage 2 SLM extraction)
 		query := `
 			INSERT INTO assertions (
 				tenant_id, source_id, thread_id, project_id,
 				assertion_type, description, source_quote,
-				lifecycle_event, assertion_root_id, is_current
+				lifecycle_event, assertion_root_id, is_current, confidence
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 			) RETURNING id
 		`
 		err := tx.QueryRow(ctx, query,
@@ -478,6 +481,7 @@ func (r *PersistRepo) persistDecision(ctx context.Context, tx pgx.Tx, input *Per
 			lifecycleEvent,
 			nil, // assertion_root_id will be updated below
 			true,
+			float32(0.85), // deep-analysis confidence
 		).Scan(&assertionID)
 		if err != nil {
 			return fmt.Errorf("failed to insert decision assertion: %w", err)
@@ -556,14 +560,15 @@ func (r *PersistRepo) persistRisk(ctx context.Context, tx pgx.Tx, input *Persist
 		}
 
 		// Insert new version
+		// confidence: deep-analysis results use 0.85 (more thorough than Stage 2 SLM extraction)
 		query := `
 			INSERT INTO assertions (
 				tenant_id, source_id, thread_id, project_id,
 				assertion_type, description, source_quote,
 				owner_person_id, severity, lifecycle_event,
-				assertion_root_id, is_current
+				assertion_root_id, is_current, confidence
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
 			) RETURNING id
 		`
 		err := tx.QueryRow(ctx, query,
@@ -571,6 +576,7 @@ func (r *PersistRepo) persistRisk(ctx context.Context, tx pgx.Tx, input *Persist
 			assertionType, risk.Description, risk.ContextExcerpt,
 			ownerPersonID, risk.SeverityChange, lifecycleEvent,
 			rootID, true,
+			float32(0.85), // deep-analysis confidence
 		).Scan(&assertionID)
 		if err != nil {
 			return fmt.Errorf("failed to insert risk assertion version: %w", err)
@@ -591,14 +597,15 @@ func (r *PersistRepo) persistRisk(ctx context.Context, tx pgx.Tx, input *Persist
 		rootID = assertionID
 	} else {
 		// Insert new assertion
+		// confidence: deep-analysis results use 0.85 (more thorough than Stage 2 SLM extraction)
 		query := `
 			INSERT INTO assertions (
 				tenant_id, source_id, thread_id, project_id,
 				assertion_type, description, source_quote,
 				owner_person_id, lifecycle_event,
-				assertion_root_id, is_current
+				assertion_root_id, is_current, confidence
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 			) RETURNING id
 		`
 		err := tx.QueryRow(ctx, query,
@@ -607,6 +614,7 @@ func (r *PersistRepo) persistRisk(ctx context.Context, tx pgx.Tx, input *Persist
 			ownerPersonID, lifecycleEvent,
 			nil, // assertion_root_id will be updated below
 			true,
+			float32(0.85), // deep-analysis confidence
 		).Scan(&assertionID)
 		if err != nil {
 			return fmt.Errorf("failed to insert risk assertion: %w", err)
@@ -674,13 +682,14 @@ func (r *PersistRepo) persistImplicitAction(ctx context.Context, tx pgx.Tx, inpu
 		output.AssertionsSuperseded++
 	} else {
 		// Insert new assertion
+		// confidence: deep-analysis results use 0.85 (more thorough than Stage 2 SLM extraction)
 		query := `
 			INSERT INTO assertions (
 				tenant_id, source_id, thread_id, project_id,
 				assertion_type, description, source_quote,
-				status, lifecycle_event, assertion_root_id, is_current
+				status, lifecycle_event, assertion_root_id, is_current, confidence
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 			) RETURNING id
 		`
 		err := tx.QueryRow(ctx, query,
@@ -689,6 +698,7 @@ func (r *PersistRepo) persistImplicitAction(ctx context.Context, tx pgx.Tx, inpu
 			"open", lifecycleEvent,
 			nil, // assertion_root_id will be updated below
 			true,
+			float32(0.85), // deep-analysis confidence
 		).Scan(&assertionID)
 		if err != nil {
 			return fmt.Errorf("failed to insert implicit action assertion: %w", err)

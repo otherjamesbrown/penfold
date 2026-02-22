@@ -75,6 +75,10 @@ func (r *regVerifyAssertionRepo) StoreAssertions(context.Context, string, int64,
 	return 0, nil
 }
 
+func (r *regVerifyAssertionRepo) DeleteAssertions(context.Context, string, int64) (int, error) {
+	return 0, nil
+}
+
 type regVerifyEntityRepo struct{}
 
 func (r *regVerifyEntityRepo) StoreEntities(context.Context, string, int64, []*Entity) (int, error) {

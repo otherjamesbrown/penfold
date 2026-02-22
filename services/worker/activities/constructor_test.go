@@ -68,6 +68,10 @@ func (m *mockAssertionRepository) StoreAssertions(ctx context.Context, tenantID 
 	return 0, nil
 }
 
+func (m *mockAssertionRepository) DeleteAssertions(ctx context.Context, tenantID string, sourceID int64) (int, error) {
+	return 0, nil
+}
+
 // mockEntityRepository implements EntityRepository for testing.
 type mockEntityRepository struct{}
 
