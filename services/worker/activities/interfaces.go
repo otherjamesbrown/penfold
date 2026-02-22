@@ -113,6 +113,10 @@ type Summary struct {
 type AssertionRepository interface {
 	// StoreAssertions stores extracted assertions for a source.
 	StoreAssertions(ctx context.Context, tenantID string, sourceID int64, assertions []*Assertion, model string) (int, error)
+	// DeleteAssertions removes all assertions for a source. Used when reprocessing
+	// with skipExtract=true (e.g. auto-reply reclassification) to clean up stale data
+	// from a prior run that extracted assertions before the item was reclassified as NONE.
+	DeleteAssertions(ctx context.Context, tenantID string, sourceID int64) (int, error)
 }
 
 // Attribution represents a person's relationship to an assertion.

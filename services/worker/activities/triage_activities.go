@@ -233,6 +233,39 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			logging.F("pipelines", matchedPipelines),
 		)
 
+		// Record pipeline run for provenance tracking (pf-91b00d).
+		// Without this record, BuildProcessingStatus reads the previous run's parsed_data
+		// (which may show MEDIUM from a pre-fix ingestion) rather than the current NONE result.
+		if a.pipelineRepo != nil {
+			parsedJSON, _ := json.Marshal(output)
+			inputJSON, _ := json.Marshal(map[string]interface{}{
+				"content_length": len(input.Content),
+				"content_type":   input.ContentType,
+				"has_subject":    input.Subject != "",
+				"has_sender":     input.SenderEmail != "",
+				"tenant_id":      input.TenantID,
+			})
+			outputJSON, _ := json.Marshal(map[string]interface{}{
+				"category":   output.Category,
+				"importance": output.Importance,
+				"model_used": output.ModelUsed,
+			})
+			runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+				SourceID:   input.SourceID,
+				Stage:      "triage",
+				ModelID:    output.ModelUsed,
+				Status:     "completed",
+				DurationMS: 0, // No AI call; no measurable duration
+				InputData:  inputJSON,
+				OutputData: outputJSON,
+				ParsedData: parsedJSON,
+			})
+			if runErr != nil {
+				logger.Warn("Failed to record pipeline run for auto-reply short-circuit", logging.Err(runErr))
+				// Don't fail the activity if run recording fails
+			}
+		}
+
 		return output, nil
 	}
 

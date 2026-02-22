@@ -700,8 +700,48 @@ func recordHeartbeat(ctx context.Context, details ...interface{}) {
 	activity.RecordHeartbeat(ctx, details...)
 }
 
+// DeleteAssertions removes all assertions for a source during reprocessing when
+// extraction is being skipped (e.g. auto-reply reclassified to contribution=NONE).
+// This prevents stale assertions from a prior run from persisting after reclassification.
+// It is best-effort: the activity logs a warning but does not fail the workflow.
+func (a *ExtractionActivities) DeleteAssertions(ctx context.Context, input workflows.DeleteAssertionsInput) (*workflows.DeleteAssertionsOutput, error) {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "DeleteAssertions"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_id", input.SourceID),
+	)
+
+	recordHeartbeat(ctx, "starting delete assertions")
+
+	logger.Info("Deleting stale assertions for source (reprocess with skipExtract)")
+
+	if input.TenantID == "" || input.SourceID <= 0 {
+		logger.Warn("DeleteAssertions called with invalid input, skipping",
+			logging.F("tenant_id", input.TenantID),
+			logging.F("source_id", input.SourceID),
+		)
+		return &workflows.DeleteAssertionsOutput{Deleted: 0}, nil
+	}
+
+	deleted, err := a.assertionRepo.DeleteAssertions(ctx, input.TenantID, input.SourceID)
+	if err != nil {
+		logger.Warn("Failed to delete assertions, continuing", logging.Err(err))
+		// Best-effort: do not fail the workflow
+		return &workflows.DeleteAssertionsOutput{Deleted: 0}, nil
+	}
+
+	recordHeartbeat(ctx, "delete assertions complete")
+
+	logger.Info("Deleted stale assertions",
+		logging.F("deleted_count", deleted),
+	)
+
+	return &workflows.DeleteAssertionsOutput{Deleted: deleted}, nil
+}
+
 // Ensure ExtractionActivities implements required interfaces at compile time.
 var _ interface {
 	ExtractAssertions(ctx context.Context, input workflows.ExtractAssertionsInput) (int, error)
 	ExtractEntities(ctx context.Context, input workflows.SLMPipelineExtractEntitiesInput) (*workflows.SLMPipelineExtractEntitiesOutput, error)
+	DeleteAssertions(ctx context.Context, input workflows.DeleteAssertionsInput) (*workflows.DeleteAssertionsOutput, error)
 } = (*ExtractionActivities)(nil)

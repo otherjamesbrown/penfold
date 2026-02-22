@@ -33,6 +33,7 @@ const (
 	ActivityCheckStaleConversations        = "CheckStaleConversations"
 	ActivityKickNextPending                = "KickNextPending"
 	ActivityRecordSkippedStage             = "RecordSkippedStage"
+	ActivityDeleteAssertions               = "DeleteAssertions"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -105,6 +106,7 @@ func AllMainQueueActivities() []string {
 		ActivityUpdateLangfuseTraceTags,
 		ActivityKickNextPending,
 		ActivityRecordSkippedStage,
+		ActivityDeleteAssertions,
 	}
 }
 

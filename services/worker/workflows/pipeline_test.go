@@ -129,6 +129,14 @@ func (m *PipelineMockActivities) GenerateContentSummary(ctx context.Context, inp
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *PipelineMockActivities) DeleteAssertions(ctx context.Context, input DeleteAssertionsInput) (*DeleteAssertionsOutput, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*DeleteAssertionsOutput), args.Error(1)
+}
+
 // SLMPipelineTestSuite tests the SLMPipelineWorkflow.
 type SLMPipelineTestSuite struct {
 	suite.Suite
@@ -159,6 +167,7 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.GroupEmailThread, activity.RegisterOptions{Name: "GroupEmailThread"})
 	s.env.RegisterActivityWithOptions(s.activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: "CreateEnrichmentRecord"})
 	s.env.RegisterActivityWithOptions(s.activities.GenerateContentSummary, activity.RegisterOptions{Name: pkgtemporal.ActivityGenerateContentSummary})
+	s.env.RegisterActivityWithOptions(s.activities.DeleteAssertions, activity.RegisterOptions{Name: pkgtemporal.ActivityDeleteAssertions})
 
 	// Default mock expectations for enrichment/threading activities (blocking since pf-67502c fix).
 	// Individual tests can override these with more specific expectations.
@@ -166,6 +175,8 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.activities.On("GroupEmailThread", mock.Anything, mock.Anything).Maybe().Return(&GroupEmailThreadOutput{}, nil)
 	// Stage 1.5 Summarize is non-blocking; default to success so tests don't log ActivityNotRegistered warnings.
 	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
+	// pf-91b00d: DeleteAssertions is best-effort; default to no-op so tests that don't care about it pass.
+	s.activities.On("DeleteAssertions", mock.Anything, mock.Anything).Maybe().Return(&DeleteAssertionsOutput{Deleted: 0}, nil)
 }
 
 func (s *SLMPipelineTestSuite) AfterTest(suiteName, testName string) {
@@ -1887,6 +1898,140 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_TeamsClassification() {
 	var result PipelineResult
 	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
 	s.Equal("completed", result.Status)
+}
+
+// TestSLMPipeline_DeleteAssertions_CalledOnSkipExtract_pf91b00d verifies that the
+// DeleteAssertions activity is invoked when skipExtract=true (contribution=NONE).
+// This is Fix 2 for bug pf-91b00d: stale assertions from a prior run that extracted
+// assertions (when the item had MEDIUM contribution) are cleaned up when the item is
+// reprocessed and reclassified as contribution=NONE.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_DeleteAssertions_CalledOnSkipExtract_pf91b00d() {
+	input := PipelineInput{
+		TenantID:    "tenant-fix",
+		SourceID:    9100,
+		ContentID:   "em-ooo-reprocess",
+		JobID:       "job-9100",
+		ContentType: "email",
+		BodyText:    "I'm out of office until next Monday.",
+		Subject:     "Automatic reply: Q4 planning",
+		SenderEmail: "ooo@example.com",
+	}
+
+	// Stage 0: Parse
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 9100
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "I'm out of office until next Monday.",
+		NewContent: "I'm out of office until next Monday.",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Maybe().Return(nil)
+
+	// Stage 1: Triage returns NONE contribution (auto-reply short-circuit or AI result).
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 9100
+	})).Return(&TriageOutput{
+		Category:            "INTERNAL_COMMS",
+		Importance:          "LOW",
+		Reason:              "Auto-reply OOO",
+		ModelUsed:           "subject-classifier",
+		SkipDeep:            true,
+		ContentContribution: "NONE",
+		ContributionReason:  "Auto-reply emails do not contribute meaningful content",
+	}, nil)
+
+	// pf-91b00d Fix 2: DeleteAssertions MUST be called when skipExtract=true.
+	// Use Once() so this expectation takes precedence over the Maybe() default from SetupTest.
+	s.activities.On("DeleteAssertions", mock.Anything, mock.MatchedBy(func(in DeleteAssertionsInput) bool {
+		return in.TenantID == "tenant-fix" && in.SourceID == 9100
+	})).Once().Return(&DeleteAssertionsOutput{Deleted: 3}, nil)
+
+	// Stage 5: Embed still runs (only extraction/analysis are skipped)
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
+		return in.SourceID == 9100
+	})).Return(int64(9100), nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+
+	// Fix 2 assertion: DeleteAssertions must be called when skipExtract=true.
+	// AssertCalled verifies the activity was invoked with the correct inputs.
+	s.activities.AssertCalled(s.T(), "DeleteAssertions", mock.Anything, mock.MatchedBy(func(in DeleteAssertionsInput) bool {
+		return in.TenantID == "tenant-fix" && in.SourceID == 9100
+	}))
+
+	// Verify extraction activities were NOT called (contribution=NONE gates them)
+	s.activities.AssertNotCalled(s.T(), "ExtractEntitiesActivity", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "ExtractAssertions", mock.Anything, mock.Anything)
+}
+
+// TestSLMPipeline_DeleteAssertions_NotCalledOnFullPipeline_pf91b00d verifies that
+// DeleteAssertions is NOT called when the full pipeline runs (contribution=HIGH).
+// We must not delete assertions when they will be freshly written in the same run.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_DeleteAssertions_NotCalledOnFullPipeline_pf91b00d() {
+	input := PipelineInput{
+		TenantID:    "tenant-fix",
+		SourceID:    9200,
+		ContentID:   "em-high-contrib",
+		JobID:       "job-9200",
+		ContentType: "email",
+		BodyText:    "Project Alpha is at risk due to delayed vendor delivery.",
+		Subject:     "Risk Update",
+		SenderEmail: "pm@example.com",
+	}
+
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 9200
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Project Alpha is at risk due to delayed vendor delivery.",
+		NewContent: "Project Alpha is at risk due to delayed vendor delivery.",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Maybe().Return(nil)
+
+	// Triage returns HIGH contribution — full pipeline runs
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 9200
+	})).Return(&TriageOutput{
+		Category:            "RISK_ISSUE",
+		Importance:          "HIGH",
+		ModelUsed:           "llama-3.2-1b",
+		SkipDeep:            false,
+		ContentContribution: "HIGH",
+	}, nil)
+
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{
+		Risks: []string{"Delayed vendor delivery"},
+	}, nil)
+	// ExtractAssertions returns 0 (best-effort, non-blocking)
+	s.activities.On("ExtractAssertions", mock.Anything, mock.Anything).Return(0, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{
+		Summary: "Risk escalation", ModelUsed: "gemini-2.0-flash",
+	}, nil)
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&PersistFindingsOutput{}, nil)
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(9200), nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+
+	// DeleteAssertions must NOT be called when running the full pipeline.
+	// Assertions are freshly written by ExtractAssertions in the same run.
+	s.activities.AssertNotCalled(s.T(), "DeleteAssertions", mock.Anything, mock.MatchedBy(func(in DeleteAssertionsInput) bool {
+		return in.SourceID == 9200
+	}))
 }
 
 func TestSLMPipelineTestSuite(t *testing.T) {

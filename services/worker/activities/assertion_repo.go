@@ -194,6 +194,50 @@ func (r *PostgresAssertionRepository) StoreAssertions(
 	return insertedCount, nil
 }
 
+// DeleteAssertions removes all assertions for a source and returns the count deleted.
+// It is used during reprocessing when extraction is skipped (contribution=NONE) to
+// ensure stale assertions from a prior run are cleaned up.
+// assertion_attributions rows are deleted automatically via ON DELETE CASCADE.
+func (r *PostgresAssertionRepository) DeleteAssertions(
+	ctx context.Context,
+	tenantID string,
+	sourceID int64,
+) (int, error) {
+	logger := r.logger.With(
+		logging.F("tenant_id", tenantID),
+		logging.F("source_id", sourceID),
+	)
+
+	logger.Debug("Deleting assertions for source")
+
+	if tenantID == "" {
+		return 0, fmt.Errorf("tenant_id is required")
+	}
+	if sourceID <= 0 {
+		return 0, fmt.Errorf("source_id is required")
+	}
+
+	tag, err := r.pool.Exec(ctx,
+		"DELETE FROM assertions WHERE source_id = $1 AND tenant_id = $2::uuid",
+		sourceID, tenantID,
+	)
+	if err != nil {
+		logger.Error("Failed to delete assertions", logging.Err(err))
+		return 0, fmt.Errorf("failed to delete assertions: %w", err)
+	}
+
+	deleted := int(tag.RowsAffected())
+	if deleted > 0 {
+		logger.Info("Deleted stale assertions",
+			logging.F("deleted_count", deleted),
+		)
+	} else {
+		logger.Debug("No assertions to delete")
+	}
+
+	return deleted, nil
+}
+
 // mapCategoryToType maps an assertion category to a valid assertion_type.
 // Valid types are: decision, risk, commitment, milestone, outcome, dependency, assumption, issue, action, question
 func mapCategoryToType(category string) string {

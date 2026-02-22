@@ -209,6 +209,9 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.extractionActivities.ExtractAssertions, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityExtractAssertions,
 		})
+		w.RegisterActivityWithOptions(r.extractionActivities.DeleteAssertions, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityDeleteAssertions,
+		})
 	} else if r.activities != nil {
 		w.RegisterActivityWithOptions(r.activities.ExtractAssertions, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityExtractAssertions,
@@ -443,9 +446,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		} else if r.activities != nil {
 			count += 1
 		}
-		// ExtractEntities, ExtractAssertions
+		// ExtractEntities, ExtractAssertions, DeleteAssertions
 		if r.extractionActivities != nil {
-			count += 2
+			count += 3
 		} else if r.activities != nil {
 			count += 1 // ExtractAssertions (legacy)
 		}

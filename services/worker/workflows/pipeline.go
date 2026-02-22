@@ -487,6 +487,19 @@ type SkippedStage struct {
 	SkipReason string `json:"skip_reason"` // e.g. "contribution_gating:NONE", "category_skip:PERSONAL/LOW"
 }
 
+// DeleteAssertionsInput is the input for the DeleteAssertions activity.
+// It requests deletion of all assertions for a source, used when reprocessing
+// with skipExtract=true (e.g. after auto-reply reclassification).
+type DeleteAssertionsInput struct {
+	TenantID string `json:"tenant_id"`
+	SourceID int64  `json:"source_id"`
+}
+
+// DeleteAssertionsOutput is the output from the DeleteAssertions activity.
+type DeleteAssertionsOutput struct {
+	Deleted int `json:"deleted"` // Number of assertions removed
+}
+
 // RecordSkippedStageInput is the input for the RecordSkippedStage activity.
 // It records pipeline_runs rows with status "skipped" for all skipped stages in a single call.
 type RecordSkippedStageInput struct {
@@ -1253,6 +1266,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				SourceID:        input.SourceID,
 				Stages:          skippedStages,
 				LangfuseTraceID: langfuseTraceID,
+			}).Get(ctx, nil)
+		}
+
+		// pf-91b00d: When extraction is skipped entirely (contribution=NONE or SkipDeep),
+		// delete any assertions left over from a prior run. This ensures reprocessing an
+		// item that previously extracted assertions (e.g. was MEDIUM, now reclassified to
+		// NONE) clears stale data rather than leaving orphaned assertions in the DB.
+		// Best-effort — failure does not block the workflow.
+		if skipExtract {
+			ctxCleanup := workflow.WithActivityOptions(ctx, fastOpts)
+			_ = workflow.ExecuteActivity(ctxCleanup, pkgtemporal.ActivityDeleteAssertions, DeleteAssertionsInput{
+				TenantID: input.TenantID,
+				SourceID: input.SourceID,
 			}).Get(ctx, nil)
 		}
 

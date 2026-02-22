@@ -4,6 +4,7 @@ package activities
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -656,6 +657,121 @@ func TestTriage_ContentContribution_EmptyString(t *testing.T) {
 	// TODO: After implementation, verify empty contribution defaults to HIGH:
 	// require.Equal(t, "HIGH", output.ContentContribution) // Empty string should default to HIGH
 	// This ensures the default fallback behavior works correctly
+}
+
+// TestTriage_AutoReply_CreatesPipelineRun_pf91b00d verifies that the auto-reply
+// short-circuit path records a pipeline_runs row with stage="triage" and
+// content_contribution="NONE". Without this record, BuildProcessingStatus reads the
+// old pre-fix run's parsed_data (which may show MEDIUM) instead of the current result.
+// This is the fix for bug pf-91b00d.
+func TestTriage_AutoReply_CreatesPipelineRun_pf91b00d(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	// AI client must NOT be called for an auto-reply; if it is, the test is invalid.
+	mockClient := &mockAIClient{
+		triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+			t.Fatal("AI client must not be called for an auto-reply email")
+			return nil, nil
+		},
+	}
+
+	// Capture all CreateRun calls.
+	type capturedRun struct {
+		stage  string
+		parsed []byte
+	}
+	var capturedRuns []capturedRun
+	mockPipelineRepo := &mockCapturingPipelineRepo{
+		createRunFn: func(ctx context.Context, input PipelineRunInput) error {
+			capturedRuns = append(capturedRuns, capturedRun{
+				stage:  input.Stage,
+				parsed: input.ParsedData,
+			})
+			return nil
+		},
+	}
+
+	activities := NewTriageActivities(logger, mockClient, mockPipelineRepo, nil, nil)
+
+	input := TriageInput{
+		TenantID:    "test-tenant",
+		SourceID:    99999,
+		ContentID:   "em-w4XTS5St",
+		JobID:       "job-autoreply",
+		Subject:     "Automatic reply: Q3 roadmap discussion",
+		SenderEmail: "mark.henry@example.com",
+		Content: "I am currently traveling and will have limited access to email. " +
+			"I will respond when I return.",
+		ContentType: "email",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	require.Equal(t, "NONE", output.ContentContribution, "auto-reply must yield NONE contribution")
+
+	// Fix 1 (pf-91b00d): a pipeline_runs record must be created by the short-circuit path.
+	require.Len(t, capturedRuns, 1,
+		"auto-reply short-circuit must call CreateRun exactly once (got %d calls)", len(capturedRuns))
+
+	run := capturedRuns[0]
+	require.Equal(t, "triage", run.stage,
+		"pipeline_runs record must have stage='triage'")
+
+	// Verify parsed_data contains content_contribution=NONE so BuildProcessingStatus
+	// reads the correct value on reprocess.
+	require.Contains(t, string(run.parsed), `"content_contribution":"NONE"`,
+		"parsed_data must contain content_contribution=NONE so status display is correct after reprocess")
+}
+
+// TestTriage_AutoReply_PipelineRepoError_DoesNotFail_pf91b00d verifies that a
+// failure to record the pipeline run does NOT fail the triage activity. The CreateRun
+// call is best-effort; the triage result must still be returned successfully.
+func TestTriage_AutoReply_PipelineRepoError_DoesNotFail_pf91b00d(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	mockClient := &mockAIClient{}
+
+	mockPipelineRepo := &mockCapturingPipelineRepo{
+		createRunFn: func(ctx context.Context, input PipelineRunInput) error {
+			return fmt.Errorf("database unavailable")
+		},
+	}
+
+	activities := NewTriageActivities(logger, mockClient, mockPipelineRepo, nil, nil)
+
+	input := TriageInput{
+		TenantID:    "test-tenant",
+		SourceID:    12345,
+		ContentID:   "em-ooo-test",
+		JobID:       "job-ooo",
+		Subject:     "Automatic reply: Weekly sync",
+		SenderEmail: "ooo@example.com",
+		Content:     "Out of office until next week.",
+		ContentType: "email",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	// Pipeline repo failure must NOT propagate — result still returned.
+	require.NoError(t, err, "CreateRun failure must not fail the triage activity")
+	require.NotNil(t, output)
+	require.Equal(t, "NONE", output.ContentContribution)
+}
+
+// mockCapturingPipelineRepo captures CreateRun calls for testing.
+type mockCapturingPipelineRepo struct {
+	createRunFn func(ctx context.Context, input PipelineRunInput) error
+}
+
+func (m *mockCapturingPipelineRepo) CreateRun(ctx context.Context, input PipelineRunInput) error {
+	if m.createRunFn != nil {
+		return m.createRunFn(ctx, input)
+	}
+	return nil
+}
+
+func (m *mockCapturingPipelineRepo) RecordOverrides(_ context.Context, _ int64, _ map[string]string) error {
+	return nil
 }
 
 // TestMapToSourceSystem verifies that mapToSourceSystem converts ClassificationResult
