@@ -143,19 +143,17 @@ func (m *mockSourceRepositoryTracking) GetSource(ctx context.Context, tenantID s
 // Ensure mockSourceRepositoryTracking implements SourceRepository.
 var _ SourceRepository = (*mockSourceRepositoryTracking)(nil)
 
-// TestUpdateSourceStatus_ShouldPersistTriageMetadata is a reproduction test for bug pf-f22176.
-//
-// Verifies that the UpdateSourceStatus activity correctly passes triage metadata
-// to the repository for persistence in the ingestion_metadata JSONB column.
-func TestUpdateSourceStatus_ShouldPersistTriageMetadata(t *testing.T) {
+// TestUpdateSourceStatus_NoClassificationInMetadata verifies that classification fields
+// (triage_category, triage_importance, content_subtype, source_system) are NOT written
+// to the ingestion_metadata JSONB. These fields now live in proper DB columns.
+// Only skip_deep (an operational flag) is still written to JSONB.
+func TestUpdateSourceStatus_NoClassificationInMetadata(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestActivityEnvironment()
 
-	// Track what arguments were actually passed to the repository
 	var updateStatusCalled bool
 	var capturedTriageMetadata map[string]interface{}
 
-	// Mock repository that tracks what the activity actually passes
 	mockRepo := &mockSourceRepositoryWithTriageTracking{
 		updateStatusWithFailureFunc: func(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error {
 			updateStatusCalled = true
@@ -170,16 +168,17 @@ func TestUpdateSourceStatus_ShouldPersistTriageMetadata(t *testing.T) {
 	activities := NewSourceActivities(logger, mockRepo)
 	env.RegisterActivity(activities.UpdateSourceStatus)
 
-	// Simulate Stage 1 (Triage) completing and writing metadata
+	// Populate all classification fields — none should end up in ingestion_metadata JSONB
 	skipDeepValue := true
 	input := workflows.UpdateSourceStatusInput{
 		TenantID:         "test-tenant",
 		SourceID:         123,
 		Status:           "completed",
-		TriageCategory:   "technical_discussion",    // Should be persisted
-		TriageImportance: "high",                    // Should be persisted
-		SkipDeep:         &skipDeepValue,            // Should be persisted
-		ContentSubtype:   "architectural_decision",  // Should be persisted
+		TriageCategory:   "technical_discussion",
+		TriageImportance: "high",
+		SkipDeep:         &skipDeepValue,
+		ContentSubtype:   "architectural_decision",
+		SourceSystem:     "human_email",
 	}
 
 	_, err := env.ExecuteActivity(activities.UpdateSourceStatus, input)
@@ -187,12 +186,15 @@ func TestUpdateSourceStatus_ShouldPersistTriageMetadata(t *testing.T) {
 
 	require.True(t, updateStatusCalled, "UpdateSourceStatusWithFailure was called")
 
-	// Verify triage metadata was passed to the repository
-	require.NotNil(t, capturedTriageMetadata, "Triage metadata should be passed")
-	require.Equal(t, "technical_discussion", capturedTriageMetadata["triage_category"])
-	require.Equal(t, "high", capturedTriageMetadata["triage_importance"])
+	// skip_deep should be present (operational flag)
+	require.NotNil(t, capturedTriageMetadata, "Metadata should be passed for skip_deep")
 	require.Equal(t, true, capturedTriageMetadata["skip_deep"])
-	require.Equal(t, "architectural_decision", capturedTriageMetadata["content_subtype"])
+
+	// Classification fields must NOT be in JSONB metadata
+	require.NotContains(t, capturedTriageMetadata, "triage_category", "triage_category must not be in ingestion_metadata JSONB")
+	require.NotContains(t, capturedTriageMetadata, "triage_importance", "triage_importance must not be in ingestion_metadata JSONB")
+	require.NotContains(t, capturedTriageMetadata, "content_subtype", "content_subtype must not be in ingestion_metadata JSONB")
+	require.NotContains(t, capturedTriageMetadata, "source_system", "source_system must not be in ingestion_metadata JSONB")
 }
 
 // mockSourceRepositoryWithTriageTracking extends the mock to track triage metadata.
@@ -226,43 +228,16 @@ func (m *mockSourceRepositoryWithTriageTracking) GetSource(ctx context.Context, 
 // Ensure mockSourceRepositoryWithTriageTracking implements SourceRepository.
 var _ SourceRepository = (*mockSourceRepositoryWithTriageTracking)(nil)
 
-// TestUpdateSourceStatus_ShouldPersistSourceSystem is a reproduction test for bug pf-6e5961.
-//
-// BUG: The Activities.UpdateSourceStatus implementation in activities.go has direct SQL
-// that performs JSONB merge (lines 412-434). This SQL conditional guard (line 412) checks
-// 4 fields but NOT SourceSystem, and the JSONB merge block (lines 415-420) writes 4 fields
-// but NOT source_system.
-//
-// ROOT CAUSE:
-// - Line 412: if input.TriageCategory != "" || input.TriageImportance != "" || input.SkipDeep != nil || input.ContentSubtype != ""
-//   Missing: || input.SourceSystem != ""
-// - Lines 415-420: jsonb_build_object has 4 key-value pairs (triage_category, triage_importance, skip_deep, content_subtype)
-//   Missing: 'source_system', $7::text
-//
-// IMPACT: When ONLY source_system is set (and other triage fields are empty), the entire
-// metadata block is skipped and source_system is not persisted to the database.
-//
-// CONTEXT: The source_system field is computed by the triage activity (auto_reply, human_email,
-// jira, etc.) and passed to UpdateSourceStatus via pipeline.go line 820. It's correctly included
-// in the input struct (workflows/email.go line 90) but the SQL in activities.go never persists it.
-//
-// NOTE: This test demonstrates the bug by verifying that SourceActivities (source.go) correctly
-// handles source_system, while Activities (activities.go) does not. The test passes for SourceActivities
-// but would FAIL for Activities if we could test the SQL path directly.
-//
-// The fix should follow the assertion_count pattern (lines 437-451 in activities.go):
-// 1. Add || input.SourceSystem != "" to the condition on line 412
-// 2. Add 'source_system', $7::text to the jsonb_build_object on line 420
-// 3. Add input.SourceSystem to the Exec args on line 428
-func TestUpdateSourceStatus_ShouldPersistSourceSystem(t *testing.T) {
+// TestUpdateSourceStatus_SkipDeepStillWritten verifies that skip_deep is still
+// written to ingestion_metadata when SkipDeep is set. skip_deep is an operational
+// flag (not a classification field) and remains in JSONB for workflow routing decisions.
+func TestUpdateSourceStatus_SkipDeepStillWritten(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestActivityEnvironment()
 
-	// Track what arguments were actually passed to the repository
 	var updateStatusCalled bool
 	var capturedTriageMetadata map[string]interface{}
 
-	// Mock repository that tracks what the activity actually passes
 	mockRepo := &mockSourceRepositoryWithTriageTracking{
 		updateStatusWithFailureFunc: func(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error {
 			updateStatusCalled = true
@@ -277,14 +252,53 @@ func TestUpdateSourceStatus_ShouldPersistSourceSystem(t *testing.T) {
 	activities := NewSourceActivities(logger, mockRepo)
 	env.RegisterActivity(activities.UpdateSourceStatus)
 
-	// Simulate Stage 1 (Triage) completing and classifying source_system
-	// Use ONLY source_system without other triage fields to expose the bug
+	skipDeepValue := true
+	input := workflows.UpdateSourceStatusInput{
+		TenantID: "test-tenant",
+		SourceID: 123,
+		Status:   "completed",
+		SkipDeep: &skipDeepValue,
+	}
+
+	_, err := env.ExecuteActivity(activities.UpdateSourceStatus, input)
+	require.NoError(t, err)
+
+	require.True(t, updateStatusCalled, "UpdateSourceStatusWithFailure was called")
+	require.NotNil(t, capturedTriageMetadata, "Metadata should be passed when SkipDeep is set")
+	require.Equal(t, true, capturedTriageMetadata["skip_deep"], "skip_deep should be true in ingestion_metadata")
+	require.Len(t, capturedTriageMetadata, 1, "Only skip_deep should be in the metadata map")
+}
+
+// TestUpdateSourceStatus_SourceSystemNotInMetadata verifies that setting SourceSystem
+// alone does NOT trigger any JSONB metadata write. source_system is now stored in
+// a proper DB column, not in ingestion_metadata.
+func TestUpdateSourceStatus_SourceSystemNotInMetadata(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+
+	var updateStatusCalled bool
+	var capturedTriageMetadata map[string]interface{}
+
+	mockRepo := &mockSourceRepositoryWithTriageTracking{
+		updateStatusWithFailureFunc: func(ctx context.Context, tenantID string, sourceID int64, status, failureCategory, failureReason string, triageMetadata ...map[string]interface{}) error {
+			updateStatusCalled = true
+			if len(triageMetadata) > 0 {
+				capturedTriageMetadata = triageMetadata[0]
+			}
+			return nil
+		},
+	}
+
+	logger := logging.NewNopLogger()
+	activities := NewSourceActivities(logger, mockRepo)
+	env.RegisterActivity(activities.UpdateSourceStatus)
+
+	// Set SourceSystem but NOT SkipDeep — no JSONB metadata should be written
 	input := workflows.UpdateSourceStatusInput{
 		TenantID:     "test-tenant",
 		SourceID:     123,
 		Status:       "completed",
-		SourceSystem: "human_email", // Should be persisted to ingestion_metadata
-		// Deliberately omit other triage fields to test if source_system alone triggers the metadata block
+		SourceSystem: "human_email",
 	}
 
 	_, err := env.ExecuteActivity(activities.UpdateSourceStatus, input)
@@ -292,19 +306,6 @@ func TestUpdateSourceStatus_ShouldPersistSourceSystem(t *testing.T) {
 
 	require.True(t, updateStatusCalled, "UpdateSourceStatusWithFailure was called")
 
-	// EXPECTED BEHAVIOR (SourceActivities in source.go):
-	// When SourceSystem is set, the triage metadata block should be triggered and
-	// source_system should be included in the metadata map passed to the repository.
-	//
-	// ACTUAL BEHAVIOR (Activities in activities.go):
-	// The condition on line 412 does NOT check input.SourceSystem, so when ONLY
-	// source_system is set, the metadata block is skipped entirely.
-	// Even if other fields triggered the block, source_system would not be in the
-	// jsonb_build_object since it's missing from lines 415-420.
-	//
-	// This test verifies correct behavior (SourceActivities handles it right).
-	// The bug is in Activities.UpdateSourceStatus which uses direct SQL.
-	require.NotNil(t, capturedTriageMetadata, "Triage metadata should be passed when SourceSystem is set")
-	require.Contains(t, capturedTriageMetadata, "source_system", "source_system should be included in triage metadata")
-	require.Equal(t, "human_email", capturedTriageMetadata["source_system"])
+	// No metadata map should be passed since only SourceSystem is set (no SkipDeep)
+	require.Nil(t, capturedTriageMetadata, "No JSONB metadata should be written when only SourceSystem is set")
 }

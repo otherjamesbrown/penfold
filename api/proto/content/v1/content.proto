@@ -237,7 +237,9 @@ message ContentItem {
   // Unique identifier for this content item.
   string id = 1;
 
-  // Type of source this content originated from: "email", "document", "meeting", "slack".
+  // Deprecated: Use content_type_enum (field 18) and content_subtype_enum (field 19) instead.
+  // Previously indicated source type ("email", "document", "meeting", "slack").
+  // No longer populated for new items; retained for wire compatibility.
   string source_type = 2;
 
   // Identifier of the source record in the originating system.

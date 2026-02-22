@@ -425,26 +425,20 @@ func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.Upd
 		logger.Info("Skipping status update (empty status), processing metadata only")
 	}
 
-	// Merge triage metadata into ingestion_metadata if any triage fields are set
-	if input.TriageCategory != "" || input.TriageImportance != "" || input.SkipDeep != nil || input.ContentSubtype != "" {
+	// Write skip_deep to ingestion_metadata if set (operational flag, not a classification field)
+	if input.SkipDeep != nil {
 		metaQuery := `
 			UPDATE sources
 			SET ingestion_metadata = COALESCE(ingestion_metadata, '{}'::jsonb) || jsonb_build_object(
-				'triage_category', $3::text,
-				'triage_importance', $4::text,
-				'skip_deep', $5::boolean,
-				'content_subtype', $6::text
+				'skip_deep', $3::boolean
 			),
 			updated_at = NOW()
 			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
 		`
-		skipDeep := false
-		if input.SkipDeep != nil {
-			skipDeep = *input.SkipDeep
-		}
-		_, metaErr := a.db.Exec(ctx, metaQuery, input.SourceID, tenantID, input.TriageCategory, input.TriageImportance, skipDeep, input.ContentSubtype)
+		skipDeep := *input.SkipDeep
+		_, metaErr := a.db.Exec(ctx, metaQuery, input.SourceID, tenantID, skipDeep)
 		if metaErr != nil {
-			logger.Warn("Failed to persist triage metadata (status update succeeded)",
+			logger.Warn("Failed to persist skip_deep metadata",
 				logging.F("error", metaErr.Error()),
 			)
 		}
@@ -462,23 +456,6 @@ func (a *Activities) UpdateSourceStatus(ctx context.Context, input workflows.Upd
 		if assertErr != nil {
 			logger.Warn("Failed to update assertion_count in ingestion_metadata",
 				logging.F("error", assertErr.Error()),
-				logging.F("source_id", input.SourceID),
-			)
-		}
-	}
-
-	// Update source_system in ingestion_metadata if provided
-	if input.SourceSystem != "" {
-		sourceSystemQuery := `
-			UPDATE sources
-			SET ingestion_metadata = COALESCE(ingestion_metadata, '{}'::jsonb) || jsonb_build_object('source_system', $3::text),
-			    updated_at = NOW()
-			WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
-		`
-		_, sourceSystemErr := a.db.Exec(ctx, sourceSystemQuery, input.SourceID, tenantID, input.SourceSystem)
-		if sourceSystemErr != nil {
-			logger.Warn("Failed to update source_system in ingestion_metadata",
-				logging.F("error", sourceSystemErr.Error()),
 				logging.F("source_id", input.SourceID),
 			)
 		}

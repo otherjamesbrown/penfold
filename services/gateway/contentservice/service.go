@@ -696,10 +696,10 @@ func (r *repositoryImpl) GetStats(ctx context.Context, tenantID string) (*StatsR
 
 	// Count by source_system
 	query = `
-		SELECT COALESCE(ingestion_metadata->>'source_system', source_system) AS source_system, COUNT(*) AS count
+		SELECT source_system, COUNT(*) AS count
 		FROM sources
 		WHERE tenant_id = $1 AND (is_deleted IS NULL OR is_deleted = false)
-		GROUP BY COALESCE(ingestion_metadata->>'source_system', source_system)
+		GROUP BY source_system
 	`
 	rows, err := r.db.Query(ctx, query, tenantUUID)
 	if err != nil {
@@ -1890,9 +1890,9 @@ func recordToProto(rec *ContentItemRecord) *contentv1.ContentItem {
 	metadata["assertion_count"] = fmt.Sprintf("%d", rec.AssertionCount)
 
 	item := &contentv1.ContentItem{
-		Id:         rec.ContentID,
-		SourceType: rec.SourceSystem,
-		SourceId:   fmt.Sprintf("%d", rec.ID),
+		Id: rec.ContentID,
+		// SourceType: deprecated — use ContentTypeEnum/ContentSubtypeEnum instead
+		SourceId: fmt.Sprintf("%d", rec.ID),
 		TenantId:   rec.TenantID,
 		State:      dbStatusToState(rec.ProcessingStatus),
 		CreatedAt:  timestamppb.New(rec.CreatedAt),

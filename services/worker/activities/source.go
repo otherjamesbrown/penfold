@@ -132,24 +132,13 @@ func (a *SourceActivities) UpdateSourceStatus(ctx context.Context, input workflo
 	// Update the status with failure fields and triage metadata (if present)
 	startTime := time.Now()
 
-	// Build triage metadata map if any fields are present
+	// Build triage metadata map — only skip_deep is written to JSONB
+	// Classification fields (triage_category, content_subtype, source_system, etc.)
+	// are stored in proper DB columns, not in ingestion_metadata JSONB.
 	var triageMetadata map[string]interface{}
-	if input.TriageCategory != "" || input.TriageImportance != "" || input.SkipDeep != nil || input.ContentSubtype != "" || input.SourceSystem != "" {
-		triageMetadata = make(map[string]interface{})
-		if input.TriageCategory != "" {
-			triageMetadata["triage_category"] = input.TriageCategory
-		}
-		if input.TriageImportance != "" {
-			triageMetadata["triage_importance"] = input.TriageImportance
-		}
-		if input.SkipDeep != nil {
-			triageMetadata["skip_deep"] = *input.SkipDeep
-		}
-		if input.ContentSubtype != "" {
-			triageMetadata["content_subtype"] = input.ContentSubtype
-		}
-		if input.SourceSystem != "" {
-			triageMetadata["source_system"] = input.SourceSystem
+	if input.SkipDeep != nil {
+		triageMetadata = map[string]interface{}{
+			"skip_deep": *input.SkipDeep,
 		}
 	}
 
