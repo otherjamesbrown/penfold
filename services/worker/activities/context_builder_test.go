@@ -1364,6 +1364,48 @@ func TestEnrichPeopleFromHeaders(t *testing.T) {
 				"Admin": "Admin", // single-word display name, can't enrich
 			},
 		},
+		{
+			name: "Last, First format in headers",
+			people: []workflows.PersonResult{
+				{Name: "Tim", Role: ""},
+				{Name: "Miroslav", Role: ""},
+			},
+			participants: []workflows.Participant{
+				{Email: "tim.dunn@example.com", DisplayName: "Dunn, Tim", HeaderRole: "to"},
+				{Email: "miroslav.ponec@example.com", DisplayName: "Ponec, Miroslav", HeaderRole: "cc"},
+			},
+			expected: map[string]string{
+				"Tim":      "Tim Dunn",
+				"Miroslav": "Miroslav Ponec",
+			},
+		},
+		{
+			name: "Last, First Middle format",
+			people: []workflows.PersonResult{
+				{Name: "James", Role: ""},
+			},
+			participants: []workflows.Participant{
+				{Email: "james@example.com", DisplayName: "DeMent, James Robert", HeaderRole: "to"},
+			},
+			expected: map[string]string{
+				"James": "James Robert DeMent",
+			},
+		},
+		{
+			name: "mixed First Last and Last, First formats",
+			people: []workflows.PersonResult{
+				{Name: "Tim", Role: ""},
+				{Name: "Alice", Role: ""},
+			},
+			participants: []workflows.Participant{
+				{Email: "tim@example.com", DisplayName: "Dunn, Tim", HeaderRole: "to"},
+				{Email: "alice@example.com", DisplayName: "Alice Smith", HeaderRole: "cc"},
+			},
+			expected: map[string]string{
+				"Tim":   "Tim Dunn",
+				"Alice": "Alice Smith",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1627,6 +1669,71 @@ func TestBuildContext_EnrichPeopleIntegration(t *testing.T) {
 	}
 	if !foundTimDunn {
 		t.Errorf("Expected 'Tim Dunn' to be resolved via enrichment + fuzzy match; resolved people: %+v", output.ResolvedPeople)
+	}
+}
+
+// TestReclassifyOrganisations_CorrectedExtraction verifies that BuildContextPackage
+// returns the reclassified extraction in CorrectedExtraction so the workflow can
+// pass it to Stage 4 (pf-a2cf48: Temporal serialisation breaks in-place mutation).
+func TestReclassifyOrganisations_CorrectedExtraction(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	entityLookup := &mockEntityLookup{
+		getProjectByNameFunc: func(ctx context.Context, tenantID, name string) (*entities.Project, error) {
+			if name == "CLIC" {
+				return &entities.Project{ID: 1, Name: "CLIC"}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(
+		logger,
+		&mockEntityResolver{},
+		entityLookup,
+		&mockContextPackageRepo{},
+		nil,
+		nil,
+	)
+
+	input := workflows.BuildContextInput{
+		TenantID:    "test-tenant",
+		SourceID:    1,
+		ContentType: "email",
+		Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+			Projects:      []string{"DevCloud"},
+			Organisations: []string{"TikTok", "CLIC", "Juniper"},
+		},
+	}
+
+	output, err := activities.BuildContextPackage(ctx, input)
+	if err != nil {
+		t.Fatalf("BuildContextPackage failed: %v", err)
+	}
+
+	// CorrectedExtraction must be populated
+	if output.CorrectedExtraction == nil {
+		t.Fatal("CorrectedExtraction is nil — Stage 4 won't see reclassified orgs")
+	}
+
+	// CLIC should have moved from Organisations to Projects
+	for _, org := range output.CorrectedExtraction.Organisations {
+		if org == "CLIC" {
+			t.Errorf("CLIC should not be in CorrectedExtraction.Organisations, got %v",
+				output.CorrectedExtraction.Organisations)
+		}
+	}
+
+	foundCLIC := false
+	for _, proj := range output.CorrectedExtraction.Projects {
+		if proj == "CLIC" {
+			foundCLIC = true
+		}
+	}
+	if !foundCLIC {
+		t.Errorf("CLIC should be in CorrectedExtraction.Projects, got %v",
+			output.CorrectedExtraction.Projects)
 	}
 }
 

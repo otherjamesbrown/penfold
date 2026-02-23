@@ -121,6 +121,11 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 	// Check each org against project resolution; move matches to the projects list.
 	a.reclassifyOrganisations(ctx, input.TenantID, input.Extraction)
 
+	// Carry the corrected extraction back to the workflow. Temporal serialises
+	// activity I/O, so in-place mutations to input don't propagate; Stage 4
+	// needs the reclassified org/project lists.
+	output.CorrectedExtraction = input.Extraction
+
 	// Step 1: Resolve people
 	recordHeartbeat(ctx, "resolving people entities")
 	resolvedPeople, unresolvedPeople := a.resolvePeople(ctx, input.TenantID, input.Extraction.People, input.SenderEmail, input.SenderName, input.ParticipantEmails)
@@ -389,17 +394,34 @@ func enrichPeopleFromHeaders(people []workflows.PersonResult, senderEmail, sende
 		if displayName == "" {
 			return
 		}
-		parts := strings.Fields(displayName)
-		if len(parts) < 2 {
-			return // single-word display name, nothing to enrich with
+
+		var firstName, normalizedFullName string
+
+		// Handle "Last, First" format common in email headers (e.g. "Dunn, Tim")
+		if commaIdx := strings.IndexByte(displayName, ','); commaIdx >= 0 {
+			last := strings.TrimSpace(displayName[:commaIdx])
+			firstPart := strings.TrimSpace(displayName[commaIdx+1:])
+			if last == "" || firstPart == "" {
+				return
+			}
+			firstWords := strings.Fields(firstPart)
+			firstName = strings.ToLower(firstWords[0])
+			normalizedFullName = firstPart + " " + last // "Tim Dunn" from "Dunn, Tim"
+		} else {
+			parts := strings.Fields(displayName)
+			if len(parts) < 2 {
+				return // single-word display name, nothing to enrich with
+			}
+			firstName = strings.ToLower(parts[0])
+			normalizedFullName = displayName
 		}
-		firstName := strings.ToLower(parts[0])
+
 		if existing, ok := firstNameToFull[firstName]; ok {
-			if !strings.EqualFold(existing, displayName) {
+			if !strings.EqualFold(existing, normalizedFullName) {
 				firstNameConflict[firstName] = true // ambiguous — two different people share first name
 			}
 		} else {
-			firstNameToFull[firstName] = displayName
+			firstNameToFull[firstName] = normalizedFullName
 		}
 	}
 

@@ -281,14 +281,18 @@ type BuildContextInput struct {
 
 // BuildContextOutput is the output from the BuildContextPackage activity.
 type BuildContextOutput struct {
-	ResolvedPeople     []ResolvedPerson `json:"resolved_people"`
-	ResolvedProjects   []ResolvedProject `json:"resolved_projects"`
-	UnresolvedTerms    []string         `json:"unresolved_terms"`
-	ContextPackage     *ContextPackage  `json:"context_package"`
-	TokensUsed         int              `json:"tokens_used"`
-	TokenBudget        int              `json:"token_budget"`
-	EntitiesResolved   int              `json:"entities_resolved"`
-	EntitiesUnresolved int              `json:"entities_unresolved"`
+	ResolvedPeople       []ResolvedPerson                  `json:"resolved_people"`
+	ResolvedProjects     []ResolvedProject                 `json:"resolved_projects"`
+	UnresolvedTerms      []string                          `json:"unresolved_terms"`
+	ContextPackage       *ContextPackage                   `json:"context_package"`
+	TokensUsed           int                               `json:"tokens_used"`
+	TokenBudget          int                               `json:"token_budget"`
+	EntitiesResolved     int                               `json:"entities_resolved"`
+	EntitiesUnresolved   int                               `json:"entities_unresolved"`
+	// CorrectedExtraction carries the extraction after Stage 3 post-processing
+	// (e.g. org→project reclassification). Temporal serialises activity I/O so
+	// in-place mutations to the input don't propagate back to the workflow.
+	CorrectedExtraction  *SLMPipelineExtractEntitiesOutput `json:"corrected_extraction,omitempty"`
 }
 
 // ResolvedPerson represents a person resolved from extraction.
@@ -1973,6 +1977,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			analyzeOpts.StartToCloseTimeout = input.TimeoutOverride
 		}
 		ctxAnalyze := workflow.WithActivityOptions(ctx, analyzeOpts)
+		// Prefer the corrected extraction from Stage 3 (includes org→project
+		// reclassification). Falls back to the original Stage 2 output.
+		analyzeExtraction := extractOutput
+		if contextOutput != nil && contextOutput.CorrectedExtraction != nil {
+			analyzeExtraction = contextOutput.CorrectedExtraction
+		}
+
 		analyzeOutput = &DeepAnalyzeOutput{}
 		err = workflow.ExecuteActivity(ctxAnalyze, pkgtemporal.ActivityDeepAnalyze, DeepAnalyzeInput{
 			TenantID:          input.TenantID,
@@ -1983,7 +1994,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			ContentType:       input.ContentType,
 			TriageCategory:    triageOutput.Category,
 			TriageImportance:  triageOutput.Importance,
-			ExtractionResult:  extractOutput,
+			ExtractionResult:  analyzeExtraction,
 			BackgroundContext: formatContextPackage(contextOutput),
 			ModelOverride:     input.ModelOverride,
 			LangfuseTraceID:   langfuseTraceID,
