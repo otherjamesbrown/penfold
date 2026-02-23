@@ -80,6 +80,11 @@ func (r *PostgresSourceRepository) GetSource(ctx context.Context, tenantID strin
 				if jsonBytes, err := json.Marshal(arr); err == nil {
 					source.Metadata[k] = string(jsonBytes)
 				}
+			} else if m, ok := v.(map[string]interface{}); ok {
+				// Handle maps (e.g., headers) — encode as JSON like arrays
+				if jsonBytes, err := json.Marshal(m); err == nil {
+					source.Metadata[k] = string(jsonBytes)
+				}
 			} else if v != nil {
 				// Handle other types (numbers, booleans, etc.)
 				source.Metadata[k] = fmt.Sprintf("%v", v)

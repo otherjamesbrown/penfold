@@ -757,6 +757,10 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Used after triage to restore the correct source_system for non-email content (pf-e494df).
 	var originalSourceSystem string
 
+	// fetchedHeaders holds the email MIME headers from FetchSource for triage classification.
+	// Populated only when FetchSource is called (i.e. ContentType was empty on entry).
+	var fetchedHeaders map[string]string
+
 	// If ContentType is empty, the workflow was started with SLMPipelineInput
 	// (minimal contract). Fetch content and metadata from the database.
 	if input.ContentType == "" {
@@ -806,6 +810,10 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		// For email content, also populate BodyHTML from FetchSource for HTML-only emails (pf-dfbc24)
 		if input.ContentType == "email" {
 			input.BodyHTML = fetchOut.BodyHTML
+		}
+		// Store headers for triage classification (e.g., Content-Type for calendar detection)
+		if len(fetchOut.Headers) > 0 {
+			fetchedHeaders = fetchOut.Headers
 		}
 	}
 
@@ -1004,6 +1012,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		Subject:         input.Subject,
 		SenderEmail:     input.SenderEmail,
 		ContentType:     input.ContentType,
+		Headers:         fetchedHeaders,
 		ModelOverride:   input.ModelOverride,
 		LangfuseTraceID: langfuseTraceID,
 		LangfusePhaseID: triagePhaseID,
@@ -1191,7 +1200,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// The initial trace was created before triage with the input.Pipeline value
 	// (often empty → "email-processing"). If triage routed to a different pipeline,
 	// update the trace name to reflect the actual pipeline.
+	logger.Info("Langfuse trace name update: pre-check values",
+		"pipeline_name", pipelineName,
+		"input_pipeline", input.Pipeline,
+		"langfuse_err", langfuseErr,
+		"triage_pipelines", triageOutput.Pipelines,
+	)
 	resolvedTraceName := pipelineTraceName(pipelineName)
+	logger.Info("Langfuse trace name update: condition check",
+		"resolved_trace_name", resolvedTraceName,
+		"initial_trace_name", pipelineTraceName(input.Pipeline),
+		"should_update", langfuseErr == nil && resolvedTraceName != pipelineTraceName(input.Pipeline),
+	)
 	if langfuseErr == nil && resolvedTraceName != pipelineTraceName(input.Pipeline) {
 		_ = workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, fastOpts),

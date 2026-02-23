@@ -88,6 +88,7 @@ func (a *SourceActivities) FetchSource(ctx context.Context, input workflows.Fetc
 		SenderName:        source.Metadata["from_name"],
 		BodyHTML:          source.Metadata["body_html"],
 		ParticipantEmails: participants,
+		Headers:           extractHeaders(source.Metadata),
 	}, nil
 }
 
@@ -130,6 +131,21 @@ func parseParticipants(metadata map[string]string) []workflows.Participant {
 	}
 
 	return participants
+}
+
+// extractHeaders parses the "headers" key from source metadata.
+// The gateway stores email MIME headers as a JSON-encoded map[string]string
+// under metadata["headers"]. Returns nil if absent or unparseable.
+func extractHeaders(metadata map[string]string) map[string]string {
+	raw, ok := metadata["headers"]
+	if !ok || raw == "" {
+		return nil
+	}
+	var headers map[string]string
+	if err := json.Unmarshal([]byte(raw), &headers); err != nil {
+		return nil
+	}
+	return headers
 }
 
 // UpdateSourceStatus updates the processing status of a source.

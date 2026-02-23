@@ -42,8 +42,9 @@ type (
 		Subject            string        `json:"subject,omitempty"`
 		SenderEmail        string        `json:"sender_email,omitempty"`
 		SenderName         string        `json:"sender_name,omitempty"`
-		ParticipantEmails  []Participant `json:"participant_emails,omitempty"`
-		BodyHTML           string        `json:"body_html,omitempty"` // pf-dfbc24: HTML body from ingestion_metadata
+		ParticipantEmails  []Participant     `json:"participant_emails,omitempty"`
+		BodyHTML           string            `json:"body_html,omitempty"`              // pf-dfbc24: HTML body from ingestion_metadata
+		Headers            map[string]string `json:"headers,omitempty"`               // Email MIME headers for classification
 	}
 
 	// GenerateEmbeddingInput is the input for the GenerateEmbedding activity.
