@@ -138,7 +138,7 @@ func (a *LangfuseActivities) UpdateLangfuseTraceTags(ctx context.Context, input 
 		return nil
 	}
 
-	a.ingestion.UpdateTrace(input.TraceID, input.Tags)
+	a.ingestion.UpdateTrace(input.TraceID, input.Tags, input.Name)
 
 	if err := a.ingestion.Flush(ctx); err != nil {
 		a.logger.Warn("Langfuse UpdateLangfuseTraceTags flush failed", logging.Err(err), logging.F("trace_id", input.TraceID))

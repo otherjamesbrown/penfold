@@ -294,7 +294,8 @@ func TestIngestion_FlushEmpty(t *testing.T) {
 }
 
 // TestIngestion_UpdateTrace verifies that UpdateTrace buffers a trace-create event with
-// only id and tags — no name, environment, metadata, or other fields.
+// only id and tags — no environment, metadata, or other fields.
+// When name is empty, it is omitted from the payload.
 func TestIngestion_UpdateTrace(t *testing.T) {
 	client, err := langfuse.NewClient(&langfuse.Config{
 		Host:      "http://localhost:3000",
@@ -307,7 +308,7 @@ func TestIngestion_UpdateTrace(t *testing.T) {
 
 	ing := langfuse.NewIngestion(client)
 
-	ing.UpdateTrace("trace-upd-001", []string{"content-abc", "conv:conv-thread-63"})
+	ing.UpdateTrace("trace-upd-001", []string{"content-abc", "conv:conv-thread-63"}, "")
 
 	events := ing.PendingEvents()
 	if len(events) != 1 {
@@ -344,15 +345,53 @@ func TestIngestion_UpdateTrace(t *testing.T) {
 		t.Errorf("expected 2 tags, got %d: %v", len(tagsRaw), tagsRaw)
 	}
 
-	// Must NOT have name, environment, metadata fields.
+	// Must NOT have name (empty), environment, metadata fields.
 	if _, has := body["name"]; has {
-		t.Errorf("UpdateTrace must not include 'name' field, got %v", body["name"])
+		t.Errorf("UpdateTrace with empty name must not include 'name' field, got %v", body["name"])
 	}
 	if _, has := body["environment"]; has {
 		t.Errorf("UpdateTrace must not include 'environment' field, got %v", body["environment"])
 	}
 	if _, has := body["metadata"]; has {
 		t.Errorf("UpdateTrace must not include 'metadata' field, got %v", body["metadata"])
+	}
+}
+
+// TestIngestion_UpdateTrace_WithName verifies that UpdateTrace includes the name
+// field in the payload when a non-empty name is provided.
+func TestIngestion_UpdateTrace_WithName(t *testing.T) {
+	client, err := langfuse.NewClient(&langfuse.Config{
+		Host:      "http://localhost:3000",
+		PublicKey: "pk-test",
+		SecretKey: "sk-test",
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	ing := langfuse.NewIngestion(client)
+
+	ing.UpdateTrace("trace-upd-002", []string{"em-123", "pipeline:transcript"}, "transcript-processing")
+
+	events := ing.PendingEvents()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 buffered event, got %d", len(events))
+	}
+
+	raw, err := json.Marshal(events[0].Body)
+	if err != nil {
+		t.Fatalf("json.Marshal body: %v", err)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("json.Unmarshal body: %v", err)
+	}
+
+	if body["id"] != "trace-upd-002" {
+		t.Errorf("expected id=%q, got %v", "trace-upd-002", body["id"])
+	}
+	if body["name"] != "transcript-processing" {
+		t.Errorf("expected name=%q, got %v", "transcript-processing", body["name"])
 	}
 }
 

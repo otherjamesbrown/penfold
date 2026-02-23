@@ -185,12 +185,14 @@ func (i *Ingestion) CreateGeneration(e GenerationEvent) {
 
 // UpdateTrace buffers a trace-create event with only the specified fields.
 // The Langfuse API treats trace-create with an existing ID as an upsert,
-// so only the provided fields are updated.
-func (i *Ingestion) UpdateTrace(id string, tags []string) {
+// so only the provided fields are updated. Name is optional; if empty, it
+// is omitted from the payload and the existing trace name is preserved.
+func (i *Ingestion) UpdateTrace(id string, tags []string, name string) {
 	body := struct {
 		ID   string   `json:"id"`
+		Name string   `json:"name,omitempty"`
 		Tags []string `json:"tags,omitempty"`
-	}{ID: id, Tags: tags}
+	}{ID: id, Name: name, Tags: tags}
 
 	evt := Event{
 		ID:        newEnvelopeID(),

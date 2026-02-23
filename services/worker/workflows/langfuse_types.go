@@ -62,4 +62,5 @@ type FinishLangfuseTraceInput struct {
 type UpdateLangfuseTraceTagsInput struct {
 	TraceID string   `json:"trace_id"`
 	Tags    []string `json:"tags"`
+	Name    string   `json:"name,omitempty"` // Optional: update trace name (e.g. pipeline-aware name)
 }

@@ -549,6 +549,16 @@ type pipelineState struct {
 	cancelReason    string
 }
 
+// pipelineTraceName converts a pipeline name to a Langfuse trace name.
+// Examples: "standard" → "email-processing", "transcript" → "transcript-processing",
+// "attendees_only" → "attendees-only-processing".
+func pipelineTraceName(pipeline string) string {
+	if pipeline == "" || pipeline == "standard" {
+		return "email-processing"
+	}
+	return strings.ReplaceAll(pipeline, "_", "-") + "-processing"
+}
+
 // SLMPipelineWorkflow orchestrates the SLM/LLM content processing pipeline.
 //
 // Stages:
@@ -813,7 +823,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	ctxLangfuse := workflow.WithActivityOptions(ctx, fastOpts)
 	langfuseErr := workflow.ExecuteActivity(ctxLangfuse, pkgtemporal.ActivityCreateLangfuseTrace, CreateLangfuseTraceInput{
 		TraceID:      langfuseTraceID,
-		Name:         "email-processing",
+		Name:         pipelineTraceName(input.Pipeline),
 		ContentID:    input.ContentID,
 		TenantID:     input.TenantID,
 		Tags:         langfuseTraceTags,
@@ -1175,6 +1185,23 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}
 	if pipelineName == "" {
 		pipelineName = "standard"
+	}
+
+	// Update the Langfuse trace name now that the pipeline is resolved.
+	// The initial trace was created before triage with the input.Pipeline value
+	// (often empty → "email-processing"). If triage routed to a different pipeline,
+	// update the trace name to reflect the actual pipeline.
+	resolvedTraceName := pipelineTraceName(pipelineName)
+	if langfuseErr == nil && resolvedTraceName != pipelineTraceName(input.Pipeline) {
+		_ = workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, fastOpts),
+			pkgtemporal.ActivityUpdateLangfuseTraceTags,
+			UpdateLangfuseTraceTagsInput{
+				TraceID: langfuseTraceID,
+				Tags:    []string{input.ContentID, "pipeline:" + pipelineName},
+				Name:    resolvedTraceName,
+			},
+		).Get(ctx, nil)
 	}
 
 	var pipelineDef *FetchPipelineDefinitionOutput
