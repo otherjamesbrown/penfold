@@ -1831,37 +1831,32 @@ func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageCo
 		stages = []string{req.Stage}
 	}
 
-	// Build a map of all timeout.stage.* and model_config entries
-	timeoutMap := make(map[string]string)   // key -> value
+	// Build a map of per-stage timeouts from pipeline_definitions.
+	// timeout.stage.* rows were removed from pipeline_config (migration 077).
+	timeoutSecsMap := make(map[string]int)    // stage -> timeout_seconds
 	timeoutSourceMap := make(map[string]string) // stage -> source
 
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT key, value, default_value
-		FROM pipeline_config
-		WHERE key LIKE 'timeout.stage.%'
-		ORDER BY key
-	`)
+	tenantID := s.defaultTenantID(ctx)
+	pdRows, err := s.db.QueryContext(ctx, `
+		SELECT stage, timeout_seconds
+		FROM pipeline_definitions
+		WHERE tenant_id = $1 AND pipeline = 'standard' AND timeout_seconds > 0
+	`, tenantID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to query stage timeouts: %v", err)
 	}
-	defer rows.Close()
+	defer pdRows.Close()
 
-	for rows.Next() {
-		var key, value, defaultValue string
-		if err := rows.Scan(&key, &value, &defaultValue); err != nil {
+	for pdRows.Next() {
+		var stage string
+		var timeoutSecs int
+		if err := pdRows.Scan(&stage, &timeoutSecs); err != nil {
 			continue
 		}
-		timeoutMap[key] = value
-		// Determine source: if value differs from default, it was explicitly set
-		if value != defaultValue {
-			// Extract stage name from key (timeout.stage.<stage>.<type>)
-			parts := splitStageKey(key)
-			if parts != "" {
-				timeoutSourceMap[parts] = "db"
-			}
-		}
+		timeoutSecsMap[stage] = timeoutSecs
+		timeoutSourceMap[stage] = "db"
 	}
-	if err := rows.Err(); err != nil {
+	if err := pdRows.Err(); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to iterate stage timeouts: %v", err)
 	}
 
@@ -1917,17 +1912,12 @@ func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageCo
 	// Build response
 	var entries []*pipelinev1.StageConfigEntry
 	for _, stage := range stages {
-		stcKey := fmt.Sprintf("timeout.stage.%s.start_to_close", stage)
-		hbKey := fmt.Sprintf("timeout.stage.%s.heartbeat", stage)
-
-		timeout := timeoutMap[stcKey]
-		heartbeat := timeoutMap[hbKey]
-
-		// Use defaults if not in DB
-		if timeout == "" {
+		var timeout, heartbeat string
+		if secs, ok := timeoutSecsMap[stage]; ok {
+			timeout = fmt.Sprintf("%ds", secs)
+			heartbeat = fmt.Sprintf("%ds", secs/2)
+		} else {
 			timeout = stageDefaultTimeout(stage)
-		}
-		if heartbeat == "" {
 			heartbeat = stageDefaultHeartbeat(stage)
 		}
 
@@ -2116,23 +2106,6 @@ func sortModelInfos(models []*pipelinev1.ModelInfo) {
 	}
 }
 
-// splitStageKey extracts the stage name from a timeout.stage.<stage>.<type> key.
-func splitStageKey(key string) string {
-	// key format: timeout.stage.triage.start_to_close
-	const prefix = "timeout.stage."
-	if len(key) <= len(prefix) {
-		return ""
-	}
-	rest := key[len(prefix):]
-	// Find last dot to split stage from type
-	for i := len(rest) - 1; i >= 0; i-- {
-		if rest[i] == '.' {
-			return rest[:i]
-		}
-	}
-	return ""
-}
-
 func stageDefaultTimeout(stage string) string {
 	if stage == "deep_analyze" {
 		return "600s"
@@ -2147,7 +2120,7 @@ func stageDefaultHeartbeat(stage string) string {
 	return "30s"
 }
 
-// resolveStageTimeouts reads per-stage timeout values from pipeline_config.
+// resolveStageTimeouts reads per-stage timeout values from pipeline_definitions.
 // Returns maps of stage->duration for start_to_close and heartbeat.
 // Returns nil maps (not error) if DB is unavailable — workflow falls back to defaults.
 func (s *Service) resolveStageTimeouts(ctx context.Context) (map[string]time.Duration, map[string]time.Duration) {
@@ -2155,13 +2128,14 @@ func (s *Service) resolveStageTimeouts(ctx context.Context) (map[string]time.Dur
 		return nil, nil
 	}
 
+	tenantID := s.defaultTenantID(ctx)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT key, value, default_value
-		FROM pipeline_config
-		WHERE key LIKE 'timeout.stage.%'
-	`)
+		SELECT stage, timeout_seconds
+		FROM pipeline_definitions
+		WHERE tenant_id = $1 AND pipeline = 'standard' AND timeout_seconds > 0
+	`, tenantID)
 	if err != nil {
-		s.logger.Debug("Could not resolve stage timeouts", logging.Err(err))
+		s.logger.Debug("Could not resolve stage timeouts from pipeline_definitions", logging.Err(err))
 		return nil, nil
 	}
 	defer rows.Close()
@@ -2171,27 +2145,14 @@ func (s *Service) resolveStageTimeouts(ctx context.Context) (map[string]time.Dur
 	hasOverride := false
 
 	for rows.Next() {
-		var key, value, defaultValue string
-		if err := rows.Scan(&key, &value, &defaultValue); err != nil {
-			continue
-		}
-		// Parse the configured value regardless of whether it matches the default.
-		// Even if value == default, we still want to pass it through so the worker
-		// has explicit config rather than falling back to hardcoded defaults.
-		dur, err := time.ParseDuration(value)
-		if err != nil {
-			continue
-		}
-		stage := splitStageKey(key)
-		if stage == "" {
+		var stage string
+		var timeoutSecs int
+		if err := rows.Scan(&stage, &timeoutSecs); err != nil {
 			continue
 		}
 		hasOverride = true
-		if strings.HasSuffix(key, ".start_to_close") {
-			timeouts[stage] = dur
-		} else if strings.HasSuffix(key, ".heartbeat") {
-			heartbeats[stage] = dur
-		}
+		timeouts[stage] = time.Duration(timeoutSecs) * time.Second
+		heartbeats[stage] = time.Duration(timeoutSecs/2) * time.Second
 	}
 
 	if !hasOverride {
