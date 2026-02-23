@@ -227,6 +227,29 @@ func (r *Repository) CreatePipeline(ctx context.Context, tenantID, name, fromPip
 	return r.GetPipelineStages(ctx, tenantID, name)
 }
 
+// ListAllDefinedStages returns all unique stage names across all tenants and pipelines.
+// Used at startup for registry validation.
+func (r *Repository) ListAllDefinedStages(ctx context.Context) ([]string, error) {
+	rows, err := r.db.Query(ctx, `SELECT DISTINCT stage FROM pipeline_definitions ORDER BY stage`)
+	if err != nil {
+		return nil, fmt.Errorf("listing all defined stages: %w", err)
+	}
+	defer rows.Close()
+
+	var stages []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, fmt.Errorf("scanning stage name: %w", err)
+		}
+		stages = append(stages, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating stage names: %w", err)
+	}
+	return stages, nil
+}
+
 // getStageDefinition retrieves a single stage definition.
 func (r *Repository) getStageDefinition(ctx context.Context, tenantID, pipeline, stage string) (*StageDefinition, error) {
 	var sd StageDefinition

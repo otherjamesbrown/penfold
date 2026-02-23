@@ -715,6 +715,17 @@ func main() {
 		)
 	}
 
+	// Validate pipeline stage registry against pipeline_definitions (warnings only)
+	if dbPool != nil {
+		defRepo := pipeline.NewRepository(dbPool)
+		definedStages, err := defRepo.ListAllDefinedStages(context.Background())
+		if err != nil {
+			logger.Warn("failed to load pipeline definitions for registry validation", logging.Err(err))
+		} else {
+			pkgtemporal.ValidateStageRegistry(logger, definedStages, pkgtemporal.AllMainQueueActivities())
+		}
+	}
+
 	// Register Temporal connection health check
 	healthChecker.RegisterCheck("temporal_connection", func(ctx context.Context) error {
 		// Check if we can reach Temporal by describing the namespace

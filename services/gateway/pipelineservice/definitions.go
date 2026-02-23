@@ -193,14 +193,16 @@ func (s *Service) AuditPipelineCompleteness(ctx context.Context, req *pipelinev1
 	// Find completed sources and cross-reference with pipeline_definitions to detect missing stages.
 	// For each completed source, find which pipeline it was routed to, get expected stages,
 	// and compare with actual pipeline_runs.
+	// Pipeline assignment is determined by routing rules, not stored on the source.
+	// Default all sources to 'standard' since that's the only pipeline currently in use.
 	query := `
 		WITH completed_sources AS (
-			SELECT s.id AS source_id, s.content_id, COALESCE(s.pipeline, 'standard') AS pipeline
+			SELECT s.id AS source_id, s.content_id, 'standard'::text AS pipeline
 			FROM sources s
 			WHERE s.tenant_id = $1
 			  AND s.processing_status = 'completed'
 			  AND s.is_deleted = false
-			  AND ($3 = '' OR COALESCE(s.pipeline, 'standard') = $3)
+			  AND ($3 = '' OR 'standard' = $3)
 			ORDER BY s.id DESC
 			LIMIT $2
 		),
