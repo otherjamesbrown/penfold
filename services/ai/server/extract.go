@@ -200,9 +200,9 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	content := strings.TrimSpace(req.GetContent())
 	model := req.GetModel()
 
-	// Resolve model: explicit request → stage config → global default → hardcoded fallback
+	// Resolve model: explicit request → DB config → stage env var → global default → hardcoded fallback
 	if model == "" {
-		model = s.config.ModelForStage("extract_entities")
+		model = s.resolveModel(ctx, "extract_entities")
 	}
 
 	// Start tracing span for the entity extraction.
@@ -301,7 +301,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 				ID:               uuid.New().String(),
 				TraceID:          lfTraceID,
 				ParentID:         lfPhaseID,
-				Name:             "ai.extract_entities",
+				Name:             "ai.extract_ner",
 				Model:            nerResult.Model,
 				Input:            nerMessages,
 				Output:           nerResult.Content,
@@ -379,7 +379,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 				ID:               uuid.New().String(),
 				TraceID:          lfTraceID,
 				ParentID:         lfPhaseID,
-				Name:             "ai.extract_entities",
+				Name:             "ai.extract_semantic",
 				Model:            semResult.Model,
 				Input:            semMessages,
 				Output:           semResult.Content,

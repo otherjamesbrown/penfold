@@ -35,13 +35,14 @@ type PromptStore interface {
 type AIServer struct {
 	aiv1.UnimplementedAICoordinatorServiceServer
 
-	config      *config.Config
-	logger      logging.Logger
-	backend     backend.Backend       // Direct backend for backwards compatibility
-	router      *router.ModelRouter   // Multi-model routing (optional)
-	registry    *registry.DBRegistry  // Model registry (optional)
-	langfuse    *langfuse.Ingestion   // Langfuse generation reporting (optional, nil = disabled)
-	promptStore PromptStore           // DB-backed prompt store (optional, nil = use hardcoded fallbacks)
+	config         *config.Config
+	logger         logging.Logger
+	backend        backend.Backend          // Direct backend for backwards compatibility
+	router         *router.ModelRouter      // Multi-model routing (optional)
+	registry       *registry.DBRegistry     // Model registry (optional)
+	langfuse       *langfuse.Ingestion      // Langfuse generation reporting (optional, nil = disabled)
+	promptStore    PromptStore              // DB-backed prompt store (optional, nil = use hardcoded fallbacks)
+	configResolver *config.DBConfigResolver // DB-backed model config resolver (optional, nil = env vars only)
 }
 
 // NewAIServer creates a new AI server instance with a single backend.
@@ -110,6 +111,31 @@ func (s *AIServer) WithPromptStore(ps PromptStore) *AIServer {
 	return s
 }
 
+// WithDBConfigResolver sets the DB-backed model config resolver on an existing AIServer.
+// Call this after constructing the server to enable DB-driven model assignments per pipeline stage.
+// When nil, all handlers fall back to env var config (Config.ModelForStage).
+func (s *AIServer) WithDBConfigResolver(r *config.DBConfigResolver) *AIServer {
+	s.configResolver = r
+	return s
+}
+
+// resolveModel returns the model for a pipeline stage, preferring DB config when available.
+// Priority: explicit request model (caller's responsibility) → DB config → env var stage config →
+// global env var default → hardcoded fallback. The DB config resolver handles levels 2–5;
+// this method delegates to it when present, otherwise falls back to Config.ModelForStage.
+func (s *AIServer) resolveModel(ctx context.Context, stage string) string {
+	if s.configResolver != nil {
+		model, err := s.configResolver.ModelForStage(ctx, stage)
+		if err != nil {
+			s.logger.Warn("DB config resolution failed, falling back to env",
+				logging.F("stage", stage), logging.Err(err))
+			return s.config.ModelForStage(stage)
+		}
+		return model
+	}
+	return s.config.ModelForStage(stage)
+}
+
 // getPrompt retrieves the active prompt for the given stage from the DB prompt store.
 // If the store is not configured, the DB is unreachable, or no active prompt exists,
 // it falls back to the provided hardcoded default without failing the request.
@@ -155,9 +181,9 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 	text := strings.TrimSpace(req.GetText())
 	model := req.GetModel()
 
-	// Resolve model: explicit request → stage config → global default → hardcoded fallback
+	// Resolve model: explicit request → DB config → stage env var → global default → hardcoded fallback
 	if model == "" {
-		model = s.config.ModelForStage("embedding")
+		model = s.resolveModel(ctx, "embedding")
 	}
 
 	// Start tracing span for the embedding generation.
@@ -378,9 +404,9 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 	content := strings.TrimSpace(req.GetContent())
 	model := req.GetModel()
 
-	// Resolve model: explicit request → stage config → global default → hardcoded fallback
+	// Resolve model: explicit request → DB config → stage env var → global default → hardcoded fallback
 	if model == "" {
-		model = s.config.ModelForStage("extract_assertions")
+		model = s.resolveModel(ctx, "extract_assertions")
 	}
 
 	// Start tracing span for the assertion extraction.
@@ -667,9 +693,9 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 	content := strings.TrimSpace(req.GetContent())
 	model := req.GetModel()
 
-	// Resolve model: explicit request → stage config → global default → hardcoded fallback
+	// Resolve model: explicit request → DB config → stage env var → global default → hardcoded fallback
 	if model == "" {
-		model = s.config.ModelForStage("triage")
+		model = s.resolveModel(ctx, "triage")
 	}
 
 	// Start tracing span for the triage generation.

@@ -11,7 +11,7 @@ func buildSeededRoutes() []Route {
 		{ID: 1, TenantID: "tenant-a", ContentType: "EMAIL", ContentSubtype: "HUMAN", Pipeline: "standard", Active: true},
 		{ID: 2, TenantID: "tenant-a", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION", Pipeline: "standard", Active: true},
 		{ID: 3, TenantID: "tenant-a", ContentType: "CALENDAR", ContentSubtype: "INVITE", Pipeline: "attendees_only", Active: true},
-		{ID: 4, TenantID: "tenant-a", ContentType: "MEETING", ContentSubtype: "TRANSCRIPT", Pipeline: "standard", Active: true},
+		{ID: 4, TenantID: "tenant-a", ContentType: "MEETING", ContentSubtype: "TRANSCRIPT", Pipeline: "transcript", Active: true},
 	}
 }
 
@@ -243,7 +243,7 @@ func TestHasStage(t *testing.T) {
 	}
 }
 
-// TestMeetingTranscript verifies MEETING/TRANSCRIPT → "standard" pipeline.
+// TestMeetingTranscript verifies MEETING/TRANSCRIPT → "transcript" pipeline.
 func TestMeetingTranscript(t *testing.T) {
 	router := NewRouter(buildSeededRoutes())
 
@@ -252,7 +252,7 @@ func TestMeetingTranscript(t *testing.T) {
 	if len(pipelines) != 1 {
 		t.Fatalf("expected 1 pipeline, got %d: %v", len(pipelines), pipelines)
 	}
-	if pipelines[0] != "standard" {
-		t.Errorf("expected pipeline=standard, got %q", pipelines[0])
+	if pipelines[0] != "transcript" {
+		t.Errorf("expected pipeline=transcript, got %q", pipelines[0])
 	}
 }

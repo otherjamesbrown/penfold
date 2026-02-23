@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1235,4 +1236,91 @@ func TestConvertError_RegistryErrors(t *testing.T) {
 			assert.Equal(t, tt.wantCode, st.Code())
 		})
 	}
+}
+
+// =============================================================================
+// resolveModel Tests (pf-7a0fb0)
+// =============================================================================
+
+// mockModelConfigQuerier is a simple in-memory implementation of config.ModelConfigQuerier for testing.
+type mockModelConfigQuerier struct {
+	data  map[string]string // configKey -> modelName
+	dbErr error             // if set, all queries return this error
+}
+
+func (m *mockModelConfigQuerier) GetModelConfig(ctx context.Context, tenantID uuid.UUID, configKey string) (string, error) {
+	if m.dbErr != nil {
+		return "", m.dbErr
+	}
+	if v, ok := m.data[configKey]; ok {
+		return v, nil
+	}
+	return "", errors.New("model config not found")
+}
+
+func TestResolveModel_NilResolver_FallsBackToEnv(t *testing.T) {
+	// When configResolver is nil, resolveModel must delegate to config.ModelForStage.
+	cfg := testConfig()
+	cfg.StageModels = map[string]string{"triage": "env-triage-model"}
+	srv := &AIServer{
+		config:         cfg,
+		logger:         testLogger(),
+		configResolver: nil,
+	}
+
+	got := srv.resolveModel(context.Background(), "triage")
+	assert.Equal(t, "env-triage-model", got, "should return env var model when resolver is nil")
+}
+
+func TestResolveModel_DBResolverPreferredOverEnv(t *testing.T) {
+	// When configResolver is set and the DB has a stage-specific override, it takes priority over env var.
+	cfg := testConfig()
+	cfg.StageModels = map[string]string{"triage": "env-triage-model"}
+
+	querier := &mockModelConfigQuerier{
+		data: map[string]string{"stage.triage": "db-triage-model"},
+	}
+
+	dbResolver := config.NewDBConfigResolverWithTTL(querier, cfg, uuid.Nil, 0)
+	srv := &AIServer{
+		config:         cfg,
+		logger:         testLogger(),
+		configResolver: dbResolver,
+	}
+
+	got := srv.resolveModel(context.Background(), "triage")
+	assert.Equal(t, "db-triage-model", got, "DB config should take priority over env var")
+}
+
+func TestResolveModel_DBUnavailableFallsBackToEnv(t *testing.T) {
+	// When the DB resolver cannot find a stage config (not found), resolveModel falls through to env var.
+	cfg := testConfig()
+	cfg.StageModels = map[string]string{"triage": "env-triage-fallback"}
+
+	// DB has no entry for stage.triage so getCachedOrFetch returns ""
+	querier := &mockModelConfigQuerier{
+		data: map[string]string{}, // empty — nothing configured in DB
+	}
+
+	dbResolver := config.NewDBConfigResolverWithTTL(querier, cfg, uuid.Nil, 0)
+	srv := &AIServer{
+		config:         cfg,
+		logger:         testLogger(),
+		configResolver: dbResolver,
+	}
+
+	got := srv.resolveModel(context.Background(), "triage")
+	assert.Equal(t, "env-triage-fallback", got, "should fall back to env var when DB has no entry")
+}
+
+func TestWithDBConfigResolver_ChainMethod(t *testing.T) {
+	// Verify the fluent builder method sets the field and returns the same server.
+	srv := newTestServer(&mockBackend{})
+	cfg := testConfig()
+	querier := &mockModelConfigQuerier{data: map[string]string{}}
+	resolver := config.NewDBConfigResolver(querier, cfg, uuid.Nil)
+
+	returned := srv.WithDBConfigResolver(resolver)
+	assert.Same(t, srv, returned, "WithDBConfigResolver must return the same server for chaining")
+	assert.Equal(t, resolver, srv.configResolver, "configResolver field must be set")
 }

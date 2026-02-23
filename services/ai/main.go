@@ -73,6 +73,7 @@ func main() {
 	var dbPool *pgxpool.Pool
 	var modelRepo *models.Repository
 	var promptRepo *pipeline.Repository
+	var dbConfigResolver *config.DBConfigResolver
 	if cfg.DBURL != "" {
 		logger.Info("Initializing database connection for model config",
 			logging.F("db_url", "<redacted>"),
@@ -112,8 +113,7 @@ func main() {
 		// Note: DBConfigResolver requires a tenant ID for config resolution.
 		// In a multi-tenant system, this would come from request context.
 		// For single-tenant deployment or global config, a fixed tenant ID is used.
-		// The resolver is created but not yet wired to the server (future enhancement).
-		_ = config.NewDBConfigResolver(modelRepo, cfg, uuid.Nil) // Placeholder for future server integration
+		dbConfigResolver = config.NewDBConfigResolver(modelRepo, cfg, uuid.Nil)
 	} else {
 		logger.Info("Database not configured, using env var model config only")
 	}
@@ -245,6 +245,12 @@ func main() {
 		logger.Info("DB-backed prompt store wired into AI server")
 	} else {
 		logger.Info("No DB configured — AI server will use hardcoded prompt fallbacks")
+	}
+	// Wire DB-backed model config resolver if database is configured.
+	// The server falls back to env var config when the resolver is nil or unavailable.
+	if dbConfigResolver != nil {
+		aiServer.WithDBConfigResolver(dbConfigResolver)
+		logger.Info("DB-backed model config resolver wired into AI server")
 	}
 	aiv1.RegisterAICoordinatorServiceServer(grpcServer, aiServer)
 

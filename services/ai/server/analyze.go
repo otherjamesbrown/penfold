@@ -390,7 +390,7 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 	content := strings.TrimSpace(req.GetContent())
 
 	// Select model based on triage metadata, with config default fallback
-	configDefault := s.config.ModelForStage("deep_analyze")
+	configDefault := s.resolveModel(ctx, "deep_analyze")
 	selectedModel := selectModelForDeepAnalysis(
 		req.GetTriageCategory(),
 		req.GetTriageImportance(),
