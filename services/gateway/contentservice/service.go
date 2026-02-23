@@ -1289,7 +1289,7 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 	}
 
 	// Check concurrency limit before allowing reprocessing.
-	// Reads pipeline.max_concurrent from pipeline_config and counts in-flight
+	// Reads pipeline.max_concurrent from pipeline_operational_config and counts in-flight
 	// sources (processing_status = 'processing'). Returns ResourceExhausted if
 	// at or over the limit — same logic as KickProcessing in pipelineservice.
 	if s.db != nil {
@@ -1358,7 +1358,7 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		)
 	}
 
-	// Resolve per-stage timeouts from pipeline_config
+	// Resolve per-stage timeouts from pipeline_definitions
 	stageTimeouts, stageHeartbeats := s.resolveStageTimeouts(ctx)
 
 	// Look up tenant name for Langfuse environment labelling (best-effort, non-blocking).
@@ -1424,14 +1424,16 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 // Helper functions for concurrency management
 // =============================================================================
 
-// getMaxConcurrent reads the max_concurrent value from pipeline_config.
+// getMaxConcurrent reads the max_concurrent value from pipeline_operational_config.
 func (s *Service) getMaxConcurrent(ctx context.Context) (int, error) {
+	// Use the same tenant ID constant as resolveStageTimeouts.
+	const defaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
 	var valueStr string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT value
-		FROM pipeline_config
-		WHERE key = 'pipeline.max_concurrent' AND value_type = 'integer'
-	`).Scan(&valueStr)
+		FROM pipeline_operational_config
+		WHERE tenant_id = $1 AND key = 'pipeline.max_concurrent'
+	`, defaultTenantID).Scan(&valueStr)
 
 	if err == sql.ErrNoRows {
 		// Return default value if not found
@@ -2278,23 +2280,6 @@ func (s *Service) ClearError(ctx context.Context, req *contentv1.ClearErrorReque
 		ContentId: req.ContentId,
 		Message:   "Error fields cleared successfully",
 	}, nil
-}
-
-// splitStageKey extracts the stage name from a timeout.stage.<stage>.<type> key.
-func splitStageKey(key string) string {
-	// key format: timeout.stage.triage.start_to_close
-	const prefix = "timeout.stage."
-	if len(key) <= len(prefix) {
-		return ""
-	}
-	rest := key[len(prefix):]
-	// Find last dot to split stage from type
-	for i := len(rest) - 1; i >= 0; i-- {
-		if rest[i] == '.' {
-			return rest[:i]
-		}
-	}
-	return ""
 }
 
 // resolveStageTimeouts reads per-stage timeout values from pipeline_definitions.

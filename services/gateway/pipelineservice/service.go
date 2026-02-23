@@ -135,7 +135,7 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 		return nil, status.Error(codes.Unavailable, "Temporal client not configured")
 	}
 
-	// Read max_concurrent from pipeline_config
+	// Read max_concurrent from pipeline_operational_config
 	maxConcurrent, err := s.getMaxConcurrent(ctx)
 	if err != nil {
 		s.logger.Error("Error reading max_concurrent config", logging.Err(err))
@@ -1109,18 +1109,20 @@ func (s *Service) GetTimeoutConfig(ctx context.Context, req *pipelinev1.GetTimeo
 		return nil, status.Error(codes.Unavailable, "database not available")
 	}
 
-	// Build query with optional key prefix filter
+	tenantID := s.defaultTenantID(ctx)
+
+	// Build query with optional key prefix filter against pipeline_operational_config.
+	// The old table had value_type, description, min_value, max_value, default_value, updated_by
+	// columns that no longer exist. We only query key and value.
 	query := `
-		SELECT key, value, value_type, description,
-		       min_value, max_value, default_value,
-		       COALESCE(updated_at, now()), COALESCE(updated_by, '')
-		FROM pipeline_config
-		WHERE value_type = 'duration'
+		SELECT key, value
+		FROM pipeline_operational_config
+		WHERE tenant_id = $1 AND key LIKE 'timeout.%'
 	`
-	args := []interface{}{}
+	args := []interface{}{tenantID}
 
 	if req.Key != "" {
-		query += " AND key LIKE $1"
+		query += " AND key LIKE $2"
 		args = append(args, req.Key+"%")
 	}
 
@@ -1128,7 +1130,7 @@ func (s *Service) GetTimeoutConfig(ctx context.Context, req *pipelinev1.GetTimeo
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		s.logger.Error("Error querying pipeline_config", logging.Err(err))
+		s.logger.Error("Error querying pipeline_operational_config", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to query timeout config: %v", err)
 	}
 	defer rows.Close()
@@ -1136,25 +1138,16 @@ func (s *Service) GetTimeoutConfig(ctx context.Context, req *pipelinev1.GetTimeo
 	var entries []*pipelinev1.TimeoutEntry
 	for rows.Next() {
 		var entry pipelinev1.TimeoutEntry
-		var updatedAt time.Time
 
 		err := rows.Scan(
 			&entry.Key,
 			&entry.Value,
-			&entry.ValueType,
-			&entry.Description,
-			&entry.MinValue,
-			&entry.MaxValue,
-			&entry.DefaultValue,
-			&updatedAt,
-			&entry.UpdatedBy,
 		)
 		if err != nil {
 			s.logger.Error("Error scanning timeout entry", logging.Err(err))
 			continue
 		}
 
-		entry.UpdatedAt = updatedAt.Format(time.RFC3339)
 		entries = append(entries, &entry)
 	}
 
@@ -1205,15 +1198,13 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 	// these rows from pipeline_config, so they must be written to model_config.
 	if strings.HasPrefix(req.Key, "model.stage.") {
 		stageName := strings.TrimPrefix(req.Key, "model.stage.")
-		// Use the single known tenant ID.
-		const defaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
 
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO model_config (tenant_id, config_key, model_name, updated_at, updated_by)
 			VALUES ($1, $2, $3, NOW(), $4)
 			ON CONFLICT (tenant_id, config_key)
 			DO UPDATE SET model_name = EXCLUDED.model_name, updated_at = NOW(), updated_by = EXCLUDED.updated_by
-		`, defaultTenantID, "stage."+stageName, req.Value, req.UpdatedBy)
+		`, s.defaultTenantID(ctx), "stage."+stageName, req.Value, req.UpdatedBy)
 		if err != nil {
 			s.logger.Error("Error writing model config", logging.Err(err))
 			return nil, status.Errorf(codes.Internal, "failed to update model config: %v", err)
@@ -1280,27 +1271,20 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 		}, nil
 	}
 
-	// Get current entry to check value_type and min/max bounds
+	// Read the current value from pipeline_operational_config.
+	// The old pipeline_config columns (value_type, description, min_value, max_value,
+	// default_value, updated_by) no longer exist — we only have key and value.
+	tenantID := s.defaultTenantID(ctx)
 	var entry pipelinev1.TimeoutEntry
 	var previousValue string
-	var updatedAt time.Time
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT key, value, value_type, description,
-		       min_value, max_value, default_value,
-		       COALESCE(updated_at, now()), COALESCE(updated_by, '')
-		FROM pipeline_config
-		WHERE key = $1
-	`, req.Key).Scan(
+		SELECT key, value
+		FROM pipeline_operational_config
+		WHERE tenant_id = $1 AND key = $2
+	`, tenantID, req.Key).Scan(
 		&entry.Key,
 		&previousValue,
-		&entry.ValueType,
-		&entry.Description,
-		&entry.MinValue,
-		&entry.MaxValue,
-		&entry.DefaultValue,
-		&updatedAt,
-		&entry.UpdatedBy,
 	)
 
 	if err == sql.ErrNoRows {
@@ -1311,37 +1295,12 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 		return nil, status.Errorf(codes.Internal, "failed to get config entry: %v", err)
 	}
 
-	// Type-specific validation
-	if entry.ValueType == "duration" {
-		// Parse and validate duration values
-		newDuration, err := time.ParseDuration(req.Value)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid duration value: %v", err)
-		}
-
-		// Validate min/max bounds for duration
-		if entry.MinValue != "" {
-			minDuration, err := time.ParseDuration(entry.MinValue)
-			if err == nil && newDuration < minDuration {
-				return nil, status.Errorf(codes.InvalidArgument, "value %s is below minimum %s", req.Value, entry.MinValue)
-			}
-		}
-		if entry.MaxValue != "" {
-			maxDuration, err := time.ParseDuration(entry.MaxValue)
-			if err == nil && newDuration > maxDuration {
-				return nil, status.Errorf(codes.InvalidArgument, "value %s is above maximum %s", req.Value, entry.MaxValue)
-			}
-		}
-	}
-	// For string type (model names), no parsing or min/max validation needed
-	// For integer, float, boolean types: validation could be added here in the future
-
-	// Update the value in database
+	// Update the value in pipeline_operational_config
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE pipeline_config
-		SET value = $1, updated_at = now(), updated_by = $2
-		WHERE key = $3
-	`, req.Value, req.UpdatedBy, req.Key)
+		UPDATE pipeline_operational_config
+		SET value = $1, updated_at = now()
+		WHERE tenant_id = $2 AND key = $3
+	`, req.Value, tenantID, req.Key)
 	if err != nil {
 		s.logger.Error("Error updating config", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to update config: %v", err)
@@ -1561,7 +1520,7 @@ func computeJSONDiff(a, b json.RawMessage) (summary string, diffJSON string) {
 func (s *Service) GetConcurrencyConfig(ctx context.Context, req *pipelinev1.GetConcurrencyConfigRequest) (*pipelinev1.GetConcurrencyConfigResponse, error) {
 	s.logger.Debug("GetConcurrencyConfig called")
 
-	// Read max_concurrent from pipeline_config
+	// Read max_concurrent from pipeline_operational_config
 	maxConcurrent, err := s.getMaxConcurrent(ctx)
 	if err != nil {
 		s.logger.Error("Error reading max_concurrent config", logging.Err(err))
@@ -1623,7 +1582,7 @@ func (s *Service) SetConcurrencyConfig(ctx context.Context, req *pipelinev1.SetC
 		return nil, status.Errorf(codes.Internal, "failed to read previous value: %v", err)
 	}
 
-	// Update pipeline_config using the helper
+	// Update pipeline_operational_config using the helper
 	err = s.setMaxConcurrent(ctx, int(req.MaxConcurrent), req.UpdatedBy)
 	if err != nil {
 		s.logger.Error("Error updating max_concurrent config", logging.Err(err))
@@ -1740,18 +1699,19 @@ func (s *Service) ListPendingSources(ctx context.Context, req *pipelinev1.ListPe
 // Helper functions for concurrency management
 // =============================================================================
 
-// getMaxConcurrent reads the max_concurrent value from pipeline_config.
+// getMaxConcurrent reads the max_concurrent value from pipeline_operational_config.
 func (s *Service) getMaxConcurrent(ctx context.Context) (int, error) {
 	if s.db == nil {
 		return 1, fmt.Errorf("database not available")
 	}
 
+	tenantID := s.defaultTenantID(ctx)
 	var valueStr string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT value
-		FROM pipeline_config
-		WHERE key = 'pipeline.max_concurrent' AND value_type = 'integer'
-	`).Scan(&valueStr)
+		FROM pipeline_operational_config
+		WHERE tenant_id = $1 AND key = 'pipeline.max_concurrent'
+	`, tenantID).Scan(&valueStr)
 
 	if err == sql.ErrNoRows {
 		// Return default value if not found
@@ -1769,17 +1729,18 @@ func (s *Service) getMaxConcurrent(ctx context.Context) (int, error) {
 	return value, nil
 }
 
-// setMaxConcurrent updates the max_concurrent value in pipeline_config.
+// setMaxConcurrent updates the max_concurrent value in pipeline_operational_config.
 func (s *Service) setMaxConcurrent(ctx context.Context, value int, updatedBy string) error {
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
 
+	tenantID := s.defaultTenantID(ctx)
 	result, err := s.db.ExecContext(ctx, `
-		UPDATE pipeline_config
-		SET value = $1, updated_at = NOW(), updated_by = $2
-		WHERE key = 'pipeline.max_concurrent' AND value_type = 'integer'
-	`, strconv.Itoa(value), updatedBy)
+		UPDATE pipeline_operational_config
+		SET value = $1, updated_at = NOW()
+		WHERE tenant_id = $2 AND key = 'pipeline.max_concurrent'
+	`, strconv.Itoa(value), tenantID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update max_concurrent: %w", err)

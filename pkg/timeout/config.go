@@ -11,17 +11,14 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// ConfigEntry represents a single configuration entry from pipeline_config.
+// ConfigEntry represents a single configuration entry from pipeline_operational_config.
 type ConfigEntry struct {
-	Key          string
-	Value        time.Duration
-	ValueType    string
-	Description  string
-	MinValue     time.Duration
-	MaxValue     time.Duration
-	DefaultValue time.Duration
-	UpdatedAt    time.Time
-	UpdatedBy    string
+	Key   string
+	Value time.Duration
+	// MinValue and MaxValue are retained for in-memory validation only; they are
+	// no longer stored in the database and are populated from hardcodedDefaults.
+	MinValue time.Duration
+	MaxValue time.Duration
 }
 
 // DB defines the interface for database operations, allowing for testing with mocks.
@@ -37,175 +34,44 @@ type Config struct {
 	entries  map[string]ConfigEntry
 	defaults map[string]ConfigEntry
 	db       DB
+	tenantID string
 	onChange []func(key string, oldVal, newVal time.Duration)
 }
 
 // hardcodedDefaults provides fallback values when DB is unavailable.
+// Only active timeout keys are listed here; dead keys (timeout.activity.*,
+// timeout.stage.*) were removed when those config rows were deleted.
 var hardcodedDefaults = map[string]ConfigEntry{
 	"timeout.ai_client.request": {
-		Key:          "timeout.ai_client.request",
-		Value:        120 * time.Second,
-		ValueType:    "duration",
-		Description:  "AI gRPC client per-request timeout",
-		MinValue:     10 * time.Second,
-		MaxValue:     600 * time.Second,
-		DefaultValue: 120 * time.Second,
-	},
-	"timeout.activity.fast.start_to_close": {
-		Key:          "timeout.activity.fast.start_to_close",
-		Value:        30 * time.Second,
-		ValueType:    "duration",
-		Description:  "Fast activity StartToClose timeout",
-		MinValue:     5 * time.Second,
-		MaxValue:     120 * time.Second,
-		DefaultValue: 30 * time.Second,
-	},
-	"timeout.activity.fast.heartbeat": {
-		Key:          "timeout.activity.fast.heartbeat",
-		Value:        10 * time.Second,
-		ValueType:    "duration",
-		Description:  "Fast activity heartbeat timeout",
-		MinValue:     3 * time.Second,
-		MaxValue:     60 * time.Second,
-		DefaultValue: 10 * time.Second,
-	},
-	"timeout.activity.embedding.start_to_close": {
-		Key:          "timeout.activity.embedding.start_to_close",
-		Value:        120 * time.Second,
-		ValueType:    "duration",
-		Description:  "Embedding activity StartToClose timeout",
-		MinValue:     30 * time.Second,
-		MaxValue:     600 * time.Second,
-		DefaultValue: 120 * time.Second,
-	},
-	"timeout.activity.embedding.heartbeat": {
-		Key:          "timeout.activity.embedding.heartbeat",
-		Value:        30 * time.Second,
-		ValueType:    "duration",
-		Description:  "Embedding activity heartbeat timeout",
-		MinValue:     10 * time.Second,
-		MaxValue:     120 * time.Second,
-		DefaultValue: 30 * time.Second,
-	},
-	"timeout.activity.llm.start_to_close": {
-		Key:          "timeout.activity.llm.start_to_close",
-		Value:        600 * time.Second,
-		ValueType:    "duration",
-		Description:  "LLM activity StartToClose timeout",
-		MinValue:     60 * time.Second,
-		MaxValue:     1800 * time.Second,
-		DefaultValue: 600 * time.Second,
-	},
-	"timeout.activity.llm.heartbeat": {
-		Key:          "timeout.activity.llm.heartbeat",
-		Value:        300 * time.Second,
-		ValueType:    "duration",
-		Description:  "LLM activity heartbeat timeout",
-		MinValue:     30 * time.Second,
-		MaxValue:     900 * time.Second,
-		DefaultValue: 300 * time.Second,
-	},
-	"timeout.activity.batch.start_to_close": {
-		Key:          "timeout.activity.batch.start_to_close",
-		Value:        1800 * time.Second,
-		ValueType:    "duration",
-		Description:  "Batch activity StartToClose timeout",
-		MinValue:     300 * time.Second,
-		MaxValue:     7200 * time.Second,
-		DefaultValue: 1800 * time.Second,
-	},
-	"timeout.activity.batch.heartbeat": {
-		Key:          "timeout.activity.batch.heartbeat",
-		Value:        300 * time.Second,
-		ValueType:    "duration",
-		Description:  "Batch activity heartbeat timeout",
-		MinValue:     60 * time.Second,
-		MaxValue:     1800 * time.Second,
-		DefaultValue: 300 * time.Second,
+		Key:      "timeout.ai_client.request",
+		Value:    120 * time.Second,
+		MinValue: 10 * time.Second,
+		MaxValue: 600 * time.Second,
 	},
 	"timeout.http.backend.gemini": {
-		Key:          "timeout.http.backend.gemini",
-		Value:        120 * time.Second,
-		ValueType:    "duration",
-		Description:  "Gemini backend HTTP timeout",
-		MinValue:     10 * time.Second,
-		MaxValue:     600 * time.Second,
-		DefaultValue: 120 * time.Second,
+		Key:      "timeout.http.backend.gemini",
+		Value:    120 * time.Second,
+		MinValue: 10 * time.Second,
+		MaxValue: 600 * time.Second,
 	},
 	"timeout.http.backend.mlx": {
-		Key:          "timeout.http.backend.mlx",
-		Value:        60 * time.Second,
-		ValueType:    "duration",
-		Description:  "MLX backend HTTP timeout",
-		MinValue:     5 * time.Second,
-		MaxValue:     300 * time.Second,
-		DefaultValue: 60 * time.Second,
+		Key:      "timeout.http.backend.mlx",
+		Value:    60 * time.Second,
+		MinValue: 5 * time.Second,
+		MaxValue: 300 * time.Second,
 	},
 	"timeout.schedule_to_close.default": {
-		Key:          "timeout.schedule_to_close.default",
-		Value:        3600 * time.Second,
-		ValueType:    "duration",
-		Description:  "Default ScheduleToClose timeout",
-		MinValue:     600 * time.Second,
-		MaxValue:     14400 * time.Second,
-		DefaultValue: 3600 * time.Second,
-	},
-	// Per-stage timeout keys (defaults mirror current category assignments)
-	"timeout.stage.triage.start_to_close": {
-		Key: "timeout.stage.triage.start_to_close", Value: 600 * time.Second,
-		ValueType: "duration", Description: "Triage stage StartToClose timeout (LLM preset)",
-		MinValue: 60 * time.Second, MaxValue: 1800 * time.Second, DefaultValue: 600 * time.Second,
-	},
-	"timeout.stage.triage.heartbeat": {
-		Key: "timeout.stage.triage.heartbeat", Value: 300 * time.Second,
-		ValueType: "duration", Description: "Triage stage heartbeat timeout (LLM preset)",
-		MinValue: 30 * time.Second, MaxValue: 900 * time.Second, DefaultValue: 300 * time.Second,
-	},
-	"timeout.stage.extract_entities.start_to_close": {
-		Key: "timeout.stage.extract_entities.start_to_close", Value: 120 * time.Second,
-		ValueType: "duration", Description: "Extract entities StartToClose timeout",
-		MinValue: 10 * time.Second, MaxValue: 600 * time.Second, DefaultValue: 120 * time.Second,
-	},
-	"timeout.stage.extract_entities.heartbeat": {
-		Key: "timeout.stage.extract_entities.heartbeat", Value: 30 * time.Second,
-		ValueType: "duration", Description: "Extract entities heartbeat timeout",
-		MinValue: 5 * time.Second, MaxValue: 120 * time.Second, DefaultValue: 30 * time.Second,
-	},
-	"timeout.stage.extract_assertions.start_to_close": {
-		Key: "timeout.stage.extract_assertions.start_to_close", Value: 120 * time.Second,
-		ValueType: "duration", Description: "Extract assertions StartToClose timeout",
-		MinValue: 10 * time.Second, MaxValue: 600 * time.Second, DefaultValue: 120 * time.Second,
-	},
-	"timeout.stage.extract_assertions.heartbeat": {
-		Key: "timeout.stage.extract_assertions.heartbeat", Value: 30 * time.Second,
-		ValueType: "duration", Description: "Extract assertions heartbeat timeout",
-		MinValue: 5 * time.Second, MaxValue: 120 * time.Second, DefaultValue: 30 * time.Second,
-	},
-	"timeout.stage.deep_analyze.start_to_close": {
-		Key: "timeout.stage.deep_analyze.start_to_close", Value: 600 * time.Second,
-		ValueType: "duration", Description: "Deep analyze StartToClose timeout",
-		MinValue: 60 * time.Second, MaxValue: 1800 * time.Second, DefaultValue: 600 * time.Second,
-	},
-	"timeout.stage.deep_analyze.heartbeat": {
-		Key: "timeout.stage.deep_analyze.heartbeat", Value: 300 * time.Second,
-		ValueType: "duration", Description: "Deep analyze heartbeat timeout",
-		MinValue: 30 * time.Second, MaxValue: 900 * time.Second, DefaultValue: 300 * time.Second,
-	},
-	"timeout.stage.embedding.start_to_close": {
-		Key: "timeout.stage.embedding.start_to_close", Value: 120 * time.Second,
-		ValueType: "duration", Description: "Embedding StartToClose timeout",
-		MinValue: 10 * time.Second, MaxValue: 600 * time.Second, DefaultValue: 120 * time.Second,
-	},
-	"timeout.stage.embedding.heartbeat": {
-		Key: "timeout.stage.embedding.heartbeat", Value: 30 * time.Second,
-		ValueType: "duration", Description: "Embedding heartbeat timeout",
-		MinValue: 5 * time.Second, MaxValue: 120 * time.Second, DefaultValue: 30 * time.Second,
+		Key:      "timeout.schedule_to_close.default",
+		Value:    3600 * time.Second,
+		MinValue: 600 * time.Second,
+		MaxValue: 14400 * time.Second,
 	},
 }
 
 // New creates a new Config with hardcoded defaults.
+// tenantID is required for database queries against pipeline_operational_config.
 // If db is nil, only defaults will be available.
-func New(db DB) *Config {
+func New(db DB, tenantID string) *Config {
 	// Copy defaults to entries
 	entries := make(map[string]ConfigEntry)
 	for k, v := range hardcodedDefaults {
@@ -216,6 +82,7 @@ func New(db DB) *Config {
 		entries:  entries,
 		defaults: hardcodedDefaults,
 		db:       db,
+		tenantID: tenantID,
 		onChange: make([]func(string, time.Duration, time.Duration), 0),
 	}
 }
@@ -259,7 +126,7 @@ func (c *Config) All() []ConfigEntry {
 
 // Set updates a timeout value in the database and local cache.
 // Validates that the value is within min/max bounds.
-func (c *Config) Set(ctx context.Context, key string, value time.Duration, updatedBy string) error {
+func (c *Config) Set(ctx context.Context, key string, value time.Duration) error {
 	if c.db == nil {
 		return fmt.Errorf("cannot set config: database not available")
 	}
@@ -283,10 +150,10 @@ func (c *Config) Set(ctx context.Context, key string, value time.Duration, updat
 
 	// Update in database
 	_, err := c.db.Exec(ctx, `
-		UPDATE pipeline_config
-		SET value = $1, updated_at = now(), updated_by = $2
-		WHERE key = $3
-	`, value.String(), updatedBy, key)
+		UPDATE pipeline_operational_config
+		SET value = $1, updated_at = now()
+		WHERE tenant_id = $2 AND key = $3
+	`, value.String(), c.tenantID, key)
 	if err != nil {
 		return fmt.Errorf("failed to update config in database: %w", err)
 	}
@@ -294,8 +161,6 @@ func (c *Config) Set(ctx context.Context, key string, value time.Duration, updat
 	// Update local cache
 	oldValue := entry.Value
 	entry.Value = value
-	entry.UpdatedAt = time.Now()
-	entry.UpdatedBy = updatedBy
 
 	c.mu.Lock()
 	c.entries[key] = entry
@@ -318,65 +183,43 @@ func (c *Config) Refresh(ctx context.Context) error {
 	}
 
 	rows, err := c.db.Query(ctx, `
-		SELECT key, value, value_type, description,
-		       min_value, max_value, default_value,
-		       COALESCE(updated_at, now()), COALESCE(updated_by, '')
-		FROM pipeline_config
-		WHERE value_type = 'duration'
+		SELECT key, value
+		FROM pipeline_operational_config
+		WHERE tenant_id = $1 AND key LIKE 'timeout.%'
 		ORDER BY key
-	`)
+	`, c.tenantID)
 	if err != nil {
-		return fmt.Errorf("failed to query pipeline_config: %w", err)
+		return fmt.Errorf("failed to query pipeline_operational_config: %w", err)
 	}
 	defer rows.Close()
 
+	// Start with hardcoded defaults so any key not in the DB retains its default.
 	newEntries := make(map[string]ConfigEntry)
+	for k, v := range c.defaults {
+		newEntries[k] = v
+	}
 
 	for rows.Next() {
-		var entry ConfigEntry
-		var valueStr, minStr, maxStr, defaultStr string
+		var key, valueStr string
 
-		err := rows.Scan(
-			&entry.Key,
-			&valueStr,
-			&entry.ValueType,
-			&entry.Description,
-			&minStr,
-			&maxStr,
-			&defaultStr,
-			&entry.UpdatedAt,
-			&entry.UpdatedBy,
-		)
+		err := rows.Scan(&key, &valueStr)
 		if err != nil {
 			return fmt.Errorf("failed to scan config entry: %w", err)
 		}
 
-		// Parse durations
-		entry.Value, err = time.ParseDuration(valueStr)
+		// Parse duration value
+		dur, err := time.ParseDuration(valueStr)
 		if err != nil {
-			return fmt.Errorf("failed to parse value for %s: %w", entry.Key, err)
+			return fmt.Errorf("failed to parse value for %s: %w", key, err)
 		}
 
-		if minStr != "" {
-			entry.MinValue, err = time.ParseDuration(minStr)
-			if err != nil {
-				return fmt.Errorf("failed to parse min_value for %s: %w", entry.Key, err)
-			}
+		// Preserve min/max bounds from defaults if the key is known
+		entry := ConfigEntry{Key: key, Value: dur}
+		if def, ok := c.defaults[key]; ok {
+			entry.MinValue = def.MinValue
+			entry.MaxValue = def.MaxValue
 		}
-
-		if maxStr != "" {
-			entry.MaxValue, err = time.ParseDuration(maxStr)
-			if err != nil {
-				return fmt.Errorf("failed to parse max_value for %s: %w", entry.Key, err)
-			}
-		}
-
-		entry.DefaultValue, err = time.ParseDuration(defaultStr)
-		if err != nil {
-			return fmt.Errorf("failed to parse default_value for %s: %w", entry.Key, err)
-		}
-
-		newEntries[entry.Key] = entry
+		newEntries[key] = entry
 	}
 
 	if err := rows.Err(); err != nil {

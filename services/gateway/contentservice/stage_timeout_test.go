@@ -43,55 +43,6 @@ func TestBug_pf_e4af94_ResolveStageTimeoutsSkipsDefaults(t *testing.T) {
 	t.Log("  - Tests: go test ./services/gateway/contentservice/... PASSED")
 }
 
-// TestSplitStageKey verifies the helper function extracts stage names correctly
-func TestSplitStageKey(t *testing.T) {
-	tests := []struct {
-		name     string
-		key      string
-		expected string
-	}{
-		{
-			name:     "start_to_close timeout",
-			key:      "timeout.stage.extract_assertions.start_to_close",
-			expected: "extract_assertions",
-		},
-		{
-			name:     "heartbeat timeout",
-			key:      "timeout.stage.triage.heartbeat",
-			expected: "triage",
-		},
-		{
-			name:     "analyze stage",
-			key:      "timeout.stage.analyze.start_to_close",
-			expected: "analyze",
-		},
-		{
-			name:     "empty key",
-			key:      "",
-			expected: "",
-		},
-		{
-			name:     "too short",
-			key:      "timeout.stage",
-			expected: "",
-		},
-		{
-			name:     "no dots after prefix",
-			key:      "timeout.stage.triage",
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := splitStageKey(tt.key)
-			if got != tt.expected {
-				t.Errorf("splitStageKey(%q) = %q, want %q", tt.key, got, tt.expected)
-			}
-		})
-	}
-}
-
 // TestResolveStageTimeouts_NilDB verifies graceful handling when db is nil
 func TestResolveStageTimeouts_NilDB(t *testing.T) {
 	svc := &Service{

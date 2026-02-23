@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+const testTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
+
 // mockRow implements pgx.Row for testing.
 type mockRow struct {
 	scanFunc func(dest ...any) error
@@ -57,8 +59,6 @@ func (m *mockRows) Scan(dest ...any) error {
 		switch d := dest[i].(type) {
 		case *string:
 			*d = val.(string)
-		case *time.Time:
-			*d = val.(time.Time)
 		default:
 			return errors.New("unsupported scan type")
 		}
@@ -125,19 +125,11 @@ func (m *mockDB) Exec(ctx context.Context, sql string, args ...any) (pgconn.Comm
 }
 
 func TestNew_DefaultsLoaded(t *testing.T) {
-	cfg := New(nil)
+	cfg := New(nil, testTenantID)
 
-	// All 12 defaults should be accessible
+	// The 4 active timeout defaults should be accessible.
 	expectedKeys := []string{
 		"timeout.ai_client.request",
-		"timeout.activity.fast.start_to_close",
-		"timeout.activity.fast.heartbeat",
-		"timeout.activity.embedding.start_to_close",
-		"timeout.activity.embedding.heartbeat",
-		"timeout.activity.llm.start_to_close",
-		"timeout.activity.llm.heartbeat",
-		"timeout.activity.batch.start_to_close",
-		"timeout.activity.batch.heartbeat",
 		"timeout.http.backend.gemini",
 		"timeout.http.backend.mlx",
 		"timeout.schedule_to_close.default",
@@ -152,7 +144,7 @@ func TestNew_DefaultsLoaded(t *testing.T) {
 }
 
 func TestGet_ReturnsDefault(t *testing.T) {
-	cfg := New(nil)
+	cfg := New(nil, testTenantID)
 
 	// Test a specific known default
 	val := cfg.Get("timeout.ai_client.request")
@@ -164,7 +156,7 @@ func TestGet_ReturnsDefault(t *testing.T) {
 }
 
 func TestGet_UnknownKey(t *testing.T) {
-	cfg := New(nil)
+	cfg := New(nil, testTenantID)
 
 	val := cfg.Get("timeout.unknown.key")
 	if val != 0 {
@@ -173,7 +165,7 @@ func TestGet_UnknownKey(t *testing.T) {
 }
 
 func TestGetEntry_Found(t *testing.T) {
-	cfg := New(nil)
+	cfg := New(nil, testTenantID)
 
 	entry, ok := cfg.GetEntry("timeout.ai_client.request")
 	if !ok {
@@ -190,7 +182,7 @@ func TestGetEntry_Found(t *testing.T) {
 }
 
 func TestGetEntry_NotFound(t *testing.T) {
-	cfg := New(nil)
+	cfg := New(nil, testTenantID)
 
 	_, ok := cfg.GetEntry("timeout.unknown.key")
 	if ok {
@@ -199,11 +191,11 @@ func TestGetEntry_NotFound(t *testing.T) {
 }
 
 func TestAll_ReturnsAllEntries(t *testing.T) {
-	cfg := New(nil)
+	cfg := New(nil, testTenantID)
 
 	all := cfg.All()
-	if len(all) != 22 {
-		t.Errorf("expected 22 entries, got %d", len(all))
+	if len(all) != 4 {
+		t.Errorf("expected 4 entries (4 active timeout defaults), got %d", len(all))
 	}
 }
 
@@ -215,16 +207,16 @@ func TestSet_ValidatesMinMax(t *testing.T) {
 		},
 	}
 
-	cfg := New(db)
+	cfg := New(db, testTenantID)
 
 	// Test below min
-	err := cfg.Set(context.Background(), "timeout.ai_client.request", 5*time.Second, "test")
+	err := cfg.Set(context.Background(), "timeout.ai_client.request", 5*time.Second)
 	if err == nil {
 		t.Error("expected error for value below minimum")
 	}
 
 	// Test above max
-	err = cfg.Set(context.Background(), "timeout.ai_client.request", 700*time.Second, "test")
+	err = cfg.Set(context.Background(), "timeout.ai_client.request", 700*time.Second)
 	if err == nil {
 		t.Error("expected error for value above maximum")
 	}
@@ -240,10 +232,10 @@ func TestSet_ValidValue(t *testing.T) {
 		},
 	}
 
-	cfg := New(db)
+	cfg := New(db, testTenantID)
 
 	// Test with valid value
-	err := cfg.Set(context.Background(), "timeout.ai_client.request", 90*time.Second, "test-user")
+	err := cfg.Set(context.Background(), "timeout.ai_client.request", 90*time.Second)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -259,37 +251,25 @@ func TestSet_ValidValue(t *testing.T) {
 	}
 
 	// Test with nil db - should return error
-	cfgNil := New(nil)
-	err = cfgNil.Set(context.Background(), "timeout.ai_client.request", 90*time.Second, "test")
+	cfgNil := New(nil, testTenantID)
+	err = cfgNil.Set(context.Background(), "timeout.ai_client.request", 90*time.Second)
 	if err == nil {
 		t.Error("expected error when db is nil")
 	}
 }
 
 func TestRefresh_LoadsFromDB(t *testing.T) {
-	now := time.Now()
-
-	// Mock DB with sample data
+	// Mock DB returns 2-column rows: key, value
 	db := &mockDB{
 		queryFunc: func(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 			data := [][]any{
-				{
-					"timeout.ai_client.request",
-					"180s",
-					"duration",
-					"AI gRPC client per-request timeout",
-					"10s",
-					"600s",
-					"120s",
-					now,
-					"test-user",
-				},
+				{"timeout.ai_client.request", "180s"},
 			}
 			return newMockRows(data), nil
 		},
 	}
 
-	cfg := New(db)
+	cfg := New(db, testTenantID)
 
 	err := cfg.Refresh(context.Background())
 	if err != nil {
@@ -303,21 +283,11 @@ func TestRefresh_LoadsFromDB(t *testing.T) {
 	if val != expected {
 		t.Errorf("expected %v, got %v", expected, val)
 	}
-
-	// Check entry details
-	entry, ok := cfg.GetEntry("timeout.ai_client.request")
-	if !ok {
-		t.Fatal("expected to find entry after refresh")
-	}
-
-	if entry.UpdatedBy != "test-user" {
-		t.Errorf("expected updated_by 'test-user', got %s", entry.UpdatedBy)
-	}
 }
 
 func TestRefresh_DBError_KeepsOldValues(t *testing.T) {
 	// First create config with defaults
-	cfg := New(nil)
+	cfg := New(nil, testTenantID)
 	oldVal := cfg.Get("timeout.ai_client.request")
 
 	// Now add a DB that returns error
@@ -341,8 +311,6 @@ func TestRefresh_DBError_KeepsOldValues(t *testing.T) {
 }
 
 func TestOnChange_Fires(t *testing.T) {
-	now := time.Now()
-
 	var callbackKey string
 	var callbackOld, callbackNew time.Duration
 	var callbackCalled bool
@@ -350,23 +318,13 @@ func TestOnChange_Fires(t *testing.T) {
 	db := &mockDB{
 		queryFunc: func(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 			data := [][]any{
-				{
-					"timeout.ai_client.request",
-					"180s",
-					"duration",
-					"AI gRPC client per-request timeout",
-					"10s",
-					"600s",
-					"120s",
-					now,
-					"test-user",
-				},
+				{"timeout.ai_client.request", "180s"},
 			}
 			return newMockRows(data), nil
 		},
 	}
 
-	cfg := New(db)
+	cfg := New(db, testTenantID)
 
 	// Register callback
 	cfg.OnChange(func(key string, oldVal, newVal time.Duration) {
@@ -401,28 +359,16 @@ func TestOnChange_Fires(t *testing.T) {
 }
 
 func TestConfig_ConcurrentAccess(t *testing.T) {
-	now := time.Now()
-
 	db := &mockDB{
 		queryFunc: func(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 			data := [][]any{
-				{
-					"timeout.ai_client.request",
-					"150s",
-					"duration",
-					"AI gRPC client per-request timeout",
-					"10s",
-					"600s",
-					"120s",
-					now,
-					"test-user",
-				},
+				{"timeout.ai_client.request", "150s"},
 			}
 			return newMockRows(data), nil
 		},
 	}
 
-	cfg := New(db)
+	cfg := New(db, testTenantID)
 
 	var wg sync.WaitGroup
 	iterations := 100
@@ -455,7 +401,7 @@ func TestConfig_ConcurrentAccess(t *testing.T) {
 }
 
 func TestRefresh_NilDB(t *testing.T) {
-	cfg := New(nil)
+	cfg := New(nil, testTenantID)
 
 	// Refresh with nil db should not error
 	err := cfg.Refresh(context.Background())
@@ -471,9 +417,9 @@ func TestSet_UnknownKey(t *testing.T) {
 		},
 	}
 
-	cfg := New(db)
+	cfg := New(db, testTenantID)
 
-	err := cfg.Set(context.Background(), "timeout.nonexistent.key", 30*time.Second, "test")
+	err := cfg.Set(context.Background(), "timeout.nonexistent.key", 30*time.Second)
 	if err == nil {
 		t.Error("expected error for unknown key")
 	}
@@ -483,28 +429,16 @@ func TestSet_UnknownKey(t *testing.T) {
 }
 
 func TestRefresh_InvalidDuration(t *testing.T) {
-	now := time.Now()
-
 	db := &mockDB{
 		queryFunc: func(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 			data := [][]any{
-				{
-					"timeout.ai_client.request",
-					"not-a-duration",
-					"duration",
-					"AI gRPC client per-request timeout",
-					"10s",
-					"600s",
-					"120s",
-					now,
-					"test-user",
-				},
+				{"timeout.ai_client.request", "not-a-duration"},
 			}
 			return newMockRows(data), nil
 		},
 	}
 
-	cfg := New(db)
+	cfg := New(db, testTenantID)
 
 	err := cfg.Refresh(context.Background())
 	if err == nil {
@@ -514,7 +448,7 @@ func TestRefresh_InvalidDuration(t *testing.T) {
 		t.Errorf("expected error message to contain 'failed to parse value', got: %s", err.Error())
 	}
 
-	// Verify old defaults are preserved
+	// Verify old defaults are preserved (Refresh doesn't update entries on error)
 	val := cfg.Get("timeout.ai_client.request")
 	if val != 120*time.Second {
 		t.Errorf("expected original default 120s to be preserved, got %v", val)
@@ -522,30 +456,19 @@ func TestRefresh_InvalidDuration(t *testing.T) {
 }
 
 func TestStartRefreshLoop(t *testing.T) {
-	now := time.Now()
 	refreshCount := 0
 
 	db := &mockDB{
 		queryFunc: func(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 			refreshCount++
 			data := [][]any{
-				{
-					"timeout.ai_client.request",
-					"150s",
-					"duration",
-					"AI gRPC client per-request timeout",
-					"10s",
-					"600s",
-					"120s",
-					now,
-					"test-user",
-				},
+				{"timeout.ai_client.request", "150s"},
 			}
 			return newMockRows(data), nil
 		},
 	}
 
-	cfg := New(db)
+	cfg := New(db, testTenantID)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -266,7 +266,9 @@ func main() {
 	if dbPool != nil {
 		timeoutDB = dbPool
 	}
-	timeoutCfg := timeout.New(timeoutDB)
+	// Use the single known tenant ID — pipeline_operational_config is tenant-scoped.
+	const defaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
+	timeoutCfg := timeout.New(timeoutDB, defaultTenantID)
 
 	// Load timeout config from database (non-fatal if fails — uses defaults)
 	if err := timeoutCfg.Refresh(ctx); err != nil {
@@ -285,17 +287,9 @@ func main() {
 		)
 	})
 
-	// Log all timeout values at startup for verification
+	// Log all active timeout values at startup for verification
 	logger.Info("Timeout configuration loaded",
 		logging.F("ai_client.request", timeoutCfg.Get("timeout.ai_client.request").String()),
-		logging.F("activity.fast.start_to_close", timeoutCfg.Get("timeout.activity.fast.start_to_close").String()),
-		logging.F("activity.fast.heartbeat", timeoutCfg.Get("timeout.activity.fast.heartbeat").String()),
-		logging.F("activity.embedding.start_to_close", timeoutCfg.Get("timeout.activity.embedding.start_to_close").String()),
-		logging.F("activity.embedding.heartbeat", timeoutCfg.Get("timeout.activity.embedding.heartbeat").String()),
-		logging.F("activity.llm.start_to_close", timeoutCfg.Get("timeout.activity.llm.start_to_close").String()),
-		logging.F("activity.llm.heartbeat", timeoutCfg.Get("timeout.activity.llm.heartbeat").String()),
-		logging.F("activity.batch.start_to_close", timeoutCfg.Get("timeout.activity.batch.start_to_close").String()),
-		logging.F("activity.batch.heartbeat", timeoutCfg.Get("timeout.activity.batch.heartbeat").String()),
 		logging.F("http.backend.gemini", timeoutCfg.Get("timeout.http.backend.gemini").String()),
 		logging.F("http.backend.mlx", timeoutCfg.Get("timeout.http.backend.mlx").String()),
 		logging.F("schedule_to_close.default", timeoutCfg.Get("timeout.schedule_to_close.default").String()),
