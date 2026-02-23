@@ -105,7 +105,7 @@ func (a *PersonEnrichmentActivities) EnrichPersonMetadata(ctx context.Context, i
 
 			if signatureForThisPerson != "" {
 				title := parseSignatureForTitle(signatureForThisPerson, updatedPerson.CanonicalName)
-				if title != "" {
+				if title != "" && !isGarbageTitle(title) {
 					updatedPerson.Title = title
 					needsUpdate = true
 				}

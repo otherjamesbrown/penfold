@@ -252,8 +252,8 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 		opts := backend.CompletionOptions{
 			Model:       model,
-			Temperature: 0.1,    // Low temperature for consistent extraction
-			MaxTokens:   1024,   // Extraction produces more output than triage
+			Temperature: 0.1,  // Low temperature for consistent extraction
+			MaxTokens:   2048, // Room for thinking tokens + structured JSON output
 			JSONMode:    true,
 		}
 
@@ -279,6 +279,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 			s.logger.Warn("ExtractEntities NER response parsing failed, retrying",
 				logging.F("attempt", attempt),
 				logging.F("max_retries", maxExtractRetries),
+				logging.F("response_length", len(nerResult.Content)),
 				logging.Err(lastErr),
 			)
 
@@ -329,7 +330,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		opts := backend.CompletionOptions{
 			Model:       model,
 			Temperature: 0.1,
-			MaxTokens:   1024,
+			MaxTokens:   2048, // Room for thinking tokens + structured JSON output
 			JSONMode:    true,
 		}
 
@@ -355,6 +356,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 			s.logger.Warn("ExtractEntities Semantic response parsing failed, retrying",
 				logging.F("attempt", attempt),
 				logging.F("max_retries", maxExtractRetries),
+				logging.F("response_length", len(semResult.Content)),
 				logging.Err(lastErr),
 			)
 
@@ -413,7 +415,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		opts := backend.CompletionOptions{
 			Model:       model,
 			Temperature: 0.1,
-			MaxTokens:   1024,
+			MaxTokens:   2048, // Room for thinking tokens + structured JSON output
 			JSONMode:    true,
 		}
 

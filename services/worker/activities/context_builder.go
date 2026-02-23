@@ -329,7 +329,8 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 	return resolved, unresolvedCount
 }
 
-// isGarbageTitle filters out meeting invitation text and other non-job-title strings.
+// isGarbageTitle filters out meeting invitation text, email header fragments,
+// and other non-job-title strings.
 // Returns true if the title should be rejected.
 func isGarbageTitle(title string) bool {
 	if title == "" {
@@ -362,6 +363,19 @@ func isGarbageTitle(title string) bool {
 		}
 	}
 
+	// Email header prefixes (raw header fragments leaking into titles)
+	headerPrefixes := []string{"cc:", "to:", "bcc:", "from:", "reply-to:", "sent:"}
+	for _, prefix := range headerPrefixes {
+		if strings.HasPrefix(lowerTitle, prefix) {
+			return true
+		}
+	}
+
+	// Contains email addresses or angle brackets (header fragments)
+	if strings.Contains(title, "@") || strings.Contains(title, "<") || strings.Contains(title, ">") {
+		return true
+	}
+
 	// Reject if it looks like a phone number (contains multiple digits and dashes/spaces)
 	digitCount := 0
 	for _, ch := range title {
@@ -371,6 +385,20 @@ func isGarbageTitle(title string) bool {
 	}
 	if digitCount > 5 {
 		return true
+	}
+
+	// Reject single generic words that aren't real job titles
+	trimmed := strings.TrimSpace(title)
+	if !strings.Contains(trimmed, " ") && len(trimmed) < 12 {
+		genericWords := []string{
+			"overall", "general", "other", "various", "multiple",
+			"none", "n/a", "na", "unknown", "tbd", "tba",
+		}
+		for _, word := range genericWords {
+			if strings.EqualFold(trimmed, word) {
+				return true
+			}
+		}
 	}
 
 	return false
