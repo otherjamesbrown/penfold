@@ -137,6 +137,7 @@ type chatRequest struct {
 	Messages    []chatMessage `json:"messages"`
 	MaxTokens   int           `json:"max_tokens,omitempty"`
 	Temperature float32       `json:"temperature,omitempty"`
+	Think       *bool         `json:"think,omitempty"`
 }
 
 type chatMessage struct {
@@ -402,6 +403,13 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 		reqBody.Temperature = opts.Temperature
 	} else {
 		reqBody.Temperature = 0.1 // Low temperature for structured extraction
+	}
+
+	// Disable thinking mode for qwen3 models — thinking tokens add latency
+	// and interfere with structured JSON output.
+	if strings.HasPrefix(strings.ToLower(model), "qwen3") {
+		f := false
+		reqBody.Think = &f
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
