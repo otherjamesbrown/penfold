@@ -321,6 +321,16 @@ message AssertionResponse {
 
   // Number of assertions filtered out due to confidence threshold.
   int32 filtered_count = 4;
+
+  // Version of the prompt template used for this extraction call.
+  // 0 means the hardcoded fallback was used (no DB prompt active).
+  int32 prompt_version = 5;
+
+  // Number of input tokens processed.
+  optional int32 input_tokens = 6;
+
+  // Number of output tokens generated.
+  optional int32 output_tokens = 7;
 }
 
 // =============================================================================

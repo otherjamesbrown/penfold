@@ -73,8 +73,8 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 		logging.F("content_length", len(input.Content)),
 	)
 
-	// Record initial heartbeat
-	activity.RecordHeartbeat(ctx, "starting assertion extraction")
+	// Record initial heartbeat (safe - checks if in activity context)
+	recordHeartbeat(ctx, "starting assertion extraction")
 
 	logger.Info("Extracting assertions from content")
 
@@ -103,7 +103,7 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 
 	// Call AI service to extract assertions
 	startTime := time.Now()
-	activity.RecordHeartbeat(ctx, "calling AI service for assertion extraction")
+	recordHeartbeat(ctx, "calling AI service for assertion extraction")
 
 	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
 	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
@@ -152,7 +152,7 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	}
 
 	// Record heartbeat after AI call
-	activity.RecordHeartbeat(ctx, "assertions extracted, processing results")
+	recordHeartbeat(ctx, "assertions extracted, processing results")
 
 	logger.Info("Assertions extracted successfully",
 		logging.F("ai_duration", time.Since(startTime)),
@@ -162,9 +162,38 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 		logging.F("model", resp.ModelUsed),
 	)
 
-	// If no assertions found, return early
+	// If no assertions found, record pipeline run and return early
 	if len(resp.Assertions) == 0 {
 		logger.Info("No assertions found in content")
+		if a.pipelineRepo != nil {
+			durationMS := int(time.Since(startTime).Milliseconds())
+			inputJSON, _ := json.Marshal(map[string]interface{}{
+				"content_length": len(input.Content),
+				"tenant_id":      input.TenantID,
+			})
+			outputJSON, _ := json.Marshal(map[string]interface{}{
+				"assertions_found": 0,
+				"total_found":      resp.TotalFound,
+				"filtered_count":   resp.FilteredCount,
+				"model_used":       resp.ModelUsed,
+			})
+			runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+				SourceID:        input.SourceID,
+				Stage:           "extract_assertions",
+				ModelID:         resp.ModelUsed,
+				PromptVersion:   int(resp.GetPromptVersion()),
+				Status:          "completed",
+				DurationMS:      durationMS,
+				InputData:       inputJSON,
+				OutputData:      outputJSON,
+				InputTokens:     int(resp.GetInputTokens()),
+				OutputTokens:    int(resp.GetOutputTokens()),
+				LangfuseTraceID: input.LangfuseTraceID,
+			})
+			if runErr != nil {
+				logger.Warn("Failed to record pipeline run for extract_assertions", logging.Err(runErr))
+			}
+		}
 		return 0, nil
 	}
 
@@ -210,6 +239,39 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 		logging.F("store_duration", time.Since(storeStart)),
 		logging.F("stored_count", count),
 	)
+
+	// Record pipeline run for provenance tracking
+	if a.pipelineRepo != nil {
+		durationMS := int(time.Since(startTime).Milliseconds())
+
+		inputJSON, _ := json.Marshal(map[string]interface{}{
+			"content_length": len(input.Content),
+			"tenant_id":      input.TenantID,
+		})
+		outputJSON, _ := json.Marshal(map[string]interface{}{
+			"assertions_found": len(resp.Assertions),
+			"total_found":      resp.TotalFound,
+			"filtered_count":   resp.FilteredCount,
+			"model_used":       resp.ModelUsed,
+		})
+
+		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+			SourceID:        input.SourceID,
+			Stage:           "extract_assertions",
+			ModelID:         resp.ModelUsed,
+			PromptVersion:   int(resp.GetPromptVersion()),
+			Status:          "completed",
+			DurationMS:      durationMS,
+			InputData:       inputJSON,
+			OutputData:      outputJSON,
+			InputTokens:     int(resp.GetInputTokens()),
+			OutputTokens:    int(resp.GetOutputTokens()),
+			LangfuseTraceID: input.LangfuseTraceID,
+		})
+		if runErr != nil {
+			logger.Warn("Failed to record pipeline run for extract_assertions", logging.Err(runErr))
+		}
+	}
 
 	return count, nil
 }

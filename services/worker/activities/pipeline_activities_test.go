@@ -121,6 +121,21 @@ func (m *mockPipelineClient) CancelBatch(ctx context.Context, in *pipelinev1.Can
 func (m *mockPipelineClient) ListModels(ctx context.Context, in *pipelinev1.ListModelsRequest, opts ...grpc.CallOption) (*pipelinev1.ListModelsResponse, error) {
 	return nil, nil
 }
+func (m *mockPipelineClient) ListClassificationRules(ctx context.Context, in *pipelinev1.ListClassificationRulesRequest, opts ...grpc.CallOption) (*pipelinev1.ListClassificationRulesResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) GetClassificationRule(ctx context.Context, in *pipelinev1.GetClassificationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.GetClassificationRuleResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) TestClassificationRule(ctx context.Context, in *pipelinev1.TestClassificationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.TestClassificationRuleResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) ListPipelineRoutes(ctx context.Context, in *pipelinev1.ListPipelineRoutesRequest, opts ...grpc.CallOption) (*pipelinev1.ListPipelineRoutesResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) TestPipelineRoute(ctx context.Context, in *pipelinev1.TestPipelineRouteRequest, opts ...grpc.CallOption) (*pipelinev1.TestPipelineRouteResponse, error) {
+	return nil, nil
+}
 
 // Compile-time check that mockPipelineClient satisfies the interface.
 var _ pipelinev1.PipelineServiceClient = (*mockPipelineClient)(nil)

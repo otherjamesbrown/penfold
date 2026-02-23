@@ -167,6 +167,95 @@ func TestExtractionPipelineRun_ModelAndTokensRecorded(t *testing.T) {
 		"extract_semantic tokens are attributed to extract_ner to avoid double-counting")
 }
 
+// TestExtractAssertionsPipelineRun_ModelAndTokensRecorded verifies that the
+// ExtractAssertions activity populates model_id, prompt_version, and token counts
+// in the pipeline_runs row (pf-7d3b41).
+func TestExtractAssertionsPipelineRun_ModelAndTokensRecorded(t *testing.T) {
+	logger := logging.NewNopLogger()
+	repo := &capturingPipelineRepo{}
+
+	inputTokens := int32(800)
+	outputTokens := int32(200)
+
+	mockClient := &mockAIClient{
+		extractAssertionsFn: func(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error) {
+			return &aiv1.AssertionResponse{
+				Assertions: []*aiv1.Assertion{
+					{Subject: "Alice", Predicate: "will deliver", Object: "API by Friday", Confidence: 0.9},
+				},
+				ModelUsed:     "qwen2.5-7b",
+				TotalFound:    1,
+				FilteredCount: 0,
+				PromptVersion: 3,
+				InputTokens:   &inputTokens,
+				OutputTokens:  &outputTokens,
+			}, nil
+		},
+	}
+
+	mockAssertionRepo := &mockAssertionRepository{}
+	mockEntityRepo := &mockEntityRepository{}
+	act := NewExtractionActivities(logger, mockClient, mockAssertionRepo, mockEntityRepo, repo)
+
+	_, err := act.ExtractAssertions(context.Background(), workflows.ExtractAssertionsInput{
+		TenantID: "tenant-1",
+		SourceID: 55,
+		Content:  "Alice will deliver the API by Friday.",
+	})
+	require.NoError(t, err)
+
+	require.Len(t, repo.runs, 1, "expected exactly one pipeline_run for extract_assertions")
+
+	run := repo.runs[0]
+	require.Equal(t, "extract_assertions", run.Stage)
+	require.Equal(t, "qwen2.5-7b", run.ModelID,
+		"ModelID must be populated from AI response model_used field")
+	require.Equal(t, 3, run.PromptVersion,
+		"PromptVersion must be populated from AI response prompt_version field")
+	require.Equal(t, 800, run.InputTokens,
+		"InputTokens must be populated from AI response input_tokens field")
+	require.Equal(t, 200, run.OutputTokens,
+		"OutputTokens must be populated from AI response output_tokens field")
+	require.Equal(t, "completed", run.Status)
+	require.Equal(t, int64(55), run.SourceID)
+}
+
+// TestExtractAssertionsPipelineRun_ZeroAssertionsStillRecorded verifies that
+// the pipeline_run is recorded even when no assertions are found (pf-7d3b41).
+func TestExtractAssertionsPipelineRun_ZeroAssertionsStillRecorded(t *testing.T) {
+	logger := logging.NewNopLogger()
+	repo := &capturingPipelineRepo{}
+
+	mockClient := &mockAIClient{
+		extractAssertionsFn: func(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error) {
+			return &aiv1.AssertionResponse{
+				Assertions: []*aiv1.Assertion{},
+				ModelUsed:  "qwen2.5-7b",
+			}, nil
+		},
+	}
+
+	mockAssertionRepo := &mockAssertionRepository{}
+	mockEntityRepo := &mockEntityRepository{}
+	act := NewExtractionActivities(logger, mockClient, mockAssertionRepo, mockEntityRepo, repo)
+
+	count, err := act.ExtractAssertions(context.Background(), workflows.ExtractAssertionsInput{
+		TenantID: "tenant-1",
+		SourceID: 66,
+		Content:  "Just a quick hello.",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+
+	require.Len(t, repo.runs, 1, "pipeline_run must be recorded even with zero assertions")
+
+	run := repo.runs[0]
+	require.Equal(t, "extract_assertions", run.Stage)
+	require.Equal(t, "qwen2.5-7b", run.ModelID)
+	require.Equal(t, "completed", run.Status)
+	require.Equal(t, int64(66), run.SourceID)
+}
+
 // TestEmbeddingPipelineRun_ModelFromResponse documents the fix applied in pf-354b4f:
 // The embed pipeline_run now uses the model name from the AI response rather than
 // the placeholder "chunked" string.

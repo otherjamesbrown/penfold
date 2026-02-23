@@ -409,7 +409,7 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 		return nil, err
 	}
 
-	systemPrompt := s.buildAssertionSystemPrompt(ctx)
+	systemPrompt, promptVersion := s.buildAssertionSystemPrompt(ctx)
 	userPrompt := fmt.Sprintf("Extract assertions from the following content:\n\n%s", content)
 
 	messages := []backend.Message{
@@ -501,11 +501,16 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 		filtered = filtered[:maxAssertions]
 	}
 
+	inputTokens := int32(result.InputTokens)
+	outputTokens := int32(result.OutputTokens)
 	resp := &aiv1.AssertionResponse{
 		Assertions:    filtered,
 		ModelUsed:     result.Model,
 		TotalFound:    int32(totalFound),
 		FilteredCount: int32(filteredCount),
+		PromptVersion: promptVersion,
+		InputTokens:   &inputTokens,
+		OutputTokens:  &outputTokens,
 	}
 
 	// Record tracing result with prompt/completion for Langfuse visibility
@@ -1134,7 +1139,7 @@ func (s *AIServer) extractKeyPointsFallback(text string) []string {
 	return points
 }
 
-func (s *AIServer) buildAssertionSystemPrompt(ctx context.Context) string {
+func (s *AIServer) buildAssertionSystemPrompt(ctx context.Context) (string, int32) {
 	const hardcoded = `You are a business intelligence extraction assistant. Extract meaningful business assertions from the content as subject-predicate-object triples.
 
 For each assertion, provide:
@@ -1176,8 +1181,8 @@ Respond with a JSON object:
     }
   ]
 }`
-	content, _ := s.getPrompt(ctx, "extract_assertions", hardcoded)
-	return content
+	content, version := s.getPrompt(ctx, "extract_assertions", hardcoded)
+	return content, version
 }
 
 type assertionsJSON struct {
