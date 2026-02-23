@@ -110,10 +110,15 @@ func main() {
 		promptRepo = pipeline.NewRepository(dbPool)
 		logger.Info("Database connection established for model config and prompt store")
 
-		// Note: DBConfigResolver requires a tenant ID for config resolution.
-		// In a multi-tenant system, this would come from request context.
-		// For single-tenant deployment or global config, a fixed tenant ID is used.
-		dbConfigResolver = config.NewDBConfigResolver(modelRepo, cfg, uuid.Nil)
+		// Single-tenant deployment: use the known tenant ID.
+		// This matches the pattern in gateway and worker services.
+		const defaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
+		tenantID, err := uuid.Parse(defaultTenantID)
+		if err != nil {
+			logger.Error("Failed to parse default tenant ID", logging.Err(err))
+			os.Exit(1)
+		}
+		dbConfigResolver = config.NewDBConfigResolver(modelRepo, cfg, tenantID)
 	} else {
 		logger.Info("Database not configured, using env var model config only")
 	}

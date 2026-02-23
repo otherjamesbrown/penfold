@@ -156,17 +156,24 @@ func Load() (*Config, error) {
 		cfg.OllamaURL = "http://localhost:11434"
 	}
 
-	// Load per-stage model configuration
+	// Load per-stage model configuration.
+	// Canonical env var names match stage names (e.g., AI_MODEL_EXTRACT_NER for extract_ner).
+	// Legacy names (AI_MODEL_EXTRACT_ENTITIES, AI_MODEL_DEEP_ANALYZE) are kept as fallback
+	// for backwards compatibility with deployed env files.
 	if v := os.Getenv("AI_MODEL_TRIAGE"); v != "" {
 		cfg.StageModels["triage"] = v
 	}
-	if v := os.Getenv("AI_MODEL_EXTRACT_ENTITIES"); v != "" {
+	if v := os.Getenv("AI_MODEL_EXTRACT_NER"); v != "" {
+		cfg.StageModels["extract_ner"] = v
+	} else if v := os.Getenv("AI_MODEL_EXTRACT_ENTITIES"); v != "" {
 		cfg.StageModels["extract_ner"] = v
 	}
 	if v := os.Getenv("AI_MODEL_EXTRACT_ASSERTIONS"); v != "" {
 		cfg.StageModels["extract_assertions"] = v
 	}
-	if v := os.Getenv("AI_MODEL_DEEP_ANALYZE"); v != "" {
+	if v := os.Getenv("AI_MODEL_ANALYZE"); v != "" {
+		cfg.StageModels["analyze"] = v
+	} else if v := os.Getenv("AI_MODEL_DEEP_ANALYZE"); v != "" {
 		cfg.StageModels["analyze"] = v
 	}
 	if v := os.Getenv("AI_MODEL_EMBEDDING"); v != "" {

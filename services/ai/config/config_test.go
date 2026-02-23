@@ -264,6 +264,86 @@ func TestModelForStage_CaseInsensitive(t *testing.T) {
 }
 
 // =============================================================================
+// Canonical Env Var Name Tests
+// =============================================================================
+
+// TestModelForStage_CanonicalEnvVarNames tests that canonical env var names work
+// and take precedence over legacy names.
+func TestModelForStage_CanonicalEnvVarNames(t *testing.T) {
+	tests := []struct {
+		name      string
+		stage     string
+		envVars   map[string]string
+		wantModel string
+	}{
+		{
+			name:  "AI_MODEL_EXTRACT_NER canonical name works",
+			stage: "extract_ner",
+			envVars: map[string]string{
+				"AI_MODEL_EXTRACT_NER": "canonical-model",
+			},
+			wantModel: "canonical-model",
+		},
+		{
+			name:  "AI_MODEL_EXTRACT_NER takes precedence over legacy AI_MODEL_EXTRACT_ENTITIES",
+			stage: "extract_ner",
+			envVars: map[string]string{
+				"AI_MODEL_EXTRACT_NER":      "canonical-model",
+				"AI_MODEL_EXTRACT_ENTITIES": "legacy-model",
+			},
+			wantModel: "canonical-model",
+		},
+		{
+			name:  "legacy AI_MODEL_EXTRACT_ENTITIES still works as fallback",
+			stage: "extract_ner",
+			envVars: map[string]string{
+				"AI_MODEL_EXTRACT_ENTITIES": "legacy-model",
+			},
+			wantModel: "legacy-model",
+		},
+		{
+			name:  "AI_MODEL_ANALYZE canonical name works",
+			stage: "analyze",
+			envVars: map[string]string{
+				"AI_MODEL_ANALYZE": "canonical-analyze",
+			},
+			wantModel: "canonical-analyze",
+		},
+		{
+			name:  "AI_MODEL_ANALYZE takes precedence over legacy AI_MODEL_DEEP_ANALYZE",
+			stage: "analyze",
+			envVars: map[string]string{
+				"AI_MODEL_ANALYZE":      "canonical-analyze",
+				"AI_MODEL_DEEP_ANALYZE": "legacy-analyze",
+			},
+			wantModel: "canonical-analyze",
+		},
+		{
+			name:  "legacy AI_MODEL_DEEP_ANALYZE still works as fallback",
+			stage: "analyze",
+			envVars: map[string]string{
+				"AI_MODEL_DEEP_ANALYZE": "legacy-analyze",
+			},
+			wantModel: "legacy-analyze",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.envVars {
+				t.Setenv(k, v)
+			}
+
+			cfg, err := Load()
+			require.NoError(t, err)
+
+			got := cfg.ModelForStage(tt.stage)
+			assert.Equal(t, tt.wantModel, got)
+		})
+	}
+}
+
+// =============================================================================
 // Ollama URL Configuration Tests
 // =============================================================================
 
