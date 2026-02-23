@@ -126,6 +126,7 @@ func parseParticipants(metadata map[string]string) []workflows.Participant {
 			participants = append(participants, workflows.Participant{
 				Email:       e.Address,
 				DisplayName: e.Name,
+				HeaderRole:  key,
 			})
 		}
 	}

@@ -144,9 +144,10 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 				}
 			}
 
-			// Extract display names from to/cc/from arrays in metadata
+			// Extract display names and header roles from to/cc/from arrays in metadata
 			// These are arrays of {name, address} objects
 			emailToName := make(map[string]string)
+			emailToRole := make(map[string]string)
 
 			// Helper to extract email+name from metadata arrays
 			extractParticipants := func(field string) {
@@ -163,6 +164,12 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 							}
 							if email != "" {
 								emailToName[email] = name
+								// Only set role for to/cc, not from (sender is handled separately)
+								if field != "from" {
+									if _, exists := emailToRole[email]; !exists {
+										emailToRole[email] = field
+									}
+								}
 							}
 						}
 					}
@@ -179,6 +186,7 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 				participants = append(participants, workflows.Participant{
 					Email:       email,
 					DisplayName: displayName,
+					HeaderRole:  emailToRole[email],
 				})
 			}
 		}

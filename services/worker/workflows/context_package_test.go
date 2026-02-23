@@ -34,14 +34,40 @@ func TestContextPackage_FormatForPrompt_GlossaryOnly(t *testing.T) {
 func TestContextPackage_FormatForPrompt_ParticipantContext(t *testing.T) {
 	cp := &ContextPackage{
 		ParticipantContext: []ResolvedPerson{
-			{Name: "James Brown", Title: "Engineer", Role: "sender"},
-			{Name: "Jane Doe"},
+			{Name: "James Brown", Department: "Engineering", Role: "Sender", IsPrimaryUser: true},
+			{Name: "Jane Doe", Role: "To"},
+			{Name: "Bob Smith", Department: "Cloud Networking", Role: "CC"},
+			{Name: "Alice Chen"},
 		},
 	}
 	result := cp.FormatForPrompt()
 	assert.Contains(t, result, "### Participant Context")
-	assert.Contains(t, result, "- James Brown, Engineer (sender)")
-	assert.Contains(t, result, "- Jane Doe")
+	assert.Contains(t, result, "- James Brown — Engineering. Sender. [Primary user]")
+	assert.Contains(t, result, "- Jane Doe — To")
+	assert.Contains(t, result, "- Bob Smith — Cloud Networking. CC")
+	assert.Contains(t, result, "- Alice Chen")
+	// Should NOT contain the old format with parentheses
+	assert.NotContains(t, result, "(Sender)")
+}
+
+func TestContextPackage_FormatForPrompt_ParticipantDepartmentOnly(t *testing.T) {
+	cp := &ContextPackage{
+		ParticipantContext: []ResolvedPerson{
+			{Name: "Tim Dunn", Department: "Cloud Networking"},
+		},
+	}
+	result := cp.FormatForPrompt()
+	assert.Contains(t, result, "- Tim Dunn — Cloud Networking")
+}
+
+func TestContextPackage_FormatForPrompt_ParticipantPrimaryUserOnly(t *testing.T) {
+	cp := &ContextPackage{
+		ParticipantContext: []ResolvedPerson{
+			{Name: "James Brown", IsPrimaryUser: true},
+		},
+	}
+	result := cp.FormatForPrompt()
+	assert.Contains(t, result, "- James Brown — [Primary user]")
 }
 
 func TestContextPackage_FormatForPrompt_Assertions(t *testing.T) {

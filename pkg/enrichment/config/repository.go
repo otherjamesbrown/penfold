@@ -25,14 +25,14 @@ func NewConfigRepository(pool *pgxpool.Pool) *ConfigRepositoryImpl {
 // GetTenant retrieves a tenant by ID.
 func (r *ConfigRepositoryImpl) GetTenant(ctx context.Context, tenantID string) (*Tenant, error) {
 	query := `
-		SELECT id, name, slug, is_active, created_at
+		SELECT id, name, slug, is_active, COALESCE(settings, '{}'), created_at
 		FROM tenants
 		WHERE id = $1
 	`
 
 	t := &Tenant{}
 	err := r.pool.QueryRow(ctx, query, tenantID).Scan(
-		&t.ID, &t.Name, &t.Slug, &t.IsActive, &t.CreatedAt,
+		&t.ID, &t.Name, &t.Slug, &t.IsActive, &t.Settings, &t.CreatedAt,
 	)
 
 	if err == pgx.ErrNoRows {
@@ -48,14 +48,14 @@ func (r *ConfigRepositoryImpl) GetTenant(ctx context.Context, tenantID string) (
 // GetTenantBySlug retrieves a tenant by slug.
 func (r *ConfigRepositoryImpl) GetTenantBySlug(ctx context.Context, slug string) (*Tenant, error) {
 	query := `
-		SELECT id, name, slug, is_active, created_at
+		SELECT id, name, slug, is_active, COALESCE(settings, '{}'), created_at
 		FROM tenants
 		WHERE slug = $1
 	`
 
 	t := &Tenant{}
 	err := r.pool.QueryRow(ctx, query, slug).Scan(
-		&t.ID, &t.Name, &t.Slug, &t.IsActive, &t.CreatedAt,
+		&t.ID, &t.Name, &t.Slug, &t.IsActive, &t.Settings, &t.CreatedAt,
 	)
 
 	if err == pgx.ErrNoRows {

@@ -369,8 +369,10 @@ func TestFetchSource_PopulatesAllFields(t *testing.T) {
 	require.Len(t, out.ParticipantEmails, 2)
 	require.Equal(t, "bob@example.com", out.ParticipantEmails[0].Email)
 	require.Equal(t, "Bob Jones", out.ParticipantEmails[0].DisplayName)
+	require.Equal(t, "to", out.ParticipantEmails[0].HeaderRole)
 	require.Equal(t, "carol@example.com", out.ParticipantEmails[1].Email)
 	require.Equal(t, "Carol White", out.ParticipantEmails[1].DisplayName)
+	require.Equal(t, "cc", out.ParticipantEmails[1].HeaderRole)
 }
 
 // TestFetchSource_EmptyMetadata verifies that FetchSource does not panic and returns

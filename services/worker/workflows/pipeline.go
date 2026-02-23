@@ -293,14 +293,15 @@ type BuildContextOutput struct {
 
 // ResolvedPerson represents a person resolved from extraction.
 type ResolvedPerson struct {
-	Name       string  `json:"name"`
-	PersonID   *int64  `json:"person_id,omitempty"`
-	Confidence float32 `json:"confidence"`
-	Source     string  `json:"source"`
-	Role       string  `json:"role,omitempty"`
-	Title      string  `json:"title,omitempty"`
-	Department string  `json:"department,omitempty"`
-	IsInternal bool    `json:"is_internal"`
+	Name          string  `json:"name"`
+	PersonID      *int64  `json:"person_id,omitempty"`
+	Confidence    float32 `json:"confidence"`
+	Source        string  `json:"source"`
+	Role          string  `json:"role,omitempty"`
+	Title         string  `json:"title,omitempty"`
+	Department    string  `json:"department,omitempty"`
+	IsInternal    bool    `json:"is_internal"`
+	IsPrimaryUser bool    `json:"is_primary_user,omitempty"`
 }
 
 // ResolvedProject represents a project resolved from extraction.
@@ -368,11 +369,19 @@ func (cp *ContextPackage) FormatForPrompt() string {
 		var lines []string
 		for _, p := range cp.ParticipantContext {
 			desc := p.Name
-			if p.Title != "" {
-				desc += ", " + p.Title
+			// Build annotation parts after the em dash
+			var parts []string
+			if p.Department != "" {
+				parts = append(parts, p.Department)
 			}
 			if p.Role != "" {
-				desc += " (" + p.Role + ")"
+				parts = append(parts, p.Role)
+			}
+			if p.IsPrimaryUser {
+				parts = append(parts, "[Primary user]")
+			}
+			if len(parts) > 0 {
+				desc += " — " + strings.Join(parts, ". ")
 			}
 			lines = append(lines, fmt.Sprintf("- %s", desc))
 		}

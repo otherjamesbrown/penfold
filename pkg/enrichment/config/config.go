@@ -19,6 +19,7 @@ type TenantConfig struct {
 	DistributionPatterns []string
 	RoleAccountPatterns  []string
 	IgnorePatterns       []string
+	PrimaryUserEmail     string
 	ProcessingRules      []ProcessingRule
 	Integrations         map[string]Integration
 	cachedAt             time.Time
@@ -86,6 +87,7 @@ type Tenant struct {
 	Name      string
 	Slug      string
 	IsActive  bool
+	Settings  map[string]interface{}
 	CreatedAt time.Time
 }
 
@@ -216,6 +218,13 @@ func (r *ConfigResolver) loadConfig(ctx context.Context, tenantID string) (*Tena
 		TenantSlug:   tenant.Slug,
 		Integrations: make(map[string]Integration),
 		cachedAt:     time.Now(),
+	}
+
+	// Load primary_user_email from tenant settings
+	if tenant.Settings != nil {
+		if email, ok := tenant.Settings["primary_user_email"].(string); ok {
+			config.PrimaryUserEmail = email
+		}
 	}
 
 	// Load domains

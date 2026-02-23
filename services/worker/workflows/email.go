@@ -23,6 +23,7 @@ type EmailProcessingResult = pkgtemporal.EmailProcessingResult
 type Participant struct {
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name,omitempty"`
+	HeaderRole  string `json:"header_role,omitempty"` // "to" or "cc" from email headers
 }
 
 // Activity input types for email processing.
