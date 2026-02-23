@@ -165,6 +165,18 @@ func TestExtractionPipelineRun_ModelAndTokensRecorded(t *testing.T) {
 		"extract_semantic tokens are attributed to extract_ner to avoid double-counting")
 	require.Equal(t, 0, semRun.OutputTokens,
 		"extract_semantic tokens are attributed to extract_ner to avoid double-counting")
+
+	// Verify parsed_data is split: NER gets entities, semantic gets extractions (pf-aa5a82)
+	require.NotEqual(t, nerRun.ParsedData, semRun.ParsedData,
+		"extract_ner and extract_semantic must have different parsed_data")
+	require.Contains(t, string(nerRun.ParsedData), `"people"`,
+		"extract_ner parsed_data must contain people")
+	require.NotContains(t, string(nerRun.ParsedData), `"action_items"`,
+		"extract_ner parsed_data must not contain action_items")
+	require.Contains(t, string(semRun.ParsedData), `"action_items"`,
+		"extract_semantic parsed_data must contain action_items")
+	require.NotContains(t, string(semRun.ParsedData), `"people"`,
+		"extract_semantic parsed_data must not contain people")
 }
 
 // TestExtractAssertionsPipelineRun_ModelAndTokensRecorded verifies that the

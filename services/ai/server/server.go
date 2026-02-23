@@ -446,7 +446,7 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 	opts := backend.CompletionOptions{
 		Model:       model,
 		Temperature: 0.1, // Low temperature for structured extraction
-		MaxTokens:   4096,
+		MaxTokens:   8192, // gemini-2.5-flash thinking tokens consume output budget
 		JSONMode:    true,
 	}
 

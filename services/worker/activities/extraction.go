@@ -514,9 +514,24 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			"response_count": len(results),
 			"model_used":     output.ModelUsed,
 		})
-		parsedJSON, _ := json.Marshal(output)
+		// Split parsed data: NER gets entities, semantic gets higher-level extractions
+		nerParsed, _ := json.Marshal(map[string]interface{}{
+			"people":        output.People,
+			"dates":         output.Dates,
+			"projects":      output.Projects,
+			"organisations": output.Organisations,
+			"model_used":    output.ModelUsed,
+		})
+		semParsed, _ := json.Marshal(map[string]interface{}{
+			"action_items":          output.ActionItems,
+			"decisions":             output.Decisions,
+			"risks":                 output.Risks,
+			"detailed_risks":        output.DetailedRisks,
+			"quality_gate_triggered": output.QualityGateTriggered,
+			"model_used":            output.ModelUsed,
+		})
 
-		// Record as extract_ner stage (primary extraction stage; attribute all tokens here)
+		// Record as extract_ner stage (NER entities; attribute all tokens here)
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:        input.SourceID,
 			Stage:           "extract_ner",
@@ -526,7 +541,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			DurationMS:      durationMS,
 			InputData:       inputJSON,
 			OutputData:      outputJSON,
-			ParsedData:      parsedJSON,
+			ParsedData:      nerParsed,
 			InputTokens:     totalInputTokens,
 			OutputTokens:    totalOutputTokens,
 			LangfuseTraceID: input.LangfuseTraceID,
@@ -534,7 +549,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		if runErr != nil {
 			logger.Warn("Failed to record pipeline run for extract_ner", logging.Err(runErr))
 		}
-		// Also record extract_semantic since this activity does both
+		// Record extract_semantic stage (semantic extractions; tokens attributed to NER)
 		runErr = a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:        input.SourceID,
 			Stage:           "extract_semantic",
@@ -544,7 +559,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			DurationMS:      durationMS,
 			InputData:       inputJSON,
 			OutputData:      outputJSON,
-			ParsedData:      parsedJSON,
+			ParsedData:      semParsed,
 			InputTokens:     0,
 			OutputTokens:    0,
 			LangfuseTraceID: input.LangfuseTraceID,
