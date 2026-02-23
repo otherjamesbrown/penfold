@@ -435,7 +435,7 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 	opts := backend.CompletionOptions{
 		Model:       selectedModel,
 		Temperature: 0.2, // Low temperature for structured analysis
-		MaxTokens:   4096, // Deep analysis produces substantial output
+		MaxTokens:   8192, // Deep analysis produces substantial output
 		JSONMode:    true,
 	}
 
