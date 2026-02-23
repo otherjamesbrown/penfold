@@ -5,13 +5,29 @@ package integration
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestPipelineConfig_TableExists(t *testing.T) {
+const testTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
+
+func TestPipelineOperationalConfig_TableExists(t *testing.T) {
+	db := SetupTestDB(t)
+	ctx := context.Background()
+
+	var exists bool
+	err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = 'pipeline_operational_config'
+		)
+	`).Scan(&exists)
+	require.NoError(t, err)
+	assert.True(t, exists, "pipeline_operational_config table should exist")
+}
+
+func TestPipelineOperationalConfig_OldTableDropped(t *testing.T) {
 	db := SetupTestDB(t)
 	ctx := context.Background()
 
@@ -23,14 +39,15 @@ func TestPipelineConfig_TableExists(t *testing.T) {
 		)
 	`).Scan(&exists)
 	require.NoError(t, err)
-	assert.True(t, exists, "pipeline_config table should exist")
+	assert.False(t, exists, "pipeline_config table should have been dropped by migration 078")
 }
 
-func TestPipelineConfig_AllDefaultsPresent(t *testing.T) {
+func TestPipelineOperationalConfig_AllDefaultsPresent(t *testing.T) {
 	db := SetupTestDB(t)
 	ctx := context.Background()
 
 	expectedKeys := []string{
+		"pipeline.max_concurrent",
 		"timeout.ai_client.request",
 		"timeout.activity.fast.start_to_close",
 		"timeout.activity.fast.heartbeat",
@@ -45,28 +62,28 @@ func TestPipelineConfig_AllDefaultsPresent(t *testing.T) {
 		"timeout.schedule_to_close.default",
 	}
 
-	// Count total rows
+	// Count total rows for this tenant
 	var count int
-	err := db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM pipeline_config").Scan(&count)
+	err := db.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM pipeline_operational_config WHERE tenant_id = $1",
+		testTenantID,
+	).Scan(&count)
 	require.NoError(t, err)
-	assert.Equal(t, 12, count, "expected 12 config rows")
+	assert.Equal(t, 13, count, "expected 13 config rows (5 active + 8 dead activity timeouts)")
 
-	// Verify each key exists with parseable duration value
+	// Verify each expected key exists
 	for _, key := range expectedKeys {
-		var value, valueType string
+		var value string
 		err := db.Pool.QueryRow(ctx,
-			"SELECT value, value_type FROM pipeline_config WHERE key = $1",
-			key,
-		).Scan(&value, &valueType)
+			"SELECT value FROM pipeline_operational_config WHERE tenant_id = $1 AND key = $2",
+			testTenantID, key,
+		).Scan(&value)
 		require.NoError(t, err, "key %s should exist", key)
-		assert.Equal(t, "duration", valueType, "key %s should be type duration", key)
-
-		_, parseErr := time.ParseDuration(value)
-		assert.NoError(t, parseErr, "key %s value '%s' should be a parseable duration", key, value)
+		assert.NotEmpty(t, value, "key %s should have a non-empty value", key)
 	}
 }
 
-func TestPipelineConfig_UpdateAndRead(t *testing.T) {
+func TestPipelineOperationalConfig_UpdateAndRead(t *testing.T) {
 	db := SetupTestDB(t)
 	ctx := context.Background()
 
@@ -75,68 +92,34 @@ func TestPipelineConfig_UpdateAndRead(t *testing.T) {
 	// Read original value
 	var originalValue string
 	err := db.Pool.QueryRow(ctx,
-		"SELECT value FROM pipeline_config WHERE key = $1", testKey,
+		"SELECT value FROM pipeline_operational_config WHERE tenant_id = $1 AND key = $2",
+		testTenantID, testKey,
 	).Scan(&originalValue)
 	require.NoError(t, err)
 
 	// Update to a new value
 	newValue := "180s"
 	_, err = db.Pool.Exec(ctx,
-		"UPDATE pipeline_config SET value = $1, updated_at = now(), updated_by = 'integration_test' WHERE key = $2",
-		newValue, testKey,
+		"UPDATE pipeline_operational_config SET value = $1, updated_at = now() WHERE tenant_id = $2 AND key = $3",
+		newValue, testTenantID, testKey,
 	)
 	require.NoError(t, err)
 
 	// Read back and verify
 	var readBack string
 	err = db.Pool.QueryRow(ctx,
-		"SELECT value FROM pipeline_config WHERE key = $1", testKey,
+		"SELECT value FROM pipeline_operational_config WHERE tenant_id = $1 AND key = $2",
+		testTenantID, testKey,
 	).Scan(&readBack)
 	require.NoError(t, err)
 	assert.Equal(t, newValue, readBack)
 
 	// Restore original value
 	_, err = db.Pool.Exec(ctx,
-		"UPDATE pipeline_config SET value = $1, updated_at = now(), updated_by = 'integration_test_cleanup' WHERE key = $2",
-		originalValue, testKey,
+		"UPDATE pipeline_operational_config SET value = $1, updated_at = now() WHERE tenant_id = $2 AND key = $3",
+		originalValue, testTenantID, testKey,
 	)
 	require.NoError(t, err)
-}
-
-func TestPipelineConfig_MinMaxEnforced(t *testing.T) {
-	db := SetupTestDB(t)
-	ctx := context.Background()
-
-	// For every row, min < value < max (seed data should satisfy this)
-	rows, err := db.Pool.Query(ctx, `
-		SELECT key, value, min_value, max_value
-		FROM pipeline_config
-		WHERE value_type = 'duration' AND min_value IS NOT NULL AND max_value IS NOT NULL
-	`)
-	require.NoError(t, err)
-	defer rows.Close()
-
-	count := 0
-	for rows.Next() {
-		var key, valStr, minStr, maxStr string
-		err := rows.Scan(&key, &valStr, &minStr, &maxStr)
-		require.NoError(t, err)
-
-		val, err := time.ParseDuration(valStr)
-		require.NoError(t, err, "key %s: bad value %s", key, valStr)
-
-		minVal, err := time.ParseDuration(minStr)
-		require.NoError(t, err, "key %s: bad min %s", key, minStr)
-
-		maxVal, err := time.ParseDuration(maxStr)
-		require.NoError(t, err, "key %s: bad max %s", key, maxStr)
-
-		assert.True(t, val >= minVal, "key %s: value %v should be >= min %v", key, val, minVal)
-		assert.True(t, val <= maxVal, "key %s: value %v should be <= max %v", key, val, maxVal)
-		count++
-	}
-	require.NoError(t, rows.Err())
-	assert.True(t, count >= 12, "expected at least 12 rows with min/max, got %d", count)
 }
 
 func TestDeployHistory_TableExists(t *testing.T) {
