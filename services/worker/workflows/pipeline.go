@@ -347,6 +347,86 @@ type ContextGlossaryTerm struct {
 	Category   string `json:"category,omitempty"`
 }
 
+// FormatForPrompt serializes the ContextPackage into a human-readable string
+// for inclusion in the LLM analyze prompt's {background_context} variable.
+func (cp *ContextPackage) FormatForPrompt() string {
+	if cp == nil {
+		return ""
+	}
+
+	var sections []string
+
+	if len(cp.GlossaryTerms) > 0 {
+		var lines []string
+		for _, t := range cp.GlossaryTerms {
+			lines = append(lines, fmt.Sprintf("- **%s**: %s", t.Term, t.Definition))
+		}
+		sections = append(sections, "### Glossary\n"+strings.Join(lines, "\n"))
+	}
+
+	if len(cp.ParticipantContext) > 0 {
+		var lines []string
+		for _, p := range cp.ParticipantContext {
+			desc := p.Name
+			if p.Title != "" {
+				desc += ", " + p.Title
+			}
+			if p.Role != "" {
+				desc += " (" + p.Role + ")"
+			}
+			lines = append(lines, fmt.Sprintf("- %s", desc))
+		}
+		sections = append(sections, "### Participant Context\n"+strings.Join(lines, "\n"))
+	}
+
+	if len(cp.ActiveRisks) > 0 {
+		var lines []string
+		for _, a := range cp.ActiveRisks {
+			lines = append(lines, fmt.Sprintf("- %s %s %s", a.Subject, a.Predicate, a.Object))
+		}
+		sections = append(sections, "### Active Risks\n"+strings.Join(lines, "\n"))
+	}
+
+	if len(cp.OpenActions) > 0 {
+		var lines []string
+		for _, a := range cp.OpenActions {
+			lines = append(lines, fmt.Sprintf("- %s %s %s", a.Subject, a.Predicate, a.Object))
+		}
+		sections = append(sections, "### Open Actions\n"+strings.Join(lines, "\n"))
+	}
+
+	if len(cp.RecentDecisions) > 0 {
+		var lines []string
+		for _, a := range cp.RecentDecisions {
+			lines = append(lines, fmt.Sprintf("- %s %s %s", a.Subject, a.Predicate, a.Object))
+		}
+		sections = append(sections, "### Recent Decisions\n"+strings.Join(lines, "\n"))
+	}
+
+	if len(cp.ProductEvents) > 0 {
+		var lines []string
+		for _, e := range cp.ProductEvents {
+			line := fmt.Sprintf("- [%s] %s", e.EventType, e.Description)
+			if e.Timestamp != "" {
+				line += " (" + e.Timestamp + ")"
+			}
+			lines = append(lines, line)
+		}
+		sections = append(sections, "### Product Events\n"+strings.Join(lines, "\n"))
+	}
+
+	return strings.Join(sections, "\n\n")
+}
+
+// formatContextPackage safely extracts and formats the context package from
+// BuildContextOutput, handling nil at both the output and package level.
+func formatContextPackage(output *BuildContextOutput) string {
+	if output == nil {
+		return ""
+	}
+	return output.ContextPackage.FormatForPrompt()
+}
+
 // DeepAnalyzeInput is the input for the DeepAnalyze activity.
 type DeepAnalyzeInput struct {
 	TenantID          string                            `json:"tenant_id"`
@@ -1895,7 +1975,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			TriageCategory:    triageOutput.Category,
 			TriageImportance:  triageOutput.Importance,
 			ExtractionResult:  extractOutput,
-			BackgroundContext: "", // Context package content assembled by activity
+			BackgroundContext: formatContextPackage(contextOutput),
 			ModelOverride:     input.ModelOverride,
 			LangfuseTraceID:   langfuseTraceID,
 			LangfusePhaseID:   analyzePhaseID,
