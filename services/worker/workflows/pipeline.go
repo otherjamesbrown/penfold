@@ -1200,18 +1200,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// The initial trace was created before triage with the input.Pipeline value
 	// (often empty → "email-processing"). If triage routed to a different pipeline,
 	// update the trace name to reflect the actual pipeline.
-	logger.Info("Langfuse trace name update: pre-check values",
-		"pipeline_name", pipelineName,
-		"input_pipeline", input.Pipeline,
-		"langfuse_err", langfuseErr,
-		"triage_pipelines", triageOutput.Pipelines,
-	)
 	resolvedTraceName := pipelineTraceName(pipelineName)
-	logger.Info("Langfuse trace name update: condition check",
-		"resolved_trace_name", resolvedTraceName,
-		"initial_trace_name", pipelineTraceName(input.Pipeline),
-		"should_update", langfuseErr == nil && resolvedTraceName != pipelineTraceName(input.Pipeline),
-	)
 	if langfuseErr == nil && resolvedTraceName != pipelineTraceName(input.Pipeline) {
 		_ = workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, fastOpts),

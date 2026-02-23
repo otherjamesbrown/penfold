@@ -116,6 +116,7 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 
 	// Extract email metadata fields from ingestion_metadata JSONB
 	var subject, senderEmail, senderName, bodyHTML string
+	var headers map[string]string
 	var participants []workflows.Participant
 	if len(metadataJSON) > 0 {
 		var metadata map[string]interface{}
@@ -132,6 +133,15 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 			// Extract body_html for FetchSource fallback (pf-dfbc24)
 			if v, ok := metadata["body_html"].(string); ok {
 				bodyHTML = v
+			}
+			// Extract email MIME headers for classification (pf-5e2a95)
+			if m, ok := metadata["headers"].(map[string]interface{}); ok {
+				headers = make(map[string]string, len(m))
+				for k, v := range m {
+					if s, ok := v.(string); ok {
+						headers[k] = s
+					}
+				}
 			}
 
 			// Extract display names from to/cc/from arrays in metadata
@@ -206,7 +216,8 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 		SenderEmail:       senderEmail,
 		SenderName:        senderName,
 		ParticipantEmails: participants,
-		BodyHTML:          bodyHTML, // pf-dfbc24: HTML body from ingestion_metadata
+		BodyHTML:          bodyHTML,   // pf-dfbc24: HTML body from ingestion_metadata
+		Headers:           headers,   // pf-5e2a95: email MIME headers for classification
 	}, nil
 }
 
