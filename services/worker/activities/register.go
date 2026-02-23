@@ -283,6 +283,10 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.pipelineActivities.RecordSkippedStage, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityRecordSkippedStage,
 		})
+		// FetchPipelineDefinition - reads pipeline_definitions from DB for workflow stage config
+		w.RegisterActivityWithOptions(r.pipelineActivities.FetchPipelineDefinition, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityFetchPipelineDefinition,
+		})
 	}
 
 	// Person enrichment activities for Stage 3.5 (entity enrichment)
@@ -480,9 +484,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.analysisActivities != nil {
 			count += 1
 		}
-		// RecordOverrides, KickNextPending, RecordSkippedStage
+		// RecordOverrides, KickNextPending, RecordSkippedStage, FetchPipelineDefinition
 		if r.pipelineActivities != nil {
-			count += 3
+			count += 4
 		}
 		// EnrichPersonMetadata
 		if r.personEnrichmentActivities != nil {

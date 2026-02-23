@@ -222,6 +222,63 @@ func (a *PipelineActivities) RecordSkippedStage(ctx context.Context, input workf
 	return nil
 }
 
+// FetchPipelineDefinition fetches the pipeline definition for a given pipeline name.
+// If the pipeline is not found in the database, it returns Found=false with an empty stage list.
+func (a *PipelineActivities) FetchPipelineDefinition(ctx context.Context, input workflows.FetchPipelineDefinitionInput) (*workflows.FetchPipelineDefinitionOutput, error) {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "FetchPipelineDefinition"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("pipeline", input.Pipeline),
+	)
+
+	recordHeartbeat(ctx, "fetching pipeline definition")
+
+	if input.Pipeline == "" {
+		logger.Warn("FetchPipelineDefinition: empty pipeline name, returning not found")
+		return &workflows.FetchPipelineDefinitionOutput{Found: false}, nil
+	}
+
+	stages, err := a.baseRepo.GetPipelineStages(ctx, input.TenantID, input.Pipeline)
+	if err != nil {
+		logger.Error("Failed to fetch pipeline definition", logging.Err(err))
+		return nil, temporal.NewApplicationErrorWithCause(
+			fmt.Sprintf("failed to fetch pipeline definition for %q", input.Pipeline),
+			"RepositoryError",
+			err,
+		)
+	}
+
+	if len(stages) == 0 {
+		logger.Info("Pipeline definition not found, workflow will use fallback")
+		return &workflows.FetchPipelineDefinitionOutput{Found: false}, nil
+	}
+
+	out := &workflows.FetchPipelineDefinitionOutput{
+		Found:  true,
+		Stages: make([]workflows.PipelineStageConfig, len(stages)),
+	}
+	for i, s := range stages {
+		out.Stages[i] = workflows.PipelineStageConfig{
+			Stage:          s.Stage,
+			StageOrder:     s.StageOrder,
+			Enabled:        s.Enabled,
+			SkipWhenLow:    s.SkipWhenLow,
+			Optional:       s.Optional,
+			TimeoutSeconds: s.TimeoutSeconds,
+		}
+		if s.ModelOverride != nil {
+			out.Stages[i].ModelOverride = *s.ModelOverride
+		}
+	}
+
+	logger.Info("Pipeline definition fetched",
+		logging.F("stage_count", len(out.Stages)),
+	)
+
+	recordHeartbeat(ctx, "pipeline definition fetched")
+	return out, nil
+}
+
 // contentIDPattern matches the standard content ID format: <type:2>-<base62:8>
 // Example: "em-abc12XYZ"
 var contentIDPattern = regexp.MustCompile(`^[a-z]{2}-[A-Za-z0-9]{8}$`)
@@ -231,4 +288,5 @@ var _ interface {
 	RecordOverrides(ctx context.Context, input workflows.RecordOverridesInput) error
 	KickNextPending(ctx context.Context, input workflows.KickNextPendingInput) (*workflows.KickNextPendingOutput, error)
 	RecordSkippedStage(ctx context.Context, input workflows.RecordSkippedStageInput) error
+	FetchPipelineDefinition(ctx context.Context, input workflows.FetchPipelineDefinitionInput) (*workflows.FetchPipelineDefinitionOutput, error)
 } = (*PipelineActivities)(nil)

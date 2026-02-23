@@ -11,8 +11,10 @@ func TestAllMainQueueActivities(t *testing.T) {
 	// pf-b1ee4e: added UpdateLangfuseTraceTags;
 	// pf-eead20: added KickNextPending;
 	// pf-0656f5: added RecordSkippedStage;
-	// pf-8da0b0: added BackfillConversationSummaries, RegenerateConversationSummary, CheckStaleConversations)
-	expectedCount := 32
+	// pf-8da0b0: added BackfillConversationSummaries, RegenerateConversationSummary, CheckStaleConversations
+	// pf-xxx: added DeleteAssertions
+	// pf-448da3: added FetchPipelineDefinition)
+	expectedCount := 34
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -56,6 +58,10 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"KickNextPending",
 		// Skipped stage provenance recording
 		"RecordSkippedStage",
+		// Assertion cleanup for reprocessing
+		"DeleteAssertions",
+		// Pipeline definition lookup
+		"FetchPipelineDefinition",
 	}
 
 	activityMap := make(map[string]bool)

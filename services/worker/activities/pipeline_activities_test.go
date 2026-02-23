@@ -136,6 +136,24 @@ func (m *mockPipelineClient) ListPipelineRoutes(ctx context.Context, in *pipelin
 func (m *mockPipelineClient) TestPipelineRoute(ctx context.Context, in *pipelinev1.TestPipelineRouteRequest, opts ...grpc.CallOption) (*pipelinev1.TestPipelineRouteResponse, error) {
 	return nil, nil
 }
+func (m *mockPipelineClient) ListPipelineDefinitions(ctx context.Context, in *pipelinev1.ListPipelineDefinitionsRequest, opts ...grpc.CallOption) (*pipelinev1.ListPipelineDefinitionsResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) GetPipelineDefinition(ctx context.Context, in *pipelinev1.GetPipelineDefinitionRequest, opts ...grpc.CallOption) (*pipelinev1.GetPipelineDefinitionResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) UpdatePipelineStageConfig(ctx context.Context, in *pipelinev1.UpdatePipelineStageConfigRequest, opts ...grpc.CallOption) (*pipelinev1.UpdatePipelineStageConfigResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) CreatePipelineDefinition(ctx context.Context, in *pipelinev1.CreatePipelineDefinitionRequest, opts ...grpc.CallOption) (*pipelinev1.CreatePipelineDefinitionResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) AuditPipelineCompleteness(ctx context.Context, in *pipelinev1.AuditPipelineCompletenessRequest, opts ...grpc.CallOption) (*pipelinev1.AuditPipelineCompletenessResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) ComparePipelineRuns(ctx context.Context, in *pipelinev1.ComparePipelineRunsRequest, opts ...grpc.CallOption) (*pipelinev1.ComparePipelineRunsResponse, error) {
+	return nil, nil
+}
 
 // Compile-time check that mockPipelineClient satisfies the interface.
 var _ pipelinev1.PipelineServiceClient = (*mockPipelineClient)(nil)

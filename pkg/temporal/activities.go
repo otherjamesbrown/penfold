@@ -34,6 +34,7 @@ const (
 	ActivityKickNextPending                = "KickNextPending"
 	ActivityRecordSkippedStage             = "RecordSkippedStage"
 	ActivityDeleteAssertions               = "DeleteAssertions"
+	ActivityFetchPipelineDefinition        = "FetchPipelineDefinition"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -107,6 +108,7 @@ func AllMainQueueActivities() []string {
 		ActivityKickNextPending,
 		ActivityRecordSkippedStage,
 		ActivityDeleteAssertions,
+		ActivityFetchPipelineDefinition,
 	}
 }
 

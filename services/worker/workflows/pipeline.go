@@ -40,6 +40,9 @@ type PipelineInput struct {
 	SenderName        string        `json:"sender_name,omitempty"`
 	ParticipantEmails []Participant `json:"participant_emails,omitempty"`
 
+	// Pipeline routing
+	Pipeline string `json:"pipeline,omitempty"` // Pipeline name from routing (e.g., "standard", "transcript"); empty = determine at runtime
+
 	// Meeting-specific fields
 	TranscriptContent string `json:"transcript_content,omitempty"`
 	TranscriptFormat  string `json:"transcript_format,omitempty"`
@@ -505,6 +508,29 @@ type DeleteAssertionsInput struct {
 // DeleteAssertionsOutput is the output from the DeleteAssertions activity.
 type DeleteAssertionsOutput struct {
 	Deleted int `json:"deleted"` // Number of assertions removed
+}
+
+// FetchPipelineDefinitionInput is the input for the FetchPipelineDefinition activity.
+type FetchPipelineDefinitionInput struct {
+	TenantID string `json:"tenant_id"`
+	Pipeline string `json:"pipeline"`
+}
+
+// FetchPipelineDefinitionOutput is the output from the FetchPipelineDefinition activity.
+type FetchPipelineDefinitionOutput struct {
+	Found  bool                    `json:"found"`  // True if definition was found in DB
+	Stages []PipelineStageConfig   `json:"stages"` // Ordered stage configurations
+}
+
+// PipelineStageConfig describes a stage's configuration from pipeline_definitions.
+type PipelineStageConfig struct {
+	Stage          string `json:"stage"`
+	StageOrder     int    `json:"stage_order"`
+	Enabled        bool   `json:"enabled"`
+	SkipWhenLow    bool   `json:"skip_when_low"`
+	Optional       bool   `json:"optional"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+	ModelOverride  string `json:"model_override,omitempty"`
 }
 
 // RecordSkippedStageInput is the input for the RecordSkippedStage activity.
@@ -1139,6 +1165,48 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 	}
 
+	// ==================== Pipeline Definition Lookup ====================
+	// Determine the pipeline name and fetch its definition from the database.
+	// If not provided in input, use the first routed pipeline (or "standard" as default).
+	// Falls back to SLMPipelineStages if no definition found.
+	pipelineName := input.Pipeline
+	if pipelineName == "" && len(triageOutput.Pipelines) > 0 {
+		pipelineName = triageOutput.Pipelines[0]
+	}
+	if pipelineName == "" {
+		pipelineName = "standard"
+	}
+
+	var pipelineDef *FetchPipelineDefinitionOutput
+	{
+		ctxDef := workflow.WithActivityOptions(ctx, fastOpts)
+		var defOut FetchPipelineDefinitionOutput
+		defErr := workflow.ExecuteActivity(ctxDef, pkgtemporal.ActivityFetchPipelineDefinition, FetchPipelineDefinitionInput{
+			TenantID: input.TenantID,
+			Pipeline: pipelineName,
+		}).Get(ctx, &defOut)
+		if defErr != nil {
+			logger.Warn("Failed to fetch pipeline definition, using SLMPipelineStages fallback",
+				"pipeline", pipelineName,
+				"error", defErr,
+			)
+		} else if defOut.Found {
+			pipelineDef = &defOut
+			logger.Info("Pipeline definition loaded from DB",
+				"pipeline", pipelineName,
+				"stage_count", len(defOut.Stages),
+			)
+		} else {
+			logger.Info("No pipeline definition found in DB, using SLMPipelineStages fallback",
+				"pipeline", pipelineName,
+			)
+		}
+	}
+
+	// Build stage config lookup from pipeline definition (or nil for fallback).
+	// This is consulted by the stage sections below to check enabled/skip_when_low/optional.
+	stageConfigMap := buildStageConfigMap(pipelineDef)
+
 	// ==================== Stage 1.5: Summarize (non-blocking) ====================
 	// Generate a concise summary for the content. Failure does NOT block the pipeline.
 	// The Langfuse Summarize phase span wraps this LLM call.
@@ -1241,16 +1309,32 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			skipReason = fmt.Sprintf("category_skip:%s/%s", triageOutput.Category, triageOutput.Importance)
 		}
 
-		// Log skip for each deep processing stage
-		for _, s := range pkgtemporal.SLMPipelineStages {
-			if s.SkipWhenLow {
-				logger.Info("pipeline stage skipped",
-					"source_id", input.SourceID,
-					"stage", s.Name,
-					"stage_number", s.Number,
-					"reason", skipReason,
-					"contribution", contribution,
-				)
+		// Log skip for each deep processing stage.
+		// Uses pipeline definition (stageConfigMap) when available, falls back to SLMPipelineStages.
+		if stageConfigMap != nil {
+			for _, sc := range stageConfigMap {
+				if sc.SkipWhenLow && sc.Enabled {
+					logger.Info("pipeline stage skipped",
+						"source_id", input.SourceID,
+						"stage", sc.Stage,
+						"stage_order", sc.StageOrder,
+						"pipeline", pipelineName,
+						"reason", skipReason,
+						"contribution", contribution,
+					)
+				}
+			}
+		} else {
+			for _, s := range pkgtemporal.SLMPipelineStages {
+				if s.SkipWhenLow {
+					logger.Info("pipeline stage skipped",
+						"source_id", input.SourceID,
+						"stage", s.Name,
+						"stage_number", s.Number,
+						"reason", skipReason,
+						"contribution", contribution,
+					)
+				}
 			}
 		}
 
@@ -2444,6 +2528,32 @@ func sideEffectSpanID(ctx workflow.Context) string {
 		return fmt.Sprintf("%x", u[:8]) // 8 bytes → 16 hex chars
 	}).Get(&id)
 	return id
+}
+
+// buildStageConfigMap creates a lookup map from stage name to its config.
+// If pipelineDef is nil (fallback case), returns nil; callers should use SLMPipelineStages defaults.
+func buildStageConfigMap(def *FetchPipelineDefinitionOutput) map[string]PipelineStageConfig {
+	if def == nil || !def.Found || len(def.Stages) == 0 {
+		return nil
+	}
+	m := make(map[string]PipelineStageConfig, len(def.Stages))
+	for _, s := range def.Stages {
+		m[s.Stage] = s
+	}
+	return m
+}
+
+// isStageEnabled checks if a stage is enabled in the pipeline definition.
+// If the config map is nil (fallback mode), all stages are enabled.
+func isStageEnabled(stageConfigMap map[string]PipelineStageConfig, stageName string) bool {
+	if stageConfigMap == nil {
+		return true
+	}
+	cfg, ok := stageConfigMap[stageName]
+	if !ok {
+		return true // Stage not in definition = enabled by default
+	}
+	return cfg.Enabled
 }
 
 // Ensure temporal package is used to avoid import errors during development.
