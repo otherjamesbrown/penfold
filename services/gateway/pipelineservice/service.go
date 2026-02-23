@@ -1229,6 +1229,57 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 		}, nil
 	}
 
+	// Route timeout.stage.*.start_to_close keys to pipeline_definitions.timeout_seconds
+	if strings.HasPrefix(req.Key, "timeout.stage.") && strings.HasSuffix(req.Key, ".start_to_close") {
+		// Extract stage name: "timeout.stage.triage.start_to_close" → "triage"
+		parts := strings.Split(req.Key, ".")
+		if len(parts) != 4 {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid timeout key format: %s", req.Key)
+		}
+		stageName := parts[2]
+
+		// Parse timeout value as duration, convert to seconds
+		dur, err := time.ParseDuration(req.Value)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid duration: %v", err)
+		}
+		timeoutSeconds := int(dur.Seconds())
+
+		tenantID := s.defaultTenantID(ctx)
+
+		// Update pipeline_definitions for ALL pipelines containing this stage
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE pipeline_definitions
+			SET timeout_seconds = $1
+			WHERE tenant_id = $2 AND stage = $3
+		`, timeoutSeconds, tenantID, stageName)
+		if err != nil {
+			s.logger.Error("Error updating pipeline definition timeout", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to update timeout: %v", err)
+		}
+
+		return &pipelinev1.UpdateTimeoutConfigResponse{
+			Entry: &pipelinev1.TimeoutEntry{
+				Key:       req.Key,
+				Value:     req.Value,
+				UpdatedBy: req.UpdatedBy,
+			},
+			Message: fmt.Sprintf("Updated timeout for stage %s to %s (%ds)", stageName, req.Value, timeoutSeconds),
+		}, nil
+	}
+
+	// For heartbeat keys, just acknowledge (heartbeat is derived from start_to_close / 2)
+	if strings.HasPrefix(req.Key, "timeout.stage.") && strings.HasSuffix(req.Key, ".heartbeat") {
+		return &pipelinev1.UpdateTimeoutConfigResponse{
+			Entry: &pipelinev1.TimeoutEntry{
+				Key:       req.Key,
+				Value:     req.Value,
+				UpdatedBy: req.UpdatedBy,
+			},
+			Message: fmt.Sprintf("Heartbeat is now derived from start_to_close / 2; this key is deprecated"),
+		}, nil
+	}
+
 	// Get current entry to check value_type and min/max bounds
 	var entry pipelinev1.TimeoutEntry
 	var previousValue string

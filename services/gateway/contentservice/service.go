@@ -2297,7 +2297,7 @@ func splitStageKey(key string) string {
 	return ""
 }
 
-// resolveStageTimeouts reads per-stage timeout values from pipeline_config.
+// resolveStageTimeouts reads per-stage timeout values from pipeline_definitions.
 // Returns maps of stage->duration for start_to_close and heartbeat.
 // Returns nil maps (not error) if DB is unavailable — workflow falls back to defaults.
 func (s *Service) resolveStageTimeouts(ctx context.Context) (map[string]time.Duration, map[string]time.Duration) {
@@ -2305,13 +2305,16 @@ func (s *Service) resolveStageTimeouts(ctx context.Context) (map[string]time.Dur
 		return nil, nil
 	}
 
+	// Read timeout_seconds from pipeline_definitions (source of truth).
+	// Use 'standard' pipeline as the default.
+	const defaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT key, value, default_value
-		FROM pipeline_config
-		WHERE key LIKE 'timeout.stage.%'
-	`)
+		SELECT stage, timeout_seconds
+		FROM pipeline_definitions
+		WHERE tenant_id = $1 AND pipeline = 'standard' AND timeout_seconds > 0
+	`, defaultTenantID)
 	if err != nil {
-		s.logger.Debug("Could not resolve stage timeouts", logging.Err(err))
+		s.logger.Debug("Could not resolve stage timeouts from pipeline_definitions", logging.Err(err))
 		return nil, nil
 	}
 	defer rows.Close()
@@ -2321,27 +2324,14 @@ func (s *Service) resolveStageTimeouts(ctx context.Context) (map[string]time.Dur
 	hasOverride := false
 
 	for rows.Next() {
-		var key, value, defaultValue string
-		if err := rows.Scan(&key, &value, &defaultValue); err != nil {
-			continue
-		}
-		// Parse the configured value regardless of whether it matches the default.
-		// Even if value == default, we still want to pass it through so the worker
-		// has explicit config rather than falling back to hardcoded defaults.
-		dur, err := time.ParseDuration(value)
-		if err != nil {
-			continue
-		}
-		stage := splitStageKey(key)
-		if stage == "" {
+		var stage string
+		var timeoutSecs int
+		if err := rows.Scan(&stage, &timeoutSecs); err != nil {
 			continue
 		}
 		hasOverride = true
-		if strings.HasSuffix(key, ".start_to_close") {
-			timeouts[stage] = dur
-		} else if strings.HasSuffix(key, ".heartbeat") {
-			heartbeats[stage] = dur
-		}
+		timeouts[stage] = time.Duration(timeoutSecs) * time.Second
+		heartbeats[stage] = time.Duration(timeoutSecs/2) * time.Second
 	}
 
 	if !hasOverride {
