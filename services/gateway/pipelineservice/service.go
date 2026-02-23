@@ -2568,14 +2568,15 @@ func (s *Service) TestPipelineRoute(ctx context.Context, req *pipelinev1.TestPip
 		tenantID = s.defaultTenantID(ctx)
 	}
 
-	// Load content item's classification
+	// Load content item's classification from content_enrichment
 	var contentType, contentSubtype string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT
-			COALESCE(content_type_enum, ''),
-			COALESCE(content_subtype_enum, '')
-		FROM sources
-		WHERE content_id = $1 AND is_deleted = false
+			COALESCE(ce.content_type::text, ''),
+			COALESCE(ce.content_subtype, '')
+		FROM content_enrichment ce
+		JOIN sources s ON s.id = ce.source_id
+		WHERE s.content_id = $1 AND s.is_deleted = false
 	`, req.ContentId).Scan(&contentType, &contentSubtype)
 
 	if err == sql.ErrNoRows {
@@ -2592,8 +2593,8 @@ func (s *Service) TestPipelineRoute(ctx context.Context, req *pipelinev1.TestPip
 		FROM pipeline_routing
 		WHERE tenant_id = $1
 		  AND active = true
-		  AND (content_type IS NULL OR content_type = $2)
-		  AND (content_subtype IS NULL OR content_subtype = $3)
+		  AND (content_type IS NULL OR LOWER(content_type) = LOWER($2))
+		  AND (content_subtype IS NULL OR LOWER(content_subtype) = LOWER($3))
 		ORDER BY id ASC
 	`, tenantID, contentType, contentSubtype)
 	if err != nil {
