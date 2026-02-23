@@ -1737,6 +1737,78 @@ func TestReclassifyOrganisations_CorrectedExtraction(t *testing.T) {
 	}
 }
 
+// TestEnrichPeople_CorrectedExtraction verifies that BuildContextPackage
+// propagates enriched people names (first-name → full name) to CorrectedExtraction
+// so Stage 4 sees full names in the Entities section (pf-4d7830).
+func TestEnrichPeople_CorrectedExtraction(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	activities := NewContextBuilderActivities(
+		logger,
+		&mockEntityResolver{},
+		&mockEntityLookup{},
+		&mockContextPackageRepo{},
+		nil,
+		nil,
+	)
+
+	input := workflows.BuildContextInput{
+		TenantID:    "test-tenant",
+		SourceID:    1,
+		ContentType: "email",
+		SenderEmail: "miroslav.ponec@example.com",
+		SenderName:  "Ponec, Miroslav",
+		ParticipantEmails: []workflows.Participant{
+			{Email: "tim.dunn@example.com", DisplayName: "Tim Dunn", HeaderRole: "to"},
+		},
+		Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+			People: []workflows.PersonResult{
+				{Name: "Miroslav"},
+				{Name: "Tim"},
+				{Name: "Toby Paler", Role: "PM"},
+			},
+		},
+	}
+
+	output, err := activities.BuildContextPackage(ctx, input)
+	if err != nil {
+		t.Fatalf("BuildContextPackage failed: %v", err)
+	}
+
+	if output.CorrectedExtraction == nil {
+		t.Fatal("CorrectedExtraction is nil — Stage 4 won't see enriched people")
+	}
+
+	// Build a name lookup from CorrectedExtraction.People
+	names := make(map[string]bool)
+	for _, p := range output.CorrectedExtraction.People {
+		names[p.Name] = true
+	}
+
+	// "Miroslav" should be enriched to "Miroslav Ponec" (from "Ponec, Miroslav" sender header)
+	if !names["Miroslav Ponec"] {
+		t.Errorf("expected 'Miroslav Ponec' in CorrectedExtraction.People, got %v",
+			output.CorrectedExtraction.People)
+	}
+	if names["Miroslav"] {
+		t.Errorf("'Miroslav' should have been enriched to full name, got %v",
+			output.CorrectedExtraction.People)
+	}
+
+	// "Tim" should be enriched to "Tim Dunn" (from participant header)
+	if !names["Tim Dunn"] {
+		t.Errorf("expected 'Tim Dunn' in CorrectedExtraction.People, got %v",
+			output.CorrectedExtraction.People)
+	}
+
+	// "Toby Paler" already has a full name — should be unchanged
+	if !names["Toby Paler"] {
+		t.Errorf("expected 'Toby Paler' unchanged in CorrectedExtraction.People, got %v",
+			output.CorrectedExtraction.People)
+	}
+}
+
 func TestHeaderRoleLabel(t *testing.T) {
 	tests := []struct {
 		input string

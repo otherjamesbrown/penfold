@@ -121,9 +121,14 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 	// Check each org against project resolution; move matches to the projects list.
 	a.reclassifyOrganisations(ctx, input.TenantID, input.Extraction)
 
+	// Step 0.5: Enrich first-name-only NER people with full names from headers.
+	// e.g., NER says "Tim" but To header has "Tim Dunn" → upgrade to "Tim Dunn".
+	// Done here so CorrectedExtraction carries enriched names to Stage 4.
+	input.Extraction.People = enrichPeopleFromHeaders(input.Extraction.People, input.SenderEmail, input.SenderName, input.ParticipantEmails)
+
 	// Carry the corrected extraction back to the workflow. Temporal serialises
 	// activity I/O, so in-place mutations to input don't propagate; Stage 4
-	// needs the reclassified org/project lists.
+	// needs the reclassified org/project lists and enriched people names.
 	output.CorrectedExtraction = input.Extraction
 
 	// Step 1: Resolve people
@@ -358,12 +363,9 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 		}
 	}
 
-	// Enrich first-name-only NER extractions with full names from email headers.
-	// e.g., NER says "Tim" but To header has "Tim Dunn" → upgrade to "Tim Dunn".
-	enrichedPeople := enrichPeopleFromHeaders(people, senderEmail, senderName, participantEmails)
-
-	// Resolve extracted people (from LLM - names only, fuzzy match)
-	for _, person := range enrichedPeople {
+	// Resolve extracted people (from LLM - names only, fuzzy match).
+	// Note: people names are already enriched by BuildContextPackage (Step 0.5).
+	for _, person := range people {
 		rp := a.resolvePerson(ctx, tenantID, person)
 		if rp.PersonID != nil {
 			resolved = append(resolved, rp)
