@@ -4,6 +4,7 @@ package activities
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -87,6 +88,12 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 	// Call AI service to generate summary
 	startTime := time.Now()
 	activity.RecordHeartbeat(ctx, "calling AI service for summary generation")
+
+	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
+	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
+		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
+		ctx = tracing.ContextWithPipelineSpan(ctx, otelTraceID, input.PipelineSpanID)
+	}
 
 	// Create stage span wrapping the gRPC call
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.summarize", tracing.StageSpanOptions{
@@ -249,7 +256,7 @@ func (a *SummarizationActivities) GenerateSummaryWithOptions(ctx context.Context
 	if input.Model != "" {
 		summaryReq.Model = &input.Model
 	}
-	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
+	// Pipeline span context is injected at the activity level; gRPC OTel interceptors propagate traceparent.
 
 	// Tracing is handled by the AI server, not duplicated here
 	resp, err := a.aiClient.GenerateSummary(ctx, summaryReq)

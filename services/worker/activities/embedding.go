@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -124,6 +125,12 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	var embedModelUsed string
 	startTime := time.Now()
 
+	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
+	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
+		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
+		ctx = tracing.ContextWithPipelineSpan(ctx, otelTraceID, input.PipelineSpanID)
+	}
+
 	// Create stage span wrapping ALL chunk embedding calls
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.embedding", tracing.StageSpanOptions{
 		ContentID: input.ContentID,
@@ -152,7 +159,7 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		if input.ContentID != "" {
 			embeddingReq.ContentId = &input.ContentID
 		}
-		// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
+		// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
 		// Call AI service to generate embedding with stage span context and Langfuse metadata
 		resp, err := a.aiClient.GenerateEmbedding(embeddingCallCtx, embeddingReq)

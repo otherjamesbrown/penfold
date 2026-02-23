@@ -325,6 +325,12 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	// Record heartbeat before calling AI service
 	recordHeartbeat(ctx, "calling AI service for triage")
 
+	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
+	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
+		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
+		ctx = tracing.ContextWithPipelineSpan(ctx, otelTraceID, input.PipelineSpanID)
+	}
+
 	// Create stage span wrapping the gRPC call
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.triage", tracing.StageSpanOptions{
 		ContentID: input.ContentID,
@@ -351,7 +357,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	if input.ContentID != "" {
 		req.ContentId = &input.ContentID
 	}
-	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
+	// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
 	// Attach Langfuse tracing metadata for AI coordinator to use when creating generation spans.
 	callCtx := stageCtx

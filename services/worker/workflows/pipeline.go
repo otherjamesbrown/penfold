@@ -133,6 +133,9 @@ type TriageInput struct {
 	// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 	LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 	LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
+	// OTel span nesting: pipeline root span ID (16 hex chars).
+	// Used with LangfuseTraceID (stripped of hyphens) as the OTel trace ID.
+	PipelineSpanID string `json:"pipeline_span_id,omitempty"`
 }
 
 // TriageOutput is the output from the Triage activity.
@@ -168,6 +171,8 @@ type SLMPipelineExtractEntitiesInput struct {
 	// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 	LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 	LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
+	// OTel span nesting: pipeline root span ID (16 hex chars).
+	PipelineSpanID string `json:"pipeline_span_id,omitempty"`
 }
 
 // SLMPipelineExtractEntitiesOutput is the output from the ExtractEntities activity (pipeline version with DetailedRisks).
@@ -355,6 +360,8 @@ type DeepAnalyzeInput struct {
 	// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 	LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 	LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
+	// OTel span nesting: pipeline root span ID (16 hex chars).
+	PipelineSpanID string `json:"pipeline_span_id,omitempty"`
 }
 
 // DeepAnalyzeOutput is the output from the DeepAnalyze activity.
@@ -769,6 +776,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Generate Langfuse trace ID for the direct Langfuse ingestion API.
 	langfuseTraceID := sideEffectUUID(ctx)
 
+	// Generate an OTel span ID for the pipeline root span. Activities inject a
+	// remote SpanContext (trace_id derived from langfuseTraceID + this span_id)
+	// so that all AI spans nest under a single pipeline trace in Langfuse/OTel.
+	pipelineSpanID := sideEffectSpanID(ctx)
+
 	// Create a Langfuse trace for this pipeline run (best-effort, non-blocking).
 	// Tenant is identified via the Environment field (TenantName), not a tag.
 	langfuseTraceTags := []string{input.ContentID}
@@ -959,6 +971,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		ModelOverride:   input.ModelOverride,
 		LangfuseTraceID: langfuseTraceID,
 		LangfusePhaseID: triagePhaseID,
+		PipelineSpanID:  pipelineSpanID,
 	}).Get(ctx, &triageOutput)
 	if err != nil {
 		// Update status to "rejected" with failure info
@@ -1143,6 +1156,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			Content:         parsedContent,
 			LangfuseTraceID: langfuseTraceID,
 			LangfusePhaseID: summarizePhaseID,
+			PipelineSpanID:  pipelineSpanID,
 		}).Get(ctx, &summaryID)
 		if summarizeErr != nil {
 			logger.Warn("Stage 1.5 GenerateSummary failed (non-blocking)", "error", summarizeErr)
@@ -1500,6 +1514,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			ModelOverride:   input.ModelOverride,
 			LangfuseTraceID: langfuseTraceID,
 			LangfusePhaseID: extractPhaseID,
+			PipelineSpanID:  pipelineSpanID,
 		}).Get(ctx, extractOutput)
 
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
@@ -1515,6 +1530,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			SenderEmail:     input.SenderEmail, // Pass sender for owner attribution
 			LangfuseTraceID: langfuseTraceID,
 			LangfusePhaseID: extractPhaseID,
+			PipelineSpanID:  pipelineSpanID,
 		}).Get(ctx, &assertionCount)
 		if err2 != nil {
 			logger.Warn("pipeline stage span error",
@@ -1750,6 +1766,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			ModelOverride:     input.ModelOverride,
 			LangfuseTraceID:   langfuseTraceID,
 			LangfusePhaseID:   analyzePhaseID,
+			PipelineSpanID:    pipelineSpanID,
 		}).Get(ctx, analyzeOutput)
 		if err != nil {
 			durationMs := workflow.Now(ctx).Sub(analyzeStart).Milliseconds()
@@ -1976,6 +1993,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		ContentHash:     input.ContentHash,
 		LangfuseTraceID: langfuseTraceID,
 		LangfusePhaseID: embedPhaseID,
+		PipelineSpanID:  pipelineSpanID,
 	}).Get(ctx, &embeddingID)
 	if err != nil {
 		runCompensation(ctx)
@@ -2413,6 +2431,17 @@ func sideEffectUUID(ctx workflow.Context) string {
 	var id string
 	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 		return uuid.New().String()
+	}).Get(&id)
+	return id
+}
+
+// sideEffectSpanID generates a deterministic OTel-compatible span ID (16 hex chars)
+// via workflow.SideEffect. Uses the first 8 bytes of a UUID for sufficient entropy.
+func sideEffectSpanID(ctx workflow.Context) string {
+	var id string
+	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+		u := uuid.New()
+		return fmt.Sprintf("%x", u[:8]) // 8 bytes → 16 hex chars
 	}).Get(&id)
 	return id
 }

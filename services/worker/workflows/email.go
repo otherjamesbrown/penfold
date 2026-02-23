@@ -57,6 +57,8 @@ type (
 		// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 		LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 		LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
+		// OTel span nesting: pipeline root span ID (16 hex chars).
+		PipelineSpanID string `json:"pipeline_span_id,omitempty"`
 	}
 
 	// GenerateSummaryInput is the input for the GenerateSummary activity.
@@ -70,6 +72,8 @@ type (
 		// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 		LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 		LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
+		// OTel span nesting: pipeline root span ID (16 hex chars).
+		PipelineSpanID string `json:"pipeline_span_id,omitempty"`
 	}
 
 	// ExtractAssertionsInput is the input for the ExtractAssertions activity.
@@ -84,6 +88,8 @@ type (
 		// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 		LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 		LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
+		// OTel span nesting: pipeline root span ID (16 hex chars).
+		PipelineSpanID string `json:"pipeline_span_id,omitempty"`
 	}
 
 	// UpdateSourceStatusInput is the input for the UpdateSourceStatus activity.

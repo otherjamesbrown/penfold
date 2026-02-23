@@ -4,6 +4,7 @@ package activities
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -92,6 +93,12 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 	// Record heartbeat before calling AI service
 	recordHeartbeat(ctx, "calling AI service for deep analysis")
 
+	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
+	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
+		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
+		ctx = tracing.ContextWithPipelineSpan(ctx, otelTraceID, input.PipelineSpanID)
+	}
+
 	// Create stage span wrapping the gRPC call
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.deep_analyze", tracing.StageSpanOptions{
 		ContentID: input.ContentID,
@@ -101,7 +108,7 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 
 	// Build DeepAnalyzeRequest from input
 	req := buildDeepAnalyzeRequest(input)
-	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
+	// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
 	// Attach Langfuse tracing metadata for AI coordinator to use when creating generation spans.
 	callCtx := stageCtx
@@ -197,7 +204,7 @@ func buildDeepAnalyzeRequest(input workflows.DeepAnalyzeInput) *aiv1.DeepAnalyze
 	if input.ContentID != "" {
 		req.ContentId = &input.ContentID
 	}
-	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
+	// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
 	// Convert workflows.SLMPipelineExtractEntitiesOutput to proto types
 	if input.ExtractionResult != nil {

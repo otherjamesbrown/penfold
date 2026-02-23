@@ -105,6 +105,12 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	startTime := time.Now()
 	activity.RecordHeartbeat(ctx, "calling AI service for assertion extraction")
 
+	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
+	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
+		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
+		ctx = tracing.ContextWithPipelineSpan(ctx, otelTraceID, input.PipelineSpanID)
+	}
+
 	// Create stage span wrapping the gRPC call
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.extract_assertions", tracing.StageSpanOptions{
 		ContentID: input.ContentID,
@@ -125,7 +131,7 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	if input.ContentID != "" {
 		assertionReq.ContentId = &input.ContentID
 	}
-	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
+	// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
 	// Attach Langfuse tracing metadata for AI coordinator to use when creating generation spans.
 	assertionCallCtx := stageCtx
@@ -304,6 +310,12 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	startTime := time.Now()
 	contentRunes := []rune(input.Content)
 
+	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
+	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
+		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
+		ctx = tracing.ContextWithPipelineSpan(ctx, otelTraceID, input.PipelineSpanID)
+	}
+
 	// Create stage span wrapping ALL gRPC calls (single or chunked)
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.extract_entities", tracing.StageSpanOptions{
 		ContentID: input.ContentID,
@@ -338,7 +350,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		if input.ContentID != "" {
 			req.ContentId = optString(input.ContentID)
 		}
-		// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
+		// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
 		// Call AI service with stage span context (and Langfuse metadata if set)
 		resp, err := a.aiClient.ExtractEntities(entityCallCtx, req)
@@ -377,7 +389,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			if input.ContentID != "" {
 				req.ContentId = optString(input.ContentID)
 			}
-			// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
+			// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
 			resp, err := a.aiClient.ExtractEntities(entityCallCtx, req)
 			if err != nil {
