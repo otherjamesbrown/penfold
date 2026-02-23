@@ -91,7 +91,7 @@ type SLMPipelineInput struct {
 	ContentHash string `json:"content_hash,omitempty"`
 	JobID       string `json:"job_id"` // Required for tracing and activity context
 
-	// Per-stage timeout overrides (populated from pipeline_config at dispatch time).
+	// Per-stage timeout overrides (populated from pipeline_definitions at dispatch time).
 	StageTimeouts   map[string]time.Duration `json:"stage_timeouts,omitempty"`
 	StageHeartbeats map[string]time.Duration `json:"stage_heartbeats,omitempty"`
 }

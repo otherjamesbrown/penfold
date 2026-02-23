@@ -191,7 +191,7 @@ func main() {
 	)
 
 	// Get stdlib database handle from pgxpool for services that need it
-	// (e.g., for querying pipeline_config, service_logs)
+	// (e.g., for querying pipeline_operational_config, service_logs)
 	db := stdlib.OpenDBFromPool(dbPool)
 
 	// Initialize DB log sink for async log persistence.

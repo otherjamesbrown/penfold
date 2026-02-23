@@ -1192,10 +1192,9 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 		return nil, status.Error(codes.Unavailable, "database not available")
 	}
 
-	// Route model.stage.* keys to model_config table instead of pipeline_config.
+	// Route model.stage.* keys to model_config table.
 	// The CLI sends key="model.stage.<stage>" when setting a stage model via
-	// `penf pipeline stage set <stage> --model <model>`. Migration 076 removed
-	// these rows from pipeline_config, so they must be written to model_config.
+	// `penf pipeline stage set <stage> --model <model>`.
 	if strings.HasPrefix(req.Key, "model.stage.") {
 		stageName := strings.TrimPrefix(req.Key, "model.stage.")
 
@@ -1272,8 +1271,6 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 	}
 
 	// Read the current value from pipeline_operational_config.
-	// The old pipeline_config columns (value_type, description, min_value, max_value,
-	// default_value, updated_by) no longer exist — we only have key and value.
 	tenantID := s.defaultTenantID(ctx)
 	var entry pipelinev1.TimeoutEntry
 	var previousValue string

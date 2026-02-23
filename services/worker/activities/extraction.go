@@ -545,8 +545,8 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			InputData:       inputJSON,
 			OutputData:      outputJSON,
 			ParsedData:      parsedJSON,
-			InputTokens:     totalInputTokens,
-			OutputTokens:    totalOutputTokens,
+			InputTokens:     0,
+			OutputTokens:    0,
 			LangfuseTraceID: input.LangfuseTraceID,
 		})
 		if runErr != nil {

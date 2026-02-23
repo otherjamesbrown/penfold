@@ -51,8 +51,8 @@ type PipelineInput struct {
 	ModelOverride   string        `json:"model_override,omitempty"`   // If set, use this model instead of default
 	TimeoutOverride time.Duration `json:"timeout_override,omitempty"` // If set, use this timeout for activities
 
-	// Per-stage timeout overrides (populated from pipeline_config at workflow dispatch time).
-	// Keys: "triage", "extract_entities", "extract_assertions", "deep_analyze", "embedding"
+	// Per-stage timeout overrides (populated from pipeline_definitions at workflow dispatch time).
+	// Keys: "triage", "extract_ner", "extract_assertions", "analyze", "embed"
 	StageTimeouts map[string]time.Duration `json:"stage_timeouts,omitempty"` // stage -> start_to_close
 	StageHeartbeats map[string]time.Duration `json:"stage_heartbeats,omitempty"` // stage -> heartbeat
 }
@@ -1633,7 +1633,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		extractPhaseID := sideEffectUUID(ctx)
 
 		extractOutput = &SLMPipelineExtractEntitiesOutput{}
-		extractOpts := stageOpts("extract_entities", embeddingOpts)
+		extractOpts := stageOpts("extract_ner", embeddingOpts)
 		if input.TimeoutOverride > 0 {
 			extractOpts.StartToCloseTimeout = input.TimeoutOverride
 		}
@@ -1683,7 +1683,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		if err != nil {
 			logger.Warn("pipeline stage span error",
-				"stage.name", "extract_entities",
+				"stage.name", "extract_ner",
 				"error.type", classifyTemporalError(err),
 				"error.detail", err.Error(),
 				"stage.duration_ms", workflow.Now(ctx).Sub(extractStart).Milliseconds(),
@@ -1699,7 +1699,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			extractOutput = &SLMPipelineExtractEntitiesOutput{}
 		} else {
 			logger.Info("pipeline stage span completed",
-				"stage.name", "extract_entities",
+				"stage.name", "extract_ner",
 				"stage.duration_ms", workflow.Now(ctx).Sub(extractStart).Milliseconds(),
 				"stage.timeout_start_to_close_ms", extractOpts.StartToCloseTimeout.Milliseconds(),
 			)
@@ -1879,7 +1879,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		analyzePhaseID := sideEffectUUID(ctx)
 
 		var analyzeOutput *DeepAnalyzeOutput
-		analyzeOpts := stageOpts("deep_analyze", llmOpts)
+		analyzeOpts := stageOpts("analyze", llmOpts)
 		if input.TimeoutOverride > 0 {
 			analyzeOpts.StartToCloseTimeout = input.TimeoutOverride
 		}
@@ -1904,7 +1904,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		if err != nil {
 			durationMs := workflow.Now(ctx).Sub(analyzeStart).Milliseconds()
 			logger.Warn("pipeline stage span error",
-				"stage.name", "deep_analyze",
+				"stage.name", "analyze",
 				"error.type", classifyTemporalError(err),
 				"error.detail", err.Error(),
 				"stage.duration_ms", durationMs,
@@ -1929,7 +1929,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			analyzeOutput = nil // Skip persist if analysis failed
 		} else {
 			logger.Info("pipeline stage span completed",
-				"stage.name", "deep_analyze",
+				"stage.name", "analyze",
 				"stage.duration_ms", workflow.Now(ctx).Sub(analyzeStart).Milliseconds(),
 				"stage.timeout_start_to_close_ms", analyzeOpts.StartToCloseTimeout.Milliseconds(),
 			)
@@ -2116,7 +2116,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	embedPhaseID := sideEffectUUID(ctx)
 
 	var embeddingID int64
-	embedOpts := stageOpts("embedding", embeddingOpts)
+	embedOpts := stageOpts("embed", embeddingOpts)
 	ctxEmbed := workflow.WithActivityOptions(ctx, embedOpts)
 	err = workflow.ExecuteActivity(ctxEmbed, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
 		TenantID:        input.TenantID,
@@ -2130,9 +2130,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}).Get(ctx, &embeddingID)
 	if err != nil {
 		runCompensation(ctx)
-		pe := perrors.ClassifyError(err, "embedding")
+		pe := perrors.ClassifyError(err, "embed")
 		logger.Warn("pipeline stage span error",
-			"stage.name", "embedding",
+			"stage.name", "embed",
 			"error.type", classifyTemporalError(err),
 			"error.detail", err.Error(),
 			"stage.duration_ms", workflow.Now(ctx).Sub(embedStart).Milliseconds(),
@@ -2162,7 +2162,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}
 
 	logger.Info("pipeline stage span completed",
-		"stage.name", "embedding",
+		"stage.name", "embed",
 		"stage.duration_ms", workflow.Now(ctx).Sub(embedStart).Milliseconds(),
 		"stage.timeout_start_to_close_ms", embedOpts.StartToCloseTimeout.Milliseconds(),
 	)
