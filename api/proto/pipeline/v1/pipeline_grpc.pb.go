@@ -22,39 +22,44 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PipelineService_GetStats_FullMethodName             = "/penfold.pipeline.v1.PipelineService/GetStats"
-	PipelineService_GetJob_FullMethodName               = "/penfold.pipeline.v1.PipelineService/GetJob"
-	PipelineService_ListJobs_FullMethodName             = "/penfold.pipeline.v1.PipelineService/ListJobs"
-	PipelineService_KickProcessing_FullMethodName       = "/penfold.pipeline.v1.PipelineService/KickProcessing"
-	PipelineService_RetryFailed_FullMethodName          = "/penfold.pipeline.v1.PipelineService/RetryFailed"
-	PipelineService_GetQueueStatus_FullMethodName       = "/penfold.pipeline.v1.PipelineService/GetQueueStatus"
-	PipelineService_GetPipelineHealth_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetPipelineHealth"
-	PipelineService_GetContentTrace_FullMethodName      = "/penfold.pipeline.v1.PipelineService/GetContentTrace"
-	PipelineService_ListDeletedSources_FullMethodName   = "/penfold.pipeline.v1.PipelineService/ListDeletedSources"
-	PipelineService_UndeleteSource_FullMethodName       = "/penfold.pipeline.v1.PipelineService/UndeleteSource"
-	PipelineService_DescribePipeline_FullMethodName     = "/penfold.pipeline.v1.PipelineService/DescribePipeline"
-	PipelineService_GetPrompt_FullMethodName            = "/penfold.pipeline.v1.PipelineService/GetPrompt"
-	PipelineService_ListPromptVersions_FullMethodName   = "/penfold.pipeline.v1.PipelineService/ListPromptVersions"
-	PipelineService_UpdatePrompt_FullMethodName         = "/penfold.pipeline.v1.PipelineService/UpdatePrompt"
-	PipelineService_RollbackPrompt_FullMethodName       = "/penfold.pipeline.v1.PipelineService/RollbackPrompt"
-	PipelineService_ExportPrompt_FullMethodName         = "/penfold.pipeline.v1.PipelineService/ExportPrompt"
-	PipelineService_GetSourceHistory_FullMethodName     = "/penfold.pipeline.v1.PipelineService/GetSourceHistory"
-	PipelineService_ReprocessDryRun_FullMethodName      = "/penfold.pipeline.v1.PipelineService/ReprocessDryRun"
-	PipelineService_GetTimeoutConfig_FullMethodName     = "/penfold.pipeline.v1.PipelineService/GetTimeoutConfig"
-	PipelineService_UpdateTimeoutConfig_FullMethodName  = "/penfold.pipeline.v1.PipelineService/UpdateTimeoutConfig"
-	PipelineService_GetPipelineErrors_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetPipelineErrors"
-	PipelineService_InspectStage_FullMethodName         = "/penfold.pipeline.v1.PipelineService/InspectStage"
-	PipelineService_DiffStageRuns_FullMethodName        = "/penfold.pipeline.v1.PipelineService/DiffStageRuns"
-	PipelineService_DiffPipelineRuns_FullMethodName     = "/penfold.pipeline.v1.PipelineService/DiffPipelineRuns"
-	PipelineService_GetConcurrencyConfig_FullMethodName = "/penfold.pipeline.v1.PipelineService/GetConcurrencyConfig"
-	PipelineService_SetConcurrencyConfig_FullMethodName = "/penfold.pipeline.v1.PipelineService/SetConcurrencyConfig"
-	PipelineService_ListPendingSources_FullMethodName   = "/penfold.pipeline.v1.PipelineService/ListPendingSources"
-	PipelineService_GetStageConfig_FullMethodName       = "/penfold.pipeline.v1.PipelineService/GetStageConfig"
-	PipelineService_StartBatchPipeline_FullMethodName   = "/penfold.pipeline.v1.PipelineService/StartBatchPipeline"
-	PipelineService_GetBatchStatus_FullMethodName       = "/penfold.pipeline.v1.PipelineService/GetBatchStatus"
-	PipelineService_ListBatches_FullMethodName          = "/penfold.pipeline.v1.PipelineService/ListBatches"
-	PipelineService_CancelBatch_FullMethodName          = "/penfold.pipeline.v1.PipelineService/CancelBatch"
-	PipelineService_ListModels_FullMethodName           = "/penfold.pipeline.v1.PipelineService/ListModels"
+	PipelineService_GetStats_FullMethodName                = "/penfold.pipeline.v1.PipelineService/GetStats"
+	PipelineService_GetJob_FullMethodName                  = "/penfold.pipeline.v1.PipelineService/GetJob"
+	PipelineService_ListJobs_FullMethodName                = "/penfold.pipeline.v1.PipelineService/ListJobs"
+	PipelineService_KickProcessing_FullMethodName          = "/penfold.pipeline.v1.PipelineService/KickProcessing"
+	PipelineService_RetryFailed_FullMethodName             = "/penfold.pipeline.v1.PipelineService/RetryFailed"
+	PipelineService_GetQueueStatus_FullMethodName          = "/penfold.pipeline.v1.PipelineService/GetQueueStatus"
+	PipelineService_GetPipelineHealth_FullMethodName       = "/penfold.pipeline.v1.PipelineService/GetPipelineHealth"
+	PipelineService_GetContentTrace_FullMethodName         = "/penfold.pipeline.v1.PipelineService/GetContentTrace"
+	PipelineService_ListDeletedSources_FullMethodName      = "/penfold.pipeline.v1.PipelineService/ListDeletedSources"
+	PipelineService_UndeleteSource_FullMethodName          = "/penfold.pipeline.v1.PipelineService/UndeleteSource"
+	PipelineService_DescribePipeline_FullMethodName        = "/penfold.pipeline.v1.PipelineService/DescribePipeline"
+	PipelineService_GetPrompt_FullMethodName               = "/penfold.pipeline.v1.PipelineService/GetPrompt"
+	PipelineService_ListPromptVersions_FullMethodName      = "/penfold.pipeline.v1.PipelineService/ListPromptVersions"
+	PipelineService_UpdatePrompt_FullMethodName            = "/penfold.pipeline.v1.PipelineService/UpdatePrompt"
+	PipelineService_RollbackPrompt_FullMethodName          = "/penfold.pipeline.v1.PipelineService/RollbackPrompt"
+	PipelineService_ExportPrompt_FullMethodName            = "/penfold.pipeline.v1.PipelineService/ExportPrompt"
+	PipelineService_GetSourceHistory_FullMethodName        = "/penfold.pipeline.v1.PipelineService/GetSourceHistory"
+	PipelineService_ReprocessDryRun_FullMethodName         = "/penfold.pipeline.v1.PipelineService/ReprocessDryRun"
+	PipelineService_GetTimeoutConfig_FullMethodName        = "/penfold.pipeline.v1.PipelineService/GetTimeoutConfig"
+	PipelineService_UpdateTimeoutConfig_FullMethodName     = "/penfold.pipeline.v1.PipelineService/UpdateTimeoutConfig"
+	PipelineService_GetPipelineErrors_FullMethodName       = "/penfold.pipeline.v1.PipelineService/GetPipelineErrors"
+	PipelineService_InspectStage_FullMethodName            = "/penfold.pipeline.v1.PipelineService/InspectStage"
+	PipelineService_DiffStageRuns_FullMethodName           = "/penfold.pipeline.v1.PipelineService/DiffStageRuns"
+	PipelineService_DiffPipelineRuns_FullMethodName        = "/penfold.pipeline.v1.PipelineService/DiffPipelineRuns"
+	PipelineService_GetConcurrencyConfig_FullMethodName    = "/penfold.pipeline.v1.PipelineService/GetConcurrencyConfig"
+	PipelineService_SetConcurrencyConfig_FullMethodName    = "/penfold.pipeline.v1.PipelineService/SetConcurrencyConfig"
+	PipelineService_ListPendingSources_FullMethodName      = "/penfold.pipeline.v1.PipelineService/ListPendingSources"
+	PipelineService_GetStageConfig_FullMethodName          = "/penfold.pipeline.v1.PipelineService/GetStageConfig"
+	PipelineService_StartBatchPipeline_FullMethodName      = "/penfold.pipeline.v1.PipelineService/StartBatchPipeline"
+	PipelineService_GetBatchStatus_FullMethodName          = "/penfold.pipeline.v1.PipelineService/GetBatchStatus"
+	PipelineService_ListBatches_FullMethodName             = "/penfold.pipeline.v1.PipelineService/ListBatches"
+	PipelineService_CancelBatch_FullMethodName             = "/penfold.pipeline.v1.PipelineService/CancelBatch"
+	PipelineService_ListModels_FullMethodName              = "/penfold.pipeline.v1.PipelineService/ListModels"
+	PipelineService_ListClassificationRules_FullMethodName = "/penfold.pipeline.v1.PipelineService/ListClassificationRules"
+	PipelineService_GetClassificationRule_FullMethodName   = "/penfold.pipeline.v1.PipelineService/GetClassificationRule"
+	PipelineService_TestClassificationRule_FullMethodName  = "/penfold.pipeline.v1.PipelineService/TestClassificationRule"
+	PipelineService_ListPipelineRoutes_FullMethodName      = "/penfold.pipeline.v1.PipelineService/ListPipelineRoutes"
+	PipelineService_TestPipelineRoute_FullMethodName       = "/penfold.pipeline.v1.PipelineService/TestPipelineRoute"
 )
 
 // PipelineServiceClient is the client API for PipelineService service.
@@ -130,6 +135,16 @@ type PipelineServiceClient interface {
 	// ListModels returns the model registry: which models are configured, their
 	// backend, and which pipeline stages they are assigned to.
 	ListModels(ctx context.Context, in *ListModelsRequest, opts ...grpc.CallOption) (*ListModelsResponse, error)
+	// ListClassificationRules lists all classification rules in priority order.
+	ListClassificationRules(ctx context.Context, in *ListClassificationRulesRequest, opts ...grpc.CallOption) (*ListClassificationRulesResponse, error)
+	// GetClassificationRule retrieves a single classification rule by name.
+	GetClassificationRule(ctx context.Context, in *GetClassificationRuleRequest, opts ...grpc.CallOption) (*GetClassificationRuleResponse, error)
+	// TestClassificationRule runs the classification engine against a content item.
+	TestClassificationRule(ctx context.Context, in *TestClassificationRuleRequest, opts ...grpc.CallOption) (*TestClassificationRuleResponse, error)
+	// ListPipelineRoutes lists all pipeline routing rules.
+	ListPipelineRoutes(ctx context.Context, in *ListPipelineRoutesRequest, opts ...grpc.CallOption) (*ListPipelineRoutesResponse, error)
+	// TestPipelineRoute shows which pipeline(s) a content item would enter.
+	TestPipelineRoute(ctx context.Context, in *TestPipelineRouteRequest, opts ...grpc.CallOption) (*TestPipelineRouteResponse, error)
 }
 
 type pipelineServiceClient struct {
@@ -470,6 +485,56 @@ func (c *pipelineServiceClient) ListModels(ctx context.Context, in *ListModelsRe
 	return out, nil
 }
 
+func (c *pipelineServiceClient) ListClassificationRules(ctx context.Context, in *ListClassificationRulesRequest, opts ...grpc.CallOption) (*ListClassificationRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListClassificationRulesResponse)
+	err := c.cc.Invoke(ctx, PipelineService_ListClassificationRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) GetClassificationRule(ctx context.Context, in *GetClassificationRuleRequest, opts ...grpc.CallOption) (*GetClassificationRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetClassificationRuleResponse)
+	err := c.cc.Invoke(ctx, PipelineService_GetClassificationRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) TestClassificationRule(ctx context.Context, in *TestClassificationRuleRequest, opts ...grpc.CallOption) (*TestClassificationRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TestClassificationRuleResponse)
+	err := c.cc.Invoke(ctx, PipelineService_TestClassificationRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) ListPipelineRoutes(ctx context.Context, in *ListPipelineRoutesRequest, opts ...grpc.CallOption) (*ListPipelineRoutesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPipelineRoutesResponse)
+	err := c.cc.Invoke(ctx, PipelineService_ListPipelineRoutes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) TestPipelineRoute(ctx context.Context, in *TestPipelineRouteRequest, opts ...grpc.CallOption) (*TestPipelineRouteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TestPipelineRouteResponse)
+	err := c.cc.Invoke(ctx, PipelineService_TestPipelineRoute_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PipelineServiceServer is the server API for PipelineService service.
 // All implementations must embed UnimplementedPipelineServiceServer
 // for forward compatibility.
@@ -543,6 +608,16 @@ type PipelineServiceServer interface {
 	// ListModels returns the model registry: which models are configured, their
 	// backend, and which pipeline stages they are assigned to.
 	ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error)
+	// ListClassificationRules lists all classification rules in priority order.
+	ListClassificationRules(context.Context, *ListClassificationRulesRequest) (*ListClassificationRulesResponse, error)
+	// GetClassificationRule retrieves a single classification rule by name.
+	GetClassificationRule(context.Context, *GetClassificationRuleRequest) (*GetClassificationRuleResponse, error)
+	// TestClassificationRule runs the classification engine against a content item.
+	TestClassificationRule(context.Context, *TestClassificationRuleRequest) (*TestClassificationRuleResponse, error)
+	// ListPipelineRoutes lists all pipeline routing rules.
+	ListPipelineRoutes(context.Context, *ListPipelineRoutesRequest) (*ListPipelineRoutesResponse, error)
+	// TestPipelineRoute shows which pipeline(s) a content item would enter.
+	TestPipelineRoute(context.Context, *TestPipelineRouteRequest) (*TestPipelineRouteResponse, error)
 	mustEmbedUnimplementedPipelineServiceServer()
 }
 
@@ -651,6 +726,21 @@ func (UnimplementedPipelineServiceServer) CancelBatch(context.Context, *CancelBa
 }
 func (UnimplementedPipelineServiceServer) ListModels(context.Context, *ListModelsRequest) (*ListModelsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListModels not implemented")
+}
+func (UnimplementedPipelineServiceServer) ListClassificationRules(context.Context, *ListClassificationRulesRequest) (*ListClassificationRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListClassificationRules not implemented")
+}
+func (UnimplementedPipelineServiceServer) GetClassificationRule(context.Context, *GetClassificationRuleRequest) (*GetClassificationRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetClassificationRule not implemented")
+}
+func (UnimplementedPipelineServiceServer) TestClassificationRule(context.Context, *TestClassificationRuleRequest) (*TestClassificationRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TestClassificationRule not implemented")
+}
+func (UnimplementedPipelineServiceServer) ListPipelineRoutes(context.Context, *ListPipelineRoutesRequest) (*ListPipelineRoutesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPipelineRoutes not implemented")
+}
+func (UnimplementedPipelineServiceServer) TestPipelineRoute(context.Context, *TestPipelineRouteRequest) (*TestPipelineRouteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TestPipelineRoute not implemented")
 }
 func (UnimplementedPipelineServiceServer) mustEmbedUnimplementedPipelineServiceServer() {}
 func (UnimplementedPipelineServiceServer) testEmbeddedByValue()                         {}
@@ -1267,6 +1357,96 @@ func _PipelineService_ListModels_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_ListClassificationRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListClassificationRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).ListClassificationRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_ListClassificationRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).ListClassificationRules(ctx, req.(*ListClassificationRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_GetClassificationRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetClassificationRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).GetClassificationRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_GetClassificationRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).GetClassificationRule(ctx, req.(*GetClassificationRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_TestClassificationRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestClassificationRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).TestClassificationRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_TestClassificationRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).TestClassificationRule(ctx, req.(*TestClassificationRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_ListPipelineRoutes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPipelineRoutesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).ListPipelineRoutes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_ListPipelineRoutes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).ListPipelineRoutes(ctx, req.(*ListPipelineRoutesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_TestPipelineRoute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestPipelineRouteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).TestPipelineRoute(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_TestPipelineRoute_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).TestPipelineRoute(ctx, req.(*TestPipelineRouteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PipelineService_ServiceDesc is the grpc.ServiceDesc for PipelineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1405,6 +1585,26 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListModels",
 			Handler:    _PipelineService_ListModels_Handler,
+		},
+		{
+			MethodName: "ListClassificationRules",
+			Handler:    _PipelineService_ListClassificationRules_Handler,
+		},
+		{
+			MethodName: "GetClassificationRule",
+			Handler:    _PipelineService_GetClassificationRule_Handler,
+		},
+		{
+			MethodName: "TestClassificationRule",
+			Handler:    _PipelineService_TestClassificationRule_Handler,
+		},
+		{
+			MethodName: "ListPipelineRoutes",
+			Handler:    _PipelineService_ListPipelineRoutes_Handler,
+		},
+		{
+			MethodName: "TestPipelineRoute",
+			Handler:    _PipelineService_TestPipelineRoute_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

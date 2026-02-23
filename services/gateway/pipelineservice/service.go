@@ -16,6 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/routing"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
@@ -2139,4 +2140,496 @@ func (s *Service) countPendingSources(ctx context.Context, sourceTag string) (in
 	}
 
 	return count, nil
+}
+
+// =============================================================================
+// Classification Rules RPCs
+// =============================================================================
+
+// ListClassificationRules lists all classification rules in priority order.
+func (s *Service) ListClassificationRules(ctx context.Context, req *pipelinev1.ListClassificationRulesRequest) (*pipelinev1.ListClassificationRulesResponse, error) {
+	s.logger.Debug("ListClassificationRules called", logging.F("tenant_id", req.TenantId))
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	rules, err := s.queryClassificationRules(ctx, tenantID, "")
+	if err != nil {
+		s.logger.Error("Error listing classification rules", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list classification rules: %v", err)
+	}
+
+	return &pipelinev1.ListClassificationRulesResponse{Rules: rules}, nil
+}
+
+// GetClassificationRule retrieves a single classification rule by name.
+func (s *Service) GetClassificationRule(ctx context.Context, req *pipelinev1.GetClassificationRuleRequest) (*pipelinev1.GetClassificationRuleResponse, error) {
+	s.logger.Debug("GetClassificationRule called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("name", req.Name),
+	)
+
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	rules, err := s.queryClassificationRules(ctx, tenantID, req.Name)
+	if err != nil {
+		s.logger.Error("Error getting classification rule", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get classification rule: %v", err)
+	}
+
+	if len(rules) == 0 {
+		return nil, status.Errorf(codes.NotFound, "classification rule %q not found", req.Name)
+	}
+
+	return &pipelinev1.GetClassificationRuleResponse{Rule: rules[0]}, nil
+}
+
+// TestClassificationRule runs the classification engine against a content item.
+func (s *Service) TestClassificationRule(ctx context.Context, req *pipelinev1.TestClassificationRuleRequest) (*pipelinev1.TestClassificationRuleResponse, error) {
+	s.logger.Debug("TestClassificationRule called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("content_id", req.ContentId),
+	)
+
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	// Load content item metadata for classification
+	var metadataJSON sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT ingestion_metadata::text
+		FROM sources
+		WHERE content_id = $1 AND is_deleted = false
+	`, req.ContentId).Scan(&metadataJSON)
+
+	if err == sql.ErrNoRows {
+		return nil, status.Errorf(codes.NotFound, "content item %q not found", req.ContentId)
+	}
+	if err != nil {
+		s.logger.Error("Error loading content metadata", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to load content metadata: %v", err)
+	}
+
+	// Build metadata map for the classification engine
+	metadata := make(map[string]string)
+	if metadataJSON.Valid {
+		var rawMeta map[string]interface{}
+		if err := json.Unmarshal([]byte(metadataJSON.String), &rawMeta); err == nil {
+			for k, v := range rawMeta {
+				metadata[k] = fmt.Sprintf("%v", v)
+			}
+		}
+	}
+
+	// Load classification rules
+	rules, err := s.queryClassificationRulesRaw(ctx, tenantID)
+	if err != nil {
+		s.logger.Error("Error loading classification rules", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to load classification rules: %v", err)
+	}
+
+	// Run rules against metadata (same OR logic as the engine)
+	resp := &pipelinev1.TestClassificationRuleResponse{
+		RulesEvaluated: int32(len(rules)),
+	}
+
+	for _, rule := range rules {
+		for _, cond := range rule.Conditions {
+			fieldValue := metadata[cond.Field]
+			if matchConditionTest(cond, fieldValue) {
+				resp.MatchedRule = classRuleToProto(&rule)
+				resp.ContentType = rule.ContentType
+				resp.ContentSubtype = rule.ContentSubtype
+				resp.NotificationSource = rule.NotificationSource
+				resp.MatchedCondition = fmt.Sprintf("%s %s %q", cond.Field, cond.Operator, cond.Value)
+				return resp, nil
+			}
+		}
+	}
+
+	// No match — return default
+	resp.ContentType = "EMAIL"
+	resp.ContentSubtype = "HUMAN"
+	return resp, nil
+}
+
+// queryClassificationRules queries rules with optional name filter, returns proto messages.
+func (s *Service) queryClassificationRules(ctx context.Context, tenantID, name string) ([]*pipelinev1.ClassificationRule, error) {
+	query := `
+		SELECT
+			cr.name,
+			cr.priority,
+			COALESCE(cr.content_type_scope, '') AS scope,
+			cr.content_type,
+			cr.content_subtype,
+			COALESCE(cr.notification_source, '') AS notification_source,
+			cr.active,
+			cmc.field,
+			cmc.match_type,
+			cmc.value
+		FROM classification_rules cr
+		LEFT JOIN classification_match_conditions cmc ON cmc.rule_id = cr.id
+		WHERE cr.tenant_id = $1
+	`
+	args := []interface{}{tenantID}
+
+	if name != "" {
+		query += " AND cr.name = $2"
+		args = append(args, name)
+	}
+
+	query += " ORDER BY cr.priority ASC, cr.id ASC, cmc.id ASC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying classification rules: %w", err)
+	}
+	defer rows.Close()
+
+	// Group conditions by rule name
+	ruleMap := make(map[string]*pipelinev1.ClassificationRule)
+	var ruleOrder []string
+
+	for rows.Next() {
+		var (
+			ruleName           string
+			priority           int32
+			scope              string
+			contentType        string
+			contentSubtype     string
+			notificationSource string
+			active             bool
+			condField          sql.NullString
+			condOperator       sql.NullString
+			condValue          sql.NullString
+		)
+
+		if err := rows.Scan(
+			&ruleName, &priority, &scope,
+			&contentType, &contentSubtype, &notificationSource, &active,
+			&condField, &condOperator, &condValue,
+		); err != nil {
+			return nil, fmt.Errorf("scanning classification rule: %w", err)
+		}
+
+		rule, exists := ruleMap[ruleName]
+		if !exists {
+			rule = &pipelinev1.ClassificationRule{
+				Name:               ruleName,
+				Priority:           priority,
+				Scope:              scope,
+				ContentType:        contentType,
+				ContentSubtype:     contentSubtype,
+				NotificationSource: notificationSource,
+				Active:             active,
+			}
+			ruleMap[ruleName] = rule
+			ruleOrder = append(ruleOrder, ruleName)
+		}
+
+		if condField.Valid {
+			rule.Conditions = append(rule.Conditions, &pipelinev1.ClassificationMatchCondition{
+				Field:    condField.String,
+				Operator: condOperator.String,
+				Value:    condValue.String,
+			})
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating classification rules: %w", err)
+	}
+
+	// Preserve priority order
+	result := make([]*pipelinev1.ClassificationRule, 0, len(ruleOrder))
+	for _, n := range ruleOrder {
+		result = append(result, ruleMap[n])
+	}
+
+	return result, nil
+}
+
+// classRuleRaw is an internal struct for TestClassificationRule engine evaluation.
+type classRuleRaw struct {
+	Name               string
+	Priority           int32
+	Scope              string
+	ContentType        string
+	ContentSubtype     string
+	NotificationSource string
+	Active             bool
+	Conditions         []classCondRaw
+}
+
+type classCondRaw struct {
+	Field    string
+	Operator string
+	Value    string
+}
+
+// queryClassificationRulesRaw loads rules for engine evaluation.
+func (s *Service) queryClassificationRulesRaw(ctx context.Context, tenantID string) ([]classRuleRaw, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			cr.name, cr.priority,
+			COALESCE(cr.content_type_scope, ''),
+			cr.content_type, cr.content_subtype,
+			COALESCE(cr.notification_source, ''),
+			cr.active,
+			cmc.field, cmc.match_type, cmc.value
+		FROM classification_rules cr
+		LEFT JOIN classification_match_conditions cmc ON cmc.rule_id = cr.id
+		WHERE cr.tenant_id = $1 AND cr.active = true
+		ORDER BY cr.priority ASC, cr.id ASC, cmc.id ASC
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("querying classification rules: %w", err)
+	}
+	defer rows.Close()
+
+	var rules []classRuleRaw
+	ruleIndex := map[string]int{}
+
+	for rows.Next() {
+		var (
+			name, scope, ct, cst, ns string
+			priority                  int32
+			active                    bool
+			condField, condOp, condV  sql.NullString
+		)
+		if err := rows.Scan(&name, &priority, &scope, &ct, &cst, &ns, &active, &condField, &condOp, &condV); err != nil {
+			return nil, fmt.Errorf("scanning rule row: %w", err)
+		}
+
+		idx, exists := ruleIndex[name]
+		if !exists {
+			rules = append(rules, classRuleRaw{
+				Name: name, Priority: priority, Scope: scope,
+				ContentType: ct, ContentSubtype: cst,
+				NotificationSource: ns, Active: active,
+			})
+			idx = len(rules) - 1
+			ruleIndex[name] = idx
+		}
+
+		if condField.Valid {
+			rules[idx].Conditions = append(rules[idx].Conditions, classCondRaw{
+				Field: condField.String, Operator: condOp.String, Value: condV.String,
+			})
+		}
+	}
+
+	return rules, rows.Err()
+}
+
+// matchConditionTest evaluates a single match condition against a field value.
+func matchConditionTest(cond classCondRaw, fieldValue string) bool {
+	v := strings.ToLower(fieldValue)
+	cv := strings.ToLower(cond.Value)
+
+	switch cond.Operator {
+	case "contains":
+		return strings.Contains(v, cv)
+	case "prefix":
+		return strings.HasPrefix(v, cv)
+	case "suffix":
+		return strings.HasSuffix(v, cv)
+	case "exact":
+		return v == cv
+	case "exists":
+		return fieldValue != ""
+	default:
+		return false
+	}
+}
+
+// classRuleToProto converts a raw classification rule to proto.
+func classRuleToProto(r *classRuleRaw) *pipelinev1.ClassificationRule {
+	rule := &pipelinev1.ClassificationRule{
+		Name:               r.Name,
+		Priority:           r.Priority,
+		Scope:              r.Scope,
+		ContentType:        r.ContentType,
+		ContentSubtype:     r.ContentSubtype,
+		NotificationSource: r.NotificationSource,
+		Active:             r.Active,
+	}
+	for _, c := range r.Conditions {
+		rule.Conditions = append(rule.Conditions, &pipelinev1.ClassificationMatchCondition{
+			Field:    c.Field,
+			Operator: c.Operator,
+			Value:    c.Value,
+		})
+	}
+	return rule
+}
+
+// defaultTenantID returns the first tenant ID from the database.
+func (s *Service) defaultTenantID(ctx context.Context) string {
+	if s.db == nil {
+		return ""
+	}
+	var tenantID string
+	_ = s.db.QueryRowContext(ctx, "SELECT id FROM tenants LIMIT 1").Scan(&tenantID)
+	return tenantID
+}
+
+// =============================================================================
+// Pipeline Routing RPCs
+// =============================================================================
+
+// ListPipelineRoutes lists all pipeline routing rules.
+func (s *Service) ListPipelineRoutes(ctx context.Context, req *pipelinev1.ListPipelineRoutesRequest) (*pipelinev1.ListPipelineRoutesResponse, error) {
+	s.logger.Debug("ListPipelineRoutes called", logging.F("tenant_id", req.TenantId))
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, COALESCE(content_type, ''), COALESCE(content_subtype, ''), pipeline, active
+		FROM pipeline_routing
+		WHERE tenant_id = $1
+		ORDER BY id ASC
+	`, tenantID)
+	if err != nil {
+		s.logger.Error("Error listing pipeline routes", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list pipeline routes: %v", err)
+	}
+	defer rows.Close()
+
+	var routes []*pipelinev1.PipelineRoute
+	for rows.Next() {
+		var r pipelinev1.PipelineRoute
+		if err := rows.Scan(&r.Id, &r.ContentType, &r.ContentSubtype, &r.Pipeline, &r.Active); err != nil {
+			s.logger.Error("Error scanning pipeline route", logging.Err(err))
+			continue
+		}
+		routes = append(routes, &r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to iterate pipeline routes: %v", err)
+	}
+
+	s.logger.Info("Pipeline routes listed", logging.F("count", len(routes)))
+	return &pipelinev1.ListPipelineRoutesResponse{Routes: routes}, nil
+}
+
+// TestPipelineRoute shows which pipeline(s) a content item would enter.
+func (s *Service) TestPipelineRoute(ctx context.Context, req *pipelinev1.TestPipelineRouteRequest) (*pipelinev1.TestPipelineRouteResponse, error) {
+	s.logger.Debug("TestPipelineRoute called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("content_id", req.ContentId),
+	)
+
+	if req.ContentId == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	// Load content item's classification
+	var contentType, contentSubtype string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(content_type_enum, ''),
+			COALESCE(content_subtype_enum, '')
+		FROM sources
+		WHERE content_id = $1 AND is_deleted = false
+	`, req.ContentId).Scan(&contentType, &contentSubtype)
+
+	if err == sql.ErrNoRows {
+		return nil, status.Errorf(codes.NotFound, "content item %q not found", req.ContentId)
+	}
+	if err != nil {
+		s.logger.Error("Error loading content classification", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to load content classification: %v", err)
+	}
+
+	// Look up matching routes
+	routeRows, err := s.db.QueryContext(ctx, `
+		SELECT pipeline
+		FROM pipeline_routing
+		WHERE tenant_id = $1
+		  AND active = true
+		  AND (content_type IS NULL OR content_type = $2)
+		  AND (content_subtype IS NULL OR content_subtype = $3)
+		ORDER BY id ASC
+	`, tenantID, contentType, contentSubtype)
+	if err != nil {
+		s.logger.Error("Error querying pipeline routes", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to query pipeline routes: %v", err)
+	}
+	defer routeRows.Close()
+
+	var matchedRoutes []*pipelinev1.MatchedRoute
+	for routeRows.Next() {
+		var pipelineName string
+		if err := routeRows.Scan(&pipelineName); err != nil {
+			continue
+		}
+
+		mr := &pipelinev1.MatchedRoute{Pipeline: pipelineName}
+		if def, ok := routing.Pipelines[pipelineName]; ok {
+			mr.Stages = def.Stages
+		}
+		matchedRoutes = append(matchedRoutes, mr)
+	}
+
+	if err := routeRows.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to iterate pipeline routes: %v", err)
+	}
+
+	s.logger.Info("Pipeline route test completed",
+		logging.F("content_id", req.ContentId),
+		logging.F("content_type", contentType),
+		logging.F("content_subtype", contentSubtype),
+		logging.F("matched_routes", len(matchedRoutes)),
+	)
+
+	return &pipelinev1.TestPipelineRouteResponse{
+		ContentType:    contentType,
+		ContentSubtype: contentSubtype,
+		MatchedRoutes:  matchedRoutes,
+	}, nil
 }

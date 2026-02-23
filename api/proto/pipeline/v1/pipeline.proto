@@ -114,6 +114,21 @@ service PipelineService {
   // ListModels returns the model registry: which models are configured, their
   // backend, and which pipeline stages they are assigned to.
   rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+
+  // ListClassificationRules lists all classification rules in priority order.
+  rpc ListClassificationRules(ListClassificationRulesRequest) returns (ListClassificationRulesResponse);
+
+  // GetClassificationRule retrieves a single classification rule by name.
+  rpc GetClassificationRule(GetClassificationRuleRequest) returns (GetClassificationRuleResponse);
+
+  // TestClassificationRule runs the classification engine against a content item.
+  rpc TestClassificationRule(TestClassificationRuleRequest) returns (TestClassificationRuleResponse);
+
+  // ListPipelineRoutes lists all pipeline routing rules.
+  rpc ListPipelineRoutes(ListPipelineRoutesRequest) returns (ListPipelineRoutesResponse);
+
+  // TestPipelineRoute shows which pipeline(s) a content item would enter.
+  rpc TestPipelineRoute(TestPipelineRouteRequest) returns (TestPipelineRouteResponse);
 }
 
 // =============================================================================
@@ -1304,4 +1319,168 @@ message ListModelsRequest {}
 message ListModelsResponse {
   // All models known to the system (from DB config + hardcoded defaults).
   repeated ModelInfo models = 1;
+}
+
+// =============================================================================
+// Classification Rules Messages
+// =============================================================================
+
+// ClassificationMatchCondition represents a single match condition for a rule.
+message ClassificationMatchCondition {
+  // Metadata field to match against (e.g., "from_address", "subject").
+  string field = 1;
+
+  // Match operator: "contains", "prefix", "suffix", "equals", "regex".
+  string operator = 2;
+
+  // Value to match.
+  string value = 3;
+}
+
+// ClassificationRule represents a content classification rule.
+message ClassificationRule {
+  // Rule name (unique identifier).
+  string name = 1;
+
+  // Priority (lower = higher priority, evaluated first).
+  int32 priority = 2;
+
+  // Scope of content this rule applies to (e.g., "EMAIL").
+  string scope = 3;
+
+  // Resulting content type when rule matches.
+  string content_type = 4;
+
+  // Resulting content subtype when rule matches.
+  string content_subtype = 5;
+
+  // Resulting notification source when rule matches (for NOTIFICATION subtype).
+  string notification_source = 6;
+
+  // Whether this rule is active.
+  bool active = 7;
+
+  // Match conditions (OR logic: any match triggers the rule).
+  repeated ClassificationMatchCondition conditions = 8;
+}
+
+// ListClassificationRulesRequest lists all classification rules.
+message ListClassificationRulesRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+}
+
+// ListClassificationRulesResponse contains all classification rules.
+message ListClassificationRulesResponse {
+  // Rules in priority order.
+  repeated ClassificationRule rules = 1;
+}
+
+// GetClassificationRuleRequest retrieves a single rule by name.
+message GetClassificationRuleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Rule name.
+  string name = 2;
+}
+
+// GetClassificationRuleResponse contains the requested rule.
+message GetClassificationRuleResponse {
+  // The classification rule.
+  ClassificationRule rule = 1;
+}
+
+// TestClassificationRuleRequest runs the engine against a content item.
+message TestClassificationRuleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Content ID to test against.
+  string content_id = 2;
+}
+
+// TestClassificationRuleResponse contains the test result.
+message TestClassificationRuleResponse {
+  // Which rule matched (nil if no match).
+  ClassificationRule matched_rule = 1;
+
+  // Resulting content type.
+  string content_type = 2;
+
+  // Resulting content subtype.
+  string content_subtype = 3;
+
+  // Resulting notification source.
+  string notification_source = 4;
+
+  // Total rules evaluated.
+  int32 rules_evaluated = 5;
+
+  // Description of which condition matched.
+  string matched_condition = 6;
+}
+
+// =============================================================================
+// Pipeline Routing Messages
+// =============================================================================
+
+// PipelineRoute represents a routing rule mapping content type to pipeline.
+message PipelineRoute {
+  // Route ID.
+  int64 id = 1;
+
+  // Content type to match.
+  string content_type = 2;
+
+  // Content subtype to match.
+  string content_subtype = 3;
+
+  // Target pipeline name.
+  string pipeline = 4;
+
+  // Whether this route is active.
+  bool active = 5;
+}
+
+// ListPipelineRoutesRequest lists all routing rules.
+message ListPipelineRoutesRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+}
+
+// ListPipelineRoutesResponse contains all routing rules.
+message ListPipelineRoutesResponse {
+  // All routing rules.
+  repeated PipelineRoute routes = 1;
+}
+
+// TestPipelineRouteRequest tests which pipeline(s) a content item would enter.
+message TestPipelineRouteRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Content ID to test.
+  string content_id = 2;
+}
+
+// MatchedRoute represents a matched pipeline route with its stages.
+message MatchedRoute {
+  // Pipeline name.
+  string pipeline = 1;
+
+  // Stages in this pipeline (e.g., "triage → extract → embed → summarize").
+  repeated string stages = 2;
+}
+
+// TestPipelineRouteResponse contains the routing test result.
+message TestPipelineRouteResponse {
+  // Content type of the tested item.
+  string content_type = 1;
+
+  // Content subtype of the tested item.
+  string content_subtype = 2;
+
+  // Matched routes (empty = no routes matched, all stages skipped).
+  repeated MatchedRoute matched_routes = 3;
 }
