@@ -116,6 +116,11 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 		UnresolvedTerms:  []string{},
 	}
 
+	// Step 0: Reclassify organisations that are actually projects.
+	// NER sometimes puts internal projects (e.g. CLIC, MTC) in the organisations list.
+	// Check each org against project resolution; move matches to the projects list.
+	a.reclassifyOrganisations(ctx, input.TenantID, input.Extraction)
+
 	// Step 1: Resolve people
 	recordHeartbeat(ctx, "resolving people entities")
 	resolvedPeople, unresolvedPeople := a.resolvePeople(ctx, input.TenantID, input.Extraction.People, input.SenderEmail, input.SenderName, input.ParticipantEmails)
@@ -223,6 +228,31 @@ func (a *ContextBuilderActivities) getTenantPatterns(ctx context.Context, tenant
 	}
 }
 
+// getPrimaryUserEmail loads the primary user email from tenant config.
+// Returns empty string if not configured or if loading fails.
+func (a *ContextBuilderActivities) getPrimaryUserEmail(ctx context.Context, tenantID string) string {
+	if a.configResolver == nil {
+		return ""
+	}
+	config, err := a.configResolver.GetConfig(ctx, tenantID)
+	if err != nil {
+		return ""
+	}
+	return config.PrimaryUserEmail
+}
+
+// headerRoleLabel converts a raw header role ("to", "cc") to a display label.
+func headerRoleLabel(role string) string {
+	switch strings.ToLower(role) {
+	case "to":
+		return "To"
+	case "cc":
+		return "CC"
+	default:
+		return ""
+	}
+}
+
 // resolvePeople resolves people from extraction output and structured participant emails.
 func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID string, people []workflows.PersonResult, senderEmail, senderName string, participantEmails []workflows.Participant) ([]workflows.ResolvedPerson, int) {
 	var resolved []workflows.ResolvedPerson
@@ -236,6 +266,9 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 	// Load tenant-specific patterns for account type detection
 	tenantPatterns := a.getTenantPatterns(ctx, tenantID)
 
+	// Load primary user email from tenant config
+	primaryUserEmail := a.getPrimaryUserEmail(ctx, tenantID)
+
 	// If we have sender email, check if it's a person account before resolving
 	if senderEmail != "" && a.entityResolver != nil {
 		accountType := entities.DetectAccountTypeWithPatterns(senderEmail, senderName, tenantPatterns)
@@ -247,13 +280,15 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 			result, err := a.entityResolver.ResolveOrCreate(ctx, tenantID, senderEmail, senderName)
 			if err == nil && result != nil {
 				resolved = append(resolved, workflows.ResolvedPerson{
-					Name:       result.Person.CanonicalName,
-					PersonID:   &result.Person.ID,
-					Confidence: result.Confidence,
-					Source:     result.Source,
-					Title:      result.Person.Title,
-					Department: result.Person.Department,
-					IsInternal: result.Person.IsInternal,
+					Name:          result.Person.CanonicalName,
+					PersonID:      &result.Person.ID,
+					Confidence:    result.Confidence,
+					Source:        result.Source,
+					Role:          "Sender",
+					Title:         result.Person.Title,
+					Department:    result.Person.Department,
+					IsInternal:    result.Person.IsInternal,
+					IsPrimaryUser: strings.EqualFold(senderEmail, primaryUserEmail),
 				})
 				seenEmails[senderEmail] = true
 				senderPersonID = &result.Person.ID
@@ -291,13 +326,15 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 			result, err := a.entityResolver.ResolveOrCreate(ctx, tenantID, participant.Email, participant.DisplayName)
 			if err == nil && result != nil {
 				resolved = append(resolved, workflows.ResolvedPerson{
-					Name:       result.Person.CanonicalName,
-					PersonID:   &result.Person.ID,
-					Confidence: result.Confidence,
-					Source:     result.Source,
-					Title:      result.Person.Title,
-					Department: result.Person.Department,
-					IsInternal: result.Person.IsInternal,
+					Name:          result.Person.CanonicalName,
+					PersonID:      &result.Person.ID,
+					Confidence:    result.Confidence,
+					Source:        result.Source,
+					Role:          headerRoleLabel(participant.HeaderRole),
+					Title:         result.Person.Title,
+					Department:    result.Person.Department,
+					IsInternal:    result.Person.IsInternal,
+					IsPrimaryUser: strings.EqualFold(participant.Email, primaryUserEmail),
 				})
 				seenEmails[participant.Email] = true
 
@@ -316,8 +353,12 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 		}
 	}
 
+	// Enrich first-name-only NER extractions with full names from email headers.
+	// e.g., NER says "Tim" but To header has "Tim Dunn" → upgrade to "Tim Dunn".
+	enrichedPeople := enrichPeopleFromHeaders(people, senderEmail, senderName, participantEmails)
+
 	// Resolve extracted people (from LLM - names only, fuzzy match)
-	for _, person := range people {
+	for _, person := range enrichedPeople {
 		rp := a.resolvePerson(ctx, tenantID, person)
 		if rp.PersonID != nil {
 			resolved = append(resolved, rp)
@@ -327,6 +368,70 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 	}
 
 	return resolved, unresolvedCount
+}
+
+// enrichPeopleFromHeaders cross-references NER-extracted people (often first-name only)
+// with email header participants (who have full names). When a single-word NER name
+// matches the first name of a header participant, the NER entry is upgraded to the full name.
+// This improves both provenance accuracy and downstream fuzzy matching.
+func enrichPeopleFromHeaders(people []workflows.PersonResult, senderEmail, senderName string, participants []workflows.Participant) []workflows.PersonResult {
+	if len(people) == 0 {
+		return people
+	}
+
+	// Build first-name → full-name lookup from all header participants.
+	// Key: lowercase first name, Value: full display name.
+	// If multiple participants share a first name, skip enrichment for that name (ambiguous).
+	firstNameToFull := make(map[string]string)
+	firstNameConflict := make(map[string]bool)
+
+	addName := func(displayName string) {
+		if displayName == "" {
+			return
+		}
+		parts := strings.Fields(displayName)
+		if len(parts) < 2 {
+			return // single-word display name, nothing to enrich with
+		}
+		firstName := strings.ToLower(parts[0])
+		if existing, ok := firstNameToFull[firstName]; ok {
+			if !strings.EqualFold(existing, displayName) {
+				firstNameConflict[firstName] = true // ambiguous — two different people share first name
+			}
+		} else {
+			firstNameToFull[firstName] = displayName
+		}
+	}
+
+	// Add sender
+	addName(senderName)
+
+	// Add all To/CC participants
+	for _, p := range participants {
+		addName(p.DisplayName)
+	}
+
+	// Enrich NER-extracted people
+	enriched := make([]workflows.PersonResult, len(people))
+	for i, person := range people {
+		enriched[i] = person
+
+		// Only enrich single-word names (first-name only)
+		nameParts := strings.Fields(person.Name)
+		if len(nameParts) != 1 {
+			continue
+		}
+
+		firstName := strings.ToLower(nameParts[0])
+		if firstNameConflict[firstName] {
+			continue // ambiguous, skip
+		}
+		if fullName, ok := firstNameToFull[firstName]; ok {
+			enriched[i].Name = fullName
+		}
+	}
+
+	return enriched
 }
 
 // isGarbageTitle filters out meeting invitation text, email header fragments,
@@ -526,6 +631,44 @@ func (a *ContextBuilderActivities) resolveProject(ctx context.Context, tenantID 
 	}
 
 	return rp
+}
+
+// reclassifyOrganisations checks each extracted organisation against project resolution.
+// If an org resolves as a known project (via exact name match, keyword match, or glossary),
+// it's moved from the organisations list to the projects list. This fixes NER misclassification
+// of internal projects like CLIC, MTC that look like organisation acronyms.
+func (a *ContextBuilderActivities) reclassifyOrganisations(ctx context.Context, tenantID string, extraction *workflows.SLMPipelineExtractEntitiesOutput) {
+	if extraction == nil || len(extraction.Organisations) == 0 {
+		return
+	}
+
+	logger := a.logger.WithContext(ctx)
+
+	// Build set of existing project names for dedup
+	existingProjects := make(map[string]bool)
+	for _, p := range extraction.Projects {
+		existingProjects[normalizeString(p)] = true
+	}
+
+	var remainingOrgs []string
+	for _, org := range extraction.Organisations {
+		// Try to resolve as a project
+		rp := a.resolveProject(ctx, tenantID, org)
+		if rp.ProjectID != nil || rp.Source == "glossary" {
+			// This org is actually a known project — move it
+			if !existingProjects[normalizeString(org)] {
+				extraction.Projects = append(extraction.Projects, org)
+				existingProjects[normalizeString(org)] = true
+				logger.Debug("Reclassified organisation as project",
+					logging.F("name", org),
+					logging.F("source", rp.Source))
+			}
+		} else {
+			remainingOrgs = append(remainingOrgs, org)
+		}
+	}
+
+	extraction.Organisations = remainingOrgs
 }
 
 // buildContextPackage assembles the context package for Stage 4.

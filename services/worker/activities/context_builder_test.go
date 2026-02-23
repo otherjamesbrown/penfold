@@ -1273,3 +1273,381 @@ func TestBugPf96c91a_SingleCharacterFuzzyMatch(t *testing.T) {
 		})
 	}
 }
+
+// TestEnrichPeopleFromHeaders tests pf-4d7830: NER first-name-only enrichment from email headers.
+func TestEnrichPeopleFromHeaders(t *testing.T) {
+	tests := []struct {
+		name         string
+		people       []workflows.PersonResult
+		senderEmail  string
+		senderName   string
+		participants []workflows.Participant
+		expected     map[string]string // original name → expected enriched name
+	}{
+		{
+			name: "single first name enriched from participant",
+			people: []workflows.PersonResult{
+				{Name: "Tim", Role: ""},
+				{Name: "James", Role: ""},
+			},
+			participants: []workflows.Participant{
+				{Email: "tim.dunn@example.com", DisplayName: "Tim Dunn", HeaderRole: "to"},
+				{Email: "james.dement@example.com", DisplayName: "James DeMent", HeaderRole: "cc"},
+			},
+			expected: map[string]string{
+				"Tim":   "Tim Dunn",
+				"James": "James DeMent",
+			},
+		},
+		{
+			name: "enriched from sender",
+			people: []workflows.PersonResult{
+				{Name: "Miroslav", Role: ""},
+			},
+			senderEmail: "miroslav.ponec@example.com",
+			senderName:  "Miroslav Ponec",
+			expected: map[string]string{
+				"Miroslav": "Miroslav Ponec",
+			},
+		},
+		{
+			name: "multi-word name not enriched",
+			people: []workflows.PersonResult{
+				{Name: "Toby Paler", Role: ""},
+			},
+			participants: []workflows.Participant{
+				{Email: "toby.paler@example.com", DisplayName: "Toby Paler", HeaderRole: "to"},
+			},
+			expected: map[string]string{
+				"Toby Paler": "Toby Paler", // unchanged
+			},
+		},
+		{
+			name: "ambiguous first name not enriched",
+			people: []workflows.PersonResult{
+				{Name: "James", Role: ""},
+			},
+			participants: []workflows.Participant{
+				{Email: "james.a@example.com", DisplayName: "James Anderson", HeaderRole: "to"},
+				{Email: "james.b@example.com", DisplayName: "James Brown", HeaderRole: "cc"},
+			},
+			expected: map[string]string{
+				"James": "James", // ambiguous, not enriched
+			},
+		},
+		{
+			name: "no matching participant",
+			people: []workflows.PersonResult{
+				{Name: "Unknown", Role: ""},
+			},
+			participants: []workflows.Participant{
+				{Email: "alice@example.com", DisplayName: "Alice Smith", HeaderRole: "to"},
+			},
+			expected: map[string]string{
+				"Unknown": "Unknown", // no match
+			},
+		},
+		{
+			name:     "empty people list",
+			people:   []workflows.PersonResult{},
+			expected: map[string]string{},
+		},
+		{
+			name: "participant with single-word display name",
+			people: []workflows.PersonResult{
+				{Name: "Admin", Role: ""},
+			},
+			participants: []workflows.Participant{
+				{Email: "admin@example.com", DisplayName: "Admin", HeaderRole: "to"},
+			},
+			expected: map[string]string{
+				"Admin": "Admin", // single-word display name, can't enrich
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := enrichPeopleFromHeaders(tt.people, tt.senderEmail, tt.senderName, tt.participants)
+
+			if len(result) != len(tt.people) {
+				t.Fatalf("Expected %d results, got %d", len(tt.people), len(result))
+			}
+
+			for i, person := range result {
+				originalName := tt.people[i].Name
+				expectedName, ok := tt.expected[originalName]
+				if !ok {
+					continue
+				}
+				if person.Name != expectedName {
+					t.Errorf("Person %q: expected enriched name %q, got %q", originalName, expectedName, person.Name)
+				}
+			}
+		})
+	}
+}
+
+// TestReclassifyOrganisations tests pf-a2cf48: NER org→project reclassification.
+func TestReclassifyOrganisations(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	tests := []struct {
+		name               string
+		extraction         *workflows.SLMPipelineExtractEntitiesOutput
+		setupEntityMock    func(*mockEntityLookup)
+		setupContextRepo   func() *mockContextPackageRepo
+		expectedProjects   []string
+		expectedOrgs       []string
+	}{
+		{
+			name: "CLIC reclassified from org to project",
+			extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+				Projects:      []string{"DevCloud"},
+				Organisations: []string{"TikTok", "CLIC", "Juniper"},
+			},
+			setupEntityMock: func(m *mockEntityLookup) {
+				m.getProjectByNameFunc = func(ctx context.Context, tenantID, name string) (*entities.Project, error) {
+					if name == "CLIC" {
+						return &entities.Project{ID: 1, Name: "CLIC"}, nil
+					}
+					return nil, nil
+				}
+			},
+			setupContextRepo: func() *mockContextPackageRepo {
+				return &mockContextPackageRepo{}
+			},
+			expectedProjects: []string{"DevCloud", "CLIC"},
+			expectedOrgs:     []string{"TikTok", "Juniper"},
+		},
+		{
+			name: "MTC reclassified via keyword match",
+			extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+				Projects:      []string{"Oslo"},
+				Organisations: []string{"MTC", "Akamai"},
+			},
+			setupEntityMock: func(m *mockEntityLookup) {
+				m.getProjectByNameFunc = func(ctx context.Context, tenantID, name string) (*entities.Project, error) {
+					return nil, nil // no exact match
+				}
+			},
+			setupContextRepo: func() *mockContextPackageRepo {
+				id := int64(42)
+				return &mockContextPackageRepo{
+					projectsByKeyword: map[string]*int64{
+						"MTC": &id,
+					},
+				}
+			},
+			expectedProjects: []string{"Oslo", "MTC"},
+			expectedOrgs:     []string{"Akamai"},
+		},
+		{
+			name: "no reclassification needed",
+			extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+				Projects:      []string{"DevCloud"},
+				Organisations: []string{"TikTok", "Juniper"},
+			},
+			setupEntityMock: func(m *mockEntityLookup) {
+				m.getProjectByNameFunc = func(ctx context.Context, tenantID, name string) (*entities.Project, error) {
+					return nil, nil
+				}
+			},
+			setupContextRepo: func() *mockContextPackageRepo {
+				return &mockContextPackageRepo{}
+			},
+			expectedProjects: []string{"DevCloud"},
+			expectedOrgs:     []string{"TikTok", "Juniper"},
+		},
+		{
+			name: "dedup: org already in projects list",
+			extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+				Projects:      []string{"CLIC"},
+				Organisations: []string{"CLIC", "Juniper"},
+			},
+			setupEntityMock: func(m *mockEntityLookup) {
+				m.getProjectByNameFunc = func(ctx context.Context, tenantID, name string) (*entities.Project, error) {
+					if name == "CLIC" {
+						return &entities.Project{ID: 1, Name: "CLIC"}, nil
+					}
+					return nil, nil
+				}
+			},
+			setupContextRepo: func() *mockContextPackageRepo {
+				return &mockContextPackageRepo{}
+			},
+			expectedProjects: []string{"CLIC"}, // not duplicated
+			expectedOrgs:     []string{"Juniper"},
+		},
+		{
+			name: "glossary match triggers reclassification",
+			extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+				Projects:      []string{},
+				Organisations: []string{"CLIC"},
+			},
+			setupEntityMock: func(m *mockEntityLookup) {
+				m.getProjectByNameFunc = func(ctx context.Context, tenantID, name string) (*entities.Project, error) {
+					return nil, nil
+				}
+			},
+			setupContextRepo: func() *mockContextPackageRepo {
+				return &mockContextPackageRepo{
+					glossaryTerms: []ContextGlossaryTerm{
+						{Term: "CLIC", Expansion: "Client Integration Component"},
+					},
+				}
+			},
+			expectedProjects: []string{"CLIC"},
+			expectedOrgs:     []string(nil),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entityLookup := &mockEntityLookup{}
+			tt.setupEntityMock(entityLookup)
+			contextRepo := tt.setupContextRepo()
+
+			activities := NewContextBuilderActivities(
+				logger,
+				&mockEntityResolver{},
+				entityLookup,
+				contextRepo,
+				nil,
+				nil,
+			)
+
+			activities.reclassifyOrganisations(ctx, "test-tenant", tt.extraction)
+
+			// Check projects
+			if len(tt.extraction.Projects) != len(tt.expectedProjects) {
+				t.Errorf("Expected %d projects %v, got %d %v",
+					len(tt.expectedProjects), tt.expectedProjects,
+					len(tt.extraction.Projects), tt.extraction.Projects)
+			} else {
+				for i, expected := range tt.expectedProjects {
+					if tt.extraction.Projects[i] != expected {
+						t.Errorf("Project[%d]: expected %q, got %q", i, expected, tt.extraction.Projects[i])
+					}
+				}
+			}
+
+			// Check organisations
+			if len(tt.extraction.Organisations) != len(tt.expectedOrgs) {
+				t.Errorf("Expected %d orgs %v, got %d %v",
+					len(tt.expectedOrgs), tt.expectedOrgs,
+					len(tt.extraction.Organisations), tt.extraction.Organisations)
+			} else {
+				for i, expected := range tt.expectedOrgs {
+					if tt.extraction.Organisations[i] != expected {
+						t.Errorf("Org[%d]: expected %q, got %q", i, expected, tt.extraction.Organisations[i])
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestBuildContext_EnrichPeopleIntegration tests that enrichPeopleFromHeaders integrates
+// correctly into the full BuildContextPackage flow (pf-4d7830).
+func TestBuildContext_EnrichPeopleIntegration(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	// Mock: "Tim Dunn" exists in DB, NER extracted "Tim" (first name only)
+	entityLookup := &mockEntityLookup{
+		searchPeopleByNameFunc: func(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error) {
+			if name == "Tim Dunn" { // enriched name should be used for lookup
+				return []*entities.Person{
+					{
+						ID:            100,
+						CanonicalName: "Tim Dunn",
+						IsInternal:    true,
+						Department:    "Cloud Networking",
+					},
+				}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	entityResolver := &mockEntityResolver{
+		resolveOrCreateFunc: func(ctx context.Context, tenantID, email, displayName string) (*entities.ResolutionResult, error) {
+			return &entities.ResolutionResult{
+				Person: &entities.Person{
+					ID:            200,
+					CanonicalName: displayName,
+					PrimaryEmail:  email,
+					IsInternal:    true,
+				},
+				Confidence: 0.95,
+				Source:     "exact_match",
+			}, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(
+		logger,
+		entityResolver,
+		entityLookup,
+		&mockContextPackageRepo{},
+		nil,
+		nil,
+	)
+
+	input := workflows.BuildContextInput{
+		TenantID:    "test-tenant",
+		SourceID:    1,
+		ContentType: "email",
+		SenderEmail: "james@example.com",
+		SenderName:  "James Brown",
+		ParticipantEmails: []workflows.Participant{
+			{Email: "tim.dunn@example.com", DisplayName: "Tim Dunn", HeaderRole: "to"},
+		},
+		Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+			People: []workflows.PersonResult{
+				{Name: "Tim", Role: ""}, // first-name only from NER
+			},
+		},
+	}
+
+	output, err := activities.BuildContextPackage(ctx, input)
+	if err != nil {
+		t.Fatalf("BuildContextPackage failed: %v", err)
+	}
+
+	// "Tim" should have been enriched to "Tim Dunn" and resolved via fuzzy match
+	foundTimDunn := false
+	for _, rp := range output.ResolvedPeople {
+		if rp.Name == "Tim Dunn" && rp.Source == "fuzzy" {
+			foundTimDunn = true
+			break
+		}
+	}
+	if !foundTimDunn {
+		t.Errorf("Expected 'Tim Dunn' to be resolved via enrichment + fuzzy match; resolved people: %+v", output.ResolvedPeople)
+	}
+}
+
+func TestHeaderRoleLabel(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"to", "To"},
+		{"cc", "CC"},
+		{"To", "To"},
+		{"CC", "CC"},
+		{"", ""},
+		{"bcc", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := headerRoleLabel(tt.input)
+			if got != tt.want {
+				t.Errorf("headerRoleLabel(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
