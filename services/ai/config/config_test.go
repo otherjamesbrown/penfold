@@ -140,7 +140,7 @@ func TestModelForStage_FallbackToDefaultLLM(t *testing.T) {
 }
 
 // TestModelForStage_FallbackToHardcodedDefault tests final fallback.
-// Acceptance criteria: If no env vars set, LLM stages fall back to "gemini-2.0-flash",
+// Acceptance criteria: If no env vars set, LLM stages fall back to "gemini-2.5-flash",
 // embedding stage falls back to "mxbai-embed-large".
 func TestModelForStage_FallbackToHardcodedDefault(t *testing.T) {
 	tests := []struct {

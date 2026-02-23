@@ -73,7 +73,7 @@ const (
 	DefaultHTTPPort                 = 8090
 	DefaultGeminiDefaultModel       = "gemini-2.5-pro"
 	DefaultEmbeddingModel           = "mxbai-embed-large"
-	DefaultLLMModel                 = "gemini-2.0-flash"
+	DefaultLLMModel                 = "gemini-2.5-flash"
 	DefaultMLXEmbeddingsURL         = "http://localhost:11434"
 	DefaultMLXLLMURL                = "http://localhost:8080"
 	DefaultEmbeddingDimensions      = 1024
@@ -290,7 +290,7 @@ func (c *Config) HTTPAddr() string {
 // Resolution order for other stages:
 // 1. Stage-specific config (e.g., AI_MODEL_TRIAGE)
 // 2. Global default LLM model (AI_DEFAULT_LLM_MODEL)
-// 3. Hardcoded default (gemini-2.0-flash)
+// 3. Hardcoded default (gemini-2.5-flash)
 //
 // Stage names are case-insensitive.
 func (c *Config) ModelForStage(stage string) string {
