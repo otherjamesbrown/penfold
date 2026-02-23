@@ -1139,23 +1139,23 @@ func (s *Service) GetStageModels(ctx context.Context, req *aiv1.GetStageModelsRe
 	dbOverrides := make(map[string]string)
 	if s.db != nil {
 		rows, err := s.db.Query(ctx, `
-			SELECT key, value
+			SELECT config_key, model_name
 			FROM model_config
-			WHERE tenant_id = $1 AND key LIKE 'stage.%'
+			WHERE tenant_id = $1 AND config_key LIKE 'stage.%'
 		`, tenantID)
 		if err != nil {
 			s.logger.Warn("Failed to load model_config, using env/defaults", logging.Err(err))
 		} else {
 			defer rows.Close()
 			for rows.Next() {
-				var key, value string
-				if err := rows.Scan(&key, &value); err != nil {
+				var configKey, modelName string
+				if err := rows.Scan(&configKey, &modelName); err != nil {
 					continue
 				}
-				// key format: "stage.parse" -> "parse"
-				if len(key) > 6 {
-					stageName := key[6:]
-					dbOverrides[stageName] = value
+				// configKey format: "stage.parse" -> "parse"
+				if len(configKey) > 6 {
+					stageName := configKey[6:]
+					dbOverrides[stageName] = modelName
 				}
 			}
 		}
@@ -1241,10 +1241,10 @@ func (s *Service) SetStageModel(ctx context.Context, req *aiv1.SetStageModelRequ
 
 	configKey := "stage." + req.GetStageName()
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO model_config (tenant_id, key, value, created_at, updated_at)
-		VALUES ($1, $2, $3, NOW(), NOW())
-		ON CONFLICT (tenant_id, key)
-		DO UPDATE SET value = $3, updated_at = NOW()
+		INSERT INTO model_config (tenant_id, config_key, model_name, updated_at, updated_by)
+		VALUES ($1, $2, $3, NOW(), 'cli')
+		ON CONFLICT (tenant_id, config_key)
+		DO UPDATE SET model_name = EXCLUDED.model_name, updated_at = NOW(), updated_by = 'cli'
 	`, tenantID, configKey, req.GetModelName())
 	if err != nil {
 		s.logger.Error("Failed to set model config",
@@ -1304,7 +1304,7 @@ func (s *Service) ResetStageModel(ctx context.Context, req *aiv1.ResetStageModel
 	configKey := "stage." + req.GetStageName()
 	_, err := s.db.Exec(ctx, `
 		DELETE FROM model_config
-		WHERE tenant_id = $1 AND key = $2
+		WHERE tenant_id = $1 AND config_key = $2
 	`, tenantID, configKey)
 	if err != nil {
 		s.logger.Error("Failed to reset model config",
