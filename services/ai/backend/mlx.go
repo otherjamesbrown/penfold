@@ -137,7 +137,32 @@ type chatRequest struct {
 	Messages    []chatMessage `json:"messages"`
 	MaxTokens   int           `json:"max_tokens,omitempty"`
 	Temperature float32       `json:"temperature,omitempty"`
-	Think       *bool         `json:"think,omitempty"`
+}
+
+// ollamaChatRequest is the native Ollama /api/chat request format.
+// Used for models that need features not supported by the OpenAI-compatible endpoint
+// (e.g. qwen3 think:false).
+type ollamaChatRequest struct {
+	Model    string        `json:"model"`
+	Messages []chatMessage `json:"messages"`
+	Stream   bool          `json:"stream"`
+	Think    *bool         `json:"think,omitempty"`
+	Options  ollamaOptions `json:"options,omitempty"`
+}
+
+type ollamaOptions struct {
+	Temperature float32 `json:"temperature,omitempty"`
+	NumPredict  int     `json:"num_predict,omitempty"`
+}
+
+// ollamaChatResponse is the native Ollama /api/chat response format.
+type ollamaChatResponse struct {
+	Model           string      `json:"model"`
+	Message         chatMessage `json:"message"`
+	Done            bool        `json:"done"`
+	TotalDuration   int64       `json:"total_duration"`
+	EvalCount       int         `json:"eval_count"`
+	PromptEvalCount int         `json:"prompt_eval_count"`
 }
 
 type chatMessage struct {
@@ -377,6 +402,12 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 		model = b.defaultLLMModel
 	}
 
+	// qwen3 models require the native Ollama API to disable thinking mode.
+	// The OpenAI-compatible endpoint ignores think:false.
+	if strings.HasPrefix(strings.ToLower(model), "qwen3") {
+		return b.ollamaChatCompletion(ctx, messages, model, opts)
+	}
+
 	url := b.llmURL + "/v1/chat/completions"
 
 	// Convert messages
@@ -403,13 +434,6 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 		reqBody.Temperature = opts.Temperature
 	} else {
 		reqBody.Temperature = 0.1 // Low temperature for structured extraction
-	}
-
-	// Disable thinking mode for qwen3 models — thinking tokens add latency
-	// and interfere with structured JSON output.
-	if strings.HasPrefix(strings.ToLower(model), "qwen3") {
-		f := false
-		reqBody.Think = &f
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -502,6 +526,105 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 		InputTokens:  chatResp.Usage.PromptTokens,
 		OutputTokens: chatResp.Usage.CompletionTokens,
 		FinishReason: chatResp.Choices[0].FinishReason,
+	}, nil
+}
+
+// ollamaChatCompletion uses the native Ollama /api/chat endpoint.
+// Required for qwen3 models where think:false only works via the native API.
+func (b *MLXBackend) ollamaChatCompletion(ctx context.Context, messages []Message, model string, opts CompletionOptions) (*CompletionResult, error) {
+	apiURL := b.llmURL + "/api/chat"
+
+	chatMsgs := make([]chatMessage, len(messages))
+	for i, m := range messages {
+		chatMsgs[i] = chatMessage{Role: m.Role, Content: m.Content}
+	}
+
+	maxTokens := opts.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 2048
+	}
+
+	temp := opts.Temperature
+	if temp <= 0 {
+		temp = 0.1
+	}
+
+	thinkFalse := false
+	reqBody := ollamaChatRequest{
+		Model:    model,
+		Messages: chatMsgs,
+		Stream:   false,
+		Think:    &thinkFalse,
+		Options:  ollamaOptions{Temperature: temp, NumPredict: maxTokens},
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("%w: marshal request: %v", ErrRequestFailed, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("%w: create request: %v", ErrRequestFailed, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	start := time.Now()
+	resp, err := b.httpClient.Do(req)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, &perrors.PipelineError{
+				Code:     perrors.ErrTimeout,
+				Stage:    "ollama-llm",
+				Message:  fmt.Sprintf("Ollama request timed out after %s", elapsed.Round(time.Millisecond)),
+				Duration: elapsed,
+				Cause:    err,
+			}
+		}
+		if ctx.Err() == context.Canceled {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrContextCancelled,
+				Stage:   "ollama-llm",
+				Message: "context cancelled",
+				Cause:   err,
+			}
+		}
+		errMsg := err.Error()
+		if strings.Contains(strings.ToLower(errMsg), "connection refused") ||
+			strings.Contains(strings.ToLower(errMsg), "no such host") {
+			return nil, &perrors.PipelineError{
+				Code:    perrors.ErrModelUnavailable,
+				Stage:   "ollama-llm",
+				Message: errMsg,
+				Cause:   err,
+			}
+		}
+		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%w: read response: %v", ErrRequestFailed, err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%w: HTTP %d: %s", ErrRequestFailed, resp.StatusCode, string(body))
+	}
+
+	var ollamaResp ollamaChatResponse
+	if err := json.Unmarshal(body, &ollamaResp); err != nil {
+		return nil, fmt.Errorf("%w: parse response: %v", ErrInvalidResponse, err)
+	}
+
+	return &CompletionResult{
+		Content:      ollamaResp.Message.Content,
+		Model:        ollamaResp.Model,
+		InputTokens:  ollamaResp.PromptEvalCount,
+		OutputTokens: ollamaResp.EvalCount,
+		FinishReason: "stop",
 	}, nil
 }
 
