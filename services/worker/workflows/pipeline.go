@@ -699,10 +699,22 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	embeddingOpts = pkgtemporal.WithNonRetryableErrors(embeddingOpts, pkgtemporal.NonRetryableErrors()...)
 	llmOpts = pkgtemporal.WithNonRetryableErrors(llmOpts, pkgtemporal.NonRetryableErrors()...)
 
+	// stageConfigMap is populated after FetchPipelineDefinition completes.
+	// It's declared here so the stageOpts closure can capture it.
+	var stageConfigMap map[string]PipelineStageConfig
+
 	// Per-stage timeout helper: returns activity options using per-stage config if available,
 	// falling back to the provided category defaults.
 	stageOpts := func(stage string, fallback workflow.ActivityOptions) workflow.ActivityOptions {
 		opts := fallback
+		// Priority 1: pipeline_definitions timeout_seconds (via stageConfigMap)
+		if stageConfigMap != nil {
+			if cfg, ok := stageConfigMap[stage]; ok && cfg.TimeoutSeconds > 0 {
+				opts.StartToCloseTimeout = time.Duration(cfg.TimeoutSeconds) * time.Second
+				opts.HeartbeatTimeout = time.Duration(cfg.TimeoutSeconds/2) * time.Second
+			}
+		}
+		// Priority 2: per-workflow input overrides (highest priority)
 		if stc, ok := input.StageTimeouts[stage]; ok && stc > 0 {
 			opts.StartToCloseTimeout = stc
 		}
@@ -1241,7 +1253,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Build stage config lookup from pipeline definition (or nil for fallback).
 	// This is consulted by the stage sections below to check enabled/skip_when_low/optional.
-	stageConfigMap := buildStageConfigMap(pipelineDef)
+	// stageConfigMap was declared before stageOpts so the closure captures it by reference.
+	stageConfigMap = buildStageConfigMap(pipelineDef)
 
 	// ==================== Stage 1.5: Summarize (non-blocking) ====================
 	// Generate a concise summary for the content. Failure does NOT block the pipeline.
