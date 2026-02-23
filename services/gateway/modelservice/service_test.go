@@ -225,11 +225,14 @@ func TestGetStageModels_NilDB(t *testing.T) {
 	require.NoError(t, err, "GetStageModels should succeed even when DB is nil")
 	require.NotNil(t, resp)
 
-	// Should return all 5 stages
-	require.Len(t, resp.Stages, 5, "should return 5 pipeline stages")
+	// Should return all 7 LLM/embedding stages (parse, parse_transcript, persist omitted)
+	require.Len(t, resp.Stages, 7, "should return 7 LLM/embedding pipeline stages")
 
-	// Verify stage names (in order: parse, triage, extract, context, analyze)
-	expectedStages := []string{"parse", "triage", "extract", "context", "analyze"}
+	// Verify stage names (in order: triage, extract_ner, extract_assertions, extract_semantic, resolve, analyze, embed)
+	expectedStages := []string{
+		"triage", "extract_ner", "extract_assertions", "extract_semantic",
+		"resolve", "analyze", "embed",
+	}
 	for i, expectedStage := range expectedStages {
 		assert.Equal(t, expectedStage, resp.Stages[i].StageName, "stage %d should be %s", i, expectedStage)
 		assert.NotEmpty(t, resp.Stages[i].ModelName, "stage %s should have a model name", expectedStage)

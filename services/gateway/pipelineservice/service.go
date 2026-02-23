@@ -1199,6 +1199,36 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 		return nil, status.Error(codes.Unavailable, "database not available")
 	}
 
+	// Route model.stage.* keys to model_config table instead of pipeline_config.
+	// The CLI sends key="model.stage.<stage>" when setting a stage model via
+	// `penf pipeline stage set <stage> --model <model>`. Migration 076 removed
+	// these rows from pipeline_config, so they must be written to model_config.
+	if strings.HasPrefix(req.Key, "model.stage.") {
+		stageName := strings.TrimPrefix(req.Key, "model.stage.")
+		// Use the single known tenant ID.
+		const defaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
+
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO model_config (tenant_id, config_key, model_name, updated_at, updated_by)
+			VALUES ($1, $2, $3, NOW(), $4)
+			ON CONFLICT (tenant_id, config_key)
+			DO UPDATE SET model_name = EXCLUDED.model_name, updated_at = NOW(), updated_by = EXCLUDED.updated_by
+		`, defaultTenantID, "stage."+stageName, req.Value, req.UpdatedBy)
+		if err != nil {
+			s.logger.Error("Error writing model config", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to update model config: %v", err)
+		}
+
+		return &pipelinev1.UpdateTimeoutConfigResponse{
+			Entry: &pipelinev1.TimeoutEntry{
+				Key:       req.Key,
+				Value:     req.Value,
+				UpdatedBy: req.UpdatedBy,
+			},
+			Message: fmt.Sprintf("Updated model for stage %s to %s", stageName, req.Value),
+		}, nil
+	}
+
 	// Get current entry to check value_type and min/max bounds
 	var entry pipelinev1.TimeoutEntry
 	var previousValue string

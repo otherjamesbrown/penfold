@@ -1097,34 +1097,46 @@ func extractJSON(text string) string {
 // CLI Model Management RPCs (Gateway-only)
 // =============================================================================
 
-// validStages defines the 5 pipeline stages.
+// validStages defines all real pipeline stages from pipeline_definitions.
 var validStages = map[string]bool{
-	"parse":   true,
-	"triage":  true,
-	"extract": true,
-	"context": true,
-	"analyze": true,
+	"parse":               true,
+	"parse_transcript":    true,
+	"triage":              true,
+	"extract_ner":         true,
+	"extract_assertions":  true,
+	"extract_semantic":    true,
+	"resolve":             true,
+	"analyze":             true,
+	"embed":               true,
+	"persist":             true,
 }
 
 // stageEnvVars maps stage names to their environment variable names.
+// Stages without dedicated env vars (parse, parse_transcript, extract_semantic, resolve, persist)
+// fall through to the global default.
 var stageEnvVars = map[string]string{
-	"parse":   "AI_MODEL_PARSE",
-	"triage":  "AI_MODEL_TRIAGE",
-	"extract": "AI_MODEL_EXTRACT",
-	"context": "AI_MODEL_CONTEXT",
-	"analyze": "AI_MODEL_ANALYZE",
+	"triage":              "AI_MODEL_TRIAGE",
+	"extract_ner":         "AI_MODEL_EXTRACT_ENTITIES",
+	"extract_assertions":  "AI_MODEL_EXTRACT_ASSERTIONS",
+	"analyze":             "AI_MODEL_DEEP_ANALYZE",
+	"embed":               "AI_MODEL_EMBEDDING",
 }
 
 // stageDefaults maps stage names to their default model names.
 var stageDefaults = map[string]string{
-	"parse":   "llama3.2",
-	"triage":  "llama3.2",
-	"extract": "llama3.2",
-	"context": "llama3.2",
-	"analyze": "gemini-2.0-flash-exp",
+	"parse":               "qwen2.5:7b",
+	"parse_transcript":    "qwen2.5:7b",
+	"triage":              "qwen2.5:7b",
+	"extract_ner":         "qwen2.5:7b",
+	"extract_assertions":  "qwen2.5:7b",
+	"extract_semantic":    "qwen2.5:7b",
+	"resolve":             "qwen2.5:7b",
+	"analyze":             "gemini-2.5-pro",
+	"embed":               "mxbai-embed-large",
+	"persist":             "qwen2.5:7b",
 }
 
-// GetStageModels returns model configuration for all 5 pipeline stages.
+// GetStageModels returns model configuration for all LLM and embedding pipeline stages.
 func (s *Service) GetStageModels(ctx context.Context, req *aiv1.GetStageModelsRequest) (*aiv1.GetStageModelsResponse, error) {
 	s.logger.Debug("GetStageModels called",
 		logging.F("tenant_id", req.GetTenantId()),
@@ -1161,8 +1173,12 @@ func (s *Service) GetStageModels(ctx context.Context, req *aiv1.GetStageModelsRe
 		}
 	}
 
-	// Build response for all 5 stages
-	stages := []string{"parse", "triage", "extract", "context", "analyze"}
+	// Build response for LLM and embedding stages that use model config.
+	// Internal stages (parse, parse_transcript, persist) are omitted.
+	stages := []string{
+		"triage", "extract_ner", "extract_assertions", "extract_semantic",
+		"resolve", "analyze", "embed",
+	}
 	var stageInfos []*aiv1.StageModelInfo
 
 	for _, stageName := range stages {
@@ -1221,7 +1237,7 @@ func (s *Service) SetStageModel(ctx context.Context, req *aiv1.SetStageModelRequ
 		return nil, status.Error(codes.InvalidArgument, "stage_name is required")
 	}
 	if !validStages[req.GetStageName()] {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, triage, extract, context, analyze)", req.GetStageName())
+		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, parse_transcript, triage, extract_ner, extract_assertions, extract_semantic, resolve, analyze, embed, persist)", req.GetStageName())
 	}
 
 	// Validate model name
@@ -1288,7 +1304,7 @@ func (s *Service) ResetStageModel(ctx context.Context, req *aiv1.ResetStageModel
 		return nil, status.Error(codes.InvalidArgument, "stage_name is required")
 	}
 	if !validStages[req.GetStageName()] {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, triage, extract, context, analyze)", req.GetStageName())
+		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, parse_transcript, triage, extract_ner, extract_assertions, extract_semantic, resolve, analyze, embed, persist)", req.GetStageName())
 	}
 
 	tenantID := req.GetTenantId()
@@ -1413,7 +1429,7 @@ func (s *Service) TestModel(ctx context.Context, req *aiv1.TestModelRequest) (*a
 		return nil, status.Error(codes.InvalidArgument, "stage_name is required")
 	}
 	if !validStages[req.GetStageName()] {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, triage, extract, context, analyze)", req.GetStageName())
+		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, parse_transcript, triage, extract_ner, extract_assertions, extract_semantic, resolve, analyze, embed, persist)", req.GetStageName())
 	}
 	if req.GetModelName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "model_name is required")
