@@ -61,9 +61,9 @@ func TestSplitStageKey(t *testing.T) {
 			expected: "triage",
 		},
 		{
-			name:     "deep_analyze stage",
-			key:      "timeout.stage.deep_analyze.start_to_close",
-			expected: "deep_analyze",
+			name:     "analyze stage",
+			key:      "timeout.stage.analyze.start_to_close",
+			expected: "analyze",
 		},
 		{
 			name:     "empty key",

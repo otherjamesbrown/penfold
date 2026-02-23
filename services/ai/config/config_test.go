@@ -30,8 +30,8 @@ func TestModelForStage_ExplicitStageConfig(t *testing.T) {
 			wantModel: "gemini-2.0-flash-thinking",
 		},
 		{
-			name:  "extract_entities stage uses AI_MODEL_EXTRACT_ENTITIES",
-			stage: "extract_entities",
+			name:  "extract_ner stage uses AI_MODEL_EXTRACT_ENTITIES",
+			stage: "extract_ner",
 			envVars: map[string]string{
 				"AI_MODEL_EXTRACT_ENTITIES": "qwen2.5:7b",
 			},
@@ -46,16 +46,16 @@ func TestModelForStage_ExplicitStageConfig(t *testing.T) {
 			wantModel: "llama3.2",
 		},
 		{
-			name:  "deep_analyze stage uses AI_MODEL_DEEP_ANALYZE",
-			stage: "deep_analyze",
+			name:  "analyze stage uses AI_MODEL_DEEP_ANALYZE",
+			stage: "analyze",
 			envVars: map[string]string{
 				"AI_MODEL_DEEP_ANALYZE": "gemini-2.5-pro",
 			},
 			wantModel: "gemini-2.5-pro",
 		},
 		{
-			name:  "embedding stage uses AI_MODEL_EMBEDDING",
-			stage: "embedding",
+			name:  "embed stage uses AI_MODEL_EMBEDDING",
+			stage: "embed",
 			envVars: map[string]string{
 				"AI_MODEL_EMBEDDING": "mxbai-embed-large-v1",
 			},
@@ -98,24 +98,24 @@ func TestModelForStage_FallbackToDefaultLLM(t *testing.T) {
 			wantModel: "gemini-2.0-flash",
 		},
 		{
-			name:  "extract_entities falls back to default LLM",
-			stage: "extract_entities",
+			name:  "extract_ner falls back to default LLM",
+			stage: "extract_ner",
 			envVars: map[string]string{
 				"AI_DEFAULT_LLM_MODEL": "custom-default-model",
 			},
 			wantModel: "custom-default-model",
 		},
 		{
-			name:  "deep_analyze falls back to default LLM",
-			stage: "deep_analyze",
+			name:  "analyze falls back to default LLM",
+			stage: "analyze",
 			envVars: map[string]string{
 				"AI_DEFAULT_LLM_MODEL": "gemini-2.5-pro",
 			},
 			wantModel: "gemini-2.5-pro",
 		},
 		{
-			name:  "embedding falls back to default embedding model",
-			stage: "embedding",
+			name:  "embed falls back to default embedding model",
+			stage: "embed",
 			envVars: map[string]string{
 				"AI_DEFAULT_EMBEDDING_MODEL": "custom-embedding-model",
 			},
@@ -148,10 +148,10 @@ func TestModelForStage_FallbackToHardcodedDefault(t *testing.T) {
 		expected string
 	}{
 		{"triage", DefaultLLMModel},
-		{"extract_entities", DefaultLLMModel},
+		{"extract_ner", DefaultLLMModel},
 		{"extract_assertions", DefaultLLMModel},
-		{"deep_analyze", DefaultLLMModel},
-		{"embedding", DefaultEmbeddingModel},
+		{"analyze", DefaultLLMModel},
+		{"embed", DefaultEmbeddingModel},
 	}
 
 	for _, tt := range tests {
@@ -218,8 +218,8 @@ func TestModelForStage_EmbeddingFallbackToEmbeddingModel(t *testing.T) {
 			cfg, err := Load()
 			require.NoError(t, err)
 
-			got := cfg.ModelForStage("embedding")
-			assert.Equal(t, tt.wantModel, got, "ModelForStage(\"embedding\") should fall back to embedding model defaults")
+			got := cfg.ModelForStage("embed")
+			assert.Equal(t, tt.wantModel, got, "ModelForStage(\"embed\") should fall back to embedding model defaults")
 		})
 	}
 }
@@ -394,10 +394,10 @@ func TestLoad_StageModelsPopulated(t *testing.T) {
 	// Verify StageModels map has all entries
 	expectedStages := map[string]string{
 		"triage":              "triage-model",
-		"extract_entities":    "entity-model",
+		"extract_ner":         "entity-model",
 		"extract_assertions":  "assertion-model",
-		"deep_analyze":        "analyze-model",
-		"embedding":           "embed-model",
+		"analyze":             "analyze-model",
+		"embed":               "embed-model",
 	}
 
 	for stage, expectedModel := range expectedStages {
@@ -419,12 +419,12 @@ func TestLoad_PartialStageModelsConfig(t *testing.T) {
 
 	// Explicit configs should use their values
 	assert.Equal(t, "custom-triage", cfg.ModelForStage("triage"))
-	assert.Equal(t, "custom-analyze", cfg.ModelForStage("deep_analyze"))
+	assert.Equal(t, "custom-analyze", cfg.ModelForStage("analyze"))
 
 	// Non-configured LLM stages should fall back to default LLM model
-	assert.Equal(t, "default-model", cfg.ModelForStage("extract_entities"))
+	assert.Equal(t, "default-model", cfg.ModelForStage("extract_ner"))
 	assert.Equal(t, "default-model", cfg.ModelForStage("extract_assertions"))
 
-	// Non-configured embedding stage should fall back to default embedding model, NOT LLM model
-	assert.Equal(t, "default-embedding", cfg.ModelForStage("embedding"))
+	// Non-configured embed stage should fall back to default embedding model, NOT LLM model
+	assert.Equal(t, "default-embedding", cfg.ModelForStage("embed"))
 }

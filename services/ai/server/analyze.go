@@ -291,7 +291,7 @@ func buildPreliminarySection(req *aiv1.DeepAnalyzeRequest) string {
 // - PROJECT_UPDATE + MEDIUM → balanced (Flash)
 // - ACTION_REQUEST + MEDIUM → balanced (Flash)
 // - Anything + LOW → cost optimization (Flash)
-// - Default (no triage) → config stage default for deep_analyze
+// - Default (no triage) → config stage default for analyze
 func selectModelForDeepAnalysis(category, importance, requestedModel, configDefault string) string {
 	// If model explicitly requested, use it
 	if requestedModel != "" {
@@ -390,7 +390,7 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 	content := strings.TrimSpace(req.GetContent())
 
 	// Select model based on triage metadata, with config default fallback
-	configDefault := s.resolveModel(ctx, "deep_analyze")
+	configDefault := s.resolveModel(ctx, "analyze")
 	selectedModel := selectModelForDeepAnalysis(
 		req.GetTriageCategory(),
 		req.GetTriageImportance(),

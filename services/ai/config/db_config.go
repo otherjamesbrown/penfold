@@ -109,10 +109,10 @@ func (r *DBConfigResolver) ModelForStage(ctx context.Context, stage string) (str
 		return model, nil
 	}
 
-	// Level 3: Check DB default (default.llm for LLM stages, default.embedding for embedding stage)
+	// Level 3: Check DB default (default.llm for LLM stages, default.embedding for embed stage)
 	if r.db != nil {
 		defaultKey := "default.llm"
-		if stage == "embedding" {
+		if stage == "embed" {
 			defaultKey = "default.embedding"
 		}
 		if model := r.getCachedOrFetch(ctx, defaultKey); model != "" {
@@ -121,7 +121,7 @@ func (r *DBConfigResolver) ModelForStage(ctx context.Context, stage string) (str
 	}
 
 	// Level 4: Check global env var default
-	if stage == "embedding" {
+	if stage == "embed" {
 		if r.baseCfg.DefaultEmbeddingModel != "" {
 			return r.baseCfg.DefaultEmbeddingModel, nil
 		}
@@ -132,7 +132,7 @@ func (r *DBConfigResolver) ModelForStage(ctx context.Context, stage string) (str
 	}
 
 	// Level 5: Hardcoded fallback
-	if stage == "embedding" {
+	if stage == "embed" {
 		return DefaultEmbeddingModel, nil
 	}
 	return DefaultLLMModel, nil

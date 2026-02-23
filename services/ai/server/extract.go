@@ -202,7 +202,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 	// Resolve model: explicit request → DB config → stage env var → global default → hardcoded fallback
 	if model == "" {
-		model = s.resolveModel(ctx, "extract_entities")
+		model = s.resolveModel(ctx, "extract_ner")
 	}
 
 	// Start tracing span for the entity extraction.

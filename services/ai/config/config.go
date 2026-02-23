@@ -43,7 +43,7 @@ type Config struct {
 	OllamaURL string
 
 	// StageModels maps pipeline stage names to their configured models.
-	// Keys: triage, extract_entities, extract_assertions, deep_analyze, embedding
+	// Keys: triage, extract_ner, extract_assertions, analyze, embed
 	StageModels map[string]string
 
 	// EmbeddingDimensions is the expected dimension of embedding vectors.
@@ -161,16 +161,16 @@ func Load() (*Config, error) {
 		cfg.StageModels["triage"] = v
 	}
 	if v := os.Getenv("AI_MODEL_EXTRACT_ENTITIES"); v != "" {
-		cfg.StageModels["extract_entities"] = v
+		cfg.StageModels["extract_ner"] = v
 	}
 	if v := os.Getenv("AI_MODEL_EXTRACT_ASSERTIONS"); v != "" {
 		cfg.StageModels["extract_assertions"] = v
 	}
 	if v := os.Getenv("AI_MODEL_DEEP_ANALYZE"); v != "" {
-		cfg.StageModels["deep_analyze"] = v
+		cfg.StageModels["analyze"] = v
 	}
 	if v := os.Getenv("AI_MODEL_EMBEDDING"); v != "" {
-		cfg.StageModels["embedding"] = v
+		cfg.StageModels["embed"] = v
 	}
 
 	if v := os.Getenv("AI_EMBEDDING_DIMENSIONS"); v != "" {
@@ -295,8 +295,8 @@ func (c *Config) ModelForStage(stage string) string {
 		return model
 	}
 
-	// For embedding stage, fall back to embedding model defaults
-	if stage == "embedding" {
+	// For embed stage, fall back to embedding model defaults
+	if stage == "embed" {
 		if c.DefaultEmbeddingModel != "" {
 			return c.DefaultEmbeddingModel
 		}

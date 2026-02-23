@@ -47,7 +47,7 @@ func TestModelManagement_ListModels(t *testing.T) {
 		assert.NotEmpty(t, s.Backend, "stage %s should have a backend", s.Stage)
 	}
 
-	expectedStages := []string{"triage", "extract_entities", "extract_assertions", "deep_analyze", "embedding"}
+	expectedStages := []string{"triage", "extract_ner", "extract_assertions", "analyze", "embed"}
 	for _, stage := range expectedStages {
 		assert.True(t, stageNames[stage], "stage %s should be in model list", stage)
 	}

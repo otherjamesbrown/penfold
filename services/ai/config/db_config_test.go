@@ -169,11 +169,11 @@ func TestDBConfigResolver_EmbeddingUsesDBDefaultEmbedding(t *testing.T) {
 	resolver := NewDBConfigResolver(mockDB, baseCfg, tenantID)
 
 	ctx := context.Background()
-	got, err := resolver.ModelForStage(ctx, "embedding")
+	got, err := resolver.ModelForStage(ctx, "embed")
 	require.NoError(t, err)
 
-	// Embedding stage should use default.embedding, NOT default.llm
-	assert.Equal(t, "db-embed-model", got, "Embedding stage should use default.embedding from DB")
+	// Embed stage should use default.embedding, NOT default.llm
+	assert.Equal(t, "db-embed-model", got, "Embed stage should use default.embedding from DB")
 }
 
 // TestDBConfigResolver_FallbackChain tests the full 5-level priority chain.
@@ -250,8 +250,8 @@ func TestDBConfigResolver_FallbackChain(t *testing.T) {
 			description: "Hardcoded fallback used when nothing else is configured",
 		},
 		{
-			name:  "embedding stage: uses default.embedding not default.llm",
-			stage: "embedding",
+			name:  "embed stage: uses default.embedding not default.llm",
+			stage: "embed",
 			dbConfigs: map[string]string{
 				"default.embedding": "db-embed",
 				"default.llm":       "db-llm",
@@ -380,18 +380,18 @@ func TestDBConfigResolver_DBErrorFallsBackToEnv(t *testing.T) {
 
 // TestDBConfigResolver_AllStages tests resolution for all pipeline stages.
 // Acceptance criteria:
-// - All pipeline stages (triage, extract_entities, extract_assertions, deep_analyze, embedding)
+// - All pipeline stages (triage, extract_ner, extract_assertions, analyze, embed)
 // - Each can have DB overrides
 // - LLM stages fall back to default.llm
-// - Embedding stage falls back to default.embedding
+// - Embed stage falls back to default.embedding
 func TestDBConfigResolver_AllStages(t *testing.T) {
 	mockDB := &mockModelConfigQuerier{
 		configs: map[string]string{
 			"stage.triage":              "db-triage",
-			"stage.extract_entities":    "db-entities",
+			"stage.extract_ner":         "db-entities",
 			"stage.extract_assertions":  "db-assertions",
-			"stage.deep_analyze":        "db-analyze",
-			"stage.embedding":           "db-embedding",
+			"stage.analyze":             "db-analyze",
+			"stage.embed":               "db-embedding",
 		},
 	}
 
@@ -408,10 +408,10 @@ func TestDBConfigResolver_AllStages(t *testing.T) {
 		expected string
 	}{
 		{"triage", "db-triage"},
-		{"extract_entities", "db-entities"},
+		{"extract_ner", "db-entities"},
 		{"extract_assertions", "db-assertions"},
-		{"deep_analyze", "db-analyze"},
-		{"embedding", "db-embedding"},
+		{"analyze", "db-analyze"},
+		{"embed", "db-embedding"},
 	}
 
 	for _, stage := range stages {

@@ -104,7 +104,7 @@ func TestListModels_EmbeddingModelHasEmbeddingStage(t *testing.T) {
 
 	embed := byName["mxbai-embed-large"]
 	require.NotNil(t, embed)
-	assert.Contains(t, embed.Stages, "embedding", "mxbai-embed-large should be assigned to embedding stage")
+	assert.Contains(t, embed.Stages, "embed", "mxbai-embed-large should be assigned to embed stage")
 }
 
 // TestListModels_DefaultLLMHasLLMStages verifies the default LLM model is
@@ -123,7 +123,7 @@ func TestListModels_DefaultLLMHasLLMStages(t *testing.T) {
 
 	llm := byName["qwen2.5:7b"]
 	require.NotNil(t, llm)
-	for _, stage := range []string{"triage", "extract_entities", "extract_assertions", "deep_analyze"} {
+	for _, stage := range []string{"triage", "extract_ner", "extract_assertions", "analyze"} {
 		assert.Contains(t, llm.Stages, stage, "qwen2.5:7b should be assigned to stage %q", stage)
 	}
 }
@@ -135,7 +135,7 @@ func TestListModels_ResponseStructure(t *testing.T) {
 			{
 				Name:      "qwen2.5:7b",
 				Backend:   "ollama",
-				Stages:    []string{"triage", "extract_entities"},
+				Stages:    []string{"triage", "extract_ner"},
 				IsDefault: true,
 				Status:    "available",
 			},
@@ -152,7 +152,7 @@ func TestListModels_ResponseStructure(t *testing.T) {
 	assert.Len(t, resp.Models, 2)
 	assert.Equal(t, "qwen2.5:7b", resp.Models[0].Name)
 	assert.Equal(t, "ollama", resp.Models[0].Backend)
-	assert.Equal(t, []string{"triage", "extract_entities"}, resp.Models[0].Stages)
+	assert.Equal(t, []string{"triage", "extract_ner"}, resp.Models[0].Stages)
 	assert.True(t, resp.Models[0].IsDefault)
 	assert.Equal(t, "available", resp.Models[0].Status)
 

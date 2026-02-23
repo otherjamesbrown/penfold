@@ -100,10 +100,10 @@ func TestGetStageConfig_DefaultTimeouts(t *testing.T) {
 		expectedHeartbeat string
 	}{
 		{"triage", "120s", "30s"},
-		{"extract_entities", "120s", "30s"},
+		{"extract_ner", "120s", "30s"},
 		{"extract_assertions", "120s", "30s"},
-		{"embedding", "120s", "30s"},
-		{"deep_analyze", "600s", "300s"},
+		{"embed", "120s", "30s"},
+		{"analyze", "600s", "300s"},
 	}
 
 	for _, tc := range testCases {

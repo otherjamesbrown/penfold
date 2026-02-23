@@ -216,7 +216,7 @@ func TestExtractEntities_ModelResolution(t *testing.T) {
 			if tt.requestModel != nil {
 				assert.Equal(t, *tt.requestModel, capturedModel, "Backend should receive explicit request model")
 			} else {
-				// Should receive model from config.ModelForStage("extract_entities")
+				// Should receive model from config.ModelForStage("extract_ner")
 				assert.NotEmpty(t, capturedModel, "Backend should receive model from config")
 			}
 		})
@@ -250,7 +250,7 @@ func TestExtractAssertions_ModelResolution(t *testing.T) {
 }
 
 // TestGenerateEmbedding_ModelResolution tests model resolution in GenerateEmbedding handler.
-// Acceptance criteria: Embedding handler uses config.ModelForStage("embedding").
+// Acceptance criteria: Embedding handler uses config.ModelForStage("embed").
 func TestGenerateEmbedding_ModelResolution(t *testing.T) {
 	var capturedModel string
 	be := &mockBackend{
@@ -297,7 +297,7 @@ func TestGenerateEmbedding_ModelResolution(t *testing.T) {
 			if tt.requestModel != nil {
 				assert.Equal(t, *tt.requestModel, capturedModel, "Backend should receive explicit request model")
 			} else {
-				// Should receive model from config.ModelForStage("embedding")
+				// Should receive model from config.ModelForStage("embed")
 				assert.NotEmpty(t, capturedModel, "Backend should receive model from config")
 			}
 		})
@@ -351,7 +351,7 @@ func TestDeepAnalyze_ModelResolutionWithTriageMetadata(t *testing.T) {
 			triageCategory:   "",
 			triageImportance: "",
 			requestModel:     nil,
-			expectedModel:    "", // Should fall back to config.ModelForStage("deep_analyze")
+			expectedModel:    "", // Should fall back to config.ModelForStage("analyze")
 		},
 	}
 
@@ -385,7 +385,7 @@ func TestDeepAnalyze_ModelResolutionWithTriageMetadata(t *testing.T) {
 			if tt.expectedModel != "" {
 				assert.Equal(t, tt.expectedModel, capturedModel, "Backend should receive expected model")
 			} else {
-				// Should have received config.ModelForStage("deep_analyze")
+				// Should have received config.ModelForStage("analyze")
 				assert.NotEmpty(t, capturedModel, "Backend should receive model from config when no triage metadata")
 			}
 		})

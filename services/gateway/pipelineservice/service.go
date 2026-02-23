@@ -1826,7 +1826,7 @@ func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageCo
 	}
 
 	// Known pipeline stages
-	stages := []string{"triage", "extract_entities", "extract_assertions", "deep_analyze", "embedding"}
+	stages := []string{"triage", "extract_ner", "extract_assertions", "analyze", "embed"}
 	if req.Stage != "" {
 		stages = []string{req.Stage}
 	}
@@ -1956,7 +1956,7 @@ func (s *Service) ListModels(ctx context.Context, req *pipelinev1.ListModelsRequ
 	s.logger.Debug("ListModels called")
 
 	// knownStages lists the pipeline stages that use LLM models.
-	knownStages := []string{"triage", "extract_entities", "extract_assertions", "deep_analyze", "embedding"}
+	knownStages := []string{"triage", "extract_ner", "extract_assertions", "analyze", "embed"}
 
 	// knownModels is the set of models we always include even if they have no
 	// DB config rows.  Maps model name → backend.
@@ -2013,23 +2013,23 @@ func (s *Service) ListModels(ctx context.Context, req *pipelinev1.ListModelsRequ
 	if globalDefault == "" && len(modelStages) == 0 {
 		// Pure-default deployment: qwen2.5:7b handles all LLM stages.
 		for _, stage := range knownStages {
-			if stage != "embedding" {
+			if stage != "embed" {
 				modelStages["qwen2.5:7b"] = append(modelStages["qwen2.5:7b"], stage)
 			}
 		}
 	} else if globalDefault != "" && len(modelStages) == 0 {
 		// Global default set but no per-stage overrides.
 		for _, stage := range knownStages {
-			if stage != "embedding" {
+			if stage != "embed" {
 				modelStages[globalDefault] = append(modelStages[globalDefault], stage)
 			}
 		}
 	}
 
-	// Embedding model (mxbai-embed-large) is always assigned to the embedding stage.
+	// Embedding model (mxbai-embed-large) is always assigned to the embed stage.
 	// If the DB has no entry for it, ensure it still appears.
 	if _, ok := modelStages["mxbai-embed-large"]; !ok {
-		modelStages["mxbai-embed-large"] = []string{"embedding"}
+		modelStages["mxbai-embed-large"] = []string{"embed"}
 	}
 
 	// Build the unified model set: start with known models, add any DB models.
@@ -2107,14 +2107,14 @@ func sortModelInfos(models []*pipelinev1.ModelInfo) {
 }
 
 func stageDefaultTimeout(stage string) string {
-	if stage == "deep_analyze" {
+	if stage == "analyze" {
 		return "600s"
 	}
 	return "120s"
 }
 
 func stageDefaultHeartbeat(stage string) string {
-	if stage == "deep_analyze" {
+	if stage == "analyze" {
 		return "300s"
 	}
 	return "30s"

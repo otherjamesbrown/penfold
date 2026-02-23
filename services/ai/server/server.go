@@ -183,7 +183,7 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 
 	// Resolve model: explicit request → DB config → stage env var → global default → hardcoded fallback
 	if model == "" {
-		model = s.resolveModel(ctx, "embedding")
+		model = s.resolveModel(ctx, "embed")
 	}
 
 	// Start tracing span for the embedding generation.
