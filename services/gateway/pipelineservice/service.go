@@ -185,9 +185,6 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 		return nil, status.Errorf(codes.Internal, "failed to get pending sources: %v", err)
 	}
 
-	// Resolve per-stage timeouts once for all workflows in this batch
-	stageTimeouts, stageHeartbeats := s.resolveStageTimeouts(ctx)
-
 	// Start a workflow for each pending source
 	var startedCount int
 	for _, src := range sources {
@@ -199,8 +196,6 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 			ContentID:       src.ContentID,
 			ContentHash:     src.ContentHash,
 			JobID:           workflowID, // Use workflow ID as job ID for tracing
-			StageTimeouts:   stageTimeouts,
-			StageHeartbeats: stageHeartbeats,
 		}
 		opts := client.StartWorkflowOptions{
 			ID:        workflowID,
@@ -2076,47 +2071,6 @@ func stageDefaultHeartbeat(stage string) string {
 		return "300s"
 	}
 	return "30s"
-}
-
-// resolveStageTimeouts reads per-stage timeout values from pipeline_definitions.
-// Returns maps of stage->duration for start_to_close and heartbeat.
-// Returns nil maps (not error) if DB is unavailable — workflow falls back to defaults.
-func (s *Service) resolveStageTimeouts(ctx context.Context) (map[string]time.Duration, map[string]time.Duration) {
-	if s.db == nil {
-		return nil, nil
-	}
-
-	tenantID := s.defaultTenantID(ctx)
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT stage, timeout_seconds
-		FROM pipeline_definitions
-		WHERE tenant_id = $1 AND pipeline = 'standard' AND timeout_seconds > 0
-	`, tenantID)
-	if err != nil {
-		s.logger.Debug("Could not resolve stage timeouts from pipeline_definitions", logging.Err(err))
-		return nil, nil
-	}
-	defer rows.Close()
-
-	timeouts := make(map[string]time.Duration)
-	heartbeats := make(map[string]time.Duration)
-	hasOverride := false
-
-	for rows.Next() {
-		var stage string
-		var timeoutSecs int
-		if err := rows.Scan(&stage, &timeoutSecs); err != nil {
-			continue
-		}
-		hasOverride = true
-		timeouts[stage] = time.Duration(timeoutSecs) * time.Second
-		heartbeats[stage] = time.Duration(timeoutSecs/2) * time.Second
-	}
-
-	if !hasOverride {
-		return nil, nil
-	}
-	return timeouts, heartbeats
 }
 
 // countPendingSources counts sources with processing_status = 'pending'.

@@ -60,8 +60,6 @@ import (
 //   2. SELECT COUNT(*) FROM sources WHERE processing_status = 'processing'
 //
 // This driver answers those two queries with controlled values.
-// resolveStageTimeouts queries (timeout.stage.*) are answered with empty
-// result sets so the service doesn't panic.
 // ---------------------------------------------------------------------------
 
 const concurrencyMockDriverName = "concurrency-mock-pf-d62802"
@@ -108,8 +106,6 @@ func (s *concurrencyMockStmt) Query(args []driver.Value) (driver.Rows, error) {
 		return &singleColRows{value: fmt.Sprintf("%d", s.conn.maxConcurrent)}, nil
 	case strings.Contains(q, "processing_status") && strings.Contains(q, "COUNT"):
 		return &singleColRows{value: fmt.Sprintf("%d", s.conn.inFlight)}, nil
-	case strings.Contains(q, "timeout.stage"):
-		return &emptyRowSet{cols: []string{"key", "value", "default_value"}}, nil
 	default:
 		return nil, fmt.Errorf("mock: unexpected query: %s", q)
 	}
@@ -130,12 +126,6 @@ func (r *singleColRows) Next(dest []driver.Value) error {
 	r.done = true
 	return nil
 }
-
-type emptyRowSet struct{ cols []string }
-
-func (r *emptyRowSet) Columns() []string                { return r.cols }
-func (r *emptyRowSet) Close() error                     { return nil }
-func (r *emptyRowSet) Next(dest []driver.Value) error   { return io.EOF }
 
 func openConcurrencyMockDB(t *testing.T, maxConcurrent, inFlight int) *sql.DB {
 	t.Helper()

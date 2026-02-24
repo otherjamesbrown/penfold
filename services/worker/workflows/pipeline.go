@@ -51,10 +51,6 @@ type PipelineInput struct {
 	ModelOverride   string        `json:"model_override,omitempty"`   // If set, use this model instead of default
 	TimeoutOverride time.Duration `json:"timeout_override,omitempty"` // If set, use this timeout for activities
 
-	// Per-stage timeout overrides (populated from pipeline_definitions at workflow dispatch time).
-	// Keys: "triage", "extract_ner", "extract_assertions", "analyze", "embed"
-	StageTimeouts map[string]time.Duration `json:"stage_timeouts,omitempty"` // stage -> start_to_close
-	StageHeartbeats map[string]time.Duration `json:"stage_heartbeats,omitempty"` // stage -> heartbeat
 }
 
 // PipelineResult is the output from the SLM pipeline workflow.
@@ -790,19 +786,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// falling back to the provided category defaults.
 	stageOpts := func(stage string, fallback workflow.ActivityOptions) workflow.ActivityOptions {
 		opts := fallback
-		// Priority 1: pipeline_definitions timeout_seconds (via stageConfigMap)
+		// Override with per-pipeline timeouts from pipeline_definitions (via stageConfigMap).
+		// stageConfigMap is populated after FetchPipelineDefinition and contains
+		// pipeline-specific timeouts (e.g. transcript pipeline has extract_ner=600s).
 		if stageConfigMap != nil {
 			if cfg, ok := stageConfigMap[stage]; ok && cfg.TimeoutSeconds > 0 {
 				opts.StartToCloseTimeout = time.Duration(cfg.TimeoutSeconds) * time.Second
 				opts.HeartbeatTimeout = time.Duration(cfg.TimeoutSeconds/2) * time.Second
 			}
-		}
-		// Priority 2: per-workflow input overrides (highest priority)
-		if stc, ok := input.StageTimeouts[stage]; ok && stc > 0 {
-			opts.StartToCloseTimeout = stc
-		}
-		if hb, ok := input.StageHeartbeats[stage]; ok && hb > 0 {
-			opts.HeartbeatTimeout = hb
 		}
 		return opts
 	}

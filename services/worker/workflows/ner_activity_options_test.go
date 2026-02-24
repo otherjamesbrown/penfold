@@ -139,6 +139,93 @@ func (s *NERActivityOptionsTestSuite) TestExtractNERUsesLLMActivityOptions() {
 		"extract_ner should use LLM heartbeat timeout (5min), not embedding (10s), got %v", capturedHeartbeat)
 }
 
+// TestExtractNER_StageConfigMapOverridesInputTimeouts verifies that pipeline-specific
+// stageConfigMap timeouts from FetchPipelineDefinition are applied to activity options.
+//
+// Regression test for pf-3b5d5d / pf-7dc6d5: stageConfigMap (from FetchPipelineDefinition)
+// is the sole source of per-pipeline timeouts. The transcript pipeline has
+// timeout_seconds=600 for NER, overriding the default LLM opts.
+func (s *NERActivityOptionsTestSuite) TestExtractNER_StageConfigMapOverridesInputTimeouts() {
+	var capturedStartToClose time.Duration
+	var capturedHeartbeat time.Duration
+
+	s.env.SetOnActivityStartedListener(func(activityInfo *activity.Info, ctx context.Context, args converter.EncodedValues) {
+		if activityInfo.ActivityType.Name == "ExtractEntitiesActivity" {
+			capturedStartToClose = activityInfo.StartToCloseTimeout
+			capturedHeartbeat = activityInfo.HeartbeatTimeout
+		}
+	})
+
+	// Register FetchPipelineDefinition mock — returns transcript pipeline with 600s NER timeout
+	s.env.RegisterActivityWithOptions(s.activities.FetchPipelineDefinition, activity.RegisterOptions{Name: "FetchPipelineDefinition"})
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Return(&FetchPipelineDefinitionOutput{
+		Found: true,
+		Stages: []PipelineStageConfig{
+			{Stage: "triage", StageOrder: 0, Enabled: true, TimeoutSeconds: 120},
+			{Stage: "extract_ner", StageOrder: 1, Enabled: true, SkipWhenLow: false, TimeoutSeconds: 600},
+			{Stage: "extract_semantic", StageOrder: 2, Enabled: true, SkipWhenLow: false, TimeoutSeconds: 600},
+			{Stage: "analyze", StageOrder: 3, Enabled: true, TimeoutSeconds: 600},
+			{Stage: "embed", StageOrder: 4, Enabled: true, TimeoutSeconds: 120},
+		},
+	}, nil)
+
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    301,
+		ContentID:   "mt-test-timeout-priority",
+		JobID:       "job-301",
+		ContentType: "email",
+		BodyText:    "Test stageConfigMap applies pipeline-specific timeouts",
+	}
+
+	// Stage 0: Parse
+	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&ParseEmailOutput{
+		CleanBody: "Test stageConfigMap applies pipeline-specific timeouts",
+	}, nil)
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+
+	// Stage 1: Triage
+	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&TriageOutput{
+		Category:   "PROJECT_UPDATE",
+		Importance: "HIGH",
+		SkipDeep:   false,
+		ModelUsed:  "llama-3.2-1b",
+	}, nil)
+
+	// Stage 2: ExtractEntitiesActivity — activity under test
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{}, nil)
+
+	// Stage 2b: ExtractAssertions
+	s.activities.On("ExtractAssertions", mock.Anything, mock.Anything).Return(0, nil)
+
+	// Stage 3: BuildContextPackage
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
+
+	// Stage 4: DeepAnalyze
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{Summary: "Test"}, nil)
+
+	// Stage 4.5: PersistFindings
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&PersistFindingsOutput{}, nil)
+
+	// Stage 5: Embed
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(7002), nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	s.activities.AssertCalled(s.T(), "ExtractEntitiesActivity", mock.Anything, mock.Anything)
+
+	// CRITICAL: stageConfigMap (600s from transcript pipeline via FetchPipelineDefinition)
+	// must be applied as the pipeline-specific timeout.
+	require.NotZero(s.T(), capturedStartToClose)
+	require.Equal(s.T(), 600*time.Second, capturedStartToClose,
+		"stageConfigMap timeout (600s) must be applied from pipeline_definitions; got %v", capturedStartToClose)
+	require.Equal(s.T(), 300*time.Second, capturedHeartbeat,
+		"stageConfigMap heartbeat (300s = timeout/2) must be applied; got %v", capturedHeartbeat)
+}
+
 func TestNERActivityOptionsTestSuite(t *testing.T) {
 	suite.Run(t, new(NERActivityOptionsTestSuite))
 }

@@ -132,62 +132,6 @@ func (s *TriageActivityOptionsTestSuite) TestTriageUsesLLMActivityOptions() {
 		"triage should use LLM heartbeat timeout (5min), not embedding (10s), got %v", capturedHeartbeat)
 }
 
-// TestTriageUsesLLMActivityOptions_WithStageOverride verifies that per-stage timeout
-// overrides still work when triage uses LLM options as the base.
-func (s *TriageActivityOptionsTestSuite) TestTriageUsesLLMActivityOptions_WithStageOverride() {
-	var capturedStartToClose time.Duration
-	var capturedScheduleToClose time.Duration
-
-	s.env.SetOnActivityStartedListener(func(activityInfo *activity.Info, ctx context.Context, args converter.EncodedValues) {
-		if activityInfo.ActivityType.Name == "Triage" {
-			capturedStartToClose = activityInfo.StartToCloseTimeout
-			capturedScheduleToClose = activityInfo.ScheduleToCloseTimeout
-		}
-	})
-
-	input := PipelineInput{
-		TenantID:    "tenant-1",
-		SourceID:    101,
-		ContentID:   "em-test-triage-override",
-		JobID:       "job-101",
-		ContentType: "email",
-		BodyText:    "Test triage with stage override",
-		StageTimeouts: map[string]time.Duration{
-			"triage": 3 * time.Minute, // Override StartToClose to 3min
-		},
-	}
-
-	// Stage 0: Parse
-	s.activities.On("ParseEmail", mock.Anything, mock.Anything).Return(&ParseEmailOutput{
-		CleanBody: "Test triage with stage override",
-	}, nil)
-	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
-
-	// Stage 1: Triage
-	s.activities.On("Triage", mock.Anything, mock.Anything).Return(&TriageOutput{
-		Category:   "PERSONAL",
-		Importance: "LOW",
-		SkipDeep:   true,
-		ModelUsed:  "llama-3.2-1b",
-	}, nil)
-
-	// Stage 5: Embed
-	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(5002), nil)
-
-	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
-
-	require.True(s.T(), s.env.IsWorkflowCompleted())
-	require.NoError(s.T(), s.env.GetWorkflowError())
-
-	// Verify stage override applied to StartToCloseTimeout
-	require.Equal(s.T(), 3*time.Minute, capturedStartToClose,
-		"stage timeout override should be applied")
-
-	// ScheduleToCloseTimeout should still be set from LLM base options
-	require.NotZero(s.T(), capturedScheduleToClose,
-		"ScheduleToCloseTimeout must remain set even with stage override")
-}
-
 func TestTriageActivityOptionsTestSuite(t *testing.T) {
 	suite.Run(t, new(TriageActivityOptionsTestSuite))
 }

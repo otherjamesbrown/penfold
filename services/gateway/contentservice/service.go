@@ -1358,9 +1358,6 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		)
 	}
 
-	// Resolve per-stage timeouts from pipeline_definitions
-	stageTimeouts, stageHeartbeats := s.resolveStageTimeouts(ctx)
-
 	// Look up tenant name for Langfuse environment labelling (best-effort, non-blocking).
 	var tenantName string
 	if s.tenantRepo != nil {
@@ -1378,8 +1375,6 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		ContentID:       source.ContentID,
 		ContentHash:     source.ContentHash,
 		JobID:           workflowID, // Use workflow ID as job ID for tracing
-		StageTimeouts:   stageTimeouts,
-		StageHeartbeats: stageHeartbeats,
 	}
 	// TODO: Worker layer will add ModelOverride and TimeoutOverride fields to SLMPipelineInput
 	// For now, overrides are read and logged but not passed to the workflow
@@ -1426,7 +1421,6 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 
 // getMaxConcurrent reads the max_concurrent value from pipeline_operational_config.
 func (s *Service) getMaxConcurrent(ctx context.Context) (int, error) {
-	// Use the same tenant ID constant as resolveStageTimeouts.
 	const defaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
 	var valueStr string
 	err := s.db.QueryRowContext(ctx, `
@@ -2282,45 +2276,3 @@ func (s *Service) ClearError(ctx context.Context, req *contentv1.ClearErrorReque
 	}, nil
 }
 
-// resolveStageTimeouts reads per-stage timeout values from pipeline_definitions.
-// Returns maps of stage->duration for start_to_close and heartbeat.
-// Returns nil maps (not error) if DB is unavailable — workflow falls back to defaults.
-func (s *Service) resolveStageTimeouts(ctx context.Context) (map[string]time.Duration, map[string]time.Duration) {
-	if s.db == nil {
-		return nil, nil
-	}
-
-	// Read timeout_seconds from pipeline_definitions (source of truth).
-	// Use 'standard' pipeline as the default.
-	const defaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT stage, timeout_seconds
-		FROM pipeline_definitions
-		WHERE tenant_id = $1 AND pipeline = 'standard' AND timeout_seconds > 0
-	`, defaultTenantID)
-	if err != nil {
-		s.logger.Debug("Could not resolve stage timeouts from pipeline_definitions", logging.Err(err))
-		return nil, nil
-	}
-	defer rows.Close()
-
-	timeouts := make(map[string]time.Duration)
-	heartbeats := make(map[string]time.Duration)
-	hasOverride := false
-
-	for rows.Next() {
-		var stage string
-		var timeoutSecs int
-		if err := rows.Scan(&stage, &timeoutSecs); err != nil {
-			continue
-		}
-		hasOverride = true
-		timeouts[stage] = time.Duration(timeoutSecs) * time.Second
-		heartbeats[stage] = time.Duration(timeoutSecs/2) * time.Second
-	}
-
-	if !hasOverride {
-		return nil, nil
-	}
-	return timeouts, heartbeats
-}
