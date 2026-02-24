@@ -269,6 +269,74 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		return output, nil
 	}
 
+	// Handle meeting transcripts (pf-025e10)
+	// Meetings are inherently high-value — someone scheduled, recorded, and transcribed them.
+	// The 500-char triage truncation captures only opening greetings/small-talk, causing the
+	// LLM to misclassify as PERSONAL/LOW. Short-circuit with PROJECT_UPDATE/HIGH so all
+	// extraction stages run. The extraction stages will determine actual content and entities.
+	if strings.EqualFold(input.ContentType, "meeting") {
+		logger.Info("Meeting transcript detected, skipping AI triage",
+			logging.F("content_type", input.ContentType),
+			logging.F("content_length", len(input.Content)),
+		)
+
+		output := &workflows.TriageOutput{
+			Category:            "PROJECT_UPDATE",
+			Importance:          "HIGH",
+			Reason:              "Meeting transcript (auto-classified: meetings are inherently high-value)",
+			Confidence:          1.0,
+			ModelUsed:           "content-type-classifier",
+			SkipDeep:            false,
+			ContentSubtype:      string(subtype),
+			ContentContribution: "HIGH",
+			ContributionReason:  "Meeting transcripts contain substantive discussion requiring full extraction",
+			SourceSystem:        sourceSystem,
+			RoutingContentType:  routingContentType,
+			RoutingSubtype:      routingSubtype,
+			Pipelines:           matchedPipelines,
+		}
+
+		logger.Info("Triage completed (meeting short-circuit)",
+			logging.F("category", output.Category),
+			logging.F("importance", output.Importance),
+			logging.F("content_contribution", output.ContentContribution),
+			logging.F("skip_deep", output.SkipDeep),
+			logging.F("pipelines", matchedPipelines),
+		)
+
+		// Record pipeline run for provenance tracking
+		if a.pipelineRepo != nil {
+			parsedJSON, _ := json.Marshal(output)
+			inputJSON, _ := json.Marshal(map[string]interface{}{
+				"content_length": len(input.Content),
+				"content_type":   input.ContentType,
+				"has_subject":    input.Subject != "",
+				"has_sender":     input.SenderEmail != "",
+				"tenant_id":      input.TenantID,
+			})
+			outputJSON, _ := json.Marshal(map[string]interface{}{
+				"category":   output.Category,
+				"importance": output.Importance,
+				"model_used": output.ModelUsed,
+			})
+			runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+				SourceID:   input.SourceID,
+				Stage:      "triage",
+				ModelID:    output.ModelUsed,
+				Status:     "completed",
+				DurationMS: 0,
+				InputData:  inputJSON,
+				OutputData: outputJSON,
+				ParsedData: parsedJSON,
+			})
+			if runErr != nil {
+				logger.Warn("Failed to record pipeline run for meeting short-circuit", logging.Err(runErr))
+			}
+		}
+
+		return output, nil
+	}
+
 	// Handle calendar invites with empty body (pf-479452)
 	// Calendar metadata (organizer, attendees, title, date) is extracted later in Stage 3,
 	// so we can skip AI triage and return a metadata-only result

@@ -774,6 +774,144 @@ func (m *mockCapturingPipelineRepo) RecordOverrides(_ context.Context, _ int64, 
 	return nil
 }
 
+// TestTriage_MeetingTranscript_ShortCircuit_pf025e10 verifies that meeting transcripts
+// skip the AI triage call and are auto-classified as PROJECT_UPDATE/HIGH.
+// Bug pf-025e10: meetings misclassified as PERSONAL/LOW due to 500-char truncation
+// capturing only opening greetings/small-talk.
+func TestTriage_MeetingTranscript_ShortCircuit_pf025e10(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	aiCalled := false
+	mockClient := &mockAIClient{
+		triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+			aiCalled = true
+			// Simulate what the LLM does: classifies the opening small talk as PERSONAL/LOW
+			return &aiv1.TriageContentResponse{
+				Category:   "PERSONAL",
+				Importance: "LOW",
+				Reason:     "Casual greeting and small talk",
+				ModelUsed:  "llama-3.2-1b",
+			}, nil
+		},
+	}
+
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
+
+	input := TriageInput{
+		TenantID:  "test-tenant",
+		SourceID:  50001,
+		ContentID: "mt-yNKYbU1s",
+		JobID:     "job-meeting",
+		Subject:   "Massiel Campos meeting - MTC Revenue Roadmap",
+		Content: "Hi Dave. Hello. I guess it's just us. Yes, she was the impression " +
+			"that the meeting was tomorrow. Okay, so let me just... " +
+			"Alright, so the agenda for today is the MTC revenue roadmap discussion. " +
+			"We need to finalize the pricing model for Q2 and review TikTok commitments.",
+		ContentType: "meeting",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// AI must NOT be called — meeting short-circuit must fire before the LLM call.
+	require.False(t, aiCalled,
+		"bug pf-025e10: AI called for a meeting transcript. "+
+			"Meeting content type must be short-circuited before the LLM call.")
+
+	// Must be PROJECT_UPDATE/HIGH, never PERSONAL/LOW
+	require.Equal(t, "PROJECT_UPDATE", output.Category)
+	require.Equal(t, "HIGH", output.Importance)
+	require.False(t, output.SkipDeep, "meetings must never have SkipDeep=true")
+	require.Equal(t, "HIGH", output.ContentContribution)
+	require.Equal(t, "content-type-classifier", output.ModelUsed)
+}
+
+// TestTriage_MeetingTranscript_CreatesPipelineRun_pf025e10 verifies that the meeting
+// short-circuit records a pipeline_runs row for provenance tracking.
+func TestTriage_MeetingTranscript_CreatesPipelineRun_pf025e10(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	mockClient := &mockAIClient{
+		triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+			t.Fatal("AI client must not be called for a meeting transcript")
+			return nil, nil
+		},
+	}
+
+	var capturedRuns []PipelineRunInput
+	mockPipelineRepo := &mockCapturingPipelineRepo{
+		createRunFn: func(ctx context.Context, input PipelineRunInput) error {
+			capturedRuns = append(capturedRuns, input)
+			return nil
+		},
+	}
+
+	activities := NewTriageActivities(logger, mockClient, mockPipelineRepo, nil, nil)
+
+	input := TriageInput{
+		TenantID:    "test-tenant",
+		SourceID:    50002,
+		ContentID:   "mt-pipelineRun",
+		JobID:       "job-meeting-run",
+		Subject:     "Steering Committee Prep",
+		Content:     "Good morning everyone. Let's get started with the steering committee preparation.",
+		ContentType: "meeting",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	require.Len(t, capturedRuns, 1, "meeting short-circuit must call CreateRun exactly once")
+	run := capturedRuns[0]
+	require.Equal(t, "triage", run.Stage)
+	require.Equal(t, "content-type-classifier", run.ModelID)
+	require.Contains(t, string(run.ParsedData), `"content_contribution":"HIGH"`)
+	require.Contains(t, string(run.ParsedData), `"category":"PROJECT_UPDATE"`)
+}
+
+// TestTriage_MeetingTranscript_EmailNotAffected_pf025e10 is the negative control:
+// email content must NOT be short-circuited by the meeting check.
+func TestTriage_MeetingTranscript_EmailNotAffected_pf025e10(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	aiCalled := false
+	mockClient := &mockAIClient{
+		triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+			aiCalled = true
+			return &aiv1.TriageContentResponse{
+				Category:   "PROJECT_UPDATE",
+				Importance: "HIGH",
+				Reason:     "Project status email",
+				ModelUsed:  "llama-3.2-1b",
+			}, nil
+		},
+	}
+
+	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
+
+	input := TriageInput{
+		TenantID:    "test-tenant",
+		SourceID:    50003,
+		ContentID:   "em-notmeeting",
+		JobID:       "job-email",
+		Content:     "Hi Dave, just a quick update on the meeting we had yesterday.",
+		Subject:     "Meeting Follow-up",
+		SenderEmail: "alice@example.com",
+		ContentType: "email",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// Email must still go through AI triage — only content_type="meeting" is short-circuited.
+	require.True(t, aiCalled,
+		"bug pf-025e10 (negative control): email was short-circuited by meeting check. "+
+			"Only content_type='meeting' should be affected.")
+}
+
 // TestMapToSourceSystem verifies that mapToSourceSystem converts ClassificationResult
 // to the correct legacy SourceSystem string.
 func TestMapToSourceSystem(t *testing.T) {
