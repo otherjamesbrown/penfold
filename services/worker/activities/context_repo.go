@@ -95,7 +95,6 @@ func (r *ContextPackageRepo) GetOpenActions(ctx context.Context, projectIDs []in
 	query := `
 		SELECT
 			a.description,
-			a.due_date,
 			a.status,
 			COALESCE(p.canonical_name, '') AS assignee_name
 		FROM assertions a
@@ -103,9 +102,7 @@ func (r *ContextPackageRepo) GetOpenActions(ctx context.Context, projectIDs []in
 		WHERE a.assertion_type = 'action'
 		  AND a.status = 'open'
 		  AND a.project_id = ANY($1)
-		ORDER BY
-		  a.due_date ASC NULLS LAST,
-		  a.created_at DESC
+		ORDER BY a.created_at DESC
 		LIMIT $2
 	`
 
@@ -120,7 +117,6 @@ func (r *ContextPackageRepo) GetOpenActions(ctx context.Context, projectIDs []in
 		var ca ContextAssertion
 		if err := rows.Scan(
 			&ca.Description,
-			&ca.DueDate,
 			&ca.Status,
 			&ca.AssigneeName,
 		); err != nil {
@@ -148,10 +144,10 @@ func (r *ContextPackageRepo) GetRecentDecisions(ctx context.Context, projectIDs 
 	query := `
 		SELECT
 			a.description,
-			a.rationale,
+			a.source_quote,
 			COALESCE(p.canonical_name, '') AS decision_maker
 		FROM assertions a
-		LEFT JOIN people p ON a.decision_maker_person_id = p.id
+		LEFT JOIN people p ON a.owner_person_id = p.id
 		WHERE a.assertion_type = 'decision'
 		  AND a.project_id = ANY($1)
 		  AND a.created_at > now() - ($2 || ' days')::interval
