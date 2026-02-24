@@ -359,6 +359,21 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		}, nil
 	}
 
+	// Prepend email headers to content for NER prompt enrichment (pf-de2b09).
+	// The NER prompt instructs the model to use full names from email headers,
+	// but previously only body text was sent. This injects structured header
+	// metadata so the model can see From/To/CC/Subject.
+	content := input.Content
+	if input.ContentType == "email" {
+		if headerBlock := buildEmailHeaderBlock(input); headerBlock != "" {
+			content = headerBlock + content
+			logger.Info("Prepended email headers to extraction content",
+				logging.F("header_length", len(headerBlock)),
+				logging.F("total_length", len(content)),
+			)
+		}
+	}
+
 	// Check if AI client is available
 	if a.aiClient == nil {
 		logger.Warn("AI client not configured")
@@ -370,7 +385,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	}
 
 	startTime := time.Now()
-	contentRunes := []rune(input.Content)
+	contentRunes := []rune(content)
 
 	// pf-edbda4: Record failed pipeline runs for provenance.
 	// When extraction fails, record the failure so `penf pipeline inspect` shows
@@ -424,7 +439,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		logger.Info("Content under 6K chars, making single RPC call")
 
 		req := &aiv1.ExtractEntitiesRequest{
-			Content:  input.Content,
+			Content:  content,
 			TenantId: optString(input.TenantID),
 		}
 		if input.TriageCategory != "" {
@@ -452,7 +467,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			logging.F("content_runes", len(contentRunes)),
 		)
 
-		chunks := splitIntoChunks(input.Content, 1500, 200)
+		chunks := splitIntoChunks(content, 1500, 200)
 		logger.Info("Content split into chunks", logging.F("chunk_count", len(chunks)))
 
 		for i, chunk := range chunks {
@@ -531,9 +546,10 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 
 		// Capture IO data
 		inputJSON, _ := json.Marshal(map[string]interface{}{
-			"content_length":  len(input.Content),
+			"content_length":  len(content),
 			"triage_category": input.TriageCategory,
 			"tenant_id":       input.TenantID,
+			"has_headers":     input.ContentType == "email" && input.SenderEmail != "",
 		})
 		outputJSON, _ := json.Marshal(map[string]interface{}{
 			"response_count": len(results),
@@ -767,6 +783,60 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *workflows.
 		QualityGateTriggered: qualityGateTriggered,
 		ModelUsed:            modelUsed,
 	}
+}
+
+// buildEmailHeaderBlock constructs a structured email header block for NER prompt enrichment (pf-de2b09).
+// Returns empty string if no meaningful header data is available.
+func buildEmailHeaderBlock(input workflows.SLMPipelineExtractEntitiesInput) string {
+	var lines []string
+
+	// From line
+	if input.SenderEmail != "" {
+		if input.SenderName != "" {
+			lines = append(lines, fmt.Sprintf("From: %s <%s>", input.SenderName, input.SenderEmail))
+		} else {
+			lines = append(lines, fmt.Sprintf("From: %s", input.SenderEmail))
+		}
+	}
+
+	// To line — filter participants by header_role
+	var toAddrs []string
+	var ccAddrs []string
+	for _, p := range input.Participants {
+		formatted := formatParticipant(p)
+		switch p.HeaderRole {
+		case "cc":
+			ccAddrs = append(ccAddrs, formatted)
+		default:
+			// "to" or empty defaults to To
+			toAddrs = append(toAddrs, formatted)
+		}
+	}
+	if len(toAddrs) > 0 {
+		lines = append(lines, fmt.Sprintf("To: %s", strings.Join(toAddrs, "; ")))
+	}
+	if len(ccAddrs) > 0 {
+		lines = append(lines, fmt.Sprintf("CC: %s", strings.Join(ccAddrs, "; ")))
+	}
+
+	// Subject line
+	if input.Subject != "" {
+		lines = append(lines, fmt.Sprintf("Subject: %s", input.Subject))
+	}
+
+	if len(lines) == 0 {
+		return ""
+	}
+
+	return "EMAIL METADATA:\n" + strings.Join(lines, "\n") + "\n---\nBODY:\n"
+}
+
+// formatParticipant formats a participant as "Name <email>" or just email.
+func formatParticipant(p workflows.Participant) string {
+	if p.DisplayName != "" {
+		return fmt.Sprintf("%s <%s>", p.DisplayName, p.Email)
+	}
+	return p.Email
 }
 
 // normalizeString converts a string to lowercase and trims whitespace for deduplication.

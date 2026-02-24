@@ -10,6 +10,7 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 // mockAIClient is a mock implementation of the AIClient interface for testing.
@@ -527,4 +528,189 @@ func TestNormalizeString(t *testing.T) {
 	require.Equal(t, "hello world", normalizeString("  Hello World  "))
 	require.Equal(t, "hello world", normalizeString("HELLO WORLD"))
 	require.Equal(t, "", normalizeString("   "))
+}
+
+func TestBuildEmailHeaderBlock_FullHeaders(t *testing.T) {
+	input := ExtractEntitiesInput{
+		ContentType: "email",
+		SenderName:  "Ponec, Miroslav",
+		SenderEmail: "mponec@akamai.com",
+		Subject:     "Immediate CLIC Action Required on Juniper Router Issues Impacting MTC Revenue",
+		Participants: []workflows.Participant{
+			{Email: "tdunn@akamai.com", DisplayName: "Dunn, Tim", HeaderRole: "to"},
+			{Email: "jdement@akamai.com", DisplayName: "DeMent, James", HeaderRole: "to"},
+			{Email: "sweisman@akamai.com", DisplayName: "Weisman, Sara", HeaderRole: "cc"},
+			{Email: "jabrown@akamai.com", DisplayName: "Brown, James", HeaderRole: "cc"},
+		},
+	}
+
+	result := buildEmailHeaderBlock(input)
+
+	require.Contains(t, result, "EMAIL METADATA:\n")
+	require.Contains(t, result, "From: Ponec, Miroslav <mponec@akamai.com>")
+	require.Contains(t, result, "To: Dunn, Tim <tdunn@akamai.com>; DeMent, James <jdement@akamai.com>")
+	require.Contains(t, result, "CC: Weisman, Sara <sweisman@akamai.com>; Brown, James <jabrown@akamai.com>")
+	require.Contains(t, result, "Subject: Immediate CLIC Action Required")
+	require.Contains(t, result, "---\nBODY:\n")
+}
+
+func TestBuildEmailHeaderBlock_NoCC(t *testing.T) {
+	input := ExtractEntitiesInput{
+		ContentType: "email",
+		SenderName:  "Alice",
+		SenderEmail: "alice@example.com",
+		Subject:     "Hello",
+		Participants: []workflows.Participant{
+			{Email: "bob@example.com", DisplayName: "Bob", HeaderRole: "to"},
+		},
+	}
+
+	result := buildEmailHeaderBlock(input)
+
+	require.Contains(t, result, "From: Alice <alice@example.com>")
+	require.Contains(t, result, "To: Bob <bob@example.com>")
+	require.NotContains(t, result, "CC:")
+}
+
+func TestBuildEmailHeaderBlock_NoDisplayName(t *testing.T) {
+	input := ExtractEntitiesInput{
+		ContentType: "email",
+		SenderEmail: "alice@example.com",
+		Participants: []workflows.Participant{
+			{Email: "bob@example.com", HeaderRole: "to"},
+		},
+	}
+
+	result := buildEmailHeaderBlock(input)
+
+	require.Contains(t, result, "From: alice@example.com")
+	require.Contains(t, result, "To: bob@example.com")
+}
+
+func TestBuildEmailHeaderBlock_EmptyParticipants(t *testing.T) {
+	input := ExtractEntitiesInput{
+		ContentType: "email",
+		SenderName:  "Alice",
+		SenderEmail: "alice@example.com",
+		Subject:     "Hello",
+	}
+
+	result := buildEmailHeaderBlock(input)
+
+	require.Contains(t, result, "From: Alice <alice@example.com>")
+	require.NotContains(t, result, "To:")
+	require.NotContains(t, result, "CC:")
+	require.Contains(t, result, "Subject: Hello")
+}
+
+func TestBuildEmailHeaderBlock_NoMetadata(t *testing.T) {
+	input := ExtractEntitiesInput{
+		ContentType: "email",
+	}
+
+	result := buildEmailHeaderBlock(input)
+	require.Empty(t, result)
+}
+
+func TestBuildEmailHeaderBlock_DefaultToRole(t *testing.T) {
+	// Participants with empty HeaderRole default to "to"
+	input := ExtractEntitiesInput{
+		ContentType: "email",
+		SenderEmail: "alice@example.com",
+		Participants: []workflows.Participant{
+			{Email: "bob@example.com", DisplayName: "Bob"},
+		},
+	}
+
+	result := buildEmailHeaderBlock(input)
+	require.Contains(t, result, "To: Bob <bob@example.com>")
+}
+
+func TestExtractEntities_EmailHeadersPrepended(t *testing.T) {
+	logger := logging.NewNopLogger()
+	var capturedContent string
+
+	mockClient := &mockAIClient{
+		extractEntitiesFn: func(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error) {
+			capturedContent = req.Content
+			return &aiv1.ExtractEntitiesResponse{
+				People:        []*aiv1.PersonEntity{{Name: "Ponec, Miroslav", Role: "sender"}},
+				Dates:         []*aiv1.DateEntity{},
+				Projects:      []string{},
+				Organisations: []string{},
+				ActionItems:   []*aiv1.ActionItemEntity{},
+				Decisions:     []string{},
+				Risks:         []string{},
+				DetailedRisks: []*aiv1.RiskEntity{},
+				ModelUsed:     "test-model",
+			}, nil
+		},
+	}
+
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+
+	input := ExtractEntitiesInput{
+		TenantID:    "test-tenant",
+		SourceID:    123,
+		JobID:       "job-123",
+		Content:     "Please review the router issues.",
+		ContentType: "email",
+		SenderName:  "Ponec, Miroslav",
+		SenderEmail: "mponec@akamai.com",
+		Subject:     "Router Issues",
+		Participants: []workflows.Participant{
+			{Email: "tdunn@akamai.com", DisplayName: "Dunn, Tim", HeaderRole: "to"},
+			{Email: "sweisman@akamai.com", DisplayName: "Weisman, Sara", HeaderRole: "cc"},
+		},
+	}
+
+	output, err := activities.ExtractEntities(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// Verify the AI received content with headers prepended
+	require.True(t, strings.HasPrefix(capturedContent, "EMAIL METADATA:\n"), "Content should start with EMAIL METADATA header block")
+	require.Contains(t, capturedContent, "From: Ponec, Miroslav <mponec@akamai.com>")
+	require.Contains(t, capturedContent, "To: Dunn, Tim <tdunn@akamai.com>")
+	require.Contains(t, capturedContent, "CC: Weisman, Sara <sweisman@akamai.com>")
+	require.Contains(t, capturedContent, "Subject: Router Issues")
+	require.Contains(t, capturedContent, "---\nBODY:\nPlease review the router issues.")
+}
+
+func TestExtractEntities_NonEmailNoHeaders(t *testing.T) {
+	logger := logging.NewNopLogger()
+	var capturedContent string
+
+	mockClient := &mockAIClient{
+		extractEntitiesFn: func(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error) {
+			capturedContent = req.Content
+			return &aiv1.ExtractEntitiesResponse{
+				People:        []*aiv1.PersonEntity{},
+				Dates:         []*aiv1.DateEntity{},
+				Projects:      []string{},
+				Organisations: []string{},
+				ActionItems:   []*aiv1.ActionItemEntity{},
+				Decisions:     []string{},
+				Risks:         []string{},
+				DetailedRisks: []*aiv1.RiskEntity{},
+				ModelUsed:     "test-model",
+			}, nil
+		},
+	}
+
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+
+	input := ExtractEntitiesInput{
+		TenantID:    "test-tenant",
+		SourceID:    123,
+		JobID:       "job-123",
+		Content:     "Meeting transcript content here.",
+		ContentType: "meeting",
+	}
+
+	_, err := activities.ExtractEntities(context.Background(), input)
+	require.NoError(t, err)
+
+	// Non-email content should not have headers prepended
+	require.Equal(t, "Meeting transcript content here.", capturedContent)
 }

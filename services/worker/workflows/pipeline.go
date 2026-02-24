@@ -171,6 +171,15 @@ type SLMPipelineExtractEntitiesInput struct {
 	Content         string `json:"content"`
 	TriageCategory string `json:"triage_category,omitempty"`
 	ModelOverride  string `json:"model_override,omitempty"` // Optional model override for reprocessing
+
+	// Email header metadata for NER prompt enrichment (pf-de2b09).
+	// Only populated for email content type.
+	ContentType   string        `json:"content_type,omitempty"`
+	Subject       string        `json:"subject,omitempty"`
+	SenderName    string        `json:"sender_name,omitempty"`
+	SenderEmail   string        `json:"sender_email,omitempty"`
+	Participants  []Participant `json:"participants,omitempty"`
+
 	// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 	LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 	LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
@@ -1719,6 +1728,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			JobID:           input.JobID,
 			Content:         parsedContent,
 			ModelOverride:   input.ModelOverride,
+			ContentType:     input.ContentType,
+			Subject:         input.Subject,
+			SenderName:      input.SenderName,
+			SenderEmail:     input.SenderEmail,
+			Participants:    input.ParticipantEmails,
 			LangfuseTraceID: langfuseTraceID,
 			LangfusePhaseID: extractPhaseID,
 			PipelineSpanID:  pipelineSpanID,
