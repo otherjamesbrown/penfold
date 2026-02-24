@@ -310,6 +310,17 @@ func (r *Repository) ResetSourceStatus(ctx context.Context, sourceID int64) erro
 	return nil
 }
 
+// DeleteRunsBySource removes all pipeline_run records for a source (pf-04a2de).
+// Called during reprocess to clear stale records from previous runs,
+// so the new run's results are the only ones visible in pipeline history.
+func (r *Repository) DeleteRunsBySource(ctx context.Context, sourceID int64) (int64, error) {
+	result, err := r.db.Exec(ctx, `DELETE FROM pipeline_runs WHERE source_id = $1`, sourceID)
+	if err != nil {
+		return 0, fmt.Errorf("deleting pipeline runs for source %d: %w", sourceID, err)
+	}
+	return result.RowsAffected(), nil
+}
+
 // UndeleteSource restores a soft-deleted source by ID.
 func (r *Repository) UndeleteSource(ctx context.Context, sourceID int64) error {
 	result, err := r.db.Exec(ctx, `

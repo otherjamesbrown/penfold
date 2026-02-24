@@ -457,20 +457,29 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	// pf-edbda4: Record failed pipeline runs for provenance.
 	// When extraction fails, record the failure so `penf pipeline inspect` shows
 	// the attempt rather than appearing as if the stage was skipped entirely.
+	// pf-04a2de: Use a detached context (context.Background) so the write succeeds
+	// even after Temporal cancels the activity context due to HeartbeatTimeout.
 	var extractionFailed bool
 	var failureError string
 	defer func() {
 		if extractionFailed && a.pipelineRepo != nil {
+			writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 			durationMS := int(time.Since(startTime).Milliseconds())
 			for _, stage := range []string{"extract_ner", "extract_semantic"} {
-				_ = a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+				if err := a.pipelineRepo.CreateRun(writeCtx, PipelineRunInput{
 					SourceID:        input.SourceID,
 					Stage:           stage,
 					Status:          "failed",
 					DurationMS:      durationMS,
 					SkipReason:      failureError,
 					LangfuseTraceID: input.LangfuseTraceID,
-				})
+				}); err != nil {
+					logger.Warn("Failed to record failed pipeline run",
+						logging.F("stage", stage),
+						logging.Err(err),
+					)
+				}
 			}
 		}
 	}()
@@ -520,8 +529,26 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		}
 		// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
+		// Heartbeat goroutine keeps activity alive during long API calls (pf-04a2de).
+		// Without this, single-call extraction of large content (e.g. 50K-char meeting transcripts)
+		// can exceed HeartbeatTimeout and get cancelled by Temporal.
+		heartbeatDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					recordHeartbeat(ctx, "waiting for AI service response (single call)")
+				case <-heartbeatDone:
+					return
+				}
+			}
+		}()
+
 		// Call AI service with stage span context (and Langfuse metadata if set)
 		resp, err := a.aiClient.ExtractEntities(entityCallCtx, req)
+		close(heartbeatDone)
 		if err != nil {
 			pe := perrors.ClassifyError(err, "extract_ner")
 			logger.Error("Failed to extract entities from AI service", logging.Err(pe))
@@ -567,7 +594,23 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			}
 			// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
+			// Heartbeat goroutine keeps activity alive during long per-chunk API calls (pf-04a2de).
+			heartbeatDone := make(chan struct{})
+			go func() {
+				ticker := time.NewTicker(30 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ticker.C:
+						recordHeartbeat(ctx, fmt.Sprintf("waiting for AI service response (chunk %d/%d)", i+1, len(chunks)))
+					case <-heartbeatDone:
+						return
+					}
+				}
+			}()
+
 			resp, err := a.aiClient.ExtractEntities(entityCallCtx, req)
+			close(heartbeatDone)
 			if err != nil {
 				pe := perrors.ClassifyError(err, "extract_ner")
 				logger.Error("Failed to extract entities from chunk",

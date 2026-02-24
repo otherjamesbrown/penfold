@@ -1335,6 +1335,20 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		return nil, status.Errorf(codes.Internal, "failed to reset processing status: %v", err)
 	}
 
+	// Clear stale pipeline_run records from previous runs (pf-04a2de).
+	// Without this, old SKIPPED/completed entries persist through reprocessing and mask
+	// whether the new run actually executed each stage.
+	deletedRuns, err := s.pipelineRepo.DeleteRunsBySource(ctx, source.ID)
+	if err != nil {
+		s.logger.Warn("Failed to clear stale pipeline runs on reprocess (non-fatal)",
+			logging.Err(err), logging.F("source_id", source.ID))
+	} else if deletedRuns > 0 {
+		s.logger.Info("Cleared stale pipeline runs for reprocess",
+			logging.F("source_id", source.ID),
+			logging.F("deleted_runs", deletedRuns),
+		)
+	}
+
 	// Read processing overrides from request options
 	var modelOverride *string
 	var timeoutOverride *int32
