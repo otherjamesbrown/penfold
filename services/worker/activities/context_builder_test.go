@@ -249,6 +249,27 @@ func TestBuildContext_ProjectResolution(t *testing.T) {
 			expectedSource:   "keyword",
 		},
 		{
+			name: "name containment match",
+			extraction: &ExtractEntitiesOutput{
+				Projects: []string{"Oslo NLB Workflow"},
+			},
+			setupEntityMock: func(m *mockEntityLookup) {
+				m.getProjectByNameFunc = func(ctx context.Context, tenantID, name string) (*entities.Project, error) {
+					return nil, nil // No exact match
+				}
+			},
+			setupContextRepo: func() *mockContextPackageRepo {
+				id := int64(101)
+				return &mockContextPackageRepo{
+					projectsByNameContains: map[string]*int64{
+						"Oslo NLB Workflow": &id,
+					},
+				}
+			},
+			expectedProjects: 1,
+			expectedSource:   "name_contains",
+		},
+		{
 			name: "unresolved project",
 			extraction: &ExtractEntitiesOutput{
 				Projects: []string{"UnknownProject"},
@@ -1806,6 +1827,139 @@ func TestEnrichPeople_CorrectedExtraction(t *testing.T) {
 	if !names["Toby Paler"] {
 		t.Errorf("expected 'Toby Paler' unchanged in CorrectedExtraction.People, got %v",
 			output.CorrectedExtraction.People)
+	}
+}
+
+// pf-0f08e0: Test that NER-resolved people are deduplicated against header-resolved people.
+func TestBuildContext_NERDedupAgainstHeaders(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	// Miroslav is in both email headers (sender) and NER extraction.
+	// After enrichment, NER "Miroslav" becomes "Miroslav Ponec" which fuzzy-matches
+	// the same DB person. The resolved list should contain only one entry.
+	entityLookup := &mockEntityLookup{
+		searchPeopleByNameFunc: func(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error) {
+			if name == "Miroslav Ponec" {
+				return []*entities.Person{{
+					ID:            42,
+					CanonicalName: "Miroslav Ponec",
+					IsInternal:    true,
+				}}, nil
+			}
+			return nil, nil
+		},
+	}
+	resolver := &mockEntityResolver{
+		resolveOrCreateFunc: func(ctx context.Context, tenantID, email, displayName string) (*entities.ResolutionResult, error) {
+			if email == "miroslav.ponec@example.com" {
+				return &entities.ResolutionResult{
+					Person:     &entities.Person{ID: 42, CanonicalName: "Miroslav Ponec", IsInternal: true},
+					Confidence: 1.0,
+					Source:     "exact",
+				}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(logger, resolver, entityLookup, &mockContextPackageRepo{}, nil, nil)
+
+	input := workflows.BuildContextInput{
+		TenantID:    "test-tenant",
+		SourceID:    1,
+		ContentType: "email",
+		SenderEmail: "miroslav.ponec@example.com",
+		SenderName:  "Miroslav Ponec",
+		Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+			People: []workflows.PersonResult{
+				{Name: "Miroslav", Role: ""},  // Will be enriched to "Miroslav Ponec"
+				{Name: "Toby Paler", Role: ""}, // Not in headers, won't resolve
+			},
+		},
+	}
+
+	output, err := activities.BuildContextPackage(ctx, input)
+	if err != nil {
+		t.Fatalf("BuildContextPackage failed: %v", err)
+	}
+
+	// Should have exactly 1 resolved person (Miroslav Ponec from sender), not 2
+	if len(output.ResolvedPeople) != 1 {
+		t.Errorf("Expected 1 resolved person, got %d", len(output.ResolvedPeople))
+		for _, rp := range output.ResolvedPeople {
+			t.Logf("  - %s (source=%s, role=%s)", rp.Name, rp.Source, rp.Role)
+		}
+	}
+
+	// The resolved person should be the sender entry
+	if len(output.ResolvedPeople) > 0 {
+		if output.ResolvedPeople[0].Role != "Sender" {
+			t.Errorf("Expected role 'Sender', got %q", output.ResolvedPeople[0].Role)
+		}
+	}
+}
+
+// pf-0f08e0: Test that enrichPeopleFromHeaders deduplicates by name after enrichment.
+func TestEnrichPeopleFromHeaders_DedupEnrichedNames(t *testing.T) {
+	// NER extracts both "Miroslav Ponec" (full name) and "Miroslav" (first name).
+	// After enrichment, "Miroslav" becomes "Miroslav Ponec" — duplicate of the first entry.
+	people := []workflows.PersonResult{
+		{Name: "Miroslav Ponec", Role: "Cloud Networking"},
+		{Name: "Miroslav", Role: ""},
+		{Name: "Tim", Role: ""},
+	}
+	participants := []workflows.Participant{
+		{Email: "miroslav@example.com", DisplayName: "Miroslav Ponec", HeaderRole: "to"},
+		{Email: "tim@example.com", DisplayName: "Tim Dunn", HeaderRole: "cc"},
+	}
+
+	result := enrichPeopleFromHeaders(people, "", "", participants)
+
+	// Should have 2 unique people: "Miroslav Ponec" and "Tim Dunn"
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 people after dedup, got %d", len(result))
+	}
+	if result[0].Name != "Miroslav Ponec" {
+		t.Errorf("Expected first person to be 'Miroslav Ponec', got %q", result[0].Name)
+	}
+	// First occurrence (with Role) should be preserved
+	if result[0].Role != "Cloud Networking" {
+		t.Errorf("Expected role 'Cloud Networking' preserved, got %q", result[0].Role)
+	}
+	if result[1].Name != "Tim Dunn" {
+		t.Errorf("Expected second person to be 'Tim Dunn', got %q", result[1].Name)
+	}
+}
+
+// pf-0f08e0: Test that fuzzy-matched NER people use canonical DB name.
+func TestResolvePerson_UsesCanonicalName(t *testing.T) {
+	logger := logging.MustGlobal()
+
+	entityLookup := &mockEntityLookup{
+		searchPeopleByNameFunc: func(ctx context.Context, tenantID, name string, limit int) ([]*entities.Person, error) {
+			return []*entities.Person{{
+				ID:            99,
+				CanonicalName: "Timothy Dunn",
+				Title:         "Engineer",
+				IsInternal:    true,
+			}}, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, entityLookup, &mockContextPackageRepo{}, nil, nil)
+
+	rp := activities.resolvePerson(context.Background(), "test-tenant", workflows.PersonResult{
+		Name: "Tim Dunn",
+		Role: "lead",
+	})
+
+	if rp.PersonID == nil {
+		t.Fatal("Expected person to be resolved")
+	}
+	// Name should be canonical DB name, not the NER-extracted name
+	if rp.Name != "Timothy Dunn" {
+		t.Errorf("Expected canonical name 'Timothy Dunn', got %q", rp.Name)
 	}
 }
 

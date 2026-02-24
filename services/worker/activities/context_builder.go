@@ -268,6 +268,7 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 	var resolved []workflows.ResolvedPerson
 	unresolvedCount := 0
 	seenEmails := make(map[string]bool)
+	seenPersonIDs := make(map[int64]bool) // pf-0f08e0: dedup NER-resolved against header-resolved
 	logger := a.logger.WithContext(ctx)
 
 	// Track sender person ID for message count increment
@@ -302,6 +303,7 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 				})
 				seenEmails[senderEmail] = true
 				senderPersonID = &result.Person.ID
+				seenPersonIDs[result.Person.ID] = true
 
 				// Increment sent_count for the sender
 				if a.entityRepo != nil {
@@ -347,6 +349,7 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 					IsPrimaryUser: strings.EqualFold(participant.Email, primaryUserEmail),
 				})
 				seenEmails[participant.Email] = true
+				seenPersonIDs[result.Person.ID] = true
 
 				// Increment received_count for recipients (but not the sender)
 				// If sender is also in the recipient list (e.g., CC'd on their own email), skip them
@@ -365,9 +368,14 @@ func (a *ContextBuilderActivities) resolvePeople(ctx context.Context, tenantID s
 
 	// Resolve extracted people (from LLM - names only, fuzzy match).
 	// Note: people names are already enriched by BuildContextPackage (Step 0.5).
+	// pf-0f08e0: Skip NER people that already resolved from email headers (dedup by person_id).
 	for _, person := range people {
 		rp := a.resolvePerson(ctx, tenantID, person)
 		if rp.PersonID != nil {
+			if seenPersonIDs[*rp.PersonID] {
+				continue // Already in resolved list from header resolution
+			}
+			seenPersonIDs[*rp.PersonID] = true
 			resolved = append(resolved, rp)
 		} else {
 			unresolvedCount++
@@ -455,7 +463,21 @@ func enrichPeopleFromHeaders(people []workflows.PersonResult, senderEmail, sende
 		}
 	}
 
-	return enriched
+	// pf-0f08e0: Dedup enriched list by normalized name.
+	// After enrichment, "Miroslav" → "Miroslav Ponec" may duplicate an existing
+	// "Miroslav Ponec" entry. Keep the first occurrence (preserves role if any).
+	seen := make(map[string]bool)
+	deduped := make([]workflows.PersonResult, 0, len(enriched))
+	for _, p := range enriched {
+		key := strings.ToLower(strings.TrimSpace(p.Name))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		deduped = append(deduped, p)
+	}
+
+	return deduped
 }
 
 // isGarbageTitle filters out meeting invitation text, email header fragments,
@@ -572,6 +594,7 @@ func (a *ContextBuilderActivities) resolvePerson(ctx context.Context, tenantID s
 	// Only use matches with similarity > 0.7
 	if bestSimilarity > 0.7 && bestMatch != nil {
 		rp.PersonID = &bestMatch.ID
+		rp.Name = bestMatch.CanonicalName // pf-0f08e0: use DB canonical name, not raw NER name
 		rp.Confidence = float32(bestSimilarity)
 		rp.Source = "fuzzy"
 		rp.Title = bestMatch.Title
@@ -643,6 +666,14 @@ func (a *ContextBuilderActivities) resolveProject(ctx context.Context, tenantID 
 	if err == nil && projectID != nil {
 		rp.ProjectID = projectID
 		rp.Source = "keyword"
+		return rp
+	}
+
+	// Try name containment match (e.g., "Oslo NLB Workflow" contains project "Oslo")
+	projectID, err = a.contextRepo.ResolveProjectByNameContains(ctx, tenantID, projectName)
+	if err == nil && projectID != nil {
+		rp.ProjectID = projectID
+		rp.Source = "name_contains"
 		return rp
 	}
 
