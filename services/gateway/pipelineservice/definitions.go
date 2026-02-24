@@ -364,8 +364,12 @@ func pipelineDefToProto(d pipeline.PipelineDefinition) *pipelinev1.PipelineDefin
 	for _, s := range d.Stages {
 		stages = append(stages, stageDefToProto(s))
 	}
-	return &pipelinev1.PipelineDefinition{
+	pd := &pipelinev1.PipelineDefinition{
 		Pipeline: d.Pipeline,
 		Stages:   stages,
 	}
+	// ContentType will be visible via proto once the proto field is added.
+	// For now, the data is stored and available through the Go API.
+	_ = d.ContentType
+	return pd
 }

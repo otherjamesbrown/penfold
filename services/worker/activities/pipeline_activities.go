@@ -257,6 +257,10 @@ func (a *PipelineActivities) FetchPipelineDefinition(ctx context.Context, input 
 		Found:  true,
 		Stages: make([]workflows.PipelineStageConfig, len(stages)),
 	}
+	// ContentType is per-pipeline (same for all stages); take from first stage.
+	if len(stages) > 0 && stages[0].ContentType != nil {
+		out.ContentType = *stages[0].ContentType
+	}
 	for i, s := range stages {
 		out.Stages[i] = workflows.PipelineStageConfig{
 			Stage:          s.Stage,

@@ -13,6 +13,7 @@ type StageDefinition struct {
 	ID             int
 	TenantID       string
 	Pipeline       string
+	ContentType    *string
 	Stage          string
 	StageOrder     int
 	Enabled        bool
@@ -26,14 +27,15 @@ type StageDefinition struct {
 
 // PipelineDefinition groups a pipeline name with its ordered stages.
 type PipelineDefinition struct {
-	Pipeline string
-	Stages   []StageDefinition
+	Pipeline    string
+	ContentType string
+	Stages      []StageDefinition
 }
 
 // ListPipelines returns all pipeline definitions for a tenant, grouped by pipeline name.
 func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]PipelineDefinition, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, tenant_id, pipeline, stage, stage_order, enabled,
+		SELECT id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
 		       timeout_seconds, created_at
 		FROM pipeline_definitions
@@ -50,7 +52,7 @@ func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]Pipe
 	for rows.Next() {
 		var sd StageDefinition
 		if err := rows.Scan(
-			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.Stage, &sd.StageOrder,
+			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageOrder,
 			&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
 			&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds, &sd.CreatedAt,
 		); err != nil {
@@ -67,9 +69,15 @@ func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]Pipe
 
 	result := make([]PipelineDefinition, 0, len(order))
 	for _, name := range order {
+		stages := byPipeline[name]
+		var contentType string
+		if len(stages) > 0 && stages[0].ContentType != nil {
+			contentType = *stages[0].ContentType
+		}
 		result = append(result, PipelineDefinition{
-			Pipeline: name,
-			Stages:   byPipeline[name],
+			Pipeline:    name,
+			ContentType: contentType,
+			Stages:      stages,
 		})
 	}
 	return result, nil
@@ -78,7 +86,7 @@ func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]Pipe
 // GetPipelineStages returns the ordered stages for a specific pipeline.
 func (r *Repository) GetPipelineStages(ctx context.Context, tenantID, pipeline string) ([]StageDefinition, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, tenant_id, pipeline, stage, stage_order, enabled,
+		SELECT id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
 		       timeout_seconds, created_at
 		FROM pipeline_definitions
@@ -94,7 +102,7 @@ func (r *Repository) GetPipelineStages(ctx context.Context, tenantID, pipeline s
 	for rows.Next() {
 		var sd StageDefinition
 		if err := rows.Scan(
-			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.Stage, &sd.StageOrder,
+			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageOrder,
 			&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
 			&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds, &sd.CreatedAt,
 		); err != nil {
@@ -159,14 +167,14 @@ func (r *Repository) UpdateStageConfig(ctx context.Context, tenantID, pipeline, 
 		UPDATE pipeline_definitions
 		SET %s
 		WHERE tenant_id = $1 AND pipeline = $2 AND stage = $3
-		RETURNING id, tenant_id, pipeline, stage, stage_order, enabled,
+		RETURNING id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
 		          model_override, prompt_override, skip_when_low, optional,
 		          timeout_seconds, created_at
 	`, joinStrings(setClauses, ", "))
 
 	var sd StageDefinition
 	err := r.db.QueryRow(ctx, query, args...).Scan(
-		&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.Stage, &sd.StageOrder,
+		&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageOrder,
 		&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
 		&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds, &sd.CreatedAt,
 	)
@@ -204,10 +212,10 @@ func (r *Repository) CreatePipeline(ctx context.Context, tenantID, name, fromPip
 	if fromPipeline != "" {
 		// Clone from source pipeline.
 		_, err = tx.Exec(ctx, `
-			INSERT INTO pipeline_definitions (tenant_id, pipeline, stage, stage_order, enabled,
+			INSERT INTO pipeline_definitions (tenant_id, pipeline, content_type, stage, stage_order, enabled,
 			                                  model_override, prompt_override, skip_when_low,
 			                                  optional, timeout_seconds)
-			SELECT tenant_id, $3, stage, stage_order, enabled,
+			SELECT tenant_id, $3, content_type, stage, stage_order, enabled,
 			       model_override, prompt_override, skip_when_low,
 			       optional, timeout_seconds
 			FROM pipeline_definitions
@@ -254,7 +262,7 @@ func (r *Repository) ListAllDefinedStages(ctx context.Context) ([]string, error)
 func (r *Repository) getStageDefinition(ctx context.Context, tenantID, pipeline, stage string) (*StageDefinition, error) {
 	var sd StageDefinition
 	err := r.db.QueryRow(ctx, `
-		SELECT id, tenant_id, pipeline, stage, stage_order, enabled,
+		SELECT id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
 		       timeout_seconds, created_at
 		FROM pipeline_definitions

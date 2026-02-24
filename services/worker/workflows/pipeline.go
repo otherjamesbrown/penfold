@@ -597,8 +597,9 @@ type FetchPipelineDefinitionInput struct {
 
 // FetchPipelineDefinitionOutput is the output from the FetchPipelineDefinition activity.
 type FetchPipelineDefinitionOutput struct {
-	Found  bool                    `json:"found"`  // True if definition was found in DB
-	Stages []PipelineStageConfig   `json:"stages"` // Ordered stage configurations
+	Found       bool                  `json:"found"`                  // True if definition was found in DB
+	ContentType string                `json:"content_type,omitempty"` // Content type (email, meeting, etc.)
+	Stages      []PipelineStageConfig `json:"stages"`                 // Ordered stage configurations
 }
 
 // PipelineStageConfig describes a stage's configuration from pipeline_definitions.
