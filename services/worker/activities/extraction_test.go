@@ -741,8 +741,8 @@ func TestEnrichHeaderParticipants_WithMatches(t *testing.T) {
 	pl := &mockPersonLookup{
 		getPeopleByEmailsFn: func(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error) {
 			return map[string]*PersonInfo{
-				"hvarma@example.com": {ID: 1, CanonicalName: "Hrishikesh Varma", PrimaryEmail: "hvarma@example.com"},
-				"alice@example.com":  {ID: 2, CanonicalName: "Alice Smith", PrimaryEmail: "alice@example.com"},
+				"hvarma@example.com": {ID: 1, CanonicalName: "Hrishikesh Varma", PrimaryEmail: "hvarma@example.com", Title: "VP Engineering"},
+				"alice@example.com":  {ID: 2, CanonicalName: "Alice Smith", PrimaryEmail: "alice@example.com", Title: "Senior Director, Hardware Engineering", IsInternal: true},
 			}, nil
 		},
 		getNameAliasesByPersonIDsFn: func(ctx context.Context, personIDs []int64) (map[int64][]string, error) {
@@ -765,11 +765,11 @@ func TestEnrichHeaderParticipants_WithMatches(t *testing.T) {
 		context.Background(), "tenant1", "hvarma@example.com", "Varma, Hrishikesh", participants, logger,
 	)
 
-	// Sender should be enriched with canonical name and aliases
-	require.Equal(t, "Hrishikesh Varma (also known as: Rishi, Varma)", enrichedSender)
+	// Sender should be enriched with canonical name, title, and aliases
+	require.Equal(t, "Hrishikesh Varma [VP Engineering] (also known as: Rishi, Varma)", enrichedSender)
 
-	// alice@example.com participant should be enriched (no aliases)
-	require.Equal(t, "Alice Smith", enrichedParticipants[0].DisplayName)
+	// alice@example.com participant should be enriched with title (no aliases)
+	require.Equal(t, "Alice Smith [Senior Director, Hardware Engineering]", enrichedParticipants[0].DisplayName)
 
 	// bob@example.com not in person DB — should keep original display name
 	require.Equal(t, "Jones, Bob", enrichedParticipants[1].DisplayName)
@@ -878,20 +878,20 @@ func TestEnrichHeaderParticipants_LookupError(t *testing.T) {
 
 func TestBuildEmailHeaderBlock_EnrichedParticipants(t *testing.T) {
 	// Full flow test: enriched participants -> buildEmailHeaderBlock
-	// Simulates the "Varma, Hrishikesh" -> "Hrishikesh Varma (also known as: Rishi)" case
+	// Simulates the "Varma, Hrishikesh" -> "Hrishikesh Varma [VP Engineering] (also known as: Rishi)" case
 	input := ExtractEntitiesInput{
 		ContentType: "email",
-		SenderName:  "Hrishikesh Varma (also known as: Rishi)",
+		SenderName:  "Hrishikesh Varma [VP Engineering] (also known as: Rishi)",
 		SenderEmail: "hvarma@example.com",
 		Subject:     "Q3 Planning",
 		Participants: []workflows.Participant{
-			{Email: "alice@example.com", DisplayName: "Alice Smith", HeaderRole: "to"},
+			{Email: "alice@example.com", DisplayName: "Alice Smith [Senior Director, Hardware Engineering]", HeaderRole: "to"},
 		},
 	}
 
 	result := buildEmailHeaderBlock(input)
 
-	require.Contains(t, result, "From: Hrishikesh Varma (also known as: Rishi) <hvarma@example.com>")
-	require.Contains(t, result, "To: Alice Smith <alice@example.com>")
+	require.Contains(t, result, "From: Hrishikesh Varma [VP Engineering] (also known as: Rishi) <hvarma@example.com>")
+	require.Contains(t, result, "To: Alice Smith [Senior Director, Hardware Engineering] <alice@example.com>")
 	require.Contains(t, result, "Subject: Q3 Planning")
 }

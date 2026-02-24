@@ -849,10 +849,7 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 	// Enrich sender
 	enrichedSenderName := senderName
 	if person, ok := people[senderEmail]; ok {
-		enrichedSenderName = person.CanonicalName
-		if nameAliases, ok := aliases[person.ID]; ok && len(nameAliases) > 0 {
-			enrichedSenderName += " (also known as: " + strings.Join(nameAliases, ", ") + ")"
-		}
+		enrichedSenderName = formatEnrichedName(person, aliases)
 		logger.Info("Enriched sender from person DB",
 			logging.F("raw_name", senderName),
 			logging.F("canonical_name", person.CanonicalName),
@@ -864,10 +861,7 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 	copy(enrichedParticipants, participants)
 	for i, p := range enrichedParticipants {
 		if person, ok := people[p.Email]; ok {
-			enrichedParticipants[i].DisplayName = person.CanonicalName
-			if nameAliases, ok := aliases[person.ID]; ok && len(nameAliases) > 0 {
-				enrichedParticipants[i].DisplayName += " (also known as: " + strings.Join(nameAliases, ", ") + ")"
-			}
+			enrichedParticipants[i].DisplayName = formatEnrichedName(person, aliases)
 		}
 	}
 
@@ -878,6 +872,23 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 	)
 
 	return enrichedSenderName, enrichedParticipants
+}
+
+// formatEnrichedName builds a display string from PersonInfo and aliases.
+// Example outputs:
+//   "Tim Dunn" (canonical name only)
+//   "Tim Dunn [Senior Director, Hardware Engineering]" (with title)
+//   "Hrishikesh Varma (also known as: Rishi)" (with alias)
+//   "Tim Dunn [Senior Director] (also known as: Timmy)" (both)
+func formatEnrichedName(person *PersonInfo, aliases map[int64][]string) string {
+	name := person.CanonicalName
+	if person.Title != "" {
+		name += " [" + person.Title + "]"
+	}
+	if nameAliases, ok := aliases[person.ID]; ok && len(nameAliases) > 0 {
+		name += " (also known as: " + strings.Join(nameAliases, ", ") + ")"
+	}
+	return name
 }
 
 // buildEmailHeaderBlock constructs a structured email header block for NER prompt enrichment (pf-de2b09).

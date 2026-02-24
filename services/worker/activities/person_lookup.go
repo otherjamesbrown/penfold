@@ -31,6 +31,9 @@ func (a *PersonLookupAdapter) GetPeopleByEmails(ctx context.Context, tenantID st
 			ID:            p.ID,
 			CanonicalName: p.CanonicalName,
 			PrimaryEmail:  p.PrimaryEmail,
+			Title:         p.Title,
+			Department:    p.Department,
+			IsInternal:    p.IsInternal,
 		}
 	}
 	return result, nil

@@ -145,10 +145,16 @@ type EntityRepository interface {
 }
 
 // PersonInfo holds resolved person data for header enrichment.
+// Deliberately broad — not all fields are used in the header block today,
+// but having them available means we can extend the format without changing
+// the DB query or adapter (e.g. adding team name, notes, reporting chain).
 type PersonInfo struct {
 	ID            int64
 	CanonicalName string
 	PrimaryEmail  string
+	Title         string // Job title, e.g. "Senior Director, Hardware Engineering"
+	Department    string // Department, e.g. "Network Engineering"
+	IsInternal    bool   // Whether person is internal to the tenant's org
 }
 
 // PersonLookup provides person database lookups for header enrichment.
