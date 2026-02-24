@@ -28,6 +28,62 @@ NOMAD_JOB_FILE="deploy/nomad/worker.nomad.hcl"
 NOMAD_JOB_NAME="penfold-worker"
 WORKER_URL="http://dev01.brown.chat:8085"
 
+# --- Pre-deploy Cleanup ---
+
+kill_orphan_workers() {
+    log_info "Checking for orphan penfold-worker processes..."
+
+    # Get the PID of the Nomad-managed worker (child of sudo, launched by Nomad).
+    # Nomad raw_exec runs: sudo -u james /bin/sh -c '... exec /opt/penfold/bin/penfold-worker'
+    local nomad_alloc_id
+    nomad_alloc_id=$(NOMAD_ADDR="$NOMAD_ADDR" nomad job status -json "$NOMAD_JOB_NAME" 2>/dev/null \
+        | python3 -c "import json,sys; allocs=[a for a in json.load(sys.stdin).get('Allocations',[]) if a['ClientStatus']=='running']; print(allocs[0]['ID'] if allocs else '')" 2>/dev/null || echo "")
+
+    # Find all penfold-worker PIDs
+    local all_pids
+    all_pids=$(pgrep -f "penfold-worker" 2>/dev/null | tr '\n' ' ')
+
+    if [[ -z "$all_pids" ]]; then
+        log_info "No worker processes found"
+        return 0
+    fi
+
+    # Kill ALL worker processes — Nomad will restart its own after nomad_restart_job.
+    # This is safe because we call nomad_restart_job immediately after.
+    # Use SIGTERM first, then SIGKILL after grace period for any survivors.
+    local killed=0
+    for pid in $all_pids; do
+        # Skip sudo/su parent processes, only kill the actual worker
+        local cmd=$(ps -p "$pid" -o comm= 2>/dev/null)
+        if [[ "$cmd" == *"penfold-worker"* ]]; then
+            kill "$pid" 2>/dev/null && ((killed++)) || true
+        fi
+    done
+
+    if [[ $killed -gt 0 ]]; then
+        log_info "Sent SIGTERM to ${killed} worker process(es), waiting for exit..."
+        sleep 3
+
+        # SIGKILL any survivors — on macOS, SIGTERM through sudo chains
+        # may not reach the actual worker process.
+        local survivors=$(pgrep -f "penfold-worker" 2>/dev/null | tr '\n' ' ')
+        if [[ -n "$survivors" ]]; then
+            for pid in $survivors; do
+                local cmd=$(ps -p "$pid" -o comm= 2>/dev/null)
+                if [[ "$cmd" == *"penfold-worker"* ]]; then
+                    kill -9 "$pid" 2>/dev/null || true
+                fi
+            done
+            log_warn "SIGKILL sent to surviving worker processes"
+            sleep 1
+        fi
+
+        log_success "Worker cleanup complete — Nomad will restart fresh"
+    else
+        log_info "No orphan workers to clean up"
+    fi
+}
+
 # --- Build & Deploy ---
 
 build_worker() {
@@ -112,12 +168,25 @@ cmd_full_deploy() {
     deploy_binary
     echo ""
 
+    # Kill any orphan worker processes not managed by Nomad. These can appear
+    # when the worker is started manually (e.g., during debugging) and register
+    # as Temporal workers on the same task queues, causing stale code to handle
+    # tasks alongside the Nomad-managed worker.
+    kill_orphan_workers
+    echo ""
+
     # Run migrations before restarting service
     run_migrations
     echo ""
 
     log_info "Submitting Nomad job..."
     nomad_run_job "$NOMAD_JOB_FILE"
+    echo ""
+
+    # Force restart to pick up the new binary. nomad_run_job only submits the
+    # job spec — if the spec hasn't changed, Nomad won't restart the allocation,
+    # leaving the old binary running in memory (ghost deploy).
+    nomad_restart_job "$NOMAD_JOB_NAME"
     echo ""
 
     if ! nomad_wait_healthy "$NOMAD_JOB_NAME" 60; then

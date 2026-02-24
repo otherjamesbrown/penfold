@@ -32,6 +32,27 @@ job "penfold-worker" {
       mode     = "fail"
     }
 
+    # Kill orphan workers before the main task starts. On macOS, raw_exec
+    # through sudo doesn't forward SIGTERM reliably, so previous workers
+    # can survive Nomad restarts. This prestart task ensures a clean slate.
+    task "cleanup" {
+      driver    = "raw_exec"
+      lifecycle {
+        hook    = "prestart"
+        sidecar = false
+      }
+
+      config {
+        command = "/bin/sh"
+        args    = ["-c", "pkill -9 -f penfold-worker 2>/dev/null; sleep 3; exit 0"]
+      }
+
+      resources {
+        cpu    = 100
+        memory = 64
+      }
+    }
+
     task "worker" {
       driver = "raw_exec"
 
@@ -40,8 +61,10 @@ job "penfold-worker" {
       kill_timeout   = "35s"
 
       config {
-        command = "/bin/sh"
-        args    = ["-c", "exec sudo -u james /bin/sh -c 'set -a; . /etc/penfold/worker.env; set +a; exec /opt/penfold/bin/penfold-worker'"]
+        # Use su instead of sudo — su on macOS properly forwards signals
+        # to child processes, preventing zombie workers on restart.
+        command = "/usr/bin/su"
+        args    = ["-m", "james", "-c", "set -a; . /etc/penfold/worker.env; set +a; exec /opt/penfold/bin/penfold-worker"]
       }
 
       service {
