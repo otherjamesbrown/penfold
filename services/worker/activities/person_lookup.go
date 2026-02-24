@@ -43,3 +43,8 @@ func (a *PersonLookupAdapter) GetPeopleByEmails(ctx context.Context, tenantID st
 func (a *PersonLookupAdapter) GetNameAliasesByPersonIDs(ctx context.Context, personIDs []int64) (map[int64][]string, error) {
 	return a.repo.GetNameAliasesByPersonIDs(ctx, personIDs)
 }
+
+// GetMetadataByPersonIDs delegates directly to the underlying repository.
+func (a *PersonLookupAdapter) GetMetadataByPersonIDs(ctx context.Context, personIDs []int64) (map[int64]map[string]string, error) {
+	return a.repo.GetMetadataByPersonIDs(ctx, personIDs)
+}

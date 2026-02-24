@@ -152,15 +152,17 @@ type PersonInfo struct {
 	ID            int64
 	CanonicalName string
 	PrimaryEmail  string
-	Title         string // Job title, e.g. "Senior Director, Hardware Engineering"
-	Department    string // Department, e.g. "Network Engineering"
-	IsInternal    bool   // Whether person is internal to the tenant's org
+	Title         string            // Job title, e.g. "Senior Director, Hardware Engineering"
+	Department    string            // Department, e.g. "Network Engineering"
+	IsInternal    bool              // Whether person is internal to the tenant's org
+	Metadata      map[string]string // Arbitrary metadata (reports_to, notes, etc.) from entity_resolution_metadata
 }
 
 // PersonLookup provides person database lookups for header enrichment.
 type PersonLookup interface {
 	GetPeopleByEmails(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error)
 	GetNameAliasesByPersonIDs(ctx context.Context, personIDs []int64) (map[int64][]string, error)
+	GetMetadataByPersonIDs(ctx context.Context, personIDs []int64) (map[int64]map[string]string, error)
 }
 
 // Entity represents an extracted named entity.

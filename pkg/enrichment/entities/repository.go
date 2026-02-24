@@ -195,6 +195,48 @@ func (r *Repository) GetNameAliasesByPersonIDs(ctx context.Context, personIDs []
 	return result, nil
 }
 
+// GetMetadataByPersonIDs retrieves entity_resolution_metadata for multiple people in a single query.
+// Returns a map of personID -> metadata key/value pairs. People with no metadata are omitted.
+func (r *Repository) GetMetadataByPersonIDs(ctx context.Context, personIDs []int64) (map[int64]map[string]string, error) {
+	if len(personIDs) == 0 {
+		return map[int64]map[string]string{}, nil
+	}
+
+	query := `
+		SELECT id, entity_resolution_metadata
+		FROM people
+		WHERE id = ANY($1) AND entity_resolution_metadata IS NOT NULL AND entity_resolution_metadata != '{}'::jsonb
+	`
+
+	rows, err := r.pool.Query(ctx, query, personIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metadata by person IDs: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64]map[string]string)
+	for rows.Next() {
+		var personID int64
+		var metadataJSON []byte
+		if err := rows.Scan(&personID, &metadataJSON); err != nil {
+			return nil, fmt.Errorf("failed to scan metadata row: %w", err)
+		}
+		var md map[string]string
+		if err := json.Unmarshal(metadataJSON, &md); err != nil {
+			// Log but skip malformed metadata
+			continue
+		}
+		if len(md) > 0 {
+			result[personID] = md
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate metadata rows: %w", err)
+	}
+
+	return result, nil
+}
+
 // GetPersonByAlias retrieves a person by any alias value.
 func (r *Repository) GetPersonByAlias(ctx context.Context, tenantID, aliasValue string) (*Person, error) {
 	query := `

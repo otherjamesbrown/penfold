@@ -855,6 +855,23 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 		aliases = nil
 	}
 
+	// Batch lookup person metadata (pf-2d3ec8)
+	personMetadata, err := a.personLookup.GetMetadataByPersonIDs(ctx, personIDs)
+	if err != nil {
+		logger.Warn("Failed to lookup metadata for header enrichment", logging.Err(err))
+		// Continue without metadata — we still have names and aliases
+		personMetadata = nil
+	}
+
+	// Attach metadata to PersonInfo objects
+	if personMetadata != nil {
+		for _, p := range people {
+			if md, ok := personMetadata[p.ID]; ok {
+				p.Metadata = md
+			}
+		}
+	}
+
 	// Enrich sender
 	enrichedSenderName := senderName
 	if person, ok := people[senderEmail]; ok {
@@ -878,10 +895,15 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 		logging.F("total_emails", len(emails)),
 		logging.F("matched_people", len(people)),
 		logging.F("aliases_found", len(aliases)),
+		logging.F("metadata_found", len(personMetadata)),
 	)
 
 	return enrichedSenderName, enrichedParticipants
 }
+
+// nerMetadataKeys defines which metadata keys to include in NER header enrichment.
+// Not all metadata is useful for NER — this whitelist controls what's shown.
+var nerMetadataKeys = []string{"reports_to", "notes", "team"}
 
 // formatEnrichedName builds a display string from PersonInfo and aliases.
 // Example outputs:
@@ -889,11 +911,28 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 //   "Tim Dunn [Senior Director, Hardware Engineering]" (with title)
 //   "Hrishikesh Varma (also known as: Rishi)" (with alias)
 //   "Tim Dunn [Senior Director] (also known as: Timmy)" (both)
+//   "Sara Weisman [MTC Program Solution Lead, reports to James Brown]" (with metadata)
 func formatEnrichedName(person *PersonInfo, aliases map[int64][]string) string {
 	name := person.CanonicalName
+
+	// Build bracket annotation: title + whitelisted metadata
+	var annotations []string
 	if person.Title != "" {
-		name += " [" + person.Title + "]"
+		annotations = append(annotations, person.Title)
 	}
+	if person.Metadata != nil {
+		for _, key := range nerMetadataKeys {
+			if val, ok := person.Metadata[key]; ok && val != "" {
+				// Format as "key value" with underscores replaced by spaces
+				label := strings.ReplaceAll(key, "_", " ")
+				annotations = append(annotations, label+" "+val)
+			}
+		}
+	}
+	if len(annotations) > 0 {
+		name += " [" + strings.Join(annotations, ", ") + "]"
+	}
+
 	if nameAliases, ok := aliases[person.ID]; ok && len(nameAliases) > 0 {
 		name += " (also known as: " + strings.Join(nameAliases, ", ") + ")"
 	}

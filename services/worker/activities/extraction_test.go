@@ -719,6 +719,7 @@ func TestExtractEntities_NonEmailNoHeaders(t *testing.T) {
 type mockPersonLookup struct {
 	getPeopleByEmailsFn         func(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error)
 	getNameAliasesByPersonIDsFn func(ctx context.Context, personIDs []int64) (map[int64][]string, error)
+	getMetadataByPersonIDsFn    func(ctx context.Context, personIDs []int64) (map[int64]map[string]string, error)
 }
 
 func (m *mockPersonLookup) GetPeopleByEmails(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error) {
@@ -733,6 +734,13 @@ func (m *mockPersonLookup) GetNameAliasesByPersonIDs(ctx context.Context, person
 		return m.getNameAliasesByPersonIDsFn(ctx, personIDs)
 	}
 	return map[int64][]string{}, nil
+}
+
+func (m *mockPersonLookup) GetMetadataByPersonIDs(ctx context.Context, personIDs []int64) (map[int64]map[string]string, error) {
+	if m.getMetadataByPersonIDsFn != nil {
+		return m.getMetadataByPersonIDsFn(ctx, personIDs)
+	}
+	return map[int64]map[string]string{}, nil
 }
 
 func TestEnrichHeaderParticipants_WithMatches(t *testing.T) {
@@ -957,4 +965,93 @@ func TestBuildEmailHeaderBlock_EnrichedParticipants(t *testing.T) {
 	require.Contains(t, result, "From: Hrishikesh Varma [VP Engineering] (also known as: Rishi) <hvarma@example.com>")
 	require.Contains(t, result, "To: Alice Smith [Senior Director, Hardware Engineering] <alice@example.com>")
 	require.Contains(t, result, "Subject: Q3 Planning")
+}
+
+func TestEnrichHeaderParticipants_WithMetadata(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	pl := &mockPersonLookup{
+		getPeopleByEmailsFn: func(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error) {
+			return map[string]*PersonInfo{
+				"sweisman@akamai.com": {ID: 8004, CanonicalName: "Sara Weisman", PrimaryEmail: "sweisman@akamai.com", Title: "MTC Program Solution Lead", IsInternal: true},
+				"tdunn@akamai.com":    {ID: 1001, CanonicalName: "Tim Dunn", PrimaryEmail: "tdunn@akamai.com", Title: "Senior Director, Hardware Engineering", IsInternal: true},
+			}, nil
+		},
+		getNameAliasesByPersonIDsFn: func(ctx context.Context, personIDs []int64) (map[int64][]string, error) {
+			return map[int64][]string{}, nil
+		},
+		getMetadataByPersonIDsFn: func(ctx context.Context, personIDs []int64) (map[int64]map[string]string, error) {
+			return map[int64]map[string]string{
+				8004: {"reports_to": "James Brown", "notes": "CLIC program lead"},
+				// 1001 has no metadata
+			}, nil
+		},
+	}
+
+	acts := NewExtractionActivities(logger, &mockAIClient{}, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+	acts.WithPersonLookup(pl)
+
+	participants := []workflows.Participant{
+		{Email: "tdunn@akamai.com", DisplayName: "Dunn, Tim", HeaderRole: "to"},
+	}
+
+	enrichedSender, enrichedParticipants := acts.enrichHeaderParticipants(
+		context.Background(), "tenant1", "sweisman@akamai.com", "Weisman, Sara", participants, logger,
+	)
+
+	// Sara Weisman should include title + metadata (reports_to and notes from whitelist)
+	require.Equal(t, "Sara Weisman [MTC Program Solution Lead, reports to James Brown, notes CLIC program lead]", enrichedSender)
+
+	// Tim Dunn has no metadata — just title
+	require.Equal(t, "Tim Dunn [Senior Director, Hardware Engineering]", enrichedParticipants[0].DisplayName)
+}
+
+func TestFormatEnrichedName_MetadataWhitelist(t *testing.T) {
+	// Only whitelisted keys should appear
+	person := &PersonInfo{
+		ID:            1,
+		CanonicalName: "Test Person",
+		Title:         "Engineer",
+		Metadata: map[string]string{
+			"reports_to":     "Boss Name",
+			"team":           "Platform",
+			"notes":          "Key contributor",
+			"secret_field":   "should not appear",
+			"internal_notes": "also hidden",
+		},
+	}
+
+	result := formatEnrichedName(person, nil)
+
+	require.Contains(t, result, "Engineer")
+	require.Contains(t, result, "reports to Boss Name")
+	require.Contains(t, result, "notes Key contributor")
+	require.Contains(t, result, "team Platform")
+	require.NotContains(t, result, "secret_field")
+	require.NotContains(t, result, "internal_notes")
+}
+
+func TestFormatEnrichedName_NoMetadata(t *testing.T) {
+	// No metadata — same behavior as before
+	person := &PersonInfo{
+		ID:            1,
+		CanonicalName: "Alice",
+		Title:         "Director",
+	}
+
+	aliases := map[int64][]string{1: {"Ali"}}
+	result := formatEnrichedName(person, aliases)
+	require.Equal(t, "Alice [Director] (also known as: Ali)", result)
+}
+
+func TestFormatEnrichedName_MetadataNoTitle(t *testing.T) {
+	// Metadata without title
+	person := &PersonInfo{
+		ID:            1,
+		CanonicalName: "Bob",
+		Metadata:      map[string]string{"reports_to": "Alice"},
+	}
+
+	result := formatEnrichedName(person, nil)
+	require.Equal(t, "Bob [reports to Alice]", result)
 }
