@@ -8,6 +8,7 @@ package activities
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -279,6 +280,40 @@ func TestExtractAssertionsPipelineRun_ZeroAssertionsStillRecorded(t *testing.T) 
 //
 // The fix is verified here at the struct level: the variable embedModelUsed is captured
 // from resp.ModelUsed on the first chunk and passed to PipelineRunInput.ModelID.
+// pf-edbda4: Verify that failed extraction records pipeline_runs with status="failed".
+// Previously, when the AI service returned an error, no pipeline_run was created,
+// making it appear as if the stage was skipped during reprocess.
+func TestExtractionPipelineRun_FailureRecorded(t *testing.T) {
+	logger := logging.NewNopLogger()
+	repo := &capturingPipelineRepo{}
+
+	mockClient := &mockAIClient{
+		extractEntitiesFn: func(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error) {
+			return nil, fmt.Errorf("LLM service unavailable")
+		},
+	}
+
+	act := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, repo)
+
+	_, err := act.ExtractEntities(context.Background(), workflows.SLMPipelineExtractEntitiesInput{
+		TenantID: "tenant-1",
+		SourceID: 99,
+		Content:  "Some test content for extraction.",
+	})
+	require.Error(t, err, "extraction should fail when AI service is unavailable")
+
+	// Failed runs should be recorded for both extract_ner and extract_semantic
+	require.Len(t, repo.runs, 2, "expected failed pipeline_runs for extract_ner and extract_semantic")
+
+	for _, run := range repo.runs {
+		require.Equal(t, "failed", run.Status, "failed run should have status 'failed'")
+		require.Equal(t, int64(99), run.SourceID)
+		require.NotEmpty(t, run.SkipReason, "failed run should include error details in skip_reason")
+	}
+	require.Equal(t, "extract_ner", repo.runs[0].Stage)
+	require.Equal(t, "extract_semantic", repo.runs[1].Stage)
+}
+
 func TestEmbeddingPipelineRun_ModelFromResponse(t *testing.T) {
 	// Verify that PipelineRunInput properly stores a real model name (not "chunked").
 	// This documents the expected shape after the pf-354b4f fix.

@@ -372,6 +372,27 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	startTime := time.Now()
 	contentRunes := []rune(input.Content)
 
+	// pf-edbda4: Record failed pipeline runs for provenance.
+	// When extraction fails, record the failure so `penf pipeline inspect` shows
+	// the attempt rather than appearing as if the stage was skipped entirely.
+	var extractionFailed bool
+	var failureError string
+	defer func() {
+		if extractionFailed && a.pipelineRepo != nil {
+			durationMS := int(time.Since(startTime).Milliseconds())
+			for _, stage := range []string{"extract_ner", "extract_semantic"} {
+				_ = a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+					SourceID:        input.SourceID,
+					Stage:           stage,
+					Status:          "failed",
+					DurationMS:      durationMS,
+					SkipReason:      failureError,
+					LangfuseTraceID: input.LangfuseTraceID,
+				})
+			}
+		}
+	}()
+
 	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
 	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
 		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
@@ -419,6 +440,8 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		if err != nil {
 			pe := perrors.ClassifyError(err, "extract_ner")
 			logger.Error("Failed to extract entities from AI service", logging.Err(pe))
+			extractionFailed = true
+			failureError = pe.Error()
 			return nil, WrapForTemporal(pe)
 		}
 		results = append(results, resp)
@@ -461,6 +484,8 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 					logging.F("chunk_index", i),
 					logging.F("chunk_length", len(chunk.Content)),
 				)
+				extractionFailed = true
+				failureError = pe.Error()
 				return nil, WrapForTemporal(pe)
 			}
 			results = append(results, resp)
