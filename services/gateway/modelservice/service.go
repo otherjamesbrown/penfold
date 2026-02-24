@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/sources"
+	pipelinetemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
 // Service implements the AICoordinatorService for model management via Gateway.
@@ -1097,24 +1099,25 @@ func extractJSON(text string) string {
 // CLI Model Management RPCs (Gateway-only)
 // =============================================================================
 
-// validStages defines all real pipeline stages from pipeline_definitions.
-var validStages = map[string]bool{
-	"parse":               true,
-	"parse_transcript":    true,
-	"triage":              true,
-	"extract_ner":         true,
-	"extract_assertions":  true,
-	"extract_semantic":    true,
-	"resolve":             true,
-	"analyze":             true,
-	"embed":               true,
-	"persist":             true,
+// isValidStage checks if a stage name is registered in the pipeline stage registry.
+func isValidStage(name string) bool {
+	_, ok := pipelinetemporal.StageActivityMap[name]
+	return ok
 }
 
-// stageEnvVars maps stage names to their environment variable names.
-// Stages without dedicated env vars (parse, parse_transcript, extract_semantic, resolve, persist)
-// fall through to the global default.
-var stageEnvVars = map[string]string{
+// registeredStageNames returns all stage names from StageActivityMap, sorted for stable output.
+func registeredStageNames() []string {
+	stages := make([]string, 0, len(pipelinetemporal.StageActivityMap))
+	for stage := range pipelinetemporal.StageActivityMap {
+		stages = append(stages, stage)
+	}
+	sort.Strings(stages)
+	return stages
+}
+
+// legacyStageEnvVars maps stage names to their pre-existing environment variable names.
+// New stages use the generic pattern AI_MODEL_<UPPER_STAGE>.
+var legacyStageEnvVars = map[string]string{
 	"triage":              "AI_MODEL_TRIAGE",
 	"extract_ner":         "AI_MODEL_EXTRACT_ENTITIES",
 	"extract_assertions":  "AI_MODEL_EXTRACT_ASSERTIONS",
@@ -1122,18 +1125,30 @@ var stageEnvVars = map[string]string{
 	"embed":               "AI_MODEL_EMBEDDING",
 }
 
-// stageDefaults maps stage names to their default model names.
-var stageDefaults = map[string]string{
-	"parse":               "qwen2.5:7b",
-	"parse_transcript":    "qwen2.5:7b",
-	"triage":              "qwen2.5:7b",
-	"extract_ner":         "qwen2.5:7b",
-	"extract_assertions":  "qwen2.5:7b",
-	"extract_semantic":    "qwen2.5:7b",
-	"resolve":             "qwen2.5:7b",
-	"analyze":             "gemini-2.5-pro",
-	"embed":               "mxbai-embed-large",
-	"persist":             "qwen2.5:7b",
+// stageEnvVar returns the environment variable name for a stage.
+// Legacy stages use their existing names; new stages use AI_MODEL_<UPPER_STAGE>.
+func stageEnvVar(stage string) string {
+	if v, ok := legacyStageEnvVars[stage]; ok {
+		return v
+	}
+	return "AI_MODEL_" + strings.ToUpper(stage)
+}
+
+// defaultStageModel is the fallback model for stages without a specific default.
+const defaultStageModel = "qwen2.5:7b"
+
+// stageDefaultOverrides lists stages whose default model differs from defaultStageModel.
+var stageDefaultOverrides = map[string]string{
+	"analyze": "gemini-2.5-pro",
+	"embed":   "mxbai-embed-large",
+}
+
+// stageDefault returns the default model for a stage.
+func stageDefault(stage string) string {
+	if v, ok := stageDefaultOverrides[stage]; ok {
+		return v
+	}
+	return defaultStageModel
 }
 
 // GetStageModels returns model configuration for all LLM and embedding pipeline stages.
@@ -1173,12 +1188,8 @@ func (s *Service) GetStageModels(ctx context.Context, req *aiv1.GetStageModelsRe
 		}
 	}
 
-	// Build response for LLM and embedding stages that use model config.
-	// Internal stages (parse, parse_transcript, persist) are omitted.
-	stages := []string{
-		"triage", "extract_ner", "extract_assertions", "extract_semantic",
-		"resolve", "analyze", "embed",
-	}
+	// Build response for all registered pipeline stages.
+	stages := registeredStageNames()
 	var stageInfos []*aiv1.StageModelInfo
 
 	for _, stageName := range stages {
@@ -1189,15 +1200,13 @@ func (s *Service) GetStageModels(ctx context.Context, req *aiv1.GetStageModelsRe
 		if dbModel, ok := dbOverrides[stageName]; ok {
 			modelName = dbModel
 			source = "db"
-		} else if envVar, ok := stageEnvVars[stageName]; ok {
-			if envModel := os.Getenv(envVar); envModel != "" {
-				modelName = envModel
-				source = "env"
-			}
+		} else if envModel := os.Getenv(stageEnvVar(stageName)); envModel != "" {
+			modelName = envModel
+			source = "env"
 		}
 
 		if modelName == "" {
-			modelName = stageDefaults[stageName]
+			modelName = stageDefault(stageName)
 			source = "default"
 		}
 
@@ -1236,8 +1245,8 @@ func (s *Service) SetStageModel(ctx context.Context, req *aiv1.SetStageModelRequ
 	if req.GetStageName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "stage_name is required")
 	}
-	if !validStages[req.GetStageName()] {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, parse_transcript, triage, extract_ner, extract_assertions, extract_semantic, resolve, analyze, embed, persist)", req.GetStageName())
+	if !isValidStage(req.GetStageName()) {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (valid stages: %s)", req.GetStageName(), strings.Join(registeredStageNames(), ", "))
 	}
 
 	// Validate model name
@@ -1303,8 +1312,8 @@ func (s *Service) ResetStageModel(ctx context.Context, req *aiv1.ResetStageModel
 	if req.GetStageName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "stage_name is required")
 	}
-	if !validStages[req.GetStageName()] {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, parse_transcript, triage, extract_ner, extract_assertions, extract_semantic, resolve, analyze, embed, persist)", req.GetStageName())
+	if !isValidStage(req.GetStageName()) {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (valid stages: %s)", req.GetStageName(), strings.Join(registeredStageNames(), ", "))
 	}
 
 	tenantID := req.GetTenantId()
@@ -1333,14 +1342,12 @@ func (s *Service) ResetStageModel(ctx context.Context, req *aiv1.ResetStageModel
 	// Determine fallback model and source
 	modelName := ""
 	source := ""
-	if envVar, ok := stageEnvVars[req.GetStageName()]; ok {
-		if envModel := os.Getenv(envVar); envModel != "" {
-			modelName = envModel
-			source = "env"
-		}
+	if envModel := os.Getenv(stageEnvVar(req.GetStageName())); envModel != "" {
+		modelName = envModel
+		source = "env"
 	}
 	if modelName == "" {
-		modelName = stageDefaults[req.GetStageName()]
+		modelName = stageDefault(req.GetStageName())
 		source = "default"
 	}
 
@@ -1428,8 +1435,8 @@ func (s *Service) TestModel(ctx context.Context, req *aiv1.TestModelRequest) (*a
 	if req.GetStageName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "stage_name is required")
 	}
-	if !validStages[req.GetStageName()] {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (must be one of: parse, parse_transcript, triage, extract_ner, extract_assertions, extract_semantic, resolve, analyze, embed, persist)", req.GetStageName())
+	if !isValidStage(req.GetStageName()) {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid stage_name: %s (valid stages: %s)", req.GetStageName(), strings.Join(registeredStageNames(), ", "))
 	}
 	if req.GetModelName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "model_name is required")

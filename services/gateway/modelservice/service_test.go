@@ -11,6 +11,7 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	pipelinetemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
 func testLogger() logging.Logger {
@@ -211,7 +212,7 @@ func TestServiceImplementsInterface(t *testing.T) {
 // ============ Model Management Tests (Gateway Feature) ============
 
 // TestGetStageModels_NilDB verifies that when DB is nil, GetStageModels still returns
-// all 5 pipeline stages with env/default sources, without attempting DB queries.
+// all registered pipeline stages with env/default sources, without attempting DB queries.
 func TestGetStageModels_NilDB(t *testing.T) {
 	svc := NewService(nil, testLogger())
 	// DB is nil by default in NewService
@@ -225,14 +226,12 @@ func TestGetStageModels_NilDB(t *testing.T) {
 	require.NoError(t, err, "GetStageModels should succeed even when DB is nil")
 	require.NotNil(t, resp)
 
-	// Should return all 7 LLM/embedding stages (parse, parse_transcript, persist omitted)
-	require.Len(t, resp.Stages, 7, "should return 7 LLM/embedding pipeline stages")
+	// Should return all registered stages from StageActivityMap
+	expectedCount := len(pipelinetemporal.StageActivityMap)
+	require.Len(t, resp.Stages, expectedCount, "should return all %d registered pipeline stages", expectedCount)
 
-	// Verify stage names (in order: triage, extract_ner, extract_assertions, extract_semantic, resolve, analyze, embed)
-	expectedStages := []string{
-		"triage", "extract_ner", "extract_assertions", "extract_semantic",
-		"resolve", "analyze", "embed",
-	}
+	// Verify stages are sorted and each has required fields
+	expectedStages := registeredStageNames()
 	for i, expectedStage := range expectedStages {
 		assert.Equal(t, expectedStage, resp.Stages[i].StageName, "stage %d should be %s", i, expectedStage)
 		assert.NotEmpty(t, resp.Stages[i].ModelName, "stage %s should have a model name", expectedStage)
