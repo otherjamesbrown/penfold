@@ -90,6 +90,7 @@ var StageActivityMap = map[string][]string{
 	"extract_semantic":    {ActivityExtractMentions},
 	"resolve":             {ActivityBuildContextPackage},
 	"analyze":             {ActivityDeepAnalyze},
+	"summary":             {ActivityGenerateContentSummary},
 	"persist":             {ActivityPersistFindings},
 	"embed":               {ActivityGenerateContentEmbedding},
 }

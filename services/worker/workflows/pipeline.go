@@ -1358,7 +1358,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	{
 		summarizeStart := workflow.Now(ctx)
 		summarizePhaseID := sideEffectUUID(ctx)
-		summarizeOpts := stageOpts("summarize", llmOpts)
+		summarizeOpts := stageOpts("summary", llmOpts)
 		ctxSummarize := workflow.WithActivityOptions(ctx, summarizeOpts)
 		var summaryID int64
 		summarizeErr := workflow.ExecuteActivity(ctxSummarize, pkgtemporal.ActivityGenerateContentSummary, GenerateSummaryInput{
@@ -1437,6 +1437,41 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			"category", triageOutput.Category,
 			"importance", triageOutput.Importance,
 		)
+	}
+
+	// Pipeline definition override: if the definition says skip_when_low=false
+	// for extraction/analyze stages, honor that over triage SkipDeep.
+	// This allows pipelines like "transcript" to declare "never skip extraction".
+	if stageConfigMap != nil && (skipExtract || skipAnalyze) {
+		extractStages := []string{"extract_ner", "extract_assertions", "extract_semantic", "resolve"}
+		analyzeStages := []string{"analyze"}
+
+		if skipExtract {
+			for _, s := range extractStages {
+				if cfg, ok := stageConfigMap[s]; ok && cfg.Enabled && !cfg.SkipWhenLow {
+					skipExtract = false
+					logger.Info("pipeline definition override: extraction not skipped (skip_when_low=false)",
+						"source_id", input.SourceID,
+						"pipeline", pipelineName,
+						"stage", s,
+					)
+					break
+				}
+			}
+		}
+		if skipAnalyze {
+			for _, s := range analyzeStages {
+				if cfg, ok := stageConfigMap[s]; ok && cfg.Enabled && !cfg.SkipWhenLow {
+					skipAnalyze = false
+					logger.Info("pipeline definition override: analyze not skipped (skip_when_low=false)",
+						"source_id", input.SourceID,
+						"pipeline", pipelineName,
+						"stage", s,
+					)
+					break
+				}
+			}
+		}
 	}
 
 	// Triage gate: skip Stages 2-4.5 for LOW/PERSONAL content or low contribution
