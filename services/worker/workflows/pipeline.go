@@ -369,28 +369,8 @@ func (cp *ContextPackage) FormatForPrompt() string {
 		sections = append(sections, "### Glossary\n"+strings.Join(lines, "\n"))
 	}
 
-	if len(cp.ParticipantContext) > 0 {
-		var lines []string
-		for _, p := range cp.ParticipantContext {
-			desc := p.Name
-			// Build annotation parts after the em dash
-			var parts []string
-			if p.Department != "" {
-				parts = append(parts, p.Department)
-			}
-			if p.Role != "" {
-				parts = append(parts, p.Role)
-			}
-			if p.IsPrimaryUser {
-				parts = append(parts, "[Primary user]")
-			}
-			if len(parts) > 0 {
-				desc += " — " + strings.Join(parts, ". ")
-			}
-			lines = append(lines, fmt.Sprintf("- %s", desc))
-		}
-		sections = append(sections, "### Participant Context\n"+strings.Join(lines, "\n"))
-	}
+	// Note: Participant Context is no longer rendered here. People context is now
+	// provided via the enriched Entities section in the analyze prompt (pf-9c1485).
 
 	if len(cp.ActiveRisks) > 0 {
 		var lines []string
@@ -451,6 +431,7 @@ type DeepAnalyzeInput struct {
 	TriageCategory    string                            `json:"triage_category"`
 	TriageImportance  string                            `json:"triage_importance"`
 	ExtractionResult  *SLMPipelineExtractEntitiesOutput `json:"extraction_result"`
+	ResolvedPeople    []ResolvedPerson                  `json:"resolved_people,omitempty"`
 	BackgroundContext string `json:"background_context,omitempty"`
 	ModelOverride    string `json:"model_override,omitempty"` // Optional model override for reprocessing
 	// Langfuse tracing: passed via gRPC metadata to AI coordinator.
@@ -1984,6 +1965,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			analyzeExtraction = contextOutput.CorrectedExtraction
 		}
 
+		// Pass resolved people from context output to enrich the entities section
+		var analyzeResolvedPeople []ResolvedPerson
+		if contextOutput != nil {
+			analyzeResolvedPeople = contextOutput.ResolvedPeople
+		}
+
 		analyzeOutput = &DeepAnalyzeOutput{}
 		err = workflow.ExecuteActivity(ctxAnalyze, pkgtemporal.ActivityDeepAnalyze, DeepAnalyzeInput{
 			TenantID:          input.TenantID,
@@ -1995,6 +1982,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			TriageCategory:    triageOutput.Category,
 			TriageImportance:  triageOutput.Importance,
 			ExtractionResult:  analyzeExtraction,
+			ResolvedPeople:    analyzeResolvedPeople,
 			BackgroundContext: formatContextPackage(contextOutput),
 			ModelOverride:     input.ModelOverride,
 			LangfuseTraceID:   langfuseTraceID,

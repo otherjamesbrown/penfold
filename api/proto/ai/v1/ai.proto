@@ -507,7 +507,11 @@ message ExtractEntitiesRequest {
 // PersonEntity represents a person extracted from content.
 message PersonEntity {
   string name = 1;
-  string role = 2;  // Role/title if stated
+  string role = 2;            // "Sender", "To", "CC", or NER-extracted role
+  string title = 3;           // Job title from DB (e.g., "Director", "Solution Lead")
+  string department = 4;      // Department from DB (e.g., "Cloud Networking", "CLIC")
+  bool is_primary_user = 5;   // True if this is the configured primary user
+  string source = 6;          // "header" (from email headers) or "body" (from NER/body mention)
 }
 
 // DateEntity represents a date or deadline extracted from content.

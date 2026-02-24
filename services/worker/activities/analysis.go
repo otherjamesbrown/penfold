@@ -206,16 +206,40 @@ func buildDeepAnalyzeRequest(input workflows.DeepAnalyzeInput) *aiv1.DeepAnalyze
 	}
 	// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
-	// Convert workflows.SLMPipelineExtractEntitiesOutput to proto types
-	if input.ExtractionResult != nil {
-		// Convert people
+	// Convert resolved people to proto (DB-enriched, deduplicated list from Stage 3).
+	// Falls back to raw extraction people if resolved people are not available.
+	if len(input.ResolvedPeople) > 0 {
+		for _, p := range input.ResolvedPeople {
+			pe := &aiv1.PersonEntity{
+				Name:          p.Name,
+				Title:         p.Title,
+				Department:    p.Department,
+				IsPrimaryUser: p.IsPrimaryUser,
+			}
+			// Map role from resolved person
+			pe.Role = p.Role
+			// Determine source: header-resolved vs body-mentioned
+			switch p.Source {
+			case "email_from", "email_to_cc":
+				pe.Source = "header"
+			default:
+				pe.Source = "body"
+			}
+			req.VerifiedPeople = append(req.VerifiedPeople, pe)
+		}
+	} else if input.ExtractionResult != nil {
+		// Fallback: use raw extraction people (no DB enrichment)
 		for _, p := range input.ExtractionResult.People {
 			req.VerifiedPeople = append(req.VerifiedPeople, &aiv1.PersonEntity{
-				Name: p.Name,
-				Role: p.Role,
+				Name:   p.Name,
+				Role:   p.Role,
+				Source: "body",
 			})
 		}
+	}
 
+	// Convert workflows.SLMPipelineExtractEntitiesOutput to proto types
+	if input.ExtractionResult != nil {
 		// Convert dates
 		for _, d := range input.ExtractionResult.Dates {
 			req.VerifiedDates = append(req.VerifiedDates, &aiv1.DateEntity{

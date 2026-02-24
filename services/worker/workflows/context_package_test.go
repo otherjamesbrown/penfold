@@ -31,43 +31,18 @@ func TestContextPackage_FormatForPrompt_GlossaryOnly(t *testing.T) {
 	assert.NotContains(t, result, "### Participant Context")
 }
 
-func TestContextPackage_FormatForPrompt_ParticipantContext(t *testing.T) {
+func TestContextPackage_FormatForPrompt_ParticipantContextRemoved(t *testing.T) {
+	// Participant Context was removed from FormatForPrompt (pf-9c1485).
+	// People context is now provided via the enriched Entities section.
 	cp := &ContextPackage{
 		ParticipantContext: []ResolvedPerson{
 			{Name: "James Brown", Department: "Engineering", Role: "Sender", IsPrimaryUser: true},
 			{Name: "Jane Doe", Role: "To"},
-			{Name: "Bob Smith", Department: "Cloud Networking", Role: "CC"},
-			{Name: "Alice Chen"},
 		},
 	}
 	result := cp.FormatForPrompt()
-	assert.Contains(t, result, "### Participant Context")
-	assert.Contains(t, result, "- James Brown — Engineering. Sender. [Primary user]")
-	assert.Contains(t, result, "- Jane Doe — To")
-	assert.Contains(t, result, "- Bob Smith — Cloud Networking. CC")
-	assert.Contains(t, result, "- Alice Chen")
-	// Should NOT contain the old format with parentheses
-	assert.NotContains(t, result, "(Sender)")
-}
-
-func TestContextPackage_FormatForPrompt_ParticipantDepartmentOnly(t *testing.T) {
-	cp := &ContextPackage{
-		ParticipantContext: []ResolvedPerson{
-			{Name: "Tim Dunn", Department: "Cloud Networking"},
-		},
-	}
-	result := cp.FormatForPrompt()
-	assert.Contains(t, result, "- Tim Dunn — Cloud Networking")
-}
-
-func TestContextPackage_FormatForPrompt_ParticipantPrimaryUserOnly(t *testing.T) {
-	cp := &ContextPackage{
-		ParticipantContext: []ResolvedPerson{
-			{Name: "James Brown", IsPrimaryUser: true},
-		},
-	}
-	result := cp.FormatForPrompt()
-	assert.Contains(t, result, "- James Brown — [Primary user]")
+	assert.NotContains(t, result, "### Participant Context")
+	assert.NotContains(t, result, "James Brown")
 }
 
 func TestContextPackage_FormatForPrompt_Assertions(t *testing.T) {
@@ -109,7 +84,7 @@ func TestContextPackage_FormatForPrompt_ProductEvents(t *testing.T) {
 func TestContextPackage_FormatForPrompt_AllSections(t *testing.T) {
 	cp := &ContextPackage{
 		GlossaryTerms:      []ContextGlossaryTerm{{Term: "A", Definition: "B"}},
-		ParticipantContext:  []ResolvedPerson{{Name: "Alice"}},
+		ParticipantContext:  []ResolvedPerson{{Name: "Alice"}}, // present but no longer rendered
 		ActiveRisks:        []ContextAssertion{{Subject: "X", Predicate: "Y", Object: "Z"}},
 		OpenActions:        []ContextAssertion{{Subject: "P", Predicate: "Q", Object: "R"}},
 		RecentDecisions:    []ContextAssertion{{Subject: "D", Predicate: "E", Object: "F"}},
@@ -117,15 +92,15 @@ func TestContextPackage_FormatForPrompt_AllSections(t *testing.T) {
 	}
 	result := cp.FormatForPrompt()
 
-	// All sections present, separated by double newlines
+	// Participant Context no longer rendered — 5 sections remain
 	sections := strings.Split(result, "\n\n")
-	assert.Len(t, sections, 6)
+	assert.Len(t, sections, 5)
 	assert.True(t, strings.HasPrefix(sections[0], "### Glossary"))
-	assert.True(t, strings.HasPrefix(sections[1], "### Participant Context"))
-	assert.True(t, strings.HasPrefix(sections[2], "### Active Risks"))
-	assert.True(t, strings.HasPrefix(sections[3], "### Open Actions"))
-	assert.True(t, strings.HasPrefix(sections[4], "### Recent Decisions"))
-	assert.True(t, strings.HasPrefix(sections[5], "### Product Events"))
+	assert.True(t, strings.HasPrefix(sections[1], "### Active Risks"))
+	assert.True(t, strings.HasPrefix(sections[2], "### Open Actions"))
+	assert.True(t, strings.HasPrefix(sections[3], "### Recent Decisions"))
+	assert.True(t, strings.HasPrefix(sections[4], "### Product Events"))
+	assert.NotContains(t, result, "### Participant Context")
 }
 
 func TestFormatContextPackage_NilOutput(t *testing.T) {

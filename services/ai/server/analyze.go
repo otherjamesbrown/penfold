@@ -217,11 +217,7 @@ func buildEntitiesSection(req *aiv1.DeepAnalyzeRequest) string {
 	if len(req.GetVerifiedPeople()) > 0 {
 		parts = append(parts, "People:")
 		for _, p := range req.GetVerifiedPeople() {
-			if p.Role != "" {
-				parts = append(parts, fmt.Sprintf("  - %s (%s)", p.Name, p.Role))
-			} else {
-				parts = append(parts, fmt.Sprintf("  - %s", p.Name))
-			}
+			parts = append(parts, "  - "+formatPersonEntity(p))
 		}
 	}
 
@@ -249,6 +245,45 @@ func buildEntitiesSection(req *aiv1.DeepAnalyzeRequest) string {
 	}
 
 	return strings.Join(parts, "\n")
+}
+
+// formatPersonEntity formats a single PersonEntity for the entities section.
+// Format: Name (Department, Title) — Role [Primary user]
+func formatPersonEntity(p *aiv1.PersonEntity) string {
+	line := p.Name
+
+	// Build parenthetical: (Department, Title) or (Department) or (Title)
+	var paren []string
+	if p.Department != "" {
+		paren = append(paren, p.Department)
+	}
+	if p.Title != "" {
+		paren = append(paren, p.Title)
+	}
+	if len(paren) > 0 {
+		line += " (" + strings.Join(paren, ", ") + ")"
+	}
+
+	// After em dash: role for header people, "mentioned in body" for body people
+	var suffix string
+	if p.Source == "header" && p.Role != "" {
+		suffix = p.Role
+	} else if p.Source == "body" {
+		suffix = "mentioned in body"
+	} else if p.Role != "" {
+		// Fallback for legacy data without source
+		suffix = p.Role
+	}
+
+	if suffix != "" {
+		line += " \u2014 " + suffix
+	}
+
+	if p.IsPrimaryUser {
+		line += " [Primary user]"
+	}
+
+	return line
 }
 
 // buildPreliminarySection formats the preliminary extraction from Stage 2b.

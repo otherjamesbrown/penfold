@@ -24,10 +24,16 @@ func TestDeepAnalyze_Success(t *testing.T) {
 			require.Equal(t, "HIGH", req.TriageImportance)
 			require.NotEmpty(t, req.BackgroundContext)
 
-			// Verify extraction results were converted to proto
+			// Verify resolved people were converted to proto with enriched fields
 			require.Len(t, req.VerifiedPeople, 2)
 			require.Equal(t, "Alice Smith", req.VerifiedPeople[0].Name)
-			require.Equal(t, "Project Manager", req.VerifiedPeople[0].Role)
+			require.Equal(t, "Sender", req.VerifiedPeople[0].Role)
+			require.Equal(t, "Director", req.VerifiedPeople[0].Title)
+			require.Equal(t, "Engineering", req.VerifiedPeople[0].Department)
+			require.Equal(t, "header", req.VerifiedPeople[0].Source)
+			require.False(t, req.VerifiedPeople[0].IsPrimaryUser)
+			require.Equal(t, "Bob Jones", req.VerifiedPeople[1].Name)
+			require.Equal(t, "body", req.VerifiedPeople[1].Source)
 
 			require.Len(t, req.VerifiedDates, 1)
 			require.Equal(t, "2024-03-15", req.VerifiedDates[0].Date)
@@ -108,6 +114,10 @@ func TestDeepAnalyze_Success(t *testing.T) {
 		ContentType:      "email",
 		TriageCategory:   "PROJECT_UPDATE",
 		TriageImportance: "HIGH",
+		ResolvedPeople: []ResolvedPerson{
+			{Name: "Alice Smith", Role: "Sender", Title: "Director", Department: "Engineering", Source: "email_from", IsInternal: true},
+			{Name: "Bob Jones", Role: "", Source: "unresolved"},
+		},
 		ExtractionResult: &ExtractEntitiesOutput{
 			People: []PersonResult{
 				{Name: "Alice Smith", Role: "Project Manager"},
@@ -228,14 +238,19 @@ func TestDeepAnalyze_ProtoConversion(t *testing.T) {
 		deepAnalyzeFn: func(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error) {
 			// Verify all extraction results were properly converted to proto types
 
-			// Check people
+			// Check people (from ResolvedPeople, not ExtractionResult)
 			require.Len(t, req.VerifiedPeople, 3)
 			require.Equal(t, "Alice", req.VerifiedPeople[0].Name)
-			require.Equal(t, "Manager", req.VerifiedPeople[0].Role)
+			require.Equal(t, "Sender", req.VerifiedPeople[0].Role)
+			require.Equal(t, "Manager", req.VerifiedPeople[0].Title)
+			require.Equal(t, "Engineering", req.VerifiedPeople[0].Department)
+			require.Equal(t, "header", req.VerifiedPeople[0].Source)
+			require.False(t, req.VerifiedPeople[0].IsPrimaryUser)
 			require.Equal(t, "Bob", req.VerifiedPeople[1].Name)
-			require.Equal(t, "Engineer", req.VerifiedPeople[1].Role)
+			require.Equal(t, "To", req.VerifiedPeople[1].Role)
+			require.Equal(t, "header", req.VerifiedPeople[1].Source)
 			require.Equal(t, "Charlie", req.VerifiedPeople[2].Name)
-			require.Equal(t, "", req.VerifiedPeople[2].Role)
+			require.Equal(t, "body", req.VerifiedPeople[2].Source)
 
 			// Check dates
 			require.Len(t, req.VerifiedDates, 2)
@@ -293,11 +308,16 @@ func TestDeepAnalyze_ProtoConversion(t *testing.T) {
 		ContentType:      "email",
 		TriageCategory:   "RISK_ISSUE",
 		TriageImportance: "HIGH",
+		ResolvedPeople: []ResolvedPerson{
+			{Name: "Alice", Role: "Sender", Title: "Manager", Department: "Engineering", Source: "email_from", IsInternal: true},
+			{Name: "Bob", Role: "To", Source: "email_to_cc", IsInternal: true},
+			{Name: "Charlie", Source: "unresolved"},
+		},
 		ExtractionResult: &ExtractEntitiesOutput{
 			People: []PersonResult{
 				{Name: "Alice", Role: "Manager"},
 				{Name: "Bob", Role: "Engineer"},
-				{Name: "Charlie", Role: ""}, // No role
+				{Name: "Charlie", Role: ""},
 			},
 			Dates: []DateResult{
 				{Date: "2024-03-15", Context: "deadline"},
@@ -321,4 +341,45 @@ func TestDeepAnalyze_ProtoConversion(t *testing.T) {
 	require.NotNil(t, output)
 	require.Equal(t, "Test summary", output.Summary)
 	require.Equal(t, "test-model", output.ModelUsed)
+}
+
+func TestDeepAnalyze_FallbackToExtractionPeople(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	// When ResolvedPeople is empty, should fall back to ExtractionResult.People
+	mockClient := &mockAIClient{
+		deepAnalyzeFn: func(ctx context.Context, req *aiv1.DeepAnalyzeRequest) (*aiv1.DeepAnalyzeResponse, error) {
+			require.Len(t, req.VerifiedPeople, 2)
+			require.Equal(t, "Alice", req.VerifiedPeople[0].Name)
+			require.Equal(t, "Manager", req.VerifiedPeople[0].Role)
+			require.Equal(t, "body", req.VerifiedPeople[0].Source) // fallback source
+			require.Equal(t, "Bob", req.VerifiedPeople[1].Name)
+
+			return &aiv1.DeepAnalyzeResponse{
+				Summary:   "Fallback test",
+				ModelUsed: "test-model",
+			}, nil
+		},
+	}
+
+	activities := NewAnalysisActivities(logger, mockClient, nil)
+
+	input := DeepAnalyzeInput{
+		TenantID:    "test-tenant",
+		SourceID:    789,
+		JobID:       "job-789",
+		Content:     "Test content",
+		ContentType: "email",
+		// No ResolvedPeople — should fall back to ExtractionResult.People
+		ExtractionResult: &ExtractEntitiesOutput{
+			People: []PersonResult{
+				{Name: "Alice", Role: "Manager"},
+				{Name: "Bob", Role: ""},
+			},
+		},
+	}
+
+	output, err := activities.DeepAnalyze(context.Background(), input)
+	require.NoError(t, err)
+	require.Equal(t, "Fallback test", output.Summary)
 }

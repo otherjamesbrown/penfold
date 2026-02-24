@@ -19,8 +19,8 @@ func TestBuildDeepAnalysisPrompt(t *testing.T) {
 			req: &aiv1.DeepAnalyzeRequest{
 				Content: "Test email content here",
 				VerifiedPeople: []*aiv1.PersonEntity{
-					{Name: "John Doe", Role: "Engineer"},
-					{Name: "Jane Smith", Role: "Manager"},
+					{Name: "John Doe", Role: "To", Department: "Engineering", Source: "header"},
+					{Name: "Jane Smith", Role: "Sender", Title: "Manager", Source: "header"},
 				},
 				VerifiedDates: []*aiv1.DateEntity{
 					{Date: "2024-03-15", Context: "Project deadline"},
@@ -37,8 +37,8 @@ func TestBuildDeepAnalysisPrompt(t *testing.T) {
 			wantContains: []string{
 				"## Entities and Dates (verified — resolved against knowledge base)",
 				"People:",
-				"John Doe (Engineer)",
-				"Jane Smith (Manager)",
+				"John Doe (Engineering) \u2014 To",
+				"Jane Smith (Manager) \u2014 Sender",
 				"Dates:",
 				"2024-03-15: Project deadline",
 				"Projects: Project Alpha, CLIC",
@@ -417,12 +417,13 @@ func TestBuildEntitiesSection(t *testing.T) {
 		want string
 	}{
 		{
-			name: "all entity types present",
+			name: "no entities",
+			req:  &aiv1.DeepAnalyzeRequest{},
+			want: "(No entities extracted)",
+		},
+		{
+			name: "dates and projects only",
 			req: &aiv1.DeepAnalyzeRequest{
-				VerifiedPeople: []*aiv1.PersonEntity{
-					{Name: "John Doe", Role: "Engineer"},
-					{Name: "Jane Smith", Role: ""},
-				},
 				VerifiedDates: []*aiv1.DateEntity{
 					{Date: "2024-03-15", Context: "Deadline"},
 					{Date: "2024-04-01", Context: ""},
@@ -430,12 +431,7 @@ func TestBuildEntitiesSection(t *testing.T) {
 				VerifiedProjects:      []string{"Alpha", "Beta"},
 				VerifiedOrganisations: []string{"Engineering"},
 			},
-			want: "People:\n  - John Doe (Engineer)\n  - Jane Smith\nDates:\n  - 2024-03-15: Deadline\n  - 2024-04-01\nProjects: Alpha, Beta\nOrganisations: Engineering",
-		},
-		{
-			name: "no entities",
-			req:  &aiv1.DeepAnalyzeRequest{},
-			want: "(No entities extracted)",
+			want: "Dates:\n  - 2024-03-15: Deadline\n  - 2024-04-01\nProjects: Alpha, Beta\nOrganisations: Engineering",
 		},
 	}
 
@@ -444,6 +440,84 @@ func TestBuildEntitiesSection(t *testing.T) {
 			got := buildEntitiesSection(tt.req)
 			if got != tt.want {
 				t.Errorf("buildEntitiesSection() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatPersonEntity(t *testing.T) {
+	tests := []struct {
+		name string
+		p    *aiv1.PersonEntity
+		want string
+	}{
+		{
+			name: "header person with department and title",
+			p: &aiv1.PersonEntity{
+				Name: "Tim Dunn", Role: "To", Title: "Director",
+				Department: "CLIC", Source: "header",
+			},
+			want: "Tim Dunn (CLIC, Director) \u2014 To",
+		},
+		{
+			name: "header person department only",
+			p: &aiv1.PersonEntity{
+				Name: "Miroslav Ponec", Role: "Sender",
+				Department: "Cloud Networking", Source: "header",
+			},
+			want: "Miroslav Ponec (Cloud Networking) \u2014 Sender",
+		},
+		{
+			name: "header person title only",
+			p: &aiv1.PersonEntity{
+				Name: "Sara Weisman", Role: "CC", Title: "Solution Lead",
+				Source: "header",
+			},
+			want: "Sara Weisman (Solution Lead) \u2014 CC",
+		},
+		{
+			name: "header person primary user",
+			p: &aiv1.PersonEntity{
+				Name: "James Brown", Role: "CC", Source: "header",
+				IsPrimaryUser: true,
+			},
+			want: "James Brown \u2014 CC [Primary user]",
+		},
+		{
+			name: "body person unresolved",
+			p: &aiv1.PersonEntity{
+				Name: "Mark H", Source: "body",
+			},
+			want: "Mark H \u2014 mentioned in body",
+		},
+		{
+			name: "body person with department",
+			p: &aiv1.PersonEntity{
+				Name: "Toby Paler", Department: "Sales", Source: "body",
+			},
+			want: "Toby Paler (Sales) \u2014 mentioned in body",
+		},
+		{
+			name: "legacy person with role no source",
+			p: &aiv1.PersonEntity{
+				Name: "John Doe", Role: "Engineer",
+			},
+			want: "John Doe \u2014 Engineer",
+		},
+		{
+			name: "legacy person no role no source",
+			p: &aiv1.PersonEntity{
+				Name: "Jane Smith",
+			},
+			want: "Jane Smith",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatPersonEntity(tt.p)
+			if got != tt.want {
+				t.Errorf("formatPersonEntity() = %q, want %q", got, tt.want)
 			}
 		})
 	}
