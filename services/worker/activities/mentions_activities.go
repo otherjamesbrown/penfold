@@ -227,10 +227,11 @@ func (a *MentionsActivities) storeMentions(ctx context.Context, tenantID string,
 
 	stored := 0
 	for _, res := range result.Resolutions {
-		// Determine entity type
-		entityType := mentions.EntityTypePerson // default
-		if res.ResolvedTo != nil {
-			entityType = res.ResolvedTo.EntityType
+		// Use entity type from resolution (populated from Stage 1 understanding).
+		// This preserves the LLM's entity classification even when unresolved.
+		entityType := res.EntityType
+		if entityType == "" {
+			entityType = mentions.EntityTypePerson // fallback
 		}
 
 		// Create mention input for repository

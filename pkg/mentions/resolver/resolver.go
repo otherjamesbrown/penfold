@@ -128,7 +128,24 @@ func (r *Resolver) ProcessBatch(ctx context.Context, tenantID string, batch Reso
 	r.heartbeat("stage 4: verification")
 	verifiedResolutions := r.executeStage4(ctx, matching.Resolutions, batch, traceID)
 
-	// Apply resolutions
+	// Apply resolutions, enriching with entity types from Stage 1.
+	// Stage 3 Resolutions may not carry entity type when unresolved (ResolvedTo=nil).
+	// Build a lookup from Stage 1 understanding so all resolutions have an entity type.
+	entityTypeByMention := make(map[string]mentions.EntityType, len(understanding.Mentions))
+	for _, m := range understanding.Mentions {
+		entityTypeByMention[m.Text] = m.EntityType
+	}
+	for i := range verifiedResolutions {
+		if verifiedResolutions[i].EntityType == "" {
+			if verifiedResolutions[i].ResolvedTo != nil {
+				verifiedResolutions[i].EntityType = verifiedResolutions[i].ResolvedTo.EntityType
+			} else if et, ok := entityTypeByMention[verifiedResolutions[i].MentionText]; ok {
+				verifiedResolutions[i].EntityType = et
+			} else {
+				verifiedResolutions[i].EntityType = mentions.EntityTypePerson // fallback
+			}
+		}
+	}
 	result.Resolutions = verifiedResolutions
 	result.NewEntities = matching.NewEntitiesSuggested
 

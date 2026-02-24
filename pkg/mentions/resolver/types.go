@@ -169,16 +169,17 @@ type Stage3Matching struct {
 
 // Resolution represents a resolution decision from the LLM.
 type Resolution struct {
-	MentionText       string                 `json:"mention_text"`
-	MentionPosition   int                    `json:"mention_position"`
-	Decision          DecisionType           `json:"decision"`
-	ResolvedTo        *ResolvedEntity        `json:"resolved_to,omitempty"`
-	Confidence        float32                `json:"confidence"`
-	Reasoning         string                 `json:"reasoning"`
-	Factors           map[string]interface{} `json:"factors,omitempty"`
-	Alternatives      []AlternativeEntity    `json:"alternatives_considered,omitempty"`
-	IsTranscription   bool                   `json:"is_transcription_error,omitempty"`
-	LinkedEntity      *mentions.LinkedEntityRef `json:"linked_entity,omitempty"`
+	MentionText       string                    `json:"mention_text"`
+	MentionPosition   int                       `json:"mention_position"`
+	EntityType        mentions.EntityType        `json:"entity_type,omitempty"` // From Stage 1 understanding
+	Decision          DecisionType               `json:"decision"`
+	ResolvedTo        *ResolvedEntity            `json:"resolved_to,omitempty"`
+	Confidence        float32                    `json:"confidence"`
+	Reasoning         string                     `json:"reasoning"`
+	Factors           map[string]interface{}     `json:"factors,omitempty"`
+	Alternatives      []AlternativeEntity        `json:"alternatives_considered,omitempty"`
+	IsTranscription   bool                       `json:"is_transcription_error,omitempty"`
+	LinkedEntity      *mentions.LinkedEntityRef  `json:"linked_entity,omitempty"`
 }
 
 // ResolvedEntity represents the entity a mention was resolved to.
