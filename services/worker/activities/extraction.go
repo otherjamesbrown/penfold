@@ -26,6 +26,7 @@ type ExtractionActivities struct {
 	assertionRepo  AssertionRepository
 	entityRepo     EntityRepository
 	pipelineRepo   PipelineRepository
+	personLookup   PersonLookup
 }
 
 // NewExtractionActivities creates a new ExtractionActivities instance.
@@ -56,6 +57,11 @@ func NewExtractionActivities(
 		entityRepo:    entityRepo,
 		pipelineRepo:  pipelineRepo,
 	}
+}
+
+// WithPersonLookup sets the optional PersonLookup dependency for NER header enrichment (pf-2059f5).
+func (a *ExtractionActivities) WithPersonLookup(pl PersonLookup) {
+	a.personLookup = pl
 }
 
 // ExtractAssertions extracts assertions from the given content using an LLM.
@@ -365,6 +371,14 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	// metadata so the model can see From/To/CC/Subject.
 	content := input.Content
 	if input.ContentType == "email" {
+		// Enrich participants with person DB data (pf-2059f5)
+		if a.personLookup != nil {
+			enrichedSenderName, enrichedParticipants := a.enrichHeaderParticipants(
+				ctx, input.TenantID, input.SenderEmail, input.SenderName, input.Participants, logger,
+			)
+			input.SenderName = enrichedSenderName
+			input.Participants = enrichedParticipants
+		}
 		if headerBlock := buildEmailHeaderBlock(input); headerBlock != "" {
 			content = headerBlock + content
 			logger.Info("Prepended email headers to extraction content",
@@ -783,6 +797,87 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *workflows.
 		QualityGateTriggered: qualityGateTriggered,
 		ModelUsed:            modelUsed,
 	}
+}
+
+// enrichHeaderParticipants enriches email participants with canonical names and aliases from the person DB (pf-2059f5).
+// For each email address, it looks up the person record and replaces the raw header display name
+// with the canonical name. If the person has name-type aliases, it appends them.
+func (a *ExtractionActivities) enrichHeaderParticipants(
+	ctx context.Context,
+	tenantID, senderEmail, senderName string,
+	participants []workflows.Participant,
+	logger logging.Logger,
+) (string, []workflows.Participant) {
+	// Collect all unique emails
+	emails := make([]string, 0, len(participants)+1)
+	if senderEmail != "" {
+		emails = append(emails, senderEmail)
+	}
+	for _, p := range participants {
+		if p.Email != "" {
+			emails = append(emails, p.Email)
+		}
+	}
+	if len(emails) == 0 {
+		return senderName, participants
+	}
+
+	// Batch lookup people by email
+	people, err := a.personLookup.GetPeopleByEmails(ctx, tenantID, emails)
+	if err != nil {
+		logger.Warn("Failed to lookup people for header enrichment", logging.Err(err))
+		return senderName, participants
+	}
+	if len(people) == 0 {
+		return senderName, participants
+	}
+
+	// Collect person IDs for alias lookup
+	var personIDs []int64
+	for _, p := range people {
+		personIDs = append(personIDs, p.ID)
+	}
+
+	// Batch lookup name aliases
+	aliases, err := a.personLookup.GetNameAliasesByPersonIDs(ctx, personIDs)
+	if err != nil {
+		logger.Warn("Failed to lookup aliases for header enrichment", logging.Err(err))
+		// Continue without aliases — we still have canonical names
+		aliases = nil
+	}
+
+	// Enrich sender
+	enrichedSenderName := senderName
+	if person, ok := people[senderEmail]; ok {
+		enrichedSenderName = person.CanonicalName
+		if nameAliases, ok := aliases[person.ID]; ok && len(nameAliases) > 0 {
+			enrichedSenderName += " (also known as: " + strings.Join(nameAliases, ", ") + ")"
+		}
+		logger.Info("Enriched sender from person DB",
+			logging.F("raw_name", senderName),
+			logging.F("canonical_name", person.CanonicalName),
+		)
+	}
+
+	// Enrich participants (make a copy to avoid mutating input)
+	enrichedParticipants := make([]workflows.Participant, len(participants))
+	copy(enrichedParticipants, participants)
+	for i, p := range enrichedParticipants {
+		if person, ok := people[p.Email]; ok {
+			enrichedParticipants[i].DisplayName = person.CanonicalName
+			if nameAliases, ok := aliases[person.ID]; ok && len(nameAliases) > 0 {
+				enrichedParticipants[i].DisplayName += " (also known as: " + strings.Join(nameAliases, ", ") + ")"
+			}
+		}
+	}
+
+	logger.Info("Enriched email header participants from person DB",
+		logging.F("total_emails", len(emails)),
+		logging.F("matched_people", len(people)),
+		logging.F("aliases_found", len(aliases)),
+	)
+
+	return enrichedSenderName, enrichedParticipants
 }
 
 // buildEmailHeaderBlock constructs a structured email header block for NER prompt enrichment (pf-de2b09).

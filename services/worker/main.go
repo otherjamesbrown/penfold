@@ -483,6 +483,11 @@ func main() {
 
 		// Create extraction activities
 		extractionActivities := activities.NewExtractionActivities(logger, aiClient, assertionRepo, entityRepo, pipelineRepo)
+		// Wire person lookup for NER header enrichment (pf-2059f5)
+		if dbPool != nil {
+			entityRepoFull := entities.NewRepository(dbPool, logger)
+			extractionActivities.WithPersonLookup(activities.NewPersonLookupAdapter(entityRepoFull))
+		}
 		activityRegistrar.WithExtractionActivities(extractionActivities)
 		logger.Info("Extraction activities initialized with AI client")
 

@@ -120,6 +120,81 @@ func (r *Repository) GetPersonByEmail(ctx context.Context, tenantID, email strin
 	return r.scanPerson(ctx, query, tenantID, email)
 }
 
+// GetPeopleByEmails retrieves people by primary email addresses in a single query.
+// Returns a map of email -> Person for found records. Missing emails are omitted.
+func (r *Repository) GetPeopleByEmails(ctx context.Context, tenantID string, emails []string) (map[string]*Person, error) {
+	if len(emails) == 0 {
+		return map[string]*Person{}, nil
+	}
+
+	query := `
+		SELECT
+			id, tenant_id, canonical_name, primary_email,
+			job_title as title, department, company, is_internal, account_type,
+			confidence_score as confidence, needs_review, auto_created,
+			reviewed_at, reviewed_by,
+			rejected_at, rejected_reason, rejected_by,
+			potential_duplicates,
+			sent_count, received_count,
+			created_at, updated_at
+		FROM people
+		WHERE tenant_id = $1 AND primary_email = ANY($2)
+	`
+
+	rows, err := r.pool.Query(ctx, query, tenantID, emails)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get people by emails: %w", err)
+	}
+	defer rows.Close()
+
+	people, err := r.scanPeople(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]*Person, len(people))
+	for _, p := range people {
+		result[p.PrimaryEmail] = p
+	}
+	return result, nil
+}
+
+// GetNameAliasesByPersonIDs retrieves name-type aliases for multiple people in a single query.
+// Returns a map of personID -> []alias_value (just the name strings).
+func (r *Repository) GetNameAliasesByPersonIDs(ctx context.Context, personIDs []int64) (map[int64][]string, error) {
+	if len(personIDs) == 0 {
+		return map[int64][]string{}, nil
+	}
+
+	query := `
+		SELECT person_id, alias_value
+		FROM person_aliases
+		WHERE person_id = ANY($1) AND alias_type = 'name'
+		ORDER BY confidence DESC
+	`
+
+	rows, err := r.pool.Query(ctx, query, personIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get name aliases by person IDs: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]string)
+	for rows.Next() {
+		var personID int64
+		var aliasValue string
+		if err := rows.Scan(&personID, &aliasValue); err != nil {
+			return nil, fmt.Errorf("failed to scan alias row: %w", err)
+		}
+		result[personID] = append(result[personID], aliasValue)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate alias rows: %w", err)
+	}
+
+	return result, nil
+}
+
 // GetPersonByAlias retrieves a person by any alias value.
 func (r *Repository) GetPersonByAlias(ctx context.Context, tenantID, aliasValue string) (*Person, error) {
 	query := `

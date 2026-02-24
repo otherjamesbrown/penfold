@@ -144,6 +144,19 @@ type EntityRepository interface {
 	StoreEntities(ctx context.Context, tenantID string, sourceID int64, entities []*Entity) (int, error)
 }
 
+// PersonInfo holds resolved person data for header enrichment.
+type PersonInfo struct {
+	ID            int64
+	CanonicalName string
+	PrimaryEmail  string
+}
+
+// PersonLookup provides person database lookups for header enrichment.
+type PersonLookup interface {
+	GetPeopleByEmails(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error)
+	GetNameAliasesByPersonIDs(ctx context.Context, personIDs []int64) (map[int64][]string, error)
+}
+
 // Entity represents an extracted named entity.
 type Entity struct {
 	Name       string

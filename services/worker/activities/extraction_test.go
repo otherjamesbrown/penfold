@@ -714,3 +714,184 @@ func TestExtractEntities_NonEmailNoHeaders(t *testing.T) {
 	// Non-email content should not have headers prepended
 	require.Equal(t, "Meeting transcript content here.", capturedContent)
 }
+
+// mockPersonLookup is a mock implementation of the PersonLookup interface for testing.
+type mockPersonLookup struct {
+	getPeopleByEmailsFn         func(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error)
+	getNameAliasesByPersonIDsFn func(ctx context.Context, personIDs []int64) (map[int64][]string, error)
+}
+
+func (m *mockPersonLookup) GetPeopleByEmails(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error) {
+	if m.getPeopleByEmailsFn != nil {
+		return m.getPeopleByEmailsFn(ctx, tenantID, emails)
+	}
+	return map[string]*PersonInfo{}, nil
+}
+
+func (m *mockPersonLookup) GetNameAliasesByPersonIDs(ctx context.Context, personIDs []int64) (map[int64][]string, error) {
+	if m.getNameAliasesByPersonIDsFn != nil {
+		return m.getNameAliasesByPersonIDsFn(ctx, personIDs)
+	}
+	return map[int64][]string{}, nil
+}
+
+func TestEnrichHeaderParticipants_WithMatches(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	pl := &mockPersonLookup{
+		getPeopleByEmailsFn: func(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error) {
+			return map[string]*PersonInfo{
+				"hvarma@example.com": {ID: 1, CanonicalName: "Hrishikesh Varma", PrimaryEmail: "hvarma@example.com"},
+				"alice@example.com":  {ID: 2, CanonicalName: "Alice Smith", PrimaryEmail: "alice@example.com"},
+			}, nil
+		},
+		getNameAliasesByPersonIDsFn: func(ctx context.Context, personIDs []int64) (map[int64][]string, error) {
+			return map[int64][]string{
+				1: {"Rishi", "Varma"},
+				// person 2 has no aliases
+			}, nil
+		},
+	}
+
+	acts := NewExtractionActivities(logger, &mockAIClient{}, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+	acts.WithPersonLookup(pl)
+
+	participants := []workflows.Participant{
+		{Email: "alice@example.com", DisplayName: "Smith, Alice", HeaderRole: "to"},
+		{Email: "bob@example.com", DisplayName: "Jones, Bob", HeaderRole: "cc"},
+	}
+
+	enrichedSender, enrichedParticipants := acts.enrichHeaderParticipants(
+		context.Background(), "tenant1", "hvarma@example.com", "Varma, Hrishikesh", participants, logger,
+	)
+
+	// Sender should be enriched with canonical name and aliases
+	require.Equal(t, "Hrishikesh Varma (also known as: Rishi, Varma)", enrichedSender)
+
+	// alice@example.com participant should be enriched (no aliases)
+	require.Equal(t, "Alice Smith", enrichedParticipants[0].DisplayName)
+
+	// bob@example.com not in person DB — should keep original display name
+	require.Equal(t, "Jones, Bob", enrichedParticipants[1].DisplayName)
+
+	// Header roles must be preserved
+	require.Equal(t, "to", enrichedParticipants[0].HeaderRole)
+	require.Equal(t, "cc", enrichedParticipants[1].HeaderRole)
+}
+
+func TestEnrichHeaderParticipants_NoMatches(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	pl := &mockPersonLookup{
+		getPeopleByEmailsFn: func(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error) {
+			// No matches in person DB
+			return map[string]*PersonInfo{}, nil
+		},
+	}
+
+	acts := NewExtractionActivities(logger, &mockAIClient{}, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+	acts.WithPersonLookup(pl)
+
+	participants := []workflows.Participant{
+		{Email: "alice@example.com", DisplayName: "Smith, Alice", HeaderRole: "to"},
+	}
+
+	enrichedSender, enrichedParticipants := acts.enrichHeaderParticipants(
+		context.Background(), "tenant1", "hvarma@example.com", "Varma, Hrishikesh", participants, logger,
+	)
+
+	// Nothing found — original values must be returned unchanged
+	require.Equal(t, "Varma, Hrishikesh", enrichedSender)
+	require.Equal(t, "Smith, Alice", enrichedParticipants[0].DisplayName)
+}
+
+func TestEnrichHeaderParticipants_NilPersonLookup(t *testing.T) {
+	logger := logging.NewNopLogger()
+	var capturedContent string
+
+	mockClient := &mockAIClient{
+		extractEntitiesFn: func(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error) {
+			capturedContent = req.Content
+			return &aiv1.ExtractEntitiesResponse{
+				People:        []*aiv1.PersonEntity{},
+				Dates:         []*aiv1.DateEntity{},
+				Projects:      []string{},
+				Organisations: []string{},
+				ActionItems:   []*aiv1.ActionItemEntity{},
+				Decisions:     []string{},
+				Risks:         []string{},
+				DetailedRisks: []*aiv1.RiskEntity{},
+				ModelUsed:     "test-model",
+			}, nil
+		},
+	}
+
+	// No WithPersonLookup call — personLookup is nil
+	acts := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+
+	input := ExtractEntitiesInput{
+		TenantID:    "tenant1",
+		SourceID:    1,
+		JobID:       "job-1",
+		Content:     "Please review the attached document.",
+		ContentType: "email",
+		SenderName:  "Varma, Hrishikesh",
+		SenderEmail: "hvarma@example.com",
+		Subject:     "Review needed",
+		Participants: []workflows.Participant{
+			{Email: "alice@example.com", DisplayName: "Smith, Alice", HeaderRole: "to"},
+		},
+	}
+
+	_, err := acts.ExtractEntities(context.Background(), input)
+	require.NoError(t, err)
+
+	// Raw names must appear in the header block (no enrichment applied)
+	require.Contains(t, capturedContent, "From: Varma, Hrishikesh <hvarma@example.com>")
+	require.Contains(t, capturedContent, "To: Smith, Alice <alice@example.com>")
+}
+
+func TestEnrichHeaderParticipants_LookupError(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	pl := &mockPersonLookup{
+		getPeopleByEmailsFn: func(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error) {
+			return nil, context.DeadlineExceeded
+		},
+	}
+
+	acts := NewExtractionActivities(logger, &mockAIClient{}, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+	acts.WithPersonLookup(pl)
+
+	participants := []workflows.Participant{
+		{Email: "alice@example.com", DisplayName: "Smith, Alice", HeaderRole: "to"},
+	}
+
+	// Error must be swallowed; original values must be returned
+	enrichedSender, enrichedParticipants := acts.enrichHeaderParticipants(
+		context.Background(), "tenant1", "hvarma@example.com", "Varma, Hrishikesh", participants, logger,
+	)
+
+	require.Equal(t, "Varma, Hrishikesh", enrichedSender)
+	require.Equal(t, "Smith, Alice", enrichedParticipants[0].DisplayName)
+}
+
+func TestBuildEmailHeaderBlock_EnrichedParticipants(t *testing.T) {
+	// Full flow test: enriched participants -> buildEmailHeaderBlock
+	// Simulates the "Varma, Hrishikesh" -> "Hrishikesh Varma (also known as: Rishi)" case
+	input := ExtractEntitiesInput{
+		ContentType: "email",
+		SenderName:  "Hrishikesh Varma (also known as: Rishi)",
+		SenderEmail: "hvarma@example.com",
+		Subject:     "Q3 Planning",
+		Participants: []workflows.Participant{
+			{Email: "alice@example.com", DisplayName: "Alice Smith", HeaderRole: "to"},
+		},
+	}
+
+	result := buildEmailHeaderBlock(input)
+
+	require.Contains(t, result, "From: Hrishikesh Varma (also known as: Rishi) <hvarma@example.com>")
+	require.Contains(t, result, "To: Alice Smith <alice@example.com>")
+	require.Contains(t, result, "Subject: Q3 Planning")
+}
