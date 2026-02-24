@@ -628,7 +628,7 @@ func (r *Repository) GetProjectByName(ctx context.Context, tenantID, name string
 	query := `
 		SELECT id, tenant_id, name, description, keywords, jira_projects, created_at, updated_at
 		FROM projects
-		WHERE tenant_id = $1 AND name = $2
+		WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
 	`
 
 	p := &Project{}

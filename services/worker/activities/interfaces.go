@@ -260,6 +260,9 @@ type ContextPackageRepository interface {
 	ResolveProjectByName(ctx context.Context, tenantID string, name string) (*int64, error)
 	// ResolveProjectByKeyword resolves a project by keyword match.
 	ResolveProjectByKeyword(ctx context.Context, tenantID string, keyword string) (*int64, error)
+	// ResolveProjectByNameContains resolves a project where the extracted name contains
+	// a project name or vice versa (case-insensitive, min 3 char project name).
+	ResolveProjectByNameContains(ctx context.Context, tenantID string, extractedName string) (*int64, error)
 }
 
 // ContextAssertion is a simplified assertion for context packages.

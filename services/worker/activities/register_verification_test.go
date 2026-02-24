@@ -124,6 +124,9 @@ func (r *regVerifyContextPackageRepo) ResolveProjectByName(context.Context, stri
 func (r *regVerifyContextPackageRepo) ResolveProjectByKeyword(context.Context, string, string) (*int64, error) {
 	return nil, nil
 }
+func (r *regVerifyContextPackageRepo) ResolveProjectByNameContains(context.Context, string, string) (*int64, error) {
+	return nil, nil
+}
 
 type regVerifyEntityResolver struct{}
 

@@ -292,14 +292,14 @@ func (r *ContextPackageRepo) GetGlossaryTerms(ctx context.Context, terms []strin
 	return results, nil
 }
 
-// ResolveProjectByName resolves a project/product name to an ID.
+// ResolveProjectByName resolves a project/product name to an ID (case-insensitive).
 // Tries exact name match first, then keyword array match.
 func (r *ContextPackageRepo) ResolveProjectByName(ctx context.Context, tenantID string, name string) (*int64, error) {
-	// Try exact name match first
+	// Try case-insensitive name match first
 	query := `
 		SELECT id
 		FROM projects
-		WHERE tenant_id = $1 AND name = $2
+		WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
 		LIMIT 1
 	`
 
@@ -312,11 +312,12 @@ func (r *ContextPackageRepo) ResolveProjectByName(ctx context.Context, tenantID 
 		return nil, fmt.Errorf("failed to resolve project by name: %w", err)
 	}
 
-	// Try keyword array match
+	// Try case-insensitive keyword array match
 	query = `
 		SELECT id
 		FROM projects
-		WHERE tenant_id = $1 AND $2 = ANY(keywords)
+		WHERE tenant_id = $1
+		  AND EXISTS (SELECT 1 FROM unnest(keywords) AS kw WHERE LOWER(kw) = LOWER($2))
 		LIMIT 1
 	`
 
@@ -331,12 +332,13 @@ func (r *ContextPackageRepo) ResolveProjectByName(ctx context.Context, tenantID 
 	return &projectID, nil
 }
 
-// ResolveProjectByKeyword resolves a project by keyword match.
+// ResolveProjectByKeyword resolves a project by keyword match (case-insensitive).
 func (r *ContextPackageRepo) ResolveProjectByKeyword(ctx context.Context, tenantID string, keyword string) (*int64, error) {
 	query := `
 		SELECT id
 		FROM projects
-		WHERE tenant_id = $1 AND $2 = ANY(keywords)
+		WHERE tenant_id = $1
+		  AND EXISTS (SELECT 1 FROM unnest(keywords) AS kw WHERE LOWER(kw) = LOWER($2))
 		LIMIT 1
 	`
 
@@ -347,6 +349,33 @@ func (r *ContextPackageRepo) ResolveProjectByKeyword(ctx context.Context, tenant
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve project by keyword: %w", err)
+	}
+
+	return &projectID, nil
+}
+
+// ResolveProjectByNameContains resolves a project where the extracted name contains
+// a project name or a project name contains the extracted name (case-insensitive).
+// Only matches project names with 3+ characters to avoid false positives.
+func (r *ContextPackageRepo) ResolveProjectByNameContains(ctx context.Context, tenantID string, extractedName string) (*int64, error) {
+	query := `
+		SELECT id
+		FROM projects
+		WHERE tenant_id = $1
+		  AND length(name) >= 3
+		  AND (LOWER($2) LIKE '%' || LOWER(name) || '%'
+		       OR LOWER(name) LIKE '%' || LOWER($2) || '%')
+		ORDER BY length(name) DESC
+		LIMIT 1
+	`
+
+	var projectID int64
+	err := r.pool.QueryRow(ctx, query, tenantID, extractedName).Scan(&projectID)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve project by name containment: %w", err)
 	}
 
 	return &projectID, nil

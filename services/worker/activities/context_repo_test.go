@@ -11,14 +11,15 @@ import (
 
 // mockContextPackageRepo is a mock implementation of ContextPackageRepository for testing.
 type mockContextPackageRepo struct {
-	activeRisks      []ContextAssertion
-	openActions      []ContextAssertion
-	recentDecisions  []ContextAssertion
-	productEvents    []ContextProductEvent
-	glossaryTerms    []ContextGlossaryTerm
-	projectsByName   map[string]*int64
-	projectsByKeyword map[string]*int64
-	err              error
+	activeRisks            []ContextAssertion
+	openActions            []ContextAssertion
+	recentDecisions        []ContextAssertion
+	productEvents          []ContextProductEvent
+	glossaryTerms          []ContextGlossaryTerm
+	projectsByName         map[string]*int64
+	projectsByKeyword      map[string]*int64
+	projectsByNameContains map[string]*int64
+	err                    error
 }
 
 func (m *mockContextPackageRepo) GetActiveRisks(ctx context.Context, projectIDs []int64, limit int) ([]ContextAssertion, error) {
@@ -72,6 +73,16 @@ func (m *mockContextPackageRepo) ResolveProjectByKeyword(ctx context.Context, te
 	}
 	if m.projectsByKeyword != nil {
 		return m.projectsByKeyword[keyword], nil
+	}
+	return nil, nil
+}
+
+func (m *mockContextPackageRepo) ResolveProjectByNameContains(ctx context.Context, tenantID string, extractedName string) (*int64, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.projectsByNameContains != nil {
+		return m.projectsByNameContains[extractedName], nil
 	}
 	return nil, nil
 }
