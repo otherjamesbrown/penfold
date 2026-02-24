@@ -53,19 +53,21 @@ func WithGlossary(g *glossary.Repository) PersistRepoOption {
 // Validation constants
 var (
 	validLifecycleEvents = map[string]bool{
-		"new":           true,
-		"identified":    true,
-		"confirmed":     true,
-		"no_change":     true,
-		"raised":        true,
-		"updated":       true,
-		"escalated":     true,
-		"de_escalated":  true,
-		"assigned":      true,
-		"decided":       true,
-		"deferred":      true,
-		"resolved":      true,
-		"reopened":      true,
+		"new":              true,
+		"newly_identified": true,
+		"identified":       true,
+		"confirmed":        true,
+		"mitigated":        true,
+		"no_change":        true,
+		"raised":           true,
+		"updated":          true,
+		"escalated":        true,
+		"de_escalated":     true,
+		"assigned":         true,
+		"decided":          true,
+		"deferred":         true,
+		"resolved":         true,
+		"reopened":         true,
 	}
 
 	validReferenceTypes = map[string]bool{
@@ -81,6 +83,9 @@ var (
 		"primary":   true,
 		"secondary": true,
 		"passing":   true,
+		"low":       true,
+		"medium":    true,
+		"high":      true,
 	}
 
 	validAssertionTypes = map[string]bool{
@@ -219,9 +224,11 @@ func (r *PersistRepo) validateInput(input *PersistFindingsInput) error {
 			return fmt.Errorf("risk reference [%d] missing context_excerpt", i)
 		}
 		if risk.LifecycleChange != nil {
-			if !validLifecycleEvents[*risk.LifecycleChange] {
+			normalized := strings.ReplaceAll(strings.TrimSpace(*risk.LifecycleChange), " ", "_")
+			if !validLifecycleEvents[normalized] {
 				return fmt.Errorf("risk reference [%d] has invalid lifecycle_event: %s", i, *risk.LifecycleChange)
 			}
+			*risk.LifecycleChange = normalized
 		}
 		if !validSignificanceLevels[risk.Significance] {
 			return fmt.Errorf("risk reference [%d] has invalid significance: %s", i, risk.Significance)
