@@ -206,6 +206,27 @@ func (i *Ingestion) UpdateTrace(id string, tags []string, name string) {
 	i.mu.Unlock()
 }
 
+// UpdateTraceMetadata buffers a trace-create event that adds/updates metadata on an
+// existing trace. The Langfuse API treats trace-create with an existing ID as an upsert,
+// so only the provided metadata is merged into the existing trace.
+func (i *Ingestion) UpdateTraceMetadata(id string, metadata map[string]any) {
+	body := struct {
+		ID       string         `json:"id"`
+		Metadata map[string]any `json:"metadata,omitempty"`
+	}{ID: id, Metadata: metadata}
+
+	evt := Event{
+		ID:        newEnvelopeID(),
+		Type:      "trace-create",
+		Timestamp: isoNow(),
+		Body:      body,
+	}
+
+	i.mu.Lock()
+	i.batch = append(i.batch, evt)
+	i.mu.Unlock()
+}
+
 // UpdateSpan buffers a span-update event that sets the end time of an existing span.
 func (i *Ingestion) UpdateSpan(id string, endTime time.Time) {
 	body := spanUpdateBody{

@@ -1334,6 +1334,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 	}
 
+	// Enrich Langfuse trace with pipeline definition metadata (best-effort).
+	if pipelineDef != nil && langfuseTraceID != "" {
+		metadata := buildPipelineDefinitionMetadata(pipelineName, pipelineDef)
+		_ = workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, fastOpts),
+			pkgtemporal.ActivityUpdateLangfuseTraceMetadata,
+			UpdateLangfuseTraceMetadataInput{
+				TraceID:  langfuseTraceID,
+				Metadata: metadata,
+			},
+		).Get(ctx, nil)
+	}
+
 	// Build stage config lookup from pipeline definition (or nil for fallback).
 	// This is consulted by the stage sections below to check enabled/skip_when_low/optional.
 	// stageConfigMap was declared before stageOpts so the closure captures it by reference.
@@ -2680,6 +2693,32 @@ func sideEffectSpanID(ctx workflow.Context) string {
 		return fmt.Sprintf("%x", u[:8]) // 8 bytes → 16 hex chars
 	}).Get(&id)
 	return id
+}
+
+// buildPipelineDefinitionMetadata builds the Langfuse trace metadata from the pipeline definition.
+// This includes pipeline_name, pipeline_stages, and model_overrides for stages with non-default models.
+func buildPipelineDefinitionMetadata(pipelineName string, def *FetchPipelineDefinitionOutput) map[string]any {
+	stages := make([]string, 0, len(def.Stages))
+	modelOverrides := make(map[string]string)
+
+	for _, s := range def.Stages {
+		if s.Enabled {
+			stages = append(stages, s.Stage)
+		}
+		if s.ModelOverride != "" {
+			modelOverrides[s.Stage] = s.ModelOverride
+		}
+	}
+
+	metadata := map[string]any{
+		"pipeline_name":   pipelineName,
+		"pipeline_stages": stages,
+	}
+	if len(modelOverrides) > 0 {
+		metadata["model_overrides"] = modelOverrides
+	}
+
+	return metadata
 }
 
 // buildStageConfigMap creates a lookup map from stage name to its config.

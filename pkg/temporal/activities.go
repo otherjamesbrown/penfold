@@ -59,7 +59,8 @@ const (
 	ActivityReportLangfusePhase      = "ReportLangfusePhase"
 	ActivityFinishLangfuseTrace      = "FinishLangfuseTrace"
 	ActivityPersistLangfuseTraceID   = "PersistLangfuseTraceID"
-	ActivityUpdateLangfuseTraceTags  = "UpdateLangfuseTraceTags"
+	ActivityUpdateLangfuseTraceTags     = "UpdateLangfuseTraceTags"
+	ActivityUpdateLangfuseTraceMetadata = "UpdateLangfuseTraceMetadata"
 )
 
 // Deprecated Langfuse activity name constants — removed from the main queue in pf-37ebe8.
@@ -105,6 +106,7 @@ func AllMainQueueActivities() []string {
 		ActivityFinishLangfuseTrace,
 		ActivityPersistLangfuseTraceID,
 		ActivityUpdateLangfuseTraceTags,
+		ActivityUpdateLangfuseTraceMetadata,
 		ActivityKickNextPending,
 		ActivityRecordSkippedStage,
 		ActivityDeleteAssertions,

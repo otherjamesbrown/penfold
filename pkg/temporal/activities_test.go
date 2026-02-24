@@ -13,8 +13,9 @@ func TestAllMainQueueActivities(t *testing.T) {
 	// pf-0656f5: added RecordSkippedStage;
 	// pf-8da0b0: added BackfillConversationSummaries, RegenerateConversationSummary, CheckStaleConversations
 	// pf-xxx: added DeleteAssertions
-	// pf-448da3: added FetchPipelineDefinition)
-	expectedCount := 34
+	// pf-448da3: added FetchPipelineDefinition
+	// pf-64c235: added UpdateLangfuseTraceMetadata)
+	expectedCount := 35
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -54,6 +55,7 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"FinishLangfuseTrace",
 		"PersistLangfuseTraceID",
 		"UpdateLangfuseTraceTags",
+		"UpdateLangfuseTraceMetadata",
 		// Auto-drain activity
 		"KickNextPending",
 		// Skipped stage provenance recording

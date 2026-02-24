@@ -105,6 +105,49 @@ func TestFetchPipelineDefinitionInput_Struct(t *testing.T) {
 	assert.Equal(t, "standard", input.Pipeline)
 }
 
+func TestBuildPipelineDefinitionMetadata(t *testing.T) {
+	def := &FetchPipelineDefinitionOutput{
+		Found: true,
+		Stages: []PipelineStageConfig{
+			{Stage: "parse", Enabled: true},
+			{Stage: "triage", Enabled: true},
+			{Stage: "extract_ner", Enabled: true, ModelOverride: "qwen2.5:14b"},
+			{Stage: "analyze", Enabled: false, ModelOverride: "gemini-2.5-pro"},
+			{Stage: "embed", Enabled: true},
+		},
+	}
+
+	metadata := buildPipelineDefinitionMetadata("transcript", def)
+
+	assert.Equal(t, "transcript", metadata["pipeline_name"])
+
+	stages, ok := metadata["pipeline_stages"].([]string)
+	require.True(t, ok, "pipeline_stages should be a string slice")
+	assert.Equal(t, []string{"parse", "triage", "extract_ner", "embed"}, stages, "only enabled stages")
+
+	overrides, ok := metadata["model_overrides"].(map[string]string)
+	require.True(t, ok, "model_overrides should be a map")
+	assert.Equal(t, "qwen2.5:14b", overrides["extract_ner"])
+	assert.Equal(t, "gemini-2.5-pro", overrides["analyze"], "disabled stages with overrides still appear")
+	assert.Len(t, overrides, 2)
+}
+
+func TestBuildPipelineDefinitionMetadata_NoOverrides(t *testing.T) {
+	def := &FetchPipelineDefinitionOutput{
+		Found: true,
+		Stages: []PipelineStageConfig{
+			{Stage: "parse", Enabled: true},
+			{Stage: "triage", Enabled: true},
+		},
+	}
+
+	metadata := buildPipelineDefinitionMetadata("standard", def)
+
+	assert.Equal(t, "standard", metadata["pipeline_name"])
+	_, hasOverrides := metadata["model_overrides"]
+	assert.False(t, hasOverrides, "model_overrides should be omitted when empty")
+}
+
 func TestPipelineInput_HasPipelineField(t *testing.T) {
 	input := PipelineInput{
 		TenantID: "tenant-1",

@@ -64,3 +64,9 @@ type UpdateLangfuseTraceTagsInput struct {
 	Tags    []string `json:"tags"`
 	Name    string   `json:"name,omitempty"` // Optional: update trace name (e.g. pipeline-aware name)
 }
+
+// UpdateLangfuseTraceMetadataInput is the input for the UpdateLangfuseTraceMetadata activity.
+type UpdateLangfuseTraceMetadataInput struct {
+	TraceID  string         `json:"trace_id"`
+	Metadata map[string]any `json:"metadata"`
+}

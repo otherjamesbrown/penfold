@@ -147,6 +147,22 @@ func (a *LangfuseActivities) UpdateLangfuseTraceTags(ctx context.Context, input 
 	return nil
 }
 
+// UpdateLangfuseTraceMetadata updates metadata on an existing Langfuse trace.
+func (a *LangfuseActivities) UpdateLangfuseTraceMetadata(ctx context.Context, input workflows.UpdateLangfuseTraceMetadataInput) error {
+	if a.ingestion == nil {
+		a.logger.Debug("Langfuse not configured — skipping UpdateLangfuseTraceMetadata")
+		return nil
+	}
+
+	a.ingestion.UpdateTraceMetadata(input.TraceID, input.Metadata)
+
+	if err := a.ingestion.Flush(ctx); err != nil {
+		a.logger.Warn("Langfuse UpdateLangfuseTraceMetadata flush failed", logging.Err(err), logging.F("trace_id", input.TraceID))
+	}
+
+	return nil
+}
+
 // PersistLangfuseTraceID persists the Langfuse trace ID back to the sources table.
 // If no database pool is configured, this is a no-op.
 func (a *LangfuseActivities) PersistLangfuseTraceID(ctx context.Context, input workflows.PersistLangfuseTraceIDInput) error {
