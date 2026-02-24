@@ -329,9 +329,45 @@ type (
 	PersistFindingsActivityOutput    = workflows.PersistFindingsOutput
 )
 
+// modelContextWindows maps model IDs to their context window size in tokens.
+// Used to calculate model-appropriate chunking thresholds for extraction.
+var modelContextWindows = map[string]int{
+	"gemini-2.5-flash": 1048576,
+	"gemini-2.5-pro":   1048576,
+	"gemini-2.0-flash": 1048576,
+	"qwen2.5:7b":       32768,
+	"qwen3:8b":         32768,
+}
+
+// defaultExtractModel is the default model used for extraction stages
+// when no ModelOverride is specified.
+const defaultExtractModel = "gemini-2.5-flash"
+
+// maxInputChars returns the maximum input size in characters for a given model.
+// Uses 80% of context window (tokens * ~4 chars/token) to leave room for prompt + output.
+// Returns a conservative 6000-char default for unknown models.
+func maxInputChars(model string) int {
+	ctxWindow, ok := modelContextWindows[model]
+	if !ok {
+		return 6000
+	}
+	return (ctxWindow * 4) * 80 / 100
+}
+
+// extractChunkSize returns model-appropriate chunk size for chunked extraction.
+// Caps at 50K chars to keep individual LLM calls manageable.
+func extractChunkSize(model string) int {
+	threshold := maxInputChars(model)
+	size := threshold / 2
+	if size > 50000 {
+		return 50000
+	}
+	return size
+}
+
 // ExtractEntities performs two-pass entity extraction with chunking support.
-// For content under 6K chars, makes a single RPC call.
-// For content over 6K chars, splits into chunks, calls RPC for each, and merges results.
+// For content within the model's context window, makes a single RPC call.
+// For content exceeding the model's capacity, splits into chunks, calls RPC for each, and merges results.
 func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workflows.SLMPipelineExtractEntitiesInput) (*workflows.SLMPipelineExtractEntitiesOutput, error) {
 	// Set trace_id in context for log correlation
 	if input.ContentID != "" {
@@ -410,6 +446,14 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	startTime := time.Now()
 	contentRunes := []rune(content)
 
+	// Determine extraction model for chunking threshold (pf-6992f6).
+	// Uses ModelOverride if set, otherwise defaults to gemini-2.5-flash.
+	extractModel := defaultExtractModel
+	if input.ModelOverride != "" {
+		extractModel = input.ModelOverride
+	}
+	chunkThreshold := maxInputChars(extractModel)
+
 	// pf-edbda4: Record failed pipeline runs for provenance.
 	// When extraction fails, record the failure so `penf pipeline inspect` shows
 	// the attempt rather than appearing as if the stage was skipped entirely.
@@ -456,10 +500,13 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 
 	var results []*aiv1.ExtractEntitiesResponse
 
-	if len(contentRunes) <= 6000 {
-		// Single call for short content
+	if len(contentRunes) <= chunkThreshold {
+		// Single call — content fits within model context window
 		recordHeartbeat(entityCallCtx, "calling AI service for entity extraction (single call)")
-		logger.Info("Content under 6K chars, making single RPC call")
+		logger.Info("Content within model context window, making single RPC call",
+			logging.F("model", extractModel),
+			logging.F("threshold_chars", chunkThreshold),
+		)
 
 		req := &aiv1.ExtractEntitiesRequest{
 			Content:  content,
@@ -484,18 +531,24 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		}
 		results = append(results, resp)
 	} else {
-		// Chunked extraction for long content
+		// Chunked extraction — content exceeds model context window
 		recordHeartbeat(entityCallCtx, "calling AI service for entity extraction (chunked)")
-		logger.Info("Content over 6K chars, splitting into chunks",
+		chunkSize := extractChunkSize(extractModel)
+		logger.Info("Content exceeds model context window, splitting into chunks",
 			logging.F("content_runes", len(contentRunes)),
+			logging.F("model", extractModel),
+			logging.F("threshold_chars", chunkThreshold),
+			logging.F("chunk_size", chunkSize),
 		)
 
-		chunks := splitIntoChunks(content, 1500, 200)
+		chunks := splitIntoChunks(content, chunkSize, chunkSize/10)
 		logger.Info("Content split into chunks", logging.F("chunk_count", len(chunks)))
 
 		for i, chunk := range chunks {
-			// Check for cancellation between chunks
+			// Check for cancellation between chunks (e.g. Temporal timeout)
 			if entityCallCtx.Err() != nil {
+				extractionFailed = true
+				failureError = fmt.Sprintf("context cancelled during chunk %d/%d: %v", i+1, len(chunks), entityCallCtx.Err())
 				return nil, entityCallCtx.Err()
 			}
 

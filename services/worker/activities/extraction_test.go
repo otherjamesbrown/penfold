@@ -164,7 +164,8 @@ func TestExtractEntities_MediumContent(t *testing.T) {
 func TestExtractEntities_LongContent(t *testing.T) {
 	logger := logging.NewNopLogger()
 
-	// Create content over 6K chars to trigger chunking
+	// Create content over 6K chars and use an unknown model override to trigger chunking
+	// at the conservative 6000-char default threshold.
 	longContent := strings.Repeat("This is a test sentence about Project Gamma and important people like Charlie and Dana. ", 200)
 	require.Greater(t, len([]rune(longContent)), 6000)
 
@@ -208,10 +209,11 @@ func TestExtractEntities_LongContent(t *testing.T) {
 	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
 
 	input := ExtractEntitiesInput{
-		TenantID: "test-tenant",
-		SourceID: 123,
-		JobID:    "job-123",
-		Content:  longContent,
+		TenantID:      "test-tenant",
+		SourceID:      123,
+		JobID:         "job-123",
+		Content:       longContent,
+		ModelOverride: "unknown-small-model", // Forces conservative 6000-char threshold
 	}
 
 	output, err := activities.ExtractEntities(context.Background(), input)
@@ -224,6 +226,51 @@ func TestExtractEntities_LongContent(t *testing.T) {
 	// Verify merged results
 	require.Equal(t, 2, len(output.People), "Expected 2 people from merged chunks")
 	require.Equal(t, 1, len(output.Projects), "Expected 1 project after deduplication")
+}
+
+func TestExtractEntities_LongContentSingleCallWithGemini(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	// Create content over 6K chars — with default gemini model, this fits in a single call.
+	longContent := strings.Repeat("This is a test sentence about Project Gamma and important people like Charlie and Dana. ", 200)
+	require.Greater(t, len([]rune(longContent)), 6000)
+
+	callCount := 0
+	mockClient := &mockAIClient{
+		extractEntitiesFn: func(ctx context.Context, req *aiv1.ExtractEntitiesRequest) (*aiv1.ExtractEntitiesResponse, error) {
+			callCount++
+			return &aiv1.ExtractEntitiesResponse{
+				People:        []*aiv1.PersonEntity{{Name: "Charlie", Role: "Lead"}},
+				Dates:         []*aiv1.DateEntity{},
+				Projects:      []string{"Project Gamma"},
+				Organisations: []string{},
+				ActionItems:   []*aiv1.ActionItemEntity{},
+				Decisions:     []string{},
+				Risks:         []string{},
+				DetailedRisks: []*aiv1.RiskEntity{},
+				ModelUsed:     "gemini-2.5-flash",
+			}, nil
+		},
+	}
+
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+
+	input := ExtractEntitiesInput{
+		TenantID: "test-tenant",
+		SourceID: 123,
+		JobID:    "job-123",
+		Content:  longContent,
+		// No ModelOverride — defaults to gemini-2.5-flash with 1M token context
+	}
+
+	output, err := activities.ExtractEntities(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// With gemini's large context, content should be processed in a single call
+	require.Equal(t, 1, callCount, "Expected single RPC call for gemini model with moderate content")
+	require.Equal(t, 1, len(output.People))
+	require.Equal(t, 1, len(output.Projects))
 }
 
 func TestExtractEntities_EmptyContent(t *testing.T) {
@@ -251,7 +298,8 @@ func TestExtractEntities_EmptyContent(t *testing.T) {
 func TestExtractEntities_MergeDedup(t *testing.T) {
 	logger := logging.NewNopLogger()
 
-	// Create content over 6K chars to trigger chunking
+	// Create content over 6K chars and use unknown model to trigger chunking
+	// at the conservative 6000-char default threshold.
 	longContent := strings.Repeat("Test content for chunking and deduplication. ", 300)
 	require.Greater(t, len([]rune(longContent)), 6000)
 
@@ -287,10 +335,11 @@ func TestExtractEntities_MergeDedup(t *testing.T) {
 	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
 
 	input := ExtractEntitiesInput{
-		TenantID: "test-tenant",
-		SourceID: 123,
-		JobID:    "job-123",
-		Content:  longContent,
+		TenantID:      "test-tenant",
+		SourceID:      123,
+		JobID:         "job-123",
+		Content:       longContent,
+		ModelOverride: "unknown-small-model", // Forces conservative 6000-char threshold
 	}
 
 	output, err := activities.ExtractEntities(context.Background(), input)
@@ -1054,4 +1103,36 @@ func TestFormatEnrichedName_MetadataNoTitle(t *testing.T) {
 
 	result := formatEnrichedName(person, nil)
 	require.Equal(t, "Bob [reports to Alice]", result)
+}
+
+func TestMaxInputChars_KnownModels(t *testing.T) {
+	// Gemini models (1M token context) → ~3.3M chars
+	require.Equal(t, (1048576*4)*80/100, maxInputChars("gemini-2.5-flash"))
+	require.Equal(t, (1048576*4)*80/100, maxInputChars("gemini-2.5-pro"))
+	require.Equal(t, (1048576*4)*80/100, maxInputChars("gemini-2.0-flash"))
+
+	// Qwen models (32K token context) → ~104K chars
+	require.Equal(t, (32768*4)*80/100, maxInputChars("qwen3:8b"))
+	require.Equal(t, (32768*4)*80/100, maxInputChars("qwen2.5:7b"))
+}
+
+func TestMaxInputChars_UnknownModel(t *testing.T) {
+	// Unknown models get the conservative 6000-char default
+	require.Equal(t, 6000, maxInputChars("unknown-model"))
+	require.Equal(t, 6000, maxInputChars(""))
+}
+
+func TestExtractChunkSize_LargeModel(t *testing.T) {
+	// Gemini models: threshold/2 > 50K, capped at 50K
+	require.Equal(t, 50000, extractChunkSize("gemini-2.5-flash"))
+}
+
+func TestExtractChunkSize_SmallModel(t *testing.T) {
+	// Unknown model: threshold=6000, chunk_size=3000
+	require.Equal(t, 3000, extractChunkSize("unknown-model"))
+}
+
+func TestExtractChunkSize_QwenModel(t *testing.T) {
+	// Qwen: threshold=~104K, chunk_size=~52K, capped at 50K
+	require.Equal(t, 50000, extractChunkSize("qwen3:8b"))
 }
