@@ -173,6 +173,44 @@ func DefaultModels(mlxLLMURL, mlxEmbeddingsURL, geminiEndpoint string) []*ModelC
 			UpdatedAt: now,
 		},
 		{
+			ID:        "gemini/gemini-2.5-flash",
+			Name:      "Gemini 2.5 Flash",
+			Provider:  ProviderGemini,
+			ModelName: "gemini-2.5-flash",
+			Endpoint:  geminiEndpoint,
+			Capabilities: ModelCapabilities{
+				Capabilities:            []Capability{CapabilityChat, CapabilityCompletion, CapabilitySummarization, CapabilityExtraction, CapabilityClassification, CapabilityCodeGeneration},
+				SupportsFunctionCalling: true,
+				SupportsStreaming:       true,
+				SupportsJSON:            true,
+			},
+			Limits: ModelLimits{
+				ContextWindow:   1048576, // 1M tokens
+				MaxOutputTokens: 8192,
+				RateLimitRPM:    60,
+				RateLimitTPM:    60000,
+				MaxBatchSize:    1,
+			},
+			Cost: ModelCost{
+				InputCostPer1K:  0.00015, // $0.00015 per 1K input tokens
+				OutputCostPer1K: 0.00060, // $0.00060 per 1K output tokens
+				Currency:        "USD",
+			},
+			Version: ModelVersion{
+				Version:  "2.5",
+				IsLatest: true,
+			},
+			Health: ModelHealth{
+				Status: HealthStatusUnknown,
+			},
+			IsLocal:   false,
+			IsDefault: false,
+			Priority:  92,
+			Tags:      []string{"general", "cloud", "google", "fast", "structured-output", "long-context"},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
 			ID:        "gemini/gemini-2.0-flash",
 			Name:      "Gemini 2.0 Flash",
 			Provider:  ProviderGemini,

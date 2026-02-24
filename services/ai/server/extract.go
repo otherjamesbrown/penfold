@@ -253,7 +253,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		opts := backend.CompletionOptions{
 			Model:       model,
 			Temperature: 0.1,  // Low temperature for consistent extraction
-			MaxTokens:   2048, // Room for thinking tokens + structured JSON output
+			MaxTokens:   8192, // Must accommodate full NER/semantic JSON for large transcripts
 			JSONMode:    true,
 		}
 
@@ -330,7 +330,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		opts := backend.CompletionOptions{
 			Model:       model,
 			Temperature: 0.1,
-			MaxTokens:   2048, // Room for thinking tokens + structured JSON output
+			MaxTokens:   8192, // Must accommodate full NER/semantic JSON for large transcripts
 			JSONMode:    true,
 		}
 
@@ -415,7 +415,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		opts := backend.CompletionOptions{
 			Model:       model,
 			Temperature: 0.1,
-			MaxTokens:   2048, // Room for thinking tokens + structured JSON output
+			MaxTokens:   8192, // Must accommodate full NER/semantic JSON for large transcripts
 			JSONMode:    true,
 		}
 

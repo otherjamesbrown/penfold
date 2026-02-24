@@ -634,9 +634,10 @@ func TestDefaultModels(t *testing.T) {
 
 	expectedIDs := []string{
 		"mlx/Qwen2.5-7B-Instruct-4bit",
-		"mlx/mxbai-embed-large-v1",
+		"mlx/mxbai-embed-large",
 		"gemini/gemini-pro",
 		"gemini/gemini-2.5-pro",
+		"gemini/gemini-2.5-flash",
 	}
 
 	for _, id := range expectedIDs {
