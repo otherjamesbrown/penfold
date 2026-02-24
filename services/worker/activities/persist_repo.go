@@ -56,6 +56,7 @@ var (
 		"new":           true,
 		"identified":    true,
 		"confirmed":     true,
+		"no_change":     true,
 		"raised":        true,
 		"updated":       true,
 		"escalated":     true,

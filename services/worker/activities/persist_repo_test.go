@@ -154,7 +154,7 @@ func TestPersistRepo_ValidateInvalidLifecycleEvent(t *testing.T) {
 	})
 
 	t.Run("accepts valid lifecycle_event values", func(t *testing.T) {
-		validEvents := []string{"raised", "updated", "escalated", "de_escalated", "assigned", "decided", "deferred", "resolved", "reopened"}
+		validEvents := []string{"raised", "updated", "escalated", "de_escalated", "assigned", "decided", "deferred", "resolved", "reopened", "no_change"}
 
 		for _, event := range validEvents {
 			eventCopy := event

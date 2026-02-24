@@ -159,8 +159,9 @@ func TestBug_pf322dc7_LifecycleEventValidation(t *testing.T) {
 		// AFTER FIX: All these lifecycle events should be valid
 		expectedValidEventsAfterFix := []string{
 			"new",          // Existing (added in pf-4a3aba fix)
-			"identified",   // MISSING - needs to be added for pf-322dc7
-			"confirmed",    // MISSING - needs to be added for pf-322dc7
+			"identified",   // Existing (added in pf-322dc7 fix)
+			"confirmed",    // Existing (added in pf-322dc7 fix)
+			"no_change",    // Existing (added in pf-f41a71 fix)
 			"raised",       // Existing
 			"updated",      // Existing
 			"escalated",    // Existing
@@ -194,13 +195,7 @@ func TestBug_pf322dc7_LifecycleEventValidation(t *testing.T) {
 
 			err := repo.validateInput(input)
 
-			if event == "identified" || event == "confirmed" {
-				// These will FAIL until the fix is applied
-				assert.NoError(t, err, "After fix: '%s' should be a valid lifecycle event (test will fail until fix applied)", event)
-			} else {
-				// These should already pass (existing valid values)
-				assert.NoError(t, err, "'%s' should be a valid lifecycle event", event)
-			}
+			assert.NoError(t, err, "'%s' should be a valid lifecycle event", event)
 		}
 
 		t.Logf("AFTER FIX: validLifecycleEvents should include: %v", expectedValidEventsAfterFix)
@@ -227,6 +222,45 @@ func TestBug_pf322dc7_LifecycleEventValidation(t *testing.T) {
 
 		t.Logf("REPRODUCTION: 'confirmed' is NOT in validLifecycleEvents map")
 		t.Logf("ROOT CAUSE: Map at persist_repo.go:55-66 is missing 'confirmed' entry")
+	})
+}
+
+// TestBug_pfF41a71_NoChangeLifecycleEventRejected reproduces bug pf-f41a71.
+// Root cause: PersistFindings rejects lifecycle_change="no_change" from meeting analysis output.
+// The analyze stage (gemini-2.5-pro) produces "no_change" for risks that are known but
+// haven't changed status. This is a legitimate value that should be accepted.
+func TestBug_pfF41a71_NoChangeLifecycleEventRejected(t *testing.T) {
+	repo := &PersistRepo{
+		logger: logging.NewLogger(&logging.Config{Level: logging.LevelError}),
+	}
+
+	t.Run("lifecycle_event 'no_change' is accepted", func(t *testing.T) {
+		noChangeEvent := "no_change"
+		input := &PersistFindingsInput{
+			TenantID: "tenant-1",
+			SourceID: 123,
+			Analysis: &DeepAnalyzeOutput{
+				RiskReferences: []RiskReferenceOutput{
+					{
+						Description:     "Known security risk unchanged",
+						ContextExcerpt:  "The team acknowledged the existing vulnerability but no status change",
+						Significance:    "secondary",
+						LifecycleChange: &noChangeEvent,
+						IsNew:           false,
+						RootID:          int64Ptr(42),
+					},
+				},
+			},
+			ResolvedPeople: map[string]int64{},
+		}
+
+		err := repo.validateInput(input)
+		require.NoError(t, err, "lifecycle_event='no_change' should be accepted")
+	})
+
+	t.Run("'no_change' is in validLifecycleEvents map", func(t *testing.T) {
+		isValid := validLifecycleEvents["no_change"]
+		assert.True(t, isValid, "FIXED pf-f41a71: 'no_change' is in validLifecycleEvents")
 	})
 }
 
