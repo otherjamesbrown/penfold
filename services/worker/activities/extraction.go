@@ -89,6 +89,15 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 		return 0, ctx.Err()
 	}
 
+	// Skip assertion extraction for meeting transcripts — the extraction prompt is designed
+	// for email format and returns 0 assertions for conversational transcript structure.
+	// Meeting assertions are created by Stage 4.5 (PersistFindings) from the analysis output,
+	// which produces higher-quality verified actions, decisions, and risks.
+	if strings.EqualFold(input.ContentType, "meeting") {
+		logger.Info("Skipping assertion extraction for meeting transcript (handled by Stage 4.5 PersistFindings)")
+		return 0, nil
+	}
+
 	// Validate input
 	if input.Content == "" {
 		return 0, temporal.NewApplicationError(

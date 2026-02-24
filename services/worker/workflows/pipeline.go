@@ -1716,7 +1716,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		extractPhaseID := sideEffectUUID(ctx)
 
 		extractOutput = &SLMPipelineExtractEntitiesOutput{}
-		extractOpts := stageOpts("extract_ner", embeddingOpts)
+		extractOpts := stageOpts("extract_ner", llmOpts)
 		if input.TimeoutOverride > 0 {
 			extractOpts.StartToCloseTimeout = input.TimeoutOverride
 		}
@@ -1748,6 +1748,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			ContentID:       input.ContentID,
 			JobID:           input.JobID,
 			Content:         parsedContent,
+			ContentType:     input.ContentType,
 			SenderEmail:     input.SenderEmail, // Pass sender for owner attribution
 			LangfuseTraceID: langfuseTraceID,
 			LangfusePhaseID: extractPhaseID,

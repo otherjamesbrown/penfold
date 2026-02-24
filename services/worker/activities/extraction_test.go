@@ -876,6 +876,69 @@ func TestEnrichHeaderParticipants_LookupError(t *testing.T) {
 	require.Equal(t, "Smith, Alice", enrichedParticipants[0].DisplayName)
 }
 
+// TestExtractAssertions_MeetingSkipped verifies that assertion extraction is skipped
+// for meeting transcripts. The email-oriented assertion prompt returns 0 results for
+// conversational transcript format. Meeting assertions are created by Stage 4.5
+// (PersistFindings) from the analysis output instead.
+func TestExtractAssertions_MeetingSkipped(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	aiCalled := false
+	mockClient := &mockAIClient{
+		extractAssertionsFn: func(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error) {
+			aiCalled = true
+			return &aiv1.AssertionResponse{}, nil
+		},
+	}
+
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+
+	input := workflows.ExtractAssertionsInput{
+		TenantID:    "test-tenant",
+		SourceID:    456,
+		ContentID:   "mt-test123",
+		JobID:       "job-456",
+		Content:     "00:00 Speaker A: Let's discuss the roadmap.\n00:05 Speaker B: I agree we need to prioritize.",
+		ContentType: "meeting",
+	}
+
+	count, err := activities.ExtractAssertions(context.Background(), input)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+	require.False(t, aiCalled, "AI service should NOT be called for meeting transcripts")
+}
+
+// TestExtractAssertions_EmailNotSkipped verifies that assertion extraction runs normally
+// for email content (not skipped like meetings).
+func TestExtractAssertions_EmailNotSkipped(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	aiCalled := false
+	mockClient := &mockAIClient{
+		extractAssertionsFn: func(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error) {
+			aiCalled = true
+			return &aiv1.AssertionResponse{
+				ModelUsed: "test-model",
+			}, nil
+		},
+	}
+
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+
+	input := workflows.ExtractAssertionsInput{
+		TenantID:    "test-tenant",
+		SourceID:    789,
+		ContentID:   "em-test456",
+		JobID:       "job-789",
+		Content:     "We decided to proceed with Option B for the Q3 rollout.",
+		ContentType: "email",
+	}
+
+	_, err := activities.ExtractAssertions(context.Background(), input)
+	require.NoError(t, err)
+	require.True(t, aiCalled, "AI service should be called for email content")
+}
+
 func TestBuildEmailHeaderBlock_EnrichedParticipants(t *testing.T) {
 	// Full flow test: enriched participants -> buildEmailHeaderBlock
 	// Simulates the "Varma, Hrishikesh" -> "Hrishikesh Varma [VP Engineering] (also known as: Rishi)" case
