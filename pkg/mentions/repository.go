@@ -63,6 +63,9 @@ type EntityLookup interface {
 	// LookupProject finds project candidates by text.
 	LookupProject(ctx context.Context, tenantID, text string) ([]Candidate, error)
 
+	// LookupTopic finds topic candidates by text.
+	LookupTopic(ctx context.Context, tenantID, text string) ([]Candidate, error)
+
 	// GetEntityName returns the display name for an entity.
 	GetEntityName(ctx context.Context, entityType EntityType, entityID int64) (string, error)
 }

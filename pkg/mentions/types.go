@@ -16,6 +16,7 @@ const (
 	EntityTypeProduct EntityType = "product"
 	EntityTypeCompany EntityType = "company"
 	EntityTypeProject EntityType = "project"
+	EntityTypeTopic   EntityType = "topic"
 )
 
 // MentionStatus represents the resolution status of a mention.

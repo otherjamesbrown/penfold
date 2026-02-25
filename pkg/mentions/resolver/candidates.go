@@ -81,6 +81,8 @@ func (g *CandidateGatherer) gatherForMention(
 		baseCandidates, err = g.lookup.LookupCompany(ctx, tenantID, mention.Text)
 	case mentions.EntityTypeProject:
 		baseCandidates, err = g.lookup.LookupProject(ctx, tenantID, mention.Text)
+	case mentions.EntityTypeTopic:
+		baseCandidates, err = g.lookup.LookupTopic(ctx, tenantID, mention.Text)
 	}
 
 	if err != nil {
@@ -183,6 +185,8 @@ func (g *CandidateGatherer) lookupByType(
 		return g.lookup.LookupCompany(ctx, tenantID, text)
 	case mentions.EntityTypeProject:
 		return g.lookup.LookupProject(ctx, tenantID, text)
+	case mentions.EntityTypeTopic:
+		return g.lookup.LookupTopic(ctx, tenantID, text)
 	default:
 		return nil, nil
 	}

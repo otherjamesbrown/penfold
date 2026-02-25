@@ -80,6 +80,8 @@ func (r *Repository) StartSession(ctx context.Context) (*Session, bool, error) {
 			last_activity_at, expires_at, total_items,
 			review_mode, priority_mode
 		)
+		-- Safety/test tenant UUID: prevents CLI review sessions from touching production data.
+		-- Do NOT replace with the production tenant UUID.
 		VALUES ($1, '00000001-0000-0000-0000-000000000001', 'cli-user@penfold.local',
 			'active', NOW(), NOW(), NOW() + INTERVAL '24 hours', 0,
 			'standard', 'mixed')

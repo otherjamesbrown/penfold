@@ -139,6 +139,14 @@ func (m *MockEntityLookup) LookupProject(ctx context.Context, tenantID, text str
 	return args.Get(0).([]mentions.Candidate), args.Error(1)
 }
 
+func (m *MockEntityLookup) LookupTopic(ctx context.Context, tenantID, text string) ([]mentions.Candidate, error) {
+	args := m.Called(ctx, tenantID, text)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]mentions.Candidate), args.Error(1)
+}
+
 func (m *MockEntityLookup) GetEntityName(ctx context.Context, entityType mentions.EntityType, entityID int64) (string, error) {
 	args := m.Called(ctx, entityType, entityID)
 	return args.String(0), args.Error(1)

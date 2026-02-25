@@ -38,6 +38,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/otherjamesbrown/penfold/pkg/mentions/resolver"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
+	"github.com/otherjamesbrown/penfold/pkg/topics"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	pkgobs "github.com/otherjamesbrown/penfold/pkg/temporal/observability"
@@ -540,12 +541,17 @@ func main() {
 		// Create context package repository
 		contextRepo := activities.NewContextPackageRepo(dbPool, logger)
 
+		// Create topic repository and adapter for context enrichment
+		topicRepo := topics.NewRepository(dbPool, logger)
+		topicAdapter := activities.NewTopicLookupAdapter(topicRepo)
+
 		// Create context builder activities
 		contextBuilderActivities := activities.NewContextBuilderActivities(
 			logger,
 			entityResolver,
 			entitiesRepo, // entitiesRepo implements EntityLookupInterface
 			contextRepo,
+			topicAdapter,
 			pipelineRepo,
 			configResolver,
 		)

@@ -682,7 +682,9 @@ func buildWorkflowGuidance() *mentionsv1.WorkflowGuidance {
 }
 
 func getTenantID(ctx context.Context) string {
-	// STUB: Returns hardcoded tenant until multi-tenant context propagation is implemented.
+	// STUB: Returns the safety/test tenant UUID until multi-tenant context
+	// propagation is implemented. This deliberately uses the test tenant — not the
+	// production tenant — so unscoped gateway operations cannot corrupt live data.
 	return "00000001-0000-0000-0000-000000000001"
 }
 

@@ -31,6 +31,7 @@ import (
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	productv1 "github.com/otherjamesbrown/penfold/api/proto/product/v1"
 	projectv1 "github.com/otherjamesbrown/penfold/api/proto/project/v1"
+	topicv1 "github.com/otherjamesbrown/penfold/api/proto/topic/v1"
 	questionsv1 "github.com/otherjamesbrown/penfold/api/proto/questions/v1"
 	qualityv1 "github.com/otherjamesbrown/penfold/api/proto/quality/v1"
 	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
@@ -61,6 +62,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/products"
 	"github.com/otherjamesbrown/penfold/pkg/projects"
+	"github.com/otherjamesbrown/penfold/pkg/topics"
 	"github.com/otherjamesbrown/penfold/pkg/relationships"
 	"github.com/otherjamesbrown/penfold/pkg/repository"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
@@ -96,6 +98,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/server"
 	"github.com/otherjamesbrown/penfold/services/gateway/teamsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/tenantservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/topicservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/threadsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/watchlistservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/workflowservice"
@@ -380,6 +383,12 @@ func main() {
 	projectSvc := projectservice.NewService(projectRepo, entityRepo, logger)
 	projectv1.RegisterProjectServiceServer(grpcServer, projectSvc)
 	logger.Info("Registered ProjectService")
+
+	// Register TopicService for topic CRUD.
+	topicRepo := topics.NewRepository(dbPool, logger)
+	topicSvc := topicservice.NewService(topicRepo, logger)
+	topicv1.RegisterTopicServiceServer(grpcServer, topicSvc)
+	logger.Info("Registered TopicService")
 
 	// Register TeamsService for team CRUD and member management.
 	// Uses entityRepo (created above) for team operations and tenantRepo for tenant resolution.

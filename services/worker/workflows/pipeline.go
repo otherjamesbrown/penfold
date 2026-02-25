@@ -327,8 +327,9 @@ type ContextPackage struct {
 	OpenActions        []ContextAssertion    `json:"open_actions,omitempty"`
 	RecentDecisions    []ContextAssertion    `json:"recent_decisions,omitempty"`
 	ProductEvents      []ContextProductEvent `json:"product_events,omitempty"`
-	GlossaryTerms      []ContextGlossaryTerm `json:"glossary_terms,omitempty"`
-	ParticipantContext []ResolvedPerson      `json:"participant_context,omitempty"`
+	GlossaryTerms      []ContextGlossaryTerm      `json:"glossary_terms,omitempty"`
+	TopicDescriptions  []ContextTopicDescription  `json:"topic_descriptions,omitempty"`
+	ParticipantContext []ResolvedPerson           `json:"participant_context,omitempty"`
 	TotalTokensUsed    int                   `json:"total_tokens_used"`
 	TokenBudget        int                   `json:"token_budget"`
 }
@@ -357,6 +358,13 @@ type ContextGlossaryTerm struct {
 	Category   string `json:"category,omitempty"`
 }
 
+// ContextTopicDescription represents a topic in the context package.
+// Topics provide paragraph-level context (richer than glossary) without actions/risks.
+type ContextTopicDescription struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
 // FormatForPrompt serializes the ContextPackage into a human-readable string
 // for inclusion in the LLM analyze prompt's {background_context} variable.
 func (cp *ContextPackage) FormatForPrompt() string {
@@ -372,6 +380,14 @@ func (cp *ContextPackage) FormatForPrompt() string {
 			lines = append(lines, fmt.Sprintf("- **%s**: %s", t.Term, t.Definition))
 		}
 		sections = append(sections, "### Glossary\n"+strings.Join(lines, "\n"))
+	}
+
+	if len(cp.TopicDescriptions) > 0 {
+		var lines []string
+		for _, t := range cp.TopicDescriptions {
+			lines = append(lines, fmt.Sprintf("- **%s**: %s", t.Name, t.Description))
+		}
+		sections = append(sections, "### Topic Context\n"+strings.Join(lines, "\n"))
 	}
 
 	// Note: Participant Context is no longer rendered here. People context is now

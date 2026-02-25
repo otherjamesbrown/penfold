@@ -168,6 +168,7 @@ func TestBuildContext_PersonResolution(t *testing.T) {
 				&mockContextPackageRepo{},
 				nil,
 				nil,
+				nil,
 			)
 
 			input := BuildContextInput{
@@ -300,6 +301,7 @@ func TestBuildContext_ProjectResolution(t *testing.T) {
 				contextRepo,
 				nil,
 				nil,
+				nil,
 			)
 
 			input := BuildContextInput{
@@ -329,7 +331,7 @@ func TestBuildContext_TokenBudget_Meeting(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -352,7 +354,7 @@ func TestBuildContext_TokenBudget_Email(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -375,7 +377,7 @@ func TestBuildContext_TokenBudget_Slack(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -441,7 +443,7 @@ func TestBuildContext_TokenBudget_Truncation(t *testing.T) {
 		},
 	}
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, entityLookup, contextRepo, nil, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, entityLookup, contextRepo, nil, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -478,7 +480,7 @@ func TestBuildContext_EmptyExtraction(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.MustGlobal()
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -523,7 +525,7 @@ func TestBuildContext_UnknownEntities(t *testing.T) {
 		glossaryTerms:     []ContextGlossaryTerm{}, // Empty - no glossary matches
 	}
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, entityLookup, contextRepo, nil, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, entityLookup, contextRepo, nil, nil, nil)
 
 	input := BuildContextInput{
 		TenantID:    "test-tenant",
@@ -643,6 +645,7 @@ func TestBuildContext_FilterNonPersonEmails(t *testing.T) {
 				&mockContextPackageRepo{},
 				nil,
 				nil,
+				nil,
 			)
 
 			input := BuildContextInput{
@@ -706,6 +709,7 @@ func TestBuildContext_DisplayNamesPassedToResolver(t *testing.T) {
 		entityResolver,
 		&mockEntityLookup{},
 		&mockContextPackageRepo{},
+		nil,
 		nil,
 		nil,
 	)
@@ -856,6 +860,7 @@ func TestBuildContext_ParticipantEmailsResolution(t *testing.T) {
 				&mockContextPackageRepo{},
 				nil,
 				nil,
+				nil,
 			)
 
 			input := workflows.BuildContextInput{
@@ -941,6 +946,7 @@ func TestBugPf99a49b_RolePersistence(t *testing.T) {
 		&mockEntityResolver{},
 		entityLookup,
 		&mockContextPackageRepo{},
+		nil,
 		nil,
 		nil,
 	)
@@ -1046,6 +1052,7 @@ func TestBugPf99a49b_GarbageTitleFilter(t *testing.T) {
 				&mockContextPackageRepo{},
 				nil,
 				nil,
+				nil,
 			)
 
 			input := workflows.BuildContextInput{
@@ -1117,6 +1124,7 @@ func TestBugPf99a49b_NoOverwrite(t *testing.T) {
 		&mockEntityResolver{},
 		entityLookup,
 		&mockContextPackageRepo{},
+		nil,
 		nil,
 		nil,
 	)
@@ -1248,6 +1256,7 @@ func TestBugPf96c91a_SingleCharacterFuzzyMatch(t *testing.T) {
 				&mockEntityResolver{},
 				entityLookup,
 				&mockContextPackageRepo{},
+				nil,
 				nil,
 				nil,
 			)
@@ -1579,6 +1588,7 @@ func TestReclassifyOrganisations(t *testing.T) {
 				contextRepo,
 				nil,
 				nil,
+				nil,
 			)
 
 			activities.reclassifyOrganisations(ctx, "test-tenant", tt.extraction)
@@ -1657,6 +1667,7 @@ func TestBuildContext_EnrichPeopleIntegration(t *testing.T) {
 		&mockContextPackageRepo{},
 		nil,
 		nil,
+		nil,
 	)
 
 	input := workflows.BuildContextInput{
@@ -1716,6 +1727,7 @@ func TestReclassifyOrganisations_CorrectedExtraction(t *testing.T) {
 		&mockContextPackageRepo{},
 		nil,
 		nil,
+		nil,
 	)
 
 	input := workflows.BuildContextInput{
@@ -1770,6 +1782,7 @@ func TestEnrichPeople_CorrectedExtraction(t *testing.T) {
 		&mockEntityResolver{},
 		&mockEntityLookup{},
 		&mockContextPackageRepo{},
+		nil,
 		nil,
 		nil,
 	)
@@ -1863,7 +1876,7 @@ func TestBuildContext_NERDedupAgainstHeaders(t *testing.T) {
 		},
 	}
 
-	activities := NewContextBuilderActivities(logger, resolver, entityLookup, &mockContextPackageRepo{}, nil, nil)
+	activities := NewContextBuilderActivities(logger, resolver, entityLookup, &mockContextPackageRepo{}, nil, nil, nil)
 
 	input := workflows.BuildContextInput{
 		TenantID:    "test-tenant",
@@ -1947,7 +1960,7 @@ func TestResolvePerson_UsesCanonicalName(t *testing.T) {
 		},
 	}
 
-	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, entityLookup, &mockContextPackageRepo{}, nil, nil)
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, entityLookup, &mockContextPackageRepo{}, nil, nil, nil)
 
 	rp := activities.resolvePerson(context.Background(), "test-tenant", workflows.PersonResult{
 		Name: "Tim Dunn",
@@ -1982,5 +1995,140 @@ func TestHeaderRoleLabel(t *testing.T) {
 				t.Errorf("headerRoleLabel(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+// mockTopicLookup implements TopicLookupInterface for testing.
+type mockTopicLookup struct {
+	listForContextFunc func(ctx context.Context, tenantID string, names []string) ([]TopicResult, error)
+}
+
+func (m *mockTopicLookup) GetByName(ctx context.Context, tenantID, name string) (TopicResult, error) {
+	return TopicResult{}, nil
+}
+func (m *mockTopicLookup) ResolveByKeyword(ctx context.Context, tenantID, keyword string) (*int64, error) {
+	return nil, nil
+}
+func (m *mockTopicLookup) GetByID(ctx context.Context, id int64) (TopicResult, error) {
+	return TopicResult{}, nil
+}
+func (m *mockTopicLookup) ListForContext(ctx context.Context, tenantID string, names []string) ([]TopicResult, error) {
+	if m.listForContextFunc != nil {
+		return m.listForContextFunc(ctx, tenantID, names)
+	}
+	return nil, nil
+}
+
+func TestBuildContextPackage_TopicResolution(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.NewNopLogger()
+
+	topicLookup := &mockTopicLookup{
+		listForContextFunc: func(ctx context.Context, tenantID string, names []string) ([]TopicResult, error) {
+			// Return topics for "DevCloud" and "Oslo" but not "Unknown"
+			var results []TopicResult
+			for _, name := range names {
+				switch name {
+				case "DevCloud":
+					results = append(results, TopicResult{ID: 1, Name: "DevCloud", Description: "Internal testing environment shared across teams"})
+				case "Oslo":
+					results = append(results, TopicResult{ID: 2, Name: "Oslo", Description: "Dedicated Linode region for MTC"})
+				}
+			}
+			return results, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(
+		logger,
+		&mockEntityResolver{},
+		&mockEntityLookup{},
+		&mockContextPackageRepo{},
+		topicLookup,
+		nil,
+		nil,
+	)
+
+	input := workflows.BuildContextInput{
+		TenantID:    "test-tenant",
+		SourceID:    1,
+		ContentType: "email",
+		Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+			// "DevCloud" and "Unknown" are unresolved projects (no DB match)
+			// "Oslo" is an organisation that might be a topic
+			Projects:      []string{"DevCloud", "Unknown"},
+			Organisations: []string{"Oslo"},
+		},
+	}
+
+	output, err := activities.BuildContextPackage(ctx, input)
+	if err != nil {
+		t.Fatalf("BuildContextPackage failed: %v", err)
+	}
+
+	// Should have 2 topic descriptions (DevCloud, Oslo) — "Unknown" has no topic match
+	if len(output.ContextPackage.TopicDescriptions) != 2 {
+		t.Fatalf("expected 2 topic descriptions, got %d: %+v",
+			len(output.ContextPackage.TopicDescriptions), output.ContextPackage.TopicDescriptions)
+	}
+
+	// Verify topic content
+	topicsByName := make(map[string]string)
+	for _, td := range output.ContextPackage.TopicDescriptions {
+		topicsByName[td.Name] = td.Description
+	}
+
+	if desc, ok := topicsByName["DevCloud"]; !ok || desc != "Internal testing environment shared across teams" {
+		t.Errorf("DevCloud topic missing or wrong description: %q", desc)
+	}
+	if desc, ok := topicsByName["Oslo"]; !ok || desc != "Dedicated Linode region for MTC" {
+		t.Errorf("Oslo topic missing or wrong description: %q", desc)
+	}
+}
+
+func TestBuildContextPackage_TopicSkipsDescriptionless(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.NewNopLogger()
+
+	topicLookup := &mockTopicLookup{
+		listForContextFunc: func(ctx context.Context, tenantID string, names []string) ([]TopicResult, error) {
+			// Return a topic without description — should be filtered out
+			return []TopicResult{
+				{ID: 1, Name: "SomeEmptyTopic", Description: ""},
+				{ID: 2, Name: "RealTopic", Description: "A real description"},
+			}, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(
+		logger,
+		&mockEntityResolver{},
+		&mockEntityLookup{},
+		&mockContextPackageRepo{},
+		topicLookup,
+		nil,
+		nil,
+	)
+
+	input := workflows.BuildContextInput{
+		TenantID:    "test-tenant",
+		SourceID:    1,
+		ContentType: "email",
+		Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+			Organisations: []string{"SomeEmptyTopic", "RealTopic"},
+		},
+	}
+
+	output, err := activities.BuildContextPackage(ctx, input)
+	if err != nil {
+		t.Fatalf("BuildContextPackage failed: %v", err)
+	}
+
+	// Only RealTopic should appear (SomeEmptyTopic has no description)
+	if len(output.ContextPackage.TopicDescriptions) != 1 {
+		t.Fatalf("expected 1 topic description, got %d", len(output.ContextPackage.TopicDescriptions))
+	}
+	if output.ContextPackage.TopicDescriptions[0].Name != "RealTopic" {
+		t.Errorf("expected RealTopic, got %s", output.ContextPackage.TopicDescriptions[0].Name)
 	}
 }

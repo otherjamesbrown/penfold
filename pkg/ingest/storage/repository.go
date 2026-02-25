@@ -19,7 +19,9 @@ const (
 	SourceSystemGmail     = "gmail"
 )
 
-// DefaultTenantID is the UUID for the default tenant (single-tenant mode).
+// DefaultTenantID is the safety/test tenant UUID. When no tenant is specified
+// during ingest, operations fall back to this UUID to prevent accidental writes
+// to production tenant data. Do NOT replace with the production tenant UUID.
 const DefaultTenantID = "00000001-0000-0000-0000-000000000001"
 
 // IngestErrorType identifies the type of error during ingest.

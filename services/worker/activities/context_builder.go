@@ -29,12 +29,28 @@ type EntityLookupInterface interface {
 	UpdatePersonTitle(ctx context.Context, personID int64, title string) error
 }
 
+// TopicLookupInterface provides topic resolution for the context builder.
+type TopicLookupInterface interface {
+	GetByName(ctx context.Context, tenantID, name string) (TopicResult, error)
+	ResolveByKeyword(ctx context.Context, tenantID, keyword string) (*int64, error)
+	GetByID(ctx context.Context, id int64) (TopicResult, error)
+	ListForContext(ctx context.Context, tenantID string, names []string) ([]TopicResult, error)
+}
+
+// TopicResult is a simplified topic for context building (avoids importing pkg/topics).
+type TopicResult struct {
+	ID          int64
+	Name        string
+	Description string
+}
+
 // ContextBuilderActivities holds dependencies for context building activities.
 type ContextBuilderActivities struct {
 	logger         logging.Logger
 	entityResolver EntityResolverInterface
 	entityRepo     EntityLookupInterface
 	contextRepo    ContextPackageRepository
+	topicRepo      TopicLookupInterface
 	pipelineRepo   PipelineRepository
 	configResolver *enrichmentconfig.ConfigResolver
 }
@@ -45,6 +61,7 @@ func NewContextBuilderActivities(
 	entityResolver EntityResolverInterface,
 	entityRepo EntityLookupInterface,
 	contextRepo ContextPackageRepository,
+	topicRepo TopicLookupInterface,
 	pipelineRepo PipelineRepository,
 	configResolver *enrichmentconfig.ConfigResolver,
 ) *ContextBuilderActivities {
@@ -60,6 +77,7 @@ func NewContextBuilderActivities(
 	if contextRepo == nil {
 		panic("NewContextBuilderActivities: contextRepo is required")
 	}
+	// topicRepo is optional (topic resolution)
 	// pipelineRepo is optional (provenance recording)
 	// configResolver is optional (pattern detection)
 	return &ContextBuilderActivities{
@@ -67,6 +85,7 @@ func NewContextBuilderActivities(
 		entityResolver: entityResolver,
 		entityRepo:     entityRepo,
 		contextRepo:    contextRepo,
+		topicRepo:      topicRepo,
 		pipelineRepo:   pipelineRepo,
 		configResolver: configResolver,
 	}
@@ -105,7 +124,8 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 				OpenActions:     []workflows.ContextAssertion{},
 				RecentDecisions: []workflows.ContextAssertion{},
 				ProductEvents:   []workflows.ContextProductEvent{},
-				GlossaryTerms:   []workflows.ContextGlossaryTerm{},
+				GlossaryTerms:     []workflows.ContextGlossaryTerm{},
+				TopicDescriptions: []workflows.ContextTopicDescription{},
 			},
 		}, nil
 	}
@@ -173,7 +193,8 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 		logging.F("open_actions", len(contextPackage.OpenActions)),
 		logging.F("recent_decisions", len(contextPackage.RecentDecisions)),
 		logging.F("product_events", len(contextPackage.ProductEvents)),
-		logging.F("glossary_terms", len(contextPackage.GlossaryTerms)))
+		logging.F("glossary_terms", len(contextPackage.GlossaryTerms)),
+		logging.F("topic_descriptions", len(contextPackage.TopicDescriptions)))
 
 	// Record pipeline run for provenance tracking (Stage 3: resolve)
 	if a.pipelineRepo != nil {
@@ -744,6 +765,7 @@ func (a *ContextBuilderActivities) buildContextPackage(
 		RecentDecisions:    []workflows.ContextAssertion{},
 		ProductEvents:      []workflows.ContextProductEvent{},
 		GlossaryTerms:      []workflows.ContextGlossaryTerm{},
+		TopicDescriptions:  []workflows.ContextTopicDescription{},
 		ParticipantContext: resolvedPeople,
 	}
 
@@ -825,6 +847,23 @@ func (a *ContextBuilderActivities) buildContextPackage(
 				if tokensUsed+glossaryTokens <= tokenBudget {
 					cp.GlossaryTerms = toWorkflowGlossary(glossary)
 					tokensUsed += glossaryTokens
+				}
+			}
+		}
+	}
+
+	// 7. Topic descriptions (~30 tokens each)
+	// Resolve unresolved project names as topics — these are entities that NER extracted
+	// but didn't match any project. Topics provide richer context than glossary.
+	if a.topicRepo != nil && tokensUsed+300 <= tokenBudget {
+		topicNames := a.collectTopicCandidates(input.Extraction, resolvedProjects)
+		if len(topicNames) > 0 {
+			topicResults, err := a.topicRepo.ListForContext(ctx, input.TenantID, topicNames)
+			if err == nil && len(topicResults) > 0 {
+				topicTokens := len(topicResults) * 30
+				if tokensUsed+topicTokens <= tokenBudget {
+					cp.TopicDescriptions = toWorkflowTopics(topicResults)
+					tokensUsed += topicTokens
 				}
 			}
 		}
@@ -927,14 +966,63 @@ func toWorkflowGlossary(terms []ContextGlossaryTerm) []workflows.ContextGlossary
 	return result
 }
 
+// collectTopicCandidates gathers names that might resolve as topics.
+// These are: unresolved project names + extracted organisations (which are often topics).
+func (a *ContextBuilderActivities) collectTopicCandidates(extraction *workflows.SLMPipelineExtractEntitiesOutput, resolvedProjects []workflows.ResolvedProject) []string {
+	if extraction == nil {
+		return nil
+	}
+
+	// Gather unresolved project names (those that didn't match a project)
+	candidates := make(map[string]bool)
+	resolvedNames := make(map[string]bool)
+	for _, rp := range resolvedProjects {
+		if rp.ProjectID != nil {
+			resolvedNames[normalizeString(rp.Name)] = true
+		}
+	}
+	for _, name := range extraction.Projects {
+		if !resolvedNames[normalizeString(name)] {
+			candidates[name] = true
+		}
+	}
+
+	// Also try organisations — many are actually topics (e.g. "Cloud NAT", "DevCloud")
+	for _, org := range extraction.Organisations {
+		candidates[org] = true
+	}
+
+	result := make([]string, 0, len(candidates))
+	for name := range candidates {
+		result = append(result, name)
+	}
+	return result
+}
+
+// toWorkflowTopics converts TopicResult slice to workflow ContextTopicDescription slice.
+func toWorkflowTopics(topics []TopicResult) []workflows.ContextTopicDescription {
+	result := make([]workflows.ContextTopicDescription, 0, len(topics))
+	for _, t := range topics {
+		if t.Description == "" {
+			continue // Skip topics without descriptions — no value for context
+		}
+		result = append(result, workflows.ContextTopicDescription{
+			Name:        t.Name,
+			Description: t.Description,
+		})
+	}
+	return result
+}
+
 // applyTokenBudget truncates sections from tail to fit within budget.
 // Order of truncation (least valuable first):
-// 1. Glossary terms (drop from tail)
-// 2. Product events (drop from tail)
-// 3. Decisions (drop from tail)
-// 4. Actions (drop from tail)
-// 5. Risks (drop from tail)
-// 6. Participants (never drop - always included)
+// 1. Topics (drop from tail)
+// 2. Glossary terms (drop from tail)
+// 3. Product events (drop from tail)
+// 4. Decisions (drop from tail)
+// 5. Actions (drop from tail)
+// 6. Risks (drop from tail)
+// 7. Participants (never drop - always included)
 func (a *ContextBuilderActivities) applyTokenBudget(cp *workflows.ContextPackage, budget int) int {
 	tokensUsed := len(cp.ParticipantContext) * 15
 
@@ -950,6 +1038,7 @@ func (a *ContextBuilderActivities) applyTokenBudget(cp *workflows.ContextPackage
 		{"decisions", len(cp.RecentDecisions), 25, func(keep int) { cp.RecentDecisions = cp.RecentDecisions[:keep] }},
 		{"events", len(cp.ProductEvents), 30, func(keep int) { cp.ProductEvents = cp.ProductEvents[:keep] }},
 		{"glossary", len(cp.GlossaryTerms), 20, func(keep int) { cp.GlossaryTerms = cp.GlossaryTerms[:keep] }},
+		{"topics", len(cp.TopicDescriptions), 30, func(keep int) { cp.TopicDescriptions = cp.TopicDescriptions[:keep] }},
 	}
 
 	for i := len(sections) - 1; i >= 0; i-- {

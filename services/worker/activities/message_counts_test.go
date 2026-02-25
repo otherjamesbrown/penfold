@@ -79,6 +79,7 @@ func TestBuildContextPackage_IncrementsSenderSentCount(t *testing.T) {
 		mockResolver,
 		entityLookupWithCounts,
 		mockContextRepo,
+		nil, // topicRepo not needed for this test
 		nil, // pipelineRepo not needed for this test
 		nil, // configResolver not needed for this test
 	)
@@ -207,6 +208,7 @@ func TestBuildContextPackage_IncrementsRecipientReceivedCount(t *testing.T) {
 		mockResolver,
 		entityLookupWithCounts,
 		mockContextRepo,
+		nil, // topicRepo not needed for this test
 		nil, // pipelineRepo not needed for this test
 		nil, // configResolver not needed for this test
 	)
@@ -315,6 +317,7 @@ func TestBuildContextPackage_MessageCounts_SenderIsAlsoRecipient(t *testing.T) {
 		mockResolver,
 		entityLookupWithCounts,
 		mockContextRepo,
+		nil, // topicRepo not needed for this test
 		nil, // pipelineRepo not needed for this test
 		nil, // configResolver not needed for this test
 	)
@@ -396,6 +399,7 @@ func TestBuildContextPackage_MessageCounts_SkipsBots(t *testing.T) {
 		mockResolver,
 		entityLookupWithCounts,
 		mockContextRepo,
+		nil, // topicRepo not needed for this test
 		nil, // pipelineRepo not needed for this test
 		nil, // configResolver not needed for this test
 	)

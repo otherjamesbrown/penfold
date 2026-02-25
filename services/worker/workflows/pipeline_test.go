@@ -137,6 +137,14 @@ func (m *PipelineMockActivities) DeleteAssertions(ctx context.Context, input Del
 	return args.Get(0).(*DeleteAssertionsOutput), args.Error(1)
 }
 
+func (m *PipelineMockActivities) FetchPipelineDefinition(ctx context.Context, input FetchPipelineDefinitionInput) (*FetchPipelineDefinitionOutput, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*FetchPipelineDefinitionOutput), args.Error(1)
+}
+
 // SLMPipelineTestSuite tests the SLMPipelineWorkflow.
 type SLMPipelineTestSuite struct {
 	suite.Suite

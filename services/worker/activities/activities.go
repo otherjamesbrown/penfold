@@ -19,7 +19,10 @@ import (
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
-// DefaultTenantID is the UUID for the default tenant (single-tenant mode).
+// DefaultTenantID is the safety/test tenant UUID. Operations that lack explicit
+// tenant context fall back to this UUID to prevent accidental writes to production
+// tenant data. Do NOT replace this with the production tenant UUID — it exists as
+// a deliberate safety guard for unscoped operations (CLI, tests, missing context).
 const DefaultTenantID = "00000001-0000-0000-0000-000000000001"
 
 // Activities holds all activity implementations with their dependencies.
