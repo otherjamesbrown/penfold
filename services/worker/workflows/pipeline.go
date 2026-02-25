@@ -425,6 +425,39 @@ func formatContextPackage(output *BuildContextOutput) string {
 	return output.ContextPackage.FormatForPrompt()
 }
 
+// selectConfirmedProjectID cross-references resolved projects with the deep
+// analysis topic mappings. Returns the first project ID that the analysis
+// confirms is actually related to the content. Returns nil if no project
+// is confirmed with sufficient confidence, preventing mis-tagging of
+// assertions from unrelated content (pf-de3670).
+func selectConfirmedProjectID(resolved []ResolvedProject, topicMappings []TopicMappingOutput) *int64 {
+	if len(resolved) == 0 {
+		return nil
+	}
+
+	// If no topic mappings, the analysis found no project connections — don't tag.
+	if len(topicMappings) == 0 {
+		return nil
+	}
+
+	// Build a set of confirmed project names from topic mappings with confidence >= 0.5
+	confirmed := make(map[string]bool)
+	for _, tm := range topicMappings {
+		if tm.Confidence >= 0.5 && tm.RelatedProject != "" {
+			confirmed[strings.ToLower(tm.RelatedProject)] = true
+		}
+	}
+
+	// Find first resolved project that is confirmed by the analysis
+	for _, proj := range resolved {
+		if proj.ProjectID != nil && confirmed[strings.ToLower(proj.Name)] {
+			return proj.ProjectID
+		}
+	}
+
+	return nil
+}
+
 // DeepAnalyzeInput is the input for the DeepAnalyze activity.
 type DeepAnalyzeInput struct {
 	TenantID          string                            `json:"tenant_id"`
@@ -2137,15 +2170,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				}
 			}
 
-			// Find first resolved project ID
+			// Find confirmed project ID: cross-reference resolved projects with
+			// deep analysis topic mappings. Only tag assertions with a project when
+			// the analysis confirms the content actually relates to that project.
+			// This prevents mis-tagging assertions from unrelated content (e.g., IT
+			// notifications) with the user's primary project (pf-de3670).
 			var projectID *int64
-			if contextOutput != nil {
-				for _, proj := range contextOutput.ResolvedProjects {
-					if proj.ProjectID != nil {
-						projectID = proj.ProjectID
-						break
-					}
-				}
+			if contextOutput != nil && analyzeOutput != nil {
+				projectID = selectConfirmedProjectID(contextOutput.ResolvedProjects, analyzeOutput.TopicMappings)
 			}
 
 			var persistOutput PersistFindingsOutput

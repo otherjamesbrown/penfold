@@ -103,6 +103,85 @@ func TestContextPackage_FormatForPrompt_AllSections(t *testing.T) {
 	assert.NotContains(t, result, "### Participant Context")
 }
 
+// selectConfirmedProjectID tests (pf-de3670)
+
+func TestSelectConfirmedProjectID_NoResolved(t *testing.T) {
+	result := selectConfirmedProjectID(nil, []TopicMappingOutput{{RelatedProject: "MTC", Confidence: 0.9}})
+	assert.Nil(t, result)
+}
+
+func TestSelectConfirmedProjectID_NoTopicMappings(t *testing.T) {
+	id := int64(42)
+	result := selectConfirmedProjectID(
+		[]ResolvedProject{{Name: "MTC", ProjectID: &id}},
+		nil,
+	)
+	assert.Nil(t, result, "should not tag when analysis found no project connections")
+}
+
+func TestSelectConfirmedProjectID_ConfirmedProject(t *testing.T) {
+	id := int64(42)
+	result := selectConfirmedProjectID(
+		[]ResolvedProject{{Name: "MTC", ProjectID: &id}},
+		[]TopicMappingOutput{{RelatedProject: "MTC", Confidence: 0.8}},
+	)
+	assert.NotNil(t, result)
+	assert.Equal(t, int64(42), *result)
+}
+
+func TestSelectConfirmedProjectID_CaseInsensitive(t *testing.T) {
+	id := int64(42)
+	result := selectConfirmedProjectID(
+		[]ResolvedProject{{Name: "MTC", ProjectID: &id}},
+		[]TopicMappingOutput{{RelatedProject: "mtc", Confidence: 0.7}},
+	)
+	assert.NotNil(t, result)
+	assert.Equal(t, int64(42), *result)
+}
+
+func TestSelectConfirmedProjectID_LowConfidence(t *testing.T) {
+	id := int64(42)
+	result := selectConfirmedProjectID(
+		[]ResolvedProject{{Name: "MTC", ProjectID: &id}},
+		[]TopicMappingOutput{{RelatedProject: "MTC", Confidence: 0.3}},
+	)
+	assert.Nil(t, result, "should not tag when confidence is below threshold")
+}
+
+func TestSelectConfirmedProjectID_UnrelatedProject(t *testing.T) {
+	id := int64(42)
+	result := selectConfirmedProjectID(
+		[]ResolvedProject{{Name: "MTC", ProjectID: &id}},
+		[]TopicMappingOutput{{RelatedProject: "Oslo", Confidence: 0.9}},
+	)
+	assert.Nil(t, result, "should not tag when analysis references a different project")
+}
+
+func TestSelectConfirmedProjectID_MultipleProjects_FirstConfirmed(t *testing.T) {
+	id1 := int64(42)
+	id2 := int64(99)
+	result := selectConfirmedProjectID(
+		[]ResolvedProject{
+			{Name: "MTC", ProjectID: &id1},
+			{Name: "Oslo", ProjectID: &id2},
+		},
+		[]TopicMappingOutput{
+			{RelatedProject: "Oslo", Confidence: 0.9},
+		},
+	)
+	assert.NotNil(t, result)
+	assert.Equal(t, int64(99), *result, "should pick the confirmed project, not just the first")
+}
+
+func TestSelectConfirmedProjectID_EmptyRelatedProject(t *testing.T) {
+	id := int64(42)
+	result := selectConfirmedProjectID(
+		[]ResolvedProject{{Name: "MTC", ProjectID: &id}},
+		[]TopicMappingOutput{{RelatedProject: "", Confidence: 0.9}},
+	)
+	assert.Nil(t, result, "should ignore topic mappings with empty project name")
+}
+
 func TestFormatContextPackage_NilOutput(t *testing.T) {
 	assert.Equal(t, "", formatContextPackage(nil))
 }

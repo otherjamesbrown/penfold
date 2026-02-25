@@ -92,6 +92,8 @@ func (r *ContextPackageRepo) GetOpenActions(ctx context.Context, projectIDs []in
 		limit = 10
 	}
 
+	// Recency filter (30 days) prevents stale actions from unrelated threads
+	// contaminating the deep analysis context (pf-de3670 Layer 2).
 	query := `
 		SELECT
 			a.description,
@@ -102,6 +104,7 @@ func (r *ContextPackageRepo) GetOpenActions(ctx context.Context, projectIDs []in
 		WHERE a.assertion_type = 'action'
 		  AND a.status = 'open'
 		  AND a.project_id = ANY($1)
+		  AND a.created_at > now() - interval '30 days'
 		ORDER BY a.created_at DESC
 		LIMIT $2
 	`
