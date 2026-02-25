@@ -329,6 +329,7 @@ func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, quer
 			SELECT
 				s.id,
 				s.external_id,
+				s.content_id,
 				s.source_system,
 				COALESCE(m.title, s.ingestion_metadata->>'title', s.ingestion_metadata->>'subject', s.content_type, 'Untitled') as title,
 				LEFT(s.raw_content, 500) as snippet,
@@ -355,6 +356,7 @@ func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, quer
 		SELECT
 			tm.id,
 			tm.external_id,
+			tm.content_id,
 			tm.source_system,
 			tm.title,
 			tm.snippet,
@@ -382,6 +384,7 @@ func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, quer
 		var (
 			id              int64
 			externalID      string
+			contentID       *string
 			sourceSystem    string
 			title           string
 			snippet         string
@@ -392,7 +395,7 @@ func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, quer
 			createdAt       time.Time
 		)
 
-		if err := rows.Scan(&id, &externalID, &sourceSystem, &title, &snippet, &textScore, &vectorScore, &contentType, &sourceTimestamp, &createdAt); err != nil {
+		if err := rows.Scan(&id, &externalID, &contentID, &sourceSystem, &title, &snippet, &textScore, &vectorScore, &contentType, &sourceTimestamp, &createdAt); err != nil {
 			s.logger.Error("Failed to scan hybrid search result", logging.Err(err))
 			continue
 		}
@@ -401,8 +404,15 @@ func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, quer
 			maxTextScore = textScore
 		}
 
+		// Use content_id (e.g. "em-9x3kp7mn") for DocumentId when available,
+		// falling back to integer PK for legacy rows without content_id.
+		docID := fmt.Sprintf("%d", id)
+		if contentID != nil && *contentID != "" {
+			docID = *contentID
+		}
+
 		result := &searchv1.SearchResult{
-			DocumentId:  fmt.Sprintf("%d", id),
+			DocumentId:  docID,
 			SourceId:    externalID,
 			ContentType: derefString(contentType, sourceSystem),
 			Title:       &title,
@@ -471,6 +481,7 @@ func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string,
 		SELECT
 			s.id,
 			s.external_id,
+			s.content_id,
 			s.source_system,
 			COALESCE(m.title, s.ingestion_metadata->>'title', s.ingestion_metadata->>'subject', s.content_type, 'Untitled') as title,
 			LEFT(s.raw_content, 500) as snippet,
@@ -499,6 +510,7 @@ func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string,
 		var (
 			id              int64
 			externalID      string
+			contentID       *string
 			sourceSystem    string
 			title           string
 			snippet         string
@@ -508,7 +520,7 @@ func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string,
 			createdAt       time.Time
 		)
 
-		if err := rows.Scan(&id, &externalID, &sourceSystem, &title, &snippet, &score, &contentType, &sourceTimestamp, &createdAt); err != nil {
+		if err := rows.Scan(&id, &externalID, &contentID, &sourceSystem, &title, &snippet, &score, &contentType, &sourceTimestamp, &createdAt); err != nil {
 			s.logger.Error("Failed to scan search result", logging.Err(err))
 			continue
 		}
@@ -517,8 +529,15 @@ func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string,
 			maxScore = score
 		}
 
+		// Use content_id (e.g. "em-9x3kp7mn") for DocumentId when available,
+		// falling back to integer PK for legacy rows without content_id.
+		docID := fmt.Sprintf("%d", id)
+		if contentID != nil && *contentID != "" {
+			docID = *contentID
+		}
+
 		result := &searchv1.SearchResult{
-			DocumentId:  fmt.Sprintf("%d", id),
+			DocumentId:  docID,
 			SourceId:    externalID,
 			ContentType: derefString(contentType, sourceSystem),
 			Title:       &title,
@@ -666,6 +685,7 @@ func (s *Service) SemanticSearch(ctx context.Context, req *searchv1.SemanticSear
 		SELECT
 			s.id,
 			s.external_id,
+			s.content_id,
 			s.source_system,
 			COALESCE(m.title, s.ingestion_metadata->>'title', s.ingestion_metadata->>'subject', s.content_type, 'Untitled') as title,
 			LEFT(s.raw_content, 500) as snippet,
@@ -691,6 +711,7 @@ func (s *Service) SemanticSearch(ctx context.Context, req *searchv1.SemanticSear
 		var (
 			id              int64
 			externalID      string
+			contentID       *string
 			sourceSystem    string
 			title           string
 			snippet         string
@@ -700,14 +721,21 @@ func (s *Service) SemanticSearch(ctx context.Context, req *searchv1.SemanticSear
 			createdAt       time.Time
 		)
 
-		if err := rows.Scan(&id, &externalID, &sourceSystem, &title, &snippet, &score, &contentType, &sourceTimestamp, &createdAt); err != nil {
+		if err := rows.Scan(&id, &externalID, &contentID, &sourceSystem, &title, &snippet, &score, &contentType, &sourceTimestamp, &createdAt); err != nil {
 			s.logger.Error("Failed to scan semantic search result", logging.Err(err))
 			continue
 		}
 
+		// Use content_id (e.g. "em-9x3kp7mn") for DocumentId when available,
+		// falling back to integer PK for legacy rows without content_id.
+		docID := fmt.Sprintf("%d", id)
+		if contentID != nil && *contentID != "" {
+			docID = *contentID
+		}
+
 		vs := score
 		result := &searchv1.SearchResult{
-			DocumentId:  fmt.Sprintf("%d", id),
+			DocumentId:  docID,
 			SourceId:    externalID,
 			ContentType: derefString(contentType, sourceSystem),
 			Title:       &title,
