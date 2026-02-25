@@ -316,6 +316,71 @@ func TestBuildQualityGatePrompt(t *testing.T) {
 	}
 }
 
+func TestStripEmailAddressesKeepSubject_FullHeaders(t *testing.T) {
+	content := "EMAIL METADATA:\nFrom: Ponec, Miroslav <mponec@akamai.com>\nTo: Dunn, Tim <tdunn@akamai.com>; DeMent, James <jdement@akamai.com>\nCC: Weisman, Sara <sweisman@akamai.com>\nSubject: Re: GPU requirements\n---\nBODY:\nI have concerns about the approach."
+
+	result := stripEmailAddressesKeepSubject(content)
+
+	if containsString(result, "mponec@akamai.com") {
+		t.Error("should not contain email addresses")
+	}
+	if containsString(result, "From:") {
+		t.Error("should not contain From line")
+	}
+	if containsString(result, "To:") {
+		t.Error("should not contain To line")
+	}
+	if containsString(result, "CC:") {
+		t.Error("should not contain CC line")
+	}
+	if !containsString(result, "Subject: Re: GPU requirements") {
+		t.Error("should preserve Subject line")
+	}
+	if !containsString(result, "I have concerns about the approach.") {
+		t.Error("should preserve body content")
+	}
+}
+
+func TestStripEmailAddressesKeepSubject_NoMetadataBlock(t *testing.T) {
+	content := "Just a plain body without any email metadata."
+	result := stripEmailAddressesKeepSubject(content)
+	if result != content {
+		t.Errorf("should return content unchanged, got %q", result)
+	}
+}
+
+func TestStripEmailAddressesKeepSubject_NoSubject(t *testing.T) {
+	content := "EMAIL METADATA:\nFrom: alice@example.com\nTo: bob@example.com\n---\nBODY:\nBody text here."
+	result := stripEmailAddressesKeepSubject(content)
+
+	if containsString(result, "alice@example.com") {
+		t.Error("should not contain email addresses")
+	}
+	if !containsString(result, "Body text here.") {
+		t.Error("should preserve body content")
+	}
+	if containsString(result, "Subject:") {
+		t.Error("should not have Subject line when none was present")
+	}
+}
+
+func TestBuildSemanticPrompt_StripsEmailAddresses(t *testing.T) {
+	s := &AIServer{}
+	content := "EMAIL METADATA:\nFrom: Alice <alice@example.com>\nTo: Bob <bob@example.com>\nSubject: Budget review\n---\nBODY:\nWe need to approve the budget."
+
+	prompt, _ := s.buildSemanticPrompt(context.Background(), content)
+
+	if containsString(prompt, "alice@example.com") {
+		t.Error("semantic prompt should not contain email addresses")
+	}
+	if !containsString(prompt, "Subject: Budget review") {
+		t.Error("semantic prompt should contain Subject line")
+	}
+	if !containsString(prompt, "We need to approve the budget.") {
+		t.Error("semantic prompt should contain body")
+	}
+}
+
 // Helper function to check if a string contains a substring.
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||

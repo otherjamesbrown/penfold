@@ -1122,6 +1122,65 @@ func TestMaxInputChars_UnknownModel(t *testing.T) {
 	require.Equal(t, 6000, maxInputChars(""))
 }
 
+func TestExtractAssertions_SubjectPrepended(t *testing.T) {
+	logger := logging.NewNopLogger()
+	var capturedContent string
+
+	mockClient := &mockAIClient{
+		extractAssertionsFn: func(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error) {
+			capturedContent = req.Content
+			return &aiv1.AssertionResponse{
+				Assertions: []*aiv1.Assertion{},
+				ModelUsed:  "test-model",
+			}, nil
+		},
+	}
+
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+
+	_, err := activities.ExtractAssertions(context.Background(), workflows.ExtractAssertionsInput{
+		TenantID: "test-tenant",
+		SourceID: 1,
+		JobID:    "job-1",
+		Content:  "I have concerns about the approach if we're tying together GPU requirements.",
+		Subject:  "Re: GPU requirements",
+	})
+	require.NoError(t, err)
+	require.Contains(t, capturedContent, "Subject: Re: GPU requirements")
+	require.Contains(t, capturedContent, "I have concerns about the approach")
+	// Subject should come before body
+	subjectIdx := strings.Index(capturedContent, "Subject: Re: GPU requirements")
+	bodyIdx := strings.Index(capturedContent, "I have concerns")
+	require.Less(t, subjectIdx, bodyIdx, "Subject should appear before body content")
+}
+
+func TestExtractAssertions_NoSubject(t *testing.T) {
+	logger := logging.NewNopLogger()
+	var capturedContent string
+
+	mockClient := &mockAIClient{
+		extractAssertionsFn: func(ctx context.Context, req *aiv1.AssertionRequest) (*aiv1.AssertionResponse, error) {
+			capturedContent = req.Content
+			return &aiv1.AssertionResponse{
+				Assertions: []*aiv1.Assertion{},
+				ModelUsed:  "test-model",
+			}, nil
+		},
+	}
+
+	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+
+	_, err := activities.ExtractAssertions(context.Background(), workflows.ExtractAssertionsInput{
+		TenantID: "test-tenant",
+		SourceID: 1,
+		JobID:    "job-1",
+		Content:  "Plain body text without subject.",
+	})
+	require.NoError(t, err)
+	require.NotContains(t, capturedContent, "Subject:")
+	require.Equal(t, "Plain body text without subject.", capturedContent)
+}
+
 func TestExtractChunkSize_LargeModel(t *testing.T) {
 	// Gemini models: threshold/2 > 50K, capped at 50K
 	require.Equal(t, 50000, extractChunkSize("gemini-2.5-flash"))

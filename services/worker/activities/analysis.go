@@ -187,8 +187,15 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 
 // buildDeepAnalyzeRequest converts workflows.DeepAnalyzeInput to proto request.
 func buildDeepAnalyzeRequest(input workflows.DeepAnalyzeInput) *aiv1.DeepAnalyzeRequest {
+	// Prepend Subject line to provide topic framing for deep analysis (pf-e219c1).
+	// Subject carries context that the body may reference implicitly.
+	content := input.Content
+	if input.Subject != "" {
+		content = "Subject: " + input.Subject + "\n\n" + content
+	}
+
 	req := &aiv1.DeepAnalyzeRequest{
-		Content:          input.Content,
+		Content:          content,
 		TriageCategory:   input.TriageCategory,
 		TriageImportance: input.TriageImportance,
 		BackgroundContext: input.BackgroundContext,

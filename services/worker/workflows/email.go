@@ -86,6 +86,7 @@ type (
 		ContentID   string `json:"content_id,omitempty"`
 		JobID       string `json:"job_id"`
 		Content     string `json:"content"`
+		Subject     string `json:"subject,omitempty"`     // Email subject line — provides topic framing for assertion extraction (pf-e219c1)
 		ContentType string `json:"content_type,omitempty"` // "email", "meeting", etc.
 		SenderEmail string `json:"sender_email,omitempty"` // Email sender, gets "owner" attribution
 		// Langfuse tracing: passed via gRPC metadata to AI coordinator.

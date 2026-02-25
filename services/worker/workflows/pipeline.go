@@ -432,6 +432,7 @@ type DeepAnalyzeInput struct {
 	ContentID         string                            `json:"content_id,omitempty"`
 	JobID             string                            `json:"job_id"`
 	Content           string                            `json:"content"`
+	Subject           string                            `json:"subject,omitempty"` // Email subject — topic framing for deep analysis (pf-e219c1)
 	ContentType       string                            `json:"content_type"`
 	TriageCategory    string                            `json:"triage_category"`
 	TriageImportance  string                            `json:"triage_importance"`
@@ -1788,6 +1789,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			ContentID:       input.ContentID,
 			JobID:           input.JobID,
 			Content:         parsedContent,
+			Subject:         input.Subject, // Topic framing for assertion extraction (pf-e219c1)
 			ContentType:     input.ContentType,
 			SenderEmail:     input.SenderEmail, // Pass sender for owner attribution
 			LangfuseTraceID: langfuseTraceID,
@@ -2033,6 +2035,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			ContentID:         input.ContentID,
 			JobID:             input.JobID,
 			Content:           parsedContent,
+			Subject:           input.Subject, // Topic framing for deep analysis (pf-e219c1)
 			ContentType:       input.ContentType,
 			TriageCategory:    triageOutput.Category,
 			TriageImportance:  triageOutput.Importance,

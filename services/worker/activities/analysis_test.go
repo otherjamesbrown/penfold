@@ -4,6 +4,7 @@ package activities
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -382,4 +383,39 @@ func TestDeepAnalyze_FallbackToExtractionPeople(t *testing.T) {
 	output, err := activities.DeepAnalyze(context.Background(), input)
 	require.NoError(t, err)
 	require.Equal(t, "Fallback test", output.Summary)
+}
+
+func TestBuildDeepAnalyzeRequest_SubjectPrepended(t *testing.T) {
+	input := DeepAnalyzeInput{
+		TenantID:    "test-tenant",
+		SourceID:    123,
+		JobID:       "job-123",
+		Content:     "I have concerns about the approach.",
+		Subject:     "Re: GPU requirements",
+		ContentType: "email",
+	}
+
+	req := buildDeepAnalyzeRequest(input)
+
+	require.Contains(t, req.Content, "Subject: Re: GPU requirements")
+	require.Contains(t, req.Content, "I have concerns about the approach.")
+	// Subject should come before body
+	subjectIdx := strings.Index(req.Content, "Subject: Re: GPU requirements")
+	bodyIdx := strings.Index(req.Content, "I have concerns")
+	require.Less(t, subjectIdx, bodyIdx, "Subject should appear before body content")
+}
+
+func TestBuildDeepAnalyzeRequest_NoSubject(t *testing.T) {
+	input := DeepAnalyzeInput{
+		TenantID:    "test-tenant",
+		SourceID:    123,
+		JobID:       "job-123",
+		Content:     "Plain body text.",
+		ContentType: "email",
+	}
+
+	req := buildDeepAnalyzeRequest(input)
+
+	require.Equal(t, "Plain body text.", req.Content)
+	require.NotContains(t, req.Content, "Subject:")
 }

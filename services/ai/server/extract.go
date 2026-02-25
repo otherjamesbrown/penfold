@@ -179,9 +179,48 @@ func (s *AIServer) buildNERPrompt(ctx context.Context, content string) (string, 
 // buildSemanticPrompt constructs the semantic extraction prompt.
 // Tries the DB prompt store for stage "extract_semantic"; falls back to semanticPromptTemplate on error.
 // Returns the prompt string and the prompt version (0 when using hardcoded fallback).
+// Strips email addresses (From/To/CC) from content before prompt composition (pf-e219c1) —
+// structural metadata is already captured at ingestion; including addresses wastes tokens
+// and may confuse the model into extracting "person X emailed person Y" as semantic findings.
 func (s *AIServer) buildSemanticPrompt(ctx context.Context, content string) (string, int32) {
 	tmpl, version := s.getPrompt(ctx, "extract_semantic", semanticPromptTemplate)
+	content = stripEmailAddressesKeepSubject(content)
 	return fmt.Sprintf(tmpl, content), version
+}
+
+// stripEmailAddressesKeepSubject removes From/To/CC lines from the EMAIL METADATA block
+// while preserving the Subject line. Content without an EMAIL METADATA block is returned unchanged.
+// This prevents the semantic extraction prompt from wasting tokens on email addresses (pf-e219c1).
+func stripEmailAddressesKeepSubject(content string) string {
+	const prefix = "EMAIL METADATA:\n"
+	if !strings.HasPrefix(content, prefix) {
+		return content
+	}
+
+	// Find the end of the metadata block (marked by "---\nBODY:\n")
+	sepIdx := strings.Index(content, "---\nBODY:\n")
+	if sepIdx == -1 {
+		return content
+	}
+
+	// Extract the metadata section and body
+	metaBlock := content[len(prefix):sepIdx]
+	body := content[sepIdx+len("---\nBODY:\n"):]
+
+	// Find Subject line within the metadata block
+	var subject string
+	for _, line := range strings.Split(metaBlock, "\n") {
+		if strings.HasPrefix(line, "Subject: ") {
+			subject = line
+			break
+		}
+	}
+
+	// Reconstruct: Subject (if present) + separator + body
+	if subject != "" {
+		return subject + "\n---\n" + body
+	}
+	return body
 }
 
 // buildQualityGatePrompt constructs the quality gate risk-focused prompt.

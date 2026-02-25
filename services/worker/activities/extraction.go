@@ -137,8 +137,16 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	minConfidence := float32(0.5)
 	maxAssertions := int32(20)
 
+	// Prepend Subject line to provide topic framing for assertions (pf-e219c1).
+	// Subject carries context that the body may reference implicitly
+	// (e.g. Subject "Re: GPU requirements" but body says "I have concerns about the approach").
+	content := input.Content
+	if input.Subject != "" {
+		content = "Subject: " + input.Subject + "\n\n" + content
+	}
+
 	assertionReq := &aiv1.AssertionRequest{
-		Content:       input.Content,
+		Content:       content,
 		MinConfidence: &minConfidence,
 		MaxAssertions: &maxAssertions,
 		TenantId:      &input.TenantID,
