@@ -78,12 +78,20 @@ cmd_full_deploy() {
     build_ai
     echo ""
 
+    # Backup current binary before deploying
+    backup_binary "$AI_HOST" "$BINARY_PATH"
+    echo ""
+
     deploy_binary
     echo ""
 
     # Restart via systemd
     if ! systemd_restart "$AI_HOST" "$SYSTEMD_SERVICE" 30; then
         log_error "Deployment failed — service did not become active"
+        log_warn "Attempting rollback..."
+        rollback_binary "$AI_HOST" "$BINARY_PATH"
+        systemd_restart "$AI_HOST" "$SYSTEMD_SERVICE" 30 || true
+        log_deploy "penfold-ai-coordinator" "rollback" "$OLD_COMMIT" "failed"
         exit 1
     fi
 
@@ -93,8 +101,10 @@ cmd_full_deploy() {
     # Verify deployed version matches
     echo ""
     if ! verify_deployed_version "$AI_URL" "$EXPECTED_COMMIT" 30 "ai-coordinator"; then
-        log_error "Version verification failed — binary may not have been picked up"
-        log_error "Try: ssh $AI_HOST 'sudo systemctl restart $SYSTEMD_SERVICE'"
+        log_error "Version verification failed — rolling back"
+        rollback_binary "$AI_HOST" "$BINARY_PATH"
+        systemd_restart "$AI_HOST" "$SYSTEMD_SERVICE" 30 || true
+        log_deploy "penfold-ai-coordinator" "rollback" "$OLD_COMMIT" "version-mismatch"
         exit 1
     fi
 
@@ -107,6 +117,8 @@ cmd_full_deploy() {
         --previous-commit "$OLD_COMMIT" \
         --deployed-by "agent-mycroft" \
         --notify
+
+    log_deploy "penfold-ai-coordinator" "$NEW_COMMIT" "$OLD_COMMIT" "success"
 
     echo ""
     echo "${GREEN}=== Deployment Complete ===${NC}"

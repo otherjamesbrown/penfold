@@ -1,0 +1,26 @@
+[Unit]
+Description=Penfold Alert Webhook Service
+Documentation=https://github.com/otherjamesbrown/penfold
+After=network.target
+
+[Service]
+Type=simple
+User=james
+Group=james
+ExecStartPre=/usr/bin/test -x /opt/penfold/bin/alert-webhook.py
+ExecStart=/usr/bin/python3 /opt/penfold/bin/alert-webhook.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=penfold-alert-webhook
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

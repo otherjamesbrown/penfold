@@ -89,35 +89,28 @@ run_smoke_tests() {
     return 1
 }
 
-# --- Commands ---
-
 run_migrations() {
     log_info "Running database migrations..."
 
-    # Migrations require DATABASE_URL to connect to the remote database.
-    # Skip if not set — the deploy can proceed without migrations.
     if [[ -z "${DATABASE_URL:-}" ]]; then
         log_warn "DATABASE_URL not set, skipping migrations (run 'penf db migrate' manually)"
         return 0
     fi
 
-    # Check if penf CLI is available
-    local penf_bin=""
-    if command -v penf &>/dev/null; then
-        penf_bin="penf"
-    else
+    if ! command -v penf &>/dev/null; then
         log_warn "penf CLI not found, skipping migrations (run 'penf db migrate' manually)"
         return 0
     fi
 
-    # Run migrations
-    if "$penf_bin" db migrate --migrations "${PROJECT_ROOT}/migrations"; then
+    if penf db migrate --migrations "${PROJECT_ROOT}/migrations"; then
         log_success "Migrations completed"
     else
         log_error "Migrations failed"
         return 1
     fi
 }
+
+# --- Commands ---
 
 cmd_full_deploy() {
     echo "${CYAN}=== Penfold Gateway Deployment (systemd) ===${NC}"
@@ -130,6 +123,10 @@ cmd_full_deploy() {
     build_gateway
     echo ""
 
+    # Backup current binary before deploying
+    backup_binary "$GATEWAY_HOST" "$BINARY_PATH"
+    echo ""
+
     deploy_binary
     echo ""
 
@@ -140,6 +137,10 @@ cmd_full_deploy() {
     # Restart via systemd
     if ! systemd_restart "$GATEWAY_HOST" "$SYSTEMD_SERVICE" 30; then
         log_error "Deployment failed — service did not become active"
+        log_warn "Attempting rollback..."
+        rollback_binary "$GATEWAY_HOST" "$BINARY_PATH"
+        systemd_restart "$GATEWAY_HOST" "$SYSTEMD_SERVICE" 30 || true
+        log_deploy "penfold-gateway" "rollback" "$OLD_COMMIT" "failed"
         exit 1
     fi
 
@@ -149,8 +150,10 @@ cmd_full_deploy() {
     # Verify deployed version matches
     echo ""
     if ! verify_deployed_version "$GATEWAY_URL" "$EXPECTED_COMMIT" 30 "gateway"; then
-        log_error "Version verification failed — binary may not have been picked up"
-        log_error "Try: ssh $GATEWAY_HOST 'sudo systemctl restart $SYSTEMD_SERVICE'"
+        log_error "Version verification failed — rolling back"
+        rollback_binary "$GATEWAY_HOST" "$BINARY_PATH"
+        systemd_restart "$GATEWAY_HOST" "$SYSTEMD_SERVICE" 30 || true
+        log_deploy "penfold-gateway" "rollback" "$OLD_COMMIT" "version-mismatch"
         exit 1
     fi
 
@@ -166,6 +169,8 @@ cmd_full_deploy() {
         --previous-commit "$OLD_COMMIT" \
         --deployed-by "agent-mycroft" \
         --notify
+
+    log_deploy "penfold-gateway" "$NEW_COMMIT" "$OLD_COMMIT" "success"
 
     echo ""
     echo "${GREEN}=== Deployment Complete ===${NC}"

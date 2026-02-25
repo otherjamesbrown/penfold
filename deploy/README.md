@@ -11,7 +11,8 @@ deploy/
 ├── observability/    # Prometheus, Loki, Grafana stack
 ├── env/              # Environment file templates
 ├── langfuse/         # AI tracing platform
-└── certs/            # TLS certificates
+├── certs/            # TLS certificates
+└── nomad-archived/   # Archived Nomad config (replaced by launchd/systemd)
 ```
 
 ## Service Architecture
@@ -24,51 +25,56 @@ deploy/
 | Observability | dev02.brown.chat | Docker | docker-compose |
 | Langfuse | dev02.brown.chat | Docker | docker-compose |
 
+## Deployment
+
+**Always use deploy scripts. Never hand-roll deploys.**
+
+```bash
+./scripts/deploy.sh worker     # Build + deploy worker to dev01 (launchd)
+./scripts/deploy.sh gateway    # Build + deploy gateway to dev02 (systemd)
+./scripts/deploy.sh ai         # Build + deploy AI coordinator to dev02 (systemd)
+./scripts/deploy.sh all        # Deploy all in dependency order
+./scripts/deploy.sh status     # Check all services
+./scripts/deploy.sh rollback worker  # Rollback to previous binary
+```
+
+Deploy scripts automatically:
+1. Build the binary with version info (git commit via ldflags)
+2. Back up the current binary (`.prev`)
+3. Upload and swap the new binary
+4. Restart the service via native process manager
+5. Verify the deployed version matches expected commit
+6. Rollback automatically if verification fails
+7. Record the deployment via `penf deploy record`
+8. Log to `/var/log/penfold/deploys.log`
+
 ## Quick Reference
 
 ### Service Management
 
 **dev02 (Linux/systemd):**
 ```bash
-# Status
 sudo systemctl status penfold-gateway penfold-ai-coordinator
-
-# Start/stop
-sudo systemctl start penfold-gateway
-sudo systemctl stop penfold-gateway
 sudo systemctl restart penfold-gateway
-
-# Logs
 journalctl -u penfold-gateway -f
-journalctl -u penfold-gateway --since "1 hour ago"
 ```
 
 **dev01 (macOS/launchd):**
 ```bash
-# Status
-sudo launchctl list | grep penfold
-
-# Start/stop
-sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
-sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
-
-# Logs
+sudo launchctl print system/com.penfold.worker
+sudo launchctl kickstart -k system/com.penfold.worker
 tail -f /var/log/penfold/worker.log
-tail -f /var/log/penfold/worker.error.log
 ```
 
 ### Observability Stack
 
 ```bash
-# Start/stop
 cd deploy/observability
 docker compose up -d
 docker compose down
 
-# Access
-# Grafana: http://dev02.brown.chat:3001 (admin/penfold2024)
+# Grafana: http://dev02.brown.chat:3001
 # Prometheus: http://dev02.brown.chat:9090
-# Alertmanager: http://dev02.brown.chat:9094
 ```
 
 ## Installation
@@ -78,42 +84,18 @@ docker compose down
 1. **Install service files:**
    ```bash
    # On dev02 (Linux)
-   cd deploy/systemd
-   sudo ./install.sh
+   cd deploy/systemd && sudo ./install.sh
 
    # On dev01 (macOS)
-   cd deploy/launchd
-   sudo ./install.sh
+   cd deploy/launchd && sudo ./install.sh
    ```
 
-2. **Copy binaries:**
-   ```bash
-   # Gateway to dev02
-   scp services/gateway/gateway-linux james@dev02:/opt/penfold/bin/penfold-gateway
-
-   # Worker to dev01
-   scp services/worker/worker-darwin-arm64 james@dev01:/opt/penfold/bin/penfold-worker
-   ```
-
-3. **Configure environment:**
+2. **Configure environment:**
    - Review `/etc/penfold/*.env` files on each host
-   - Update credentials and connection strings as needed
 
-4. **Enable and start:**
+3. **Deploy and start:**
    ```bash
-   # dev02
-   sudo systemctl enable penfold-gateway penfold-ai-coordinator
-   sudo systemctl start penfold-gateway penfold-ai-coordinator
-
-   # dev01
-   sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
-   ```
-
-5. **Start observability:**
-   ```bash
-   ssh james@dev02.brown.chat
-   cd ~/penfold/deploy/observability
-   docker compose up -d
+   ./scripts/deploy.sh all
    ```
 
 ## See Also
@@ -122,5 +104,3 @@ docker compose down
 - [launchd/README.md](launchd/README.md) - macOS service configuration
 - [observability/README.md](observability/README.md) - Monitoring and logging
 - [env/README.md](env/README.md) - Environment variables
-- [langfuse/README.md](langfuse/README.md) - AI tracing platform
-- [context/development/workflows/deployment-checklist.md](../context/development/workflows/deployment-checklist.md) - Deployment procedures

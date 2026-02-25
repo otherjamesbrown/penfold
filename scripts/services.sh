@@ -1,12 +1,12 @@
 #!/bin/zsh
 #
-# Penfold Services Management (Nomad)
-# Manages the full processing pipeline services via Nomad
+# Penfold Services Management (launchd/systemd)
+# Manages the full processing pipeline services via native process managers
 #
 # Usage:
 #   ./scripts/services.sh status    # Check status of all services
-#   ./scripts/services.sh start     # Start all services via Nomad
-#   ./scripts/services.sh stop      # Stop all services via Nomad
+#   ./scripts/services.sh start     # Start all services
+#   ./scripts/services.sh stop      # Stop all services
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_ROOT="${SCRIPT_DIR}/.."
@@ -22,7 +22,6 @@ NC='\033[0m'
 DB_HOST="${DB_HOST:-dev02}"
 REDIS_HOST="${REDIS_HOST:-dev02}"
 TEMPORAL_HOST="${TEMPORAL_HOST:-dev02}"
-NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
 
 log_status() {
     local name="$1"
@@ -36,7 +35,7 @@ log_status() {
     fi
 }
 
-# --- Infrastructure Checks (unchanged) ---
+# --- Infrastructure Checks ---
 
 check_postgres() {
     if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=2 "$DB_HOST" "docker exec penfold-postgres pg_isready -U penfold" &>/dev/null; then
@@ -78,36 +77,39 @@ check_temporal_ui() {
     fi
 }
 
-# --- Nomad Service Checks ---
+# --- Service Checks (launchd / systemd) ---
 
-nomad_check_job() {
-    local job_name="$1"
-    local display_name="$2"
-    local details="$3"
-
-    local status=$(NOMAD_ADDR="$NOMAD_ADDR" nomad job status -short "$job_name" 2>/dev/null | grep "Status" | awk '{print $NF}')
-    if [[ "$status" == "running" ]]; then
-        log_status "$display_name" "running" "${details} (nomad: ${job_name})"
+check_gateway() {
+    local state=$(ssh -o ConnectTimeout=2 dev02 "systemctl is-active penfold-gateway" 2>/dev/null || echo "unreachable")
+    if [[ "$state" == "active" ]]; then
+        log_status "Gateway" "running" "(dev02:50051/8080, systemd)"
         return 0
-    elif [[ -z "$status" ]]; then
-        log_status "$display_name" "not registered" "${details}"
-        return 1
     else
-        log_status "$display_name" "$status" "${details} (nomad: ${job_name})"
+        log_status "Gateway" "$state" "(dev02:50051/8080, systemd)"
         return 1
     fi
 }
 
-check_gateway() {
-    nomad_check_job "penfold-gateway" "Gateway" "(dev02:50051/8080)"
-}
-
 check_worker() {
-    nomad_check_job "penfold-worker" "Worker" "(dev01:8085)"
+    local pid=$(sudo launchctl print system/com.penfold.worker 2>/dev/null | grep "pid =" | awk '{print $NF}')
+    if [[ -n "$pid" ]] && [[ "$pid" != "-" ]] && [[ "$pid" != "0" ]]; then
+        log_status "Worker" "running" "(dev01:8085, launchd, pid ${pid})"
+        return 0
+    else
+        log_status "Worker" "stopped" "(dev01:8085, launchd)"
+        return 1
+    fi
 }
 
 check_ai_service() {
-    nomad_check_job "penfold-ai-coordinator" "AI Coordinator" "(dev02:8090)"
+    local state=$(ssh -o ConnectTimeout=2 dev02 "systemctl is-active penfold-ai-coordinator" 2>/dev/null || echo "unreachable")
+    if [[ "$state" == "active" ]]; then
+        log_status "AI Coordinator" "running" "(dev02:8090, systemd)"
+        return 0
+    else
+        log_status "AI Coordinator" "$state" "(dev02:8090, systemd)"
+        return 1
+    fi
 }
 
 # --- Commands ---
@@ -126,7 +128,7 @@ cmd_status() {
     check_temporal_ui
     echo ""
 
-    echo "Services (Nomad):"
+    echo "Services:"
     check_gateway
     check_worker
     check_ai_service
@@ -170,9 +172,7 @@ cmd_start() {
     # Start Temporal
     echo "Starting Temporal..."
     if ! check_temporal &>/dev/null; then
-        cd "${PROJECT_ROOT}/penfold-go-pipeline"
-        docker-compose -f docker-compose.temporal.yml up -d
-        cd "${PROJECT_ROOT}"
+        ssh "$TEMPORAL_HOST" "cd ~/penfold/scripts && docker-compose -f docker-compose.temporal-dev02.yml up -d" 2>/dev/null || true
 
         echo "Waiting for Temporal to start..."
         sleep 5
@@ -188,23 +188,23 @@ cmd_start() {
     fi
     echo ""
 
-    # Start services via Nomad
-    echo "Starting Gateway via Nomad..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job run "${PROJECT_ROOT}/deploy/nomad/gateway.nomad.hcl"
+    # Start services
+    echo "Starting Gateway (systemd on dev02)..."
+    ssh dev02 "sudo systemctl start penfold-gateway" 2>/dev/null
     echo ""
 
-    echo "Starting Worker via Nomad..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job run "${PROJECT_ROOT}/deploy/nomad/worker.nomad.hcl"
+    echo "Starting AI Coordinator (systemd on dev02)..."
+    ssh dev02 "sudo systemctl start penfold-ai-coordinator" 2>/dev/null
     echo ""
 
-    echo "Starting AI Coordinator via Nomad..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job run "${PROJECT_ROOT}/deploy/nomad/ai-coordinator.nomad.hcl"
+    echo "Starting Worker (launchd on dev01)..."
+    sudo launchctl kickstart system/com.penfold.worker 2>/dev/null || \
+        sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist 2>/dev/null || true
     echo ""
 
-    echo "${GREEN}Services submitted to Nomad${NC}"
+    echo "${GREEN}Services started${NC}"
     echo ""
     echo "Check status with: ./scripts/services.sh status"
-    echo "Or: NOMAD_ADDR=${NOMAD_ADDR} nomad job status"
 }
 
 cmd_stop() {
@@ -212,26 +212,19 @@ cmd_stop() {
     echo ""
 
     echo "Stopping Gateway..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job stop -purge penfold-gateway 2>/dev/null || echo "  (not running)"
-
-    echo "Stopping Worker..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job stop -purge penfold-worker 2>/dev/null || echo "  (not running)"
+    ssh dev02 "sudo systemctl stop penfold-gateway" 2>/dev/null || echo "  (not running)"
 
     echo "Stopping AI Coordinator..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job stop -purge penfold-ai-coordinator 2>/dev/null || echo "  (not running)"
+    ssh dev02 "sudo systemctl stop penfold-ai-coordinator" 2>/dev/null || echo "  (not running)"
 
-    # Stop Temporal
-    echo ""
-    echo "Stopping Temporal..."
-    cd "${PROJECT_ROOT}/penfold-go-pipeline"
-    docker-compose -f docker-compose.temporal.yml down 2>/dev/null || true
-    cd "${PROJECT_ROOT}"
+    echo "Stopping Worker..."
+    sudo launchctl kill SIGTERM system/com.penfold.worker 2>/dev/null || echo "  (not running)"
 
     echo ""
     echo "${GREEN}Services stopped${NC}"
     echo ""
-    echo "Note: PostgreSQL and Redis on ${DB_HOST} are not stopped."
-    echo "Stop them manually if needed: ssh ${DB_HOST} 'docker stop penfold-postgres penfold-redis'"
+    echo "Note: Infrastructure services (PostgreSQL, Redis, Temporal) are not stopped."
+    echo "Stop them manually if needed."
 }
 
 case "${1:-status}" in

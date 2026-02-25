@@ -51,22 +51,6 @@ scrape_configs:
       - targets: ['host.docker.internal:9187']
     metrics_path: /metrics
 
-  # ============ MLX Services (dev01) ============
-
-  # MLX LLM Server
-  - job_name: 'mlx-llm'
-    static_configs:
-      - targets: ['dev01.brown.chat:8080']
-    metrics_path: /metrics
-    scrape_timeout: 10s
-
-  # MLX Embeddings Server
-  - job_name: 'mlx-embeddings'
-    static_configs:
-      - targets: ['dev01.brown.chat:8081']
-    metrics_path: /metrics
-    scrape_timeout: 10s
-
   # ============ Observability Stack ============
 
   # Loki
@@ -94,15 +78,3 @@ scrape_configs:
       - targets: ['dev01.brown.chat:9100']
         labels:
           instance: 'dev01'
-
-  # ============ Nomad ============
-
-  # Nomad server/client metrics (dev02)
-  - job_name: 'nomad'
-    static_configs:
-      - targets: ['host.docker.internal:4646']
-        labels:
-          instance: 'dev02'
-    metrics_path: /v1/metrics
-    params:
-      format: ['prometheus']

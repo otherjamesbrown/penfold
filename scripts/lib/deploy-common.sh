@@ -34,62 +34,6 @@ get_deployed_commit() {
     echo "$commit"
 }
 
-# --- Nomad Helpers ---
-
-nomad_run_job() {
-    local job_file="$1"
-    log_info "Running Nomad job: ${job_file}..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job run "${PROJECT_ROOT}/${job_file}"
-}
-
-nomad_restart_job() {
-    local job_name="$1"
-    log_info "Restarting ${job_name} to pick up new binary..."
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job restart -on-error=fail "$job_name"
-}
-
-nomad_wait_healthy() {
-    local job_name="$1"
-    local timeout="${2:-60}"
-    local health_url=""
-
-    # Map job name to health endpoint
-    case "$job_name" in
-        penfold-worker)
-            health_url="http://dev01.brown.chat:8085/health"
-            ;;
-        penfold-gateway)
-            health_url="http://dev02.brown.chat:8080/health"
-            ;;
-        penfold-ai-coordinator)
-            health_url="http://dev02.brown.chat:8090/health"
-            ;;
-        *)
-            log_error "Unknown job name: ${job_name}"
-            return 1
-            ;;
-    esac
-
-    log_info "Waiting for ${job_name} to be healthy at ${health_url}..."
-    local attempts=0
-    while [[ $attempts -lt $timeout ]]; do
-        local health_status=$(curl -s -o /dev/null -w "%{http_code}" "$health_url" 2>/dev/null || echo "000")
-        if [[ "$health_status" == "200" ]]; then
-            log_success "${job_name} health check passed"
-            return 0
-        fi
-        ((attempts++))
-        sleep 1
-    done
-    log_error "${job_name} failed to become healthy within ${timeout}s"
-    return 1
-}
-
-nomad_job_status() {
-    local job_name="$1"
-    NOMAD_ADDR="$NOMAD_ADDR" nomad job status "$job_name" 2>/dev/null
-}
-
 # --- Deploy Verification ---
 
 # verify_deployed_version polls a service's /version endpoint and compares
@@ -117,6 +61,94 @@ verify_deployed_version() {
     local final_commit=$(get_deployed_commit "$url")
     log_error "${service_name} version mismatch: expected=${expected_commit}, got=${final_commit}"
     return 1
+}
+
+# --- Backup / Rollback ---
+
+# backup_binary copies the current binary to binary.prev before deploying a new one.
+backup_binary() {
+    local target_host="$1"
+    local binary_path="$2"
+
+    if is_local_host "$target_host"; then
+        if [[ -f "$binary_path" ]]; then
+            cp "$binary_path" "${binary_path}.prev"
+            log_info "Backed up ${binary_path} → ${binary_path}.prev"
+        else
+            log_warn "No existing binary to back up at ${binary_path}"
+        fi
+    else
+        ssh "$target_host" "if [ -f '${binary_path}' ]; then cp '${binary_path}' '${binary_path}.prev'; fi"
+        log_info "Backed up ${binary_path} → ${binary_path}.prev on ${target_host}"
+    fi
+}
+
+# rollback_binary restores the .prev binary and restarts the service.
+rollback_binary() {
+    local target_host="$1"
+    local binary_path="$2"
+
+    if is_local_host "$target_host"; then
+        if [[ -f "${binary_path}.prev" ]]; then
+            mv "${binary_path}.prev" "$binary_path"
+            log_warn "Rolled back ${binary_path} from .prev"
+        else
+            log_error "No .prev binary found for rollback at ${binary_path}"
+            return 1
+        fi
+    else
+        ssh "$target_host" "if [ -f '${binary_path}.prev' ]; then mv '${binary_path}.prev' '${binary_path}'; else echo 'NO_PREV'; fi" | grep -q "NO_PREV" && {
+            log_error "No .prev binary found for rollback at ${target_host}:${binary_path}"
+            return 1
+        }
+        log_warn "Rolled back ${binary_path} from .prev on ${target_host}"
+    fi
+}
+
+# --- Deploy Logging ---
+
+# log_deploy appends a deploy entry to /var/log/penfold/deploys.log
+log_deploy() {
+    local service="$1"
+    local commit="$2"
+    local prev_commit="$3"
+    local status="${4:-success}"
+    local log_file="/var/log/penfold/deploys.log"
+    local entry="$(date -u '+%Y-%m-%dT%H:%M:%SZ') ${service} ${commit} prev=${prev_commit} status=${status} by=agent-mycroft"
+
+    echo "$entry" >> "$log_file" 2>/dev/null || true
+}
+
+# --- launchd Helpers (for dev01 worker) ---
+
+# launchd_restart restarts a launchd service and waits for it to be running.
+launchd_restart() {
+    local label="$1"
+    local timeout="${2:-30}"
+
+    log_info "Restarting ${label} via launchd..."
+    sudo launchctl kickstart -k "system/${label}"
+
+    # Wait for service to be running
+    local attempts=0
+    while [[ $attempts -lt $timeout ]]; do
+        local pid=$(sudo launchctl print "system/${label}" 2>/dev/null | grep "pid =" | awk '{print $NF}')
+        if [[ -n "$pid" ]] && [[ "$pid" != "-" ]] && [[ "$pid" != "0" ]]; then
+            log_success "${label} is running (pid ${pid})"
+            return 0
+        fi
+        ((attempts++))
+        sleep 1
+    done
+
+    log_error "${label} failed to start within ${timeout}s"
+    return 1
+}
+
+# launchd_status shows the status of a launchd service.
+launchd_status() {
+    local label="$1"
+    sudo launchctl print "system/${label}" 2>/dev/null
 }
 
 # --- Systemd Helpers (for dev02 services: gateway, ai-coordinator) ---

@@ -21,7 +21,6 @@
 #   GATEWAY_GRPC_PORT gRPC port for service checks (default: 50051)
 #   WORKER_HOST       Target worker host (default: dev01.brown.chat)
 #   WORKER_PORT       Worker health port (default: 8085)
-#   NOMAD_ADDR        Nomad server address (default: http://dev02.brown.chat:4646)
 
 set -e
 
@@ -41,7 +40,6 @@ GATEWAY_HTTP_PORT="${GATEWAY_HTTP_PORT:-8080}"
 GATEWAY_GRPC_PORT="${GATEWAY_GRPC_PORT:-50051}"
 WORKER_HOST="${WORKER_HOST:-dev01.brown.chat}"
 WORKER_PORT="${WORKER_PORT:-8085}"
-NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
 
 # Results tracking
 typeset -a RESULTS
@@ -116,30 +114,47 @@ log_skip() {
 }
 
 # ============================================================================
-# Nomad Job Status Checks
+# Service Status Checks (launchd / systemd)
 # ============================================================================
 
-check_nomad_jobs() {
-    log_header "Nomad Job Status"
+check_service_status() {
+    log_header "Service Status"
 
-    if ! command -v nomad &>/dev/null; then
-        log_check "Nomad CLI available"
-        log_skip "nomad_cli" "nomad CLI not found in PATH"
-        return 0
+    # Worker — launchd on dev01
+    log_check "Worker (launchd on dev01)"
+    local worker_pid=$(ssh -o ConnectTimeout=5 -o BatchMode=yes dev01 \
+        "sudo launchctl print system/com.penfold.worker 2>/dev/null | grep 'pid =' | awk '{print \$NF}'" 2>/dev/null || echo "")
+    if [[ -n "$worker_pid" ]] && [[ "$worker_pid" != "-" ]] && [[ "$worker_pid" != "0" ]]; then
+        log_pass "launchd_worker" "Running (pid ${worker_pid})"
+    elif [[ -z "$worker_pid" ]]; then
+        log_skip "launchd_worker" "Cannot reach dev01 or service not loaded"
+    else
+        log_fail "launchd_worker" "Service not running" "false"
     fi
 
-    local jobs=("penfold-gateway" "penfold-worker" "penfold-ai-coordinator")
-    for job_name in "${jobs[@]}"; do
-        log_check "Nomad job: ${job_name}"
-        local status=$(NOMAD_ADDR="$NOMAD_ADDR" nomad job status -short "$job_name" 2>/dev/null | grep "Status" | awk '{print $NF}')
-        if [[ "$status" == "running" ]]; then
-            log_pass "nomad_${job_name}" "Job running"
-        elif [[ -z "$status" ]]; then
-            log_skip "nomad_${job_name}" "Job not found (may not be deployed yet)"
-        else
-            log_fail "nomad_${job_name}" "Job status: ${status}" "false"
-        fi
-    done
+    # Gateway — systemd on dev02
+    log_check "Gateway (systemd on dev02)"
+    local gw_state=$(ssh -o ConnectTimeout=5 -o BatchMode=yes dev02 \
+        "systemctl is-active penfold-gateway" 2>/dev/null || echo "unknown")
+    if [[ "$gw_state" == "active" ]]; then
+        log_pass "systemd_gateway" "Service active"
+    elif [[ "$gw_state" == "unknown" ]]; then
+        log_skip "systemd_gateway" "Cannot reach dev02"
+    else
+        log_fail "systemd_gateway" "Service state: ${gw_state}" "false"
+    fi
+
+    # AI Coordinator — systemd on dev02
+    log_check "AI Coordinator (systemd on dev02)"
+    local ai_state=$(ssh -o ConnectTimeout=5 -o BatchMode=yes dev02 \
+        "systemctl is-active penfold-ai-coordinator" 2>/dev/null || echo "unknown")
+    if [[ "$ai_state" == "active" ]]; then
+        log_pass "systemd_ai" "Service active"
+    elif [[ "$ai_state" == "unknown" ]]; then
+        log_skip "systemd_ai" "Cannot reach dev02"
+    else
+        log_fail "systemd_ai" "Service state: ${ai_state}" "false"
+    fi
 }
 
 # ============================================================================
@@ -313,8 +328,8 @@ check_logs_for_errors() {
     log_check "Recent gateway logs for errors"
 
     local log_errors
-    log_errors=$(ssh -o ConnectTimeout=5 -o BatchMode=yes "$GATEWAY_HOST" \
-        "tail -100 /tmp/gateway.log 2>/dev/null | grep -i 'error\|panic\|fatal' | head -5" 2>/dev/null || echo "")
+    log_errors=$(ssh -o ConnectTimeout=5 -o BatchMode=yes dev02 \
+        "journalctl -u penfold-gateway --no-pager -n 100 --since '10 min ago' 2>/dev/null | grep -i 'error\|panic\|fatal' | head -5" 2>/dev/null || echo "")
 
     if [[ -z "$log_errors" ]]; then
         log_pass "gateway_logs" "No critical errors in recent logs"
@@ -405,25 +420,25 @@ print_summary() {
 # ============================================================================
 
 run_quick_checks() {
-    check_nomad_jobs
+    check_service_status
     check_gateway_health
 }
 
 run_gateway_checks() {
-    check_nomad_jobs
+    check_service_status
     check_gateway_health
     check_gateway_services
     check_logs_for_errors
 }
 
 run_worker_checks() {
-    check_nomad_jobs
+    check_service_status
     check_worker_health
     check_ml_services
 }
 
 run_all_checks() {
-    check_nomad_jobs
+    check_service_status
     check_gateway_health
     check_gateway_services
     check_worker_health
@@ -435,9 +450,9 @@ usage() {
     echo "Usage: $0 [options]"
     echo ""
     echo "Options:"
-    echo "  --quick          Quick health check only (Nomad status + gateway health)"
-    echo "  --gateway        Gateway-specific tests (Nomad + health + services + logs)"
-    echo "  --worker         Worker-specific tests (Nomad + health + ML services)"
+    echo "  --quick          Quick health check only (service status + gateway health)"
+    echo "  --gateway        Gateway-specific tests (status + health + services + logs)"
+    echo "  --worker         Worker-specific tests (status + health + ML services)"
     echo "  --output json    Output results as JSON"
     echo "  --help           Show this help message"
     echo ""
@@ -447,7 +462,6 @@ usage() {
     echo "  GATEWAY_GRPC_PORT Gateway gRPC port (default: 50051)"
     echo "  WORKER_HOST       Worker hostname (default: dev01.brown.chat)"
     echo "  WORKER_PORT       Worker health port (default: 8085)"
-    echo "  NOMAD_ADDR        Nomad server address (default: http://dev02.brown.chat:4646)"
     echo ""
     echo "Exit codes:"
     echo "  0  All checks passed"
@@ -492,7 +506,6 @@ main() {
         echo "${CYAN}Penfold Deployment Verification${NC}"
         echo "Gateway: ${GATEWAY_HOST}:${GATEWAY_HTTP_PORT}"
         echo "Worker:  ${WORKER_HOST}:${WORKER_PORT}"
-        echo "Nomad:   ${NOMAD_ADDR}"
     fi
 
     case "$mode" in

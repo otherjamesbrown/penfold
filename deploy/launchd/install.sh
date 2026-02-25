@@ -53,13 +53,22 @@ install_worker() {
     chown root:wheel /Library/LaunchDaemons/com.penfold.worker.plist
     chmod 644 /Library/LaunchDaemons/com.penfold.worker.plist
 
+    # Copy wrapper script
+    cp "${SCRIPT_DIR}/penfold-worker-start.sh" /opt/penfold/bin/
+    chmod +x /opt/penfold/bin/penfold-worker-start.sh
+    chown james:staff /opt/penfold/bin/penfold-worker-start.sh
+
     # Copy reference env file
     mkdir -p /etc/penfold
     if [[ ! -f /etc/penfold/worker.env ]]; then
-        cp "${ENV_DIR}/worker.env" /etc/penfold/
+        if [[ -f "${ENV_DIR}/worker.env" ]]; then
+            cp "${ENV_DIR}/worker.env" /etc/penfold/
+        else
+            touch /etc/penfold/worker.env
+        fi
         chmod 600 /etc/penfold/worker.env
         chown james:staff /etc/penfold/worker.env
-        log_info "  Created /etc/penfold/worker.env (reference only - edit plist for changes)"
+        log_info "  Created /etc/penfold/worker.env"
     fi
 
     log_success "com.penfold.worker service installed"
@@ -84,18 +93,14 @@ show_usage() {
     echo "  1. Copy binary to /opt/penfold/bin/"
     echo "     scp services/worker/worker-darwin-arm64 dev01:/opt/penfold/bin/penfold-worker"
     echo ""
-    echo "  2. Update environment variables in the plist if needed:"
-    echo "     sudo vim /Library/LaunchDaemons/com.penfold.worker.plist"
+    echo "  2. Configure /etc/penfold/worker.env with correct values"
     echo ""
     echo "  3. Load and start the service:"
     echo "     sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist"
     echo ""
     echo "  4. Check status and logs:"
-    echo "     sudo launchctl list | grep penfold"
+    echo "     sudo launchctl print system/com.penfold.worker"
     echo "     tail -f /var/log/penfold/worker.log"
-    echo ""
-    echo "  5. To stop/unload:"
-    echo "     sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist"
 }
 
 # Main

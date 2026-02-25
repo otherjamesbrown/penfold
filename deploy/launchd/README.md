@@ -8,7 +8,16 @@ launchd service files for Penfold services running on dev01 (macOS/Apple Silicon
 |---------|--------|-------|
 | com.penfold.worker | `/opt/penfold/bin/penfold-worker` | 8085 (HTTP health) |
 
-The worker runs on dev01 because it requires Apple Silicon for MLX-based AI models.
+The worker runs on dev01 because it requires Apple Silicon for ML inference via Ollama.
+
+## Architecture
+
+The plist runs a **wrapper script** (`penfold-worker-start.sh`) that:
+1. Sources environment from `/etc/penfold/worker.env`
+2. `exec`s the worker binary
+
+This means launchd sends SIGTERM directly to the worker process (no intermediate shell).
+The plist sets `ExitTimeOut: 30` — launchd waits 30s for graceful shutdown before SIGKILL.
 
 ## Installation
 
@@ -20,7 +29,8 @@ sudo ./install.sh
 The installer:
 1. Creates directories: `/opt/penfold/bin`, `/var/log/penfold`
 2. Copies plist to `/Library/LaunchDaemons/`
-3. Creates reference env file in `/etc/penfold/` (for documentation only)
+3. Copies wrapper script to `/opt/penfold/bin/`
+4. Creates reference env file in `/etc/penfold/`
 
 ## Directory Layout
 
@@ -28,151 +38,89 @@ After installation:
 ```
 /opt/penfold/
 └── bin/
-    └── penfold-worker
+    ├── penfold-worker
+    └── penfold-worker-start.sh
 
 /Library/LaunchDaemons/
 └── com.penfold.worker.plist
 
 /var/log/penfold/
 ├── worker.log
-└── worker.error.log
+├── worker.error.log
+└── deploys.log
 
 /etc/penfold/
-└── worker.env    # Reference only - env vars are in plist
+└── worker.env
+```
+
+## Deployment
+
+Use the deploy scripts — never deploy manually:
+
+```bash
+./scripts/deploy.sh worker    # Build, upload, restart, verify
+./scripts/deploy.sh status    # Check all services
+./scripts/deploy.sh rollback worker  # Restore previous binary
 ```
 
 ## Service Management
 
 ```bash
-# Load and start service (auto-starts on load)
-sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
+# Restart (preferred — sends SIGTERM then starts fresh)
+sudo launchctl kickstart -k system/com.penfold.worker
 
-# Stop and unload service
-sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
-
-# Check if loaded
-sudo launchctl list | grep penfold
-
-# Check detailed status
+# Check status
 sudo launchctl print system/com.penfold.worker
+
+# Stop
+sudo launchctl kill SIGTERM system/com.penfold.worker
+
+# Load/unload
+sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
+sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
 ```
 
 ## Viewing Logs
 
-Logs are written to files in `/var/log/penfold/`:
-
 ```bash
-# Follow logs in real-time
 tail -f /var/log/penfold/worker.log
-
-# Follow error log
 tail -f /var/log/penfold/worker.error.log
-
-# Last 100 lines
-tail -100 /var/log/penfold/worker.log
-
-# Search for errors
-grep -i error /var/log/penfold/worker.log
-
-# View both logs
-tail -f /var/log/penfold/worker.log /var/log/penfold/worker.error.log
 ```
 
 ## Configuration
 
-Environment variables are defined **in the plist file itself**, not in a separate env file.
-
-To modify configuration:
+Environment variables are in `/etc/penfold/worker.env`:
 
 ```bash
-# Unload service
-sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
+# Edit env vars
+sudo vim /etc/penfold/worker.env
 
-# Edit plist
-sudo vim /Library/LaunchDaemons/com.penfold.worker.plist
-
-# Reload service
-sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
+# Restart to pick up changes
+sudo launchctl kickstart -k system/com.penfold.worker
 ```
 
-Key environment variables in plist:
-- `WORKER_SERVICE_NAME` - Service identifier
-- `WORKER_ENVIRONMENT` - dev/staging/prod
-- `TEMPORAL_HOST_PORT` - Temporal server address
-- `DATABASE_URL` - PostgreSQL connection string
-- `AI_SERVICE_ADDR` - AI service gRPC address
-- `LANGFUSE_*` - Tracing configuration
-
-## Updating Binaries
-
-> **Note:** launchd is superseded by Nomad. Use `./scripts/deploy-worker.sh` instead,
-> which handles build (with git version via ldflags), upload, code signing, and Nomad job submission.
-
-```bash
-# Preferred: use the deploy script
-./scripts/deploy-worker.sh
-
-# Manual alternative (legacy):
-cd services/worker
-go build -o worker-darwin-arm64 -ldflags="-s -w" .
-scp worker-darwin-arm64 james@dev01.brown.chat:/tmp/
-# On dev01:
-sudo launchctl unload /Library/LaunchDaemons/com.penfold.worker.plist
-sudo mv /tmp/worker-darwin-arm64 /opt/penfold/bin/penfold-worker
-sudo chmod +x /opt/penfold/bin/penfold-worker
-sudo launchctl load /Library/LaunchDaemons/com.penfold.worker.plist
-```
+Key variables: `TEMPORAL_HOST_PORT`, `DATABASE_URL`, `AI_SERVICE_ADDR`, `LANGFUSE_*`
 
 ## Behavior
 
-The plist configures the following behavior:
-
 - **RunAtLoad**: Service starts automatically when loaded
 - **KeepAlive**: Restarts on crash (but not clean exit)
-- **ThrottleInterval**: 5 seconds between restart attempts
-- **HardResourceLimits/SoftResourceLimits**: 65536 file descriptor limit
+- **ExitTimeOut**: 30s graceful shutdown before SIGKILL
+- **ThrottleInterval**: 5s between restart attempts
+- **Resource Limits**: 65536 file descriptors
 
 ## Troubleshooting
 
-**Service won't load:**
 ```bash
 # Check plist syntax
 plutil /Library/LaunchDaemons/com.penfold.worker.plist
 
-# Check permissions
+# Check permissions (should be root:wheel 644)
 ls -la /Library/LaunchDaemons/com.penfold.worker.plist
-# Should be: -rw-r--r-- root wheel
-
-# Fix permissions if needed
-sudo chown root:wheel /Library/LaunchDaemons/com.penfold.worker.plist
-sudo chmod 644 /Library/LaunchDaemons/com.penfold.worker.plist
-```
-
-**Service keeps crashing:**
-```bash
-# Check error log
-cat /var/log/penfold/worker.error.log
 
 # Check system log for launchd messages
 log show --predicate 'subsystem == "com.apple.launchd"' --last 5m | grep penfold
 
 # Verify binary runs manually
-/opt/penfold/bin/penfold-worker
-```
-
-**Can't connect to external services:**
-```bash
-# Check network from dev01
-curl http://dev02.brown.chat:7233/health  # Temporal
-curl http://dev02.brown.chat:8080/health  # Gateway
-
-# Check database connectivity
-psql "host=dev02.brown.chat dbname=penfold user=penfold sslmode=verify-full"
-```
-
-**Permission errors:**
-```bash
-# Fix ownership
-sudo chown -R james:staff /opt/penfold
-sudo chown -R james:staff /var/log/penfold
+/opt/penfold/bin/penfold-worker-start.sh
 ```

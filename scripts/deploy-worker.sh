@@ -1,16 +1,15 @@
 #!/bin/zsh
 #
-# Penfold Worker Deployment (Nomad)
-# Cross-compiles, uploads, and deploys worker via Nomad
+# Penfold Worker Deployment (launchd)
+# Cross-compiles, uploads, and deploys worker via launchd on dev01
 #
 # Usage:
-#   ./scripts/deploy-worker.sh           # Build, upload, and deploy via Nomad
+#   ./scripts/deploy-worker.sh           # Build, upload, and deploy via launchd
 #   ./scripts/deploy-worker.sh --build   # Build only (no deploy)
-#   ./scripts/deploy-worker.sh --status  # Check Nomad job status
+#   ./scripts/deploy-worker.sh --status  # Check launchd service status
 #
 # Environment:
 #   WORKER_HOST  Target host for binary upload (default: dev01)
-#   NOMAD_ADDR   Nomad server address (default: http://dev02.brown.chat:4646)
 
 set -e
 
@@ -23,66 +22,8 @@ source "${SCRIPT_DIR}/lib/deploy-common.sh"
 WORKER_HOST="${WORKER_HOST:-dev01}"
 BINARY_PATH="/opt/penfold/bin/penfold-worker"
 BUILD_OUTPUT="${PROJECT_ROOT}/services/worker/worker-darwin-arm64"
-NOMAD_ADDR="${NOMAD_ADDR:-http://dev02.brown.chat:4646}"
-NOMAD_JOB_FILE="deploy/nomad/worker.nomad.hcl"
-NOMAD_JOB_NAME="penfold-worker"
+LAUNCHD_LABEL="com.penfold.worker"
 WORKER_URL="http://dev01.brown.chat:8085"
-
-# --- Pre-deploy Cleanup ---
-
-kill_orphan_workers() {
-    log_info "Checking for orphan penfold-worker processes..."
-
-    # Get the PID of the Nomad-managed worker (child of sudo, launched by Nomad).
-    # Nomad raw_exec runs: sudo -u james /bin/sh -c '... exec /opt/penfold/bin/penfold-worker'
-    local nomad_alloc_id
-    nomad_alloc_id=$(NOMAD_ADDR="$NOMAD_ADDR" nomad job status -json "$NOMAD_JOB_NAME" 2>/dev/null \
-        | python3 -c "import json,sys; allocs=[a for a in json.load(sys.stdin).get('Allocations',[]) if a['ClientStatus']=='running']; print(allocs[0]['ID'] if allocs else '')" 2>/dev/null || echo "")
-
-    # Find all penfold-worker PIDs
-    local all_pids
-    all_pids=$(pgrep -f "penfold-worker" 2>/dev/null | tr '\n' ' ')
-
-    if [[ -z "$all_pids" ]]; then
-        log_info "No worker processes found"
-        return 0
-    fi
-
-    # Kill ALL worker processes — Nomad will restart its own after nomad_restart_job.
-    # This is safe because we call nomad_restart_job immediately after.
-    # Use SIGTERM first, then SIGKILL after grace period for any survivors.
-    local killed=0
-    for pid in $all_pids; do
-        # Skip sudo/su parent processes, only kill the actual worker
-        local cmd=$(ps -p "$pid" -o comm= 2>/dev/null)
-        if [[ "$cmd" == *"penfold-worker"* ]]; then
-            kill "$pid" 2>/dev/null && ((killed++)) || true
-        fi
-    done
-
-    if [[ $killed -gt 0 ]]; then
-        log_info "Sent SIGTERM to ${killed} worker process(es), waiting for exit..."
-        sleep 3
-
-        # SIGKILL any survivors — on macOS, SIGTERM through sudo chains
-        # may not reach the actual worker process.
-        local survivors=$(pgrep -f "penfold-worker" 2>/dev/null | tr '\n' ' ')
-        if [[ -n "$survivors" ]]; then
-            for pid in $survivors; do
-                local cmd=$(ps -p "$pid" -o comm= 2>/dev/null)
-                if [[ "$cmd" == *"penfold-worker"* ]]; then
-                    kill -9 "$pid" 2>/dev/null || true
-                fi
-            done
-            log_warn "SIGKILL sent to surviving worker processes"
-            sleep 1
-        fi
-
-        log_success "Worker cleanup complete — Nomad will restart fresh"
-    else
-        log_info "No orphan workers to clean up"
-    fi
-}
 
 # --- Build & Deploy ---
 
@@ -110,13 +51,13 @@ deploy_binary() {
 }
 
 check_status() {
-    log_info "Checking worker Nomad job status..."
+    log_info "Checking worker launchd service status..."
     echo ""
-    nomad_job_status "$NOMAD_JOB_NAME" || log_warn "Job not found or Nomad not reachable"
+    launchd_status "$LAUNCHD_LABEL" || log_warn "Service not found or not loaded"
 
     # Also check health endpoint
     echo ""
-    local health=$(ssh "$WORKER_HOST" "curl -s -o /dev/null -w '%{http_code}' http://localhost:8085/health" 2>/dev/null || echo "000")
+    local health=$(curl -s -o /dev/null -w "%{http_code}" "${WORKER_URL}/health" 2>/dev/null || echo "000")
     if [[ "$health" == "200" ]]; then
         log_success "Health endpoint: OK"
     else
@@ -127,24 +68,17 @@ check_status() {
 run_migrations() {
     log_info "Running database migrations..."
 
-    # Migrations require DATABASE_URL to connect to the remote database.
-    # Skip if not set — the deploy can proceed without migrations.
     if [[ -z "${DATABASE_URL:-}" ]]; then
         log_warn "DATABASE_URL not set, skipping migrations (run 'penf db migrate' manually)"
         return 0
     fi
 
-    # Check if penf CLI is available
-    local penf_bin=""
-    if command -v penf &>/dev/null; then
-        penf_bin="penf"
-    else
+    if ! command -v penf &>/dev/null; then
         log_warn "penf CLI not found, skipping migrations (run 'penf db migrate' manually)"
         return 0
     fi
 
-    # Run migrations
-    if "$penf_bin" db migrate --migrations "${PROJECT_ROOT}/migrations"; then
+    if penf db migrate --migrations "${PROJECT_ROOT}/migrations"; then
         log_success "Migrations completed"
     else
         log_error "Migrations failed"
@@ -155,7 +89,7 @@ run_migrations() {
 # --- Commands ---
 
 cmd_full_deploy() {
-    echo "${CYAN}=== Penfold Worker Deployment (Nomad) ===${NC}"
+    echo "${CYAN}=== Penfold Worker Deployment (launchd) ===${NC}"
     echo ""
 
     # Capture old commit before deploy
@@ -165,32 +99,24 @@ cmd_full_deploy() {
     build_worker
     echo ""
 
-    deploy_binary
+    # Backup current binary before deploying
+    backup_binary "$WORKER_HOST" "$BINARY_PATH"
     echo ""
 
-    # Kill any orphan worker processes not managed by Nomad. These can appear
-    # when the worker is started manually (e.g., during debugging) and register
-    # as Temporal workers on the same task queues, causing stale code to handle
-    # tasks alongside the Nomad-managed worker.
-    kill_orphan_workers
+    deploy_binary
     echo ""
 
     # Run migrations before restarting service
     run_migrations
     echo ""
 
-    log_info "Submitting Nomad job..."
-    nomad_run_job "$NOMAD_JOB_FILE"
-    echo ""
-
-    # Force restart to pick up the new binary. nomad_run_job only submits the
-    # job spec — if the spec hasn't changed, Nomad won't restart the allocation,
-    # leaving the old binary running in memory (ghost deploy).
-    nomad_restart_job "$NOMAD_JOB_NAME"
-    echo ""
-
-    if ! nomad_wait_healthy "$NOMAD_JOB_NAME" 60; then
-        log_error "Deployment failed - Nomad will auto-revert if configured"
+    # Restart via launchd
+    if ! launchd_restart "$LAUNCHD_LABEL" 30; then
+        log_error "Deployment failed — service did not start"
+        log_warn "Attempting rollback..."
+        rollback_binary "$WORKER_HOST" "$BINARY_PATH"
+        launchd_restart "$LAUNCHD_LABEL" 30 || true
+        log_deploy "penfold-worker" "rollback" "$OLD_COMMIT" "failed"
         exit 1
     fi
 
@@ -200,8 +126,10 @@ cmd_full_deploy() {
     # Verify deployed version matches
     echo ""
     if ! verify_deployed_version "$WORKER_URL" "$EXPECTED_COMMIT" 30 "worker"; then
-        log_error "Version verification failed — binary may not have been picked up"
-        log_error "Try: nomad job restart $NOMAD_JOB_NAME"
+        log_error "Version verification failed — rolling back"
+        rollback_binary "$WORKER_HOST" "$BINARY_PATH"
+        launchd_restart "$LAUNCHD_LABEL" 30 || true
+        log_deploy "penfold-worker" "rollback" "$OLD_COMMIT" "version-mismatch"
         exit 1
     fi
 
@@ -214,6 +142,8 @@ cmd_full_deploy() {
         --previous-commit "$OLD_COMMIT" \
         --deployed-by "agent-mycroft" \
         --notify
+
+    log_deploy "penfold-worker" "$NEW_COMMIT" "$OLD_COMMIT" "success"
 
     echo ""
     echo "${GREEN}=== Deployment Complete ===${NC}"
@@ -245,13 +175,12 @@ case "${1:-}" in
         echo "Usage: $0 [--build|--status]"
         echo ""
         echo "Options:"
-        echo "  (no args)  Build, upload, and deploy worker via Nomad"
+        echo "  (no args)  Build, upload, and deploy worker via launchd"
         echo "  --build    Build only (cross-compile for Darwin ARM64)"
-        echo "  --status   Check Nomad job status and health"
+        echo "  --status   Check launchd service status and health"
         echo ""
         echo "Environment:"
         echo "  WORKER_HOST  Target host for binary upload (default: dev01)"
-        echo "  NOMAD_ADDR   Nomad server address (default: http://dev02.brown.chat:4646)"
         ;;
     "")
         cmd_full_deploy
