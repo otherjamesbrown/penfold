@@ -427,12 +427,12 @@ func TestSelectModelForDeepAnalysis_FallbackToConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// When no category/importance and no requested model, should use config default
-			result := selectModelForDeepAnalysis(tt.category, tt.importance, tt.requestedModel, tt.configDefault)
+			result := selectModelForDeepAnalysisFallback(tt.category, tt.importance, tt.configDefault)
 
 			// Verify it returns the config default when no triage metadata
 			if tt.configDefault != "" && tt.category == "" && tt.importance == "" && tt.requestedModel == "" {
 				assert.Equal(t, tt.expectedModel, result,
-					"selectModelForDeepAnalysis should fall back to config stage default, not hardcoded default")
+					"selectModelForDeepAnalysisFallback should fall back to config stage default, not hardcoded default")
 			}
 		})
 	}

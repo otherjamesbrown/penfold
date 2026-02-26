@@ -28,7 +28,7 @@
 //   the existing selectModelForDeepAnalysis logic. Update the Go struct, Validate(),
 //   and scanRoutingRules() to handle the new column.
 //
-//   Migration: 085_routing_rules_conditions.sql
+//   Migration: 088_routing_rules_conditions.sql
 //
 // This test file defines "done" for 2A+2B. The source-grep subtests WILL FAIL until
 // the refactor is complete. That is intentional.
@@ -360,16 +360,16 @@ func TestLLMConfigExternalize_SourceCodeUsesDBParams(t *testing.T) {
 // 2B: Model Routing Rules
 // ============================================================================
 
-// TestLLMConfigExternalize_MigrationExists_085 verifies that the migration file
+// TestLLMConfigExternalize_MigrationExists_088 verifies that the migration file
 // for adding conditions JSONB column to ai_routing_rules exists.
-func TestLLMConfigExternalize_MigrationExists_085(t *testing.T) {
+func TestLLMConfigExternalize_MigrationExists_088(t *testing.T) {
 	projectRoot := findProjectRoot(t)
 
-	migrationPath := filepath.Join(projectRoot, "migrations", "085_routing_rules_conditions.sql")
+	migrationPath := filepath.Join(projectRoot, "migrations", "088_routing_rules_conditions.sql")
 	_, err := os.Stat(migrationPath)
 
 	if os.IsNotExist(err) {
-		t.Error("migration 085_routing_rules_conditions.sql does not exist; " +
+		t.Error("migration 088_routing_rules_conditions.sql does not exist; " +
 			"this migration must add a conditions JSONB column to ai_routing_rules " +
 			"and expand the task_type CHECK constraint to include 'deep_analysis'")
 	} else {
@@ -379,7 +379,7 @@ func TestLLMConfigExternalize_MigrationExists_085(t *testing.T) {
 }
 
 // TestLLMConfigExternalize_RoutingRulesConditionsColumn verifies that the
-// ai_routing_rules table has the new conditions JSONB column after migration 085.
+// ai_routing_rules table has the new conditions JSONB column after migration 088.
 func TestLLMConfigExternalize_RoutingRulesConditionsColumn(t *testing.T) {
 	env := SetupE2EEnvironment(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -397,7 +397,7 @@ func TestLLMConfigExternalize_RoutingRulesConditionsColumn(t *testing.T) {
 
 	require.NoError(t, err, "should query information_schema for conditions column")
 	assert.True(t, exists,
-		"ai_routing_rules should have a 'conditions' JSONB column after migration 085")
+		"ai_routing_rules should have a 'conditions' JSONB column after migration 088")
 
 	if exists {
 		// Also verify the column type is JSONB
@@ -436,7 +436,7 @@ func TestLLMConfigExternalize_TaskTypeConstraintIncludesDeepAnalysis(t *testing.
 			strings.Contains(err.Error(), "check constraint") ||
 			strings.Contains(err.Error(), "violates check") {
 			t.Error("task_type CHECK constraint on ai_routing_rules does not include 'deep_analysis'; " +
-				"migration 085 must ALTER the constraint to add this value")
+				"migration 088 must ALTER the constraint to add this value")
 		} else {
 			t.Errorf("unexpected error inserting deep_analysis routing rule: %v", err)
 		}
@@ -447,7 +447,7 @@ func TestLLMConfigExternalize_TaskTypeConstraintIncludesDeepAnalysis(t *testing.
 	}
 }
 
-// TestLLMConfigExternalize_DeepAnalysisRoutingRulesSeeded verifies that migration 085
+// TestLLMConfigExternalize_DeepAnalysisRoutingRulesSeeded verifies that migration 088
 // seeds routing rules for task_type = 'deep_analysis' that encode the logic currently
 // hardcoded in selectModelForDeepAnalysis().
 func TestLLMConfigExternalize_DeepAnalysisRoutingRulesSeeded(t *testing.T) {
@@ -467,7 +467,7 @@ func TestLLMConfigExternalize_DeepAnalysisRoutingRulesSeeded(t *testing.T) {
 	require.NoError(t, err, "should query ai_routing_rules for deep_analysis rules")
 	assert.Greater(t, count, 0,
 		"ai_routing_rules should have at least one enabled deep_analysis routing rule; "+
-			"migration 085 must seed rules encoding selectModelForDeepAnalysis() logic")
+			"migration 088 must seed rules encoding selectModelForDeepAnalysis() logic")
 
 	t.Logf("Found %d enabled deep_analysis routing rules", count)
 }
@@ -715,7 +715,7 @@ func TestLLMConfigExternalize_ScanRoutingRulesReadsConditions(t *testing.T) {
 
 	if !hasScanConditions {
 		t.Error("scanRoutingRules() in repository.go does not scan the Conditions field; " +
-			"after migration 085, scanRoutingRules must read the conditions JSONB column " +
+			"after migration 088, scanRoutingRules must read the conditions JSONB column " +
 			"from ai_routing_rules into RoutingRule.Conditions")
 	} else {
 		t.Log("scanRoutingRules() reads Conditions field")

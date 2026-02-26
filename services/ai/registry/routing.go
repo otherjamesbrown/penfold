@@ -1,6 +1,9 @@
 package registry
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // RoutingRule defines how tasks are routed to models based on task type.
 // It maps directly to the ai_routing_rules database table.
@@ -38,6 +41,11 @@ type RoutingRule struct {
 	// IsEnabled controls whether this rule is active.
 	IsEnabled bool `json:"is_enabled"`
 
+	// Conditions is a map of field names to allowed values for conditional matching.
+	// All fields must match (AND), values within a field are alternatives (OR).
+	// Empty/nil conditions means this is a default rule (matches everything).
+	Conditions map[string][]string `json:"conditions,omitempty"`
+
 	// CreatedAt is when this rule was created.
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -48,6 +56,7 @@ const (
 	TaskTypeSummarization   = "summarization"
 	TaskTypeExtraction      = "extraction"
 	TaskTypeClassification  = "classification"
+	TaskTypeDeepAnalysis    = "deep_analysis"
 )
 
 // OptimizationMode constants match the database CHECK constraint.
@@ -68,7 +77,7 @@ func (r *RoutingRule) Validate() error {
 	}
 	// Validate task type
 	switch r.TaskType {
-	case TaskTypeEmbedding, TaskTypeSummarization, TaskTypeExtraction, TaskTypeClassification:
+	case TaskTypeEmbedding, TaskTypeSummarization, TaskTypeExtraction, TaskTypeClassification, TaskTypeDeepAnalysis:
 		// Valid
 	default:
 		return ErrInvalidRoutingRule
@@ -97,5 +106,39 @@ func (r *RoutingRule) Clone() *RoutingRule {
 		cost := *r.MaxCostPerRequest
 		clone.MaxCostPerRequest = &cost
 	}
+	if r.Conditions != nil {
+		clone.Conditions = make(map[string][]string, len(r.Conditions))
+		for k, v := range r.Conditions {
+			vals := make([]string, len(v))
+			copy(vals, v)
+			clone.Conditions[k] = vals
+		}
+	}
 	return &clone
+}
+
+// MatchesConditions checks if the given attributes satisfy a rule's conditions.
+// Semantics: all condition fields must match (AND), values within a field are
+// alternatives (OR). Empty/nil conditions = matches everything (default rule).
+func MatchesConditions(conditions map[string][]string, attrs map[string]string) bool {
+	if len(conditions) == 0 {
+		return true
+	}
+	for field, allowedValues := range conditions {
+		actual, ok := attrs[field]
+		if !ok {
+			return false
+		}
+		found := false
+		for _, v := range allowedValues {
+			if strings.EqualFold(actual, v) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }

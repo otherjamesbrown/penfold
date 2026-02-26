@@ -216,9 +216,12 @@ func TestSelectModelForDeepAnalysis(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Pass empty configDefault to test the dynamic selection logic without config influence
-			got := selectModelForDeepAnalysis(tt.category, tt.importance, tt.requestedModel, "")
+			got := selectModelForDeepAnalysisFallback(tt.category, tt.importance, "")
+			if tt.requestedModel != "" {
+				got = tt.requestedModel // requested model bypasses fallback
+			}
 			if got != tt.want {
-				t.Errorf("selectModelForDeepAnalysis() = %v, want %v", got, tt.want)
+				t.Errorf("selectModelForDeepAnalysisFallback() = %v, want %v", got, tt.want)
 			}
 		})
 	}

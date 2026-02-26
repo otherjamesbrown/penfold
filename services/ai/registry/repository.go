@@ -521,7 +521,7 @@ func (r *PostgresRepository) GetRoutingRules(ctx context.Context) ([]*RoutingRul
 		SELECT
 			id, name, task_type, preferred_models, fallback_models,
 			require_local, max_cost_per_request, optimization_mode,
-			priority, is_enabled, created_at
+			priority, is_enabled, created_at, conditions
 		FROM ai_routing_rules
 		WHERE is_enabled = true
 		ORDER BY priority DESC
@@ -543,7 +543,7 @@ func (r *PostgresRepository) GetRoutingRulesByTask(ctx context.Context, taskType
 		SELECT
 			id, name, task_type, preferred_models, fallback_models,
 			require_local, max_cost_per_request, optimization_mode,
-			priority, is_enabled, created_at
+			priority, is_enabled, created_at, conditions
 		FROM ai_routing_rules
 		WHERE task_type = $1 AND is_enabled = true
 		ORDER BY priority DESC
@@ -565,13 +565,14 @@ func (r *PostgresRepository) GetRoutingRuleByName(ctx context.Context, name stri
 		SELECT
 			id, name, task_type, preferred_models, fallback_models,
 			require_local, max_cost_per_request, optimization_mode,
-			priority, is_enabled, created_at
+			priority, is_enabled, created_at, conditions
 		FROM ai_routing_rules
 		WHERE name = $1
 	`
 
 	var rule RoutingRule
 	var maxCost *float64
+	var conditionsJSON []byte
 
 	err := r.pool.QueryRow(ctx, query, name).Scan(
 		&rule.ID,
@@ -585,6 +586,7 @@ func (r *PostgresRepository) GetRoutingRuleByName(ctx context.Context, name stri
 		&rule.Priority,
 		&rule.IsEnabled,
 		&rule.CreatedAt,
+		&conditionsJSON,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -595,6 +597,12 @@ func (r *PostgresRepository) GetRoutingRuleByName(ctx context.Context, name stri
 	}
 
 	rule.MaxCostPerRequest = maxCost
+	if len(conditionsJSON) > 0 {
+		if err := json.Unmarshal(conditionsJSON, &rule.Conditions); err != nil {
+			r.logger.Warn("Failed to unmarshal routing rule conditions",
+				logging.F("rule_name", name), logging.Err(err))
+		}
+	}
 	return &rule, nil
 }
 
@@ -608,11 +616,11 @@ func (r *PostgresRepository) CreateRoutingRule(ctx context.Context, rule *Routin
 		INSERT INTO ai_routing_rules (
 			name, task_type, preferred_models, fallback_models,
 			require_local, max_cost_per_request, optimization_mode,
-			priority, is_enabled, created_at
+			priority, is_enabled, conditions, created_at
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7,
-			$8, $9, NOW()
+			$8, $9, $10, NOW()
 		)
 		RETURNING id
 	`
@@ -622,7 +630,12 @@ func (r *PostgresRepository) CreateRoutingRule(ctx context.Context, rule *Routin
 		optMode = OptimizationModeBalanced
 	}
 
-	err := r.pool.QueryRow(ctx, query,
+	conditionsJSON, err := json.Marshal(rule.Conditions)
+	if err != nil {
+		conditionsJSON = []byte("{}")
+	}
+
+	err = r.pool.QueryRow(ctx, query,
 		rule.Name,
 		rule.TaskType,
 		rule.PreferredModels,
@@ -632,6 +645,7 @@ func (r *PostgresRepository) CreateRoutingRule(ctx context.Context, rule *Routin
 		optMode,
 		rule.Priority,
 		rule.IsEnabled,
+		conditionsJSON,
 	).Scan(&rule.ID)
 
 	if err != nil {
@@ -661,13 +675,19 @@ func (r *PostgresRepository) UpdateRoutingRule(ctx context.Context, rule *Routin
 			max_cost_per_request = $7,
 			optimization_mode = $8,
 			priority = $9,
-			is_enabled = $10
+			is_enabled = $10,
+			conditions = $11
 		WHERE id = $1
 	`
 
 	optMode := rule.OptimizationMode
 	if optMode == "" {
 		optMode = OptimizationModeBalanced
+	}
+
+	conditionsJSON, err := json.Marshal(rule.Conditions)
+	if err != nil {
+		conditionsJSON = []byte("{}")
 	}
 
 	result, err := r.pool.Exec(ctx, query,
@@ -681,6 +701,7 @@ func (r *PostgresRepository) UpdateRoutingRule(ctx context.Context, rule *Routin
 		optMode,
 		rule.Priority,
 		rule.IsEnabled,
+		conditionsJSON,
 	)
 
 	if err != nil {
@@ -723,6 +744,7 @@ func (r *PostgresRepository) scanRoutingRules(rows pgx.Rows) ([]*RoutingRule, er
 		var (
 			rule            RoutingRule
 			maxCost         *float64
+			conditionsJSON  []byte
 		)
 
 		err := rows.Scan(
@@ -737,12 +759,19 @@ func (r *PostgresRepository) scanRoutingRules(rows pgx.Rows) ([]*RoutingRule, er
 			&rule.Priority,
 			&rule.IsEnabled,
 			&rule.CreatedAt,
+			&conditionsJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrDatabaseError, err)
 		}
 
 		rule.MaxCostPerRequest = maxCost
+		if len(conditionsJSON) > 0 {
+			if jsonErr := json.Unmarshal(conditionsJSON, &rule.Conditions); jsonErr != nil {
+				r.logger.Warn("Failed to unmarshal routing rule conditions",
+					logging.F("rule_name", rule.Name), logging.Err(jsonErr))
+			}
+		}
 		rules = append(rules, &rule)
 	}
 

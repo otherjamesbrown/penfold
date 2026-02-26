@@ -16,6 +16,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/ai/backend"
+	"github.com/otherjamesbrown/penfold/services/ai/registry"
 )
 
 // Stage 4 deep analysis prompt template.
@@ -320,53 +321,94 @@ func buildPreliminarySection(req *aiv1.DeepAnalyzeRequest) string {
 	return strings.Join(parts, "\n")
 }
 
+// routingResult holds the model selection result including the matched rule name.
+type routingResult struct {
+	Model    string
+	RuleName string // empty if fallback was used
+}
+
 // selectModelForDeepAnalysis chooses the appropriate model based on triage metadata.
-// Model selection rules from design.md lines 487-495:
-// - RISK_ISSUE (any importance) → quality optimization (Pro)
-// - CUSTOMER + HIGH → quality (Pro)
-// - PROJECT_UPDATE + HIGH → quality (Pro)
-// - PROJECT_UPDATE + MEDIUM → balanced (Flash)
-// - ACTION_REQUEST + MEDIUM → balanced (Flash)
-// - Anything + LOW → cost optimization (Flash)
-// - Default (no triage) → config stage default for analyze
-func selectModelForDeepAnalysis(category, importance, requestedModel, configDefault string) string {
+// Primary path: query ai_routing_rules for deep_analysis task type and match conditions.
+// Fallback: hardcoded logic from design.md lines 487-495.
+func (s *AIServer) selectModelForDeepAnalysis(ctx context.Context, category, importance, requestedModel, configDefault string) routingResult {
 	// If model explicitly requested, use it
 	if requestedModel != "" {
-		return requestedModel
+		return routingResult{Model: requestedModel}
 	}
 
-	// Apply model selection rules
 	category = strings.TrimSpace(strings.ToUpper(category))
 	importance = strings.TrimSpace(strings.ToUpper(importance))
 
-	// RISK_ISSUE always gets quality model
+	// Primary path: DB-backed routing rules
+	if s.registry != nil {
+		rules, err := s.registry.GetRoutingRulesByTask(ctx, "deep_analysis")
+		if err == nil && len(rules) > 0 {
+			attrs := map[string]string{
+				"category":   category,
+				"importance": importance,
+			}
+			for _, rule := range rules {
+				if registry.MatchesConditions(rule.Conditions, attrs) {
+					if len(rule.PreferredModels) > 0 {
+						// Extract short model name (strip provider prefix)
+						model := rule.PreferredModels[0]
+						if idx := strings.LastIndex(model, "/"); idx >= 0 {
+							model = model[idx+1:]
+						}
+						s.logger.Debug("RoutingRule matched for deep analysis",
+							logging.F("rule_name", rule.Name),
+							logging.F("model", model),
+							logging.F("category", category),
+							logging.F("importance", importance),
+						)
+						return routingResult{Model: model, RuleName: rule.Name}
+					}
+				}
+			}
+		} else if err != nil {
+			s.logger.Warn("Failed to query routing rules, falling back to hardcoded logic",
+				logging.Err(err))
+		}
+	}
+
+	// Fallback: hardcoded model selection (default until DB rules are populated)
+	return routingResult{Model: selectModelForDeepAnalysisFallback(category, importance, configDefault)}
+}
+
+// selectModelForDeepAnalysisFallback contains the original hardcoded routing logic
+// used when DB routing rules are unavailable.
+func selectModelForDeepAnalysisFallback(category, importance, configDefault string) string {
+	category = strings.TrimSpace(strings.ToUpper(category))
+	importance = strings.TrimSpace(strings.ToUpper(importance))
+
+	// RISK_ISSUE always gets quality model (fallback)
 	if category == "RISK_ISSUE" {
-		return "gemini-2.5-pro"
+		return "gemini-2.5-pro" // fallback default
 	}
 
-	// CUSTOMER + HIGH or MEDIUM → quality
+	// CUSTOMER + HIGH or MEDIUM → quality (fallback)
 	if category == "CUSTOMER" && (importance == "HIGH" || importance == "MEDIUM") {
-		return "gemini-2.5-pro"
+		return "gemini-2.5-pro" // fallback default
 	}
 
-	// PROJECT_UPDATE + HIGH → quality
+	// PROJECT_UPDATE + HIGH → quality (fallback)
 	if category == "PROJECT_UPDATE" && importance == "HIGH" {
-		return "gemini-2.5-pro"
+		return "gemini-2.5-pro" // fallback default
 	}
 
-	// PROJECT_UPDATE + MEDIUM → balanced
+	// PROJECT_UPDATE + MEDIUM → balanced (fallback)
 	if category == "PROJECT_UPDATE" && importance == "MEDIUM" {
-		return "gemini-2.0-flash"
+		return "gemini-2.0-flash" // fallback default
 	}
 
-	// ACTION_REQUEST + MEDIUM → balanced
+	// ACTION_REQUEST + MEDIUM → balanced (fallback)
 	if category == "ACTION_REQUEST" && importance == "MEDIUM" {
-		return "gemini-2.0-flash"
+		return "gemini-2.0-flash" // fallback default
 	}
 
-	// Anything + LOW → cost optimization
+	// Anything + LOW → cost optimization (fallback)
 	if importance == "LOW" {
-		return "gemini-2.0-flash"
+		return "gemini-2.0-flash" // fallback default
 	}
 
 	// Default: use config stage default
@@ -374,8 +416,8 @@ func selectModelForDeepAnalysis(category, importance, requestedModel, configDefa
 		return configDefault
 	}
 
-	// Final fallback: balanced model (use --model override for Pro on specific items)
-	return "gemini-2.0-flash"
+	// Final fallback: balanced model
+	return "gemini-2.0-flash" // fallback default
 }
 
 // parseDeepAnalysisResponse parses the JSON response from the deep analysis LLM.
@@ -428,12 +470,14 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 
 	// Select model based on triage metadata, with config default fallback
 	configDefault := s.resolveModel(ctx, "analyze")
-	selectedModel := selectModelForDeepAnalysis(
+	routing := s.selectModelForDeepAnalysis(
+		ctx,
 		req.GetTriageCategory(),
 		req.GetTriageImportance(),
 		req.GetModel(),
 		configDefault,
 	)
+	selectedModel := routing.Model
 
 	// Start tracing span for the deep analysis.
 	// The worker creates the stage.deep_analyze span; this handler only creates ai.deep_analyze.
@@ -537,7 +581,7 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 				CompletionTokens: result.OutputTokens,
 				StartTime:        startTime,
 				EndTime:          time.Now(),
-				Metadata:         map[string]any{"prompt_version": promptVersion},
+				Metadata:         map[string]any{"prompt_version": promptVersion, "routing_rule": routing.RuleName},
 			})
 			if err := s.langfuse.Flush(ctx); err != nil {
 				s.logger.Warn("Langfuse generation flush failed", logging.Err(err))
