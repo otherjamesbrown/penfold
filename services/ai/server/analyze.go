@@ -186,7 +186,9 @@ type implicitActionItemResult struct {
 }
 
 // buildDeepAnalysisPrompt constructs the Stage 4 deep analysis prompt.
-func buildDeepAnalysisPrompt(req *aiv1.DeepAnalyzeRequest) string {
+// The tmpl parameter allows the prompt template to be resolved from the prompt
+// store (with hardcoded fallback) before being formatted with request data.
+func buildDeepAnalysisPrompt(tmpl string, req *aiv1.DeepAnalyzeRequest) string {
 	// Section 1: Verified entities and dates
 	entitiesSection := buildEntitiesSection(req)
 
@@ -202,7 +204,7 @@ func buildDeepAnalysisPrompt(req *aiv1.DeepAnalyzeRequest) string {
 	// Section 4: Content under analysis (wrapped in untrusted_content tags)
 	content := req.GetContent()
 
-	return fmt.Sprintf(deepAnalysisPromptTemplate,
+	return fmt.Sprintf(tmpl,
 		entitiesSection,
 		prelimSection,
 		backgroundSection,
@@ -460,8 +462,11 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 		return nil, err
 	}
 
+	// Resolve the prompt template from the prompt store (falls back to hardcoded default)
+	tmpl, promptVersion := s.getPrompt(ctx, "deep_analysis", deepAnalysisPromptTemplate)
+
 	// Build the deep analysis prompt
-	prompt := buildDeepAnalysisPrompt(req)
+	prompt := buildDeepAnalysisPrompt(tmpl, req)
 
 	messages := []backend.Message{
 		{Role: "user", Content: prompt},
@@ -531,6 +536,7 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 				CompletionTokens: result.OutputTokens,
 				StartTime:        startTime,
 				EndTime:          time.Now(),
+				Metadata:         map[string]any{"prompt_version": promptVersion},
 			})
 			if err := s.langfuse.Flush(ctx); err != nil {
 				s.logger.Warn("Langfuse generation flush failed", logging.Err(err))
@@ -540,8 +546,9 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 
 	// Build response proto
 	resp := &aiv1.DeepAnalyzeResponse{
-		Summary:   parsed.Summary,
-		ModelUsed: result.Model,
+		Summary:       parsed.Summary,
+		ModelUsed:     result.Model,
+		PromptVersion: promptVersion,
 	}
 
 	// Convert sentiment

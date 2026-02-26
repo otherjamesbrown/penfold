@@ -101,7 +101,7 @@ func TestBuildDeepAnalysisPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			prompt := buildDeepAnalysisPrompt(tt.req)
+			prompt := buildDeepAnalysisPrompt(deepAnalysisPromptTemplate, tt.req)
 
 			for _, want := range tt.wantContains {
 				if !strings.Contains(prompt, want) {
