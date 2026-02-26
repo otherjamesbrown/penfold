@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 
+	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
@@ -23,7 +24,7 @@ import (
 // tenant context fall back to this UUID to prevent accidental writes to production
 // tenant data. Do NOT replace this with the production tenant UUID — it exists as
 // a deliberate safety guard for unscoped operations (CLI, tests, missing context).
-const DefaultTenantID = "00000001-0000-0000-0000-000000000001"
+var DefaultTenantID = pkgconfig.SafetyTenantID().String()
 
 // Activities holds all activity implementations with their dependencies.
 type Activities struct {

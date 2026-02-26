@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 )
 
 // SessionStatus defines the state of a review session.
@@ -82,14 +84,14 @@ func (r *Repository) StartSession(ctx context.Context) (*Session, bool, error) {
 		)
 		-- Safety/test tenant UUID: prevents CLI review sessions from touching production data.
 		-- Do NOT replace with the production tenant UUID.
-		VALUES ($1, '00000001-0000-0000-0000-000000000001', 'cli-user@penfold.local',
+		VALUES ($1, $2, 'cli-user@penfold.local',
 			'active', NOW(), NOW(), NOW() + INTERVAL '24 hours', 0,
 			'standard', 'mixed')
 		RETURNING id, session_uuid, tenant_id, user_email, status, started_at,
 			last_activity_at, completed_at, expires_at, current_position, total_items,
 			items_reviewed, items_accepted, items_rejected, items_modified, items_skipped,
 			review_mode, priority_mode, created_at, updated_at
-	`, sessionUUID).Scan(
+	`, sessionUUID, pkgconfig.SafetyTenantID().String()).Scan(
 		&session.ID, &session.SessionUUID, &session.TenantID, &session.UserEmail,
 		&session.Status, &session.StartedAt, &session.LastActivityAt,
 		&session.CompletedAt, &session.ExpiresAt, &session.CurrentPosition, &session.TotalItems,

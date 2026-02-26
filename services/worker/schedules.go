@@ -8,6 +8,7 @@ import (
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
+	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/services/worker/config"
@@ -16,9 +17,6 @@ import (
 const (
 	// ScheduleIDStaleConversations is the Temporal schedule ID for stale conversation detection.
 	ScheduleIDStaleConversations = "conversation-stale-check"
-
-	// DefaultTenantID is the primary tenant for the Penfold deployment.
-	DefaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
 )
 
 // ensureSchedules creates or updates Temporal schedules for recurring maintenance tasks.
@@ -34,7 +32,7 @@ func ensureStaleConversationSchedule(ctx context.Context, temporalClient client.
 	scheduleClient := temporalClient.ScheduleClient()
 
 	input := pkgtemporal.ConversationMaintenanceInput{
-		TenantID:  DefaultTenantID,
+		TenantID:  pkgconfig.DefaultTenantID().String(),
 		StaleDays: 14,
 		Limit:     100,
 	}

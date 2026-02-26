@@ -24,6 +24,7 @@ import (
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
+	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
@@ -268,8 +269,7 @@ func main() {
 		timeoutDB = dbPool
 	}
 	// Use the single known tenant ID — pipeline_operational_config is tenant-scoped.
-	const defaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
-	timeoutCfg := timeout.New(timeoutDB, defaultTenantID)
+	timeoutCfg := timeout.New(timeoutDB, pkgconfig.DefaultTenantID().String())
 
 	// Load timeout config from database (non-fatal if fails — uses defaults)
 	if err := timeoutCfg.Refresh(ctx); err != nil {

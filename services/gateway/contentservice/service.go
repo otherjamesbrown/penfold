@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
+	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/tenant"
@@ -1435,13 +1436,12 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 
 // getMaxConcurrent reads the max_concurrent value from pipeline_operational_config.
 func (s *Service) getMaxConcurrent(ctx context.Context) (int, error) {
-	const defaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
 	var valueStr string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT value
 		FROM pipeline_operational_config
 		WHERE tenant_id = $1 AND key = 'pipeline.max_concurrent'
-	`, defaultTenantID).Scan(&valueStr)
+	`, pkgconfig.DefaultTenantID().String()).Scan(&valueStr)
 
 	if err == sql.ErrNoRows {
 		// Return default value if not found

@@ -15,6 +15,7 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
+	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -25,7 +26,6 @@ import (
 	"github.com/otherjamesbrown/penfold/services/ai/backend"
 	"github.com/otherjamesbrown/penfold/services/ai/config"
 	"github.com/otherjamesbrown/penfold/services/ai/server"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
@@ -112,13 +112,7 @@ func main() {
 
 		// Single-tenant deployment: use the known tenant ID.
 		// This matches the pattern in gateway and worker services.
-		const defaultTenantID = "c3170310-78bd-409c-b186-126f40bfa6ad"
-		tenantID, err := uuid.Parse(defaultTenantID)
-		if err != nil {
-			logger.Error("Failed to parse default tenant ID", logging.Err(err))
-			os.Exit(1)
-		}
-		dbConfigResolver = config.NewDBConfigResolver(modelRepo, cfg, tenantID)
+		dbConfigResolver = config.NewDBConfigResolver(modelRepo, cfg, pkgconfig.DefaultTenantID())
 	} else {
 		logger.Info("Database not configured, using env var model config only")
 	}

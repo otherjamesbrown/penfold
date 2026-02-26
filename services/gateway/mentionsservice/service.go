@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	mentionsv1 "github.com/otherjamesbrown/penfold/api/proto/mentions/v1"
+	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 )
@@ -685,7 +686,7 @@ func getTenantID(ctx context.Context) string {
 	// STUB: Returns the safety/test tenant UUID until multi-tenant context
 	// propagation is implemented. This deliberately uses the test tenant — not the
 	// production tenant — so unscoped gateway operations cannot corrupt live data.
-	return "00000001-0000-0000-0000-000000000001"
+	return pkgconfig.SafetyTenantID().String()
 }
 
 func nilIfZero(v int64) *int64 {

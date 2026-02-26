@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
@@ -22,7 +23,7 @@ const (
 // DefaultTenantID is the safety/test tenant UUID. When no tenant is specified
 // during ingest, operations fall back to this UUID to prevent accidental writes
 // to production tenant data. Do NOT replace with the production tenant UUID.
-const DefaultTenantID = "00000001-0000-0000-0000-000000000001"
+var DefaultTenantID = pkgconfig.SafetyTenantID().String()
 
 // IngestErrorType identifies the type of error during ingest.
 type IngestErrorType string

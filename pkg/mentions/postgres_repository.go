@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 )
 
 // PostgresRepository implements the Repository interface using PostgreSQL.
@@ -1019,5 +1021,5 @@ func getTenantFromContext(ctx context.Context) string {
 	// STUB: Returns the safety/test tenant UUID until multi-tenant context
 	// propagation is implemented. This deliberately uses the test tenant — not the
 	// production tenant — so unscoped mention operations cannot corrupt live data.
-	return "00000001-0000-0000-0000-000000000001"
+	return pkgconfig.SafetyTenantID().String()
 }
