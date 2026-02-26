@@ -877,6 +877,114 @@ func (a *ContextBuilderActivities) buildContextPackage(
 	return cp, nil
 }
 
+// BuildExtractionContext builds a lightweight context (glossary + topics only)
+// for injection into the extraction stage (pf-2f8c70). Unlike BuildContextPackage,
+// this scans raw text for acronyms and topic candidates instead of using LLM
+// extraction output. Skips open actions, risks, decisions, and events.
+func (a *ContextBuilderActivities) BuildExtractionContext(ctx context.Context, input workflows.BuildExtractionContextInput) (*workflows.BuildExtractionContextOutput, error) {
+	logger := a.logger.With(
+		logging.F("activity", "BuildExtractionContext"),
+		logging.F("tenant_id", input.TenantID),
+	)
+
+	output := &workflows.BuildExtractionContextOutput{}
+
+	if a.contextRepo == nil {
+		return output, nil
+	}
+
+	// Scan raw text for potential acronyms (same heuristic as collectGlossaryTerms).
+	terms := scanForAcronyms(input.Subject + " " + input.Content)
+	var glossaryTerms []workflows.ContextGlossaryTerm
+	if len(terms) > 0 {
+		glossary, err := a.contextRepo.GetGlossaryTerms(ctx, terms, nil, 20)
+		if err != nil {
+			logger.Warn("failed to fetch glossary terms for extraction context", logging.Err(err))
+		} else {
+			glossaryTerms = toWorkflowGlossary(glossary)
+		}
+	}
+
+	// Scan subject for topic candidates (split into multi-word phrases and individual words).
+	var topicDescs []workflows.ContextTopicDescription
+	if a.topicRepo != nil && input.Subject != "" {
+		topicNames := scanForTopicCandidates(input.Subject)
+		if len(topicNames) > 0 {
+			topicResults, err := a.topicRepo.ListForContext(ctx, input.TenantID, topicNames)
+			if err != nil {
+				logger.Warn("failed to fetch topics for extraction context", logging.Err(err))
+			} else {
+				topicDescs = toWorkflowTopics(topicResults)
+			}
+		}
+	}
+
+	if len(glossaryTerms) == 0 && len(topicDescs) == 0 {
+		return output, nil
+	}
+
+	// Build a context package with only glossary + topics, then format.
+	cp := &workflows.ContextPackage{
+		GlossaryTerms:     glossaryTerms,
+		TopicDescriptions: topicDescs,
+	}
+	output.BackgroundContext = cp.FormatForPrompt()
+	output.GlossaryCount = len(glossaryTerms)
+	output.TopicCount = len(topicDescs)
+
+	logger.Info("built extraction context",
+		logging.F("glossary_count", output.GlossaryCount),
+		logging.F("topic_count", output.TopicCount),
+	)
+
+	return output, nil
+}
+
+// scanForAcronyms extracts potential acronyms from raw text using the same
+// isAcronym heuristic (all-caps, 2-6 chars). Returns deduplicated terms.
+func scanForAcronyms(text string) []string {
+	seen := make(map[string]bool)
+	// Split on whitespace and punctuation boundaries
+	for _, word := range strings.FieldsFunc(text, func(r rune) bool {
+		return !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+	}) {
+		if isAcronym(word) && !seen[word] {
+			seen[word] = true
+		}
+	}
+	result := make([]string, 0, len(seen))
+	for term := range seen {
+		result = append(result, term)
+	}
+	return result
+}
+
+// scanForTopicCandidates extracts potential topic names from the subject line.
+// Returns individual significant words (>3 chars) and multi-word capitalized phrases.
+func scanForTopicCandidates(subject string) []string {
+	// Strip common reply/forward prefixes
+	subj := subject
+	for _, prefix := range []string{"Re: ", "RE: ", "Fwd: ", "FW: ", "Fw: "} {
+		subj = strings.TrimPrefix(subj, prefix)
+	}
+
+	candidates := make(map[string]bool)
+	words := strings.Fields(subj)
+	for _, w := range words {
+		// Skip short words and common articles/prepositions
+		clean := strings.Trim(w, ".,;:!?()[]\"'")
+		if len(clean) > 3 && clean != "from" && clean != "with" && clean != "that" && clean != "this" && clean != "have" && clean != "been" {
+			candidates[clean] = true
+		}
+	}
+
+	result := make([]string, 0, len(candidates))
+	for name := range candidates {
+		result = append(result, name)
+	}
+	return result
+}
+
 // getTokenBudget returns the token budget based on content type.
 func (a *ContextBuilderActivities) getTokenBudget(contentType string) int {
 	switch contentType {

@@ -439,11 +439,20 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		}, nil
 	}
 
+	// Prepend background context (glossary + topics) for extraction grounding (pf-2f8c70).
+	// Injected before content so the model has domain definitions when extracting.
+	content := input.Content
+	if input.BackgroundContext != "" {
+		content = "## Background Context\n" + input.BackgroundContext + "\n\n## Content\n" + content
+		logger.Info("Prepended background context to extraction content",
+			logging.F("context_length", len(input.BackgroundContext)),
+		)
+	}
+
 	// Prepend email headers to content for NER prompt enrichment (pf-de2b09).
 	// The NER prompt instructs the model to use full names from email headers,
 	// but previously only body text was sent. This injects structured header
 	// metadata so the model can see From/To/CC/Subject.
-	content := input.Content
 	if input.ContentType == "email" {
 		// Enrich participants with person DB data (pf-2059f5)
 		if a.personLookup != nil {
@@ -547,8 +556,9 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		)
 
 		req := &aiv1.ExtractEntitiesRequest{
-			Content:  content,
-			TenantId: optString(input.TenantID),
+			Content:           content,
+			TenantId:          optString(input.TenantID),
+			BackgroundContext: input.BackgroundContext,
 		}
 		if input.TriageCategory != "" {
 			req.TriageCategory = optString(input.TriageCategory)
@@ -611,8 +621,9 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			recordHeartbeat(entityCallCtx, fmt.Sprintf("extracting entities from chunk %d/%d", i+1, len(chunks)))
 
 			req := &aiv1.ExtractEntitiesRequest{
-				Content:  chunk.Content,
-				TenantId: optString(input.TenantID),
+				Content:           chunk.Content,
+				TenantId:          optString(input.TenantID),
+				BackgroundContext: input.BackgroundContext,
 			}
 			// Only pass triage_category on first chunk for quality gate
 			if i == 0 && input.TriageCategory != "" {

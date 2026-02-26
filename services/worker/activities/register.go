@@ -265,6 +265,9 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 
 	// Context builder activities for Stage 3 (context assembly)
 	if r.contextBuilderActivities != nil {
+		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildExtractionContext, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityBuildExtractionContext,
+		})
 		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildContextPackage, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityBuildContextPackage,
 		})

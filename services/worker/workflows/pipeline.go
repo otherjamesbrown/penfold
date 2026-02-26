@@ -176,6 +176,10 @@ type SLMPipelineExtractEntitiesInput struct {
 	SenderEmail   string        `json:"sender_email,omitempty"`
 	Participants  []Participant `json:"participants,omitempty"`
 
+	// Background context (glossary + topics) for extraction grounding (pf-2f8c70).
+	// Prepended to content as a "Background Context" section.
+	BackgroundContext string `json:"background_context,omitempty"`
+
 	// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 	LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 	LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
@@ -267,6 +271,23 @@ type LinkConversationInput struct {
 // LinkConversationOutput is the output from the LinkConversation activity.
 type LinkConversationOutput struct {
 	ConversationID string `json:"conversation_id,omitempty"` // Empty if skipped or failed
+}
+
+// BuildExtractionContextInput is the input for the lightweight pre-extraction
+// context builder. Unlike BuildContextPackage, this doesn't need extraction
+// results — it scans raw text for acronyms and topic candidates.
+type BuildExtractionContextInput struct {
+	TenantID string `json:"tenant_id"`
+	Subject  string `json:"subject,omitempty"`
+	Content  string `json:"content"`
+}
+
+// BuildExtractionContextOutput returns a formatted context string containing
+// glossary terms and topic descriptions (no actions/decisions/risks).
+type BuildExtractionContextOutput struct {
+	BackgroundContext string `json:"background_context"`
+	GlossaryCount    int    `json:"glossary_count"`
+	TopicCount       int    `json:"topic_count"`
 }
 
 // BuildContextInput is the input for the BuildContextPackage activity.
@@ -1792,6 +1813,24 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	var extractOutput *SLMPipelineExtractEntitiesOutput
 	var contextOutput *BuildContextOutput
 
+	// Pre-extraction context: fetch glossary + topics for extraction grounding (pf-2f8c70).
+	// Runs before Stage 2 so the extraction model has domain definitions.
+	var extractionContext string
+	if !skipExtract {
+		ctxPreExtract := workflow.WithActivityOptions(ctx, fastOpts)
+		var preCtxOutput BuildExtractionContextOutput
+		err := workflow.ExecuteActivity(ctxPreExtract, pkgtemporal.ActivityBuildExtractionContext, BuildExtractionContextInput{
+			TenantID: input.TenantID,
+			Subject:  input.Subject,
+			Content:  parsedContent,
+		}).Get(ctx, &preCtxOutput)
+		if err != nil {
+			logger.Warn("pre-extraction context build failed (non-blocking)", "error", err.Error())
+		} else {
+			extractionContext = preCtxOutput.BackgroundContext
+		}
+	}
+
 	if !skipExtract {
 		// Stage 2: Extract
 		updateStatus("extracting", "ExtractEntities")
@@ -1812,20 +1851,21 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 		ctxExtract := workflow.WithActivityOptions(ctx, extractOpts)
 		err = workflow.ExecuteActivity(ctxExtract, pkgtemporal.ActivityExtractEntitiesActivity, SLMPipelineExtractEntitiesInput{
-			TenantID:        input.TenantID,
-			SourceID:        input.SourceID,
-			ContentID:       input.ContentID,
-			JobID:           input.JobID,
-			Content:         parsedContent,
-			ModelOverride:   input.ModelOverride,
-			ContentType:     input.ContentType,
-			Subject:         input.Subject,
-			SenderName:      input.SenderName,
-			SenderEmail:     input.SenderEmail,
-			Participants:    input.ParticipantEmails,
-			LangfuseTraceID: langfuseTraceID,
-			LangfusePhaseID: extractPhaseID,
-			PipelineSpanID:  pipelineSpanID,
+			TenantID:          input.TenantID,
+			SourceID:          input.SourceID,
+			ContentID:         input.ContentID,
+			JobID:             input.JobID,
+			Content:           parsedContent,
+			ModelOverride:     input.ModelOverride,
+			ContentType:       input.ContentType,
+			Subject:           input.Subject,
+			SenderName:        input.SenderName,
+			SenderEmail:       input.SenderEmail,
+			Participants:      input.ParticipantEmails,
+			BackgroundContext: extractionContext,
+			LangfuseTraceID:  langfuseTraceID,
+			LangfusePhaseID:  extractPhaseID,
+			PipelineSpanID:   pipelineSpanID,
 		}).Get(ctx, extractOutput)
 
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)

@@ -21,6 +21,7 @@ const (
 	ActivityParseTranscript          = "ParseTranscript"
 	ActivityPersistFindings          = "PersistFindings"
 	ActivityTriage                   = "Triage"
+	ActivityBuildExtractionContext   = "BuildExtractionContext"
 	ActivityBuildContextPackage      = "BuildContextPackage"
 	ActivityEnrichPersonMetadata     = "EnrichPersonMetadata"
 	ActivityDeepAnalyze              = "DeepAnalyze"
@@ -92,6 +93,7 @@ func AllMainQueueActivities() []string {
 		ActivityParseTranscript,
 		ActivityPersistFindings,
 		ActivityTriage,
+		ActivityBuildExtractionContext,
 		ActivityBuildContextPackage,
 		ActivityEnrichPersonMetadata,
 		ActivityDeepAnalyze,
