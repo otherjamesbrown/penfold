@@ -1055,8 +1055,16 @@ func (s *AIServer) getModelStatusFromBackend(ctx context.Context, req *aiv1.GetM
 // Helper methods
 
 // selectBackend determines which backend to use based on the model name.
-// Returns "gemini" for gemini-* models (case-insensitive), "ollama" for all others.
-func selectBackend(model string) string {
+// Tries DB-backed provider lookup first via registry, falls back to string heuristic.
+func (s *AIServer) selectBackend(ctx context.Context, model string) string {
+	// Try DB first via registry (pf-b158ef)
+	if s.registry != nil {
+		provider, err := s.registry.GetModelProviderByName(ctx, model)
+		if err == nil && provider != "" {
+			return provider
+		}
+	}
+	// Fallback: string heuristic for unknown models
 	if strings.Contains(strings.ToLower(model), "gemini") {
 		return "gemini"
 	}

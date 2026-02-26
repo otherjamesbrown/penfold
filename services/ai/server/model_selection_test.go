@@ -50,7 +50,8 @@ func TestSelectBackend_GeminiModels(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// selectBackend should return "gemini" for gemini-* models
-			backendType := selectBackend(tt.model)
+			s := &AIServer{} // nil registry → fallback to string heuristic
+			backendType := s.selectBackend(context.Background(), tt.model)
 			assert.Equal(t, tt.wantBackendType, backendType, "Model %q should route to Gemini backend", tt.model)
 		})
 	}
@@ -89,7 +90,8 @@ func TestSelectBackend_LocalModels(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// selectBackend should return "ollama" for non-gemini models
-			backendType := selectBackend(tt.model)
+			s := &AIServer{} // nil registry → fallback to string heuristic
+			backendType := s.selectBackend(context.Background(), tt.model)
 			assert.Equal(t, tt.wantBackendType, backendType, "Model %q should route to Ollama backend", tt.model)
 		})
 	}
@@ -557,9 +559,10 @@ func TestBackendRoutingFlow_MixedModels(t *testing.T) {
 	// In actual implementation, backend selection would happen in a composite backend
 	// or router. This test verifies the selectBackend logic.
 
-	triageBackend := selectBackend("gemini-2.0-flash")
+	s := &AIServer{} // nil registry → fallback to string heuristic
+	triageBackend := s.selectBackend(context.Background(), "gemini-2.0-flash")
 	assert.Equal(t, "gemini", triageBackend, "gemini-2.0-flash should route to Gemini backend")
 
-	entitiesBackend := selectBackend("qwen2.5:7b")
+	entitiesBackend := s.selectBackend(context.Background(), "qwen2.5:7b")
 	assert.Equal(t, "ollama", entitiesBackend, "qwen2.5:7b should route to Ollama backend")
 }

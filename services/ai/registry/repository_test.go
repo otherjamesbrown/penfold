@@ -210,6 +210,28 @@ func (m *mockRepository) DeleteRoutingRule(ctx context.Context, ruleID string) e
 	return ErrRoutingRuleNotFound
 }
 
+func (m *mockRepository) GetModelContextWindowByName(ctx context.Context, modelName string) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, model := range m.models {
+		if model.ModelName == modelName {
+			return model.Limits.ContextWindow, nil
+		}
+	}
+	return 0, ErrModelNotFound
+}
+
+func (m *mockRepository) GetModelProviderByName(ctx context.Context, modelName string) (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, model := range m.models {
+		if model.ModelName == modelName {
+			return string(model.Provider), nil
+		}
+	}
+	return "", ErrModelNotFound
+}
+
 // Test helpers
 func createTestModel(id string) *ModelConfig {
 	return &ModelConfig{

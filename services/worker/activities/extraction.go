@@ -19,6 +19,12 @@ import (
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
+// ModelInfoProvider resolves model metadata from the database.
+// Implemented by registry.PostgresRepository / registry.DBRegistry.
+type ModelInfoProvider interface {
+	GetModelContextWindowByName(ctx context.Context, modelName string) (int, error)
+}
+
 // ExtractionActivities holds dependencies for extraction-related activities.
 type ExtractionActivities struct {
 	logger         logging.Logger
@@ -27,6 +33,7 @@ type ExtractionActivities struct {
 	entityRepo     EntityRepository
 	pipelineRepo   PipelineRepository
 	personLookup   PersonLookup
+	modelInfo      ModelInfoProvider
 }
 
 // NewExtractionActivities creates a new ExtractionActivities instance.
@@ -62,6 +69,11 @@ func NewExtractionActivities(
 // WithPersonLookup sets the optional PersonLookup dependency for NER header enrichment (pf-2059f5).
 func (a *ExtractionActivities) WithPersonLookup(pl PersonLookup) {
 	a.personLookup = pl
+}
+
+// WithModelInfo sets the optional ModelInfoProvider for DB-backed context window resolution (pf-b158ef).
+func (a *ExtractionActivities) WithModelInfo(mp ModelInfoProvider) {
+	a.modelInfo = mp
 }
 
 // ExtractAssertions extracts assertions from the given content using an LLM.
@@ -337,9 +349,9 @@ type (
 	PersistFindingsActivityOutput    = workflows.PersistFindingsOutput
 )
 
-// modelContextWindows maps model IDs to their context window size in tokens.
-// Used to calculate model-appropriate chunking thresholds for extraction.
-var modelContextWindows = map[string]int{
+// fallbackContextWindows is a fallback map of model context window sizes (in tokens).
+// Used only when the DB lookup via ModelInfoProvider is unavailable.
+var fallbackContextWindows = map[string]int{
 	"gemini-2.5-flash": 1048576,
 	"gemini-2.5-pro":   1048576,
 	"gemini-2.0-flash": 1048576,
@@ -353,9 +365,18 @@ const defaultExtractModel = "gemini-2.5-flash"
 
 // maxInputChars returns the maximum input size in characters for a given model.
 // Uses 80% of context window (tokens * ~4 chars/token) to leave room for prompt + output.
+// Tries DB-backed ModelInfoProvider first, falls back to hardcoded map.
 // Returns a conservative 6000-char default for unknown models.
-func maxInputChars(model string) int {
-	ctxWindow, ok := modelContextWindows[model]
+func maxInputChars(ctx context.Context, modelInfo ModelInfoProvider, model string) int {
+	// Try DB first via ModelInfoProvider (pf-b158ef)
+	if modelInfo != nil {
+		ctxWindow, err := modelInfo.GetModelContextWindowByName(ctx, model)
+		if err == nil && ctxWindow > 0 {
+			return (ctxWindow * 4) * 80 / 100
+		}
+	}
+	// Fallback to hardcoded map
+	ctxWindow, ok := fallbackContextWindows[model]
 	if !ok {
 		return 6000
 	}
@@ -364,8 +385,8 @@ func maxInputChars(model string) int {
 
 // extractChunkSize returns model-appropriate chunk size for chunked extraction.
 // Caps at 50K chars to keep individual LLM calls manageable.
-func extractChunkSize(model string) int {
-	threshold := maxInputChars(model)
+func extractChunkSize(ctx context.Context, modelInfo ModelInfoProvider, model string) int {
+	threshold := maxInputChars(ctx, modelInfo, model)
 	size := threshold / 2
 	if size > 50000 {
 		return 50000
@@ -460,7 +481,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	if input.ModelOverride != "" {
 		extractModel = input.ModelOverride
 	}
-	chunkThreshold := maxInputChars(extractModel)
+	chunkThreshold := maxInputChars(ctx, a.modelInfo, extractModel)
 
 	// pf-edbda4: Record failed pipeline runs for provenance.
 	// When extraction fails, record the failure so `penf pipeline inspect` shows
@@ -568,7 +589,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 	} else {
 		// Chunked extraction — content exceeds model context window
 		recordHeartbeat(entityCallCtx, "calling AI service for entity extraction (chunked)")
-		chunkSize := extractChunkSize(extractModel)
+		chunkSize := extractChunkSize(ctx, a.modelInfo, extractModel)
 		logger.Info("Content exceeds model context window, splitting into chunks",
 			logging.F("content_runes", len(contentRunes)),
 			logging.F("model", extractModel),

@@ -45,6 +45,7 @@ import (
 	pkgobs "github.com/otherjamesbrown/penfold/pkg/temporal/observability"
 	"github.com/otherjamesbrown/penfold/pkg/timeout"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
+	airegistry "github.com/otherjamesbrown/penfold/services/ai/registry"
 	"github.com/otherjamesbrown/penfold/services/worker/activities"
 	"github.com/otherjamesbrown/penfold/services/worker/config"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
@@ -488,6 +489,11 @@ func main() {
 		if dbPool != nil {
 			entityRepoFull := entities.NewRepository(dbPool, logger)
 			extractionActivities.WithPersonLookup(activities.NewPersonLookupAdapter(entityRepoFull))
+		}
+		// Wire DB-backed model info for context window resolution (pf-b158ef)
+		if dbPool != nil {
+			modelInfoRepo := airegistry.NewPostgresRepository(dbPool, logger)
+			extractionActivities.WithModelInfo(modelInfoRepo)
 		}
 		activityRegistrar.WithExtractionActivities(extractionActivities)
 		logger.Info("Extraction activities initialized with AI client")

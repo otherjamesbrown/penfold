@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1106,20 +1107,56 @@ func TestFormatEnrichedName_MetadataNoTitle(t *testing.T) {
 }
 
 func TestMaxInputChars_KnownModels(t *testing.T) {
-	// Gemini models (1M token context) → ~3.3M chars
-	require.Equal(t, (1048576*4)*80/100, maxInputChars("gemini-2.5-flash"))
-	require.Equal(t, (1048576*4)*80/100, maxInputChars("gemini-2.5-pro"))
-	require.Equal(t, (1048576*4)*80/100, maxInputChars("gemini-2.0-flash"))
+	ctx := context.Background()
+	// Gemini models (1M token context) → ~3.3M chars (nil modelInfo = fallback map)
+	require.Equal(t, (1048576*4)*80/100, maxInputChars(ctx, nil, "gemini-2.5-flash"))
+	require.Equal(t, (1048576*4)*80/100, maxInputChars(ctx, nil, "gemini-2.5-pro"))
+	require.Equal(t, (1048576*4)*80/100, maxInputChars(ctx, nil, "gemini-2.0-flash"))
 
 	// Qwen models (32K token context) → ~104K chars
-	require.Equal(t, (32768*4)*80/100, maxInputChars("qwen3:8b"))
-	require.Equal(t, (32768*4)*80/100, maxInputChars("qwen2.5:7b"))
+	require.Equal(t, (32768*4)*80/100, maxInputChars(ctx, nil, "qwen3:8b"))
+	require.Equal(t, (32768*4)*80/100, maxInputChars(ctx, nil, "qwen2.5:7b"))
 }
 
 func TestMaxInputChars_UnknownModel(t *testing.T) {
+	ctx := context.Background()
 	// Unknown models get the conservative 6000-char default
-	require.Equal(t, 6000, maxInputChars("unknown-model"))
-	require.Equal(t, 6000, maxInputChars(""))
+	require.Equal(t, 6000, maxInputChars(ctx, nil, "unknown-model"))
+	require.Equal(t, 6000, maxInputChars(ctx, nil, ""))
+}
+
+// mockModelInfoProvider implements ModelInfoProvider for testing DB-backed context window resolution.
+type mockModelInfoProvider struct {
+	windows map[string]int
+}
+
+func (m *mockModelInfoProvider) GetModelContextWindowByName(_ context.Context, modelName string) (int, error) {
+	w, ok := m.windows[modelName]
+	if !ok {
+		return 0, fmt.Errorf("not found")
+	}
+	return w, nil
+}
+
+func TestMaxInputChars_WithDBProvider(t *testing.T) {
+	ctx := context.Background()
+	provider := &mockModelInfoProvider{
+		windows: map[string]int{
+			"custom-model": 65536,
+		},
+	}
+
+	// DB provider returns value for known model
+	result := maxInputChars(ctx, provider, "custom-model")
+	require.Equal(t, (65536*4)*80/100, result)
+
+	// DB provider returns error for unknown model → falls back to hardcoded map
+	result = maxInputChars(ctx, provider, "gemini-2.5-flash")
+	require.Equal(t, (1048576*4)*80/100, result)
+
+	// DB provider returns error and model not in fallback map → 6000 default
+	result = maxInputChars(ctx, provider, "totally-unknown")
+	require.Equal(t, 6000, result)
 }
 
 func TestExtractAssertions_SubjectPrepended(t *testing.T) {
@@ -1182,16 +1219,19 @@ func TestExtractAssertions_NoSubject(t *testing.T) {
 }
 
 func TestExtractChunkSize_LargeModel(t *testing.T) {
+	ctx := context.Background()
 	// Gemini models: threshold/2 > 50K, capped at 50K
-	require.Equal(t, 50000, extractChunkSize("gemini-2.5-flash"))
+	require.Equal(t, 50000, extractChunkSize(ctx, nil, "gemini-2.5-flash"))
 }
 
 func TestExtractChunkSize_SmallModel(t *testing.T) {
+	ctx := context.Background()
 	// Unknown model: threshold=6000, chunk_size=3000
-	require.Equal(t, 3000, extractChunkSize("unknown-model"))
+	require.Equal(t, 3000, extractChunkSize(ctx, nil, "unknown-model"))
 }
 
 func TestExtractChunkSize_QwenModel(t *testing.T) {
+	ctx := context.Background()
 	// Qwen: threshold=~104K, chunk_size=~52K, capped at 50K
-	require.Equal(t, 50000, extractChunkSize("qwen3:8b"))
+	require.Equal(t, 50000, extractChunkSize(ctx, nil, "qwen3:8b"))
 }

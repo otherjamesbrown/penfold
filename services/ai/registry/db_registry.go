@@ -205,6 +205,16 @@ func (r *DBRegistry) UpdateHealth(modelID string, health ModelHealth) error {
 	return nil
 }
 
+// GetModelContextWindowByName resolves a model's context window from the database.
+func (r *DBRegistry) GetModelContextWindowByName(ctx context.Context, modelName string) (int, error) {
+	return r.repo.GetModelContextWindowByName(ctx, modelName)
+}
+
+// GetModelProviderByName resolves a model's provider from the database.
+func (r *DBRegistry) GetModelProviderByName(ctx context.Context, modelName string) (string, error) {
+	return r.repo.GetModelProviderByName(ctx, modelName)
+}
+
 // GetRoutingRules retrieves routing rules from the database.
 func (r *DBRegistry) GetRoutingRules(ctx context.Context) ([]*RoutingRule, error) {
 	return r.repo.GetRoutingRules(ctx)

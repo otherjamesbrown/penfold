@@ -26,6 +26,10 @@ type Repository interface {
 	GetHealth(ctx context.Context, modelID string) (*ModelHealth, error)
 	UpdateHealth(ctx context.Context, modelID string, health *ModelHealth) error
 
+	// Model lookups by short name (model_name column, not compound id)
+	GetModelContextWindowByName(ctx context.Context, modelName string) (int, error)
+	GetModelProviderByName(ctx context.Context, modelName string) (string, error)
+
 	// Routing rules
 	GetRoutingRules(ctx context.Context) ([]*RoutingRule, error)
 	GetRoutingRulesByTask(ctx context.Context, taskType string) ([]*RoutingRule, error)
@@ -358,6 +362,44 @@ func (r *PostgresRepository) ListModels(ctx context.Context, filter *ModelFilter
 	}
 
 	return models, nil
+}
+
+// GetModelContextWindowByName returns the context_window for a model identified
+// by its short name (model_name column, e.g., "gemini-2.0-flash").
+// Returns ErrModelNotFound if no enabled model matches.
+func (r *PostgresRepository) GetModelContextWindowByName(ctx context.Context, modelName string) (int, error) {
+	var contextWindow int
+	err := r.pool.QueryRow(ctx, `
+		SELECT context_window FROM ai_models
+		WHERE model_name = $1 AND is_enabled = true
+		LIMIT 1
+	`, modelName).Scan(&contextWindow)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrModelNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	return contextWindow, nil
+}
+
+// GetModelProviderByName returns the provider for a model identified by its
+// short name (model_name column, e.g., "gemini-2.0-flash").
+// Returns ErrModelNotFound if no enabled model matches.
+func (r *PostgresRepository) GetModelProviderByName(ctx context.Context, modelName string) (string, error) {
+	var provider string
+	err := r.pool.QueryRow(ctx, `
+		SELECT provider FROM ai_models
+		WHERE model_name = $1 AND is_enabled = true
+		LIMIT 1
+	`, modelName).Scan(&provider)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrModelNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	return provider, nil
 }
 
 // GetHealth retrieves health metrics for a model.
