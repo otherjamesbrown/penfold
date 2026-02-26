@@ -496,9 +496,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.triageActivities != nil {
 			count += 1
 		}
-		// BuildContextPackage
+		// BuildExtractionContext, BuildContextPackage
 		if r.contextBuilderActivities != nil {
-			count += 1
+			count += 2
 		}
 		// DeepAnalyze
 		if r.analysisActivities != nil {

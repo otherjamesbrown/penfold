@@ -281,7 +281,7 @@ func TestBuildNERPrompt(t *testing.T) {
 func TestBuildSemanticPrompt(t *testing.T) {
 	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	content := "Alice should fix the bug by next week. We decided to approve the budget."
-	prompt, version := s.buildSemanticPrompt(context.Background(), content)
+	prompt, version := s.buildSemanticPrompt(context.Background(), content, "")
 
 	if version != 0 {
 		t.Errorf("buildSemanticPrompt() version = %d, want 0 (hardcoded fallback)", version)
@@ -368,7 +368,7 @@ func TestBuildSemanticPrompt_StripsEmailAddresses(t *testing.T) {
 	s := &AIServer{}
 	content := "EMAIL METADATA:\nFrom: Alice <alice@example.com>\nTo: Bob <bob@example.com>\nSubject: Budget review\n---\nBODY:\nWe need to approve the budget."
 
-	prompt, _ := s.buildSemanticPrompt(context.Background(), content)
+	prompt, _ := s.buildSemanticPrompt(context.Background(), content, "")
 
 	if containsString(prompt, "alice@example.com") {
 		t.Error("semantic prompt should not contain email addresses")

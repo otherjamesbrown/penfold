@@ -182,9 +182,14 @@ func (s *AIServer) buildNERPrompt(ctx context.Context, content string) (string, 
 // Strips email addresses (From/To/CC) from content before prompt composition (pf-e219c1) —
 // structural metadata is already captured at ingestion; including addresses wastes tokens
 // and may confuse the model into extracting "person X emailed person Y" as semantic findings.
-func (s *AIServer) buildSemanticPrompt(ctx context.Context, content string) (string, int32) {
+// When backgroundContext is non-empty, it is prepended as a "Background Context" section
+// before the content, providing glossary and topic definitions (pf-2f8c70).
+func (s *AIServer) buildSemanticPrompt(ctx context.Context, content string, backgroundContext string) (string, int32) {
 	tmpl, version := s.getPrompt(ctx, "extract_semantic", semanticPromptTemplate)
 	content = stripEmailAddressesKeepSubject(content)
+	if backgroundContext != "" {
+		content = "## Background Context\n" + backgroundContext + "\n\n---\n" + content
+	}
 	return fmt.Sprintf(tmpl, content), version
 }
 
@@ -362,7 +367,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var semResult *backend.CompletionResult
 	var semMessages []backend.Message
 	{
-		semPrompt, _ = s.buildSemanticPrompt(ctx, content)
+		semPrompt, _ = s.buildSemanticPrompt(ctx, content, req.GetBackgroundContext())
 		semMessages = []backend.Message{
 			{Role: "user", Content: semPrompt},
 		}

@@ -502,6 +502,10 @@ message ExtractEntitiesRequest {
   // OTel interceptors propagate trace context automatically via gRPC metadata.
   reserved 6, 8;
   reserved "pipeline_trace_id", "pipeline_span_id";
+
+  // Pre-extraction background context (glossary + topics) for semantic extraction.
+  // Injected into the Stage 2b semantic prompt to help decode domain terminology.
+  string background_context = 9;
 }
 
 // PersonEntity represents a person extracted from content.

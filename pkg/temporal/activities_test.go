@@ -14,8 +14,9 @@ func TestAllMainQueueActivities(t *testing.T) {
 	// pf-8da0b0: added BackfillConversationSummaries, RegenerateConversationSummary, CheckStaleConversations
 	// pf-xxx: added DeleteAssertions
 	// pf-448da3: added FetchPipelineDefinition
-	// pf-64c235: added UpdateLangfuseTraceMetadata)
-	expectedCount := 35
+	// pf-64c235: added UpdateLangfuseTraceMetadata
+	// pf-2f8c70: added BuildExtractionContext, ConsolidateEntries)
+	expectedCount := 37
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -64,6 +65,10 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"DeleteAssertions",
 		// Pipeline definition lookup
 		"FetchPipelineDefinition",
+		// Pre-extraction context (glossary + topics) for semantic extraction
+		"BuildExtractionContext",
+		// Session ledger consolidation
+		"ConsolidateEntries",
 	}
 
 	activityMap := make(map[string]bool)

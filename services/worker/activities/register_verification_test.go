@@ -307,7 +307,10 @@ func newFullRegistrar() *Registrar {
 			logger:   logger,
 			convRepo: &regVerifyConvRepo{},
 		}).
-		WithLangfuseActivities(NewLangfuseActivities(nil, logger))
+		WithLangfuseActivities(NewLangfuseActivities(nil, logger)).
+		WithConsolidationActivities(&ConsolidationActivities{
+			logger: logger,
+		})
 }
 
 // TestAllMainQueueActivitiesRegistered verifies that all expected main queue activities are registered.
