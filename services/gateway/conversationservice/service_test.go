@@ -327,6 +327,12 @@ func TestShowConversation_ReturnsConversationWithItemsAndParticipants(t *testing
 	threadKey := "thread-xyz-789"
 	sourceID1 := int64(100)
 	sourceID2 := int64(101)
+	contentDate1 := now.Add(-72 * time.Hour)
+	contentDate2 := now.Add(-48 * time.Hour)
+	fromName1 := "Alice Smith"
+	fromName2 := "Bob Jones"
+	subject1 := "Feature Implementation Discussion"
+	subject2 := "Re: Feature Implementation Discussion"
 	participantName1 := "Alice Smith"
 	participantAddress1 := "alice@example.com"
 	participantName2 := "Bob Jones"
@@ -355,6 +361,9 @@ func TestShowConversation_ReturnsConversationWithItemsAndParticipants(t *testing
 						SourceID:       &sourceID1,
 						AddedAt:        now.Add(-72 * time.Hour),
 						TenantID:       "tenant-123",
+						ContentDate:    &contentDate1,
+						FromName:       &fromName1,
+						Subject:        &subject1,
 					},
 					{
 						ConversationID: "conv-42",
@@ -362,6 +371,9 @@ func TestShowConversation_ReturnsConversationWithItemsAndParticipants(t *testing
 						SourceID:       &sourceID2,
 						AddedAt:        now.Add(-48 * time.Hour),
 						TenantID:       "tenant-123",
+						ContentDate:    &contentDate2,
+						FromName:       &fromName2,
+						Subject:        &subject2,
 					},
 					{
 						ConversationID: "conv-42",
@@ -369,6 +381,7 @@ func TestShowConversation_ReturnsConversationWithItemsAndParticipants(t *testing
 						SourceID:       nil, // No source ID
 						AddedAt:        now.Add(-24 * time.Hour),
 						TenantID:       "tenant-123",
+						// No content metadata — source not found
 					},
 				},
 				Participants: []ConversationParticipant{
@@ -422,15 +435,26 @@ func TestShowConversation_ReturnsConversationWithItemsAndParticipants(t *testing
 	assert.NotNil(t, item1.SourceId)
 	assert.Equal(t, int64(100), *item1.SourceId)
 	assert.NotNil(t, item1.AddedAt)
+	assert.NotNil(t, item1.ContentDate, "Item with source should have content_date")
+	assert.NotNil(t, item1.FromName, "Item with source should have from_name")
+	assert.Equal(t, "Alice Smith", *item1.FromName)
+	assert.NotNil(t, item1.Subject, "Item with source should have subject")
+	assert.Equal(t, "Feature Implementation Discussion", *item1.Subject)
 
 	item2 := resp.Items[1]
 	assert.Equal(t, "content-002", item2.ContentId)
 	assert.NotNil(t, item2.SourceId)
 	assert.Equal(t, int64(101), *item2.SourceId)
+	assert.NotNil(t, item2.ContentDate, "Item with source should have content_date")
+	assert.Equal(t, "Bob Jones", *item2.FromName)
+	assert.Equal(t, "Re: Feature Implementation Discussion", *item2.Subject)
 
 	item3 := resp.Items[2]
 	assert.Equal(t, "content-003", item3.ContentId)
 	assert.Nil(t, item3.SourceId, "Item with no source should have nil SourceId")
+	assert.Nil(t, item3.ContentDate, "Item without source should have nil content_date")
+	assert.Nil(t, item3.FromName, "Item without source should have nil from_name")
+	assert.Nil(t, item3.Subject, "Item without source should have nil subject")
 
 	// Verify participants
 	require.Len(t, resp.Participants, 2)

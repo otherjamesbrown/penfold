@@ -521,8 +521,12 @@ type ConversationItem struct {
 	ContentId      string                 `protobuf:"bytes,2,opt,name=content_id,json=contentId,proto3" json:"content_id,omitempty"`
 	SourceId       *int64                 `protobuf:"varint,3,opt,name=source_id,json=sourceId,proto3,oneof" json:"source_id,omitempty"`
 	AddedAt        *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=added_at,json=addedAt,proto3" json:"added_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Content metadata — populated from sources table to avoid N+1 lookups.
+	ContentDate   *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=content_date,json=contentDate,proto3,oneof" json:"content_date,omitempty"`
+	FromName      *string                `protobuf:"bytes,6,opt,name=from_name,json=fromName,proto3,oneof" json:"from_name,omitempty"`
+	Subject       *string                `protobuf:"bytes,7,opt,name=subject,proto3,oneof" json:"subject,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ConversationItem) Reset() {
@@ -581,6 +585,27 @@ func (x *ConversationItem) GetAddedAt() *timestamppb.Timestamp {
 		return x.AddedAt
 	}
 	return nil
+}
+
+func (x *ConversationItem) GetContentDate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ContentDate
+	}
+	return nil
+}
+
+func (x *ConversationItem) GetFromName() string {
+	if x != nil && x.FromName != nil {
+		return *x.FromName
+	}
+	return ""
+}
+
+func (x *ConversationItem) GetSubject() string {
+	if x != nil && x.Subject != nil {
+		return *x.Subject
+	}
+	return ""
 }
 
 // ConversationParticipant represents a participant in a conversation.
@@ -1727,7 +1752,7 @@ var file_conversation_v1_conversation_proto_rawDesc = []byte{
 	0x5f, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x42, 0x08, 0x0a, 0x06, 0x5f,
 	0x73, 0x74, 0x61, 0x74, 0x65, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x73, 0x74, 0x61, 0x74, 0x65, 0x5f,
 	0x72, 0x65, 0x61, 0x73, 0x6f, 0x6e, 0x42, 0x13, 0x0a, 0x11, 0x5f, 0x73, 0x74, 0x61, 0x74, 0x65,
-	0x5f, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x22, 0xc1, 0x01, 0x0a, 0x10,
+	0x5f, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x22, 0xf1, 0x02, 0x0a, 0x10,
 	0x43, 0x6f, 0x6e, 0x76, 0x65, 0x72, 0x73, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x74, 0x65, 0x6d,
 	0x12, 0x27, 0x0a, 0x0f, 0x63, 0x6f, 0x6e, 0x76, 0x65, 0x72, 0x73, 0x61, 0x74, 0x69, 0x6f, 0x6e,
 	0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0e, 0x63, 0x6f, 0x6e, 0x76, 0x65,
@@ -1739,7 +1764,18 @@ var file_conversation_v1_conversation_proto_rawDesc = []byte{
 	0x64, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67,
 	0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54,
 	0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x07, 0x61, 0x64, 0x64, 0x65, 0x64, 0x41,
-	0x74, 0x42, 0x0c, 0x0a, 0x0a, 0x5f, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x5f, 0x69, 0x64, 0x22,
+	0x74, 0x12, 0x42, 0x0a, 0x0c, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x5f, 0x64, 0x61, 0x74,
+	0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65,
+	0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74,
+	0x61, 0x6d, 0x70, 0x48, 0x01, 0x52, 0x0b, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x44, 0x61,
+	0x74, 0x65, 0x88, 0x01, 0x01, 0x12, 0x20, 0x0a, 0x09, 0x66, 0x72, 0x6f, 0x6d, 0x5f, 0x6e, 0x61,
+	0x6d, 0x65, 0x18, 0x06, 0x20, 0x01, 0x28, 0x09, 0x48, 0x02, 0x52, 0x08, 0x66, 0x72, 0x6f, 0x6d,
+	0x4e, 0x61, 0x6d, 0x65, 0x88, 0x01, 0x01, 0x12, 0x1d, 0x0a, 0x07, 0x73, 0x75, 0x62, 0x6a, 0x65,
+	0x63, 0x74, 0x18, 0x07, 0x20, 0x01, 0x28, 0x09, 0x48, 0x03, 0x52, 0x07, 0x73, 0x75, 0x62, 0x6a,
+	0x65, 0x63, 0x74, 0x88, 0x01, 0x01, 0x42, 0x0c, 0x0a, 0x0a, 0x5f, 0x73, 0x6f, 0x75, 0x72, 0x63,
+	0x65, 0x5f, 0x69, 0x64, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74,
+	0x5f, 0x64, 0x61, 0x74, 0x65, 0x42, 0x0c, 0x0a, 0x0a, 0x5f, 0x66, 0x72, 0x6f, 0x6d, 0x5f, 0x6e,
+	0x61, 0x6d, 0x65, 0x42, 0x0a, 0x0a, 0x08, 0x5f, 0x73, 0x75, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x22,
 	0x8f, 0x01, 0x0a, 0x17, 0x43, 0x6f, 0x6e, 0x76, 0x65, 0x72, 0x73, 0x61, 0x74, 0x69, 0x6f, 0x6e,
 	0x50, 0x61, 0x72, 0x74, 0x69, 0x63, 0x69, 0x70, 0x61, 0x6e, 0x74, 0x12, 0x27, 0x0a, 0x0f, 0x63,
 	0x6f, 0x6e, 0x76, 0x65, 0x72, 0x73, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x69, 0x64, 0x18, 0x01,
@@ -2044,31 +2080,32 @@ var file_conversation_v1_conversation_proto_depIdxs = []int32{
 	21, // 11: penfold.conversation.v1.ShowConversationResponse.summary_updated_at:type_name -> google.protobuf.Timestamp
 	21, // 12: penfold.conversation.v1.ShowConversationResponse.state_changed_at:type_name -> google.protobuf.Timestamp
 	21, // 13: penfold.conversation.v1.ConversationItem.added_at:type_name -> google.protobuf.Timestamp
-	9,  // 14: penfold.conversation.v1.ConversationProcessingStatus.items:type_name -> penfold.conversation.v1.ContentProcessingSummary
-	22, // 15: penfold.conversation.v1.ContentProcessingSummary.state:type_name -> penfold.content.v1.ProcessingState
-	23, // 16: penfold.conversation.v1.ContentProcessingSummary.stages:type_name -> penfold.content.v1.StageResult
-	18, // 17: penfold.conversation.v1.RunConversationAuditResponse.flagged:type_name -> penfold.conversation.v1.AuditFinding
-	19, // 18: penfold.conversation.v1.RunConversationAuditResponse.orphans:type_name -> penfold.conversation.v1.AuditOrphan
-	20, // 19: penfold.conversation.v1.RunConversationAuditResponse.merge_candidates:type_name -> penfold.conversation.v1.AuditMergeCandidate
-	0,  // 20: penfold.conversation.v1.ConversationService.ListConversations:input_type -> penfold.conversation.v1.ListConversationsRequest
-	3,  // 21: penfold.conversation.v1.ConversationService.ShowConversation:input_type -> penfold.conversation.v1.ShowConversationRequest
-	7,  // 22: penfold.conversation.v1.ConversationService.GetConversationProcessingStatus:input_type -> penfold.conversation.v1.GetConversationProcessingStatusRequest
-	10, // 23: penfold.conversation.v1.ConversationService.MergeConversations:input_type -> penfold.conversation.v1.MergeConversationsRequest
-	12, // 24: penfold.conversation.v1.ConversationService.SplitConversation:input_type -> penfold.conversation.v1.SplitConversationRequest
-	14, // 25: penfold.conversation.v1.ConversationService.UnlinkItem:input_type -> penfold.conversation.v1.UnlinkItemRequest
-	16, // 26: penfold.conversation.v1.ConversationService.RunConversationAudit:input_type -> penfold.conversation.v1.RunConversationAuditRequest
-	1,  // 27: penfold.conversation.v1.ConversationService.ListConversations:output_type -> penfold.conversation.v1.ListConversationsResponse
-	4,  // 28: penfold.conversation.v1.ConversationService.ShowConversation:output_type -> penfold.conversation.v1.ShowConversationResponse
-	8,  // 29: penfold.conversation.v1.ConversationService.GetConversationProcessingStatus:output_type -> penfold.conversation.v1.ConversationProcessingStatus
-	11, // 30: penfold.conversation.v1.ConversationService.MergeConversations:output_type -> penfold.conversation.v1.MergeConversationsResponse
-	13, // 31: penfold.conversation.v1.ConversationService.SplitConversation:output_type -> penfold.conversation.v1.SplitConversationResponse
-	15, // 32: penfold.conversation.v1.ConversationService.UnlinkItem:output_type -> penfold.conversation.v1.UnlinkItemResponse
-	17, // 33: penfold.conversation.v1.ConversationService.RunConversationAudit:output_type -> penfold.conversation.v1.RunConversationAuditResponse
-	27, // [27:34] is the sub-list for method output_type
-	20, // [20:27] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	21, // 14: penfold.conversation.v1.ConversationItem.content_date:type_name -> google.protobuf.Timestamp
+	9,  // 15: penfold.conversation.v1.ConversationProcessingStatus.items:type_name -> penfold.conversation.v1.ContentProcessingSummary
+	22, // 16: penfold.conversation.v1.ContentProcessingSummary.state:type_name -> penfold.content.v1.ProcessingState
+	23, // 17: penfold.conversation.v1.ContentProcessingSummary.stages:type_name -> penfold.content.v1.StageResult
+	18, // 18: penfold.conversation.v1.RunConversationAuditResponse.flagged:type_name -> penfold.conversation.v1.AuditFinding
+	19, // 19: penfold.conversation.v1.RunConversationAuditResponse.orphans:type_name -> penfold.conversation.v1.AuditOrphan
+	20, // 20: penfold.conversation.v1.RunConversationAuditResponse.merge_candidates:type_name -> penfold.conversation.v1.AuditMergeCandidate
+	0,  // 21: penfold.conversation.v1.ConversationService.ListConversations:input_type -> penfold.conversation.v1.ListConversationsRequest
+	3,  // 22: penfold.conversation.v1.ConversationService.ShowConversation:input_type -> penfold.conversation.v1.ShowConversationRequest
+	7,  // 23: penfold.conversation.v1.ConversationService.GetConversationProcessingStatus:input_type -> penfold.conversation.v1.GetConversationProcessingStatusRequest
+	10, // 24: penfold.conversation.v1.ConversationService.MergeConversations:input_type -> penfold.conversation.v1.MergeConversationsRequest
+	12, // 25: penfold.conversation.v1.ConversationService.SplitConversation:input_type -> penfold.conversation.v1.SplitConversationRequest
+	14, // 26: penfold.conversation.v1.ConversationService.UnlinkItem:input_type -> penfold.conversation.v1.UnlinkItemRequest
+	16, // 27: penfold.conversation.v1.ConversationService.RunConversationAudit:input_type -> penfold.conversation.v1.RunConversationAuditRequest
+	1,  // 28: penfold.conversation.v1.ConversationService.ListConversations:output_type -> penfold.conversation.v1.ListConversationsResponse
+	4,  // 29: penfold.conversation.v1.ConversationService.ShowConversation:output_type -> penfold.conversation.v1.ShowConversationResponse
+	8,  // 30: penfold.conversation.v1.ConversationService.GetConversationProcessingStatus:output_type -> penfold.conversation.v1.ConversationProcessingStatus
+	11, // 31: penfold.conversation.v1.ConversationService.MergeConversations:output_type -> penfold.conversation.v1.MergeConversationsResponse
+	13, // 32: penfold.conversation.v1.ConversationService.SplitConversation:output_type -> penfold.conversation.v1.SplitConversationResponse
+	15, // 33: penfold.conversation.v1.ConversationService.UnlinkItem:output_type -> penfold.conversation.v1.UnlinkItemResponse
+	17, // 34: penfold.conversation.v1.ConversationService.RunConversationAudit:output_type -> penfold.conversation.v1.RunConversationAuditResponse
+	28, // [28:35] is the sub-list for method output_type
+	21, // [21:28] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_conversation_v1_conversation_proto_init() }

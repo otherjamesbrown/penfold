@@ -751,6 +751,15 @@ func conversationDetailToProto(conv *ConversationDetail) *conversationv1.ShowCon
 		if item.SourceID != nil {
 			protoItem.SourceId = item.SourceID
 		}
+		if item.ContentDate != nil {
+			protoItem.ContentDate = timestamppb.New(*item.ContentDate)
+		}
+		if item.FromName != nil {
+			protoItem.FromName = item.FromName
+		}
+		if item.Subject != nil {
+			protoItem.Subject = item.Subject
+		}
 		resp.Items[i] = protoItem
 	}
 

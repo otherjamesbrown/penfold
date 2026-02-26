@@ -152,17 +152,21 @@ func (r *PostgresRepository) GetConversation(ctx context.Context, tenantID, conv
 		return nil, fmt.Errorf("failed to query conversation: %w", err)
 	}
 
-	// Get conversation items
+	// Get conversation items with content metadata from sources.
 	itemsQuery := `
 		SELECT
-			conversation_id,
-			content_id,
-			source_id,
-			added_at,
-			tenant_id
-		FROM conversation_items
-		WHERE conversation_id = $1
-		ORDER BY added_at ASC
+			ci.conversation_id,
+			ci.content_id,
+			ci.source_id,
+			ci.added_at,
+			ci.tenant_id,
+			s.source_timestamp,
+			s.ingestion_metadata->>'from_name',
+			s.ingestion_metadata->>'subject'
+		FROM conversation_items ci
+		LEFT JOIN sources s ON s.content_id = ci.content_id
+		WHERE ci.conversation_id = $1
+		ORDER BY ci.added_at ASC
 	`
 
 	itemRows, err := r.pool.Query(ctx, itemsQuery, conversationID)
@@ -180,6 +184,9 @@ func (r *PostgresRepository) GetConversation(ctx context.Context, tenantID, conv
 			&item.SourceID,
 			&item.AddedAt,
 			&item.TenantID,
+			&item.ContentDate,
+			&item.FromName,
+			&item.Subject,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan conversation item: %w", err)

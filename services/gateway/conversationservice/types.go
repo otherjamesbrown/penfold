@@ -58,6 +58,10 @@ type ConversationItem struct {
 	SourceID       *int64
 	AddedAt        time.Time
 	TenantID       string
+	// Content metadata — populated from sources table via LEFT JOIN.
+	ContentDate *time.Time
+	FromName    *string
+	Subject     *string
 }
 
 // ConversationParticipant represents a participant in a conversation.
