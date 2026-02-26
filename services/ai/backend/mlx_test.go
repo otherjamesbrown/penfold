@@ -589,6 +589,107 @@ func TestIsContextLengthBody(t *testing.T) {
 	}
 }
 
+// TestMLXBackend_ChatCompletion_JSONMode tests that JSONMode is forwarded as response_format.
+func TestMLXBackend_ChatCompletion_JSONMode(t *testing.T) {
+	t.Run("OpenAI path sends response_format when JSONMode true", func(t *testing.T) {
+		var receivedBody chatRequest
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+				t.Fatalf("failed to decode request: %v", err)
+			}
+			resp := chatResponse{
+				ID:    "test-id",
+				Model: "test-llm",
+				Choices: []chatChoice{
+					{Index: 0, Message: chatMessage{Role: "assistant", Content: `{"result":"ok"}`}, FinishReason: "stop"},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		be := NewMLXBackend(&MLXConfig{LLMURL: server.URL, Timeout: 5 * time.Second})
+
+		messages := []Message{{Role: "user", Content: "return JSON"}}
+		_, err := be.ChatCompletion(context.Background(), messages, CompletionOptions{JSONMode: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if receivedBody.ResponseFormat == nil {
+			t.Fatal("expected response_format to be set, got nil")
+		}
+		if receivedBody.ResponseFormat.Type != "json_object" {
+			t.Errorf("expected response_format type 'json_object', got %q", receivedBody.ResponseFormat.Type)
+		}
+	})
+
+	t.Run("OpenAI path omits response_format when JSONMode false", func(t *testing.T) {
+		var receivedBody chatRequest
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+				t.Fatalf("failed to decode request: %v", err)
+			}
+			resp := chatResponse{
+				ID:    "test-id",
+				Model: "test-llm",
+				Choices: []chatChoice{
+					{Index: 0, Message: chatMessage{Role: "assistant", Content: "hello"}, FinishReason: "stop"},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		be := NewMLXBackend(&MLXConfig{LLMURL: server.URL, Timeout: 5 * time.Second})
+
+		messages := []Message{{Role: "user", Content: "say hello"}}
+		_, err := be.ChatCompletion(context.Background(), messages, CompletionOptions{JSONMode: false})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if receivedBody.ResponseFormat != nil {
+			t.Errorf("expected no response_format, got %+v", receivedBody.ResponseFormat)
+		}
+	})
+
+	t.Run("Ollama path sends format json when JSONMode true", func(t *testing.T) {
+		var receivedBody ollamaChatRequest
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+				t.Fatalf("failed to decode request: %v", err)
+			}
+			resp := ollamaChatResponse{
+				Model:   "qwen3:8b",
+				Message: chatMessage{Role: "assistant", Content: `{"result":"ok"}`},
+				Done:    true,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		be := NewMLXBackend(&MLXConfig{LLMURL: server.URL, Timeout: 5 * time.Second})
+
+		messages := []Message{{Role: "user", Content: "return JSON"}}
+		// Use qwen3 model to trigger Ollama path
+		_, err := be.ChatCompletion(context.Background(), messages, CompletionOptions{
+			Model:    "qwen3:8b",
+			JSONMode: true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if receivedBody.Format != "json" {
+			t.Errorf("expected format 'json', got %q", receivedBody.Format)
+		}
+	})
+}
+
 // TestMLXBackend_ChatCompletion_ErrorClassification tests error classification for chat completion.
 func TestMLXBackend_ChatCompletion_ErrorClassification(t *testing.T) {
 	t.Run("timeout error returns PipelineError with ErrTimeout", func(t *testing.T) {

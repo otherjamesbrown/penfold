@@ -333,12 +333,21 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 		return nil, err
 	}
 
-	// Build the system prompt based on style
-	systemPrompt := s.buildSummarySystemPrompt(ctx, req.GetStyle(), req.GetMaxLength())
-
-	messages := []backend.Message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: content},
+	// When json_mode is true, the caller provides a self-contained prompt
+	// (e.g. consolidation template from DB) that expects JSON output.
+	// The default summary system prompt demands SUMMARY:/KEY_POINTS: format
+	// which conflicts with JSON mode — skip it.
+	var messages []backend.Message
+	if req.GetJsonMode() {
+		messages = []backend.Message{
+			{Role: "user", Content: content},
+		}
+	} else {
+		systemPrompt := s.buildSummarySystemPrompt(ctx, req.GetStyle(), req.GetMaxLength())
+		messages = []backend.Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: content},
+		}
 	}
 
 	opts := backend.CompletionOptions{
@@ -415,7 +424,7 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 		OutputTokens: outputTokens,
 		Model:        result.Model,
 		LatencyMs:    time.Since(startTime).Milliseconds(),
-		Prompt:       systemPrompt + "\n\n" + content,
+		Prompt:       tracePromptFromMessages(messages),
 		Completion:   result.Content,
 	})
 
@@ -1099,6 +1108,15 @@ func (s *AIServer) selectBackend(ctx context.Context, model string) string {
 		return "gemini"
 	}
 	return "ollama"
+}
+
+// tracePromptFromMessages concatenates message contents for tracing.
+func tracePromptFromMessages(messages []backend.Message) string {
+	var parts []string
+	for _, m := range messages {
+		parts = append(parts, m.Content)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func (s *AIServer) buildSummarySystemPrompt(ctx context.Context, style aiv1.SummaryStyle, maxLength int32) string {

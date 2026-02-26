@@ -133,10 +133,15 @@ type openaiEmbedResponse struct {
 // OpenAI-compatible request/response types for chat completions.
 
 type chatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	MaxTokens   int           `json:"max_tokens,omitempty"`
-	Temperature float32       `json:"temperature,omitempty"`
+	Model          string          `json:"model"`
+	Messages       []chatMessage   `json:"messages"`
+	MaxTokens      int             `json:"max_tokens,omitempty"`
+	Temperature    float32         `json:"temperature,omitempty"`
+	ResponseFormat *chatRespFormat `json:"response_format,omitempty"`
+}
+
+type chatRespFormat struct {
+	Type string `json:"type"` // "json_object"
 }
 
 // ollamaChatRequest is the native Ollama /api/chat request format.
@@ -148,6 +153,7 @@ type ollamaChatRequest struct {
 	Stream   bool          `json:"stream"`
 	Think    *bool         `json:"think,omitempty"`
 	Options  ollamaOptions `json:"options,omitempty"`
+	Format   string        `json:"format,omitempty"`
 }
 
 type ollamaOptions struct {
@@ -436,6 +442,10 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 		reqBody.Temperature = 0.1 // Low temperature for structured extraction
 	}
 
+	if opts.JSONMode {
+		reqBody.ResponseFormat = &chatRespFormat{Type: "json_object"}
+	}
+
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("%w: marshal request: %v", ErrRequestFailed, err)
@@ -556,6 +566,10 @@ func (b *MLXBackend) ollamaChatCompletion(ctx context.Context, messages []Messag
 		Stream:   false,
 		Think:    &thinkFalse,
 		Options:  ollamaOptions{Temperature: temp, NumPredict: maxTokens},
+	}
+
+	if opts.JSONMode {
+		reqBody.Format = "json"
 	}
 
 	jsonBody, err := json.Marshal(reqBody)

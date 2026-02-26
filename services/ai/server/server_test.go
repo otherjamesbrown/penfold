@@ -671,6 +671,71 @@ func TestGetModelStatus_FilterByModelType(t *testing.T) {
 	}
 }
 
+func TestGenerateSummary_JSONMode_SkipsSystemPrompt(t *testing.T) {
+	var capturedMessages []backend.Message
+	be := &mockBackend{
+		chatCompletionFunc: func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
+			capturedMessages = messages
+			return &backend.CompletionResult{
+				Content: `{"title":"test","narrative":"A narrative","decisions":[],"patterns":[]}`,
+				Model:   "test-llm",
+			}, nil
+		},
+	}
+	server := newTestServer(be)
+
+	jsonMode := true
+	req := &aiv1.SummaryRequest{
+		Content:  "Consolidation prompt with JSON schema instructions",
+		TenantId: stringPtr("tenant-1"),
+		JsonMode: &jsonMode,
+	}
+
+	resp, err := server.GenerateSummary(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Summary)
+
+	// When json_mode=true, there should be no system message — only the user message
+	require.Len(t, capturedMessages, 1, "json_mode=true should produce exactly 1 message (user only)")
+	assert.Equal(t, "user", capturedMessages[0].Role)
+	assert.Contains(t, capturedMessages[0].Content, "Consolidation prompt")
+}
+
+func TestGenerateSummary_NoJSONMode_IncludesSystemPrompt(t *testing.T) {
+	var capturedMessages []backend.Message
+	be := &mockBackend{
+		chatCompletionFunc: func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
+			capturedMessages = messages
+			return &backend.CompletionResult{
+				Content: `SUMMARY:
+Test summary.
+
+KEY_POINTS:
+["point 1"]`,
+				Model: "test-llm",
+			}, nil
+		},
+	}
+	server := newTestServer(be)
+
+	req := &aiv1.SummaryRequest{
+		Content:  "Some content to summarize",
+		TenantId: stringPtr("tenant-1"),
+		Style:    aiv1.SummaryStyle_SUMMARY_STYLE_BRIEF,
+	}
+
+	resp, err := server.GenerateSummary(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Summary)
+
+	// Without json_mode, should have system + user messages
+	require.Len(t, capturedMessages, 2, "default mode should produce 2 messages (system + user)")
+	assert.Equal(t, "system", capturedMessages[0].Role)
+	assert.Equal(t, "user", capturedMessages[1].Role)
+}
+
 // =============================================================================
 // Response Parsing Tests
 // =============================================================================
