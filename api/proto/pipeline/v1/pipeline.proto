@@ -1168,6 +1168,11 @@ message StageConfigEntry {
 
   // Source of timeout config: "db", "default".
   string timeout_source = 6;
+
+  // LLM parameters from pipeline_definitions (null for non-LLM stages).
+  optional float temperature = 7;
+  optional int32 max_tokens = 8;
+  optional int32 max_retries = 9;
 }
 
 // GetStageConfigResponse contains per-stage configuration entries.
@@ -1595,6 +1600,15 @@ message UpdatePipelineStageConfigRequest {
 
   // Timeout in seconds.
   optional int32 timeout_seconds = 8;
+
+  // LLM temperature (0.0 - 2.0).
+  optional float temperature = 9;
+
+  // Max output tokens.
+  optional int32 max_tokens = 10;
+
+  // Max retry attempts.
+  optional int32 max_retries = 11;
 }
 
 // UpdatePipelineStageConfigResponse confirms the update.

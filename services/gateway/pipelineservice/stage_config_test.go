@@ -131,3 +131,54 @@ func TestGetStageConfig_FallbackModel(t *testing.T) {
 	assert.Equal(t, expectedFallback, entry.Model)
 	assert.Equal(t, "default", entry.ModelSource)
 }
+
+// TestGetStageConfig_LLMParamsFields verifies that StageConfigEntry supports
+// the optional LLM parameter fields added for Phase 3 CLI (pf-3a7fb9).
+func TestGetStageConfig_LLMParamsFields(t *testing.T) {
+	t.Run("with LLM params set", func(t *testing.T) {
+		temp := float32(0.7)
+		tokens := int32(4096)
+		retries := int32(3)
+		entry := &pipelinev1.StageConfigEntry{
+			Stage:       "analyze",
+			Model:       "qwen2.5:7b",
+			Temperature: &temp,
+			MaxTokens:   &tokens,
+			MaxRetries:  &retries,
+		}
+
+		assert.Equal(t, float32(0.7), *entry.Temperature)
+		assert.Equal(t, int32(4096), *entry.MaxTokens)
+		assert.Equal(t, int32(3), *entry.MaxRetries)
+	})
+
+	t.Run("without LLM params (non-LLM stage)", func(t *testing.T) {
+		entry := &pipelinev1.StageConfigEntry{
+			Stage: "embed",
+			Model: "mxbai-embed-large",
+		}
+
+		assert.Nil(t, entry.Temperature)
+		assert.Nil(t, entry.MaxTokens)
+		assert.Nil(t, entry.MaxRetries)
+	})
+}
+
+// TestUpdatePipelineStageConfigRequest_LLMParamsFields verifies that the update
+// request proto supports the optional LLM parameter fields (pf-3a7fb9).
+func TestUpdatePipelineStageConfigRequest_LLMParamsFields(t *testing.T) {
+	temp := float32(0.5)
+	tokens := int32(2048)
+	retries := int32(2)
+	req := &pipelinev1.UpdatePipelineStageConfigRequest{
+		Pipeline:    "standard",
+		Stage:       "analyze",
+		Temperature: &temp,
+		MaxTokens:   &tokens,
+		MaxRetries:  &retries,
+	}
+
+	assert.Equal(t, float32(0.5), *req.Temperature)
+	assert.Equal(t, int32(2048), *req.MaxTokens)
+	assert.Equal(t, int32(2), *req.MaxRetries)
+}

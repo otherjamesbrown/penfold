@@ -161,6 +161,9 @@ type StageConfigUpdate struct {
 	SkipWhenLow    *bool
 	PromptOverride *int
 	TimeoutSeconds *int
+	Temperature    *float64
+	MaxTokens      *int
+	MaxRetries     *int
 }
 
 func (r *Repository) UpdateStageConfig(ctx context.Context, tenantID, pipeline, stage string, update StageConfigUpdate) (*StageDefinition, error) {
@@ -192,6 +195,21 @@ func (r *Repository) UpdateStageConfig(ctx context.Context, tenantID, pipeline, 
 	if update.TimeoutSeconds != nil {
 		setClauses = append(setClauses, fmt.Sprintf("timeout_seconds = $%d", argIdx))
 		args = append(args, *update.TimeoutSeconds)
+		argIdx++
+	}
+	if update.Temperature != nil {
+		setClauses = append(setClauses, fmt.Sprintf("temperature = $%d", argIdx))
+		args = append(args, *update.Temperature)
+		argIdx++
+	}
+	if update.MaxTokens != nil {
+		setClauses = append(setClauses, fmt.Sprintf("max_tokens = $%d", argIdx))
+		args = append(args, *update.MaxTokens)
+		argIdx++
+	}
+	if update.MaxRetries != nil {
+		setClauses = append(setClauses, fmt.Sprintf("max_retries = $%d", argIdx))
+		args = append(args, *update.MaxRetries)
 		argIdx++
 	}
 

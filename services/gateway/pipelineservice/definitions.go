@@ -112,6 +112,18 @@ func (s *Service) UpdatePipelineStageConfig(ctx context.Context, req *pipelinev1
 		v := int(*req.TimeoutSeconds)
 		update.TimeoutSeconds = &v
 	}
+	if req.Temperature != nil {
+		v := float64(*req.Temperature)
+		update.Temperature = &v
+	}
+	if req.MaxTokens != nil {
+		v := int(*req.MaxTokens)
+		update.MaxTokens = &v
+	}
+	if req.MaxRetries != nil {
+		v := int(*req.MaxRetries)
+		update.MaxRetries = &v
+	}
 
 	sd, err := s.repo.UpdateStageConfig(ctx, tenantID, req.Pipeline, req.Stage, update)
 	if err != nil {
