@@ -1785,7 +1785,9 @@ func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageCo
 	}
 
 	// Build maps of per-stage config from pipeline_definitions.
-	// timeout.stage.* rows were removed from pipeline_config (migration 077).
+	// Uses repo (pgx) instead of raw database/sql to avoid nullable-type scan issues
+	// with the pgx/stdlib adapter (double-pointer destinations like **float64, **int32
+	// silently fail through database/sql.Scan, causing LLM params to be dropped).
 	timeoutSecsMap := make(map[string]int)       // stage -> timeout_seconds
 	timeoutSourceMap := make(map[string]string)   // stage -> source
 	temperatureMap := make(map[string]*float64)   // stage -> temperature
@@ -1793,40 +1795,27 @@ func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageCo
 	maxRetriesMap := make(map[string]*int32)       // stage -> max_retries
 
 	tenantID := s.defaultTenantID(ctx)
-	pdRows, err := s.db.QueryContext(ctx, `
-		SELECT stage, timeout_seconds, temperature, max_tokens, max_retries
-		FROM pipeline_definitions
-		WHERE tenant_id = $1 AND pipeline = 'standard'
-	`, tenantID)
+	pdStages, err := s.repo.GetPipelineStages(ctx, tenantID, "standard")
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to query stage config: %v", err)
 	}
-	defer pdRows.Close()
 
-	for pdRows.Next() {
-		var stage string
-		var timeoutSecs int
-		var temperature *float64
-		var maxTokens, maxRetries *int32
-		if err := pdRows.Scan(&stage, &timeoutSecs, &temperature, &maxTokens, &maxRetries); err != nil {
-			continue
+	for _, sd := range pdStages {
+		if sd.TimeoutSeconds > 0 {
+			timeoutSecsMap[sd.Stage] = sd.TimeoutSeconds
+			timeoutSourceMap[sd.Stage] = "db"
 		}
-		if timeoutSecs > 0 {
-			timeoutSecsMap[stage] = timeoutSecs
-			timeoutSourceMap[stage] = "db"
+		if sd.Temperature != nil {
+			temperatureMap[sd.Stage] = sd.Temperature
 		}
-		if temperature != nil {
-			temperatureMap[stage] = temperature
+		if sd.MaxTokens != nil {
+			v := int32(*sd.MaxTokens)
+			maxTokensMap[sd.Stage] = &v
 		}
-		if maxTokens != nil {
-			maxTokensMap[stage] = maxTokens
+		if sd.MaxRetries != nil {
+			v := int32(*sd.MaxRetries)
+			maxRetriesMap[sd.Stage] = &v
 		}
-		if maxRetries != nil {
-			maxRetriesMap[stage] = maxRetries
-		}
-	}
-	if err := pdRows.Err(); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to iterate stage config: %v", err)
 	}
 
 	// Query model_config for per-stage models.
