@@ -2049,7 +2049,8 @@ func TestHeaderRoleLabel(t *testing.T) {
 
 // mockTopicLookup implements TopicLookupInterface for testing.
 type mockTopicLookup struct {
-	listForContextFunc func(ctx context.Context, tenantID string, names []string) ([]TopicResult, error)
+	listForContextFunc        func(ctx context.Context, tenantID string, names []string) ([]TopicResult, error)
+	scanContentForTopicsFunc  func(ctx context.Context, tenantID string, content string) ([]TopicResult, error)
 }
 
 func (m *mockTopicLookup) GetByName(ctx context.Context, tenantID, name string) (TopicResult, error) {
@@ -2069,6 +2070,9 @@ func (m *mockTopicLookup) ListForContext(ctx context.Context, tenantID string, n
 }
 
 func (m *mockTopicLookup) ScanContentForTopics(ctx context.Context, tenantID string, content string) ([]TopicResult, error) {
+	if m.scanContentForTopicsFunc != nil {
+		return m.scanContentForTopicsFunc(ctx, tenantID, content)
+	}
 	return nil, nil
 }
 
@@ -2274,5 +2278,269 @@ func TestBuildContextPackage_TopicKeywordMatching(t *testing.T) {
 	}
 	if _, ok := topicsByName["DevCloud"]; !ok {
 		t.Error("DevCloud topic missing")
+	}
+}
+
+// --- BuildContext unified method tests (pf-7aa11e) ---
+
+func TestBuildContext_InvalidStage(t *testing.T) {
+	logger := logging.MustGlobal()
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, &mockContextPackageRepo{}, nil, nil, nil)
+
+	_, err := activities.BuildContext(context.Background(), "nonexistent_stage", workflows.BuildContextInput{
+		TenantID: "test-tenant",
+	}, nil, nil)
+
+	if err == nil {
+		t.Fatal("expected error for unknown stage, got nil")
+	}
+	if !strings.Contains(err.Error(), "no context config for stage") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildContext_ExtractNER_BodyScanOnly(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	// Pre-NER stage: no extraction, no resolved people/projects.
+	// Should produce glossary from body acronym scan + topics from body scan.
+	contextRepo := &mockContextPackageRepo{
+		glossaryTerms: []ContextGlossaryTerm{
+			{Term: "MTC", Definition: "Main Technical Committee"},
+		},
+	}
+
+	topicLookup := &mockTopicLookup{
+		scanContentForTopicsFunc: func(ctx context.Context, tenantID string, content string) ([]TopicResult, error) {
+			return []TopicResult{
+				{ID: 1, Name: "DevCloud", Description: "Internal testing environment"},
+			}, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, contextRepo, topicLookup, nil, nil)
+
+	cp, err := activities.BuildContext(ctx, "extract_ner", workflows.BuildContextInput{
+		TenantID: "test-tenant",
+		Subject:  "MTC meeting notes",
+		Content:  "Discussion about DevCloud usage",
+	}, nil, nil)
+
+	if err != nil {
+		t.Fatalf("BuildContext failed: %v", err)
+	}
+
+	// Should have glossary from acronym scan
+	if len(cp.GlossaryTerms) != 1 || cp.GlossaryTerms[0].Term != "MTC" {
+		t.Errorf("expected 1 glossary term (MTC), got %d: %+v", len(cp.GlossaryTerms), cp.GlossaryTerms)
+	}
+
+	// Should have topics from body scan
+	if len(cp.TopicDescriptions) != 1 || cp.TopicDescriptions[0].Name != "DevCloud" {
+		t.Errorf("expected 1 topic (DevCloud), got %d: %+v", len(cp.TopicDescriptions), cp.TopicDescriptions)
+	}
+
+	// Should NOT have risks, actions, decisions, events (not in extract_ner config)
+	if len(cp.ActiveRisks) != 0 {
+		t.Errorf("expected 0 risks for extract_ner, got %d", len(cp.ActiveRisks))
+	}
+	if len(cp.OpenActions) != 0 {
+		t.Errorf("expected 0 actions for extract_ner, got %d", len(cp.OpenActions))
+	}
+}
+
+func TestBuildContext_ExtractSemantic_BodyScanOnly(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	contextRepo := &mockContextPackageRepo{
+		glossaryTerms: []ContextGlossaryTerm{
+			{Term: "NLB", Definition: "Network Load Balancer"},
+		},
+	}
+
+	topicLookup := &mockTopicLookup{
+		scanContentForTopicsFunc: func(ctx context.Context, tenantID string, content string) ([]TopicResult, error) {
+			return []TopicResult{
+				{ID: 5, Name: "Oslo", Description: "Dedicated Linode region"},
+			}, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, contextRepo, topicLookup, nil, nil)
+
+	cp, err := activities.BuildContext(ctx, "extract_semantic", workflows.BuildContextInput{
+		TenantID: "test-tenant",
+		Subject:  "NLB config update",
+		Content:  "Oslo cluster changes",
+	}, nil, nil)
+
+	if err != nil {
+		t.Fatalf("BuildContext failed: %v", err)
+	}
+
+	if len(cp.GlossaryTerms) != 1 || cp.GlossaryTerms[0].Term != "NLB" {
+		t.Errorf("expected 1 glossary term (NLB), got %d: %+v", len(cp.GlossaryTerms), cp.GlossaryTerms)
+	}
+	if len(cp.TopicDescriptions) != 1 || cp.TopicDescriptions[0].Name != "Oslo" {
+		t.Errorf("expected 1 topic (Oslo), got %d: %+v", len(cp.TopicDescriptions), cp.TopicDescriptions)
+	}
+}
+
+func TestBuildContext_DeepAnalyze_FullContext(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	now := time.Now()
+	projectID := int64(42)
+
+	contextRepo := &mockContextPackageRepo{
+		activeRisks: []ContextAssertion{
+			{Description: "Security risk", ProjectName: "TestProject", OwnerName: "Alice"},
+		},
+		openActions: []ContextAssertion{
+			{Description: "Deploy fix", ProjectName: "TestProject", OwnerName: "Bob"},
+		},
+		recentDecisions: []ContextAssertion{
+			{Description: "Use Go", ProjectName: "TestProject", OwnerName: "Carol"},
+		},
+		productEvents: []ContextProductEvent{
+			{EventType: "release", Description: "v2.0 released", OccurredAt: now},
+		},
+		glossaryTerms: []ContextGlossaryTerm{
+			{Term: "MTC", Definition: "Main Technical Committee"},
+		},
+	}
+
+	topicLookup := &mockTopicLookup{
+		listForContextFunc: func(ctx context.Context, tenantID string, names []string) ([]TopicResult, error) {
+			return []TopicResult{
+				{ID: 10, Name: "DevCloud", Description: "Internal testing environment"},
+			}, nil
+		},
+		scanContentForTopicsFunc: func(ctx context.Context, tenantID string, content string) ([]TopicResult, error) {
+			return []TopicResult{
+				{ID: 10, Name: "DevCloud", Description: "Internal testing environment"}, // duplicate
+				{ID: 11, Name: "Oslo", Description: "Linode region"},                    // new
+			}, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, contextRepo, topicLookup, nil, nil)
+
+	resolvedPeople := []workflows.ResolvedPerson{
+		{Name: "Alice", Role: "Sender"},
+	}
+	resolvedProjects := []workflows.ResolvedProject{
+		{Name: "TestProject", ProjectID: &projectID, Source: "exact_match"},
+	}
+
+	cp, err := activities.BuildContext(ctx, "deep_analyze", workflows.BuildContextInput{
+		TenantID:       "test-tenant",
+		ContentType:    "email",
+		ConversationID: "conv-1",
+		Subject:        "MTC status update",
+		Content:        "DevCloud deployment in Oslo region",
+		Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+			Organisations: []string{"DevCloud"},
+		},
+	}, resolvedPeople, resolvedProjects)
+
+	if err != nil {
+		t.Fatalf("BuildContext failed: %v", err)
+	}
+
+	// deep_analyze should include all sections
+	if len(cp.ActiveRisks) != 1 {
+		t.Errorf("expected 1 risk, got %d", len(cp.ActiveRisks))
+	}
+	if len(cp.OpenActions) != 1 {
+		t.Errorf("expected 1 action, got %d", len(cp.OpenActions))
+	}
+	if len(cp.RecentDecisions) != 1 {
+		t.Errorf("expected 1 decision, got %d", len(cp.RecentDecisions))
+	}
+	if len(cp.ProductEvents) != 1 {
+		t.Errorf("expected 1 event, got %d", len(cp.ProductEvents))
+	}
+	if len(cp.GlossaryTerms) != 1 {
+		t.Errorf("expected 1 glossary term, got %d", len(cp.GlossaryTerms))
+	}
+
+	// Topics should be deduped: DevCloud from NER + body scan (same ID=10) + Oslo from body scan
+	if len(cp.TopicDescriptions) != 2 {
+		t.Errorf("expected 2 topic descriptions (deduped), got %d: %+v", len(cp.TopicDescriptions), cp.TopicDescriptions)
+	}
+
+	// Participants should be passed through
+	if len(cp.ParticipantContext) != 1 || cp.ParticipantContext[0].Name != "Alice" {
+		t.Errorf("expected 1 participant (Alice), got %d", len(cp.ParticipantContext))
+	}
+
+	// Token budget should be email default (2000)
+	if cp.TokenBudget != 2000 {
+		t.Errorf("expected token budget 2000, got %d", cp.TokenBudget)
+	}
+}
+
+func TestBuildContext_PreNER_NoExtraction_GlossaryMerge(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	// Verify that pre-NER stages (Extraction=nil) only use body scan, not NER terms.
+	contextRepo := &mockContextPackageRepo{
+		glossaryTerms: []ContextGlossaryTerm{
+			{Term: "API", Definition: "Application Programming Interface"},
+		},
+	}
+
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, contextRepo, nil, nil, nil)
+
+	cp, err := activities.BuildContext(ctx, "extract_ner", workflows.BuildContextInput{
+		TenantID: "test-tenant",
+		Content:  "The API needs updating",
+	}, nil, nil)
+
+	if err != nil {
+		t.Fatalf("BuildContext failed: %v", err)
+	}
+
+	if len(cp.GlossaryTerms) != 1 || cp.GlossaryTerms[0].Term != "API" {
+		t.Errorf("expected 1 glossary term (API from body scan), got %d: %+v", len(cp.GlossaryTerms), cp.GlossaryTerms)
+	}
+}
+
+func TestBuildContext_DeepAnalyze_MergesNERAndBodyGlossary(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.MustGlobal()
+
+	// deep_analyze with Extraction should merge NER terms + body acronyms.
+	contextRepo := &mockContextPackageRepo{
+		glossaryTerms: []ContextGlossaryTerm{
+			{Term: "MTC", Definition: "Main Technical Committee"},
+			{Term: "API", Definition: "Application Programming Interface"},
+		},
+	}
+
+	activities := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, contextRepo, nil, nil, nil)
+
+	cp, err := activities.BuildContext(ctx, "deep_analyze", workflows.BuildContextInput{
+		TenantID:    "test-tenant",
+		ContentType: "email",
+		Subject:     "API update",
+		Content:     "Check the MTC guidelines",
+		Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+			Projects: []string{"MTC"}, // NER extracted MTC as a project acronym
+		},
+	}, nil, nil)
+
+	if err != nil {
+		t.Fatalf("BuildContext failed: %v", err)
+	}
+
+	// Should get both terms: MTC from NER + API from body scan
+	if len(cp.GlossaryTerms) != 2 {
+		t.Errorf("expected 2 glossary terms (merged NER + body), got %d: %+v", len(cp.GlossaryTerms), cp.GlossaryTerms)
 	}
 }

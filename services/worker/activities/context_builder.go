@@ -3,6 +3,7 @@ package activities
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -94,6 +95,10 @@ func NewContextBuilderActivities(
 
 // BuildContextPackage builds a context package from extraction output.
 // This is Stage 3: resolve entities and assemble context for Stage 4.
+//
+// Deprecated: use BuildContext with stage="deep_analyze" for context assembly.
+// Kept as a shim for running Temporal workflows during deploy (pf-7aa11e).
+// Entity resolution (people, projects, org reclassification) stays here.
 func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, input workflows.BuildContextInput) (*workflows.BuildContextOutput, error) {
 	// Set trace_id in context for log correlation
 	if input.ContentID != "" {
@@ -121,10 +126,10 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 			ResolvedProjects: []workflows.ResolvedProject{},
 			UnresolvedTerms:  []string{},
 			ContextPackage: &workflows.ContextPackage{
-				ActiveRisks:     []workflows.ContextAssertion{},
-				OpenActions:     []workflows.ContextAssertion{},
-				RecentDecisions: []workflows.ContextAssertion{},
-				ProductEvents:   []workflows.ContextProductEvent{},
+				ActiveRisks:       []workflows.ContextAssertion{},
+				OpenActions:       []workflows.ContextAssertion{},
+				RecentDecisions:   []workflows.ContextAssertion{},
+				ProductEvents:     []workflows.ContextProductEvent{},
 				GlossaryTerms:     []workflows.ContextGlossaryTerm{},
 				TopicDescriptions: []workflows.ContextTopicDescription{},
 			},
@@ -199,9 +204,9 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 		logging.F("resolved", len(resolvedProjects)),
 		logging.F("unresolved", len(unresolvedProjects)))
 
-	// Step 3: Build context package
+	// Step 3: Build context package via unified BuildContext (pf-7aa11e).
 	recordHeartbeat(ctx, "building context package")
-	contextPackage, err := a.buildContextPackage(ctx, input, resolvedPeople, resolvedProjects)
+	contextPackage, err := a.BuildContext(ctx, "deep_analyze", input, resolvedPeople, resolvedProjects)
 	if err != nil {
 		pe := perrors.ClassifyError(err, "resolve")
 		logger.Error("Failed to build context package", logging.Err(pe))
@@ -228,17 +233,17 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 
 		// Capture IO data for code-only stage
 		inputJSON, _ := json.Marshal(map[string]interface{}{
-			"source_id": input.SourceID,
-			"content_type": input.ContentType,
+			"source_id":      input.SourceID,
+			"content_type":   input.ContentType,
 			"has_extraction": input.Extraction != nil,
-			"people_count": len(input.Extraction.People),
+			"people_count":   len(input.Extraction.People),
 			"projects_count": len(input.Extraction.Projects),
 		})
 		outputJSON, _ := json.Marshal(map[string]interface{}{
-			"resolved_people": len(resolvedPeople),
+			"resolved_people":   len(resolvedPeople),
 			"resolved_projects": len(resolvedProjects),
-			"tokens_used": contextPackage.TotalTokensUsed,
-			"token_budget": contextPackage.TokenBudget,
+			"tokens_used":       contextPackage.TotalTokensUsed,
+			"token_budget":      contextPackage.TokenBudget,
 		})
 		parsedJSON, _ := json.Marshal(output)
 
@@ -772,17 +777,29 @@ func (a *ContextBuilderActivities) reclassifyOrganisations(ctx context.Context, 
 	extraction.Organisations = remainingOrgs
 }
 
-// buildContextPackage assembles the context package for Stage 4.
-func (a *ContextBuilderActivities) buildContextPackage(
+// BuildContext is the unified entry point for assembling background context for any
+// pipeline stage (pf-7aa11e). Pre-NER stages pass Extraction=nil and gather functions
+// degrade to body-scan only. Post-NER stages get full context with NER candidates merged.
+//
+// resolvedPeople and resolvedProjects are only populated for post-NER stages; pre-NER
+// callers pass nil/empty slices.
+func (a *ContextBuilderActivities) BuildContext(
 	ctx context.Context,
+	stage string,
 	input workflows.BuildContextInput,
 	resolvedPeople []workflows.ResolvedPerson,
 	resolvedProjects []workflows.ResolvedProject,
 ) (*workflows.ContextPackage, error) {
-	cfg := DefaultConfigs()["deep_analyze"]
+	cfg, ok := DefaultConfigs()[stage]
+	if !ok {
+		return nil, fmt.Errorf("no context config for stage: %s", stage)
+	}
 
-	// Determine token budget based on content type (overrides config default)
-	tokenBudget := a.getTokenBudget(input.ContentType)
+	// Determine token budget: content-type override for deep_analyze, config default otherwise.
+	tokenBudget := cfg.TokenBudget
+	if stage == "deep_analyze" {
+		tokenBudget = a.getTokenBudget(input.ContentType)
+	}
 
 	cp := &workflows.ContextPackage{
 		TokenBudget:        tokenBudget,
@@ -800,7 +817,7 @@ func (a *ContextBuilderActivities) buildContextPackage(
 		return cp, nil
 	}
 
-	// Collect resolved project IDs
+	// Collect resolved project IDs (empty for pre-NER stages).
 	projectIDs := make([]int64, 0, len(resolvedProjects))
 	for _, rp := range resolvedProjects {
 		if rp.ProjectID != nil {
@@ -808,121 +825,90 @@ func (a *ContextBuilderActivities) buildContextPackage(
 		}
 	}
 
-	// Track tokens as we add sections
 	tokensUsed := 0
 
-	// 1. Participant context (always include, ~15 tokens per participant)
+	// Participant context (always include, ~15 tokens per participant).
 	participantTokens := len(resolvedPeople) * 15
 	tokensUsed += participantTokens
 
-	// 2. Active risks (~25 tokens each)
-	if cfg.HasSection(SectionRisks) && len(projectIDs) > 0 && tokensUsed+250 <= tokenBudget {
-		risks, err := a.contextRepo.GetActiveRisks(ctx, projectIDs, cfg.QueryLimit(SectionRisks, 10))
-		if err == nil {
-			riskTokens := len(risks) * 25
-			if tokensUsed+riskTokens <= tokenBudget {
-				cp.ActiveRisks = toWorkflowAssertions(risks)
-				tokensUsed += riskTokens
-			}
-		}
-	}
-
-	// 3. Open actions (~25 tokens each)
-	if cfg.HasSection(SectionActions) && len(projectIDs) > 0 && tokensUsed+250 <= tokenBudget {
-		actions, err := a.contextRepo.GetOpenActions(ctx, input.ConversationID, projectIDs, cfg.QueryLimit(SectionActions, 10))
-		if err == nil {
-			actionTokens := len(actions) * 25
-			if tokensUsed+actionTokens <= tokenBudget {
-				cp.OpenActions = toWorkflowAssertions(actions)
-				tokensUsed += actionTokens
-			}
-		}
-	}
-
-	// 4. Recent decisions (~25 tokens each)
-	if cfg.HasSection(SectionDecisions) && len(projectIDs) > 0 && tokensUsed+125 <= tokenBudget {
-		decisions, err := a.contextRepo.GetRecentDecisions(ctx, projectIDs, cfg.Recency(SectionDecisions, 60), cfg.QueryLimit(SectionDecisions, 5))
-		if err == nil {
-			decisionTokens := len(decisions) * 25
-			if tokensUsed+decisionTokens <= tokenBudget {
-				cp.RecentDecisions = toWorkflowAssertions(decisions)
-				tokensUsed += decisionTokens
-			}
-		}
-	}
-
-	// 5. Product events (~30 tokens each)
-	if cfg.HasSection(SectionEvents) && len(projectIDs) > 0 && tokensUsed+300 <= tokenBudget {
-		events, err := a.contextRepo.GetProductEvents(ctx, projectIDs, cfg.Recency(SectionEvents, 90), cfg.QueryLimit(SectionEvents, 10))
-		if err == nil {
-			eventTokens := len(events) * 30
-			if tokensUsed+eventTokens <= tokenBudget {
-				cp.ProductEvents = toWorkflowEvents(events)
-				tokensUsed += eventTokens
-			}
-		}
-	}
-
-	// 6. Glossary terms (~20 tokens each)
-	if cfg.HasSection(SectionGlossary) && input.Extraction != nil && tokensUsed+400 <= tokenBudget {
-		// Collect terms from extraction
-		terms := a.collectGlossaryTerms(input.Extraction)
-		if len(terms) > 0 {
-			glossary, err := a.contextRepo.GetGlossaryTerms(ctx, input.TenantID, terms, projectIDs, cfg.QueryLimit(SectionGlossary, 20))
-			if err == nil {
-				glossaryTokens := len(glossary) * 20
-				if tokensUsed+glossaryTokens <= tokenBudget {
-					cp.GlossaryTerms = toWorkflowGlossary(glossary)
-					tokensUsed += glossaryTokens
+	// Iterate configured sections.
+	for _, section := range cfg.Sections {
+		switch section {
+		case SectionRisks:
+			if len(projectIDs) > 0 && tokensUsed+250 <= tokenBudget {
+				risks, err := a.contextRepo.GetActiveRisks(ctx, projectIDs, cfg.QueryLimit(SectionRisks, 10))
+				if err == nil {
+					riskTokens := len(risks) * 25
+					if tokensUsed+riskTokens <= tokenBudget {
+						cp.ActiveRisks = toWorkflowAssertions(risks)
+						tokensUsed += riskTokens
+					}
 				}
 			}
-		}
-	}
 
-	// 7. Topic descriptions (~30 tokens each)
-	// Merge NER-based candidates with body-text scanning (pf-cc7657).
-	// NER candidates catch topics from extracted project/org names.
-	// Body scanning catches topics mentioned in text but missed by NER (e.g. DevCloud).
-	if cfg.HasSection(SectionTopics) && a.topicRepo != nil && tokensUsed+300 <= tokenBudget {
-		// NER-based candidates (existing path)
-		topicNames := a.collectTopicCandidates(input.Extraction, resolvedProjects)
-		var allTopicResults []TopicResult
-		if len(topicNames) > 0 {
-			nerTopics, err := a.topicRepo.ListForContext(ctx, input.TenantID, topicNames)
-			if err == nil {
-				allTopicResults = append(allTopicResults, nerTopics...)
-			}
-		}
-
-		// Body-text scanning (pf-cc7657)
-		if input.Content != "" {
-			fullText := input.Subject + "\n" + input.Content
-			bodyTopics, err := a.topicRepo.ScanContentForTopics(ctx, input.TenantID, fullText)
-			if err == nil {
-				// Merge, dedup by topic ID
-				seen := make(map[int64]bool)
-				for _, t := range allTopicResults {
-					seen[t.ID] = true
+		case SectionActions:
+			if len(projectIDs) > 0 && tokensUsed+250 <= tokenBudget {
+				actions, err := a.contextRepo.GetOpenActions(ctx, input.ConversationID, projectIDs, cfg.QueryLimit(SectionActions, 10))
+				if err == nil {
+					actionTokens := len(actions) * 25
+					if tokensUsed+actionTokens <= tokenBudget {
+						cp.OpenActions = toWorkflowAssertions(actions)
+						tokensUsed += actionTokens
+					}
 				}
-				for _, t := range bodyTopics {
-					if !seen[t.ID] {
-						allTopicResults = append(allTopicResults, t)
-						seen[t.ID] = true
+			}
+
+		case SectionDecisions:
+			if len(projectIDs) > 0 && tokensUsed+125 <= tokenBudget {
+				decisions, err := a.contextRepo.GetRecentDecisions(ctx, projectIDs, cfg.Recency(SectionDecisions, 60), cfg.QueryLimit(SectionDecisions, 5))
+				if err == nil {
+					decisionTokens := len(decisions) * 25
+					if tokensUsed+decisionTokens <= tokenBudget {
+						cp.RecentDecisions = toWorkflowAssertions(decisions)
+						tokensUsed += decisionTokens
+					}
+				}
+			}
+
+		case SectionEvents:
+			if len(projectIDs) > 0 && tokensUsed+300 <= tokenBudget {
+				events, err := a.contextRepo.GetProductEvents(ctx, projectIDs, cfg.Recency(SectionEvents, 90), cfg.QueryLimit(SectionEvents, 10))
+				if err == nil {
+					eventTokens := len(events) * 30
+					if tokensUsed+eventTokens <= tokenBudget {
+						cp.ProductEvents = toWorkflowEvents(events)
+						tokensUsed += eventTokens
+					}
+				}
+			}
+
+		case SectionGlossary:
+			if tokensUsed+400 <= tokenBudget {
+				terms := a.gatherGlossary(ctx, input, projectIDs, cfg)
+				if len(terms) > 0 {
+					glossaryTokens := len(terms) * 20
+					if tokensUsed+glossaryTokens <= tokenBudget {
+						cp.GlossaryTerms = toWorkflowGlossary(terms)
+						tokensUsed += glossaryTokens
+					}
+				}
+			}
+
+		case SectionTopics:
+			if a.topicRepo != nil && tokensUsed+300 <= tokenBudget {
+				topics := a.gatherTopics(ctx, input, resolvedProjects, cfg)
+				if len(topics) > 0 {
+					topicTokens := len(topics) * 30
+					if tokensUsed+topicTokens <= tokenBudget {
+						cp.TopicDescriptions = toWorkflowTopics(topics)
+						tokensUsed += topicTokens
 					}
 				}
 			}
 		}
-
-		if len(allTopicResults) > 0 {
-			topicTokens := len(allTopicResults) * 30
-			if tokensUsed+topicTokens <= tokenBudget {
-				cp.TopicDescriptions = toWorkflowTopics(allTopicResults)
-				tokensUsed += topicTokens
-			}
-		}
 	}
 
-	// Apply token budget enforcement: if over budget, truncate sections
+	// Apply token budget enforcement: if over budget, truncate sections.
 	if tokensUsed > tokenBudget {
 		tokensUsed = a.applyTokenBudget(cp, tokenBudget)
 	}
@@ -931,63 +917,106 @@ func (a *ContextBuilderActivities) buildContextPackage(
 	return cp, nil
 }
 
-// BuildExtractionContext builds a lightweight context (glossary + topics only)
-// for injection into the extraction stage (pf-2f8c70). Unlike BuildContextPackage,
-// this scans raw text for acronyms and topic candidates instead of using LLM
-// extraction output. Skips open actions, risks, decisions, and events.
-func (a *ContextBuilderActivities) BuildExtractionContext(ctx context.Context, input workflows.BuildExtractionContextInput) (*workflows.BuildExtractionContextOutput, error) {
-	cfg := DefaultConfigs()["extract_ner"]
+// gatherGlossary collects glossary terms from body-text scanning and (if available)
+// NER extraction output, then queries the database for matching definitions.
+// Pre-NER stages get body-scan only; post-NER stages get both sources merged.
+func (a *ContextBuilderActivities) gatherGlossary(ctx context.Context, input workflows.BuildContextInput, projectIDs []int64, cfg ContextConfig) []ContextGlossaryTerm {
+	// Always: scan raw text for acronyms.
+	allTerms := make(map[string]bool)
+	for _, t := range scanForAcronyms(input.Subject + " " + input.Content) {
+		allTerms[t] = true
+	}
 
+	// If NER extraction is available, also collect terms from extracted entities.
+	if input.Extraction != nil {
+		for _, t := range a.collectGlossaryTerms(input.Extraction) {
+			allTerms[t] = true
+		}
+	}
+
+	if len(allTerms) == 0 {
+		return nil
+	}
+
+	terms := make([]string, 0, len(allTerms))
+	for t := range allTerms {
+		terms = append(terms, t)
+	}
+
+	glossary, err := a.contextRepo.GetGlossaryTerms(ctx, input.TenantID, terms, projectIDs, cfg.QueryLimit(SectionGlossary, 20))
+	if err != nil {
+		return nil
+	}
+	return glossary
+}
+
+// gatherTopics collects topic candidates from body-text scanning and (if available)
+// NER extraction output, then queries the database for matching descriptions.
+// Pre-NER stages get body-scan only; post-NER stages get both sources merged and deduped.
+func (a *ContextBuilderActivities) gatherTopics(ctx context.Context, input workflows.BuildContextInput, resolvedProjects []workflows.ResolvedProject, cfg ContextConfig) []TopicResult {
+	var allTopicResults []TopicResult
+
+	// If NER extraction is available, collect candidates from extracted project/org names.
+	if input.Extraction != nil {
+		topicNames := a.collectTopicCandidates(input.Extraction, resolvedProjects)
+		if len(topicNames) > 0 {
+			nerTopics, err := a.topicRepo.ListForContext(ctx, input.TenantID, topicNames)
+			if err == nil {
+				allTopicResults = append(allTopicResults, nerTopics...)
+			}
+		}
+	}
+
+	// Always: scan full text (subject + body) for topic names and keywords.
+	if input.Content != "" || input.Subject != "" {
+		fullText := input.Subject + "\n" + input.Content
+		bodyTopics, err := a.topicRepo.ScanContentForTopics(ctx, input.TenantID, fullText)
+		if err == nil {
+			// Merge, dedup by topic ID.
+			seen := make(map[int64]bool)
+			for _, t := range allTopicResults {
+				seen[t.ID] = true
+			}
+			for _, t := range bodyTopics {
+				if !seen[t.ID] {
+					allTopicResults = append(allTopicResults, t)
+					seen[t.ID] = true
+				}
+			}
+		}
+	}
+
+	return allTopicResults
+}
+
+// BuildExtractionContext builds a lightweight context (glossary + topics only)
+// for injection into the extraction stage.
+//
+// Deprecated: use BuildContext with stage="extract_ner" or "extract_semantic".
+// Kept as a shim for running Temporal workflows during deploy (pf-7aa11e).
+func (a *ContextBuilderActivities) BuildExtractionContext(ctx context.Context, input workflows.BuildExtractionContextInput) (*workflows.BuildExtractionContextOutput, error) {
 	logger := a.logger.With(
 		logging.F("activity", "BuildExtractionContext"),
 		logging.F("tenant_id", input.TenantID),
 	)
 
+	cp, err := a.BuildContext(ctx, "extract_ner", workflows.BuildContextInput{
+		TenantID: input.TenantID,
+		Subject:  input.Subject,
+		Content:  input.Content,
+	}, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
 	output := &workflows.BuildExtractionContextOutput{}
-
-	if a.contextRepo == nil {
+	if len(cp.GlossaryTerms) == 0 && len(cp.TopicDescriptions) == 0 {
 		return output, nil
 	}
 
-	// Scan raw text for potential acronyms (same heuristic as collectGlossaryTerms).
-	var glossaryTerms []workflows.ContextGlossaryTerm
-	if cfg.HasSection(SectionGlossary) {
-		terms := scanForAcronyms(input.Subject + " " + input.Content)
-		if len(terms) > 0 {
-			glossary, err := a.contextRepo.GetGlossaryTerms(ctx, input.TenantID, terms, nil, cfg.QueryLimit(SectionGlossary, 20))
-			if err != nil {
-				logger.Warn("failed to fetch glossary terms for extraction context", logging.Err(err))
-			} else {
-				glossaryTerms = toWorkflowGlossary(glossary)
-			}
-		}
-	}
-
-	// Scan full text (subject + body) for topic names and keywords (pf-cc7657).
-	// Previously only scanned subject words via ListForContext, missing body mentions.
-	var topicDescs []workflows.ContextTopicDescription
-	if cfg.HasSection(SectionTopics) && a.topicRepo != nil {
-		fullText := input.Subject + "\n" + input.Content
-		topicResults, err := a.topicRepo.ScanContentForTopics(ctx, input.TenantID, fullText)
-		if err != nil {
-			logger.Warn("failed to scan content for topics", logging.Err(err))
-		} else {
-			topicDescs = toWorkflowTopics(topicResults)
-		}
-	}
-
-	if len(glossaryTerms) == 0 && len(topicDescs) == 0 {
-		return output, nil
-	}
-
-	// Build a context package with only the configured sections, then format.
-	cp := &workflows.ContextPackage{
-		GlossaryTerms:     glossaryTerms,
-		TopicDescriptions: topicDescs,
-	}
 	output.BackgroundContext = cp.FormatForPrompt()
-	output.GlossaryCount = len(glossaryTerms)
-	output.TopicCount = len(topicDescs)
+	output.GlossaryCount = len(cp.GlossaryTerms)
+	output.TopicCount = len(cp.TopicDescriptions)
 
 	logger.Info("built extraction context",
 		logging.F("glossary_count", output.GlossaryCount),
