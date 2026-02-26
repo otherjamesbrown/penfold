@@ -985,7 +985,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Create a Langfuse trace for this pipeline run (best-effort, non-blocking).
 	// Tenant is identified via the Environment field (TenantName), not a tag.
-	langfuseTraceTags := []string{input.ContentID}
+	langfuseTraceTags := []string{"cont:" + input.ContentID, "type:" + input.ContentType}
 	ctxLangfuse := workflow.WithActivityOptions(ctx, fastOpts)
 	langfuseErr := workflow.ExecuteActivity(ctxLangfuse, pkgtemporal.ActivityCreateLangfuseTrace, CreateLangfuseTraceInput{
 		TraceID:      langfuseTraceID,
@@ -1365,7 +1365,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			pkgtemporal.ActivityUpdateLangfuseTraceTags,
 			UpdateLangfuseTraceTagsInput{
 				TraceID: langfuseTraceID,
-				Tags:    []string{input.ContentID, "pipeline:" + pipelineName},
+				Tags:    []string{"cont:" + input.ContentID, "type:" + input.ContentType, "pipeline:" + pipelineName},
 				Name:    resolvedTraceName,
 			},
 		).Get(ctx, nil)
@@ -1797,7 +1797,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			)
 
 			// Update Langfuse trace tags with conversation_id (best-effort, non-blocking).
-			updatedTags := []string{input.ContentID, "conv:" + convOutput.ConversationID}
+			updatedTags := []string{"cont:" + input.ContentID, "type:" + input.ContentType, "conv:" + convOutput.ConversationID}
 			_ = workflow.ExecuteActivity(
 				workflow.WithActivityOptions(ctx, fastOpts),
 				pkgtemporal.ActivityUpdateLangfuseTraceTags,
