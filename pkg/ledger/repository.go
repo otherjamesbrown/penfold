@@ -259,7 +259,7 @@ func (r *Repository) ListSessions(ctx context.Context, filter SessionFilter) ([]
 			MIN(created_at) AS first_entry,
 			MAX(created_at) AS last_entry,
 			ARRAY_AGG(DISTINCT entry_type) AS entry_types,
-			ARRAY(SELECT DISTINCT x FROM unnest(ARRAY_AGG(labels)) AS x WHERE x IS NOT NULL) AS all_labels,
+			ARRAY(SELECT DISTINCT x FROM unnest(ARRAY_AGG(labels) FILTER (WHERE cardinality(labels) > 0)) AS x WHERE x IS NOT NULL) AS all_labels,
 			(
 				SELECT title
 				FROM session_ledger_entries e2
@@ -318,7 +318,7 @@ func (r *Repository) GetSession(ctx context.Context, tenantID, sessionID string)
 			MIN(created_at) AS first_entry,
 			MAX(created_at) AS last_entry,
 			ARRAY_AGG(DISTINCT entry_type) AS entry_types,
-			ARRAY(SELECT DISTINCT x FROM unnest(ARRAY_AGG(labels)) AS x WHERE x IS NOT NULL) AS all_labels,
+			ARRAY(SELECT DISTINCT x FROM unnest(ARRAY_AGG(labels) FILTER (WHERE cardinality(labels) > 0)) AS x WHERE x IS NOT NULL) AS all_labels,
 			(
 				SELECT title
 				FROM session_ledger_entries e2

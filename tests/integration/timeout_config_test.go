@@ -24,7 +24,7 @@ func TestTimeoutConfig_LoadFromDB(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a timeout.Config with the real DB pool
-	cfg := timeout.New(db.Pool)
+	cfg := timeout.New(db.Pool, testTenantID)
 
 	// Refresh to load from DB
 	err := cfg.Refresh(ctx)
@@ -92,7 +92,7 @@ func TestTimeoutConfig_SetAndRefresh(t *testing.T) {
 	})
 
 	// Create Config and load
-	cfg := timeout.New(db.Pool)
+	cfg := timeout.New(db.Pool, testTenantID)
 	err = cfg.Refresh(ctx)
 	require.NoError(t, err)
 
@@ -101,14 +101,14 @@ func TestTimeoutConfig_SetAndRefresh(t *testing.T) {
 
 	// Set a new value through Config.Set()
 	newVal := 90 * time.Second
-	err = cfg.Set(ctx, testKey, newVal, "integration_test")
+	err = cfg.Set(ctx, testKey, newVal)
 	require.NoError(t, err)
 
 	// Verify in-memory value updated
 	assert.Equal(t, newVal, cfg.Get(testKey))
 
 	// Create a fresh Config and Refresh to verify DB persistence
-	cfg2 := timeout.New(db.Pool)
+	cfg2 := timeout.New(db.Pool, testTenantID)
 	err = cfg2.Refresh(ctx)
 	require.NoError(t, err)
 
@@ -138,7 +138,7 @@ func TestTimeoutConfig_OnChangeCallback(t *testing.T) {
 	})
 
 	// Create Config and load initial values
-	cfg := timeout.New(db.Pool)
+	cfg := timeout.New(db.Pool, testTenantID)
 	err = cfg.Refresh(ctx)
 	require.NoError(t, err)
 	origDuration := cfg.Get(testKey)
@@ -178,10 +178,10 @@ func TestTimeoutConfig_DefaultsFallback(t *testing.T) {
 	ctx := context.Background()
 
 	// Create Config with nil DB (defaults only)
-	cfgDefaults := timeout.New(nil)
+	cfgDefaults := timeout.New(nil, testTenantID)
 
 	// Create Config with real DB
-	cfgDB := timeout.New(db.Pool)
+	cfgDB := timeout.New(db.Pool, testTenantID)
 	err := cfgDB.Refresh(ctx)
 	require.NoError(t, err)
 

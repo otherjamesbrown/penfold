@@ -117,6 +117,54 @@ func SetupTestDB(t *testing.T) *TestDB {
 	return testDB
 }
 
+// SetupTestDBNoMigrations creates a connection to the test database without running
+// migrations. Use this when the database schema is already up to date (e.g., when
+// testing against a production DB with tenant isolation) and migration 088 is broken.
+func SetupTestDBNoMigrations(t *testing.T) *TestDB {
+	t.Helper()
+
+	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
+	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
+	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
+	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold")
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("failed to get home directory: %v", err)
+	}
+	sslCert := filepath.Join(homeDir, ".postgresql", "postgresql.crt")
+	sslKey := filepath.Join(homeDir, ".postgresql", "postgresql.key")
+	sslRootCert := filepath.Join(homeDir, ".postgresql", "root.crt")
+
+	if _, err := os.Stat(sslCert); os.IsNotExist(err) {
+		t.Skip("SSL certs not found in ~/.postgresql/ - skipping integration test")
+	}
+
+	connStr := fmt.Sprintf(
+		"postgres://%s@%s:%s/%s?sslmode=verify-full&sslcert=%s&sslkey=%s&sslrootcert=%s",
+		user, host, port, dbName, sslCert, sslKey, sslRootCert,
+	)
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, connStr)
+	require.NoError(t, err, "failed to connect to database")
+
+	err = pool.Ping(ctx)
+	require.NoError(t, err, "failed to ping database")
+
+	testDB := &TestDB{
+		Pool:     pool,
+		Name:     dbName,
+		TenantID: IntegrationTestTenantID,
+	}
+
+	t.Cleanup(func() {
+		pool.Close()
+	})
+
+	return testDB
+}
+
 // CleanupTestTenant deletes all test data from all tenant-scoped tables.
 // Deletes data for both IntegrationTestTenantID and DefaultTestTenantID.
 // This preserves production tenants' data in the shared database.
