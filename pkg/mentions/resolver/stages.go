@@ -9,22 +9,62 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 )
+
+// PromptStore retrieves active prompts by stage. Nil-safe — caller checks nil.
+// Version 0 means "return the active prompt"; version > 0 returns a specific version.
+type PromptStore interface {
+	GetPromptByStage(ctx context.Context, stage string, version int) (*pipeline.PromptTemplate, error)
+}
 
 // StageExecutor executes resolution stages.
 type StageExecutor struct {
-	provider LLMProvider
-	config   Config
-	prompts  *PromptTemplates
+	provider    LLMProvider
+	config      Config
+	prompts     *PromptTemplates
+	promptStore PromptStore
 }
 
 // NewStageExecutor creates a new stage executor.
-func NewStageExecutor(provider LLMProvider, config Config) *StageExecutor {
+func NewStageExecutor(provider LLMProvider, config Config, promptStore PromptStore) *StageExecutor {
 	return &StageExecutor{
-		provider: provider,
-		config:   config,
-		prompts:  DefaultPromptTemplates(),
+		provider:    provider,
+		config:      config,
+		prompts:     DefaultPromptTemplates(),
+		promptStore: promptStore,
 	}
+}
+
+// getPrompt retrieves a prompt from the DB store, falling back to the hardcoded default.
+func (e *StageExecutor) getPrompt(ctx context.Context, stage, hardcoded string) (string, int32) {
+	if e.promptStore == nil {
+		return hardcoded, 0
+	}
+	pt, err := e.promptStore.GetPromptByStage(ctx, stage, 0)
+	if err != nil {
+		slog.Warn("mention resolver prompt store lookup failed, using hardcoded fallback",
+			"stage", stage, "error", err)
+		return hardcoded, 0
+	}
+	if pt == nil {
+		return hardcoded, 0
+	}
+	return pt.Content, int32(pt.Version)
+}
+
+// renderTemplateString parses and renders a Go text/template string with the given data.
+func (e *StageExecutor) renderTemplateString(name, tmplStr string, data interface{}) (string, error) {
+	tmpl, err := template.New(name).Parse(tmplStr)
+	if err != nil {
+		return "", fmt.Errorf("parse template %s: %w", name, err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // ExecuteStage1 extracts and understands mentions from content.
@@ -44,14 +84,17 @@ func (e *StageExecutor) ExecuteStage1(ctx context.Context, batch ResolutionBatch
 		promptData.Date = batch.Metadata.Date.Format("2006-01-02")
 	}
 
-	prompt, err := e.renderTemplate("understanding", promptData)
+	systemPrompt, _ := e.getPrompt(ctx, "mention_understanding_system", understandingSystemPrompt)
+	userTmplStr, _ := e.getPrompt(ctx, "mention_understanding_user", understandingPromptTemplate)
+
+	prompt, err := e.renderTemplateString("understanding", userTmplStr, promptData)
 	if err != nil {
 		return nil, fmt.Errorf("render stage 1 prompt: %w", err)
 	}
 
 	var result Stage1Understanding
 	req := CompletionRequest{
-		SystemPrompt: understandingSystemPrompt,
+		SystemPrompt: systemPrompt,
 		Prompt:       prompt,
 		JSONMode:     true,
 		TraceID:      traceID,
@@ -77,14 +120,17 @@ func (e *StageExecutor) ExecuteStage2(ctx context.Context, understanding *Stage1
 		FullContent: batch.ContentText,
 	}
 
-	prompt, err := e.renderTemplate("cross_mention", promptData)
+	systemPrompt, _ := e.getPrompt(ctx, "mention_cross_mention_system", crossMentionSystemPrompt)
+	userTmplStr, _ := e.getPrompt(ctx, "mention_cross_mention_user", crossMentionPromptTemplate)
+
+	prompt, err := e.renderTemplateString("cross_mention", userTmplStr, promptData)
 	if err != nil {
 		return nil, fmt.Errorf("render stage 2 prompt: %w", err)
 	}
 
 	var result Stage2CrossMention
 	req := CompletionRequest{
-		SystemPrompt: crossMentionSystemPrompt,
+		SystemPrompt: systemPrompt,
 		Prompt:       prompt,
 		JSONMode:     true,
 		TraceID:      traceID,
@@ -117,13 +163,16 @@ func (e *StageExecutor) ExecuteStage3(
 		Candidates:    candidates,
 	}
 
-	prompt, err := e.renderTemplate("matching", promptData)
+	systemPrompt, _ := e.getPrompt(ctx, "mention_matching_system", matchingSystemPrompt)
+	userTmplStr, _ := e.getPrompt(ctx, "mention_matching_user", matchingPromptTemplate)
+
+	prompt, err := e.renderTemplateString("matching", userTmplStr, promptData)
 	if err != nil {
 		return nil, fmt.Errorf("render stage 3 prompt: %w", err)
 	}
 
 	req := CompletionRequest{
-		SystemPrompt: matchingSystemPrompt,
+		SystemPrompt: systemPrompt,
 		Prompt:       prompt,
 		JSONMode:     true,
 		TraceID:      traceID,
@@ -162,14 +211,17 @@ func (e *StageExecutor) ExecuteStage4(
 		Challenge:   fmt.Sprintf("You resolved '%s' to %s. Verify this is correct by looking for contradictory evidence.", resolution.MentionText, resolution.ResolvedTo.EntityName),
 	}
 
-	prompt, err := e.renderTemplate("verification", promptData)
+	systemPrompt, _ := e.getPrompt(ctx, "mention_verification_system", verificationSystemPrompt)
+	userTmplStr, _ := e.getPrompt(ctx, "mention_verification_user", verificationPromptTemplate)
+
+	prompt, err := e.renderTemplateString("verification", userTmplStr, promptData)
 	if err != nil {
 		return nil, fmt.Errorf("render stage 4 prompt: %w", err)
 	}
 
 	var result Stage4Verification
 	req := CompletionRequest{
-		SystemPrompt: verificationSystemPrompt,
+		SystemPrompt: systemPrompt,
 		Prompt:       prompt,
 		JSONMode:     true,
 		TraceID:      traceID,

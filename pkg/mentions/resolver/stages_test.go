@@ -60,7 +60,7 @@ func TestExecuteStage3_EntityIDAsNameString(t *testing.T) {
 		}, nil)
 
 	// Create executor with the AI provider
-	executor := NewStageExecutor(provider, DefaultConfig())
+	executor := NewStageExecutor(provider, DefaultConfig(), nil)
 
 	// Prepare test data
 	understanding := &Stage1Understanding{
@@ -150,7 +150,7 @@ func TestExecuteStage3_EntityIDAsInteger(t *testing.T) {
 		}, nil)
 
 	// Create executor with the AI provider
-	executor := NewStageExecutor(provider, DefaultConfig())
+	executor := NewStageExecutor(provider, DefaultConfig(), nil)
 
 	// Prepare test data
 	understanding := &Stage1Understanding{
@@ -238,7 +238,7 @@ func TestExecuteStage3_EntityIDAsNumericString(t *testing.T) {
 		}, nil)
 
 	// Create executor with the AI provider
-	executor := NewStageExecutor(provider, DefaultConfig())
+	executor := NewStageExecutor(provider, DefaultConfig(), nil)
 
 	// Prepare test data
 	understanding := &Stage1Understanding{
@@ -322,7 +322,7 @@ func TestExecuteStage3_EntityIDAsUnmatchedNameString(t *testing.T) {
 		}, nil)
 
 	// Create executor with the AI provider
-	executor := NewStageExecutor(provider, DefaultConfig())
+	executor := NewStageExecutor(provider, DefaultConfig(), nil)
 
 	// Prepare test data - only has "John Smith" as candidate, not "Jane Doe"
 	understanding := &Stage1Understanding{
@@ -433,7 +433,7 @@ func TestExecuteStage3_MultipleEntityIDsAsNameStrings(t *testing.T) {
 		}, nil)
 
 	// Create executor with the AI provider
-	executor := NewStageExecutor(provider, DefaultConfig())
+	executor := NewStageExecutor(provider, DefaultConfig(), nil)
 
 	// Prepare test data with multiple mentions
 	understanding := &Stage1Understanding{
@@ -566,7 +566,7 @@ func TestExecuteStage3_WithoutFallback_WouldFail(t *testing.T) {
 			ModelUsed: "gemini-2.0-flash",
 		}, nil)
 
-	executor := NewStageExecutor(provider, DefaultConfig())
+	executor := NewStageExecutor(provider, DefaultConfig(), nil)
 
 	understanding := &Stage1Understanding{
 		Mentions: []MentionUnderstanding{
