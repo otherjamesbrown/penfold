@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
+	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 )
 
 // TestGetStageConfig_NilDB verifies that a nil DB returns Unavailable error.
@@ -161,6 +162,87 @@ func TestGetStageConfig_LLMParamsFields(t *testing.T) {
 		assert.Nil(t, entry.Temperature)
 		assert.Nil(t, entry.MaxTokens)
 		assert.Nil(t, entry.MaxRetries)
+	})
+}
+
+// TestGetStageConfig_TenantIDField verifies that GetStageConfigRequest accepts
+// a tenant_id field for tenant-aware stage config resolution (pf-4c2203).
+func TestGetStageConfig_TenantIDField(t *testing.T) {
+	req := &pipelinev1.GetStageConfigRequest{
+		Stage:    "extract_ner",
+		TenantId: "c3170310-78bd-409c-b186-126f40bfa6ad",
+	}
+	assert.Equal(t, "extract_ner", req.Stage)
+	assert.Equal(t, "c3170310-78bd-409c-b186-126f40bfa6ad", req.TenantId)
+
+	// Empty tenant_id is valid (server uses defaultTenantID)
+	emptyTenantReq := &pipelinev1.GetStageConfigRequest{Stage: "triage"}
+	assert.Equal(t, "", emptyTenantReq.TenantId)
+}
+
+// TestPipelineStageDefinition_LLMParamsFields verifies that PipelineStageDefinition
+// includes LLM params so ListPipelineDefinitions and UpdatePipelineStageConfig
+// responses include temperature, max_tokens, max_retries (pf-4c2203).
+func TestPipelineStageDefinition_LLMParamsFields(t *testing.T) {
+	t.Run("with LLM params", func(t *testing.T) {
+		temp := float32(0.1)
+		tokens := int32(8192)
+		retries := int32(2)
+		sd := &pipelinev1.PipelineStageDefinition{
+			Stage:       "extract_ner",
+			Temperature: &temp,
+			MaxTokens:   &tokens,
+			MaxRetries:  &retries,
+		}
+		assert.Equal(t, float32(0.1), *sd.Temperature)
+		assert.Equal(t, int32(8192), *sd.MaxTokens)
+		assert.Equal(t, int32(2), *sd.MaxRetries)
+	})
+
+	t.Run("nil LLM params", func(t *testing.T) {
+		sd := &pipelinev1.PipelineStageDefinition{
+			Stage: "embed",
+		}
+		assert.Nil(t, sd.Temperature)
+		assert.Nil(t, sd.MaxTokens)
+		assert.Nil(t, sd.MaxRetries)
+	})
+}
+
+// TestStageDefToProto_LLMParams verifies that stageDefToProto populates
+// temperature, max_tokens, max_retries from StageDefinition (pf-4c2203).
+func TestStageDefToProto_LLMParams(t *testing.T) {
+	t.Run("with LLM params", func(t *testing.T) {
+		temp := 0.1
+		tokens := 8192
+		retries := 2
+		sd := pipeline.StageDefinition{
+			Stage:       "extract_ner",
+			StageOrder:  2,
+			Enabled:     true,
+			Temperature: &temp,
+			MaxTokens:   &tokens,
+			MaxRetries:  &retries,
+		}
+		p := stageDefToProto(sd)
+		require.NotNil(t, p.Temperature)
+		assert.Equal(t, float32(0.1), *p.Temperature)
+		require.NotNil(t, p.MaxTokens)
+		assert.Equal(t, int32(8192), *p.MaxTokens)
+		require.NotNil(t, p.MaxRetries)
+		assert.Equal(t, int32(2), *p.MaxRetries)
+	})
+
+	t.Run("nil LLM params", func(t *testing.T) {
+		sd := pipeline.StageDefinition{
+			Stage:      "embed",
+			StageOrder: 8,
+			Enabled:    true,
+		}
+		p := stageDefToProto(sd)
+		assert.Nil(t, p.Temperature)
+		assert.Nil(t, p.MaxTokens)
+		assert.Nil(t, p.MaxRetries)
 	})
 }
 

@@ -1772,10 +1772,18 @@ func (s *Service) countInFlightSources(ctx context.Context) (int, error) {
 
 // GetStageConfig retrieves unified per-stage configuration (model + timeout).
 func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageConfigRequest) (*pipelinev1.GetStageConfigResponse, error) {
-	s.logger.Debug("GetStageConfig called", logging.F("stage", req.Stage))
+	s.logger.Debug("GetStageConfig called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("stage", req.Stage),
+	)
 
 	if s.db == nil {
 		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
 	}
 
 	// Known pipeline stages
@@ -1794,7 +1802,6 @@ func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageCo
 	maxTokensMap := make(map[string]*int32)       // stage -> max_tokens
 	maxRetriesMap := make(map[string]*int32)       // stage -> max_retries
 
-	tenantID := s.defaultTenantID(ctx)
 	pdStages, err := s.repo.GetPipelineStages(ctx, tenantID, "standard")
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to query stage config: %v", err)
@@ -1835,9 +1842,9 @@ func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageCo
 	globalErr := s.db.QueryRowContext(ctx, `
 		SELECT model_name
 		FROM model_config
-		WHERE config_key = 'default.llm'
+		WHERE tenant_id = $1 AND config_key = 'default.llm'
 		LIMIT 1
-	`).Scan(&globalModel)
+	`, tenantID).Scan(&globalModel)
 	if globalErr == nil && globalModel != "" {
 		globalDefault = globalModel
 		globalSource = "global"
@@ -1853,9 +1860,9 @@ func (s *Service) GetStageConfig(ctx context.Context, req *pipelinev1.GetStageCo
 		stageErr := s.db.QueryRowContext(ctx, `
 			SELECT model_name
 			FROM model_config
-			WHERE config_key = $1
+			WHERE tenant_id = $1 AND config_key = $2
 			LIMIT 1
-		`, stageKey).Scan(&stageName)
+		`, tenantID, stageKey).Scan(&stageName)
 
 		if stageErr == nil && stageName != "" {
 			modelMap[stage] = stageName

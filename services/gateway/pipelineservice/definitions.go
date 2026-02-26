@@ -368,6 +368,18 @@ func stageDefToProto(sd pipeline.StageDefinition) *pipelinev1.PipelineStageDefin
 	if sd.PromptOverride != nil {
 		p.PromptOverride = int32(*sd.PromptOverride)
 	}
+	if sd.Temperature != nil {
+		v := float32(*sd.Temperature)
+		p.Temperature = &v
+	}
+	if sd.MaxTokens != nil {
+		v := int32(*sd.MaxTokens)
+		p.MaxTokens = &v
+	}
+	if sd.MaxRetries != nil {
+		v := int32(*sd.MaxRetries)
+		p.MaxRetries = &v
+	}
 	return p
 }
 

@@ -1147,6 +1147,9 @@ message ListPendingSourcesResponse {
 message GetStageConfigRequest {
   // Optional: filter by specific stage (empty = all stages).
   string stage = 1;
+
+  // Tenant ID (optional, defaults to server-side default tenant).
+  string tenant_id = 2;
 }
 
 // StageConfigEntry represents unified model + timeout config for a pipeline stage.
@@ -1537,6 +1540,15 @@ message PipelineStageDefinition {
 
   // Timeout in seconds for this stage.
   int32 timeout_seconds = 8;
+
+  // LLM temperature (0.0 - 2.0, null = use handler default).
+  optional float temperature = 9;
+
+  // Max output tokens (null = use handler default).
+  optional int32 max_tokens = 10;
+
+  // Max retry attempts (null = use handler default).
+  optional int32 max_retries = 11;
 }
 
 // PipelineDefinition represents a named pipeline with its ordered stages.
