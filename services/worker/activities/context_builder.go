@@ -35,6 +35,7 @@ type TopicLookupInterface interface {
 	ResolveByKeyword(ctx context.Context, tenantID, keyword string) (*int64, error)
 	GetByID(ctx context.Context, id int64) (TopicResult, error)
 	ListForContext(ctx context.Context, tenantID string, names []string) ([]TopicResult, error)
+	ScanContentForTopics(ctx context.Context, tenantID string, content string) ([]TopicResult, error)
 }
 
 // TopicResult is a simplified topic for context building (avoids importing pkg/topics).
@@ -154,6 +155,31 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 	// Step 1: Resolve people
 	recordHeartbeat(ctx, "resolving people entities")
 	resolvedPeople, unresolvedPeople := a.resolvePeople(ctx, input.TenantID, input.Extraction.People, input.SenderEmail, input.SenderName, input.ParticipantEmails)
+
+	// Dedup resolved people by person ID, preserving IsPrimaryUser flag (pf-26c835).
+	// Without this, the same person can appear twice — once from headers (with [Primary user])
+	// and once from NER resolution (without the tag).
+	{
+		seen := make(map[int64]int) // person_id → index in deduped
+		var deduped []workflows.ResolvedPerson
+		for _, p := range resolvedPeople {
+			if p.PersonID == nil {
+				deduped = append(deduped, p)
+				continue
+			}
+			if idx, ok := seen[*p.PersonID]; ok {
+				// If this duplicate has PrimaryUser flag, update the kept entry
+				if p.IsPrimaryUser {
+					deduped[idx].IsPrimaryUser = true
+				}
+				continue
+			}
+			seen[*p.PersonID] = len(deduped)
+			deduped = append(deduped, p)
+		}
+		resolvedPeople = deduped
+	}
+
 	output.ResolvedPeople = resolvedPeople
 	output.EntitiesResolved = len(resolvedPeople)
 	output.EntitiesUnresolved = unresolvedPeople
@@ -698,7 +724,7 @@ func (a *ContextBuilderActivities) resolveProject(ctx context.Context, tenantID 
 	}
 
 	// Try glossary lookup
-	glossaryTerms, err := a.contextRepo.GetGlossaryTerms(ctx, []string{projectName}, []int64{}, 1)
+	glossaryTerms, err := a.contextRepo.GetGlossaryTerms(ctx, tenantID, []string{projectName}, []int64{}, 1)
 	if err == nil && len(glossaryTerms) > 0 {
 		rp.Expansion = glossaryTerms[0].Expansion
 		rp.Source = "glossary"
@@ -801,7 +827,7 @@ func (a *ContextBuilderActivities) buildContextPackage(
 
 	// 3. Open actions (~25 tokens each)
 	if len(projectIDs) > 0 && tokensUsed+250 <= tokenBudget {
-		actions, err := a.contextRepo.GetOpenActions(ctx, projectIDs, 10)
+		actions, err := a.contextRepo.GetOpenActions(ctx, input.ConversationID, projectIDs, 10)
 		if err == nil {
 			actionTokens := len(actions) * 25
 			if tokensUsed+actionTokens <= tokenBudget {
@@ -840,7 +866,7 @@ func (a *ContextBuilderActivities) buildContextPackage(
 		// Collect terms from extraction
 		terms := a.collectGlossaryTerms(input.Extraction)
 		if len(terms) > 0 {
-			glossary, err := a.contextRepo.GetGlossaryTerms(ctx, terms, projectIDs, 20)
+			glossary, err := a.contextRepo.GetGlossaryTerms(ctx, input.TenantID, terms, projectIDs, 20)
 			if err == nil {
 				glossaryTokens := len(glossary) * 20
 				if tokensUsed+glossaryTokens <= tokenBudget {
@@ -852,18 +878,44 @@ func (a *ContextBuilderActivities) buildContextPackage(
 	}
 
 	// 7. Topic descriptions (~30 tokens each)
-	// Resolve unresolved project names as topics — these are entities that NER extracted
-	// but didn't match any project. Topics provide richer context than glossary.
+	// Merge NER-based candidates with body-text scanning (pf-cc7657).
+	// NER candidates catch topics from extracted project/org names.
+	// Body scanning catches topics mentioned in text but missed by NER (e.g. DevCloud).
 	if a.topicRepo != nil && tokensUsed+300 <= tokenBudget {
+		// NER-based candidates (existing path)
 		topicNames := a.collectTopicCandidates(input.Extraction, resolvedProjects)
+		var allTopicResults []TopicResult
 		if len(topicNames) > 0 {
-			topicResults, err := a.topicRepo.ListForContext(ctx, input.TenantID, topicNames)
-			if err == nil && len(topicResults) > 0 {
-				topicTokens := len(topicResults) * 30
-				if tokensUsed+topicTokens <= tokenBudget {
-					cp.TopicDescriptions = toWorkflowTopics(topicResults)
-					tokensUsed += topicTokens
+			nerTopics, err := a.topicRepo.ListForContext(ctx, input.TenantID, topicNames)
+			if err == nil {
+				allTopicResults = append(allTopicResults, nerTopics...)
+			}
+		}
+
+		// Body-text scanning (pf-cc7657)
+		if input.Content != "" {
+			fullText := input.Subject + "\n" + input.Content
+			bodyTopics, err := a.topicRepo.ScanContentForTopics(ctx, input.TenantID, fullText)
+			if err == nil {
+				// Merge, dedup by topic ID
+				seen := make(map[int64]bool)
+				for _, t := range allTopicResults {
+					seen[t.ID] = true
 				}
+				for _, t := range bodyTopics {
+					if !seen[t.ID] {
+						allTopicResults = append(allTopicResults, t)
+						seen[t.ID] = true
+					}
+				}
+			}
+		}
+
+		if len(allTopicResults) > 0 {
+			topicTokens := len(allTopicResults) * 30
+			if tokensUsed+topicTokens <= tokenBudget {
+				cp.TopicDescriptions = toWorkflowTopics(allTopicResults)
+				tokensUsed += topicTokens
 			}
 		}
 	}
@@ -897,7 +949,7 @@ func (a *ContextBuilderActivities) BuildExtractionContext(ctx context.Context, i
 	terms := scanForAcronyms(input.Subject + " " + input.Content)
 	var glossaryTerms []workflows.ContextGlossaryTerm
 	if len(terms) > 0 {
-		glossary, err := a.contextRepo.GetGlossaryTerms(ctx, terms, nil, 20)
+		glossary, err := a.contextRepo.GetGlossaryTerms(ctx, input.TenantID, terms, nil, 20)
 		if err != nil {
 			logger.Warn("failed to fetch glossary terms for extraction context", logging.Err(err))
 		} else {
@@ -905,17 +957,16 @@ func (a *ContextBuilderActivities) BuildExtractionContext(ctx context.Context, i
 		}
 	}
 
-	// Scan subject for topic candidates (split into multi-word phrases and individual words).
+	// Scan full text (subject + body) for topic names and keywords (pf-cc7657).
+	// Previously only scanned subject words via ListForContext, missing body mentions.
 	var topicDescs []workflows.ContextTopicDescription
-	if a.topicRepo != nil && input.Subject != "" {
-		topicNames := scanForTopicCandidates(input.Subject)
-		if len(topicNames) > 0 {
-			topicResults, err := a.topicRepo.ListForContext(ctx, input.TenantID, topicNames)
-			if err != nil {
-				logger.Warn("failed to fetch topics for extraction context", logging.Err(err))
-			} else {
-				topicDescs = toWorkflowTopics(topicResults)
-			}
+	if a.topicRepo != nil {
+		fullText := input.Subject + "\n" + input.Content
+		topicResults, err := a.topicRepo.ScanContentForTopics(ctx, input.TenantID, fullText)
+		if err != nil {
+			logger.Warn("failed to scan content for topics", logging.Err(err))
+		} else {
+			topicDescs = toWorkflowTopics(topicResults)
 		}
 	}
 

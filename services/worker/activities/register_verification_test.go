@@ -106,7 +106,7 @@ type regVerifyContextPackageRepo struct{}
 func (r *regVerifyContextPackageRepo) GetActiveRisks(context.Context, []int64, int) ([]ContextAssertion, error) {
 	return nil, nil
 }
-func (r *regVerifyContextPackageRepo) GetOpenActions(context.Context, []int64, int) ([]ContextAssertion, error) {
+func (r *regVerifyContextPackageRepo) GetOpenActions(context.Context, string, []int64, int) ([]ContextAssertion, error) {
 	return nil, nil
 }
 func (r *regVerifyContextPackageRepo) GetRecentDecisions(context.Context, []int64, int, int) ([]ContextAssertion, error) {
@@ -115,7 +115,7 @@ func (r *regVerifyContextPackageRepo) GetRecentDecisions(context.Context, []int6
 func (r *regVerifyContextPackageRepo) GetProductEvents(context.Context, []int64, int, int) ([]ContextProductEvent, error) {
 	return nil, nil
 }
-func (r *regVerifyContextPackageRepo) GetGlossaryTerms(context.Context, []string, []int64, int) ([]ContextGlossaryTerm, error) {
+func (r *regVerifyContextPackageRepo) GetGlossaryTerms(context.Context, string, []string, []int64, int) ([]ContextGlossaryTerm, error) {
 	return nil, nil
 }
 func (r *regVerifyContextPackageRepo) ResolveProjectByName(context.Context, string, string) (*int64, error) {

@@ -270,13 +270,13 @@ type ContextPackageRepository interface {
 	// GetActiveRisks returns active risks/issues for the given projects, ordered by severity.
 	GetActiveRisks(ctx context.Context, projectIDs []int64, limit int) ([]ContextAssertion, error)
 	// GetOpenActions returns open action items for the given projects, ordered by due date.
-	GetOpenActions(ctx context.Context, projectIDs []int64, limit int) ([]ContextAssertion, error)
+	GetOpenActions(ctx context.Context, conversationID string, projectIDs []int64, limit int) ([]ContextAssertion, error)
 	// GetRecentDecisions returns recent decisions for the given projects.
 	GetRecentDecisions(ctx context.Context, projectIDs []int64, days int, limit int) ([]ContextAssertion, error)
 	// GetProductEvents returns recent product timeline events.
 	GetProductEvents(ctx context.Context, productIDs []int64, days int, limit int) ([]ContextProductEvent, error)
 	// GetGlossaryTerms returns glossary expansions for the given terms.
-	GetGlossaryTerms(ctx context.Context, terms []string, productIDs []int64, limit int) ([]ContextGlossaryTerm, error)
+	GetGlossaryTerms(ctx context.Context, tenantID string, terms []string, productIDs []int64, limit int) ([]ContextGlossaryTerm, error)
 	// ResolveProjectByName resolves a project/product name to an ID.
 	ResolveProjectByName(ctx context.Context, tenantID string, name string) (*int64, error)
 	// ResolveProjectByKeyword resolves a project by keyword match.

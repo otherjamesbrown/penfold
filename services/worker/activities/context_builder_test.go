@@ -2068,6 +2068,10 @@ func (m *mockTopicLookup) ListForContext(ctx context.Context, tenantID string, n
 	return nil, nil
 }
 
+func (m *mockTopicLookup) ScanContentForTopics(ctx context.Context, tenantID string, content string) ([]TopicResult, error) {
+	return nil, nil
+}
+
 func TestBuildContextPackage_TopicResolution(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.NewNopLogger()

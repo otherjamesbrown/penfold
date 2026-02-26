@@ -86,14 +86,67 @@ func (r *ContextPackageRepo) GetActiveRisks(ctx context.Context, projectIDs []in
 	return results, nil
 }
 
-// GetOpenActions returns open action items for the given projects, ordered by due date.
-func (r *ContextPackageRepo) GetOpenActions(ctx context.Context, projectIDs []int64, limit int) ([]ContextAssertion, error) {
+// GetOpenActions returns open action items scoped by conversation when available,
+// falling back to project scope if no conversation ID is provided.
+func (r *ContextPackageRepo) GetOpenActions(ctx context.Context, conversationID string, projectIDs []int64, limit int) ([]ContextAssertion, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 
-	// Recency filter (30 days) prevents stale actions from unrelated threads
-	// contaminating the deep analysis context (pf-de3670 Layer 2).
+	if conversationID != "" {
+		return r.getOpenActionsByConversation(ctx, conversationID, limit)
+	}
+	// Fallback: conversation linking failed or unavailable
+	r.logger.Warn("GetOpenActions falling back to project scope — no conversation_id")
+	return r.getOpenActionsByProject(ctx, projectIDs, limit)
+}
+
+// getOpenActionsByConversation returns open actions scoped to a specific conversation.
+func (r *ContextPackageRepo) getOpenActionsByConversation(ctx context.Context, conversationID string, limit int) ([]ContextAssertion, error) {
+	query := `
+		SELECT
+			a.description,
+			a.status,
+			COALESCE(p.canonical_name, '') AS assignee_name
+		FROM assertions a
+		LEFT JOIN people p ON a.assignee_person_id = p.id
+		JOIN conversation_items ci ON ci.source_id::bigint = a.source_id
+		WHERE a.assertion_type = 'action'
+		  AND a.status = 'open'
+		  AND ci.conversation_id = $1
+		  AND a.created_at > now() - interval '30 days'
+		ORDER BY a.created_at DESC
+		LIMIT $2
+	`
+
+	rows, err := r.pool.Query(ctx, query, conversationID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get open actions by conversation: %w", err)
+	}
+	defer rows.Close()
+
+	var results []ContextAssertion
+	for rows.Next() {
+		var ca ContextAssertion
+		if err := rows.Scan(
+			&ca.Description,
+			&ca.Status,
+			&ca.AssigneeName,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan open action: %w", err)
+		}
+		results = append(results, ca)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating open actions: %w", err)
+	}
+
+	return results, nil
+}
+
+// getOpenActionsByProject returns open actions scoped by project IDs (fallback).
+func (r *ContextPackageRepo) getOpenActionsByProject(ctx context.Context, projectIDs []int64, limit int) ([]ContextAssertion, error) {
 	query := `
 		SELECT
 			a.description,
@@ -242,7 +295,7 @@ func (r *ContextPackageRepo) GetProductEvents(ctx context.Context, productIDs []
 }
 
 // GetGlossaryTerms returns glossary expansions for the given terms.
-func (r *ContextPackageRepo) GetGlossaryTerms(ctx context.Context, terms []string, productIDs []int64, limit int) ([]ContextGlossaryTerm, error) {
+func (r *ContextPackageRepo) GetGlossaryTerms(ctx context.Context, tenantID string, terms []string, productIDs []int64, limit int) ([]ContextGlossaryTerm, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -253,13 +306,14 @@ func (r *ContextPackageRepo) GetGlossaryTerms(ctx context.Context, terms []strin
 			g.expansion,
 			g.definition
 		FROM glossary g
-		WHERE g.term = ANY($1)
-		  OR g.linked_entity_id = ANY($2)
+		WHERE g.tenant_id = $1
+		  AND (g.term = ANY($2) OR g.linked_entity_id = ANY($3))
+		  AND g.expansion IS NOT NULL AND g.expansion != ''
 		ORDER BY g.term, g.definition DESC NULLS LAST
-		LIMIT $3
+		LIMIT $4
 	`
 
-	rows, err := r.pool.Query(ctx, query, terms, productIDs, limit)
+	rows, err := r.pool.Query(ctx, query, tenantID, terms, productIDs, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get glossary terms: %w", err)
 	}

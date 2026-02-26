@@ -439,15 +439,10 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		}, nil
 	}
 
-	// Prepend background context (glossary + topics) for extraction grounding (pf-2f8c70).
-	// Injected before content so the model has domain definitions when extracting.
+	// Background context (glossary + topics) is injected by the AI coordinator's
+	// buildSemanticPrompt, not here. The worker sends content and BackgroundContext
+	// as separate proto fields — the AI coordinator handles the merge (pf-73ac20).
 	content := input.Content
-	if input.BackgroundContext != "" {
-		content = "## Background Context\n" + input.BackgroundContext + "\n\n## Content\n" + content
-		logger.Info("Prepended background context to extraction content",
-			logging.F("context_length", len(input.BackgroundContext)),
-		)
-	}
 
 	// Prepend email headers to content for NER prompt enrichment (pf-de2b09).
 	// The NER prompt instructs the model to use full names from email headers,

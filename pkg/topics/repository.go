@@ -265,6 +265,60 @@ func (r *Repository) ListForContext(ctx context.Context, tenantID string, names 
 	return r.scanTopics(rows)
 }
 
+// ListAllForTenant returns all topics for a tenant. Used for in-memory body text scanning
+// where the candidate set is the full topic list rather than pre-filtered names.
+func (r *Repository) ListAllForTenant(ctx context.Context, tenantID string) ([]*Topic, error) {
+	query := `
+		SELECT id, tenant_id, name, description, keywords, created_at, updated_at
+		FROM topics
+		WHERE tenant_id = $1
+		ORDER BY name
+	`
+
+	rows, err := r.pool.Query(ctx, query, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list all topics for tenant: %w", err)
+	}
+	defer rows.Close()
+
+	return r.scanTopics(rows)
+}
+
+// ScanContentForTopics returns all topics for a tenant where the topic name
+// or any keyword appears in the content text (case-insensitive substring match).
+// This ensures topics mentioned in the email body are found regardless of NER output.
+func (r *Repository) ScanContentForTopics(ctx context.Context, tenantID string, content string) ([]*Topic, error) {
+	all, err := r.ListAllForTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	contentLower := strings.ToLower(content)
+	var matched []*Topic
+	seen := make(map[int64]bool)
+
+	for _, t := range all {
+		if seen[t.ID] {
+			continue
+		}
+		// Check topic name
+		if strings.Contains(contentLower, strings.ToLower(t.Name)) {
+			matched = append(matched, t)
+			seen[t.ID] = true
+			continue
+		}
+		// Check keywords
+		for _, kw := range t.Keywords {
+			if kw != "" && strings.Contains(contentLower, strings.ToLower(kw)) {
+				matched = append(matched, t)
+				seen[t.ID] = true
+				break
+			}
+		}
+	}
+	return matched, nil
+}
+
 // ==================== Helper Functions ====================
 
 func (r *Repository) scanTopic(ctx context.Context, query string, args ...any) (*Topic, error) {

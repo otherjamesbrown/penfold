@@ -49,6 +49,18 @@ func (a *TopicLookupAdapter) ListForContext(ctx context.Context, tenantID string
 	return results, nil
 }
 
+func (a *TopicLookupAdapter) ScanContentForTopics(ctx context.Context, tenantID string, content string) ([]TopicResult, error) {
+	ts, err := a.repo.ScanContentForTopics(ctx, tenantID, content)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]TopicResult, len(ts))
+	for i, t := range ts {
+		results[i] = toTopicResult(t)
+	}
+	return results, nil
+}
+
 func toTopicResult(t *topics.Topic) TopicResult {
 	desc := ""
 	if t.Description != nil {

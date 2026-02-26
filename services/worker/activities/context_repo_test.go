@@ -29,7 +29,7 @@ func (m *mockContextPackageRepo) GetActiveRisks(ctx context.Context, projectIDs 
 	return m.activeRisks, nil
 }
 
-func (m *mockContextPackageRepo) GetOpenActions(ctx context.Context, projectIDs []int64, limit int) ([]ContextAssertion, error) {
+func (m *mockContextPackageRepo) GetOpenActions(ctx context.Context, conversationID string, projectIDs []int64, limit int) ([]ContextAssertion, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -50,7 +50,7 @@ func (m *mockContextPackageRepo) GetProductEvents(ctx context.Context, productID
 	return m.productEvents, nil
 }
 
-func (m *mockContextPackageRepo) GetGlossaryTerms(ctx context.Context, terms []string, productIDs []int64, limit int) ([]ContextGlossaryTerm, error) {
+func (m *mockContextPackageRepo) GetGlossaryTerms(ctx context.Context, tenantID string, terms []string, productIDs []int64, limit int) ([]ContextGlossaryTerm, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -178,7 +178,7 @@ func TestContextPackageRepo_GetOpenActions(t *testing.T) {
 			},
 		}
 
-		results, err := mock.GetOpenActions(ctx, []int64{1}, 10)
+		results, err := mock.GetOpenActions(ctx, "", []int64{1}, 10)
 		require.NoError(t, err)
 		assert.Len(t, results, 2)
 		assert.Equal(t, "Urgent action", results[0].Description)
@@ -197,7 +197,7 @@ func TestContextPackageRepo_GetOpenActions(t *testing.T) {
 			},
 		}
 
-		results, err := mock.GetOpenActions(ctx, []int64{1}, 10)
+		results, err := mock.GetOpenActions(ctx, "", []int64{1}, 10)
 		require.NoError(t, err)
 		assert.Len(t, results, 1)
 		assert.Nil(t, results[0].DueDate)
@@ -310,7 +310,7 @@ func TestContextPackageRepo_GetGlossaryTerms(t *testing.T) {
 			},
 		}
 
-		results, err := mock.GetGlossaryTerms(ctx, []string{"API", "SLA"}, []int64{}, 20)
+		results, err := mock.GetGlossaryTerms(ctx, "test-tenant", []string{"API", "SLA"}, []int64{}, 20)
 		require.NoError(t, err)
 		assert.Len(t, results, 2)
 		assert.Equal(t, "API", results[0].Term)
@@ -328,7 +328,7 @@ func TestContextPackageRepo_GetGlossaryTerms(t *testing.T) {
 			},
 		}
 
-		results, err := mock.GetGlossaryTerms(ctx, []string{"XYZ"}, []int64{}, 20)
+		results, err := mock.GetGlossaryTerms(ctx, "test-tenant", []string{"XYZ"}, []int64{}, 20)
 		require.NoError(t, err)
 		assert.Len(t, results, 1)
 		assert.Equal(t, "", results[0].Expansion)

@@ -303,6 +303,8 @@ type BuildContextInput struct {
 	Subject           string                            `json:"subject,omitempty"`
 	ThreadID          string                            `json:"thread_id,omitempty"`
 	ParticipantEmails []Participant                     `json:"participant_emails,omitempty"`
+	ConversationID    string                            `json:"conversation_id,omitempty"`
+	Content           string                            `json:"content,omitempty"`
 }
 
 // BuildContextOutput is the output from the BuildContextPackage activity.
@@ -1769,13 +1771,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// ==================== Stage 2.6: Conversation Auto-Linking ====================
 	// After threading, auto-link conversation if a thread_id exists
 	// Runs for ALL emails (independent of SkipDeep gate)
+	convOutput := &LinkConversationOutput{}
 	if threadID != nil && input.ContentID != "" {
 		logger.Debug("starting conversation linking",
 			"source_id", input.SourceID,
 			"thread_id", *threadID,
 			"content_id", input.ContentID,
 		)
-		convOutput := &LinkConversationOutput{}
 		ctxConv := workflow.WithActivityOptions(ctx, fastOpts)
 		err = workflow.ExecuteActivity(ctxConv, pkgtemporal.ActivityLinkConversation, LinkConversationInput{
 			TenantID:  input.TenantID,
@@ -1992,6 +1994,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		contextOutput = &BuildContextOutput{}
 		ctxContext := workflow.WithActivityOptions(ctx, fastOpts)
+
+		// Extract conversation ID for context scoping (pf-26c835).
+		convID := ""
+		if convOutput != nil && convOutput.ConversationID != "" {
+			convID = convOutput.ConversationID
+		}
+
 		err = workflow.ExecuteActivity(ctxContext, pkgtemporal.ActivityBuildContextPackage, BuildContextInput{
 			TenantID:          input.TenantID,
 			SourceID:          input.SourceID,
@@ -2003,6 +2012,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			SenderName:        input.SenderName,
 			Subject:           input.Subject,
 			ParticipantEmails: input.ParticipantEmails,
+			ConversationID:    convID,
+			Content:           parsedContent,
 		}).Get(ctx, contextOutput)
 		if err != nil {
 			logger.Warn("pipeline stage failed (non-blocking)",
