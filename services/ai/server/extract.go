@@ -171,8 +171,13 @@ func parseQualityGateResponse(jsonStr string) (*qualityGateResult, error) {
 // buildNERPrompt constructs the NER extraction prompt.
 // Tries the DB prompt store for stage "extract_ner"; falls back to nerPromptTemplate on error.
 // Returns the prompt string and the prompt version (0 when using hardcoded fallback).
-func (s *AIServer) buildNERPrompt(ctx context.Context, content string) (string, int32) {
+// When backgroundContext is non-empty, it is prepended as a "Background Context" section
+// before the content, providing glossary and topic definitions (pf-2f0d4b).
+func (s *AIServer) buildNERPrompt(ctx context.Context, content string, backgroundContext string) (string, int32) {
 	tmpl, version := s.getPrompt(ctx, "extract_ner", nerPromptTemplate)
+	if backgroundContext != "" {
+		content = "## Background Context\n" + backgroundContext + "\n\n---\n" + content
+	}
 	return fmt.Sprintf(tmpl, content), version
 }
 
@@ -288,7 +293,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var nerResult *backend.CompletionResult
 	var nerMessages []backend.Message
 	{
-		nerPrompt, nerPromptVersion = s.buildNERPrompt(ctx, content)
+		nerPrompt, nerPromptVersion = s.buildNERPrompt(ctx, content, req.GetBackgroundContext())
 		nerMessages = []backend.Message{
 			{Role: "user", Content: nerPrompt},
 		}

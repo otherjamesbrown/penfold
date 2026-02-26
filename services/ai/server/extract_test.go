@@ -262,7 +262,7 @@ func TestParseQualityGateResponse_Valid(t *testing.T) {
 func TestBuildNERPrompt(t *testing.T) {
 	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	content := "Dan Spataro is the CEO of CLIC. Meeting on January 15th."
-	prompt, version := s.buildNERPrompt(context.Background(), content)
+	prompt, version := s.buildNERPrompt(context.Background(), content, "")
 
 	if version != 0 {
 		t.Errorf("buildNERPrompt() version = %d, want 0 (hardcoded fallback)", version)
@@ -275,6 +275,28 @@ func TestBuildNERPrompt(t *testing.T) {
 	}
 	if !containsString(prompt, "Respond ONLY with JSON") {
 		t.Errorf("buildNERPrompt() should contain JSON instruction")
+	}
+}
+
+// TestBuildNERPrompt_BackgroundContext verifies that buildNERPrompt injects
+// background context (glossary + topic) when provided (pf-2f0d4b).
+func TestBuildNERPrompt_BackgroundContext(t *testing.T) {
+	s := &AIServer{}
+	content := "Dan Spataro is the CEO of CLIC. Meeting on January 15th."
+	bgCtx := "### Glossary\nCLIC: Community Lending Investment Company\n\n### Topic Context\nDevCloud: Internal cloud platform"
+	prompt, _ := s.buildNERPrompt(context.Background(), content, bgCtx)
+
+	if !containsString(prompt, "## Background Context") {
+		t.Errorf("buildNERPrompt() with backgroundContext should contain '## Background Context' header")
+	}
+	if !containsString(prompt, "CLIC: Community Lending Investment Company") {
+		t.Errorf("buildNERPrompt() with backgroundContext should contain glossary content")
+	}
+	if !containsString(prompt, "DevCloud: Internal cloud platform") {
+		t.Errorf("buildNERPrompt() with backgroundContext should contain topic context")
+	}
+	if !containsString(prompt, content) {
+		t.Errorf("buildNERPrompt() with backgroundContext should still contain the original content")
 	}
 }
 
