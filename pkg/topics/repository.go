@@ -229,6 +229,8 @@ func (r *Repository) ResolveByKeyword(ctx context.Context, tenantID, keyword str
 
 // ListForContext returns topics with their descriptions for context enrichment.
 // Used by the pipeline to add topic descriptions to the context package.
+// Matches topics by exact name OR by keyword containment (any topic keyword
+// found as a substring within any candidate name).
 func (r *Repository) ListForContext(ctx context.Context, tenantID string, names []string) ([]*Topic, error) {
 	if len(names) == 0 {
 		return nil, nil
@@ -237,7 +239,16 @@ func (r *Repository) ListForContext(ctx context.Context, tenantID string, names 
 	query := `
 		SELECT id, tenant_id, name, description, keywords, created_at, updated_at
 		FROM topics
-		WHERE tenant_id = $1 AND LOWER(name) = ANY($2)
+		WHERE tenant_id = $1 AND (
+			LOWER(name) = ANY($2)
+			OR EXISTS (
+				SELECT 1 FROM unnest(keywords) AS kw
+				WHERE EXISTS (
+					SELECT 1 FROM unnest($2::text[]) AS candidate
+					WHERE candidate LIKE '%' || LOWER(kw) || '%'
+				)
+			)
+		)
 	`
 
 	lowerNames := make([]string, len(names))

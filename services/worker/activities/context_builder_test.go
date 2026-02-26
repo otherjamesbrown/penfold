@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -2178,5 +2179,96 @@ func TestBuildContextPackage_TopicSkipsDescriptionless(t *testing.T) {
 	}
 	if output.ContextPackage.TopicDescriptions[0].Name != "RealTopic" {
 		t.Errorf("expected RealTopic, got %s", output.ContextPackage.TopicDescriptions[0].Name)
+	}
+}
+
+// TestBuildContextPackage_TopicKeywordMatching verifies that candidates like
+// "Oslo NLB Workflow" are passed to ListForContext, enabling keyword-based matching.
+// Bug: pf-8700ec — NER extracts "Oslo NLB Workflow" but topic name is just "Oslo".
+func TestBuildContextPackage_TopicKeywordMatching(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.NewNopLogger()
+
+	var capturedNames []string
+	topicLookup := &mockTopicLookup{
+		listForContextFunc: func(ctx context.Context, tenantID string, names []string) ([]TopicResult, error) {
+			capturedNames = names
+			// Simulate keyword-matching repository: "Oslo NLB Workflow" matches
+			// topic "Oslo" because keyword "oslo" is in the candidate.
+			var results []TopicResult
+			for _, name := range names {
+				lower := strings.ToLower(name)
+				if strings.Contains(lower, "oslo") {
+					results = append(results, TopicResult{ID: 1, Name: "Oslo", Description: "Dedicated Linode region for MTC"})
+				}
+				if lower == "clic" {
+					results = append(results, TopicResult{ID: 2, Name: "CLIC", Description: "Cloud Infrastructure Committee"})
+				}
+				if lower == "devcloud" {
+					results = append(results, TopicResult{ID: 3, Name: "DevCloud", Description: "Internal testing environment"})
+				}
+			}
+			return results, nil
+		},
+	}
+
+	activities := NewContextBuilderActivities(
+		logger,
+		&mockEntityResolver{},
+		&mockEntityLookup{},
+		&mockContextPackageRepo{},
+		topicLookup,
+		nil,
+		nil,
+	)
+
+	input := workflows.BuildContextInput{
+		TenantID:    "test-tenant",
+		SourceID:    1,
+		ContentType: "email",
+		Extraction: &workflows.SLMPipelineExtractEntitiesOutput{
+			// NER extracts "Oslo NLB Workflow" (not exact match for topic "Oslo")
+			// CLIC and DevCloud match by exact name
+			Projects:      []string{"Oslo NLB Workflow", "CLIC"},
+			Organisations: []string{"DevCloud"},
+		},
+	}
+
+	output, err := activities.BuildContextPackage(ctx, input)
+	if err != nil {
+		t.Fatalf("BuildContextPackage failed: %v", err)
+	}
+
+	// Verify candidates were passed including "Oslo NLB Workflow"
+	found := false
+	for _, name := range capturedNames {
+		if name == "Oslo NLB Workflow" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'Oslo NLB Workflow' in candidates passed to ListForContext, got: %v", capturedNames)
+	}
+
+	// Should have 3 topic descriptions: Oslo (keyword), CLIC (exact), DevCloud (exact)
+	if len(output.ContextPackage.TopicDescriptions) != 3 {
+		t.Fatalf("expected 3 topic descriptions, got %d: %+v",
+			len(output.ContextPackage.TopicDescriptions), output.ContextPackage.TopicDescriptions)
+	}
+
+	topicsByName := make(map[string]string)
+	for _, td := range output.ContextPackage.TopicDescriptions {
+		topicsByName[td.Name] = td.Description
+	}
+
+	if _, ok := topicsByName["Oslo"]; !ok {
+		t.Error("Oslo topic missing — keyword match should have resolved it")
+	}
+	if _, ok := topicsByName["CLIC"]; !ok {
+		t.Error("CLIC topic missing")
+	}
+	if _, ok := topicsByName["DevCloud"]; !ok {
+		t.Error("DevCloud topic missing")
 	}
 }
