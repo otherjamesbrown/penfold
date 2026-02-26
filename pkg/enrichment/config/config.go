@@ -18,6 +18,7 @@ type TenantConfig struct {
 	BotPatterns          []string
 	DistributionPatterns []string
 	RoleAccountPatterns  []string
+	ExternalServiceDomains []string
 	IgnorePatterns       []string
 	PrimaryUserEmail     string
 	ProcessingRules      []ProcessingRule
@@ -233,8 +234,11 @@ func (r *ConfigResolver) loadConfig(ctx context.Context, tenantID string) (*Tena
 		return nil, fmt.Errorf("failed to get domains: %w", err)
 	}
 	for _, d := range domains {
-		if d.DomainType == "internal" {
+		switch d.DomainType {
+		case "internal":
 			config.InternalDomains = append(config.InternalDomains, d.Domain)
+		case "external_known":
+			config.ExternalServiceDomains = append(config.ExternalServiceDomains, d.Domain)
 		}
 	}
 

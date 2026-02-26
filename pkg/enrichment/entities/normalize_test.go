@@ -78,14 +78,16 @@ func TestDetectAccountType(t *testing.T) {
 		{"sales@company.com", "", AccountTypeRole},
 		{"hr@company.com", "", AccountTypeRole},
 		{"facilitator@company.com", "", AccountTypeRole},
-		{"prb-facilitator@akamai.com", "", AccountTypeRole},
 
 		// External services
 		{"comments-noreply@docs.google.com", "", AccountTypeExternalService},
 		{"notification@slack.com", "", AccountTypeExternalService},
-		{"updates@mailer.aha.io", "", AccountTypeExternalService},
 
-		// Service accounts (bots with specific prefixes)
+		// Akamai-specific patterns moved to tenant config — without extra patterns these are now person
+		{"prb-facilitator@akamai.com", "", AccountTypePerson},
+		{"updates@mailer.aha.io", "", AccountTypePerson},
+
+		// gsd-jira still matches via "jira" base bot pattern
 		{"gsd-jira@akamai.com", "", AccountTypeBot},
 
 		// Regular person
@@ -323,6 +325,33 @@ func TestDetectAccountTypeWithPatterns(t *testing.T) {
 			displayName: "",
 			patterns:    nil,
 			want:        AccountTypeRole,
+		},
+		{
+			name:        "gsd- bot pattern via tenant config",
+			email:       "gsd-automation@company.com",
+			displayName: "",
+			patterns: &AccountTypePatterns{
+				BotPatterns: []string{"gsd-"},
+			},
+			want: AccountTypeBot,
+		},
+		{
+			name:        "prb-facilitator role pattern via tenant config",
+			email:       "prb-facilitator@akamai.com",
+			displayName: "",
+			patterns: &AccountTypePatterns{
+				RolePatterns: []string{"prb-facilitator"},
+			},
+			want: AccountTypeRole,
+		},
+		{
+			name:        "mailer.aha.io external domain via tenant config",
+			email:       "updates@mailer.aha.io",
+			displayName: "",
+			patterns: &AccountTypePatterns{
+				ExternalDomains: []string{"mailer.aha.io"},
+			},
+			want: AccountTypeExternalService,
 		},
 	}
 

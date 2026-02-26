@@ -108,19 +108,20 @@ func TestDetectAccountType_NewPatterns(t *testing.T) {
 		displayName string
 		want        AccountType
 	}{
-		// Role accounts
-		{"Prb-Facilitator@akamai.com", "", AccountTypeRole},
-		{"prb-facilitator@akamai.com", "", AccountTypeRole},
+		// Role accounts (base patterns)
 		{"facilitator@company.com", "", AccountTypeRole},
 		{"support@company.com", "", AccountTypeRole},
 
-		// Bots
-		{"gsd-jira@akamai.com", "", AccountTypeBot},
+		// Bots (base patterns)
+		{"gsd-jira@akamai.com", "", AccountTypeBot}, // matches via "jira" base pattern
 		{"noreply@company.com", "", AccountTypeBot},
 
-		// External services
-		{"updates@mailer.aha.io", "", AccountTypeExternalService},
-		{"notification@mailer.aha.io", "", AccountTypeExternalService},
+		// Akamai-specific patterns externalized to tenant config (pf-2d7033):
+		// prb-facilitator, mailer.aha.io now require tenant patterns to classify correctly.
+		// Without tenant patterns, prb-facilitator → person, mailer.aha.io → person/bot.
+		{"prb-facilitator@akamai.com", "", AccountTypePerson},
+		{"updates@mailer.aha.io", "", AccountTypePerson},
+		{"notification@mailer.aha.io", "", AccountTypeBot}, // "notification" is a base bot pattern
 	}
 
 	for _, tt := range tests {
@@ -165,6 +166,14 @@ func TestResolveOrCreate_AccountTypeMismatch_Documentation(t *testing.T) {
 		correctAccountType  AccountType
 	}
 
+	// Akamai-specific patterns are now tenant config, so use DetectAccountTypeWithPatterns
+	// to simulate the tenant-aware detection path (pf-2d7033).
+	akamaiPatterns := &AccountTypePatterns{
+		BotPatterns:     []string{"gsd-"},
+		RolePatterns:    []string{"prb-facilitator"},
+		ExternalDomains: []string{"mailer.aha.io"},
+	}
+
 	cases := []mismatchCase{
 		{
 			email:              "Prb-Facilitator@akamai.com",
@@ -185,10 +194,10 @@ func TestResolveOrCreate_AccountTypeMismatch_Documentation(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.email, func(t *testing.T) {
-			// Verify that DetectAccountType returns the correct type
-			detectedType := DetectAccountType(tc.email, "")
+			// Verify that DetectAccountTypeWithPatterns returns the correct type with tenant patterns
+			detectedType := DetectAccountTypeWithPatterns(tc.email, "", akamaiPatterns)
 			if detectedType != tc.correctAccountType {
-				t.Errorf("DetectAccountType(%q) = %q, want %q", tc.email, detectedType, tc.correctAccountType)
+				t.Errorf("DetectAccountTypeWithPatterns(%q) = %q, want %q", tc.email, detectedType, tc.correctAccountType)
 			}
 
 			// Document the expected ResolveOrCreate behavior:

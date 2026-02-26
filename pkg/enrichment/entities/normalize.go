@@ -87,7 +87,6 @@ var (
 		"system",
 		"alert",
 		"notification",
-		"gsd-", // Akamai service accounts (Get Stuff Done)
 	}
 
 	distributionPatterns = []string{
@@ -120,7 +119,6 @@ var (
 		"billing",
 		"accounts",
 		"facilitator",
-		"prb-facilitator", // Akamai PRB facilitator role account
 	}
 
 	externalServiceDomains = []string{
@@ -133,7 +131,6 @@ var (
 		"circleci.com",
 		"travis-ci.org",
 		"travis-ci.com",
-		"mailer.aha.io", // Aha! product management tool
 	}
 )
 

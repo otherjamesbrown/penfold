@@ -254,8 +254,7 @@ func (a *ContextBuilderActivities) getTenantPatterns(ctx context.Context, tenant
 		BotPatterns:          config.BotPatterns,
 		DistributionPatterns: config.DistributionPatterns,
 		RolePatterns:         config.RoleAccountPatterns,
-		// Note: TenantConfig doesn't have ExternalDomains yet, so leave empty
-		ExternalDomains: nil,
+		ExternalDomains:      config.ExternalServiceDomains,
 	}
 }
 
