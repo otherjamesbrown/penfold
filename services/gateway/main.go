@@ -26,6 +26,7 @@ import (
 	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
 	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
+	ledgerv1 "github.com/otherjamesbrown/penfold/api/proto/ledger/v1"
 	logsv1 "github.com/otherjamesbrown/penfold/api/proto/logs/v1"
 	mentionsv1 "github.com/otherjamesbrown/penfold/api/proto/mentions/v1"
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
@@ -54,6 +55,7 @@ import (
 	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
+	"github.com/otherjamesbrown/penfold/pkg/ledger"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/logs"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
@@ -83,6 +85,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/glossaryservice"
 	gatewayhealth "github.com/otherjamesbrown/penfold/services/gateway/health"
 	"github.com/otherjamesbrown/penfold/services/gateway/ingestservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/ledgerservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/logsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/mentionsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/middleware"
@@ -334,6 +337,12 @@ func main() {
 	auditSvc := auditservice.NewService(auditRepo, logger)
 	auditv1.RegisterAuditServiceServer(grpcServer, auditSvc)
 	logger.Info("Registered AuditService")
+
+	// Register LedgerService for session narrative context.
+	ledgerRepo := ledger.NewRepository(dbPool, logger)
+	ledgerSvc := ledgerservice.NewService(ledgerRepo, logger)
+	ledgerv1.RegisterLedgerServiceServer(grpcServer, ledgerSvc)
+	logger.Info("Registered LedgerService")
 
 	// Register EntityService for bulk entity seeding.
 	// Note: tenantRepo is created here to allow tenant resolution in EntityService and later services.
