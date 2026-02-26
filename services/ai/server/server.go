@@ -31,6 +31,11 @@ type PromptStore interface {
 	GetPromptByStage(ctx context.Context, stage string, version int) (*pipeline.PromptTemplate, error)
 }
 
+// StageParamsProvider retrieves per-stage LLM parameters from pipeline_definitions.
+type StageParamsProvider interface {
+	GetStageLLMParams(ctx context.Context, stage string) (*pipeline.StageParams, error)
+}
+
 // AIServer implements the AICoordinatorService gRPC server.
 type AIServer struct {
 	aiv1.UnimplementedAICoordinatorServiceServer
@@ -43,6 +48,7 @@ type AIServer struct {
 	langfuse       *langfuse.Ingestion      // Langfuse generation reporting (optional, nil = disabled)
 	promptStore    PromptStore              // DB-backed prompt store (optional, nil = use hardcoded fallbacks)
 	configResolver *config.DBConfigResolver // DB-backed model config resolver (optional, nil = env vars only)
+	stageParams    StageParamsProvider     // Per-stage LLM params from pipeline_definitions (optional, nil = hardcoded defaults)
 }
 
 // NewAIServer creates a new AI server instance with a single backend.
@@ -117,6 +123,30 @@ func (s *AIServer) WithPromptStore(ps PromptStore) *AIServer {
 func (s *AIServer) WithDBConfigResolver(r *config.DBConfigResolver) *AIServer {
 	s.configResolver = r
 	return s
+}
+
+// WithStageParams sets the per-stage LLM parameters provider on an existing AIServer.
+// When nil, all handlers use hardcoded fallback values for temperature, max_tokens, and max_retries.
+func (s *AIServer) WithStageParams(sp StageParamsProvider) *AIServer {
+	s.stageParams = sp
+	return s
+}
+
+// getStageParams retrieves per-stage LLM parameters from pipeline_definitions.
+// Returns nil when the provider is not configured or the stage is not found (caller uses defaults).
+func (s *AIServer) getStageParams(ctx context.Context, stage string) *pipeline.StageParams {
+	if s.stageParams == nil {
+		return nil
+	}
+	params, err := s.stageParams.GetStageLLMParams(ctx, stage)
+	if err != nil {
+		s.logger.Warn("stage params lookup failed, using hardcoded defaults",
+			logging.F("stage", stage),
+			logging.Err(err),
+		)
+		return nil
+	}
+	return params
 }
 
 // resolveModel returns the model for a pipeline stage, preferring DB config when available.

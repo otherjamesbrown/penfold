@@ -237,13 +237,17 @@ func main() {
 
 	// Register AI service
 	aiServer := server.NewAIServerWithLangfuse(cfg, logger, compositeBackend, langfuseIngestion)
-	// Wire DB-backed prompt store if database is configured.
-	// The server falls back to hardcoded prompts when the store is nil or unavailable.
+	// Wire DB-backed prompt store and stage params if database is configured.
+	// The server falls back to hardcoded prompts/params when the store is nil or unavailable.
 	if promptRepo != nil {
 		aiServer.WithPromptStore(promptRepo)
-		logger.Info("DB-backed prompt store wired into AI server")
+		aiServer.WithStageParams(&stageParamsAdapter{
+			repo:     promptRepo,
+			tenantID: pkgconfig.DefaultTenantID().String(),
+		})
+		logger.Info("DB-backed prompt store and stage params wired into AI server")
 	} else {
-		logger.Info("No DB configured — AI server will use hardcoded prompt fallbacks")
+		logger.Info("No DB configured — AI server will use hardcoded prompt/param fallbacks")
 	}
 	// Wire DB-backed model config resolver if database is configured.
 	// The server falls back to env var config when the resolver is nil or unavailable.
@@ -331,6 +335,17 @@ func main() {
 	}
 
 	logger.Info("AI Coordinator service shutdown complete")
+}
+
+// stageParamsAdapter adapts pipeline.Repository to the server.StageParamsProvider interface
+// by binding a specific tenant ID and defaulting to the "standard" pipeline.
+type stageParamsAdapter struct {
+	repo     *pipeline.Repository
+	tenantID string
+}
+
+func (a *stageParamsAdapter) GetStageLLMParams(ctx context.Context, stage string) (*pipeline.StageParams, error) {
+	return a.repo.GetStageLLMParams(ctx, a.tenantID, "standard", stage)
 }
 
 // loggingInterceptor creates a gRPC unary interceptor for request logging.

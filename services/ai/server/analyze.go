@@ -472,15 +472,16 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 		{Role: "user", Content: prompt},
 	}
 
+	analyzeStageParams := s.getStageParams(ctx, "analyze")
 	opts := backend.CompletionOptions{
 		Model:       selectedModel,
-		Temperature: 0.2, // Low temperature for structured analysis
-		MaxTokens:   8192, // Deep analysis produces substantial output
+		Temperature: analyzeStageParams.TemperatureOr(0.2), // fallback: low temperature for structured analysis
+		MaxTokens:   analyzeStageParams.MaxTokensOr(8192),  // fallback: deep analysis produces substantial output
 		JSONMode:    true,
 	}
 
-	// Retry loop: up to 2 retries on malformed output
-	const maxAnalysisRetries = 2
+	// Retry loop with DB-configurable retry count
+	maxAnalysisRetries := analyzeStageParams.MaxRetriesOr(2)
 	var parsed *deepAnalysisResult
 	var result *backend.CompletionResult
 	var lastErr error

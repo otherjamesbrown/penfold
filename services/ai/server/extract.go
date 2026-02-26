@@ -270,8 +270,6 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		return nil, err
 	}
 
-	// Retry configuration
-	const maxExtractRetries = 2
 	totalRetries := 0
 
 	// Hoist prompts to function scope for tracing
@@ -280,6 +278,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var nerPromptVersion int32
 
 	// Stage 2a: NER extraction
+	nerStageParams := s.getStageParams(ctx, "extract_ner")
 	var nerResp *nerResult
 	var nerResult *backend.CompletionResult
 	var nerMessages []backend.Message
@@ -291,13 +290,14 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 		opts := backend.CompletionOptions{
 			Model:       model,
-			Temperature: 0.1,  // Low temperature for consistent extraction
-			MaxTokens:   8192, // Must accommodate full NER/semantic JSON for large transcripts
+			Temperature: nerStageParams.TemperatureOr(0.1),  // fallback: low temperature for consistent extraction
+			MaxTokens:   nerStageParams.MaxTokensOr(8192),   // fallback: accommodate full NER/semantic JSON for large transcripts
 			JSONMode:    true,
 		}
 
+		maxNERRetries := nerStageParams.MaxRetriesOr(2)
 		var lastErr error
-		for attempt := 0; attempt <= maxExtractRetries; attempt++ {
+		for attempt := 0; attempt <= maxNERRetries; attempt++ {
 			nerResult, lastErr = s.backend.ChatCompletion(ctx, nerMessages, opts)
 			if lastErr != nil {
 				s.logger.Error("ExtractEntities NER ChatCompletion failed",
@@ -317,16 +317,16 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 			s.logger.Warn("ExtractEntities NER response parsing failed, retrying",
 				logging.F("attempt", attempt),
-				logging.F("max_retries", maxExtractRetries),
+				logging.F("max_retries", maxNERRetries),
 				logging.F("response_length", len(nerResult.Content)),
 				logging.Err(lastErr),
 			)
 
 			totalRetries++
 
-			if attempt >= maxExtractRetries {
+			if attempt >= maxNERRetries {
 				// Exhausted retries
-				parseErr := status.Error(codes.Internal, fmt.Sprintf("failed to parse NER response after %d retries: %v", maxExtractRetries, lastErr))
+				parseErr := status.Error(codes.Internal, fmt.Sprintf("failed to parse NER response after %d retries: %v", maxNERRetries, lastErr))
 				tracing.SetError(span, parseErr)
 				return nil, parseErr
 			}
@@ -357,6 +357,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	}
 
 	// Stage 2b: Semantic extraction
+	semStageParams := s.getStageParams(ctx, "extract_semantic")
 	var semResp *semanticResult
 	var semResult *backend.CompletionResult
 	var semMessages []backend.Message
@@ -368,13 +369,14 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 		opts := backend.CompletionOptions{
 			Model:       model,
-			Temperature: 0.1,
-			MaxTokens:   8192, // Must accommodate full NER/semantic JSON for large transcripts
+			Temperature: semStageParams.TemperatureOr(0.1),  // fallback: low temperature for consistent extraction
+			MaxTokens:   semStageParams.MaxTokensOr(8192),   // fallback: accommodate full NER/semantic JSON for large transcripts
 			JSONMode:    true,
 		}
 
+		maxSemRetries := semStageParams.MaxRetriesOr(2)
 		var lastErr error
-		for attempt := 0; attempt <= maxExtractRetries; attempt++ {
+		for attempt := 0; attempt <= maxSemRetries; attempt++ {
 			semResult, lastErr = s.backend.ChatCompletion(ctx, semMessages, opts)
 			if lastErr != nil {
 				s.logger.Error("ExtractEntities Semantic ChatCompletion failed",
@@ -394,16 +396,16 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 			s.logger.Warn("ExtractEntities Semantic response parsing failed, retrying",
 				logging.F("attempt", attempt),
-				logging.F("max_retries", maxExtractRetries),
+				logging.F("max_retries", maxSemRetries),
 				logging.F("response_length", len(semResult.Content)),
 				logging.Err(lastErr),
 			)
 
 			totalRetries++
 
-			if attempt >= maxExtractRetries {
+			if attempt >= maxSemRetries {
 				// Exhausted retries
-				parseErr := status.Error(codes.Internal, fmt.Sprintf("failed to parse Semantic response after %d retries: %v", maxExtractRetries, lastErr))
+				parseErr := status.Error(codes.Internal, fmt.Sprintf("failed to parse Semantic response after %d retries: %v", maxSemRetries, lastErr))
 				tracing.SetError(span, parseErr)
 				return nil, parseErr
 			}
@@ -445,6 +447,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		)
 
 		qualityGateTriggered = true
+		qgStageParams := s.getStageParams(ctx, "quality_gate_risk")
 
 		qgPrompt, _ := s.buildQualityGatePrompt(ctx, content)
 		messages := []backend.Message{
@@ -453,14 +456,15 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 		opts := backend.CompletionOptions{
 			Model:       model,
-			Temperature: 0.1,
-			MaxTokens:   8192, // Must accommodate full NER/semantic JSON for large transcripts
+			Temperature: qgStageParams.TemperatureOr(0.1),  // fallback: low temperature for consistent extraction
+			MaxTokens:   qgStageParams.MaxTokensOr(8192),   // fallback: accommodate full NER/semantic JSON
 			JSONMode:    true,
 		}
 
+		maxQGRetries := qgStageParams.MaxRetriesOr(2)
 		var lastErr error
 		var qgResult *backend.CompletionResult
-		for attempt := 0; attempt <= maxExtractRetries; attempt++ {
+		for attempt := 0; attempt <= maxQGRetries; attempt++ {
 			qgResult, lastErr = s.backend.ChatCompletion(ctx, messages, opts)
 			if lastErr != nil {
 				s.logger.Error("ExtractEntities QualityGate ChatCompletion failed",
@@ -481,13 +485,13 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 
 			s.logger.Warn("ExtractEntities QualityGate response parsing failed, retrying",
 				logging.F("attempt", attempt),
-				logging.F("max_retries", maxExtractRetries),
+				logging.F("max_retries", maxQGRetries),
 				logging.Err(lastErr),
 			)
 
 			totalRetries++
 
-			if attempt >= maxExtractRetries {
+			if attempt >= maxQGRetries {
 				// Quality gate failed, but don't fail entire extraction
 				s.logger.Warn("Quality gate parsing failed after retries, continuing with original results",
 					logging.Err(lastErr),

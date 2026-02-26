@@ -22,7 +22,42 @@ type StageDefinition struct {
 	SkipWhenLow    bool
 	Optional       bool
 	TimeoutSeconds int
+	Temperature    *float64
+	MaxTokens      *int
+	MaxRetries     *int
 	CreatedAt      time.Time
+}
+
+// StageParams holds per-stage LLM parameters from pipeline_definitions.
+type StageParams struct {
+	Temperature *float64
+	MaxTokens   *int
+	MaxRetries  *int
+}
+
+// TemperatureOr returns the DB temperature or the provided default when nil.
+// Returns float32 to match backend.CompletionOptions.Temperature.
+func (sp *StageParams) TemperatureOr(def float32) float32 {
+	if sp != nil && sp.Temperature != nil {
+		return float32(*sp.Temperature)
+	}
+	return def
+}
+
+// MaxTokensOr returns the DB max_tokens or the provided default when nil.
+func (sp *StageParams) MaxTokensOr(def int) int {
+	if sp != nil && sp.MaxTokens != nil {
+		return *sp.MaxTokens
+	}
+	return def
+}
+
+// MaxRetriesOr returns the DB max_retries or the provided default when nil.
+func (sp *StageParams) MaxRetriesOr(def int) int {
+	if sp != nil && sp.MaxRetries != nil {
+		return *sp.MaxRetries
+	}
+	return def
 }
 
 // PipelineDefinition groups a pipeline name with its ordered stages.
@@ -37,7 +72,7 @@ func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]Pipe
 	rows, err := r.db.Query(ctx, `
 		SELECT id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
-		       timeout_seconds, created_at
+		       timeout_seconds, temperature, max_tokens, max_retries, created_at
 		FROM pipeline_definitions
 		WHERE tenant_id = $1
 		ORDER BY pipeline, stage_order
@@ -54,7 +89,8 @@ func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]Pipe
 		if err := rows.Scan(
 			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageOrder,
 			&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
-			&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds, &sd.CreatedAt,
+			&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
+			&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning pipeline definition: %w", err)
 		}
@@ -88,7 +124,7 @@ func (r *Repository) GetPipelineStages(ctx context.Context, tenantID, pipeline s
 	rows, err := r.db.Query(ctx, `
 		SELECT id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
-		       timeout_seconds, created_at
+		       timeout_seconds, temperature, max_tokens, max_retries, created_at
 		FROM pipeline_definitions
 		WHERE tenant_id = $1 AND pipeline = $2
 		ORDER BY stage_order
@@ -104,7 +140,8 @@ func (r *Repository) GetPipelineStages(ctx context.Context, tenantID, pipeline s
 		if err := rows.Scan(
 			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageOrder,
 			&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
-			&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds, &sd.CreatedAt,
+			&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
+			&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning pipeline stage: %w", err)
 		}
@@ -169,14 +206,15 @@ func (r *Repository) UpdateStageConfig(ctx context.Context, tenantID, pipeline, 
 		WHERE tenant_id = $1 AND pipeline = $2 AND stage = $3
 		RETURNING id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
 		          model_override, prompt_override, skip_when_low, optional,
-		          timeout_seconds, created_at
+		          timeout_seconds, temperature, max_tokens, max_retries, created_at
 	`, joinStrings(setClauses, ", "))
 
 	var sd StageDefinition
 	err := r.db.QueryRow(ctx, query, args...).Scan(
 		&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageOrder,
 		&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
-		&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds, &sd.CreatedAt,
+		&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
+		&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("stage %q in pipeline %q not found", stage, pipeline)
@@ -214,10 +252,12 @@ func (r *Repository) CreatePipeline(ctx context.Context, tenantID, name, fromPip
 		_, err = tx.Exec(ctx, `
 			INSERT INTO pipeline_definitions (tenant_id, pipeline, content_type, stage, stage_order, enabled,
 			                                  model_override, prompt_override, skip_when_low,
-			                                  optional, timeout_seconds)
+			                                  optional, timeout_seconds,
+			                                  temperature, max_tokens, max_retries)
 			SELECT tenant_id, $3, content_type, stage, stage_order, enabled,
 			       model_override, prompt_override, skip_when_low,
-			       optional, timeout_seconds
+			       optional, timeout_seconds,
+			       temperature, max_tokens, max_retries
 			FROM pipeline_definitions
 			WHERE tenant_id = $1 AND pipeline = $2
 			ORDER BY stage_order
@@ -264,13 +304,14 @@ func (r *Repository) getStageDefinition(ctx context.Context, tenantID, pipeline,
 	err := r.db.QueryRow(ctx, `
 		SELECT id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
-		       timeout_seconds, created_at
+		       timeout_seconds, temperature, max_tokens, max_retries, created_at
 		FROM pipeline_definitions
 		WHERE tenant_id = $1 AND pipeline = $2 AND stage = $3
 	`, tenantID, pipeline, stage).Scan(
-		&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.Stage, &sd.StageOrder,
+		&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageOrder,
 		&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
-		&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds, &sd.CreatedAt,
+		&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
+		&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("stage %q in pipeline %q not found", stage, pipeline)
@@ -279,6 +320,24 @@ func (r *Repository) getStageDefinition(ctx context.Context, tenantID, pipeline,
 		return nil, fmt.Errorf("getting stage definition: %w", err)
 	}
 	return &sd, nil
+}
+
+// GetStageLLMParams retrieves LLM parameters for a specific stage from pipeline_definitions.
+// Returns nil (not error) when the stage is not found, allowing callers to fall back to defaults.
+func (r *Repository) GetStageLLMParams(ctx context.Context, tenantID, pipeline, stage string) (*StageParams, error) {
+	var sp StageParams
+	err := r.db.QueryRow(ctx, `
+		SELECT temperature, max_tokens, max_retries
+		FROM pipeline_definitions
+		WHERE tenant_id = $1 AND pipeline = $2 AND stage = $3
+	`, tenantID, pipeline, stage).Scan(&sp.Temperature, &sp.MaxTokens, &sp.MaxRetries)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting stage LLM params: %w", err)
+	}
+	return &sp, nil
 }
 
 // joinStrings joins a slice with a separator (avoids importing strings for one use).
