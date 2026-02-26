@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -593,6 +594,120 @@ func (r *Repository) GetConsolidation(ctx context.Context, tenantID string, id i
 		logging.F("tenant_id", c.TenantID))
 
 	return c, nil
+}
+
+// GetUnconsolidatedEntries returns entries older than the given cutoff whose IDs
+// do not appear in any consolidation's source_entry_ids. Results are ordered by
+// session_id then created_at for grouping.
+func (r *Repository) GetUnconsolidatedEntries(ctx context.Context, tenantID string, olderThan time.Time) ([]*Entry, error) {
+	query := `
+		SELECT e.id, e.tenant_id, e.session_id, e.entry_type, e.title, e.body,
+		       e.source, e.agent, e.labels, e.shard_refs, e.metadata, e.created_at
+		FROM session_ledger_entries e
+		WHERE e.tenant_id = $1
+		  AND e.created_at < $2
+		  AND NOT EXISTS (
+		      SELECT 1 FROM session_ledger_consolidations c
+		      WHERE c.tenant_id = $1
+		        AND e.id = ANY(c.source_entry_ids)
+		  )
+		ORDER BY e.session_id, e.created_at ASC
+	`
+
+	rows, err := r.pool.Query(ctx, query, tenantID, olderThan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get unconsolidated entries: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []*Entry
+	for rows.Next() {
+		entry := &Entry{}
+		var metaBytes []byte
+
+		err := rows.Scan(
+			&entry.ID,
+			&entry.TenantID,
+			&entry.SessionID,
+			&entry.EntryType,
+			&entry.Title,
+			&entry.Body,
+			&entry.Source,
+			&entry.Agent,
+			&entry.Labels,
+			&entry.ShardRefs,
+			&metaBytes,
+			&entry.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan unconsolidated entry: %w", err)
+		}
+		if err := json.Unmarshal(metaBytes, &entry.Metadata); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+
+	return entries, rows.Err()
+}
+
+// CreateConsolidation inserts a new consolidation record and populates id and created_at.
+func (r *Repository) CreateConsolidation(ctx context.Context, c *Consolidation) error {
+	if c.Decisions == nil {
+		c.Decisions = []ConsolidationDecision{}
+	}
+	if c.Patterns == nil {
+		c.Patterns = []ConsolidationPattern{}
+	}
+	if c.Metadata == nil {
+		c.Metadata = map[string]string{}
+	}
+
+	decisionsBytes, err := json.Marshal(c.Decisions)
+	if err != nil {
+		return fmt.Errorf("failed to marshal decisions: %w", err)
+	}
+	patternsBytes, err := json.Marshal(c.Patterns)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patterns: %w", err)
+	}
+	metaBytes, err := json.Marshal(c.Metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	query := `
+		INSERT INTO session_ledger_consolidations (
+			tenant_id, title, body, source_entry_ids, session_ids,
+			decisions, patterns, time_start, time_end, model_id, metadata
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id, created_at
+	`
+
+	err = r.pool.QueryRow(ctx, query,
+		c.TenantID,
+		c.Title,
+		c.Body,
+		c.SourceEntryIDs,
+		c.SessionIDs,
+		decisionsBytes,
+		patternsBytes,
+		c.TimeStart,
+		c.TimeEnd,
+		c.ModelID,
+		metaBytes,
+	).Scan(&c.ID, &c.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create consolidation: %w", err)
+	}
+
+	r.logger.Debug("Consolidation created",
+		logging.F("id", c.ID),
+		logging.F("tenant_id", c.TenantID),
+		logging.F("entry_count", len(c.SourceEntryIDs)))
+
+	return nil
 }
 
 // scanner is satisfied by both pgx.Row and pgx.Rows.

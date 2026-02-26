@@ -255,6 +255,24 @@ type ConversationMaintenanceResult struct {
 	Error        string `json:"error,omitempty"`
 }
 
+// SessionLedgerConsolidationInput is the input for the session ledger consolidation workflow.
+type SessionLedgerConsolidationInput struct {
+	TenantID    string `json:"tenant_id"`
+	CutoffHours int    `json:"cutoff_hours"` // Entries older than this many hours (default 48)
+	MinEntries  int    `json:"min_entries"`   // Minimum entries per session to consolidate (default 3)
+}
+
+// SessionLedgerConsolidationResult is the result of the session ledger consolidation workflow.
+type SessionLedgerConsolidationResult struct {
+	SessionsChecked       int    `json:"sessions_checked"`
+	SessionsSkipped       int    `json:"sessions_skipped"`
+	ConsolidationsCreated int    `json:"consolidations_created"`
+	EntriesConsolidated   int    `json:"entries_consolidated"`
+	Failed                int    `json:"failed"`
+	Status                string `json:"status"` // completed, failed
+	Error                 string `json:"error,omitempty"`
+}
+
 // ConversationBackfillInput is the input for the conversation summary backfill workflow.
 type ConversationBackfillInput struct {
 	TenantID string `json:"tenant_id"`

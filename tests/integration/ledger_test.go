@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/otherjamesbrown/penfold/pkg/ledger"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -220,6 +221,109 @@ func TestLedgerGetLatestHandoff(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Handoff - test", handoff.Title)
 	assert.Equal(t, "handoff", handoff.EntryType)
+}
+
+func TestLedgerGetUnconsolidatedEntries(t *testing.T) {
+	repo, db := setupLedgerRepo(t)
+	ctx := context.Background()
+
+	// Also clean up consolidations for test tenant.
+	_, err := db.Pool.Exec(ctx,
+		"DELETE FROM session_ledger_consolidations WHERE tenant_id = $1", db.TenantID)
+	require.NoError(t, err)
+
+	// Create 4 entries across 2 sessions.
+	for i, e := range []ledger.Entry{
+		{SessionID: "consol-s1", EntryType: "narrative", Title: "Entry 1"},
+		{SessionID: "consol-s1", EntryType: "decision", Title: "Entry 2"},
+		{SessionID: "consol-s1", EntryType: "discovery", Title: "Entry 3"},
+		{SessionID: "consol-s2", EntryType: "narrative", Title: "Entry 4"},
+	} {
+		entry := e
+		entry.TenantID = db.TenantID
+		entry.Source = "manual"
+		entry.Agent = "agent-mycroft"
+		_ = i
+		err := repo.CreateEntry(ctx, &entry)
+		require.NoError(t, err, "creating entry %d", i)
+	}
+
+	// All 4 should be unconsolidated (cutoff in the future).
+	entries, err := repo.GetUnconsolidatedEntries(ctx, db.TenantID, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	assert.Len(t, entries, 4, "all entries should be unconsolidated")
+
+	// Verify ordering: grouped by session_id, then by created_at.
+	assert.Equal(t, "consol-s1", entries[0].SessionID)
+	assert.Equal(t, "consol-s2", entries[3].SessionID)
+
+	// Consolidate session s1 entries (simulate by creating a consolidation).
+	s1IDs := []int64{entries[0].ID, entries[1].ID, entries[2].ID}
+	consolidation := &ledger.Consolidation{
+		TenantID:       db.TenantID,
+		Title:          "Test consolidation",
+		Body:           "Narrative summary of s1",
+		SourceEntryIDs: s1IDs,
+		SessionIDs:     []string{"consol-s1"},
+		TimeStart:      entries[0].CreatedAt,
+		TimeEnd:        entries[2].CreatedAt,
+	}
+	err = repo.CreateConsolidation(ctx, consolidation)
+	require.NoError(t, err)
+	assert.NotZero(t, consolidation.ID)
+	assert.False(t, consolidation.CreatedAt.IsZero())
+
+	// Now only s2 entry should be unconsolidated.
+	remaining, err := repo.GetUnconsolidatedEntries(ctx, db.TenantID, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	assert.Len(t, remaining, 1, "s1 entries should now be consolidated")
+	assert.Equal(t, "consol-s2", remaining[0].SessionID)
+
+	// Verify the consolidation can be retrieved.
+	got, err := repo.GetConsolidation(ctx, db.TenantID, consolidation.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Test consolidation", got.Title)
+	assert.Equal(t, "Narrative summary of s1", got.Body)
+	assert.Len(t, got.SourceEntryIDs, 3)
+	assert.Equal(t, []string{"consol-s1"}, got.SessionIDs)
+}
+
+func TestLedgerCreateConsolidationWithDecisionsAndPatterns(t *testing.T) {
+	repo, db := setupLedgerRepo(t)
+	ctx := context.Background()
+
+	now := time.Now()
+	consolidation := &ledger.Consolidation{
+		TenantID:       db.TenantID,
+		Title:          "Rich consolidation",
+		Body:           "Detailed narrative.",
+		SourceEntryIDs: []int64{999},
+		SessionIDs:     []string{"test-rich-s1"},
+		Decisions: []ledger.ConsolidationDecision{
+			{Title: "Use Go", Body: "Chose Go for the backend", SessionID: "test-rich-s1"},
+		},
+		Patterns: []ledger.ConsolidationPattern{
+			{Title: "Schema drift", Body: "Frequent migration changes", Evidence: []string{"089", "090"}},
+		},
+		TimeStart: now.Add(-time.Hour),
+		TimeEnd:   now,
+		ModelID:   ledgerStrPtr("gemini-2.0-flash"),
+	}
+
+	err := repo.CreateConsolidation(ctx, consolidation)
+	require.NoError(t, err)
+
+	got, err := repo.GetConsolidation(ctx, db.TenantID, consolidation.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, "Rich consolidation", got.Title)
+	require.Len(t, got.Decisions, 1)
+	assert.Equal(t, "Use Go", got.Decisions[0].Title)
+	assert.Equal(t, "Chose Go for the backend", got.Decisions[0].Body)
+	require.Len(t, got.Patterns, 1)
+	assert.Equal(t, "Schema drift", got.Patterns[0].Title)
+	assert.Len(t, got.Patterns[0].Evidence, 2)
+	assert.Equal(t, "gemini-2.0-flash", *got.ModelID)
 }
 
 func ledgerStrPtr(s string) *string {

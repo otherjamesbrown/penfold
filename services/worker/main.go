@@ -32,6 +32,7 @@ import (
 	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
+	"github.com/otherjamesbrown/penfold/pkg/ledger"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/health"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -680,6 +681,15 @@ func main() {
 		conversationActivities := activities.NewConversationActivities(logger, sourceRepo, convRepo, convAIClient)
 		activityRegistrar.WithConversationActivities(conversationActivities)
 		logger.Info("Conversation activities initialized with database (auto-linking)")
+	}
+
+	// Session ledger consolidation activities (daily consolidation workflow)
+	if dbPool != nil && aiClient != nil {
+		ledgerRepo := ledger.NewRepository(dbPool, logger)
+		promptRepo := pipeline.NewRepository(dbPool)
+		consolidationActivities := activities.NewConsolidationActivities(logger, ledgerRepo, promptRepo, aiClient)
+		activityRegistrar.WithConsolidationActivities(consolidationActivities)
+		logger.Info("Consolidation activities initialized with database and AI client")
 	}
 
 	// Langfuse activities for pipeline trace/phase reporting.

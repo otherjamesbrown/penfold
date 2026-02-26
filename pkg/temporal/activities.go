@@ -35,6 +35,7 @@ const (
 	ActivityRecordSkippedStage             = "RecordSkippedStage"
 	ActivityDeleteAssertions               = "DeleteAssertions"
 	ActivityFetchPipelineDefinition        = "FetchPipelineDefinition"
+	ActivityConsolidateEntries             = "ConsolidateEntries"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -111,6 +112,7 @@ func AllMainQueueActivities() []string {
 		ActivityRecordSkippedStage,
 		ActivityDeleteAssertions,
 		ActivityFetchPipelineDefinition,
+		ActivityConsolidateEntries,
 	}
 }
 

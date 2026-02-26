@@ -32,6 +32,7 @@ type Registrar struct {
 	enrichmentActivities       *EnrichmentActivities
 	conversationActivities     *ConversationActivities
 	langfuseActivities         *LangfuseActivities
+	consolidationActivities    *ConsolidationActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -134,6 +135,12 @@ func (r *Registrar) WithConversationActivities(ca *ConversationActivities) *Regi
 // WithLangfuseActivities adds Langfuse ingestion activities to the registrar.
 func (r *Registrar) WithLangfuseActivities(la *LangfuseActivities) *Registrar {
 	r.langfuseActivities = la
+	return r
+}
+
+// WithConsolidationActivities adds session ledger consolidation activities to the registrar.
+func (r *Registrar) WithConsolidationActivities(ca *ConsolidationActivities) *Registrar {
+	r.consolidationActivities = ca
 	return r
 }
 
@@ -326,6 +333,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
+	// Consolidation activities for session ledger daily consolidation
+	if r.consolidationActivities != nil {
+		w.RegisterActivityWithOptions(r.consolidationActivities.ConsolidateEntries, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityConsolidateEntries,
+		})
+	}
+
 	// Langfuse ingestion activities for pipeline trace reporting
 	if r.langfuseActivities != nil {
 		w.RegisterActivityWithOptions(r.langfuseActivities.CreateLangfuseTrace, activity.RegisterOptions{
@@ -506,6 +520,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// LinkConversation, BackfillConversationSummaries, RegenerateConversationSummary, CheckStaleConversations
 		if r.conversationActivities != nil {
 			count += 4
+		}
+		// ConsolidateEntries
+		if r.consolidationActivities != nil {
+			count += 1
 		}
 		// CreateLangfuseTrace, ReportLangfusePhase, FinishLangfuseTrace, PersistLangfuseTraceID, UpdateLangfuseTraceTags, UpdateLangfuseTraceMetadata
 		if r.langfuseActivities != nil {
