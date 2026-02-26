@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
@@ -83,6 +84,37 @@ func (m *mockEntityLookup) UpdatePersonTitle(ctx context.Context, personID int64
 }
 
 // Note: mockContextPackageRepo is defined in context_repo_test.go
+
+// mockConfigRepository implements enrichmentconfig.ConfigRepository for testing.
+type mockConfigRepository struct {
+	tenant        *enrichmentconfig.Tenant
+	domains       []enrichmentconfig.TenantDomain
+	emailPatterns []enrichmentconfig.TenantEmailPattern
+}
+
+func (m *mockConfigRepository) GetTenant(_ context.Context, _ string) (*enrichmentconfig.Tenant, error) {
+	return m.tenant, nil
+}
+
+func (m *mockConfigRepository) GetTenantBySlug(_ context.Context, _ string) (*enrichmentconfig.Tenant, error) {
+	return m.tenant, nil
+}
+
+func (m *mockConfigRepository) GetTenantDomains(_ context.Context, _ string) ([]enrichmentconfig.TenantDomain, error) {
+	return m.domains, nil
+}
+
+func (m *mockConfigRepository) GetTenantEmailPatterns(_ context.Context, _ string) ([]enrichmentconfig.TenantEmailPattern, error) {
+	return m.emailPatterns, nil
+}
+
+func (m *mockConfigRepository) GetTenantProcessingRules(_ context.Context, _ string) ([]enrichmentconfig.TenantProcessingRule, error) {
+	return nil, nil
+}
+
+func (m *mockConfigRepository) GetTenantIntegrations(_ context.Context, _ string) ([]enrichmentconfig.TenantIntegration, error) {
+	return nil, nil
+}
 
 func TestBuildContext_PersonResolution(t *testing.T) {
 	ctx := context.Background()
@@ -566,11 +598,25 @@ func TestBuildContext_FilterNonPersonEmails(t *testing.T) {
 		return participants
 	}
 
+	// ConfigResolver with tenant-specific patterns for emails externalized from base lists.
+	// mailer.aha.io is an external service domain and prb-facilitator is a role account,
+	// both now loaded from tenant config rather than hardcoded.
+	tenantConfigResolver := enrichmentconfig.NewConfigResolver(&mockConfigRepository{
+		tenant: &enrichmentconfig.Tenant{ID: "test-tenant", Name: "Test", Slug: "test", IsActive: true},
+		domains: []enrichmentconfig.TenantDomain{
+			{TenantID: "test-tenant", Domain: "mailer.aha.io", DomainType: "external_known"},
+		},
+		emailPatterns: []enrichmentconfig.TenantEmailPattern{
+			{TenantID: "test-tenant", Pattern: "prb-facilitator", PatternType: "role_account", Enabled: true},
+		},
+	})
+
 	tests := []struct {
 		name              string
 		participantEmails []workflows.Participant
 		expectedPeople    int
 		expectedFiltered  []string
+		configResolver    *enrichmentconfig.ConfigResolver
 	}{
 		{
 			name:              "filter distribution lists",
@@ -583,6 +629,7 @@ func TestBuildContext_FilterNonPersonEmails(t *testing.T) {
 			participantEmails: toParticipants([]string{"alice@example.com", "updates@mailer.aha.io", "bob@example.com"}),
 			expectedPeople:    2, // only alice and bob
 			expectedFiltered:  []string{"updates@mailer.aha.io"},
+			configResolver:    tenantConfigResolver,
 		},
 		{
 			name:              "filter service accounts",
@@ -595,6 +642,7 @@ func TestBuildContext_FilterNonPersonEmails(t *testing.T) {
 			participantEmails: toParticipants([]string{"alice@example.com", "prb-facilitator@akamai.com", "bob@example.com"}),
 			expectedPeople:    2, // only alice and bob
 			expectedFiltered:  []string{"prb-facilitator@akamai.com"},
+			configResolver:    tenantConfigResolver,
 		},
 		{
 			name:              "filter noreply addresses",
@@ -645,7 +693,7 @@ func TestBuildContext_FilterNonPersonEmails(t *testing.T) {
 				&mockContextPackageRepo{},
 				nil,
 				nil,
-				nil,
+				tt.configResolver,
 			)
 
 			input := BuildContextInput{
