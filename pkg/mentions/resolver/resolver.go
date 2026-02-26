@@ -22,12 +22,13 @@ import (
 
 // Resolver orchestrates the multi-stage LLM resolution pipeline.
 type Resolver struct {
-	config    Config
-	provider  LLMProvider
-	stages    *StageExecutor
-	gatherer  *CandidateGatherer
-	mentRepo  mentions.Repository
-	tracer    Tracer
+	config      Config
+	provider    LLMProvider
+	stages      *StageExecutor
+	gatherer    *CandidateGatherer
+	mentRepo    mentions.Repository
+	tracer      Tracer
+	PromptStore PromptStore
 }
 
 // Tracer records traces for audit.
@@ -59,7 +60,7 @@ func NewResolver(
 	return &Resolver{
 		config:   config,
 		provider: provider,
-		stages:   NewStageExecutor(provider, config),
+		stages:   NewStageExecutor(provider, config, nil),
 		gatherer: NewCandidateGatherer(lookup, mentRepo, config),
 		mentRepo: mentRepo,
 		tracer:   tracer,
@@ -162,6 +163,13 @@ func (r *Resolver) ProcessBatch(ctx context.Context, tenantID string, batch Reso
 
 	result.ProcessingTimeMs = int(time.Since(start).Milliseconds())
 	return result, nil
+}
+
+// SetPromptStore sets the DB-backed prompt store for runtime prompt lookups.
+// When set, the resolver prefers DB prompts over hardcoded constants.
+func (r *Resolver) SetPromptStore(ps PromptStore) {
+	r.PromptStore = ps
+	r.stages.promptStore = ps
 }
 
 // SetHeartbeat sets a heartbeat callback for the next ProcessBatch call.

@@ -38,13 +38,25 @@ func (m *mockPersonRepository) GetPeopleByDomain(ctx context.Context, tenantID, 
 	return nil, nil
 }
 
+// mockDomainCompanyRepository implements DomainCompanyRepository for testing.
+type mockDomainCompanyRepository struct {
+	getCompanyByDomainFunc func(ctx context.Context, tenantID, domain string) (string, error)
+}
+
+func (m *mockDomainCompanyRepository) GetCompanyByDomain(ctx context.Context, tenantID, domain string) (string, error) {
+	if m.getCompanyByDomainFunc != nil {
+		return m.getCompanyByDomainFunc(ctx, tenantID, domain)
+	}
+	return "", nil
+}
+
 // TestEnrichPersonMetadata_ActivityExists verifies the activity can be constructed.
 func TestEnrichPersonMetadata_ActivityExists(t *testing.T) {
 	logger := logging.MustGlobal()
 	personRepo := &mockPersonRepository{}
 
 	// This should NOT panic
-	activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"example.com"})
+	activity := NewPersonEnrichmentActivities(logger, personRepo, nil, []string{"example.com"})
 
 	if activity == nil {
 		t.Fatal("Expected non-nil activity")
@@ -106,7 +118,7 @@ func TestEnrichPersonMetadata_CompanyFromDomain(t *testing.T) {
 				},
 			}
 
-			activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"example.com"})
+			activity := NewPersonEnrichmentActivities(logger, personRepo, nil, []string{"example.com"})
 
 			input := workflows.EnrichPersonMetadataInput{
 				TenantID: "test-tenant",
@@ -223,7 +235,7 @@ func TestEnrichPersonMetadata_IsInternalFlag(t *testing.T) {
 				},
 			}
 
-			activity := NewPersonEnrichmentActivities(logger, personRepo, internalDomains)
+			activity := NewPersonEnrichmentActivities(logger, personRepo, nil, internalDomains)
 
 			input := workflows.EnrichPersonMetadataInput{
 				TenantID: "test-tenant",
@@ -326,7 +338,7 @@ Example Inc`,
 				},
 			}
 
-			activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"example.com"})
+			activity := NewPersonEnrichmentActivities(logger, personRepo, nil, []string{"example.com"})
 
 			input := workflows.EnrichPersonMetadataInput{
 				TenantID:      "test-tenant",
@@ -387,7 +399,7 @@ func TestEnrichPersonMetadata_DoesNotOverwriteExisting(t *testing.T) {
 		},
 	}
 
-	activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"example.com"})
+	activity := NewPersonEnrichmentActivities(logger, personRepo, nil, []string{"example.com"})
 
 	input := workflows.EnrichPersonMetadataInput{
 		TenantID: "test-tenant",
@@ -425,7 +437,7 @@ func TestEnrichPersonMetadata_EmptyInput(t *testing.T) {
 	logger := logging.MustGlobal()
 
 	personRepo := &mockPersonRepository{}
-	activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"example.com"})
+	activity := NewPersonEnrichmentActivities(logger, personRepo, nil, []string{"example.com"})
 
 	tests := []struct {
 		name  string
@@ -497,7 +509,7 @@ func TestEnrichPersonMetadata_MultipleFields(t *testing.T) {
 		},
 	}
 
-	activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"akamai.com"})
+	activity := NewPersonEnrichmentActivities(logger, personRepo, nil, []string{"akamai.com"})
 
 	input := workflows.EnrichPersonMetadataInput{
 		TenantID: "test-tenant",
@@ -612,7 +624,7 @@ Akamai Technologies`
 		},
 	}
 
-	activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"akamai.com"})
+	activity := NewPersonEnrichmentActivities(logger, personRepo, nil, []string{"akamai.com"})
 
 	// FIX: Use per-sender signatures to map each person to their own signature
 	perSenderSignatures := map[string]string{
@@ -799,7 +811,7 @@ func TestEnrichPersonMetadata_HTMLSignatureTitleExtraction(t *testing.T) {
 				},
 			}
 
-			activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"example.com"})
+			activity := NewPersonEnrichmentActivities(logger, personRepo, nil, []string{"example.com"})
 
 			// Convert HTML signature to text using the current htmlToText() implementation
 			// (via ParseEmailBody in pkg/parse/email.go)
@@ -935,7 +947,7 @@ Example Corp`,
 				},
 			}
 
-			activity := NewPersonEnrichmentActivities(logger, personRepo, []string{"example.com"})
+			activity := NewPersonEnrichmentActivities(logger, personRepo, nil, []string{"example.com"})
 
 			input := workflows.EnrichPersonMetadataInput{
 				TenantID:      "test-tenant",
@@ -1093,7 +1105,7 @@ Akamai Technologies`,
 			}
 
 			// CRITICAL: Empty internalDomains array simulates tenant config not loaded
-			activity := NewPersonEnrichmentActivities(logger, personRepo, []string{})
+			activity := NewPersonEnrichmentActivities(logger, personRepo, nil, []string{})
 
 			input := workflows.EnrichPersonMetadataInput{
 				TenantID:      "test-tenant",

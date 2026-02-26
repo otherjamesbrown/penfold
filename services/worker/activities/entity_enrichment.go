@@ -19,15 +19,17 @@ type PersonRepository interface {
 
 // PersonEnrichmentActivities holds dependencies for person metadata enrichment activities.
 type PersonEnrichmentActivities struct {
-	logger          logging.Logger
-	personRepo      PersonRepository
-	internalDomains []string
+	logger             logging.Logger
+	personRepo         PersonRepository
+	domainCompanyRepo  DomainCompanyRepository
+	internalDomains    []string
 }
 
 // NewPersonEnrichmentActivities creates a new PersonEnrichmentActivities instance.
 func NewPersonEnrichmentActivities(
 	logger logging.Logger,
 	personRepo PersonRepository,
+	domainCompanyRepo DomainCompanyRepository,
 	internalDomains []string,
 ) *PersonEnrichmentActivities {
 	if logger == nil {
@@ -37,9 +39,10 @@ func NewPersonEnrichmentActivities(
 		panic("NewPersonEnrichmentActivities: personRepo is required")
 	}
 	return &PersonEnrichmentActivities{
-		logger:          logger.With(logging.F("component", "person_enrichment_activities")),
-		personRepo:      personRepo,
-		internalDomains: internalDomains,
+		logger:            logger.With(logging.F("component", "person_enrichment_activities")),
+		personRepo:        personRepo,
+		domainCompanyRepo: domainCompanyRepo,
+		internalDomains:   internalDomains,
 	}
 }
 
@@ -114,7 +117,7 @@ func (a *PersonEnrichmentActivities) EnrichPersonMetadata(ctx context.Context, i
 
 		// Enrich company from email domain if missing
 		if updatedPerson.Company == "" && updatedPerson.PrimaryEmail != "" {
-			company := deriveCompanyFromDomain(updatedPerson.PrimaryEmail)
+			company := a.deriveCompanyFromDomain(ctx, input.TenantID, updatedPerson.PrimaryEmail)
 			if company != "" {
 				updatedPerson.Company = company
 				needsUpdate = true
@@ -167,47 +170,65 @@ func (a *PersonEnrichmentActivities) EnrichPersonMetadata(ctx context.Context, i
 	}, nil
 }
 
+// knownDomains is the hardcoded fallback map for domain-company resolution.
+// Primary lookups go through the tenant_domain_companies table; this map
+// is only consulted when the DB has no entry for the domain.
+var knownDomains = map[string]string{
+	"akamai.com":     "Akamai",
+	"google.com":     "Google",
+	"microsoft.com":  "Microsoft",
+	"amazon.com":     "Amazon",
+	"facebook.com":   "Facebook",
+	"apple.com":      "Apple",
+	"netflix.com":    "Netflix",
+	"linkedin.com":   "LinkedIn",
+	"twitter.com":    "Twitter",
+	"meta.com":       "Meta",
+	"salesforce.com": "Salesforce",
+	"oracle.com":     "Oracle",
+	"ibm.com":        "IBM",
+	"cisco.com":      "Cisco",
+	"intel.com":      "Intel",
+	"adobe.com":      "Adobe",
+	"nvidia.com":     "Nvidia",
+	"uber.com":       "Uber",
+	"airbnb.com":     "Airbnb",
+	"stripe.com":     "Stripe",
+}
+
 // deriveCompanyFromDomain derives a company name from an email domain.
+// It queries the tenant_domain_companies table first (per-tenant, DB-backed),
+// then falls back to the hardcoded knownDomains map.
+//
 // Examples:
-//   - akamai.com → Akamai
-//   - google.com → Google
+//   - akamai.com → "Akamai" (from DB seed or hardcoded fallback)
+//   - custom.com → "Custom Corp" (if DB has a mapping for this tenant)
 //   - unknown123.com → "" (empty)
-func deriveCompanyFromDomain(email string) string {
+func (a *PersonEnrichmentActivities) deriveCompanyFromDomain(ctx context.Context, tenantID, email string) string {
 	domain := entities.ExtractDomain(email)
 	if domain == "" {
 		return ""
 	}
 
-	// Known company domain mappings
-	knownDomains := map[string]string{
-		"akamai.com":   "Akamai",
-		"google.com":   "Google",
-		"microsoft.com": "Microsoft",
-		"amazon.com":   "Amazon",
-		"facebook.com": "Facebook",
-		"apple.com":    "Apple",
-		"netflix.com":  "Netflix",
-		"linkedin.com": "LinkedIn",
-		"twitter.com":  "Twitter",
-		"meta.com":     "Meta",
-		"salesforce.com": "Salesforce",
-		"oracle.com":   "Oracle",
-		"ibm.com":      "IBM",
-		"cisco.com":    "Cisco",
-		"intel.com":    "Intel",
-		"adobe.com":    "Adobe",
-		"nvidia.com":   "Nvidia",
-		"uber.com":     "Uber",
-		"airbnb.com":   "Airbnb",
-		"stripe.com":   "Stripe",
+	// Query DB first (per-tenant mapping)
+	if a.domainCompanyRepo != nil {
+		company, err := a.domainCompanyRepo.GetCompanyByDomain(ctx, tenantID, domain)
+		if err != nil {
+			a.logger.Warn("Failed to query domain-company mapping from DB, falling back to hardcoded map",
+				logging.Err(err),
+				logging.F("domain", domain),
+				logging.F("tenant_id", tenantID),
+			)
+		} else if company != "" {
+			return company
+		}
 	}
 
+	// Fall back to hardcoded map
 	if company, ok := knownDomains[domain]; ok {
 		return company
 	}
 
-	// For unknown domains, return empty string
-	// We don't want to guess incorrectly
 	return ""
 }
 

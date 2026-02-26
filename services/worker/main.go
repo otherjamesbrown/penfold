@@ -576,7 +576,8 @@ func main() {
 		} else if tenantCfg != nil {
 			internalDomains = tenantCfg.InternalDomains
 		}
-		personEnrichmentActivities := activities.NewPersonEnrichmentActivities(logger, entitiesRepo, internalDomains)
+		domainCompanyRepo := activities.NewDomainCompanyRepository(dbPool, logger)
+		personEnrichmentActivities := activities.NewPersonEnrichmentActivities(logger, entitiesRepo, domainCompanyRepo, internalDomains)
 		activityRegistrar.WithPersonEnrichmentActivities(personEnrichmentActivities)
 		logger.Info("Person enrichment activities initialized with database (Stage 3.5)",
 			logging.F("internal_domains_count", len(internalDomains)),
@@ -624,6 +625,7 @@ func main() {
 			mentionsRepo,
 			nil, // Tracer - can be nil for now
 		)
+		mentionResolver.SetPromptStore(pipeline.NewRepository(dbPool))
 
 		mentionsActivities := activities.NewMentionsActivities(
 			logger,

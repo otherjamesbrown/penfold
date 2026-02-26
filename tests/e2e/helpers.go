@@ -331,6 +331,7 @@ func (env *E2EEnv) CleanupTestTenant() error {
 		"glossary",                    // (tenant_id)
 		"insight_type_registry",       // (tenant_id if exists)
 		"mention_patterns",            // (tenant_id if exists)
+		"tenant_domain_companies",     // (tenant_id) domain-company mappings
 
 		// Note: 'tenants' table is never deleted - we preserve the tenant record itself
 	}
