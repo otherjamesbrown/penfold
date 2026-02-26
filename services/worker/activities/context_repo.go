@@ -248,13 +248,14 @@ func (r *ContextPackageRepo) GetGlossaryTerms(ctx context.Context, terms []strin
 	}
 
 	query := `
-		SELECT
+		SELECT DISTINCT ON (g.term)
 			g.term,
 			g.expansion,
 			g.definition
 		FROM glossary g
 		WHERE g.term = ANY($1)
 		  OR g.linked_entity_id = ANY($2)
+		ORDER BY g.term, g.definition DESC NULLS LAST
 		LIMIT $3
 	`
 
