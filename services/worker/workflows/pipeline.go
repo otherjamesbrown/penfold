@@ -987,7 +987,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Create a Langfuse trace for this pipeline run (best-effort, non-blocking).
 	// Tenant is identified via the Environment field (TenantName), not a tag.
-	langfuseTraceTags := []string{"cont:" + input.ContentID, "type:" + input.ContentType}
+	langfuseTraceTags := []string{"cont:" + input.ContentID}
 	ctxLangfuse := workflow.WithActivityOptions(ctx, fastOpts)
 	langfuseErr := workflow.ExecuteActivity(ctxLangfuse, pkgtemporal.ActivityCreateLangfuseTrace, CreateLangfuseTraceInput{
 		TraceID:      langfuseTraceID,
@@ -1361,13 +1361,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// (often empty → "email-processing"). If triage routed to a different pipeline,
 	// update the trace name to reflect the actual pipeline.
 	resolvedTraceName := pipelineTraceName(pipelineName)
+	langfuseTraceTags = append(langfuseTraceTags, "pipeline:"+pipelineName)
 	if langfuseErr == nil && resolvedTraceName != pipelineTraceName(input.Pipeline) {
 		_ = workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, fastOpts),
 			pkgtemporal.ActivityUpdateLangfuseTraceTags,
 			UpdateLangfuseTraceTagsInput{
 				TraceID: langfuseTraceID,
-				Tags:    []string{"cont:" + input.ContentID, "type:" + input.ContentType, "pipeline:" + pipelineName},
+				Tags:    langfuseTraceTags,
 				Name:    resolvedTraceName,
 			},
 		).Get(ctx, nil)
@@ -1661,6 +1662,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		)
 	}
 
+	// Add source_system tag to Langfuse trace now that triage has classified it (pf-100b37).
+	langfuseTraceTags = append(langfuseTraceTags, "src:"+string(sourceSystem))
+	if langfuseErr == nil {
+		_ = workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, fastOpts),
+			pkgtemporal.ActivityUpdateLangfuseTraceTags,
+			UpdateLangfuseTraceTagsInput{
+				TraceID: langfuseTraceID,
+				Tags:    langfuseTraceTags,
+			},
+		).Get(ctx, nil)
+	}
+
 	// Create enrichment record (runs for all items after triage)
 	// Map input ContentType to enrichment.ContentType
 	var enrichmentContentType enrichment.ContentType
@@ -1799,13 +1813,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			)
 
 			// Update Langfuse trace tags with conversation_id (best-effort, non-blocking).
-			updatedTags := []string{"cont:" + input.ContentID, "type:" + input.ContentType, "conv:" + convOutput.ConversationID}
+			langfuseTraceTags = append(langfuseTraceTags, "conv:"+convOutput.ConversationID)
 			_ = workflow.ExecuteActivity(
 				workflow.WithActivityOptions(ctx, fastOpts),
 				pkgtemporal.ActivityUpdateLangfuseTraceTags,
 				UpdateLangfuseTraceTagsInput{
 					TraceID: langfuseTraceID,
-					Tags:    updatedTags,
+					Tags:    langfuseTraceTags,
 				},
 			).Get(ctx, nil)
 		}
