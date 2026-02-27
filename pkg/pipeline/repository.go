@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -308,6 +309,73 @@ func (r *Repository) ResetSourceStatus(ctx context.Context, sourceID int64) erro
 	}
 
 	return nil
+}
+
+// ClaimReprocessSlot atomically checks the pipeline concurrency limit and claims
+// a processing slot by setting the source to 'processing'. Uses an advisory lock
+// to prevent TOCTOU races when multiple reprocess requests arrive simultaneously.
+// Returns whether the slot was claimed, plus the current in-flight count and
+// max_concurrent value for logging/error messages. (pf-a7866b)
+func (r *Repository) ClaimReprocessSlot(ctx context.Context, sourceID int64, tenantID string) (claimed bool, inFlight int, maxConcurrent int, err error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return false, 0, 0, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Serialize concurrent reprocess claims via advisory lock.
+	_, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext('pipeline_reprocess_gate'))")
+	if err != nil {
+		return false, 0, 0, fmt.Errorf("advisory lock: %w", err)
+	}
+
+	// Read max_concurrent from config.
+	var valueStr string
+	err = tx.QueryRow(ctx, `
+		SELECT value FROM pipeline_operational_config
+		WHERE tenant_id = $1 AND key = 'pipeline.max_concurrent'
+	`, tenantID).Scan(&valueStr)
+	if err == pgx.ErrNoRows {
+		maxConcurrent = 1
+	} else if err != nil {
+		return false, 0, 0, fmt.Errorf("query max_concurrent: %w", err)
+	} else {
+		maxConcurrent, err = strconv.Atoi(valueStr)
+		if err != nil {
+			return false, 0, 0, fmt.Errorf("parse max_concurrent: %w", err)
+		}
+	}
+
+	// Count in-flight sources.
+	err = tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sources
+		WHERE processing_status = 'processing' AND is_deleted = false
+	`).Scan(&inFlight)
+	if err != nil {
+		return false, 0, 0, fmt.Errorf("count in-flight: %w", err)
+	}
+
+	if inFlight >= maxConcurrent {
+		return false, inFlight, maxConcurrent, nil
+	}
+
+	// Claim the slot by setting source to 'processing'.
+	result, err := tx.Exec(ctx, `
+		UPDATE sources SET processing_status = 'processing', updated_at = NOW()
+		WHERE id = $1 AND is_deleted = false
+	`, sourceID)
+	if err != nil {
+		return false, inFlight, maxConcurrent, fmt.Errorf("claim slot: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return false, inFlight, maxConcurrent, fmt.Errorf("source %d not found or deleted", sourceID)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, inFlight, maxConcurrent, fmt.Errorf("commit: %w", err)
+	}
+
+	return true, inFlight, maxConcurrent, nil
 }
 
 // DeleteRunsBySource removes all pipeline_run records for a source (pf-04a2de).

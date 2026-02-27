@@ -1,43 +1,32 @@
 package contentservice
 
-// TestReprocessContent_ConcurrencyThrottle reproduces bug pf-d62802.
+// TestReprocessContent_ConcurrencyThrottle reproduces the TOCTOU race in
+// ReprocessContent (pf-a7866b, originally pf-d62802).
 //
-// BUG: ReprocessContent in service.go fires ExecuteWorkflow with no concurrency
-// check. The throttle from pf-b2f050 only covers KickProcessing in
-// pipelineservice (lines 138-172). Individual reprocess calls bypass it entirely.
+// BUG: The concurrency check (count in-flight, compare to max_concurrent) and
+// the status transition (reset to 'pending') were non-atomic. Rapid concurrent
+// calls all saw the same in-flight count and all passed the check.
 //
-// EXPECTED FIX: After source lookup and before ExecuteWorkflow, read
-// pipeline.max_concurrent from pipeline_config, count sources with
-// processing_status='processing', and return codes.ResourceExhausted if
-// inFlight >= maxConcurrent.
+// FIX: ClaimReprocessSlot in pipeline.Repository uses an advisory lock to
+// atomically check concurrency AND set the source to 'processing' in one
+// transaction. This makes the in-flight count immediately visible to the next
+// caller.
 //
 // TEST STRATEGY:
 //
-//  1. TestReprocessContent_ConcurrencyThrottle_AtCapacity — the primary
-//     reproduction test. Sets up max_concurrent=5 with 5 in-flight sources.
-//     Asserts codes.ResourceExhausted is returned. FAILS on current code
-//     because no concurrency check exists — the service proceeds and calls
-//     ExecuteWorkflow returning OK instead.
+//  1. TestReprocessContent_ConcurrencyThrottle_AtCapacity — at-capacity
+//     scenario. Asserts codes.ResourceExhausted and no workflow started.
 //
-//  2. TestReprocessContent_ConcurrencyThrottle_UnderCapacity — the
-//     complementary green-path test. Sets up max_concurrent=5 with 2
-//     in-flight. Asserts success and that exactly one workflow is fired.
-//     PASSES on current (unfixed) code and must continue to pass after fix.
+//  2. TestReprocessContent_ConcurrencyThrottle_UnderCapacity — under-capacity
+//     scenario. Asserts success and exactly one workflow started.
 //
-// Both tests require a fake Postgres backend (pgproto3-based) to serve
-// the GetSourceByContentID and ResetSourceStatus queries issued by
-// pipeline.Repository, and a custom database/sql driver to serve the
-// pipeline_config and sources count queries that the fix will issue against
-// s.db.
-//
-// All of this is pure in-process — no external database is needed.
+// Both tests use a fake Postgres backend (pgproto3-based) that serves all
+// queries through the pipeline.Repository pgxpool. No database/sql mock is
+// needed — all concurrency logic is now in the pipeline repo.
 
 import (
 	"context"
-	"database/sql"
-	"database/sql/driver"
 	"fmt"
-	"io"
 	"net"
 	"strings"
 	"testing"
@@ -53,119 +42,45 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// concurrencyMockSQLDriver — a minimal database/sql driver for s.db.
+// fakePGServer — speaks enough Postgres extended query protocol to serve:
+//   - GetSourceByContentID  (SELECT id, tenant_id, source_system, …)
+//   - ClaimReprocessSlot transaction:
+//     BEGIN, pg_advisory_xact_lock, SELECT value FROM pipeline_operational_config,
+//     SELECT COUNT(*) FROM sources, UPDATE sources (claim), COMMIT/ROLLBACK
+//   - DeleteRunsBySource (DELETE FROM pipeline_runs)
 //
-// The fix will use s.db to run two queries:
-//   1. SELECT value FROM pipeline_config WHERE key = 'pipeline.max_concurrent'
-//   2. SELECT COUNT(*) FROM sources WHERE processing_status = 'processing'
-//
-// This driver answers those two queries with controlled values.
+// Per-connection state (lastParsedQuery, txStatus) is tracked in fakePGConn.
 // ---------------------------------------------------------------------------
 
-const concurrencyMockDriverName = "concurrency-mock-pf-d62802"
-
-func init() {
-	sql.Register(concurrencyMockDriverName, &concurrencyMockDriver{})
-}
-
-type concurrencyMockDriver struct{}
-
-func (d *concurrencyMockDriver) Open(name string) (driver.Conn, error) {
-	var maxConcurrent, inFlight int
-	fmt.Sscanf(name, "maxConcurrent=%d;inFlight=%d", &maxConcurrent, &inFlight)
-	return &concurrencyMockConn{maxConcurrent: maxConcurrent, inFlight: inFlight}, nil
-}
-
-type concurrencyMockConn struct {
+type fakePGServer struct {
+	contentID     string
+	tenantID      string
+	sourceID      int64
 	maxConcurrent int
 	inFlight      int
 }
 
-func (c *concurrencyMockConn) Prepare(query string) (driver.Stmt, error) {
-	return &concurrencyMockStmt{conn: c, query: query}, nil
-}
-func (c *concurrencyMockConn) Close() error                        { return nil }
-func (c *concurrencyMockConn) Begin() (driver.Tx, error) {
-	return nil, fmt.Errorf("mock: transactions not supported")
-}
-
-type concurrencyMockStmt struct {
-	conn  *concurrencyMockConn
-	query string
-}
-
-func (s *concurrencyMockStmt) Close() error                               { return nil }
-func (s *concurrencyMockStmt) NumInput() int                              { return -1 }
-func (s *concurrencyMockStmt) Exec(args []driver.Value) (driver.Result, error) {
-	return nil, fmt.Errorf("mock: unexpected Exec")
-}
-func (s *concurrencyMockStmt) Query(args []driver.Value) (driver.Rows, error) {
-	q := strings.TrimSpace(s.query)
-	switch {
-	case strings.Contains(q, "pipeline.max_concurrent"):
-		return &singleColRows{value: fmt.Sprintf("%d", s.conn.maxConcurrent)}, nil
-	case strings.Contains(q, "processing_status") && strings.Contains(q, "COUNT"):
-		return &singleColRows{value: fmt.Sprintf("%d", s.conn.inFlight)}, nil
-	default:
-		return nil, fmt.Errorf("mock: unexpected query: %s", q)
+func newFakePGServer(contentID, tenantID string, sourceID int64, maxConcurrent, inFlight int) *fakePGServer {
+	return &fakePGServer{
+		contentID:     contentID,
+		tenantID:      tenantID,
+		sourceID:      sourceID,
+		maxConcurrent: maxConcurrent,
+		inFlight:      inFlight,
 	}
 }
 
-type singleColRows struct {
-	value string
-	done  bool
+// fakePGConn holds per-connection state for the fake Postgres backend.
+type fakePGConn struct {
+	srv      *fakePGServer
+	query    string // last parsed SQL
+	txStatus byte   // 'I' idle, 'T' in-transaction
 }
 
-func (r *singleColRows) Columns() []string { return []string{"value"} }
-func (r *singleColRows) Close() error      { return nil }
-func (r *singleColRows) Next(dest []driver.Value) error {
-	if r.done {
-		return io.EOF
-	}
-	dest[0] = r.value
-	r.done = true
-	return nil
-}
-
-func openConcurrencyMockDB(t *testing.T, maxConcurrent, inFlight int) *sql.DB {
-	t.Helper()
-	dsn := fmt.Sprintf("maxConcurrent=%d;inFlight=%d", maxConcurrent, inFlight)
-	db, err := sql.Open(concurrencyMockDriverName, dsn)
-	if err != nil {
-		t.Fatalf("sql.Open mock: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
-// ---------------------------------------------------------------------------
-// fakePGServer — speaks enough Postgres extended query protocol to serve:
-//   • GetSourceByContentID  (SELECT id, tenant_id, source_system, …)
-//   • ResetSourceStatus     (UPDATE sources SET processing_status = 'pending' …)
-//
-// pgx/v5 uses the extended query protocol (Parse / Bind / Execute / Sync)
-// rather than simple query protocol for prepared statements.
-// ---------------------------------------------------------------------------
-
-type fakePGServer struct {
-	contentID string
-	tenantID  string
-	sourceID  int64
-
-	// lastParsedQuery holds the SQL text from the most recent Parse message,
-	// so we can dispatch correctly on Execute.
-	lastParsedQuery string
-}
-
-func newFakePGServer(contentID, tenantID string, sourceID int64) *fakePGServer {
-	return &fakePGServer{contentID: contentID, tenantID: tenantID, sourceID: sourceID}
-}
-
-// serve runs the fake backend on conn until the client disconnects or sends
-// Terminate.
 func (s *fakePGServer) serve(conn net.Conn) {
 	defer conn.Close()
 
+	c := &fakePGConn{srv: s, txStatus: 'I'}
 	backend := pgproto3.NewBackend(conn, conn)
 
 	// --- startup handshake ---
@@ -173,14 +88,11 @@ func (s *fakePGServer) serve(conn net.Conn) {
 	if err != nil {
 		return
 	}
-	// Accept any startup (StartupMessage or SSLRequest).
 	switch msg.(type) {
 	case *pgproto3.SSLRequest:
-		// Decline SSL — send 'N'
 		if _, err := conn.Write([]byte{'N'}); err != nil {
 			return
 		}
-		// Re-read the real startup message
 		if _, err := backend.ReceiveStartupMessage(); err != nil {
 			return
 		}
@@ -193,80 +105,41 @@ func (s *fakePGServer) serve(conn net.Conn) {
 		return
 	}
 
-	// --- message loop ---
 	for {
 		raw, err := backend.Receive()
 		if err != nil {
 			return
 		}
-		s.handle(backend, raw)
+		c.handle(backend, raw)
 	}
 }
 
-func (s *fakePGServer) handle(b *pgproto3.Backend, msg pgproto3.FrontendMessage) {
+func (c *fakePGConn) handle(b *pgproto3.Backend, msg pgproto3.FrontendMessage) {
 	switch m := msg.(type) {
+	// Simple query protocol — used by pgx for parameterless queries
+	// (BEGIN, COMMIT, ROLLBACK, advisory lock, count query).
+	case *pgproto3.Query:
+		c.query = m.String
+		c.sendSimpleQueryResponse(b)
+
+	// Extended query protocol — used for parameterized queries.
 	case *pgproto3.Parse:
-		s.lastParsedQuery = m.Query
+		c.query = m.Query
 		b.Send(&pgproto3.ParseComplete{})
 		b.Flush() //nolint:errcheck
 
 	case *pgproto3.Describe:
-		// Describe asks for parameter types and row description.
-		q := s.lastParsedQuery
-		isSelect := strings.Contains(q, "SELECT id") && strings.Contains(q, "content_id")
-		isUpdate := strings.Contains(q, "UPDATE sources") && strings.Contains(q, "processing_status")
-
-		if m.ObjectType == 'S' {
-			// Statement-level describe: send ParameterDescription + RowDescription/NoData
-			if isSelect {
-				// SELECT query has one text parameter ($1 = content_id)
-				b.Send(&pgproto3.ParameterDescription{ParameterOIDs: []uint32{25}})
-				b.Send(&pgproto3.RowDescription{
-					Fields: []pgproto3.FieldDescription{
-						{Name: []byte("id"), DataTypeOID: 20},
-						{Name: []byte("tenant_id"), DataTypeOID: 25},
-						{Name: []byte("source_system"), DataTypeOID: 25},
-						{Name: []byte("content_hash"), DataTypeOID: 25},
-						{Name: []byte("content_id"), DataTypeOID: 25},
-						{Name: []byte("processing_status"), DataTypeOID: 25},
-					},
-				})
-			} else if isUpdate {
-				// UPDATE query has one int8 parameter ($1 = source_id int64)
-				b.Send(&pgproto3.ParameterDescription{ParameterOIDs: []uint32{20}}) // OID 20 = int8
-				b.Send(&pgproto3.NoData{})
-			} else {
-				b.Send(&pgproto3.ParameterDescription{})
-				b.Send(&pgproto3.NoData{})
-			}
-		} else {
-			// Portal-level describe: send RowDescription or NoData
-			if isSelect {
-				b.Send(&pgproto3.RowDescription{
-					Fields: []pgproto3.FieldDescription{
-						{Name: []byte("id"), DataTypeOID: 20},
-						{Name: []byte("tenant_id"), DataTypeOID: 25},
-						{Name: []byte("source_system"), DataTypeOID: 25},
-						{Name: []byte("content_hash"), DataTypeOID: 25},
-						{Name: []byte("content_id"), DataTypeOID: 25},
-						{Name: []byte("processing_status"), DataTypeOID: 25},
-					},
-				})
-			} else {
-				b.Send(&pgproto3.NoData{})
-			}
-		}
-		b.Flush() //nolint:errcheck
+		c.sendDescribe(b, m)
 
 	case *pgproto3.Bind:
 		b.Send(&pgproto3.BindComplete{})
 		b.Flush() //nolint:errcheck
 
 	case *pgproto3.Execute:
-		s.sendExecuteResponse(b)
+		c.sendExecuteResponse(b)
 
 	case *pgproto3.Sync:
-		b.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+		b.Send(&pgproto3.ReadyForQuery{TxStatus: c.txStatus})
 		b.Flush() //nolint:errcheck
 
 	case *pgproto3.Close:
@@ -275,39 +148,201 @@ func (s *fakePGServer) handle(b *pgproto3.Backend, msg pgproto3.FrontendMessage)
 
 	case *pgproto3.Terminate:
 		return
-
-	default:
-		// Ignore unknown messages
 	}
 }
 
-func (s *fakePGServer) sendExecuteResponse(b *pgproto3.Backend) {
-	q := s.lastParsedQuery
+// sendSimpleQueryResponse handles the simple query protocol. pgx uses this for
+// parameterless queries like BEGIN, COMMIT, advisory locks, and simple SELECTs.
+func (c *fakePGConn) sendSimpleQueryResponse(b *pgproto3.Backend) {
+	q := strings.ToLower(strings.TrimSpace(c.query))
+
 	switch {
-	case strings.Contains(q, "SELECT id") && strings.Contains(q, "content_id"):
-		// GetSourceByContentID — return one row with 6 fields:
-		// id, tenant_id, source_system, content_hash, content_id, processing_status
-		b.Send(&pgproto3.DataRow{
-			Values: [][]byte{
-				[]byte(fmt.Sprintf("%d", s.sourceID)),
-				[]byte(s.tenantID),
-				[]byte("email"),
-				[]byte("abc123"),
-				[]byte(s.contentID),
-				[]byte("pending"),
+	case q == "begin" || q == "begin;":
+		c.txStatus = 'T'
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("BEGIN")})
+
+	case q == "commit" || q == "commit;":
+		c.txStatus = 'I'
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("COMMIT")})
+
+	case q == "rollback" || q == "rollback;":
+		c.txStatus = 'I'
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("ROLLBACK")})
+
+	case strings.Contains(q, "pg_advisory_xact_lock"):
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")})
+
+	case strings.Contains(q, "count") && strings.Contains(q, "processing_status"):
+		b.Send(&pgproto3.RowDescription{
+			Fields: []pgproto3.FieldDescription{
+				{Name: []byte("count"), DataTypeOID: 20},
 			},
+		})
+		b.Send(&pgproto3.DataRow{
+			Values: [][]byte{[]byte(fmt.Sprintf("%d", c.srv.inFlight))},
 		})
 		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")})
 
-	case strings.Contains(q, "UPDATE sources") && strings.Contains(q, "processing_status"):
-		// ResetSourceStatus — report 1 row updated
-		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("UPDATE 1")})
+	case strings.Contains(q, "delete") && strings.Contains(q, "pipeline_runs"):
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("DELETE 0")})
 
 	default:
 		b.Send(&pgproto3.ErrorResponse{
 			Severity: "ERROR",
 			Code:     "42601",
-			Message:  fmt.Sprintf("fakePGServer: unexpected query: %s", q),
+			Message:  fmt.Sprintf("fakePGServer: unexpected simple query: %s", c.query),
+		})
+	}
+
+	b.Send(&pgproto3.ReadyForQuery{TxStatus: c.txStatus})
+	b.Flush() //nolint:errcheck
+}
+
+func (c *fakePGConn) sendDescribe(b *pgproto3.Backend, m *pgproto3.Describe) {
+	q := c.query
+	isSourceSelect := strings.Contains(q, "SELECT id") && strings.Contains(q, "content_id")
+	isConfigSelect := strings.Contains(q, "pipeline_operational_config") && strings.Contains(q, "value")
+	isCountSelect := strings.Contains(q, "COUNT") && strings.Contains(q, "processing_status")
+	isUpdateSources := strings.Contains(q, "UPDATE sources") && strings.Contains(q, "processing_status")
+	isDeleteRuns := strings.Contains(q, "DELETE") && strings.Contains(q, "pipeline_runs")
+
+	if m.ObjectType == 'S' {
+		// Statement-level describe: ParameterDescription + RowDescription/NoData
+		switch {
+		case isSourceSelect:
+			b.Send(&pgproto3.ParameterDescription{ParameterOIDs: []uint32{25}})
+			b.Send(&pgproto3.RowDescription{
+				Fields: []pgproto3.FieldDescription{
+					{Name: []byte("id"), DataTypeOID: 20},
+					{Name: []byte("tenant_id"), DataTypeOID: 25},
+					{Name: []byte("source_system"), DataTypeOID: 25},
+					{Name: []byte("content_hash"), DataTypeOID: 25},
+					{Name: []byte("content_id"), DataTypeOID: 25},
+					{Name: []byte("processing_status"), DataTypeOID: 25},
+				},
+			})
+		case isConfigSelect:
+			b.Send(&pgproto3.ParameterDescription{ParameterOIDs: []uint32{25}})
+			b.Send(&pgproto3.RowDescription{
+				Fields: []pgproto3.FieldDescription{
+					{Name: []byte("value"), DataTypeOID: 25},
+				},
+			})
+		case isCountSelect:
+			b.Send(&pgproto3.ParameterDescription{})
+			b.Send(&pgproto3.RowDescription{
+				Fields: []pgproto3.FieldDescription{
+					{Name: []byte("count"), DataTypeOID: 20},
+				},
+			})
+		case isUpdateSources:
+			b.Send(&pgproto3.ParameterDescription{ParameterOIDs: []uint32{20}}) // $1 = int8 source_id
+			b.Send(&pgproto3.NoData{})
+		case isDeleteRuns:
+			b.Send(&pgproto3.ParameterDescription{ParameterOIDs: []uint32{20}}) // $1 = int8 source_id
+			b.Send(&pgproto3.NoData{})
+		default:
+			b.Send(&pgproto3.ParameterDescription{})
+			b.Send(&pgproto3.NoData{})
+		}
+	} else {
+		// Portal-level describe
+		switch {
+		case isSourceSelect:
+			b.Send(&pgproto3.RowDescription{
+				Fields: []pgproto3.FieldDescription{
+					{Name: []byte("id"), DataTypeOID: 20},
+					{Name: []byte("tenant_id"), DataTypeOID: 25},
+					{Name: []byte("source_system"), DataTypeOID: 25},
+					{Name: []byte("content_hash"), DataTypeOID: 25},
+					{Name: []byte("content_id"), DataTypeOID: 25},
+					{Name: []byte("processing_status"), DataTypeOID: 25},
+				},
+			})
+		case isConfigSelect:
+			b.Send(&pgproto3.RowDescription{
+				Fields: []pgproto3.FieldDescription{
+					{Name: []byte("value"), DataTypeOID: 25},
+				},
+			})
+		case isCountSelect:
+			b.Send(&pgproto3.RowDescription{
+				Fields: []pgproto3.FieldDescription{
+					{Name: []byte("count"), DataTypeOID: 20},
+				},
+			})
+		default:
+			b.Send(&pgproto3.NoData{})
+		}
+	}
+	b.Flush() //nolint:errcheck
+}
+
+func (c *fakePGConn) sendExecuteResponse(b *pgproto3.Backend) {
+	q := strings.ToLower(c.query)
+	switch {
+	// Transaction control
+	case q == "begin" || q == "begin;":
+		c.txStatus = 'T'
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("BEGIN")})
+
+	case q == "commit" || q == "commit;":
+		c.txStatus = 'I'
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("COMMIT")})
+
+	case q == "rollback" || q == "rollback;":
+		c.txStatus = 'I'
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("ROLLBACK")})
+
+	// Advisory lock (no-op in test)
+	case strings.Contains(q, "pg_advisory_xact_lock"):
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")})
+
+	// GetSourceByContentID
+	case strings.Contains(q, "select id") && strings.Contains(q, "content_id"):
+		b.Send(&pgproto3.DataRow{
+			Values: [][]byte{
+				[]byte(fmt.Sprintf("%d", c.srv.sourceID)),
+				[]byte(c.srv.tenantID),
+				[]byte("email"),
+				[]byte("abc123"),
+				[]byte(c.srv.contentID),
+				[]byte("completed"),
+			},
+		})
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")})
+
+	// Config query — pipeline.max_concurrent
+	case strings.Contains(q, "pipeline_operational_config") && strings.Contains(q, "value"):
+		b.Send(&pgproto3.DataRow{
+			Values: [][]byte{
+				[]byte(fmt.Sprintf("%d", c.srv.maxConcurrent)),
+			},
+		})
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")})
+
+	// Count in-flight sources
+	case strings.Contains(q, "count") && strings.Contains(q, "processing_status"):
+		b.Send(&pgproto3.DataRow{
+			Values: [][]byte{
+				[]byte(fmt.Sprintf("%d", c.srv.inFlight)),
+			},
+		})
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")})
+
+	// UPDATE sources (claim slot or reset)
+	case strings.Contains(q, "update sources") && strings.Contains(q, "processing_status"):
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("UPDATE 1")})
+
+	// DELETE pipeline_runs
+	case strings.Contains(q, "delete") && strings.Contains(q, "pipeline_runs"):
+		b.Send(&pgproto3.CommandComplete{CommandTag: []byte("DELETE 0")})
+
+	default:
+		b.Send(&pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     "42601",
+			Message:  fmt.Sprintf("fakePGServer: unexpected query: %s", c.query),
 		})
 	}
 	b.Flush() //nolint:errcheck
@@ -323,14 +358,11 @@ func newFakePGPool(t *testing.T, srv *fakePGServer) *pgxpool.Pool {
 		t.Fatalf("pgxpool.ParseConfig: %v", err)
 	}
 
-	// Custom DialFunc: every connection attempt returns one end of a net.Pipe()
-	// while a goroutine serves the other end with our fake Postgres backend.
 	config.ConnConfig.Config.DialFunc = func(_ context.Context, _, _ string) (net.Conn, error) {
 		client, server := net.Pipe()
 		go srv.serve(server)
 		return client, nil
 	}
-	// Disable TLS — our fake server does not speak SSL.
 	config.ConnConfig.Config.TLSConfig = nil
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
@@ -344,23 +376,9 @@ func newFakePGPool(t *testing.T, srv *fakePGServer) *pgxpool.Pool {
 // ---------------------------------------------------------------------------
 // TestReprocessContent_ConcurrencyThrottle_AtCapacity
 //
-// BUG REPRODUCTION TEST — pf-d62802
-//
-// Scenario: pipeline.max_concurrent = 5, 5 sources currently processing
-// (inFlight == maxConcurrent). The request should be rejected with
-// codes.ResourceExhausted because we are at capacity.
-//
-// Current behaviour (BUG): ReprocessContent ignores the concurrency limit,
-// calls ExecuteWorkflow, and returns OK.
-//
-// Expected behaviour (after fix): returns codes.ResourceExhausted immediately
-// without calling ExecuteWorkflow.
-//
-// This test FAILS on the current (unfixed) code because:
-//   - The service returns nil error (success), which triggers t.Fatalf.
-//   - Or the service returns a non-ResourceExhausted error (e.g. the fake DB
-//     returns an error on an unexpected query path), which still triggers
-//     t.Fatalf with a clear message.
+// Scenario: pipeline.max_concurrent = 5, 5 sources currently processing.
+// ClaimReprocessSlot should return claimed=false, and ReprocessContent should
+// return codes.ResourceExhausted without starting any workflow.
 // ---------------------------------------------------------------------------
 func TestReprocessContent_ConcurrencyThrottle_AtCapacity(t *testing.T) {
 	const (
@@ -373,15 +391,10 @@ func TestReprocessContent_ConcurrencyThrottle_AtCapacity(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Fake Postgres backend for pipeline.Repository calls
-	pgSrv := newFakePGServer(testContentID, testTenantID, testSourceID)
+	pgSrv := newFakePGServer(testContentID, testTenantID, testSourceID, maxConcurrent, inFlight)
 	pool := newFakePGPool(t, pgSrv)
 	pipelineRepo := pipeline.NewRepository(pool)
 
-	// Mock sql.DB — responds to concurrency check queries with at-capacity values
-	sqlDB := openConcurrencyMockDB(t, maxConcurrent, inFlight)
-
-	// Mock Temporal client — captures ExecuteWorkflow calls
 	temporalMock := &mockTemporalClient{}
 
 	logger := logging.NewLogger(nil)
@@ -390,30 +403,21 @@ func TestReprocessContent_ConcurrencyThrottle_AtCapacity(t *testing.T) {
 		tenantRepo:     nil,
 		pipelineRepo:   pipelineRepo,
 		temporalClient: temporalMock,
-		db:             sqlDB,
 		logger:         logger,
 		langfuseClient: nil,
 	}
 
 	req := &contentv1.ReprocessContentRequest{
 		ContentId: testContentID,
-		Reason:    "pf-d62802 concurrency throttle reproduction — at capacity",
+		Reason:    "pf-a7866b concurrency throttle — at capacity",
 	}
 
 	_, err := svc.ReprocessContent(ctx, req)
 
-	// -----------------------------------------------------------------------
-	// ASSERTION: when inFlight >= maxConcurrent, expect ResourceExhausted.
-	//
-	// Current code returns nil (success) — this triggers the first t.Fatalf.
-	// After the fix, ResourceExhausted is expected and the test passes.
-	// -----------------------------------------------------------------------
 	if err == nil {
 		t.Fatalf(
-			"pf-d62802 REPRODUCED: ReprocessContent returned nil (OK) when "+
-				"in-flight (%d) >= max_concurrent (%d). "+
-				"No concurrency check exists — ExecuteWorkflow was called %d time(s). "+
-				"Expected: codes.ResourceExhausted",
+			"ReprocessContent returned nil (OK) when in-flight (%d) >= max_concurrent (%d). "+
+				"ExecuteWorkflow called %d time(s). Expected: codes.ResourceExhausted",
 			inFlight, maxConcurrent, temporalMock.executeWorkflowCallCount,
 		)
 	}
@@ -425,20 +429,14 @@ func TestReprocessContent_ConcurrencyThrottle_AtCapacity(t *testing.T) {
 
 	if st.Code() != codes.ResourceExhausted {
 		t.Fatalf(
-			"pf-d62802 REPRODUCED: ReprocessContent returned %v (%q) instead of "+
-				"codes.ResourceExhausted. "+
-				"This confirms the concurrency check does not yet exist in ReprocessContent. "+
-				"The throttle in pipelineservice.KickProcessing (lines 138-172) is bypassed "+
-				"by direct reprocess calls.",
+			"expected codes.ResourceExhausted, got %v: %q",
 			st.Code(), st.Message(),
 		)
 	}
 
-	// Fix is in place — verify no workflow was started.
 	if temporalMock.executeWorkflowCallCount != 0 {
 		t.Errorf(
-			"expected 0 ExecuteWorkflow calls when at capacity, got %d — "+
-				"fix should prevent workflow start",
+			"expected 0 ExecuteWorkflow calls when at capacity, got %d",
 			temporalMock.executeWorkflowCallCount,
 		)
 	}
@@ -447,11 +445,9 @@ func TestReprocessContent_ConcurrencyThrottle_AtCapacity(t *testing.T) {
 // ---------------------------------------------------------------------------
 // TestReprocessContent_ConcurrencyThrottle_UnderCapacity
 //
-// Green-path companion test: when inFlight < maxConcurrent, ReprocessContent
-// should succeed and fire exactly one workflow.
-//
-// This test PASSES on both current code (which always fires the workflow) and
-// after the fix (which should still fire when under capacity).
+// Scenario: pipeline.max_concurrent = 5, 2 sources currently processing.
+// ClaimReprocessSlot should claim the slot, and ReprocessContent should
+// succeed and fire exactly one workflow.
 // ---------------------------------------------------------------------------
 func TestReprocessContent_ConcurrencyThrottle_UnderCapacity(t *testing.T) {
 	const (
@@ -464,11 +460,10 @@ func TestReprocessContent_ConcurrencyThrottle_UnderCapacity(t *testing.T) {
 
 	ctx := context.Background()
 
-	pgSrv := newFakePGServer(testContentID, testTenantID, testSourceID)
+	pgSrv := newFakePGServer(testContentID, testTenantID, testSourceID, maxConcurrent, inFlight)
 	pool := newFakePGPool(t, pgSrv)
 	pipelineRepo := pipeline.NewRepository(pool)
 
-	sqlDB := openConcurrencyMockDB(t, maxConcurrent, inFlight)
 	temporalMock := &mockTemporalClient{}
 
 	logger := logging.NewLogger(nil)
@@ -477,14 +472,13 @@ func TestReprocessContent_ConcurrencyThrottle_UnderCapacity(t *testing.T) {
 		tenantRepo:     nil,
 		pipelineRepo:   pipelineRepo,
 		temporalClient: temporalMock,
-		db:             sqlDB,
 		logger:         logger,
 		langfuseClient: nil,
 	}
 
 	req := &contentv1.ReprocessContentRequest{
 		ContentId: testContentID,
-		Reason:    "pf-d62802 under-capacity should succeed",
+		Reason:    "pf-a7866b under-capacity should succeed",
 	}
 
 	_, err := svc.ReprocessContent(ctx, req)
