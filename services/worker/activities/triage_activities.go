@@ -4,6 +4,7 @@ package activities
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -480,6 +481,20 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		Pipelines:           matchedPipelines,
 	}
 
+	// Cap ContentContribution for notification subtypes (pf-bcb565).
+	// Notifications (Jira, Google Docs, Aha, Slack, etc.) don't need deep_analyze —
+	// extraction captures entity names, but deep analysis wastes expensive model capacity.
+	// Cap at LOW so extraction runs but deep_analyze is skipped.
+	if subtype.IsNotification() && contributionAbove(output.ContentContribution, "LOW") {
+		logger.Info("Capping contribution for notification content",
+			logging.F("original_contribution", output.ContentContribution),
+			logging.F("capped_to", "LOW"),
+			logging.F("content_subtype", string(subtype)),
+		)
+		output.ContentContribution = "LOW"
+		output.ContributionReason = fmt.Sprintf("Notification content capped from %s to LOW (pf-bcb565)", contentContribution)
+	}
+
 	// Record heartbeat after processing
 	recordHeartbeat(ctx, "triage complete")
 
@@ -487,6 +502,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		logging.F("ai_duration", time.Since(startTime)),
 		logging.F("category", output.Category),
 		logging.F("importance", output.Importance),
+		logging.F("content_contribution", output.ContentContribution),
 		logging.F("skip_deep", output.SkipDeep),
 		logging.F("model", output.ModelUsed),
 	)
@@ -546,6 +562,13 @@ func shouldSkipDeep(category, importance string) bool {
 		return true
 	}
 	return false
+}
+
+// contributionAbove returns true if contribution is strictly above the threshold.
+// Ordering: NONE < LOW < MEDIUM < HIGH.
+func contributionAbove(contribution, threshold string) bool {
+	order := map[string]int{"NONE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
+	return order[contribution] > order[threshold]
 }
 
 // mapToSourceSystem converts a ClassificationResult to the legacy SourceSystem string.

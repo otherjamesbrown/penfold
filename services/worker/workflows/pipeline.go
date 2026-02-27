@@ -297,6 +297,7 @@ type BuildContextInput struct {
 	ContentID         string                            `json:"content_id,omitempty"`
 	JobID             string                            `json:"job_id"`
 	ContentType       string                            `json:"content_type"`
+	ContentSubtype    string                            `json:"content_subtype,omitempty"` // pf-bcb565: used for context scaling
 	Extraction        *SLMPipelineExtractEntitiesOutput `json:"extraction"`
 	SenderEmail       string                            `json:"sender_email,omitempty"`
 	SenderName        string                            `json:"sender_name,omitempty"`
@@ -2021,6 +2022,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			ContentID:         input.ContentID,
 			JobID:             input.JobID,
 			ContentType:       input.ContentType,
+			ContentSubtype:    triageOutput.ContentSubtype,
 			Extraction:        extractOutput,
 			SenderEmail:       input.SenderEmail,
 			SenderName:        input.SenderName,

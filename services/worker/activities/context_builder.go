@@ -801,6 +801,13 @@ func (a *ContextBuilderActivities) BuildContext(
 		tokenBudget = a.getTokenBudget(input.ContentType)
 	}
 
+	// Reduce context for notification content (pf-bcb565).
+	// Notifications (Jira, Google Docs, Aha, etc.) need minimal grounding —
+	// just enough glossary for name resolution, not full topic context.
+	if strings.HasPrefix(input.ContentSubtype, "notification/") {
+		tokenBudget = tokenBudget / 2
+	}
+
 	cp := &workflows.ContextPackage{
 		TokenBudget:        tokenBudget,
 		TotalTokensUsed:    0,

@@ -996,3 +996,85 @@ func TestMapToSourceSystem(t *testing.T) {
 		})
 	}
 }
+
+// TestContributionAbove verifies the contribution ordering helper (pf-bcb565).
+func TestContributionAbove(t *testing.T) {
+	tests := []struct {
+		contribution string
+		threshold    string
+		want         bool
+	}{
+		{"HIGH", "LOW", true},
+		{"MEDIUM", "LOW", true},
+		{"LOW", "LOW", false},  // equal, not above
+		{"NONE", "LOW", false},
+		{"HIGH", "MEDIUM", true},
+		{"MEDIUM", "MEDIUM", false},
+		{"LOW", "MEDIUM", false},
+		{"HIGH", "NONE", true},
+		{"NONE", "NONE", false},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s_above_%s", tt.contribution, tt.threshold), func(t *testing.T) {
+			got := contributionAbove(tt.contribution, tt.threshold)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestTriage_NotificationContributionCap verifies that notification emails
+// have their ContentContribution capped at LOW to skip deep_analyze (pf-bcb565).
+func TestTriage_NotificationContributionCap(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	// AI returns HIGH contribution for a Jira notification — the cap should override it.
+	highContribution := "HIGH"
+	contributionReason := "Contains project update details"
+	mockClient := &mockAIClient{
+		triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+			return &aiv1.TriageContentResponse{
+				Category:            "PROJECT_UPDATE",
+				Importance:          "MEDIUM",
+				Reason:              "Jira ticket update",
+				ModelUsed:           "qwen3:8b",
+				ContentContribution: &highContribution,
+				ContributionReason:  &contributionReason,
+			}, nil
+		},
+	}
+
+	// Provide a mock enrichmentRepo so subtype classification runs.
+	mockEnrichment := &mockEnrichmentRepository{
+		getBySourceIDFn: func(ctx context.Context, sourceID int64) (*EnrichmentRecord, error) {
+			return &EnrichmentRecord{SourceID: sourceID}, nil
+		},
+	}
+	activities := NewTriageActivities(logger, mockClient, nil, mockEnrichment, nil)
+
+	input := TriageInput{
+		TenantID:    "test-tenant",
+		SourceID:    100,
+		ContentID:   "em-jira-notification",
+		JobID:       "job-100",
+		Content:     "[JIRA] PROJECT-123 was updated by John Smith",
+		Subject:     "[JIRA] (PROJECT-123) Task title",
+		SenderEmail: "jira@atlassian.net",
+		ContentType: "email",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// Contribution should be capped at LOW (not the original HIGH)
+	require.Equal(t, "LOW", output.ContentContribution)
+	require.Contains(t, output.ContributionReason, "capped from HIGH to LOW")
+
+	// Original triage category/importance should be preserved
+	require.Equal(t, "PROJECT_UPDATE", output.Category)
+	require.Equal(t, "MEDIUM", output.Importance)
+
+	// Content subtype should be notification/jira (from classifier)
+	require.True(t, strings.HasPrefix(output.ContentSubtype, "notification/"),
+		"expected notification subtype, got %s", output.ContentSubtype)
+}
