@@ -81,7 +81,7 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsDir string
 		if err := applyMigration(ctx, pool, m); err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("migration %s failed: %w", m.Version, err))
 			// Continue with other migrations or stop? For safety, we stop on first error.
-			return result, err
+			return result, fmt.Errorf("migration %s failed: %w", m.Version, err)
 		}
 
 		result.Applied = append(result.Applied, m.Version)
@@ -266,6 +266,11 @@ func applyMigration(ctx context.Context, pool *pgxpool.Pool, m Migration) error 
 	sql := string(content)
 	if strings.TrimSpace(sql) == "" {
 		return fmt.Errorf("migration file is empty")
+	}
+
+	// Strip goose Down section — only run the Up migration
+	if idx := strings.Index(sql, "-- +goose Down"); idx != -1 {
+		sql = sql[:idx]
 	}
 
 	// Execute in a transaction

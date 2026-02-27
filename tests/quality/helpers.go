@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -44,7 +43,7 @@ func SetupQualityEnvironment(t *testing.T) *QualityEnv {
 	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
 	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
 	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
-	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold_test")
+	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold")
 	gatewayURL := getEnvOrDefault("GATEWAY_URL", "http://dev02.brown.chat:8080")
 
 	// Build connection string with SSL cert auth
@@ -171,7 +170,7 @@ func (env *QualityEnv) GatewayLLMAvailable() bool {
 	}
 
 	for _, svc := range health.Services {
-		if svc.Name == "llm" {
+		if svc.Name == "llm" || svc.Name == "ai_service" {
 			return svc.Status == "healthy"
 		}
 	}
@@ -500,13 +499,7 @@ func LoadGoldenFile(path string) (*GoldenExpectation, error) {
 	return &golden, nil
 }
 
-// --- CLI Runner (duplicated from e2e, different build tag) ---
-
-var (
-	builtBinaryPath string
-	buildOnce       sync.Once
-	buildErr        error
-)
+// --- CLI Runner (uses installed penf binary from PATH) ---
 
 // CLIRunner executes penf CLI commands and captures output.
 type CLIRunner struct {
@@ -515,52 +508,38 @@ type CLIRunner struct {
 	Env        []string
 }
 
-// NewCLIRunner creates a CLI runner, building the binary if needed.
+// NewCLIRunner creates a CLI runner using the installed penf binary.
+// The penf CLI lives in a separate repo (penf-cli) and is installed to PATH.
+// Use PENF_BINARY env var to override the binary path for testing.
 func NewCLIRunner(t *testing.T) *CLIRunner {
 	t.Helper()
 
+	binaryPath := os.Getenv("PENF_BINARY")
+	if binaryPath == "" {
+		var err error
+		binaryPath, err = exec.LookPath("penf")
+		if err != nil {
+			t.Fatalf("penf binary not found in PATH (install from penf-cli repo or set PENF_BINARY): %v", err)
+		}
+	}
+
+	// Find penfold repo root for fixtures and golden files
 	workDir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get working directory: %v", err)
 	}
-
-	// Walk up to find cmd/penf
 	for workDir != "/" {
-		cmdPath := filepath.Join(workDir, "cmd", "penf")
-		if _, err := os.Stat(cmdPath); err == nil {
+		if _, err := os.Stat(filepath.Join(workDir, ".git")); err == nil {
 			break
 		}
 		workDir = filepath.Dir(workDir)
 	}
-
 	if workDir == "/" {
-		t.Fatalf("could not find project root (looking for cmd/penf)")
-	}
-
-	buildOnce.Do(func() {
-		binaryPath := filepath.Join(workDir, "penf")
-		cmdPath := filepath.Join(workDir, "cmd", "penf")
-
-		if _, err := os.Stat(cmdPath); err == nil {
-			t.Log("Building penf CLI...")
-			cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/penf")
-			cmd.Dir = workDir
-			if output, err := cmd.CombinedOutput(); err != nil {
-				buildErr = fmt.Errorf("failed to build penf: %v\n%s", err, output)
-				return
-			}
-			builtBinaryPath = binaryPath
-		} else {
-			buildErr = fmt.Errorf("cmd/penf directory not found")
-		}
-	})
-
-	if buildErr != nil {
-		t.Fatalf("failed to build penf: %v", buildErr)
+		t.Fatalf("could not find penfold repo root (looking for .git)")
 	}
 
 	return &CLIRunner{
-		BinaryPath: builtBinaryPath,
+		BinaryPath: binaryPath,
 		WorkDir:    workDir,
 		Env:        os.Environ(),
 	}
