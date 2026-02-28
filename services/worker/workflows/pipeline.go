@@ -1592,22 +1592,23 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		// Build list of skipped DB stage names for provenance recording.
 		// DB stage names differ from the pipeline Stage.Name labels.
+		// Only record skipped stages that are actually in the pipeline definition;
+		// stages absent from the pipeline are simply not part of it (not "skipped").
 		var skippedStages []SkippedStage
 		if skipExtract {
 			// All deep stages are skipped: extract, resolve, analyze, persist
-			skippedStages = append(skippedStages,
-				SkippedStage{Stage: "extract_ner", SkipReason: skipReason},
-				SkippedStage{Stage: "extract_semantic", SkipReason: skipReason},
-				SkippedStage{Stage: "resolve", SkipReason: skipReason},
-				SkippedStage{Stage: "analyze", SkipReason: skipReason},
-				SkippedStage{Stage: "persist", SkipReason: skipReason},
-			)
+			for _, s := range []string{"extract_ner", "extract_semantic", "resolve", "analyze", "persist"} {
+				if stageInPipeline(stageConfigMap, s) {
+					skippedStages = append(skippedStages, SkippedStage{Stage: s, SkipReason: skipReason})
+				}
+			}
 		} else if skipAnalyze {
 			// Only analyze and persist are skipped
-			skippedStages = append(skippedStages,
-				SkippedStage{Stage: "analyze", SkipReason: skipReason},
-				SkippedStage{Stage: "persist", SkipReason: skipReason},
-			)
+			for _, s := range []string{"analyze", "persist"} {
+				if stageInPipeline(stageConfigMap, s) {
+					skippedStages = append(skippedStages, SkippedStage{Stage: s, SkipReason: skipReason})
+				}
+			}
 		}
 
 		if len(skippedStages) > 0 {
