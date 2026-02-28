@@ -1074,7 +1074,201 @@ func TestTriage_NotificationContributionCap(t *testing.T) {
 	require.Equal(t, "PROJECT_UPDATE", output.Category)
 	require.Equal(t, "MEDIUM", output.Importance)
 
-	// Content subtype should be notification/jira (from classifier)
+	// Content subtype should be notification/jira from heuristic classifier
+	// (no classificationRepo configured in this test, so rule engine doesn't run)
 	require.True(t, strings.HasPrefix(output.ContentSubtype, "notification/"),
 		"expected notification subtype, got %s", output.ContentSubtype)
+}
+
+// mockClassificationRepo is a mock for ClassificationRepository.
+type mockClassificationRepo struct {
+	loadRulesFn func(ctx context.Context, tenantID string) ([]classification.ClassificationRule, error)
+}
+
+func (m *mockClassificationRepo) LoadRules(ctx context.Context, tenantID string) ([]classification.ClassificationRule, error) {
+	if m.loadRulesFn != nil {
+		return m.loadRulesFn(ctx, tenantID)
+	}
+	return nil, nil
+}
+
+// TestTriage_RuleEngineOverridesContentSubtype_pf2d512a verifies that when the rule
+// engine matches a classification rule, its content_subtype overrides the heuristic
+// classifier's value. This is the core fix for pf-2d512a.
+func TestTriage_RuleEngineOverridesContentSubtype_pf2d512a(t *testing.T) {
+	tests := []struct {
+		name            string
+		senderEmail     string
+		subject         string
+		rules           []classification.ClassificationRule
+		wantSubtype     string
+		wantSourceSystem string
+	}{
+		{
+			name:        "newsletter detected by rule engine",
+			senderEmail: "newsletter@company.com",
+			subject:     "Weekly Newsletter: Project Updates",
+			rules: []classification.ClassificationRule{
+				{
+					ID: 1, Name: "newsletter", Priority: 10, Active: true,
+					ContentType: "EMAIL", ContentSubtype: "NEWSLETTER",
+					Conditions: []classification.MatchCondition{
+						{Field: "from_address", MatchType: "contains", Value: "newsletter"},
+					},
+				},
+			},
+			wantSubtype:      "NEWSLETTER",
+			wantSourceSystem: "human_email", // NEWSLETTER maps to default
+		},
+		{
+			name:        "notification detected by rule engine",
+			senderEmail: "jira@atlassian.net",
+			subject:     "[JIRA] PROJ-123 Updated",
+			rules: []classification.ClassificationRule{
+				{
+					ID: 1, Name: "jira", Priority: 10, Active: true,
+					ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+					NotificationSource: "jira",
+					Conditions: []classification.MatchCondition{
+						{Field: "from_address", MatchType: "contains", Value: "jira@atlassian"},
+					},
+				},
+			},
+			wantSubtype:      "NOTIFICATION",
+			wantSourceSystem: "jira",
+		},
+		{
+			name:        "calendar response detected by rule engine",
+			senderEmail: "user@example.com",
+			subject:     "Declined: Weekly Standup",
+			rules: []classification.ClassificationRule{
+				{
+					ID: 1, Name: "calendar-response", Priority: 10, Active: true,
+					ContentType: "EMAIL", ContentSubtype: "CALENDAR_RESPONSE",
+					Conditions: []classification.MatchCondition{
+						{Field: "subject", MatchType: "prefix", Value: "declined:"},
+					},
+				},
+			},
+			wantSubtype:      "CALENDAR_RESPONSE",
+			wantSourceSystem: "human_email",
+		},
+		{
+			name:        "no rule match keeps heuristic subtype",
+			senderEmail: "alice@example.com",
+			subject:     "Project Status Update",
+			rules:       nil, // no rules → default EMAIL/HUMAN with empty RuleName
+			wantSubtype: "standalone", // heuristic classifier fallback
+			wantSourceSystem: "human_email",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := logging.NewNopLogger()
+
+			mockClient := &mockAIClient{
+				triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+					return &aiv1.TriageContentResponse{
+						Category:   "PROJECT_UPDATE",
+						Importance: "MEDIUM",
+						Reason:     "Test",
+						ModelUsed:  "test-model",
+					}, nil
+				},
+			}
+
+			mockClassRepo := &mockClassificationRepo{
+				loadRulesFn: func(ctx context.Context, tenantID string) ([]classification.ClassificationRule, error) {
+					return tt.rules, nil
+				},
+			}
+
+			// Provide enrichmentRepo so the heuristic classifier runs (for fallback case)
+			mockEnrichment := &mockEnrichmentRepository{
+				getBySourceIDFn: func(ctx context.Context, sourceID int64) (*EnrichmentRecord, error) {
+					return &EnrichmentRecord{SourceID: sourceID}, nil
+				},
+			}
+
+			activities := NewTriageActivities(logger, mockClient, nil, mockEnrichment, mockClassRepo)
+
+			input := TriageInput{
+				TenantID:    "test-tenant",
+				SourceID:    1000,
+				ContentID:   "em-test-subtype",
+				JobID:       "job-subtype",
+				Content:     "Some email content for testing.",
+				Subject:     tt.subject,
+				SenderEmail: tt.senderEmail,
+				ContentType: "email",
+			}
+
+			output, err := activities.Triage(context.Background(), input)
+			require.NoError(t, err)
+			require.NotNil(t, output)
+
+			require.Equal(t, tt.wantSubtype, output.ContentSubtype,
+				"pf-2d512a: content_subtype should be %q from rule engine, got %q",
+				tt.wantSubtype, output.ContentSubtype)
+			require.Equal(t, tt.wantSourceSystem, output.SourceSystem)
+		})
+	}
+}
+
+// TestTriage_RuleEngineNotificationCap_pf2d512a verifies that the notification
+// contribution cap still works when the rule engine sets NOTIFICATION (uppercase).
+func TestTriage_RuleEngineNotificationCap_pf2d512a(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	highContribution := "HIGH"
+	mockClient := &mockAIClient{
+		triageContentFn: func(ctx context.Context, req *aiv1.TriageContentRequest) (*aiv1.TriageContentResponse, error) {
+			return &aiv1.TriageContentResponse{
+				Category:            "PROJECT_UPDATE",
+				Importance:          "MEDIUM",
+				Reason:              "Jira notification",
+				ModelUsed:           "test-model",
+				ContentContribution: &highContribution,
+			}, nil
+		},
+	}
+
+	mockClassRepo := &mockClassificationRepo{
+		loadRulesFn: func(ctx context.Context, tenantID string) ([]classification.ClassificationRule, error) {
+			return []classification.ClassificationRule{
+				{
+					ID: 1, Name: "jira", Priority: 10, Active: true,
+					ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+					NotificationSource: "jira",
+					Conditions: []classification.MatchCondition{
+						{Field: "from_address", MatchType: "contains", Value: "jira@atlassian"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	activities := NewTriageActivities(logger, mockClient, nil, nil, mockClassRepo)
+
+	input := TriageInput{
+		TenantID:    "test-tenant",
+		SourceID:    2000,
+		ContentID:   "em-jira-cap",
+		JobID:       "job-cap",
+		Content:     "[JIRA] PROJ-456 was updated",
+		Subject:     "[JIRA] (PROJ-456) Task title",
+		SenderEmail: "jira@atlassian.net",
+		ContentType: "email",
+	}
+
+	output, err := activities.Triage(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+
+	// Rule engine should set NOTIFICATION subtype
+	require.Equal(t, "NOTIFICATION", output.ContentSubtype)
+	// Contribution should be capped at LOW (NOTIFICATION cap from pf-bcb565)
+	require.Equal(t, "LOW", output.ContentContribution,
+		"pf-2d512a: NOTIFICATION from rule engine should trigger contribution cap")
 }

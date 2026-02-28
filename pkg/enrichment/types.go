@@ -226,9 +226,12 @@ func (p ProcessingProfile) NeedsChunking() bool {
 }
 
 // IsNotification returns true if this is a notification subtype.
+// Handles both lowercase heuristic values (notification/jira) and
+// uppercase rule engine values (NOTIFICATION) from pf-2d512a.
 func (s ContentSubtype) IsNotification() bool {
 	switch s {
-	case SubtypeNotificationJira, SubtypeNotificationGoogle, SubtypeNotificationSlack, SubtypeNotificationOther:
+	case SubtypeNotificationJira, SubtypeNotificationGoogle, SubtypeNotificationSlack, SubtypeNotificationOther,
+		"NOTIFICATION":
 		return true
 	default:
 		return false
@@ -236,9 +239,12 @@ func (s ContentSubtype) IsNotification() bool {
 }
 
 // IsCalendar returns true if this is a calendar subtype.
+// Handles both lowercase heuristic values (invite, response) and
+// uppercase rule engine values (INVITE, CALENDAR_RESPONSE) from pf-2d512a.
 func (s ContentSubtype) IsCalendar() bool {
 	switch s {
-	case SubtypeCalendarInvite, SubtypeCalendarCancellation, SubtypeCalendarUpdate, SubtypeCalendarResponse:
+	case SubtypeCalendarInvite, SubtypeCalendarCancellation, SubtypeCalendarUpdate, SubtypeCalendarResponse,
+		"INVITE", "CANCELLATION", "CALENDAR_RESPONSE", "CALENDAR_UPDATE":
 		return true
 	default:
 		return false

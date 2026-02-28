@@ -133,6 +133,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	var sourceSystem string
 	var routingContentType, routingSubtype string
 	var matchedPipelines []string
+	var ruleEngineSubtype string // pf-2d512a: capture rule engine subtype for override
 
 	if a.classificationRepo != nil {
 		rules, err := a.classificationRepo.LoadRules(ctx, input.TenantID)
@@ -156,6 +157,9 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			sourceSystem = mapToSourceSystem(result)
 			routingContentType = result.ContentType
 			routingSubtype = result.ContentSubtype
+			if result.RuleName != "" {
+				ruleEngineSubtype = result.ContentSubtype
+			}
 			logger.Info("Source system classified via rule engine",
 				logging.F("source_system", sourceSystem),
 				logging.F("rule_name", result.RuleName),
@@ -164,6 +168,28 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		}
 	} else {
 		sourceSystem = string(enrichment.SourceSystemHumanEmail)
+	}
+
+	// Override content_subtype from rule engine when a rule matched (pf-2d512a).
+	// The rule engine is more authoritative than the heuristic classifier for content_subtype.
+	// Keep the heuristic value as fallback when no rule matches (default EMAIL/HUMAN).
+	if ruleEngineSubtype != "" {
+		subtype = enrichment.ContentSubtype(ruleEngineSubtype)
+		logger.Info("Content subtype overridden by rule engine",
+			logging.F("subtype", string(subtype)),
+		)
+
+		// Update the enrichment record with the rule engine's subtype
+		if a.enrichmentRepo != nil && input.SourceID > 0 {
+			if enrichmentRec, err := a.enrichmentRepo.GetBySourceID(ctx, input.SourceID); err == nil && enrichmentRec != nil {
+				enrichmentRec.ContentSubtype = string(subtype)
+				if updateErr := a.enrichmentRepo.Update(ctx, enrichmentRec); updateErr != nil {
+					logger.Warn("Failed to update enrichment subtype from rule engine",
+						logging.Err(updateErr),
+					)
+				}
+			}
+		}
 	}
 
 	// Derive routing keys for non-email content where rule engine defaults to EMAIL/HUMAN.
