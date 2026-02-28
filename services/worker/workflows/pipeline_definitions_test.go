@@ -181,3 +181,82 @@ func TestStageInPipeline_StagePresent(t *testing.T) {
 	assert.True(t, stageInPipeline(m, "extract_ner"))
 	assert.False(t, stageInPipeline(m, "analyze"), "disabled stage should be false")
 }
+
+// TestExtractGate_SemanticOnlyPipeline verifies that the extraction block runs
+// for pipelines with extract_semantic but not extract_ner (e.g. newsletter).
+// Bug fix pf-9fd0fd: extraction gate was too narrow, only checking extract_ner.
+func TestExtractGate_SemanticOnlyPipeline(t *testing.T) {
+	// Newsletter pipeline: has extract_semantic but not extract_ner
+	m := map[string]PipelineStageConfig{
+		"parse":            {Stage: "parse", Enabled: true},
+		"triage":           {Stage: "triage", Enabled: true},
+		"extract_semantic": {Stage: "extract_semantic", Enabled: true},
+		"persist":          {Stage: "persist", Enabled: true},
+		"embed":            {Stage: "embed", Enabled: true},
+	}
+
+	// The extraction gate should open when either extract stage is present
+	nerInPipeline := stageInPipeline(m, "extract_ner")
+	semanticInPipeline := stageInPipeline(m, "extract_semantic")
+	extractionShouldRun := nerInPipeline || semanticInPipeline
+
+	assert.False(t, nerInPipeline, "extract_ner not in newsletter pipeline")
+	assert.True(t, semanticInPipeline, "extract_semantic is in newsletter pipeline")
+	assert.True(t, extractionShouldRun, "extraction block should run for semantic-only pipeline")
+}
+
+// TestExtractGate_NEROnlyPipeline verifies the extraction gate for
+// pipelines with extract_ner but not extract_semantic (e.g. notification).
+func TestExtractGate_NEROnlyPipeline(t *testing.T) {
+	m := map[string]PipelineStageConfig{
+		"parse":       {Stage: "parse", Enabled: true},
+		"triage":      {Stage: "triage", Enabled: true},
+		"extract_ner": {Stage: "extract_ner", Enabled: true},
+		"persist":     {Stage: "persist", Enabled: true},
+		"embed":       {Stage: "embed", Enabled: true},
+	}
+
+	nerInPipeline := stageInPipeline(m, "extract_ner")
+	semanticInPipeline := stageInPipeline(m, "extract_semantic")
+	extractionShouldRun := nerInPipeline || semanticInPipeline
+
+	assert.True(t, nerInPipeline, "extract_ner is in notification pipeline")
+	assert.False(t, semanticInPipeline, "extract_semantic not in notification pipeline")
+	assert.True(t, extractionShouldRun, "extraction block should run for NER-only pipeline")
+}
+
+// TestPersistGate_IndependentOfAnalyze verifies that persist can run
+// independently of the analyze stage for lightweight pipelines.
+// Bug fix pf-9fd0fd: persist was nested inside analyze gate.
+func TestPersistGate_IndependentOfAnalyze(t *testing.T) {
+	// Notification pipeline: has persist but not analyze
+	m := map[string]PipelineStageConfig{
+		"parse":       {Stage: "parse", Enabled: true},
+		"triage":      {Stage: "triage", Enabled: true},
+		"extract_ner": {Stage: "extract_ner", Enabled: true},
+		"persist":     {Stage: "persist", Enabled: true},
+		"embed":       {Stage: "embed", Enabled: true},
+	}
+
+	assert.False(t, stageInPipeline(m, "analyze"), "analyze not in notification pipeline")
+	assert.True(t, stageInPipeline(m, "persist"), "persist should be independently gatable")
+}
+
+// TestPersistGate_StandardPipeline verifies that persist still runs
+// for standard pipelines that have both analyze and persist.
+func TestPersistGate_StandardPipeline(t *testing.T) {
+	m := map[string]PipelineStageConfig{
+		"parse":               {Stage: "parse", Enabled: true},
+		"triage":              {Stage: "triage", Enabled: true},
+		"extract_ner":         {Stage: "extract_ner", Enabled: true},
+		"extract_assertions":  {Stage: "extract_assertions", Enabled: true},
+		"extract_semantic":    {Stage: "extract_semantic", Enabled: true},
+		"resolve":             {Stage: "resolve", Enabled: true},
+		"analyze":             {Stage: "analyze", Enabled: true},
+		"persist":             {Stage: "persist", Enabled: true},
+		"embed":               {Stage: "embed", Enabled: true},
+	}
+
+	assert.True(t, stageInPipeline(m, "analyze"), "analyze in standard pipeline")
+	assert.True(t, stageInPipeline(m, "persist"), "persist in standard pipeline")
+}

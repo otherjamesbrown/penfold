@@ -1854,7 +1854,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 	}
 
-	if !skipExtract && stageInPipeline(stageConfigMap, "extract_ner") {
+	if !skipExtract && (stageInPipeline(stageConfigMap, "extract_ner") || stageInPipeline(stageConfigMap, "extract_semantic")) {
 		// Stage 2: Extract
 		updateStatus("extracting", "ExtractEntities")
 		extractStage := stageByStatus("extracting")
@@ -2123,6 +2123,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}
 
 	// Stages 4-4.6: Deep Analysis and Findings (gated by skipAnalyze and pipeline definition)
+	var analyzeOutput *DeepAnalyzeOutput
+	analyzeFailed := false
+
 	if !skipAnalyze && stageInPipeline(stageConfigMap, "analyze") {
 		// Stage 4: Deep Analysis (optional — failure does NOT block pipeline)
 		updateStatus("analyzing", "DeepAnalyze")
@@ -2136,7 +2139,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		analyzeStart := workflow.Now(ctx)
 		analyzePhaseID := sideEffectUUID(ctx)
 
-		var analyzeOutput *DeepAnalyzeOutput
 		analyzeOpts := stageOpts("analyze", llmOpts)
 		if input.TimeoutOverride > 0 {
 			analyzeOpts.StartToCloseTimeout = input.TimeoutOverride
@@ -2200,6 +2202,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				)
 			}
 			analyzeOutput = nil // Skip persist if analysis failed
+			analyzeFailed = true
 		} else {
 			logger.Info("pipeline stage span completed",
 				"stage.name", "analyze",
@@ -2241,91 +2244,96 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			state.result.Error = state.cancelReason
 			return state.result, nil
 		}
+	}
 
-		// Stage 4.5: Persist Findings (only if Stage 4 succeeded)
-		if analyzeOutput != nil {
-			updateStatus("persisting", "PersistFindings")
-			persistStage := stageByStatus("persisting")
-			logger.Info("pipeline stage starting",
-				"source_id", input.SourceID,
-				"stage", persistStage.Name,
-				"stage_number", persistStage.Number,
-				"total_steps", state.status.TotalSteps,
-			)
-			persistStart := workflow.Now(ctx)
+	// Stage 4.5: Persist Findings (independently gated by pipeline definition)
+	// Runs for any pipeline with "persist" in its definition, even without "analyze"
+	// (e.g. notification/newsletter pipelines). Skipped if analyze ran but failed.
+	if !skipAnalyze && stageInPipeline(stageConfigMap, "persist") && !analyzeFailed {
+		updateStatus("persisting", "PersistFindings")
+		persistStage := stageByStatus("persisting")
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", persistStage.Name,
+			"stage_number", persistStage.Number,
+			"total_steps", state.status.TotalSteps,
+		)
+		persistStart := workflow.Now(ctx)
 
-			// Build resolved people map from context output
-			resolvedPeople := make(map[string]int64)
-			if contextOutput != nil {
-				for _, p := range contextOutput.ResolvedPeople {
-					if p.PersonID != nil {
-						resolvedPeople[p.Name] = *p.PersonID
-					}
-				}
-			}
-
-			// Find confirmed project ID: cross-reference resolved projects with
-			// deep analysis topic mappings. Only tag assertions with a project when
-			// the analysis confirms the content actually relates to that project.
-			// This prevents mis-tagging assertions from unrelated content (e.g., IT
-			// notifications) with the user's primary project (pf-de3670).
-			var projectID *int64
-			if contextOutput != nil && analyzeOutput != nil {
-				projectID = selectConfirmedProjectID(contextOutput.ResolvedProjects, analyzeOutput.TopicMappings)
-			}
-
-			var persistOutput PersistFindingsOutput
-			ctxPersist := workflow.WithActivityOptions(ctx, fastOpts)
-			err = workflow.ExecuteActivity(ctxPersist, pkgtemporal.ActivityPersistFindings, PersistFindingsInput{
-				TenantID:       input.TenantID,
-				SourceID:       input.SourceID,
-				ThreadID:       emailThreadID,
-				ProjectID:      projectID,
-				Analysis:       analyzeOutput,
-				ResolvedPeople: resolvedPeople,
-				BodyText:       input.BodyText,
-				Subject:        input.Subject,
-			}).Get(ctx, &persistOutput)
-			if err != nil {
-				logger.Warn("pipeline stage failed (non-blocking)",
-					"source_id", input.SourceID,
-					"stage", persistStage.Name,
-					"stage_number", persistStage.Number,
-					"duration_ms", workflow.Now(ctx).Sub(persistStart).Milliseconds(),
-					"status", "failed",
-					"error", err.Error(),
-				)
-			} else {
-				logger.Info("pipeline stage completed",
-					"source_id", input.SourceID,
-					"stage", persistStage.Name,
-					"stage_number", persistStage.Number,
-					"duration_ms", workflow.Now(ctx).Sub(persistStart).Milliseconds(),
-					"status", "completed",
-					"assertions_created", persistOutput.AssertionsCreated,
-					"assertions_superseded", persistOutput.AssertionsSuperseded,
-					"references_created", persistOutput.ReferencesCreated,
-				)
-				state.result.AssertionsCreated += persistOutput.AssertionsCreated
-
-				// Update assertion count on source after persist (total from both Stage 2b and Stage 4.5)
-				if state.result.AssertionsCreated > 0 {
-					totalCount := state.result.AssertionsCreated
-					ctxAssertionUpdate := workflow.WithActivityOptions(ctx, fastOpts)
-					if err := workflow.ExecuteActivity(ctxAssertionUpdate, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
-						TenantID:       input.TenantID,
-						SourceID:       input.SourceID,
-						AssertionCount: &totalCount,
-					}).Get(ctx, nil); err != nil {
-						logger.Error("Failed to update content status",
-							"source_id", input.SourceID,
-							"target_status", "assertion_count",
-							"error", err,
-						)
-					}
+		// Build resolved people map from context output
+		resolvedPeople := make(map[string]int64)
+		if contextOutput != nil {
+			for _, p := range contextOutput.ResolvedPeople {
+				if p.PersonID != nil {
+					resolvedPeople[p.Name] = *p.PersonID
 				}
 			}
 		}
+
+		// Find confirmed project ID: cross-reference resolved projects with
+		// deep analysis topic mappings. Only tag assertions with a project when
+		// the analysis confirms the content actually relates to that project.
+		// This prevents mis-tagging assertions from unrelated content (e.g., IT
+		// notifications) with the user's primary project (pf-de3670).
+		var projectID *int64
+		if contextOutput != nil && analyzeOutput != nil {
+			projectID = selectConfirmedProjectID(contextOutput.ResolvedProjects, analyzeOutput.TopicMappings)
+		}
+
+		var persistOutput PersistFindingsOutput
+		ctxPersist := workflow.WithActivityOptions(ctx, fastOpts)
+		err = workflow.ExecuteActivity(ctxPersist, pkgtemporal.ActivityPersistFindings, PersistFindingsInput{
+			TenantID:       input.TenantID,
+			SourceID:       input.SourceID,
+			ThreadID:       emailThreadID,
+			ProjectID:      projectID,
+			Analysis:       analyzeOutput,
+			ResolvedPeople: resolvedPeople,
+			BodyText:       input.BodyText,
+			Subject:        input.Subject,
+		}).Get(ctx, &persistOutput)
+		if err != nil {
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", persistStage.Name,
+				"stage_number", persistStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(persistStart).Milliseconds(),
+				"status", "failed",
+				"error", err.Error(),
+			)
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", persistStage.Name,
+				"stage_number", persistStage.Number,
+				"duration_ms", workflow.Now(ctx).Sub(persistStart).Milliseconds(),
+				"status", "completed",
+				"assertions_created", persistOutput.AssertionsCreated,
+				"assertions_superseded", persistOutput.AssertionsSuperseded,
+				"references_created", persistOutput.ReferencesCreated,
+			)
+			state.result.AssertionsCreated += persistOutput.AssertionsCreated
+
+			// Update assertion count on source after persist (total from both Stage 2b and Stage 4.5)
+			if state.result.AssertionsCreated > 0 {
+				totalCount := state.result.AssertionsCreated
+				ctxAssertionUpdate := workflow.WithActivityOptions(ctx, fastOpts)
+				if err := workflow.ExecuteActivity(ctxAssertionUpdate, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+					TenantID:       input.TenantID,
+					SourceID:       input.SourceID,
+					AssertionCount: &totalCount,
+				}).Get(ctx, nil); err != nil {
+					logger.Error("Failed to update content status",
+						"source_id", input.SourceID,
+						"target_status", "assertion_count",
+						"error", err,
+					)
+				}
+			}
+		}
+	}
+
+	if !skipAnalyze && stageInPipeline(stageConfigMap, "analyze") {
 		state.status.StepsCompleted = 6
 
 		// Stage 4.6: Tag Projects (match project keywords)
