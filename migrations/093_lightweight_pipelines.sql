@@ -52,13 +52,21 @@ BEGIN
       (t_id, 'auto_reply', 'embed',  2, true, false, false, 60)
     ON CONFLICT (tenant_id, pipeline, stage) DO NOTHING;
 
-    -- Update routing: EMAIL/NOTIFICATION → notification (was: standard)
+    -- Routing: EMAIL/NOTIFICATION → notification
+    -- Update existing row if present (was: standard), otherwise insert.
     UPDATE pipeline_routing
     SET pipeline = 'notification'
     WHERE tenant_id = t_id
       AND content_type = 'EMAIL'
       AND content_subtype = 'NOTIFICATION'
       AND pipeline = 'standard';
+
+    INSERT INTO pipeline_routing (tenant_id, content_type, content_subtype, pipeline)
+    SELECT t_id, 'EMAIL', 'NOTIFICATION', 'notification'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM pipeline_routing
+      WHERE tenant_id = t_id AND content_type = 'EMAIL' AND content_subtype = 'NOTIFICATION'
+    );
 
     -- Insert routing: EMAIL/NEWSLETTER → newsletter
     INSERT INTO pipeline_routing (tenant_id, content_type, content_subtype, pipeline)
