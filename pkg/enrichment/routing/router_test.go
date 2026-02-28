@@ -5,13 +5,18 @@ import (
 )
 
 // buildSeededRoutes returns the in-memory equivalent of the seeded routing rules
-// from migrations/068_pipeline_routing.sql.
+// from migrations/068_pipeline_routing.sql + 093_lightweight_pipelines.sql.
 func buildSeededRoutes() []Route {
 	return []Route{
 		{ID: 1, TenantID: "tenant-a", ContentType: "EMAIL", ContentSubtype: "HUMAN", Pipeline: "standard", Active: true},
-		{ID: 2, TenantID: "tenant-a", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION", Pipeline: "standard", Active: true},
+		{ID: 2, TenantID: "tenant-a", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION", Pipeline: "notification", Active: true},
 		{ID: 3, TenantID: "tenant-a", ContentType: "CALENDAR", ContentSubtype: "INVITE", Pipeline: "attendees_only", Active: true},
 		{ID: 4, TenantID: "tenant-a", ContentType: "MEETING", ContentSubtype: "TRANSCRIPT", Pipeline: "transcript", Active: true},
+		{ID: 5, TenantID: "tenant-a", ContentType: "EMAIL", ContentSubtype: "NEWSLETTER", Pipeline: "newsletter", Active: true},
+		{ID: 6, TenantID: "tenant-a", ContentType: "EMAIL", ContentSubtype: "AUTO_REPLY", Pipeline: "auto_reply", Active: true},
+		{ID: 7, TenantID: "tenant-a", ContentType: "EMAIL", ContentSubtype: "CALENDAR_RESPONSE", Pipeline: "attendees_only", Active: true},
+		{ID: 8, TenantID: "tenant-a", ContentType: "EMAIL", ContentSubtype: "CALENDAR_UPDATE", Pipeline: "attendees_only", Active: true},
+		{ID: 9, TenantID: "tenant-a", ContentType: "CALENDAR", ContentSubtype: "CANCELLATION", Pipeline: "attendees_only", Active: true},
 	}
 }
 
@@ -29,14 +34,17 @@ func TestPipelineRouting_StandardEmail(t *testing.T) {
 	}
 }
 
-// TestPipelineRouting_AutoReplySkipped verifies EMAIL/AUTO_REPLY → no pipeline (skipped).
-func TestPipelineRouting_AutoReplySkipped(t *testing.T) {
+// TestPipelineRouting_AutoReply verifies EMAIL/AUTO_REPLY → "auto_reply" pipeline.
+func TestPipelineRouting_AutoReply(t *testing.T) {
 	router := NewRouter(buildSeededRoutes())
 
 	pipelines := router.Resolve("EMAIL", "AUTO_REPLY")
 
-	if len(pipelines) != 0 {
-		t.Errorf("expected no pipelines for AUTO_REPLY, got %v", pipelines)
+	if len(pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d: %v", len(pipelines), pipelines)
+	}
+	if pipelines[0] != "auto_reply" {
+		t.Errorf("expected pipeline=auto_reply, got %q", pipelines[0])
 	}
 }
 
@@ -91,9 +99,9 @@ func TestPipelineRouting_NoRowSkips(t *testing.T) {
 		contentType string
 		subtype     string
 	}{
-		{"calendar cancellation", "CALENDAR", "CANCELLATION"},
 		{"calendar update", "CALENDAR", "UPDATE"},
 		{"calendar response", "CALENDAR", "RESPONSE"},
+		{"unknown type", "UNKNOWN", "UNKNOWN"},
 	}
 
 	for _, tt := range tests {
@@ -103,6 +111,62 @@ func TestPipelineRouting_NoRowSkips(t *testing.T) {
 				t.Errorf("expected no pipelines for %s/%s, got %v", tt.contentType, tt.subtype, pipelines)
 			}
 		})
+	}
+}
+
+// TestPipelineRouting_NotificationPipeline verifies EMAIL/NOTIFICATION → "notification" (not "standard").
+func TestPipelineRouting_NotificationPipeline(t *testing.T) {
+	router := NewRouter(buildSeededRoutes())
+
+	pipelines := router.Resolve("EMAIL", "NOTIFICATION")
+
+	if len(pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d: %v", len(pipelines), pipelines)
+	}
+	if pipelines[0] != "notification" {
+		t.Errorf("expected pipeline=notification, got %q", pipelines[0])
+	}
+}
+
+// TestPipelineRouting_NewsletterPipeline verifies EMAIL/NEWSLETTER → "newsletter".
+func TestPipelineRouting_NewsletterPipeline(t *testing.T) {
+	router := NewRouter(buildSeededRoutes())
+
+	pipelines := router.Resolve("EMAIL", "NEWSLETTER")
+
+	if len(pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d: %v", len(pipelines), pipelines)
+	}
+	if pipelines[0] != "newsletter" {
+		t.Errorf("expected pipeline=newsletter, got %q", pipelines[0])
+	}
+}
+
+// TestPipelineRouting_CalendarResponseAttendeesOnly verifies EMAIL/CALENDAR_RESPONSE → "attendees_only".
+func TestPipelineRouting_CalendarResponseAttendeesOnly(t *testing.T) {
+	router := NewRouter(buildSeededRoutes())
+
+	pipelines := router.Resolve("EMAIL", "CALENDAR_RESPONSE")
+
+	if len(pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d: %v", len(pipelines), pipelines)
+	}
+	if pipelines[0] != "attendees_only" {
+		t.Errorf("expected pipeline=attendees_only, got %q", pipelines[0])
+	}
+}
+
+// TestPipelineRouting_HumanRegression verifies EMAIL/HUMAN still routes to "standard".
+func TestPipelineRouting_HumanRegression(t *testing.T) {
+	router := NewRouter(buildSeededRoutes())
+
+	pipelines := router.Resolve("EMAIL", "HUMAN")
+
+	if len(pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d: %v", len(pipelines), pipelines)
+	}
+	if pipelines[0] != "standard" {
+		t.Errorf("expected pipeline=standard, got %q", pipelines[0])
 	}
 }
 
@@ -135,14 +199,14 @@ func TestPipelineRouting_PerTenant(t *testing.T) {
 // no code change — just a DB insert.
 func TestPipelineRouting_NewRouteNoCodeChange(t *testing.T) {
 	routes := buildSeededRoutes()
-	// Simulate inserting a new route for EMAIL/NEWSLETTER → "standard"
+	// Simulate inserting a new route for EMAIL/BROADCAST → "standard"
 	routes = append(routes, Route{
-		ID: 10, TenantID: "tenant-a", ContentType: "EMAIL", ContentSubtype: "NEWSLETTER",
+		ID: 20, TenantID: "tenant-a", ContentType: "EMAIL", ContentSubtype: "BROADCAST",
 		Pipeline: "standard", Active: true,
 	})
 	router := NewRouter(routes)
 
-	pipelines := router.Resolve("EMAIL", "NEWSLETTER")
+	pipelines := router.Resolve("EMAIL", "BROADCAST")
 
 	if len(pipelines) != 1 || pipelines[0] != "standard" {
 		t.Errorf("expected standard pipeline after inserting new route, got %v", pipelines)

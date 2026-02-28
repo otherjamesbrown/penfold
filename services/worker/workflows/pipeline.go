@@ -180,6 +180,11 @@ type SLMPipelineExtractEntitiesInput struct {
 	// Prepended to content as a "Background Context" section.
 	BackgroundContext string `json:"background_context,omitempty"`
 
+	// PipelineStages is the list of stage names defined in the active pipeline definition.
+	// Used by the extraction activity to record only the stages present in the pipeline.
+	// Nil or empty means record all stages (backward compat).
+	PipelineStages []string `json:"pipeline_stages,omitempty"`
+
 	// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 	LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 	LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
@@ -1848,7 +1853,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 	}
 
-	if !skipExtract {
+	if !skipExtract && stageInPipeline(stageConfigMap, "extract_ner") {
 		// Stage 2: Extract
 		updateStatus("extracting", "ExtractEntities")
 		extractStage := stageByStatus("extracting")
@@ -1880,6 +1885,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			SenderEmail:       input.SenderEmail,
 			Participants:      input.ParticipantEmails,
 			BackgroundContext: extractionContext,
+			PipelineStages:   stageConfigMapKeys(stageConfigMap),
 			LangfuseTraceID:  langfuseTraceID,
 			LangfusePhaseID:  extractPhaseID,
 			PipelineSpanID:   pipelineSpanID,
@@ -1887,34 +1893,36 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
 		var assertionCount int
-		assertionOpts := stageOpts("extract_assertions", llmOpts)
-		ctxAssertions := workflow.WithActivityOptions(ctx, assertionOpts)
-		err2 := workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
-			TenantID:        input.TenantID,
-			SourceID:        input.SourceID,
-			ContentID:       input.ContentID,
-			JobID:           input.JobID,
-			Content:         parsedContent,
-			Subject:         input.Subject, // Topic framing for assertion extraction (pf-e219c1)
-			ContentType:     input.ContentType,
-			SenderEmail:     input.SenderEmail, // Pass sender for owner attribution
-			LangfuseTraceID: langfuseTraceID,
-			LangfusePhaseID: extractPhaseID,
-			PipelineSpanID:  pipelineSpanID,
-		}).Get(ctx, &assertionCount)
-		if err2 != nil {
-			logger.Warn("pipeline stage span error",
-				"stage.name", "extract_assertions",
-				"error.type", classifyTemporalError(err2),
-				"error.detail", err2.Error(),
-			)
-			logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err2)
-			assertionCount = 0
-		} else {
-			logger.Info("pipeline stage span completed",
-				"stage.name", "extract_assertions",
-				"stage.timeout_start_to_close_ms", assertionOpts.StartToCloseTimeout.Milliseconds(),
-			)
+		if stageInPipeline(stageConfigMap, "extract_assertions") {
+			assertionOpts := stageOpts("extract_assertions", llmOpts)
+			ctxAssertions := workflow.WithActivityOptions(ctx, assertionOpts)
+			err2 := workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
+				TenantID:        input.TenantID,
+				SourceID:        input.SourceID,
+				ContentID:       input.ContentID,
+				JobID:           input.JobID,
+				Content:         parsedContent,
+				Subject:         input.Subject, // Topic framing for assertion extraction (pf-e219c1)
+				ContentType:     input.ContentType,
+				SenderEmail:     input.SenderEmail, // Pass sender for owner attribution
+				LangfuseTraceID: langfuseTraceID,
+				LangfusePhaseID: extractPhaseID,
+				PipelineSpanID:  pipelineSpanID,
+			}).Get(ctx, &assertionCount)
+			if err2 != nil {
+				logger.Warn("pipeline stage span error",
+					"stage.name", "extract_assertions",
+					"error.type", classifyTemporalError(err2),
+					"error.detail", err2.Error(),
+				)
+				logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err2)
+				assertionCount = 0
+			} else {
+				logger.Info("pipeline stage span completed",
+					"stage.name", "extract_assertions",
+					"stage.timeout_start_to_close_ms", assertionOpts.StartToCloseTimeout.Milliseconds(),
+				)
+			}
 		}
 		state.result.AssertionsCreated = assertionCount
 
@@ -1997,112 +2005,114 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 
 		// Stage 3: Context
-		updateStatus("building_context", "BuildContextPackage")
-		contextStage := stageByStatus("building_context")
-		logger.Info("pipeline stage starting",
-			"source_id", input.SourceID,
-			"stage", contextStage.Name,
-			"stage_number", contextStage.Number,
-			"total_steps", state.status.TotalSteps,
-		)
-		contextStart := workflow.Now(ctx)
-
-		contextOutput = &BuildContextOutput{}
-		ctxContext := workflow.WithActivityOptions(ctx, fastOpts)
-
-		// Extract conversation ID for context scoping (pf-26c835).
-		convID := ""
-		if convOutput != nil && convOutput.ConversationID != "" {
-			convID = convOutput.ConversationID
-		}
-
-		err = workflow.ExecuteActivity(ctxContext, pkgtemporal.ActivityBuildContextPackage, BuildContextInput{
-			TenantID:          input.TenantID,
-			SourceID:          input.SourceID,
-			ContentID:         input.ContentID,
-			JobID:             input.JobID,
-			ContentType:       input.ContentType,
-			ContentSubtype:    triageOutput.ContentSubtype,
-			Extraction:        extractOutput,
-			SenderEmail:       input.SenderEmail,
-			SenderName:        input.SenderName,
-			Subject:           input.Subject,
-			ParticipantEmails: input.ParticipantEmails,
-			ConversationID:    convID,
-			Content:           parsedContent,
-		}).Get(ctx, contextOutput)
-		if err != nil {
-			logger.Warn("pipeline stage failed (non-blocking)",
+		if stageInPipeline(stageConfigMap, "resolve") {
+			updateStatus("building_context", "BuildContextPackage")
+			contextStage := stageByStatus("building_context")
+			logger.Info("pipeline stage starting",
 				"source_id", input.SourceID,
 				"stage", contextStage.Name,
 				"stage_number", contextStage.Number,
-				"duration_ms", workflow.Now(ctx).Sub(contextStart).Milliseconds(),
-				"status", "failed",
-				"error", err.Error(),
+				"total_steps", state.status.TotalSteps,
 			)
+			contextStart := workflow.Now(ctx)
+
 			contextOutput = &BuildContextOutput{}
-		} else {
-			logger.Info("pipeline stage completed",
-				"source_id", input.SourceID,
-				"stage", contextStage.Name,
-				"stage_number", contextStage.Number,
-				"duration_ms", workflow.Now(ctx).Sub(contextStart).Milliseconds(),
-				"status", "completed",
-				"entities_resolved", contextOutput.EntitiesResolved,
-				"entities_unresolved", contextOutput.EntitiesUnresolved,
-				"tokens_used", contextOutput.TokensUsed,
-			)
-		}
-		state.status.StepsCompleted = 4
+			ctxContext := workflow.WithActivityOptions(ctx, fastOpts)
 
-		if checkCancellation() {
-			state.result.Status = "cancelled"
-			state.result.Error = state.cancelReason
-			return state.result, nil
-		}
-
-		// Stage 3.5: Person Metadata Enrichment (non-blocking)
-		// Enriches person entities with title, company, and is_internal flag from email content and domain
-		if contextOutput != nil && len(contextOutput.ResolvedPeople) > 0 {
-			enrichCtx := workflow.WithActivityOptions(ctx, fastOpts)
-			enrichOutput := &EnrichPersonMetadataOutput{}
-
-			// For multi-sender emails (threads), extract per-sender signatures to avoid title cross-contamination
-			enrichInput := EnrichPersonMetadataInput{
-				TenantID:       input.TenantID,
-				ResolvedPeople: contextOutput.ResolvedPeople,
-				BodyText:       input.BodyText,
-				SenderEmail:    input.SenderEmail,
+			// Extract conversation ID for context scoping (pf-26c835).
+			convID := ""
+			if convOutput != nil && convOutput.ConversationID != "" {
+				convID = convOutput.ConversationID
 			}
 
-			// Try per-sender extraction for multiple people
-			if len(contextOutput.ResolvedPeople) > 1 {
-				perSenderSigs := extractSignaturesPerSender(input.BodyText, contextOutput.ResolvedPeople)
-				if len(perSenderSigs) > 0 {
-					enrichInput.PerSenderSignatures = perSenderSigs
-				} else {
-					// Fall back to single signature if no thread separators found.
-					// SenderEmail is passed so the activity can scope it to the sender only.
-					enrichInput.SignatureText = extractSignature(input.BodyText)
-				}
-			} else {
-				// Single sender: use original extractSignature for backwards compatibility
-				enrichInput.SignatureText = extractSignature(input.BodyText)
-			}
-
-			err = workflow.ExecuteActivity(enrichCtx, pkgtemporal.ActivityEnrichPersonMetadata, enrichInput).Get(ctx, enrichOutput)
+			err = workflow.ExecuteActivity(ctxContext, pkgtemporal.ActivityBuildContextPackage, BuildContextInput{
+				TenantID:          input.TenantID,
+				SourceID:          input.SourceID,
+				ContentID:         input.ContentID,
+				JobID:             input.JobID,
+				ContentType:       input.ContentType,
+				ContentSubtype:    triageOutput.ContentSubtype,
+				Extraction:        extractOutput,
+				SenderEmail:       input.SenderEmail,
+				SenderName:        input.SenderName,
+				Subject:           input.Subject,
+				ParticipantEmails: input.ParticipantEmails,
+				ConversationID:    convID,
+				Content:           parsedContent,
+			}).Get(ctx, contextOutput)
 			if err != nil {
-				logger.Warn("person metadata enrichment failed (non-blocking)",
+				logger.Warn("pipeline stage failed (non-blocking)",
 					"source_id", input.SourceID,
+					"stage", contextStage.Name,
+					"stage_number", contextStage.Number,
+					"duration_ms", workflow.Now(ctx).Sub(contextStart).Milliseconds(),
+					"status", "failed",
 					"error", err.Error(),
 				)
-			} else if enrichOutput.PeopleEnriched > 0 {
-				logger.Info("person metadata enriched",
+				contextOutput = &BuildContextOutput{}
+			} else {
+				logger.Info("pipeline stage completed",
 					"source_id", input.SourceID,
-					"people_enriched", enrichOutput.PeopleEnriched,
+					"stage", contextStage.Name,
+					"stage_number", contextStage.Number,
+					"duration_ms", workflow.Now(ctx).Sub(contextStart).Milliseconds(),
+					"status", "completed",
+					"entities_resolved", contextOutput.EntitiesResolved,
+					"entities_unresolved", contextOutput.EntitiesUnresolved,
+					"tokens_used", contextOutput.TokensUsed,
 				)
 			}
-		}
+			state.status.StepsCompleted = 4
+
+			if checkCancellation() {
+				state.result.Status = "cancelled"
+				state.result.Error = state.cancelReason
+				return state.result, nil
+			}
+
+			// Stage 3.5: Person Metadata Enrichment (non-blocking)
+			// Enriches person entities with title, company, and is_internal flag from email content and domain
+			if contextOutput != nil && len(contextOutput.ResolvedPeople) > 0 {
+				enrichCtx := workflow.WithActivityOptions(ctx, fastOpts)
+				enrichOutput := &EnrichPersonMetadataOutput{}
+
+				// For multi-sender emails (threads), extract per-sender signatures to avoid title cross-contamination
+				enrichInput := EnrichPersonMetadataInput{
+					TenantID:       input.TenantID,
+					ResolvedPeople: contextOutput.ResolvedPeople,
+					BodyText:       input.BodyText,
+					SenderEmail:    input.SenderEmail,
+				}
+
+				// Try per-sender extraction for multiple people
+				if len(contextOutput.ResolvedPeople) > 1 {
+					perSenderSigs := extractSignaturesPerSender(input.BodyText, contextOutput.ResolvedPeople)
+					if len(perSenderSigs) > 0 {
+						enrichInput.PerSenderSignatures = perSenderSigs
+					} else {
+						// Fall back to single signature if no thread separators found.
+						// SenderEmail is passed so the activity can scope it to the sender only.
+						enrichInput.SignatureText = extractSignature(input.BodyText)
+					}
+				} else {
+					// Single sender: use original extractSignature for backwards compatibility
+					enrichInput.SignatureText = extractSignature(input.BodyText)
+				}
+
+				err = workflow.ExecuteActivity(enrichCtx, pkgtemporal.ActivityEnrichPersonMetadata, enrichInput).Get(ctx, enrichOutput)
+				if err != nil {
+					logger.Warn("person metadata enrichment failed (non-blocking)",
+						"source_id", input.SourceID,
+						"error", err.Error(),
+					)
+				} else if enrichOutput.PeopleEnriched > 0 {
+					logger.Info("person metadata enriched",
+						"source_id", input.SourceID,
+						"people_enriched", enrichOutput.PeopleEnriched,
+					)
+				}
+			}
+		} // End of resolve stage block (stages 3-3.5)
 	} // End of skipExtract block (stages 2-3.5)
 
 	if checkCancellation() {
@@ -2111,8 +2121,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
-	// Stages 4-4.6: Deep Analysis and Findings (gated by skipAnalyze)
-	if !skipAnalyze {
+	// Stages 4-4.6: Deep Analysis and Findings (gated by skipAnalyze and pipeline definition)
+	if !skipAnalyze && stageInPipeline(stageConfigMap, "analyze") {
 		// Stage 4: Deep Analysis (optional — failure does NOT block pipeline)
 		updateStatus("analyzing", "DeepAnalyze")
 		analyzeStage := stageByStatus("analyzing")
@@ -2879,6 +2889,20 @@ func buildStageConfigMap(def *FetchPipelineDefinitionOutput) map[string]Pipeline
 	return m
 }
 
+// stageConfigMapKeys returns the stage names from a stageConfigMap as a slice.
+// Returns nil when the map is nil (no pipeline definition loaded), which signals
+// the extraction activity to record all stages for backward compatibility.
+func stageConfigMapKeys(m map[string]PipelineStageConfig) []string {
+	if m == nil {
+		return nil
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // isStageEnabled checks if a stage is enabled in the pipeline definition.
 // If the config map is nil (fallback mode), all stages are enabled.
 func isStageEnabled(stageConfigMap map[string]PipelineStageConfig, stageName string) bool {
@@ -2888,6 +2912,20 @@ func isStageEnabled(stageConfigMap map[string]PipelineStageConfig, stageName str
 	cfg, ok := stageConfigMap[stageName]
 	if !ok {
 		return true // Stage not in definition = enabled by default
+	}
+	return cfg.Enabled
+}
+
+// stageInPipeline returns true if a stage should run based on the pipeline definition.
+// If no definition is loaded (nil map), returns true (backward compat — fallback runs everything).
+// If a definition exists, the stage must be present AND enabled to run.
+func stageInPipeline(stageConfigMap map[string]PipelineStageConfig, stageName string) bool {
+	if stageConfigMap == nil {
+		return true
+	}
+	cfg, ok := stageConfigMap[stageName]
+	if !ok {
+		return false // Stage not in pipeline definition
 	}
 	return cfg.Enabled
 }

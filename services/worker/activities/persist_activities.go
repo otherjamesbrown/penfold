@@ -66,18 +66,39 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input workflows
 	}
 
 	// Validate input
-	if input.Analysis == nil {
-		return nil, temporal.NewApplicationError(
-			"analysis is required",
-			"ValidationError",
-		)
-	}
-
 	if input.SourceID <= 0 {
 		return nil, temporal.NewApplicationError(
 			"source_id must be positive",
 			"ValidationError",
 		)
+	}
+
+	// Lightweight persist: no analysis output (notification/newsletter pipelines).
+	// Record the pipeline_run as completed and return zero counts.
+	if input.Analysis == nil {
+		logger.Info("Lightweight persist (no analysis output)")
+		output := &workflows.PersistFindingsOutput{}
+		if a.pipelineRepo != nil {
+			durationMS := int(time.Since(startTime).Milliseconds())
+			inputJSON, _ := json.Marshal(map[string]interface{}{
+				"source_id":    input.SourceID,
+				"has_analysis": false,
+				"lightweight":  true,
+			})
+			outputJSON, _ := json.Marshal(output)
+			runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+				SourceID:   input.SourceID,
+				Stage:      "persist",
+				Status:     "completed",
+				DurationMS: durationMS,
+				InputData:  inputJSON,
+				OutputData: outputJSON,
+			})
+			if runErr != nil {
+				logger.Warn("Failed to record pipeline run for lightweight persist", logging.Err(runErr))
+			}
+		}
+		return output, nil
 	}
 
 	// Check if repository is available

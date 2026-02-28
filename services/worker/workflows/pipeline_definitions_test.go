@@ -156,3 +156,28 @@ func TestPipelineInput_HasPipelineField(t *testing.T) {
 	}
 	assert.Equal(t, "transcript", input.Pipeline)
 }
+
+func TestStageInPipeline_NilMap(t *testing.T) {
+	assert.True(t, stageInPipeline(nil, "parse"))
+	assert.True(t, stageInPipeline(nil, "anything"))
+}
+
+func TestStageInPipeline_StageMissing(t *testing.T) {
+	m := map[string]PipelineStageConfig{
+		"parse":  {Stage: "parse", Enabled: true},
+		"triage": {Stage: "triage", Enabled: true},
+	}
+	assert.False(t, stageInPipeline(m, "analyze"), "stage not in pipeline should be false")
+	assert.False(t, stageInPipeline(m, "extract_assertions"), "stage not in pipeline should be false")
+}
+
+func TestStageInPipeline_StagePresent(t *testing.T) {
+	m := map[string]PipelineStageConfig{
+		"parse":       {Stage: "parse", Enabled: true},
+		"extract_ner": {Stage: "extract_ner", Enabled: true},
+		"analyze":     {Stage: "analyze", Enabled: false},
+	}
+	assert.True(t, stageInPipeline(m, "parse"))
+	assert.True(t, stageInPipeline(m, "extract_ner"))
+	assert.False(t, stageInPipeline(m, "analyze"), "disabled stage should be false")
+}

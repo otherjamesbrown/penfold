@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -13,16 +14,23 @@ import (
 // ParseActivities holds dependencies for content parsing activities.
 // These are Stage 0 activities — deterministic, no AI calls.
 type ParseActivities struct {
-	logger logging.Logger
+	logger       logging.Logger
+	pipelineRepo PipelineRepository
 }
 
 // NewParseActivities creates a new ParseActivities instance.
-func NewParseActivities(logger logging.Logger) *ParseActivities {
+// pipelineRepo is optional; if nil, pipeline run recording is skipped.
+func NewParseActivities(logger logging.Logger, pipelineRepo ...PipelineRepository) *ParseActivities {
 	if logger == nil {
 		panic("NewParseActivities: logger is required")
 	}
+	var repo PipelineRepository
+	if len(pipelineRepo) > 0 {
+		repo = pipelineRepo[0]
+	}
 	return &ParseActivities{
-		logger: logger.With(logging.F("component", "parse_activities")),
+		logger:       logger.With(logging.F("component", "parse_activities")),
+		pipelineRepo: repo,
 	}
 }
 
@@ -70,6 +78,29 @@ func (a *ParseActivities) ParseEmail(ctx context.Context, input workflows.ParseE
 		logging.F("clean_body_length", len(output.CleanBody)),
 		logging.F("new_content_length", len(output.NewContent)),
 	)
+
+	if a.pipelineRepo != nil {
+		durationMS := int(time.Since(startTime).Milliseconds())
+		inputJSON, _ := json.Marshal(map[string]interface{}{
+			"body_text_length": len(input.BodyText),
+			"body_html_length": len(input.BodyHTML),
+		})
+		outputJSON, _ := json.Marshal(map[string]interface{}{
+			"clean_body_length": len(output.CleanBody),
+			"is_reply":          output.IsReply,
+		})
+		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+			SourceID:   input.SourceID,
+			Stage:      "parse",
+			Status:     "completed",
+			DurationMS: durationMS,
+			InputData:  inputJSON,
+			OutputData: outputJSON,
+		})
+		if runErr != nil {
+			logger.Warn("Failed to record pipeline run for parse", logging.Err(runErr))
+		}
+	}
 
 	return output, nil
 }
@@ -124,6 +155,30 @@ func (a *ParseActivities) ParseTranscript(ctx context.Context, input workflows.P
 		logging.F("duration_ms", output.DurationMs),
 		logging.F("clean_text_length", len(output.CleanText)),
 	)
+
+	if a.pipelineRepo != nil {
+		durationMS := int(time.Since(startTime).Milliseconds())
+		inputJSON, _ := json.Marshal(map[string]interface{}{
+			"content_length": len(input.Content),
+			"format_hint":    input.Format,
+		})
+		outputJSON, _ := json.Marshal(map[string]interface{}{
+			"clean_text_length": len(output.CleanText),
+			"speaker_count":     len(output.Speakers),
+			"format":            output.Format,
+		})
+		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+			SourceID:   input.SourceID,
+			Stage:      "parse",
+			Status:     "completed",
+			DurationMS: durationMS,
+			InputData:  inputJSON,
+			OutputData: outputJSON,
+		})
+		if runErr != nil {
+			logger.Warn("Failed to record pipeline run for parse", logging.Err(runErr))
+		}
+	}
 
 	return output, nil
 }

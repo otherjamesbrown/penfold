@@ -726,45 +726,66 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			"model_used":            output.ModelUsed,
 		})
 
-		// Record as extract_ner stage (NER entities; attribute all tokens here)
-		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
-			SourceID:        input.SourceID,
-			Stage:           "extract_ner",
-			ModelID:         output.ModelUsed,
-			PromptVersion:   int(extractPromptVersion),
-			Status:          "completed",
-			DurationMS:      durationMS,
-			InputData:       inputJSON,
-			OutputData:      outputJSON,
-			ParsedData:      nerParsed,
-			InputTokens:     totalInputTokens,
-			OutputTokens:    totalOutputTokens,
-			LangfuseTraceID: input.LangfuseTraceID,
-		})
-		if runErr != nil {
-			logger.Warn("Failed to record pipeline run for extract_ner", logging.Err(runErr))
+		// Record extract_ner stage only if it's in the pipeline definition.
+		// Nil/empty PipelineStages means no pipeline definition was loaded — record all stages (backward compat).
+		if stageInPipelineList(input.PipelineStages, "extract_ner") {
+			runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+				SourceID:        input.SourceID,
+				Stage:           "extract_ner",
+				ModelID:         output.ModelUsed,
+				PromptVersion:   int(extractPromptVersion),
+				Status:          "completed",
+				DurationMS:      durationMS,
+				InputData:       inputJSON,
+				OutputData:      outputJSON,
+				ParsedData:      nerParsed,
+				InputTokens:     totalInputTokens,
+				OutputTokens:    totalOutputTokens,
+				LangfuseTraceID: input.LangfuseTraceID,
+			})
+			if runErr != nil {
+				logger.Warn("Failed to record pipeline run for extract_ner", logging.Err(runErr))
+			}
 		}
-		// Record extract_semantic stage (semantic extractions; tokens attributed to NER)
-		runErr = a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
-			SourceID:        input.SourceID,
-			Stage:           "extract_semantic",
-			ModelID:         output.ModelUsed,
-			PromptVersion:   int(extractPromptVersion),
-			Status:          "completed",
-			DurationMS:      durationMS,
-			InputData:       inputJSON,
-			OutputData:      outputJSON,
-			ParsedData:      semParsed,
-			InputTokens:     0,
-			OutputTokens:    0,
-			LangfuseTraceID: input.LangfuseTraceID,
-		})
-		if runErr != nil {
-			logger.Warn("Failed to record pipeline run for extract_semantic", logging.Err(runErr))
+		// Record extract_semantic stage only if it's in the pipeline definition.
+		// Lightweight pipelines (notification, attendees_only) don't include extract_semantic.
+		if stageInPipelineList(input.PipelineStages, "extract_semantic") {
+			runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+				SourceID:        input.SourceID,
+				Stage:           "extract_semantic",
+				ModelID:         output.ModelUsed,
+				PromptVersion:   int(extractPromptVersion),
+				Status:          "completed",
+				DurationMS:      durationMS,
+				InputData:       inputJSON,
+				OutputData:      outputJSON,
+				ParsedData:      semParsed,
+				InputTokens:     0,
+				OutputTokens:    0,
+				LangfuseTraceID: input.LangfuseTraceID,
+			})
+			if runErr != nil {
+				logger.Warn("Failed to record pipeline run for extract_semantic", logging.Err(runErr))
+			}
 		}
 	}
 
 	return output, nil
+}
+
+// stageInPipelineList reports whether stage is present in the pipeline stages list.
+// Returns true when stages is nil or empty (no pipeline definition loaded), preserving
+// backward compatibility: existing callers that don't pass PipelineStages record all stages.
+func stageInPipelineList(stages []string, stage string) bool {
+	if len(stages) == 0 {
+		return true
+	}
+	for _, s := range stages {
+		if s == stage {
+			return true
+		}
+	}
+	return false
 }
 
 // mergeExtractionResults merges extraction results from multiple chunks.

@@ -445,7 +445,8 @@ func main() {
 	}
 
 	// Create parse activities (Stage 0, deterministic - no DB or AI needed)
-	parseActivities := activities.NewParseActivities(logger)
+	// pipelineRepo is passed for pipeline_runs recording; it may be nil if DB is unavailable.
+	parseActivities := activities.NewParseActivities(logger, pipelineRepo)
 	activityRegistrar.WithParseActivities(parseActivities)
 	logger.Info("Parse activities initialized (Stage 0)")
 
