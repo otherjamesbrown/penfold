@@ -1154,11 +1154,11 @@ func TestTriage_RuleEngineOverridesContentSubtype_pf2d512a(t *testing.T) {
 			wantSourceSystem: "human_email",
 		},
 		{
-			name:        "no rule match keeps heuristic subtype",
+			name:        "no rule match uses default HUMAN",
 			senderEmail: "alice@example.com",
 			subject:     "Project Status Update",
-			rules:       nil, // no rules → default EMAIL/HUMAN with empty RuleName
-			wantSubtype: "standalone", // heuristic classifier fallback
+			rules:       nil, // no rules → default EMAIL/HUMAN
+			wantSubtype: "HUMAN",
 			wantSourceSystem: "human_email",
 		},
 	}

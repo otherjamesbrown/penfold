@@ -157,9 +157,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 			sourceSystem = mapToSourceSystem(result)
 			routingContentType = result.ContentType
 			routingSubtype = result.ContentSubtype
-			if result.RuleName != "" {
-				ruleEngineSubtype = result.ContentSubtype
-			}
+			ruleEngineSubtype = result.ContentSubtype // pf-2d512a: always use rule engine taxonomy
 			logger.Info("Source system classified via rule engine",
 				logging.F("source_system", sourceSystem),
 				logging.F("rule_name", result.RuleName),
@@ -170,9 +168,10 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		sourceSystem = string(enrichment.SourceSystemHumanEmail)
 	}
 
-	// Override content_subtype from rule engine when a rule matched (pf-2d512a).
-	// The rule engine is more authoritative than the heuristic classifier for content_subtype.
-	// Keep the heuristic value as fallback when no rule matches (default EMAIL/HUMAN).
+	// Override content_subtype from rule engine (pf-2d512a).
+	// The rule engine taxonomy (HUMAN, NEWSLETTER, NOTIFICATION, etc.) is more authoritative
+	// than the heuristic classifier (standalone, forward, etc.). When the rule engine runs,
+	// always use its result — including the default HUMAN for unmatched items.
 	if ruleEngineSubtype != "" {
 		subtype = enrichment.ContentSubtype(ruleEngineSubtype)
 		logger.Info("Content subtype overridden by rule engine",
