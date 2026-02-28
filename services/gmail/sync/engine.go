@@ -1544,6 +1544,15 @@ func (p *ParsedMessage) parseBodyParts(payload *MessagePayload) {
 				p.PlainText = string(data)
 			case "text/html":
 				p.HTML = string(data)
+			case "text/calendar":
+				// Extract calendar event metadata (title, time, attendees)
+				// and append to PlainText so downstream pipeline stages see it.
+				if summary := parseICSMetadata(string(data)); summary != "" {
+					if p.PlainText != "" {
+						p.PlainText += "\n\n"
+					}
+					p.PlainText += summary
+				}
 			}
 		}
 	}
@@ -1563,6 +1572,77 @@ func (p *ParsedMessage) parseBodyParts(payload *MessagePayload) {
 	for _, part := range payload.Parts {
 		p.parseBodyParts(part)
 	}
+}
+
+// parseICSMetadata extracts key calendar event fields from an iCalendar (ICS)
+// text/calendar body and returns a human-readable summary string.
+// Returns "" if no VEVENT is found.
+func parseICSMetadata(icsData string) string {
+	var summary, dtStart, dtEnd, organizer string
+	var attendees []string
+	inEvent := false
+
+	for _, line := range strings.Split(icsData, "\n") {
+		line = strings.TrimRight(line, "\r")
+
+		if line == "BEGIN:VEVENT" {
+			inEvent = true
+			continue
+		}
+		if line == "END:VEVENT" {
+			break
+		}
+		if !inEvent {
+			continue
+		}
+
+		// Handle key-value pairs (ICS uses KEY;PARAMS:VALUE or KEY:VALUE)
+		if strings.HasPrefix(line, "SUMMARY:") {
+			summary = strings.TrimPrefix(line, "SUMMARY:")
+		} else if strings.HasPrefix(line, "DTSTART") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				dtStart = line[idx+1:]
+			}
+		} else if strings.HasPrefix(line, "DTEND") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				dtEnd = line[idx+1:]
+			}
+		} else if strings.HasPrefix(line, "ORGANIZER") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				val := line[idx+1:]
+				organizer = strings.TrimPrefix(val, "mailto:")
+			}
+		} else if strings.HasPrefix(line, "ATTENDEE") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				val := line[idx+1:]
+				attendees = append(attendees, strings.TrimPrefix(val, "mailto:"))
+			}
+		}
+	}
+
+	if summary == "" && organizer == "" && len(attendees) == 0 {
+		return ""
+	}
+
+	var parts []string
+	parts = append(parts, "[Calendar Event]")
+	if summary != "" {
+		parts = append(parts, "Title: "+summary)
+	}
+	if dtStart != "" {
+		parts = append(parts, "Start: "+dtStart)
+	}
+	if dtEnd != "" {
+		parts = append(parts, "End: "+dtEnd)
+	}
+	if organizer != "" {
+		parts = append(parts, "Organizer: "+organizer)
+	}
+	if len(attendees) > 0 {
+		parts = append(parts, "Attendees: "+strings.Join(attendees, ", "))
+	}
+
+	return strings.Join(parts, "\n")
 }
 
 func parseAddressList(s string) []string {

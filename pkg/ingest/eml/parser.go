@@ -318,6 +318,38 @@ func (p *Parser) parseMultipart(body io.Reader, boundary string, email *ParsedEm
 			continue
 		}
 
+		// Handle embedded message/rfc822 (forwarded emails)
+		if mediaType == "message/rfc822" {
+			nestedData, readErr := io.ReadAll(part)
+			if readErr == nil {
+				nestedResult, parseErr := p.parseWithOptions(nestedData, opts)
+				if parseErr == nil && nestedResult.Email != nil {
+					nestedBody := nestedResult.Email.GetBody()
+					if nestedBody != "" && email.BodyText != "" {
+						email.BodyText += "\n\n" + nestedBody
+					} else if nestedBody != "" {
+						email.BodyText = nestedBody
+					}
+				}
+			}
+			continue
+		}
+
+		// Handle text/calendar (ICS) — extract event metadata as body text
+		if mediaType == "text/calendar" {
+			icsContent, readErr := io.ReadAll(part)
+			if readErr == nil {
+				if summary := parseICSMetadata(string(icsContent)); summary != "" {
+					if email.BodyText != "" {
+						email.BodyText += "\n\n" + summary
+					} else {
+						email.BodyText = summary
+					}
+				}
+			}
+			continue
+		}
+
 		// Check if this is an attachment
 		isAttachment := disposition == "attachment" ||
 			(disposition == "inline" && dispParams["filename"] != "") ||
@@ -603,6 +635,75 @@ func decodeCharset(data []byte, charset string) ([]byte, error) {
 		return data, fmt.Errorf("charset decoding failed: %w", err)
 	}
 	return result, nil
+}
+
+// parseICSMetadata extracts key calendar event fields from iCalendar data
+// and returns a human-readable summary. Returns "" if no VEVENT is found.
+func parseICSMetadata(icsData string) string {
+	var summary, dtStart, dtEnd, organizer string
+	var attendees []string
+	inEvent := false
+
+	for _, line := range strings.Split(icsData, "\n") {
+		line = strings.TrimRight(line, "\r")
+
+		if line == "BEGIN:VEVENT" {
+			inEvent = true
+			continue
+		}
+		if line == "END:VEVENT" {
+			break
+		}
+		if !inEvent {
+			continue
+		}
+
+		if strings.HasPrefix(line, "SUMMARY:") {
+			summary = strings.TrimPrefix(line, "SUMMARY:")
+		} else if strings.HasPrefix(line, "DTSTART") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				dtStart = line[idx+1:]
+			}
+		} else if strings.HasPrefix(line, "DTEND") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				dtEnd = line[idx+1:]
+			}
+		} else if strings.HasPrefix(line, "ORGANIZER") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				val := line[idx+1:]
+				organizer = strings.TrimPrefix(val, "mailto:")
+			}
+		} else if strings.HasPrefix(line, "ATTENDEE") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				val := line[idx+1:]
+				attendees = append(attendees, strings.TrimPrefix(val, "mailto:"))
+			}
+		}
+	}
+
+	if summary == "" && organizer == "" && len(attendees) == 0 {
+		return ""
+	}
+
+	var parts []string
+	parts = append(parts, "[Calendar Event]")
+	if summary != "" {
+		parts = append(parts, "Title: "+summary)
+	}
+	if dtStart != "" {
+		parts = append(parts, "Start: "+dtStart)
+	}
+	if dtEnd != "" {
+		parts = append(parts, "End: "+dtEnd)
+	}
+	if organizer != "" {
+		parts = append(parts, "Organizer: "+organizer)
+	}
+	if len(attendees) > 0 {
+		parts = append(parts, "Attendees: "+strings.Join(attendees, ", "))
+	}
+
+	return strings.Join(parts, "\n")
 }
 
 // ParseFile is a convenience function for parsing a single file with default options.

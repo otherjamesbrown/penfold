@@ -339,7 +339,7 @@ func TestDeepAnalyze_ModelResolutionWithTriageMetadata(t *testing.T) {
 			triageCategory:   "PROJECT_UPDATE",
 			triageImportance: "MEDIUM",
 			requestModel:     nil,
-			expectedModel:    "gemini-2.0-flash",
+			expectedModel:    "gemini-2.5-flash",
 		},
 		{
 			name:             "explicit request model overrides triage",

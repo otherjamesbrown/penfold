@@ -22,10 +22,10 @@ import (
 // Matches the spec in specs/020-slm-llm-architecture/design.md lines 232-252.
 const nerPromptTemplate = `Extract the following from this content. Only include information that is explicitly stated - do not infer or guess.
 
-1. People mentioned (name, role/title if stated — pay special attention to email signature blocks after sign-offs like Regards/Best/Thanks. Extract job title and department from signatures. Do not extract non-title text from meeting invitations or automated blocks like 'Tap to call in', 'Join my meeting', 'attendees only', 'dial in', or 'conference call')
+1. People mentioned (name, role/title if stated — pay special attention to email signature blocks after sign-offs like Regards/Best/Thanks. Extract job title and department from signatures. Do not extract non-title text from meeting invitations or automated blocks like 'Tap to call in', 'Join my meeting', 'attendees only', 'dial in', or 'conference call'. Do NOT extract tool or software names as people — e.g. "Aha!", "Jira", "Slack", "ServiceNow" are products, not people. Do NOT extract publication titles, newsletter names, or service desk names as people — e.g. "Emea Newsletter", "Akamai Solution Center" are not people. When you encounter short abbreviations like "AK", "JB", "TL" that appear to be initials for a person, extract them as-is rather than guessing the full name.)
 2. Dates and deadlines mentioned
 3. Projects, products, or codenames mentioned
-4. Organisations or teams mentioned
+4. Organisations or teams mentioned (Do NOT extract internal email distribution lists as organisations — addresses matching patterns like "dl-*", "team-*", "all-*", "group-*" are mailing lists, not organisations.)
 
 Respond ONLY with JSON:
 {

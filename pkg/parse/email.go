@@ -195,10 +195,13 @@ func separateQuotedReply(text string) (newContent, quotedContent string, detecte
 	// Pattern 4: "-----Original Message-----"
 	originalMessagePattern := regexp.MustCompile(`(?i)^-+\s*original message\s*-+`)
 
-	// Pattern 5: "---------- Forwarded message ----------" (Gmail forward)
+	// NOTE: Forward markers (Gmail's "---------- Forwarded message ----------" and
+	// Apple's "Begin forwarded message:") are intentionally NOT treated as split points.
+	// For forwards, the forwarded body IS the primary content — splitting would discard it.
+	// Only reply markers should trigger content separation.
+	// However, we track them to prevent the Outlook-block heuristic from
+	// false-matching on the forwarded message's own From:/Date: headers.
 	gmailForwardPattern := regexp.MustCompile(`(?i)^-+\s*forwarded message\s*-+`)
-
-	// Pattern 6: "Begin forwarded message:" (Apple Mail forward)
 	appleForwardPattern := regexp.MustCompile(`(?i)^Begin forwarded message:`)
 
 	// Pattern 3: Outlook-style "From: ... Sent: ..." block
@@ -212,10 +215,19 @@ func separateQuotedReply(text string) (newContent, quotedContent string, detecte
 
 	splitIndex := -1
 	detectionMethod := ""
+	afterForwardMarker := false
 
 	// Scan for quoted reply markers
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
+
+		// Track forward markers — don't split on them, but remember we've
+		// passed one so we can suppress false Outlook-block matches on the
+		// forwarded message's own From:/Date: headers.
+		if gmailForwardPattern.MatchString(trimmed) || appleForwardPattern.MatchString(trimmed) {
+			afterForwardMarker = true
+			continue
+		}
 
 		// Check for "On ... wrote:"
 		if onWrotePattern.MatchString(trimmed) {
@@ -231,22 +243,10 @@ func separateQuotedReply(text string) (newContent, quotedContent string, detecte
 			break
 		}
 
-		// Check for "---------- Forwarded message ----------" (Gmail)
-		if gmailForwardPattern.MatchString(trimmed) {
-			splitIndex = i
-			detectionMethod = "gmail-forward"
-			break
-		}
-
-		// Check for "Begin forwarded message:" (Apple Mail)
-		if appleForwardPattern.MatchString(trimmed) {
-			splitIndex = i
-			detectionMethod = "apple-forward"
-			break
-		}
-
 		// Check for Outlook block (From: followed by Sent: or Date: within 5 lines)
-		if outlookFromPattern.MatchString(trimmed) {
+		// Skip if we're inside a forwarded message — the forwarded email's own
+		// headers (From:/Date:) look identical to Outlook quoted reply headers.
+		if !afterForwardMarker && outlookFromPattern.MatchString(trimmed) {
 			// Look ahead for Sent: within next 5 lines
 			for j := i + 1; j < len(lines) && j < i+6; j++ {
 				if outlookSentPattern.MatchString(strings.TrimSpace(lines[j])) {

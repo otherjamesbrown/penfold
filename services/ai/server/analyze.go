@@ -398,17 +398,17 @@ func selectModelForDeepAnalysisFallback(category, importance, configDefault stri
 
 	// PROJECT_UPDATE + MEDIUM → balanced (fallback)
 	if category == "PROJECT_UPDATE" && importance == "MEDIUM" {
-		return "gemini-2.0-flash" // fallback default
+		return "gemini-2.5-flash" // fallback default
 	}
 
 	// ACTION_REQUEST + MEDIUM → balanced (fallback)
 	if category == "ACTION_REQUEST" && importance == "MEDIUM" {
-		return "gemini-2.0-flash" // fallback default
+		return "gemini-2.5-flash" // fallback default
 	}
 
 	// Anything + LOW → cost optimization (fallback)
 	if importance == "LOW" {
-		return "gemini-2.0-flash" // fallback default
+		return "gemini-2.5-flash" // fallback default
 	}
 
 	// Default: use config stage default
@@ -417,7 +417,7 @@ func selectModelForDeepAnalysisFallback(category, importance, configDefault stri
 	}
 
 	// Final fallback: balanced model
-	return "gemini-2.0-flash" // fallback default
+	return "gemini-2.5-flash" // fallback default
 }
 
 // parseDeepAnalysisResponse parses the JSON response from the deep analysis LLM.

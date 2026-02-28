@@ -707,6 +707,8 @@ Sara`
 //
 // This is part of feature pf-ac639d - detect forward markers.
 func TestSeparateQuotedReply_GmailForwardMarker(t *testing.T) {
+	// pf-f08812: Forward markers must NOT split content. The forwarded body IS
+	// the primary content — discarding it caused downstream hallucinations.
 	email := `FYI - interesting discussion about the new API design.
 
 ---------- Forwarded message ----------
@@ -726,43 +728,25 @@ Alice`
 
 	result := ParseEmailBody(email, "")
 
-	if !result.QuotedReplyDetected {
-		t.Error("Expected quoted reply to be detected with Gmail forward marker")
+	// Forward markers are NOT reply markers — content should not be split
+	if result.QuotedReplyDetected {
+		t.Error("Forward markers should not be treated as quoted reply markers")
 	}
 
-	// New content should only be the preamble before the forward marker
-	if !strings.Contains(result.NewContent, "FYI - interesting discussion") {
-		t.Errorf("New content missing preamble.\nGot: %s", result.NewContent)
+	// CleanBody should contain the FULL content including forwarded body
+	if !strings.Contains(result.CleanBody, "FYI - interesting discussion") {
+		t.Error("CleanBody should contain the forwarding comment")
 	}
-
-	// New content should NOT contain the forward marker or forwarded content
-	if strings.Contains(result.NewContent, "Forwarded message") {
-		t.Error("New content should not contain forward marker")
+	if !strings.Contains(result.CleanBody, "thoughts on the new API endpoints") {
+		t.Error("CleanBody should contain the forwarded message body")
 	}
-	if strings.Contains(result.NewContent, "From: Alice") {
-		t.Error("New content should not contain forwarded message headers")
-	}
-	if strings.Contains(result.NewContent, "API Design Discussion") {
-		t.Error("New content should not contain forwarded message body")
-	}
-
-	// Quoted content should have the forwarded message
-	if !strings.Contains(result.QuotedContent, "Forwarded message") {
-		t.Error("Quoted content should contain forward marker")
-	}
-	if !strings.Contains(result.QuotedContent, "From: Alice Johnson") {
-		t.Error("Quoted content should contain forwarded message From: header")
-	}
-	if !strings.Contains(result.QuotedContent, "thoughts on the new API endpoints") {
-		t.Error("Quoted content should contain forwarded message body")
+	if !strings.Contains(result.CleanBody, "From: Alice Johnson") {
+		t.Error("CleanBody should contain the forwarded message headers")
 	}
 }
 
-// TestSeparateQuotedReply_AppleMailForwardMarker tests detection of Apple Mail forward marker.
-// Apple Mail uses "Begin forwarded message:" to mark forwarded emails.
-// When content_subtype == "forward", only the preamble (before the marker) should be processed.
-//
-// This is part of feature pf-ac639d - detect forward markers.
+// TestSeparateQuotedReply_AppleMailForwardMarker tests that Apple Mail forward
+// markers do NOT split content. pf-f08812: forwarded body is primary content.
 func TestSeparateQuotedReply_AppleMailForwardMarker(t *testing.T) {
 	email := `Forwarding this for your review.
 
@@ -784,38 +768,20 @@ Carol`
 
 	result := ParseEmailBody(email, "")
 
-	if !result.QuotedReplyDetected {
-		t.Error("Expected quoted reply to be detected with Apple Mail forward marker")
+	// Forward markers are NOT reply markers — content should not be split
+	if result.QuotedReplyDetected {
+		t.Error("Forward markers should not be treated as quoted reply markers")
 	}
 
-	// New content should only be the preamble before the forward marker
-	if !strings.Contains(result.NewContent, "Forwarding this for your review") {
-		t.Errorf("New content missing preamble.\nGot: %s", result.NewContent)
+	// CleanBody should contain the FULL content including forwarded body
+	if !strings.Contains(result.CleanBody, "Forwarding this for your review") {
+		t.Error("CleanBody should contain the forwarding comment")
 	}
-
-	// New content should NOT contain the forward marker or forwarded content
-	if strings.Contains(result.NewContent, "Begin forwarded message") {
-		t.Error("New content should not contain forward marker")
+	if !strings.Contains(result.CleanBody, "Q2 budget proposal") {
+		t.Error("CleanBody should contain the forwarded message body")
 	}
-	if strings.Contains(result.NewContent, "From: Carol") {
-		t.Error("New content should not contain forwarded message headers")
-	}
-	if strings.Contains(result.NewContent, "Budget Proposal") {
-		t.Error("New content should not contain forwarded message subject")
-	}
-	if strings.Contains(result.NewContent, "Attached is the Q2") {
-		t.Error("New content should not contain forwarded message body")
-	}
-
-	// Quoted content should have the forwarded message
-	if !strings.Contains(result.QuotedContent, "Begin forwarded message") {
-		t.Error("Quoted content should contain forward marker")
-	}
-	if !strings.Contains(result.QuotedContent, "From: Carol White") {
-		t.Error("Quoted content should contain forwarded message From: header")
-	}
-	if !strings.Contains(result.QuotedContent, "Q2 budget proposal") {
-		t.Error("Quoted content should contain forwarded message body")
+	if !strings.Contains(result.CleanBody, "From: Carol White") {
+		t.Error("CleanBody should contain the forwarded message headers")
 	}
 }
 
