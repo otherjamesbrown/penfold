@@ -38,6 +38,7 @@ func buildSeededRules() []ClassificationRule {
 			Conditions: []MatchCondition{
 				{ID: 4, Field: "from_address", MatchType: "glob", Value: "*@*.mailer.aha.io", CaseSensitive: false},
 				{ID: 5, Field: "subject", MatchType: "prefix", Value: "[AHA]", CaseSensitive: false},
+				{ID: 19, Field: "from_address", MatchType: "exact", Value: "support@aha.io", CaseSensitive: false},
 			},
 		},
 		{
@@ -138,6 +139,87 @@ func buildSeededRules() []ClassificationRule {
 				{ID: 16, Field: "header:List-Unsubscribe", MatchType: "exists", Value: "", CaseSensitive: false},
 				{ID: 17, Field: "subject", MatchType: "contains", Value: "Newsletter", CaseSensitive: false},
 				{ID: 18, Field: "subject", MatchType: "contains", Value: "Weekly Digest", CaseSensitive: false},
+			},
+		},
+		// --- Wave 3 rules (migration 092) ---
+		{
+			ID:               10,
+			TenantID:         "tenant-a",
+			Name:             "calendar_accept",
+			Priority:         7,
+			ContentTypeScope: "EMAIL",
+			ContentType:      "EMAIL",
+			ContentSubtype:   "CALENDAR_RESPONSE",
+			Active:           true,
+			Conditions: []MatchCondition{
+				{ID: 20, Field: "subject", MatchType: "prefix", Value: "Accepted:", CaseSensitive: false},
+			},
+		},
+		{
+			ID:               11,
+			TenantID:         "tenant-a",
+			Name:             "calendar_decline",
+			Priority:         7,
+			ContentTypeScope: "EMAIL",
+			ContentType:      "EMAIL",
+			ContentSubtype:   "CALENDAR_RESPONSE",
+			Active:           true,
+			Conditions: []MatchCondition{
+				{ID: 21, Field: "subject", MatchType: "prefix", Value: "Declined:", CaseSensitive: false},
+			},
+		},
+		{
+			ID:               12,
+			TenantID:         "tenant-a",
+			Name:             "calendar_tentative",
+			Priority:         7,
+			ContentTypeScope: "EMAIL",
+			ContentType:      "EMAIL",
+			ContentSubtype:   "CALENDAR_RESPONSE",
+			Active:           true,
+			Conditions: []MatchCondition{
+				{ID: 22, Field: "subject", MatchType: "prefix", Value: "Tentative:", CaseSensitive: false},
+			},
+		},
+		{
+			ID:               13,
+			TenantID:         "tenant-a",
+			Name:             "calendar_update",
+			Priority:         7,
+			ContentTypeScope: "EMAIL",
+			ContentType:      "EMAIL",
+			ContentSubtype:   "CALENDAR_UPDATE",
+			Active:           true,
+			Conditions: []MatchCondition{
+				{ID: 23, Field: "subject", MatchType: "prefix", Value: "Updated invitation:", CaseSensitive: false},
+			},
+		},
+		{
+			ID:                 14,
+			TenantID:           "tenant-a",
+			Name:               "google_security",
+			Priority:           5,
+			ContentTypeScope:   "EMAIL",
+			ContentType:        "EMAIL",
+			ContentSubtype:     "NOTIFICATION",
+			NotificationSource: "google",
+			Active:             true,
+			Conditions: []MatchCondition{
+				{ID: 24, Field: "from_address", MatchType: "exact", Value: "no-reply@accounts.google.com", CaseSensitive: false},
+			},
+		},
+		{
+			ID:                 15,
+			TenantID:           "tenant-a",
+			Name:               "it_notification",
+			Priority:           5,
+			ContentTypeScope:   "EMAIL",
+			ContentType:        "EMAIL",
+			ContentSubtype:     "NOTIFICATION",
+			NotificationSource: "akamai",
+			Active:             true,
+			Conditions: []MatchCondition{
+				{ID: 25, Field: "from_address", MatchType: "exact", Value: "thesolutioncenter@akamai.com", CaseSensitive: false},
 			},
 		},
 	}
@@ -943,6 +1025,121 @@ func TestRuleEngine_NewsletterSubjectContains(t *testing.T) {
 				t.Errorf("expected ContentSubtype=NEWSLETTER for subject %q, got %q", tt.subject, result.ContentSubtype)
 			}
 		})
+	}
+}
+
+// TestRuleEngine_Wave3CalendarResponse verifies wave 3 calendar response classification rules.
+func TestRuleEngine_Wave3CalendarResponse(t *testing.T) {
+	engine := NewEngine(buildSeededRules())
+
+	tests := []struct {
+		name           string
+		subject        string
+		wantSubtype    string
+		wantRuleName   string
+	}{
+		{"Accepted subject", "Accepted: Weekly Team Standup", "CALENDAR_RESPONSE", "calendar_accept"},
+		{"Declined subject", "Declined: James / Tom 1:1", "CALENDAR_RESPONSE", "calendar_decline"},
+		{"Tentative subject", "Tentative: Project Review Meeting", "CALENDAR_RESPONSE", "calendar_tentative"},
+		{"Updated invitation", "Updated invitation: Standup", "CALENDAR_UPDATE", "calendar_update"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := engine.Classify("EMAIL", map[string]string{
+				"from_address": "colleague@example.com",
+				"subject":      tt.subject,
+			})
+
+			if result.ContentType != "EMAIL" {
+				t.Errorf("expected ContentType=EMAIL, got %q", result.ContentType)
+			}
+			if result.ContentSubtype != tt.wantSubtype {
+				t.Errorf("expected ContentSubtype=%q, got %q", tt.wantSubtype, result.ContentSubtype)
+			}
+			if result.RuleName != tt.wantRuleName {
+				t.Errorf("expected RuleName=%q, got %q", tt.wantRuleName, result.RuleName)
+			}
+		})
+	}
+}
+
+// TestRuleEngine_Wave3Notifications verifies wave 3 notification classification rules.
+func TestRuleEngine_Wave3Notifications(t *testing.T) {
+	engine := NewEngine(buildSeededRules())
+
+	tests := []struct {
+		name               string
+		fromAddress        string
+		subject            string
+		wantSubtype        string
+		wantNotifSource    string
+		wantRuleName       string
+	}{
+		{
+			name:            "Google security alert",
+			fromAddress:     "no-reply@accounts.google.com",
+			subject:         "Security alert: New sign-in from Chrome on Mac",
+			wantSubtype:     "NOTIFICATION",
+			wantNotifSource: "google",
+			wantRuleName:    "google_security",
+		},
+		{
+			name:            "IT notification from Akamai",
+			fromAddress:     "thesolutioncenter@akamai.com",
+			subject:         "IT Notification: System maintenance",
+			wantSubtype:     "NOTIFICATION",
+			wantNotifSource: "akamai",
+			wantRuleName:    "it_notification",
+		},
+		{
+			name:            "Aha from support@aha.io (wave 3 fix)",
+			fromAddress:     "support@aha.io",
+			subject:         "Your feature request was updated",
+			wantSubtype:     "NOTIFICATION",
+			wantNotifSource: "aha",
+			wantRuleName:    "aha",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := engine.Classify("EMAIL", map[string]string{
+				"from_address": tt.fromAddress,
+				"subject":      tt.subject,
+			})
+
+			if result.ContentType != "EMAIL" {
+				t.Errorf("expected ContentType=EMAIL, got %q", result.ContentType)
+			}
+			if result.ContentSubtype != tt.wantSubtype {
+				t.Errorf("expected ContentSubtype=%q, got %q", tt.wantSubtype, result.ContentSubtype)
+			}
+			if result.NotificationSource != tt.wantNotifSource {
+				t.Errorf("expected NotificationSource=%q, got %q", tt.wantNotifSource, result.NotificationSource)
+			}
+			if result.RuleName != tt.wantRuleName {
+				t.Errorf("expected RuleName=%q, got %q", tt.wantRuleName, result.RuleName)
+			}
+		})
+	}
+}
+
+// TestRuleEngine_Wave3PriorityOrdering verifies that wave 3 rules (priority 5, 7) win
+// over lower-priority rules when multiple rules could match.
+func TestRuleEngine_Wave3PriorityOrdering(t *testing.T) {
+	engine := NewEngine(buildSeededRules())
+
+	// Google security alert (priority 5) should not match newsletter (priority 90)
+	// even if headers suggest newsletter
+	result := engine.Classify("EMAIL", map[string]string{
+		"from_address":      "no-reply@accounts.google.com",
+		"subject":           "Security Newsletter: Account Activity",
+		"header:Precedence": "bulk",
+	})
+
+	if result.RuleName != "google_security" {
+		t.Errorf("expected google_security (priority 5) to win, got %q", result.RuleName)
 	}
 }
 

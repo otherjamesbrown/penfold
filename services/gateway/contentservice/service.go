@@ -75,6 +75,7 @@ type ListFilter struct {
 	SourceType       *string
 	ProcessingStatus *string
 	ContentType      *contentv1.ContentType // filter by content type enum
+	SourceTag        *string                // filter by ingestion_metadata->>'source_tag'
 	PageSize         int
 	PageToken        string
 }
@@ -248,6 +249,13 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 			args = append(args, dbContentType)
 			argCount++
 		}
+	}
+
+	// Optional source_tag filter (matches ingestion_metadata->>'source_tag')
+	if filter.SourceTag != nil && *filter.SourceTag != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("s.ingestion_metadata->>'source_tag' = $%d", argCount))
+		args = append(args, *filter.SourceTag)
+		argCount++
 	}
 
 	// Build final query
@@ -1245,6 +1253,11 @@ func (s *Service) ListContentItems(ctx context.Context, req *contentv1.ListConte
 	if req.ContentTypeFilter != nil {
 		ct := *req.ContentTypeFilter
 		filter.ContentType = &ct
+	}
+
+	if req.SourceTag != nil {
+		st := *req.SourceTag
+		filter.SourceTag = &st
 	}
 
 	records, err := s.repo.ListByTenant(ctx, filter)
