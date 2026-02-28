@@ -2249,7 +2249,10 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Stage 4.5: Persist Findings (independently gated by pipeline definition)
 	// Runs for any pipeline with "persist" in its definition, even without "analyze"
 	// (e.g. notification/newsletter pipelines). Skipped if analyze ran but failed.
-	if !skipAnalyze && stageInPipeline(stageConfigMap, "persist") && !analyzeFailed {
+	persistShouldRun := stageInPipeline(stageConfigMap, "persist") &&
+		!analyzeFailed &&
+		(!stageInPipeline(stageConfigMap, "analyze") || !skipAnalyze)
+	if persistShouldRun {
 		updateStatus("persisting", "PersistFindings")
 		persistStage := stageByStatus("persisting")
 		logger.Info("pipeline stage starting",

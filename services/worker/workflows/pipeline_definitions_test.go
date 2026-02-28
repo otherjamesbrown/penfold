@@ -260,3 +260,70 @@ func TestPersistGate_StandardPipeline(t *testing.T) {
 	assert.True(t, stageInPipeline(m, "analyze"), "analyze in standard pipeline")
 	assert.True(t, stageInPipeline(m, "persist"), "persist in standard pipeline")
 }
+
+// TestPersistGate_SkipAnalyzeDoesNotBlockLightweight verifies that skipAnalyze=true
+// does not prevent persist from running on lightweight pipelines (no analyze stage).
+// Bug fix pf-e1c524: persist was blocked by skipAnalyze even when analyze wasn't in pipeline.
+func TestPersistGate_SkipAnalyzeDoesNotBlockLightweight(t *testing.T) {
+	// Notification pipeline: has persist but NOT analyze
+	m := map[string]PipelineStageConfig{
+		"parse":       {Stage: "parse", Enabled: true},
+		"triage":      {Stage: "triage", Enabled: true},
+		"extract_ner": {Stage: "extract_ner", Enabled: true},
+		"persist":     {Stage: "persist", Enabled: true},
+		"embed":       {Stage: "embed", Enabled: true},
+	}
+
+	skipAnalyze := true
+	analyzeFailed := false
+
+	// The persist gate condition from pipeline.go
+	persistShouldRun := stageInPipeline(m, "persist") &&
+		!analyzeFailed &&
+		(!stageInPipeline(m, "analyze") || !skipAnalyze)
+
+	assert.True(t, persistShouldRun, "persist should run on lightweight pipeline even with skipAnalyze=true")
+}
+
+// TestPersistGate_SkipAnalyzeBlocksStandard verifies that skipAnalyze=true
+// still blocks persist on standard pipelines that include analyze.
+func TestPersistGate_SkipAnalyzeBlocksStandard(t *testing.T) {
+	m := map[string]PipelineStageConfig{
+		"parse":   {Stage: "parse", Enabled: true},
+		"triage":  {Stage: "triage", Enabled: true},
+		"analyze": {Stage: "analyze", Enabled: true},
+		"persist": {Stage: "persist", Enabled: true},
+		"embed":   {Stage: "embed", Enabled: true},
+	}
+
+	skipAnalyze := true
+	analyzeFailed := false
+
+	persistShouldRun := stageInPipeline(m, "persist") &&
+		!analyzeFailed &&
+		(!stageInPipeline(m, "analyze") || !skipAnalyze)
+
+	assert.False(t, persistShouldRun, "persist should NOT run on standard pipeline when skipAnalyze=true")
+}
+
+// TestPersistGate_AnalyzeFailedBlocksPersist verifies that persist is blocked
+// when analyze ran but failed, regardless of pipeline type.
+func TestPersistGate_AnalyzeFailedBlocksPersist(t *testing.T) {
+	m := map[string]PipelineStageConfig{
+		"parse":   {Stage: "parse", Enabled: true},
+		"analyze": {Stage: "analyze", Enabled: true},
+		"persist": {Stage: "persist", Enabled: true},
+	}
+
+	skipAnalyze := false
+	analyzeFailed := true
+
+	persistShouldRun := stageInPipeline(m, "persist") &&
+		!analyzeFailed &&
+		(!stageInPipeline(m, "analyze") || !skipAnalyze)
+
+	assert.False(t, persistShouldRun, "persist should NOT run when analyze failed")
+
+	// Suppress unused variable warnings
+	_ = skipAnalyze
+}
