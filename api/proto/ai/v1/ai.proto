@@ -586,6 +586,10 @@ message ExtractEntitiesResponse {
   // Version of the NER prompt template used for this extraction call.
   // 0 means the hardcoded fallback was used (no DB prompt active).
   int32 prompt_version = 14;
+
+  // Version of the semantic prompt template used for this extraction call.
+  // 0 means the hardcoded fallback was used or semantic extraction was skipped.
+  int32 semantic_prompt_version = 15;
 }
 
 // =============================================================================

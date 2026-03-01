@@ -1162,6 +1162,35 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
+	// Early pipeline definition fetch: when the pipeline is known before triage
+	// (e.g. notification, newsletter), load the definition so prompt_override
+	// reaches the triage stage via stageConfigMap.
+	// If triage routes to a different pipeline, we re-fetch after triage.
+	var earlyPipelineName string
+	var earlyPipelineDef *FetchPipelineDefinitionOutput
+	if input.Pipeline != "" {
+		earlyPipelineName = input.Pipeline
+		ctxDef := workflow.WithActivityOptions(ctx, fastOpts)
+		var defOut FetchPipelineDefinitionOutput
+		defErr := workflow.ExecuteActivity(ctxDef, pkgtemporal.ActivityFetchPipelineDefinition, FetchPipelineDefinitionInput{
+			TenantID: input.TenantID,
+			Pipeline: earlyPipelineName,
+		}).Get(ctx, &defOut)
+		if defErr != nil {
+			logger.Warn("Early pipeline definition fetch failed, prompt overrides won't apply to triage",
+				"pipeline", earlyPipelineName,
+				"error", defErr,
+			)
+		} else if defOut.Found {
+			earlyPipelineDef = &defOut
+			stageConfigMap = buildStageConfigMap(earlyPipelineDef)
+			logger.Info("Early pipeline definition loaded for triage prompt overrides",
+				"pipeline", earlyPipelineName,
+				"stage_count", len(defOut.Stages),
+			)
+		}
+	}
+
 	// ==================== Stage 1: Triage ====================
 	updateStatus("triaging", "Triage")
 	triageStage := stageByStatus("triaging")
@@ -1416,8 +1445,16 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		).Get(ctx, nil)
 	}
 
+	// Fetch pipeline definition if not already loaded (or pipeline changed after triage routing).
+	// When the early fetch loaded the definition for the same pipeline, reuse it to avoid a duplicate DB call.
 	var pipelineDef *FetchPipelineDefinitionOutput
-	{
+	if pipelineName == earlyPipelineName && earlyPipelineDef != nil {
+		// Pipeline didn't change — reuse the early fetch result.
+		pipelineDef = earlyPipelineDef
+		logger.Info("Pipeline definition reused from early fetch",
+			"pipeline", pipelineName,
+		)
+	} else {
 		ctxDef := workflow.WithActivityOptions(ctx, fastOpts)
 		var defOut FetchPipelineDefinitionOutput
 		defErr := workflow.ExecuteActivity(ctxDef, pkgtemporal.ActivityFetchPipelineDefinition, FetchPipelineDefinitionInput{
@@ -1440,6 +1477,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"pipeline", pipelineName,
 			)
 		}
+		// Rebuild stageConfigMap with the resolved pipeline definition.
+		stageConfigMap = buildStageConfigMap(pipelineDef)
 	}
 
 	// Enrich Langfuse trace with pipeline definition metadata (best-effort).
@@ -1454,11 +1493,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			},
 		).Get(ctx, nil)
 	}
-
-	// Build stage config lookup from pipeline definition (or nil for fallback).
-	// This is consulted by the stage sections below to check enabled/skip_when_low/optional.
-	// stageConfigMap was declared before stageOpts so the closure captures it by reference.
-	stageConfigMap = buildStageConfigMap(pipelineDef)
 
 	// Compute content contribution for gating (used by summarize + extract/analyze gates).
 	contribution := triageOutput.ContentContribution

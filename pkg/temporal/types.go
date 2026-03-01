@@ -90,7 +90,7 @@ type SLMPipelineInput struct {
 	ContentID   string `json:"content_id,omitempty"`
 	ContentHash string `json:"content_hash,omitempty"`
 	JobID       string `json:"job_id"` // Required for tracing and activity context
-
+	Pipeline    string `json:"pipeline,omitempty"` // Pipeline name from previous run; enables prompt_override for triage on reprocess
 }
 
 // ContentIngestionInput is the input for content ingestion workflows.

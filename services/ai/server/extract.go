@@ -286,6 +286,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var nerPrompt string
 	var semPrompt string
 	var nerPromptVersion int32
+	var semPromptVersion int32
 
 	// Stage 2a: NER extraction
 	nerStageParams := s.getStageParams(ctx, "extract_ner")
@@ -384,7 +385,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var semMessages []backend.Message
 	if shouldRunSemantic {
 		semStageParams := s.getStageParams(ctx, "extract_semantic")
-		semPrompt, _ = s.buildSemanticPrompt(ctx, content, req.GetBackgroundContext(), req.GetSemanticPromptVersion())
+		semPrompt, semPromptVersion = s.buildSemanticPrompt(ctx, content, req.GetBackgroundContext(), req.GetSemanticPromptVersion())
 		semMessages = []backend.Message{
 			{Role: "user", Content: semPrompt},
 		}
@@ -538,6 +539,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		ModelUsed:            nerResult.Model, // Use model from first pass
 		Retries:              int32(totalRetries),
 		PromptVersion:        nerPromptVersion,
+		SemanticPromptVersion: semPromptVersion,
 	}
 
 	// Convert NER people

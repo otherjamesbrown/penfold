@@ -692,11 +692,13 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		// Capture prompt_version from the first result (all chunks use the same prompt template)
 		var totalInputTokens, totalOutputTokens int
 		var extractPromptVersion int32
+		var semanticPromptVersion int32
 		for i, r := range results {
 			totalInputTokens += int(r.GetInputTokens())
 			totalOutputTokens += int(r.GetOutputTokens())
 			if i == 0 {
 				extractPromptVersion = r.GetPromptVersion()
+				semanticPromptVersion = r.GetSemanticPromptVersion()
 			}
 		}
 
@@ -756,7 +758,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 				SourceID:        input.SourceID,
 				Stage:           "extract_semantic",
 				ModelID:         output.ModelUsed,
-				PromptVersion:   int(extractPromptVersion),
+				PromptVersion:   int(semanticPromptVersion),
 				Status:          "completed",
 				DurationMS:      durationMS,
 				InputData:       inputJSON,

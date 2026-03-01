@@ -1334,6 +1334,23 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		)
 	}
 
+	// Look up the pipeline from the previous triage run before deleting (pf-5c2a3d).
+	// This allows prompt_override to reach the triage stage on reprocess — the pipeline
+	// is normally determined by triage, but on reprocess we can carry it forward.
+	var previousPipeline string
+	if triageRuns, lookupErr := s.pipelineRepo.ListSourceHistory(ctx, source.ID, "triage"); lookupErr == nil && len(triageRuns) > 0 {
+		var parsed struct {
+			Pipelines []string `json:"pipelines"`
+		}
+		if json.Unmarshal(triageRuns[0].ParsedData, &parsed) == nil && len(parsed.Pipelines) > 0 {
+			previousPipeline = parsed.Pipelines[0]
+			s.logger.Info("Carrying forward pipeline from previous run for prompt_override",
+				logging.F("source_id", source.ID),
+				logging.F("pipeline", previousPipeline),
+			)
+		}
+	}
+
 	// Clear stale pipeline_run records from previous runs (pf-04a2de).
 	// Without this, old SKIPPED/completed entries persist through reprocessing and mask
 	// whether the new run actually executed each stage.
@@ -1388,6 +1405,7 @@ func (s *Service) ReprocessContent(ctx context.Context, req *contentv1.Reprocess
 		ContentID:       source.ContentID,
 		ContentHash:     source.ContentHash,
 		JobID:           workflowID, // Use workflow ID as job ID for tracing
+		Pipeline:        previousPipeline, // Carry forward pipeline from previous run for prompt_override (pf-5c2a3d)
 	}
 	// TODO: Worker layer will add ModelOverride and TimeoutOverride fields to SLMPipelineInput
 	// For now, overrides are read and logged but not passed to the workflow
