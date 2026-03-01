@@ -36,7 +36,8 @@ func grpcHandler[Req proto.Message, Resp proto.Message](
 		if err != nil {
 			return mcp.NewToolResultError("Invalid parameters: " + err.Error()), nil
 		}
-		if err := protojson.Unmarshal(argsJSON, req); err != nil {
+		unmarshaler := protojson.UnmarshalOptions{DiscardUnknown: true}
+		if err := unmarshaler.Unmarshal(argsJSON, req); err != nil {
 			return mcp.NewToolResultError("Invalid parameters: " + err.Error()), nil
 		}
 

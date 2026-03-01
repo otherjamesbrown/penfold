@@ -10,7 +10,11 @@ import (
 	"syscall"
 
 	"github.com/mark3labs/mcp-go/server"
+	assertionsv1 "github.com/otherjamesbrown/penfold/api/proto/assertions/v1"
+	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	gatewayv1 "github.com/otherjamesbrown/penfold/api/proto/gateway/v1"
+	searchv1 "github.com/otherjamesbrown/penfold/api/proto/search/v1"
+	threadsv1 "github.com/otherjamesbrown/penfold/api/proto/threads/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -46,12 +50,15 @@ func main() {
 	defer conn.Close()
 
 	gatewayClient := gatewayv1.NewGatewayServiceClient(conn)
+	searchClient := searchv1.NewSearchServiceClient(conn)
+	assertionsClient := assertionsv1.NewAssertionsServiceClient(conn)
+	contentClient := contentv1.NewContentProcessorServiceClient(conn)
+	threadsClient := threadsv1.NewThreadsServiceClient(conn)
 
-	// Define available toolsets. Tools will be added to individual toolsets in
-	// later phases (Phase 1c onward). For now the toolsets are stubs that
-	// expose their metadata via the meta-tools.
+	// Define available toolsets. The search toolset is fully wired;
+	// remaining toolsets are stubs for future phases.
 	toolsets := []*Toolset{
-		{Name: "search", Description: "Full-text and semantic search across all indexed content"},
+		searchToolset(searchClient, assertionsClient, contentClient, threadsClient),
 		{Name: "knowledge", Description: "Access assertions, relationships, and extracted knowledge"},
 		{Name: "entities", Description: "Browse and search people, organizations, and other entities"},
 		{Name: "content", Description: "Read full email text, threads, and document content"},
