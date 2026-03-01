@@ -75,7 +75,7 @@ func main() {
 	searchHandler := grpcHandler(
 		func() *searchv1.SearchRequest { return new(searchv1.SearchRequest) },
 		searchClient.Search,
-		defaultFormatter[*searchv1.SearchResponse],
+		DefaultFormatter(),
 	)
 
 	mcpServer.AddTool(searchTool, searchHandler)
