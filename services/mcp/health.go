@@ -24,7 +24,7 @@ func registerHealthTool(srv *server.MCPServer, healthClient gatewayv1.GatewaySer
 			IncludeDependencies: true,
 		})
 		if err != nil {
-			return mcp.NewToolResultError("health check failed: " + mapGRPCError(err)), nil
+			return mapGRPCError(err), nil
 		}
 
 		data, err := json.MarshalIndent(resp, "", "  ")
