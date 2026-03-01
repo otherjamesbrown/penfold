@@ -168,6 +168,24 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		sourceSystem = string(enrichment.SourceSystemHumanEmail)
 	}
 
+	// Deterministic newsletter detection: self-addressed blast (pf-199f31).
+	// If To header address equals From address, it's a self-addressed newsletter blast
+	// (e.g. "Akamai Wave <AkamaiWave@akamai.com>" sending to itself).
+	// Only applies when rule engine defaulted to HUMAN (no specific rule matched).
+	if routingSubtype == "HUMAN" && input.SenderEmail != "" && len(input.Headers) > 0 {
+		if toAddr := extractEmailFromHeader(input.Headers["To"]); toAddr != "" {
+			if strings.EqualFold(toAddr, input.SenderEmail) {
+				routingContentType = "EMAIL"
+				routingSubtype = "NEWSLETTER"
+				ruleEngineSubtype = "NEWSLETTER"
+				logger.Info("Newsletter detected: To == From (self-addressed blast)",
+					logging.F("from", input.SenderEmail),
+					logging.F("to", toAddr),
+				)
+			}
+		}
+	}
+
 	// Override content_subtype from rule engine (pf-2d512a).
 	// The rule engine taxonomy (HUMAN, NEWSLETTER, NOTIFICATION, etc.) is more authoritative
 	// than the heuristic classifier (standalone, forward, etc.). When the rule engine runs,
@@ -432,9 +450,23 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	})
 	defer stageSpan.End()
 
-	// Build TriageContentRequest
+	// Build TriageContentRequest.
+	// Prepend To/CC headers to content so the LLM has recipient context (pf-199f31).
+	triageContent := input.Content
+	if len(input.Headers) > 0 {
+		var headerLines []string
+		if to := input.Headers["To"]; to != "" {
+			headerLines = append(headerLines, "To: "+to)
+		}
+		if cc := input.Headers["Cc"]; cc != "" {
+			headerLines = append(headerLines, "CC: "+cc)
+		}
+		if len(headerLines) > 0 {
+			triageContent = strings.Join(headerLines, "\n") + "\n\n" + triageContent
+		}
+	}
 	req := &aiv1.TriageContentRequest{
-		Content: input.Content,
+		Content: triageContent,
 	}
 	if input.Subject != "" {
 		req.Subject = &input.Subject
@@ -612,6 +644,30 @@ func mapToSourceSystem(result classification.ClassificationResult) string {
 	default:
 		return string(enrichment.SourceSystemHumanEmail)
 	}
+}
+
+// extractEmailFromHeader extracts a bare email address from a header value.
+// Handles formats like "Name <user@example.com>" and "user@example.com".
+func extractEmailFromHeader(header string) string {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return ""
+	}
+	// Check for angle bracket format: "Name <user@example.com>"
+	if start := strings.LastIndex(header, "<"); start != -1 {
+		if end := strings.Index(header[start:], ">"); end != -1 {
+			return strings.TrimSpace(header[start+1 : start+end])
+		}
+	}
+	// Bare email: "user@example.com"
+	if strings.Contains(header, "@") {
+		// Take first token if comma-separated
+		if idx := strings.Index(header, ","); idx != -1 {
+			header = header[:idx]
+		}
+		return strings.TrimSpace(header)
+	}
+	return ""
 }
 
 // Ensure TriageActivities implements required interfaces at compile time.

@@ -1424,13 +1424,52 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// stageConfigMap was declared before stageOpts so the closure captures it by reference.
 	stageConfigMap = buildStageConfigMap(pipelineDef)
 
+	// Compute content contribution for gating (used by summarize + extract/analyze gates).
+	contribution := triageOutput.ContentContribution
+	// Default to HIGH if field is missing (never skip by accident)
+	if contribution == "" {
+		contribution = "HIGH"
+	}
+
 	// ==================== Stage 1.5: Summarize (non-blocking) ====================
 	// Generate a concise summary for the content. Failure does NOT block the pipeline.
-	// The Langfuse Summarize phase span wraps this LLM call.
-	{
+	// Gate: skip if content too brief, contribution is NONE, or stage disabled (pf-c42209).
+	skipSummarize := false
+	var summarizeSkipReason string
+
+	if !isStageEnabled(stageConfigMap, "summarize") {
+		skipSummarize = true
+		summarizeSkipReason = "stage_disabled"
+	}
+	if !skipSummarize && contribution == "NONE" {
+		skipSummarize = true
+		summarizeSkipReason = fmt.Sprintf("contribution_gating:%s", contribution)
+	}
+	if !skipSummarize {
+		wordCount := len(strings.Fields(parsedContent))
+		if wordCount < 20 {
+			skipSummarize = true
+			summarizeSkipReason = fmt.Sprintf("insufficient_content:%d_words", wordCount)
+		}
+	}
+
+	if skipSummarize {
+		logger.Info("Summarize stage skipped",
+			"source_id", input.SourceID,
+			"reason", summarizeSkipReason,
+		)
+		if stageInPipeline(stageConfigMap, "summarize") {
+			ctxSkip := workflow.WithActivityOptions(ctx, fastOpts)
+			_ = workflow.ExecuteActivity(ctxSkip, pkgtemporal.ActivityRecordSkippedStage, RecordSkippedStageInput{
+				SourceID:        input.SourceID,
+				Stages:          []SkippedStage{{Stage: "summarize", SkipReason: summarizeSkipReason}},
+				LangfuseTraceID: langfuseTraceID,
+			}).Get(ctx, nil)
+		}
+	} else {
 		summarizeStart := workflow.Now(ctx)
 		summarizePhaseID := sideEffectUUID(ctx)
-		summarizeOpts := stageOpts("summary", llmOpts)
+		summarizeOpts := stageOpts("summarize", llmOpts)
 		ctxSummarize := workflow.WithActivityOptions(ctx, summarizeOpts)
 		var summaryID int64
 		summarizeErr := workflow.ExecuteActivity(ctxSummarize, pkgtemporal.ActivityGenerateContentSummary, GenerateSummaryInput{
@@ -1468,12 +1507,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Determine which stages to skip based on content contribution
 	skipExtract := false // Skip stages 2-3.5 (extract, assertions, context, person metadata)
 	skipAnalyze := false // Skip stage 4-4.5 (deep analysis, persist findings)
-
-	contribution := triageOutput.ContentContribution
-	// Default to HIGH if field is missing (never skip by accident)
-	if contribution == "" {
-		contribution = "HIGH"
-	}
 
 	switch contribution {
 	case "NONE":
@@ -1647,6 +1680,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// from the DB when we have it.
 	if input.ContentType != "email" && originalSourceSystem != "" {
 		sourceSystem = enrichment.SourceSystem(originalSourceSystem)
+	}
+	// pf-83a646: Ensure meeting content has a meaningful source tag.
+	// If no specific source system was stored (e.g. "teams", "zoom"), use "meeting".
+	if input.ContentType == "meeting" && sourceSystem == enrichment.SourceSystemHumanEmail {
+		sourceSystem = enrichment.SourceSystem("meeting")
 	}
 
 	// Persist triage results and source_system to source metadata (fires for all items)
