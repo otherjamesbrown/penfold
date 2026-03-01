@@ -181,8 +181,16 @@ func (s *Service) IngestEmail(ctx context.Context, req *ingestv1.IngestEmailRequ
 		sourceTimestamp = time.Now()
 	}
 
-	// Build raw content from plain text body (or HTML if no plain text)
+	// Build raw content from plain text body (or HTML if no plain text).
+	// If plain text is minimal (< 10 words) but HTML has substantially more content,
+	// prefer HTML. This captures forwarded email bodies that Outlook puts only in
+	// HTML while the text/plain part has just the forwarding comment (pf-100e09).
 	rawContent := req.BodyPlain
+	if len(strings.Fields(rawContent)) < 10 && len(req.BodyHtml) > len(rawContent)*5 {
+		if len(req.BodyHtml) > len(rawContent) {
+			rawContent = req.BodyHtml
+		}
+	}
 	if rawContent == "" {
 		rawContent = req.BodyHtml
 	}

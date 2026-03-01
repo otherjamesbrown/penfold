@@ -1597,8 +1597,10 @@ func parseICSMetadata(icsData string) string {
 		}
 
 		// Handle key-value pairs (ICS uses KEY;PARAMS:VALUE or KEY:VALUE)
-		if strings.HasPrefix(line, "SUMMARY:") {
-			summary = strings.TrimPrefix(line, "SUMMARY:")
+		if strings.HasPrefix(line, "SUMMARY") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				summary = line[idx+1:]
+			}
 		} else if strings.HasPrefix(line, "DTSTART") {
 			if idx := strings.Index(line, ":"); idx >= 0 {
 				dtStart = line[idx+1:]
