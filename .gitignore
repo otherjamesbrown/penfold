@@ -108,3 +108,4 @@ services/ai/ai-coordinator-linux
 /ai-coordinator-darwin-arm64
 /worker
 /worker-darwin-arm64
+.claude/worktrees/
