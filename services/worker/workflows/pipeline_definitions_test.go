@@ -51,31 +51,6 @@ func TestBuildStageConfigMap_ValidDef(t *testing.T) {
 	assert.True(t, analyze.Optional)
 }
 
-func TestIsStageEnabled_NilMap(t *testing.T) {
-	// Nil map = fallback mode, all stages enabled
-	assert.True(t, isStageEnabled(nil, "parse"))
-	assert.True(t, isStageEnabled(nil, "triage"))
-	assert.True(t, isStageEnabled(nil, "nonexistent"))
-}
-
-func TestIsStageEnabled_StageMissing(t *testing.T) {
-	m := map[string]PipelineStageConfig{
-		"parse": {Stage: "parse", Enabled: true},
-	}
-	// Stage not in map = enabled by default
-	assert.True(t, isStageEnabled(m, "unknown_stage"))
-}
-
-func TestIsStageEnabled_StageDisabled(t *testing.T) {
-	m := map[string]PipelineStageConfig{
-		"parse":   {Stage: "parse", Enabled: true},
-		"analyze": {Stage: "analyze", Enabled: false},
-	}
-
-	assert.True(t, isStageEnabled(m, "parse"))
-	assert.False(t, isStageEnabled(m, "analyze"))
-}
-
 func TestPipelineStageConfig_Struct(t *testing.T) {
 	cfg := PipelineStageConfig{
 		Stage:          "extract_ner",
@@ -326,4 +301,34 @@ func TestPersistGate_AnalyzeFailedBlocksPersist(t *testing.T) {
 
 	// Suppress unused variable warnings
 	_ = skipAnalyze
+}
+
+// TestSummarizeGate_NotInPipeline verifies that summarize is skipped for pipelines
+// that don't define it (e.g. attendees_only). Bug fix pf-c42209: was using
+// isStageEnabled (default true) instead of stageInPipeline (default false).
+func TestSummarizeGate_NotInPipeline(t *testing.T) {
+	// attendees_only pipeline: no summarize stage
+	m := map[string]PipelineStageConfig{
+		"parse":       {Stage: "parse", Enabled: true},
+		"triage":      {Stage: "triage", Enabled: true},
+		"extract_ner": {Stage: "extract_ner", Enabled: true},
+		"embed":       {Stage: "embed", Enabled: true},
+	}
+
+	assert.False(t, stageInPipeline(m, "summarize"), "summarize should NOT run on attendees_only pipeline")
+}
+
+// TestSummarizeGate_InPipeline verifies that summarize runs for pipelines
+// that explicitly define it (e.g. standard with migration 097).
+func TestSummarizeGate_InPipeline(t *testing.T) {
+	// standard pipeline with summarize added
+	m := map[string]PipelineStageConfig{
+		"parse":       {Stage: "parse", Enabled: true},
+		"triage":      {Stage: "triage", Enabled: true},
+		"summarize":   {Stage: "summarize", Enabled: true},
+		"extract_ner": {Stage: "extract_ner", Enabled: true},
+		"embed":       {Stage: "embed", Enabled: true},
+	}
+
+	assert.True(t, stageInPipeline(m, "summarize"), "summarize should run on standard pipeline")
 }

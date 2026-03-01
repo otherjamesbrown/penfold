@@ -1468,9 +1468,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	skipSummarize := false
 	var summarizeSkipReason string
 
-	if !isStageEnabled(stageConfigMap, "summarize") {
+	if !stageInPipeline(stageConfigMap, "summarize") {
 		skipSummarize = true
-		summarizeSkipReason = "stage_disabled"
+		summarizeSkipReason = "stage_not_in_pipeline"
 	}
 	if !skipSummarize && contribution == "NONE" {
 		skipSummarize = true
@@ -2974,19 +2974,6 @@ func stageConfigMapKeys(m map[string]PipelineStageConfig) []string {
 		keys = append(keys, k)
 	}
 	return keys
-}
-
-// isStageEnabled checks if a stage is enabled in the pipeline definition.
-// If the config map is nil (fallback mode), all stages are enabled.
-func isStageEnabled(stageConfigMap map[string]PipelineStageConfig, stageName string) bool {
-	if stageConfigMap == nil {
-		return true
-	}
-	cfg, ok := stageConfigMap[stageName]
-	if !ok {
-		return true // Stage not in definition = enabled by default
-	}
-	return cfg.Enabled
 }
 
 // stageInPipeline returns true if a stage should run based on the pipeline definition.
