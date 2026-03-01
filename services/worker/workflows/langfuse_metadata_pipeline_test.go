@@ -61,7 +61,7 @@ func (s *LangfuseMetadataPipelineTestSuite) SetupTest() {
 	// CreateLangfuseTrace, ReportLangfusePhase, FinishLangfuseTrace.
 	// These should still be called by the workflow.
 	noopLangfuseTrace := func(ctx context.Context, input CreateLangfuseTraceInput) (*CreateLangfuseTraceOutput, error) {
-		return &CreateLangfuseTraceOutput{TraceID: input.TraceID}, nil
+		return &CreateLangfuseTraceOutput{TraceID: input.TraceID, RootSpanID: "test-root-span"}, nil
 	}
 	noopLangfusePhase := func(ctx context.Context, input ReportLangfusePhaseInput) error {
 		return nil

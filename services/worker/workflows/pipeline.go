@@ -995,6 +995,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Tenant is identified via the Environment field (TenantName), not a tag.
 	langfuseTraceTags := []string{"cont:" + input.ContentID}
 	ctxLangfuse := workflow.WithActivityOptions(ctx, fastOpts)
+	var langfuseTraceOut *CreateLangfuseTraceOutput
 	langfuseErr := workflow.ExecuteActivity(ctxLangfuse, pkgtemporal.ActivityCreateLangfuseTrace, CreateLangfuseTraceInput{
 		TraceID:      langfuseTraceID,
 		Name:         pipelineTraceName(input.Pipeline),
@@ -1005,7 +1006,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		SourceSystem: input.ContentType,
 		Subject:      input.Subject,
 		ContentType:  input.ContentType,
-	}).Get(ctx, nil)
+	}).Get(ctx, &langfuseTraceOut)
+	// Root span ID for nesting phase spans and closing with real duration (pf-1bfbaf).
+	var rootSpanID string
+	if langfuseTraceOut != nil {
+		rootSpanID = langfuseTraceOut.RootSpanID
+	}
 	if langfuseErr != nil {
 		logger.Warn("Failed to create Langfuse trace (non-fatal)", "error", langfuseErr)
 	}
@@ -1281,11 +1287,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		workflow.WithActivityOptions(ctx, fastOpts),
 		pkgtemporal.ActivityReportLangfusePhase,
 		ReportLangfusePhaseInput{
-			PhaseID:   triagePhaseID,
-			TraceID:   langfuseTraceID,
-			PhaseName: "Triage",
-			StartTime: triageStart,
-			EndTime:   triageEnd,
+			PhaseID:      triagePhaseID,
+			TraceID:      langfuseTraceID,
+			PhaseName:    "Triage",
+			StartTime:    triageStart,
+			EndTime:      triageEnd,
+			ParentSpanID: rootSpanID,
 		},
 	).Get(ctx, nil)
 
@@ -1364,12 +1371,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		state.result.Status = "completed"
 		state.result.SkipDeep = true
 
-		// Langfuse: finish trace
+		// Langfuse: finish trace (close root span + flush)
 		_ = workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, fastOpts),
 			pkgtemporal.ActivityFinishLangfuseTrace,
 			FinishLangfuseTraceInput{
-				TraceID: langfuseTraceID,
+				TraceID:    langfuseTraceID,
+				RootSpanID: rootSpanID,
 			},
 		).Get(ctx, nil)
 
@@ -1533,7 +1541,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				TraceID:   langfuseTraceID,
 				PhaseName: "Summarize",
 				StartTime: summarizeStart,
-				EndTime:   summarizeEnd,
+				EndTime:      summarizeEnd,
+				ParentSpanID: rootSpanID,
 			},
 		).Get(ctx, nil)
 	}
@@ -2047,7 +2056,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				TraceID:   langfuseTraceID,
 				PhaseName: "Extract",
 				StartTime: extractStart,
-				EndTime:   extractPhaseEnd,
+				EndTime:      extractPhaseEnd,
+				ParentSpanID: rootSpanID,
 			},
 		).Get(ctx, nil)
 
@@ -2304,7 +2314,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 					PhaseID:   analyzePhaseID,
 					TraceID:   langfuseTraceID,
 					PhaseName: "Analyze",
-					StartTime: analyzeStart,
+					StartTime:    analyzeStart,
+					ParentSpanID: rootSpanID,
 					EndTime:   analyzeEnd,
 				},
 			).Get(ctx, nil)
@@ -2538,11 +2549,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		workflow.WithActivityOptions(ctx, fastOpts),
 		pkgtemporal.ActivityReportLangfusePhase,
 		ReportLangfusePhaseInput{
-			PhaseID:   embedPhaseID,
-			TraceID:   langfuseTraceID,
-			PhaseName: "Embeddings",
-			StartTime: embedStart,
-			EndTime:   embedEnd,
+			PhaseID:      embedPhaseID,
+			TraceID:      langfuseTraceID,
+			PhaseName:    "Embeddings",
+			StartTime:    embedStart,
+			EndTime:      embedEnd,
+			ParentSpanID: rootSpanID,
 		},
 	).Get(ctx, nil)
 
@@ -2605,12 +2617,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		"embedding_id", embeddingID,
 	)
 
-	// Finish Langfuse trace: flush any remaining buffered events (best-effort).
+	// Finish Langfuse trace: close root span with real duration + flush (pf-1bfbaf).
 	_ = workflow.ExecuteActivity(
 		workflow.WithActivityOptions(ctx, fastOpts),
 		pkgtemporal.ActivityFinishLangfuseTrace,
 		FinishLangfuseTraceInput{
-			TraceID: langfuseTraceID,
+			TraceID:    langfuseTraceID,
+			RootSpanID: rootSpanID,
 		},
 	).Get(ctx, nil)
 

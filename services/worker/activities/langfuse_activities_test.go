@@ -56,11 +56,13 @@ func newOKServer(t *testing.T) *httptest.Server {
 // captureTraceBody extracts the traceCreateBody from the first pending event.
 // The body is encoded as an interface{} (via json round-trip) so we access it via
 // map assertion rather than a typed struct (the struct is unexported in the langfuse pkg).
+// CreateLangfuseTrace now buffers 2 events: trace-create + span-create (root span, pf-1bfbaf).
 func captureTraceBody(t *testing.T, ing *langfuse.Ingestion) map[string]interface{} {
 	t.Helper()
 	events := ing.PendingEvents()
-	require.Len(t, events, 1, "expected exactly one buffered event after CreateLangfuseTrace")
+	require.Len(t, events, 2, "expected trace-create + span-create after CreateLangfuseTrace")
 	require.Equal(t, "trace-create", events[0].Type)
+	require.Equal(t, "span-create", events[1].Type)
 
 	// Round-trip through JSON to get a plain map (body is stored as any).
 	raw, err := json.Marshal(events[0].Body)

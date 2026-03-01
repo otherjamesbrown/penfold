@@ -73,17 +73,30 @@ func (a *LangfuseActivities) CreateLangfuseTrace(ctx context.Context, input work
 		metadata["content_type"] = input.ContentType
 	}
 
+	now := time.Now()
+
 	a.ingestion.CreateTrace(langfuse.TraceEvent{
 		ID:          input.TraceID,
 		Name:        input.Name,
 		Tags:        input.Tags,
-		Timestamp:   time.Now(),
+		Timestamp:   now,
 		Environment: env,
 		Metadata:    metadata,
 	})
 
-	// Event is buffered; FinishLangfuseTrace will flush the batch at pipeline end.
-	return &workflows.CreateLangfuseTraceOutput{TraceID: input.TraceID}, nil
+	// Create a root SPAN observation that wraps the entire pipeline run.
+	// FinishLangfuseTrace will close this span with an EndTime, giving the
+	// trace a real duration instead of near-zero (pf-1bfbaf).
+	rootSpanID := newLangfuseID()
+	a.ingestion.CreateSpan(langfuse.SpanEvent{
+		ID:        rootSpanID,
+		TraceID:   input.TraceID,
+		Name:      input.Name,
+		StartTime: now,
+	})
+
+	// Events are buffered; FinishLangfuseTrace will flush the batch at pipeline end.
+	return &workflows.CreateLangfuseTraceOutput{TraceID: input.TraceID, RootSpanID: rootSpanID}, nil
 }
 
 // ReportLangfusePhase creates a span observation in Langfuse for a pipeline phase.
@@ -98,7 +111,7 @@ func (a *LangfuseActivities) ReportLangfusePhase(ctx context.Context, input work
 	a.ingestion.CreateSpan(langfuse.SpanEvent{
 		ID:        input.PhaseID,
 		TraceID:   input.TraceID,
-		ParentID:  "", // direct child of trace (no parent observation)
+		ParentID:  input.ParentSpanID, // nest under root pipeline span if set
 		Name:      input.PhaseName,
 		StartTime: input.StartTime,
 		EndTime:   input.EndTime,
@@ -112,13 +125,19 @@ func (a *LangfuseActivities) ReportLangfusePhase(ctx context.Context, input work
 	return nil
 }
 
-// FinishLangfuseTrace performs a final flush of any remaining buffered events.
-// This ensures all events are delivered to Langfuse before the workflow completes.
+// FinishLangfuseTrace closes the root pipeline SPAN (if set) and performs a
+// final flush of any remaining buffered events. This gives the pipeline trace
+// a real duration instead of near-zero (pf-1bfbaf).
 // If Langfuse is not configured, this is a no-op.
 func (a *LangfuseActivities) FinishLangfuseTrace(ctx context.Context, input workflows.FinishLangfuseTraceInput) error {
 	if a.ingestion == nil {
 		a.logger.Debug("Langfuse not configured — skipping FinishLangfuseTrace")
 		return nil
+	}
+
+	// Close the root SPAN observation with the current time as EndTime.
+	if input.RootSpanID != "" {
+		a.ingestion.UpdateSpan(input.RootSpanID, time.Now())
 	}
 
 	if err := a.ingestion.Flush(ctx); err != nil {

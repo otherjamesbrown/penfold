@@ -24,16 +24,18 @@ type PersistLangfuseTraceIDInput struct {
 
 // CreateLangfuseTraceOutput is the output from the CreateLangfuseTrace activity.
 type CreateLangfuseTraceOutput struct {
-	TraceID string `json:"trace_id"`
+	TraceID    string `json:"trace_id"`
+	RootSpanID string `json:"root_span_id,omitempty"` // Langfuse root SPAN observation ID; used by FinishLangfuseTrace to set EndTime
 }
 
 // ReportLangfusePhaseInput is the input for the ReportLangfusePhase activity.
 type ReportLangfusePhaseInput struct {
-	PhaseID   string    `json:"phase_id"`
-	TraceID   string    `json:"trace_id"`
-	PhaseName string    `json:"phase_name"`
-	StartTime time.Time `json:"start_time"`
-	EndTime   time.Time `json:"end_time"`
+	PhaseID      string    `json:"phase_id"`
+	TraceID      string    `json:"trace_id"`
+	PhaseName    string    `json:"phase_name"`
+	StartTime    time.Time `json:"start_time"`
+	EndTime      time.Time `json:"end_time"`
+	ParentSpanID string    `json:"parent_span_id,omitempty"` // Root span ID; nests phase under pipeline root
 }
 
 // ReportLangfuseGenerationInput was the input for the ReportLangfuseGeneration activity.
@@ -55,7 +57,8 @@ type ReportLangfuseGenerationInput struct {
 
 // FinishLangfuseTraceInput is the input for the FinishLangfuseTrace activity.
 type FinishLangfuseTraceInput struct {
-	TraceID string `json:"trace_id"`
+	TraceID    string `json:"trace_id"`
+	RootSpanID string `json:"root_span_id,omitempty"` // If set, updates the root SPAN observation with EndTime
 }
 
 // UpdateLangfuseTraceTagsInput is the input for the UpdateLangfuseTraceTags activity.
