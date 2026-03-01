@@ -1054,7 +1054,19 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			return state.result, nil
 		}
 		if parseOutput.NewContent != "" {
-			parsedContent = parseOutput.NewContent
+			// For forward emails, don't discard the forwarded body when the
+			// sender's comment is minimal. Outlook-style forwards have the
+			// forwarded message's From:/Date: headers that look like quoted
+			// reply markers, causing separateQuotedReply to keep only the
+			// brief sender comment (e.g. "FYI") (pf-100e09).
+			subjectLower := strings.ToLower(input.Subject)
+			isForward := strings.HasPrefix(subjectLower, "fw:") ||
+				strings.HasPrefix(subjectLower, "fwd:")
+			if isForward && len(strings.Fields(parseOutput.NewContent)) < 10 {
+				parsedContent = parseOutput.CleanBody
+			} else {
+				parsedContent = parseOutput.NewContent
+			}
 		} else {
 			parsedContent = parseOutput.CleanBody
 		}
