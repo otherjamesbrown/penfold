@@ -51,8 +51,8 @@ Verify the reference chain is complete and all links resolve:
 4. Cross-links between docs all resolve
 
 **Dev reference chain:**
-1. `CLAUDE.md` → bootstraps from `cxp knowledge show mycroft-playbook`
-2. `mycroft-playbook` → references sub-agent docs and context docs via `cxp knowledge show`
+1. `CLAUDE.md` → playbook loaded by hook (`cxp knowledge show pf-2b76b4`)
+2. Mycroft Playbook (`pf-2b76b4`) → references sub-agent docs and context docs via `cxp knowledge show`
 3. `mycroft-agent-*` → consistent naming and cross-references
 4. `.claude/agents/*.md` → point to correct CP knowledge docs
 
@@ -116,7 +116,7 @@ Create a report with:
 - [ ] Cross-links resolve (status)
 
 ### Dev Chain
-- [ ] CLAUDE.md → cxp knowledge show mycroft-playbook (status)
+- [ ] CLAUDE.md → playbook loaded by hook, pf-2b76b4 (status)
 - [ ] mycroft-playbook → sub-agent docs via cxp knowledge show (status)
 - [ ] .claude/agents/ → cxp knowledge show mycroft-agent-* (status)
 

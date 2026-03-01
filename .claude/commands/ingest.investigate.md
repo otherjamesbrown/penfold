@@ -207,40 +207,21 @@ Also use `Read` on background agent output files to check progress.
 
 Wait until ALL shards show `status = 'closed'`. Check every 30-60 seconds.
 
-## Send Findings Summary to Penfold
+## Record Findings in Shards
 
-**After ALL investigations and analyses complete**, send a progress update to penfold with
-the findings. This lets penfold validate root causes and complexity assessments before
-implementation resources are committed.
+**After ALL investigations and analyses complete**, update each shard with the findings.
+Penfold tracks progress via the session board — shard content IS the communication.
+
+For each investigation/analysis shard, update its content with:
+- **Bugs:** ROOT CAUSE category, 1-sentence summary, complexity assessment (L/M/H)
+- **Requirements:** Complexity, layers affected, approach summary
+- **Specs:** Complexity assessment (already pre-analyzed)
 
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
-SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-penfold'],
-  'Findings: [N bugs investigated, M requirements analyzed]',
-  \$body\${\"poll_hint\":\"review\",\"type\":\"progress\"}
-## Investigation & Analysis Complete
-
-### Bug Findings
-1. **[bug title]** — ROOT CAUSE: [category]. [1-sentence summary]. Complexity: [L/M/H]
-2. **[bug title]** — ROOT CAUSE: [category]. [1-sentence summary]. Complexity: [L/M/H]
-
-### Requirement Findings
-1. **[req title]** — [complexity]. Layers: [list]. [1-sentence approach]
-2. **[req title]** — [complexity]. Layers: [list]. [1-sentence approach]
-
-### Specs (pre-analyzed, skipped investigation)
-1. **[spec title]** — [complexity]. Proceeding directly to triage.
-
-Proceeding to triage and implementation. Reply if you want to adjust anything.
-
--- agent-mycroft
-\$body\$,
-  NULL, 'progress', NULL);
-"
+cxp task progress pf-SHARD-ID "ROOT CAUSE: [category]. [summary]. Complexity: [L/M/H]"
 ```
 
-**Do NOT block on penfold's response.** Continue to Phase 3. But if penfold replies with
-corrections before implementation starts, incorporate them.
+No message to penfold needed — the shard updates are visible on the board.
 
 ## Show Progress
 

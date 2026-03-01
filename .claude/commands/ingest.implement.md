@@ -489,35 +489,17 @@ For each FAILED shard (attempt < MAX_RETRIES):
 
 ### Step 4: Escalate After MAX_RETRIES
 
-Only notify penfold when a shard has exhausted all retry attempts OR is BLOCKED:
+Only mark the shard as blocked when all retry attempts are exhausted:
 
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
-SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-penfold'],
-  'Implementation failed after [N] attempts: [shard title]',
-  \$body\${\"poll_hint\":\"review\",\"type\":\"progress\"}
-## Implementation Failed — Retries Exhausted
+# Add blocked label so it appears in the board's attention section
+cxp shard label add pf-xxx blocked
 
-Shard: pf-xxx ([title])
-Agent: <agent-type>
-Attempts: [N] of [MAX_RETRIES]
-
-**Attempt 1:** [1-line summary of what happened]
-**Attempt 2:** [1-line summary of what happened]
-**Attempt 3:** [1-line summary of what happened]
-
-**Pattern:** [what kept going wrong — same error each time? different errors?]
-
-**Files modified:** [list files the agents touched]
-**Current state:** [does it build? which tests fail?]
-
-This shard needs human guidance or a different approach.
-
--- agent-mycroft
-\$body\$,
-  NULL, 'progress', NULL);
-"
+# Update shard content with retry history
+cxp task progress pf-xxx "Retries exhausted (N attempts). Attempt 1: [summary]. Attempt 2: [summary]. Attempt 3: [summary]. Pattern: [what kept going wrong]. Current state: [builds? which tests fail?]. Needs guidance."
 ```
+
+No message to penfold — the `blocked` label surfaces the shard on the session board.
 
 **Key difference from before:** Penfold only hears about failures that survived 3 fresh
 attempts. If it gets here, the problem is likely in the spec/approach, not the implementation.

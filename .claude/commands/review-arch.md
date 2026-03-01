@@ -138,7 +138,7 @@ You are an expert architect reviewing Penfold's architecture.
 
 Read these files to understand Penfold:
 - CLAUDE.md (entry point)
-- `cxp knowledge show mycroft-playbook` (architecture overview)
+- `cxp knowledge show pf-2b76b4` (architecture overview — Mycroft Playbook)
 - `cxp knowledge show mycroft-shared-vision` (system purpose)
 - `cxp knowledge show mycroft-shared-entities` (data model)
 

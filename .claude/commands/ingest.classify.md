@@ -129,27 +129,10 @@ Note the shard title prefix:
 - `analyze:` for requirements → Phase 2 launches explorer
 - `spec:` for specs → **Phase 2 is skipped**, goes directly to Phase 3 triage
 
-## Step 4: Acknowledge to Penfold
+## Step 4: Mark Messages Read
 
-Send **one ack per message** (not per item). List the items identified with their type:
-
-```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
-SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-penfold'],
-  'Re: [original subject]',
-  \$body\${\"poll_hint\":\"continue\",\"type\":\"ack\"}
-Processing N items from your report:
-1. [BUG] [issue title]
-2. [REQ] [requirement title]
-3. [SPEC] [feature title] — skipping analysis, using your spec directly
-4. [BUG] [issue title]
-
-Will update as each is resolved.\$body\$,
-  NULL, 'ack', 'pf-MESSAGE-ID');
-"
-```
-
-## Step 5: Mark Messages Read
+No ack message needed — penfold tracks work via shard status on the session board.
+Claim the shards (status → in_progress) so they appear as active on the board.
 
 ```bash
 psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "

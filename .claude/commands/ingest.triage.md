@@ -449,37 +449,16 @@ VALUES
 "
 ```
 
-## Step 6: Send Decomposition Plan to Penfold (HIGH items only)
+## Step 6: Record Decomposition in Parent Shard (HIGH items only)
 
-**For HIGH complexity items**, send the decomposition plan to penfold before proceeding
-to implementation. This lets penfold validate layer splits and catch mistakes.
+**For HIGH complexity items**, update the parent shard content with the decomposition plan.
+Penfold sees this on the session board — no message needed.
 
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
-SELECT send_message('penfold', 'agent-mycroft', ARRAY['agent-penfold'],
-  'Decomposition plan: [feature name]',
-  \$body\${\"poll_hint\":\"review\",\"type\":\"progress\"}
-## Decomposition Plan: [feature name]
-
-Parent shard: pf-PARENT-SHARD
-Complexity: HIGH — decomposed into N layers
-
-| Wave | Shard | Layer | Agent | Files | Blocked By |
-|------|-------|-------|-------|-------|------------|
-| 1 | pf-xxx-db | DB | data-dev | migrations/NNN.sql, pkg/.../repo.go | — |
-| 2 | pf-xxx-svc | Service | service-dev | api/proto/..., services/gateway/... | pf-xxx-db |
-| 3 | pf-xxx-cli | CLI | cli-dev | cmd/penf/cmd/feature.go | pf-xxx-svc |
-
-Proceeding to test-writing and implementation. Reply if you want to adjust.
-
--- agent-mycroft
-\$body\$,
-  NULL, 'progress', NULL);
-"
+cxp task progress pf-PARENT-SHARD "Decomposed into N layers: pf-xxx-db (data-dev), pf-xxx-svc (service-dev), pf-xxx-cli (cli-dev). Wave order: DB → Service → CLI."
 ```
 
-**Do NOT block on penfold's response.** Continue to Phase 3.5 / Phase 4. But if penfold
-replies with corrections, incorporate them.
+The child shards created in Step 5 are already linked and visible on the board.
 
 ## Build Queue
 
