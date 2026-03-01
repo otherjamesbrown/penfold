@@ -542,6 +542,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			Content:           content,
 			TenantId:          optString(input.TenantID),
 			BackgroundContext: input.BackgroundContext,
+			Stages:            input.PipelineStages,
 		}
 		if input.TriageCategory != "" {
 			req.TriageCategory = optString(input.TriageCategory)
@@ -607,6 +608,7 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 				Content:           chunk.Content,
 				TenantId:          optString(input.TenantID),
 				BackgroundContext: input.BackgroundContext,
+				Stages:            input.PipelineStages,
 			}
 			// Only pass triage_category on first chunk for quality gate
 			if i == 0 && input.TriageCategory != "" {

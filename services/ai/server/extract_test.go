@@ -3,6 +3,10 @@ package server
 import (
 	"context"
 	"testing"
+
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/services/ai/backend"
 )
 
 func TestParseNERResponse_Valid(t *testing.T) {
@@ -416,4 +420,75 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestExtractEntities_StagesGating verifies that the AI coordinator skips semantic
+// extraction when the pipeline stages don't include extract_semantic (pf-83a646).
+func TestExtractEntities_StagesGating(t *testing.T) {
+	tests := []struct {
+		name      string
+		stages    []string
+		wantCalls int
+	}{
+		{
+			name:      "empty stages runs both NER and semantic (backward compat)",
+			stages:    nil,
+			wantCalls: 2,
+		},
+		{
+			name:      "both stages listed runs both",
+			stages:    []string{"extract_ner", "extract_semantic"},
+			wantCalls: 2,
+		},
+		{
+			name:      "only extract_ner skips semantic",
+			stages:    []string{"extract_ner"},
+			wantCalls: 1,
+		},
+		{
+			name:      "extract_ner with unrelated stage still skips semantic",
+			stages:    []string{"extract_ner", "summarize"},
+			wantCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			mb := &mockBackend{
+				chatCompletionFunc: func(_ context.Context, _ []backend.Message, _ backend.CompletionOptions) (*backend.CompletionResult, error) {
+					calls++
+					if calls == 1 {
+						return &backend.CompletionResult{
+							Content:      `{"people":[],"dates":[],"projects":[],"organisations":[]}`,
+							Model:        "test-model",
+							InputTokens:  10,
+							OutputTokens: 5,
+						}, nil
+					}
+					return &backend.CompletionResult{
+						Content:      `{"action_items":[],"decisions":[],"risks":[]}`,
+						Model:        "test-model",
+						InputTokens:  10,
+						OutputTokens: 5,
+					}, nil
+				},
+			}
+			srv := NewAIServer(testConfig(), logging.NewNopLogger(), mb)
+
+			resp, err := srv.ExtractEntities(context.Background(), &aiv1.ExtractEntitiesRequest{
+				Content: "Test content with people and decisions",
+				Stages:  tt.stages,
+			})
+			if err != nil {
+				t.Fatalf("ExtractEntities returned error: %v", err)
+			}
+			if calls != tt.wantCalls {
+				t.Errorf("expected %d ChatCompletion calls, got %d", tt.wantCalls, calls)
+			}
+			if resp == nil {
+				t.Fatal("response is nil")
+			}
+		})
+	}
 }

@@ -366,12 +366,24 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		}
 	}
 
-	// Stage 2b: Semantic extraction
-	semStageParams := s.getStageParams(ctx, "extract_semantic")
+	// Determine whether to run semantic extraction (pf-83a646).
+	// Empty stages list = backward compat, run all. Non-empty = only run listed stages.
+	shouldRunSemantic := len(req.Stages) == 0
+	if !shouldRunSemantic {
+		for _, s := range req.Stages {
+			if s == "extract_semantic" {
+				shouldRunSemantic = true
+				break
+			}
+		}
+	}
+
+	// Stage 2b: Semantic extraction (skipped when pipeline doesn't define extract_semantic)
 	var semResp *semanticResult
 	var semResult *backend.CompletionResult
 	var semMessages []backend.Message
-	{
+	if shouldRunSemantic {
+		semStageParams := s.getStageParams(ctx, "extract_semantic")
 		semPrompt, _ = s.buildSemanticPrompt(ctx, content, req.GetBackgroundContext())
 		semMessages = []backend.Message{
 			{Role: "user", Content: semPrompt},
@@ -420,38 +432,43 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 				return nil, parseErr
 			}
 		}
-	}
 
-	// Report semantic generation to Langfuse — use semStartTime captured before the block.
-	// We use startTime here since semStartTime isn't separately tracked, and the intent is
-	// to report that the extraction happened as part of the overall handler invocation.
-	if s.langfuse != nil {
-		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
-		if lfTraceID != "" {
-			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
-				ID:               uuid.New().String(),
-				TraceID:          lfTraceID,
-				ParentID:         lfPhaseID,
-				Name:             "ai.extract_semantic",
-				Model:            semResult.Model,
-				Input:            semMessages,
-				Output:           semResult.Content,
-				PromptTokens:     semResult.InputTokens,
-				CompletionTokens: semResult.OutputTokens,
-				StartTime:        startTime,
-				EndTime:          time.Now(),
-			})
-			if err := s.langfuse.Flush(ctx); err != nil {
-				s.logger.Warn("Langfuse generation flush failed", logging.Err(err))
+		// Report semantic generation to Langfuse
+		if s.langfuse != nil {
+			lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+			if lfTraceID != "" {
+				s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+					ID:               uuid.New().String(),
+					TraceID:          lfTraceID,
+					ParentID:         lfPhaseID,
+					Name:             "ai.extract_semantic",
+					Model:            semResult.Model,
+					Input:            semMessages,
+					Output:           semResult.Content,
+					PromptTokens:     semResult.InputTokens,
+					CompletionTokens: semResult.OutputTokens,
+					StartTime:        startTime,
+					EndTime:          time.Now(),
+				})
+				if err := s.langfuse.Flush(ctx); err != nil {
+					s.logger.Warn("Langfuse generation flush failed", logging.Err(err))
+				}
 			}
 		}
+	} else {
+		// Semantic extraction skipped — provide empty results for callers
+		semResp = &semanticResult{}
+		s.logger.Debug("Skipping semantic extraction — stage not in pipeline",
+			logging.F("stages", req.Stages),
+		)
 	}
 
 	// Quality gate: if triage_category is RISK_ISSUE and no risks found, re-run with focused prompt
+	// Only runs when semantic extraction was performed (quality gate depends on semantic results).
 	var qgResp *qualityGateResult
 	qualityGateTriggered := false
 	triageCategory := req.GetTriageCategory()
-	if triageCategory == "RISK_ISSUE" && len(semResp.Risks) == 0 {
+	if shouldRunSemantic && triageCategory == "RISK_ISSUE" && len(semResp.Risks) == 0 {
 		s.logger.Info("Quality gate triggered: RISK_ISSUE but no risks extracted, re-running with focused prompt",
 			logging.F("source_id", req.GetSourceId()),
 		)
@@ -559,9 +576,13 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		}
 	}
 
-	// Add token counts (sum from both passes)
-	totalInputTokens := nerResult.InputTokens + semResult.InputTokens
-	totalOutputTokens := nerResult.OutputTokens + semResult.OutputTokens
+	// Add token counts (sum from both passes; semResult is nil when semantic was skipped)
+	totalInputTokens := nerResult.InputTokens
+	totalOutputTokens := nerResult.OutputTokens
+	if semResult != nil {
+		totalInputTokens += semResult.InputTokens
+		totalOutputTokens += semResult.OutputTokens
+	}
 
 	if totalInputTokens > 0 {
 		it := int32(totalInputTokens)
@@ -573,13 +594,19 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	}
 
 	// Record tracing result
+	tracingPrompt := nerPrompt
+	tracingCompletion := nerResult.Content
+	if semResult != nil {
+		tracingPrompt += "\n\n---\n\n" + semPrompt
+		tracingCompletion += "\n\n---\n\n" + semResult.Content
+	}
 	tracing.SetLLMResult(span, tracing.LLMResult{
 		InputTokens:  totalInputTokens,
 		OutputTokens: totalOutputTokens,
 		Model:        nerResult.Model,
 		LatencyMs:    time.Since(startTime).Milliseconds(),
-		Prompt:       nerPrompt + "\n\n---\n\n" + semPrompt,
-		Completion:   nerResult.Content + "\n\n---\n\n" + semResult.Content,
+		Prompt:       tracingPrompt,
+		Completion:   tracingCompletion,
 	})
 
 	s.logger.Debug("ExtractEntities completed",

@@ -506,6 +506,11 @@ message ExtractEntitiesRequest {
   // Pre-extraction background context (glossary + topics) for semantic extraction.
   // Injected into the Stage 2b semantic prompt to help decode domain terminology.
   string background_context = 9;
+
+  // Pipeline stages that are active for this item.
+  // When non-empty, the coordinator skips stages not in this list.
+  // Empty = run all stages (backward compatibility).
+  repeated string stages = 10;
 }
 
 // PersonEntity represents a person extracted from content.
