@@ -4,15 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	searchv1 "github.com/otherjamesbrown/penfold/api/proto/search/v1"
+	gatewayv1 "github.com/otherjamesbrown/penfold/api/proto/gateway/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -23,7 +21,6 @@ func main() {
 	if gatewayAddr == "" {
 		gatewayAddr = "localhost:50051"
 	}
-
 	listenAddr := os.Getenv("MCP_LISTEN_ADDR")
 	if listenAddr == "" {
 		listenAddr = ":50055"
@@ -48,37 +45,37 @@ func main() {
 	}
 	defer conn.Close()
 
-	searchClient := searchv1.NewSearchServiceClient(conn)
+	gatewayClient := gatewayv1.NewGatewayServiceClient(conn)
+
+	// Define available toolsets. Tools will be added to individual toolsets in
+	// later phases (Phase 1c onward). For now the toolsets are stubs that
+	// expose their metadata via the meta-tools.
+	toolsets := []*Toolset{
+		{Name: "search", Description: "Full-text and semantic search across all indexed content"},
+		{Name: "knowledge", Description: "Access assertions, relationships, and extracted knowledge"},
+		{Name: "entities", Description: "Browse and search people, organizations, and other entities"},
+		{Name: "content", Description: "Read full email text, threads, and document content"},
+		{Name: "ops", Description: "System operations — health checks, stats, diagnostics"},
+		{Name: "workflow", Description: "Pipeline monitoring and content processing status"},
+	}
+
+	// Build the toolset manager first so we can get its hooks.
+	tm := NewToolsetManager(nil, toolsets) // mcpServer set below after hooks are wired
+	tm.RegisterHooks()
 
 	mcpServer := server.NewMCPServer(
 		"penfold",
 		"0.1.0",
-		server.WithToolCapabilities(false),
+		server.WithToolCapabilities(true),
+		server.WithHooks(tm.Hooks()),
 	)
 
-	// Generate JSON Schema from proto descriptor
-	schema := schemaFromProto((&searchv1.SearchRequest{}).ProtoReflect().Descriptor())
-	schemaJSON, err := json.Marshal(schema)
-	if err != nil {
-		log.Fatalf("failed to marshal schema: %v", err)
-	}
+	// Wire the server back into the manager now that it exists.
+	tm.mcpServer = mcpServer
 
-	searchTool := mcp.NewToolWithRawSchema(
-		"penfold_search",
-		"Search Penfold's knowledge base using keywords and semantic matching. Returns matching emails, meetings, and documents with relevance scores.",
-		schemaJSON,
-	)
-	searchTool.Annotations = mcp.ToolAnnotation{
-		ReadOnlyHint: boolPtr(true),
-	}
-
-	searchHandler := grpcHandler(
-		func() *searchv1.SearchRequest { return new(searchv1.SearchRequest) },
-		searchClient.Search,
-		defaultFormatter[*searchv1.SearchResponse],
-	)
-
-	mcpServer.AddTool(searchTool, searchHandler)
+	// Register global tools.
+	tm.RegisterMetaTools()
+	registerHealthTool(mcpServer, gatewayClient)
 
 	httpServer := server.NewStreamableHTTPServer(mcpServer)
 
