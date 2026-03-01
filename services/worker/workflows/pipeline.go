@@ -1295,6 +1295,29 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	state.result.ModelUsed = triageOutput.ModelUsed
 	state.result.ContentContribution = triageOutput.ContentContribution
 	state.result.ContributionReason = triageOutput.ContributionReason
+
+	// Override contribution gating for forwarded emails (pf-100e09).
+	// The 500-char triage truncation means the LLM only sees "FYI" + forwarded
+	// email headers, causing it to misclassify as NONE. The actual forwarded
+	// content (selected as CleanBody above) is substantial.
+	{
+		subjectLower := strings.ToLower(input.Subject)
+		isForward := strings.HasPrefix(subjectLower, "fw:") ||
+			strings.HasPrefix(subjectLower, "fwd:")
+		if isForward && triageOutput.ContentContribution == "NONE" && len(parsedContent) > 500 {
+			triageOutput.ContentContribution = "MEDIUM"
+			triageOutput.ContributionReason = "Forward email override: triage truncation hides forwarded content"
+			state.result.ContentContribution = triageOutput.ContentContribution
+			state.result.ContributionReason = triageOutput.ContributionReason
+			logger.Info("Forward email contribution override",
+				"source_id", input.SourceID,
+				"original_contribution", "NONE",
+				"overridden_to", "MEDIUM",
+				"content_length", len(parsedContent),
+			)
+		}
+	}
+
 	state.status.StepsCompleted = 2
 
 	if checkCancellation() {
