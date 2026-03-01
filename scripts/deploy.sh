@@ -49,12 +49,21 @@ cmd_status() {
     else
         log_warn "AI Coordinator HTTP ${ai_health}"
     fi
+    echo ""
+
+    echo "MCP Server (dev02 / systemd):"
+    local mcp_active=$(ssh dev02 "systemctl is-active penfold-mcp" 2>/dev/null || echo "unknown")
+    if [[ "$mcp_active" == "active" ]]; then
+        log_success "MCP Server active"
+    else
+        log_warn "MCP Server ${mcp_active}"
+    fi
 }
 
 cmd_rollback() {
     local service="$1"
     if [[ -z "$service" ]]; then
-        log_error "Usage: $0 rollback <worker|gateway|ai>"
+        log_error "Usage: $0 rollback <worker|gateway|ai|mcp>"
         exit 1
     fi
 
@@ -77,9 +86,14 @@ cmd_rollback() {
             systemd_restart "dev02" "penfold-ai-coordinator" 30
             log_deploy "penfold-ai-coordinator" "rollback" "" "manual-rollback"
             ;;
+        mcp)
+            rollback_binary "dev02" "/opt/penfold/bin/penfold-mcp"
+            systemd_restart "dev02" "penfold-mcp" 30
+            log_deploy "penfold-mcp" "rollback" "" "manual-rollback"
+            ;;
         *)
             log_error "Unknown service: ${service}"
-            echo "Valid services: worker, gateway, ai"
+            echo "Valid services: worker, gateway, ai, mcp"
             exit 1
             ;;
     esac
@@ -106,6 +120,10 @@ cmd_deploy_all() {
     "${SCRIPT_DIR}/deploy-worker.sh"
     echo ""
 
+    log_info "Deploying MCP server..."
+    "${SCRIPT_DIR}/deploy-mcp.sh"
+    echo ""
+
     echo "${GREEN}=== All Services Deployed ===${NC}"
 }
 
@@ -116,9 +134,10 @@ usage() {
     echo "  worker          Deploy worker to dev01 (launchd)"
     echo "  gateway         Deploy gateway to dev02 (systemd)"
     echo "  ai              Deploy AI coordinator to dev02 (systemd)"
+    echo "  mcp             Deploy MCP server to dev02 (systemd)"
     echo "  all             Deploy all services in dependency order"
     echo "  status          Check health of all services"
-    echo "  rollback <svc>  Rollback a service (worker|gateway|ai)"
+    echo "  rollback <svc>  Rollback a service (worker|gateway|ai|mcp)"
     echo ""
     echo "Examples:"
     echo "  $0 worker                # Full worker deploy"
@@ -135,6 +154,9 @@ case "${1:-}" in
         ;;
     ai)
         "${SCRIPT_DIR}/deploy-ai-coordinator.sh"
+        ;;
+    mcp)
+        "${SCRIPT_DIR}/deploy-mcp.sh"
         ;;
     all)
         cmd_deploy_all

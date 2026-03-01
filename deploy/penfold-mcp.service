@@ -1,0 +1,34 @@
+[Unit]
+Description=Penfold MCP Server
+Documentation=https://github.com/otherjamesbrown/penfold
+After=network.target penfold-gateway.service
+Wants=network-online.target penfold-gateway.service
+
+[Service]
+Type=simple
+User=james
+Group=james
+EnvironmentFile=/etc/penfold/mcp.env
+ExecStart=/opt/penfold/bin/penfold-mcp
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=penfold-mcp
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/log/penfold
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

@@ -18,7 +18,7 @@ func (tm *ToolsetManager) RegisterMetaTools() {
 		[]byte(`{"type":"object"}`),
 	)
 	listTool.Annotations = mcp.ToolAnnotation{ReadOnlyHint: boolPtr(true)}
-	tm.mcpServer.AddTool(listTool, tm.handleListToolsets)
+	tm.mcpServer.AddTool(listTool, withLogging("penfold_list_toolsets", "meta", tm.handleListToolsets))
 
 	// penfold_get_toolset_tools — toolset_name required
 	getTool := mcp.NewToolWithRawSchema(
@@ -27,7 +27,7 @@ func (tm *ToolsetManager) RegisterMetaTools() {
 		[]byte(`{"type":"object","properties":{"toolset_name":{"type":"string","description":"Name of the toolset to inspect"}},"required":["toolset_name"]}`),
 	)
 	getTool.Annotations = mcp.ToolAnnotation{ReadOnlyHint: boolPtr(true)}
-	tm.mcpServer.AddTool(getTool, tm.handleGetToolsetTools)
+	tm.mcpServer.AddTool(getTool, withLogging("penfold_get_toolset_tools", "meta", tm.handleGetToolsetTools))
 
 	// penfold_enable_toolset — toolset_name required
 	enableTool := mcp.NewToolWithRawSchema(
@@ -36,7 +36,7 @@ func (tm *ToolsetManager) RegisterMetaTools() {
 		[]byte(`{"type":"object","properties":{"toolset_name":{"type":"string","description":"Name of the toolset to enable"}},"required":["toolset_name"]}`),
 	)
 	enableTool.Annotations = mcp.ToolAnnotation{ReadOnlyHint: boolPtr(false)}
-	tm.mcpServer.AddTool(enableTool, tm.handleEnableToolset)
+	tm.mcpServer.AddTool(enableTool, withLogging("penfold_enable_toolset", "meta", tm.handleEnableToolset))
 
 	// penfold_disable_toolset — toolset_name required
 	disableTool := mcp.NewToolWithRawSchema(
@@ -45,7 +45,7 @@ func (tm *ToolsetManager) RegisterMetaTools() {
 		[]byte(`{"type":"object","properties":{"toolset_name":{"type":"string","description":"Name of the toolset to disable"}},"required":["toolset_name"]}`),
 	)
 	disableTool.Annotations = mcp.ToolAnnotation{ReadOnlyHint: boolPtr(false)}
-	tm.mcpServer.AddTool(disableTool, tm.handleDisableToolset)
+	tm.mcpServer.AddTool(disableTool, withLogging("penfold_disable_toolset", "meta", tm.handleDisableToolset))
 }
 
 func (tm *ToolsetManager) handleListToolsets(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {

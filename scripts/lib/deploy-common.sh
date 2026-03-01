@@ -112,9 +112,9 @@ log_deploy() {
     local service="$1"
     local commit="$2"
     local prev_commit="$3"
-    local status="${4:-success}"
+    local deploy_status="${4:-success}"
     local log_file="/var/log/penfold/deploys.log"
-    local entry="$(date -u '+%Y-%m-%dT%H:%M:%SZ') ${service} ${commit} prev=${prev_commit} status=${status} by=agent-mycroft"
+    local entry="$(date -u '+%Y-%m-%dT%H:%M:%SZ') ${service} ${commit} prev=${prev_commit} status=${deploy_status} by=agent-mycroft"
 
     echo "$entry" >> "$log_file" 2>/dev/null || true
 }

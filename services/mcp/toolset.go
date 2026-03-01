@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -132,7 +133,7 @@ func (tm *ToolsetManager) EnableToolset(ctx context.Context, name string) error 
 		tool.Annotations = def.Annotations
 		serverTools = append(serverTools, server.ServerTool{
 			Tool:    tool,
-			Handler: def.Handler,
+			Handler: withLogging(def.Name, name, def.Handler),
 		})
 	}
 
@@ -143,6 +144,12 @@ func (tm *ToolsetManager) EnableToolset(ctx context.Context, name string) error 
 		tm.mu.Unlock()
 		return fmt.Errorf("add session tools: %w", err)
 	}
+
+	slog.Info("toolset_enabled",
+		"toolset", name,
+		"tools_added", len(ts.Tools),
+		"session_id", sessionID,
+	)
 	return nil
 }
 
@@ -181,6 +188,12 @@ func (tm *ToolsetManager) DisableToolset(ctx context.Context, name string) error
 		tm.mu.Unlock()
 		return fmt.Errorf("delete session tools: %w", err)
 	}
+
+	slog.Info("toolset_disabled",
+		"toolset", name,
+		"tools_removed", len(names),
+		"session_id", sessionID,
+	)
 	return nil
 }
 

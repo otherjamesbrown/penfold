@@ -19,7 +19,7 @@ func registerHealthTool(srv *server.MCPServer, healthClient gatewayv1.GatewaySer
 	)
 	tool.Annotations = mcp.ToolAnnotation{ReadOnlyHint: boolPtr(true)}
 
-	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	srv.AddTool(tool, withLogging("penfold_health", "global", func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		resp, err := healthClient.HealthCheck(ctx, &gatewayv1.HealthCheckRequest{
 			IncludeDependencies: true,
 		})
@@ -32,5 +32,5 @@ func registerHealthTool(srv *server.MCPServer, healthClient gatewayv1.GatewaySer
 			return mcp.NewToolResultError("failed to format health response: " + err.Error()), nil
 		}
 		return mcp.NewToolResultText(string(data)), nil
-	})
+	}))
 }
