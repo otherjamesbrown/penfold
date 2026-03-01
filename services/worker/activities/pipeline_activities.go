@@ -273,6 +273,9 @@ func (a *PipelineActivities) FetchPipelineDefinition(ctx context.Context, input 
 		if s.ModelOverride != nil {
 			out.Stages[i].ModelOverride = *s.ModelOverride
 		}
+		if s.PromptOverride != nil {
+			out.Stages[i].PromptOverride = int32(*s.PromptOverride)
+		}
 	}
 
 	logger.Info("Pipeline definition fetched",

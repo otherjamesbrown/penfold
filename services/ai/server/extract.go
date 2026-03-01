@@ -173,8 +173,8 @@ func parseQualityGateResponse(jsonStr string) (*qualityGateResult, error) {
 // Returns the prompt string and the prompt version (0 when using hardcoded fallback).
 // When backgroundContext is non-empty, it is prepended as a "Background Context" section
 // before the content, providing glossary and topic definitions (pf-2f0d4b).
-func (s *AIServer) buildNERPrompt(ctx context.Context, content string, backgroundContext string) (string, int32) {
-	tmpl, version := s.getPrompt(ctx, "extract_ner", nerPromptTemplate)
+func (s *AIServer) buildNERPrompt(ctx context.Context, content string, backgroundContext string, promptVersion int32) (string, int32) {
+	tmpl, version := s.getPrompt(ctx, "extract_ner", nerPromptTemplate, promptVersion)
 	if backgroundContext != "" {
 		content = "## Background Context\n" + backgroundContext + "\n\n---\n" + content
 	}
@@ -189,8 +189,8 @@ func (s *AIServer) buildNERPrompt(ctx context.Context, content string, backgroun
 // and may confuse the model into extracting "person X emailed person Y" as semantic findings.
 // When backgroundContext is non-empty, it is prepended as a "Background Context" section
 // before the content, providing glossary and topic definitions (pf-2f8c70).
-func (s *AIServer) buildSemanticPrompt(ctx context.Context, content string, backgroundContext string) (string, int32) {
-	tmpl, version := s.getPrompt(ctx, "extract_semantic", semanticPromptTemplate)
+func (s *AIServer) buildSemanticPrompt(ctx context.Context, content string, backgroundContext string, promptVersion int32) (string, int32) {
+	tmpl, version := s.getPrompt(ctx, "extract_semantic", semanticPromptTemplate, promptVersion)
 	content = stripEmailAddressesKeepSubject(content)
 	if backgroundContext != "" {
 		content = "## Background Context\n" + backgroundContext + "\n\n---\n" + content
@@ -237,7 +237,7 @@ func stripEmailAddressesKeepSubject(content string) string {
 // Tries the DB prompt store for stage "quality_gate_risk"; falls back to qualityGateRiskPromptTemplate on error.
 // Returns the prompt string and the prompt version (0 when using hardcoded fallback).
 func (s *AIServer) buildQualityGatePrompt(ctx context.Context, content string) (string, int32) {
-	tmpl, version := s.getPrompt(ctx, "quality_gate_risk", qualityGateRiskPromptTemplate)
+	tmpl, version := s.getPrompt(ctx, "quality_gate_risk", qualityGateRiskPromptTemplate, 0)
 	return fmt.Sprintf(tmpl, content), version
 }
 
@@ -293,7 +293,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var nerResult *backend.CompletionResult
 	var nerMessages []backend.Message
 	{
-		nerPrompt, nerPromptVersion = s.buildNERPrompt(ctx, content, req.GetBackgroundContext())
+		nerPrompt, nerPromptVersion = s.buildNERPrompt(ctx, content, req.GetBackgroundContext(), req.GetNerPromptVersion())
 		nerMessages = []backend.Message{
 			{Role: "user", Content: nerPrompt},
 		}
@@ -384,7 +384,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var semMessages []backend.Message
 	if shouldRunSemantic {
 		semStageParams := s.getStageParams(ctx, "extract_semantic")
-		semPrompt, _ = s.buildSemanticPrompt(ctx, content, req.GetBackgroundContext())
+		semPrompt, _ = s.buildSemanticPrompt(ctx, content, req.GetBackgroundContext(), req.GetSemanticPromptVersion())
 		semMessages = []backend.Message{
 			{Role: "user", Content: semPrompt},
 		}

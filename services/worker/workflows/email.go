@@ -68,7 +68,8 @@ type (
 		// ContentID is the unique content identifier for tracing (format: <type:2>-<base62:8>)
 		ContentID string `json:"content_id,omitempty"`
 		JobID     string `json:"job_id"`
-		Content   string `json:"content"`
+		Content        string `json:"content"`
+		PromptOverride int32  `json:"prompt_override,omitempty"` // Optional prompt version override from pipeline definition
 		// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 		LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 		LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`

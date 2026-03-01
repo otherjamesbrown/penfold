@@ -65,8 +65,8 @@ Respond ONLY with JSON:
 // Content is truncated to the first 500 characters as specified in the design.
 // It tries the DB prompt store first; falls back to the hardcoded triagePromptTemplate on error.
 // Returns the system prompt, user prompt, and the prompt version (0 when using hardcoded fallback).
-func (s *AIServer) buildTriagePrompt(ctx context.Context, subject, sender, content string) (systemPrompt, userPrompt string, promptVersion int32) {
-	systemPrompt, promptVersion = s.getPrompt(ctx, "triage", triagePromptTemplate)
+func (s *AIServer) buildTriagePrompt(ctx context.Context, subject, sender, content string, version int32) (systemPrompt, userPrompt string, promptVersion int32) {
+	systemPrompt, promptVersion = s.getPrompt(ctx, "triage", triagePromptTemplate, version)
 
 	// Truncate content to first 500 characters
 	truncatedContent := content

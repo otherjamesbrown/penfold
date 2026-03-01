@@ -128,7 +128,8 @@ type TriageInput struct {
 	SenderEmail      string            `json:"sender_email,omitempty"`
 	ContentType   string            `json:"content_type"`
 	Headers       map[string]string `json:"headers,omitempty"`        // Email headers for subtype classification
-	ModelOverride string            `json:"model_override,omitempty"` // Optional model override for reprocessing
+	ModelOverride  string            `json:"model_override,omitempty"` // Optional model override for reprocessing
+	PromptOverride int32             `json:"prompt_override,omitempty"` // Optional prompt version override from pipeline definition
 	// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 	LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 	LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
@@ -162,8 +163,10 @@ type SLMPipelineExtractEntitiesInput struct {
 	ContentID       string `json:"content_id,omitempty"`
 	JobID           string `json:"job_id"`
 	Content         string `json:"content"`
-	TriageCategory string `json:"triage_category,omitempty"`
-	ModelOverride  string `json:"model_override,omitempty"` // Optional model override for reprocessing
+	TriageCategory        string `json:"triage_category,omitempty"`
+	ModelOverride         string `json:"model_override,omitempty"` // Optional model override for reprocessing
+	NERPromptOverride     int32  `json:"ner_prompt_override,omitempty"`      // Optional NER prompt version override
+	SemanticPromptOverride int32 `json:"semantic_prompt_override,omitempty"` // Optional semantic prompt version override
 
 	// Email header metadata for NER prompt enrichment (pf-de2b09).
 	// Only populated for email content type.
@@ -513,6 +516,7 @@ type DeepAnalyzeInput struct {
 	ResolvedPeople    []ResolvedPerson                  `json:"resolved_people,omitempty"`
 	BackgroundContext string `json:"background_context,omitempty"`
 	ModelOverride    string `json:"model_override,omitempty"` // Optional model override for reprocessing
+	PromptOverride   int32  `json:"prompt_override,omitempty"` // Optional prompt version override from pipeline definition
 	// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 	LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 	LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
@@ -683,6 +687,7 @@ type PipelineStageConfig struct {
 	Optional       bool   `json:"optional"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	ModelOverride  string `json:"model_override,omitempty"`
+	PromptOverride int32  `json:"prompt_override,omitempty"`
 }
 
 // RecordSkippedStageInput is the input for the RecordSkippedStage activity.
@@ -1186,9 +1191,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		ContentType:     input.ContentType,
 		Headers:         fetchedHeaders,
 		ModelOverride:   input.ModelOverride,
+		PromptOverride:  promptOverrideForStage(stageConfigMap, "triage"),
 		LangfuseTraceID: langfuseTraceID,
 		LangfusePhaseID: triagePhaseID,
-
 	}).Get(ctx, &triageOutput)
 	if err != nil {
 		// Update status to "rejected" with failure info
@@ -1509,9 +1514,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			ContentID:       input.ContentID,
 			JobID:           input.JobID,
 			Content:         parsedContent,
+			PromptOverride:  promptOverrideForStage(stageConfigMap, "summarize"),
 			LangfuseTraceID: langfuseTraceID,
 			LangfusePhaseID: summarizePhaseID,
-	
 		}).Get(ctx, &summaryID)
 		if summarizeErr != nil {
 			logger.Warn("Stage 1.5 GenerateSummary failed (non-blocking)", "error", summarizeErr)
@@ -1944,21 +1949,23 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 		ctxExtract := workflow.WithActivityOptions(ctx, extractOpts)
 		err = workflow.ExecuteActivity(ctxExtract, pkgtemporal.ActivityExtractEntitiesActivity, SLMPipelineExtractEntitiesInput{
-			TenantID:          input.TenantID,
-			SourceID:          input.SourceID,
-			ContentID:         input.ContentID,
-			JobID:             input.JobID,
-			Content:           parsedContent,
-			ModelOverride:     input.ModelOverride,
-			ContentType:       input.ContentType,
-			Subject:           input.Subject,
-			SenderName:        input.SenderName,
-			SenderEmail:       input.SenderEmail,
-			Participants:      input.ParticipantEmails,
-			BackgroundContext: extractionContext,
-			PipelineStages:   stageConfigMapKeys(stageConfigMap),
-			LangfuseTraceID:  langfuseTraceID,
-			LangfusePhaseID:  extractPhaseID,
+			TenantID:               input.TenantID,
+			SourceID:               input.SourceID,
+			ContentID:              input.ContentID,
+			JobID:                  input.JobID,
+			Content:                parsedContent,
+			ModelOverride:          input.ModelOverride,
+			NERPromptOverride:      promptOverrideForStage(stageConfigMap, "extract_ner"),
+			SemanticPromptOverride: promptOverrideForStage(stageConfigMap, "extract_semantic"),
+			ContentType:            input.ContentType,
+			Subject:                input.Subject,
+			SenderName:             input.SenderName,
+			SenderEmail:            input.SenderEmail,
+			Participants:           input.ParticipantEmails,
+			BackgroundContext:      extractionContext,
+			PipelineStages:         stageConfigMapKeys(stageConfigMap),
+			LangfuseTraceID:        langfuseTraceID,
+			LangfusePhaseID:        extractPhaseID,
 		}).Get(ctx, extractOutput)
 
 		// Stage 2b: Extract Assertions (failure does NOT block pipeline)
@@ -2242,6 +2249,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			ResolvedPeople:    analyzeResolvedPeople,
 			BackgroundContext: formatContextPackage(contextOutput),
 			ModelOverride:     input.ModelOverride,
+			PromptOverride:    promptOverrideForStage(stageConfigMap, "analyze"),
 			LangfuseTraceID:   langfuseTraceID,
 			LangfusePhaseID:   analyzePhaseID,
 		}).Get(ctx, analyzeOutput)
@@ -2928,6 +2936,7 @@ func sideEffectUUID(ctx workflow.Context) string {
 func buildPipelineDefinitionMetadata(pipelineName string, def *FetchPipelineDefinitionOutput) map[string]any {
 	stages := make([]string, 0, len(def.Stages))
 	modelOverrides := make(map[string]string)
+	promptOverrides := make(map[string]int32)
 
 	for _, s := range def.Stages {
 		if s.Enabled {
@@ -2935,6 +2944,9 @@ func buildPipelineDefinitionMetadata(pipelineName string, def *FetchPipelineDefi
 		}
 		if s.ModelOverride != "" {
 			modelOverrides[s.Stage] = s.ModelOverride
+		}
+		if s.PromptOverride > 0 {
+			promptOverrides[s.Stage] = s.PromptOverride
 		}
 	}
 
@@ -2944,6 +2956,9 @@ func buildPipelineDefinitionMetadata(pipelineName string, def *FetchPipelineDefi
 	}
 	if len(modelOverrides) > 0 {
 		metadata["model_overrides"] = modelOverrides
+	}
+	if len(promptOverrides) > 0 {
+		metadata["prompt_overrides"] = promptOverrides
 	}
 
 	return metadata
@@ -2988,6 +3003,19 @@ func stageInPipeline(stageConfigMap map[string]PipelineStageConfig, stageName st
 		return false // Stage not in pipeline definition
 	}
 	return cfg.Enabled
+}
+
+// promptOverrideForStage returns the prompt version override for a stage from the pipeline definition.
+// Returns 0 when the map is nil or the stage has no override, meaning "use active version".
+func promptOverrideForStage(stageConfigMap map[string]PipelineStageConfig, stageName string) int32 {
+	if stageConfigMap == nil {
+		return 0
+	}
+	cfg, ok := stageConfigMap[stageName]
+	if !ok {
+		return 0
+	}
+	return cfg.PromptOverride
 }
 
 // Ensure temporal package is used to avoid import errors during development.

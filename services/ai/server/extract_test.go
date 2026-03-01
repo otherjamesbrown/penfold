@@ -266,7 +266,7 @@ func TestParseQualityGateResponse_Valid(t *testing.T) {
 func TestBuildNERPrompt(t *testing.T) {
 	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	content := "Dan Spataro is the CEO of CLIC. Meeting on January 15th."
-	prompt, version := s.buildNERPrompt(context.Background(), content, "")
+	prompt, version := s.buildNERPrompt(context.Background(), content, "", 0)
 
 	if version != 0 {
 		t.Errorf("buildNERPrompt() version = %d, want 0 (hardcoded fallback)", version)
@@ -288,7 +288,7 @@ func TestBuildNERPrompt_BackgroundContext(t *testing.T) {
 	s := &AIServer{}
 	content := "Dan Spataro is the CEO of CLIC. Meeting on January 15th."
 	bgCtx := "### Glossary\nCLIC: Community Lending Investment Company\n\n### Topic Context\nDevCloud: Internal cloud platform"
-	prompt, _ := s.buildNERPrompt(context.Background(), content, bgCtx)
+	prompt, _ := s.buildNERPrompt(context.Background(), content, bgCtx, 0)
 
 	if !containsString(prompt, "## Background Context") {
 		t.Errorf("buildNERPrompt() with backgroundContext should contain '## Background Context' header")
@@ -307,7 +307,7 @@ func TestBuildNERPrompt_BackgroundContext(t *testing.T) {
 func TestBuildSemanticPrompt(t *testing.T) {
 	s := &AIServer{} // no promptStore — uses hardcoded fallback
 	content := "Alice should fix the bug by next week. We decided to approve the budget."
-	prompt, version := s.buildSemanticPrompt(context.Background(), content, "")
+	prompt, version := s.buildSemanticPrompt(context.Background(), content, "", 0)
 
 	if version != 0 {
 		t.Errorf("buildSemanticPrompt() version = %d, want 0 (hardcoded fallback)", version)
@@ -394,7 +394,7 @@ func TestBuildSemanticPrompt_StripsEmailAddresses(t *testing.T) {
 	s := &AIServer{}
 	content := "EMAIL METADATA:\nFrom: Alice <alice@example.com>\nTo: Bob <bob@example.com>\nSubject: Budget review\n---\nBODY:\nWe need to approve the budget."
 
-	prompt, _ := s.buildSemanticPrompt(context.Background(), content, "")
+	prompt, _ := s.buildSemanticPrompt(context.Background(), content, "", 0)
 
 	if containsString(prompt, "alice@example.com") {
 		t.Error("semantic prompt should not contain email addresses")

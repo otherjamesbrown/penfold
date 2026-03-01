@@ -550,6 +550,12 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 		if input.ContentID != "" {
 			req.ContentId = optString(input.ContentID)
 		}
+		if input.NERPromptOverride > 0 {
+			req.NerPromptVersion = &input.NERPromptOverride
+		}
+		if input.SemanticPromptOverride > 0 {
+			req.SemanticPromptVersion = &input.SemanticPromptOverride
+		}
 		// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
 		// Heartbeat goroutine keeps activity alive during long API calls (pf-04a2de).
@@ -616,6 +622,12 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			}
 			if input.ContentID != "" {
 				req.ContentId = optString(input.ContentID)
+			}
+			if input.NERPromptOverride > 0 {
+				req.NerPromptVersion = &input.NERPromptOverride
+			}
+			if input.SemanticPromptOverride > 0 {
+				req.SemanticPromptVersion = &input.SemanticPromptOverride
 			}
 			// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 

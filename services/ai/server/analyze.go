@@ -507,7 +507,7 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 	}
 
 	// Resolve the prompt template from the prompt store (falls back to hardcoded default)
-	tmpl, promptVersion := s.getPrompt(ctx, "deep_analysis", deepAnalysisPromptTemplate)
+	tmpl, promptVersion := s.getPrompt(ctx, "deep_analysis", deepAnalysisPromptTemplate, req.GetPromptVersion())
 
 	// Build the deep analysis prompt
 	prompt := buildDeepAnalysisPrompt(tmpl, req)

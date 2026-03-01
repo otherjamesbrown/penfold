@@ -219,6 +219,10 @@ message SummaryRequest {
   // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
   optional string content_id = 8;
 
+  // Optional prompt version override. When > 0, use this specific prompt version
+  // instead of the active version. Set from pipeline_definitions.prompt_override.
+  optional int32 prompt_version = 10;
+
   // Field numbers 7 and 9 are reserved (previously pipeline_trace_id and pipeline_span_id).
   // OTel interceptors propagate trace context automatically via gRPC metadata.
   reserved 7, 9;
@@ -427,6 +431,10 @@ message TriageContentRequest {
   // Expected format: <type:2>-<base62:8> (11 chars), e.g., "em-abc12XYZ".
   optional string content_id = 8;
 
+  // Optional prompt version override. When > 0, use this specific prompt version
+  // instead of the active version. Set from pipeline_definitions.prompt_override.
+  optional int32 prompt_version = 10;
+
   // Field numbers 7 and 9 are reserved (previously pipeline_trace_id and pipeline_span_id).
   // OTel interceptors propagate trace context automatically via gRPC metadata.
   reserved 7, 9;
@@ -511,6 +519,14 @@ message ExtractEntitiesRequest {
   // When non-empty, the coordinator skips stages not in this list.
   // Empty = run all stages (backward compatibility).
   repeated string stages = 10;
+
+  // Optional NER prompt version override. When > 0, use this specific prompt version
+  // for the NER extraction pass instead of the active version.
+  optional int32 ner_prompt_version = 11;
+
+  // Optional semantic prompt version override. When > 0, use this specific prompt version
+  // for the semantic extraction pass instead of the active version.
+  optional int32 semantic_prompt_version = 12;
 }
 
 // PersonEntity represents a person extracted from content.
@@ -604,6 +620,10 @@ message DeepAnalyzeRequest {
   optional string tenant_id = 13;
   optional int64 source_id = 14;
   optional string content_id = 15;
+
+  // Optional prompt version override. When > 0, use this specific prompt version
+  // instead of the active version. Set from pipeline_definitions.prompt_override.
+  optional int32 prompt_version = 18;
 
   // Field numbers 16 and 17 are reserved (previously pipeline_trace_id and pipeline_span_id).
   // OTel interceptors propagate trace context automatically via gRPC metadata.

@@ -104,6 +104,9 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 		Style:     aiv1.SummaryStyle_SUMMARY_STYLE_BRIEF,
 		TenantId:  &input.TenantID,
 	}
+	if input.PromptOverride > 0 {
+		summaryReq.PromptVersion = &input.PromptOverride
+	}
 
 	// Attach Langfuse tracing metadata for AI coordinator to use when creating generation spans.
 	summaryCallCtx := stageCtx

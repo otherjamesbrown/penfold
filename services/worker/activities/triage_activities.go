@@ -442,6 +442,9 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	if input.ContentID != "" {
 		req.ContentId = &input.ContentID
 	}
+	if input.PromptOverride > 0 {
+		req.PromptVersion = &input.PromptOverride
+	}
 	// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
 	// Attach Langfuse tracing metadata for AI coordinator to use when creating generation spans.

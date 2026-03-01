@@ -170,11 +170,11 @@ func (s *AIServer) resolveModel(ctx context.Context, stage string) string {
 // If the store is not configured, the DB is unreachable, or no active prompt exists,
 // it falls back to the provided hardcoded default without failing the request.
 // Returns the prompt content and the prompt version (0 when using the hardcoded fallback).
-func (s *AIServer) getPrompt(ctx context.Context, stage, hardcoded string) (string, int32) {
+func (s *AIServer) getPrompt(ctx context.Context, stage, hardcoded string, version int32) (string, int32) {
 	if s.promptStore == nil {
 		return hardcoded, 0
 	}
-	pt, err := s.promptStore.GetPromptByStage(ctx, stage, 0)
+	pt, err := s.promptStore.GetPromptByStage(ctx, stage, int(version))
 	if err != nil {
 		s.logger.Warn("prompt store lookup failed, using hardcoded fallback",
 			logging.F("stage", stage),
@@ -343,7 +343,7 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 			{Role: "user", Content: content},
 		}
 	} else {
-		systemPrompt := s.buildSummarySystemPrompt(ctx, req.GetStyle(), req.GetMaxLength())
+		systemPrompt := s.buildSummarySystemPrompt(ctx, req.GetStyle(), req.GetMaxLength(), req.GetPromptVersion())
 		messages = []backend.Message{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: content},
@@ -765,7 +765,7 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 	}
 
 	// Build the triage prompt
-	systemPrompt, userPrompt, triagePromptVersion := s.buildTriagePrompt(ctx, req.GetSubject(), req.GetSender(), content)
+	systemPrompt, userPrompt, triagePromptVersion := s.buildTriagePrompt(ctx, req.GetSubject(), req.GetSender(), content, req.GetPromptVersion())
 
 	messages := []backend.Message{
 		{Role: "system", Content: systemPrompt},
@@ -1119,7 +1119,7 @@ func tracePromptFromMessages(messages []backend.Message) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func (s *AIServer) buildSummarySystemPrompt(ctx context.Context, style aiv1.SummaryStyle, maxLength int32) string {
+func (s *AIServer) buildSummarySystemPrompt(ctx context.Context, style aiv1.SummaryStyle, maxLength int32, version int32) string {
 	var styleInstruction string
 	switch style {
 	case aiv1.SummaryStyle_SUMMARY_STYLE_BRIEF:
@@ -1151,7 +1151,7 @@ KEY_POINTS:
 ["point 1", "point 2", "point 3"]`, styleInstruction, lengthInstruction)
 
 	if s.promptStore != nil {
-		pt, err := s.promptStore.GetPromptByStage(ctx, "summary", 0)
+		pt, err := s.promptStore.GetPromptByStage(ctx, "summary", int(version))
 		if err == nil && pt != nil {
 			// Replace runtime placeholders in the DB template.
 			r := strings.NewReplacer(
@@ -1263,7 +1263,7 @@ Respond with a JSON object:
     }
   ]
 }`
-	content, version := s.getPrompt(ctx, "extract_assertions", hardcoded)
+	content, version := s.getPrompt(ctx, "extract_assertions", hardcoded, 0)
 	return content, version
 }
 

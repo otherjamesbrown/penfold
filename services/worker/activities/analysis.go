@@ -203,6 +203,9 @@ func buildDeepAnalyzeRequest(input workflows.DeepAnalyzeInput) *aiv1.DeepAnalyze
 	if input.ContentID != "" {
 		req.ContentId = &input.ContentID
 	}
+	if input.PromptOverride > 0 {
+		req.PromptVersion = &input.PromptOverride
+	}
 	// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
 	// Convert resolved people to proto (DB-enriched, deduplicated list from Stage 3).
