@@ -95,8 +95,6 @@ func (p *AICoordinatorProvider) Complete(ctx context.Context, req CompletionRequ
 	if p.config.TenantID != "" {
 		summaryReq.TenantId = &p.config.TenantID
 	}
-	// PipelineTraceId is deprecated: OTel interceptors propagate context automatically.
-
 	// Execute the gRPC call
 	summaryResp, err := p.grpcClient.GenerateSummary(ctx, summaryReq)
 	if err != nil {

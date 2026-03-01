@@ -4,7 +4,6 @@ package activities
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -93,12 +92,6 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 	// Record heartbeat before calling AI service
 	recordHeartbeat(ctx, "calling AI service for deep analysis")
 
-	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
-	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
-		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
-		ctx = tracing.ContextWithPipelineSpan(ctx, otelTraceID, input.PipelineSpanID)
-	}
-
 	// Create stage span wrapping the gRPC call
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.deep_analyze", tracing.StageSpanOptions{
 		ContentID: input.ContentID,
@@ -108,7 +101,6 @@ func (a *AnalysisActivities) DeepAnalyze(ctx context.Context, input workflows.De
 
 	// Build DeepAnalyzeRequest from input
 	req := buildDeepAnalyzeRequest(input)
-	// Pipeline span context is injected above; gRPC OTel interceptors propagate traceparent automatically.
 
 	// Attach Langfuse tracing metadata for AI coordinator to use when creating generation spans.
 	callCtx := stageCtx

@@ -142,7 +142,7 @@ func TestAICoordinatorProvider_SupportsLangfuseTracing(t *testing.T) {
 
 	require.NoError(t, err, "Complete should succeed with tracing metadata")
 	// In the actual implementation, this would verify that the gRPC request
-	// included pipeline_trace_id and content_id fields for Langfuse tracing
+	// included content_id and tracing metadata propagated via OTel interceptors
 }
 
 // TestAICoordinatorProvider_PanicsWithoutConnection verifies that the provider

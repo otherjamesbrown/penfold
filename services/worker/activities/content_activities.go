@@ -518,8 +518,6 @@ type SummarizeContentInput struct {
 	Content         string `json:"content"`
 	MaxLength       int32  `json:"max_length,omitempty"`
 	Style           string `json:"style,omitempty"` // brief, detailed, bullet_points
-	PipelineTraceID string `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
-	PipelineSpanID  string `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 }
 
 // SummarizeContentOutput is the output from the SummarizeContent activity.
@@ -589,8 +587,6 @@ func (a *ContentActivities) SummarizeContentActivity(ctx context.Context, input 
 		Style:     style,
 		TenantId:  &input.TenantID,
 	}
-	// PipelineTraceId and PipelineSpanId are deprecated: OTel interceptors propagate context automatically.
-
 	resp, err := a.aiClient.GenerateSummary(ctx, req)
 	if err != nil {
 		logger.Error("Failed to generate summary", logging.Err(err))

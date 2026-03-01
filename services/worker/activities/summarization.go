@@ -4,7 +4,6 @@ package activities
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -89,12 +88,6 @@ func (a *SummarizationActivities) GenerateSummary(ctx context.Context, input wor
 	startTime := time.Now()
 	activity.RecordHeartbeat(ctx, "calling AI service for summary generation")
 
-	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
-	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
-		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
-		ctx = tracing.ContextWithPipelineSpan(ctx, otelTraceID, input.PipelineSpanID)
-	}
-
 	// Create stage span wrapping the gRPC call
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.summarize", tracing.StageSpanOptions{
 		ContentID: input.ContentID,
@@ -178,8 +171,6 @@ type GenerateSummaryWithOptionsInput struct {
 	MaxLength       int32             `json:"max_length,omitempty"`
 	Style           aiv1.SummaryStyle `json:"style,omitempty"`
 	Model           string            `json:"model,omitempty"`
-	PipelineTraceID string            `json:"pipeline_trace_id,omitempty"` // Pipeline trace ID for Langfuse grouping
-	PipelineSpanID  string            `json:"pipeline_span_id,omitempty"` // Pipeline span ID for parent-child hierarchy
 }
 
 // GenerateSummaryOutput contains the result of summary generation.

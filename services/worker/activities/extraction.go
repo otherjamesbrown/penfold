@@ -132,12 +132,6 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	startTime := time.Now()
 	recordHeartbeat(ctx, "calling AI service for assertion extraction")
 
-	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
-	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
-		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
-		ctx = tracing.ContextWithPipelineSpan(ctx, otelTraceID, input.PipelineSpanID)
-	}
-
 	// Create stage span wrapping the gRPC call
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.extract_assertions", tracing.StageSpanOptions{
 		ContentID: input.ContentID,
@@ -516,12 +510,6 @@ func (a *ExtractionActivities) ExtractEntities(ctx context.Context, input workfl
 			}
 		}
 	}()
-
-	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
-	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
-		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
-		ctx = tracing.ContextWithPipelineSpan(ctx, otelTraceID, input.PipelineSpanID)
-	}
 
 	// Create stage span wrapping ALL gRPC calls (single or chunked)
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.extract_entities", tracing.StageSpanOptions{

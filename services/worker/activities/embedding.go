@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -124,12 +123,6 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	// Track the model used — all chunks use the same embedding model; capture from first response.
 	var embedModelUsed string
 	startTime := time.Now()
-
-	// Inject pipeline OTel span context so stage spans nest under the pipeline trace.
-	if input.PipelineSpanID != "" && input.LangfuseTraceID != "" {
-		otelTraceID := strings.ReplaceAll(input.LangfuseTraceID, "-", "")
-		ctx = tracing.ContextWithPipelineSpan(ctx, otelTraceID, input.PipelineSpanID)
-	}
 
 	// Create stage span wrapping ALL chunk embedding calls
 	stageCtx, stageSpan := tracing.StartStageSpan(ctx, "stage.embedding", tracing.StageSpanOptions{

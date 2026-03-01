@@ -387,34 +387,6 @@ func SetModelSelection(span trace.Span, selectedModel, selectedSystem, reason st
 	)
 }
 
-// ContextWithPipelineSpan injects a remote OTel span context into ctx so that
-// child spans (created via StartStageSpan, StartLLMCall, or the gRPC OTel
-// interceptor) inherit the pipeline's trace. This bridges the Temporal
-// workflow→activity boundary where OTel context is otherwise lost.
-//
-// traceIDHex must be 32 hex chars, spanIDHex must be 16 hex chars.
-// Returns ctx unchanged if either ID is empty or malformed.
-func ContextWithPipelineSpan(ctx context.Context, traceIDHex, spanIDHex string) context.Context {
-	if traceIDHex == "" || spanIDHex == "" {
-		return ctx
-	}
-	traceID, err := trace.TraceIDFromHex(traceIDHex)
-	if err != nil {
-		return ctx
-	}
-	spanID, err := trace.SpanIDFromHex(spanIDHex)
-	if err != nil {
-		return ctx
-	}
-	sc := trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID:    traceID,
-		SpanID:     spanID,
-		TraceFlags: trace.FlagsSampled,
-		Remote:     true,
-	})
-	return trace.ContextWithRemoteSpanContext(ctx, sc)
-}
-
 // SetDecision records an AI decision on a span.
 // Use this for mention resolution, entity matching, etc.
 func SetDecision(span trace.Span, decisionType string, confidence float64, reasoning string) {
