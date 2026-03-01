@@ -1524,3 +1524,101 @@ func TestBug_pfFbd126_EntityReviewItemCreation(t *testing.T) {
 		t.Logf("SUCCESS: Gracefully skips when ResolvedPeople is empty")
 	})
 }
+
+// TestBug_pf9944a0_ICalendarFieldsNotExcluded reproduces bug pf-9944a0.
+// The acronym detector flags iCalendar field names, common labels, and generic terms as potential acronyms.
+func TestBug_pf9944a0_ICalendarFieldsNotExcluded(t *testing.T) {
+	t.Run("iCalendar field names are excluded", func(t *testing.T) {
+		icalFields := []string{
+			"DTSTART", "DTEND", "VCALENDAR", "VEVENT", "BEGIN", "END",
+			"METHOD", "SUMMARY", "ATTENDEE", "ORGANIZER", "LOCATION", "VERSION",
+			"RRULE", "VALARM", "VTIMEZONE", "PRODID", "CALSCALE", "SEQUENCE",
+			"STATUS", "TRANSP", "TRIGGER", "ACTION", "DESCRIPTION", "DURATION",
+			"FREQ", "UNTIL", "COUNT", "INTERVAL", "BYDAY", "BYMONTH",
+			"VTODO", "VJOURNAL", "VFREEBUSY", "DTSTAMP", "CREATED", "EXDATE",
+			"RDATE", "TZID", "TZNAME",
+		}
+		for _, field := range icalFields {
+			assert.False(t, isValidAcronym(field), "iCalendar field %s should be excluded", field)
+		}
+	})
+
+	t.Run("common labels and keywords are excluded", func(t *testing.T) {
+		labels := []string{
+			"URGENT", "HIGH", "ISSUE", "DECISION", "RISK", "TRUE", "REQUEST",
+			"FALSE", "IMPORTANT", "CRITICAL", "WARNING", "NOTICE",
+			"PENDING", "APPROVED", "REJECTED", "REQUIRED", "OPTIONAL",
+			"UPDATE", "REVIEW", "SUBJECT", "FROM", "SENT", "DATE", "REPLY",
+			"PRIORITY", "LOW", "MEDIUM", "NORMAL",
+			"OPEN", "CLOSED", "RESOLVED", "ACTIVE",
+			"BLOCKED", "DRAFT", "FINAL", "TOTAL",
+		}
+		for _, label := range labels {
+			assert.False(t, isValidAcronym(label), "Common label %s should be excluded", label)
+		}
+	})
+
+	t.Run("generic short terms are excluded", func(t *testing.T) {
+		shortTerms := []string{"ID", "IP", "DD"}
+		for _, term := range shortTerms {
+			assert.False(t, isValidAcronym(term), "Generic short term %s should be excluded", term)
+		}
+	})
+
+	t.Run("real acronyms still pass validation", func(t *testing.T) {
+		// Genuine domain acronyms should NOT be affected by the blocklist
+		realAcronyms := []string{"CLIC", "TRR", "NLB", "ECMP", "PACE", "PLT", "MTC", "ETG"}
+		for _, acronym := range realAcronyms {
+			assert.True(t, isValidAcronym(acronym), "Real acronym %s should still pass", acronym)
+		}
+	})
+
+	t.Run("calendar invite content does not produce noise", func(t *testing.T) {
+		// Simulate iCalendar content leaking into email body
+		icsContent := `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Google Inc//Google Calendar 70.9054//EN
+CALSCALE:GREGORIAN
+METHOD:REQUEST
+BEGIN:VEVENT
+DTSTART:20260301T100000Z
+DTEND:20260301T110000Z
+SUMMARY:Team Standup
+LOCATION:Conference Room
+ORGANIZER:alice@example.com
+ATTENDEE:bob@example.com
+STATUS:CONFIRMED
+SEQUENCE:0
+END:VEVENT
+END:VCALENDAR`
+
+		matches := acronymPattern.FindAllString(icsContent, -1)
+		for _, match := range matches {
+			if isValidAcronym(match) {
+				// Any match that passes validation should NOT be an iCalendar field
+				icalFields := map[string]bool{
+					"BEGIN": true, "VCALENDAR": true, "VERSION": true, "PRODID": true,
+					"CALSCALE": true, "GREGORIAN": true, "METHOD": true, "REQUEST": true,
+					"VEVENT": true, "DTSTART": true, "DTEND": true, "SUMMARY": true,
+					"LOCATION": true, "ORGANIZER": true, "ATTENDEE": true, "STATUS": true,
+					"CONFIRMED": true, "SEQUENCE": true, "END": true,
+				}
+				assert.False(t, icalFields[match], "iCalendar field %s leaked through validation", match)
+			}
+		}
+	})
+}
+
+// TestBug_pf2fa741_EntityExistenceCheck tests the termMatchesExistingEntity method.
+// The acronym detector should skip terms that match existing entities.
+func TestBug_pf2fa741_EntityExistenceCheck(t *testing.T) {
+	t.Run("termMatchesExistingEntity returns false when pool is nil", func(t *testing.T) {
+		repo := &PersistRepo{
+			logger: logging.NewLogger(&logging.Config{Level: logging.LevelError}),
+			// pool is nil
+		}
+		exists, err := repo.termMatchesExistingEntity(context.Background(), "tenant-1", "CLIC")
+		assert.NoError(t, err)
+		assert.False(t, exists, "Should return false when pool is nil")
+	})
+}

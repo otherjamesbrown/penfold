@@ -797,6 +797,8 @@ var commonAcronymExclusions = map[string]bool{
 	"TBD": true, "TBA": true, "FYI": true, "ASAP": true, "NOTE": true,
 	"TODO": true, "DONE": true, "NONE": true, "NULL": true,
 	"FW": true, "CC": true, "BCC": true,
+	// Short generic terms
+	"ID": true, "IP": true, "DD": true,
 	// Geography/regions
 	"USA": true, "CA": true, "NY": true, "UK": true, "EU": true,
 	// Time zones
@@ -811,6 +813,28 @@ var commonAcronymExclusions = map[string]bool{
 	// Other
 	"PDF": true, "FAQ": true, "ETA": true, "AKA": true, "RFP": true,
 	"RFI": true, "NDA": true, "EOD": true, "WFH": true,
+	// iCalendar/MIME field names (leak from .ics attachments and calendar invites)
+	"DTSTART": true, "DTEND": true, "VCALENDAR": true, "VEVENT": true,
+	"BEGIN": true, "END": true, "METHOD": true, "SUMMARY": true,
+	"ATTENDEE": true, "ORGANIZER": true, "LOCATION": true, "VERSION": true,
+	"RRULE": true, "VALARM": true, "VTIMEZONE": true, "PRODID": true,
+	"CALSCALE": true, "SEQUENCE": true, "STATUS": true, "TRANSP": true,
+	"TRIGGER": true, "ACTION": true, "DESCRIPTION": true, "DURATION": true,
+	"FREQ": true, "UNTIL": true, "COUNT": true, "INTERVAL": true,
+	"BYDAY": true, "BYMONTH": true, "VTODO": true, "VJOURNAL": true,
+	"VFREEBUSY": true, "DTSTAMP": true, "CREATED": true, "EXDATE": true,
+	"RDATE": true, "TZID": true, "TZNAME": true,
+	"GREGORIAN": true, "CONFIRMED": true, "TENTATIVE": true, "CANCELLED": true,
+	// Common English words/labels that appear uppercase in email formatting
+	"URGENT": true, "HIGH": true, "ISSUE": true, "DECISION": true,
+	"RISK": true, "TRUE": true, "REQUEST": true, "FALSE": true,
+	"IMPORTANT": true, "CRITICAL": true, "WARNING": true, "NOTICE": true,
+	"PENDING": true, "APPROVED": true, "REJECTED": true, "REQUIRED": true,
+	"OPTIONAL": true, "UPDATE": true, "REVIEW": true, "SUBJECT": true,
+	"FROM": true, "SENT": true, "DATE": true, "REPLY": true,
+	"PRIORITY": true, "LOW": true, "MEDIUM": true, "NORMAL": true,
+	"OPEN": true, "CLOSED": true, "RESOLVED": true, "ACTIVE": true,
+	"BLOCKED": true, "DRAFT": true, "FINAL": true, "TOTAL": true,
 }
 
 // properNounExclusions contains CamelCase words that are proper nouns, not acronyms.
@@ -968,6 +992,17 @@ func (r *PersistRepo) detectAndCreateAcronymQuestions(ctx context.Context, input
 			}
 		}
 
+		// Skip if term matches an existing entity (topic, person, team, product, project)
+		entityMatch, err := r.termMatchesExistingEntity(ctx, input.TenantID, normalizedTerm)
+		if err != nil {
+			logger.Warn("Failed to check entities for acronym",
+				logging.F("term", normalizedTerm), logging.Err(err))
+			continue
+		}
+		if entityMatch {
+			continue // Already exists as an entity
+		}
+
 		// Create review queue item (CreateIfNotExists handles dedup)
 		aq := reviewqueue.AcronymQuestion{
 			Term:       normalizedTerm,
@@ -1087,6 +1122,34 @@ func (r *PersistRepo) collectStage2Texts(ctx context.Context, sourceID int64) []
 		logging.F("text_count", len(texts)))
 
 	return texts
+}
+
+// termMatchesExistingEntity checks if a term matches any existing entity name
+// (topic, person, team, product, or project) within the tenant. This prevents
+// queuing acronym review items for terms that already exist as known entities.
+func (r *PersistRepo) termMatchesExistingEntity(ctx context.Context, tenantID, term string) (bool, error) {
+	if r.pool == nil {
+		return false, nil
+	}
+
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM topics WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
+			UNION ALL
+			SELECT 1 FROM people WHERE tenant_id = $1 AND LOWER(canonical_name) = LOWER($2)
+			UNION ALL
+			SELECT 1 FROM teams WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
+			UNION ALL
+			SELECT 1 FROM products WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
+			UNION ALL
+			SELECT 1 FROM projects WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
+		)
+	`, tenantID, term).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check entity exists for term %q: %w", term, err)
+	}
+	return exists, nil
 }
 
 // createEntityReviewItems creates review queue items for auto-created entities that need review.
