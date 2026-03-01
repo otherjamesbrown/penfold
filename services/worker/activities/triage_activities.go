@@ -89,47 +89,7 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		return nil, ctx.Err()
 	}
 
-	// Classify content subtype BEFORE validating content (Stage 0.5 - before AI triage)
-	// This allows us to handle metadata-only calendar invites with empty body
-	// This runs for all content types but is most useful for emails
-	var subtype enrichment.ContentSubtype
-	if a.enrichmentRepo != nil && input.SourceID > 0 {
-		subtype = enrichment.ClassifyContentSubtype(
-			input.Headers,
-			input.SenderEmail,
-			input.Subject,
-			nil, // TODO: Load tenant patterns from config if needed
-		)
-
-		logger.Info("Content subtype classified",
-			logging.F("subtype", string(subtype)),
-			logging.F("source_id", input.SourceID),
-		)
-
-		// Update the enrichment record with the classified subtype
-		// This is a best-effort update; don't fail the activity if it fails
-		if enrichmentRec, err := a.enrichmentRepo.GetBySourceID(ctx, input.SourceID); err == nil && enrichmentRec != nil {
-			enrichmentRec.ContentSubtype = string(subtype)
-			if updateErr := a.enrichmentRepo.Update(ctx, enrichmentRec); updateErr != nil {
-				logger.Warn("Failed to update enrichment subtype",
-					logging.Err(updateErr),
-					logging.F("source_id", input.SourceID),
-				)
-			} else {
-				logger.Info("Updated enrichment subtype",
-					logging.F("source_id", input.SourceID),
-					logging.F("subtype", string(subtype)),
-				)
-			}
-		} else if err != nil {
-			logger.Warn("Failed to fetch enrichment for subtype update",
-				logging.Err(err),
-				logging.F("source_id", input.SourceID),
-			)
-		}
-	}
-
-	// Classify source system using rule engine (replaces ClassifySourceSystem in pipeline.go)
+	// Classify via rule engine (data-driven, replaces ClassifySourceSystem and ClassifyContentSubtype)
 	var sourceSystem string
 	var routingContentType, routingSubtype string
 	var matchedPipelines []string
@@ -186,25 +146,30 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 		}
 	}
 
-	// Override content_subtype from rule engine (pf-2d512a).
-	// The rule engine taxonomy (HUMAN, NEWSLETTER, NOTIFICATION, etc.) is more authoritative
-	// than the heuristic classifier (standalone, forward, etc.). When the rule engine runs,
-	// always use its result — including the default HUMAN for unmatched items.
+	// Set content_subtype from rule engine (pf-0122be).
+	// The rule engine taxonomy (HUMAN, NEWSLETTER, NOTIFICATION, etc.) is the authoritative
+	// classification source, replacing the legacy ClassifyContentSubtype heuristic.
+	// When the rule engine is not available, default to HUMAN.
+	var subtype enrichment.ContentSubtype
 	if ruleEngineSubtype != "" {
 		subtype = enrichment.ContentSubtype(ruleEngineSubtype)
-		logger.Info("Content subtype overridden by rule engine",
-			logging.F("subtype", string(subtype)),
-		)
+	} else {
+		subtype = enrichment.ContentSubtype("HUMAN")
+	}
+	logger.Info("Content subtype classified",
+		logging.F("subtype", string(subtype)),
+		logging.F("source_id", input.SourceID),
+	)
 
-		// Update the enrichment record with the rule engine's subtype
-		if a.enrichmentRepo != nil && input.SourceID > 0 {
-			if enrichmentRec, err := a.enrichmentRepo.GetBySourceID(ctx, input.SourceID); err == nil && enrichmentRec != nil {
-				enrichmentRec.ContentSubtype = string(subtype)
-				if updateErr := a.enrichmentRepo.Update(ctx, enrichmentRec); updateErr != nil {
-					logger.Warn("Failed to update enrichment subtype from rule engine",
-						logging.Err(updateErr),
-					)
-				}
+	// Update the enrichment record with the classified subtype (best-effort)
+	if a.enrichmentRepo != nil && input.SourceID > 0 {
+		if enrichmentRec, err := a.enrichmentRepo.GetBySourceID(ctx, input.SourceID); err == nil && enrichmentRec != nil {
+			enrichmentRec.ContentSubtype = string(subtype)
+			if updateErr := a.enrichmentRepo.Update(ctx, enrichmentRec); updateErr != nil {
+				logger.Warn("Failed to update enrichment subtype",
+					logging.Err(updateErr),
+					logging.F("source_id", input.SourceID),
+				)
 			}
 		}
 	}
@@ -245,10 +210,10 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 
 	// Handle auto-reply emails (pf-64dcc4)
 	// Auto-replies are system-generated messages with no meaningful content contribution.
-	// Detect by subject prefix "automatic reply:" (case-insensitive), matching the same
-	// heuristic used by ClassifySourceSystem in pkg/enrichment/classification/source_system.go.
+	// Detection: rule engine classifies as AUTO_REPLY, with subject prefix fallback for
+	// cases where the rule engine is unavailable (e.g. classificationRepo is nil).
 	// Short-circuit before the AI call to avoid the LLM mis-classifying OOO body text.
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(input.Subject)), "automatic reply:") {
+	if ruleEngineSubtype == "AUTO_REPLY" || strings.HasPrefix(strings.ToLower(strings.TrimSpace(input.Subject)), "automatic reply:") {
 		logger.Info("Auto-reply email detected, skipping AI triage",
 			logging.F("subject", input.Subject),
 		)

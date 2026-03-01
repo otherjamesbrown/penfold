@@ -11,6 +11,10 @@ type SubtypePattern struct {
 	Priority    int
 }
 
+// Deprecated: ClassifyContentSubtype is superseded by the data-driven classification rule engine
+// in pkg/enrichment/classification/engine.go (pf-0122be). New code should use the rule engine
+// via classification.Repository.LoadRules() + classification.Engine.Classify().
+//
 // ClassifyContentSubtype determines the content subtype based on headers, from address,
 // and subject line. It uses both hardcoded default patterns and optional tenant-specific patterns.
 //

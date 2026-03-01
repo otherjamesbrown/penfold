@@ -452,9 +452,8 @@ func TestTriage_ContentContribution_MissingFields(t *testing.T) {
 //
 // Bug: An auto-reply email (subject "Automatic reply: ...") is classified as MEDIUM
 // contribution by the LLM triage activity because the Triage activity calls the AI
-// without first checking whether the email is an auto-reply. ClassifySourceSystem
-// (which detects "Automatic reply:" subjects) runs at pipeline.go line ~1185, well
-// AFTER the AI triage call at line ~916. By then the MEDIUM label is already committed.
+// without first checking whether the email is an auto-reply. The auto-reply detection
+// (now via rule engine or subject-prefix fallback) must run BEFORE the AI call.
 //
 // Expected (after fix): The Triage activity should detect the "Automatic reply:" subject
 // prefix, skip the AI call, and return ContentContribution = "NONE" (or "LOW") without
@@ -483,9 +482,8 @@ func TestTriage_AutoReply_ShortCircuit_pf64dcc4(t *testing.T) {
 	activities := NewTriageActivities(logger, mockClient, nil, nil, nil)
 
 	// Email em-w4XTS5St: Mark Henry out-of-office auto-reply.
-	// The subject prefix "Automatic reply:" is the canonical signal used by
-	// ClassifySourceSystem (pkg/enrichment/classification/source_system.go priority 6)
-	// to detect auto-replies. The triage activity must honour the same signal.
+	// The subject prefix "Automatic reply:" is the canonical signal for auto-reply detection,
+	// now handled by the rule engine (auto_reply rule, priority 60) or subject-prefix fallback.
 	input := TriageInput{
 		TenantID:    "test-tenant",
 		SourceID:    99999,
@@ -515,14 +513,12 @@ func TestTriage_AutoReply_ShortCircuit_pf64dcc4(t *testing.T) {
 	validAutoReplyContributions := []string{"NONE", "LOW"}
 	require.Contains(t, validAutoReplyContributions, output.ContentContribution,
 		"bug pf-64dcc4: auto-reply email got ContentContribution=%q, want NONE or LOW. "+
-			"The LLM classified the body as MEDIUM because ClassifySourceSystem runs after triage. "+
-			"The fix must detect 'Automatic reply:' in the Triage activity itself.",
+			"The auto-reply short-circuit must detect 'Automatic reply:' before the LLM call.",
 		output.ContentContribution)
 }
 
 // TestTriage_AutoReply_CaseInsensitive_pf64dcc4 verifies the auto-reply short-circuit
-// is case-insensitive, matching the behaviour of ClassifySourceSystem which lowercases
-// the subject before checking HasPrefix("automatic reply:").
+// is case-insensitive, matching the rule engine's case-insensitive condition matching.
 func TestTriage_AutoReply_CaseInsensitive_pf64dcc4(t *testing.T) {
 	logger := logging.NewNopLogger()
 
@@ -562,7 +558,7 @@ func TestTriage_AutoReply_CaseInsensitive_pf64dcc4(t *testing.T) {
 	// FAILS on unpatched code.
 	require.False(t, aiCalled,
 		"bug pf-64dcc4 (case-insensitive): AI called for an all-caps 'AUTOMATIC REPLY:' subject. "+
-			"Detection must be case-insensitive to match ClassifySourceSystem behaviour.")
+			"Detection must be case-insensitive.")
 
 	validAutoReplyContributions := []string{"NONE", "LOW"}
 	require.Contains(t, validAutoReplyContributions, output.ContentContribution,
@@ -1043,13 +1039,28 @@ func TestTriage_NotificationContributionCap(t *testing.T) {
 		},
 	}
 
-	// Provide a mock enrichmentRepo so subtype classification runs.
+	// Provide rule engine with jira notification rule (pf-0122be: classification is data-driven)
+	mockClassRepo := &mockClassificationRepo{
+		loadRulesFn: func(ctx context.Context, tenantID string) ([]classification.ClassificationRule, error) {
+			return []classification.ClassificationRule{
+				{
+					ID: 1, Name: "jira", Priority: 10, Active: true,
+					ContentTypeScope: "EMAIL",
+					ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+					NotificationSource: "jira",
+					Conditions: []classification.MatchCondition{
+						{Field: "from_address", MatchType: "contains", Value: "jira"},
+					},
+				},
+			}, nil
+		},
+	}
 	mockEnrichment := &mockEnrichmentRepository{
 		getBySourceIDFn: func(ctx context.Context, sourceID int64) (*EnrichmentRecord, error) {
 			return &EnrichmentRecord{SourceID: sourceID}, nil
 		},
 	}
-	activities := NewTriageActivities(logger, mockClient, nil, mockEnrichment, nil)
+	activities := NewTriageActivities(logger, mockClient, nil, mockEnrichment, mockClassRepo)
 
 	input := TriageInput{
 		TenantID:    "test-tenant",
@@ -1074,10 +1085,8 @@ func TestTriage_NotificationContributionCap(t *testing.T) {
 	require.Equal(t, "PROJECT_UPDATE", output.Category)
 	require.Equal(t, "MEDIUM", output.Importance)
 
-	// Content subtype should be notification/jira from heuristic classifier
-	// (no classificationRepo configured in this test, so rule engine doesn't run)
-	require.True(t, strings.HasPrefix(output.ContentSubtype, "notification/"),
-		"expected notification subtype, got %s", output.ContentSubtype)
+	// Content subtype should be NOTIFICATION from rule engine
+	require.Equal(t, "NOTIFICATION", output.ContentSubtype)
 }
 
 // mockClassificationRepo is a mock for ClassificationRepository.
@@ -1184,7 +1193,7 @@ func TestTriage_RuleEngineOverridesContentSubtype_pf2d512a(t *testing.T) {
 				},
 			}
 
-			// Provide enrichmentRepo so the heuristic classifier runs (for fallback case)
+			// Provide enrichmentRepo so the enrichment record gets updated
 			mockEnrichment := &mockEnrichmentRepository{
 				getBySourceIDFn: func(ctx context.Context, sourceID int64) (*EnrichmentRecord, error) {
 					return &EnrichmentRecord{SourceID: sourceID}, nil
