@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/mark3labs/mcp-go/mcp"
 	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
-	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/intelligence/v1/relationshippb"
+	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
 )
 
 // entitiesToolset builds the entities toolset with tools for searching,

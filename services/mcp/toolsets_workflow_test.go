@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/intelligence/v1/glossarypb"
-	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/processing/v1/reviewpb"
+	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
+	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
 	topicv1 "github.com/otherjamesbrown/penfold/api/proto/topic/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

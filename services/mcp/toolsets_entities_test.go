@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
-	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/intelligence/v1/relationshippb"
+	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )

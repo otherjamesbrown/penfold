@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/mark3labs/mcp-go/mcp"
 	assertionsv1 "github.com/otherjamesbrown/penfold/api/proto/assertions/v1"
-	aiv1 "github.com/otherjamesbrown/penfold/api/proto/intelligence/v1/aipb"
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	projectv1 "github.com/otherjamesbrown/penfold/api/proto/project/v1"
 )
 
