@@ -103,27 +103,28 @@ func main() {
 		totalTools += len(ts.Tools)
 	}
 
-	// Build the toolset manager first so we can get its hooks.
-	tm := NewToolsetManager(nil, toolsets) // mcpServer set below after hooks are wired
-	tm.RegisterHooks()
+	// Build the toolset manager.
+	tm := NewToolsetManager(nil, toolsets)
 
 	mcpServer := server.NewMCPServer(
 		"penfold",
 		"0.1.0",
 		server.WithToolCapabilities(true),
-		server.WithHooks(tm.Hooks()),
 		server.WithInstructions(serverInstructions),
 	)
 
-	// Wire the server back into the manager now that it exists.
+	// Wire the server into the manager and register all tools globally.
+	// Stateless mode: every request is independent, no session persistence.
 	tm.mcpServer = mcpServer
-
-	// Register global tools (meta-tools + health).
+	if err := tm.RegisterAllGlobally(); err != nil {
+		slog.Error("failed to register tools", "error", err)
+		os.Exit(1)
+	}
 	tm.RegisterMetaTools()
 	registerHealthTool(mcpServer, gatewayClient)
 	metaToolCount := 5 // 4 meta-tools + health
 
-	httpServer := server.NewStreamableHTTPServer(mcpServer)
+	httpServer := server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true))
 
 	// Wrap with bearer token auth if configured.
 	var handler http.Handler = httpServer

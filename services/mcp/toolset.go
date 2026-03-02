@@ -255,6 +255,28 @@ func (tm *ToolsetManager) GetToolsetTools(name string) ([]ToolInfo, error) {
 	return infos, nil
 }
 
+// RegisterAllGlobally registers every tool from every toolset as global tools
+// on the MCP server. Use this in stateless mode where session-scoped tools
+// don't work (e.g. Cowork creates a new session per request).
+func (tm *ToolsetManager) RegisterAllGlobally() error {
+	for _, ts := range tm.toolsets {
+		for _, def := range ts.Tools {
+			schemaJSON, err := buildToolSchema(def)
+			if err != nil {
+				return fmt.Errorf("build schema for tool %q: %w", def.Name, err)
+			}
+			tool := mcp.NewToolWithRawSchema(def.Name, def.Description, schemaJSON)
+			tool.Annotations = def.Annotations
+			tm.mcpServer.AddTool(tool, withLogging(def.Name, ts.Name, def.Handler))
+		}
+		slog.Info("toolset_registered_globally",
+			"toolset", ts.Name,
+			"tools", len(ts.Tools),
+		)
+	}
+	return nil
+}
+
 // isEnabled reports whether a toolset is currently enabled for the given session.
 func (tm *ToolsetManager) isEnabled(sessionID, toolsetName string) bool {
 	tm.mu.RLock()
