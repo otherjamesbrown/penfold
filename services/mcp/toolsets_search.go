@@ -78,7 +78,7 @@ func searchToolset(
 				Handler: grpcHandler(
 					func() *contentv1.GetContentTextRequest { return &contentv1.GetContentTextRequest{} },
 					contentClient.GetContentText,
-					DefaultFormatter(),
+					FullTextFormatter(),
 				),
 				Annotations: readOnly,
 			},

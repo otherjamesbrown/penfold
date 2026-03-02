@@ -37,6 +37,22 @@ func DefaultFormatter() ResponseFormatter {
 	}
 }
 
+// FullTextFormatter returns a ResponseFormatter that marshals without truncation.
+// Use for tools like penfold_get_content_text where the full body is the point.
+func FullTextFormatter() ResponseFormatter {
+	return func(resp proto.Message) (*mcp.CallToolResult, error) {
+		data, err := marshalProto(resp)
+		if err != nil {
+			return nil, err
+		}
+		out, err := json.MarshalIndent(data, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("format response: %w", err)
+		}
+		return mcp.NewToolResultText(string(out)), nil
+	}
+}
+
 // ListFormatter returns a ResponseFormatter like DefaultFormatter but also
 // truncates any top-level array field to maxResults elements, appending a
 // note about the total count and how to get more results.
