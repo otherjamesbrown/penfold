@@ -175,13 +175,19 @@ func main() {
 
 func bearerAuthMiddleware(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
+		var provided string
+
+		// Check Authorization header first.
+		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			provided = strings.TrimPrefix(auth, "Bearer ")
 		}
-		provided := strings.TrimPrefix(auth, "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
+
+		// Fall back to ?token= query parameter (for clients that can't set headers).
+		if provided == "" {
+			provided = r.URL.Query().Get("token")
+		}
+
+		if provided == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
