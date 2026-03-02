@@ -12,9 +12,20 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	assertionsv1 "github.com/otherjamesbrown/penfold/api/proto/assertions/v1"
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
+	conversationv1 "github.com/otherjamesbrown/penfold/api/proto/conversation/v1"
+	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	gatewayv1 "github.com/otherjamesbrown/penfold/api/proto/gateway/v1"
+	ingestv1 "github.com/otherjamesbrown/penfold/api/proto/ingest/v1"
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/intelligence/v1/aipb"
+	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/intelligence/v1/glossarypb"
+	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/intelligence/v1/relationshippb"
+	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
+	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/processing/v1/reviewpb"
+	projectv1 "github.com/otherjamesbrown/penfold/api/proto/project/v1"
+	qualityv1 "github.com/otherjamesbrown/penfold/api/proto/quality/v1"
 	searchv1 "github.com/otherjamesbrown/penfold/api/proto/search/v1"
 	threadsv1 "github.com/otherjamesbrown/penfold/api/proto/threads/v1"
+	topicv1 "github.com/otherjamesbrown/penfold/api/proto/topic/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -60,16 +71,26 @@ func main() {
 	assertionsClient := assertionsv1.NewAssertionsServiceClient(conn)
 	contentClient := contentv1.NewContentProcessorServiceClient(conn)
 	threadsClient := threadsv1.NewThreadsServiceClient(conn)
+	aiClient := aiv1.NewAICoordinatorServiceClient(conn)
+	projectClient := projectv1.NewProjectServiceClient(conn)
+	entityClient := entityv1.NewEntityManagementServiceClient(conn)
+	relationshipClient := relationshipv1.NewRelationshipServiceClient(conn)
+	ingestClient := ingestv1.NewIngestServiceClient(conn)
+	pipelineClient := pipelinev1.NewPipelineServiceClient(conn)
+	qualityClient := qualityv1.NewQualityServiceClient(conn)
+	reviewClient := reviewv1.NewReviewServiceClient(conn)
+	glossaryClient := glossaryv1.NewGlossaryServiceClient(conn)
+	topicClient := topicv1.NewTopicServiceClient(conn)
+	conversationClient := conversationv1.NewConversationServiceClient(conn)
 
-	// Define available toolsets. The search toolset is fully wired;
-	// remaining toolsets are stubs for future phases.
+	// Define available toolsets — all wired to gRPC backends.
 	toolsets := []*Toolset{
 		searchToolset(searchClient, assertionsClient, contentClient, threadsClient),
-		{Name: "knowledge", Description: "Access assertions, relationships, and extracted knowledge"},
-		{Name: "entities", Description: "Browse and search people, organizations, and other entities"},
-		{Name: "content", Description: "Read full email text, threads, and document content"},
-		{Name: "ops", Description: "System operations — health checks, stats, diagnostics"},
-		{Name: "workflow", Description: "Pipeline monitoring and content processing status"},
+		knowledgeToolset(aiClient, projectClient, assertionsClient),
+		entitiesToolset(entityClient, relationshipClient),
+		contentToolset(ingestClient, contentClient, pipelineClient, conversationClient),
+		opsToolset(pipelineClient, searchClient, qualityClient),
+		workflowToolset(reviewClient, glossaryClient, topicClient),
 	}
 
 	// Count total tools across all toolsets.
