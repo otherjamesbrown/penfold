@@ -96,16 +96,23 @@ bin/
 
 # Build artifacts
 main
-services/gateway/gateway
-services/gateway/gateway-linux
-services/gateway/main
-services/worker/worker
 *.test
 storage.test
-services/worker/worker-darwin-arm64
-services/worker/worker-darwin
-services/ai/ai-coordinator-linux
-/ai-coordinator-darwin-arm64
-/worker
-/worker-darwin-arm64
 .claude/worktrees/
+
+# Cross-compiled deploy binaries
+*-linux
+*-darwin-arm64
+*-darwin
+
+# Service build outputs
+/gateway
+/worker
+/penf
+/mcp
+/cmd/penf/penf
+/penfold-worker
+services/gateway/gateway
+services/gateway/main
+services/worker/worker
+services/mcp/penfold-mcp
