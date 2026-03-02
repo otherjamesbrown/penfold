@@ -74,6 +74,19 @@ func (tm *ToolsetManager) RegisterHooks() {
 		tm.mu.Lock()
 		tm.sessions[sessionID] = make(map[string]bool)
 		tm.mu.Unlock()
+
+		// Auto-enable all toolsets for new sessions so stateless clients
+		// (like Cowork) that create a new session per request can call
+		// tools without a separate enable step.
+		for name := range tm.toolsets {
+			if err := tm.EnableToolset(ctx, name); err != nil {
+				slog.Warn("auto_enable_toolset_failed",
+					"toolset", name,
+					"session_id", sessionID,
+					"error", err,
+				)
+			}
+		}
 	})
 
 	tm.hooks.AddOnUnregisterSession(func(ctx context.Context, session server.ClientSession) {
