@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/mark3labs/mcp-go/server"
 	assertionsv1 "github.com/otherjamesbrown/penfold/api/proto/assertions/v1"
@@ -121,6 +125,26 @@ func main() {
 
 	httpServer := server.NewStreamableHTTPServer(mcpServer)
 
+	// Wrap with bearer token auth if configured.
+	var handler http.Handler = httpServer
+	bearerToken := os.Getenv("MCP_BEARER_TOKEN")
+	if bearerToken != "" {
+		handler = bearerAuthMiddleware(bearerToken, handler)
+		slog.Info("bearer token auth enabled")
+	} else {
+		slog.Warn("MCP_BEARER_TOKEN not set, running without auth")
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", handler)
+
+	srv := &http.Server{
+		Addr:         listenAddr,
+		Handler:      mux,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+	}
+
 	slog.Info("penfold-mcp starting",
 		"listen", listenAddr,
 		"gateway", gatewayAddr,
@@ -133,7 +157,7 @@ func main() {
 	defer stop()
 
 	go func() {
-		if err := httpServer.Start(listenAddr); err != nil {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 			os.Exit(1)
 		}
@@ -142,8 +166,27 @@ func main() {
 	<-ctx.Done()
 	slog.Info("shutting down")
 	if err := httpServer.Shutdown(context.Background()); err != nil {
-		slog.Error("shutdown error", "error", err)
+		slog.Error("mcp session cleanup error", "error", err)
 	}
+	if err := srv.Shutdown(context.Background()); err != nil {
+		slog.Error("http server shutdown error", "error", err)
+	}
+}
+
+func bearerAuthMiddleware(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		provided := strings.TrimPrefix(auth, "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func boolPtr(b bool) *bool { return &b }
