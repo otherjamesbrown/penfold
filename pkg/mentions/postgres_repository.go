@@ -28,9 +28,10 @@ func (r *PostgresRepository) CreateMention(ctx context.Context, input MentionInp
 	query := `
 		INSERT INTO content_mentions (
 			tenant_id, content_id, entity_type, mentioned_text,
-			position, context_snippet, project_context_id, status, candidates
+			position, context_snippet, project_context_id, status, candidates,
+			participation_role, via_group_entity_id
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, 'pending', '[]'::jsonb
+			$1, $2, $3, $4, $5, $6, $7, 'pending', '[]'::jsonb, $8, $9
 		)
 		RETURNING id, created_at
 	`
@@ -48,6 +49,8 @@ func (r *PostgresRepository) CreateMention(ctx context.Context, input MentionInp
 		input.Position,
 		nullableString(input.ContextSnippet),
 		input.ProjectContextID,
+		input.ParticipationRole,
+		input.ViaGroupEntityID,
 	).Scan(&id, &createdAt)
 
 	if err != nil {
@@ -55,17 +58,19 @@ func (r *PostgresRepository) CreateMention(ctx context.Context, input MentionInp
 	}
 
 	return &ContentMention{
-		ID:               id,
-		TenantID:         tenantID,
-		ContentID:        input.ContentID,
-		EntityType:       input.EntityType,
-		MentionedText:    input.MentionedText,
-		Position:         input.Position,
-		ContextSnippet:   input.ContextSnippet,
-		ProjectContextID: input.ProjectContextID,
-		Status:           MentionStatusPending,
-		Candidates:       []Candidate{},
-		CreatedAt:        createdAt,
+		ID:                id,
+		TenantID:          tenantID,
+		ContentID:         input.ContentID,
+		EntityType:        input.EntityType,
+		MentionedText:     input.MentionedText,
+		Position:          input.Position,
+		ContextSnippet:    input.ContextSnippet,
+		ProjectContextID:  input.ProjectContextID,
+		ParticipationRole: input.ParticipationRole,
+		ViaGroupEntityID:  input.ViaGroupEntityID,
+		Status:            MentionStatusPending,
+		Candidates:        []Candidate{},
+		CreatedAt:         createdAt,
 	}, nil
 }
 
@@ -623,6 +628,7 @@ func (r *PostgresRepository) BatchCreateMentions(ctx context.Context, inputs []M
 	columns := []string{
 		"id", "tenant_id", "content_id", "entity_type", "mentioned_text",
 		"position", "context_snippet", "project_context_id", "status", "candidates", "created_at",
+		"participation_role", "via_group_entity_id",
 	}
 
 	_, err = tx.CopyFrom(
@@ -643,6 +649,8 @@ func (r *PostgresRepository) BatchCreateMentions(ctx context.Context, inputs []M
 				string(MentionStatusPending), // status
 				[]byte("[]"),                 // candidates (empty JSONB array)
 				now,                          // created_at
+				input.ParticipationRole,      // participation_role
+				input.ViaGroupEntityID,       // via_group_entity_id (can be nil)
 			}, nil
 		}),
 	)
@@ -658,17 +666,19 @@ func (r *PostgresRepository) BatchCreateMentions(ctx context.Context, inputs []M
 	mentions := make([]ContentMention, len(inputs))
 	for i, input := range inputs {
 		mentions[i] = ContentMention{
-			ID:               firstID + int64(i),
-			TenantID:         tenantID,
-			ContentID:        input.ContentID,
-			EntityType:       input.EntityType,
-			MentionedText:    input.MentionedText,
-			Position:         input.Position,
-			ContextSnippet:   input.ContextSnippet,
-			ProjectContextID: input.ProjectContextID,
-			Status:           MentionStatusPending,
-			Candidates:       []Candidate{},
-			CreatedAt:        now,
+			ID:                firstID + int64(i),
+			TenantID:          tenantID,
+			ContentID:         input.ContentID,
+			EntityType:        input.EntityType,
+			MentionedText:     input.MentionedText,
+			Position:          input.Position,
+			ContextSnippet:    input.ContextSnippet,
+			ProjectContextID:  input.ProjectContextID,
+			ParticipationRole: input.ParticipationRole,
+			ViaGroupEntityID:  input.ViaGroupEntityID,
+			Status:            MentionStatusPending,
+			Candidates:        []Candidate{},
+			CreatedAt:         now,
 		}
 	}
 

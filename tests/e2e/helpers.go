@@ -261,6 +261,7 @@ func (env *E2EEnv) CleanupTestTenant() error {
 		"link_enrichment",             // -> extracted_links
 		"person_aliases",              // -> people
 		"team_members",                // -> teams, people
+		"entity_group_members",        // -> people (group membership)
 		"assertion_references",        // -> assertions
 		"watch_list",                  // -> assertions, projects
 		"resolution_decisions",        // -> resolution_trace_stages

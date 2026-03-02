@@ -72,6 +72,10 @@ type ContentMention struct {
 	// Project context
 	ProjectContextID *int64 `json:"project_context_id,omitempty"`
 
+	// Participation role (0=UNSPECIFIED, 1=FROM, 2=TO, etc.)
+	ParticipationRole int32  `json:"participation_role,omitempty"`
+	ViaGroupEntityID  *int64 `json:"via_group_entity_id,omitempty"`
+
 	// Timestamps
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -176,12 +180,14 @@ type ResolutionResult struct {
 
 // MentionInput is used for creating a new mention.
 type MentionInput struct {
-	ContentID        int64      `json:"content_id"`
-	EntityType       EntityType `json:"entity_type"`
-	MentionedText    string     `json:"mentioned_text"`
-	Position         *int       `json:"position,omitempty"`
-	ContextSnippet   string     `json:"context_snippet,omitempty"`
-	ProjectContextID *int64     `json:"project_context_id,omitempty"`
+	ContentID         int64      `json:"content_id"`
+	EntityType        EntityType `json:"entity_type"`
+	MentionedText     string     `json:"mentioned_text"`
+	Position          *int       `json:"position,omitempty"`
+	ContextSnippet    string     `json:"context_snippet,omitempty"`
+	ProjectContextID  *int64     `json:"project_context_id,omitempty"`
+	ParticipationRole int32      `json:"participation_role,omitempty"`
+	ViaGroupEntityID  *int64     `json:"via_group_entity_id,omitempty"`
 }
 
 // ResolutionInput is used when resolving a mention.
