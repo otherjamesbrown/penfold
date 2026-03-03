@@ -334,7 +334,7 @@ func TestRegistry_List(t *testing.T) {
 			ID:        "mlx/embed",
 			Name:      "Embed",
 			Provider:  ProviderMLX,
-			ModelName: "nomic-embed-text",
+			ModelName: "mxbai-embed-large",
 			Capabilities: ModelCapabilities{
 				Capabilities: []Capability{CapabilityEmbedding},
 			},

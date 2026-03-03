@@ -451,8 +451,8 @@ func (a *AIActivities) getDefaultModel(task string, constraints ModelConstraints
 	switch strings.ToLower(task) {
 	case "embed", "embedding":
 		return &SelectModelOutput{
-			ModelID:   "nomic-embed-text",
-			ModelName: "Nomic Embed Text",
+			ModelID:   "mxbai-embed-large",
+			ModelName: "MxBAI Embed Large",
 			Provider:  "ollama",
 			IsLocal:   true,
 			Reasoning: "Default local embedding model",

@@ -135,7 +135,7 @@ message EmbeddingRequest {
 
   // The embedding model to use.
   // If not specified, the default model will be used.
-  // Examples: "nomic-embed-text", "text-embedding-3-small"
+  // Examples: "mxbai-embed-large", "text-embedding-3-small"
   optional string model = 2;
 
   // Optional tenant identifier for multi-tenancy support.
@@ -785,7 +785,7 @@ message ModelInfo {
   string provider = 9;
 
   // The provider's model identifier.
-  // Examples: "gpt-4-turbo", "nomic-embed-text", "gemini-1.5-pro"
+  // Examples: "gpt-4-turbo", "mxbai-embed-large", "gemini-1.5-pro"
   string model_name = 10;
 
   // Model version or variant.
@@ -916,7 +916,7 @@ message RegisterModelRequest {
   string provider = 2;
 
   // The provider's model identifier.
-  // Required. Examples: "gpt-4-turbo", "nomic-embed-text"
+  // Required. Examples: "gpt-4-turbo", "mxbai-embed-large"
   string model_name = 3;
 
   // The type of model.

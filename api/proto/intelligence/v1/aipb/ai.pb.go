@@ -219,7 +219,7 @@ type EmbeddingRequest struct {
 	Text string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
 	// The embedding model to use.
 	// If not specified, the default model will be used.
-	// Examples: "nomic-embed-text", "text-embedding-3-small"
+	// Examples: "mxbai-embed-large", "text-embedding-3-small"
 	Model *string `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
 	// Optional tenant identifier for multi-tenancy support.
 	TenantId      *string `protobuf:"bytes,3,opt,name=tenant_id,json=tenantId,proto3,oneof" json:"tenant_id,omitempty"`
@@ -1016,7 +1016,7 @@ func (x *ClassifyContentResponse) GetModelUsed() string {
 type ModelInfo struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Unique name/identifier for the model.
-	// Examples: "nomic-embed-text", "gemini-1.5-pro", "llama3.2"
+	// Examples: "mxbai-embed-large", "gemini-1.5-pro", "llama3.2"
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// The type of model.
 	Type ModelType `protobuf:"varint,2,opt,name=type,proto3,enum=penfold.intelligence.ai.v1.ModelType" json:"type,omitempty"`

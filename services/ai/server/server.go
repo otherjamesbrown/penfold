@@ -205,15 +205,56 @@ func extractLangfuseMetadata(ctx context.Context) (traceID, phaseID string) {
 	return traceID, phaseID
 }
 
+// resolveEmbeddingModel selects the embedding model using ai_routing_rules first,
+// falling back to the config-based resolveModel chain.
+// Returns the primary model, any fallback models from the routing rule, and the rule name.
+func (s *AIServer) resolveEmbeddingModel(ctx context.Context) (model string, fallbacks []string, ruleName string) {
+	// Primary path: DB-backed routing rules for embedding task type
+	if s.registry != nil {
+		rules, err := s.registry.GetRoutingRulesByTask(ctx, "embedding")
+		if err == nil && len(rules) > 0 {
+			rule := rules[0] // Highest priority (sorted by priority DESC)
+			if len(rule.PreferredModels) > 0 {
+				model = stripProviderPrefix(rule.PreferredModels[0])
+				for _, fb := range rule.FallbackModels {
+					fallbacks = append(fallbacks, stripProviderPrefix(fb))
+				}
+				s.logger.Debug("RoutingRule matched for embedding",
+					logging.F("rule_name", rule.Name),
+					logging.F("model", model),
+					logging.F("fallback_count", len(fallbacks)),
+				)
+				return model, fallbacks, rule.Name
+			}
+		} else if err != nil {
+			s.logger.Warn("Failed to query embedding routing rules, falling back to config",
+				logging.Err(err))
+		}
+	}
+
+	// Fallback: existing config-based resolution
+	return s.resolveModel(ctx, "embed"), nil, ""
+}
+
+// stripProviderPrefix removes the provider prefix from a model name.
+// e.g., "ollama/mxbai-embed-large" → "mxbai-embed-large"
+func stripProviderPrefix(model string) string {
+	if idx := strings.LastIndex(model, "/"); idx >= 0 {
+		return model[idx+1:]
+	}
+	return model
+}
+
 // GenerateEmbedding creates a vector embedding for the given text.
 // Used for semantic search and similarity matching.
 func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingRequest) (*aiv1.EmbeddingResponse, error) {
 	text := strings.TrimSpace(req.GetText())
 	model := req.GetModel()
 
-	// Resolve model: explicit request → DB config → stage env var → global default → hardcoded fallback
+	// Resolve model: explicit request → routing rules → DB config → stage env var → global default → hardcoded fallback
+	var fallbackModels []string
 	if model == "" {
-		model = s.resolveModel(ctx, "embed")
+		model, fallbackModels, _ = s.resolveEmbeddingModel(ctx)
 	}
 
 	// Start tracing span for the embedding generation.
@@ -240,6 +281,23 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 	}
 
 	result, err := s.backend.GenerateEmbedding(ctx, text, model)
+	if err != nil && len(fallbackModels) > 0 {
+		s.logger.Warn("Preferred embedding model failed, trying fallbacks",
+			logging.F("preferred_model", model),
+			logging.Err(err),
+		)
+		for _, fb := range fallbackModels {
+			result, err = s.backend.GenerateEmbedding(ctx, text, fb)
+			if err == nil {
+				model = fb
+				break
+			}
+			s.logger.Warn("Fallback embedding model also failed",
+				logging.F("model", fb),
+				logging.Err(err),
+			)
+		}
+	}
 	if err != nil {
 		s.logger.Error("GenerateEmbedding failed",
 			logging.F("text_length", len(text)),

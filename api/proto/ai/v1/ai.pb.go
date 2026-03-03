@@ -346,7 +346,7 @@ type EmbeddingRequest struct {
 	Text string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
 	// The embedding model to use.
 	// If not specified, the default model will be used.
-	// Examples: "nomic-embed-text", "text-embedding-3-small"
+	// Examples: "mxbai-embed-large", "text-embedding-3-small"
 	Model *string `protobuf:"bytes,2,opt,name=model,proto3,oneof" json:"model,omitempty"`
 	// Optional tenant identifier for multi-tenancy support.
 	TenantId *string `protobuf:"bytes,3,opt,name=tenant_id,json=tenantId,proto3,oneof" json:"tenant_id,omitempty"`
@@ -2820,7 +2820,7 @@ type ModelInfo struct {
 	// Provider name (e.g., "ollama", "openai", "google", "anthropic").
 	Provider string `protobuf:"bytes,9,opt,name=provider,proto3" json:"provider,omitempty"`
 	// The provider's model identifier.
-	// Examples: "gpt-4-turbo", "nomic-embed-text", "gemini-1.5-pro"
+	// Examples: "gpt-4-turbo", "mxbai-embed-large", "gemini-1.5-pro"
 	ModelName string `protobuf:"bytes,10,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
 	// Model version or variant.
 	Version *string `protobuf:"bytes,11,opt,name=version,proto3,oneof" json:"version,omitempty"`
@@ -3342,7 +3342,7 @@ type RegisterModelRequest struct {
 	// Required.
 	Provider string `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
 	// The provider's model identifier.
-	// Required. Examples: "gpt-4-turbo", "nomic-embed-text"
+	// Required. Examples: "gpt-4-turbo", "mxbai-embed-large"
 	ModelName string `protobuf:"bytes,3,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
 	// The type of model.
 	// Required.

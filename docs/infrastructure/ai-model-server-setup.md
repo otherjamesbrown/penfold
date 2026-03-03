@@ -144,7 +144,7 @@ ollama pull phi3:mini            # Fast, lightweight tasks
 ollama pull qwen2.5:7b           # Multi-project detection
 
 # Embedding models
-ollama pull nomic-embed-text     # Vector embeddings
+ollama pull mxbai-embed-large    # Vector embeddings
 
 # Specialized models
 ollama pull codellama:7b         # Technical content analysis
@@ -183,7 +183,7 @@ ollama rm <model_name>
 # llama3.1:8b     ~4.7GB
 # phi3:mini       ~2.2GB
 # qwen2.5:7b      ~4.4GB
-# nomic-embed     ~0.3GB
+# mxbai-embed-large ~0.7GB
 # codellama:7b    ~3.8GB
 ```
 
@@ -310,7 +310,7 @@ LOCAL_MODELS = {
     "entity_extraction": "qwen2.5:7b",
     "categorization": "phi3:mini",
     "technical_analysis": "codellama:7b",
-    "embedding": "nomic-embed-text",
+    "embedding": "mxbai-embed-large",
 }
 
 def select_model_for_task(task_type: str, content_type: str, content_size: int) -> str:
@@ -528,7 +528,7 @@ PENFOLD_DEFAULT_MODEL=llama3.1:8b
 PENFOLD_FAST_MODEL=phi3:mini
 PENFOLD_ENTITY_MODEL=qwen2.5:7b
 PENFOLD_TECHNICAL_MODEL=codellama:7b
-PENFOLD_EMBEDDING_MODEL=nomic-embed-text
+PENFOLD_EMBEDDING_MODEL=mxbai-embed-large
 
 # Escalation thresholds
 PENFOLD_CONFIDENCE_THRESHOLD=0.8
@@ -617,7 +617,7 @@ else
 fi
 
 # Check required models
-REQUIRED_MODELS=("llama3.1:8b" "phi3:mini" "qwen2.5:7b" "nomic-embed-text")
+REQUIRED_MODELS=("llama3.1:8b" "phi3:mini" "qwen2.5:7b" "mxbai-embed-large")
 for model in $REQUIRED_MODELS; do
     if ollama list | grep -q "$model"; then
         echo "[OK] Model $model available"
@@ -687,7 +687,7 @@ memory_pressure                           # Memory status
 | llama3.1:8b | 4.7GB | Primary processing |
 | phi3:mini | 2.2GB | Fast classification |
 | qwen2.5:7b | 4.4GB | Entity extraction |
-| nomic-embed-text | 0.3GB | Embeddings |
+| mxbai-embed-large | 0.7GB | Embeddings |
 | codellama:7b | 3.8GB | Technical content |
 
 **Total storage needed:** ~15GB for recommended models

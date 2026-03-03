@@ -31,7 +31,7 @@ The database contains:
 - **Assertions**: AI-extracted decisions, risks, commitments, milestones
 - **People**: Canonical person records with cross-tenant linking
 - **Projects**: Hierarchical project structure with timelines
-- **Embeddings**: 768-dimensional vectors (nomic-embed-text compatible)
+- **Embeddings**: 1024-dimensional vectors (mxbai-embed-large compatible)
 - **Processing state**: Events, jobs, subscriptions, results
 - **Gmail connections**: OAuth credentials (encrypted), sync state
 

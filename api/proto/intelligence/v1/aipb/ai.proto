@@ -49,7 +49,7 @@ message EmbeddingRequest {
 
   // The embedding model to use.
   // If not specified, the default model will be used.
-  // Examples: "nomic-embed-text", "text-embedding-3-small"
+  // Examples: "mxbai-embed-large", "text-embedding-3-small"
   optional string model = 2;
 
   // Optional tenant identifier for multi-tenancy support.
@@ -308,7 +308,7 @@ enum ModelStatus {
 // ModelInfo contains information about an available AI model.
 message ModelInfo {
   // Unique name/identifier for the model.
-  // Examples: "nomic-embed-text", "gemini-1.5-pro", "llama3.2"
+  // Examples: "mxbai-embed-large", "gemini-1.5-pro", "llama3.2"
   string name = 1;
 
   // The type of model.

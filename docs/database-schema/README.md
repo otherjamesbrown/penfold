@@ -425,7 +425,7 @@ The schema uses PostgreSQL enums for type safety:
 
 ### pgvector Configuration
 - **Extension**: pgvector for vector similarity search
-- **Default Dimensions**: 768 (nomic-embed-text compatible) or 1024 (mxbai-embed-large-v1)
+- **Default Dimensions**: 1024 (mxbai-embed-large compatible)
 - **Index Type**: HNSW for fast approximate nearest neighbor search
 
 ### Vector-Enabled Tables

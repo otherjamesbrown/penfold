@@ -393,7 +393,7 @@ CREATE TABLE sync_operations (
 
 ### Vector Storage Strategy
 
-**Embedding Model**: nomic-embed-text (768 dimensions)
+**Embedding Model**: mxbai-embed-large (1024 dimensions)
 **Index Type**: HNSW with parameters:
 - M = 16 (connectivity)
 - ef_construction = 200 (search quality during index build)
