@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package penfold.bridge.v1;
+
+option go_package = "github.com/otherjamesbrown/penfold/api/proto/bridge/v1;bridgev1";
+
+service BridgeService {
+  rpc HandleMessage(BridgeMessageRequest) returns (BridgeMessageResponse);
+  rpc GetSessionStatus(SessionStatusRequest) returns (SessionStatusResponse);
+  rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+}
+
+message BridgeMessageRequest {
+  string tenant_id    = 1;
+  string session_id   = 2;
+  string message_text = 3;
+  string channel_type = 4;
+  string sender_id    = 5;
+}
+
+message BridgeMessageResponse {
+  string response_text          = 1;
+  map<string, string> metadata  = 2;
+}
+
+message SessionStatusRequest {
+  string tenant_id  = 1;
+  string session_id = 2;
+}
+
+message SessionStatusResponse {
+  string tenant_id      = 1;
+  string session_id     = 2;
+  bool   active         = 3;
+  int32  message_count  = 4;
+  string last_active_at = 5;
+}
+
+message CloseSessionRequest {
+  string tenant_id  = 1;
+  string session_id = 2;
+}
+
+message CloseSessionResponse {}

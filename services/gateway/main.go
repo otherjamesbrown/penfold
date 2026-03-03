@@ -22,6 +22,7 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	auditv1 "github.com/otherjamesbrown/penfold/api/proto/audit/v1"
+	bridgev1 "github.com/otherjamesbrown/penfold/api/proto/bridge/v1"
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	entityv1 "github.com/otherjamesbrown/penfold/api/proto/entity/v1"
 	glossaryv1 "github.com/otherjamesbrown/penfold/api/proto/glossary/v1"
@@ -77,6 +78,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/config"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/services/gateway/auditservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/bridgeservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/classifyservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/contentservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
@@ -476,6 +478,30 @@ func main() {
 		logger.Warn("Registered ModelService (AI service not connected, AI operations will return Unavailable)")
 	}
 
+	// Register BridgeService for messaging bridge (mobile clients → knowledge base → AI).
+	// Works when aiClient is nil — HandleMessage will return Unavailable, other RPCs work normally.
+	bridgeRepo := bridgeservice.NewRepository(dbPool, logger)
+	bridgeSvc := bridgeservice.NewService(bridgeRepo, aiClient, dbPool, logger)
+
+	// Configure bridge-level API key auth (independent of gateway-wide auth).
+	if bridgeKey := os.Getenv("BRIDGE_SERVICE_API_KEY"); bridgeKey != "" {
+		bridgeKeyValidator := auth.NewAPIKeyValidator()
+		bridgeKeyValidator.RegisterKey(bridgeKey, &auth.APIKeyInfo{
+			ID:          "bridge-service",
+			ServiceName: "penfold-bridge",
+			Roles:       []string{"bridge"},
+		})
+		bridgeSvc.SetAPIKeyValidator(bridgeKeyValidator)
+		logger.Info("BridgeService API key auth enabled")
+	}
+
+	bridgev1.RegisterBridgeServiceServer(grpcServer, bridgeSvc)
+	if aiClient != nil {
+		logger.Info("Registered BridgeService (AI enabled)")
+	} else {
+		logger.Warn("Registered BridgeService (AI service not connected, HandleMessage will return Unavailable)")
+	}
+
 	// Register TenantService for multi-tenant management.
 	// tenantRepo already created above for projectService
 	tenantSvc := tenantservice.NewService(tenantRepo, logger)
@@ -762,10 +788,19 @@ func buildGRPCServerOptions(cfg *config.GatewayConfig, logger logging.Logger, m 
 		)
 	}
 
-	// Configure API key validator
-	// In production, API keys would be loaded from a secure store.
-	// For now, we create an empty validator that can be populated at runtime.
+	// Configure API key validator and register service keys from env vars.
 	authCfg.APIKeyValidator = auth.NewAPIKeyValidator()
+
+	// Register bridge service API key if configured.
+	if bridgeKey := os.Getenv("BRIDGE_SERVICE_API_KEY"); bridgeKey != "" {
+		authCfg.APIKeyValidator.RegisterKey(bridgeKey, &auth.APIKeyInfo{
+			ID:          "bridge-service",
+			ServiceName: "penfold-bridge",
+			Roles:       []string{"bridge"},
+		})
+		logger.Info("Registered bridge service API key")
+	}
+
 	logger.Info("API key authentication enabled")
 
 	// Create auth middleware
