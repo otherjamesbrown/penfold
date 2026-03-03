@@ -13,6 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// searchResponse mirrors the CLI SearchResponse JSON wrapper.
+type searchResponse struct {
+	Results []searchResult `json:"results"`
+}
+
 // searchResult mirrors CLISearchResult for JSON parsing.
 type searchResult struct {
 	ID          string  `json:"id"`
@@ -22,8 +27,9 @@ type searchResult struct {
 	Snippet     string  `json:"snippet"`
 }
 
-// setupRoleFilterData creates people records and ingests two test emails
-// through the pipeline so that content_mentions have participation roles.
+// setupRoleFilterData ingests two test emails through the pipeline so that
+// content_mentions have participation roles, then deduplicates auto-created
+// people records so email resolution is deterministic.
 //
 // Returns source IDs for email 010 and 011.
 func setupRoleFilterData(t *testing.T, env *PipelineE2EEnv) (int64, int64) {
@@ -35,21 +41,6 @@ func setupRoleFilterData(t *testing.T, env *PipelineE2EEnv) (int64, int64) {
 	require.NoError(t, err)
 	err = env.LoadFixture("acme-corp")
 	require.NoError(t, err)
-
-	// Create people records so header mentions activity can resolve emails to entities
-	for _, p := range []struct{ name, email string }{
-		{"John Smith", "john.smith@acme.com"},
-		{"Sarah Chen", "sarah.chen@acme.com"},
-		{"Marcus Rodriguez", "marcus.r@acme.com"},
-		{"Emily Watson", "emily.watson@acme.com"},
-	} {
-		_, err := env.DB.Exec(ctx, `
-			INSERT INTO people (tenant_id, canonical_name, email_addresses, account_type)
-			VALUES ($1, $2, ARRAY[$3], 'person')
-			ON CONFLICT DO NOTHING
-		`, tid, p.name, p.email)
-		require.NoError(t, err, "create person %s", p.name)
-	}
 
 	// Ingest email 010: From john.smith, To sarah.chen + marcus.r, Cc emily.watson
 	// Subject: "SRv6 deployment readiness check"
@@ -83,6 +74,58 @@ func setupRoleFilterData(t *testing.T, env *PipelineE2EEnv) (int64, int64) {
 	runPipelineAndWait(t, env, source010, 120*time.Second)
 	runPipelineAndWait(t, env, source011, 120*time.Second)
 
+	// Deduplicate auto-created people records.
+	// The pipeline may create duplicate people (same canonical_name + email) across
+	// separate pipeline runs. We merge them by keeping the first (lowest ID) and
+	// updating content_mentions to reference the canonical record.
+	dupMergeRows, err := env.DB.Query(ctx, `
+		SELECT canonical_name, email_addresses[1] AS email,
+			MIN(id) AS keep_id, ARRAY_AGG(id ORDER BY id) AS all_ids
+		FROM people
+		WHERE tenant_id = $1 AND email_addresses[1] IS NOT NULL
+		GROUP BY tenant_id, canonical_name, email_addresses[1]
+		HAVING COUNT(*) > 1
+	`, tid)
+	require.NoError(t, err, "find duplicate people")
+	type dupGroup struct {
+		keepID int64
+		allIDs []int64
+	}
+	var dups []dupGroup
+	for dupMergeRows.Next() {
+		var name, email string
+		var keepID int64
+		var allIDs []int64
+		require.NoError(t, dupMergeRows.Scan(&name, &email, &keepID, &allIDs))
+		t.Logf("dedup: %q (%s) keep=%d, merge=%v", name, email, keepID, allIDs)
+		dups = append(dups, dupGroup{keepID: keepID, allIDs: allIDs})
+	}
+	dupMergeRows.Close()
+
+	for _, d := range dups {
+		for _, oldID := range d.allIDs {
+			if oldID == d.keepID {
+				continue
+			}
+			// Update content_mentions to point to the canonical person
+			_, err = env.DB.Exec(ctx, `
+				UPDATE content_mentions SET resolved_entity_id = $1
+				WHERE resolved_entity_id = $2
+			`, d.keepID, oldID)
+			require.NoError(t, err, "merge mentions from %d to %d", oldID, d.keepID)
+
+			// Update any embeddings referencing the duplicate
+			_, _ = env.DB.Exec(ctx, `
+				UPDATE embeddings SET entity_id = $1::text
+				WHERE entity_id = $2::text AND entity_type = 'person'
+			`, d.keepID, oldID)
+
+			// Delete the duplicate person
+			_, err = env.DB.Exec(ctx, `DELETE FROM people WHERE id = $1`, oldID)
+			require.NoError(t, err, "delete duplicate person %d", oldID)
+		}
+	}
+
 	// Verify mentions were created with roles
 	var mentionCount int
 	err = env.DB.QueryRow(ctx, `
@@ -115,9 +158,10 @@ func TestSearchFromFilter(t *testing.T) {
 	require.True(t, result.Success(), "search should succeed: %s", result.Stderr)
 	t.Logf("Search output:\n%s", result.Stdout)
 
-	var results []searchResult
-	require.NoError(t, json.Unmarshal([]byte(result.Stdout), &results),
+	var resp searchResponse
+	require.NoError(t, json.Unmarshal([]byte(result.Stdout), &resp),
 		"should parse JSON results")
+	results := resp.Results
 
 	// Should have at least 1 result (email 010)
 	require.Greater(t, len(results), 0,
@@ -149,9 +193,9 @@ func TestSearchToStrictFilter(t *testing.T) {
 	require.True(t, result.Success(), "search should succeed: %s", result.Stderr)
 	t.Logf("Search output:\n%s", result.Stdout)
 
-	var results []searchResult
-	if err := json.Unmarshal([]byte(result.Stdout), &results); err == nil {
-		for _, r := range results {
+	var resp searchResponse
+	if err := json.Unmarshal([]byte(result.Stdout), &resp); err == nil {
+		for _, r := range resp.Results {
 			assert.NotContains(t, strings.ToLower(r.Title), "readiness",
 				"to:emily should NOT return email 010 (Emily is CC, not To)")
 		}
@@ -161,10 +205,10 @@ func TestSearchToStrictFilter(t *testing.T) {
 	result2 := env.CLI.Run(ctx, "search", "SRv6", "--filter", "to:sarah.chen@acme.com", "--output", "json")
 	require.True(t, result2.Success(), "search should succeed: %s", result2.Stderr)
 
-	var results2 []searchResult
-	require.NoError(t, json.Unmarshal([]byte(result2.Stdout), &results2),
+	var resp2 searchResponse
+	require.NoError(t, json.Unmarshal([]byte(result2.Stdout), &resp2),
 		"should parse JSON results")
-	assert.Greater(t, len(results2), 0,
+	assert.Greater(t, len(resp2.Results), 0,
 		"to:sarah should find email 010 (Sarah is on the To header)")
 }
 
@@ -187,9 +231,10 @@ func TestSearchRecipientBroadFilter(t *testing.T) {
 	require.True(t, result.Success(), "search should succeed: %s", result.Stderr)
 	t.Logf("Search output:\n%s", result.Stdout)
 
-	var results []searchResult
-	require.NoError(t, json.Unmarshal([]byte(result.Stdout), &results),
+	var resp searchResponse
+	require.NoError(t, json.Unmarshal([]byte(result.Stdout), &resp),
 		"should parse JSON results")
+	results := resp.Results
 	assert.Greater(t, len(results), 0,
 		"recipient:emily should find email 010 (Emily is CC = a recipient)")
 }
@@ -209,9 +254,10 @@ func TestSearchNoFilterUnchanged(t *testing.T) {
 	require.True(t, result.Success(), "search should succeed: %s", result.Stderr)
 	t.Logf("Search output:\n%s", result.Stdout)
 
-	var results []searchResult
-	require.NoError(t, json.Unmarshal([]byte(result.Stdout), &results),
+	var resp searchResponse
+	require.NoError(t, json.Unmarshal([]byte(result.Stdout), &resp),
 		"should parse JSON results")
+	results := resp.Results
 
 	// Should return at least 2 results (both email 010 and 011 mention SRv6)
 	assert.GreaterOrEqual(t, len(results), 2,
