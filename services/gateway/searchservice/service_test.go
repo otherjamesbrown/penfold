@@ -610,3 +610,189 @@ func TestService_SearchWithNilExpanderStillWorks(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "database not configured")
 }
+
+// ----------------------------------------------------------------------------
+// buildSQL tests
+// ----------------------------------------------------------------------------
+
+func TestBuildSQL_NilFilter(t *testing.T) {
+	var rf *resolvedFilter
+	sql, args := rf.buildSQL("tenant-abc", 1)
+	assert.Equal(t, "", sql)
+	assert.Nil(t, args)
+}
+
+func TestBuildSQL_EmptyFilter(t *testing.T) {
+	rf := &resolvedFilter{}
+	sql, args := rf.buildSQL("tenant-abc", 1)
+	assert.Equal(t, "", sql)
+	assert.Nil(t, args)
+}
+
+func TestBuildSQL_Impossible(t *testing.T) {
+	rf := &resolvedFilter{impossible: true}
+	sql, args := rf.buildSQL("tenant-abc", 1)
+	assert.Equal(t, "\n\t\t\t\tAND FALSE", sql)
+	assert.Nil(t, args)
+}
+
+func TestBuildSQL_ContentTypes(t *testing.T) {
+	rf := &resolvedFilter{
+		contentTypes: []string{"email", "meeting"},
+	}
+	sql, args := rf.buildSQL("tenant-abc", 3)
+
+	assert.Contains(t, sql, "s.content_type = ANY($3)")
+	require.Len(t, args, 1)
+	assert.Equal(t, []string{"email", "meeting"}, args[0])
+}
+
+func TestBuildSQL_DateRange(t *testing.T) {
+	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 12, 31, 23, 59, 59, 0, time.UTC)
+	rf := &resolvedFilter{
+		dateFrom: &from,
+		dateTo:   &to,
+	}
+	sql, args := rf.buildSQL("tenant-abc", 5)
+
+	assert.Contains(t, sql, "s.source_timestamp >= $5")
+	assert.Contains(t, sql, "s.source_timestamp <= $6")
+	require.Len(t, args, 2)
+	assert.Equal(t, from, args[0])
+	assert.Equal(t, to, args[1])
+}
+
+func TestBuildSQL_Sources(t *testing.T) {
+	rf := &resolvedFilter{
+		sources: []string{"gmail", "slack"},
+	}
+	sql, args := rf.buildSQL("tenant-abc", 1)
+
+	assert.Contains(t, sql, "s.source_system = ANY($1)")
+	require.Len(t, args, 1)
+	assert.Equal(t, []string{"gmail", "slack"}, args[0])
+}
+
+func TestBuildSQL_ExcludeIDs(t *testing.T) {
+	rf := &resolvedFilter{
+		excludeIDs: []string{"em-abc123", "em-xyz789"},
+	}
+	sql, args := rf.buildSQL("tenant-abc", 2)
+
+	assert.Contains(t, sql, "s.content_id != ALL($2)")
+	require.Len(t, args, 1)
+	assert.Equal(t, []string{"em-abc123", "em-xyz789"}, args[0])
+}
+
+func TestBuildSQL_EntityRoleWithRoles(t *testing.T) {
+	rf := &resolvedFilter{
+		entityRoles: []resolvedEntityRole{
+			{entityID: 42, roles: []int16{1, 2}},
+		},
+	}
+	sql, args := rf.buildSQL("tenant-abc", 1)
+
+	// Entity role clause: entityID first, then tenantID, then roles
+	assert.Contains(t, sql, "content_mentions")
+	assert.Contains(t, sql, "cm.resolved_entity_id = $1")
+	assert.Contains(t, sql, "cm.tenant_id = $2")
+	assert.Contains(t, sql, "cm.participation_role = ANY($3::smallint[])")
+	require.Len(t, args, 3)
+	assert.Equal(t, int64(42), args[0])
+	assert.Equal(t, "tenant-abc", args[1])
+	assert.Equal(t, []int16{1, 2}, args[2])
+}
+
+func TestBuildSQL_EntityRoleAnyRole(t *testing.T) {
+	rf := &resolvedFilter{
+		entityRoles: []resolvedEntityRole{
+			{entityID: 99, roles: nil},
+		},
+	}
+	sql, args := rf.buildSQL("tenant-abc", 4)
+
+	assert.Contains(t, sql, "content_mentions")
+	assert.Contains(t, sql, "cm.resolved_entity_id = $4")
+	assert.Contains(t, sql, "cm.tenant_id = $5")
+	// No role filter in SQL
+	assert.NotContains(t, sql, "participation_role")
+	require.Len(t, args, 2)
+	assert.Equal(t, int64(99), args[0])
+	assert.Equal(t, "tenant-abc", args[1])
+}
+
+func TestBuildSQL_MultipleEntityRoles(t *testing.T) {
+	rf := &resolvedFilter{
+		entityRoles: []resolvedEntityRole{
+			{entityID: 10, roles: []int16{3}},
+			{entityID: 20, roles: nil},
+		},
+	}
+	sql, args := rf.buildSQL("tenant-abc", 1)
+
+	// Both entity roles generate separate AND clauses
+	assert.Contains(t, sql, "cm.resolved_entity_id = $1")
+	assert.Contains(t, sql, "cm.tenant_id = $2")
+	assert.Contains(t, sql, "participation_role = ANY($3::smallint[])")
+	assert.Contains(t, sql, "cm.resolved_entity_id = $4")
+	assert.Contains(t, sql, "cm.tenant_id = $5")
+	// Second entity has no role filter
+	require.Len(t, args, 5)
+	assert.Equal(t, int64(10), args[0])
+	assert.Equal(t, "tenant-abc", args[1])
+	assert.Equal(t, []int16{3}, args[2])
+	assert.Equal(t, int64(20), args[3])
+	assert.Equal(t, "tenant-abc", args[4])
+}
+
+func TestBuildSQL_CombinedFilters(t *testing.T) {
+	rf := &resolvedFilter{
+		contentTypes: []string{"email"},
+		entityRoles: []resolvedEntityRole{
+			{entityID: 55, roles: []int16{1}},
+		},
+	}
+	// nextParam starts at 5 (simulating hybrid query with $1-$4 used)
+	sql, args := rf.buildSQL("tenant-xyz", 5)
+
+	// contentTypes clause uses $5
+	assert.Contains(t, sql, "s.content_type = ANY($5)")
+	// entity role: entityID=$6, tenantID=$7, roles=$8
+	assert.Contains(t, sql, "cm.resolved_entity_id = $6")
+	assert.Contains(t, sql, "cm.tenant_id = $7")
+	assert.Contains(t, sql, "participation_role = ANY($8::smallint[])")
+
+	require.Len(t, args, 4)
+	assert.Equal(t, []string{"email"}, args[0])
+	assert.Equal(t, int64(55), args[1])
+	assert.Equal(t, "tenant-xyz", args[2])
+	assert.Equal(t, []int16{1}, args[3])
+}
+
+func TestBuildSQL_ParamNumbering(t *testing.T) {
+	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	rf := &resolvedFilter{
+		contentTypes: []string{"meeting"},
+		dateFrom:     &from,
+		dateTo:       &to,
+		sources:      []string{"zoom"},
+		excludeIDs:   []string{"em-001"},
+	}
+	// Start at $10 to verify offset is respected
+	sql, args := rf.buildSQL("tenant-abc", 10)
+
+	assert.Contains(t, sql, "s.content_type = ANY($10)")
+	assert.Contains(t, sql, "s.source_timestamp >= $11")
+	assert.Contains(t, sql, "s.source_timestamp <= $12")
+	assert.Contains(t, sql, "s.source_system = ANY($13)")
+	assert.Contains(t, sql, "s.content_id != ALL($14)")
+
+	require.Len(t, args, 5)
+	assert.Equal(t, []string{"meeting"}, args[0])
+	assert.Equal(t, from, args[1])
+	assert.Equal(t, to, args[2])
+	assert.Equal(t, []string{"zoom"}, args[3])
+	assert.Equal(t, []string{"em-001"}, args[4])
+}

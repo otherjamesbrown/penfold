@@ -262,25 +262,47 @@ func (s *Service) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 	queryVecStr := s.embedQuery(ctx, query, tenantID)
 	useHybrid := queryVecStr != ""
 
+	// Resolve filter options (entity lookups for role filters, etc.)
+	rf, err := s.resolveFilters(ctx, tenantID, req.GetFilters())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to resolve filters: %v", err)
+	}
+	if rf.impossible {
+		// A filter references an entity that doesn't exist — no results possible
+		return &searchv1.SearchResponse{
+			Results:       nil,
+			TotalCount:    0,
+			QueryTimeMs:   float64(time.Since(startTime).Microseconds()) / 1000.0,
+			ExpansionInfo: expansionInfo,
+		}, nil
+	}
+
 	var results []*searchv1.SearchResult
 
 	if useHybrid {
-		results, err = s.hybridSearch(ctx, keywordQuery, tenantID, queryVecStr, textWeight, vectorWeight, limit, offset, sortOrder)
+		filterSQL, filterArgs := rf.buildSQL(tenantID, 8) // $1-$7 used by hybrid base query
+		results, err = s.hybridSearch(ctx, keywordQuery, tenantID, queryVecStr, textWeight, vectorWeight, limit, offset, sortOrder, filterSQL, filterArgs)
 	} else {
-		results, err = s.keywordOnlySearch(ctx, keywordQuery, tenantID, limit, offset, sortOrder)
+		filterSQL, filterArgs := rf.buildSQL(tenantID, 5) // $1-$4 used by keyword base query
+		results, err = s.keywordOnlySearch(ctx, keywordQuery, tenantID, limit, offset, sortOrder, filterSQL, filterArgs)
 	}
 	if err != nil {
 		return nil, err
 	}
 
 	// Get total count (keyword match count, independent of vector scoring)
-	var totalCount int64
-	err = s.db.QueryRow(ctx, `
+	countFilterSQL, countFilterArgs := rf.buildSQL(tenantID, 3) // $1=tenantID, $2=keywordQuery
+	countQuery := fmt.Sprintf(`
 		SELECT COUNT(*)
-		FROM sources
-		WHERE tenant_id = $1
-			AND to_tsvector('english', COALESCE(raw_content, '')) @@ websearch_to_tsquery('english', $2)
-	`, tenantID, keywordQuery).Scan(&totalCount)
+		FROM sources s
+		WHERE s.tenant_id = $1
+			AND to_tsvector('english', COALESCE(s.raw_content, '')) @@ websearch_to_tsquery('english', $2)
+			%s
+	`, countFilterSQL)
+	countArgs := append([]interface{}{tenantID, keywordQuery}, countFilterArgs...)
+
+	var totalCount int64
+	err = s.db.QueryRow(ctx, countQuery, countArgs...).Scan(&totalCount)
 	if err != nil {
 		s.logger.Warn("Failed to get total count", logging.Err(err))
 		totalCount = int64(len(results))
@@ -306,7 +328,7 @@ func (s *Service) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 // hybridSearch runs keyword + vector blend. Text matches are required (keyword
 // match gate), but vector similarity re-ranks results for much better
 // score differentiation.
-func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, queryVecStr string, textWeight, vectorWeight float64, limit, offset int32, sortOrder searchv1.SortOrder) ([]*searchv1.SearchResult, error) {
+func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, queryVecStr string, textWeight, vectorWeight float64, limit, offset int32, sortOrder searchv1.SortOrder, filterSQL string, filterArgs []interface{}) ([]*searchv1.SearchResult, error) {
 	// Determine SQL ORDER BY clause based on requested sort order.
 	// For relevance (default), order by blended score; for date sorts, order by created_at.
 	var sqlOrderBy string
@@ -341,6 +363,7 @@ func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, quer
 			LEFT JOIN meetings m ON s.meeting_id = m.id
 			WHERE s.tenant_id = $2
 				AND to_tsvector('english', COALESCE(s.raw_content, '')) @@ websearch_to_tsquery('english', $1)
+				%s
 		),
 		best_vectors AS (
 			SELECT DISTINCT ON (e.entity_id)
@@ -369,9 +392,11 @@ func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, quer
 		LEFT JOIN best_vectors bv ON tm.id = bv.source_id
 		ORDER BY %s
 		LIMIT $3 OFFSET $4
-	`, sqlOrderBy)
+	`, filterSQL, sqlOrderBy)
 
-	rows, err := s.db.Query(ctx, sqlQuery, query, tenantID, limit, offset, queryVecStr, textWeight, vectorWeight)
+	baseArgs := []interface{}{query, tenantID, limit, offset, queryVecStr, textWeight, vectorWeight}
+	queryArgs := append(baseArgs, filterArgs...)
+	rows, err := s.db.Query(ctx, sqlQuery, queryArgs...)
 	if err != nil {
 		s.logger.Error("Hybrid search query failed", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "search query failed: %v", err)
@@ -464,7 +489,7 @@ func (s *Service) hybridSearch(ctx context.Context, query, tenantID string, quer
 
 // keywordOnlySearch runs ts_rank_cd without vector scoring.
 // Used when the embedder is unavailable.
-func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string, limit, offset int32, sortOrder searchv1.SortOrder) ([]*searchv1.SearchResult, error) {
+func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string, limit, offset int32, sortOrder searchv1.SortOrder, filterSQL string, filterArgs []interface{}) ([]*searchv1.SearchResult, error) {
 	// Determine SQL ORDER BY clause based on requested sort order.
 	var sqlOrderBy string
 	switch sortOrder {
@@ -493,11 +518,14 @@ func (s *Service) keywordOnlySearch(ctx context.Context, query, tenantID string,
 		LEFT JOIN meetings m ON s.meeting_id = m.id
 		WHERE s.tenant_id = $2
 			AND to_tsvector('english', COALESCE(s.raw_content, '')) @@ websearch_to_tsquery('english', $1)
+			%s
 		ORDER BY %s
 		LIMIT $3 OFFSET $4
-	`, sqlOrderBy)
+	`, filterSQL, sqlOrderBy)
 
-	rows, err := s.db.Query(ctx, sqlQuery, query, tenantID, limit, offset)
+	baseArgs := []interface{}{query, tenantID, limit, offset}
+	queryArgs := append(baseArgs, filterArgs...)
+	rows, err := s.db.Query(ctx, sqlQuery, queryArgs...)
 	if err != nil {
 		s.logger.Error("Keyword search query failed", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "search query failed: %v", err)
@@ -840,5 +868,168 @@ func derefString(s *string, defaultVal string) string {
 		return *s
 	}
 	return defaultVal
+}
+
+// =============================================================================
+// Filter Options Implementation
+// =============================================================================
+
+// resolvedEntityRole holds a pre-resolved entity ID and its required roles.
+type resolvedEntityRole struct {
+	entityID int64
+	roles    []int16 // empty = any role for this entity
+}
+
+// resolvedFilter holds pre-resolved filter criteria ready for SQL generation.
+type resolvedFilter struct {
+	contentTypes []string
+	dateFrom     *time.Time
+	dateTo       *time.Time
+	sources      []string
+	excludeIDs   []string
+	entityRoles  []resolvedEntityRole
+	impossible   bool // true if a filter can't match anything (e.g. entity not found)
+}
+
+// resolveFilters resolves FilterOptions into a resolvedFilter, performing entity
+// lookups for email/name-based EntityRoleFilters.
+func (s *Service) resolveFilters(ctx context.Context, tenantID string, filters *searchv1.FilterOptions) (*resolvedFilter, error) {
+	if filters == nil {
+		return &resolvedFilter{}, nil
+	}
+
+	rf := &resolvedFilter{
+		contentTypes: filters.GetContentTypes(),
+		sources:      filters.GetSources(),
+		excludeIDs:   filters.GetExcludeIds(),
+	}
+
+	if filters.DateFrom != nil {
+		t := filters.GetDateFrom().AsTime()
+		rf.dateFrom = &t
+	}
+	if filters.DateTo != nil {
+		t := filters.GetDateTo().AsTime()
+		rf.dateTo = &t
+	}
+
+	for _, erf := range filters.GetEntityRoleFilters() {
+		entityID, err := s.resolveFilterEntity(ctx, tenantID, erf)
+		if err != nil {
+			return nil, err
+		}
+		if entityID == 0 {
+			// Entity not found — this filter can never match
+			rf.impossible = true
+			return rf, nil
+		}
+		roles := make([]int16, len(erf.GetRoles()))
+		for i, r := range erf.GetRoles() {
+			roles[i] = int16(r)
+		}
+		rf.entityRoles = append(rf.entityRoles, resolvedEntityRole{
+			entityID: entityID,
+			roles:    roles,
+		})
+	}
+
+	return rf, nil
+}
+
+// resolveFilterEntity resolves an EntityRoleFilter's entity identifier to a database ID.
+// Returns 0 if the entity is not found (caller treats as "no results possible").
+func (s *Service) resolveFilterEntity(ctx context.Context, tenantID string, erf *searchv1.EntityRoleFilter) (int64, error) {
+	switch e := erf.GetEntity().(type) {
+	case *searchv1.EntityRoleFilter_EntityId:
+		return e.EntityId, nil
+	case *searchv1.EntityRoleFilter_Email:
+		var id int64
+		err := s.db.QueryRow(ctx,
+			`SELECT id FROM people WHERE tenant_id = $1 AND $2 = ANY(email_addresses) LIMIT 1`,
+			tenantID, e.Email,
+		).Scan(&id)
+		if err != nil {
+			return 0, nil
+		}
+		return id, nil
+	case *searchv1.EntityRoleFilter_EntityName:
+		var id int64
+		err := s.db.QueryRow(ctx,
+			`SELECT id FROM people WHERE tenant_id = $1 AND canonical_name = $2 LIMIT 1`,
+			tenantID, e.EntityName,
+		).Scan(&id)
+		if err != nil {
+			return 0, nil
+		}
+		return id, nil
+	default:
+		return 0, nil
+	}
+}
+
+// buildSQL generates SQL WHERE clause fragments and args from resolved filters.
+// nextParam is the first available parameter number (e.g. 5 if $1-$4 are used).
+// tenantID is needed for content_mentions subqueries.
+func (rf *resolvedFilter) buildSQL(tenantID string, nextParam int) (string, []interface{}) {
+	if rf == nil || rf.impossible {
+		if rf != nil && rf.impossible {
+			return "\n\t\t\t\tAND FALSE", nil
+		}
+		return "", nil
+	}
+
+	var clauses []string
+	var args []interface{}
+
+	param := func(val interface{}) string {
+		p := fmt.Sprintf("$%d", nextParam)
+		nextParam++
+		args = append(args, val)
+		return p
+	}
+
+	if len(rf.contentTypes) > 0 {
+		clauses = append(clauses, fmt.Sprintf("s.content_type = ANY(%s)", param(rf.contentTypes)))
+	}
+	if rf.dateFrom != nil {
+		clauses = append(clauses, fmt.Sprintf("s.source_timestamp >= %s", param(*rf.dateFrom)))
+	}
+	if rf.dateTo != nil {
+		clauses = append(clauses, fmt.Sprintf("s.source_timestamp <= %s", param(*rf.dateTo)))
+	}
+	if len(rf.sources) > 0 {
+		clauses = append(clauses, fmt.Sprintf("s.source_system = ANY(%s)", param(rf.sources)))
+	}
+	if len(rf.excludeIDs) > 0 {
+		clauses = append(clauses, fmt.Sprintf("s.content_id != ALL(%s)", param(rf.excludeIDs)))
+	}
+
+	for _, er := range rf.entityRoles {
+		ep := param(er.entityID)
+		tp := param(tenantID)
+		if len(er.roles) > 0 {
+			rp := param(er.roles)
+			clauses = append(clauses, fmt.Sprintf(
+				"s.id IN (SELECT cm.content_id FROM content_mentions cm WHERE cm.tenant_id = %s AND cm.resolved_entity_id = %s AND cm.participation_role = ANY(%s::smallint[]))",
+				tp, ep, rp,
+			))
+		} else {
+			clauses = append(clauses, fmt.Sprintf(
+				"s.id IN (SELECT cm.content_id FROM content_mentions cm WHERE cm.tenant_id = %s AND cm.resolved_entity_id = %s)",
+				tp, ep,
+			))
+		}
+	}
+
+	if len(clauses) == 0 {
+		return "", nil
+	}
+
+	var sb strings.Builder
+	for _, c := range clauses {
+		sb.WriteString("\n\t\t\t\tAND ")
+		sb.WriteString(c)
+	}
+	return sb.String(), args
 }
 
