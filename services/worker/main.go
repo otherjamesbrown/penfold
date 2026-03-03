@@ -26,6 +26,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
+	"github.com/otherjamesbrown/penfold/pkg/schedule"
 	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/routing"
@@ -838,10 +839,12 @@ func main() {
 		}(taskQueue, w)
 	}
 
-	// Ensure Temporal schedules are registered (idempotent)
-	if cfg.HasTaskQueue(config.MainTaskQueue) {
+	// Reconcile DB-driven schedules with Temporal (replaces hardcoded ensureSchedules)
+	if cfg.HasTaskQueue(config.MainTaskQueue) && dbPool != nil {
 		schedCtx, schedCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		ensureSchedules(schedCtx, temporalClient, logger)
+		scheduleRepo := schedule.NewRepository(dbPool)
+		temporalScheduler := schedule.NewTemporalScheduler(temporalClient, config.MainTaskQueue, logger)
+		reconcileSchedules(schedCtx, scheduleRepo, temporalScheduler, pkgconfig.DefaultTenantID().String(), logger)
 		schedCancel()
 	}
 

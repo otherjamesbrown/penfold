@@ -46,6 +46,7 @@ import (
 	threadsv1 "github.com/otherjamesbrown/penfold/api/proto/threads/v1"
 	watchlistv1 "github.com/otherjamesbrown/penfold/api/proto/watchlist/v1"
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
+	schedulev1 "github.com/otherjamesbrown/penfold/api/proto/schedule/v1"
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/assertions"
@@ -69,6 +70,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/repository"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	"github.com/otherjamesbrown/penfold/pkg/sources"
+	"github.com/otherjamesbrown/penfold/pkg/schedule"
 	"github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/pkg/tenant"
 	"github.com/otherjamesbrown/penfold/pkg/watchlist"
@@ -103,6 +105,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/tenantservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/topicservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/threadsservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/scheduleservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/watchlistservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/workflowservice"
 )
@@ -554,6 +557,17 @@ func main() {
 	pipelineSvc = pipelineservice.NewService(pipelineRepo, logger, temporalClient, db, cfg.Temporal.Namespace)
 	pipelinev1.RegisterPipelineServiceServer(grpcServer, pipelineSvc)
 	logger.Info("Registered PipelineService")
+
+	// Register ScheduleService for DB-driven schedule management.
+	if temporalClient != nil {
+		scheduleRepo := schedule.NewRepository(dbPool)
+		temporalScheduler := schedule.NewTemporalScheduler(temporalClient, "penfold-main", logger)
+		scheduleSvc := scheduleservice.NewService(scheduleRepo, temporalScheduler, logger)
+		schedulev1.RegisterScheduleServiceServer(grpcServer, scheduleSvc)
+		logger.Info("Registered ScheduleService")
+	} else {
+		logger.Warn("ScheduleService not registered (Temporal client not available)")
+	}
 
 	// Set Temporal client on IngestService for automatic workflow starting
 	if temporalClient != nil {
