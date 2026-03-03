@@ -91,9 +91,9 @@ dups AS (
         AND p.id != k.keep_id
 )
 UPDATE embeddings e
-SET entity_id = d.keep_id::text
+SET entity_id = d.keep_id
 FROM dups d
-WHERE e.entity_id = d.dup_id::text AND e.entity_type::text = 'person';
+WHERE e.entity_id = d.dup_id AND e.entity_type = 'person';
 
 -- Step 5: Delete duplicate people records
 WITH keep AS (
