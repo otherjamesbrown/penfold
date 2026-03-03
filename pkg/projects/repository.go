@@ -278,7 +278,7 @@ func (r *Repository) List(ctx context.Context, filter ProjectFilter) ([]*Project
 		alwaysIncludeQuery := `
 			SELECT
 				id, tenant_id, name, description, keywords, jira_projects,
-				status, created_at, updated_at
+				status, timeline, metadata, created_at, updated_at
 			FROM projects
 			WHERE tenant_id = $1 AND LOWER(name) = ANY($2)
 		`

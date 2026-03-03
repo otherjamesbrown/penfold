@@ -28,9 +28,10 @@ var SLMPipelineStages = []Stage{
 	{Name: "Triage", StatusName: "triaging", Number: 1, Activities: []string{ActivityTriage}, SkipWhenLow: false, Optional: false, Timeout: 60 * time.Second},
 	{Name: "Extract", StatusName: "extracting", Number: 2, Activities: []string{ActivityExtractEntitiesActivity, ActivityExtractAssertions}, SkipWhenLow: true, Optional: false, Timeout: 120 * time.Second},
 	{Name: "Context", StatusName: "building_context", Number: 3, Activities: []string{ActivityBuildContextPackage}, SkipWhenLow: true, Optional: false, Timeout: 60 * time.Second},
-	{Name: "Analyze", StatusName: "analyzing", Number: 4, Activities: []string{ActivityDeepAnalyze}, SkipWhenLow: true, Optional: true, Timeout: 180 * time.Second},
-	{Name: "Persist", StatusName: "persisting", Number: 5, Activities: []string{ActivityPersistFindings}, SkipWhenLow: true, Optional: false, Timeout: 60 * time.Second},
-	{Name: "Embed", StatusName: "embedding", Number: 6, Activities: []string{ActivityGenerateContentEmbedding}, SkipWhenLow: false, Optional: false, Timeout: 60 * time.Second},
+	{Name: "EnrichEntities", StatusName: "enriching_entities", Number: 4, Activities: []string{ActivityEnrichEntities}, SkipWhenLow: true, Optional: true, Timeout: 120 * time.Second},
+	{Name: "Analyze", StatusName: "analyzing", Number: 5, Activities: []string{ActivityDeepAnalyze}, SkipWhenLow: true, Optional: true, Timeout: 180 * time.Second},
+	{Name: "Persist", StatusName: "persisting", Number: 6, Activities: []string{ActivityPersistFindings}, SkipWhenLow: true, Optional: false, Timeout: 60 * time.Second},
+	{Name: "Embed", StatusName: "embedding", Number: 7, Activities: []string{ActivityGenerateContentEmbedding}, SkipWhenLow: false, Optional: false, Timeout: 60 * time.Second},
 }
 
 // FullPipelineTotalSteps returns the step count for the full pipeline.
@@ -89,6 +90,7 @@ var StageActivityMap = map[string][]string{
 	"extract_assertions":  {ActivityExtractAssertions},
 	"extract_semantic":    {ActivityExtractMentions},
 	"resolve":             {ActivityBuildContextPackage},
+	"enrich_entities":     {ActivityEnrichEntities},
 	"analyze":             {ActivityDeepAnalyze},
 	"summary":             {ActivityGenerateContentSummary},
 	"persist":             {ActivityPersistFindings},

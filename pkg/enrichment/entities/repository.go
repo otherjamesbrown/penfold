@@ -106,6 +106,7 @@ func (r *Repository) GetPersonByID(ctx context.Context, id int64) (*Person, erro
 			rejected_at, rejected_reason, rejected_by,
 			potential_duplicates,
 			sent_count, received_count,
+			communication_patterns, expertise_areas, org_position,
 			created_at, updated_at
 		FROM people
 		WHERE id = $1
@@ -124,6 +125,7 @@ func (r *Repository) GetPersonByEmail(ctx context.Context, tenantID, email strin
 			rejected_at, rejected_reason, rejected_by,
 			potential_duplicates,
 			sent_count, received_count,
+			communication_patterns, expertise_areas, org_position,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND LOWER(primary_email) = LOWER($2)
@@ -147,6 +149,7 @@ func (r *Repository) GetPeopleByEmails(ctx context.Context, tenantID string, ema
 			rejected_at, rejected_reason, rejected_by,
 			potential_duplicates,
 			sent_count, received_count,
+			communication_patterns, expertise_areas, org_position,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND LOWER(primary_email) = ANY($2)
@@ -906,6 +909,9 @@ func (r *Repository) GetProjectMemberIDs(ctx context.Context, projectID int64) (
 func (r *Repository) scanPerson(ctx context.Context, query string, args ...interface{}) (*Person, error) {
 	p := &Person{}
 	var title, department, company, reviewedBy, rejectedReason, rejectedBy *string
+	var communicationPatterns *[]byte
+	var expertiseAreas *[]string
+	var orgPosition *[]byte
 
 	err := r.pool.QueryRow(ctx, query, args...).Scan(
 		&p.ID, &p.TenantID, &p.CanonicalName, &p.PrimaryEmail,
@@ -915,6 +921,7 @@ func (r *Repository) scanPerson(ctx context.Context, query string, args ...inter
 		&p.RejectedAt, &rejectedReason, &rejectedBy,
 		&p.PotentialDuplicates,
 		&p.SentCount, &p.ReceivedCount,
+		&communicationPatterns, &expertiseAreas, &orgPosition,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
 
@@ -943,6 +950,15 @@ func (r *Repository) scanPerson(ctx context.Context, query string, args ...inter
 	if rejectedBy != nil {
 		p.RejectedBy = *rejectedBy
 	}
+	if communicationPatterns != nil {
+		p.CommunicationPatterns = *communicationPatterns
+	}
+	if expertiseAreas != nil {
+		p.ExpertiseAreas = *expertiseAreas
+	}
+	if orgPosition != nil {
+		p.OrgPosition = *orgPosition
+	}
 
 	return p, nil
 }
@@ -952,6 +968,9 @@ func (r *Repository) scanPeople(rows pgx.Rows) ([]*Person, error) {
 	for rows.Next() {
 		p := &Person{}
 		var title, department, company, reviewedBy, rejectedReason, rejectedBy *string
+		var communicationPatterns *[]byte
+		var expertiseAreas *[]string
+		var orgPosition *[]byte
 
 		if err := rows.Scan(
 			&p.ID, &p.TenantID, &p.CanonicalName, &p.PrimaryEmail,
@@ -961,6 +980,7 @@ func (r *Repository) scanPeople(rows pgx.Rows) ([]*Person, error) {
 			&p.RejectedAt, &rejectedReason, &rejectedBy,
 			&p.PotentialDuplicates,
 			&p.SentCount, &p.ReceivedCount,
+			&communicationPatterns, &expertiseAreas, &orgPosition,
 			&p.CreatedAt, &p.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan person: %w", err)
@@ -984,6 +1004,15 @@ func (r *Repository) scanPeople(rows pgx.Rows) ([]*Person, error) {
 		if rejectedBy != nil {
 			p.RejectedBy = *rejectedBy
 		}
+		if communicationPatterns != nil {
+			p.CommunicationPatterns = *communicationPatterns
+		}
+		if expertiseAreas != nil {
+			p.ExpertiseAreas = *expertiseAreas
+		}
+		if orgPosition != nil {
+			p.OrgPosition = *orgPosition
+		}
 
 		people = append(people, p)
 	}
@@ -996,6 +1025,40 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// MergeCommunicationPatterns updates a person's communication_patterns JSONB
+// by merging new data with existing data using PostgreSQL's || operator.
+func (r *Repository) MergeCommunicationPatterns(ctx context.Context, personID int64, patterns json.RawMessage) error {
+	query := `
+		UPDATE people SET
+			communication_patterns = COALESCE(communication_patterns, '{}'::jsonb) || $2::jsonb,
+			updated_at = NOW()
+		WHERE id = $1
+	`
+	_, err := r.pool.Exec(ctx, query, personID, patterns)
+	if err != nil {
+		return fmt.Errorf("failed to merge communication patterns for person %d: %w", personID, err)
+	}
+	return nil
+}
+
+// MergeExpertiseAreas adds new expertise areas to a person's existing list,
+// deduplicating entries using PostgreSQL array operations.
+func (r *Repository) MergeExpertiseAreas(ctx context.Context, personID int64, newAreas []string) error {
+	query := `
+		UPDATE people SET
+			expertise_areas = (
+				SELECT ARRAY(SELECT DISTINCT unnest(COALESCE(expertise_areas, ARRAY[]::text[]) || $2::text[]))
+			),
+			updated_at = NOW()
+		WHERE id = $1
+	`
+	_, err := r.pool.Exec(ctx, query, personID, newAreas)
+	if err != nil {
+		return fmt.Errorf("failed to merge expertise areas for person %d: %w", personID, err)
+	}
+	return nil
 }
 
 // ==================== Entity Lifecycle Operations ====================

@@ -643,6 +643,23 @@ type EnrichPersonMetadataOutput struct {
 	PeopleEnriched int `json:"people_enriched"`
 }
 
+// EnrichEntitiesInput is the input for the EnrichEntities activity.
+// This stage runs after resolve to compute communication patterns and expertise areas.
+type EnrichEntitiesInput struct {
+	TenantID          string        `json:"tenant_id"`
+	SourceID          int64         `json:"source_id"`
+	ContentID         string        `json:"content_id,omitempty"`
+	Content           string        `json:"content"`
+	ResolvedPeople    []ResolvedPerson `json:"resolved_people"`
+	ParticipantEmails []Participant `json:"participant_emails,omitempty"`
+}
+
+// EnrichEntitiesOutput is the output from the EnrichEntities activity.
+type EnrichEntitiesOutput struct {
+	PatternsUpdated  int `json:"patterns_updated"`
+	ExpertiseUpdated int `json:"expertise_updated"`
+}
+
 // RecordOverridesInput is the input for recording override parameters in pipeline_runs.
 type RecordOverridesInput struct {
 	TenantID  string            `json:"tenant_id"`
@@ -2272,8 +2289,36 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 					)
 				}
 			}
-		} // End of resolve stage block (stages 3-3.5)
-	} // End of skipExtract block (stages 2-3.5)
+
+			// Stage 3.6: Entity Enrichment (enrich_entities — optional, non-blocking)
+			// Computes communication patterns and infers expertise areas for resolved entities.
+			if stageInPipeline(stageConfigMap, "enrich_entities") && contextOutput != nil && len(contextOutput.ResolvedPeople) > 0 {
+				enrichEntitiesCtx := workflow.WithActivityOptions(ctx, stageOpts("enrich_entities", fastOpts))
+				enrichEntitiesOutput := &EnrichEntitiesOutput{}
+
+				err = workflow.ExecuteActivity(enrichEntitiesCtx, pkgtemporal.ActivityEnrichEntities, EnrichEntitiesInput{
+					TenantID:          input.TenantID,
+					SourceID:          input.SourceID,
+					ContentID:         input.ContentID,
+					Content:           parsedContent,
+					ResolvedPeople:    contextOutput.ResolvedPeople,
+					ParticipantEmails: input.ParticipantEmails,
+				}).Get(ctx, enrichEntitiesOutput)
+				if err != nil {
+					logger.Warn("entity enrichment failed (non-blocking)",
+						"source_id", input.SourceID,
+						"error", err.Error(),
+					)
+				} else {
+					logger.Info("entity enrichment completed",
+						"source_id", input.SourceID,
+						"patterns_updated", enrichEntitiesOutput.PatternsUpdated,
+						"expertise_updated", enrichEntitiesOutput.ExpertiseUpdated,
+					)
+				}
+			}
+		} // End of resolve stage block (stages 3-3.6)
+	} // End of skipExtract block (stages 2-3.6)
 
 	if checkCancellation() {
 		state.result.Status = "cancelled"

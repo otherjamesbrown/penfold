@@ -34,6 +34,7 @@ type Registrar struct {
 	langfuseActivities         *LangfuseActivities
 	consolidationActivities    *ConsolidationActivities
 	headerMentionsActivities   *HeaderMentionsActivities
+	entityEnrichmentActivities *EntityEnrichmentActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -148,6 +149,12 @@ func (r *Registrar) WithConsolidationActivities(ca *ConsolidationActivities) *Re
 // WithHeaderMentionsActivities adds header-based mention extraction activities to the registrar.
 func (r *Registrar) WithHeaderMentionsActivities(hma *HeaderMentionsActivities) *Registrar {
 	r.headerMentionsActivities = hma
+	return r
+}
+
+// WithEntityEnrichmentActivities adds entity enrichment activities to the registrar.
+func (r *Registrar) WithEntityEnrichmentActivities(ea *EntityEnrichmentActivities) *Registrar {
+	r.entityEnrichmentActivities = ea
 	return r
 }
 
@@ -317,6 +324,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.personEnrichmentActivities != nil {
 		w.RegisterActivityWithOptions(r.personEnrichmentActivities.EnrichPersonMetadata, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityEnrichPersonMetadata,
+		})
+	}
+
+	// Entity enrichment activities for enrich_entities stage
+	if r.entityEnrichmentActivities != nil {
+		w.RegisterActivityWithOptions(r.entityEnrichmentActivities.EnrichEntities, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityEnrichEntities,
 		})
 	}
 
@@ -528,6 +542,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// EnrichPersonMetadata
 		if r.personEnrichmentActivities != nil {
+			count += 1
+		}
+		// EnrichEntities
+		if r.entityEnrichmentActivities != nil {
 			count += 1
 		}
 		// GroupEmailThread

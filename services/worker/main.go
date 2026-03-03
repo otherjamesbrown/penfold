@@ -585,6 +585,11 @@ func main() {
 		logger.Info("Person enrichment activities initialized with database (Stage 3.5)",
 			logging.F("internal_domains_count", len(internalDomains)),
 		)
+
+		// Create entity enrichment activities (enrich_entities stage)
+		entityEnrichmentActivities := activities.NewEntityEnrichmentActivities(logger, entitiesRepo, dbPool)
+		activityRegistrar.WithEntityEnrichmentActivities(entityEnrichmentActivities)
+		logger.Info("Entity enrichment activities initialized with database")
 	}
 
 	// Initialize persist activities if database is available (Stage 4.5)

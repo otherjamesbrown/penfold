@@ -313,6 +313,9 @@ func newFullRegistrar() *Registrar {
 		}).
 		WithHeaderMentionsActivities(&HeaderMentionsActivities{
 			logger: logger,
+		}).
+		WithEntityEnrichmentActivities(&EntityEnrichmentActivities{
+			logger: logger,
 		})
 }
 
