@@ -1,0 +1,94 @@
+package graph
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
+)
+
+// GraphClient wraps the Microsoft Graph SDK client.
+type GraphClient struct {
+	tenantID    string
+	clientID    string
+	credential  azcore.TokenCredential
+	graphClient *msgraphsdk.GraphServiceClient
+}
+
+// NewGraphClientFromConfig creates a new GraphClient using client secret credentials.
+// This is for service-to-service (daemon) scenarios.
+func NewGraphClientFromConfig(cfg GraphConfig) (*GraphClient, error) {
+	if cfg.ClientID == "" || cfg.TenantID == "" || cfg.ClientSecret == "" {
+		return nil, fmt.Errorf("graph: client_id, tenant_id, and client_secret are required")
+	}
+
+	cred, err := azidentity.NewClientSecretCredential(cfg.TenantID, cfg.ClientID, cfg.ClientSecret, nil)
+	if err != nil {
+		return nil, fmt.Errorf("graph: creating client secret credential: %w", err)
+	}
+
+	scopes := cfg.Scopes
+	if len(scopes) == 0 {
+		scopes = DefaultScopes()
+	}
+
+	// Scope format for client_credentials: "https://graph.microsoft.com/.default"
+	graphScopes := []string{"https://graph.microsoft.com/.default"}
+	client, err := msgraphsdk.NewGraphServiceClientWithCredentials(cred, graphScopes)
+	if err != nil {
+		return nil, fmt.Errorf("graph: creating graph service client: %w", err)
+	}
+
+	return &GraphClient{
+		tenantID:    cfg.TenantID,
+		clientID:    cfg.ClientID,
+		credential:  cred,
+		graphClient: client,
+	}, nil
+}
+
+// NewGraphClientFromCredential creates a GraphClient from an existing azcore.TokenCredential.
+// Used when the credential is obtained via device code flow or token store refresh.
+func NewGraphClientFromCredential(credential azcore.TokenCredential, tenantID, clientID string) (*GraphClient, error) {
+	graphScopes := []string{"https://graph.microsoft.com/.default"}
+	client, err := msgraphsdk.NewGraphServiceClientWithCredentials(credential, graphScopes)
+	if err != nil {
+		return nil, fmt.Errorf("graph: creating graph service client: %w", err)
+	}
+
+	return &GraphClient{
+		tenantID:    tenantID,
+		clientID:    clientID,
+		credential:  credential,
+		graphClient: client,
+	}, nil
+}
+
+// ListMailFolders lists mail folders for a user. Pass "me" for the authenticated user.
+func (c *GraphClient) ListMailFolders(ctx context.Context, userID string) ([]MailFolder, error) {
+	result, err := c.graphClient.Me().MailFolders().Get(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("graph: listing mail folders: %w", err)
+	}
+
+	var folders []MailFolder
+	for _, f := range result.GetValue() {
+		folder := MailFolder{}
+		if id := f.GetId(); id != nil {
+			folder.ID = *id
+		}
+		if name := f.GetDisplayName(); name != nil {
+			folder.DisplayName = *name
+		}
+		folders = append(folders, folder)
+	}
+
+	return folders, nil
+}
+
+// ServiceClient returns the underlying Graph SDK client for advanced usage.
+func (c *GraphClient) ServiceClient() *msgraphsdk.GraphServiceClient {
+	return c.graphClient
+}
