@@ -310,6 +310,9 @@ func newFullRegistrar() *Registrar {
 		WithLangfuseActivities(NewLangfuseActivities(nil, logger)).
 		WithConsolidationActivities(&ConsolidationActivities{
 			logger: logger,
+		}).
+		WithHeaderMentionsActivities(&HeaderMentionsActivities{
+			logger: logger,
 		})
 }
 

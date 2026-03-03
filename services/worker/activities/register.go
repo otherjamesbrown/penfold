@@ -33,6 +33,7 @@ type Registrar struct {
 	conversationActivities     *ConversationActivities
 	langfuseActivities         *LangfuseActivities
 	consolidationActivities    *ConsolidationActivities
+	headerMentionsActivities   *HeaderMentionsActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -144,6 +145,12 @@ func (r *Registrar) WithConsolidationActivities(ca *ConsolidationActivities) *Re
 	return r
 }
 
+// WithHeaderMentionsActivities adds header-based mention extraction activities to the registrar.
+func (r *Registrar) WithHeaderMentionsActivities(hma *HeaderMentionsActivities) *Registrar {
+	r.headerMentionsActivities = hma
+	return r
+}
+
 // RegisterAll registers all activities with the given worker based on task queue.
 func (r *Registrar) RegisterAll(w worker.Worker, taskQueue string) {
 	switch taskQueue {
@@ -229,6 +236,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.mentionsActivities != nil {
 		w.RegisterActivityWithOptions(r.mentionsActivities.ExtractMentions, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityExtractMentions,
+		})
+	}
+
+	// Header-based mention extraction (deterministic, from email From/To/CC headers)
+	if r.headerMentionsActivities != nil {
+		w.RegisterActivityWithOptions(r.headerMentionsActivities.ExtractHeaderMentions, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityExtractHeaderMentions,
 		})
 	}
 
@@ -478,6 +492,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// ExtractMentions
 		if r.mentionsActivities != nil {
+			count += 1
+		}
+		// ExtractHeaderMentions
+		if r.headerMentionsActivities != nil {
 			count += 1
 		}
 		// TagProjects

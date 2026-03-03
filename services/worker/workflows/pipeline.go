@@ -156,6 +156,24 @@ type TriageOutput struct {
 	Pipelines          []string `json:"pipelines,omitempty"` // matched pipeline names; empty = skip all
 }
 
+// ExtractHeaderMentionsInput is the input for the ExtractHeaderMentions activity.
+type ExtractHeaderMentionsInput struct {
+	TenantID     string        `json:"tenant_id"`
+	SourceID     int64         `json:"source_id"`
+	SenderEmail  string        `json:"sender_email"`
+	SenderName   string        `json:"sender_name"`
+	Participants []Participant `json:"participants"`
+}
+
+// ExtractHeaderMentionsOutput is the output from the ExtractHeaderMentions activity.
+type ExtractHeaderMentionsOutput struct {
+	MentionsCreated int `json:"mentions_created"`
+	FromMentions    int `json:"from_mentions"`
+	ToMentions      int `json:"to_mentions"`
+	CcMentions      int `json:"cc_mentions"`
+	GroupExpanded   int `json:"group_expanded"`
+}
+
 // SLMPipelineExtractEntitiesInput is the input for the ExtractEntities activity (pipeline version with TriageCategory).
 type SLMPipelineExtractEntitiesInput struct {
 	TenantID        string `json:"tenant_id"`
@@ -1867,6 +1885,36 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		"source_id", input.SourceID,
 		"enrichment_id", enrichmentOutput.EnrichmentID,
 	)
+
+	// ==================== Stage 1.5: Header Mention Extraction ====================
+	// Extract From/To/CC from email headers into content_mentions with participation roles.
+	// Runs for ALL emails (independent of SkipDeep gate). Deterministic — no LLM needed.
+	if input.ContentType == "email" && (input.SenderEmail != "" || len(input.ParticipantEmails) > 0) {
+		var headerMentionsOutput ExtractHeaderMentionsOutput
+		ctxHeaderMentions := workflow.WithActivityOptions(ctx, fastOpts)
+		err = workflow.ExecuteActivity(ctxHeaderMentions, pkgtemporal.ActivityExtractHeaderMentions, ExtractHeaderMentionsInput{
+			TenantID:     input.TenantID,
+			SourceID:     input.SourceID,
+			SenderEmail:  input.SenderEmail,
+			SenderName:   input.SenderName,
+			Participants: input.ParticipantEmails,
+		}).Get(ctx, &headerMentionsOutput)
+		if err != nil {
+			logger.Warn("header mention extraction failed (non-blocking)",
+				"source_id", input.SourceID,
+				"error", err.Error(),
+			)
+		} else {
+			logger.Info("header mention extraction completed",
+				"source_id", input.SourceID,
+				"mentions_created", headerMentionsOutput.MentionsCreated,
+				"from_mentions", headerMentionsOutput.FromMentions,
+				"to_mentions", headerMentionsOutput.ToMentions,
+				"cc_mentions", headerMentionsOutput.CcMentions,
+				"group_expanded", headerMentionsOutput.GroupExpanded,
+			)
+		}
+	}
 
 	// ==================== Stage 2.5: Email Threading ====================
 	// Threading runs for ALL emails (independent of SkipDeep gate)

@@ -641,6 +641,13 @@ func main() {
 		logger.Warn("Mentions activities not initialized: AI client not available")
 	}
 
+	// Initialize Header Mentions Activities (deterministic, no LLM needed)
+	if dbPool != nil {
+		headerMentionsActivities := activities.NewHeaderMentionsActivities(logger, dbPool)
+		activityRegistrar.WithHeaderMentionsActivities(headerMentionsActivities)
+		logger.Info("Header mentions activities initialized")
+	}
+
 	// Initialize Project Tagging Activities
 	if dbPool != nil && entitiesRepo != nil && mentionsRepo != nil {
 		projectTaggingRepo := &projectTaggingRepositoryAdapter{
