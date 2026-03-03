@@ -7,9 +7,9 @@ VALUES (
     'attribute_project',
     'Attribute Project',
     'Associates assertions with projects via channel mapping, keyword matching, and LLM fallback',
-    'llm',
-    true,
-    true,
+    'deterministic',
+    false,
+    false,
     ARRAY['extract_assertions'],
     ARRAY['analyze']
 ) ON CONFLICT (stage) DO NOTHING;
@@ -39,8 +39,5 @@ VALUES (
     'agent-mycroft'
 ) ON CONFLICT (stage, version) DO NOTHING;
 
--- 5. AI routing rule for model selection (stage: attribute_project)
-INSERT INTO ai_routing_rules (tenant_id, stage, preferred_model, fallback_model, priority, enabled)
-SELECT id, 'attribute_project', 'qwen3:8b', 'qwen3:8b', 1, true
-FROM tenants
-ON CONFLICT (tenant_id, stage, condition) DO NOTHING;
+-- 5. AI routing rule deferred to Phase 3 (LLM fallback).
+-- Phase 2 uses channel mapping + keyword matching only — no model invocation.
