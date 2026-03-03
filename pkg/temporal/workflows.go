@@ -14,6 +14,7 @@ const (
 	WorkflowConversationMaintenance        = "ConversationMaintenanceWorkflow"
 	WorkflowConversationBackfill           = "ConversationBackfillWorkflow"
 	WorkflowSessionLedgerConsolidation     = "SessionLedgerConsolidationWorkflow"
+	WorkflowHeartbeat                      = "HeartbeatWorkflow"
 )
 
 // AI Task Queue workflow names.

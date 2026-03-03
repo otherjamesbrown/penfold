@@ -39,6 +39,10 @@ const (
 	ActivityConsolidateEntries             = "ConsolidateEntries"
 	ActivityExtractHeaderMentions          = "ExtractHeaderMentions"
 	ActivityEnrichEntities                 = "EnrichEntities"
+	ActivityHeartbeatCheckReviewQueue      = "HeartbeatCheckReviewQueue"
+	ActivityHeartbeatCheckWatchMatches     = "HeartbeatCheckWatchMatches"
+	ActivityHeartbeatCheckStaleContent     = "HeartbeatCheckStaleContent"
+	ActivityHeartbeatUpdateStatus          = "HeartbeatUpdateStatus"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -119,6 +123,10 @@ func AllMainQueueActivities() []string {
 		ActivityConsolidateEntries,
 		ActivityExtractHeaderMentions,
 		ActivityEnrichEntities,
+		ActivityHeartbeatCheckReviewQueue,
+		ActivityHeartbeatCheckWatchMatches,
+		ActivityHeartbeatCheckStaleContent,
+		ActivityHeartbeatUpdateStatus,
 	}
 }
 

@@ -287,3 +287,35 @@ type ConversationBackfillResult struct {
 	Status    string `json:"status"` // completed, failed
 	Error     string `json:"error,omitempty"`
 }
+
+// HeartbeatInput is the input for HeartbeatWorkflow.
+type HeartbeatInput struct {
+	TenantID   string   `json:"tenant_id"`
+	ScheduleID string   `json:"schedule_id"`
+	Checks     []string `json:"checks"` // e.g. ["review_queue", "watch_matches", "stale_content"]
+}
+
+// HeartbeatResult is the output of HeartbeatWorkflow.
+type HeartbeatResult struct {
+	Status       string                `json:"status"` // "ok", "actionable", "skipped"
+	ReviewQueue  *HeartbeatCheckResult `json:"review_queue,omitempty"`
+	WatchMatches *HeartbeatCheckResult `json:"watch_matches,omitempty"`
+	StaleContent *HeartbeatCheckResult `json:"stale_content,omitempty"`
+	Summary      string                `json:"summary"`
+}
+
+// HeartbeatCheckResult is the result of a single heartbeat check.
+type HeartbeatCheckResult struct {
+	PendingCount int    `json:"pending_count"`
+	HighPriority int    `json:"high_priority,omitempty"`
+	Summary      string `json:"summary,omitempty"`
+	Actionable   bool   `json:"actionable"`
+}
+
+// HeartbeatStatusUpdate is the input for the UpdateScheduleStatus activity.
+type HeartbeatStatusUpdate struct {
+	TenantID   string `json:"tenant_id"`
+	ScheduleID string `json:"schedule_id"`
+	Status     string `json:"status"`
+	Summary    string `json:"summary"`
+}

@@ -706,6 +706,13 @@ func main() {
 		logger.Info("Consolidation activities initialized with database and AI client")
 	}
 
+	// Heartbeat activities for scheduled health checks
+	if dbPool != nil {
+		heartbeatActivities := activities.NewHeartbeatActivities(dbPool, logger)
+		activityRegistrar.WithHeartbeatActivities(heartbeatActivities)
+		logger.Info("Heartbeat activities initialized with database")
+	}
+
 	// Langfuse activities for pipeline trace/phase reporting.
 	// langfuseIngestion may be nil if Langfuse is not configured; activities will be no-ops.
 	langfuseActivities := activities.NewLangfuseActivities(langfuseIngestion, logger)

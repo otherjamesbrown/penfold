@@ -35,6 +35,7 @@ type Registrar struct {
 	consolidationActivities    *ConsolidationActivities
 	headerMentionsActivities   *HeaderMentionsActivities
 	entityEnrichmentActivities *EntityEnrichmentActivities
+	heartbeatActivities        *HeartbeatActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -155,6 +156,12 @@ func (r *Registrar) WithHeaderMentionsActivities(hma *HeaderMentionsActivities) 
 // WithEntityEnrichmentActivities adds entity enrichment activities to the registrar.
 func (r *Registrar) WithEntityEnrichmentActivities(ea *EntityEnrichmentActivities) *Registrar {
 	r.entityEnrichmentActivities = ea
+	return r
+}
+
+// WithHeartbeatActivities adds heartbeat activities to the registrar.
+func (r *Registrar) WithHeartbeatActivities(ha *HeartbeatActivities) *Registrar {
+	r.heartbeatActivities = ha
 	return r
 }
 
@@ -371,6 +378,26 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
+	// Heartbeat activities for scheduled health checks
+	if r.heartbeatActivities != nil {
+		w.RegisterActivityWithOptions(
+			r.heartbeatActivities.CheckReviewQueue,
+			activity.RegisterOptions{Name: pkgtemporal.ActivityHeartbeatCheckReviewQueue},
+		)
+		w.RegisterActivityWithOptions(
+			r.heartbeatActivities.CheckWatchMatches,
+			activity.RegisterOptions{Name: pkgtemporal.ActivityHeartbeatCheckWatchMatches},
+		)
+		w.RegisterActivityWithOptions(
+			r.heartbeatActivities.CheckStaleContent,
+			activity.RegisterOptions{Name: pkgtemporal.ActivityHeartbeatCheckStaleContent},
+		)
+		w.RegisterActivityWithOptions(
+			r.heartbeatActivities.UpdateScheduleStatus,
+			activity.RegisterOptions{Name: pkgtemporal.ActivityHeartbeatUpdateStatus},
+		)
+	}
+
 	// Langfuse ingestion activities for pipeline trace reporting
 	if r.langfuseActivities != nil {
 		w.RegisterActivityWithOptions(r.langfuseActivities.CreateLangfuseTrace, activity.RegisterOptions{
@@ -563,6 +590,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// ConsolidateEntries
 		if r.consolidationActivities != nil {
 			count += 1
+		}
+		// HeartbeatCheckReviewQueue, HeartbeatCheckWatchMatches, HeartbeatCheckStaleContent, HeartbeatUpdateStatus
+		if r.heartbeatActivities != nil {
+			count += 4
 		}
 		// CreateLangfuseTrace, ReportLangfusePhase, FinishLangfuseTrace, PersistLangfuseTraceID, UpdateLangfuseTraceTags, UpdateLangfuseTraceMetadata
 		if r.langfuseActivities != nil {
