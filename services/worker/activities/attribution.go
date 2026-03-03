@@ -30,7 +30,7 @@ type AttributionOutput struct {
 
 // AttributionRepository defines the interface for the attribution activity's data access.
 type AttributionRepository interface {
-	FindMappingForSource(ctx context.Context, tenantID, sourceType, sourceIdentifier string) (*sourcemappings.SourceMapping, error)
+	FindMappingByIdentifier(ctx context.Context, tenantID, sourceIdentifier string) (*sourcemappings.SourceMapping, error)
 	GetProjectsWithKeywords(ctx context.Context, tenantID string) ([]*entities.Project, error)
 	GetSourceMetadata(ctx context.Context, sourceID int64) (sourceSystem string, sourceTag string, err error)
 	GetAssertionsForSource(ctx context.Context, tenantID string, sourceID int64) ([]AssertionRef, error)
@@ -113,18 +113,13 @@ func (a *AttributionActivities) AttributeProject(ctx context.Context, input Attr
 
 	// === Signal 1: Channel mapping ===
 	recordHeartbeat(ctx, "checking channel mapping")
-	sourceSystem, sourceTag, err := a.repo.GetSourceMetadata(ctx, input.SourceID)
+	_, sourceTag, err := a.repo.GetSourceMetadata(ctx, input.SourceID)
 	if err != nil {
 		logger.Warn("Failed to get source metadata", logging.Err(err))
 	}
 
 	if sourceTag != "" {
-		sourceType := "channel"
-		if sourceSystem != "" {
-			sourceType = sourceSystem
-		}
-
-		mapping, err := a.repo.FindMappingForSource(ctx, input.TenantID, sourceType, sourceTag)
+		mapping, err := a.repo.FindMappingByIdentifier(ctx, input.TenantID, sourceTag)
 		if err != nil {
 			logger.Warn("Failed to check channel mapping", logging.Err(err))
 		}

@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"crypto/tls"
 
@@ -151,14 +153,46 @@ func (a *projectTaggingRepositoryAdapter) CreateContentMention(ctx context.Conte
 
 // attributionRepositoryAdapter adapts existing repositories for attribution activities.
 type attributionRepositoryAdapter struct {
-	sourceMappingsRepo *sourcemappings.Repository
-	entityRepo         *entities.Repository
-	mentionsRepo       *mentions.PostgresRepository
-	db                 *pgxpool.Pool
+	entityRepo   *entities.Repository
+	mentionsRepo *mentions.PostgresRepository
+	db           *pgxpool.Pool
 }
 
-func (a *attributionRepositoryAdapter) FindMappingForSource(ctx context.Context, tenantID, sourceType, sourceIdentifier string) (*sourcemappings.SourceMapping, error) {
-	return a.sourceMappingsRepo.FindMappingForSource(ctx, tenantID, sourceType, sourceIdentifier)
+func (a *attributionRepositoryAdapter) FindMappingByIdentifier(ctx context.Context, tenantID, sourceIdentifier string) (*sourcemappings.SourceMapping, error) {
+	query := `
+		SELECT id, tenant_id, project_id, source_type, source_identifier,
+			   match_type, confidence, notes, enabled, created_at, updated_at
+		FROM project_source_mappings
+		WHERE tenant_id = $1
+		  AND enabled = true
+		  AND (
+			(match_type = 'exact' AND source_identifier = $2) OR
+			(match_type = 'prefix' AND $2 LIKE source_identifier || '%') OR
+			(match_type = 'contains' AND $2 LIKE '%' || source_identifier || '%') OR
+			(match_type = 'regex' AND $2 ~ source_identifier)
+		  )
+		ORDER BY
+			CASE match_type
+				WHEN 'exact' THEN 1
+				WHEN 'prefix' THEN 2
+				WHEN 'contains' THEN 3
+				WHEN 'regex' THEN 4
+			END,
+			confidence DESC
+		LIMIT 1
+	`
+	m := &sourcemappings.SourceMapping{}
+	err := a.db.QueryRow(ctx, query, tenantID, sourceIdentifier).Scan(
+		&m.ID, &m.TenantID, &m.ProjectID, &m.SourceType, &m.SourceIdentifier,
+		&m.MatchType, &m.Confidence, &m.Notes, &m.Enabled, &m.CreatedAt, &m.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to find mapping by identifier: %w", err)
+	}
+	return m, nil
 }
 
 func (a *attributionRepositoryAdapter) GetProjectsWithKeywords(ctx context.Context, tenantID string) ([]*entities.Project, error) {
@@ -784,12 +818,10 @@ func main() {
 
 	// Initialize Attribution Activities
 	if dbPool != nil && entitiesRepo != nil && mentionsRepo != nil {
-		sourceMappingsRepo := sourcemappings.NewRepository(dbPool, logger)
 		attributionRepo := &attributionRepositoryAdapter{
-			sourceMappingsRepo: sourceMappingsRepo,
-			entityRepo:         entitiesRepo,
-			mentionsRepo:       mentionsRepo,
-			db:                 dbPool,
+			entityRepo:   entitiesRepo,
+			mentionsRepo: mentionsRepo,
+			db:           dbPool,
 		}
 		attributionActivities := activities.NewAttributionActivities(logger, attributionRepo)
 		activityRegistrar.WithAttributionActivities(attributionActivities)
