@@ -170,7 +170,7 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 		LEFT JOIN embeddings e ON s.id = e.source_id
 		LEFT JOIN assertions a ON s.id = a.source_id
 		LEFT JOIN content_enrichment ce ON s.id = ce.source_id
-		WHERE s.content_id = $1 AND (s.is_deleted IS NULL OR s.is_deleted = false)
+		WHERE (s.content_id = $1 OR s.id::text = $1) AND (s.is_deleted IS NULL OR s.is_deleted = false)
 		GROUP BY s.id, ce.content_type, ce.content_subtype, ce.source_system, ce.content_structure
 	`
 
