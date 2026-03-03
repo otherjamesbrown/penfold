@@ -708,9 +708,12 @@ func main() {
 
 	// Heartbeat activities for scheduled health checks
 	if dbPool != nil {
-		heartbeatActivities := activities.NewHeartbeatActivities(dbPool, logger)
+		rqRepo := reviewqueue.NewRepository(dbPool)
+		schedRepo := schedule.NewRepository(dbPool)
+		hbQuerier := activities.NewPgHeartbeatQuerier(dbPool)
+		heartbeatActivities := activities.NewHeartbeatActivities(logger, rqRepo, schedRepo, hbQuerier)
 		activityRegistrar.WithHeartbeatActivities(heartbeatActivities)
-		logger.Info("Heartbeat activities initialized with database")
+		logger.Info("Heartbeat activities initialized with repositories")
 	}
 
 	// Langfuse activities for pipeline trace/phase reporting.

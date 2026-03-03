@@ -288,11 +288,39 @@ type ConversationBackfillResult struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// Heartbeat check name constants.
+const (
+	HeartbeatCheckReviewQueue  = "review_queue"
+	HeartbeatCheckWatchMatches = "watch_matches"
+	HeartbeatCheckStaleContent = "stale_content"
+)
+
+// Heartbeat status constants.
+const (
+	HeartbeatStatusOK         = "ok"
+	HeartbeatStatusActionable = "actionable"
+	HeartbeatStatusSkipped    = "skipped"
+)
+
+// Heartbeat schedule status constants (written to schedules.last_status).
+const (
+	HeartbeatScheduleStatusSucceeded = "succeeded"
+	HeartbeatScheduleStatusSkipped   = "skipped"
+)
+
+// Default heartbeat thresholds.
+const (
+	DefaultStaleContentThresholdHours = 1
+	DefaultWatchWindowHours           = 24
+)
+
 // HeartbeatInput is the input for HeartbeatWorkflow.
 type HeartbeatInput struct {
-	TenantID   string   `json:"tenant_id"`
-	ScheduleID string   `json:"schedule_id"`
-	Checks     []string `json:"checks"` // e.g. ["review_queue", "watch_matches", "stale_content"]
+	TenantID                   string   `json:"tenant_id"`
+	ScheduleID                 string   `json:"schedule_id"`
+	Checks                     []string `json:"checks"` // e.g. ["review_queue", "watch_matches", "stale_content"]
+	StaleContentThresholdHours int      `json:"stale_content_threshold_hours,omitempty"` // Hours before content is considered stale (default 1)
+	WatchWindowHours           int      `json:"watch_window_hours,omitempty"`            // Hours to look back for watch matches (default 24)
 }
 
 // HeartbeatResult is the output of HeartbeatWorkflow.

@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
-	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
@@ -31,21 +29,25 @@ func HeartbeatWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMes
 
 	if len(hbInput.Checks) == 0 {
 		result := &pkgtemporal.HeartbeatResult{
-			Status:  "skipped",
+			Status:  pkgtemporal.HeartbeatStatusSkipped,
 			Summary: "no checks configured",
 		}
 		resultJSON, _ := json.Marshal(result)
 		return resultJSON, nil
 	}
 
-	// 2. Configure activity options — fast reads, minimal retries
-	ao := workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 2,
-		},
+	// Apply defaults for configurable thresholds
+	staleThreshold := hbInput.StaleContentThresholdHours
+	if staleThreshold <= 0 {
+		staleThreshold = pkgtemporal.DefaultStaleContentThresholdHours
 	}
-	ctx = workflow.WithActivityOptions(ctx, ao)
+	watchWindow := hbInput.WatchWindowHours
+	if watchWindow <= 0 {
+		watchWindow = pkgtemporal.DefaultWatchWindowHours
+	}
+
+	// 2. Configure activity options — fast reads, minimal retries
+	ctx = workflow.WithActivityOptions(ctx, pkgtemporal.FastActivityOptions())
 
 	// 3. Run each configured check in parallel
 	result := &pkgtemporal.HeartbeatResult{}
@@ -57,14 +59,14 @@ func HeartbeatWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMes
 
 	for _, check := range hbInput.Checks {
 		switch check {
-		case "review_queue":
+		case pkgtemporal.HeartbeatCheckReviewQueue:
 			f := workflow.ExecuteActivity(ctx, pkgtemporal.ActivityHeartbeatCheckReviewQueue, hbInput.TenantID)
 			futures = append(futures, checkFuture{name: check, future: f})
-		case "watch_matches":
-			f := workflow.ExecuteActivity(ctx, pkgtemporal.ActivityHeartbeatCheckWatchMatches, hbInput.TenantID)
+		case pkgtemporal.HeartbeatCheckWatchMatches:
+			f := workflow.ExecuteActivity(ctx, pkgtemporal.ActivityHeartbeatCheckWatchMatches, hbInput.TenantID, watchWindow)
 			futures = append(futures, checkFuture{name: check, future: f})
-		case "stale_content":
-			f := workflow.ExecuteActivity(ctx, pkgtemporal.ActivityHeartbeatCheckStaleContent, hbInput.TenantID)
+		case pkgtemporal.HeartbeatCheckStaleContent:
+			f := workflow.ExecuteActivity(ctx, pkgtemporal.ActivityHeartbeatCheckStaleContent, hbInput.TenantID, staleThreshold)
 			futures = append(futures, checkFuture{name: check, future: f})
 		default:
 			logger.Warn("Unknown heartbeat check, skipping", "check", check)
@@ -83,21 +85,21 @@ func HeartbeatWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMes
 		}
 
 		switch cf.name {
-		case "review_queue":
+		case pkgtemporal.HeartbeatCheckReviewQueue:
 			result.ReviewQueue = &checkResult
-		case "watch_matches":
+		case pkgtemporal.HeartbeatCheckWatchMatches:
 			result.WatchMatches = &checkResult
-		case "stale_content":
+		case pkgtemporal.HeartbeatCheckStaleContent:
 			result.StaleContent = &checkResult
 		}
 	}
 
 	// 5. Evaluate urgency
-	result.Status = "ok"
+	result.Status = pkgtemporal.HeartbeatStatusOK
 	if (result.ReviewQueue != nil && result.ReviewQueue.Actionable) ||
 		(result.WatchMatches != nil && result.WatchMatches.Actionable) ||
 		(result.StaleContent != nil && result.StaleContent.Actionable) {
-		result.Status = "actionable"
+		result.Status = pkgtemporal.HeartbeatStatusActionable
 	}
 
 	// 6. Build summary

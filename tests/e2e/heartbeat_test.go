@@ -22,7 +22,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -42,19 +41,17 @@ func TestE2E_Heartbeat_Phase3(t *testing.T) {
 	require.NoError(t, err)
 
 	// gRPC client for schedule RPCs
-	gatewayAddr := os.Getenv("GATEWAY_GRPC_ADDR")
-	if gatewayAddr == "" {
-		gatewayAddr = "dev02.brown.chat:50051"
-	}
+	gatewayAddr := getEnvOrDefault("GATEWAY_GRPC_ADDR", "dev02.brown.chat:50051")
 	conn, err := grpc.NewClient(gatewayAddr, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 
 	schedClient := schedulev1.NewScheduleServiceClient(conn)
 
-	// Cleanup heartbeat test schedules
+	// Cleanup heartbeat test schedules — before AND after (shared helper)
+	cleanupTestSchedulesWithPrefix(t, env, schedClient, "e2e-test-heartbeat")
 	t.Cleanup(func() {
-		cleanupHeartbeatTestSchedules(t, env, schedClient)
+		cleanupTestSchedulesWithPrefix(t, env, schedClient, "e2e-test-heartbeat")
 	})
 
 	var heartbeatScheduleID string
@@ -236,39 +233,4 @@ func TestE2E_Heartbeat_Phase3(t *testing.T) {
 			"review_queue should report pending items")
 		t.Logf("Review queue check found %v pending items", rqResult["pending_count"])
 	})
-}
-
-// cleanupHeartbeatTestSchedules removes e2e-test-heartbeat schedules.
-func cleanupHeartbeatTestSchedules(t *testing.T, env *PipelineE2EEnv, client schedulev1.ScheduleServiceClient) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	rows, err := env.DB.Query(ctx, `
-		SELECT id, name FROM schedules
-		WHERE tenant_id = $1 AND name LIKE 'e2e-test-heartbeat%'
-	`, env.TenantID)
-	if err != nil {
-		t.Logf("heartbeat cleanup: could not query schedules: %v", err)
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id, name string
-		if err := rows.Scan(&id, &name); err != nil {
-			continue
-		}
-		_, err := client.DeleteSchedule(ctx, &schedulev1.DeleteScheduleRequest{
-			TenantId:   env.TenantID,
-			ScheduleId: id,
-		})
-		if err != nil {
-			// Fallback: direct DB delete
-			env.DB.Exec(ctx, "DELETE FROM schedules WHERE id = $1", id)
-			handle := env.TemporalClient.ScheduleClient().GetHandle(ctx, id)
-			handle.Delete(ctx)
-		}
-		t.Logf("heartbeat cleanup: deleted %s (%s)", name, id)
-	}
 }

@@ -310,15 +310,21 @@ func TestE2E_SchedulingInfra_Phase1(t *testing.T) {
 // both the database and Temporal. This is called via t.Cleanup to ensure test
 // isolation regardless of pass/fail.
 func cleanupTestSchedules(t *testing.T, env *PipelineE2EEnv, client schedulev1.ScheduleServiceClient) {
+	cleanupTestSchedulesWithPrefix(t, env, client, "e2e-test-")
+}
+
+// cleanupTestSchedulesWithPrefix removes schedules matching the given name prefix
+// from both the database and Temporal. Used by schedule and heartbeat tests.
+func cleanupTestSchedulesWithPrefix(t *testing.T, env *PipelineE2EEnv, client schedulev1.ScheduleServiceClient, namePrefix string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Find e2e-test-* schedules in the DB
+	// Find schedules matching the prefix in the DB
 	rows, err := env.DB.Query(ctx, `
 		SELECT id, name FROM schedules
-		WHERE tenant_id = $1 AND name LIKE 'e2e-test-%'
-	`, env.TenantID)
+		WHERE tenant_id = $1 AND name LIKE $2
+	`, env.TenantID, namePrefix+"%")
 	if err != nil {
 		// Table may not exist yet; that is fine.
 		t.Logf("cleanup: could not query schedules table (may not exist yet): %v", err)
@@ -366,12 +372,12 @@ func cleanupTestSchedules(t *testing.T, env *PipelineE2EEnv, client schedulev1.S
 	}
 
 	if len(toDelete) > 0 {
-		t.Logf("cleanup: removed %d e2e-test-* schedule(s)", len(toDelete))
+		t.Logf("cleanup: removed %d %s* schedule(s)", len(toDelete), namePrefix)
 	}
 
-	// Also attempt to clean up any Temporal schedules matching e2e-test-* that
+	// Also attempt to clean up any Temporal schedules matching the prefix that
 	// might exist without a DB row (e.g. if the DB insert failed mid-create).
-	cleanupOrphanedTemporalSchedules(t, env, "e2e-test-")
+	cleanupOrphanedTemporalSchedules(t, env, namePrefix)
 }
 
 // cleanupOrphanedTemporalSchedules attempts to find and delete Temporal schedules
