@@ -521,6 +521,148 @@ func (s *Service) DeleteEntity(ctx context.Context, req *entityv1.DeleteEntityRe
 	}, nil
 }
 
+// AddGroupMember adds a member to a group entity.
+func (s *Service) AddGroupMember(ctx context.Context, req *entityv1.AddGroupMemberRequest) (*entityv1.AddGroupMemberResponse, error) {
+	s.logger.Debug("AddGroupMember called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("group_entity_id", req.GroupEntityId),
+		logging.F("member_entity_id", req.MemberEntityId),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.GroupEntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "group_entity_id is required")
+	}
+	if req.MemberEntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "member_entity_id is required")
+	}
+
+	id, err := s.entityRepo.AddGroupMember(ctx, req.TenantId, req.GroupEntityId, req.MemberEntityId, req.Source)
+	if err != nil {
+		s.logger.Error("Failed to add group member", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to add group member: %v", err))
+	}
+
+	return &entityv1.AddGroupMemberResponse{
+		Id: id,
+	}, nil
+}
+
+// RemoveGroupMember soft-deletes a member from a group.
+func (s *Service) RemoveGroupMember(ctx context.Context, req *entityv1.RemoveGroupMemberRequest) (*entityv1.RemoveGroupMemberResponse, error) {
+	s.logger.Debug("RemoveGroupMember called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("group_entity_id", req.GroupEntityId),
+		logging.F("member_entity_id", req.MemberEntityId),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.GroupEntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "group_entity_id is required")
+	}
+	if req.MemberEntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "member_entity_id is required")
+	}
+
+	removed, err := s.entityRepo.RemoveGroupMember(ctx, req.TenantId, req.GroupEntityId, req.MemberEntityId)
+	if err != nil {
+		s.logger.Error("Failed to remove group member", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to remove group member: %v", err))
+	}
+
+	return &entityv1.RemoveGroupMemberResponse{
+		Removed: removed,
+	}, nil
+}
+
+// ListGroupMembers lists members of a group entity.
+func (s *Service) ListGroupMembers(ctx context.Context, req *entityv1.ListGroupMembersRequest) (*entityv1.ListGroupMembersResponse, error) {
+	s.logger.Debug("ListGroupMembers called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("group_entity_id", req.GroupEntityId),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.GroupEntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "group_entity_id is required")
+	}
+
+	members, err := s.entityRepo.ListGroupMembers(ctx, req.TenantId, req.GroupEntityId, req.IncludeRemoved)
+	if err != nil {
+		s.logger.Error("Failed to list group members", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to list group members: %v", err))
+	}
+
+	protoMembers := make([]*entityv1.GroupMember, 0, len(members))
+	for _, m := range members {
+		pm := &entityv1.GroupMember{
+			Id:             m.ID,
+			GroupEntityId:  m.GroupEntityID,
+			MemberEntityId: m.MemberEntityID,
+			MemberName:     m.MemberName,
+			MemberEmail:    m.MemberEmail,
+			Source:         m.Source,
+			AddedAt:        timestamppb.New(m.AddedAt),
+		}
+		if m.RemovedAt != nil {
+			pm.RemovedAt = timestamppb.New(*m.RemovedAt)
+		}
+		protoMembers = append(protoMembers, pm)
+	}
+
+	return &entityv1.ListGroupMembersResponse{
+		Members: protoMembers,
+	}, nil
+}
+
+// GetEntityGroups returns the groups that an entity belongs to.
+func (s *Service) GetEntityGroups(ctx context.Context, req *entityv1.GetEntityGroupsRequest) (*entityv1.GetEntityGroupsResponse, error) {
+	s.logger.Debug("GetEntityGroups called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("member_entity_id", req.MemberEntityId),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.MemberEntityId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "member_entity_id is required")
+	}
+
+	memberships, err := s.entityRepo.GetEntityGroups(ctx, req.TenantId, req.MemberEntityId, req.IncludeRemoved)
+	if err != nil {
+		s.logger.Error("Failed to get entity groups", logging.Err(err))
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get entity groups: %v", err))
+	}
+
+	protoMemberships := make([]*entityv1.GroupMember, 0, len(memberships))
+	for _, m := range memberships {
+		pm := &entityv1.GroupMember{
+			Id:             m.ID,
+			GroupEntityId:  m.GroupEntityID,
+			MemberEntityId: m.MemberEntityID,
+			MemberName:     m.MemberName,
+			MemberEmail:    m.MemberEmail,
+			Source:         m.Source,
+			AddedAt:        timestamppb.New(m.AddedAt),
+		}
+		if m.RemovedAt != nil {
+			pm.RemovedAt = timestamppb.New(*m.RemovedAt)
+		}
+		protoMemberships = append(protoMemberships, pm)
+	}
+
+	return &entityv1.GetEntityGroupsResponse{
+		Memberships: protoMemberships,
+	}, nil
+}
+
 // BulkEnrichEntities enriches entities by email domain with company and is_internal flag.
 func (s *Service) BulkEnrichEntities(ctx context.Context, req *entityv1.BulkEnrichEntitiesRequest) (*entityv1.BulkEnrichEntitiesResponse, error) {
 	s.logger.Debug("BulkEnrichEntities called",

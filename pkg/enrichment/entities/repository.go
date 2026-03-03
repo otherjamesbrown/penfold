@@ -1790,5 +1790,119 @@ func (r *Repository) UpdatePersonTitle(ctx context.Context, personID int64, titl
 	return nil
 }
 
+// ==================== Group Member Operations ====================
+
+// AddGroupMember adds a member to a group entity (e.g. distribution list).
+func (r *Repository) AddGroupMember(ctx context.Context, tenantID string, groupEntityID, memberEntityID int64, source string) (int64, error) {
+	query := `
+		INSERT INTO entity_group_members (tenant_id, group_entity_id, member_entity_id, source, added_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		RETURNING id
+	`
+
+	var id int64
+	err := r.pool.QueryRow(ctx, query, tenantID, groupEntityID, memberEntityID, nullIfEmpty(source)).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("failed to add group member: %w", err)
+	}
+
+	r.logger.Info("Group member added",
+		logging.F("group_entity_id", groupEntityID),
+		logging.F("member_entity_id", memberEntityID),
+		logging.F("membership_id", id))
+
+	return id, nil
+}
+
+// RemoveGroupMember soft-deletes a member from a group by setting removed_at.
+func (r *Repository) RemoveGroupMember(ctx context.Context, tenantID string, groupEntityID, memberEntityID int64) (bool, error) {
+	query := `
+		UPDATE entity_group_members SET removed_at = NOW()
+		WHERE tenant_id = $1 AND group_entity_id = $2 AND member_entity_id = $3 AND removed_at IS NULL
+	`
+
+	result, err := r.pool.Exec(ctx, query, tenantID, groupEntityID, memberEntityID)
+	if err != nil {
+		return false, fmt.Errorf("failed to remove group member: %w", err)
+	}
+
+	removed := result.RowsAffected() > 0
+	if removed {
+		r.logger.Info("Group member removed",
+			logging.F("group_entity_id", groupEntityID),
+			logging.F("member_entity_id", memberEntityID))
+	}
+
+	return removed, nil
+}
+
+// ListGroupMembers lists members of a group entity.
+func (r *Repository) ListGroupMembers(ctx context.Context, tenantID string, groupEntityID int64, includeRemoved bool) ([]*GroupMember, error) {
+	query := `
+		SELECT m.id, m.group_entity_id, m.member_entity_id,
+		       COALESCE(p.canonical_name, ''), COALESCE(p.primary_email, ''),
+		       COALESCE(m.source, ''), m.added_at, m.removed_at
+		FROM entity_group_members m
+		JOIN people p ON p.id = m.member_entity_id AND p.tenant_id = $1
+		WHERE m.tenant_id = $1 AND m.group_entity_id = $2
+	`
+	if !includeRemoved {
+		query += " AND m.removed_at IS NULL"
+	}
+	query += " ORDER BY m.added_at"
+
+	rows, err := r.pool.Query(ctx, query, tenantID, groupEntityID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list group members: %w", err)
+	}
+	defer rows.Close()
+
+	var members []*GroupMember
+	for rows.Next() {
+		m := &GroupMember{}
+		if err := rows.Scan(&m.ID, &m.GroupEntityID, &m.MemberEntityID,
+			&m.MemberName, &m.MemberEmail, &m.Source, &m.AddedAt, &m.RemovedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan group member: %w", err)
+		}
+		members = append(members, m)
+	}
+
+	return members, rows.Err()
+}
+
+// GetEntityGroups returns the groups that a member entity belongs to.
+func (r *Repository) GetEntityGroups(ctx context.Context, tenantID string, memberEntityID int64, includeRemoved bool) ([]*GroupMember, error) {
+	query := `
+		SELECT m.id, m.group_entity_id, m.member_entity_id,
+		       COALESCE(p.canonical_name, ''), COALESCE(p.primary_email, ''),
+		       COALESCE(m.source, ''), m.added_at, m.removed_at
+		FROM entity_group_members m
+		JOIN people p ON p.id = m.group_entity_id AND p.tenant_id = $1
+		WHERE m.tenant_id = $1 AND m.member_entity_id = $2
+	`
+	if !includeRemoved {
+		query += " AND m.removed_at IS NULL"
+	}
+	query += " ORDER BY m.added_at"
+
+	rows, err := r.pool.Query(ctx, query, tenantID, memberEntityID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entity groups: %w", err)
+	}
+	defer rows.Close()
+
+	var members []*GroupMember
+	for rows.Next() {
+		m := &GroupMember{}
+		if err := rows.Scan(&m.ID, &m.GroupEntityID, &m.MemberEntityID,
+			&m.MemberName, &m.MemberEmail, &m.Source, &m.AddedAt, &m.RemovedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan group membership: %w", err)
+		}
+		members = append(members, m)
+	}
+
+	return members, rows.Err()
+}
+
 // Ensure time is imported
 var _ = time.Now

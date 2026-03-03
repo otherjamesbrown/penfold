@@ -180,6 +180,18 @@ func (p *Person) IsRejected() bool {
 	return p.RejectedAt != nil
 }
 
+// GroupMember represents a membership in an entity group (e.g. distribution list).
+type GroupMember struct {
+	ID             int64      `json:"id,omitempty"`
+	GroupEntityID  int64      `json:"group_entity_id"`
+	MemberEntityID int64      `json:"member_entity_id"`
+	MemberName     string     `json:"member_name"`
+	MemberEmail    string     `json:"member_email"`
+	Source         string     `json:"source,omitempty"`
+	AddedAt        time.Time  `json:"added_at"`
+	RemovedAt      *time.Time `json:"removed_at,omitempty"`
+}
+
 // EntityFilterRule represents a pattern-based rule for rejecting entity creation.
 type EntityFilterRule struct {
 	ID           int64     `json:"id,omitempty"`
