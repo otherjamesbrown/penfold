@@ -3,11 +3,13 @@ package source_mappings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	pferrors "github.com/otherjamesbrown/penfold/pkg/errors"
@@ -68,13 +70,13 @@ func (r *Repository) CreateSourceMapping(ctx context.Context, m *SourceMapping) 
 	).Scan(&m.ID, &m.CreatedAt, &m.UpdatedAt)
 
 	if err != nil {
-		if strings.Contains(err.Error(), "project_source_mappings_tenant_id_source_type_source_identifier") {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return fmt.Errorf("%w: mapping for %s/%s already exists", pferrors.ErrConflict, m.SourceType, m.SourceIdentifier)
 		}
 		return fmt.Errorf("failed to create source mapping: %w", err)
 	}
 
-	m.Enabled = true
 	return nil
 }
 
@@ -173,7 +175,7 @@ func (r *Repository) UpdateSourceMapping(ctx context.Context, tenantID string, i
 		&m.MatchType, &m.Confidence, &m.Notes, &m.Enabled, &m.CreatedAt, &m.UpdatedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pferrors.ErrNotFound
 		}
 		return nil, fmt.Errorf("failed to update source mapping: %w", err)
@@ -234,7 +236,7 @@ func (r *Repository) FindMappingForSource(ctx context.Context, tenantID, sourceT
 		&m.MatchType, &m.Confidence, &m.Notes, &m.Enabled, &m.CreatedAt, &m.UpdatedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil // No mapping found is not an error
 		}
 		return nil, fmt.Errorf("failed to find mapping for source: %w", err)
