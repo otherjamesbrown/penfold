@@ -2583,6 +2583,49 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 	}
 
+	// Stage 4.7: Attribute Project (assertion-level project attribution)
+	if stageInPipeline(stageConfigMap, "attribute_project") {
+		updateStatus("attributing_projects", "AttributeProject")
+		attrStage := stageByStatus("attributing_projects")
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", attrStage.Name,
+			"stage_number", "4.7",
+			"total_steps", state.status.TotalSteps,
+		)
+		attrStart := workflow.Now(ctx)
+
+		var attrOutput AttributeProjectOutput
+		ctxAttr := workflow.WithActivityOptions(ctx, fastOpts)
+		err = workflow.ExecuteActivity(ctxAttr, pkgtemporal.ActivityAttributeProject, AttributeProjectInput{
+			TenantID: input.TenantID,
+			SourceID: input.SourceID,
+			Subject:  input.Subject,
+			BodyText: input.BodyText,
+		}).Get(ctx, &attrOutput)
+		if err != nil {
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", attrStage.Name,
+				"stage_number", "4.7",
+				"duration_ms", workflow.Now(ctx).Sub(attrStart).Milliseconds(),
+				"status", "failed",
+				"error", err.Error(),
+			)
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", attrStage.Name,
+				"stage_number", "4.7",
+				"duration_ms", workflow.Now(ctx).Sub(attrStart).Milliseconds(),
+				"status", "completed",
+				"assertions_attributed", attrOutput.AssertionsAttributed,
+				"projects_matched", attrOutput.ProjectsMatched,
+				"attribution_source", attrOutput.AttributionSource,
+			)
+		}
+	}
+
 	if checkCancellation() {
 		runCompensation(ctx)
 		state.result.Status = "cancelled"

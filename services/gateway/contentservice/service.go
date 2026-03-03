@@ -67,6 +67,9 @@ type ContentItemRecord struct {
 	EnrichmentContentSubtype  *string // content_enrichment.content_subtype
 	EnrichmentSourceSystem    *string // content_enrichment.source_system
 	EnrichmentContentStructure *string // content_enrichment.content_structure
+
+	// Attribution fields (from sources table).
+	AttributedProjectIDs []int64 // sources.attributed_project_ids
 }
 
 // ListFilter represents filter criteria for listing content items.
@@ -161,7 +164,8 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 			ce.content_type AS enrichment_content_type,
 			ce.content_subtype AS enrichment_content_subtype,
 			ce.source_system AS enrichment_source_system,
-			ce.content_structure AS enrichment_content_structure
+			ce.content_structure AS enrichment_content_structure,
+			s.attributed_project_ids
 		FROM sources s
 		LEFT JOIN embeddings e ON s.id = e.source_id
 		LEFT JOIN assertions a ON s.id = a.source_id
@@ -191,6 +195,7 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 		&rec.EnrichmentContentSubtype,
 		&rec.EnrichmentSourceSystem,
 		&rec.EnrichmentContentStructure,
+		&rec.AttributedProjectIDs,
 	)
 
 	if err == pgx.ErrNoRows {
@@ -1912,6 +1917,10 @@ func recordToProto(rec *ContentItemRecord) *contentv1.ContentItem {
 	}
 	if rec.EnrichmentContentStructure != nil {
 		item.ContentStructure = mapDBContentStructureToProto(*rec.EnrichmentContentStructure)
+	}
+
+	if len(rec.AttributedProjectIDs) > 0 {
+		item.AttributedProjectIds = rec.AttributedProjectIDs
 	}
 
 	return item

@@ -40,6 +40,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logs"
 	"github.com/otherjamesbrown/penfold/pkg/mentions"
 	"github.com/otherjamesbrown/penfold/pkg/mentions/resolver"
+	sourcemappings "github.com/otherjamesbrown/penfold/pkg/source_mappings"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
 	"github.com/otherjamesbrown/penfold/pkg/topics"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
@@ -145,6 +146,121 @@ func (a *projectTaggingRepositoryAdapter) CreateContentMention(ctx context.Conte
 		return fmt.Errorf("failed to create resolved mention: %w", err)
 	}
 
+	return nil
+}
+
+// attributionRepositoryAdapter adapts existing repositories for attribution activities.
+type attributionRepositoryAdapter struct {
+	sourceMappingsRepo *sourcemappings.Repository
+	entityRepo         *entities.Repository
+	mentionsRepo       *mentions.PostgresRepository
+	db                 *pgxpool.Pool
+}
+
+func (a *attributionRepositoryAdapter) FindMappingForSource(ctx context.Context, tenantID, sourceType, sourceIdentifier string) (*sourcemappings.SourceMapping, error) {
+	return a.sourceMappingsRepo.FindMappingForSource(ctx, tenantID, sourceType, sourceIdentifier)
+}
+
+func (a *attributionRepositoryAdapter) GetProjectsWithKeywords(ctx context.Context, tenantID string) ([]*entities.Project, error) {
+	return a.entityRepo.GetProjectsWithKeywords(ctx, tenantID)
+}
+
+func (a *attributionRepositoryAdapter) GetSourceMetadata(ctx context.Context, sourceID int64) (string, string, error) {
+	query := `SELECT COALESCE(source_system, ''), COALESCE(ingestion_metadata->>'source_tag', '') FROM sources WHERE id = $1`
+	var sourceSystem, sourceTag string
+	err := a.db.QueryRow(ctx, query, sourceID).Scan(&sourceSystem, &sourceTag)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get source metadata: %w", err)
+	}
+	return sourceSystem, sourceTag, nil
+}
+
+func (a *attributionRepositoryAdapter) GetAssertionsForSource(ctx context.Context, tenantID string, sourceID int64) ([]activities.AssertionRef, error) {
+	query := `SELECT id, COALESCE(description, ''), COALESCE(source_quote, '') FROM assertions WHERE tenant_id = $1 AND source_id = $2`
+	rows, err := a.db.Query(ctx, query, tenantID, sourceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get assertions: %w", err)
+	}
+	defer rows.Close()
+
+	var refs []activities.AssertionRef
+	for rows.Next() {
+		var ref activities.AssertionRef
+		if err := rows.Scan(&ref.ID, &ref.Description, &ref.SourceQuote); err != nil {
+			return nil, fmt.Errorf("failed to scan assertion: %w", err)
+		}
+		refs = append(refs, ref)
+	}
+	return refs, rows.Err()
+}
+
+func (a *attributionRepositoryAdapter) UpdateAssertionAttribution(ctx context.Context, assertionID int64, projectID int64, source string, confidence float64) error {
+	query := `UPDATE assertions SET project_id = $1, attribution_source = $2, attribution_confidence = $3 WHERE id = $4`
+	_, err := a.db.Exec(ctx, query, projectID, source, confidence, assertionID)
+	if err != nil {
+		return fmt.Errorf("failed to update assertion attribution: %w", err)
+	}
+	return nil
+}
+
+func (a *attributionRepositoryAdapter) UpdateSourceAttributedProjects(ctx context.Context, sourceID int64, projectIDs []int64) error {
+	query := `UPDATE sources SET attributed_project_ids = $1 WHERE id = $2`
+	_, err := a.db.Exec(ctx, query, projectIDs, sourceID)
+	if err != nil {
+		return fmt.Errorf("failed to update source attributed projects: %w", err)
+	}
+	return nil
+}
+
+func (a *attributionRepositoryAdapter) GetMinConfidence(ctx context.Context, tenantID string) (float64, error) {
+	query := `SELECT value FROM pipeline_operational_config WHERE tenant_id = $1 AND key = 'attribution_min_confidence'`
+	var val string
+	err := a.db.QueryRow(ctx, query, tenantID).Scan(&val)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get min confidence: %w", err)
+	}
+	var conf float64
+	_, err = fmt.Sscanf(val, "%f", &conf)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse min confidence: %w", err)
+	}
+	return conf, nil
+}
+
+func (a *attributionRepositoryAdapter) CreateContentMention(ctx context.Context, tenantID string, contentID int64, entityType string, mentionedText string, resolvedEntityID int64) error {
+	var exists bool
+	err := a.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM content_mentions
+			WHERE tenant_id = $1 AND content_id = $2 AND entity_type = $3
+			AND LOWER(mentioned_text) = LOWER($4) AND resolved_entity_id = $5
+		)
+	`, tenantID, contentID, entityType, mentionedText, resolvedEntityID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check existing mention: %w", err)
+	}
+	if exists {
+		return nil
+	}
+
+	query := `
+		INSERT INTO content_mentions (
+			tenant_id, content_id, entity_type, mentioned_text,
+			resolved_entity_id, resolution_confidence, resolution_source,
+			status, resolved_at, candidates
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, NOW(), '[]'::jsonb
+		)
+	`
+	_, err = a.db.Exec(ctx, query,
+		tenantID, contentID, entityType, mentionedText,
+		resolvedEntityID, 1.0,
+		string(mentions.ResolutionSourceExactMatch),
+		string(mentions.MentionStatusAutoResolved),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create resolved mention: %w", err)
+	}
 	return nil
 }
 
@@ -664,6 +780,20 @@ func main() {
 		projectTaggingActivities := activities.NewProjectTaggingActivities(logger, projectTaggingRepo)
 		activityRegistrar.WithProjectTaggingActivities(projectTaggingActivities)
 		logger.Info("Project tagging activities initialized")
+	}
+
+	// Initialize Attribution Activities
+	if dbPool != nil && entitiesRepo != nil && mentionsRepo != nil {
+		sourceMappingsRepo := sourcemappings.NewRepository(dbPool, logger)
+		attributionRepo := &attributionRepositoryAdapter{
+			sourceMappingsRepo: sourceMappingsRepo,
+			entityRepo:         entitiesRepo,
+			mentionsRepo:       mentionsRepo,
+			db:                 dbPool,
+		}
+		attributionActivities := activities.NewAttributionActivities(logger, attributionRepo)
+		activityRegistrar.WithAttributionActivities(attributionActivities)
+		logger.Info("Attribution activities initialized")
 	}
 
 	// Initialize Threading Activities (Stage 2.5: email threading)

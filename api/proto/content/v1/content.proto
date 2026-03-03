@@ -301,6 +301,9 @@ message ContentItem {
 
   // Source system for notifications (e.g., "jira", "aha", "google_docs").
   string notification_source = 21;
+
+  // Project IDs attributed to this content via the attribution pipeline stage.
+  repeated int64 attributed_project_ids = 22;
 }
 
 // ProcessingState represents the overall processing state of a content item.

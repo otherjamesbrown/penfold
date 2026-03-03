@@ -28,6 +28,7 @@ type Registrar struct {
 	pipelineActivities         *PipelineActivities
 	personEnrichmentActivities *PersonEnrichmentActivities
 	projectTaggingActivities   *ProjectTaggingActivities
+	attributionActivities      *AttributionActivities
 	threadActivities           *ThreadActivities
 	enrichmentActivities       *EnrichmentActivities
 	conversationActivities     *ConversationActivities
@@ -114,6 +115,12 @@ func (r *Registrar) WithPersonEnrichmentActivities(pea *PersonEnrichmentActiviti
 // WithProjectTaggingActivities adds project tagging activities to the registrar.
 func (r *Registrar) WithProjectTaggingActivities(pta *ProjectTaggingActivities) *Registrar {
 	r.projectTaggingActivities = pta
+	return r
+}
+
+// WithAttributionActivities adds project attribution activities to the registrar.
+func (r *Registrar) WithAttributionActivities(aa *AttributionActivities) *Registrar {
+	r.attributionActivities = aa
 	return r
 }
 
@@ -264,6 +271,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.projectTaggingActivities != nil {
 		w.RegisterActivityWithOptions(r.projectTaggingActivities.TagProjects, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityTagProjects,
+		})
+	}
+
+	// Project attribution for assertion-level attribution
+	if r.attributionActivities != nil {
+		w.RegisterActivityWithOptions(r.attributionActivities.AttributeProject, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityAttributeProject,
 		})
 	}
 
@@ -541,6 +555,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// TagProjects
 		if r.projectTaggingActivities != nil {
+			count += 1
+		}
+		// AttributeProject
+		if r.attributionActivities != nil {
 			count += 1
 		}
 		// ParseEmail, ParseTranscript

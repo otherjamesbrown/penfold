@@ -95,6 +95,7 @@ var StageActivityMap = map[string][]string{
 	"summary":             {ActivityGenerateContentSummary},
 	"persist":             {ActivityPersistFindings},
 	"embed":               {ActivityGenerateContentEmbedding},
+	"attribute_project":   {ActivityAttributeProject},
 }
 
 // ValidateStageRegistry compares pipeline_definitions stage names against registered

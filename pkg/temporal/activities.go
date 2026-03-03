@@ -43,6 +43,7 @@ const (
 	ActivityHeartbeatCheckWatchMatches     = "HeartbeatCheckWatchMatches"
 	ActivityHeartbeatCheckStaleContent     = "HeartbeatCheckStaleContent"
 	ActivityHeartbeatUpdateStatus          = "HeartbeatUpdateStatus"
+	ActivityAttributeProject               = "AttributeProject"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -127,6 +128,7 @@ func AllMainQueueActivities() []string {
 		ActivityHeartbeatCheckWatchMatches,
 		ActivityHeartbeatCheckStaleContent,
 		ActivityHeartbeatUpdateStatus,
+		ActivityAttributeProject,
 	}
 }
 
