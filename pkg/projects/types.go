@@ -2,19 +2,24 @@
 // Projects represent business initiatives with keywords and Jira integration for auto-tagging.
 package projects
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Project represents a business project with keywords and Jira integration.
 type Project struct {
-	ID           int64     `json:"id,omitempty"`
-	TenantID     string    `json:"tenant_id"`
-	Name         string    `json:"name"`
-	Description  *string   `json:"description,omitempty"`
-	Keywords     []string  `json:"keywords,omitempty"`
-	JiraProjects []string  `json:"jira_projects,omitempty"`
-	Status       string    `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           int64            `json:"id,omitempty"`
+	TenantID     string           `json:"tenant_id"`
+	Name         string           `json:"name"`
+	Description  *string          `json:"description,omitempty"`
+	Keywords     []string         `json:"keywords,omitempty"`
+	JiraProjects []string         `json:"jira_projects,omitempty"`
+	Status       string           `json:"status"`
+	Timeline     *json.RawMessage `json:"timeline,omitempty"`
+	Metadata     *json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt    time.Time        `json:"created_at"`
+	UpdatedAt    time.Time        `json:"updated_at"`
 }
 
 // ProjectMember represents membership in a project (person or team).

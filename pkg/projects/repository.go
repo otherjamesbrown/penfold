@@ -93,7 +93,7 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*Project, error) {
 	query := `
 		SELECT
 			id, tenant_id, name, description, keywords, jira_projects,
-			status, created_at, updated_at
+			status, timeline, metadata, created_at, updated_at
 		FROM projects
 		WHERE id = $1
 	`
@@ -105,7 +105,7 @@ func (r *Repository) GetByName(ctx context.Context, tenantID, name string) (*Pro
 	query := `
 		SELECT
 			id, tenant_id, name, description, keywords, jira_projects,
-			status, created_at, updated_at
+			status, timeline, metadata, created_at, updated_at
 		FROM projects
 		WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
 	`
@@ -148,6 +148,8 @@ func (r *Repository) Update(ctx context.Context, p *Project) error {
 			description = $3,
 			keywords = $4,
 			jira_projects = $5,
+			timeline = $6,
+			metadata = $7,
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING updated_at
@@ -159,6 +161,8 @@ func (r *Repository) Update(ctx context.Context, p *Project) error {
 		p.Description,
 		keywords,
 		jiraProjects,
+		p.Timeline,
+		p.Metadata,
 	).Scan(&p.UpdatedAt)
 
 	if err != nil {
@@ -237,7 +241,7 @@ func (r *Repository) List(ctx context.Context, filter ProjectFilter) ([]*Project
 	baseQuery := fmt.Sprintf(`
 		SELECT
 			id, tenant_id, name, description, keywords, jira_projects,
-			status, created_at, updated_at
+			status, timeline, metadata, created_at, updated_at
 		FROM projects
 		WHERE %s
 		ORDER BY %s
@@ -517,6 +521,8 @@ func (r *Repository) scanProject(ctx context.Context, query string, args ...any)
 		&p.Keywords,
 		&p.JiraProjects,
 		&p.Status,
+		&p.Timeline,
+		&p.Metadata,
 		&p.CreatedAt,
 		&p.UpdatedAt,
 	)
@@ -541,6 +547,8 @@ func (r *Repository) scanProjects(rows pgx.Rows) ([]*Project, error) {
 			&p.Keywords,
 			&p.JiraProjects,
 			&p.Status,
+			&p.Timeline,
+			&p.Metadata,
 			&p.CreatedAt,
 			&p.UpdatedAt,
 		)

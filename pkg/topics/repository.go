@@ -75,7 +75,9 @@ func (r *Repository) Create(ctx context.Context, t *Topic) error {
 // GetByID retrieves a topic by ID.
 func (r *Repository) GetByID(ctx context.Context, id int64) (*Topic, error) {
 	query := `
-		SELECT id, tenant_id, name, description, keywords, created_at, updated_at
+		SELECT id, tenant_id, name, description, keywords,
+		       project_id, running_context, status, last_updated_at,
+		       created_at, updated_at
 		FROM topics
 		WHERE id = $1
 	`
@@ -85,7 +87,9 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*Topic, error) {
 // GetByName retrieves a topic by name within a tenant.
 func (r *Repository) GetByName(ctx context.Context, tenantID, name string) (*Topic, error) {
 	query := `
-		SELECT id, tenant_id, name, description, keywords, created_at, updated_at
+		SELECT id, tenant_id, name, description, keywords,
+		       project_id, running_context, status, last_updated_at,
+		       created_at, updated_at
 		FROM topics
 		WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
 	`
@@ -122,6 +126,10 @@ func (r *Repository) Update(ctx context.Context, t *Topic) error {
 			name = $2,
 			description = $3,
 			keywords = $4,
+			project_id = $5,
+			running_context = $6,
+			status = $7,
+			last_updated_at = $8,
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING updated_at
@@ -132,6 +140,10 @@ func (r *Repository) Update(ctx context.Context, t *Topic) error {
 		t.Name,
 		t.Description,
 		keywords,
+		t.ProjectID,
+		t.RunningContext,
+		t.Status,
+		t.LastUpdatedAt,
 	).Scan(&t.UpdatedAt)
 
 	if err != nil {
@@ -181,6 +193,12 @@ func (r *Repository) List(ctx context.Context, filter TopicFilter) ([]*Topic, er
 		argIdx++
 	}
 
+	if filter.ProjectID != nil {
+		conditions = append(conditions, fmt.Sprintf("project_id = $%d", argIdx))
+		args = append(args, *filter.ProjectID)
+		argIdx++
+	}
+
 	limit := 100
 	if filter.Limit > 0 && filter.Limit <= 1000 {
 		limit = filter.Limit
@@ -189,7 +207,9 @@ func (r *Repository) List(ctx context.Context, filter TopicFilter) ([]*Topic, er
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, tenant_id, name, description, keywords, created_at, updated_at
+		SELECT id, tenant_id, name, description, keywords,
+		       project_id, running_context, status, last_updated_at,
+		       created_at, updated_at
 		FROM topics
 		WHERE %s
 		ORDER BY name
@@ -237,7 +257,9 @@ func (r *Repository) ListForContext(ctx context.Context, tenantID string, names 
 	}
 
 	query := `
-		SELECT id, tenant_id, name, description, keywords, created_at, updated_at
+		SELECT id, tenant_id, name, description, keywords,
+		       project_id, running_context, status, last_updated_at,
+		       created_at, updated_at
 		FROM topics
 		WHERE tenant_id = $1 AND (
 			LOWER(name) = ANY($2)
@@ -269,7 +291,9 @@ func (r *Repository) ListForContext(ctx context.Context, tenantID string, names 
 // where the candidate set is the full topic list rather than pre-filtered names.
 func (r *Repository) ListAllForTenant(ctx context.Context, tenantID string) ([]*Topic, error) {
 	query := `
-		SELECT id, tenant_id, name, description, keywords, created_at, updated_at
+		SELECT id, tenant_id, name, description, keywords,
+		       project_id, running_context, status, last_updated_at,
+		       created_at, updated_at
 		FROM topics
 		WHERE tenant_id = $1
 		ORDER BY name
@@ -329,6 +353,10 @@ func (r *Repository) scanTopic(ctx context.Context, query string, args ...any) (
 		&t.Name,
 		&t.Description,
 		&t.Keywords,
+		&t.ProjectID,
+		&t.RunningContext,
+		&t.Status,
+		&t.LastUpdatedAt,
 		&t.CreatedAt,
 		&t.UpdatedAt,
 	)
@@ -351,6 +379,10 @@ func (r *Repository) scanTopics(rows pgx.Rows) ([]*Topic, error) {
 			&t.Name,
 			&t.Description,
 			&t.Keywords,
+			&t.ProjectID,
+			&t.RunningContext,
+			&t.Status,
+			&t.LastUpdatedAt,
 			&t.CreatedAt,
 			&t.UpdatedAt,
 		)

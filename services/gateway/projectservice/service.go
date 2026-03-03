@@ -432,6 +432,14 @@ func projectToProto(p *projects.Project) *projectv1.Project {
 		proto.Description = *p.Description
 	}
 
+	if p.Timeline != nil {
+		proto.Timeline = string(*p.Timeline)
+	}
+
+	if p.Metadata != nil {
+		proto.Metadata = string(*p.Metadata)
+	}
+
 	return proto
 }
 

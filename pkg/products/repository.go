@@ -87,6 +87,7 @@ func (r *Repository) GetProductByID(ctx context.Context, id int64) (*Product, er
 		SELECT
 			id, tenant_id, name, description, parent_id,
 			product_type, status, keywords,
+			roadmap_context, technical_stack, customer_associations,
 			created_at, updated_at
 		FROM products
 		WHERE id = $1
@@ -100,6 +101,7 @@ func (r *Repository) GetProductByName(ctx context.Context, tenantID, name string
 		SELECT
 			id, tenant_id, name, description, parent_id,
 			product_type, status, keywords,
+			roadmap_context, technical_stack, customer_associations,
 			created_at, updated_at
 		FROM products
 		WHERE tenant_id = $1 AND LOWER(name) = LOWER($2)
@@ -113,6 +115,7 @@ func (r *Repository) GetProductByAlias(ctx context.Context, alias string) (*Prod
 		SELECT
 			p.id, p.tenant_id, p.name, p.description, p.parent_id,
 			p.product_type, p.status, p.keywords,
+			p.roadmap_context, p.technical_stack, p.customer_associations,
 			p.created_at, p.updated_at
 		FROM products p
 		JOIN product_aliases a ON a.product_id = p.id
@@ -158,6 +161,9 @@ func (r *Repository) UpdateProduct(ctx context.Context, p *Product) error {
 			product_type = $5,
 			status = $6,
 			keywords = $7,
+			roadmap_context = $8,
+			technical_stack = $9,
+			customer_associations = $10,
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING updated_at
@@ -171,6 +177,9 @@ func (r *Repository) UpdateProduct(ctx context.Context, p *Product) error {
 		p.ProductType,
 		p.Status,
 		p.Keywords,
+		p.RoadmapContext,
+		p.TechnicalStack,
+		p.CustomerAssociations,
 	).Scan(&p.UpdatedAt)
 
 	if err != nil {
@@ -233,6 +242,7 @@ func (r *Repository) ListProducts(ctx context.Context, filter ProductFilter) ([]
 		SELECT
 			id, tenant_id, name, description, parent_id,
 			product_type, status, keywords,
+			roadmap_context, technical_stack, customer_associations,
 			created_at, updated_at
 		FROM products
 		WHERE %s
@@ -265,6 +275,7 @@ func (r *Repository) ListTopLevelProducts(ctx context.Context, tenantID string) 
 		SELECT
 			id, tenant_id, name, description, parent_id,
 			product_type, status, keywords,
+			roadmap_context, technical_stack, customer_associations,
 			created_at, updated_at
 		FROM products
 		WHERE tenant_id = $1 AND parent_id IS NULL
@@ -287,6 +298,7 @@ func (r *Repository) ListChildren(ctx context.Context, parentID int64) ([]*Produ
 		SELECT
 			id, tenant_id, name, description, parent_id,
 			product_type, status, keywords,
+			roadmap_context, technical_stack, customer_associations,
 			created_at, updated_at
 		FROM products
 		WHERE parent_id = $1
@@ -364,6 +376,7 @@ func (r *Repository) GetAncestors(ctx context.Context, productID int64) ([]*Prod
 			SELECT
 				id, tenant_id, name, description, parent_id,
 				product_type, status, keywords,
+				roadmap_context, technical_stack, customer_associations,
 				created_at, updated_at,
 				0 as depth
 			FROM products
@@ -374,6 +387,7 @@ func (r *Repository) GetAncestors(ctx context.Context, productID int64) ([]*Prod
 			SELECT
 				p.id, p.tenant_id, p.name, p.description, p.parent_id,
 				p.product_type, p.status, p.keywords,
+				p.roadmap_context, p.technical_stack, p.customer_associations,
 				p.created_at, p.updated_at,
 				a.depth + 1
 			FROM products p
@@ -382,6 +396,7 @@ func (r *Repository) GetAncestors(ctx context.Context, productID int64) ([]*Prod
 		SELECT
 			id, tenant_id, name, description, parent_id,
 			product_type, status, keywords,
+			roadmap_context, technical_stack, customer_associations,
 			created_at, updated_at
 		FROM ancestors
 		WHERE depth > 0
@@ -469,6 +484,7 @@ func (r *Repository) scanProduct(ctx context.Context, query string, args ...any)
 	err := r.pool.QueryRow(ctx, query, args...).Scan(
 		&p.ID, &p.TenantID, &p.Name, &p.Description, &p.ParentID,
 		&p.ProductType, &p.Status, &p.Keywords,
+		&p.RoadmapContext, &p.TechnicalStack, &p.CustomerAssociations,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
@@ -487,6 +503,7 @@ func (r *Repository) scanProducts(rows pgx.Rows) ([]*Product, error) {
 		err := rows.Scan(
 			&p.ID, &p.TenantID, &p.Name, &p.Description, &p.ParentID,
 			&p.ProductType, &p.Status, &p.Keywords,
+			&p.RoadmapContext, &p.TechnicalStack, &p.CustomerAssociations,
 			&p.CreatedAt, &p.UpdatedAt,
 		)
 		if err != nil {

@@ -7,13 +7,17 @@ import "time"
 
 // Topic represents a contextual knowledge entity with keywords for auto-tagging.
 type Topic struct {
-	ID          int64     `json:"id,omitempty"`
-	TenantID    string    `json:"tenant_id"`
-	Name        string    `json:"name"`
-	Description *string   `json:"description,omitempty"`
-	Keywords    []string  `json:"keywords,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID             int64      `json:"id,omitempty"`
+	TenantID       string     `json:"tenant_id"`
+	Name           string     `json:"name"`
+	Description    *string    `json:"description,omitempty"`
+	Keywords       []string   `json:"keywords,omitempty"`
+	ProjectID      *int64     `json:"project_id,omitempty"`
+	RunningContext *string    `json:"running_context,omitempty"`
+	Status         string     `json:"status,omitempty"`
+	LastUpdatedAt  *time.Time `json:"last_updated_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 // TopicFilter contains filtering options for topic queries.
@@ -21,6 +25,7 @@ type TopicFilter struct {
 	TenantID   string
 	NameSearch string
 	Keyword    string
+	ProjectID  *int64
 	Limit      int
 	Offset     int
 }

@@ -167,6 +167,7 @@ func (s *Service) ListTopics(ctx context.Context, req *topicv1.ListTopicsRequest
 		TenantID:   req.Filter.TenantId,
 		NameSearch: req.Filter.NameSearch,
 		Keyword:    req.Filter.Keyword,
+		ProjectID:  req.Filter.ProjectId,
 		Limit:      int(req.Filter.Limit),
 		Offset:     int(req.Filter.Offset),
 	}
@@ -200,12 +201,25 @@ func topicToProto(t *topics.Topic) *topicv1.Topic {
 		TenantId:  t.TenantID,
 		Name:      t.Name,
 		Keywords:  t.Keywords,
+		Status:    t.Status,
 		CreatedAt: timestamppb.New(t.CreatedAt),
 		UpdatedAt: timestamppb.New(t.UpdatedAt),
 	}
 
 	if t.Description != nil {
 		proto.Description = *t.Description
+	}
+
+	if t.ProjectID != nil {
+		proto.ProjectId = t.ProjectID
+	}
+
+	if t.RunningContext != nil {
+		proto.RunningContext = *t.RunningContext
+	}
+
+	if t.LastUpdatedAt != nil {
+		proto.LastUpdatedAt = timestamppb.New(*t.LastUpdatedAt)
 	}
 
 	return proto

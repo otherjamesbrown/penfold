@@ -62,6 +62,11 @@ type Person struct {
 	SentCount     int `db:"sent_count" json:"sent_count"`
 	ReceivedCount int `db:"received_count" json:"received_count"`
 
+	// Entity model extensions (Phase 1)
+	CommunicationPatterns []byte   `json:"communication_patterns,omitempty"`
+	ExpertiseAreas        []string `json:"expertise_areas,omitempty"`
+	OrgPosition           []byte   `json:"org_position,omitempty"`
+
 	// Timestamps
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

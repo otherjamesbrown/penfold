@@ -823,6 +823,16 @@ func entityToProto(e *relationships.Entity) *relationshipv1.Entity {
 		protoEntity.CanonicalName = &e.CanonicalName
 	}
 
+	if e.CommunicationPatterns != "" {
+		protoEntity.CommunicationPatterns = e.CommunicationPatterns
+	}
+	if len(e.ExpertiseAreas) > 0 {
+		protoEntity.ExpertiseAreas = e.ExpertiseAreas
+	}
+	if e.OrgPosition != "" {
+		protoEntity.OrgPosition = e.OrgPosition
+	}
+
 	return protoEntity
 }
 
