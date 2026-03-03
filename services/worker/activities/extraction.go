@@ -1028,9 +1028,9 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 		}
 	}
 
-	// Enrich sender
+	// Enrich sender (map keys are lowercase from GetPeopleByEmails)
 	enrichedSenderName := senderName
-	if person, ok := people[senderEmail]; ok {
+	if person, ok := people[strings.ToLower(senderEmail)]; ok {
 		enrichedSenderName = formatEnrichedName(person, aliases)
 		logger.Info("Enriched sender from person DB",
 			logging.F("raw_name", senderName),
@@ -1042,7 +1042,7 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 	enrichedParticipants := make([]workflows.Participant, len(participants))
 	copy(enrichedParticipants, participants)
 	for i, p := range enrichedParticipants {
-		if person, ok := people[p.Email]; ok {
+		if person, ok := people[strings.ToLower(p.Email)]; ok {
 			enrichedParticipants[i].DisplayName = formatEnrichedName(person, aliases)
 		}
 	}

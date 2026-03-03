@@ -28,8 +28,7 @@ type searchResult struct {
 }
 
 // setupRoleFilterData ingests two test emails through the pipeline so that
-// content_mentions have participation roles, then deduplicates auto-created
-// people records so email resolution is deterministic.
+// content_mentions have participation roles.
 //
 // Returns source IDs for email 010 and 011.
 func setupRoleFilterData(t *testing.T, env *PipelineE2EEnv) (int64, int64) {
@@ -74,57 +73,19 @@ func setupRoleFilterData(t *testing.T, env *PipelineE2EEnv) (int64, int64) {
 	runPipelineAndWait(t, env, source010, 120*time.Second)
 	runPipelineAndWait(t, env, source011, 120*time.Second)
 
-	// Deduplicate auto-created people records.
-	// The pipeline may create duplicate people (same canonical_name + email) across
-	// separate pipeline runs. We merge them by keeping the first (lowest ID) and
-	// updating content_mentions to reference the canonical record.
-	dupMergeRows, err := env.DB.Query(ctx, `
-		SELECT canonical_name, email_addresses[1] AS email,
-			MIN(id) AS keep_id, ARRAY_AGG(id ORDER BY id) AS all_ids
-		FROM people
-		WHERE tenant_id = $1 AND email_addresses[1] IS NOT NULL
-		GROUP BY tenant_id, canonical_name, email_addresses[1]
-		HAVING COUNT(*) > 1
-	`, tid)
-	require.NoError(t, err, "find duplicate people")
-	type dupGroup struct {
-		keepID int64
-		allIDs []int64
-	}
-	var dups []dupGroup
-	for dupMergeRows.Next() {
-		var name, email string
-		var keepID int64
-		var allIDs []int64
-		require.NoError(t, dupMergeRows.Scan(&name, &email, &keepID, &allIDs))
-		t.Logf("dedup: %q (%s) keep=%d, merge=%v", name, email, keepID, allIDs)
-		dups = append(dups, dupGroup{keepID: keepID, allIDs: allIDs})
-	}
-	dupMergeRows.Close()
-
-	for _, d := range dups {
-		for _, oldID := range d.allIDs {
-			if oldID == d.keepID {
-				continue
-			}
-			// Update content_mentions to point to the canonical person
-			_, err = env.DB.Exec(ctx, `
-				UPDATE content_mentions SET resolved_entity_id = $1
-				WHERE resolved_entity_id = $2
-			`, d.keepID, oldID)
-			require.NoError(t, err, "merge mentions from %d to %d", oldID, d.keepID)
-
-			// Update any embeddings referencing the duplicate
-			_, _ = env.DB.Exec(ctx, `
-				UPDATE embeddings SET entity_id = $1::text
-				WHERE entity_id = $2::text AND entity_type = 'person'
-			`, d.keepID, oldID)
-
-			// Delete the duplicate person
-			_, err = env.DB.Exec(ctx, `DELETE FROM people WHERE id = $1`, oldID)
-			require.NoError(t, err, "delete duplicate person %d", oldID)
-		}
-	}
+	// Verify no duplicate people were created (pf-4c9d18 fix: case-insensitive email dedup)
+	var dupCount int
+	err = env.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT LOWER(primary_email), COUNT(*)
+			FROM people
+			WHERE tenant_id = $1 AND primary_email IS NOT NULL
+			GROUP BY tenant_id, LOWER(primary_email)
+			HAVING COUNT(*) > 1
+		) dups
+	`, tid).Scan(&dupCount)
+	require.NoError(t, err)
+	require.Equal(t, 0, dupCount, "pipeline should not create duplicate people (pf-4c9d18)")
 
 	// Verify mentions were created with roles
 	var mentionCount int

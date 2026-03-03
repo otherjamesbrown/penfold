@@ -33,6 +33,9 @@ func NewRepository(pool *pgxpool.Pool, logger logging.Logger) *Repository {
 // Note: primary_email is a generated column (email_addresses[1]), so we insert
 // into email_addresses instead.
 func (r *Repository) CreatePerson(ctx context.Context, p *Person) error {
+	// Upsert: on conflict with existing (tenant_id, email), update canonical_name
+	// if the new name is better (non-empty and existing name looks like an email).
+	// This prevents TOCTOU races between GetPersonByEmail and CreatePerson.
 	query := `
 		INSERT INTO people (
 			tenant_id, canonical_name, email_addresses,
@@ -47,13 +50,21 @@ func (r *Repository) CreatePerson(ctx context.Context, p *Person) error {
 			$12, $13, $14,
 			NOW(), NOW()
 		)
+		ON CONFLICT (tenant_id, LOWER(primary_email))
+		DO UPDATE SET
+			canonical_name = CASE
+				WHEN people.canonical_name LIKE '%@%' AND EXCLUDED.canonical_name NOT LIKE '%@%'
+				THEN EXCLUDED.canonical_name
+				ELSE people.canonical_name
+			END,
+			updated_at = NOW()
 		RETURNING id, primary_email, created_at, updated_at
 	`
 
-	// Build email_addresses array from PrimaryEmail
+	// Build email_addresses array from PrimaryEmail (lowercased)
 	var emailAddresses []string
 	if p.PrimaryEmail != "" {
-		emailAddresses = []string{p.PrimaryEmail}
+		emailAddresses = []string{strings.ToLower(p.PrimaryEmail)}
 	}
 
 	err := r.pool.QueryRow(ctx, query,
@@ -77,7 +88,7 @@ func (r *Repository) CreatePerson(ctx context.Context, p *Person) error {
 		return fmt.Errorf("failed to create person: %w", err)
 	}
 
-	r.logger.Debug("Person created",
+	r.logger.Debug("Person created/upserted",
 		logging.F("id", p.ID),
 		logging.F("email", p.PrimaryEmail))
 
@@ -102,7 +113,7 @@ func (r *Repository) GetPersonByID(ctx context.Context, id int64) (*Person, erro
 	return r.scanPerson(ctx, query, id)
 }
 
-// GetPersonByEmail retrieves a person by primary email.
+// GetPersonByEmail retrieves a person by primary email (case-insensitive).
 func (r *Repository) GetPersonByEmail(ctx context.Context, tenantID, email string) (*Person, error) {
 	query := `
 		SELECT
@@ -115,7 +126,7 @@ func (r *Repository) GetPersonByEmail(ctx context.Context, tenantID, email strin
 			sent_count, received_count,
 			created_at, updated_at
 		FROM people
-		WHERE tenant_id = $1 AND primary_email = $2
+		WHERE tenant_id = $1 AND LOWER(primary_email) = LOWER($2)
 	`
 	return r.scanPerson(ctx, query, tenantID, email)
 }
@@ -138,10 +149,16 @@ func (r *Repository) GetPeopleByEmails(ctx context.Context, tenantID string, ema
 			sent_count, received_count,
 			created_at, updated_at
 		FROM people
-		WHERE tenant_id = $1 AND primary_email = ANY($2)
+		WHERE tenant_id = $1 AND LOWER(primary_email) = ANY($2)
 	`
 
-	rows, err := r.pool.Query(ctx, query, tenantID, emails)
+	// Lowercase all input emails for case-insensitive matching
+	lowered := make([]string, len(emails))
+	for i, e := range emails {
+		lowered[i] = strings.ToLower(e)
+	}
+
+	rows, err := r.pool.Query(ctx, query, tenantID, lowered)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get people by emails: %w", err)
 	}
@@ -154,7 +171,7 @@ func (r *Repository) GetPeopleByEmails(ctx context.Context, tenantID string, ema
 
 	result := make(map[string]*Person, len(people))
 	for _, p := range people {
-		result[p.PrimaryEmail] = p
+		result[strings.ToLower(p.PrimaryEmail)] = p
 	}
 	return result, nil
 }

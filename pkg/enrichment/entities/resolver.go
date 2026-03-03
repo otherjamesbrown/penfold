@@ -116,6 +116,9 @@ func (r *Resolver) Process(ctx context.Context, pctx *processors.ProcessorContex
 
 // ResolveOrCreate resolves an email/name to a person, creating if necessary.
 func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, displayName string) (*ResolutionResult, error) {
+	// Normalize email to lowercase to prevent case-sensitive duplicates (pf-4c9d18)
+	email = strings.ToLower(email)
+
 	// 1. Try exact email match
 	person, err := r.repo.GetPersonByEmail(ctx, tenantID, email)
 	if err != nil {
@@ -287,6 +290,8 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 
 // Resolve resolves an email/name to a person without creating.
 func (r *Resolver) Resolve(ctx context.Context, tenantID, email string) (*ResolutionResult, error) {
+	email = strings.ToLower(email)
+
 	// Try exact email match
 	person, err := r.repo.GetPersonByEmail(ctx, tenantID, email)
 	if err != nil {

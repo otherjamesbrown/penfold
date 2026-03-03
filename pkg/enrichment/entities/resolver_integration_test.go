@@ -70,8 +70,8 @@ func TestResolveOrCreate_StaleAccountType_Integration(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up any existing person with this email
-			cleanupPerson(t, ctx, pool, tenantID, tc.email)
-			defer cleanupPerson(t, ctx, pool, tenantID, tc.email)
+			cleanupPersonByEmail(t, ctx, pool, tenantID, tc.email)
+			defer cleanupPersonByEmail(t, ctx, pool, tenantID, tc.email)
 
 			// Step 1: Create a person with STALE account_type (simulate old data)
 			stalePerson := &Person{
@@ -246,8 +246,8 @@ func TestResolveOrCreate_CanonicalNameUpdate_Integration(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up any existing person with this email
-			cleanupPerson(t, ctx, pool, tenantID, tc.email)
-			defer cleanupPerson(t, ctx, pool, tenantID, tc.email)
+			cleanupPersonByEmail(t, ctx, pool, tenantID, tc.email)
+			defer cleanupPersonByEmail(t, ctx, pool, tenantID, tc.email)
 
 			// Step 1: Create a person with canonical_name = email address
 			// This simulates an entity created before a display name was available
@@ -358,8 +358,8 @@ func TestResolveOrCreate_CanonicalNameNoOverwrite_Integration(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clean up any existing person with this email
-			cleanupPerson(t, ctx, pool, tenantID, tc.email)
-			defer cleanupPerson(t, ctx, pool, tenantID, tc.email)
+			cleanupPersonByEmail(t, ctx, pool, tenantID, tc.email)
+			defer cleanupPersonByEmail(t, ctx, pool, tenantID, tc.email)
 
 			// Step 1: Create a person with a GOOD canonical_name (not an email)
 			initialPerson := &Person{
@@ -417,19 +417,162 @@ func containsAt(s string) bool {
 	return false
 }
 
-// cleanupPerson removes a person by email from the database.
-func cleanupPerson(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, email string) {
+// TestResolveOrCreate_CaseInsensitiveEmail_Integration verifies that resolving the same
+// email with different casing does not create duplicate people records (pf-4c9d18).
+//
+// This tests both:
+// 1. ResolveOrCreate lowercases emails before lookup/create
+// 2. GetPersonByEmail uses LOWER() for case-insensitive matching
+func TestResolveOrCreate_CaseInsensitiveEmail_Integration(t *testing.T) {
+	ctx := context.Background()
+
+	pool := setupTestDB(t)
+	tenantID := IntegrationTestTenantID
+	logger := logging.MustGlobal()
+
+	repo := NewRepository(pool, logger)
+	resolver := NewResolver(repo, WithResolverLogger(logger))
+
+	// Clean up before test
+	cleanupPersonByEmail(t, ctx, pool, tenantID, "john.smith@acme.com")
+	defer cleanupPersonByEmail(t, ctx, pool, tenantID, "john.smith@acme.com")
+
+	// Step 1: Create person with mixed-case email
+	result1, err := resolver.ResolveOrCreate(ctx, tenantID, "John.Smith@Acme.com", "John Smith")
+	if err != nil {
+		t.Fatalf("ResolveOrCreate #1 failed: %v", err)
+	}
+	if !result1.IsNew {
+		t.Fatal("Expected first resolution to create a new person")
+	}
+	t.Logf("Created person ID %d with email %q", result1.Person.ID, result1.Person.PrimaryEmail)
+
+	// Verify email was lowercased
+	if result1.Person.PrimaryEmail != "john.smith@acme.com" {
+		t.Errorf("Email not lowercased: got %q, want %q",
+			result1.Person.PrimaryEmail, "john.smith@acme.com")
+	}
+
+	// Step 2: Resolve same email with different casing — should find existing
+	result2, err := resolver.ResolveOrCreate(ctx, tenantID, "john.smith@ACME.COM", "John Smith")
+	if err != nil {
+		t.Fatalf("ResolveOrCreate #2 failed: %v", err)
+	}
+	if result2.IsNew {
+		t.Error("FAIL: Second resolution created a duplicate instead of finding existing")
+	}
+	if result2.Person.ID != result1.Person.ID {
+		t.Errorf("FAIL: Different person IDs: first=%d, second=%d (duplicate created)",
+			result1.Person.ID, result2.Person.ID)
+	} else {
+		t.Logf("PASS: Same person ID %d returned for different email casing", result2.Person.ID)
+	}
+
+	// Step 3: Verify only one person record exists in the database
+	var count int
+	err = pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM people
+		WHERE tenant_id = $1 AND LOWER(primary_email) = 'john.smith@acme.com'
+	`, tenantID).Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to count people: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("FAIL: Expected 1 person record, got %d (duplicates exist)", count)
+	}
+}
+
+// TestCreatePerson_UpsertOnConflict_Integration verifies that CreatePerson handles
+// concurrent duplicate inserts gracefully via ON CONFLICT (pf-4c9d18).
+func TestCreatePerson_UpsertOnConflict_Integration(t *testing.T) {
+	ctx := context.Background()
+
+	pool := setupTestDB(t)
+	tenantID := IntegrationTestTenantID
+	logger := logging.MustGlobal()
+
+	repo := NewRepository(pool, logger)
+
+	// Clean up
+	cleanupPersonByEmail(t, ctx, pool, tenantID, "upsert-test@acme.com")
+	defer cleanupPersonByEmail(t, ctx, pool, tenantID, "upsert-test@acme.com")
+
+	// First insert
+	p1 := &Person{
+		TenantID:      tenantID,
+		CanonicalName: "upsert-test@acme.com",
+		PrimaryEmail:  "upsert-test@acme.com",
+		AccountType:   AccountTypePerson,
+		IsInternal:    false,
+		Confidence:    0.6,
+		AutoCreated:   true,
+		NeedsReview:   true,
+	}
+	if err := repo.CreatePerson(ctx, p1); err != nil {
+		t.Fatalf("First CreatePerson failed: %v", err)
+	}
+	t.Logf("First insert: ID=%d", p1.ID)
+
+	// Second insert with same email (simulates race condition) — should upsert, not error
+	p2 := &Person{
+		TenantID:      tenantID,
+		CanonicalName: "Upsert Test User",
+		PrimaryEmail:  "upsert-test@acme.com",
+		AccountType:   AccountTypePerson,
+		IsInternal:    false,
+		Confidence:    0.7,
+		AutoCreated:   true,
+		NeedsReview:   true,
+	}
+	if err := repo.CreatePerson(ctx, p2); err != nil {
+		t.Fatalf("Second CreatePerson (upsert) failed: %v", err)
+	}
+	t.Logf("Second insert (upsert): ID=%d", p2.ID)
+
+	// Should return the same person ID
+	if p1.ID != p2.ID {
+		t.Errorf("FAIL: Different IDs returned: first=%d, second=%d", p1.ID, p2.ID)
+	}
+
+	// Verify canonical_name was updated (old name looked like email, new one doesn't)
+	person, err := repo.GetPersonByEmail(ctx, tenantID, "upsert-test@acme.com")
+	if err != nil {
+		t.Fatalf("GetPersonByEmail failed: %v", err)
+	}
+	if person.CanonicalName != "Upsert Test User" {
+		t.Errorf("Expected canonical_name to be updated to %q, got %q",
+			"Upsert Test User", person.CanonicalName)
+	} else {
+		t.Logf("PASS: Upsert updated canonical_name from email to %q", person.CanonicalName)
+	}
+
+	// Verify only one record exists
+	var count int
+	err = pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM people
+		WHERE tenant_id = $1 AND LOWER(primary_email) = 'upsert-test@acme.com'
+	`, tenantID).Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("FAIL: Expected 1 record, got %d", count)
+	}
+}
+
+// cleanupPersonByEmail removes a person by email from the database (case-insensitive).
+func cleanupPersonByEmail(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, email string) {
 	t.Helper()
 
 	// Delete person_aliases first (foreign key constraint)
 	_, _ = pool.Exec(ctx, `
 		DELETE FROM person_aliases
-		WHERE person_id IN (SELECT id FROM people WHERE tenant_id = $1 AND primary_email = $2)
+		WHERE person_id IN (SELECT id FROM people WHERE tenant_id = $1 AND LOWER(primary_email) = LOWER($2))
 	`, tenantID, email)
 
 	// Delete person
 	_, _ = pool.Exec(ctx, `
 		DELETE FROM people
-		WHERE tenant_id = $1 AND primary_email = $2
+		WHERE tenant_id = $1 AND LOWER(primary_email) = LOWER($2)
 	`, tenantID, email)
 }
