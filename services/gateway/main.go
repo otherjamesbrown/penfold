@@ -48,6 +48,7 @@ import (
 	watchlistv1 "github.com/otherjamesbrown/penfold/api/proto/watchlist/v1"
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
 	schedulev1 "github.com/otherjamesbrown/penfold/api/proto/schedule/v1"
+	source_mappingsv1 "github.com/otherjamesbrown/penfold/api/proto/source_mappings/v1"
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/assertions"
@@ -72,6 +73,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	"github.com/otherjamesbrown/penfold/pkg/sources"
 	"github.com/otherjamesbrown/penfold/pkg/schedule"
+	"github.com/otherjamesbrown/penfold/pkg/source_mappings"
 	"github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/pkg/tenant"
 	"github.com/otherjamesbrown/penfold/pkg/watchlist"
@@ -108,6 +110,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/topicservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/threadsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/scheduleservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/sourcemappingsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/watchlistservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/workflowservice"
 )
@@ -397,6 +400,12 @@ func main() {
 	projectSvc := projectservice.NewService(projectRepo, entityRepo, logger)
 	projectv1.RegisterProjectServiceServer(grpcServer, projectSvc)
 	logger.Info("Registered ProjectService")
+
+	// Register SourceMappingService for project-to-source mappings.
+	sourceMappingsRepo := source_mappings.NewRepository(dbPool, logger)
+	sourceMappingsSvc := sourcemappingsservice.NewService(sourceMappingsRepo, logger)
+	source_mappingsv1.RegisterSourceMappingServiceServer(grpcServer, sourceMappingsSvc)
+	logger.Info("Registered SourceMappingService")
 
 	// Register TopicService for topic CRUD.
 	topicRepo := topics.NewRepository(dbPool, logger)

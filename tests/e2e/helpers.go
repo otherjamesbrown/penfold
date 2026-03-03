@@ -282,6 +282,7 @@ func (env *E2EEnv) CleanupTestTenant() error {
 		"rule_effectiveness",          // -> automation_rules
 		"rule_conflicts",              // -> automation_rules
 		"automation_rule_versions",    // -> automation_rules
+		"project_source_mappings",     // -> projects
 		"project_members",             // -> projects, people, teams
 		"cross_tenant_person_links",   // -> people
 		"user_feedback",               // -> review_items, review_sessions, learning_rules
