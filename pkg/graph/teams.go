@@ -8,6 +8,28 @@ import (
 	"github.com/microsoftgraph/msgraph-sdk-go/teams"
 )
 
+// ListJoinedTeams lists all teams the authenticated user has joined.
+// Uses /me/joinedTeams for delegated auth.
+func (c *GraphClient) ListJoinedTeams(ctx context.Context) ([]JoinedTeam, error) {
+	result, err := c.graphClient.Me().JoinedTeams().Get(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("graph: listing joined teams: %w", err)
+	}
+
+	joined := make([]JoinedTeam, 0, len(result.GetValue()))
+	for _, t := range result.GetValue() {
+		jt := JoinedTeam{}
+		if id := t.GetId(); id != nil {
+			jt.ID = *id
+		}
+		if name := t.GetDisplayName(); name != nil {
+			jt.DisplayName = *name
+		}
+		joined = append(joined, jt)
+	}
+	return joined, nil
+}
+
 // ListTeamChannels lists all channels for a team.
 func (c *GraphClient) ListTeamChannels(ctx context.Context, teamID string) ([]TeamChannel, error) {
 	result, err := c.graphClient.Teams().ByTeamId(teamID).Channels().Get(ctx, nil)

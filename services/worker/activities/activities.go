@@ -236,9 +236,9 @@ func (a *Activities) FetchSource(ctx context.Context, input workflows.FetchSourc
 // mapSourceSystemToContentType maps a source_system value to a logical content type.
 func mapSourceSystemToContentType(sourceSystem string) string {
 	switch sourceSystem {
-	case "gmail", "manual_eml", "embedded_email":
+	case "gmail", "manual_eml", "embedded_email", "outlook_mail", "teams_channel":
 		return "email"
-	case "meeting_transcript", "zoom", "google_meet", "teams":
+	case "meeting_transcript", "zoom", "google_meet", "teams", "teams_transcript":
 		return "meeting"
 	default:
 		return sourceSystem

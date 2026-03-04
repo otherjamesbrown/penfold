@@ -86,6 +86,12 @@ type TeamsThread struct {
 // to map Teams channel IDs to project IDs.
 type ChannelProjectMap map[string]string
 
+// JoinedTeam represents a Microsoft Teams team the user has joined.
+type JoinedTeam struct {
+	ID          string
+	DisplayName string
+}
+
 // TeamsIntegrationConfig extends IntegrationConfig with Teams-specific settings.
 type TeamsIntegrationConfig struct {
 	IntegrationConfig

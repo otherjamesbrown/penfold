@@ -346,3 +346,31 @@ func TestActivity_ErrorTypes(t *testing.T) {
 		// - InvalidContent: Content can't be processed (non-retryable)
 	})
 }
+
+// TestMapSourceSystemToContentType verifies that all source_system values map to valid pipeline content types.
+func TestMapSourceSystemToContentType(t *testing.T) {
+	tests := []struct {
+		sourceSystem string
+		expected     string
+	}{
+		{"gmail", "email"},
+		{"manual_eml", "email"},
+		{"embedded_email", "email"},
+		{"outlook_mail", "email"},
+		{"teams_channel", "email"},
+		{"meeting_transcript", "meeting"},
+		{"zoom", "meeting"},
+		{"google_meet", "meeting"},
+		{"teams", "meeting"},
+		{"teams_transcript", "meeting"},
+		{"unknown_system", "unknown_system"}, // passthrough for unrecognized
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.sourceSystem, func(t *testing.T) {
+			result := mapSourceSystemToContentType(tt.sourceSystem)
+			require.Equal(t, tt.expected, result,
+				"source_system %q should map to %q, got %q", tt.sourceSystem, tt.expected, result)
+		})
+	}
+}

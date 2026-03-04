@@ -306,11 +306,6 @@ func (s *Service) ListGraphChannels(ctx context.Context, req *graphpb.ListGraphC
 		}
 	}
 
-	if len(teamsCfg.TeamIDs) == 0 {
-		s.logger.Debug("No team IDs configured for tenant", logging.F("tenant_id", req.TenantId))
-		return &graphpb.ListGraphChannelsResponse{Channels: []*graphpb.GraphChannel{}}, nil
-	}
-
 	// Create a Graph client from the stored token.
 	graphClient, err := graph.NewGraphClientFromToken(
 		token.AccessToken,
@@ -322,9 +317,40 @@ func (s *Service) ListGraphChannels(ctx context.Context, req *graphpb.ListGraphC
 		return nil, status.Errorf(codes.Internal, "creating graph client: %v", err)
 	}
 
+	// Fetch joined teams once — used for both auto-discovery and display name lookup.
+	teamNameMap := make(map[string]string)
+	joinedTeams, discoverErr := graphClient.ListJoinedTeams(ctx)
+	if discoverErr != nil {
+		s.logger.Warn("Failed to fetch joined teams",
+			logging.Err(discoverErr),
+			logging.F("tenant_id", req.TenantId),
+		)
+		if len(teamsCfg.TeamIDs) == 0 {
+			// No configured teams and discovery failed — nothing to list.
+			return &graphpb.ListGraphChannelsResponse{Channels: []*graphpb.GraphChannel{}}, nil
+		}
+		// Configured teams exist; proceed with IDs only (names will fall back to IDs).
+	} else {
+		for _, t := range joinedTeams {
+			teamNameMap[t.ID] = t.DisplayName
+		}
+	}
+
+	// Use configured team IDs if set, otherwise use all discovered teams.
+	teamIDs := teamsCfg.TeamIDs
+	if len(teamIDs) == 0 {
+		for _, t := range joinedTeams {
+			teamIDs = append(teamIDs, t.ID)
+		}
+		s.logger.Debug("Auto-discovered joined teams",
+			logging.F("tenant_id", req.TenantId),
+			logging.F("team_count", len(teamIDs)),
+		)
+	}
+
 	var channels []*graphpb.GraphChannel
 
-	for _, teamID := range teamsCfg.TeamIDs {
+	for _, teamID := range teamIDs {
 		teamChannels, listErr := graphClient.ListTeamChannels(ctx, teamID)
 		if listErr != nil {
 			s.logger.Warn("Failed to list channels for team",
@@ -332,20 +358,22 @@ func (s *Service) ListGraphChannels(ctx context.Context, req *graphpb.ListGraphC
 				logging.F("team_id", teamID),
 				logging.F("tenant_id", req.TenantId),
 			)
-			// Non-fatal: continue to other teams.
 			continue
+		}
+
+		teamName := teamNameMap[teamID]
+		if teamName == "" {
+			teamName = teamID // Fallback to ID if name lookup failed
 		}
 
 		for _, ch := range teamChannels {
 			protoChannel := &graphpb.GraphChannel{
-				// Team display name requires a separate API call; use team ID as placeholder.
-				TeamName:    teamID,
+				TeamName:    teamName,
 				TeamId:      teamID,
 				ChannelName: ch.DisplayName,
 				ChannelId:   ch.ID,
 			}
 
-			// Populate mapped project from the channel-project map.
 			if teamsCfg.ChannelProjectMap != nil {
 				if project, ok := teamsCfg.ChannelProjectMap[ch.ID]; ok {
 					protoChannel.MappedProject = project
