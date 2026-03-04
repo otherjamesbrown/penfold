@@ -277,36 +277,72 @@ func (s *Service) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 		}, nil
 	}
 
+	// Determine if we should search digests and/or sources based on content_type filter
+	searchSources := true
+	searchDigestContent := true // include digests by default (no filter = search everything)
+	if len(rf.contentTypes) > 0 {
+		searchSources = false
+		searchDigestContent = false
+		filteredSourceTypes := []string{}
+		for _, ct := range rf.contentTypes {
+			if ct == "digest" {
+				searchDigestContent = true
+			} else {
+				searchSources = true
+				filteredSourceTypes = append(filteredSourceTypes, ct)
+			}
+		}
+		// Update contentTypes to exclude "digest" for source search
+		rf.contentTypes = filteredSourceTypes
+	}
+
 	var results []*searchv1.SearchResult
 
-	if useHybrid {
-		filterSQL, filterArgs := rf.buildSQL(tenantID, 8) // $1-$7 used by hybrid base query
-		results, err = s.hybridSearch(ctx, keywordQuery, tenantID, queryVecStr, textWeight, vectorWeight, limit, offset, sortOrder, filterSQL, filterArgs)
-	} else {
-		filterSQL, filterArgs := rf.buildSQL(tenantID, 5) // $1-$4 used by keyword base query
-		results, err = s.keywordOnlySearch(ctx, keywordQuery, tenantID, limit, offset, sortOrder, filterSQL, filterArgs)
+	if searchSources {
+		if useHybrid {
+			filterSQL, filterArgs := rf.buildSQL(tenantID, 8) // $1-$7 used by hybrid base query
+			results, err = s.hybridSearch(ctx, keywordQuery, tenantID, queryVecStr, textWeight, vectorWeight, limit, offset, sortOrder, filterSQL, filterArgs)
+		} else {
+			filterSQL, filterArgs := rf.buildSQL(tenantID, 5) // $1-$4 used by keyword base query
+			results, err = s.keywordOnlySearch(ctx, keywordQuery, tenantID, limit, offset, sortOrder, filterSQL, filterArgs)
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
-	if err != nil {
-		return nil, err
+
+	// Also search digests if applicable
+	if searchDigestContent {
+		digestResults, _ := s.searchDigests(ctx, keywordQuery, tenantID, limit)
+		results = append(results, digestResults...)
+		// Re-sort merged results by score
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].Score > results[j].Score
+		})
+		// Trim to limit
+		if int32(len(results)) > limit {
+			results = results[:limit]
+		}
 	}
 
 	// Get total count (keyword match count, independent of vector scoring)
-	countFilterSQL, countFilterArgs := rf.buildSQL(tenantID, 3) // $1=tenantID, $2=keywordQuery
-	countQuery := fmt.Sprintf(`
-		SELECT COUNT(*)
-		FROM sources s
-		WHERE s.tenant_id = $1
-			AND to_tsvector('english', COALESCE(s.raw_content, '')) @@ websearch_to_tsquery('english', $2)
-			%s
-	`, countFilterSQL)
-	countArgs := append([]interface{}{tenantID, keywordQuery}, countFilterArgs...)
-
 	var totalCount int64
-	err = s.db.QueryRow(ctx, countQuery, countArgs...).Scan(&totalCount)
-	if err != nil {
-		s.logger.Warn("Failed to get total count", logging.Err(err))
-		totalCount = int64(len(results))
+	if searchSources {
+		countFilterSQL, countFilterArgs := rf.buildSQL(tenantID, 3) // $1=tenantID, $2=keywordQuery
+		countQuery := fmt.Sprintf(`
+			SELECT COUNT(*)
+			FROM sources s
+			WHERE s.tenant_id = $1
+				AND to_tsvector('english', COALESCE(s.raw_content, '')) @@ websearch_to_tsquery('english', $2)
+				%s
+		`, countFilterSQL)
+		countArgs := append([]interface{}{tenantID, keywordQuery}, countFilterArgs...)
+		err = s.db.QueryRow(ctx, countQuery, countArgs...).Scan(&totalCount)
+		if err != nil {
+			s.logger.Warn("Failed to get total count", logging.Err(err))
+		}
 	}
+	totalCount = int64(len(results)) // use actual result count including digests
 
 	queryTimeMs := float64(time.Since(startTime).Microseconds()) / 1000.0
 
@@ -846,6 +882,72 @@ func (s *Service) GetSearchStats(ctx context.Context, req *searchv1.GetSearchSta
 		TotalDocuments: totalDocs,
 		LastIndexedAt:  timestamppb.Now(),
 	}, nil
+}
+
+// searchDigests performs full-text search over the digests table body content.
+// Returns results formatted as SearchResult with content_type="digest".
+func (s *Service) searchDigests(ctx context.Context, query, tenantID string, limit int32) ([]*searchv1.SearchResult, error) {
+	sqlQuery := `
+		SELECT
+			d.id,
+			d.digest_type,
+			COALESCE(d.body->>'summary', 'Digest') as title,
+			LEFT(d.body::text, 500) as snippet,
+			ts_rank_cd(to_tsvector('english', COALESCE(d.body::text, '')), websearch_to_tsquery('english', $1)) as score,
+			d.period_start,
+			d.period_end,
+			COALESCE(p.name, '') as project_name,
+			d.created_at
+		FROM digests d
+		LEFT JOIN projects p ON p.id = d.project_id
+		WHERE d.tenant_id = $2
+			AND to_tsvector('english', COALESCE(d.body::text, '')) @@ websearch_to_tsquery('english', $1)
+		ORDER BY score DESC
+		LIMIT $3
+	`
+	rows, err := s.db.Query(ctx, sqlQuery, query, tenantID, limit)
+	if err != nil {
+		s.logger.Warn("Digest search failed", logging.Err(err))
+		return nil, nil // non-fatal
+	}
+	defer rows.Close()
+
+	var results []*searchv1.SearchResult
+	for rows.Next() {
+		var (
+			id          string
+			digestType  string
+			title       string
+			snippet     string
+			score       float32
+			periodStart time.Time
+			periodEnd   time.Time
+			projectName string
+			createdAt   time.Time
+		)
+		if err := rows.Scan(&id, &digestType, &title, &snippet, &score, &periodStart, &periodEnd, &projectName, &createdAt); err != nil {
+			s.logger.Warn("Failed to scan digest search result", logging.Err(err))
+			continue
+		}
+		result := &searchv1.SearchResult{
+			DocumentId:  id,
+			SourceId:    id,
+			ContentType: "digest",
+			Title:       &title,
+			Snippet:     highlightSnippet(snippet, query),
+			TextScore:   &score,
+			Score:       score,
+			CreatedAt:   timestamppb.New(createdAt),
+			Metadata: map[string]string{
+				"digest_type":  digestType,
+				"period_start": periodStart.Format("2006-01-02"),
+				"period_end":   periodEnd.Format("2006-01-02"),
+				"project_name": projectName,
+			},
+		}
+		results = append(results, result)
+	}
+	return results, nil
 }
 
 // highlightSnippet adds basic highlighting to search results.
