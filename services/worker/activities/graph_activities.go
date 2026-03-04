@@ -830,6 +830,368 @@ func (a *GraphActivities) RollbackTeamsSync(ctx context.Context, input workflows
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// AD Sync activities
+// ──────────────────────────────────────────────────────────────────────────────
+
+// FetchADUsers lists all users from Azure AD via the Graph API.
+// For each user, it also fetches the manager relationship if the user has one.
+func (a *GraphActivities) FetchADUsers(ctx context.Context, input workflows.FetchADUsersInput) (*workflows.FetchADUsersOutput, error) {
+	logger := a.logger.With(
+		logging.F("activity", "FetchADUsers"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("integration_id", input.IntegrationID),
+	)
+
+	activity.RecordHeartbeat(ctx, "fetching AD users")
+
+	logger.Info("Fetching AD users from Graph API")
+
+	if input.TenantID == "" {
+		return nil, NewValidationError("tenant_id is required")
+	}
+
+	gc, err := a.newGraphClientForTenant(ctx, input.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("creating graph client: %w", err)
+	}
+
+	activity.RecordHeartbeat(ctx, "calling Graph ListUsers")
+
+	users, err := gc.ListUsers(ctx)
+	if err != nil {
+		logger.Error("Failed to list AD users", logging.Err(err))
+		return nil, fmt.Errorf("listing AD users: %w", err)
+	}
+
+	// Fetch manager for each user
+	for i, u := range users {
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("fetching manager for user %d/%d", i+1, len(users)))
+
+		managerEmail, err := gc.GetUserManager(ctx, u.ID)
+		if err != nil {
+			logger.Debug("Could not fetch manager for user",
+				logging.F("user_id", u.ID),
+				logging.Err(err),
+			)
+			continue
+		}
+		users[i].ManagerEmail = managerEmail
+	}
+
+	logger.Info("AD users fetched",
+		logging.F("user_count", len(users)),
+	)
+
+	return &workflows.FetchADUsersOutput{
+		Users:     users,
+		UserCount: len(users),
+	}, nil
+}
+
+// SyncPeopleFromAD upserts AD users into the people table.
+// It updates department, job_title, company, and manager_email for existing people.
+// New people are created with account_type based on AD user type.
+func (a *GraphActivities) SyncPeopleFromAD(ctx context.Context, input workflows.SyncPeopleFromADInput) (*workflows.SyncPeopleFromADOutput, error) {
+	logger := a.logger.With(
+		logging.F("activity", "SyncPeopleFromAD"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("user_count", len(input.Users)),
+	)
+
+	activity.RecordHeartbeat(ctx, "syncing people from AD")
+
+	logger.Info("Syncing people from AD users")
+
+	if input.TenantID == "" {
+		return nil, NewValidationError("tenant_id is required")
+	}
+
+	var created, updated, skipped, managersSet int
+
+	for i, u := range input.Users {
+		if i%10 == 0 {
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("syncing user %d/%d", i+1, len(input.Users)))
+		}
+
+		if u.Mail == "" {
+			skipped++
+			continue
+		}
+
+		isInternal := u.UserType != "Guest"
+
+		// Upsert: insert if new, update org fields if existing.
+		var personID int64
+		var action string
+		err := a.pool.QueryRow(ctx, `
+			INSERT INTO people (
+				tenant_id, canonical_name, email_addresses,
+				job_title, department, company, is_internal, account_type,
+				confidence_score, needs_review, auto_created,
+				manager_email,
+				created_at, updated_at
+			) VALUES (
+				$1, $2, ARRAY[LOWER($3)],
+				$4, $5, $6, $7, 'person',
+				0.9, false, false,
+				$8,
+				NOW(), NOW()
+			)
+			ON CONFLICT (tenant_id, LOWER(primary_email))
+			DO UPDATE SET
+				canonical_name = CASE
+					WHEN people.canonical_name LIKE '%@%' AND EXCLUDED.canonical_name NOT LIKE '%@%'
+					THEN EXCLUDED.canonical_name
+					ELSE people.canonical_name
+				END,
+				job_title = COALESCE(NULLIF($4, ''), people.job_title),
+				department = COALESCE(NULLIF($5, ''), people.department),
+				company = COALESCE(NULLIF($6, ''), people.company),
+				is_internal = $7,
+				manager_email = COALESCE(NULLIF($8, ''), people.manager_email),
+				updated_at = NOW()
+			RETURNING id, (xmax = 0)::text
+		`, input.TenantID, u.DisplayName, u.Mail,
+			nullableString(u.JobTitle), nullableString(u.Department), nullableString(u.CompanyName),
+			isInternal, nullableString(u.ManagerEmail),
+		).Scan(&personID, &action)
+
+		if err != nil {
+			logger.Warn("Failed to upsert person from AD",
+				logging.F("email", u.Mail),
+				logging.Err(err),
+			)
+			continue
+		}
+
+		if action == "true" {
+			created++
+		} else {
+			updated++
+		}
+
+		if u.ManagerEmail != "" {
+			managersSet++
+		}
+	}
+
+	logger.Info("People sync from AD completed",
+		logging.F("created", created),
+		logging.F("updated", updated),
+		logging.F("skipped", skipped),
+		logging.F("managers_set", managersSet),
+	)
+
+	return &workflows.SyncPeopleFromADOutput{
+		Created:     created,
+		Updated:     updated,
+		Skipped:     skipped,
+		ManagersSet: managersSet,
+	}, nil
+}
+
+// FetchADGroups lists all security groups from Azure AD and their members.
+func (a *GraphActivities) FetchADGroups(ctx context.Context, input workflows.FetchADGroupsInput) (*workflows.FetchADGroupsOutput, error) {
+	logger := a.logger.With(
+		logging.F("activity", "FetchADGroups"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("integration_id", input.IntegrationID),
+	)
+
+	activity.RecordHeartbeat(ctx, "fetching AD groups")
+
+	logger.Info("Fetching AD groups from Graph API")
+
+	if input.TenantID == "" {
+		return nil, NewValidationError("tenant_id is required")
+	}
+
+	gc, err := a.newGraphClientForTenant(ctx, input.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("creating graph client: %w", err)
+	}
+
+	activity.RecordHeartbeat(ctx, "calling Graph ListGroups")
+
+	groups, err := gc.ListGroups(ctx)
+	if err != nil {
+		logger.Error("Failed to list AD groups", logging.Err(err))
+		return nil, fmt.Errorf("listing AD groups: %w", err)
+	}
+
+	// Fetch members for each group
+	for i, g := range groups {
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("fetching members for group %d/%d", i+1, len(groups)))
+
+		members, err := gc.GetGroupMembers(ctx, g.ID)
+		if err != nil {
+			logger.Warn("Failed to fetch members for group",
+				logging.F("group_id", g.ID),
+				logging.F("group_name", g.DisplayName),
+				logging.Err(err),
+			)
+			continue
+		}
+		groups[i].MemberEmails = members
+	}
+
+	logger.Info("AD groups fetched",
+		logging.F("group_count", len(groups)),
+	)
+
+	return &workflows.FetchADGroupsOutput{
+		Groups:     groups,
+		GroupCount: len(groups),
+	}, nil
+}
+
+// SyncTeamsFromAD upserts AD security groups into the teams table and syncs members.
+// Teams created from AD are marked with source='microsoft_graph' and external_id set
+// to the AD group object ID for idempotent sync.
+func (a *GraphActivities) SyncTeamsFromAD(ctx context.Context, input workflows.SyncTeamsFromADInput) (*workflows.SyncTeamsFromADOutput, error) {
+	logger := a.logger.With(
+		logging.F("activity", "SyncTeamsFromAD"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("group_count", len(input.Groups)),
+	)
+
+	activity.RecordHeartbeat(ctx, "syncing teams from AD")
+
+	logger.Info("Syncing teams from AD groups")
+
+	if input.TenantID == "" {
+		return nil, NewValidationError("tenant_id is required")
+	}
+
+	var teamsCreated, teamsUpdated, membersAdded, membersRemoved int
+
+	for i, g := range input.Groups {
+		if i%5 == 0 {
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("syncing group %d/%d", i+1, len(input.Groups)))
+		}
+
+		// Upsert team by external_id
+		var teamID int64
+		var action string
+		err := a.pool.QueryRow(ctx, `
+			INSERT INTO teams (tenant_id, name, description, source, external_id, created_at, updated_at)
+			VALUES ($1, $2, $3, 'microsoft_graph', $4, NOW(), NOW())
+			ON CONFLICT (tenant_id, external_id) WHERE external_id IS NOT NULL
+			DO UPDATE SET
+				name = EXCLUDED.name,
+				description = COALESCE(EXCLUDED.description, teams.description),
+				updated_at = NOW()
+			RETURNING id, (xmax = 0)::text
+		`, input.TenantID, g.DisplayName, nullableString(g.Description), g.ID,
+		).Scan(&teamID, &action)
+
+		if err != nil {
+			logger.Warn("Failed to upsert team from AD",
+				logging.F("group_id", g.ID),
+				logging.F("group_name", g.DisplayName),
+				logging.Err(err),
+			)
+			continue
+		}
+
+		if action == "true" {
+			teamsCreated++
+		} else {
+			teamsUpdated++
+		}
+
+		// Sync members: resolve emails to person IDs, then upsert team_members
+		for _, email := range g.MemberEmails {
+			var personID int64
+			err := a.pool.QueryRow(ctx, `
+				SELECT id FROM people
+				WHERE tenant_id = $1 AND LOWER(primary_email) = LOWER($2)
+			`, input.TenantID, email).Scan(&personID)
+			if err != nil {
+				// Person not found — skip (they may not have been synced yet)
+				continue
+			}
+
+			_, err = a.pool.Exec(ctx, `
+				INSERT INTO team_members (team_id, person_id, role, joined_at)
+				VALUES ($1, $2, 'member', NOW())
+				ON CONFLICT (team_id, person_id) DO NOTHING
+			`, teamID, personID)
+			if err != nil {
+				logger.Warn("Failed to add team member",
+					logging.F("team_id", teamID),
+					logging.F("person_id", personID),
+					logging.Err(err),
+				)
+				continue
+			}
+			membersAdded++
+		}
+	}
+
+	logger.Info("Teams sync from AD completed",
+		logging.F("teams_created", teamsCreated),
+		logging.F("teams_updated", teamsUpdated),
+		logging.F("members_added", membersAdded),
+		logging.F("members_removed", membersRemoved),
+	)
+
+	return &workflows.SyncTeamsFromADOutput{
+		TeamsCreated:   teamsCreated,
+		TeamsUpdated:   teamsUpdated,
+		MembersAdded:   membersAdded,
+		MembersRemoved: membersRemoved,
+	}, nil
+}
+
+// UpdateADSyncState marks the AD sync as healthy and records the sync timestamp.
+func (a *GraphActivities) UpdateADSyncState(ctx context.Context, input workflows.UpdateADSyncStateInput) error {
+	logger := a.logger.With(
+		logging.F("activity", "UpdateADSyncState"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("integration_id", input.IntegrationID),
+		logging.F("users_synced", input.UsersSynced),
+		logging.F("groups_synced", input.GroupsSynced),
+	)
+
+	activity.RecordHeartbeat(ctx, "updating AD sync state")
+
+	logger.Info("Updating AD sync state")
+
+	if input.TenantID == "" {
+		return NewValidationError("tenant_id is required")
+	}
+
+	syncedAt := input.SyncedAt
+	if syncedAt.IsZero() {
+		syncedAt = time.Now().UTC()
+	}
+
+	_, err := a.pool.Exec(ctx, `
+		UPDATE tenant_integrations
+		SET last_sync_at = $2,
+		    sync_status  = 'healthy',
+		    sync_error   = NULL,
+		    updated_at   = NOW()
+		WHERE tenant_id = $1 AND integration_type = 'microsoft_graph'
+	`, input.TenantID, syncedAt)
+	if err != nil {
+		return fmt.Errorf("updating AD sync state for tenant %s: %w", input.TenantID, err)
+	}
+
+	logger.Info("AD sync state updated")
+	return nil
+}
+
+// nullableString returns nil for empty strings, otherwise the string pointer.
+func nullableString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -866,4 +1228,9 @@ var _ interface {
 	ProcessTeamsThread(ctx context.Context, input workflows.ProcessTeamsThreadInput) (*workflows.ProcessTeamsThreadOutput, error)
 	UpdateTeamsSyncState(ctx context.Context, input workflows.UpdateTeamsSyncStateInput) error
 	RollbackTeamsSync(ctx context.Context, input workflows.RollbackTeamsSyncInput) error
+	FetchADUsers(ctx context.Context, input workflows.FetchADUsersInput) (*workflows.FetchADUsersOutput, error)
+	SyncPeopleFromAD(ctx context.Context, input workflows.SyncPeopleFromADInput) (*workflows.SyncPeopleFromADOutput, error)
+	FetchADGroups(ctx context.Context, input workflows.FetchADGroupsInput) (*workflows.FetchADGroupsOutput, error)
+	SyncTeamsFromAD(ctx context.Context, input workflows.SyncTeamsFromADInput) (*workflows.SyncTeamsFromADOutput, error)
+	UpdateADSyncState(ctx context.Context, input workflows.UpdateADSyncStateInput) error
 } = (*GraphActivities)(nil)

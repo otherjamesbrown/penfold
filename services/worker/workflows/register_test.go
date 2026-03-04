@@ -102,8 +102,8 @@ func TestWorkflowCount_AIQueue(t *testing.T) {
 func TestWorkflowCount_EmailQueue(t *testing.T) {
 	r := NewRegistrar()
 	count := r.WorkflowCount(config.EmailTaskQueue)
-	// EmailProcessingWorkflow, GmailSyncWorkflow, TeamsSyncWorkflow, OutlookSyncWorkflow
-	require.Equal(t, 4, count)
+	// EmailProcessingWorkflow, GmailSyncWorkflow, TeamsSyncWorkflow, OutlookSyncWorkflow, ADSyncWorkflow
+	require.Equal(t, 5, count)
 }
 
 // TestWorkflowCount_UnknownQueue verifies workflow count for unknown queue.

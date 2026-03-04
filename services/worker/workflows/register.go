@@ -113,6 +113,11 @@ func (r *Registrar) registerEmailQueueWorkflows(w worker.Worker) {
 	w.RegisterWorkflowWithOptions(OutlookSyncWorkflow, workflow.RegisterOptions{
 		Name: "OutlookSyncWorkflow",
 	})
+
+	// Azure AD directory sync workflow
+	w.RegisterWorkflowWithOptions(ADSyncWorkflow, workflow.RegisterOptions{
+		Name: "ADSyncWorkflow",
+	})
 }
 
 // registerCommonWorkflows registers workflows shared across all task queues.
@@ -130,7 +135,7 @@ func (r *Registrar) WorkflowCount(taskQueue string) int {
 	case config.AITaskQueue:
 		return 1 // AnalysisWorkflow
 	case config.EmailTaskQueue:
-		return 4 // EmailProcessingWorkflow, GmailSyncWorkflow, TeamsSyncWorkflow, OutlookSyncWorkflow
+		return 5 // EmailProcessingWorkflow, GmailSyncWorkflow, TeamsSyncWorkflow, OutlookSyncWorkflow, ADSyncWorkflow
 	default:
 		return 0
 	}

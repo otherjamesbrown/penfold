@@ -288,6 +288,29 @@ type ConversationBackfillResult struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// ADSyncInput is the input for Azure AD directory synchronization workflows.
+type ADSyncInput struct {
+	TenantID      string `json:"tenant_id"`
+	IntegrationID int64  `json:"integration_id"`
+	JobID         string `json:"job_id"`
+	SyncGroups    bool   `json:"sync_groups"`
+	SyncHierarchy bool   `json:"sync_hierarchy"`
+}
+
+// ADSyncResult is the result of Azure AD directory synchronization workflows.
+type ADSyncResult struct {
+	TenantID       string    `json:"tenant_id"`
+	Status         string    `json:"status"` // completed, failed, cancelled, partial
+	Error          string    `json:"error,omitempty"`
+	UsersSynced    int       `json:"users_synced"`
+	UsersCreated   int       `json:"users_created"`
+	UsersUpdated   int       `json:"users_updated"`
+	GroupsSynced   int       `json:"groups_synced"`
+	MembersSynced  int       `json:"members_synced"`
+	ManagersSet    int       `json:"managers_set"`
+	SyncedAt       time.Time `json:"synced_at"`
+}
+
 // Heartbeat check name constants.
 const (
 	HeartbeatCheckReviewQueue  = "review_queue"
