@@ -51,6 +51,12 @@ func NewEmbeddingActivities(logger logging.Logger, aiClient AIClient, embeddingR
 	}
 }
 
+// Operational config keys for embedding chunk parameters.
+const (
+	ConfigKeyChunkMaxTokens     = "embedding.chunk_max_tokens"
+	ConfigKeyChunkOverlapTokens = "embedding.chunk_overlap_tokens"
+)
+
 // defaultChunkMaxTokens and defaultChunkOverlapTokens are the fallback values
 // used when config cannot be read from the database.
 const (
@@ -70,7 +76,7 @@ func (a *EmbeddingActivities) getChunkConfig(ctx context.Context, tenantID strin
 
 	logger := a.logger.WithContext(ctx)
 
-	if v, err := a.configReader.GetString(ctx, tenantID, "embedding.chunk_max_tokens"); err == nil {
+	if v, err := a.configReader.GetString(ctx, tenantID, ConfigKeyChunkMaxTokens); err == nil {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
 			maxTokens = parsed
 		} else {
@@ -78,7 +84,7 @@ func (a *EmbeddingActivities) getChunkConfig(ctx context.Context, tenantID strin
 		}
 	}
 
-	if v, err := a.configReader.GetString(ctx, tenantID, "embedding.chunk_overlap_tokens"); err == nil {
+	if v, err := a.configReader.GetString(ctx, tenantID, ConfigKeyChunkOverlapTokens); err == nil {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
 			overlapTokens = parsed
 		} else {

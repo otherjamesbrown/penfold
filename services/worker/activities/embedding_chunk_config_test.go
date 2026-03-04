@@ -40,8 +40,8 @@ func TestGetChunkConfig_FromDB(t *testing.T) {
 	logger := logging.NewNopLogger()
 	reader := &mockConfigReader{
 		values: map[string]string{
-			"embedding.chunk_max_tokens":     "200",
-			"embedding.chunk_overlap_tokens": "25",
+			ConfigKeyChunkMaxTokens:     "200",
+			ConfigKeyChunkOverlapTokens: "25",
 		},
 	}
 	a := NewEmbeddingActivities(logger, &mockAIClient{}, &mockEmbeddingRepository{}, nil, reader)
@@ -55,7 +55,7 @@ func TestGetChunkConfig_PartialConfig(t *testing.T) {
 	logger := logging.NewNopLogger()
 	reader := &mockConfigReader{
 		values: map[string]string{
-			"embedding.chunk_max_tokens": "256",
+			ConfigKeyChunkMaxTokens: "256",
 		},
 	}
 	a := NewEmbeddingActivities(logger, &mockAIClient{}, &mockEmbeddingRepository{}, nil, reader)
@@ -69,8 +69,8 @@ func TestGetChunkConfig_InvalidValue(t *testing.T) {
 	logger := logging.NewNopLogger()
 	reader := &mockConfigReader{
 		values: map[string]string{
-			"embedding.chunk_max_tokens":     "not-a-number",
-			"embedding.chunk_overlap_tokens": "25",
+			ConfigKeyChunkMaxTokens:     "not-a-number",
+			ConfigKeyChunkOverlapTokens: "25",
 		},
 	}
 	a := NewEmbeddingActivities(logger, &mockAIClient{}, &mockEmbeddingRepository{}, nil, reader)
