@@ -25,6 +25,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/ai/backend"
 	"github.com/otherjamesbrown/penfold/services/ai/config"
+	"github.com/otherjamesbrown/penfold/services/ai/registry"
 	"github.com/otherjamesbrown/penfold/services/ai/server"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -74,6 +75,7 @@ func main() {
 	var modelRepo *models.Repository
 	var promptRepo *pipeline.Repository
 	var dbConfigResolver *config.DBConfigResolver
+	var dbRegistry *registry.DBRegistry
 	if cfg.DBURL != "" {
 		logger.Info("Initializing database connection for model config",
 			logging.F("db_url", "<redacted>"),
@@ -113,6 +115,10 @@ func main() {
 		// Single-tenant deployment: use the known tenant ID.
 		// This matches the pattern in gateway and worker services.
 		dbConfigResolver = config.NewDBConfigResolver(modelRepo, cfg, pkgconfig.DefaultTenantID())
+
+		// Initialize DB-backed routing registry for model selection rules.
+		registryRepo := registry.NewPostgresRepository(dbPool, logger)
+		dbRegistry = registry.NewDBRegistry(registryRepo, nil)
 	} else {
 		logger.Info("Database not configured, using env var model config only")
 	}
@@ -254,6 +260,12 @@ func main() {
 	if dbConfigResolver != nil {
 		aiServer.WithDBConfigResolver(dbConfigResolver)
 		logger.Info("DB-backed model config resolver wired into AI server")
+	}
+	// Wire DB-backed routing registry for model selection rules (e.g. deep_analyze stage).
+	// The server falls back to hardcoded routing logic when the registry is nil.
+	if dbRegistry != nil {
+		aiServer.WithRegistry(dbRegistry)
+		logger.Info("DB-backed routing registry wired into AI server")
 	}
 	aiv1.RegisterAICoordinatorServiceServer(grpcServer, aiServer)
 

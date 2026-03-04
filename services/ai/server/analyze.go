@@ -340,7 +340,12 @@ func (s *AIServer) selectModelForDeepAnalysis(ctx context.Context, category, imp
 	importance = strings.TrimSpace(strings.ToUpper(importance))
 
 	// Primary path: DB-backed routing rules
-	if s.registry != nil {
+	if s.registry == nil {
+		s.logger.Warn("Registry not configured — deep_analyze DB routing rules unavailable, using hardcoded fallback",
+			logging.F("category", category),
+			logging.F("importance", importance),
+		)
+	} else {
 		rules, err := s.registry.GetRoutingRulesByTask(ctx, "deep_analysis")
 		if err == nil && len(rules) > 0 {
 			attrs := map[string]string{
@@ -399,6 +404,11 @@ func selectModelForDeepAnalysisFallback(category, importance, configDefault stri
 	// PROJECT_UPDATE + MEDIUM → balanced (fallback)
 	if category == "PROJECT_UPDATE" && importance == "MEDIUM" {
 		return "gemini-2.5-flash" // fallback default
+	}
+
+	// ACTION_REQUEST + HIGH → quality (fallback)
+	if category == "ACTION_REQUEST" && importance == "HIGH" {
+		return "gemini-2.5-pro" // fallback default
 	}
 
 	// ACTION_REQUEST + MEDIUM → balanced (fallback)

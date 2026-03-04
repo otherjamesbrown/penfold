@@ -238,9 +238,11 @@ func stripEmailAddressesKeepSubject(content string) string {
 		}
 	}
 
-	// Reconstruct: Subject (if present) + separator + body
+	// Reconstruct: labeled subject (if present) + labeled body.
+	// Labels are explicit so the model can distinguish thread context from
+	// the actual body content it should evaluate for quality gate purposes (pf-37ff52).
 	if subject != "" {
-		return subject + "\n---\n" + body
+		return "[THREAD SUBJECT] (for context only — do not use for quality gate evaluation): " + subject + "\n---\n[BODY]:\n" + body
 	}
 	return body
 }
@@ -540,6 +542,20 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 				)
 				break
 			}
+		}
+	}
+
+	// Safety net: if quality gate ran but found no risks, and semantic pass also found
+	// no risks and no action items, the content is not risky — force the gate to false.
+	// This prevents false positives where the gate fires due to alarming subject keywords
+	// even though the actual email body is trivial (pf-37ff52).
+	if qualityGateTriggered {
+		qgRisksEmpty := qgResp == nil || len(qgResp.Risks) == 0
+		if qgRisksEmpty && len(semResp.Risks) == 0 && len(semResp.ActionItems) == 0 {
+			qualityGateTriggered = false
+			s.logger.Debug("Quality gate safety net: forced gate to false — no risks or action items found by either pass",
+				logging.F("source_id", req.GetSourceId()),
+			)
 		}
 	}
 

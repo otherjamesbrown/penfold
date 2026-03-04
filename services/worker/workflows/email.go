@@ -86,6 +86,12 @@ type (
 		Subject     string `json:"subject,omitempty"`     // Email subject line — provides topic framing for assertion extraction (pf-e219c1)
 		ContentType string `json:"content_type,omitempty"` // "email", "meeting", etc.
 		SenderEmail string `json:"sender_email,omitempty"` // Email sender, gets "owner" attribution
+		// Background context (glossary + topics) for grounding assertion extraction (pf-90b749).
+		// Prepended to content so the model can resolve opaque references.
+		BackgroundContext string `json:"background_context,omitempty"`
+		// QuotedContent is the parent email body stripped by ParseEmail (pf-90b749).
+		// Appended after the reply body so the model can resolve forward-references like "#2".
+		QuotedContent string `json:"quoted_content,omitempty"`
 		// Langfuse tracing: passed via gRPC metadata to AI coordinator.
 		LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
 		LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`

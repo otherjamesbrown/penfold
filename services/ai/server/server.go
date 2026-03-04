@@ -125,6 +125,15 @@ func (s *AIServer) WithDBConfigResolver(r *config.DBConfigResolver) *AIServer {
 	return s
 }
 
+// WithRegistry sets the DB-backed model registry on an existing AIServer.
+// Call this after constructing the server to enable DB-driven routing rules for
+// model selection (e.g. deep_analyze stage). When nil, model selection falls back
+// to hardcoded logic in each handler.
+func (s *AIServer) WithRegistry(reg *registry.DBRegistry) *AIServer {
+	s.registry = reg
+	return s
+}
+
 // WithStageParams sets the per-stage LLM parameters provider on an existing AIServer.
 // When nil, all handlers use hardcoded fallback values for temperature, max_tokens, and max_retries.
 func (s *AIServer) WithStageParams(sp StageParamsProvider) *AIServer {

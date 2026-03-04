@@ -9,6 +9,35 @@ import (
 	"golang.org/x/net/html"
 )
 
+// boilerplateMarkers is a list of compiled regex patterns that indicate the start
+// of conferencing boilerplate, signatures, or disclaimers. When any marker is detected,
+// everything from that line to end-of-content is stripped. Patterns are checked in order.
+var boilerplateMarkers = []*regexp.Regexp{
+	// Webex separator line: -~-~-~-~
+	regexp.MustCompile(`(?i)-~-~-~-~`),
+	// Webex instruction: "Do not delete or change any of the following text"
+	regexp.MustCompile(`(?i)do not delete or change any of the following text`),
+	// Webex join links
+	regexp.MustCompile(`(?i)^join my webex`),
+	regexp.MustCompile(`(?i)^join my webex personal room`),
+	// Generic conferencing join lines (Webex, Teams, Zoom)
+	regexp.MustCompile(`(?i)^join (the )?meeting`),
+	regexp.MustCompile(`(?i)^meeting number \(access code\)`),
+	// Microsoft Teams meeting block
+	regexp.MustCompile(`(?i)^microsoft teams meeting`),
+	// Zoom meeting block
+	regexp.MustCompile(`(?i)^join zoom meeting`),
+	regexp.MustCompile(`(?i)^meeting id:\s*\d`),
+	// Cisco copyright/disclaimer footer
+	regexp.MustCompile(`(?i)\(c\)\s+\d{4}\s+cisco systems`),
+	// Common confidentiality notices
+	regexp.MustCompile(`(?i)^this (email|message|communication) (and any attachments )?(is |are )?(confidential|intended only for)`),
+	// Common email client signatures
+	regexp.MustCompile(`(?i)^sent from my (iphone|ipad|android|samsung|blackberry|mobile device)`),
+	// Horizontal rule used before signature blocks (3+ dashes or underscores or equals on their own line)
+	regexp.MustCompile(`^[-_=]{3,}\s*$`),
+}
+
 // EmailParseResult holds the result of parsing email content for the pipeline.
 type EmailParseResult struct {
 	CleanBody           string   // HTML-stripped, clean text body
@@ -36,7 +65,12 @@ func ParseEmailBody(bodyText, bodyHTML string) *EmailParseResult {
 	// Trim and normalize whitespace
 	result.CleanBody = normalizeWhitespace(result.CleanBody)
 
-	// Step 2: Detect and separate quoted replies
+	// Step 2: Strip conferencing boilerplate (Webex, Teams, Zoom), signatures, and disclaimers.
+	// This runs after HTML-to-text and whitespace normalization, but before quoted reply separation,
+	// so that conferencing blocks appended to emails don't contaminate the embedding input.
+	result.CleanBody = stripConferencingBoilerplate(result.CleanBody)
+
+	// Step 4: Detect and separate quoted replies
 	newContent, quotedContent, detected := separateQuotedReply(result.CleanBody)
 	result.NewContent = newContent
 	result.QuotedContent = quotedContent
@@ -155,6 +189,38 @@ func isBlockElement(tagName string) bool {
 		"aside":      true,
 	}
 	return blockElements[tagName]
+}
+
+// stripConferencingBoilerplate removes conferencing boilerplate, signatures, and disclaimers
+// from email body text. It scans for known marker patterns (Webex, Teams, Zoom separators;
+// copyright footers; signature lines) and truncates the content at the first match.
+//
+// The approach is "strip from first marker to end of content" — conferencing blocks and
+// signatures are always appended at the bottom, so everything below the marker is noise.
+//
+// Detection is deterministic regex-based (no AI). Patterns cover:
+//   - Webex: -~-~-~-~ separator, "Do not delete or change any of the following text",
+//     "Join my Webex", "Meeting number (access code):"
+//   - Teams: "Microsoft Teams meeting", "Join the meeting"
+//   - Zoom: "Join Zoom Meeting", "Meeting ID: <digits>"
+//   - Cisco copyright: "(c) YYYY Cisco Systems"
+//   - Confidentiality notices: "This email is confidential..."
+//   - Mobile signatures: "Sent from my iPhone/iPad/Android"
+//   - Horizontal rules before signature blocks (---/___/=== on their own line)
+func stripConferencingBoilerplate(text string) string {
+	lines := strings.Split(text, "\n")
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		for _, pattern := range boilerplateMarkers {
+			if pattern.MatchString(trimmed) {
+				// Truncate at this line; trim trailing whitespace from the remaining content.
+				return strings.TrimRight(strings.Join(lines[:i], "\n"), " \t\n")
+			}
+		}
+	}
+
+	return text
 }
 
 // normalizeWhitespace collapses consecutive newlines to max 2 and trims whitespace.

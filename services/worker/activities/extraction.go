@@ -143,12 +143,24 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 	minConfidence := float32(0.5)
 	maxAssertions := int32(20)
 
-	// Prepend Subject line to provide topic framing for assertions (pf-e219c1).
-	// Subject carries context that the body may reference implicitly
-	// (e.g. Subject "Re: GPU requirements" but body says "I have concerns about the approach").
+	// Assemble content for assertion extraction. Order matters for LLM reading:
+	// 1. BackgroundContext (glossary/topics) — grounds the model before it reads the email
+	// 2. Subject line — topic framing (pf-e219c1)
+	// 3. New email body — the primary content to extract assertions from
+	// 4. QuotedContent (parent email) — for resolving forward-references like "#2" (pf-90b749)
 	content := input.Content
 	if input.Subject != "" {
 		content = "Subject: " + input.Subject + "\n\n" + content
+	}
+	if input.BackgroundContext != "" {
+		content = input.BackgroundContext + "\n\n" + content
+	}
+	if input.QuotedContent != "" {
+		quoted := input.QuotedContent
+		if len(quoted) > 3000 {
+			quoted = quoted[:3000] + "\n[truncated]"
+		}
+		content = content + "\n\n--- Parent message (for reference resolution) ---\n" + quoted
 	}
 
 	assertionReq := &aiv1.AssertionRequest{

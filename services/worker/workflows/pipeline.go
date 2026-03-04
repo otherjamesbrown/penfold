@@ -1090,6 +1090,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	}
 
 	var parsedContent string
+	var quotedContent string // parent email body for reference resolution (pf-90b749)
 
 	switch input.ContentType {
 	case "email":
@@ -1138,6 +1139,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			parsedContent = parseOutput.CleanBody
 		}
 		input.BodyText = parsedContent
+		quotedContent = parseOutput.QuotedContent // for assertion reference resolution (pf-90b749)
 		logger.Info("pipeline stage completed",
 			"source_id", input.SourceID,
 			"stage", parseStage.Name,
@@ -2140,17 +2142,18 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			assertionOpts := stageOpts("extract_assertions", llmOpts)
 			ctxAssertions := workflow.WithActivityOptions(ctx, assertionOpts)
 			err2 := workflow.ExecuteActivity(ctxAssertions, pkgtemporal.ActivityExtractAssertions, ExtractAssertionsInput{
-				TenantID:        input.TenantID,
-				SourceID:        input.SourceID,
-				ContentID:       input.ContentID,
-				JobID:           input.JobID,
-				Content:         parsedContent,
-				Subject:         input.Subject, // Topic framing for assertion extraction (pf-e219c1)
-				ContentType:     input.ContentType,
-				SenderEmail:     input.SenderEmail, // Pass sender for owner attribution
-				LangfuseTraceID: langfuseTraceID,
-				LangfusePhaseID: extractPhaseID,
-		
+				TenantID:          input.TenantID,
+				SourceID:          input.SourceID,
+				ContentID:         input.ContentID,
+				JobID:             input.JobID,
+				Content:           parsedContent,
+				Subject:           input.Subject,          // Topic framing for assertion extraction (pf-e219c1)
+				ContentType:       input.ContentType,
+				SenderEmail:       input.SenderEmail,      // Pass sender for owner attribution
+				BackgroundContext: extractionContext,       // Glossary + topics for reference resolution (pf-90b749)
+				QuotedContent:     quotedContent,           // Parent email for forward-reference resolution (pf-90b749)
+				LangfuseTraceID:   langfuseTraceID,
+				LangfusePhaseID:   extractPhaseID,
 			}).Get(ctx, &assertionCount)
 			if err2 != nil {
 				logger.Error("pipeline stage span error",
