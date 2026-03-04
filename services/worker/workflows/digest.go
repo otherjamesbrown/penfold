@@ -100,6 +100,11 @@ func DigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMessag
 		return nil, fmt.Errorf("unmarshal digest workflow input: %w", err)
 	}
 
+	// 2. Default empty date to yesterday (for scheduled runs that don't pass a date)
+	if wfInput.Date == "" {
+		wfInput.Date = workflow.Now(ctx).AddDate(0, 0, -1).Format("2006-01-02")
+	}
+
 	logger.Info("Starting digest workflow",
 		"tenant_id", wfInput.TenantID,
 		"project_id", wfInput.ProjectID,
@@ -107,7 +112,7 @@ func DigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMessag
 		"date", wfInput.Date,
 	)
 
-	// 2. Parse the date string
+	// 3. Parse the date string
 	date, err := time.Parse("2006-01-02", wfInput.Date)
 	if err != nil {
 		return nil, fmt.Errorf("parse date %q: %w", wfInput.Date, err)

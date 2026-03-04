@@ -72,6 +72,17 @@ func WeeklyDigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.Raw
 		return nil, fmt.Errorf("unmarshal weekly digest workflow input: %w", err)
 	}
 
+	// 2. Default empty date to last Monday (for scheduled runs that don't pass a date)
+	if wfInput.Date == "" {
+		now := workflow.Now(ctx)
+		weekday := now.Weekday()
+		if weekday == time.Sunday {
+			weekday = 7
+		}
+		lastMonday := now.AddDate(0, 0, -int(weekday-time.Monday)-7)
+		wfInput.Date = lastMonday.Format("2006-01-02")
+	}
+
 	logger.Info("Starting weekly digest workflow",
 		"tenant_id", wfInput.TenantID,
 		"project_id", wfInput.ProjectID,
@@ -79,7 +90,7 @@ func WeeklyDigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.Raw
 		"date", wfInput.Date,
 	)
 
-	// 2. Parse the date and snap to Monday for the week start
+	// 3. Parse the date and snap to Monday for the week start
 	date, err := time.Parse("2006-01-02", wfInput.Date)
 	if err != nil {
 		return nil, fmt.Errorf("parse date %q: %w", wfInput.Date, err)
