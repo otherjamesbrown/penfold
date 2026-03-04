@@ -29,9 +29,9 @@ CREATE TABLE IF NOT EXISTS digests (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_digests_tenant_project ON digests(tenant_id, project_id);
-CREATE INDEX idx_digests_tenant_project_type_period ON digests(tenant_id, project_id, digest_type, period_start);
-CREATE UNIQUE INDEX idx_digests_unique_daily ON digests(tenant_id, project_id, digest_type, period_start)
+CREATE INDEX IF NOT EXISTS idx_digests_tenant_project ON digests(tenant_id, project_id);
+CREATE INDEX IF NOT EXISTS idx_digests_tenant_project_type_period ON digests(tenant_id, project_id, digest_type, period_start);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_digests_unique_daily ON digests(tenant_id, project_id, digest_type, period_start)
     WHERE digest_type = 'daily';
 
 -- 3. Prompt template for daily digest generation
