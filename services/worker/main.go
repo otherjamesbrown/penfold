@@ -48,6 +48,8 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	pkgobs "github.com/otherjamesbrown/penfold/pkg/temporal/observability"
+	"github.com/otherjamesbrown/penfold/pkg/graph"
+	ingeststorage "github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/pkg/timeout"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	airegistry "github.com/otherjamesbrown/penfold/services/ai/registry"
@@ -887,6 +889,15 @@ func main() {
 		logger.Info("Langfuse pipeline activities initialized (CreateTrace, ReportPhase, ReportGeneration, FinishTrace)")
 	} else {
 		logger.Info("Langfuse pipeline activities registered as no-ops (Langfuse not configured)")
+	}
+
+	// Microsoft Graph activities for Outlook/Teams sync workflows
+	if dbPool != nil {
+		tokenStore := graph.NewTokenStore(dbPool)
+		ingestRepo := ingeststorage.NewRepository(dbPool, logger)
+		graphActivities := activities.NewGraphActivities(logger, tokenStore, ingestRepo, dbPool)
+		activityRegistrar.WithGraphActivities(graphActivities)
+		logger.Info("Graph activities initialized (Outlook + Teams sync)")
 	}
 
 	workflowRegistrar := workflows.NewRegistrar()

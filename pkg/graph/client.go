@@ -3,11 +3,39 @@ package graph
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
 )
+
+// staticTokenCredential is an azcore.TokenCredential that returns a fixed access token.
+// Used in activities where the token has already been validated and refreshed.
+type staticTokenCredential struct {
+	token     string
+	expiresOn time.Time
+}
+
+func (c *staticTokenCredential) GetToken(_ context.Context, _ policy.TokenRequestOptions) (azcore.AccessToken, error) {
+	return azcore.AccessToken{
+		Token:     c.token,
+		ExpiresOn: c.expiresOn,
+	}, nil
+}
+
+// NewGraphClientFromToken creates a GraphClient from a raw access token string.
+// The token's expiry is passed through so the Azure SDK can report it correctly.
+// This is used in Temporal activities where the token has already been refreshed
+// and validated by CheckGraphAuth.
+func NewGraphClientFromToken(accessToken string, expiresOn time.Time, tenantID, clientID string) (*GraphClient, error) {
+	cred := &staticTokenCredential{
+		token:     accessToken,
+		expiresOn: expiresOn,
+	}
+	return NewGraphClientFromCredential(cred, tenantID, clientID)
+}
 
 // GraphClient wraps the Microsoft Graph SDK client.
 type GraphClient struct {

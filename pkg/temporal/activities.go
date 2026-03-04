@@ -72,6 +72,26 @@ const (
 	ActivityUpdateLangfuseTraceMetadata = "UpdateLangfuseTraceMetadata"
 )
 
+// Graph API (Microsoft Outlook + Teams) activity name constants.
+// These are registered on the main task queue and shared by OutlookSyncWorkflow and TeamsSyncWorkflow.
+const (
+	// Shared
+	ActivityCheckGraphAuth = "CheckGraphAuth"
+
+	// Outlook sync activities
+	ActivityFetchOutlookMessages  = "FetchOutlookMessages"
+	ActivityProcessOutlookMessage = "ProcessOutlookMessage"
+	ActivityUpdateOutlookSyncState = "UpdateOutlookSyncState"
+	ActivityRollbackOutlookSync   = "RollbackOutlookSync"
+
+	// Teams sync activities
+	ActivityFetchTeamChannels    = "FetchTeamChannels"
+	ActivityFetchChannelMessages = "FetchChannelMessages"
+	ActivityProcessTeamsThread   = "ProcessTeamsThread"
+	ActivityUpdateTeamsSyncState = "UpdateTeamsSyncState"
+	ActivityRollbackTeamsSync    = "RollbackTeamsSync"
+)
+
 // Deprecated Langfuse activity name constants — removed from the main queue in pf-37ebe8.
 // Kept here for reference in tests that verify the constant is no longer registered.
 const (
@@ -129,6 +149,17 @@ func AllMainQueueActivities() []string {
 		ActivityHeartbeatCheckStaleContent,
 		ActivityHeartbeatUpdateStatus,
 		ActivityAttributeProject,
+		// Graph API activities (Outlook + Teams sync)
+		ActivityCheckGraphAuth,
+		ActivityFetchOutlookMessages,
+		ActivityProcessOutlookMessage,
+		ActivityUpdateOutlookSyncState,
+		ActivityRollbackOutlookSync,
+		ActivityFetchTeamChannels,
+		ActivityFetchChannelMessages,
+		ActivityProcessTeamsThread,
+		ActivityUpdateTeamsSyncState,
+		ActivityRollbackTeamsSync,
 	}
 }
 
@@ -146,10 +177,22 @@ func AllAIQueueActivities() []string {
 }
 
 // AllEmailQueueActivities returns all activity names for the email task queue.
+// Includes Graph API activities since Outlook/Teams sync workflows run on this queue.
 func AllEmailQueueActivities() []string {
 	return []string{
 		ActivityFetchSource,
 		ActivityUpdateSourceStatus,
 		ActivityParseEmail,
+		// Graph API activities (Outlook + Teams sync workflows run on email queue)
+		ActivityCheckGraphAuth,
+		ActivityFetchOutlookMessages,
+		ActivityProcessOutlookMessage,
+		ActivityUpdateOutlookSyncState,
+		ActivityRollbackOutlookSync,
+		ActivityFetchTeamChannels,
+		ActivityFetchChannelMessages,
+		ActivityProcessTeamsThread,
+		ActivityUpdateTeamsSyncState,
+		ActivityRollbackTeamsSync,
 	}
 }

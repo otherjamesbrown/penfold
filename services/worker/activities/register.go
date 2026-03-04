@@ -37,6 +37,7 @@ type Registrar struct {
 	headerMentionsActivities   *HeaderMentionsActivities
 	entityEnrichmentActivities *EntityEnrichmentActivities
 	heartbeatActivities        *HeartbeatActivities
+	graphActivities            *GraphActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -169,6 +170,12 @@ func (r *Registrar) WithEntityEnrichmentActivities(ea *EntityEnrichmentActivitie
 // WithHeartbeatActivities adds heartbeat activities to the registrar.
 func (r *Registrar) WithHeartbeatActivities(ha *HeartbeatActivities) *Registrar {
 	r.heartbeatActivities = ha
+	return r
+}
+
+// WithGraphActivities adds Microsoft Graph API activities (Outlook + Teams) to the registrar.
+func (r *Registrar) WithGraphActivities(ga *GraphActivities) *Registrar {
+	r.graphActivities = ga
 	return r
 }
 
@@ -433,6 +440,9 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 			Name: pkgtemporal.ActivityUpdateLangfuseTraceMetadata,
 		})
 	}
+
+	// Graph activities for Outlook and Teams sync workflows
+	r.registerGraphActivities(w)
 }
 
 // registerAIQueueActivities registers activities for the AI task queue.
@@ -509,6 +519,51 @@ func (r *Registrar) registerEmailQueueActivities(w worker.Worker) {
 
 	// Also register AI activities since email processing needs them
 	r.registerAIQueueActivities(w)
+
+	// Graph activities for Outlook and Teams sync workflows (both run on the email queue)
+	r.registerGraphActivities(w)
+}
+
+// registerGraphActivities registers Microsoft Graph API activities.
+// Called from both main and email queues since Outlook/Teams sync workflows
+// are registered on the email task queue.
+func (r *Registrar) registerGraphActivities(w worker.Worker) {
+	if r.graphActivities == nil {
+		return
+	}
+	// Shared
+	w.RegisterActivityWithOptions(r.graphActivities.CheckGraphAuth, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityCheckGraphAuth,
+	})
+	// Outlook
+	w.RegisterActivityWithOptions(r.graphActivities.FetchOutlookMessages, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityFetchOutlookMessages,
+	})
+	w.RegisterActivityWithOptions(r.graphActivities.ProcessOutlookMessage, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityProcessOutlookMessage,
+	})
+	w.RegisterActivityWithOptions(r.graphActivities.UpdateOutlookSyncState, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityUpdateOutlookSyncState,
+	})
+	w.RegisterActivityWithOptions(r.graphActivities.RollbackOutlookSync, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityRollbackOutlookSync,
+	})
+	// Teams
+	w.RegisterActivityWithOptions(r.graphActivities.FetchTeamChannels, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityFetchTeamChannels,
+	})
+	w.RegisterActivityWithOptions(r.graphActivities.FetchChannelMessages, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityFetchChannelMessages,
+	})
+	w.RegisterActivityWithOptions(r.graphActivities.ProcessTeamsThread, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityProcessTeamsThread,
+	})
+	w.RegisterActivityWithOptions(r.graphActivities.UpdateTeamsSyncState, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityUpdateTeamsSyncState,
+	})
+	w.RegisterActivityWithOptions(r.graphActivities.RollbackTeamsSync, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityRollbackTeamsSync,
+	})
 }
 
 // registerCommonActivities registers activities shared across all task queues.
@@ -617,6 +672,11 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.langfuseActivities != nil {
 			count += 6
 		}
+		// CheckGraphAuth, FetchOutlookMessages, ProcessOutlookMessage, UpdateOutlookSyncState, RollbackOutlookSync,
+		// FetchTeamChannels, FetchChannelMessages, ProcessTeamsThread, UpdateTeamsSyncState, RollbackTeamsSync
+		if r.graphActivities != nil {
+			count += 10
+		}
 		return count
 	case config.AITaskQueue:
 		count := 0
@@ -650,6 +710,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// Add AI activities count
 		count += r.ActivityCount(config.AITaskQueue)
+		// Graph activities (Outlook + Teams sync workflows run on email queue)
+		if r.graphActivities != nil {
+			count += 10
+		}
 		return count
 	default:
 		return 0
