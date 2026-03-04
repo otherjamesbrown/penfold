@@ -66,15 +66,32 @@ func NewGraphClientFromCredential(credential azcore.TokenCredential, tenantID, c
 	}, nil
 }
 
-// ListMailFolders lists mail folders for a user. Pass "me" for the authenticated user.
+// ListMailFolders lists mail folders for a user.
+// Pass "me" for delegated auth (device code flow), or a user UPN/ID for app-only auth (client credentials).
 func (c *GraphClient) ListMailFolders(ctx context.Context, userID string) ([]MailFolder, error) {
-	result, err := c.graphClient.Me().MailFolders().Get(ctx, nil)
+	if userID == "" || userID == "me" {
+		result, err := c.graphClient.Me().MailFolders().Get(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("graph: listing mail folders: %w", err)
+		}
+		return toMailFolders(result.GetValue()), nil
+	}
+
+	result, err := c.graphClient.Users().ByUserId(userID).MailFolders().Get(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("graph: listing mail folders: %w", err)
 	}
+	return toMailFolders(result.GetValue()), nil
+}
 
-	var folders []MailFolder
-	for _, f := range result.GetValue() {
+type mailFolderGetter interface {
+	GetId() *string
+	GetDisplayName() *string
+}
+
+func toMailFolders[T mailFolderGetter](items []T) []MailFolder {
+	folders := make([]MailFolder, 0, len(items))
+	for _, f := range items {
 		folder := MailFolder{}
 		if id := f.GetId(); id != nil {
 			folder.ID = *id
@@ -84,8 +101,7 @@ func (c *GraphClient) ListMailFolders(ctx context.Context, userID string) ([]Mai
 		}
 		folders = append(folders, folder)
 	}
-
-	return folders, nil
+	return folders
 }
 
 // ServiceClient returns the underlying Graph SDK client for advanced usage.

@@ -57,17 +57,18 @@ func TestGraphAuth_Integration_TenantRecord(t *testing.T) {
 }
 
 // TestGraphAuth_Connectivity requires live M365 credentials.
-// Set MSGRAPH_CLIENT_ID, MSGRAPH_TENANT_ID, MSGRAPH_CLIENT_SECRET to run.
+// Uses client credentials (app-only) flow — must pass a user UPN, not "me".
 //
 // Run with:
-//   MSGRAPH_CLIENT_ID=... MSGRAPH_TENANT_ID=... MSGRAPH_CLIENT_SECRET=... \
+//   MSGRAPH_CLIENT_ID=... MSGRAPH_TENANT_ID=... MSGRAPH_CLIENT_SECRET=... MSGRAPH_USER_UPN=user@tenant.onmicrosoft.com \
 //   go test -tags=e2e -run TestGraphAuth_Connectivity ./tests/e2e/...
 func TestGraphAuth_Connectivity(t *testing.T) {
 	clientID := os.Getenv("MSGRAPH_CLIENT_ID")
 	tenantID := os.Getenv("MSGRAPH_TENANT_ID")
 	clientSecret := os.Getenv("MSGRAPH_CLIENT_SECRET")
-	if clientID == "" || tenantID == "" || clientSecret == "" {
-		t.Skip("MSGRAPH_CLIENT_ID, MSGRAPH_TENANT_ID, MSGRAPH_CLIENT_SECRET not set — skipping live connectivity test")
+	userUPN := os.Getenv("MSGRAPH_USER_UPN")
+	if clientID == "" || tenantID == "" || clientSecret == "" || userUPN == "" {
+		t.Skip("MSGRAPH_CLIENT_ID, MSGRAPH_TENANT_ID, MSGRAPH_CLIENT_SECRET, MSGRAPH_USER_UPN not set — skipping live connectivity test")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -88,10 +89,10 @@ func TestGraphAuth_Connectivity(t *testing.T) {
 		INSERT INTO tenant_integrations (tenant_id, integration_type, name, config, enabled, sync_status)
 		VALUES ($1, 'microsoft_graph', 'default', $2::jsonb, true, 'never_synced')
 		ON CONFLICT (tenant_id, integration_type, name) DO UPDATE SET config = EXCLUDED.config
-	`, env.TenantID, fmt.Sprintf(`{"client_id":"%s","tenant_id":"%s"}`, clientID, tenantID))
+	`, env.TenantID, fmt.Sprintf(`{"client_id":"%s","tenant_id":"%s","user_upn":"%s"}`, clientID, tenantID, userUPN))
 	require.NoError(t, err)
 
-	// Create Graph client and verify connectivity
+	// Create Graph client using client credentials (app-only auth)
 	client, err := graph.NewGraphClientFromConfig(graph.GraphConfig{
 		ClientID:     clientID,
 		TenantID:     tenantID,
@@ -99,7 +100,8 @@ func TestGraphAuth_Connectivity(t *testing.T) {
 	})
 	require.NoError(t, err, "should initialize Graph client")
 
-	folders, err := client.ListMailFolders(ctx, "me")
-	require.NoError(t, err, "should list mail folders with valid credentials")
+	// With client credentials, must use user UPN — not "me" (/me requires delegated auth)
+	folders, err := client.ListMailFolders(ctx, userUPN)
+	require.NoError(t, err, "should list mail folders for user %s", userUPN)
 	assert.NotEmpty(t, folders, "mailbox should have at least one folder (Inbox)")
 }
