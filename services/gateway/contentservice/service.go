@@ -4,6 +4,7 @@ package contentservice
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -43,6 +44,9 @@ type Repository interface {
 	GetInsights(ctx context.Context, contentID string, types []string) ([]*InsightRecord, error)
 	GetAssertions(ctx context.Context, contentID string, assertionType *string) ([]*AssertionRecord, error)
 	ClearErrorByContentID(ctx context.Context, contentID string) error
+	ListProjectContent(ctx context.Context, tenantID string, projectID int64, since, until *time.Time, pageSize int, pageToken string) ([]*ProjectContentRecord, int64, error)
+	GetProjectStats(ctx context.Context, tenantID string, projectID int64) (*ProjectStatsRecord, error)
+	ListUnattributedContent(ctx context.Context, tenantID string, since *time.Time, limit int, pageToken string) ([]*UnattributedContentRecord, int64, error)
 }
 
 // ContentItemRecord represents a content item from the database.
@@ -127,6 +131,41 @@ type AssertionRecord struct {
 	Confidence      *float32
 	ExtractionModel *string
 	CreatedAt       time.Time
+}
+
+// ProjectContentRecord represents a content item attributed to a project.
+type ProjectContentRecord struct {
+	SourceID              int64
+	ContentID             string
+	Title                 string
+	CreatedAt             time.Time
+	AttributionSource     string
+	AttributionConfidence float32
+	ContentType           string
+}
+
+// AttributionBreakdownRecord represents attribution stats grouped by source.
+type AttributionBreakdownRecord struct {
+	AttributionSource string
+	AssertionCount    int64
+	SourceCount       int64
+}
+
+// ProjectStatsRecord represents aggregate attribution statistics for a project.
+type ProjectStatsRecord struct {
+	TotalAttributedSources    int64
+	TotalAttributedAssertions int64
+	Breakdown                 []AttributionBreakdownRecord
+}
+
+// UnattributedContentRecord represents a content item with no project attribution.
+type UnattributedContentRecord struct {
+	SourceID       int64
+	ContentID      string
+	Title          string
+	CreatedAt      time.Time
+	ContentType    string
+	AssertionCount int64
 }
 
 // repositoryImpl implements Repository using pgxpool.
@@ -1038,6 +1077,264 @@ func (r *repositoryImpl) ClearErrorByContentID(ctx context.Context, contentID st
 	}
 
 	return nil
+}
+
+// ListProjectContent retrieves content items attributed to a specific project with pagination.
+func (r *repositoryImpl) ListProjectContent(ctx context.Context, tenantID string, projectID int64, since, until *time.Time, pageSize int, pageToken string) ([]*ProjectContentRecord, int64, error) {
+	tenantUUID, err := uuid.Parse(tenantID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("invalid tenant_id: %w", err)
+	}
+
+	// Decode page token to offset
+	offset := int64(0)
+	if pageToken != "" {
+		decoded, decErr := decodePageToken(pageToken)
+		if decErr != nil {
+			return nil, 0, fmt.Errorf("invalid page_token: %w", decErr)
+		}
+		offset = decoded
+	}
+
+	// Normalize page size
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 50
+	}
+
+	query := `
+		SELECT DISTINCT ON (s.id)
+		  s.id AS source_id,
+		  s.content_id,
+		  COALESCE(s.ingestion_metadata->>'subject', s.ingestion_metadata->>'title', s.content_id) AS title,
+		  s.created_at,
+		  COALESCE(a.attribution_source, '') AS attribution_source,
+		  COALESCE(a.attribution_confidence, 0.0) AS attribution_confidence,
+		  COALESCE(ce.content_type, s.source_system) AS content_type
+		FROM sources s
+		JOIN assertions a ON a.source_id = s.id
+		  AND a.project_id = $2
+		  AND a.is_current = true
+		  AND a.tenant_id = $1
+		LEFT JOIN content_enrichment ce ON ce.source_id = s.id
+		WHERE s.tenant_id = $1
+		  AND ($3::timestamptz IS NULL OR s.created_at >= $3)
+		  AND ($4::timestamptz IS NULL OR s.created_at <= $4)
+		  AND (s.is_deleted IS NULL OR s.is_deleted = false)
+		ORDER BY s.id, s.created_at DESC
+		LIMIT $5 OFFSET $6
+	`
+
+	rows, err := r.db.Query(ctx, query, tenantUUID, projectID, since, until, pageSize, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list project content: %w", err)
+	}
+	defer rows.Close()
+
+	var results []*ProjectContentRecord
+	for rows.Next() {
+		var rec ProjectContentRecord
+		err := rows.Scan(
+			&rec.SourceID,
+			&rec.ContentID,
+			&rec.Title,
+			&rec.CreatedAt,
+			&rec.AttributionSource,
+			&rec.AttributionConfidence,
+			&rec.ContentType,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan project content item: %w", err)
+		}
+		results = append(results, &rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating project content: %w", err)
+	}
+
+	// Get total count
+	countQuery := `
+		SELECT COUNT(DISTINCT s.id)
+		FROM sources s
+		JOIN assertions a ON a.source_id = s.id
+		  AND a.project_id = $2
+		  AND a.is_current = true
+		  AND a.tenant_id = $1
+		WHERE s.tenant_id = $1
+		  AND ($3::timestamptz IS NULL OR s.created_at >= $3)
+		  AND ($4::timestamptz IS NULL OR s.created_at <= $4)
+		  AND (s.is_deleted IS NULL OR s.is_deleted = false)
+	`
+
+	var totalCount int64
+	err = r.db.QueryRow(ctx, countQuery, tenantUUID, projectID, since, until).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count project content: %w", err)
+	}
+
+	return results, totalCount, nil
+}
+
+// GetProjectStats retrieves attribution statistics for a project.
+func (r *repositoryImpl) GetProjectStats(ctx context.Context, tenantID string, projectID int64) (*ProjectStatsRecord, error) {
+	tenantUUID, err := uuid.Parse(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tenant_id: %w", err)
+	}
+
+	query := `
+		SELECT
+		  COALESCE(attribution_source, 'unspecified') AS attribution_source,
+		  COUNT(*) AS assertion_count,
+		  COUNT(DISTINCT source_id) AS source_count
+		FROM assertions
+		WHERE tenant_id = $1
+		  AND project_id = $2
+		  AND is_current = true
+		GROUP BY attribution_source
+	`
+
+	rows, err := r.db.Query(ctx, query, tenantUUID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project stats: %w", err)
+	}
+	defer rows.Close()
+
+	stats := &ProjectStatsRecord{}
+	for rows.Next() {
+		var b AttributionBreakdownRecord
+		if err := rows.Scan(&b.AttributionSource, &b.AssertionCount, &b.SourceCount); err != nil {
+			return nil, fmt.Errorf("failed to scan attribution breakdown: %w", err)
+		}
+		stats.Breakdown = append(stats.Breakdown, b)
+		stats.TotalAttributedAssertions += b.AssertionCount
+		stats.TotalAttributedSources += b.SourceCount
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating project stats: %w", err)
+	}
+
+	// TotalAttributedSources should be COUNT(DISTINCT source_id) across all breakdown rows,
+	// but because we summed per-breakdown SourceCount, we may double-count sources attributed
+	// via multiple sources. Recompute with a dedicated query.
+	totalSourcesQuery := `
+		SELECT COUNT(DISTINCT source_id)
+		FROM assertions
+		WHERE tenant_id = $1
+		  AND project_id = $2
+		  AND is_current = true
+	`
+	if err := r.db.QueryRow(ctx, totalSourcesQuery, tenantUUID, projectID).Scan(&stats.TotalAttributedSources); err != nil {
+		return nil, fmt.Errorf("failed to count total attributed sources: %w", err)
+	}
+
+	return stats, nil
+}
+
+// ListUnattributedContent retrieves content items with no project attribution.
+func (r *repositoryImpl) ListUnattributedContent(ctx context.Context, tenantID string, since *time.Time, limit int, pageToken string) ([]*UnattributedContentRecord, int64, error) {
+	tenantUUID, err := uuid.Parse(tenantID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("invalid tenant_id: %w", err)
+	}
+
+	// Decode page token to offset
+	offset := int64(0)
+	if pageToken != "" {
+		decoded, decErr := decodePageToken(pageToken)
+		if decErr != nil {
+			return nil, 0, fmt.Errorf("invalid page_token: %w", decErr)
+		}
+		offset = decoded
+	}
+
+	// Normalize limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+
+	query := `
+		SELECT
+		  s.id, s.content_id,
+		  COALESCE(s.ingestion_metadata->>'subject', s.ingestion_metadata->>'title', s.content_id) AS title,
+		  s.created_at,
+		  COALESCE(ce.content_type, s.source_system) AS content_type,
+		  COUNT(a.id) AS assertion_count
+		FROM sources s
+		LEFT JOIN content_enrichment ce ON ce.source_id = s.id
+		LEFT JOIN assertions a ON a.source_id = s.id AND a.is_current = true AND a.tenant_id = $1
+		WHERE s.tenant_id = $1
+		  AND (s.attributed_project_ids IS NULL OR cardinality(s.attributed_project_ids) = 0)
+		  AND (s.is_deleted IS NULL OR s.is_deleted = false)
+		  AND ($2::timestamptz IS NULL OR s.created_at >= $2)
+		GROUP BY s.id, s.content_id, s.created_at, ce.content_type, s.source_system, s.ingestion_metadata
+		ORDER BY s.created_at DESC
+		LIMIT $3 OFFSET $4
+	`
+
+	rows, err := r.db.Query(ctx, query, tenantUUID, since, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list unattributed content: %w", err)
+	}
+	defer rows.Close()
+
+	var results []*UnattributedContentRecord
+	for rows.Next() {
+		var rec UnattributedContentRecord
+		err := rows.Scan(
+			&rec.SourceID,
+			&rec.ContentID,
+			&rec.Title,
+			&rec.CreatedAt,
+			&rec.ContentType,
+			&rec.AssertionCount,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan unattributed content item: %w", err)
+		}
+		results = append(results, &rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating unattributed content: %w", err)
+	}
+
+	// Get total count
+	countQuery := `
+		SELECT COUNT(*)
+		FROM sources s
+		WHERE s.tenant_id = $1
+		  AND (s.attributed_project_ids IS NULL OR cardinality(s.attributed_project_ids) = 0)
+		  AND (s.is_deleted IS NULL OR s.is_deleted = false)
+		  AND ($2::timestamptz IS NULL OR s.created_at >= $2)
+	`
+
+	var totalCount int64
+	err = r.db.QueryRow(ctx, countQuery, tenantUUID, since).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count unattributed content: %w", err)
+	}
+
+	return results, totalCount, nil
+}
+
+// decodePageToken decodes a base64-encoded page token to an int64 offset.
+func decodePageToken(token string) (int64, error) {
+	decoded, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return 0, fmt.Errorf("failed to decode page token: %w", err)
+	}
+	n, err := strconv.ParseInt(string(decoded), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid page token value: %w", err)
+	}
+	return n, nil
+}
+
+// encodePageToken encodes an int64 offset to a base64 page token.
+func encodePageToken(offset int64) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(offset, 10)))
 }
 
 // joinWhere joins WHERE clauses with AND.
@@ -2274,6 +2571,194 @@ func (s *Service) ClearError(ctx context.Context, req *contentv1.ClearErrorReque
 		Success:   true,
 		ContentId: req.ContentId,
 		Message:   "Error fields cleared successfully",
+	}, nil
+}
+
+// ListProjectContent returns content items attributed to a specific project.
+func (s *Service) ListProjectContent(ctx context.Context, req *contentv1.ListProjectContentRequest) (*contentv1.ListProjectContentResponse, error) {
+	s.logger.Debug("ListProjectContent called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("project_id", req.ProjectId),
+		logging.F("page_size", req.PageSize),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.ProjectId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "project_id is required")
+	}
+
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var since, until *time.Time
+	if req.Since != nil {
+		t := req.Since.AsTime()
+		since = &t
+	}
+	if req.Until != nil {
+		t := req.Until.AsTime()
+		until = &t
+	}
+
+	records, totalCount, err := s.repo.ListProjectContent(ctx, tenantID, req.ProjectId, since, until, int(req.PageSize), req.PageToken)
+	if err != nil {
+		s.logger.Error("Failed to list project content",
+			logging.Err(err),
+			logging.F("tenant_id", req.TenantId),
+			logging.F("project_id", req.ProjectId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to list project content: %v", err)
+	}
+
+	items := make([]*contentv1.ProjectContentItem, len(records))
+	for i, rec := range records {
+		items[i] = &contentv1.ProjectContentItem{
+			SourceId:              rec.SourceID,
+			ContentId:             rec.ContentID,
+			Title:                 rec.Title,
+			CreatedAt:             timestamppb.New(rec.CreatedAt),
+			AttributionSource:     rec.AttributionSource,
+			AttributionConfidence: rec.AttributionConfidence,
+			ContentType:           rec.ContentType,
+		}
+	}
+
+	// Build next page token
+	nextPageToken := ""
+	pageSize := int(req.PageSize)
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 50
+	}
+	if len(records) == pageSize {
+		// Decode current offset and advance
+		currentOffset := int64(0)
+		if req.PageToken != "" {
+			if decoded, decErr := decodePageToken(req.PageToken); decErr == nil {
+				currentOffset = decoded
+			}
+		}
+		nextPageToken = encodePageToken(currentOffset + int64(len(records)))
+	}
+
+	return &contentv1.ListProjectContentResponse{
+		Items:         items,
+		NextPageToken: nextPageToken,
+		TotalCount:    totalCount,
+	}, nil
+}
+
+// GetProjectStats returns attribution statistics for a project.
+func (s *Service) GetProjectStats(ctx context.Context, req *contentv1.GetProjectStatsRequest) (*contentv1.GetProjectStatsResponse, error) {
+	s.logger.Debug("GetProjectStats called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("project_id", req.ProjectId),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.ProjectId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "project_id is required")
+	}
+
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	stats, err := s.repo.GetProjectStats(ctx, tenantID, req.ProjectId)
+	if err != nil {
+		s.logger.Error("Failed to get project stats",
+			logging.Err(err),
+			logging.F("tenant_id", req.TenantId),
+			logging.F("project_id", req.ProjectId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to get project stats: %v", err)
+	}
+
+	breakdown := make([]*contentv1.ProjectAttributionBreakdown, len(stats.Breakdown))
+	for i, b := range stats.Breakdown {
+		breakdown[i] = &contentv1.ProjectAttributionBreakdown{
+			AttributionSource: b.AttributionSource,
+			AssertionCount:    b.AssertionCount,
+			SourceCount:       b.SourceCount,
+		}
+	}
+
+	return &contentv1.GetProjectStatsResponse{
+		TotalAttributedSources:    stats.TotalAttributedSources,
+		TotalAttributedAssertions: stats.TotalAttributedAssertions,
+		Breakdown:                 breakdown,
+	}, nil
+}
+
+// ListUnattributedContent returns content items with no project attribution.
+func (s *Service) ListUnattributedContent(ctx context.Context, req *contentv1.ListUnattributedContentRequest) (*contentv1.ListUnattributedContentResponse, error) {
+	s.logger.Debug("ListUnattributedContent called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("limit", req.Limit),
+	)
+
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var since *time.Time
+	if req.Since != nil {
+		t := req.Since.AsTime()
+		since = &t
+	}
+
+	records, totalCount, err := s.repo.ListUnattributedContent(ctx, tenantID, since, int(req.Limit), req.PageToken)
+	if err != nil {
+		s.logger.Error("Failed to list unattributed content",
+			logging.Err(err),
+			logging.F("tenant_id", req.TenantId),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to list unattributed content: %v", err)
+	}
+
+	items := make([]*contentv1.UnattributedContentItem, len(records))
+	for i, rec := range records {
+		items[i] = &contentv1.UnattributedContentItem{
+			SourceId:       rec.SourceID,
+			ContentId:      rec.ContentID,
+			Title:          rec.Title,
+			CreatedAt:      timestamppb.New(rec.CreatedAt),
+			ContentType:    rec.ContentType,
+			AssertionCount: rec.AssertionCount,
+		}
+	}
+
+	// Build next page token
+	nextPageToken := ""
+	limit := int(req.Limit)
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	if len(records) == limit {
+		currentOffset := int64(0)
+		if req.PageToken != "" {
+			if decoded, decErr := decodePageToken(req.PageToken); decErr == nil {
+				currentOffset = decoded
+			}
+		}
+		nextPageToken = encodePageToken(currentOffset + int64(len(records)))
+	}
+
+	return &contentv1.ListUnattributedContentResponse{
+		Items:         items,
+		NextPageToken: nextPageToken,
+		TotalCount:    totalCount,
 	}, nil
 }
 

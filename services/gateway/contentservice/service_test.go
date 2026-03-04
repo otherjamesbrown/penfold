@@ -101,6 +101,30 @@ func (m *MockRepository) ClearErrorByContentID(ctx context.Context, contentID st
 	return args.Error(0)
 }
 
+func (m *MockRepository) ListProjectContent(ctx context.Context, tenantID string, projectID int64, since, until *time.Time, pageSize int, pageToken string) ([]*ProjectContentRecord, int64, error) {
+	args := m.Called(ctx, tenantID, projectID, since, until, pageSize, pageToken)
+	if args.Get(0) == nil {
+		return nil, args.Get(1).(int64), args.Error(2)
+	}
+	return args.Get(0).([]*ProjectContentRecord), args.Get(1).(int64), args.Error(2)
+}
+
+func (m *MockRepository) GetProjectStats(ctx context.Context, tenantID string, projectID int64) (*ProjectStatsRecord, error) {
+	args := m.Called(ctx, tenantID, projectID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ProjectStatsRecord), args.Error(1)
+}
+
+func (m *MockRepository) ListUnattributedContent(ctx context.Context, tenantID string, since *time.Time, limit int, pageToken string) ([]*UnattributedContentRecord, int64, error) {
+	args := m.Called(ctx, tenantID, since, limit, pageToken)
+	if args.Get(0) == nil {
+		return nil, args.Get(1).(int64), args.Error(2)
+	}
+	return args.Get(0).([]*UnattributedContentRecord), args.Get(1).(int64), args.Error(2)
+}
+
 // newTestService creates a service with mock dependencies for testing.
 func newTestService(repo Repository) *Service {
 	logger := logging.NewLogger(nil)

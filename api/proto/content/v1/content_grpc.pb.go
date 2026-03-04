@@ -22,22 +22,25 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ContentProcessorService_ProcessContent_FullMethodName        = "/penfold.content.v1.ContentProcessorService/ProcessContent"
-	ContentProcessorService_GetProcessingStatus_FullMethodName   = "/penfold.content.v1.ContentProcessorService/GetProcessingStatus"
-	ContentProcessorService_GetContentItem_FullMethodName        = "/penfold.content.v1.ContentProcessorService/GetContentItem"
-	ContentProcessorService_ListContentItems_FullMethodName      = "/penfold.content.v1.ContentProcessorService/ListContentItems"
-	ContentProcessorService_ReprocessContent_FullMethodName      = "/penfold.content.v1.ContentProcessorService/ReprocessContent"
-	ContentProcessorService_DeleteContentItem_FullMethodName     = "/penfold.content.v1.ContentProcessorService/DeleteContentItem"
-	ContentProcessorService_DeleteContentItems_FullMethodName    = "/penfold.content.v1.ContentProcessorService/DeleteContentItems"
-	ContentProcessorService_GetContentStats_FullMethodName       = "/penfold.content.v1.ContentProcessorService/GetContentStats"
-	ContentProcessorService_GetContentText_FullMethodName        = "/penfold.content.v1.ContentProcessorService/GetContentText"
-	ContentProcessorService_ListAvailableInsights_FullMethodName = "/penfold.content.v1.ContentProcessorService/ListAvailableInsights"
-	ContentProcessorService_GetInsights_FullMethodName           = "/penfold.content.v1.ContentProcessorService/GetInsights"
-	ContentProcessorService_GetContentTrace_FullMethodName       = "/penfold.content.v1.ContentProcessorService/GetContentTrace"
-	ContentProcessorService_GetAssertions_FullMethodName         = "/penfold.content.v1.ContentProcessorService/GetAssertions"
-	ContentProcessorService_PurgeContentItem_FullMethodName      = "/penfold.content.v1.ContentProcessorService/PurgeContentItem"
-	ContentProcessorService_PurgeContentItems_FullMethodName     = "/penfold.content.v1.ContentProcessorService/PurgeContentItems"
-	ContentProcessorService_ClearError_FullMethodName            = "/penfold.content.v1.ContentProcessorService/ClearError"
+	ContentProcessorService_ProcessContent_FullMethodName          = "/penfold.content.v1.ContentProcessorService/ProcessContent"
+	ContentProcessorService_GetProcessingStatus_FullMethodName     = "/penfold.content.v1.ContentProcessorService/GetProcessingStatus"
+	ContentProcessorService_GetContentItem_FullMethodName          = "/penfold.content.v1.ContentProcessorService/GetContentItem"
+	ContentProcessorService_ListContentItems_FullMethodName        = "/penfold.content.v1.ContentProcessorService/ListContentItems"
+	ContentProcessorService_ReprocessContent_FullMethodName        = "/penfold.content.v1.ContentProcessorService/ReprocessContent"
+	ContentProcessorService_DeleteContentItem_FullMethodName       = "/penfold.content.v1.ContentProcessorService/DeleteContentItem"
+	ContentProcessorService_DeleteContentItems_FullMethodName      = "/penfold.content.v1.ContentProcessorService/DeleteContentItems"
+	ContentProcessorService_GetContentStats_FullMethodName         = "/penfold.content.v1.ContentProcessorService/GetContentStats"
+	ContentProcessorService_GetContentText_FullMethodName          = "/penfold.content.v1.ContentProcessorService/GetContentText"
+	ContentProcessorService_ListAvailableInsights_FullMethodName   = "/penfold.content.v1.ContentProcessorService/ListAvailableInsights"
+	ContentProcessorService_GetInsights_FullMethodName             = "/penfold.content.v1.ContentProcessorService/GetInsights"
+	ContentProcessorService_GetContentTrace_FullMethodName         = "/penfold.content.v1.ContentProcessorService/GetContentTrace"
+	ContentProcessorService_GetAssertions_FullMethodName           = "/penfold.content.v1.ContentProcessorService/GetAssertions"
+	ContentProcessorService_PurgeContentItem_FullMethodName        = "/penfold.content.v1.ContentProcessorService/PurgeContentItem"
+	ContentProcessorService_PurgeContentItems_FullMethodName       = "/penfold.content.v1.ContentProcessorService/PurgeContentItems"
+	ContentProcessorService_ClearError_FullMethodName              = "/penfold.content.v1.ContentProcessorService/ClearError"
+	ContentProcessorService_ListProjectContent_FullMethodName      = "/penfold.content.v1.ContentProcessorService/ListProjectContent"
+	ContentProcessorService_GetProjectStats_FullMethodName         = "/penfold.content.v1.ContentProcessorService/GetProjectStats"
+	ContentProcessorService_ListUnattributedContent_FullMethodName = "/penfold.content.v1.ContentProcessorService/ListUnattributedContent"
 )
 
 // ContentProcessorServiceClient is the client API for ContentProcessorService service.
@@ -87,6 +90,12 @@ type ContentProcessorServiceClient interface {
 	PurgeContentItems(ctx context.Context, in *PurgeContentItemsRequest, opts ...grpc.CallOption) (*PurgeContentItemsResponse, error)
 	// ClearError clears error fields from a successfully reprocessed content item.
 	ClearError(ctx context.Context, in *ClearErrorRequest, opts ...grpc.CallOption) (*ClearErrorResponse, error)
+	// ListProjectContent returns content items attributed to a specific project.
+	ListProjectContent(ctx context.Context, in *ListProjectContentRequest, opts ...grpc.CallOption) (*ListProjectContentResponse, error)
+	// GetProjectStats returns attribution statistics for a project.
+	GetProjectStats(ctx context.Context, in *GetProjectStatsRequest, opts ...grpc.CallOption) (*GetProjectStatsResponse, error)
+	// ListUnattributedContent returns content items with no project attribution.
+	ListUnattributedContent(ctx context.Context, in *ListUnattributedContentRequest, opts ...grpc.CallOption) (*ListUnattributedContentResponse, error)
 }
 
 type contentProcessorServiceClient struct {
@@ -257,6 +266,36 @@ func (c *contentProcessorServiceClient) ClearError(ctx context.Context, in *Clea
 	return out, nil
 }
 
+func (c *contentProcessorServiceClient) ListProjectContent(ctx context.Context, in *ListProjectContentRequest, opts ...grpc.CallOption) (*ListProjectContentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListProjectContentResponse)
+	err := c.cc.Invoke(ctx, ContentProcessorService_ListProjectContent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *contentProcessorServiceClient) GetProjectStats(ctx context.Context, in *GetProjectStatsRequest, opts ...grpc.CallOption) (*GetProjectStatsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetProjectStatsResponse)
+	err := c.cc.Invoke(ctx, ContentProcessorService_GetProjectStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *contentProcessorServiceClient) ListUnattributedContent(ctx context.Context, in *ListUnattributedContentRequest, opts ...grpc.CallOption) (*ListUnattributedContentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListUnattributedContentResponse)
+	err := c.cc.Invoke(ctx, ContentProcessorService_ListUnattributedContent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ContentProcessorServiceServer is the server API for ContentProcessorService service.
 // All implementations must embed UnimplementedContentProcessorServiceServer
 // for forward compatibility.
@@ -304,6 +343,12 @@ type ContentProcessorServiceServer interface {
 	PurgeContentItems(context.Context, *PurgeContentItemsRequest) (*PurgeContentItemsResponse, error)
 	// ClearError clears error fields from a successfully reprocessed content item.
 	ClearError(context.Context, *ClearErrorRequest) (*ClearErrorResponse, error)
+	// ListProjectContent returns content items attributed to a specific project.
+	ListProjectContent(context.Context, *ListProjectContentRequest) (*ListProjectContentResponse, error)
+	// GetProjectStats returns attribution statistics for a project.
+	GetProjectStats(context.Context, *GetProjectStatsRequest) (*GetProjectStatsResponse, error)
+	// ListUnattributedContent returns content items with no project attribution.
+	ListUnattributedContent(context.Context, *ListUnattributedContentRequest) (*ListUnattributedContentResponse, error)
 	mustEmbedUnimplementedContentProcessorServiceServer()
 }
 
@@ -361,6 +406,15 @@ func (UnimplementedContentProcessorServiceServer) PurgeContentItems(context.Cont
 }
 func (UnimplementedContentProcessorServiceServer) ClearError(context.Context, *ClearErrorRequest) (*ClearErrorResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ClearError not implemented")
+}
+func (UnimplementedContentProcessorServiceServer) ListProjectContent(context.Context, *ListProjectContentRequest) (*ListProjectContentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListProjectContent not implemented")
+}
+func (UnimplementedContentProcessorServiceServer) GetProjectStats(context.Context, *GetProjectStatsRequest) (*GetProjectStatsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetProjectStats not implemented")
+}
+func (UnimplementedContentProcessorServiceServer) ListUnattributedContent(context.Context, *ListUnattributedContentRequest) (*ListUnattributedContentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListUnattributedContent not implemented")
 }
 func (UnimplementedContentProcessorServiceServer) mustEmbedUnimplementedContentProcessorServiceServer() {
 }
@@ -672,6 +726,60 @@ func _ContentProcessorService_ClearError_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ContentProcessorService_ListProjectContent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListProjectContentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContentProcessorServiceServer).ListProjectContent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContentProcessorService_ListProjectContent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContentProcessorServiceServer).ListProjectContent(ctx, req.(*ListProjectContentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ContentProcessorService_GetProjectStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetProjectStatsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContentProcessorServiceServer).GetProjectStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContentProcessorService_GetProjectStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContentProcessorServiceServer).GetProjectStats(ctx, req.(*GetProjectStatsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ContentProcessorService_ListUnattributedContent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListUnattributedContentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContentProcessorServiceServer).ListUnattributedContent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContentProcessorService_ListUnattributedContent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContentProcessorServiceServer).ListUnattributedContent(ctx, req.(*ListUnattributedContentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ContentProcessorService_ServiceDesc is the grpc.ServiceDesc for ContentProcessorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -742,6 +850,18 @@ var ContentProcessorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ClearError",
 			Handler:    _ContentProcessorService_ClearError_Handler,
+		},
+		{
+			MethodName: "ListProjectContent",
+			Handler:    _ContentProcessorService_ListProjectContent_Handler,
+		},
+		{
+			MethodName: "GetProjectStats",
+			Handler:    _ContentProcessorService_GetProjectStats_Handler,
+		},
+		{
+			MethodName: "ListUnattributedContent",
+			Handler:    _ContentProcessorService_ListUnattributedContent_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
