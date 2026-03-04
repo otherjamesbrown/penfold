@@ -144,10 +144,15 @@ func (s *Service) HandleMessage(ctx context.Context, req *bridgev1.BridgeMessage
 	searchContext := s.searchKnowledgeBase(ctx, req.TenantId, req.MessageText)
 
 	// Load system prompt.
-	systemPrompt, err := s.repo.GetPrompt(ctx, "bridge_agent")
+	promptStage := "bridge_agent_" + strings.ToLower(req.ChannelType)
+	systemPrompt, err := s.repo.GetPrompt(ctx, promptStage)
 	if err != nil {
-		s.logger.Warn("No active prompt for bridge_agent stage, using fallback", logging.Err(err))
-		systemPrompt = "You are a helpful assistant. Answer questions accurately and concisely using the provided context."
+		// Fall back to generic bridge_agent prompt
+		systemPrompt, err = s.repo.GetPrompt(ctx, "bridge_agent")
+		if err != nil {
+			s.logger.Warn("No active prompt for bridge_agent stage, using fallback", logging.Err(err))
+			systemPrompt = "You are a helpful assistant. Answer questions accurately and concisely using the provided context."
+		}
 	}
 
 	// Build LLM prompt.
