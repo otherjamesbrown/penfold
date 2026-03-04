@@ -3,7 +3,6 @@ package digest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -191,9 +190,9 @@ func GatherLedgerEntries(ctx context.Context, pool *pgxpool.Pool, tenantID strin
 
 // DailyDigestSummary holds a daily digest record for weekly rollup generation.
 type DailyDigestSummary struct {
-	ID   string
-	Date time.Time
-	Body json.RawMessage
+	ID      string
+	Date    time.Time
+	Summary string
 }
 
 // ThemeSummary holds topic/theme data for weekly digest generation.
@@ -206,10 +205,11 @@ type ThemeSummary struct {
 }
 
 // GatherDailyDigests returns daily digests for a project within the given week.
+// Only the summary field is extracted from the body JSON to avoid carrying full payloads.
 // Returns an empty slice (not nil) if no results are found.
 func GatherDailyDigests(ctx context.Context, pool *pgxpool.Pool, tenantID string, projectID int64, weekStart, weekEnd time.Time) ([]DailyDigestSummary, error) {
 	query := `
-		SELECT id, period_start, body
+		SELECT id, period_start, COALESCE(body->>'summary', '')
 		FROM digests
 		WHERE tenant_id = $1
 		  AND project_id = $2
@@ -228,7 +228,7 @@ func GatherDailyDigests(ctx context.Context, pool *pgxpool.Pool, tenantID string
 	result := []DailyDigestSummary{}
 	for rows.Next() {
 		var d DailyDigestSummary
-		if err := rows.Scan(&d.ID, &d.Date, &d.Body); err != nil {
+		if err := rows.Scan(&d.ID, &d.Date, &d.Summary); err != nil {
 			return nil, fmt.Errorf("scan daily digest: %w", err)
 		}
 		result = append(result, d)

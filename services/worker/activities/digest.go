@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"text/template"
 	"time"
@@ -81,6 +80,51 @@ type SaveDigestOutput struct {
 	DigestID string `json:"digest_id"`
 }
 
+// === Shared Helpers ===
+
+// callLLMForDigest renders a prompt template, calls the LLM with JSON mode, and extracts token counts.
+func (a *DigestActivities) callLLMForDigest(ctx context.Context, stageName string, templateData interface{}) (*GenerateDigestOutput, error) {
+	promptTemplate, err := a.promptRepo.GetPromptByStage(ctx, stageName, 0)
+	if err != nil {
+		return nil, fmt.Errorf("load prompt template %s: %w", stageName, err)
+	}
+
+	tmpl, err := template.New(stageName).Parse(promptTemplate.Content)
+	if err != nil {
+		return nil, fmt.Errorf("parse prompt template %s: %w", stageName, err)
+	}
+
+	var renderedPrompt bytes.Buffer
+	if err := tmpl.Execute(&renderedPrompt, templateData); err != nil {
+		return nil, fmt.Errorf("render prompt %s: %w", stageName, err)
+	}
+
+	jsonMode := true
+	resp, err := a.aiClient.GenerateSummary(ctx, &aiv1.SummaryRequest{
+		Content:  renderedPrompt.String(),
+		JsonMode: &jsonMode,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("LLM %s generation: %w", stageName, err)
+	}
+
+	var inputTokens, outputTokens int
+	if resp.InputTokens != nil {
+		inputTokens = int(*resp.InputTokens)
+	}
+	if resp.OutputTokens != nil {
+		outputTokens = int(*resp.OutputTokens)
+	}
+
+	return &GenerateDigestOutput{
+		Body:             json.RawMessage(resp.Summary),
+		ModelUsed:        resp.ModelUsed,
+		PromptTemplateID: promptTemplate.ID,
+		InputTokenCount:  inputTokens,
+		OutputTokenCount: outputTokens,
+	}, nil
+}
+
 // === Activity Struct ===
 
 // DigestActivities holds dependencies for digest generation activities.
@@ -122,6 +166,23 @@ func NewDigestActivities(
 	}
 }
 
+// checkDigestIdempotency checks if a digest already exists for the given parameters.
+// Returns the existing digest ID if found, empty string otherwise.
+func (a *DigestActivities) checkDigestIdempotency(ctx context.Context, tenantID string, projectID int64, digestType string, periodStart time.Time) (existingID string, exists bool, err error) {
+	exists, err = a.digestRepo.Exists(ctx, tenantID, projectID, digestType, periodStart)
+	if err != nil {
+		return "", false, fmt.Errorf("check %s digest exists: %w", digestType, err)
+	}
+	if !exists {
+		return "", false, nil
+	}
+	existing, err := a.digestRepo.GetLatest(ctx, tenantID, projectID, digestType)
+	if err != nil {
+		return "", true, nil // exists but can't get ID — still idempotent
+	}
+	return existing.ID, true, nil
+}
+
 // GatherDigestData checks for an existing digest and gathers all source data needed
 // for digest generation: attributed content, assertions, instruction matches, and ledger entries.
 func (a *DigestActivities) GatherDigestData(ctx context.Context, input GatherDigestDataInput) (*GatherDigestDataOutput, error) {
@@ -136,26 +197,16 @@ func (a *DigestActivities) GatherDigestData(ctx context.Context, input GatherDig
 	logger.Info("Starting digest data gathering")
 
 	// 1. Check if digest already exists (idempotency)
-	exists, err := a.digestRepo.Exists(ctx, input.TenantID, input.ProjectID, "daily", input.Date)
+	existingID, exists, err := a.checkDigestIdempotency(ctx, input.TenantID, input.ProjectID, digest.DigestTypeDaily, input.Date)
 	if err != nil {
 		logger.Error("Failed to check digest existence", logging.Err(err))
-		return nil, fmt.Errorf("check digest exists: %w", err)
+		return nil, err
 	}
-
 	if exists {
-		existing, err := a.digestRepo.GetLatest(ctx, input.TenantID, input.ProjectID, "daily")
-		if err != nil {
-			logger.Warn("Digest exists but failed to get ID, continuing", logging.Err(err))
-			return &GatherDigestDataOutput{
-				AlreadyExists: true,
-			}, nil
-		}
-		logger.Info("Digest already exists, skipping generation",
-			logging.F("existing_digest_id", existing.ID),
-		)
+		logger.Info("Digest already exists, skipping generation", logging.F("existing_digest_id", existingID))
 		return &GatherDigestDataOutput{
 			AlreadyExists:    true,
-			ExistingDigestID: existing.ID,
+			ExistingDigestID: existingID,
 		}, nil
 	}
 
@@ -238,17 +289,9 @@ func (a *DigestActivities) GenerateDigestNarrative(ctx context.Context, input Ge
 		logging.F("date", input.Date),
 	)
 
-	recordHeartbeat(ctx, "loading prompt template")
 	logger.Info("Starting digest narrative generation")
 
-	// 1. Load prompt template
-	promptTemplate, err := a.promptRepo.GetPromptByStage(ctx, "digest_daily_generate", 0)
-	if err != nil {
-		logger.Error("Failed to load prompt template", logging.Err(err))
-		return nil, fmt.Errorf("load prompt template: %w", err)
-	}
-
-	// 2. Unmarshal the raw JSON slices into typed slices for rendering
+	// 1. Unmarshal the raw JSON slices into typed slices for rendering
 	var contentSummaries []digest.ContentSummary
 	if len(input.ContentSummaries) > 0 {
 		if err := json.Unmarshal(input.ContentSummaries, &contentSummaries); err != nil {
@@ -283,62 +326,28 @@ func (a *DigestActivities) GenerateDigestNarrative(ctx context.Context, input Ge
 	instructionMatchesBlock := formatInstructionMatches(instructionMatches)
 	ledgerBlock := formatLedgerEntries(ledgerEntries)
 
-	// 4. Render the prompt template
-	tmpl, err := template.New("digest_daily_generate").Parse(promptTemplate.Content)
-	if err != nil {
-		logger.Error("Failed to parse prompt template", logging.Err(err))
-		return nil, fmt.Errorf("parse prompt template: %w", err)
-	}
-
-	data := digestPromptData{
+	// 4. Call LLM via shared helper
+	recordHeartbeat(ctx, "calling LLM for digest generation")
+	result, err := a.callLLMForDigest(ctx, "digest_daily_generate", digestPromptData{
 		ProjectName:        input.ProjectName,
 		Date:               input.Date,
 		ContentSummaries:   contentBlock,
 		Assertions:         assertionsBlock,
 		InstructionMatches: instructionMatchesBlock,
 		LedgerEntries:      ledgerBlock,
-	}
-
-	var renderedPrompt bytes.Buffer
-	if err := tmpl.Execute(&renderedPrompt, data); err != nil {
-		logger.Error("Failed to render prompt", logging.Err(err))
-		return nil, fmt.Errorf("render prompt: %w", err)
-	}
-
-	// 5. Call LLM with JSON mode enabled
-	recordHeartbeat(ctx, "calling LLM for digest generation")
-	jsonMode := true
-	resp, err := a.aiClient.GenerateSummary(ctx, &aiv1.SummaryRequest{
-		Content:  renderedPrompt.String(),
-		JsonMode: &jsonMode,
 	})
 	if err != nil {
-		logger.Error("LLM digest generation failed", logging.Err(err))
-		return nil, fmt.Errorf("LLM digest generation: %w", err)
-	}
-
-	// 6. Extract token counts (optional fields in the proto)
-	var inputTokens, outputTokens int
-	if resp.InputTokens != nil {
-		inputTokens = int(*resp.InputTokens)
-	}
-	if resp.OutputTokens != nil {
-		outputTokens = int(*resp.OutputTokens)
+		logger.Error("Digest narrative generation failed", logging.Err(err))
+		return nil, err
 	}
 
 	logger.Info("Digest narrative generated",
-		logging.F("model_used", resp.ModelUsed),
-		logging.F("input_tokens", inputTokens),
-		logging.F("output_tokens", outputTokens),
+		logging.F("model_used", result.ModelUsed),
+		logging.F("input_tokens", result.InputTokenCount),
+		logging.F("output_tokens", result.OutputTokenCount),
 	)
 
-	return &GenerateDigestOutput{
-		Body:             json.RawMessage(resp.Summary),
-		ModelUsed:        resp.ModelUsed,
-		PromptTemplateID: promptTemplate.ID,
-		InputTokenCount:  inputTokens,
-		OutputTokenCount: outputTokens,
-	}, nil
+	return result, nil
 }
 
 // SaveDigest persists a generated digest to the database.
@@ -529,26 +538,16 @@ func (a *DigestActivities) GatherWeeklyDigestData(ctx context.Context, input Gat
 	logger.Info("Starting weekly digest data gathering")
 
 	// 1. Check idempotency — if a weekly digest already exists for this week, skip
-	exists, err := a.digestRepo.Exists(ctx, input.TenantID, input.ProjectID, "weekly", input.WeekStart)
+	existingID, exists, err := a.checkDigestIdempotency(ctx, input.TenantID, input.ProjectID, digest.DigestTypeWeekly, input.WeekStart)
 	if err != nil {
 		logger.Error("Failed to check weekly digest existence", logging.Err(err))
-		return nil, fmt.Errorf("check weekly digest exists: %w", err)
+		return nil, err
 	}
-
 	if exists {
-		existing, err := a.digestRepo.GetLatest(ctx, input.TenantID, input.ProjectID, "weekly")
-		if err != nil {
-			logger.Warn("Weekly digest exists but failed to get ID, continuing", logging.Err(err))
-			return &GatherWeeklyDigestDataOutput{
-				AlreadyExists: true,
-			}, nil
-		}
-		logger.Info("Weekly digest already exists, skipping generation",
-			logging.F("existing_digest_id", existing.ID),
-		)
+		logger.Info("Weekly digest already exists, skipping generation", logging.F("existing_digest_id", existingID))
 		return &GatherWeeklyDigestDataOutput{
 			AlreadyExists:    true,
-			ExistingDigestID: existing.ID,
+			ExistingDigestID: existingID,
 		}, nil
 	}
 
@@ -570,8 +569,8 @@ func (a *DigestActivities) GatherWeeklyDigestData(ctx context.Context, input Gat
 	// 3. Get previous weekly rollup (best effort — ignore ErrNotFound)
 	recordHeartbeat(ctx, "fetching previous weekly rollup")
 	var previousRollup *digest.Digest
-	prev, err := a.digestRepo.GetLatest(ctx, input.TenantID, input.ProjectID, "weekly")
-	if err != nil && !isNotFound(err) {
+	prev, err := a.digestRepo.GetLatest(ctx, input.TenantID, input.ProjectID, digest.DigestTypeWeekly)
+	if err != nil && !pferrors.IsNotFound(err) {
 		logger.Warn("Failed to get previous weekly rollup, continuing without it", logging.Err(err))
 	} else if err == nil {
 		previousRollup = prev
@@ -620,17 +619,9 @@ func (a *DigestActivities) GenerateWeeklyNarrative(ctx context.Context, input Ge
 		logging.F("week_end", input.WeekEnd),
 	)
 
-	recordHeartbeat(ctx, "loading weekly prompt template")
 	logger.Info("Starting weekly digest narrative generation")
 
-	// 1. Load prompt template for weekly synthesis
-	promptTemplate, err := a.promptRepo.GetPromptByStage(ctx, "digest_weekly_synthesize", 0)
-	if err != nil {
-		logger.Error("Failed to load weekly prompt template", logging.Err(err))
-		return nil, fmt.Errorf("load weekly prompt template: %w", err)
-	}
-
-	// 2. Unmarshal and format daily digests as readable text
+	// 1. Unmarshal and format daily digests as readable text
 	var dailyDigestSummaries []digest.DailyDigestSummary
 	if len(input.DailyDigests) > 0 {
 		if err := json.Unmarshal(input.DailyDigests, &dailyDigestSummaries); err != nil {
@@ -639,68 +630,32 @@ func (a *DigestActivities) GenerateWeeklyNarrative(ctx context.Context, input Ge
 	}
 	dailyDigestsBlock := formatDailyDigests(dailyDigestSummaries)
 
-	// 3. Format previous rollup as text
+	// 2. Format previous rollup and theme contexts as text
 	previousRollupBlock := formatPreviousRollup(input.PreviousRollup)
-
-	// 4. Unmarshal and format theme contexts as text
 	themeContextsBlock := formatThemeContexts(input.ThemeContexts)
 
-	// 5. Render the prompt template
-	tmpl, err := template.New("digest_weekly_synthesize").Parse(promptTemplate.Content)
-	if err != nil {
-		logger.Error("Failed to parse weekly prompt template", logging.Err(err))
-		return nil, fmt.Errorf("parse weekly prompt template: %w", err)
-	}
-
-	data := weeklyDigestPromptData{
+	// 3. Call LLM via shared helper
+	recordHeartbeat(ctx, "calling LLM for weekly digest generation")
+	result, err := a.callLLMForDigest(ctx, "digest_weekly_synthesize", weeklyDigestPromptData{
 		ProjectName:    input.ProjectName,
 		WeekStart:      input.WeekStart,
 		WeekEnd:        input.WeekEnd,
 		DailyDigests:   dailyDigestsBlock,
 		PreviousRollup: previousRollupBlock,
 		ThemeContexts:  themeContextsBlock,
-	}
-
-	var renderedPrompt bytes.Buffer
-	if err := tmpl.Execute(&renderedPrompt, data); err != nil {
-		logger.Error("Failed to render weekly prompt", logging.Err(err))
-		return nil, fmt.Errorf("render weekly prompt: %w", err)
-	}
-
-	// 6. Call LLM with JSON mode enabled
-	recordHeartbeat(ctx, "calling LLM for weekly digest generation")
-	jsonMode := true
-	resp, err := a.aiClient.GenerateSummary(ctx, &aiv1.SummaryRequest{
-		Content:  renderedPrompt.String(),
-		JsonMode: &jsonMode,
 	})
 	if err != nil {
-		logger.Error("LLM weekly digest generation failed", logging.Err(err))
-		return nil, fmt.Errorf("LLM weekly digest generation: %w", err)
-	}
-
-	// 7. Extract token counts
-	var inputTokens, outputTokens int
-	if resp.InputTokens != nil {
-		inputTokens = int(*resp.InputTokens)
-	}
-	if resp.OutputTokens != nil {
-		outputTokens = int(*resp.OutputTokens)
+		logger.Error("Weekly narrative generation failed", logging.Err(err))
+		return nil, err
 	}
 
 	logger.Info("Weekly digest narrative generated",
-		logging.F("model_used", resp.ModelUsed),
-		logging.F("input_tokens", inputTokens),
-		logging.F("output_tokens", outputTokens),
+		logging.F("model_used", result.ModelUsed),
+		logging.F("input_tokens", result.InputTokenCount),
+		logging.F("output_tokens", result.OutputTokenCount),
 	)
 
-	return &GenerateDigestOutput{
-		Body:             json.RawMessage(resp.Summary),
-		ModelUsed:        resp.ModelUsed,
-		PromptTemplateID: promptTemplate.ID,
-		InputTokenCount:  inputTokens,
-		OutputTokenCount: outputTokens,
-	}, nil
+	return result, nil
 }
 
 // UpdateThemeContexts updates the running_context field on topics based on theme context updates
@@ -740,39 +695,28 @@ func (a *DigestActivities) UpdateThemeContexts(ctx context.Context, input Update
 			continue
 		}
 
-		// Find the topic by name (case-insensitive) within this project
-		var topicID int64
-		err := a.db.QueryRow(ctx, `
-			SELECT id
-			FROM topics
-			WHERE tenant_id = $1 AND project_id = $2 AND LOWER(name) = LOWER($3)
-			LIMIT 1
-		`, input.TenantID, input.ProjectID, theme.Name).Scan(&topicID)
+		// Single UPDATE matching by name — no separate SELECT needed
+		result, err := a.db.Exec(ctx, `
+			UPDATE topics
+			SET running_context = $1, last_updated_at = $2, updated_at = NOW()
+			WHERE tenant_id = $3 AND project_id = $4 AND LOWER(name) = LOWER($5)
+		`, theme.ContextUpdate, now, input.TenantID, input.ProjectID, theme.Name)
 		if err != nil {
-			logger.Warn("Topic not found for theme update",
+			logger.Warn("Failed to update topic running_context",
 				logging.F("theme_name", theme.Name),
 				logging.Err(err),
 			)
 			continue
 		}
 
-		// Update running_context and last_updated_at
-		_, err = a.db.Exec(ctx, `
-			UPDATE topics
-			SET running_context = $1, last_updated_at = $2, updated_at = NOW()
-			WHERE id = $3
-		`, theme.ContextUpdate, now, topicID)
-		if err != nil {
-			logger.Warn("Failed to update topic running_context",
-				logging.F("topic_id", topicID),
+		if result.RowsAffected() == 0 {
+			logger.Warn("Topic not found for theme update",
 				logging.F("theme_name", theme.Name),
-				logging.Err(err),
 			)
 			continue
 		}
 
 		logger.Info("Updated topic running_context",
-			logging.F("topic_id", topicID),
 			logging.F("theme_name", theme.Name),
 		)
 		updated++
@@ -795,13 +739,9 @@ func formatDailyDigests(digests []digest.DailyDigestSummary) string {
 	}
 	var buf bytes.Buffer
 	for _, d := range digests {
-		// Extract summary text from body JSON
-		var body map[string]interface{}
-		summary := string(d.Body)
-		if err := json.Unmarshal(d.Body, &body); err == nil {
-			if s, ok := body["summary"].(string); ok {
-				summary = s
-			}
+		summary := d.Summary
+		if summary == "" {
+			summary = "(no summary)"
 		}
 		fmt.Fprintf(&buf, "- %s: %s\n", d.Date.Format("2006-01-02 (Monday)"), summary)
 	}
@@ -853,7 +793,3 @@ func formatThemeContexts(data json.RawMessage) string {
 	return buf.String()
 }
 
-// isNotFound returns true if the error represents a not-found condition.
-func isNotFound(err error) bool {
-	return errors.Is(err, pferrors.ErrNotFound)
-}

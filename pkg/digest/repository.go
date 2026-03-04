@@ -13,6 +13,12 @@ import (
 	pferrors "github.com/otherjamesbrown/penfold/pkg/errors"
 )
 
+// Digest type constants.
+const (
+	DigestTypeDaily  = "daily"
+	DigestTypeWeekly = "weekly"
+)
+
 // Digest represents a generated digest record.
 type Digest struct {
 	ID               string

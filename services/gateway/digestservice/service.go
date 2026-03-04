@@ -59,7 +59,7 @@ func (s *Service) TriggerDigest(ctx context.Context, req *digestv1.TriggerDigest
 
 	digestType := req.DigestType
 	if digestType == "" {
-		digestType = "daily"
+		digestType = digest.DigestTypeDaily
 	}
 
 	// Parse date
@@ -104,7 +104,7 @@ func (s *Service) TriggerDigest(ctx context.Context, req *digestv1.TriggerDigest
 
 	// Route to the appropriate workflow based on digest type
 	workflowName := pkgtemporal.WorkflowDigest
-	if digestType == "weekly" {
+	if digestType == digest.DigestTypeWeekly {
 		workflowName = pkgtemporal.WorkflowWeeklyDigest
 	}
 
@@ -163,7 +163,7 @@ func (s *Service) GetLatestDigest(ctx context.Context, req *digestv1.GetLatestDi
 
 	digestType := req.DigestType
 	if digestType == "" {
-		digestType = "daily"
+		digestType = digest.DigestTypeDaily
 	}
 
 	d, err := s.repo.GetLatest(ctx, req.TenantId, projectID, digestType)

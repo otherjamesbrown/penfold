@@ -7,6 +7,7 @@ import (
 
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/otherjamesbrown/penfold/pkg/digest"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
@@ -181,7 +182,7 @@ func DigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMessag
 		TenantID:         wfInput.TenantID,
 		ProjectID:        wfInput.ProjectID,
 		Date:             wfInput.Date,
-		DigestType:       "daily",
+		DigestType:       digest.DigestTypeDaily,
 		Body:             generateOut.Body,
 		ModelUsed:        generateOut.ModelUsed,
 		PromptTemplateID: generateOut.PromptTemplateID,

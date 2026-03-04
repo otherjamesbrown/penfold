@@ -7,6 +7,7 @@ import (
 
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/otherjamesbrown/penfold/pkg/digest"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
@@ -15,8 +16,7 @@ type WeeklyDigestWorkflowInput struct {
 	TenantID    string `json:"tenant_id"`
 	ProjectID   int64  `json:"project_id"`
 	ProjectName string `json:"project_name"`
-	Date        string `json:"date"`        // YYYY-MM-DD, snapped to Monday by the caller or computed here
-	DigestType  string `json:"digest_type"` // "weekly"
+	Date        string `json:"date"` // YYYY-MM-DD, snapped to Monday by the caller or computed here
 }
 
 // weeklyGatherInput mirrors activities.GatherWeeklyDigestDataInput for JSON dispatch.
@@ -171,7 +171,7 @@ func WeeklyDigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.Raw
 		ProjectID:        wfInput.ProjectID,
 		Date:             weekStart.Format("2006-01-02"),
 		PeriodEnd:        weekEnd.Format("2006-01-02"),
-		DigestType:       "weekly",
+		DigestType:       digest.DigestTypeWeekly,
 		Body:             generateOut.Body,
 		ModelUsed:        generateOut.ModelUsed,
 		PromptTemplateID: generateOut.PromptTemplateID,
