@@ -812,7 +812,7 @@ func TestGenerateEmbedding_ChunksLongContent(t *testing.T) {
 	}
 
 	// Create embedding activities (not multilevel)
-	embeddingActivities := NewEmbeddingActivities(logger, mockClient, mockRepo, nil)
+	embeddingActivities := NewEmbeddingActivities(logger, mockClient, mockRepo, nil, nil)
 
 	// Long content that should be chunked
 	longContent := `This is a test email about our quarterly planning process. We need to coordinate across multiple teams to ensure alignment on key initiatives. The product team has identified several critical features that need to be delivered in Q2, and we need engineering capacity to support these initiatives.

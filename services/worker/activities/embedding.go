@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -25,10 +26,11 @@ type EmbeddingActivities struct {
 	aiClient      AIClient
 	embeddingRepo EmbeddingRepository
 	pipelineRepo  PipelineRepository
+	configReader  OperationalConfigReader
 }
 
 // NewEmbeddingActivities creates a new EmbeddingActivities instance.
-func NewEmbeddingActivities(logger logging.Logger, aiClient AIClient, embeddingRepo EmbeddingRepository, pipelineRepo PipelineRepository) *EmbeddingActivities {
+func NewEmbeddingActivities(logger logging.Logger, aiClient AIClient, embeddingRepo EmbeddingRepository, pipelineRepo PipelineRepository, configReader OperationalConfigReader) *EmbeddingActivities {
 	if logger == nil {
 		panic("NewEmbeddingActivities: logger is required")
 	}
@@ -39,12 +41,52 @@ func NewEmbeddingActivities(logger logging.Logger, aiClient AIClient, embeddingR
 		panic("NewEmbeddingActivities: embeddingRepo is required")
 	}
 	// pipelineRepo is optional (provenance recording)
+	// configReader is optional (falls back to hardcoded defaults)
 	return &EmbeddingActivities{
 		logger:        logger.With(logging.F("component", "embedding_activities")),
 		aiClient:      aiClient,
 		embeddingRepo: embeddingRepo,
 		pipelineRepo:  pipelineRepo,
+		configReader:  configReader,
 	}
+}
+
+// defaultChunkMaxTokens and defaultChunkOverlapTokens are the fallback values
+// used when config cannot be read from the database.
+const (
+	defaultChunkMaxTokens     = 400
+	defaultChunkOverlapTokens = 50
+)
+
+// getChunkConfig reads embedding chunk parameters from operational config.
+// Falls back to defaults if the config reader is nil or values can't be read/parsed.
+func (a *EmbeddingActivities) getChunkConfig(ctx context.Context, tenantID string) (maxTokens, overlapTokens int) {
+	maxTokens = defaultChunkMaxTokens
+	overlapTokens = defaultChunkOverlapTokens
+
+	if a.configReader == nil {
+		return
+	}
+
+	logger := a.logger.WithContext(ctx)
+
+	if v, err := a.configReader.GetString(ctx, tenantID, "embedding.chunk_max_tokens"); err == nil {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			maxTokens = parsed
+		} else {
+			logger.Warn("Invalid embedding.chunk_max_tokens config, using default", logging.F("value", v))
+		}
+	}
+
+	if v, err := a.configReader.GetString(ctx, tenantID, "embedding.chunk_overlap_tokens"); err == nil {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			overlapTokens = parsed
+		} else {
+			logger.Warn("Invalid embedding.chunk_overlap_tokens config, using default", logging.F("value", v))
+		}
+	}
+
+	return
 }
 
 // GenerateEmbedding generates a vector embedding for the given content.
@@ -103,10 +145,13 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		return 0, WrapForTemporal(pe)
 	}
 
+	// Read chunking config from operational config (falls back to 400/50)
+	maxTokens, overlapTokens := a.getChunkConfig(ctx, input.TenantID)
+
 	// Chunk content for embedding
 	chunks := chunking.ChunkContent(input.Content, chunking.ChunkOptions{
-		MaxTokens:     400,
-		OverlapTokens: 50,
+		MaxTokens:     maxTokens,
+		OverlapTokens: overlapTokens,
 	})
 	if len(chunks) == 0 {
 		chunks = []chunking.Chunk{{Index: 0, Text: input.Content, Start: 0, End: len(input.Content)}}

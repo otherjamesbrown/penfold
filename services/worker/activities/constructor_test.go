@@ -85,28 +85,28 @@ func (m *mockEntityRepository) StoreEntities(ctx context.Context, tenantID strin
 
 func TestNewEmbeddingActivities_NilLogger(t *testing.T) {
 	assert.PanicsWithValue(t, "NewEmbeddingActivities: logger is required", func() {
-		NewEmbeddingActivities(nil, &mockAIClient{}, &mockEmbeddingRepository{}, nil)
+		NewEmbeddingActivities(nil, &mockAIClient{}, &mockEmbeddingRepository{}, nil, nil)
 	})
 }
 
 func TestNewEmbeddingActivities_NilAIClient(t *testing.T) {
 	logger := logging.NewNopLogger()
 	assert.PanicsWithValue(t, "NewEmbeddingActivities: aiClient is required", func() {
-		NewEmbeddingActivities(logger, nil, &mockEmbeddingRepository{}, nil)
+		NewEmbeddingActivities(logger, nil, &mockEmbeddingRepository{}, nil, nil)
 	})
 }
 
 func TestNewEmbeddingActivities_NilEmbeddingRepo(t *testing.T) {
 	logger := logging.NewNopLogger()
 	assert.PanicsWithValue(t, "NewEmbeddingActivities: embeddingRepo is required", func() {
-		NewEmbeddingActivities(logger, &mockAIClient{}, nil, nil)
+		NewEmbeddingActivities(logger, &mockAIClient{}, nil, nil, nil)
 	})
 }
 
 func TestNewEmbeddingActivities_Success(t *testing.T) {
 	logger := logging.NewNopLogger()
 	// PipelineRepo is optional - can be nil
-	activities := NewEmbeddingActivities(logger, &mockAIClient{}, &mockEmbeddingRepository{}, nil)
+	activities := NewEmbeddingActivities(logger, &mockAIClient{}, &mockEmbeddingRepository{}, nil, nil)
 	assert.NotNil(t, activities)
 }
 

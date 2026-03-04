@@ -7,16 +7,8 @@ import (
 func TestAllMainQueueActivities(t *testing.T) {
 	activities := AllMainQueueActivities()
 
-	// Test count (pf-37ebe8: removed ReportLangfuseGeneration, added PersistLangfuseTraceID;
-	// pf-b1ee4e: added UpdateLangfuseTraceTags;
-	// pf-eead20: added KickNextPending;
-	// pf-0656f5: added RecordSkippedStage;
-	// pf-8da0b0: added BackfillConversationSummaries, RegenerateConversationSummary, CheckStaleConversations
-	// pf-xxx: added DeleteAssertions
-	// pf-448da3: added FetchPipelineDefinition
-	// pf-64c235: added UpdateLangfuseTraceMetadata
-	// pf-2f8c70: added BuildExtractionContext, ConsolidateEntries)
-	expectedCount := 37
+	// Count updated to reflect all activities including graph, digest (daily/weekly/journal), etc.
+	expectedCount := 67
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -128,8 +120,8 @@ func TestAllAIQueueActivities(t *testing.T) {
 func TestAllEmailQueueActivities(t *testing.T) {
 	activities := AllEmailQueueActivities()
 
-	// Test count (3 activities: 2 unique + 1 shared with main)
-	expectedCount := 3
+	// Count updated to reflect all activities including graph API activities
+	expectedCount := 17
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d email queue activities, got %d", expectedCount, len(activities))
 	}

@@ -614,8 +614,14 @@ func main() {
 			logger.Info("Embedding repository initialized with database connection")
 		}
 
+		// Create operational config reader for embedding chunk params
+		var configReader activities.OperationalConfigReader
+		if dbPool != nil {
+			configReader = activities.NewPostgresOperationalConfigReader(dbPool)
+		}
+
 		// Create embedding activities
-		embeddingActivities := activities.NewEmbeddingActivities(logger, aiClient, embeddingRepo, pipelineRepo)
+		embeddingActivities := activities.NewEmbeddingActivities(logger, aiClient, embeddingRepo, pipelineRepo, configReader)
 		activityRegistrar.WithEmbeddingActivities(embeddingActivities)
 		logger.Info("Embedding activities initialized with AI client")
 

@@ -350,6 +350,11 @@ type PersistFindingsOutput struct {
 	CreatedReviewIDs    []int64
 }
 
+// OperationalConfigReader reads values from pipeline_operational_config.
+type OperationalConfigReader interface {
+	GetString(ctx context.Context, tenantID, key string) (string, error)
+}
+
 // PipelineRepository defines the interface for pipeline run recording.
 type PipelineRepository interface {
 	CreateRun(ctx context.Context, input PipelineRunInput) error

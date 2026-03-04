@@ -1107,12 +1107,11 @@ func (s *Service) GetTimeoutConfig(ctx context.Context, req *pipelinev1.GetTimeo
 	tenantID := s.defaultTenantID(ctx)
 
 	// Build query with optional key prefix filter against pipeline_operational_config.
-	// The old table had value_type, description, min_value, max_value, default_value, updated_by
-	// columns that no longer exist. We only query key and value.
+	// Returns all operational config keys (timeout, embedding, concurrency, etc.).
 	query := `
 		SELECT key, value
 		FROM pipeline_operational_config
-		WHERE tenant_id = $1 AND key LIKE 'timeout.%'
+		WHERE tenant_id = $1
 	`
 	args := []interface{}{tenantID}
 
@@ -1177,10 +1176,10 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 		return nil, status.Error(codes.InvalidArgument, "value is required")
 	}
 	if req.UpdatedBy == "" {
-		return nil, status.Error(codes.InvalidArgument, "updated_by is required")
+		req.UpdatedBy = "cli"
 	}
 	if req.Reason == "" {
-		return nil, status.Error(codes.InvalidArgument, "reason is required")
+		req.Reason = "config update"
 	}
 
 	if s.db == nil {
