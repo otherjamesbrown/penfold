@@ -189,7 +189,7 @@ func (r *repositoryImpl) GetByContentID(ctx context.Context, contentID string) (
 			s.id,
 			s.tenant_id,
 			s.source_system,
-			s.content_id,
+			COALESCE(s.content_id, '') AS content_id,
 			COALESCE(s.processing_status, 'pending') AS processing_status,
 			s.content_size,
 			s.created_at,
@@ -308,7 +308,7 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 			s.id,
 			s.tenant_id,
 			s.source_system,
-			s.content_id,
+			COALESCE(s.content_id, '') AS content_id,
 			COALESCE(s.processing_status, 'pending') AS processing_status,
 			s.content_size,
 			s.created_at,
@@ -812,7 +812,7 @@ func (r *repositoryImpl) GetStats(ctx context.Context, tenantID string) (*StatsR
 func (r *repositoryImpl) GetContentText(ctx context.Context, contentID string) (*ContentTextRecord, error) {
 	query := `
 		SELECT
-			s.content_id,
+			COALESCE(s.content_id, '') AS content_id,
 			s.source_system AS content_type,
 			COALESCE(s.raw_content, '') AS text,
 			s.created_at,
@@ -1104,8 +1104,8 @@ func (r *repositoryImpl) ListProjectContent(ctx context.Context, tenantID string
 	query := `
 		SELECT DISTINCT ON (s.id)
 		  s.id AS source_id,
-		  s.content_id,
-		  COALESCE(s.ingestion_metadata->>'subject', s.ingestion_metadata->>'title', s.content_id) AS title,
+		  COALESCE(s.content_id, '') AS content_id,
+		  COALESCE(s.ingestion_metadata->>'subject', s.ingestion_metadata->>'title', s.content_id, '') AS title,
 		  s.created_at,
 		  COALESCE(a.attribution_source, '') AS attribution_source,
 		  COALESCE(a.attribution_confidence, 0.0) AS attribution_confidence,
@@ -1256,8 +1256,8 @@ func (r *repositoryImpl) ListUnattributedContent(ctx context.Context, tenantID s
 
 	query := `
 		SELECT
-		  s.id, s.content_id,
-		  COALESCE(s.ingestion_metadata->>'subject', s.ingestion_metadata->>'title', s.content_id) AS title,
+		  s.id, COALESCE(s.content_id, '') AS content_id,
+		  COALESCE(s.ingestion_metadata->>'subject', s.ingestion_metadata->>'title', s.content_id, '') AS title,
 		  s.created_at,
 		  COALESCE(ce.content_type::text, s.source_system) AS content_type,
 		  COUNT(a.id) AS assertion_count
