@@ -539,27 +539,7 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 				logging.Err(lastErr),
 			)
 			tracing.SetError(span, lastErr)
-			if s.langfuse != nil {
-				lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
-				if lfTraceID != "" {
-					s.langfuse.CreateGeneration(langfuse.GenerationEvent{
-						ID:            uuid.New().String(),
-						TraceID:       lfTraceID,
-						ParentID:      lfPhaseID,
-						Name:          "ai.deep_analyze",
-						Model:         selectedModel,
-						Input:         messages,
-						Output:        lastErr.Error(),
-						StartTime:     startTime,
-						EndTime:       time.Now(),
-						Level:         "ERROR",
-						StatusMessage: lastErr.Error(),
-					})
-					if flushErr := s.langfuse.Flush(ctx); flushErr != nil {
-						s.logger.Warn("Langfuse generation flush failed", logging.Err(flushErr))
-					}
-				}
-			}
+			s.reportErrorGeneration(ctx, "ai.deep_analyze", selectedModel, messages, lastErr, startTime)
 			return nil, s.convertError(lastErr)
 		}
 

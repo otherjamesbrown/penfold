@@ -89,6 +89,7 @@ const (
 	SourceSystemHumanEmail      SourceSystem = "human_email"
 	SourceSystemTeams           SourceSystem = "teams"
 	SourceSystemZoom            SourceSystem = "zoom"
+	SourceSystemGitHub          SourceSystem = "github"
 	SourceSystemGoogleMeet      SourceSystem = "google_meet"
 	SourceSystemUnknown         SourceSystem = "unknown"
 )

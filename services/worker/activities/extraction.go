@@ -1023,7 +1023,7 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 	// Enrich sender (map keys are lowercase from GetPeopleByEmails)
 	enrichedSenderName := senderName
 	if person, ok := people[strings.ToLower(senderEmail)]; ok {
-		enrichedSenderName = formatEnrichedName(person, nil)
+		enrichedSenderName = formatEnrichedName(person)
 		logger.Info("Enriched sender from person DB",
 			logging.F("raw_name", senderName),
 			logging.F("canonical_name", person.CanonicalName),
@@ -1035,7 +1035,7 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 	copy(enrichedParticipants, participants)
 	for i, p := range enrichedParticipants {
 		if person, ok := people[strings.ToLower(p.Email)]; ok {
-			enrichedParticipants[i].DisplayName = formatEnrichedName(person, nil)
+			enrichedParticipants[i].DisplayName = formatEnrichedName(person)
 		}
 	}
 
@@ -1060,7 +1060,7 @@ var nerMetadataKeys = []string{"reports_to", "notes", "team"}
 //   "Tim Dunn" (canonical name only)
 //   "Tim Dunn [Senior Director, Hardware Engineering]" (with title)
 //   "Sara Weisman [MTC Program Solution Lead, reports to James Brown]" (with metadata)
-func formatEnrichedName(person *PersonInfo, aliases map[int64][]string) string {
+func formatEnrichedName(person *PersonInfo) string {
 	name := person.CanonicalName
 
 	// Build bracket annotation: title + whitelisted metadata

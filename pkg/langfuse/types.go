@@ -2,6 +2,11 @@ package langfuse
 
 import "time"
 
+// Langfuse observation level constants.
+const (
+	LevelError = "ERROR"
+)
+
 // TraceEvent holds the data for creating a trace in Langfuse.
 type TraceEvent struct {
 	ID          string

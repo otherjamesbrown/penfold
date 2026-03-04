@@ -328,27 +328,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 					logging.Err(lastErr),
 				)
 				tracing.SetError(span, lastErr)
-				if s.langfuse != nil {
-					lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
-					if lfTraceID != "" {
-						s.langfuse.CreateGeneration(langfuse.GenerationEvent{
-							ID:            uuid.New().String(),
-							TraceID:       lfTraceID,
-							ParentID:      lfPhaseID,
-							Name:          "ai.extract_ner",
-							Model:         model,
-							Input:         nerMessages,
-							Output:        lastErr.Error(),
-							StartTime:     startTime,
-							EndTime:       time.Now(),
-							Level:         "ERROR",
-							StatusMessage: lastErr.Error(),
-						})
-						if flushErr := s.langfuse.Flush(ctx); flushErr != nil {
-							s.logger.Warn("Langfuse generation flush failed", logging.Err(flushErr))
-						}
-					}
-				}
+				s.reportErrorGeneration(ctx, "ai.extract_ner", model, nerMessages, lastErr, startTime)
 				return nil, s.convertError(lastErr)
 			}
 
@@ -440,27 +420,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 					logging.Err(lastErr),
 				)
 				tracing.SetError(span, lastErr)
-				if s.langfuse != nil {
-					lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
-					if lfTraceID != "" {
-						s.langfuse.CreateGeneration(langfuse.GenerationEvent{
-							ID:            uuid.New().String(),
-							TraceID:       lfTraceID,
-							ParentID:      lfPhaseID,
-							Name:          "ai.extract_semantic",
-							Model:         model,
-							Input:         semMessages,
-							Output:        lastErr.Error(),
-							StartTime:     startTime,
-							EndTime:       time.Now(),
-							Level:         "ERROR",
-							StatusMessage: lastErr.Error(),
-						})
-						if flushErr := s.langfuse.Flush(ctx); flushErr != nil {
-							s.logger.Warn("Langfuse generation flush failed", logging.Err(flushErr))
-						}
-					}
-				}
+				s.reportErrorGeneration(ctx, "ai.extract_semantic", model, semMessages, lastErr, startTime)
 				return nil, s.convertError(lastErr)
 			}
 

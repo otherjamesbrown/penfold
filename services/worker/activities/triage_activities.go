@@ -618,8 +618,8 @@ func contributionAbove(contribution, threshold string) bool {
 // generated state-change events with no substantive human content — those remain
 // subject to the pf-bcb565 cap.
 func isHybridNotificationSource(sourceSystem string) bool {
-	switch sourceSystem {
-	case "google_docs", "github":
+	switch enrichment.SourceSystem(sourceSystem) {
+	case enrichment.SourceSystemGoogleDocs, enrichment.SourceSystemGitHub:
 		return true
 	default:
 		return false

@@ -1083,7 +1083,7 @@ func TestFormatEnrichedName_MetadataWhitelist(t *testing.T) {
 		},
 	}
 
-	result := formatEnrichedName(person, nil)
+	result := formatEnrichedName(person)
 
 	require.Contains(t, result, "Engineer")
 	require.Contains(t, result, "reports to Boss Name")
@@ -1101,8 +1101,7 @@ func TestFormatEnrichedName_NoMetadata(t *testing.T) {
 		Title:         "Director",
 	}
 
-	aliases := map[int64][]string{1: {"Ali"}}
-	result := formatEnrichedName(person, aliases)
+	result := formatEnrichedName(person)
 	// Alias annotation must NOT appear — it caused NER to extract aliases as separate entities
 	require.Equal(t, "Alice [Director]", result)
 	require.NotContains(t, result, "(also known as:")
@@ -1116,7 +1115,7 @@ func TestFormatEnrichedName_MetadataNoTitle(t *testing.T) {
 		Metadata:      map[string]string{"reports_to": "Alice"},
 	}
 
-	result := formatEnrichedName(person, nil)
+	result := formatEnrichedName(person)
 	require.Equal(t, "Bob [reports to Alice]", result)
 }
 
@@ -1268,11 +1267,7 @@ func TestFormatEnrichedName_AliasNotIncluded(t *testing.T) {
 		CanonicalName: "James Brown",
 		Title:         "Director",
 	}
-	aliases := map[int64][]string{
-		42: {"JB"},
-	}
-
-	result := formatEnrichedName(person, aliases)
+	result := formatEnrichedName(person)
 
 	// The canonical name must still be present.
 	require.Contains(t, result, "James Brown")

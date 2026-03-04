@@ -3304,11 +3304,11 @@ func promptOverrideForStage(stageConfigMap map[string]PipelineStageConfig, stage
 // automated notification domain. This is a deterministic pre-classification check
 // used before triage to enable the early pipeline definition fetch (pf-1c083d).
 //
-// The patterns mirror the classification rule engine's seed rules but are evaluated
-// without a DB call, so they can fire before triage. If this function returns true
-// and triage later routes to a different pipeline, the post-triage re-fetch corrects
-// it. False negatives are safe — the prompt override is a tuning hint, not a hard
-// requirement.
+// The patterns mirror the classification rule engine's seed rules (see
+// migrations/seed_classification_rules.sql) but are evaluated without a DB call,
+// so they can fire before triage. If this function returns true and triage later
+// routes to a different pipeline, the post-triage re-fetch corrects it. False
+// negatives are safe — the prompt override is a tuning hint, not a hard requirement.
 func looksLikeNotificationSender(senderEmail string) bool {
 	lower := strings.ToLower(senderEmail)
 	notificationDomainPatterns := []string{
